@@ -1,0 +1,84 @@
+[submodule "extern/mscharged-decomp"]
+	path = extern/mscharged-decomp
+	url = https://github.com/yannicksuter/mscharged-decomp.git
+	shallow = true
+[submodule "extern/aurora"]
+	path = extern/aurora
+	url = https://github.com/encounter/aurora.git
+	shallow = true
+[submodule "extern/sdl"]
+	path = extern/sdl
+	url = https://github.com/libsdl-org/SDL.git
+	shallow = true
+[submodule "extern/xxhash"]
+	path = extern/xxhash
+	url = https://github.com/Cyan4973/xxHash.git
+	shallow = true
+[submodule "extern/fmt"]
+	path = extern/fmt
+	url = https://github.com/fmtlib/fmt.git
+	shallow = true
+[submodule "extern/zlib-ng"]
+	path = extern/zlib-ng
+	url = https://github.com/zlib-ng/zlib-ng.git
+	shallow = true
+[submodule "extern/libpng"]
+	path = extern/libpng
+	url = https://github.com/pnggroup/libpng.git
+	shallow = true
+[submodule "extern/freetype"]
+	path = extern/freetype
+	url = https://github.com/freetype/freetype.git
+	shallow = true
+[submodule "extern/imgui"]
+	path = extern/imgui
+	url = https://github.com/ocornut/imgui.git
+	shallow = true
+[submodule "extern/sqlite"]
+	path = extern/sqlite
+	url = https://github.com/sqlite/sqlite.git
+	shallow = true
+[submodule "extern/zstd"]
+	path = extern/zstd
+	url = https://github.com/facebook/zstd.git
+	shallow = true
+[submodule "extern/tracy"]
+	path = extern/tracy
+	url = https://github.com/wolfpld/tracy.git
+	shallow = true
+[submodule "extern/nod"]
+	path = extern/nod
+	url = https://github.com/encounter/nod.git
+	shallow = true
+[submodule "extern/googletest"]
+	path = extern/googletest
+	url = https://github.com/google/googletest.git
+	shallow = true
+[submodule "extern/qtbase"]
+	path = extern/qtbase
+	url = https://github.com/qt/qtbase.git
+	shallow = true
+[submodule "extern/qttools"]
+	path = extern/qttools
+	url = https://github.com/qt/qttools.git
+	shallow = true
+[submodule "extern/qttranslations"]
+	path = extern/qttranslations
+	url = https://github.com/qt/qttranslations.git
+	shallow = true
+[submodule "extern/dawn"]
+	path = extern/dawn
+	url = https://github.com/encounter/dawn.git
+	shallow = true
+[submodule "extern/rmlui"]
+	path = extern/rmlui
+	url = https://github.com/encounter/RmlUi.git
+	shallow = true
+[submodule "extern/abseil-cpp"]
+	path = extern/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
+	shallow = true
+[submodule "extern/corrosion"]
+	path = extern/corrosion
+	url = https://github.com/corrosion-rs/corrosion.git
+	shallow = true

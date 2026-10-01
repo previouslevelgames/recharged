@@ -1,0 +1,3 @@
+# Apply in this order to the exact commit in base.
+0001-use-standard-fabs-in-nlMath-header.patch
+0002-keep-mt-seed-state-32-bit.patch

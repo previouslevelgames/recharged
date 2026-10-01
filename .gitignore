@@ -1,0 +1,28 @@
+# Build and release output
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/dist/
+CMakeUserPresets.json
+__pycache__/
+*.pyc
+
+# Local game data
+/game-data/
+/orig/
+*.iso
+*.gcm
+*.rvz
+*.wia
+*.wbfs
+*.ciso
+*.gcz
+*.tgc
+*.nfs
+*.dol
+*.elf
+
+# Operating system metadata
+.DS_Store
+Thumbs.db

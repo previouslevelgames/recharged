@@ -1,0 +1,42 @@
+Subject: Keep Mersenne Twister seed state at the console width
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+The Wii unsigned long is 32 bits; LP64 hosts make it 64 bits. Preserve
+the 624-word state width and modulo-2^32 recurrence with the existing u32
+type, and update the public seed signature consistently. The MT generator
+is not complete in this snapshot; this patch covers its available seed code.
+
+diff --git a/include/Game/Core/mtRandom.h b/include/Game/Core/mtRandom.h
+--- a/include/Game/Core/mtRandom.h
++++ b/include/Game/Core/mtRandom.h
+@@ -1,6 +1,8 @@
+ #ifndef GAME_CORE_MTRANDOM_H
+ #define GAME_CORE_MTRANDOM_H
+ 
+-void seedMT(unsigned long seed);
++#include "types.h"
++
++void seedMT(u32 seed);
+ 
+ #endif // GAME_CORE_MTRANDOM_H
+diff --git a/src/Game/Core/mtRandom.cpp b/src/Game/Core/mtRandom.cpp
+--- a/src/Game/Core/mtRandom.cpp
++++ b/src/Game/Core/mtRandom.cpp
+@@ -1,14 +1,14 @@
+ #include "Game/Core/mtRandom.h"
+ 
+-static unsigned long mt[624];
++static u32 mt[624];
+ static int mti = 625;
+ 
+-void seedMT(unsigned long seed)
++void seedMT(u32 seed)
+ {
+     mt[0] = seed;
+ 
+     for (mti = 1; mti < 624; ++mti)
+     {
+-        mt[mti] = 1812433253UL * (mt[mti - 1] ^ (mt[mti - 1] >> 30)) + mti;
++        mt[mti] = 1812433253U * (mt[mti - 1] ^ (mt[mti - 1] >> 30)) + mti;
+     }
+ }

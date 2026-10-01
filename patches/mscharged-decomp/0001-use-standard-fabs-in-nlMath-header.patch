@@ -1,0 +1,29 @@
+Subject: Use the host standard absolute-value overload in nlMath
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+Clang cannot compile nlRandom.cpp because the shared math header uses the
+CodeWarrior __fabs intrinsic without a host declaration. Use the float
+overload of std::fabs. This does not adapt the separate nlMath.cpp reciprocal
+square-root implementation or establish floating-point gameplay parity.
+
+diff --git a/include/NL/nlMath.h b/include/NL/nlMath.h
+--- a/include/NL/nlMath.h
++++ b/include/NL/nlMath.h
+@@ -2,6 +2,8 @@
+ #define _NLMATH_H_
+ 
+ #include "types.h"
++
++#include <cmath>
+ 
+ float nlBezier(float* fControlPoints, int nNumPoints, float fMu);
+ float nlATan(float x);
+@@ -41,7 +43,7 @@
+ 
+ inline float nlAbs(float value)
+ {
+-    return __fabs(value);
++    return std::fabs(value);
+ }
+ 
+ inline float AngUnitsToRad_fromUnsignedShort(unsigned short sUnits)

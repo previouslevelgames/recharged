@@ -1,0 +1,3 @@
+* text=auto
+# Unified diff context can contain a single space on an otherwise empty line.
+*.patch text eol=lf whitespace=-blank-at-eol
