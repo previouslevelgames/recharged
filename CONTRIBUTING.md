@@ -83,9 +83,12 @@ the build, controls, dependency setup, or user-facing behavior changes.
 ## Game data
 
 Use your own legally obtained game copy for local development. Keep disc images,
-extracted game files, and other game data in the ignored `game-data/` or `orig/`
-directories. Do not include game binaries or assets in commits, pull request
-attachments, or releases.
+extracted game files, and other game data in the ignored `game/`, `game-data/`,
+or `orig/` directories. Only `game/.gitkeep` belongs in Git; personal settings
+belong in the ignored `mscharged.ini`. Do not include disc images or extracted
+game files in commits, pull request attachments, or releases. The separately
+selected launcher artwork has its source recorded in `assets/launcher/README.md`;
+third-party artwork is not covered by the project's CC0 dedication.
 
 ## Licensing
 

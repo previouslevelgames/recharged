@@ -27,7 +27,17 @@ previous tree intact, but the build's validation rejects that stale tree.
 The complete math implementation, allocator, pointer-bearing interfaces, data
 conversion, and Wii runtime services are not adapted by these two patches.
 
+## nod series
+
+`nod/0001-lock-cargo-dependencies.patch` makes Corrosion pass `--locked` to
+Cargo metadata and build commands. The pinned upstream `Cargo.lock` is retained
+unchanged. The nod and Corrosion submodules are prepared and verified using the
+same process as the decompilation.
+
 ## Develop a new patch
+
+The examples below use `build/`. Use `build/release` or `build/debug` instead
+when working with a preset, and add `--dependency nod` for nod's patch series.
 
 1. Configure once to create a clean prepared tree.
 2. Edit the relevant files under `build/prepared/mscharged-decomp/source/`.

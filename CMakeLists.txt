@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 0.0.1 LANGUAGES CXX)
+project(mscharged_port VERSION 0.0.1 LANGUAGES C CXX)
+set(MSCHARGED_PORT_VERSION "${PROJECT_VERSION}-dev")
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build -G Ninja")
@@ -11,7 +12,7 @@ include(CTest)
 
 set(MSCHARGED_PREPARER "${CMAKE_CURRENT_SOURCE_DIR}/tools/prepare_sources.py")
 set(MSCHARGED_PATCHES "${CMAKE_CURRENT_SOURCE_DIR}/patches/mscharged-decomp")
-file(GLOB patch_inputs CONFIGURE_DEPENDS "${MSCHARGED_PATCHES}/*")
+file(GLOB_RECURSE patch_inputs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/patches/*")
 execute_process(
     COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path index
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -25,24 +26,44 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 
 # Preparation precedes all source selection and configuration. It never fetches
 # an upstream branch or edits the submodule working tree.
-execute_process(
-    COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
-            --build-dir "${CMAKE_BINARY_DIR}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE MSCHARGED_PREPARED OUTPUT_STRIP_TRAILING_WHITESPACE
-    COMMAND_ERROR_IS_FATAL ANY
-)
-file(TO_CMAKE_PATH "${MSCHARGED_PREPARED}" MSCHARGED_PREPARED)
+add_custom_target(verify_prepared ALL)
+function(mscharged_prepare_dependency name output)
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
+                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE prepared OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    file(TO_CMAKE_PATH "${prepared}" prepared)
+    set("${output}" "${prepared}" PARENT_SCOPE)
+    add_custom_target("verify_${name}"
+        COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
+                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" --check
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Verify pinned, unmodified ${name} and prepared sources"
+        VERBATIM
+    )
+    add_dependencies(verify_prepared "verify_${name}")
+endfunction()
+
+mscharged_prepare_dependency(mscharged-decomp MSCHARGED_PREPARED)
+mscharged_prepare_dependency(nod MSCHARGED_NOD_PREPARED)
+mscharged_prepare_dependency(corrosion MSCHARGED_CORROSION_PREPARED)
 file(READ "${MSCHARGED_PATCHES}/base" MSCHARGED_DECOMP_REVISION)
 string(STRIP "${MSCHARGED_DECOMP_REVISION}" MSCHARGED_DECOMP_REVISION)
 
-add_custom_target(verify_prepared ALL
-    COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
-            --build-dir "${CMAKE_BINARY_DIR}" --check
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Verify pinned, unmodified upstream and prepared sources"
-    VERBATIM
-)
+# Use the prepared submodule as nod's Corrosion provider. Cargo's dependency
+# graph is locked by our nod patch; no upstream Git repositories are fetched.
+function(mscharged_add_nod)
+    set(FETCHCONTENT_SOURCE_DIR_CORROSION "${MSCHARGED_CORROSION_PREPARED}")
+    set(BUILD_SHARED_LIBS OFF)
+    set(CORROSION_BUILD_TESTS OFF)
+    set(NOD_ENABLE_INSTALL OFF)
+    add_subdirectory("${MSCHARGED_NOD_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/nod")
+endfunction()
+mscharged_add_nod()
+add_dependencies(_cargo-build_nod verify_prepared)
 
 # This list deliberately covers only currently available, independently linked
 # source. The incomplete decomp is not yet a complete native game target.
@@ -59,9 +80,30 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_foundation PRIVATE -Wno-unknown-pragmas)
 endif()
 
-add_executable(mscharged-bootstrap src/bootstrap/main.cpp)
-target_link_libraries(mscharged-bootstrap PRIVATE charged_foundation)
+add_executable(mscharged-bootstrap
+    src/bootstrap/main.cpp
+    src/bootstrap/config.cpp
+    src/platform/disc.cpp
+)
+target_include_directories(mscharged-bootstrap PRIVATE src)
+target_link_libraries(mscharged-bootstrap PRIVATE charged_foundation nod::nod)
+configure_file(assets/launcher/header.png assets/launcher/header.png COPYONLY)
+set(MSCHARGED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mscharged")
+add_custom_target(update_build_version
+    COMMAND "${CMAKE_COMMAND}"
+            "-DGIT_EXECUTABLE:FILEPATH=${GIT_EXECUTABLE}"
+            "-DSOURCE_DIR:PATH=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DOUTPUT_DIR:PATH=${MSCHARGED_VERSION_DIR}"
+            "-DPORT_VERSION:STRING=${MSCHARGED_PORT_VERSION}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBuildVersion.cmake"
+    BYPRODUCTS "${MSCHARGED_VERSION_DIR}/build_version.h"
+    COMMENT "Record the port version and current source revision"
+    VERBATIM
+)
+add_dependencies(mscharged-bootstrap update_build_version)
+target_include_directories(mscharged-bootstrap PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(mscharged-bootstrap PRIVATE
+    MSCHARGED_BUILD_CONFIG="$<CONFIG>"
     MSCHARGED_DECOMP_REVISION="${MSCHARGED_DECOMP_REVISION}")
 
 if(BUILD_TESTING)
@@ -70,6 +112,9 @@ if(BUILD_TESTING)
     add_test(NAME foundation COMMAND foundation_tests)
     add_test(NAME source_preparation
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_prepare_sources.py")
+    add_test(NAME bootstrap_cli
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
+                "$<TARGET_FILE:mscharged-bootstrap>")
 endif()
 
 message(STATUS "Configured the development bootstrap; the complete game, Aurora runtime, and UI are not built yet")

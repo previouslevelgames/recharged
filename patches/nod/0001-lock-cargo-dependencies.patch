@@ -1,0 +1,17 @@
+Subject: Require the upstream Cargo lockfile during CMake builds
+Upstream-base: ebd80cac99b48a323200d84365e07a58cc27412d
+
+The port pins nod and its transitive Rust dependency graph. Pass LOCKED to
+Corrosion so both cargo metadata and compilation reject dependency resolution
+that would change the committed Cargo.lock. The lockfile itself is unchanged.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -80,5 +80,6 @@
+ corrosion_import_crate(
+     MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/nod-ffi/Cargo.toml"
+     CRATES nod-ffi # NOTE: target becomes `nod`
++    LOCKED
+     ${NOD_IMPORT_ARGS}
+ )

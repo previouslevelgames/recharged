@@ -9,6 +9,9 @@ __pycache__/
 *.pyc
 
 # Local game data
+/game/*
+!/game/.gitkeep
+/mscharged.ini
 /game-data/
 /orig/
 *.iso

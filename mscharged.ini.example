@@ -1,0 +1,5 @@
+# Copy this file to mscharged.ini and set your disc image path.
+# Paths are relative to this INI file. Absolute paths also work.
+# ISO and RVZ are read directly; no extraction or conversion is needed.
+[game]
+disc = game/R4QE01.rvz

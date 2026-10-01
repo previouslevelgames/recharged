@@ -1,0 +1,6 @@
+#pragma once
+
+namespace mscharged::build
+{
+inline constexpr const char* version = "@PORT_VERSION_STRING@";
+}

@@ -8,8 +8,8 @@ ordinary builds.
 Shallow clones are preferred to keep initial downloads manageable. Fetch more
 history explicitly when an upstream comparison or patch rebase needs it.
 
-Only the Charged decomp's selected utilities are compiled by the initial
-bootstrap. The remaining sources are checked out for runtime, graphics, UI, and
+The bootstrap compiles selected Charged utilities and nod's disc reader using
+Corrosion. The remaining sources are checked out for runtime, graphics, UI, and
 test integration. Optional components may be removed after their role is
 settled. Adding a source submodule does not automatically make an upstream
 FetchContent declaration use it.
@@ -30,7 +30,7 @@ FetchContent declaration use it.
 | [rmlui](https://github.com/encounter/RmlUi) | Aurora-selected commit | [`f00a0fee3839`](https://github.com/encounter/RmlUi/commit/f00a0fee38391b2f927114e11bea18dc0a7dba1e) | Optional HTML/CSS-style in-game UI | [LICENSE.txt](rmlui/LICENSE.txt) |
 | [sqlite](https://github.com/sqlite/sqlite) | 3.51.3 | [`a5333afb9ad1`](https://github.com/sqlite/sqlite/commit/a5333afb9ad1aa473f8963b92caeaa955f47dc74) | Aurora shader/cache database | [LICENSE.md](sqlite/LICENSE.md) |
 | [zstd](https://github.com/facebook/zstd) | 1.5.7 | [`f8745da6ff1a`](https://github.com/facebook/zstd/commit/f8745da6ff1ad1e7bab384bd1f9d742439278e99) | Cache and data compression | [LICENSE](zstd/LICENSE) |
-| [nod](https://github.com/encounter/nod) | 2.0.0-alpha.12 | [`ebd80cac99b4`](https://github.com/encounter/nod/commit/ebd80cac99b48a323200d84365e07a58cc27412d) | Planned Wii disc access through Aurora | [LICENSE-MIT](nod/LICENSE-MIT) |
+| [nod](https://github.com/encounter/nod) | 2.0.0-alpha.12 | [`ebd80cac99b4`](https://github.com/encounter/nod/commit/ebd80cac99b48a323200d84365e07a58cc27412d) | ISO/RVZ access in the bootstrap; later Aurora disc integration | [LICENSE-MIT](nod/LICENSE-MIT) |
 | [corrosion](https://github.com/corrosion-rs/corrosion) | 0.6.1 | [`1499b14e4906`](https://github.com/corrosion-rs/corrosion/commit/1499b14e4906a2890f5cee1547c8848db261753d) | CMake/Rust integration for nod | [LICENSE](corrosion/LICENSE) |
 | [googletest](https://github.com/google/googletest) | 1.17.0 | [`52eb8108c5bd`](https://github.com/google/googletest/commit/52eb8108c5bdec04579160ae17225d66034bd723) | Aurora test framework | [LICENSE](googletest/LICENSE) |
 | [qtbase](https://github.com/qt/qtbase) | 6.8.4-lts-lgpl | [`ed77a3ca9ef1`](https://github.com/qt/qtbase/commit/ed77a3ca9ef1bf5e33b6f32ea41110734fb14e88) | Optional desktop settings UI: Core, GUI, Widgets | [LICENSES](qtbase/LICENSES) |
@@ -71,12 +71,15 @@ Dawn. A full recursive checkout can be large and is not needed for the bootstrap
 Qt Tools also records nested HTML-viewer sources. Initialize required nested
 submodules at their recorded commits before preparing the corresponding source.
 
-nod records Rust dependencies in `Cargo.lock`; source builds also need Rust and
-Corrosion. Review how its compression providers are selected when integrating
-it. Aurora can find system libraries or fetch/prebuild its own copies. Runtime
+nod records Rust dependencies in `Cargo.lock`; its prepared CMake source is
+patched to pass `LOCKED` to Corrosion for metadata and compilation. The build
+uses prepared local nod/Corrosion sources and Cargo's pinned compression source
+crates. It may download these crates on the first build, with no lockfile update.
+Sharing compression providers with Aurora remains runtime integration work.
+Aurora can find system libraries or fetch/prebuild its own copies. Runtime
 integration must deliberately select the prepared local providers, reconcile
 Dawn's own Abseil/GoogleTest dependencies, and avoid unrecorded moving downloads.
-The current bootstrap performs no configure-time downloads.
+The current bootstrap does not fetch additional Git repositories while building.
 
 To fetch the top-level sources at their recorded pins:
 

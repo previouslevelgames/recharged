@@ -16,8 +16,9 @@ their owners.
 
 The [dependency inventory](../extern/README.md) records the 21 initial submodules,
 their purposes, and their exact revisions. License texts remain in those
-upstream checkouts. Only the selected decomp utilities are compiled by the
-initial bootstrap; the remaining libraries are sources for future integration.
+upstream checkouts. The bootstrap compiles selected decomp utilities and nod,
+including its Cargo dependencies; Corrosion supplies the CMake/Rust integration.
+The remaining libraries are sources for future integration.
 
 The following summaries identify principal notices, not a replacement for
 file-specific terms or notices on nested third-party material:
@@ -62,5 +63,12 @@ the material actually distributed. A link to a submodule alone does not replace
 required notices in a release package. Include corresponding source or relinking
 materials where a dependency's terms require them.
 
-Game assets are not distributed with this project. Players supply their own
-game data.
+## Launcher artwork
+
+The selected `assets/launcher/header.png` comes from
+[SteamGridDB hero 8926, uploaded by Jiquita](https://www.steamgriddb.com/hero/8926).
+It is third-party artwork outside the CC0 dedication. The source metadata does
+not specify a redistribution license. See [artwork provenance](../assets/launcher/README.md).
+
+Disc images and extracted game data are not distributed with this project.
+Players supply their own game data.

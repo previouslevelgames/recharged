@@ -10,9 +10,10 @@ presentation while adapting it to modern hardware.
 ## Status
 
 An initial native development bootstrap builds a small subset of the decompiled
-utilities. Pinned source dependencies, an ordered patch preparation step, and
-focused checks are in place. There is no playable game build yet; Aurora's
-runtime and the UI libraries have not been integrated into an executable.
+utilities and reads Wii ISO/RVZ images through nod. Pinned source dependencies,
+an ordered patch preparation step, and focused checks are in place. There is no
+playable game build yet; Aurora's runtime and the UI libraries have not been
+integrated into an executable.
 
 **The decompilation is not yet complete or fully linked.** Some functions and
 translation units may be missing, unfinished, or unsuitable for native
@@ -20,8 +21,30 @@ compilation. The bootstrap uses an explicit subset of available source and does
 not stand in for a complete game link. The first 100% decompilation and 100%
 link release will provide a later baseline.
 
-See [build instructions](docs/BUILDING.md) to build and run the bootstrap.
 The platforms and features below remain development goals.
+
+## Build the first development version
+
+The current port version is **0.0.1-dev**. With Git, Python 3.10+, CMake 3.25+,
+Ninja, C/C++17 compilers, and Rust/Cargo 1.85+ installed, run from the repository root:
+
+```sh
+git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion
+cmake --workflow --preset release
+./build/release/mscharged-bootstrap --version
+./build/release/mscharged-bootstrap --self-test
+```
+
+The workflow prepares the patched sources, compiles, and runs the tests. This
+build runs native utility checks and can inspect a configured disc image; game
+startup and rendering are still pending. The first build downloads Rust crates
+at the versions recorded in nod's lockfile.
+The executable includes the port's Git revision in its version, with `.dirty`
+appended when the checkout has uncommitted changes. Port versions are independent
+of decompilation releases.
+
+See [build instructions](docs/BUILDING.md) for Windows, Debug builds, and version
+details. Linux builds have been verified; Windows and macOS remain unvalidated.
 
 ## Goals
 
@@ -131,10 +154,33 @@ those fetched by upstream build systems.
 
 ## Game data
 
-Players will need game data from their own legally obtained copy of Mario
-Strikers Charged. Game assets are not included in this repository and will not
-be distributed with the port. Supported disc versions and setup instructions
-will be documented when game data loading is implemented.
+Place an **ISO or RVZ** from your own copy of Mario Strikers Charged in `game/`.
+Only `game/.gitkeep` is intended for Git; disc images and other local contents
+are ignored. Images elsewhere on your system can also be used without copying.
+
+Copy `mscharged.ini.example` to `mscharged.ini` and set its `[game] disc` path:
+
+```ini
+[game]
+disc = game/R4QE01.rvz
+```
+
+The personalized `mscharged.ini` is ignored by Git. Paths are relative to the
+INI file, and ISO/RVZ images are read directly without conversion or extraction.
+Run from the repository root:
+
+```sh
+./build/release/mscharged-bootstrap
+```
+
+This checks the disc identity and opens its game data partition. The current
+source baseline is **USA `R4QE01`, revision 1**; other Charged regions/revisions
+can be inspected but their asset compatibility is unverified. This check does
+not verify every disc block or start the game. See [disc setup options](docs/BUILDING.md#configure-your-disc).
+
+Disc images and extracted game data are not included or distributed with this
+project. The selected [launcher header artwork](assets/launcher/README.md) has
+separate source attribution; the graphical launcher is still pending.
 
 ## Contributing
 
