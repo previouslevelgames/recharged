@@ -45,7 +45,7 @@ def safe_child(root: Path, name: str) -> Path:
     return result
 
 
-def submodule_inputs(root: Path, name: str):
+def submodule_inputs(root: Path, name: str, export_roots=None):
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", name):
         raise PreparationError(f"Invalid dependency name: {name}")
     relative = f"extern/{name}"
@@ -64,6 +64,8 @@ def submodule_inputs(root: Path, name: str):
     sources = []
 
     def visit(repo: Path, expected: str, prefix: str):
+        if export_roots and prefix and prefix.split("/", 1)[0] not in export_roots:
+            return  # An omitted decomp directory is not a build dependency.
         if not (repo / ".git").exists():
             raise PreparationError(f"Initialize the pinned submodule first: {repo}")
         if Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve() != repo.resolve():
@@ -122,7 +124,7 @@ def content_inventory(directory: Path):
     return result
 
 
-def export_committed(repo: Path, commit: str, destination: Path):
+def export_committed(repo: Path, commit: str, destination: Path, export_roots=None):
     # Read tree/blob objects directly: checkout filters and local or committed
     # export-ignore/export-subst attributes must not change this source snapshot.
     entries = git(repo, "ls-tree", "-rz", commit).split(b"\0")
@@ -133,6 +135,8 @@ def export_committed(repo: Path, commit: str, destination: Path):
             if not entry:
                 continue
             metadata, raw_path = entry.split(b"\t", 1)
+            if export_roots and os.fsdecode(raw_path).split("/", 1)[0] not in export_roots:
+                continue
             mode, kind, oid = metadata.decode().split()
             if kind == "commit":
                 continue  # Nested repositories are exported from their own pins.
@@ -164,12 +168,13 @@ def export_committed(repo: Path, commit: str, destination: Path):
             raise PreparationError("Failed to read committed source objects")
 
 
-def materialize(destination: Path, sources, patches, keep_git=False):
+def materialize(destination: Path, sources, patches, keep_git=False, export_roots=None):
     destination.mkdir(parents=True)
     for source in sources:
         target = destination / source["path"]
         target.mkdir(parents=True, exist_ok=True)
-        export_committed(source["repo"], source["commit"], target)
+        export_committed(source["repo"], source["commit"], target,
+                         export_roots=export_roots if not source["path"] else None)
     # An isolated repository prevents `git apply` from discovering the parent
     # repository and silently treating these patches as outside the cwd prefix.
     git(destination, "-c", "init.defaultBranch=prepared", "init", "--quiet")
@@ -182,6 +187,10 @@ def materialize(destination: Path, sources, patches, keep_git=False):
                 "--whitespace=error-all", str(patch["file"]))
         except PreparationError as error:
             raise PreparationError(f"Patch failed: {patch['name']}\n{error}") from error
+    if export_roots:
+        for path in destination.iterdir():
+            if path.name != ".git" and path.name not in export_roots:
+                raise PreparationError(f"Patch adds content outside the selected source directories: {path.name}")
     if not keep_git:
         shutil.rmtree(destination / ".git")
 
@@ -206,13 +215,14 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
     first = build.relative_to(root).parts[0]
     if not (first in ("build", "out") or first.startswith(("build-", "cmake-build-"))):
         raise PreparationError("Build directory must be under build/, build-*/, cmake-build-*/, or out/")
-    sources = submodule_inputs(root, name)
+    export_roots = ("include", "libs", "src") if name == "mscharged-decomp" else None
+    sources = submodule_inputs(root, name, export_roots=export_roots)
     patches, series_sha = patch_inputs(root, name, sources[0]["commit"])
     inputs = {
         "dependency": name, "sources": [{k: s[k] for k in ("path", "commit")} for s in sources],
         "patches": [{k: p[k] for k in ("name", "sha256")} for p in patches],
         "series_sha256": series_sha, "preparer_sha256": sha(Path(__file__).read_bytes()),
-        "format": 1,
+        "format": 2, "export_roots": export_roots,
     }
     key = sha(encoded(inputs))
     parent = build / "prepared"
@@ -233,7 +243,7 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
                 raise PreparationError("Choose a new patch output file under the build directory, outside prepared/")
             with tempfile.TemporaryDirectory(prefix=f".{name}-export-", dir=parent) as temp:
                 expected = Path(temp) / "source"
-                materialize(expected, sources, patches, keep_git=True)
+                materialize(expected, sources, patches, keep_git=True, export_roots=export_roots)
                 git(expected, "add", "--force", "--all")
                 worktree = ("--git-dir=" + str(expected / ".git"), "--work-tree=" + str(source_path))
                 added = git(source_path, *worktree, "ls-files", "--others", "-z").split(b"\0")
@@ -256,7 +266,7 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
             return source_path
         with tempfile.TemporaryDirectory(prefix=f".{name}-prepare-", dir=parent) as temp:
             staged = Path(temp) / "ready"
-            materialize(staged / "source", sources, patches)
+            materialize(staged / "source", sources, patches, export_roots=export_roots)
             state = {"key": key, "inputs": inputs, "content": content_inventory(staged / "source")}
             (staged / "manifest.json").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
             previous = Path(temp) / "previous"

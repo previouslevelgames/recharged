@@ -12,6 +12,7 @@ __pycache__/
 /game/*
 !/game/.gitkeep
 /mscharged.ini
+/mscharged.ini.tmp-*
 /game-data/
 /orig/
 *.iso

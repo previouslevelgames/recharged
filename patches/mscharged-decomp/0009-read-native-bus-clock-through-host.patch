@@ -1,0 +1,43 @@
+Subject: Read the host OS bus clock instead of defining console low-memory globals
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+Each original time unit maps __OSBusClock to the same console address.
+Native builds must not create duplicate uninitialized globals. Read the
+initialized Aurora clock through a typed host bridge, preserving tick conversion
+math. Full Wii clock/simulation parity remains separate validation work.
+
+diff --git a/src/NL/nlTicker.cpp b/src/NL/nlTicker.cpp
+index b871818..ae2c298 100644
+--- a/src/NL/nlTicker.cpp
++++ b/src/NL/nlTicker.cpp
+@@ -4,7 +4,12 @@
+ #include <revolution/os/OSTime_fwd.h>
+ 
+ 
++#ifdef MSCHARGED_NATIVE
++extern "C" u32 ChargedGetBusClock();
++#define __OSBusClock ChargedGetBusClock()
++#else
+ u32 __OSBusClock AT_ADDRESS(0x800000F8);
++#endif
+ 
+ void nlInitTicker()
+ {
+diff --git a/src/NL/nlTime.cpp b/src/NL/nlTime.cpp
+index 71db3c0..76d1c3a 100644
+--- a/src/NL/nlTime.cpp
++++ b/src/NL/nlTime.cpp
+@@ -4,7 +4,12 @@
+ 
+ #include "decomp.h"
+ 
++#ifdef MSCHARGED_NATIVE
++extern "C" u32 ChargedGetBusClock();
++#define __OSBusClock ChargedGetBusClock()
++#else
+ u32 __OSBusClock AT_ADDRESS(0x800000F8);
++#endif
+ 
+ void nlInitTime()
+ {

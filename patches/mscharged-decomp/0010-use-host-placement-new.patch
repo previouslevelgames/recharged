@@ -1,0 +1,61 @@
+Subject: Use standard placement new and native allocation signatures
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+The host C++ library supplies placement new. Do not redefine it in the
+shared game header; native allocation operators take size_t. This does not
+claim the original allocator, class-specific operators, or serialized layouts
+are already adapted on every platform.
+
+diff --git a/include/NL/nlMemory.h b/include/NL/nlMemory.h
+--- a/include/NL/nlMemory.h
++++ b/include/NL/nlMemory.h
+@@ -2,6 +2,8 @@
+ #define NL_MEMORY_H
+ 
+ #include "types.h"
++#include <stddef.h>
++#include <new>
+ 
+ class MemoryAllocator;
+ 
+@@ -18,36 +20,21 @@
+ extern MemoryAllocator* AllocatorStack[16];
+ extern unsigned int AllocatorStackDepth;
+ 
+-void* operator new(unsigned long size);
+-void* operator new[](unsigned long size);
+-void operator delete(void* ptr);
+-void operator delete[](void* ptr);
+-
+-inline void* operator new(unsigned long, void* ptr)
+-{
+-    return ptr;
+-}
+-
+-inline void* operator new[](unsigned long, void* ptr)
+-{
+-    return ptr;
+-}
+-
+ void* nlMalloc(unsigned long size);
+ void* nlMalloc(unsigned long size, unsigned int alignment, bool fromEnd);
+ void nlFree(void* ptr);
+ 
+-inline void* operator new(unsigned long size, unsigned int alignment, bool fromEnd)
++inline void* operator new(size_t size, unsigned int alignment, bool fromEnd)
+ {
+     return nlMalloc(size, alignment, fromEnd);
+ }
+ 
+-inline void* operator new[](unsigned long size, unsigned int alignment, bool fromEnd)
++inline void* operator new[](size_t size, unsigned int alignment, bool fromEnd)
+ {
+     return nlMalloc(size, alignment, fromEnd);
+ }
+ 
+-inline void* operator new[](unsigned long size, unsigned int alignment, bool fromEnd, const char*)
++inline void* operator new[](size_t size, unsigned int alignment, bool fromEnd, const char*)
+ {
+     return nlMalloc(size, alignment, fromEnd);
+ }

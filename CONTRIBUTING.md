@@ -1,7 +1,7 @@
 # Contributing
 
-Contributions to `mscharged-port` are welcome. The initial native bootstrap and
-source preparation workflow are available. The first priorities are extending
+Contributions to `mscharged-port` are welcome. The graphical launcher, native
+bootstrap, and source preparation workflow are available. The first priorities are extending
 the compilable source subset, integrating the runtime, and building a faithful
 playable foundation.
 
@@ -58,9 +58,10 @@ pin and patch set reproducible through the port's Git history.
 
 ## Validation
 
-Follow [the build instructions](docs/BUILDING.md) and run `ctest --test-dir build
---output-on-failure`. The current checks cover the selected utility code and
-source preparation. They do not establish game completeness or gameplay parity.
+Follow [the build instructions](docs/BUILDING.md) and run `ctest --preset debug`
+or `ctest --preset release` for your build. The current checks cover the selected
+utility code, source preparation, disc access, settings persistence, and launcher
+rendering. They do not establish game completeness or gameplay parity.
 See [patch development](patches/README.md) when changing upstream adaptations.
 
 For implementation changes, report the platform, architecture, compiler, and

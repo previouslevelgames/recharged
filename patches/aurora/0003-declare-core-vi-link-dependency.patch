@@ -1,0 +1,20 @@
+Subject: Declare the core window code's dependency on VI framebuffer sizing
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+window.cpp calls aurora::vi::configured_fb_size. VI also calls core window
+functions, but only VI's dependency on core is recorded. A minimal host
+executable fails to resolve configured_fb_size when VI is scanned first.
+Declare both directions so CMake repeats the static archives as needed.
+
+diff --git a/cmake/aurora_core.cmake b/cmake/aurora_core.cmake
+--- a/cmake/aurora_core.cmake
++++ b/cmake/aurora_core.cmake
+@@ -28,7 +28,7 @@
+ target_compile_definitions(aurora_core PUBLIC AURORA TARGET_PC)
+ target_include_directories(aurora_core PUBLIC include)
+ target_link_libraries(aurora_core PUBLIC fmt::fmt ${AURORA_SDL3_TARGET} xxHash::xxhash)
+-target_link_libraries(aurora_core PRIVATE absl::btree absl::flat_hash_map Tracy::TracyClient)
++target_link_libraries(aurora_core PRIVATE absl::btree absl::flat_hash_map Tracy::TracyClient aurora::vi)
+ if (AURORA_ENABLE_GX)
+     target_link_libraries(aurora_core PRIVATE sqlite3)
+ endif ()

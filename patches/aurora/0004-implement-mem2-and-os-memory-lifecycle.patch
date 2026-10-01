@@ -1,0 +1,257 @@
+Subject: Implement native MEM2 arenas and release/reset OS memory at shutdown
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Wire the existing mem2Size configuration to real owned host memory, expose Wii arena calls,
+reject invalid/overflowing arena allocations, and reset arenas/heaps/OS initialization before
+freeing memory. MEM1 debug reservations on Windows are retained for correct release.
+Native addresses are never forced into console address ranges. This does not implement
+MEM2 physical/cached/uncached address translation or IOS/Wii memory-map parity.
+
+diff --git a/cmake/aurora_core.cmake b/cmake/aurora_core.cmake
+index 5d7bc15..2c2c28d 100644
+--- a/cmake/aurora_core.cmake
++++ b/cmake/aurora_core.cmake
+@@ -29,7 +29,7 @@ set_target_properties(aurora_core PROPERTIES FOLDER "aurora")
+ target_compile_definitions(aurora_core PUBLIC AURORA TARGET_PC)
+ target_include_directories(aurora_core PUBLIC include)
+ target_link_libraries(aurora_core PUBLIC fmt::fmt ${AURORA_SDL3_TARGET} xxHash::xxhash)
+-target_link_libraries(aurora_core PRIVATE absl::btree absl::flat_hash_map Tracy::TracyClient aurora::vi)
++target_link_libraries(aurora_core PRIVATE absl::btree absl::flat_hash_map Tracy::TracyClient aurora::vi aurora::os)
+ if (AURORA_ENABLE_GX)
+     target_link_libraries(aurora_core PRIVATE sqlite3)
+ endif ()
+diff --git a/include/dolphin/os.h b/include/dolphin/os.h
+index a09f75d..c8a6efe 100644
+--- a/include/dolphin/os.h
++++ b/include/dolphin/os.h
+@@ -113,6 +113,13 @@ u32 OSGetConsoleType(void);
+ void OSInit(void);
+ void OSRegisterVersion(const char* id);
+ 
++u32 OSGetConsoleSimulatedMem2Size(void);
++void* OSGetMEM2ArenaLo(void);
++void* OSGetMEM2ArenaHi(void);
++void OSSetMEM2ArenaLo(void* lo);
++void OSSetMEM2ArenaHi(void* hi);
++void* OSAllocFromMEM2ArenaLo(u32 size, u32 align);
++
+ void* OSGetArenaHi(void);
+ void* OSGetArenaLo(void);
+ void OSSetArenaHi(void* newHi);
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+index 122262c..7100765 100644
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -31,6 +31,8 @@
+ #include "system_info.hpp"
+ #include "tracy/Tracy.hpp"
+ 
++void AuroraOSShutdown();
++
+ namespace aurora {
+ AuroraConfig g_config;
+ uint32_t g_sdlCustomEventsStart;
+@@ -219,6 +221,7 @@ void shutdown() noexcept {
+ #endif
+   gamepad::shutdown();
+   window::shutdown();
++  AuroraOSShutdown();
+ }
+ 
+ const AuroraEvent* update() noexcept {
+diff --git a/lib/dolphin/os/OSAlloc.cpp b/lib/dolphin/os/OSAlloc.cpp
+index 790e300..4b3c6cd 100644
+--- a/lib/dolphin/os/OSAlloc.cpp
++++ b/lib/dolphin/os/OSAlloc.cpp
+@@ -233,6 +233,13 @@ static void carveRangeFromHeap(HeapDesc& hd, uintptr_t carveStart, uintptr_t car
+ 
+ } // namespace
+ 
++void AuroraResetAlloc() {
++  sHeapArray = nullptr;
++  sNumHeaps = 0;
++  sArenaStart = sArenaEnd = nullptr;
++  __OSCurrHeap = -1;
++}
++
+ extern "C" {
+ 
+ void* OSInitAlloc(void* arenaStart, void* arenaEnd, int maxHeaps) {
+diff --git a/lib/dolphin/os/OSArena.cpp b/lib/dolphin/os/OSArena.cpp
+index 5eeb861..dfc74fd 100644
+--- a/lib/dolphin/os/OSArena.cpp
++++ b/lib/dolphin/os/OSArena.cpp
+@@ -1,4 +1,5 @@
+ #include <cassert>
++#include <stdexcept>
+ 
+ #include "internal.hpp"
+ 
+@@ -9,6 +10,8 @@
+ 
+ static void* ArenaLow;
+ static void* ArenaHigh;
++static void* MEM2ArenaLow;
++static void* MEM2ArenaHigh;
+ 
+ void* OSGetArenaHi() {
+   return ArenaHigh;
+@@ -48,11 +51,53 @@ void* OSAllocFromArenaHi(const u32 size, const u32 align) {
+   return ptr;
+ }
+ 
++
++void* OSGetMEM2ArenaLo() { return MEM2ArenaLow; }
++void* OSGetMEM2ArenaHi() { return MEM2ArenaHigh; }
++
++void OSSetMEM2ArenaLo(void* lo) {
++  const auto address = reinterpret_cast<uintptr_t>(lo);
++  if (MEM2Start == nullptr || address < reinterpret_cast<uintptr_t>(MEM2Start)
++      || address > reinterpret_cast<uintptr_t>(MEM2ArenaHigh))
++    throw std::out_of_range("MEM2 arena low lies outside its available memory");
++  MEM2ArenaLow = lo;
++}
++
++void OSSetMEM2ArenaHi(void* hi) {
++  const auto address = reinterpret_cast<uintptr_t>(hi);
++  if (MEM2Start == nullptr || address < reinterpret_cast<uintptr_t>(MEM2ArenaLow)
++      || address > reinterpret_cast<uintptr_t>(MEM2End))
++    throw std::out_of_range("MEM2 arena high lies outside its available memory");
++  MEM2ArenaHigh = hi;
++}
++
++void* OSAllocFromMEM2ArenaLo(u32 size, u32 align) {
++  if (MEM2ArenaLow == nullptr || align == 0 || (align & (align - 1)) != 0) return nullptr;
++  const auto low = reinterpret_cast<uintptr_t>(MEM2ArenaLow);
++  const auto high = reinterpret_cast<uintptr_t>(MEM2ArenaHigh);
++  const auto mask = static_cast<uintptr_t>(align) - 1;
++  // Subtractions bound each addition, including its alignment padding.
++  if (mask > high - low) return nullptr;
++  const auto start = (low + mask) & ~mask;
++  if (size > high - start) return nullptr;
++  const auto end = start + size;
++  if (((-end) & mask) > high - end) return nullptr;
++  MEM2ArenaLow = reinterpret_cast<void*>((end + mask) & ~mask);
++  return reinterpret_cast<void*>(start);
++}
++
++void AuroraResetArena() {
++  ArenaLow = ArenaHigh = MEM2ArenaLow = MEM2ArenaHigh = nullptr;
++}
++
+ void AuroraInitArena() {
+-  if (MEM1Start == nullptr) {
+-    return;
++  AuroraResetArena();
++  if (MEM1Start != nullptr) {
++    if (static_cast<u8*>(MEM1End) - static_cast<u8*>(MEM1Start) < static_cast<ptrdiff_t>(ARENA_START_OFFSET))
++      Log.fatal("MEM1 is smaller than its boot information area");
++    OSSetArenaLo(static_cast<u8*>(MEM1Start) + ARENA_START_OFFSET);
++    OSSetArenaHi(MEM1End);
+   }
+-
+-  OSSetArenaLo(static_cast<u8*>(MEM1Start) + ARENA_START_OFFSET);
+-  OSSetArenaHi(MEM1End);
++  MEM2ArenaLow = MEM2Start;
++  MEM2ArenaHigh = MEM2End;
+ }
+diff --git a/lib/dolphin/os/OSInit.cpp b/lib/dolphin/os/OSInit.cpp
+index 361dd32..8a482f6 100644
+--- a/lib/dolphin/os/OSInit.cpp
++++ b/lib/dolphin/os/OSInit.cpp
+@@ -4,6 +4,13 @@
+ 
+ static bool AlreadyInitialized;
+ 
++void AuroraOSShutdown() {
++  AuroraResetAlloc();
++  AuroraResetArena();
++  AuroraOSShutdownMemory();
++  AlreadyInitialized = false;
++}
++
+ void OSInit() {
+   if (AlreadyInitialized) {
+     return;
+diff --git a/lib/dolphin/os/OSMemory.cpp b/lib/dolphin/os/OSMemory.cpp
+index 2a963a5..640466a 100644
+--- a/lib/dolphin/os/OSMemory.cpp
++++ b/lib/dolphin/os/OSMemory.cpp
+@@ -7,6 +7,7 @@
+ #include "fmt/base.h"
+ 
+ #include <cassert>
++#include <cstdlib>
+ 
+ #include "internal.hpp"
+ #include <dolphin/os.h>
+@@ -20,6 +21,11 @@ uintptr_t OSBaseAddress = 0;
+ 
+ void* MEM1Start;
+ void* MEM1End;
++void* MEM2Start;
++void* MEM2End;
++#if _WIN64 && !NDEBUG
++static void* MEM1Reservation;
++#endif
+ 
+ static void GuardGCMemory();
+ static void* AllocMEM1(u32 size);
+@@ -30,8 +36,30 @@ void AuroraOSInitMemory() {
+   if (aurora::g_config.mem1Size > 0) {
+     MEM1Start = AllocMEM1(aurora::g_config.mem1Size);
+     MEM1End = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(MEM1Start) + aurora::g_config.mem1Size);
++    if (MEM1Start == nullptr) Log.fatal("Failed to allocate MEM1");
+     OSBaseAddress = reinterpret_cast<uintptr_t>(MEM1Start);
+   }
++  if (aurora::g_config.mem2Size > 0) {
++    MEM2Start = std::calloc(1, aurora::g_config.mem2Size);
++    if (MEM2Start == nullptr) Log.fatal("Failed to allocate MEM2");
++    MEM2End = static_cast<u8*>(MEM2Start) + aurora::g_config.mem2Size;
++  }
++}
++
++u32 OSGetConsoleSimulatedMem2Size() {
++  return MEM2Start == nullptr ? 0 : static_cast<u32>(static_cast<u8*>(MEM2End) - static_cast<u8*>(MEM2Start));
++}
++
++void AuroraOSShutdownMemory() {
++#if _WIN64 && !NDEBUG
++  if (MEM1Reservation != nullptr) VirtualFree(MEM1Reservation, 0, MEM_RELEASE);
++  MEM1Reservation = nullptr;
++#else
++  std::free(MEM1Start);
++#endif
++  std::free(MEM2Start);
++  MEM1Start = MEM1End = MEM2Start = MEM2End = nullptr;
++  OSBaseAddress = 0;
+ }
+ 
+ #if GUARD_MEMORY
+@@ -134,6 +162,7 @@ static void* AllocMEM1(u32 size) {
+   }
+ 
+   assert(result == mem1Address);
++  MEM1Reservation = bulkChunk;
+   return result;
+ }
+ #else
+diff --git a/lib/dolphin/os/internal.hpp b/lib/dolphin/os/internal.hpp
+index b4311ea..62af5f5 100644
+--- a/lib/dolphin/os/internal.hpp
++++ b/lib/dolphin/os/internal.hpp
+@@ -9,6 +9,13 @@ constexpr uintptr_t ARENA_START_OFFSET = 0x4000;
+ 
+ extern void* MEM1Start;
+ extern void* MEM1End;
++extern void* MEM2Start;
++extern void* MEM2End;
++
++void AuroraOSShutdownMemory();
++void AuroraResetArena();
++void AuroraResetAlloc();
++void AuroraOSShutdown();
+ 
+ void AuroraOSInitMemory();
+ void AuroraFillBootInfo();

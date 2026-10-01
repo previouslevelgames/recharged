@@ -1,0 +1,22 @@
+Subject: Subtract native arena pointers before narrowing the bounded heap size
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+The original memory initialization narrows both arena addresses to u32.
+Compute the difference without truncation; the memory service must guarantee
+ordered bounds within a 32-bit arena capacity. Native allocator adaptation
+and Wii MEM2 services remain explicit startup blockers.
+
+diff --git a/src/NL/plat/nlMemory.cpp b/src/NL/plat/nlMemory.cpp
+index e2b5bc3..0736957 100644
+--- a/src/NL/plat/nlMemory.cpp
++++ b/src/NL/plat/nlMemory.cpp
+@@ -35,7 +35,7 @@ void nlInitMemory()
+             void* arenaLo = i != 0 ? OSGetMEM1ArenaLo() : OSGetMEM2ArenaLo();
+             void* arenaHi = i != 0 ? OSGetMEM1ArenaHi() : OSGetMEM2ArenaHi();
+ 
+-            u32 heapSize = (u32)arenaHi - (u32)arenaLo - (i == 0 ? reserveSize : 0x400);
++            u32 heapSize = (u32)((u8*)arenaHi - (u8*)arenaLo) - (i == 0 ? reserveSize : 0x400);
+             void* ptr = (i != 0 ? OSAllocFromMEM1ArenaLo : OSAllocFromMEM2ArenaLo)(heapSize, 32);
+ 
+             if (i == 0)

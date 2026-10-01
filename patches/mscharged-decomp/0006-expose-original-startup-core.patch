@@ -1,0 +1,224 @@
+Subject: Expose the original initialization prefix for incremental native startup
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+Move the existing region/language selection and nlInit call into a callable
+startup unit. Full game Initialize calls the same function, preserving order.
+Only native builds omit hardware GQR setup; the paired-single decoders are not
+claimed implemented. This allows early startup without constructing unrelated
+game task globals or masking their missing dependencies.
+
+diff --git a/include/Game/Startup.h b/include/Game/Startup.h
+new file mode 100644
+index 0000000..e011b24
+--- /dev/null
++++ b/include/Game/Startup.h
+@@ -0,0 +1,7 @@
++#ifndef GAME_STARTUP_H
++#define GAME_STARTUP_H
++
++extern volatile int g_Region;
++void InitializeCore();
++
++#endif // GAME_STARTUP_H
+diff --git a/src/Game/Startup.cpp b/src/Game/Startup.cpp
+new file mode 100644
+index 0000000..a99d790
+--- /dev/null
++++ b/src/Game/Startup.cpp
+@@ -0,0 +1,85 @@
++#include "Game/Startup.h"
++#include "Game/main.h"
++#include "NL/nlMain.h"
++
++extern "C" u8 SCGetLanguage();
++
++volatile int g_Region = 3;
++nlLocalization::nlLanguage g_Language;
++
++int GetRegion()
++{
++    int region = 0;
++    if (g_Region != 3)
++    {
++        region = g_Region;
++    }
++    return region;
++}
++
++void InitializeCore()
++{
++    // GQR setup follows the platform OSInitFastCast implementation.
++    // Native decoders will use explicit arithmetic instead of PowerPC GQRs.
++#ifndef MSCHARGED_NATIVE
++    // clang-format off
++    asm {
++        li r3, 4
++        oris r3, r3, 4
++        mtspr 0x392, r3
++        li r3, 5
++        oris r3, r3, 5
++        mtspr 0x393, r3
++        li r3, 6
++        oris r3, r3, 6
++        mtspr 0x394, r3
++        li r3, 7
++        oris r3, r3, 7
++        mtspr 0x395, r3
++    }
++    // clang-format on
++#endif
++
++    switch (GetRegion())
++    {
++    case 0:
++        switch (SCGetLanguage())
++        {
++        case 3:
++            g_Language = nlLocalization::LangNAFrench;
++            break;
++        case 4:
++            g_Language = nlLocalization::LangNASpanish;
++            break;
++        default:
++            g_Language = nlLocalization::LangEnglish;
++            break;
++        }
++        break;
++    case 1:
++        switch (SCGetLanguage())
++        {
++        case 2:
++            g_Language = nlLocalization::LangGerman;
++            break;
++        case 3:
++            g_Language = nlLocalization::LangFrench;
++            break;
++        case 4:
++            g_Language = nlLocalization::LangSpanish;
++            break;
++        case 5:
++            g_Language = nlLocalization::LangItalian;
++            break;
++        default:
++            g_Language = nlLocalization::LangUKEnglish;
++            break;
++        }
++        break;
++    case 2:
++        g_Language = nlLocalization::LangJapanese;
++        break;
++    }
++
++    nlInit();
++}
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 945b7a7..0ab5743 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/main.h"
++#include "Game/Startup.h"
+ #include "Game/TweakRegistry.h"
+ #include "Game/TweakConfig.h"
+ 
+@@ -144,14 +145,12 @@ extern u8 lbl_806E1458;
+ 
+ 
+ 
+-volatile int g_Region = 3;
+ static u32 sPreviousTaskState = 1;
+ 
+ static u32 sCountryCode;
+ GameAudio* g_pGameAudio;
+ bool g_e3_Build;
+ bool lbl_806E1091;
+-nlLocalization::nlLanguage g_Language;
+ static s32 sLastVirtualFreeDelta;
+ static float sAverageVirtualFreeDelta;
+ static float sVirtualFreeMiB;
+@@ -229,16 +228,6 @@ extern "C" void fn_8011D5B0(glShadowedTexturedColourModelWriter*, ParticleSystem
+     nlDLListSlotPool<Particle*>*, const nlVector3&, const nlVector3&,
+     const nlMatrix4*);
+ 
+-int GetRegion()
+-{
+-    int region = 0;
+-    if (g_Region != 3)
+-    {
+-        region = g_Region;
+-    }
+-    return region;
+-}
+-
+ int GetOnlineRegion()
+ {
+     int region = 0;
+@@ -410,66 +399,7 @@ extern "C" void fn_8011C748(Config*)
+ 
+ static void Initialize()
+ {
+-    // GQR setup follows the platform OSInitFastCast implementation.
+-    // clang-format off
+-    asm {
+-        li r3, 4
+-        oris r3, r3, 4
+-        mtspr 0x392, r3
+-        li r3, 5
+-        oris r3, r3, 5
+-        mtspr 0x393, r3
+-        li r3, 6
+-        oris r3, r3, 6
+-        mtspr 0x394, r3
+-        li r3, 7
+-        oris r3, r3, 7
+-        mtspr 0x395, r3
+-    }
+-    // clang-format on
+-
+-    switch (GetRegion())
+-    {
+-    case 0:
+-        switch (SCGetLanguage())
+-        {
+-        case 3:
+-            g_Language = nlLocalization::LangNAFrench;
+-            break;
+-        case 4:
+-            g_Language = nlLocalization::LangNASpanish;
+-            break;
+-        default:
+-            g_Language = nlLocalization::LangEnglish;
+-            break;
+-        }
+-        break;
+-    case 1:
+-        switch (SCGetLanguage())
+-        {
+-        case 2:
+-            g_Language = nlLocalization::LangGerman;
+-            break;
+-        case 3:
+-            g_Language = nlLocalization::LangFrench;
+-            break;
+-        case 4:
+-            g_Language = nlLocalization::LangSpanish;
+-            break;
+-        case 5:
+-            g_Language = nlLocalization::LangItalian;
+-            break;
+-        default:
+-            g_Language = nlLocalization::LangUKEnglish;
+-            break;
+-        }
+-        break;
+-    case 2:
+-        g_Language = nlLocalization::LangJapanese;
+-        break;
+-    }
+-
+-    nlInit();
++    InitializeCore();
+ 
+     if (!glStartup(PreInitFS))
+     {

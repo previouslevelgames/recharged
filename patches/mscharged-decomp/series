@@ -1,3 +1,14 @@
 # Apply in this order to the exact commit in base.
 0001-use-standard-fabs-in-nlMath-header.patch
 0002-keep-mt-seed-state-32-bit.patch
+0003-fix-native-rvl-scalar-types.patch
+0004-preserve-native-chunk-addresses.patch
+0005-include-replay-pose-node-definitions.patch
+0006-expose-original-startup-core.patch
+0007-keep-native-arena-addresses.patch
+0008-use-standard-memory-header.patch
+0009-read-native-bus-clock-through-host.patch
+0010-use-host-placement-new.patch
+0011-adapt-original-free-list-allocator.patch
+0012-route-native-game-frees-by-arena-ownership.patch
+0013-check-native-startup-arena-and-sdk-heaps.patch

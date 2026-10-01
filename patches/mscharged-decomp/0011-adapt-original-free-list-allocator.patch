@@ -1,0 +1,362 @@
+Subject: Preserve original allocator with native pointer and block alignment
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+Keep the original start/end allocation, circular free-list, relative 32-bit trailer,
+coalescing, and free-memory statistics algorithms. Native addresses use uintptr_t;
+split blocks align to the native free-list type and its actual size replaces 12-byte
+assumptions. Native invalid arenas/alignment and allocation exhaustion throw errors
+instead of using target panic/file-dump paths or looping forever. This does not
+establish exact console allocation layout, full diagnostics, or thread safety.
+
+diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
+index 1ad86f7..b08c1c6 100644
+--- a/src/NL/MemAlloc.cpp
++++ b/src/NL/MemAlloc.cpp
+@@ -5,6 +5,25 @@
+ #include "NL/nlDLRing.h"
+ #include "NL/nlPrint.h"
+ 
++#include <stdint.h>
++#ifdef MSCHARGED_NATIVE
++#include <new>
++#include <stdexcept>
++static const u32 kBlockAlignment = alignof(FreeBlockList);
++static const u32 kAllocationPrefix = kBlockAlignment;
++
++static void ValidateNativeRequest(unsigned long size, unsigned int alignment)
++{
++    if (alignment == 0 || (alignment & (alignment - 1)) != 0)
++        throw std::invalid_argument("Game allocation alignment must be a nonzero power of two");
++    if (size > 0x3FFFFFFFu)
++        throw std::bad_alloc();
++}
++#else
++static const u32 kBlockAlignment = 4;
++static const u32 kAllocationPrefix = 4;
++#endif
++
+ 
+ bool g_bPrintMemoryNewLowWaterMarks;
+ bool g_bActivateMemoryLowWaterMarkChecking;
+@@ -30,6 +49,7 @@ public:
+     MemoryStats_802AF2E4* stats;
+ };
+ 
++#ifndef MSCHARGED_NATIVE
+ class FreePanicDumpCallback_802AF470
+ {
+ public:
+@@ -40,6 +60,8 @@ public:
+     u32 count;
+ };
+ 
++#endif
++
+ static inline unsigned int GetTotalFreeMemory(MemoryAllocator* allocator)
+ {
+     MemoryStats_802AF2E4 stats;
+@@ -66,10 +88,16 @@ static inline unsigned int GetLargestFreeBlock(MemoryAllocator* allocator)
+ 
+ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignment)
+ {
++#ifdef MSCHARGED_NATIVE
++    ValidateNativeRequest(size, alignment);
++    if (alignment < kBlockAlignment) alignment = kBlockAlignment;
++    if (size < sizeof(FreeBlockList)) size = sizeof(FreeBlockList);
++    if (m_free_block_list == 0) throw std::bad_alloc();
++#endif
+     FreeBlockList* start = nlDLRingGetStart(m_free_block_list);
+     const char* filename;
+     FreeBlockList* cur = start;
+-    u32 alignedSize = (size + 3) & ~3u;
++    u32 alignedSize = (size + kBlockAlignment - 1) & ~(kBlockAlignment - 1);
+     u32 prefix;
+     u32 usedSize;
+     u32 blockSize;
+@@ -79,8 +107,8 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
+         blockSize = cur->m_size;
+         if (blockSize > alignedSize)
+         {
+-            u32 address = nlAlignUp((u32)cur + 4, alignment);
+-            prefix = address - (u32)cur;
++            uintptr_t address = ((uintptr_t)cur + kAllocationPrefix + alignment - 1) & ~(uintptr_t)(alignment - 1);
++            prefix = address - (uintptr_t)cur;
+             usedSize = prefix + alignedSize;
+             if (usedSize <= blockSize)
+             {
+@@ -91,6 +119,9 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
+         cur = cur->m_next;
+         if (cur == start)
+         {
++#ifdef MSCHARGED_NATIVE
++            throw std::bad_alloc();
++#else
+             nlPrintf(sTotalFreeMemoryFormat, GetTotalFreeMemory(this));
+             nlPrintf(sLargestFreeBlockFormat, GetLargestFreeBlock(this));
+ 
+@@ -135,6 +166,7 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
+                 nlCloseFileDebug(file);
+             }
+             nlBreak();
++#endif
+         }
+     }
+ 
+@@ -154,9 +186,13 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
+     }
+ 
+     u32 remaining = cur->m_size - usedSize;
+-    if (remaining > 0xC)
++    if (remaining > sizeof(FreeBlockList))
+     {
++#ifdef MSCHARGED_NATIVE
++        FreeBlockList* newFree = new ((u8*)cur + usedSize) FreeBlockList;
++#else
+         FreeBlockList* newFree = (FreeBlockList*)((u8*)cur + usedSize);
++#endif
+         newFree->m_size = remaining;
+         if (m_free_block_list == 0 || cur == start)
+         {
+@@ -202,7 +238,7 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
+     if (suffixSize != 0)
+     {
+         header |= 0x40000000;
+-        *(u32*)(((u32)blockEnd + 3) & ~3u) = suffixSize;
++        *(u32*)(((uintptr_t)blockEnd + kBlockAlignment - 1) & ~(uintptr_t)(kBlockAlignment - 1)) = suffixSize;
+     }
+     *(u32*)((u8*)result - 4) = header;
+     m_04++;
+@@ -211,24 +247,30 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
+ 
+ void* MemoryAllocator::AllocateFromEnd(unsigned long size, unsigned int alignment)
+ {
++#ifdef MSCHARGED_NATIVE
++    ValidateNativeRequest(size, alignment);
++    if (alignment < kBlockAlignment) alignment = kBlockAlignment;
++    if (size < sizeof(FreeBlockList)) size = sizeof(FreeBlockList);
++    if (m_free_block_list == 0) throw std::bad_alloc();
++#endif
+     FreeBlockList* end = nlDLRingGetEnd(m_free_block_list);
+     const char* filename;
+-    u32 alignedSize = (size + 3) & ~3u;
+-    u32 alignMask = ~(alignment - 1);
++    u32 alignedSize = (size + kBlockAlignment - 1) & ~(kBlockAlignment - 1);
++    uintptr_t alignMask = ~(uintptr_t)(alignment - 1);
+     FreeBlockList* cur = end;
+     u32 blockSize;
+-    u32 offset;
+-    u32 requestSize;
++    uintptr_t offset;
++    uintptr_t requestSize;
+ 
+     for (;;)
+     {
+         blockSize = cur->m_size;
+         if (blockSize > alignedSize)
+         {
+-            u32 endAddress = (u32)cur + blockSize;
+-            u32 delta = endAddress - alignedSize;
++            uintptr_t endAddress = (uintptr_t)cur + blockSize;
++            uintptr_t delta = endAddress - alignedSize;
+             offset = delta & alignMask;
+-            requestSize = (endAddress - offset) + 4;
++            requestSize = (endAddress - offset) + kAllocationPrefix;
+             if (requestSize <= blockSize)
+             {
+                 break;
+@@ -238,6 +280,9 @@ void* MemoryAllocator::AllocateFromEnd(unsigned long size, unsigned int alignmen
+         cur = cur->m_next;
+         if (cur == end)
+         {
++#ifdef MSCHARGED_NATIVE
++            throw std::bad_alloc();
++#else
+             nlPrintf(sTotalFreeMemoryFormat, GetTotalFreeMemory(this));
+             nlPrintf(sLargestFreeBlockFormat, GetLargestFreeBlock(this));
+ 
+@@ -282,18 +327,19 @@ void* MemoryAllocator::AllocateFromEnd(unsigned long size, unsigned int alignmen
+                 nlCloseFileDebug(file);
+             }
+             nlBreak();
++#endif
+         }
+     }
+ 
+     u32 remaining = blockSize - requestSize;
+-    alignment = 4;
+-    if (remaining > 0xC)
++    alignment = kAllocationPrefix;
++    if (remaining > sizeof(FreeBlockList))
+     {
+         cur->m_size = remaining;
+     }
+     else
+     {
+-        alignment = remaining + 4;
++        alignment = remaining + kAllocationPrefix;
+         nlDLRingRemove(&m_free_block_list, cur);
+     }
+ 
+@@ -304,12 +350,12 @@ void* MemoryAllocator::AllocateFromEnd(unsigned long size, unsigned int alignmen
+         header = size | 0x80000000;
+         *(u32*)((u8*)result - 8) = alignment - 4;
+     }
+-    u32 suffixGap = requestSize - alignedSize - 4;
++    u32 suffixGap = requestSize - alignedSize - kAllocationPrefix;
+     u8* blockEnd = (u8*)result + size;
+     if (suffixGap != 0)
+     {
+         header |= 0x40000000;
+-        *(u32*)(((u32)blockEnd + 3) & ~3u) = suffixGap;
++        *(u32*)(((uintptr_t)blockEnd + kBlockAlignment - 1) & ~(uintptr_t)(kBlockAlignment - 1)) = suffixGap;
+     }
+     *(u32*)((u8*)result - 4) = header;
+     m_04++;
+@@ -323,12 +369,51 @@ void MemoryAllocator::Free(void* p)
+         return;
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    const uintptr_t address = (uintptr_t)p;
++    const uintptr_t base = (uintptr_t)m_0C;
++    const uintptr_t limit = base + m_08;
++    if (base == 0 || address < base + kAllocationPrefix || address >= limit
++        || (address & (kBlockAlignment - 1)) != 0)
++        throw std::invalid_argument("Game free lies outside its allocator");
++    const u32 tag = *(u32*)((u8*)p - 4);
++    const u32 payload = tag & 0x3FFFFFFF;
++    if (payload < sizeof(FreeBlockList))
++        throw std::invalid_argument("Invalid game allocation header");
++    const uintptr_t rounded = (payload + kBlockAlignment - 1) & ~(uintptr_t)(kBlockAlignment - 1);
++    if (rounded > limit - address)
++        throw std::invalid_argument("Game allocation size exceeds its arena");
++    uintptr_t suffix = 0;
++    if (tag & 0x40000000) {
++        if (limit - address - rounded < sizeof(u32))
++            throw std::invalid_argument("Game allocation suffix exceeds its arena");
++        suffix = *(u32*)((u8*)p + rounded);
++    }
++    uintptr_t prefix = 4;
++    if (tag & 0x80000000) prefix += *(u32*)((u8*)p - 8);
++    if (prefix < kAllocationPrefix || prefix > address - base
++        || suffix > limit - address - rounded)
++        throw std::invalid_argument("Invalid game allocation padding");
++    const uintptr_t begin = address - prefix;
++    const uintptr_t end = address + rounded + suffix;
++    if ((begin & (kBlockAlignment - 1)) || (end & (kBlockAlignment - 1)))
++        throw std::invalid_argument("Game free block alignment is invalid");
++    if (m_free_block_list != 0) {
++        FreeBlockList* current = m_free_block_list;
++        do {
++            const uintptr_t freeBegin = (uintptr_t)current;
++            if (begin < freeBegin + current->m_size && freeBegin < end)
++                throw std::invalid_argument("Game free overlaps an already free block");
++            current = current->m_next;
++        } while (current != m_free_block_list);
++    }
++#endif
+     FreeBlockList* block = (FreeBlockList*)((u8*)p - 4);
+     s32 size;
+     s32 header;
+     header = *(u32*)block;
+     size = header & 0x3FFFFFFF;
+-    size = (size + 3) & 0xFFFFFFFC;
++    size = (size + kBlockAlignment - 1) & ~(kBlockAlignment - 1);
+     if (header & 0x40000000)
+     {
+         size += *(u32*)((u8*)p + size);
+@@ -345,13 +430,16 @@ void MemoryAllocator::Free(void* p)
+ 
+ void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool fromEnd)
+ {
+-    if (alignment < 4)
++#ifdef MSCHARGED_NATIVE
++    ValidateNativeRequest(size, alignment);
++#endif
++    if (alignment < kBlockAlignment)
+     {
+-        alignment = 4;
++        alignment = kBlockAlignment;
+     }
+-    if (size < 0xC)
++    if (size < sizeof(FreeBlockList))
+     {
+-        size = 0xC;
++        size = sizeof(FreeBlockList);
+     }
+     if (fromEnd)
+     {
+@@ -362,6 +450,12 @@ void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool
+ 
+ void MemoryAllocator::Initialize(void* memory, unsigned int size)
+ {
++#ifdef MSCHARGED_NATIVE
++    if (memory == 0 || ((uintptr_t)memory & (kBlockAlignment - 1)) != 0
++        || size < sizeof(FreeBlockList) || (size & (kBlockAlignment - 1)) != 0
++        || size > 0x3FFFFFFFu)
++        throw std::invalid_argument("Invalid native game allocator arena");
++#endif
+     m_free_block_list = 0;
+     AddBlock(memory, size);
+     m_04 = 0;
+@@ -373,10 +467,17 @@ void MemoryAllocator::Initialize(void* memory, unsigned int size)
+ 
+ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
+ {
++#ifdef MSCHARGED_NATIVE
++    if (memory == 0 || ((uintptr_t)memory & (kBlockAlignment - 1)) != 0
++        || size < sizeof(FreeBlockList) || (size & (kBlockAlignment - 1)) != 0)
++        throw std::invalid_argument("Invalid native free block");
++    FreeBlockList* block = new (memory) FreeBlockList;
++#else
+     FreeBlockList* block = (FreeBlockList*)memory;
++#endif
+     block->m_size = size;
+     FreeBlockList* start = m_free_block_list == 0 ? 0 : m_free_block_list->m_next;
+-    if (start > block || start == 0)
++    if ((uintptr_t)start > (uintptr_t)block || start == 0)
+     {
+         FreeBlockList* head = m_free_block_list;
+         if (head == 0)
+@@ -398,7 +499,7 @@ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
+         FreeBlockList* iter = start->m_next;
+         while (iter != start)
+         {
+-            if (iter > block)
++            if ((uintptr_t)iter > (uintptr_t)block)
+             {
+                 break;
+             }
+@@ -416,7 +517,7 @@ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
+     }
+ 
+     FreeBlockList* next = block->m_next;
+-    if (next > block && (u8*)block + block->m_size == (u8*)next)
++    if ((uintptr_t)next > (uintptr_t)block && (u8*)block + block->m_size == (u8*)next)
+     {
+         block->m_size += next->m_size;
+         if (next->m_next == next)
+@@ -435,7 +536,7 @@ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
+     }
+ 
+     FreeBlockList* prev = block->m_prev;
+-    if (prev < block && (u8*)prev + prev->m_size == (u8*)block)
++    if ((uintptr_t)prev < (uintptr_t)block && (u8*)prev + prev->m_size == (u8*)block)
+     {
+         prev->m_size += block->m_size;
+         if (block->m_next == block)
+@@ -492,6 +593,7 @@ unsigned int MemoryAllocator::LargestFreeBlock()
+     return stats.largest;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ char sFreeMemoryDumpHeader[] = "count   address     size        allocNum    file(line)  description \n";
+ char sFreeMemoryDumpTotalFormat[] = "Total free memory: %d\n";
+ 
+@@ -513,3 +615,5 @@ void FreePanicDumpCallback_802AF470::Callback(FreeBlockList* block)
+     count = newCount;
+     total = newTotal;
+ }
++
++#endif // !MSCHARGED_NATIVE

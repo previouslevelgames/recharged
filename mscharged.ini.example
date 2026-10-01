@@ -3,3 +3,27 @@
 # ISO and RVZ are read directly; no extraction or conversion is needed.
 [game]
 disc = game/R4QE01.rvz
+
+# These game preferences can be saved now. The game runtime does not use them yet.
+# Language selects game menus/text when supported by the release. Automatic
+# selection will follow the computer's language with a supported regional fallback.
+language = auto
+
+[display]
+width = 1280
+height = 720
+fullscreen = false
+vsync = true
+backend = auto
+aspect = 16:9
+
+[audio]
+master_volume = 100
+music_volume = 100
+effects_volume = 100
+mute = false
+
+[controls]
+input = auto
+deadzone = 15
+rumble = true

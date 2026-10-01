@@ -1,0 +1,4 @@
+0001-isolate-core-build-dependencies.patch
+0002-guard-optional-rmlui-header.patch
+0003-declare-core-vi-link-dependency.patch
+0004-implement-mem2-and-os-memory-lifecycle.patch

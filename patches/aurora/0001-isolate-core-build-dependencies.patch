@@ -1,0 +1,37 @@
+Subject: Keep core-only builds independent of SQLite and parent test settings
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Aurora creates its SQLite target only when GX is enabled, but links it into
+the core unconditionally. With GX disabled this becomes an unintended system
+-lsqlite3 dependency. Only the GPU cache uses it; guard that link with GX.
+
+Disable dependency tests in directory scope without forcing the parent
+project's BUILD_TESTING cache entry off. The port must retain its own checks.
+
+diff --git a/cmake/aurora_core.cmake b/cmake/aurora_core.cmake
+--- a/cmake/aurora_core.cmake
++++ b/cmake/aurora_core.cmake
+@@ -28,7 +28,10 @@
+ target_compile_definitions(aurora_core PUBLIC AURORA TARGET_PC)
+ target_include_directories(aurora_core PUBLIC include)
+ target_link_libraries(aurora_core PUBLIC fmt::fmt ${AURORA_SDL3_TARGET} xxHash::xxhash)
+-target_link_libraries(aurora_core PRIVATE absl::btree absl::flat_hash_map sqlite3 Tracy::TracyClient)
++target_link_libraries(aurora_core PRIVATE absl::btree absl::flat_hash_map Tracy::TracyClient)
++if (AURORA_ENABLE_GX)
++    target_link_libraries(aurora_core PRIVATE sqlite3)
++endif ()
+ if (AURORA_ENABLE_GX AND AURORA_CACHE_USE_ZSTD)
+     target_compile_definitions(aurora_core PRIVATE AURORA_CACHE_USE_ZSTD)
+     target_link_libraries(aurora_core PRIVATE zstd::libzstd)
+diff --git a/extern/CMakeLists.txt b/extern/CMakeLists.txt
+--- a/extern/CMakeLists.txt
++++ b/extern/CMakeLists.txt
+@@ -1,7 +1,7 @@
+ include(FetchContent)
+ 
+ # Don't build tests for third party dependencies
+-set(BUILD_TESTING OFF CACHE INTERNAL "Build tests")
++set(BUILD_TESTING OFF)
+ set(SKIP_INSTALL_ALL ON)
+ if (WIN32 AND NOT DEFINED BUILD_SHARED_LIBS)
+   set(_USE_SHARED ON)

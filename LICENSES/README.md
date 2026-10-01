@@ -18,7 +18,11 @@ The [dependency inventory](../extern/README.md) records the 21 initial submodule
 their purposes, and their exact revisions. License texts remain in those
 upstream checkouts. The bootstrap compiles selected decomp utilities and nod,
 including its Cargo dependencies; Corrosion supplies the CMake/Rust integration.
-The remaining libraries are sources for future integration.
+The launcher also builds SDL3 and Dear ImGui and uses nod for disc checks.
+The optional Aurora core check also builds Aurora, Abseil, fmt, xxHash, and Tracy
+from prepared submodule sources. The remaining libraries are sources for future
+integration. SDL's included third-party codecs retain the notices in their
+source files.
 
 The following summaries identify principal notices, not a replacement for
 file-specific terms or notices on nested third-party material:
@@ -69,6 +73,11 @@ The selected `assets/launcher/header.png` comes from
 [SteamGridDB hero 8926, uploaded by Jiquita](https://www.steamgriddb.com/hero/8926).
 It is third-party artwork outside the CC0 dedication. The source metadata does
 not specify a redistribution license. See [artwork provenance](../assets/launcher/README.md).
+
+The launcher's Roboto Medium font comes from the pinned Dear ImGui font bundle
+and uses Apache 2.0, as recorded in its [font inventory](../extern/imgui/docs/FONTS.md).
+The original font, embedded notices, and full Apache 2.0 text are copied into
+the build's `assets/launcher/` directory. It is outside the CC0 dedication.
 
 Disc images and extracted game data are not distributed with this project.
 Players supply their own game data.

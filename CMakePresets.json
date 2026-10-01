@@ -1,60 +1,180 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": { "BUILD_TESTING": true }
+      "cacheVariables": {
+        "BUILD_TESTING": true
+      }
     },
     {
       "name": "debug",
       "inherits": "base",
-      "displayName": "Development bootstrap (Debug)",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+      "displayName": "Development build (Debug)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     },
     {
       "name": "release",
       "inherits": "base",
-      "displayName": "Development bootstrap (Release)",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+      "displayName": "Development build (Release)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "aurora",
+      "inherits": "debug",
+      "displayName": "Aurora host integration (Debug, GX pending)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_AURORA_HOST": true
+      }
+    },
+    {
+      "name": "startup",
+      "inherits": "aurora",
+      "displayName": "Original game startup prototype (Debug, not playable)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_GAME_STARTUP": true
+      }
     }
   ],
   "buildPresets": [
-    { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" }
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "aurora",
+      "configurePreset": "aurora"
+    },
+    {
+      "name": "startup",
+      "configurePreset": "startup"
+    }
   ],
   "testPresets": [
     {
       "name": "debug",
       "configurePreset": "debug",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     },
     {
       "name": "release",
       "configurePreset": "release",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "aurora",
+      "configurePreset": "aurora",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "startup",
+      "configurePreset": "startup",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ],
   "workflowPresets": [
     {
       "name": "debug",
       "steps": [
-        { "type": "configure", "name": "debug" },
-        { "type": "build", "name": "debug" },
-        { "type": "test", "name": "debug" }
+        {
+          "type": "configure",
+          "name": "debug"
+        },
+        {
+          "type": "build",
+          "name": "debug"
+        },
+        {
+          "type": "test",
+          "name": "debug"
+        }
       ]
     },
     {
       "name": "release",
       "steps": [
-        { "type": "configure", "name": "release" },
-        { "type": "build", "name": "release" },
-        { "type": "test", "name": "release" }
+        {
+          "type": "configure",
+          "name": "release"
+        },
+        {
+          "type": "build",
+          "name": "release"
+        },
+        {
+          "type": "test",
+          "name": "release"
+        }
+      ]
+    },
+    {
+      "name": "aurora",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "aurora"
+        },
+        {
+          "type": "build",
+          "name": "aurora"
+        },
+        {
+          "type": "test",
+          "name": "aurora"
+        }
+      ]
+    },
+    {
+      "name": "startup",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "startup"
+        },
+        {
+          "type": "build",
+          "name": "startup"
+        },
+        {
+          "type": "test",
+          "name": "startup"
+        }
       ]
     }
   ]

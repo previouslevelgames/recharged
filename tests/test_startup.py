@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Check original startup boundaries using synthetic Wii data only."""
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from disc_fixture import write_disc
+
+EXECUTABLE = Path(sys.argv.pop(1)).resolve()
+
+
+class StartupTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="mscharged-startup-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def run_startup(self, config, expected):
+        result = subprocess.run([str(EXECUTABLE), "--experimental-startup", "--config", str(config)],
+                                cwd=self.root, capture_output=True, text=True, timeout=20)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, expected, output)
+        return output
+
+    def config(self, language="auto", game_id=b"R4QE01"):
+        write_disc(self.root / "disc with spaces.iso", game_id=game_id)
+        config = self.root / "personal.ini"
+        config.write_text(f"; preserve this personal file\n[game]\ndisc = disc with spaces.iso\nlanguage = {language}\n")
+        return config
+
+    def test_original_memory_initialization_reaches_graphics_boundary(self):
+        config = self.config()
+        before = config.read_bytes()
+        output = self.run_startup(config, expected=3)
+        self.assertIn("Wii image mounted through Aurora DVD/nod", output)
+        self.assertIn("InitializeCore() -> nlInit() -> nlInitMemory()", output)
+        self.assertIn("Original nlInitMemory completed; MEM1 game arena:", output)
+        self.assertIn("MEM2 game arena:", output)
+        self.assertIn("reserved SDK heap initialized", output)
+        self.assertIn("STOPPED at unimplemented service: glplatPreStartup", output)
+        self.assertIn("No menu or match was reached", output)
+        self.assertEqual(config.read_bytes(), before)
+
+    def test_original_usa_language_selection(self):
+        for language, identifier in [("english", 0), ("french", 7), ("spanish", 8)]:
+            with self.subTest(language=language):
+                output = self.run_startup(self.config(language), expected=3)
+                self.assertIn(f"Original text language ID: {identifier}", output)
+
+    def test_other_region_is_not_runtime_supported(self):
+        output = self.run_startup(self.config(game_id=b"R4QP01"), expected=1)
+        self.assertIn("R4QE01 revision 1 only", output)
+        self.assertNotIn("Entering original", output)
+
+    def test_other_revision_is_not_runtime_supported(self):
+        config = self.config()
+        disc = self.root / "disc with spaces.iso"
+        data = bytearray(disc.read_bytes())
+        data[7] = 0
+        disc.write_bytes(data)
+        output = self.run_startup(config, expected=1)
+        self.assertIn("R4QE01 revision 1 only", output)
+
+    def test_unsupported_regional_language(self):
+        output = self.run_startup(self.config("japanese"), expected=1)
+        self.assertIn("not supported by this USA disc", output)
+        self.assertNotIn("Initializing Aurora", output)
+
+    def test_missing_disc_and_configuration_are_errors(self):
+        self.assertIn("FAILED:", self.run_startup(self.root / "missing.ini", expected=1))
+        config = self.config()
+        (self.root / "disc with spaces.iso").unlink()
+        self.assertIn("Cannot open disc", self.run_startup(config, expected=1))
+
+
+if __name__ == "__main__":
+    unittest.main()

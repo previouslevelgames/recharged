@@ -170,6 +170,42 @@ class SourcePreparationTests(unittest.TestCase):
         state = json.loads((source.parent / "manifest.json").read_text())
         self.assertEqual(len(state["inputs"]["sources"]), 2)
 
+    def decomp_fixture(self):
+        for name in ("include/types.h", "libs/sdk.h", "src/game.cpp", "config/build.yml", "orig/disc-note.txt", "README.md"):
+            path = self.upstream / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("synthetic fixture\n", newline="\n")
+        self.git(self.upstream, "add", ".")
+        self.git(self.upstream, "commit", "-qm", "Decomp fixture")
+        self.git(self.root, "-c", "protocol.file.allow=always", "submodule", "add",
+                 "-q", str(self.upstream), "extern/mscharged-decomp")
+        patch_dir = self.root / "patches/mscharged-decomp"
+        patch_dir.mkdir(parents=True)
+        pin = self.git(self.upstream, "rev-parse", "HEAD").strip()
+        (patch_dir / "base").write_text(pin + "\n", newline="\n")
+        (patch_dir / "series").write_text("", newline="\n")
+        return patch_dir
+
+    def test_decomp_export_contains_only_selected_source_roots(self):
+        self.decomp_fixture()
+        source = prepare(self.root, self.build, "mscharged-decomp")
+        self.assertEqual({path.name for path in source.iterdir()}, {"include", "libs", "src"})
+        self.assertTrue((source / "src/game.cpp").is_file())
+        self.assertTrue((self.root / "extern/mscharged-decomp/config/build.yml").is_file())
+        self.assertEqual(self.git(self.root / "extern/mscharged-decomp", "status", "--porcelain"), "")
+        state = json.loads((source.parent / "manifest.json").read_text())
+        self.assertEqual(state["inputs"]["export_roots"], ["include", "libs", "src"])
+        prepare(self.root, self.build, "mscharged-decomp", check=True)
+
+    def test_decomp_patch_cannot_reintroduce_omitted_directories(self):
+        patch_dir = self.decomp_fixture()
+        (patch_dir / "outside.patch").write_text(
+            "--- /dev/null\n+++ b/README.md\n@@ -0,0 +1 @@\n+Outside the selected build source\n", newline="\n")
+        (patch_dir / "series").write_text("outside.patch\n", newline="\n")
+        with self.assertRaisesRegex(PreparationError, "outside the selected source directories"):
+            prepare(self.root, self.build, "mscharged-decomp")
+        self.assertFalse((self.build / "prepared/mscharged-decomp").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

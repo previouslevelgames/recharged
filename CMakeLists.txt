@@ -9,6 +9,15 @@ endif()
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
 find_package(Git REQUIRED)
 include(CTest)
+option(MSCHARGED_BUILD_LAUNCHER "Build the graphical launcher" ON)
+option(MSCHARGED_BUILD_AURORA_HOST "Build the Aurora core initialization check (no GX rendering)" OFF)
+option(MSCHARGED_BUILD_GAME_STARTUP "Build the experimental original-game startup path (not playable)" OFF)
+if(MSCHARGED_BUILD_GAME_STARTUP)
+    if(NOT MSCHARGED_BUILD_LAUNCHER)
+        message(FATAL_ERROR "The startup prototype currently runs through mscharged; enable MSCHARGED_BUILD_LAUNCHER")
+    endif()
+    set(MSCHARGED_BUILD_AURORA_HOST ON)
+endif()
 
 set(MSCHARGED_PREPARER "${CMAKE_CURRENT_SOURCE_DIR}/tools/prepare_sources.py")
 set(MSCHARGED_PATCHES "${CMAKE_CURRENT_SOURCE_DIR}/patches/mscharged-decomp")
@@ -80,13 +89,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_foundation PRIVATE -Wno-unknown-pragmas)
 endif()
 
-add_executable(mscharged-bootstrap
-    src/bootstrap/main.cpp
+add_library(charged_host STATIC
     src/bootstrap/config.cpp
     src/platform/disc.cpp
 )
-target_include_directories(mscharged-bootstrap PRIVATE src)
-target_link_libraries(mscharged-bootstrap PRIVATE charged_foundation nod::nod)
+target_include_directories(charged_host PUBLIC src)
+target_compile_features(charged_host PUBLIC cxx_std_17)
+target_link_libraries(charged_host PRIVATE nod::nod)
+add_executable(mscharged-bootstrap src/bootstrap/main.cpp)
+target_link_libraries(mscharged-bootstrap PRIVATE charged_foundation charged_host)
 configure_file(assets/launcher/header.png assets/launcher/header.png COPYONLY)
 set(MSCHARGED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mscharged")
 add_custom_target(update_build_version
@@ -100,11 +111,26 @@ add_custom_target(update_build_version
     COMMENT "Record the port version and current source revision"
     VERBATIM
 )
-add_dependencies(mscharged-bootstrap update_build_version)
-target_include_directories(mscharged-bootstrap PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_compile_definitions(mscharged-bootstrap PRIVATE
+add_library(mscharged_build_info INTERFACE)
+add_dependencies(mscharged_build_info update_build_version)
+target_include_directories(mscharged_build_info INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_compile_definitions(mscharged_build_info INTERFACE
     MSCHARGED_BUILD_CONFIG="$<CONFIG>"
     MSCHARGED_DECOMP_REVISION="${MSCHARGED_DECOMP_REVISION}")
+target_link_libraries(mscharged-bootstrap PRIVATE mscharged_build_info)
+
+if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_AURORA_HOST)
+    include(cmake/SDL.cmake)
+endif()
+if(MSCHARGED_BUILD_LAUNCHER)
+    include(cmake/Launcher.cmake)
+endif()
+if(MSCHARGED_BUILD_AURORA_HOST)
+    include(cmake/AuroraHost.cmake)
+endif()
+if(MSCHARGED_BUILD_GAME_STARTUP)
+    include(cmake/GameStartup.cmake)
+endif()
 
 if(BUILD_TESTING)
     add_executable(foundation_tests tests/foundation.cpp)
@@ -115,6 +141,9 @@ if(BUILD_TESTING)
     add_test(NAME bootstrap_cli
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                 "$<TARGET_FILE:mscharged-bootstrap>")
+    add_executable(config_tests tests/config.cpp)
+    target_link_libraries(config_tests PRIVATE charged_host)
+    add_test(NAME configuration COMMAND config_tests)
 endif()
 
-message(STATUS "Configured the development bootstrap; the complete game, Aurora runtime, and UI are not built yet")
+message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}); playable game and GX rendering remain pending")

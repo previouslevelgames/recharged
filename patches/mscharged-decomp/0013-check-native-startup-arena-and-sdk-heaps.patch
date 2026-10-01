@@ -1,0 +1,54 @@
+Subject: Validate native startup arena allocation and reserved SDK heap
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+Keep original MEM1/MEM2 allocation order and reserve sizes. Validate capacities,
+allocation pointers, and SDK heap setup before memset or allocator initialization
+so a native failure is visible without corrupting memory or reporting success.
+
+diff --git a/src/NL/plat/nlMemory.cpp b/src/NL/plat/nlMemory.cpp
+index 0736957..a1bd363 100644
+--- a/src/NL/plat/nlMemory.cpp
++++ b/src/NL/plat/nlMemory.cpp
+@@ -10,6 +10,9 @@
+ 
+ #include "NL/MemAlloc.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_NATIVE
++#include <stdexcept>
++#endif
+ 
+ MemoryAllocator StandardAllocator;
+ 
+@@ -35,12 +38,30 @@ void nlInitMemory()
+             void* arenaLo = i != 0 ? OSGetMEM1ArenaLo() : OSGetMEM2ArenaLo();
+             void* arenaHi = i != 0 ? OSGetMEM1ArenaHi() : OSGetMEM2ArenaHi();
+ 
++#ifdef MSCHARGED_NATIVE
++            const uintptr_t low = (uintptr_t)arenaLo;
++            const uintptr_t high = (uintptr_t)arenaHi;
++            const u32 reserve = i == 0 ? reserveSize : 0x400;
++            if (low == 0 || high <= low || high - low <= reserve || high - low > 0x3FFFFFFFu)
++                throw std::runtime_error("Game memory arena has invalid capacity");
++#endif
+             u32 heapSize = (u32)((u8*)arenaHi - (u8*)arenaLo) - (i == 0 ? reserveSize : 0x400);
+             void* ptr = (i != 0 ? OSAllocFromMEM1ArenaLo : OSAllocFromMEM2ArenaLo)(heapSize, 32);
+ 
++#ifdef MSCHARGED_NATIVE
++            if (ptr == 0) throw std::runtime_error("Game arena allocation failed");
++#endif
+             if (i == 0)
+             {
+-                OSSetCurrentHeap(OSCreateHeap(OSInitAlloc(OSGetMEM2ArenaLo(), OSGetMEM2ArenaHi(), 1), OSGetMEM2ArenaHi()));
++                void* heapStart = OSInitAlloc(OSGetMEM2ArenaLo(), OSGetMEM2ArenaHi(), 1);
++#ifdef MSCHARGED_NATIVE
++                if (heapStart == 0) throw std::runtime_error("SDK heap descriptor allocation failed");
++#endif
++                OSHeapHandle heap = OSCreateHeap(heapStart, OSGetMEM2ArenaHi());
++#ifdef MSCHARGED_NATIVE
++                if (heap < 0) throw std::runtime_error("SDK reserve heap creation failed");
++#endif
++                OSSetCurrentHeap(heap);
+             }
+ 
+             memset(ptr, 0xCD, heapSize);

@@ -1,0 +1,19 @@
+Subject: Include RmlUi internals only when the optional UI is enabled
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+window.cpp includes rmlui.hpp unconditionally. That header pulls in WebGPU
+types even with GX and RmlUi disabled, preventing a core-only build without
+Dawn headers. Its uses are already guarded; apply the same guard to the include.
+
+diff --git a/lib/window.cpp b/lib/window.cpp
+--- a/lib/window.cpp
++++ b/lib/window.cpp
+@@ -35,6 +35,8 @@
+ #include <string>
+ #include <vector>
+ 
++#ifdef AURORA_ENABLE_RMLUI
+ #include "rmlui.hpp"
++#endif
+ #include "time_internal.hpp"
+ #include "dolphin/vi/vi_internal.hpp"

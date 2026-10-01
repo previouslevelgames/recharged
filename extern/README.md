@@ -9,24 +9,31 @@ Shallow clones are preferred to keep initial downloads manageable. Fetch more
 history explicitly when an upstream comparison or patch rebase needs it.
 
 The bootstrap compiles selected Charged utilities and nod's disc reader using
-Corrosion. The remaining sources are checked out for runtime, graphics, UI, and
-test integration. Optional components may be removed after their role is
+Corrosion. The graphical launcher builds SDL3 and Dear ImGui, uses nod for disc
+checks, and copies the Roboto Medium font from ImGui's font bundle. The remaining
+sources are checked out for runtime, graphics, UI, and test integration. The
+optional Aurora core check additionally builds Aurora, Abseil, fmt, xxHash,
+and Tracy. The experimental startup also enables Aurora DVD through the same
+prepared nod target and real MEM2 allocation through the Aurora patch series.
+It builds the patched original game allocator and memory initialization.
+See [runtime development](../docs/RUNTIME.md).
+Optional components may be removed after their role is
 settled. Adding a source submodule does not automatically make an upstream
 FetchContent declaration use it.
 
 | Source | Selected baseline | Commit | Purpose | Local notices |
 | --- | --- | --- | --- | --- |
-| [mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) | Development snapshot | [`de9c1c8a3673`](https://github.com/yannicksuter/mscharged-decomp/commit/de9c1c8a367334ee079a7989f1b3967883d830c9) | Available Wii game source; bootstrap subset only | [LICENSE](mscharged-decomp/LICENSE) |
-| [aurora](https://github.com/encounter/aurora) | Development snapshot | [`d664382f5700`](https://github.com/encounter/aurora/commit/d664382f57002fbff143911c81b06b7e7a4b3ab4) | Planned console API compatibility and runtime | [LICENSE](aurora/LICENSE) |
+| [mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) | Development snapshot | [`de9c1c8a3673`](https://github.com/yannicksuter/mscharged-decomp/commit/de9c1c8a367334ee079a7989f1b3967883d830c9) | Available utilities and an optional original startup prefix; complete native game pending | [LICENSE](mscharged-decomp/LICENSE) |
+| [aurora](https://github.com/encounter/aurora) | Development snapshot | [`d664382f5700`](https://github.com/encounter/aurora/commit/d664382f57002fbff143911c81b06b7e7a4b3ab4) | Optional host checks, Wii DVD mount, and patched MEM2 arenas; game/GX runtime integration pending | [LICENSE](aurora/LICENSE) |
 | [dawn](https://github.com/encounter/dawn) | Aurora-selected commit | [`1155e0ed5311`](https://github.com/encounter/dawn/commit/1155e0ed531126f33a1279afa029349651ca1c93) | Planned WebGPU rendering backend | [LICENSE](dawn/LICENSE) |
-| [sdl](https://github.com/libsdl-org/SDL) | 3.4.10 | [`8e37db5e797b`](https://github.com/libsdl-org/SDL/commit/8e37db5e797b6167f3a00d697d816a684bd259c7) | Planned window, input, and host platform services | [LICENSE.txt](sdl/LICENSE.txt) |
+| [sdl](https://github.com/libsdl-org/SDL) | 3.4.10 | [`8e37db5e797b`](https://github.com/libsdl-org/SDL/commit/8e37db5e797b6167f3a00d697d816a684bd259c7) | Launcher window, rendering, dialogs, and controller input | [LICENSE.txt](sdl/LICENSE.txt) |
 | [abseil-cpp](https://github.com/abseil/abseil-cpp) | 20240722.0 | [`4447c7562e3b`](https://github.com/abseil/abseil-cpp/commit/4447c7562e3bc702ade25105912dce503f0c4010) | Aurora standalone utility fallback | [LICENSE](abseil-cpp/LICENSE) |
 | [xxhash](https://github.com/Cyan4973/xxHash) | 0.8.3 | [`e626a72bc232`](https://github.com/Cyan4973/xxHash/commit/e626a72bc2321cd320e953a0ccf1584cad60f363) | Aurora hashing | [LICENSE](xxhash/LICENSE) |
 | [fmt](https://github.com/fmtlib/fmt) | 12.1.0 | [`407c905e45ad`](https://github.com/fmtlib/fmt/commit/407c905e45ad75fc29bf0f9bb7c5c2fd3475976f) | Aurora text formatting | [LICENSE](fmt/LICENSE) |
 | [zlib-ng](https://github.com/zlib-ng/zlib-ng) | 2.3.3 | [`12731092979c`](https://github.com/zlib-ng/zlib-ng/commit/12731092979c6d07f42da27da673a9f6c7b13586) | Aurora compression provider | [LICENSE.md](zlib-ng/LICENSE.md) |
 | [libpng](https://github.com/pnggroup/libpng) | 1.6.58 | [`3061454d980d`](https://github.com/pnggroup/libpng/commit/3061454d980de7d53608f594194cfac722721d2a) | PNG image support | [LICENSE](libpng/LICENSE) |
 | [freetype](https://github.com/freetype/freetype) | 2.14.3 | [`0a0221a1347e`](https://github.com/freetype/freetype/commit/0a0221a1347e2f1e07c395263540026e9a0aa7c7) | UI font rasterization | [LICENSE.TXT](freetype/LICENSE.TXT) |
-| [imgui](https://github.com/ocornut/imgui) | 1.91.9b docking | [`4806a1924ff6`](https://github.com/ocornut/imgui/commit/4806a1924ff6181180bf5e4b8b79ab4394118875) | Debug and development UI | [LICENSE.txt](imgui/LICENSE.txt) |
+| [imgui](https://github.com/ocornut/imgui) | 1.91.9b docking | [`4806a1924ff6`](https://github.com/ocornut/imgui/commit/4806a1924ff6181180bf5e4b8b79ab4394118875) | Launcher interface; bundled Roboto font has separate Apache 2.0 terms | [LICENSE.txt](imgui/LICENSE.txt) |
 | [rmlui](https://github.com/encounter/RmlUi) | Aurora-selected commit | [`f00a0fee3839`](https://github.com/encounter/RmlUi/commit/f00a0fee38391b2f927114e11bea18dc0a7dba1e) | Optional HTML/CSS-style in-game UI | [LICENSE.txt](rmlui/LICENSE.txt) |
 | [sqlite](https://github.com/sqlite/sqlite) | 3.51.3 | [`a5333afb9ad1`](https://github.com/sqlite/sqlite/commit/a5333afb9ad1aa473f8963b92caeaa955f47dc74) | Aurora shader/cache database | [LICENSE.md](sqlite/LICENSE.md) |
 | [zstd](https://github.com/facebook/zstd) | 1.5.7 | [`f8745da6ff1a`](https://github.com/facebook/zstd/commit/f8745da6ff1ad1e7bab384bd1f9d742439278e99) | Cache and data compression | [LICENSE](zstd/LICENSE) |
@@ -46,6 +53,13 @@ FetchContent declaration use it.
   `extern/CMakeLists.txt`, `cmake/AuroraDependencyVersions.cmake`, and test setup.
   Corrosion follows nod's pinned CMake requirement. Qt components use the same
   publicly available 6.8.4 source-release family.
+- The Aurora core check supplies prepared SDL, Abseil, fmt, xxHash, and Tracy
+  targets before configuring Aurora and disables extra FetchContent downloads.
+  GX, DVD, CARD, THP, and RmlUi are disabled for that check. Dawn, the image/font
+  libraries, SQLite, and GPU caches remain separate integration work.
+  The `startup` preset enables DVD but keeps the other components disabled.
+  SDL's pinned build expects legacy macro escaping; `cmake/SDL.cmake` scopes
+  policy `CMP0219` to `OLD` on CMake 4.4+ without changing its checkout.
 - Dawn and RmlUi use the compatibility forks selected by Aurora, under
   `encounter/dawn` and `encounter/RmlUi`. Their original projects are
   [Dawn](https://dawn.googlesource.com/dawn) and
@@ -59,9 +73,9 @@ FetchContent declaration use it.
   source during integration.
 - Aurora already contains a THP decoder and its card implementation. A separate
   FFmpeg or kabufuda checkout is not required by the selected Aurora graph.
-- The Qt modules provide a possible separate desktop settings application;
-  Dear ImGui and RmlUi cover runtime UI options. No UI backend has been selected
-  as a shipping requirement yet.
+- The current launcher uses Dear ImGui's SDL3 and SDLRenderer3 backends. SDL's
+  built-in PNG reader loads the header image. Qt and RmlUi remain optional
+  sources for later UI work; neither is built by the current targets.
 
 ## Dependencies owned by these projects
 
@@ -79,7 +93,7 @@ Sharing compression providers with Aurora remains runtime integration work.
 Aurora can find system libraries or fetch/prebuild its own copies. Runtime
 integration must deliberately select the prepared local providers, reconcile
 Dawn's own Abseil/GoogleTest dependencies, and avoid unrecorded moving downloads.
-The current bootstrap does not fetch additional Git repositories while building.
+The current targets do not fetch additional Git repositories while building.
 
 To fetch the top-level sources at their recorded pins:
 

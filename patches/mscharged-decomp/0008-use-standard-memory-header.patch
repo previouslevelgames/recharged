@@ -1,0 +1,60 @@
+Subject: Use the standard memory/string header in native source
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+The CodeWarrior MSL mem.h dependency is not supplied by the host toolchain.
+Use string.h for its standard memory/string declarations. No MSL compatibility
+shim is needed for these include sites.
+
+diff --git a/include/Game/DB/BasicGameInfo.h b/include/Game/DB/BasicGameInfo.h
+index 202b388..482670b 100644
+--- a/include/Game/DB/BasicGameInfo.h
++++ b/include/Game/DB/BasicGameInfo.h
+@@ -1,7 +1,7 @@
+ #ifndef GAME_DB_BASICGAMEINFO_H
+ #define GAME_DB_BASICGAMEINFO_H
+ 
+-#include <mem.h>
++#include <string.h>
+ 
+ #include "Game/DB/StatsTracker.h"
+ #include "types.h"
+diff --git a/include/Game/DB/StatsTracker.h b/include/Game/DB/StatsTracker.h
+index 7133c1e..8463f4c 100644
+--- a/include/Game/DB/StatsTracker.h
++++ b/include/Game/DB/StatsTracker.h
+@@ -1,7 +1,7 @@
+ #ifndef GAME_DB_STATSTRACKER_H
+ #define GAME_DB_STATSTRACKER_H
+ 
+-#include <mem.h>
++#include <string.h>
+ 
+ #include "Game/PassBallData.h"
+ #include "Game/DB/Simmer.h"
+diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
+index c549a53..5cef23d 100644
+--- a/src/Game/Formation.cpp
++++ b/src/Game/Formation.cpp
+@@ -19,7 +19,7 @@
+ #include "NL/nlPrint.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/Game.h"
+-#include <mem.h>
++#include <string.h>
+ 
+ extern "C" float fn_8002E1B0(cFielder*);
+ 
+diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
+index cf4ebf9..bcaa97e 100644
+--- a/src/NL/nlString.cpp
++++ b/src/NL/nlString.cpp
+@@ -2,7 +2,7 @@
+ 
+ #include "NL/nlString.h"
+ 
+-#include <mem.h>
++#include <string.h>
+ #include "NL/nlstring_tmpl.h"
+ 
+ u32 nlStringHash(const char* str)

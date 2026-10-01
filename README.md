@@ -9,11 +9,15 @@ presentation while adapting it to modern hardware.
 
 ## Status
 
-An initial native development bootstrap builds a small subset of the decompiled
-utilities and reads Wii ISO/RVZ images through nod. Pinned source dependencies,
-an ordered patch preparation step, and focused checks are in place. There is no
-playable game build yet; Aurora's runtime and the UI libraries have not been
-integrated into an executable.
+A graphical development launcher provides disc selection, ISO/RVZ checks,
+settings pages, and controller detection. It uses pinned SDL3 and Dear ImGui
+sources. A separate bootstrap builds a small subset of the decompiled utilities.
+An ordered patch preparation step and focused checks are in place.
+**There is no playable game build yet.** An optional experimental startup build
+initializes Aurora, mounts the Wii image, and completes the original MEM1/MEM2
+allocator initialization. It currently stops at `glplatPreStartup`, where native
+GX graphics must be connected. Game rendering and the remaining startup stages
+are pending; no menu is reached.
 
 **The decompilation is not yet complete or fully linked.** Some functions and
 translation units may be missing, unfinished, or unsuitable for native
@@ -26,25 +30,28 @@ The platforms and features below remain development goals.
 ## Build the first development version
 
 The current port version is **0.0.1-dev**. With Git, Python 3.10+, CMake 3.25+,
-Ninja, C/C++17 compilers, and Rust/Cargo 1.85+ installed, run from the repository root:
+Ninja, C/C++17 compilers, Rust/Cargo 1.85+, and the platform's SDL build
+prerequisites installed, run from the repository root:
 
 ```sh
-git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion
+git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
 cmake --workflow --preset release
-./build/release/mscharged-bootstrap --version
-./build/release/mscharged-bootstrap --self-test
+./build/release/mscharged
 ```
 
-The workflow prepares the patched sources, compiles, and runs the tests. This
-build runs native utility checks and can inspect a configured disc image; game
-startup and rendering are still pending. The first build downloads Rust crates
-at the versions recorded in nod's lockfile.
+The workflow prepares the patched sources, compiles, and runs the tests. The
+launcher opens Game, Display, Audio, Controls, and About pages. Disc checks,
+settings persistence, and controller detection work; game display, audio,
+language, and input options are saved preferences awaiting runtime integration.
+The first build downloads Rust crates at the versions recorded in nod's lockfile.
 The executable includes the port's Git revision in its version, with `.dirty`
 appended when the checkout has uncommitted changes. Port versions are independent
 of decompilation releases.
 
 See [build instructions](docs/BUILDING.md) for Windows, Debug builds, and version
 details. Linux builds have been verified; Windows and macOS remain unvalidated.
+For Debug, use `cmake --workflow --preset debug` and `./build/debug/mscharged`.
+The diagnostic CLI remains available as `mscharged-bootstrap`.
 
 ## Goals
 
@@ -68,6 +75,9 @@ details. Linux builds have been verified; Windows and macOS remain unvalidated.
    display and control options.
 
 Game installation instructions will follow when a playable build is available.
+The [runtime development plan](docs/RUNTIME.md) covers work that can proceed
+before the decompilation is complete, including an optional Aurora core check and
+[experimental original startup](docs/RUNTIME.md#experimental-original-startup).
 
 ## Source projects and dependencies
 
@@ -116,6 +126,8 @@ The build sequence is:
    modifications.
 2. Export the committed source into a clean, generated build directory,
    including any required nested dependencies at their recorded revisions.
+   The decomp export contains only `include/`, `libs/`, and `src/`; its matching
+   tools, configuration, original game data, and other decomp-only files are omitted.
 3. Apply each dependency's patch series in an explicit order. Stop if a patch
    fails; do not compile a partially patched tree.
 4. Configure and compile the prepared sources together with this repository's
@@ -138,6 +150,8 @@ Decompilation releases, starting with the planned **1.0** release, will provide
 named baselines for the port. The submodule will record the exact commit behind
 the selected release. Until that release exists, development may use an
 explicitly selected development commit under the same pinning policy.
+An annotated development tag can name an incomplete snapshot before `1.0`;
+the exact commit remains authoritative for both the submodule and patch series.
 
 The decompilation can continue to fix matching issues, improve documentation,
 and clean up code while the port keeps using its tested baseline. Adopting a
@@ -158,7 +172,9 @@ Place an **ISO or RVZ** from your own copy of Mario Strikers Charged in `game/`.
 Only `game/.gitkeep` is intended for Git; disc images and other local contents
 are ignored. Images elsewhere on your system can also be used without copying.
 
-Copy `mscharged.ini.example` to `mscharged.ini` and set its `[game] disc` path:
+In the launcher, browse for your image or drop it onto the window, then click
+**Save settings**. You can also copy `mscharged.ini.example` to `mscharged.ini`
+and set its `[game] disc` path manually:
 
 ```ini
 [game]
@@ -167,20 +183,20 @@ disc = game/R4QE01.rvz
 
 The personalized `mscharged.ini` is ignored by Git. Paths are relative to the
 INI file, and ISO/RVZ images are read directly without conversion or extraction.
-Run from the repository root:
+Open the launcher from the repository root:
 
 ```sh
-./build/release/mscharged-bootstrap
+./build/release/mscharged
 ```
 
-This checks the disc identity and opens its game data partition. The current
+The launcher checks the disc identity and opens its game data partition. The current
 source baseline is **USA `R4QE01`, revision 1**; other Charged regions/revisions
 can be inspected but their asset compatibility is unverified. This check does
 not verify every disc block or start the game. See [disc setup options](docs/BUILDING.md#configure-your-disc).
 
 Disc images and extracted game data are not included or distributed with this
-project. The selected [launcher header artwork](assets/launcher/README.md) has
-separate source attribution; the graphical launcher is still pending.
+project. The [launcher header artwork and font](assets/launcher/README.md) have
+separate source attribution.
 
 ## Contributing
 

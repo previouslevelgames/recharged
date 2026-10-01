@@ -1,0 +1,96 @@
+Subject: Keep RVL scalar and clock fields at console widths
+
+Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+
+RVL long typedefs widen on LP64. Use fixed-width 32-bit fields and the
+standard pointer-width type. Avoid native POSIX and C++ character-type name
+collisions. This does not adapt pointer-bearing SDK structures or Wii services.
+
+diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+index 515f14a..b404cbd 100644
+--- a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
++++ b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+@@ -1,24 +1,26 @@
+ #ifndef REVOLUTION_OS_TIME_FWD_H
+ #define REVOLUTION_OS_TIME_FWD_H
+ 
++#include <stdint.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
+-typedef unsigned long OSTick;
++typedef uint32_t OSTick;
+ typedef signed long long OSTime;
+ 
+ typedef struct OSCalendarTime {
+-    signed long sec;
+-    signed long min;
+-    signed long hour;
+-    signed long mday;
+-    signed long month;
+-    signed long year;
+-    signed long wday;
+-    signed long yday;
+-    signed long msec;
+-    signed long usec;
++    int32_t sec;
++    int32_t min;
++    int32_t hour;
++    int32_t mday;
++    int32_t month;
++    int32_t year;
++    int32_t wday;
++    int32_t yday;
++    int32_t msec;
++    int32_t usec;
+ } OSCalendarTime;
+ 
+ OSTime OSGetTime(void);
+diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
+index aa7de73..794b1d9 100644
+--- a/libs/RVL_SDK/include/revolution/types.h
++++ b/libs/RVL_SDK/include/revolution/types.h
+@@ -2,14 +2,15 @@
+ #define REVOLUTION_TYPES_H
+ 
+ #include <decomp.h>
++#include <stdint.h>
+ 
+ typedef signed char s8;
+ typedef signed short s16;
+-typedef signed long s32;
++typedef int32_t s32;
+ typedef signed long long s64;
+ typedef unsigned char u8;
+ typedef unsigned short u16;
+-typedef unsigned long u32;
++typedef uint32_t u32;
+ typedef unsigned long long u64;
+ 
+ typedef volatile u8 vu8;
+@@ -54,16 +55,21 @@ typedef unsigned short wchar_t;
+ #define NULL 0
+ #endif
+ 
+-typedef unsigned long uintptr_t;
+ typedef unsigned short int byte2_t;
+ typedef unsigned char byte1_t;
+ typedef byte1_t byte_t;
+-typedef unsigned long int byte4_t;
++typedef uint32_t byte4_t;
++#ifndef MSCHARGED_NATIVE
+ typedef unsigned long int register_t;
++#endif
+ 
+ typedef unsigned char char_t;
++#ifndef __cpp_char8_t
+ typedef unsigned char char8_t;
++#endif
++#ifndef __cplusplus
+ typedef unsigned short char16_t;
++#endif
+ 
+ #define ALIGN(x) __attribute__((aligned(x)))
+ #define ATTRIBUTE_ALIGN(x) ALIGN(x)
