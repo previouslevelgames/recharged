@@ -16,5 +16,5 @@ struct Texture
     // Pixel tiles and RGB5A3 palette words retain their original Wii byte order.
     std::vector<std::uint8_t> pixels, palette;
 };
-std::vector<Texture> ReadTextureBundle(Bytes data);
+std::vector<Texture> ReadTextureBundle(Bytes data, const std::vector<std::uint32_t>& selected = {});
 }

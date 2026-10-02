@@ -1,0 +1,971 @@
+Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Matrix handles address live GL matrix storage. Preserve their width through
+allocation, global state, model packets, draw/text callers, render caches and
+shadow-lighting hooks; keep console typedefs and serialized u32 indices intact.
+Select the original matrix access/model propagation without material/display-list
+methods. Native access validates aligned, active-frame or live-resource ranges
+before dereferencing, and ordered memory shutdown resets the identity handle.
+A range check does not give handles unique identities after address reuse.
+Unselected loaders/materials and missing lighting globals still require their
+own integration; widened declarations do not make those units linkable.
+
+diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting.h
+index 99c891e..b3e8b86 100644
+--- a/include/Game/GameObjectLighting.h
++++ b/include/Game/GameObjectLighting.h
+@@ -2,6 +2,7 @@
+ #define _GAMEOBJECTLIGHTING_H_
+ 
+ #include "NL/nlColour.h"
++#include "NL/gl/glMatrixHandle.h"
+ #include "types.h"
+ 
+ class GLView;
+@@ -50,7 +51,7 @@ extern "C"
+     void SetGameObjectAmbientLightingEnabled(s32 enabled);
+     void ApplyGameObjectShadowLighting(s32 skinned, u32 shadowLevel);
+     void RestoreGameObjectShadowLighting();
+-    void SetGameObjectShadowModelMatrix(u32 matrix);
++    void SetGameObjectShadowModelMatrix(glMatrixHandle matrix);
+     void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix);
+ }
+ 
+diff --git a/include/NL/gl/glDraw2.h b/include/NL/gl/glDraw2.h
+index 5bc0470..ad0ea01 100644
+--- a/include/NL/gl/glDraw2.h
++++ b/include/NL/gl/glDraw2.h
+@@ -2,6 +2,7 @@
+ #define NL_GL_GLDRAW2_H
+ 
+ #include "NL/nlColour.h"
++#include "NL/gl/glMatrixHandle.h"
+ #include "NL/nlMath.h"
+ 
+ class GLView;
+@@ -9,7 +10,7 @@ class GLView;
+ class glPoly2
+ {
+ public:
+-    bool Attach(GLView* view, int layer, unsigned long* pMatrixHandle);
++    bool Attach(GLView* view, int layer, glMatrixHandle* pMatrixHandle);
+     void FullCoverage(const nlColour& col, float z);
+     void SetupRectangle(float x, float y, float w, float h, float z);
+     void SetupRotatedRectangle(float cx, float cy, float w, float h, float angle, float z);
+@@ -22,10 +23,10 @@ public:
+ }; // size: 0x54
+ 
+ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
+-    unsigned long* pMatrixHandle);
++    glMatrixHandle* pMatrixHandle);
+ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+-    glPoly2* pPolys, unsigned long* pMatrixHandle);
++    glPoly2* pPolys, glMatrixHandle* pMatrixHandle);
+ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+-    glPoly2* pPolys, const void* pUserData, unsigned long* pMatrixHandle);
++    glPoly2* pPolys, const void* pUserData, glMatrixHandle* pMatrixHandle);
+ 
+ #endif // NL_GL_GLDRAW2_H
+diff --git a/include/NL/gl/glMatrix.h b/include/NL/gl/glMatrix.h
+index 1654d66..8e04f4f 100644
+--- a/include/NL/gl/glMatrix.h
++++ b/include/NL/gl/glMatrix.h
+@@ -2,21 +2,25 @@
+ #define NL_GL_GLMATRIX_H
+ 
+ #include "NL/nlMath.h"
++#include "NL/gl/glMatrixHandle.h"
+ 
+ void glMatrixLookAt(nlMatrix4& m, const nlVector3& peye, const nlVector3& pat, const nlVector3& vup);
+ void glMatrixPerspective(nlMatrix4& m, float fovRad, float aspect, float nearPlane, float farPlane);
+ void glMatrixOrthographicCentered(nlMatrix4& m, float width, float height, float nearPlane, float farPlane);
+ void glMatrixOrthographic(nlMatrix4& m, float width, float height);
+-void glSetMatrix(unsigned long matrix, const nlMatrix4& m);
+-void glGetMatrix(unsigned long matrix, nlMatrix4& m);
+-u32 glAllocMatrix();
+-unsigned long glGetIdentityMatrix();
++void glSetMatrix(glMatrixHandle matrix, const nlMatrix4& m);
++void glGetMatrix(glMatrixHandle matrix, nlMatrix4& m);
++glMatrixHandle glAllocMatrix();
++glMatrixHandle glGetIdentityMatrix();
+ void gl_MatrixStartup();
++#if defined(MSCHARGED_NATIVE)
++void gl_MatrixShutdown();
++#endif
+ 
+-static inline u32 glAllocSetMatrix(const nlMatrix4& matrix)
++static inline glMatrixHandle glAllocSetMatrix(const nlMatrix4& matrix)
+ {
+-    u32 handle = glAllocMatrix();
+-    if (handle != 0xFFFFFFFF)
++    glMatrixHandle handle = glAllocMatrix();
++    if (handle != GL_INVALID_MATRIX)
+     {
+         glSetMatrix(handle, matrix);
+     }
+diff --git a/include/NL/gl/glMatrixHandle.h b/include/NL/gl/glMatrixHandle.h
+new file mode 100644
+index 0000000..fef302d
+--- /dev/null
++++ b/include/NL/gl/glMatrixHandle.h
+@@ -0,0 +1,14 @@
++#ifndef NL_GL_GLMATRIXHANDLE_H
++#define NL_GL_GLMATRIXHANDLE_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++typedef uintptr_t glMatrixHandle;
++#else
++typedef unsigned long glMatrixHandle;
++#endif
++
++// Native handles address live matrix storage. Disc matrix indices stay u32.
++static const glMatrixHandle GL_INVALID_MATRIX = (glMatrixHandle)-1;
++
++#endif // NL_GL_GLMATRIXHANDLE_H
+diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
+index 0c9510f..2fe7eca 100644
+--- a/include/NL/gl/glModel.h
++++ b/include/NL/gl/glModel.h
+@@ -2,6 +2,7 @@
+ #define NL_GL_MODEL_H
+ 
+ #include "types.h"
++#include "NL/gl/glMatrixHandle.h"
+ 
+ struct DisplayList;
+ class nlMatrix4;
+@@ -55,7 +56,7 @@ struct glModelPacket
+     /* 0x0C */ glModelStream* streams;
+     /* 0x10 */ void* materialProgram;
+     /* 0x14 */ u32 unknown14;
+-    /* 0x18 */ u32 matrix;
++    /* 0x18 */ glMatrixHandle matrix;
+     /* 0x1C */ unsigned int rasterState;
+     /* 0x20 */ void* materialParameters;
+     /* 0x24 */ DisplayList* displayList;
+@@ -102,7 +103,7 @@ inline glModelStream* glFindModelStream(glModelPacket* pPacket, int id)
+ }
+ 
+ void glModelSetMatrix(glModel* model, const nlMatrix4& matrix);
+-void glModelSetMatrix(glModel* model, unsigned long matrix);
++void glModelSetMatrix(glModel* model, glMatrixHandle matrix);
+ void glModelSetRasterState(glModel* model, unsigned long rasterState);
+ void glModelGetMatrix(const glModel* model, nlMatrix4& matrix);
+ glModel* glModelDupArrayNoStreams(
+diff --git a/include/NL/gl/glPacketCallback.h b/include/NL/gl/glPacketCallback.h
+index 1d83ae0..4de1d23 100644
+--- a/include/NL/gl/glPacketCallback.h
++++ b/include/NL/gl/glPacketCallback.h
+@@ -2,6 +2,7 @@
+ #define NL_GL_GLPACKETCALLBACK_H
+ 
+ #include "NL/gl/glView.h"
++#include "NL/gl/glMatrixHandle.h"
+ 
+ class PacketCallbackManager
+ {
+@@ -12,7 +13,7 @@ public:
+     GLView* m_View;
+     GLViewPacketCallback m_Cb;
+     unsigned long m_LastRaster;
+-    unsigned long m_LastMatrix;
++    glMatrixHandle m_LastMatrix;
+     void* m_LastProgram;
+ };
+ 
+diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
+index 04b8860..6eb22d9 100644
+--- a/include/NL/gl/glState.h
++++ b/include/NL/gl/glState.h
+@@ -74,8 +74,8 @@ u32 glGetCurrentRasterState();
+ u32 glSetCurrentRasterState(unsigned long raster);
+ unsigned long long glGetCurrentTextureState();
+ unsigned long long glSetCurrentTextureState(unsigned long long state);
+-u32 glGetCurrentMatrix();
+-u32 glSetCurrentMatrix(unsigned long matrix);
++glMatrixHandle glGetCurrentMatrix();
++glMatrixHandle glSetCurrentMatrix(glMatrixHandle matrix);
+ 
+ u32 glGetRasterState(unsigned long raster, eGLState state);
+ unsigned int glSetRasterState(
+diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
+index a296d9b..956ba4e 100644
+--- a/include/NL/gl/glStateBundle.h
++++ b/include/NL/gl/glStateBundle.h
+@@ -2,12 +2,13 @@
+ #define _GLSTATEBUNDLE_H_
+ 
+ #include "types.h"
++#include "NL/gl/glMatrixHandle.h"
+ 
+ struct glStateBundle
+ {
+     /* 0x00 */ unsigned long long texturestate;
+     /* 0x08 */ unsigned long raster;
+-    /* 0x0C */ unsigned long matrix;
++    /* 0x0C */ glMatrixHandle matrix;
+     /* 0x10 */ unsigned long texture[6];
+     /* 0x28 */ unsigned char texconfig;
+     /* 0x2C */ unsigned long userStateKey;
+diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
+index b7d881b..e8f69eb 100644
+--- a/include/NL/glx/glxMemory.h
++++ b/include/NL/glx/glxMemory.h
+@@ -2,10 +2,12 @@
+ #define NL_GLX_GLXMEMORY_H
+ 
+ #include "NL/nlMath.h"
++#include "NL/gl/glMatrixHandle.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <stdint.h>
+ typedef uintptr_t GLResourceMark;
+ void glxShutdownMemory();
++void glplatValidateMatrix(glMatrixHandle matrix);
+ #else
+ typedef unsigned long GLResourceMark;
+ #endif
+@@ -21,8 +23,8 @@ enum eGLMemory
+     GLM_Num = 6,
+ };
+ 
+-void glplatSetMatrix(unsigned long matrix, const nlMatrix4& m);
+-void glplatGetMatrix(unsigned long matrix, nlMatrix4& m);
++void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m);
++void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m);
+ bool glxInitMemory(
+     unsigned long frameMemSize1, unsigned long frameMemSize2);
+ void glplatFrameAllocNextFrame();
+diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
+index 60c6d5e..db8ad4f 100644
+--- a/include/NL/nlFont.h
++++ b/include/NL/nlFont.h
+@@ -2,6 +2,7 @@
+ #define NL_FONT_H
+ 
+ #include "NL/gl/gl.h"
++#include "NL/gl/glMatrixHandle.h"
+ #include "NL/nlAlgorithm.h"
+ #include "NL/nlBasicString.h"
+ #include "NL/nlMath.h"
+@@ -112,7 +113,7 @@ public:
+     unsigned short GetExtendedFontChar(unsigned short Character) const;
+     void DisableScissorBox() const;
+     void SetScissorBox(const ScissorBox& other) const;
+-    void DrawString(eGLView View, const FontCharString& Text, const nlVector2& Position, const nlColour& Colour, const nlColour& EffectColour, int Length, nlFont::TextPass Passes, bool FlipY, unsigned long* pMatrix, nlColour* pOverrideColour) const;
++    void DrawString(eGLView View, const FontCharString& Text, const nlVector2& Position, const nlColour& Colour, const nlColour& EffectColour, int Length, nlFont::TextPass Passes, bool FlipY, glMatrixHandle* pMatrix, nlColour* pOverrideColour) const;
+     unsigned char Load(const char* szFontName, char* pFontDescData, unsigned long HashId);
+ 
+     ~nlFont();
+diff --git a/src/Game/Debug/ShapeRender.cpp b/src/Game/Debug/ShapeRender.cpp
+index f46b1f4..4d98f1e 100644
+--- a/src/Game/Debug/ShapeRender.cpp
++++ b/src/Game/Debug/ShapeRender.cpp
+@@ -465,8 +465,8 @@ void ShapeRender::DrawWireBox(
+ extern "C" void fn_802BC83C(const ShapeRender* arg0, const PrimitiveShape& prim,
+     const nlMatrix4& mat_world, bool, const nlColour& colour)
+ {
+-    unsigned long matrix = glAllocMatrix();
+-    if (matrix != (unsigned long)-1)
++    glMatrixHandle matrix = glAllocMatrix();
++    if (matrix != GL_INVALID_MATRIX)
+     {
+         glSetMatrix(matrix, mat_world);
+     }
+diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index 7981b9d..40f2a68 100644
+--- a/src/Game/Effects/ParticleSystem.cpp
++++ b/src/Game/Effects/ParticleSystem.cpp
+@@ -901,7 +901,7 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+             m.e[13] = ret.position[0].y;
+             m.e[14] = ret.position[0].z;
+ 
+-            u32 hMatrix = glAllocSetMatrix(m);
++            glMatrixHandle hMatrix = glAllocSetMatrix(m);
+ 
+             float meshRateScale = 1.0f;
+             if (pAnim != 0)
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index ebdcbb5..1e70b3d 100644
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -280,8 +280,8 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
+     matTM.m41 += view.m41;
+     matTM.m42 += view.m42;
+     matTM.m43 += view.m43;
+-    unsigned long matrixHandle = glAllocMatrix();
+-    if (matrixHandle != 0xFFFFFFFF)
++    glMatrixHandle matrixHandle = glAllocMatrix();
++    if (matrixHandle != GL_INVALID_MATRIX)
+     {
+         glSetMatrix(matrixHandle, matTM);
+     }
+diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
+index 315a721..f0a12b7 100644
+--- a/src/Game/GameObjectLighting.cpp
++++ b/src/Game/GameObjectLighting.cpp
+@@ -143,7 +143,7 @@ extern s32 lbl_806DCC5C;
+ extern bool lbl_806DCC58;
+ extern bool lbl_806DCC59;
+ extern bool lbl_806DCC5A;
+-extern u32 lbl_806DCC70;
++extern glMatrixHandle lbl_806DCC70;
+ extern s32 lbl_806DCC74;
+ extern f32 lbl_806DCC44;
+ extern bool lbl_806E1413;
+@@ -333,12 +333,12 @@ void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix)
+         nlInvertMatrix(lbl_80570C18, *matrix);
+ }
+ 
+-void SetGameObjectShadowModelMatrix(u32 matrix)
++void SetGameObjectShadowModelMatrix(glMatrixHandle matrix)
+ {
+     if (!fn_80183C54())
+         return;
+ 
+-    if (matrix == (u32)-1)
++    if (matrix == GL_INVALID_MATRIX)
+     {
+         lbl_806DCC70 = -1;
+     }
+diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
+index 0755f46..95a8327 100644
+--- a/src/Game/Render/ElectricFence.cpp
++++ b/src/Game/Render/ElectricFence.cpp
+@@ -181,8 +181,8 @@ static void DrawPrimitive(const ElectricFenceGeometry& prim,
+     glSetRasterState(GLS_AlphaBlend, 2);
+     glSetCurrentRasterState(glHandleizeRasterState());
+ 
+-    unsigned long matrixHandle = glAllocMatrix();
+-    if (matrixHandle != (unsigned long)-1)
++    glMatrixHandle matrixHandle = glAllocMatrix();
++    if (matrixHandle != GL_INVALID_MATRIX)
+     {
+         glSetMatrix(matrixHandle, objMatrix);
+     }
+diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
+index c0b5a80..2d268f7 100644
+--- a/src/Game/objectblur.cpp
++++ b/src/Game/objectblur.cpp
+@@ -141,7 +141,7 @@ void BlurHandler::RenderMesh(unsigned long uTexID)
+ {
+     u32 count;
+     u32 uPointIndex;
+-    u32 matHandle;
++    glMatrixHandle matHandle;
+     float nonAdditiveAlpha;
+     BlurPointEntry* entry;
+ 
+@@ -173,7 +173,7 @@ void BlurHandler::RenderMesh(unsigned long uTexID)
+     matWorld.m43 += fFlimmerOffset;
+ 
+     matHandle = glAllocMatrix();
+-    if (matHandle != (u32)-1)
++    if (matHandle != GL_INVALID_MATRIX)
+     {
+         glSetMatrix(matHandle, matWorld);
+     }
+diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
+index 7d609a1..cad1359 100644
+--- a/src/NL/gl/glDraw2.cpp
++++ b/src/NL/gl/glDraw2.cpp
+@@ -24,12 +24,12 @@ static int TriListMap[6] = { 0, 1, 2, 3, 0, 2 };
+ 
+ 
+ extern "C" glModel* fn_802C834C(glPoly2* pPolys,
+-    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured);
++    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured);
+ extern "C" glModel* fn_802C89F4(glPoly2* pPolys,
+-    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured);
++    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured);
+ 
+ bool glPoly2::Attach(
+-    GLView* view, int layer, unsigned long* pMatrixHandle)
++    GLView* view, int layer, glMatrixHandle* pMatrixHandle)
+ {
+     if (view == 0)
+         return false;
+@@ -42,11 +42,11 @@ bool glPoly2::Attach(
+ }
+ 
+ extern "C" glModel* fn_802C834C(glPoly2* pPolys,
+-    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured)
++    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
+ {
+     GLTexturedColourMeshWriter writer;
+ 
+-    unsigned long oldMatrix;
++    glMatrixHandle oldMatrix;
+     unsigned long numVerts;
+     int* mapArray;
+     int primitive;
+@@ -137,7 +137,7 @@ extern "C" glModel* fn_802C834C(glPoly2* pPolys,
+ }
+ 
+ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
+-    unsigned long* pMatrixHandle)
++    glMatrixHandle* pMatrixHandle)
+ {
+     glModel* model = fn_802C834C(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     if (model == 0)
+@@ -147,7 +147,7 @@ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
+ }
+ 
+ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+-    glPoly2* pPolys, unsigned long* pMatrixHandle)
++    glPoly2* pPolys, glMatrixHandle* pMatrixHandle)
+ {
+     glModel* model = fn_802C834C(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     if (model == 0)
+@@ -157,7 +157,7 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ }
+ 
+ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+-    glPoly2* pPolys, const void* pUserData, unsigned long* pMatrixHandle)
++    glPoly2* pPolys, const void* pUserData, glMatrixHandle* pMatrixHandle)
+ {
+     static unsigned long scissorbox = nlStringHash("scissorbox");
+     glModel* model = fn_802C89F4(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+@@ -177,11 +177,11 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ }
+ 
+ extern "C" glModel* fn_802C89F4(glPoly2* pPolys,
+-    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured)
++    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
+ {
+     GLFloatTexturedColourMeshWriter writer;
+ 
+-    unsigned long oldMatrix;
++    glMatrixHandle oldMatrix;
+     unsigned long numVerts;
+     int* mapArray;
+     int primitive;
+diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+index 1e6a062..2a376cb 100644
+--- a/src/NL/gl/glLoadModel.cpp
++++ b/src/NL/gl/glLoadModel.cpp
+@@ -125,7 +125,7 @@ static void FixupModelData(RLGReader* reader)
+                                                + (unsigned long)pStreamData);
+             packet->indexBuffer = (unsigned short*)((unsigned long)packet->indexBuffer
+                                                     + (unsigned long)reader->m_pIndexData);
+-            packet->matrix = (unsigned long)reader->m_pMatrices
++            packet->matrix = (glMatrixHandle)reader->m_pMatrices
+                            + packet->matrix * 64;
+ 
+             for (int streamIndex = 0; streamIndex < packet->numStreams;
+diff --git a/src/NL/gl/glMatrix.cpp b/src/NL/gl/glMatrix.cpp
+index 8837428..d79c55f 100644
+--- a/src/NL/gl/glMatrix.cpp
++++ b/src/NL/gl/glMatrix.cpp
+@@ -5,8 +5,11 @@
+ #include "NL/glx/glxMemory.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
+ 
+-static unsigned long gl_IdentityMatrix = 0xFFFFFFFF;
++static glMatrixHandle gl_IdentityMatrix = GL_INVALID_MATRIX;
+ 
+ void GLMatrix::Get(nlMatrix4& m) const
+ {
+@@ -20,34 +23,46 @@ void GLMatrix::Set(const nlMatrix4& m)
+ 
+ void gl_MatrixStartup()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (gl_IdentityMatrix != GL_INVALID_MATRIX)
++        throw std::logic_error("GL matrices are already initialized");
++#endif
+     nlMatrix4 m;
+     m.SetIdentity();
+-    gl_IdentityMatrix = (unsigned long)glResourceAlloc(
++    glMatrixHandle identity = (glMatrixHandle)glResourceAlloc(
+         sizeof(nlMatrix4), GLM_Matrix, glGetCurrentResourcePool());
+-    glplatSetMatrix(gl_IdentityMatrix, m);
++    glplatSetMatrix(identity, m);
++    gl_IdentityMatrix = identity;
+ }
+ 
+-unsigned long glGetIdentityMatrix()
++#if defined(MSCHARGED_NATIVE)
++void gl_MatrixShutdown()
++{
++    gl_IdentityMatrix = GL_INVALID_MATRIX;
++}
++#endif
++
++glMatrixHandle glGetIdentityMatrix()
+ {
+     return gl_IdentityMatrix;
+ }
+ 
+-u32 glAllocMatrix()
++glMatrixHandle glAllocMatrix()
+ {
+-    u32 p = (u32)glplatFrameAlloc(sizeof(nlMatrix4), GLM_Matrix);
++    glMatrixHandle p = (glMatrixHandle)glplatFrameAlloc(sizeof(nlMatrix4), GLM_Matrix);
+     if (p == 0U)
+     {
+-        p = -1U;
++        p = GL_INVALID_MATRIX;
+     }
+     return p;
+ }
+ 
+-void glGetMatrix(unsigned long matrix, nlMatrix4& m)
++void glGetMatrix(glMatrixHandle matrix, nlMatrix4& m)
+ {
+     glplatGetMatrix(matrix, m);
+ }
+ 
+-void glSetMatrix(unsigned long matrix, const nlMatrix4& m)
++void glSetMatrix(glMatrixHandle matrix, const nlMatrix4& m)
+ {
+     glplatSetMatrix(matrix, m);
+ }
+diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+index bd6b635..d1d5e40 100644
+--- a/src/NL/gl/glMemoryInit.cpp
++++ b/src/NL/gl/glMemoryInit.cpp
+@@ -5,10 +5,12 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include "runtime/graphics_memory.h"
+ #include "NL/gl/glTextureManager.h"
++#include "NL/gl/glMatrix.h"
+ #include <stdexcept>
+ 
+ void glShutdownMemory()
+ {
++    gl_MatrixShutdown();
+     while (glGetResourcePools()) glDestroyResourcePool(glGetResourcePools());
+     glShutdownTextureManager();
+     glxShutdownMemory();
+diff --git a/src/NL/gl/glModel.cpp b/src/NL/gl/glModel.cpp
+index 1165435..b0b2b10 100644
+--- a/src/NL/gl/glModel.cpp
++++ b/src/NL/gl/glModel.cpp
+@@ -12,57 +12,7 @@ struct glModelPacketDataInfo
+     /* 0x08 */ u32 size;
+ }; // size: 0xC
+ 
+-void glModelSetMatrix(glModel* model, const nlMatrix4& value)
+-{
+-    unsigned long matrix = glAllocMatrix();
+-    if (matrix != 0xFFFFFFFF)
+-        glSetMatrix(matrix, value);
+-
+-    unsigned long i = 0;
+-    unsigned long offset = 0;
+-    while (i < model->numPackets)
+-    {
+-        glModelPacket* packet = (glModelPacket*)((u8*)model->packets + offset);
+-        packet->matrix = matrix;
+-        ++i;
+-        offset += sizeof(glModelPacket);
+-    }
+-}
+-
+-void glModelSetMatrix(glModel* model, unsigned long matrix)
+-{
+-    unsigned long offset;
+-    unsigned long i;
+-    i = 0;
+-    offset = 0;
+-    while (i < model->numPackets)
+-    {
+-        glModelPacket* packet = (glModelPacket*)((u8*)model->packets + offset);
+-        packet->matrix = matrix;
+-        ++i;
+-        offset += sizeof(glModelPacket);
+-    }
+-}
+-
+-void glModelSetRasterState(glModel* model, unsigned long rasterState)
+-{
+-    unsigned long offset;
+-    unsigned long i;
+-    i = 0;
+-    offset = 0;
+-    while (i < model->numPackets)
+-    {
+-        glModelPacket* packet = (glModelPacket*)((u8*)model->packets + offset);
+-        packet->rasterState = rasterState;
+-        ++i;
+-        offset += sizeof(glModelPacket);
+-    }
+-}
+-
+-void glModelGetMatrix(const glModel* model, nlMatrix4& matrix)
+-{
+-    glGetMatrix(model->packets->matrix, matrix);
+-}
++#include "glModelMatrix.cpp"
+ 
+ glModel* glModelDupArrayNoStreams(
+     const glModel* pModelArray, unsigned long nModels, bool bPermanent,
+diff --git a/src/NL/gl/glModelMatrix.cpp b/src/NL/gl/glModelMatrix.cpp
+new file mode 100644
+index 0000000..170b6dc
+--- /dev/null
++++ b/src/NL/gl/glModelMatrix.cpp
+@@ -0,0 +1,75 @@
++#include "NL/gl/glModel.h"
++#include "NL/gl/glMatrix.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#include "NL/glx/glxMemory.h"
++#endif
++
++void glModelSetMatrix(glModel* model, const nlMatrix4& value)
++{
++#if defined(MSCHARGED_NATIVE)
++    if (!model || !model->numPackets || !model->packets)
++        throw std::invalid_argument("Model matrix requires native packets");
++#endif
++    glMatrixHandle matrix = glAllocMatrix();
++    if (matrix != GL_INVALID_MATRIX)
++        glSetMatrix(matrix, value);
++
++    unsigned long i = 0;
++    unsigned long offset = 0;
++    while (i < model->numPackets)
++    {
++        glModelPacket* packet = (glModelPacket*)((u8*)model->packets + offset);
++        packet->matrix = matrix;
++        ++i;
++        offset += sizeof(glModelPacket);
++    }
++}
++
++void glModelSetMatrix(glModel* model, glMatrixHandle matrix)
++{
++#if defined(MSCHARGED_NATIVE)
++    if (!model || !model->numPackets || !model->packets)
++        throw std::invalid_argument("Model state requires native packets");
++    if (matrix != GL_INVALID_MATRIX) glplatValidateMatrix(matrix);
++#endif
++    unsigned long offset;
++    unsigned long i;
++    i = 0;
++    offset = 0;
++    while (i < model->numPackets)
++    {
++        glModelPacket* packet = (glModelPacket*)((u8*)model->packets + offset);
++        packet->matrix = matrix;
++        ++i;
++        offset += sizeof(glModelPacket);
++    }
++}
++
++void glModelSetRasterState(glModel* model, unsigned long rasterState)
++{
++#if defined(MSCHARGED_NATIVE)
++    if (!model || !model->numPackets || !model->packets)
++        throw std::invalid_argument("Model state requires native packets");
++#endif
++    unsigned long offset;
++    unsigned long i;
++    i = 0;
++    offset = 0;
++    while (i < model->numPackets)
++    {
++        glModelPacket* packet = (glModelPacket*)((u8*)model->packets + offset);
++        packet->rasterState = rasterState;
++        ++i;
++        offset += sizeof(glModelPacket);
++    }
++}
++
++void glModelGetMatrix(const glModel* model, nlMatrix4& matrix)
++{
++#if defined(MSCHARGED_NATIVE)
++    if (!model || !model->numPackets || !model->packets)
++        throw std::invalid_argument("Model matrix requires native packets");
++#endif
++    glGetMatrix(model->packets->matrix, matrix);
++}
+diff --git a/src/NL/gl/glRenderList.cpp b/src/NL/gl/glRenderList.cpp
+index 45c3086..4130277 100644
+--- a/src/NL/gl/glRenderList.cpp
++++ b/src/NL/gl/glRenderList.cpp
+@@ -69,7 +69,7 @@ PacketCallbackManager::PacketCallbackManager(
+     : m_View(view)
+     , m_Cb(cb)
+     , m_LastRaster((unsigned long)-1)
+-    , m_LastMatrix((unsigned long)-1)
++    , m_LastMatrix(GL_INVALID_MATRIX)
+     , m_LastProgram(0)
+ {
+ }
+diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
+index a5754db..961ca57 100644
+--- a/src/NL/gl/glState.cpp
++++ b/src/NL/gl/glState.cpp
+@@ -258,14 +258,14 @@ unsigned long long glSetCurrentTextureState(unsigned long long state)
+     return prev;
+ }
+ 
+-u32 glGetCurrentMatrix()
++glMatrixHandle glGetCurrentMatrix()
+ {
+     return _bundle.matrix;
+ }
+ 
+-u32 glSetCurrentMatrix(unsigned long matrix)
++glMatrixHandle glSetCurrentMatrix(glMatrixHandle matrix)
+ {
+-    unsigned long prev = _bundle.matrix;
++    glMatrixHandle prev = _bundle.matrix;
+     _bundle.matrix = matrix;
+     return prev;
+ }
+diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+index c403bbe..b643a28 100644
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -236,7 +236,7 @@ void GXMaterialProgramImpl<GXCharacterDamageMaterialProgram>::Draw(
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
+-    unsigned long modelMatrix = packet->matrix;
++    glMatrixHandle modelMatrix = packet->matrix;
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sCharacterDamageViewMatrix);
+     if (sCharacterDamageShadowLightingEnabled)
+diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+index b7e0bb6..b3281b7 100644
+--- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+@@ -216,7 +216,7 @@ void GXMaterialProgramImpl<GXColourFresnelMaterialProgram>::Draw(
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
+-    unsigned long modelMatrix = packet->matrix;
++    glMatrixHandle modelMatrix = packet->matrix;
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sColourFresnelViewMatrix);
+ 
+diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
+index 28a14e7..eff7217 100644
+--- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
+@@ -46,7 +46,7 @@ unsigned long sMaskedSpecularFresnelTextures[5] = {
+ 
+ bool sMaskedSpecularFresnelRampDisabled;
+ bool sMaskedSpecularFresnelShadowsActive;
+-unsigned long sMaskedSpecularFresnelModelMatrix;
++glMatrixHandle sMaskedSpecularFresnelModelMatrix;
+ nlVector2 sMaskedSpecularLookupScale;
+ int sMaskedSpecularFresnelLightCount;
+ int sMaskedSpecularFresnelLightingMode;
+diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+index ea33ed0..719d463 100644
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+@@ -184,7 +184,7 @@ void GXMaterialProgramImpl<GXMegaSpecularFresnelMaterialProgram>::Draw(
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
+-    unsigned long modelMatrix = packet->matrix;
++    glMatrixHandle modelMatrix = packet->matrix;
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sMegaSpecularFresnelViewMatrix);
+     SetGameObjectShadowModelMatrix(modelMatrix);
+diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+index 4d70069..e07035f 100644
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+@@ -190,7 +190,7 @@ void GXMaterialProgramImpl<GXSpecularFresnelMaterialProgram>::Draw(
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
+-    unsigned long modelMatrix = packet->matrix;
++    glMatrixHandle modelMatrix = packet->matrix;
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sSpecularFresnelViewMatrix);
+     SetGameObjectShadowModelMatrix(modelMatrix);
+diff --git a/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp b/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
+index eaf7a7d..ae3b395 100644
+--- a/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
+@@ -18,7 +18,7 @@ Mtx glx_SpecularLookupTextureMatrix = {
+ };
+ 
+ static nlMatrix4 sSpecularLookupViewMatrix;
+-static unsigned long sSpecularLookupModelMatrix;
++static glMatrixHandle sSpecularLookupModelMatrix;
+ 
+ template <>
+ void GXMaterialProgramImpl<GXSpecularLookupMaterialProgram>::Activate(GLView* view)
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index bbccac7..c8e805d 100644
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -475,3 +475,37 @@ unsigned long glx_GetFreeMemory()
+     return glGetCurrentResourcePool()->GetFreeMemory();
+ #endif
+ }
++
++#if defined(MSCHARGED_NATIVE)
++void glplatValidateMatrix(glMatrixHandle matrix)
++{
++    if (!matrix || matrix == GL_INVALID_MATRIX || (matrix & 31))
++        throw std::invalid_argument("Invalid native matrix address");
++    // Active frame handles expire at FrameNext. Resource handles expire when
++    // their storage is rewound or destroyed. Addresses can be reused later.
++    const unsigned long size = sizeof(nlMatrix4);
++    if (sFrameMemoryInitialized && matrix >= p_frame[i_frame][0])
++    {
++        glMatrixHandle offset = matrix - p_frame[i_frame][0];
++        if (offset <= n_frame[i_frame][0] && size <= n_frame[i_frame][0] - offset)
++            return;
++    }
++    GLResourcePool* first = glGetResourcePools();
++    if (first)
++    {
++        GLResourcePool* item = first;
++        do
++        {
++            GLXResourcePool* pool = dynamic_cast<GLXResourcePool*>(item);
++            if (pool && matrix >= pool->mPoolMemory[0])
++            {
++                glMatrixHandle offset = matrix - pool->mPoolMemory[0];
++                if (offset <= pool->mUsedMemory[0] && size <= pool->mUsedMemory[0] - offset)
++                    return;
++            }
++            item = item->m_next;
++        } while (item != first);
++    }
++    throw std::invalid_argument("Matrix address is outside live GL storage");
++}
++#endif
+diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
+index 3c38a7f..b3afe63 100644
+--- a/src/NL/glx/glxModel.cpp
++++ b/src/NL/glx/glxModel.cpp
+@@ -5,17 +5,7 @@
+ #include "NL/gl/glPlat.h"
+ #include "NL/glx/glxDisplayList.h"
+ 
+-void glplatGetMatrix(unsigned long matrix, nlMatrix4& m)
+-{
+-    GLMatrix* matrixPtr = (GLMatrix*)matrix;
+-    matrixPtr->Get(m);
+-}
+-
+-void glplatSetMatrix(unsigned long matrix, const nlMatrix4& m)
+-{
+-    GLMatrix* matrixPtr = (GLMatrix*)matrix;
+-    matrixPtr->Set(m);
+-}
++#include "glxModelMatrix.cpp"
+ 
+ void glplatFinalizePacket(
+     glModelPacket* packet, bool permanent, void* allocator)
+diff --git a/src/NL/glx/glxModelMatrix.cpp b/src/NL/glx/glxModelMatrix.cpp
+new file mode 100644
+index 0000000..503841c
+--- /dev/null
++++ b/src/NL/glx/glxModelMatrix.cpp
+@@ -0,0 +1,20 @@
++#include "NL/gl/glMatrix.h"
++#include "NL/glx/glxMemory.h"
++
++void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m)
++{
++#if defined(MSCHARGED_NATIVE)
++    glplatValidateMatrix(matrix);
++#endif
++    GLMatrix* matrixPtr = (GLMatrix*)matrix;
++    matrixPtr->Get(m);
++}
++
++void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m)
++{
++#if defined(MSCHARGED_NATIVE)
++    glplatValidateMatrix(matrix);
++#endif
++    GLMatrix* matrixPtr = (GLMatrix*)matrix;
++    matrixPtr->Set(m);
++}
+diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
+index a174f9e..810ab51 100644
+--- a/src/NL/glx/glxSend.cpp
++++ b/src/NL/glx/glxSend.cpp
+@@ -25,7 +25,7 @@ static GXCullMode gx_Culling[] = {
+     GX_CULL_ALL,
+ };
+ 
+-static s32 glx_Matrix = -1;
++static glMatrixHandle glx_Matrix = GL_INVALID_MATRIX;
+ static bool glx_AllowAlphaUpdate = true;
+ 
+ static GXCompare gx_AlphaTest[] = {
+@@ -98,7 +98,7 @@ void glx_SendFrame_cb(
+             }
+             program->Activate(prev_view);
+             glx_program = program;
+-            glx_Matrix = -1;
++            glx_Matrix = GL_INVALID_MATRIX;
+         }
+ 
+         if ((flags & 4) != 0)
+@@ -107,7 +107,7 @@ void glx_SendFrame_cb(
+             nlMatrix4 matrix;
+             Mtx source;
+ 
+-            unsigned long Matrix = p->matrix;
++            glMatrixHandle Matrix = p->matrix;
+             if (glx_Matrix != Matrix)
+             {
+                 glx_Matrix = Matrix;
+@@ -168,7 +168,7 @@ static void glx_SwitchViews(GLView* view)
+         glx_program->Deactivate();
+     }
+     glx_program = 0;
+-    glx_Matrix = -1;
++    glx_Matrix = GL_INVALID_MATRIX;
+ }
+ 
+ static void glx_SwitchRaster(const glModelPacket* p)
+diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
+index 68e119e..6cec13d 100644
+--- a/src/NL/nlTextBox.cpp
++++ b/src/NL/nlTextBox.cpp
+@@ -174,7 +174,7 @@ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVe
+     const Row* pIter = DrawInfo.Rows;
+     CurrentPos.y += (float)(yDir * (int)pFont->m_Metrics.Ascent - ascentAdj);
+     nlColour overridecolour = Color;
+-    unsigned long hMatrix;
++    glMatrixHandle hMatrix;
+ 
+     overridecolour.c[3] = 0;
+     unsigned long row = 0;
+@@ -184,12 +184,12 @@ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVe
+         const Row& CurrentRow = *pIter;
+         CurrentPos.x = DrawAt.x + (float)CurrentRow.XOffset;
+ 
+-        unsigned long h;
++        glMatrixHandle h;
+         const nlMatrix4* pMatrix = DrawInfo.pMatrix;
+         if (pMatrix)
+         {
+             h = glAllocMatrix();
+-            if (h != 0xFFFFFFFF)
++            if (h != GL_INVALID_MATRIX)
+             {
+                 glSetMatrix(h, *pMatrix);
+             }
+@@ -198,7 +198,7 @@ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVe
+ 
+         unsigned short startIdx = CurrentRow.FirstChar;
+         const unsigned short* pString = DrawInfo.String + startIdx;
+-        unsigned long* matArg = DrawInfo.pMatrix ? &hMatrix : 0;
++        glMatrixHandle* matArg = DrawInfo.pMatrix ? &hMatrix : 0;
+         {
+             FontCharString fontCharStr;
+             fontCharStr.m_pString = (unsigned short*)pString;

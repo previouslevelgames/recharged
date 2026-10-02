@@ -35,11 +35,11 @@ struct ModelFixture
     }
     explicit ModelFixture(bool fixed_uv = false, unsigned alignment = 5, unsigned copies = 1, unsigned index_count = 3)
     {
-        Buffer parameters(fixed_uv ? 36 : 8); Put32(parameters, 0, 0x12345678); parameters[6] = 3;
+        Buffer parameters(8); Put32(parameters, 0, 0x12345678); parameters[6] = 3;
         Chunk(0x1b016, parameters);
         Buffer indices(index_count * 2); Put16(indices, 2, 1); Put16(indices, 4, 2);
         Chunk(0x1b007, indices); // BE indices with a legitimate zero offset.
-        Buffer vertices(36 + (fixed_uv ? 12 : 24));
+        Buffer vertices(36 + (fixed_uv ? 12 + 12 : 24));
         const float xyz[] = {-1, 0, 0, 1, 0, 0, 0, 1, 0};
         for (unsigned i = 0; i < 9; ++i) PutFloat(vertices, i * 4, xyz[i]);
         if (fixed_uv)
@@ -54,11 +54,12 @@ struct ModelFixture
             for (unsigned i = 0; i < 6; ++i) PutFloat(vertices, 36 + i * 4, uv[i]);
         }
         Chunk(0x1b006, vertices, alignment); // Payload alignment pad is included in chunk size.
-        Buffer streams(16); streams[5] = 12; streams[6] = 1;
+        Buffer streams(fixed_uv ? 24 : 16); streams[5] = 12; streams[6] = 1;
         Put32(streams, 8, 36); streams[13] = fixed_uv ? 4 : 8; streams[14] = 4;
+        if (fixed_uv) { Put32(streams, 16, 48); streams[21] = 4; streams[22] = 3; }
         Chunk(0x1b005, streams);
-        Buffer packet(48); Put32(packet, 4, index_count); Put16(packet, 8, 3); packet[11] = 2;
-        Put32(packet, 16, fixed_uv ? 0x2169db5c : 0x21db4385);
+        Buffer packet(48); Put32(packet, 4, index_count); Put16(packet, 8, 3); packet[11] = fixed_uv ? 3 : 2;
+        Put32(packet, 16, fixed_uv ? 0xd3e572da : 0x21db4385);
         Buffer packets;
         for (unsigned i = 0; i < copies; ++i) packets.insert(packets.end(), packet.begin(), packet.end());
         Chunk(0x1b004, packets);
@@ -87,7 +88,7 @@ void Models()
     auto models = ReadStaticModels(file.data);
     Check(models.size() == 1 && models[0].id == 0x87654321 && models[0].packets.size() == 1, "Model metadata");
     const auto& packet = models[0].packets[0];
-    Check(packet.texture == 0x12345678 && packet.texture_flags == 3 && packet.indices == std::vector<std::uint16_t>{0,1,2}, "Packet indices/binding");
+    Check(packet.material.textures[0].texture == 0x12345678 && packet.material.textures[0].flags == 3 && packet.indices == std::vector<std::uint16_t>{0,1,2}, "Packet indices/binding");
     Check(packet.vertices[0].position == std::array<float,3>{1,3,4} && packet.vertices[2].position == std::array<float,3>{2,4,4}, "Big endian float/matrix transpose");
     Check(packet.vertices[2].uv == std::array<float,2>{0.5f,0}, "Float UV");
     auto rotated = file.data;
@@ -122,6 +123,50 @@ void Models()
     bad = file.data; Put32(bad, 0, 0x8001b200); Reject([&] { ReadStaticModels(bad); }, "Vertex animation root");
     bad = file.data; Put32(bad, 8, 0x0601b016); Reject([&] { ReadStaticModels(bad); }, "Excessive alignment");
 }
+void Materials()
+{
+    ModelFixture fixture;
+    fixture.data.resize(8); fixture.offsets.clear();
+    Buffer parameters(48); Put32(parameters,0,10); Put32(parameters,8,11); Put32(parameters,16,12);
+    parameters[6]=1; parameters[14]=2; parameters[22]=3;
+    PutFloat(parameters,24,.5f); PutFloat(parameters,28,2); PutFloat(parameters,32,-3); PutFloat(parameters,36,1);
+    Put32(parameters,40,1); Put32(parameters,44,1); fixture.Chunk(0x1b016,parameters);
+    Buffer indices(6); Put16(indices,2,1); Put16(indices,4,2); fixture.Chunk(0x1b007,indices);
+    Buffer vertices(93);
+    for (unsigned i=0;i<9;++i) PutFloat(vertices,i*4,float(i));
+    for (unsigned i=0;i<3;++i)
+    {
+        vertices[36+i*3]=64; vertices[37+i*3]=64;
+        for(unsigned uv=0;uv<3;++uv) {Put16(vertices,45+uv*12+i*4,1024*(uv+1)); Put16(vertices,47+uv*12+i*4,0xfc00);}
+        vertices[81+i*4]=12; vertices[82+i*4]=34; vertices[83+i*4]=56; vertices[84+i*4]=78;
+    }
+    fixture.Chunk(0x1b006,vertices);
+    Buffer streams(48);
+    const unsigned offsets[]={0,36,45,57,69,81}, strides[]={12,3,4,4,4,4}, ids[]={1,2,4,4,4,3};
+    for(unsigned i=0;i<6;++i){Put32(streams,i*8,offsets[i]); streams[i*8+5]=strides[i]; streams[i*8+6]=ids[i];}
+    fixture.Chunk(0x1b005,streams);
+    Buffer packet(48); Put32(packet,4,3); Put16(packet,8,3); packet[11]=6; Put32(packet,16,0x32475c7d); Put32(packet,28,0xC0007);
+    fixture.Chunk(0x1b004,packet);
+    Buffer matrix(64); for(unsigned i=0;i<4;++i) PutFloat(matrix,i*20,1); PutFloat(matrix,0,2);
+    fixture.Chunk(0x1b002,matrix);
+    Buffer model(12); Put32(model,0,1); Put32(model,4,1); fixture.Chunk(0x1b003,model);
+    Put32(fixture.data,0,0x8001b000); Put32(fixture.data,4,fixture.data.size()-8);
+    auto converted=ReadStaticModels(fixture.data); const auto& p=converted[0].packets[0];
+    Check(p.raster==0xC0007 && p.material.textures[1].texture==11 && p.material.textures[2].flags==3,"All material textures/raster retained");
+    Check(p.material.scalars==std::array<float,4>{.5f,2,-3,1} && p.material.switches[1]==1,"BE material floats and switches");
+    const auto& v=p.vertices[0];
+    Check(v.uv==std::array<float,2>{1,-1} && v.uv1==std::array<float,2>{2,-1} && v.uv2==std::array<float,2>{3,-1},"All three UV streams retained");
+    Check(v.colour==std::array<std::uint8_t,4>{12,34,56,78},"RGBA vertex bytes retained");
+    Check(std::abs(v.normal[0]-1/std::sqrt(5.f))<1e-6 && std::abs(v.normal[1]-2/std::sqrt(5.f))<1e-6,"Normal uses inverse transpose, not position transform");
+    auto bad=fixture.data; PutFloat(bad,fixture.offsets.at(0x1b016)+24,2); Reject([&]{ReadStaticModels(bad);},"Unsafe specular colour conversion");
+    bad=fixture.data; PutFloat(bad,fixture.offsets.at(0x1b016)+28,std::numeric_limits<float>::quiet_NaN()); Reject([&]{ReadStaticModels(bad);},"Nonfinite material scalar");
+    bad=fixture.data; Put32(bad,fixture.offsets.at(0x1b016)+40,2); Reject([&]{ReadStaticModels(bad);},"Nonboolean material switch");
+    bad=fixture.data; bad[fixture.offsets.at(0x1b016)+6]=4; Reject([&]{ReadStaticModels(bad);},"Unknown texture flag");
+    bad=fixture.data; PutFloat(bad,fixture.offsets.at(0x1b002),0); Reject([&]{ReadStaticModels(bad);},"Singular normal matrix");
+    bad=fixture.data; bad[fixture.offsets.at(0x1b006)+36]=bad[fixture.offsets.at(0x1b006)+37]=0; Reject([&]{ReadStaticModels(bad);},"Zero normal");
+    bad=fixture.data; bad[fixture.offsets.at(0x1b005)+21]=8; Reject([&]{ReadStaticModels(bad);},"Wrong material stream format");
+    bad=fixture.data; bad[fixture.offsets.at(0x1b004)+11]=2; Reject([&]{ReadStaticModels(bad);},"Missing material vertex streams");
+}
 void Textures()
 {
     const auto file = TextureFixture(); const auto textures = ReadTextureBundle(file);
@@ -138,6 +183,13 @@ void Textures()
     Check(ReadTextureBundle(TextureFixture(3,4,4,192,3))[0].pixels.size() == 192, "Small mip tile allocation");
     for (std::size_t size = 0; size < file.size(); ++size)
         Reject([&] { ReadTextureBundle(Bytes(file).first(size)); }, "Truncated texture accepted");
+    Check(ReadTextureBundle(file,{0x12345678}).size()==1,"Selected texture lookup");
+    Reject([&]{ReadTextureBundle(file,{0x12345679});},"Missing selected texture");
+    auto mixed=file; mixed.insert(mixed.begin()+32,16,0); Put32(mixed,4,2);
+    Put32(mixed,32,0xabcdef01); Put32(mixed,36,mixed.size()-48); Put32(mixed,40,4);
+    mixed.insert(mixed.end(),{0x5f,0x6c,0x66,0x69});
+    Check(ReadTextureBundle(mixed,{0x12345678}).size()==1,"Unrequested animated global entry is not decoded");
+    Reject([&]{ReadTextureBundle(mixed);},"Unselected full bundle still rejects animation");
     auto bad = file; Put32(bad, 4, 0xffffffff); Reject([&] { ReadTextureBundle(bad); }, "Dictionary overflow");
     bad = file; Put32(bad, 20, 0xfffffff0); Reject([&] { ReadTextureBundle(bad); }, "Data-relative texture offset");
     bad = file; Put32(bad, 48, 0x5f6c6669); Reject([&] { ReadTextureBundle(bad); }, "Animated texture");
@@ -159,6 +211,6 @@ void Textures()
 }
 int main()
 {
-    try { Models(); Textures(); std::cout << "Static Wii resource conversion and rejection checks passed\n"; return 0; }
+    try { Models(); Materials(); Textures(); std::cout << "Static Wii resource conversion and rejection checks passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -1,4 +1,5 @@
 #include "runtime/static_inventory.h"
+#include "runtime/materials.h"
 #include "Game/GL/GLInventory.h"
 #include "NL/gl/glModel.h"
 #include "NL/gl/glTexture.h"
@@ -30,11 +31,13 @@ void Texture(GLResourcePool& pool, const resources::Texture& input)
         throw std::invalid_argument("Invalid checked static texture metadata");
     auto* texture = Array<PlatTexture>(pool, 1, GLM_Header);
     texture->m_Width = input.width; texture->m_Height = input.height;
-    texture->m_Levels = input.levels; texture->m_MaxLevel = input.levels - 1;
+    texture->m_Levels = input.levels; texture->m_MaxLevel = input.levels;
     texture->m_Format = static_cast<eGXTextureFormat>(input.game_format);
     texture->m_nPaletteEntries = input.palette_entries;
     std::copy(input.bits.begin(), input.bits.end(), texture->m_Bits);
     texture->m_SwizzledData = Array<unsigned char>(pool, input.pixels.size(), GLM_TextureData);
+    texture->m_NativeDataBytes = input.pixels.size();
+    texture->m_NativePaletteBytes = input.palette.size();
     std::memcpy(texture->m_SwizzledData, input.pixels.data(), input.pixels.size());
     if (input.palette_entries)
     {
@@ -55,32 +58,42 @@ void Model(GLResourcePool& pool, const resources::StaticModel& input)
         const auto& input_packet = input.packets[i]; auto& packet = model->packets[i];
         if (input_packet.vertices.size() > UINT16_MAX || input_packet.indices.size() > UINT16_MAX || input_packet.primitive > 5)
             throw std::length_error("Native static packet exceeds GX index/primitive limits");
-        glTextureBinding binding(input_packet.texture, input_packet.texture_flags & 1, (input_packet.texture_flags >> 1) & 1);
-        if (!glGetTextureManager()->GetTexture(&binding))
-            throw std::runtime_error("RLG diffuse texture is missing from the selected RLT bundle");
         packet.numVertices = static_cast<u32>(input_packet.indices.size());
         packet.numUniqueVertices = static_cast<u16>(input_packet.vertices.size());
-        packet.primType = input_packet.primitive; packet.numStreams = 2;
+        packet.primType = input_packet.primitive;
+        const auto id = input_packet.material.program;
+        const std::vector<unsigned> layout = id == 0x32475c7d ? std::vector<unsigned>{1,2,4,4,4,3}
+            : id == 0x2169db5c ? std::vector<unsigned>{1,2,4,3}
+            : id == 0xd3e572da ? std::vector<unsigned>{1,4,3} : std::vector<unsigned>{1,4};
+        packet.numStreams = layout.size();
+        packet.rasterState = input_packet.raster;
         packet.indexBuffer = Array<u16>(pool, input_packet.indices.size(), GLM_IndexData);
         for (std::size_t index = 0; index < input_packet.indices.size(); ++index)
         {
             if (input_packet.indices[index] >= input_packet.vertices.size()) throw std::out_of_range("Native static index exceeds vertex storage");
             packet.indexBuffer[index] = input_packet.indices[index];
         }
-        packet.streams = Array<glModelStream>(pool, 2, GLM_Header);
-        auto* positions = Array<float>(pool, input_packet.vertices.size() * 3, GLM_VertexData);
-        auto* coordinates = Array<float>(pool, input_packet.vertices.size() * 2, GLM_VertexData);
-        for (std::size_t vertex = 0; vertex < input_packet.vertices.size(); ++vertex)
+        packet.streams = Array<glModelStream>(pool, layout.size(), GLM_Header);
+        unsigned coordinate = 0;
+        for (unsigned stream = 0; stream < layout.size(); ++stream)
         {
-            std::copy(input_packet.vertices[vertex].position.begin(), input_packet.vertices[vertex].position.end(), positions + vertex * 3);
-            std::copy(input_packet.vertices[vertex].uv.begin(), input_packet.vertices[vertex].uv.end(), coordinates + vertex * 2);
+            auto& output = packet.streams[stream]; output.id = layout[stream];
+            output.index = output.id == 4 ? coordinate : 0;
+            output.stride = output.id == 1 || output.id == 2 ? 12 : output.id == 3 ? 4 : 8;
+            auto* bytes = Array<unsigned char>(pool, input_packet.vertices.size() * output.stride, GLM_VertexData);
+            output.address = bytes;
+            for (std::size_t i = 0; i < input_packet.vertices.size(); ++i)
+            {
+                const auto& v = input_packet.vertices[i];
+                const void* data = output.id == 1 ? static_cast<const void*>(v.position.data())
+                    : output.id == 2 ? v.normal.data() : output.id == 3 ? static_cast<const void*>(v.colour.data())
+                    : coordinate == 0 ? v.uv.data() : coordinate == 1 ? v.uv1.data() : v.uv2.data();
+                std::memcpy(bytes + i * output.stride, data, output.stride);
+            }
+            if (output.id == 4) ++coordinate;
         }
-        packet.streams[0].address = positions; packet.streams[0].id = 1; packet.streams[0].stride = 12;
-        packet.streams[1].address = coordinates; packet.streams[1].id = 4; packet.streams[1].stride = 8;
-        auto* parameter = Array<glTextureBinding>(pool, 1, GLM_Header);
-        *parameter = binding; packet.materialParameters = parameter;
-        // Original material programs, render matrices and display lists are not
-        // reconstructed by this diffuse-only static profile. They remain null.
+        auto* storage = Array<unsigned char>(pool, MaterialParameterSize(id), GLM_Header);
+        InstallMaterial(packet, input_packet.material, storage);
     }
     pool.m_inventory->AddModel(input.id, model);
 }

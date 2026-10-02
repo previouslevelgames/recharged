@@ -717,29 +717,35 @@ int main(int argc, char** argv)
 #endif
 #ifdef MSCHARGED_HAS_SCENE_PREVIEW
             std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N]\n"
-                         "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n";
+                         "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n"
+                         "                        [--unlit] [--shadow-textures /DISC/PATH.rlt --shadow-id HEX]\n";
 #endif
             return 0;
         }
         if (arg == "--smoke-test") options.smoke_test = true;
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
-        else if ((arg == "--frames" || arg == "--model" || arg == "--textures" || arg == "--model-id") && i + 1 < argc)
+        else if (arg == "--unlit") { options.scene_arguments = true; options.scene.unlit = true; }
+        else if ((arg == "--frames" || arg == "--model" || arg == "--textures" || arg == "--model-id"
+                  || arg == "--shadow-textures" || arg == "--shadow-id") && i + 1 < argc)
         {
             options.scene_arguments = true;
             const std::string value = argv[++i];
             if (arg == "--model") options.scene.model = value;
             else if (arg == "--textures") options.scene.textures = value;
+            else if (arg == "--shadow-textures") options.scene.shadow_textures = value;
             else
             {
                 std::uint32_t number = 0;
                 std::string_view digits = value;
-                if (arg == "--model-id" && (digits.size() >= 2 && digits.substr(0, 2) == "0x")) digits.remove_prefix(2);
-                const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number, arg == "--model-id" ? 16 : 10);
+                const bool hex = arg == "--model-id" || arg == "--shadow-id";
+                if (hex && (digits.size() >= 2 && digits.substr(0, 2) == "0x")) digits.remove_prefix(2);
+                const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number, hex ? 16 : 10);
                 if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size()
                     || (arg == "--frames" && (!number || number > 10000)))
                 { std::cerr << "Invalid " << arg << " value: " << value << '\n'; return 2; }
                 if (arg == "--frames") options.scene.frames = number;
+                else if (arg == "--shadow-id") options.scene.shadow_id = number;
                 else options.scene.model_id = number;
             }
         }
@@ -764,6 +770,8 @@ int main(int argc, char** argv)
     { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
+    if (options.scene.shadow_id.has_value() != options.scene.shadow_textures.has_value())
+    { std::cerr << "--shadow-textures and --shadow-id must be supplied together.\n"; return 2; }
     try
     {
         if (options.experimental_scene)

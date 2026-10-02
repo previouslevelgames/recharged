@@ -1,0 +1,397 @@
+Subject: Select portable original render-state packing and lifecycle
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Preserve Wii raster/texture ID widths and the original texture bit ordering:
+logical bits 0-31 occupy the high word of the numeric u64. Replace only the
+native glSetTextureState assembly path, retaining the original console body.
+Use numeric shifts for native extraction, including fields crossing the word
+boundary. Validate native state/type enums and matrix storage before use, and
+reset state before memory teardown. Select the original hash independently of
+the unlinked full graphics startup. Full material/GX state dispatch is separate.
+
+diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
+index 6eb22d9..c34f8cc 100644
+--- a/include/NL/gl/glState.h
++++ b/include/NL/gl/glState.h
+@@ -62,6 +62,9 @@ enum eGLTextureState
+ };
+ 
+ void gl_StateStartup();
++#if defined(MSCHARGED_NATIVE)
++void gl_StateShutdown();
++#endif
+ glStateBundle* gl_GetCurrentStateBundle();
+ void glStateSave(glStateBundle& state);
+ void glStateRestore(const glStateBundle& state);
+diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
+index 956ba4e..e327674 100644
+--- a/include/NL/gl/glStateBundle.h
++++ b/include/NL/gl/glStateBundle.h
+@@ -7,11 +7,11 @@
+ struct glStateBundle
+ {
+     /* 0x00 */ unsigned long long texturestate;
+-    /* 0x08 */ unsigned long raster;
++    /* 0x08 */ u32 raster;
+     /* 0x0C */ glMatrixHandle matrix;
+-    /* 0x10 */ unsigned long texture[6];
++    /* 0x10 */ u32 texture[6];
+     /* 0x28 */ unsigned char texconfig;
+-    /* 0x2C */ unsigned long userStateKey;
++    /* 0x2C */ u32 userStateKey;
+ }; // total size: 0x30
+ 
+ struct gl_StateBitfield
+diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
+index cd8f025..8217711 100644
+--- a/src/NL/gl/gl.cpp
++++ b/src/NL/gl/gl.cpp
+@@ -53,10 +53,7 @@ bool glStartup(void (*startupCallback)())
+     return true;
+ }
+ 
+-unsigned long glHash(const char* string)
+-{
+-    return nlStringHash(string);
+-}
++#include "glHash.cpp"
+ 
+ int glGetCurrentFrame()
+ {
+diff --git a/src/NL/gl/glHash.cpp b/src/NL/gl/glHash.cpp
+new file mode 100644
+index 0000000..4f62970
+--- /dev/null
++++ b/src/NL/gl/glHash.cpp
+@@ -0,0 +1,7 @@
++#include "NL/gl/gl.h"
++#include "NL/nlString.h"
++
++unsigned long glHash(const char* string)
++{
++    return nlStringHash(string);
++}
+diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+index d1d5e40..6801388 100644
+--- a/src/NL/gl/glMemoryInit.cpp
++++ b/src/NL/gl/glMemoryInit.cpp
+@@ -6,10 +6,12 @@
+ #include "runtime/graphics_memory.h"
+ #include "NL/gl/glTextureManager.h"
+ #include "NL/gl/glMatrix.h"
++#include "NL/gl/glState.h"
+ #include <stdexcept>
+ 
+ void glShutdownMemory()
+ {
++    gl_StateShutdown();
+     gl_MatrixShutdown();
+     while (glGetResourcePools()) glDestroyResourcePool(glGetResourcePools());
+     glShutdownTextureManager();
+diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
+index 961ca57..9c4115a 100644
+--- a/src/NL/gl/glState.cpp
++++ b/src/NL/gl/glState.cpp
+@@ -4,11 +4,15 @@
+ #include "NL/gl/glMatrix.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "NL/glx/glxMemory.h"
++#include <stdexcept>
++#endif
+ 
+ class glRasterState
+ {
+ public:
+-    /* 0x00 */ unsigned long m_State;
++    /* 0x00 */ u32 m_State;
+ }; // total size: 0x4
+ 
+ class glTextureState
+@@ -50,12 +54,18 @@ static inline unsigned long glSetCurrentTextureInline(unsigned long texture, eGL
+ 
+ static inline bool glTextureBitIsSet(const unsigned long long* texture, s32 bit)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // The original indexes the high Wii word first, not the low numeric bit.
++    unsigned int shift = bit < 32 ? bit + 32 : bit - 32;
++    return ((*texture >> shift) & 1ULL) != 0;
++#else
+     const u32* words = (const u32*)texture;
+     if (bit < 32)
+     {
+         return (words[0] & (1u << bit)) != 0;
+     }
+     return (words[1] & (1u << (bit - 32))) != 0;
++#endif
+ }
+ 
+ static inline unsigned long GetTextureStateImpl(unsigned long long* pTexture, eGLTextureState texturestate)
+@@ -148,8 +158,47 @@ static inline void glPackTextureStateBits(s32 bit, gl_StateBitfield* p)
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++static bool sStateInitialized;
++static void RequireState()
++{
++    if (!sStateInitialized) throw std::logic_error("GL state is not initialized");
++}
++static void RequireRaster(eGLState state)
++{
++    RequireState();
++    if (state < 0 || state >= GLS_Num) throw std::invalid_argument("Invalid GL raster state");
++}
++static void RequireTexture(eGLTextureState state)
++{
++    RequireState();
++    if (state < 0 || state >= GLTS_Num) throw std::invalid_argument("Invalid GL texture state");
++}
++static void RequireTextureType(eGLTextureType type)
++{
++    RequireState();
++    if (type < 0 || type >= GLTT_Num) throw std::invalid_argument("Invalid GL texture type");
++}
++void gl_StateShutdown()
++{
++    memset(&_bundle, 0, sizeof(_bundle));
++    _bundle.matrix = GL_INVALID_MATRIX;
++    for (int i = 0; i < GLTT_Num; ++i) _bundle.texture[i] = 0xFFFFFFFFu;
++    _state.m_State = 0;
++    _textureState.m_State = 0;
++    defaultRasterState = 0;
++    defaultTextureState = 0;
++    sStateInitialized = false;
++}
++#endif
++
+ void gl_StateStartup()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (sStateInitialized) throw std::logic_error("GL state is already initialized");
++    gl_StateShutdown();
++    sStateInitialized = true;
++#endif
+     _bundle.texconfig = 0;
+ 
+     glPackStateBits(packed_raster);
+@@ -198,26 +247,44 @@ void gl_StateStartup()
+ 
+ glStateBundle* gl_GetCurrentStateBundle()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     return &_bundle;
+ }
+ 
+ void glStateSave(glStateBundle& state)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     memcpy(&state, &_bundle, sizeof(glStateBundle));
+ }
+ 
+ void glStateRestore(const glStateBundle& state)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
++#if defined(MSCHARGED_NATIVE)
++    if (state.matrix != GL_INVALID_MATRIX) glplatValidateMatrix(state.matrix);
++#endif
+     memcpy(&_bundle, &state, sizeof(glStateBundle));
+ }
+ 
+ u32 glGetCurrentTexture(eGLTextureType type)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireTextureType(type);
++#endif
+     return _bundle.texture[type];
+ }
+ 
+ u32 glSetCurrentTexture(unsigned long texture, eGLTextureType type)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireTextureType(type);
++#endif
+     unsigned long prev = _bundle.texture[type];
+     unsigned long mask = 1u << type;
+ 
+@@ -236,11 +303,17 @@ u32 glSetCurrentTexture(unsigned long texture, eGLTextureType type)
+ 
+ u32 glGetCurrentRasterState()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     return _bundle.raster;
+ }
+ 
+ u32 glSetCurrentRasterState(unsigned long raster)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     unsigned long prev = _bundle.raster;
+     _bundle.raster = raster;
+     return prev;
+@@ -248,11 +321,17 @@ u32 glSetCurrentRasterState(unsigned long raster)
+ 
+ unsigned long long glGetCurrentTextureState()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     return _bundle.texturestate;
+ }
+ 
+ unsigned long long glSetCurrentTextureState(unsigned long long state)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     unsigned long long prev = _bundle.texturestate;
+     _bundle.texturestate = state;
+     return prev;
+@@ -260,11 +339,20 @@ unsigned long long glSetCurrentTextureState(unsigned long long state)
+ 
+ glMatrixHandle glGetCurrentMatrix()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     return _bundle.matrix;
+ }
+ 
+ glMatrixHandle glSetCurrentMatrix(glMatrixHandle matrix)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
++#if defined(MSCHARGED_NATIVE)
++    if (matrix != GL_INVALID_MATRIX) glplatValidateMatrix(matrix);
++#endif
+     glMatrixHandle prev = _bundle.matrix;
+     _bundle.matrix = matrix;
+     return prev;
+@@ -282,6 +370,9 @@ u32 glGetTexture(const char* textureName)
+ 
+ u32 glGetRasterState(unsigned long raster, eGLState state)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireRaster(state);
++#endif
+     gl_StateBitfield* p = &packed_raster[state];
+     s32 numBits = p->numBits;
+     unsigned long out = 0;
+@@ -299,6 +390,9 @@ u32 glGetRasterState(unsigned long raster, eGLState state)
+ 
+ u32 glSetRasterState(eGLState state, unsigned long value)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireRaster(state);
++#endif
+     gl_StateBitfield* p = &packed_raster[state];
+     s32* pn = &p->numBits;
+     unsigned long out = 0;
+@@ -329,21 +423,47 @@ u32 glSetRasterState(eGLState state, unsigned long value)
+ 
+ u32 glSetRasterState(u32& raster, eGLState state, unsigned long value)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireRaster(state);
++#endif
+     gl_StateBitfield* p = &packed_raster[state];
+     return glSetRasterStateRefImpl(raster, p, value, 1, p->startBit, raster);
+ }
+ 
+ u32 glGetTextureState(eGLTextureState texturestate)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireTexture(texturestate);
++#endif
+     unsigned long long texture = _textureState.m_State;
+     return GetTextureStateImpl(&texture, texturestate);
+ }
+ 
+ u32 glGetTextureState(unsigned long long texture, eGLTextureState texturestate)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireTexture(texturestate);
++#endif
+     return GetTextureStateImpl(&texture, texturestate);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++u32 glSetTextureState(eGLTextureState state, unsigned long value)
++{
++    RequireTexture(state);
++    u32 previous = glGetTextureState(state);
++    const gl_StateBitfield& field = packed_texture[state];
++    for (int bit = 0; bit < field.numBits; ++bit)
++    {
++        int logical = field.startBit + bit;
++        unsigned int shift = logical < 32 ? logical + 32 : logical - 32;
++        unsigned long long mask = 1ULL << shift;
++        if (value & (1u << bit)) _textureState.m_State |= mask;
++        else _textureState.m_State &= ~mask;
++    }
++    return previous;
++}
++#else
+ // clang-format off
+ asm u32 glSetTextureState(eGLTextureState state, unsigned long value)
+ {
+@@ -447,28 +567,47 @@ asm u32 glSetTextureState(eGLTextureState state, unsigned long value)
+     blr
+ }
+ // clang-format on
++#endif
+ 
+ void glSetRasterStateDefaults()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     _state.m_State = defaultRasterState;
+ }
+ 
+ void glSetTextureStateDefaults()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     _textureState.m_State = defaultTextureState;
+ }
+ 
+ unsigned long glHandleizeRasterState()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     return _state.m_State;
+ }
+ 
+ unsigned long long glHandleizeTextureState()
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
+     return _textureState.m_State;
+ }
+ 
+ void glSetDefaultState(bool setRasterDefaults)
+ {
++#if defined(MSCHARGED_NATIVE)
++    RequireState();
++#endif
++#if defined(MSCHARGED_NATIVE)
++    glplatValidateMatrix(glGetIdentityMatrix());
++#endif
+     _state.m_State = defaultRasterState;
+     _textureState.m_State = defaultTextureState;

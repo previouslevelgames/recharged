@@ -3,7 +3,11 @@
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
 #include "runtime/graphics_memory.h"
+#include "runtime/graphics_state.h"
 #include "runtime/static_inventory.h"
+#include "runtime/materials.h"
+#include "runtime/gpu_readback.h"
+#include "runtime/material_environment.h"
 #include "resources/static_model.h"
 #include "resources/texture_bundle.h"
 #include "bootstrap/config.h"
@@ -13,13 +17,17 @@
 #include "Game/Startup.h"
 #include "Game/GraphicsMemoryStartup.h"
 #include "Game/main.h"
+#include "Game/Render/LightingLookup.h"
 #include "NL/nlFile.h"
 #include "NL/nlFileGC.h"
 #include "NL/nlMemory.h"
 #include "NL/gl/glMemoryInit.h"
 #include "NL/gl/glModel.h"
+#include "NL/gl/glMatrix.h"
+#include "NL/gl/glState.h"
 #include "NL/gl/glTextureManager.h"
 #include "NL/glx/glxTexture.h"
+#include "NL/glx/glxMatrix.h"
 #include <SDL3/SDL.h>
 #include <aurora/aurora.h>
 #include <aurora/dvd.h>
@@ -129,69 +137,29 @@ Bounds Normalize(resources::StaticModel& model)
             for (unsigned i = 0; i < 3; ++i) vertex.position[i] = (vertex.position[i] - bounds.center[i]) / bounds.radius;
     return bounds;
 }
-GXPrimitive Primitive(std::uint8_t kind)
-{
-    const GXPrimitive values[] = {GX_TRIANGLES, GX_TRIANGLESTRIP, GX_TRIANGLEFAN, GX_QUADS, GX_LINES, GX_LINESTRIP};
-    return values[kind]; // The checked reader validates this field.
-}
 void InvalidateCaches() { GXInvalidateVtxCache(); GXInvalidateTexAll(); }
 void DrainGX() { AuroraGXSync(); }
-void Draw(const glModel& model, float angle)
+void Draw(glModel& model, float time, const GameLighting& lighting)
 {
     GXSetCopyClear({24, 28, 34, 255}, GX_MAX_Z24);
     GXSetViewport(0, 0, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight, 0, 1);
     GXSetScissor(0, 0, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
-    Mtx44 projection{};
-    C_MTXPerspective(projection, 40, float(GXNtsc480IntDf.fbWidth) / GXNtsc480IntDf.efbHeight, 0.1f, 20);
-    Point3d camera{0, 0.3f, 4.2f}, target{0, 0, 0}; Vec up{0, 1, 0};
-    auto* matrices = static_cast<Mtx*>(glFrameAlloc(sizeof(Mtx) * 3, GLM_Matrix));
-    auto& view = matrices[0]; auto& rotation = matrices[1]; auto& transform = matrices[2];
-    C_MTXLookAt(view, &camera, &up, &target); C_MTXRotRad(rotation, 'y', angle); C_MTXConcat(view, rotation, transform);
-    GXSetProjection(projection, GX_PERSPECTIVE); GXLoadPosMtxImm(transform, GX_PNMTX0); GXSetCurrentMtx(GX_PNMTX0);
-    GXSetCullMode(GX_CULL_NONE); GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
-    GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0); GXSetColorUpdate(GX_TRUE); GXSetAlphaUpdate(GX_TRUE);
-    GXSetNumChans(0); GXSetNumTexGens(1); GXSetNumTevStages(1);
-    GXSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL); GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
-    GXClearVtxDesc(); GXSetVtxDesc(GX_VA_POS, GX_DIRECT); GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    nlMatrix4 projection, view, world;
+    glMatrixPerspective(projection, 40 * 3.1415927f / 180,
+        float(GXNtsc480IntDf.fbWidth) / GXNtsc480IntDf.efbHeight, 0.1f, 20);
+    glMatrixLookAt(view, {0, 0.3f, 4.2f}, {0, 0, 0}, {0, 1, 0});
+    nlMakeRotationMatrixY(world, time * 0.35f);
+    MaterialPreviewScope environment(view, time, lighting);
+    glModelSetMatrix(&model, world); // Original frame allocation and packet propagation.
+    Mtx44 gx_projection;
+    glxCopyMatrix(gx_projection, projection);
+    GXSetProjection(gx_projection, GX_PERSPECTIVE); GXSetCurrentMtx(GX_PNMTX0);
     for (unsigned p = 0; p < model.numPackets; ++p)
     {
         auto& packet = model.packets[p];
-        auto* binding = static_cast<glTextureBinding*>(packet.materialParameters);
-        auto* texture = glGetTextureManager()->GetTexture(binding);
-        if (!texture) throw std::runtime_error("Static inventory diffuse texture is missing");
-        const auto* positions = glFindModelStream(&packet, 1);
-        const auto* coordinates = glFindModelStream(&packet, 4);
-        if (!positions || !coordinates || positions->stride != 12 || coordinates->stride != 8)
-            throw std::runtime_error("Unexpected native static vertex stream layout");
-        const auto wrap_s = binding->flags & 1 ? GX_CLAMP : GX_REPEAT;
-        const auto wrap_t = binding->flags & 2 ? GX_CLAMP : GX_REPEAT;
-        const std::uint8_t formats[] = {4, 5, 14, 6, 1, 0, 1, 3, 9};
-        const auto format = formats[texture->m_Format];
-        GXTexObj object{}; GXTlutObj palette{};
-        if (texture->m_nPaletteEntries)
-        {
-            GXInitTlutObj(&palette, texture->m_PaletteData, GX_TL_RGB5A3, texture->m_nPaletteEntries); GXLoadTlut(&palette, 0);
-            GXInitTexObjCI(&object, texture->m_SwizzledData, texture->m_Width, texture->m_Height,
-                static_cast<GXCITexFmt>(format), wrap_s, wrap_t, texture->m_Levels > 1, 0);
-        }
-        else GXInitTexObj(&object, texture->m_SwizzledData, texture->m_Width, texture->m_Height,
-            static_cast<GXTexFmt>(format), wrap_s, wrap_t, texture->m_Levels > 1);
-        GXInitTexObjLOD(&object, texture->m_Levels == 1 ? GX_LINEAR : texture->m_nPaletteEntries ? GX_LIN_MIP_NEAR : GX_LIN_MIP_LIN,
-            GX_LINEAR, 0, texture->m_MaxLevel, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
-        GXLoadTexObj(&object, GX_TEXMAP0);
-        GXBegin(Primitive(packet.primType), GX_VTXFMT0, static_cast<u16>(packet.numVertices));
-        for (unsigned i = 0; i < packet.numVertices; ++i)
-        {
-            auto index = packet.indexBuffer[i];
-            const auto* position = static_cast<const float*>(positions->address) + index * 3;
-            const auto* uv = static_cast<const float*>(coordinates->address) + index * 2;
-            GXPosition3f32(position[0], position[1], position[2]); GXTexCoord2f32(uv[0], uv[1]);
-        }
-        GXEnd();
+        glSetCurrentMatrix(packet.matrix);
+        glSetCurrentRasterState(packet.rasterState);
+        DrawMaterial(packet);
     }
     GXDrawDone();
 }
@@ -221,7 +189,9 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         std::filesystem::create_directories(directory); logfile.open(directory / "scene.log", std::ios::trunc);
         if (!logfile) throw std::runtime_error("Cannot create scene diagnostic log");
         log(std::string("mscharged ") + build::version + "; decomp " + MSCHARGED_DECOMP_REVISION);
-        log("Static asset preview: diffuse only; original shaders, animation, scene tasks and gameplay are pending.");
+        if (options.shadow_id.has_value() != options.shadow_textures.has_value())
+            throw std::invalid_argument("Shadow preview requires both a texture bundle and an ID");
+        log("Static material preview: original object lighting and material programs. Stadium loading, dynamic shadows, animation and game scenes are pending.");
         const auto data_path = PathUtf8(directory);
         AuroraConfig config{};
         config.appName = "Mario Strikers Charged | Static asset preview";
@@ -242,6 +212,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         // Original glStartup's memory callback; later graphics stages are pending.
         glInitResourcePools(); InitializeOriginalGraphicsMemory();
         log("Original graphics memory initialized: two MEM1/MEM2 frames, Global resource pool, static GLInventory and 1000 texture indices.");
+        InitializeOriginalGraphicsState();
+        log("Original GL state and identity matrix initialized; native frame matrix handles and original NL camera math enabled.");
         log("Original InitializeCore completed; loading RLG/RLT through original NL whole-file async services.");
         PendingAsset model_data, texture_data;
         model_data.Start(options.model); texture_data.Start(options.textures);
@@ -265,7 +237,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         for (const auto& packet : selected->packets)
         {
             vertices += packet.vertices.size(); indices += packet.indices.size();
-            if (std::none_of(textures.begin(), textures.end(), [&](const auto& texture) { return texture.id == packet.texture; }))
+            if (std::none_of(textures.begin(), textures.end(), [&](const auto& texture) { return texture.id == packet.material.textures[0].texture; }))
                 throw std::runtime_error("RLG diffuse texture is missing from the selected RLT bundle");
         }
         std::ostringstream description;
@@ -273,18 +245,74 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             << " packets, " << vertices << " vertices, " << indices << " indices; " << textures.size()
             << " textures; original radius " << bounds.radius << '.';
         log(description.str());
+        const auto lookup_ids = MaterialLookupTextures(*selected);
+        if (!lookup_ids.empty())
+        {
+            PendingAsset global;
+            global.Start("/Art/global.rlt");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (!global.done)
+            {
+                if (Update()) throw std::runtime_error("Static preview cancelled while loading material lookup textures");
+                nlServiceFileSystem();
+                if (std::chrono::steady_clock::now() > deadline) throw std::runtime_error("Material texture load timed out");
+                SDL_Delay(1);
+            }
+            auto lookups = resources::ReadTextureBundle(global.Bytes(), lookup_ids);
+            for (auto& texture : lookups)
+                if (std::none_of(textures.begin(), textures.end(), [&](const auto& old) { return old.id == texture.id; }))
+                    textures.push_back(std::move(texture));
+            log("Loaded " + std::to_string(lookups.size()) + " original material lookup textures from /Art/global.rlt.");
+        }
+        if (options.shadow_id)
+        {
+            PendingAsset shadow_data;
+            shadow_data.Start(*options.shadow_textures);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (!shadow_data.done)
+            {
+                if (Update()) throw std::runtime_error("Static preview cancelled while loading shadow lookup");
+                nlServiceFileSystem();
+                if (std::chrono::steady_clock::now() > deadline) throw std::runtime_error("Shadow texture load timed out");
+                SDL_Delay(1);
+            }
+            auto shadow = resources::ReadTextureBundle(shadow_data.Bytes(), {*options.shadow_id});
+            if (shadow.size() != 1 || shadow[0].game_format != GXTex_CI8)
+                throw std::runtime_error("Projected shadow lookup requires a CI8/RGB5A3 texture");
+            auto existing = std::find_if(textures.begin(), textures.end(), [&](const auto& t) { return t.id == *options.shadow_id; });
+            if (existing == textures.end()) textures.push_back(std::move(shadow[0]));
+            else if (existing->width != shadow[0].width || existing->height != shadow[0].height ||
+                     existing->game_format != shadow[0].game_format || existing->pixels != shadow[0].pixels ||
+                     existing->palette != shadow[0].palette)
+                throw std::runtime_error("Shadow texture ID conflicts with an existing material texture");
+        }
+        // Install only the selected model and its material dependencies.
+        auto chosen = std::move(*selected); models.clear(); models.push_back(std::move(chosen));
         VIInit(); VIConfigure(&GXNtsc480IntDf);
         alignas(32) std::array<std::uint8_t, 65536> fifo{}; GXInit(fifo.data(), fifo.size());
         session.gx = true;
         SetGraphicsCacheInvalidator(InvalidateCaches);
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
+        MaterialPrograms materials;
         StaticInventory inventory(*glGetCurrentResourcePool(), models, textures, DrainGX);
-        const auto* native_model = inventory.Model(selected_id);
+        GameLighting lighting = DefaultGameLighting();
+        lighting.enabled = !options.unlit;
+        LightingLookup shadow_lookup;
+        bool shadows_enabled = options.shadow_id.has_value();
+        if (options.shadow_id)
+        {
+            shadow_lookup.LoadTexture(*options.shadow_id);
+            lighting.shadow.texture = *options.shadow_id;
+            lighting.shadow.lookup = &shadow_lookup;
+            log("Loaded original projected-shadow lookup: " + std::to_string(shadow_lookup.mWidth) + "x" + std::to_string(shadow_lookup.mHeight) + ".");
+        }
+        log(options.unlit ? "Unlit comparison selected." : "Original key/fill object-light defaults and ambient colour enabled; material lighting flags are preserved.");
+        auto* native_model = inventory.Model(selected_id);
         if (!native_model) throw std::runtime_error("Selected model is missing from original GLInventory");
-        log("Checked RLG/RLT data installed as pool-owned native glModel/PlatTexture records; drawing through original inventory and texture manager.");
+        log("Checked RLG/RLT data installed as pool-owned native glModel/PlatTexture records; drawing original material Activate/Draw/Deactivate and TEV shader recipes through Aurora.");
         // Render only game-pool records from here; discard host decoder storage.
         models.clear(); models.shrink_to_fit(); textures.clear(); textures.shrink_to_fit();
-        unsigned frames = 0, draws = 0, depth_hits = 0;
+        unsigned frames = 0, draws = 0, depth_hits = 0, colour_hits = 0;
         const auto start = std::chrono::steady_clock::now();
         while (!options.frames || frames < options.frames)
         {
@@ -293,8 +321,10 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             if (options.frames && std::chrono::steady_clock::now() - start > std::chrono::seconds(30)) throw std::runtime_error("Static preview frame deadline exceeded");
             if (!aurora_begin_frame()) { SDL_Delay(1); continue; }
             glplatFrameAllocNextFrame();
-            const float angle = float(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()) * 0.35f;
-            Draw(*native_model, angle);
+            const float elapsed = float(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+            auto frame_lighting = lighting;
+            if (!shadows_enabled) frame_lighting.shadow = {};
+            Draw(*native_model, elapsed, frame_lighting);
             // Read actual EFB depth, before the ImGui overlay, to require visible geometry.
             // Aurora returns the latest asynchronous snapshot, and returns zero
             // before one is available. Require perspective depth near our camera
@@ -311,22 +341,38 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             ImGui::SetNextWindowPos({16, 16}, ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.82f);
             ImGui::Begin("Static asset preview", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-            ImGui::TextUnformatted("Original Wii mesh and diffuse texture / Aurora GX Vulkan");
-            ImGui::TextUnformatted("Original materials, animation and game scenes are pending.");
+            ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
+            ImGui::TextUnformatted("Original GL matrices, state, memory and static inventory.");
+            ImGui::Checkbox("Object lighting", &lighting.enabled);
+            if (options.shadow_id)
+            {
+                ImGui::Checkbox("Projected shadow lookup", &shadows_enabled);
+                ImGui::SliderFloat2("Shadow scale", lighting.shadow.scale.data(), 0.001f, 2.0f);
+                ImGui::SliderFloat2("Shadow offset", lighting.shadow.translation.data(), -1, 1);
+            }
+            ImGui::TextUnformatted("Stadium scenes, dynamic shadows and animation are pending.");
             ImGui::TextUnformatted("Escape or close the window to exit."); ImGui::End();
-            aurora_end_frame(); draws += aurora_get_stats()->drawCallCount; ++frames;
+            if ((!colour_hits && frames % 15 == 14) || (options.frames && frames + 1 == options.frames))
+            {
+                const auto colours=EndFrameAndReadColours();
+                if (aurora_get_stats()->drawCallCount)
+                    for (const auto& c : colours)
+                        if (std::abs(int(c[0])-24)>3 || std::abs(int(c[1])-28)>3 || std::abs(int(c[2])-34)>3) ++colour_hits;
+            }
+            else aurora_end_frame();
+            draws += aurora_get_stats()->drawCallCount; ++frames;
         }
         // Explicitly stop services while CPU texture storage and frame FIFO still exist.
-        inventory.Release(); glShutdownMemory();
+        inventory.Release(); materials.Release(); glShutdownMemory();
         if (StandardAllocator.TotalFreeMemory() != mem1_free || VirtualAllocator.TotalFreeMemory() != mem2_free)
             throw std::runtime_error("Graphics shutdown did not recover both original game arenas");
         log("Original graphics shutdown recovered both game arenas.");
         ResetStartupFiles(); aurora_dvd_close(); session.disc = false;
         ResetStartupMemory(); aurora_shutdown(); session.live = false;
-        if (backend_errors || !draws || !depth_hits || (options.frames && frames < options.frames))
+        if (backend_errors || !draws || (!depth_hits && !colour_hits) || (options.frames && frames < options.frames))
             throw std::runtime_error("Static preview incomplete: frames=" + std::to_string(frames) + ", draws=" + std::to_string(draws)
-                + ", depth hits=" + std::to_string(depth_hits) + ", backend errors=" + std::to_string(backend_errors.load()));
-        log("Static preview rendered: " + std::to_string(frames) + " frames, " + std::to_string(draws) + " GX draw calls, " + std::to_string(depth_hits) + " geometry depth samples. No game scene or gameplay was started.");
+                + ", depth hits=" + std::to_string(depth_hits) + ", colour hits=" + std::to_string(colour_hits) + ", backend errors=" + std::to_string(backend_errors.load()));
+        log("Static preview rendered: " + std::to_string(frames) + " frames, " + std::to_string(draws) + " GX draw calls, " + std::to_string(depth_hits) + " geometry depth samples, " + std::to_string(colour_hits) + " visible colour samples. No game scene or gameplay was started.");
         return 0;
     }
     catch (const std::exception& error) { log(std::string("FAILED: ") + error.what()); return 1; }

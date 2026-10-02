@@ -24,3 +24,10 @@
 0023-select-native-static-texture-manager-lifecycle.patch
 0024-check-native-graphics-pools-and-frame-lifecycle.patch
 0025-select-original-preinitfs-memory-callback.patch
+0026-preserve-native-matrix-handle-chain.patch
+0027-adapt-native-packed-render-state.patch
+0028-adapt-native-graphics-math.patch
+0029-select-native-material-registry-and-alpha.patch
+0030-connect-static-material-programs-to-aurora.patch
+0031-select-native-object-lighting-and-shadow-lookup.patch
+0032-enable-original-material-lighting-and-shadows.patch

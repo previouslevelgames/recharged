@@ -1,437 +1,65 @@
-# Building the development launcher
+# Building
 
-`mscharged` opens the graphical launcher, with Game, Display, Audio, Controls,
-and About pages. It uses SDL3 for the window, rendering, file dialogs, and
-controller input, and Dear ImGui for the interface. Normal builds keep Play
-disabled. The optional `startup` preset provides **Try startup** for an early
-original-code path that stops before a menu; see below.
-
-The separate `mscharged-bootstrap` target compiles three available decompilation
-translation units:
-`src/NL/nlEndian.cpp`, `src/NL/nlRandom.cpp`, and
-`src/Game/Core/mtRandom.cpp`. It runs small native utility checks and uses nod
-to identify ISO/RVZ images and open their game data partition. It does not
-render graphics or run a match.
-
-The decompilation is incomplete and not fully linked. Missing functions,
-unfinished reconstructions, console assembly, Wii services, and incompatible
-layouts will be handled incrementally. A passing bootstrap build is evidence
-for this source subset only. The first 100% decompilation and 100% link release
-is a future upstream milestone, not a prerequisite for working on this setup.
+Linux builds are verified. Windows and macOS support is still in development.
+**The game is not playable yet**; the default build provides the launcher and
+local disc checks.
 
 ## Requirements
 
-- Git, including submodule support.
-- Python 3.10 or newer; no third-party Python packages are needed.
-- CMake 3.25 or newer.
-- Ninja for the supplied presets, or another CMake-supported tool for a manual build.
-- C and C++20 compilers. The foundation and launcher use C++17; native asset
-  readers and Aurora use C++20. The initial utilities were validated with Clang and GCC
-  on Linux; the launcher and disc reader were validated with GCC 16.
-- Rust and Cargo 1.85 or newer for nod; validated with Rust 1.95 on Linux.
-- The platform prerequisites listed in the pinned SDL source's
-  [build instructions](../extern/sdl/docs/README-cmake.md). On Linux, install
-  `pkg-config` and the development packages for the desktop backends you use
-  (X11 and/or Wayland, including xkbcommon, plus the relevant graphics libraries).
-  See SDL's [Linux notes](../extern/sdl/docs/README-linux.md) for distribution
-  package lists. SDL itself is built from the pinned submodule.
+- Git, CMake 3.25+, Ninja, and Python 3.10+.
+- A C/C++20 compiler and Rust/Cargo 1.85+.
+- SDL's platform development dependencies. On Linux, install `pkg-config` and
+  the X11 and/or Wayland development packages listed in
+  [SDL's Linux notes](../extern/sdl/docs/README-linux.md).
 
-Windows and macOS are port targets. Their build commands are provided for
-development but have not yet been executed on those systems. Qt and Aurora/Dawn
-are not needed for this launcher. Building, tests, and the bootstrap's
-`--self-test` need no game data.
-
-With CMake 4.4+, the SDL integration explicitly selects its expected legacy
-macro escaping for policy `CMP0219`. This is scoped to the pinned SDL build;
-ordinary CMake warnings stay enabled and the SDL submodule remains unchanged.
-
-The first nod build downloads the Rust crates recorded in its committed
-`Cargo.lock`. Cargo runs with `--locked` and cannot silently update those
-versions. Compression libraries are currently built from Cargo's pinned source
-crates with support for Bzip2, LZMA/LZMA2, zlib, and Zstandard. Subsequent builds
-can use the Cargo cache offline (`CARGO_NET_OFFLINE=true`).
-
-## Fetch the source
-
-From a checkout of this repository, initialize the dependencies used by the
-launcher and bootstrap at their recorded commits:
-
-```sh
-git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
-```
-
-To also download all top-level library sources for runtime and UI development:
-
-```sh
-git -c submodule.recurse=false submodule update --init --checkout
-```
-
-The [dependency inventory](../extern/README.md) explains nested dependencies and
-remaining integration work. Dawn has a large set of nested development and
-platform dependencies; full recursive initialization is unnecessary for this
-development build. Ordinary builds do not fetch or advance upstream revisions.
+The first build may download locked Rust dependencies. Building and running the
+default tests does not require game data.
 
 ## Build and run
 
-From the repository root, one command configures the Release build, prepares
-patched sources, compiles, and runs all six test suites:
+From the repository root:
 
 ```sh
+git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
 cmake --workflow --preset release
-```
-
-The `release` preset selects compiler optimizations. It builds the launcher and
-bootstrap with the development scope described above.
-
-On Linux and macOS:
-
-```sh
 ./build/release/mscharged
 ```
 
-This opens the launcher. `mscharged --version` prints the version without
-opening a window. `--help` lists the supported arguments.
+The workflow configures, prepares sources, builds, and runs tests. Patches apply
+to generated copies under `build/`, keeping submodules unchanged. See the
+[patch workflow](../patches/README.md) when developing source changes.
 
-### Launcher settings
-
-- **Game:** browse for an ISO/RVZ, or drop a file onto the window. Disc checks run
-  in the background and report its ID, revision, format, and file count.
-- **Display:** resolution, aspect ratio, fullscreen, VSync, and backend preferences.
-- **Audio:** master, music, and effects volume, plus mute.
-- **Controls:** preferred input, deadzone, vibration, and a live check of the
-  first detected controller's left stick and face buttons. Wii mappings are pending.
-- **About:** build information and attribution.
-
-Display, audio, and gameplay input settings are stored for future runtime
-integration; they do not configure a running game or the launcher window.
-The experimental startup build uses the saved game text language for the original
-USA selection branch; localization assets are not loaded yet.
-Backend choices are platform-specific: Linux offers Automatic/Vulkan, macOS
-Automatic/Metal, and Windows Automatic/Direct3D 12/Vulkan. See the
-[runtime plan](RUNTIME.md#graphics-backend-policy) for their intended behavior.
-
-**Game text language** is intended to select the game's menus and on-screen
-text. Charged's startup code reads the Wii system language and selects regional
-localization files. The USA release uses English, French, or Spanish; Europe
-uses English, French, Spanish, German, or Italian; Japan selects Japanese.
-After a successful disc check, the launcher offers the choices for that release.
-An existing unsupported preference is retained with a message to choose another.
-Unrecognized regions leave the selector disabled. This setting does not translate
-the launcher or modify the image. `auto` is reserved for using the computer's
-language with a supported regional fallback once runtime integration is in place.
-
-**Save settings** writes the local INI. **Reload** discards unsaved changes and
-reads it again. **Defaults** resets preferences while keeping your selected disc;
-save to make that change permanent. Closing with unsaved changes offers Save,
-Discard, or Cancel. Comments and unknown settings are preserved; an external
-edit requires Reload before the launcher will overwrite the file.
-
-The launcher first uses `mscharged.ini` in the working directory. Otherwise it
-finds the repository root from its executable location, or falls back to the
-executable directory outside a checkout. If there is no INI, it starts with
-defaults and creates a file only on Save. An explicit path is also supported:
-
-```sh
-./build/release/mscharged --config "/path/to/local.ini"
-```
-
-The header image, font, and asset notices are copied beside the executable in
-`assets/launcher/`. Keep this directory with the executable if moving a build.
-
-## Configure your disc
-
-1. Put your ISO or RVZ in `game/`, for example `game/R4QE01.rvz`. All contents
-   except the `.gitkeep` placeholder are ignored by Git.
-2. Select it in the launcher and click **Save settings**. For manual setup, copy
-   `mscharged.ini.example` to `mscharged.ini` (`cp` on Linux/macOS or `Copy-Item`
-   in PowerShell). The personalized file is ignored by Git.
-3. Set `[game] disc` to your image's path. Relative paths start at the INI's
-   directory; absolute paths also work. Paths containing spaces may be quoted.
-   Save the INI as UTF-8; a UTF-8 BOM and CRLF line endings are accepted.
-4. Open `./build/release/mscharged` and use **Check disc**; an existing configured
-   disc is checked automatically on startup.
-
-Example configuration:
-
-```ini
-[game]
-disc = game/R4QE01.rvz
-```
-
-The diagnostic CLI can check a disc without opening the launcher:
-
-```sh
-./build/release/mscharged-bootstrap --disc "/path/to/Mario Strikers Charged.iso"
-./build/release/mscharged-bootstrap --config "/path/to/local.ini"
-./build/release/mscharged-bootstrap --self-test
-```
-
-ISO and RVZ are opened directly by nod using their contents to detect the format.
-Neither the source image nor the decomp checkout is modified. The check reports
-the disc ID, revision, format, title, and game file count. A missing/unreadable
-image, another game's disc, or an unusable data partition produces an error.
-This is a metadata/readability check, not a full-disc checksum verification.
-
-The source baseline is USA `R4QE01`, disc revision 1. Other Charged discs can
-be inspected, with a message that their asset compatibility is unverified.
-A successful check still does not run the game. ISO reading is tested with a
-generated Wii fixture; RVZ reading was also checked with a local USA revision 1
-image, reading a file table containing 2,354 game files.
-
-### Windows
-
-Use a Visual Studio developer PowerShell with the C++ tools, Python, CMake, and
-Ninja available. CMake can select the compiler provided by that environment:
-
-```powershell
-cmake --workflow --preset release
-.\build\release\mscharged.exe
-```
-
-### Debug and incremental builds
-
-For a build with debug information:
+Release enables optimizations. For a Debug build:
 
 ```sh
 cmake --workflow --preset debug
 ./build/debug/mscharged
 ```
 
-On Windows, run `.\build\debug\mscharged.exe` instead. Debug and Release
-outputs use separate directories, so both can coexist. After editing sources,
-you can rebuild and test separately:
+For incremental builds and tests, use `cmake --build --preset release` and
+`ctest --preset release` (or replace `release` with `debug`). Run the executable
+with `--help` for available options.
+
+## Configure your disc
+
+Supply your own Mario Strikers Charged ISO or RVZ. You can store it in `game/`,
+which is excluded from Git. Select it in the launcher and save your settings,
+or copy `mscharged.ini.example` to `mscharged.ini` and set:
+
+```ini
+[game]
+disc = game/R4QE01.rvz
+```
+
+Your personal `mscharged.ini` is also excluded from Git. Relative disc paths
+resolve from the INI's directory. To use another configuration:
 
 ```sh
-cmake --build --preset debug
-ctest --preset debug
+./build/release/mscharged --config /path/to/mscharged.ini
 ```
 
-Use `release` in both commands for the Release configuration. To choose a
-compiler, set it on the first configuration of that directory, for example:
+## Experimental builds
 
-```sh
-cmake --preset debug -DCMAKE_CXX_COMPILER=clang++
-cmake --build --preset debug
-ctest --preset debug
-```
-
-Manual configuration remains supported, including existing `build/` directories:
-
-```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Use a separate build directory when changing compilers. Supported local output
-locations are `build/`, `build-*/`, `cmake-build-*/`, or `out/` inside the checkout.
-These directories are ignored by Git. In-source builds are rejected.
-
-To build only the diagnostic tools on a machine without desktop prerequisites:
-
-```sh
-cmake -S . -B build/headless -G Ninja -DCMAKE_BUILD_TYPE=Release -DMSCHARGED_BUILD_LAUNCHER=OFF
-cmake --build build/headless
-ctest --test-dir build/headless --output-on-failure
-```
-
-This configuration needs only the decomp, nod, and Corrosion submodules and runs
-five suites, omitting `launcher_smoke`.
-
-## Aurora host integration
-
-The optional `aurora` preset also builds `mscharged-aurora-check` and a seventh
-test suite for Aurora core services. It requires a C++20 compiler and additional
-pinned submodules. It does not enable GX/Vulkan rendering or game startup.
-See [the setup and next runtime milestones](RUNTIME.md).
-
-## Independent Vulkan rendering
-
-The Linux `graphics` preset builds a separate `mscharged-gx-check`, using
-prepared Aurora GX, Dawn, image/font libraries, and a generated SQLite
-amalgamation. It requires C++20, GNU Make, Tcl, and additional nested sources.
-See [the dependency setup and commands](RUNTIME.md#independent-gxvulkan-diagnostic).
-It renders generated geometry/textures without game data. It does not build the
-launcher or connect original game graphics startup.
-
-## Experimental static asset rendering
-
-The Linux `scene` preset combines the launcher, Aurora GX/Vulkan, Aurora DVD,
-and the original core/NL file services. Initialize the graphics dependencies
-listed in [RUNTIME.md](RUNTIME.md#independent-gxvulkan-diagnostic), then:
-
-```sh
-CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
-./build/scene/mscharged --experimental-scene --config ./mscharged.ini
-```
-
-This loads the ball's actual static mesh and diffuse texture from your USA
-`R4QE01` revision 1 ISO/RVZ. It is an asset preview; original scene initialization,
-materials/effects, animation, menus, and gameplay remain pending. Escape or close
-the window to exit. `--frames 180` makes the check bounded. Without the
-experimental flag, the same executable opens the normal launcher.
-Personal settings and disc contents are read without modification; generated
-GPU caches and the diagnostic log stay under `build/scene/scene-data/`.
-The preview currently uses its own camera, window, and validated Vulkan settings.
-It now runs the original `PreInitFS` memory callback and renders pool-owned
-native records through the original static model/texture inventory. Full
-`glStartup` and the original loaders/material/task graph remain pending.
-
-The workflow runs nine portable suites. To include three real GPU suites,
-including synthetic-disc rendering and failure/cleanup checks:
-
-```sh
-cmake --preset scene -DMSCHARGED_TEST_VULKAN=ON
-cmake --build --preset scene
-ctest --preset scene
-```
-
-See [the supported asset profile](RUNTIME.md#experimental-static-wii-asset-preview)
-for file formats, limitations, and optional model selection.
-
-## Experimental game startup
-
-With the Aurora dependencies initialized, build and run the original-code
-prototype using:
-
-```sh
-cmake --workflow --preset startup
-./build/startup/mscharged --experimental-startup --config ./mscharged.ini
-```
-
-Run `./build/startup/mscharged` without the flag to open the launcher and use
-**Try startup** after checking a USA `R4QE01` revision 1 image. This preset adds
-seven suites to the Aurora preset, for fourteen total, and writes startup diagnostics
-under `build/startup/startup-data/`. Original MEM1/MEM2 allocator and reserved
-SDK heap initialization complete, and original NL APIs read disc files both
-synchronously and asynchronously. Native animation key decoders are linked and
-original `InitializeCore()` / `nlInit()` complete. Native whole-file async loading
-also compares the complete `ini/common.ini` and `ini/datetime.ini` bytes with
-synchronous reads. Original INI parsing is not executed. The current expected
-stop is exit code 3 at `Initialize (remaining stages)`; this prototype's original graphics/resource startup and task loop remain pending.
-The separate scene preset enables the bounded static asset preview above.
-No menu or match is reached. See [the implemented path and checks](RUNTIME.md#experimental-original-startup).
-
-## Build versions
-
-The current version is `0.0.1-dev`, defined in the root `CMakeLists.txt`.
-Every executable includes the port commit in this form:
-
-```text
-0.0.1-dev+g<commit>
-0.0.1-dev+g<commit>.dirty
-```
-
-`<commit>` is the abbreviated port Git revision, normally 12 hexadecimal
-characters. `.dirty` indicates uncommitted tracked changes, untracked files
-that Git does not ignore, or submodule changes. Ignored local files and build
-outputs do not affect the version. The revision and change status refresh on
-each build, including incremental builds after a commit.
-
-The executable also reports its Debug or Release configuration. The port's
-version is independent of the decompilation's planned `1.0` release; a normal
-bootstrap run prints the exact decomp revision separately. These development
-builds do not require a release tag.
-
-## What happens before compilation
-
-1. Read the enabled dependencies' gitlinks from the port's
-   Git index and require those exact checkouts. On a fresh clone these are the committed pins;
-   during an intentional dependency update they are the newly staged pins.
-2. Reject tracked edits inside the dependency. Ignored and untracked local
-   files are not exported.
-3. Export committed sources, including any required initialized nested
-   submodules at their pins, to a temporary build directory.
-   The graphics preset selects seven direct Dawn gitlinks explicitly; their
-   recursive pins and that selection are included in the manifest/cache key.
-   Dependencies without a selection require all recorded nested sources.
-   For the decomp, export only `include/`, `libs/`, and `src/`; patches must stay
-   within those directories. The complete submodule remains the upstream
-   reference, including its notices and decomp metadata.
-4. Validate each patch base and apply its series in order. The decomp series
-   adapts native utilities; the nod series enforces the Cargo lockfile.
-   A failure prevents publication of that dependency's prepared tree.
-5. Publish `<build-dir>/prepared/<dependency>/source/` and a manifest
-   recording commits, ordered patch hashes, preparation-tool hash, and generated
-   contents. For the Release preset, `<build-dir>` is `build/release`.
-6. Configure the selected source list. Before each build, verify that the
-   recorded inputs and generated contents still match.
-
-When refreshing a verified clean prepared tree, identical regular files retain
-their timestamps so a focused patch change does not rebuild every source.
-Content hashes, executable modes, and input checks remain authoritative.
-
-CMake watches the patch directory, preparation script, and Git index. If a
-manual dependency checkout or generated edit causes validation to fail, resolve
-the reported mismatch and configure again. An old executable may remain on disk
-after a failure; it is not a successful build of the new inputs.
-
-Manual preparation and verification are also available:
-
-```sh
-python3 tools/prepare_sources.py --build-dir build/release
-python3 tools/prepare_sources.py --build-dir build/release --check
-```
-
-Use the same build directory when preparing sources, exporting patches, and
-compiling. On Windows, use `python` if that is the installed command name.
-Add `--dependency nod`, `--dependency corrosion`, `--dependency sdl`, or
-`--dependency imgui` to work with those sources.
-nod's Corrosion FetchContent request uses our prepared local submodule.
-
-The selected launcher image is copied to `<build-dir>/assets/launcher/header.png`.
-Its [source attribution](../assets/launcher/README.md) is separate from the port's
-CC0 code. The launcher displays it with its proportions preserved, cropping
-vertically as needed to fit the window.
-
-## Tests and development scope
-
-`foundation` checks fixed-width types, vector layouts, endian conversion,
-deterministic random values, range handling, and the portable absolute-value
-helper. The MT source currently exposes seed initialization only; there is no
-claim of a complete MT implementation or game simulation validation.
-
-`static_resources` checks bounded static Wii model/texture conversion using
-synthetic file records: big endian fields, 32-byte chunk alignment, matrix/UV
-semantics, GX tile/mip/palette sizes, malformed/truncated inputs, unsupported
-profiles, and allocation budgets. It does not validate original scene rendering.
-
-`graphics_memory` (startup/scene) checks the selected original graphics pools,
-aligned frame halves, arena ownership, failed construction/allocation cleanup,
-nested static inventories, original AVL trees, texture indices, and repeated
-shutdown. `static_inventory` (scene) checks pool-owned native model/texture
-records, original lookup, unchanged tiled/palette bytes, GPU drain callbacks,
-and failed-conversion rollback. Both use synthetic data without a GPU or disc.
-
-`source_preparation` uses disposable local Git fixtures. It checks ordered
-patches, cache reuse, pin/base validation, tracked changes, excluded local data,
-failed preparation, stale/edited output, patch export, nested submodules,
-explicit nested selections, clean-refresh timestamps, and the restricted decomp
-export (19 cases).
-
-`bootstrap_cli` checks INI setup, relative paths, spaces, BOM/CRLF handling,
-ISO data-partition access, wrong-game rejection, missing partitions, malformed
-images, and command-line errors. It generates a small synthetic Wii image
-containing original test data; no proprietary disc contents are needed.
-
-`configuration` checks settings round trips, preserved comments and unknown keys,
-validation, explicit file creation, and protection against overwriting external edits.
-
-`launcher_smoke` opens a hidden SDL window using the dummy video and software
-render drivers, loads the shipped assets, renders all five pages, and exits.
-It needs neither a display server nor game data. To capture a page for review:
-
-```sh
-SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software ./build/release/mscharged --screenshot build/launcher.png --page display
-```
-
-To run only the preparation suite:
-
-```sh
-python3 -B tests/test_prepare_sources.py
-```
-
-Original scene/task rendering, further startup integration, gameplay, complete game
-linking, and packaging remain development work. Add source units and checks
-deliberately as the decomp becomes usable.
-See [patch development](../patches/README.md) before editing generated sources.
+See [runtime status and commands](RUNTIME.md) for original startup checks and
+the Linux Vulkan static asset preview. These use additional dependencies and
+currently support USA `R4QE01` revision 1 game data.

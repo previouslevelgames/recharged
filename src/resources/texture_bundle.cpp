@@ -4,7 +4,7 @@
 
 namespace mscharged::resources
 {
-std::vector<Texture> ReadTextureBundle(Bytes data)
+std::vector<Texture> ReadTextureBundle(Bytes data, const std::vector<std::uint32_t>& selected)
 {
     Require(data.size() <= MaximumAssetBytes, "RLT exceeds the static preview size limit");
     Require(U32(data, 0) == 0x50544c47, "Invalid RLT signature");
@@ -22,6 +22,7 @@ std::vector<Texture> ReadTextureBundle(Bytes data)
         texture.id = U32(dictionary, i * 16);
         Require(ids.insert(texture.id).second, "Duplicate RLT texture ID");
         const auto entry = Slice(contents, U32(dictionary, i * 16 + 4), U32(dictionary, i * 16 + 8));
+        if (!selected.empty() && std::find(selected.begin(), selected.end(), texture.id) == selected.end()) continue;
         Require(U32(entry, 0) != 0x5f6c6669, "Animated RLT textures are not supported by the static preview");
         const auto header = Slice(entry, 0, 32);
         const auto levels = U32(header, 0), format = U32(header, 4), palette = U32(header, 20);
@@ -48,6 +49,7 @@ std::vector<Texture> ReadTextureBundle(Bytes data)
         texture.pixels.assign(pixels.begin(), pixels.end()); texture.palette.assign(colours.begin(), colours.end());
         result.push_back(std::move(texture));
     }
+    for (auto id : selected) Require(ids.count(id), "Requested texture is absent from RLT dictionary");
     return result;
 }
 }

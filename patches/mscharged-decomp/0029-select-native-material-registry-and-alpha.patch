@@ -1,0 +1,133 @@
+Subject: Select the material registry and original alpha preparation
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Keep descriptor/scalar widths at 32 bits, reject duplicate native registrations,
+and expose explicit registry teardown before allocator shutdown. Extract only
+the original texture alpha preparation for this source subset; look up checked
+native texture metadata and fail on missing textures. The remaining generic
+parameter API and pointer-bearing parameter kinds are not selected.
+
+diff --git a/include/NL/gl/glMaterialProgram.h b/include/NL/gl/glMaterialProgram.h
+index f9de9f2..697b7d1 100644
+--- a/include/NL/gl/glMaterialProgram.h
++++ b/include/NL/gl/glMaterialProgram.h
+@@ -1,13 +1,15 @@
+ #ifndef NL_GL_GLMATERIALPROGRAM_H
+ #define NL_GL_GLMATERIALPROGRAM_H
+ 
++#include "types.h"
++
+ class GLView;
+ struct glModelPacket;
+ struct GXMaterialParameter
+ {
+-    /* 0x00 */ unsigned long hash;
+-    /* 0x04 */ unsigned long metadata;
+-    /* 0x08 */ unsigned long offset;
++    /* 0x00 */ u32 hash;
++    /* 0x04 */ u32 metadata;
++    /* 0x08 */ u32 offset;
+ }; // size: 0xC
+ 
+ class GLMaterialProgram
+@@ -21,9 +23,9 @@ public:
+     virtual const GXMaterialParameter* GetParameters() = 0;
+     virtual void Initialize() = 0;
+ 
+-    /* 0x04 */ unsigned long programHash;
+-    /* 0x08 */ unsigned long parameterDataSize;
+-    /* 0x0C */ unsigned long parameterCount;
++    /* 0x04 */ u32 programHash;
++    /* 0x08 */ u32 parameterDataSize;
++    /* 0x0C */ u32 parameterCount;
+ }; // size: 0x10
+ 
+ template <typename R, typename A0, typename A1>
+@@ -33,6 +35,9 @@ typedef Function2<bool, unsigned long&, void*&> MaterialProgramCallback;
+ 
+ void glRegisterMaterialProgram(void* program, unsigned long hash);
+ void* glGetMaterialProgram(unsigned long hash);
++#if defined(MSCHARGED_NATIVE)
++void glClearMaterialPrograms();
++#endif
+ void glForEachMaterialProgram(MaterialProgramCallback* callback);
+ 
+ #endif // NL_GL_GLMATERIALPROGRAM_H
+diff --git a/src/NL/gl/glMaterialAlphaState.cpp b/src/NL/gl/glMaterialAlphaState.cpp
+new file mode 100644
+index 0000000..90e5bf2
+--- /dev/null
++++ b/src/NL/gl/glMaterialAlphaState.cpp
+@@ -0,0 +1,40 @@
++// Extracted from glMaterialParameters.cpp for the native static material subset.
++#include "NL/gl/glMaterialParameters.h"
++#include "NL/gl/glModel.h"
++#include "NL/gl/glState.h"
++#include "NL/glx/glxTexture.h"
++#include <stdexcept>
++
++void glSetMaterialTextureAlphaState(
++    void*, glModelPacket* packet, unsigned long texture)
++{
++    if (texture == 0xFFFFFFFF)
++    {
++        return;
++    }
++    const PlatTexture* loaded = glx_GetTex(texture);
++    if (!loaded) throw std::runtime_error("Material diffuse texture is absent from the native inventory");
++
++    switch (loaded->m_Bits[3])
++    {
++    case 0:
++        break;
++    case 1:
++    {
++        unsigned int* rasterState = &packet->rasterState;
++        glSetRasterState(*rasterState, GLS_AlphaTest, 1);
++        glSetRasterState(*rasterState, GLS_AlphaTestRef, 0x80);
++        break;
++    }
++    default:
++    {
++        unsigned int* rasterState = &packet->rasterState;
++        glSetRasterState(*rasterState, GLS_AlphaTest, 1);
++        glSetRasterState(*rasterState, GLS_AlphaTestRef, 0);
++        glSetRasterState(*rasterState, GLS_AlphaBlend, 1);
++        glSetRasterState(*rasterState, GLS_DepthWrite, 0);
++        glSetRasterState(*rasterState, GLS_Culling, 0);
++        break;
++    }
++    }
++}
+diff --git a/src/NL/gl/glMaterialProgram.cpp b/src/NL/gl/glMaterialProgram.cpp
+index 9aedc26..1aebf1b 100644
+--- a/src/NL/gl/glMaterialProgram.cpp
++++ b/src/NL/gl/glMaterialProgram.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/gl/glMaterialProgram.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
+ #define NL_AVL_TREE_DEFER_DELETE_ENTRY
+ #include "NL/nlAVLTree.h"
+ #undef NL_AVL_TREE_DEFER_DELETE_ENTRY
+@@ -17,6 +20,10 @@ inline void AVLTreeBase<KeyType, ValueType, AllocatorType, CompareType>::DeleteE
+ 
+ void glRegisterMaterialProgram(void* program, unsigned long hash)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!program || !hash || hash > 0xffffffffUL || glGetMaterialProgram(hash))
++        throw std::invalid_argument("Invalid or duplicate material program registration");
++#endif
+     sMaterialPrograms.Add(hash, program);
+ }
+ 
+@@ -32,3 +39,7 @@ void glForEachMaterialProgram(MaterialProgramCallback* callback)
+ {
+     sMaterialPrograms.Walk(callback);
+ }
++
++#if defined(MSCHARGED_NATIVE)
++void glClearMaterialPrograms() { sMaterialPrograms.Clear(); }
++#endif

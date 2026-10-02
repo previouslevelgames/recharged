@@ -1,0 +1,639 @@
+Subject: Select original object lights and projected-shadow lookup with bounded native inputs
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Select the original diffuse-light, ambient-channel, static shadow projection
+and LightingLookup calculations independently of the stadium/camera/effect
+managers. Native typed inputs supply those services explicitly. Keep Wii scalar
+records, use native matrix handles and check texture/palette capacities before
+sampling. CPU palette reads decode big-endian RGB5A3; GX retains the same bytes.
+Lookup ownership is transactional, and its original tint/filter formulas remain.
+
+The decomp lacks definitions for the light tables and several constants used by
+these routines. Values were verified against R4QE01 rev 1's original DOL (SHA-1
+e96d2298067b70652752145b4e63644e6e1b1560, recorded in the upstream configuration):
+light/mask tables at 0x804DCD00/18, projection matrix at 0x80511490, ambient colour
+at 0x806DCC4C, cache sentinels at 0x806DCC70/74 and floats at 0x806E4CD0/0x806E4D20.
+The scoped native cache also resets between views to handle frame-address reuse.
+Zero-light ambient input is valid; six diffuse slots are the original table limit.
+Skinned projection, dynamic casters and full original scene selection remain open.
+
+diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting.h
+index b3e8b86..4a97a38 100644
+--- a/include/Game/GameObjectLighting.h
++++ b/include/Game/GameObjectLighting.h
+@@ -5,6 +5,10 @@
+ #include "NL/gl/glMatrixHandle.h"
+ #include "types.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "Game/GameObjectLightingData.h"
++#endif
++
+ class GLView;
+ struct GameObjectLight;
+ class nlMatrix4;
+@@ -42,10 +46,10 @@ extern "C"
+     int ShouldDoubleGameObjectLighting();
+     int GetGameObjectLightCount(bool character, bool includeEffects);
+     GameObjectLight* GetGameObjectLight(s32 index, bool character);
+-    void SetGameObjectLightTexture(unsigned long texture);
++    void SetGameObjectLightTexture(u32 texture);
+     void LoadGameObjectSpecularLight(s32 index, GameObjectLight* light, f32 exponent, const nlMatrix4& viewMatrix);
+     void SetGameObjectSpecularLightingEnabled(s32 enabled, s32 count);
+-    unsigned long GetGameObjectLightTexture();
++    u32 GetGameObjectLightTexture();
+     void LoadGameObjectLights(s32 count, GLView* view, bool character);
+     void SetGameObjectLightingEnabled(bool enabled, s32 count, bool useVertexColour);
+     void SetGameObjectAmbientLightingEnabled(s32 enabled);
+diff --git a/include/Game/GameObjectLightingData.h b/include/Game/GameObjectLightingData.h
+new file mode 100644
+index 0000000..92a3208
+--- /dev/null
++++ b/include/Game/GameObjectLightingData.h
+@@ -0,0 +1,43 @@
++#pragma once
++// Scalar lighting records extracted from GameObjectLighting.cpp for native inputs.
++#include "NL/nlMath.h"
++#include "NL/nlColour.h"
++
++struct StadiumLightingParams
++{
++    /* 0x00 */ u32 lightRamp;
++    /* 0x04 */ s32 rampStartR;
++    /* 0x08 */ s32 rampStartG;
++    /* 0x0C */ s32 rampStartB;
++    /* 0x10 */ s32 rampEndR;
++    /* 0x14 */ s32 rampEndG;
++    /* 0x18 */ s32 rampEndB;
++    /* 0x1C */ f32 keyLightIntensity = 0;
++    /* 0x20 */ f32 fillLightIntensity = 0;
++    /* 0x24 */ f32 inGameKeyIntensity = 0;
++    /* 0x28 */ f32 inGameFillIntensity = 0;
++    /* 0x2C */ f32 inGameKeyRotYDeg = 0;
++    /* 0x30 */ f32 inGameKeyRotZDeg = 0;
++    /* 0x34 */ f32 inGameFillRotYDeg = 0;
++    /* 0x38 */ f32 inGameFillRotZDeg = 0;
++    /* 0x3C */ u32 unknown3C;
++}; // total size: 0x40
++
++struct GameObjectLight
++{
++    GameObjectLight();
++
++    /* 0x00 */ bool enabled = false;
++    /* 0x01 */ u8 unknown01 = 0;
++    /* 0x02 */ u8 unknown02 = 0;
++    /* 0x03 */ u8 _pad03 = 0;
++    /* 0x04 */ f32 intensity = 0;
++    /* 0x08 */ f32 unknown08 = 0;
++    /* 0x0C */ f32 unknown0C = 0;
++    /* 0x10 */ nlVector3 worldPosition{};
++    /* 0x1C */ nlColour colour{};
++    /* 0x20 */ f32 unknown20 = 0;
++}; // total size: 0x24
++
++
++extern StadiumLightingParams gStadiumGameObjectLightingParams;
+diff --git a/include/Game/Render/LightingLookup.h b/include/Game/Render/LightingLookup.h
+index 9518cef..b0bad76 100644
+--- a/include/Game/Render/LightingLookup.h
++++ b/include/Game/Render/LightingLookup.h
+@@ -10,6 +10,13 @@ class LightingLookup
+ public:
+     LightingLookup();
+     ~LightingLookup();
++#if defined(MSCHARGED_NATIVE)
++    LightingLookup(const LightingLookup&) = delete;
++    LightingLookup& operator=(const LightingLookup&) = delete;
++    u32 m_NativeTexture = u32(-1);
++    nlColour m_NativeShadowTint{{0, 0, 0, 255}};
++    nlColour m_NativeHighlightTint{{255, 255, 255, 255}};
++#endif
+     void LoadTexture(unsigned int textureHandle);
+     nlColour SampleColour(int x, int y, bool tint) const;
+     nlColour SampleFilteredColour(float x, float y, bool tint) const;
+diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
+index 882b370..c928d97 100644
+--- a/include/NL/glx/glxTexture.h
++++ b/include/NL/glx/glxTexture.h
+@@ -82,6 +82,12 @@ public:
+ 
+     ~PlatTexture();
+ 
++#if defined(MSCHARGED_NATIVE)
++    // Exact retained capacities; Wii texture/palette bytes keep console order.
++    size_t m_NativeDataBytes = 0;
++    size_t m_NativePaletteBytes = 0;
++#endif
++
+     u32 GetTextureIndex() const { return m_TextureIndex; }
+ 
+     void ClearData();
+diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
+index f0a12b7..2065410 100644
+--- a/src/Game/GameObjectLighting.cpp
++++ b/src/Game/GameObjectLighting.cpp
+@@ -38,6 +38,7 @@
+ // it reads the byte as a bool.
+ extern bool g_bRenderWorldEffects;
+ 
++#if !defined(MSCHARGED_NATIVE)
+ struct StadiumLightingParams
+ {
+     /* 0x00 */ u32 lightRamp;
+@@ -74,6 +75,8 @@ struct GameObjectLight
+     /* 0x20 */ f32 unknown20;
+ }; // total size: 0x24
+ 
++#endif
++
+ struct GameObjectLightArray
+ {
+     GameObjectLight lights[2];
+diff --git a/src/Game/GameObjectLightingCore.cpp b/src/Game/GameObjectLightingCore.cpp
+new file mode 100644
+index 0000000..16c7d7f
+--- /dev/null
++++ b/src/Game/GameObjectLightingCore.cpp
+@@ -0,0 +1,300 @@
++// Selected original object-light and projected-shadow routines from
++// GameObjectLighting.cpp. The native scope supplies validated scene inputs.
++#include "Game/GameObjectLighting.h"
++#include "Game/Render/LightingLookup.h"
++#include "NL/gl/glMatrix.h"
++#include "NL/gl/glModel.h"
++#include "NL/gl/glState.h"
++#include "NL/gl/glTexture.h"
++#include "NL/glx/glxMatrix.h"
++#include "NL/glx/glxGX.h"
++#include "NL/glx/glxTexture.h"
++#include "runtime/lighting_state.h"
++#include "runtime/material_environment.h"
++#include <dolphin/gx.h>
++#include <dolphin/mtx.h>
++#include <stdexcept>
++
++namespace
++{
++// Definitions missing from the decomp C++ at this pin. Values verified against
++// the R4QE01 rev 1 GameObjectLighting .rodata/.data/.sdata2 records.
++constexpr u32 lbl_804DCD00[6] = {1, 2, 4, 8, 16, 32};
++constexpr u32 lbl_804DCD18[6] = {1, 3, 7, 15, 31, 63};
++const nlVector3 lbl_804DCD30 = {1.0f, 0.0f, 0.0f};
++constexpr float lbl_806E4CD0 = 255.0f, lbl_806E4CD4 = 1.0f, lbl_806E4CD8 = 0.0f;
++constexpr float lbl_806E4D20 = 3.1415927f, lbl_806E4D24 = 180.0f;
++constexpr float lbl_806E4D28 = 0.666f, lbl_806E4D2C = 0.5f, lbl_806E4D30 = 1048576.0f;
++constexpr float lbl_806E4D40 = -0.5f;
++constexpr u8 lbl_806E4D1B = 255, lbl_806E4D1F = 255;
++constexpr u8 lbl_806E4D34 = 255, lbl_806E4D35 = 255, lbl_806E4D36 = 255, lbl_806E4D37 = 255;
++const Mtx lbl_80511490 = {{0.5f, 0, 0, 0.5f}, {0, -0.5f, 0, 0.5f}, {0, 0, 0, 1}};
++}
++
++StadiumLightingParams gStadiumGameObjectLightingParams = {
++    glGetTexture("ThePalaceStadiumPlayerLightRamp"),
++    0x28, 0x30, 0x28,
++    0xAF, 0xAF, 0xAF,
++    0.85f, 0.3f, 0.9f, 0.25f,
++    55.0f, 60.0f, 55.0f, -120.0f,
++    0,
++};
++
++GameObjectLight::GameObjectLight()
++{
++    enabled = false;
++    unknown01 = false;
++    unknown02 = false;
++}
++
++extern "C"
++{
++void SetGameObjectAmbientLightingEnabled(s32 enabled)
++{
++    if (enabled)
++    {
++        gxSetChanAmbColour(0, (nlColour){
++            (u8)mscharged::ActiveGameLighting().inputs.ambient.c[0],
++            (u8)mscharged::ActiveGameLighting().inputs.ambient.c[1],
++            (u8)mscharged::ActiveGameLighting().inputs.ambient.c[2],
++            0,
++        });
++    }
++    else
++    {
++        gxSetChanAmbColour(0, (nlColour){ 0, 0, 0, 0 });
++    }
++}
++
++void SetGameObjectLightingEnabled(bool arg0, s32 arg1, bool arg2)
++{
++    if (arg1 < 0 || arg1 > 6) throw std::out_of_range("Invalid diffuse light count");
++    if (arg0)
++    {
++        if (!arg2)
++        {
++            nlColour colour = {
++                lbl_806E4D34,
++                lbl_806E4D35,
++                lbl_806E4D36,
++                lbl_806E4D37,
++            };
++            gxSetChanMatColour(0, colour);
++        }
++
++        s32 var0 = arg1 - 1;
++        GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_REG, (GXColorSrc)(arg2 != 0),
++            (arg1 ? lbl_804DCD18[var0] : GX_LIGHT_NULL), GX_DF_CLAMP, GX_AF_SPOT);
++    }
++    else
++    {
++        s32 var0 = arg1 - 1;
++        GXSetChanCtrl(GX_COLOR0, GX_FALSE, GX_SRC_REG, GX_SRC_VTX,
++            (arg1 ? lbl_804DCD18[var0] : GX_LIGHT_NULL), GX_DF_NONE, GX_AF_NONE);
++    }
++}
++
++void fn_80182F74(s32 lightId, const GameObjectLight* pLight, const nlMatrix4& mview)
++{
++    if (lightId < 0 || lightId >= 6 || !pLight) throw std::out_of_range("Invalid diffuse light slot");
++    GXLightObj light{};
++    nlVector3 var1;
++    nlVector3 var0;
++    nlVector3 initialDirection;
++    nlVector3 viewPos;
++    nlVector3 viewDir;
++    nlVector3 worldDir;
++
++    if (pLight->unknown01)
++    {
++        f32 brightness = lbl_806E4CD0 * pLight->intensity;
++        s32 var3 = (s32)(brightness * mscharged::ActiveGameLighting().inputs.intensity_scale);
++        if (var3 > 255)
++            var3 = 255;
++
++        GXColor colour;
++        colour.a = lbl_806E4D1B;
++        colour.r = (u8)((var3 * pLight->colour.c[0]) >> 8);
++        colour.g = (u8)((var3 * pLight->colour.c[1]) >> 8);
++        colour.b = (u8)((var3 * pLight->colour.c[2]) >> 8);
++        GXInitLightColor(&light, colour);
++    }
++    else
++    {
++        f32 brightness = lbl_806E4CD0 * pLight->intensity;
++        s32 var3 = (s32)(brightness * mscharged::ActiveGameLighting().inputs.intensity_scale);
++        if (var3 > 255)
++            var3 = 255;
++
++        GXColor colour;
++        colour.r = (u8)var3;
++        colour.a = lbl_806E4D1F;
++        colour.g = (u8)var3;
++        colour.b = (u8)var3;
++        GXInitLightColor(&light, colour);
++    }
++
++    if (pLight->enabled)
++    {
++        var0 = pLight->worldPosition;
++    }
++    else
++    {
++        float angleY = pLight->unknown08;
++        angleY = (lbl_806E4D20 * angleY) / lbl_806E4D24;
++        initialDirection = lbl_804DCD30;
++        nlMatrix4 matY;
++        nlMatrix4 matZ;
++
++        nlMakeRotationMatrixY(matY, angleY);
++        float angleZ = pLight->unknown0C;
++        nlMakeRotationMatrixZ(
++            matZ, (lbl_806E4D20 * angleZ) / lbl_806E4D24);
++        nlMultDirVectorMatrix(var1, initialDirection, matY);
++        nlMultDirVectorMatrix(var1, matZ);
++
++        nlVec3Set(var0, -var1.x, -var1.y, -var1.z);
++    }
++
++    if (pLight->unknown02)
++    {
++        nlMultPosVectorMatrix(viewPos, var0, mview);
++        GXInitLightPos(&light, viewPos.x, viewPos.y, viewPos.z);
++        GXInitLightAttnA(&light, lbl_806E4CD4, lbl_806E4CD8, lbl_806E4CD8);
++        GXInitLightDistAttn(
++            &light, lbl_806E4D28 * pLight->unknown20, lbl_806E4D2C, GX_DA_STEEP);
++    }
++    else
++    {
++        nlVector3 origin = {
++            0.0f,
++            0.0f,
++            0.0f,
++        };
++
++        float worldY = var0.y - origin.y;
++        float worldX = var0.x - origin.x;
++        float worldZ = var0.z - origin.z;
++
++        worldDir.x = worldX;
++        worldDir.y = worldY;
++        worldDir.z = worldZ;
++
++        if (worldDir.GetLengthSq3D() <= lbl_806E4CD8)
++            worldDir.x = lbl_806E4CD4;
++
++        {
++            float lengthSq = worldDir.GetLengthSq3D();
++            float recipLength = nlRecipSqrt(lengthSq, true);
++
++            nlVec3Scale(worldDir, recipLength);
++        }
++
++        nlMultDirVectorMatrix(viewDir, worldDir, mview);
++        nlVec3Scale(viewDir, lbl_806E4D30);
++
++        GXInitLightPos(&light, viewDir.x, viewDir.y, viewDir.z);
++        GXInitLightAttnA(&light, lbl_806E4CD4, lbl_806E4CD8, lbl_806E4CD8);
++        GXInitLightDistAttn(&light, lbl_806E4D30, lbl_806E4CD4, GX_DA_OFF);
++    }
++
++    GXLoadLightObjImm(&light, (GXLightID)lbl_804DCD00[lightId]);
++}
++
++void SetGameObjectShadowModelMatrix(glMatrixHandle matrix)
++{
++    if (!fn_80183C54())
++        return;
++
++    if (matrix == GL_INVALID_MATRIX)
++    {
++        mscharged::ActiveGameLighting().shadow_matrix = -1;
++    }
++    else if (matrix != mscharged::ActiveGameLighting().shadow_matrix)
++    {
++        mscharged::ActiveGameLighting().shadow_matrix = matrix;
++
++        nlMatrix4 transform;
++        glGetMatrix(matrix, transform);
++
++        Mtx textureMatrix;
++        glxCopyMatrix(textureMatrix, transform);
++        GXLoadTexMtxImm(textureMatrix, 0x36, GX_MTX3x4);
++    }
++}
++
++void RestoreGameObjectShadowLighting()
++{
++    if (fn_80183C54() && mscharged::ActiveGameLighting().shadow_generator >= 0)
++    {
++        gxSetNumTexGens(gxGetNumTexGens() - 1);
++        gxSetNumTevStages(gxGetNumTevStages() - 1);
++        gxSetTexCoordGen(mscharged::ActiveGameLighting().shadow_generator, 1, mscharged::ActiveGameLighting().shadow_generator + 4, 0x3C);
++        mscharged::ActiveGameLighting().shadow_generator = -1;
++    }
++}
++
++void ApplyGameObjectShadowLighting(s32 arg0, u32 arg1)
++{
++    if (!fn_80183C54())
++        return;
++
++    if (arg0) throw std::logic_error("Skinned shadow lighting is not integrated");
++    if (mscharged::ActiveGameLighting().shadow_generator >= 0 || gxGetNumTexGens() >= 8 || gxGetNumTevStages() >= 16)
++        throw std::logic_error("No free GX stage for projected shadow lighting");
++
++    u32 numTevStages;
++    u32 numTexGens;
++    numTexGens = gxGetNumTexGens();
++    numTevStages = gxGetNumTevStages();
++    gxSetNumTexGens(numTexGens + 1);
++    gxSetNumTevStages(numTevStages + 1);
++    mscharged::ActiveGameLighting().shadow_generator = numTexGens;
++
++    if (arg1 != 0)
++    {
++        gxSetTevOrder(numTevStages, 0xFF, 0xFF, 0xFF);
++        gxSetTevColourIn(numTevStages, 15, 0, 6, 15);
++        gxSetTevAlphaIn(numTevStages, 7, 7, 7, 0);
++
++        GXColor colour = {u8(arg1 >> 24), u8(arg1 >> 16), u8(arg1 >> 8), u8(arg1)};
++        GXSetTevColor(GX_TEVREG2, colour);
++    }
++    else
++    {
++        gxSetTevOrder(numTevStages, numTexGens, numTexGens, 0xFF);
++        gxSetTexCoordGen(numTexGens, 1, 0, 0x36, false, 0x76);
++
++        gxSetTevColourIn(numTevStages, 15, 0, 8, 15);
++        gxSetTevAlphaIn(numTevStages, 7, 7, 7, 0);
++
++        glTextureBinding textureState(mscharged::ActiveGameLighting().inputs.shadow.texture, mscharged::ActiveGameLighting().inputs.shadow.clamp, mscharged::ActiveGameLighting().inputs.shadow.clamp);
++        glx_BindTexture(numTexGens, &textureState);
++
++        nlMatrix4 transform;
++        nlMakeScaleMatrix(transform, mscharged::ActiveGameLighting().inputs.shadow.scale[0],
++            mscharged::ActiveGameLighting().inputs.shadow.scale[1], lbl_806E4CD4);
++        transform.SetRow4_(3, mscharged::ActiveGameLighting().inputs.shadow.translation[0],
++            mscharged::ActiveGameLighting().inputs.shadow.translation[1], lbl_806E4CD8, lbl_806E4CD4);
++
++        Mtx gxTransform;
++        glxCopyMatrix(gxTransform, transform);
++
++        Mtx textureMatrix;
++        mscharged::MaterialConcatMatrices(lbl_80511490, gxTransform, textureMatrix);
++
++        GXLoadTexMtxImm(textureMatrix, 0x76, GX_MTX3x4);
++    }
++}
++
++void LoadGameObjectLights(s32 count, GLView*, bool character)
++{
++    // The scoped preview view replaces the not-yet-linked GLView graph. Reload
++    // on every activation: a GLView address alone cannot identify changed lights.
++    const nlMatrix4& view = mscharged::MaterialPreviewView();
++    if (count < 0 || count > GetGameObjectLightCount(character, true))
++        throw std::out_of_range("Invalid active object light count");
++    for (s32 i = 0; i < count; ++i)
++        fn_80182F74(i, GetGameObjectLight(i, character), view);
++}
++} // extern "C"
+diff --git a/src/Game/Render/LightingLookupNative.cpp b/src/Game/Render/LightingLookupNative.cpp
+new file mode 100644
+index 0000000..fc45b8f
+--- /dev/null
++++ b/src/Game/Render/LightingLookupNative.cpp
+@@ -0,0 +1,175 @@
++// Selected original LightingLookup methods from ImpostorLighting.cpp.
++// Own the CPU lookup separately from the pool-owned native GX texture records.
++#include "Game/Render/LightingLookup.h"
++#include "NL/glx/glxTexture.h"
++#include <algorithm>
++#include <cmath>
++#include <memory>
++#include <stdexcept>
++
++LightingLookup::LightingLookup()
++    : mValues(0)
++    , mWidth(0)
++    , mHeight(0)
++{
++}
++
++LightingLookup::~LightingLookup()
++{
++    if (mValues != 0)
++    {
++        delete[] mValues;
++    }
++}
++
++void LightingLookup::LoadTexture(u32 textureHandle)
++{
++    const PlatTexture* texture = glx_GetTex(textureHandle);
++    if (!texture || texture->m_Format != GXTex_CI8 || !texture->m_Width || !texture->m_Height ||
++        !texture->m_Levels || !texture->m_SwizzledData || !texture->m_PaletteData ||
++        texture->m_nPaletteEntries <= 0 || texture->m_nPaletteEntries > 256 ||
++        texture->m_NativePaletteBytes < size_t(texture->m_nPaletteEntries) * 2)
++        throw std::invalid_argument("Shadow lookup requires a loaded CI8/RGB5A3 texture");
++    const size_t width = texture->m_Width, height = texture->m_Height;
++    const size_t tiledBytes = ((width + 7) / 8) * ((height + 3) / 4) * 32;
++    if (width * height > 16 * 1024 * 1024 || tiledBytes > texture->m_NativeDataBytes)
++        throw std::invalid_argument("Shadow lookup exceeds its retained texture storage");
++    auto values = std::make_unique<u8[]>(width * height);
++    for (size_t y = 0; y < height; ++y)
++        for (size_t x = 0; x < width; ++x)
++            values[y * width + x] = ReadTextureIntensity(texture, int(x), int(y));
++    delete[] mValues;
++    mValues = values.release();
++    mWidth = int(width);
++    mHeight = int(height);
++    m_NativeTexture = textureHandle;
++}
++
++nlColour LightingLookup::SampleColour(
++    int x, int y, bool tint) const
++{
++    if (!mValues || mWidth <= 0 || mHeight <= 0) throw std::logic_error("Shadow lookup has not been loaded");
++    if (x < 0)
++    {
++        x = 0;
++    }
++    if (y < 0)
++    {
++        y = 0;
++    }
++    if (x >= mWidth)
++    {
++        x = mWidth - 1;
++    }
++    if (y >= mHeight)
++    {
++        y = mHeight - 1;
++    }
++
++    u8 value = mValues[y * mWidth + x];
++    nlColour colour;
++    if (tint)
++    {
++        nlColour shadowColour = { { 0, 0, 0, 255 } };
++        nlFloatColour shadow;
++        shadowColour.c[0] = (u8)m_NativeShadowTint.c[0];
++        shadow.c[0] = shadowColour.c[0] * (1.0f / 255.0f);
++        shadowColour.c[1] = (u8)m_NativeShadowTint.c[1];
++        shadow.c[1] = shadowColour.c[1] * (1.0f / 255.0f);
++        shadowColour.c[2] = (u8)m_NativeShadowTint.c[2];
++        shadow.c[2] = shadowColour.c[2] * (1.0f / 255.0f);
++        shadow.c[3] = shadowColour.c[3] * (1.0f / 255.0f);
++        nlColour highlightColour = { { 0, 0, 0, 255 } };
++        nlFloatColour highlight;
++        highlightColour.c[0] = (u8)m_NativeHighlightTint.c[0];
++        highlight.c[0] = highlightColour.c[0] * (1.0f / 255.0f);
++        highlightColour.c[1] = (u8)m_NativeHighlightTint.c[1];
++        highlight.c[1] = highlightColour.c[1] * (1.0f / 255.0f);
++        highlightColour.c[2] = (u8)m_NativeHighlightTint.c[2];
++        highlight.c[2] = highlightColour.c[2] * (1.0f / 255.0f);
++        highlight.c[3] = highlightColour.c[3] * (1.0f / 255.0f);
++        float inverseFactor = 1.0f - value / 255.0f;
++        nlFloatColour result;
++        result.c[0] = inverseFactor * shadow.c[0] + (value / 255.0f) * highlight.c[0];
++        result.c[1] = inverseFactor * shadow.c[1] + (value / 255.0f) * highlight.c[1];
++        result.c[2] = inverseFactor * shadow.c[2] + (value / 255.0f) * highlight.c[2];
++        result.c[3] = inverseFactor * shadow.c[3] + (value / 255.0f) * highlight.c[3];
++        ConvertColour(colour, result);
++    }
++    else
++    {
++        nlColourSet(colour, value, value, value, 255);
++    }
++    return colour;
++}
++
++nlColour LightingLookup::SampleFilteredColour(
++    float x, float y, bool tint) const
++{
++    if (!std::isfinite(x) || !std::isfinite(y)) throw std::invalid_argument("Non-finite shadow sample");
++    x = std::clamp(x, -1.0f, float(mWidth));
++    y = std::clamp(y, -1.0f, float(mHeight));
++    int ix = (int)x;
++    int iy = (int)y;
++    nlColour samples[5];
++    samples[0] = SampleColour(ix, iy, tint);
++    samples[1] = SampleColour(ix, iy - 1, tint);
++    samples[2] = SampleColour(ix, iy + 1, tint);
++    samples[3] = SampleColour(ix - 1, iy, tint);
++    samples[4] = SampleColour(ix + 1, iy, tint);
++    int red = 3 * samples[0][0];
++    int green = 3 * samples[0][1];
++    int blue = 3 * samples[0][2];
++    int alpha = 3 * samples[0][3];
++
++    red += samples[1][0];
++    green += samples[1][1];
++    blue += samples[1][2];
++    alpha += samples[1][3];
++
++    red += samples[2][0];
++    green += samples[2][1];
++    blue += samples[2][2];
++    alpha += samples[2][3];
++
++    red += samples[3][0];
++    green += samples[3][1];
++    blue += samples[3][2];
++    alpha += samples[3][3];
++
++    red += samples[4][0];
++    green += samples[4][1];
++    blue += samples[4][2];
++    alpha += samples[4][3];
++
++    nlColour result;
++    result[0] = red / 7;
++    result[1] = green / 7;
++    result[2] = blue / 7;
++    result[3] = alpha / 7;
++    return result;
++}
++
++u8 LightingLookup::ReadTextureIntensity(
++    const PlatTexture* texture, int x, int y) const
++{
++    if (!texture || x < 0 || y < 0 || x >= texture->m_Width || y >= texture->m_Height ||
++        texture->m_Format != GXTex_CI8 || !texture->m_SwizzledData || !texture->m_PaletteData)
++        throw std::out_of_range("Invalid shadow texture sample");
++    size_t block = size_t(y >> 2) * ((texture->m_Width + 7) >> 3) + (x >> 3);
++    size_t offset = (block << 5) + ((y & 3) << 3) + (x & 7);
++    if (size_t(offset) >= texture->m_NativeDataBytes) throw std::out_of_range("Shadow texel exceeds texture storage");
++    u8 paletteIndex = ((u8*)texture->m_SwizzledData)[offset];
++    if (paletteIndex >= texture->m_nPaletteEntries || size_t(paletteIndex) * 2 + 2 > texture->m_NativePaletteBytes)
++        throw std::out_of_range("Shadow palette index exceeds palette storage");
++    const u8* palette = reinterpret_cast<const u8*>(texture->m_PaletteData);
++    u16 value = u16(palette[paletteIndex * 2]) << 8 | palette[paletteIndex * 2 + 1];
++    if (value & 0x8000)
++    {
++        int component = (value >> 10) & 0x1F;
++        return component * 255 / 31;
++    }
++
++    int component = (value >> 8) & 0x0F;
++    return component * 255 / 15;
++}
