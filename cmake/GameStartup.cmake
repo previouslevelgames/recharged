@@ -1,34 +1,6 @@
-# Compile real, available startup source without linking the unfinished game.
-add_library(charged_native_allocator STATIC "${MSCHARGED_PREPARED}/src/NL/MemAlloc.cpp")
-add_dependencies(charged_native_allocator verify_prepared)
-target_include_directories(charged_native_allocator PUBLIC "${MSCHARGED_PREPARED}/include"
-    PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-target_compile_definitions(charged_native_allocator PRIVATE MSCHARGED_NATIVE=1)
-target_compile_features(charged_native_allocator PRIVATE cxx_std_17)
+include(cmake/NativeRuntime.cmake)
 
-add_library(charged_decomp_startup STATIC
-    "${MSCHARGED_PREPARED}/src/Game/Startup.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/nlInit.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/nlMemory.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/nlTicker.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/nlTime.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/nlMemory.cpp"
-    src/runtime/startup_missing.cpp
-    src/runtime/startup_memory.cpp
-)
-add_dependencies(charged_decomp_startup verify_prepared)
-target_include_directories(charged_decomp_startup PUBLIC
-    "${MSCHARGED_PREPARED}/include"
-    PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include" "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_definitions(charged_decomp_startup PRIVATE MSCHARGED_NATIVE=1)
-target_compile_features(charged_decomp_startup PRIVATE cxx_std_17)
-target_link_libraries(charged_decomp_startup PRIVATE charged_foundation charged_native_allocator)
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
-    target_compile_options(charged_decomp_startup PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
-    target_compile_options(charged_native_allocator PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
-endif()
-
-add_library(charged_game_startup STATIC src/runtime/startup.cpp src/runtime/startup_os.cpp)
+add_library(charged_game_startup STATIC src/runtime/startup.cpp)
 target_include_directories(charged_game_startup PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(charged_game_startup PRIVATE cxx_std_20)
 target_link_libraries(charged_game_startup PRIVATE charged_decomp_startup charged_host
@@ -57,6 +29,11 @@ add_custom_target(charged_game_scan
     VERBATIM)
 
 if(BUILD_TESTING)
+    add_executable(sanim_decode_tests tests/sanim_decode.cpp)
+    target_compile_features(sanim_decode_tests PRIVATE cxx_std_17)
+    target_link_libraries(sanim_decode_tests PRIVATE charged_sanim_decode)
+    add_test(NAME sanim_decode COMMAND sanim_decode_tests)
+
     add_executable(native_allocator_tests tests/native_allocator.cpp)
     target_compile_features(native_allocator_tests PRIVATE cxx_std_17)
     target_link_libraries(native_allocator_tests PRIVATE charged_native_allocator)
@@ -69,6 +46,15 @@ if(BUILD_TESTING)
         aurora::os aurora::core)
     add_test(NAME runtime_memory COMMAND runtime_memory_tests)
     set_tests_properties(runtime_memory PROPERTIES
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 45)
+    add_executable(runtime_files_tests tests/runtime_files.cpp)
+    target_compile_features(runtime_files_tests PRIVATE cxx_std_20)
+    target_link_libraries(runtime_files_tests PRIVATE charged_game_startup charged_decomp_startup
+        aurora::dvd aurora::core)
+    add_test(NAME runtime_files
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_runtime_files.py"
+            "$<TARGET_FILE:runtime_files_tests>")
+    set_tests_properties(runtime_files PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 45)
     add_executable(startup_header_tests tests/startup_headers.cpp)
     target_include_directories(startup_header_tests PRIVATE

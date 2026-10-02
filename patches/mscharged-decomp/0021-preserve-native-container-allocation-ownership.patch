@@ -1,0 +1,142 @@
+Subject: Preserve native container allocation ownership
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Preserve native container allocation ownership
+Add explicit destruction followed by owning-arena free for NewAdapter nodes
+and inventory trees, keeping standard host new/delete unchanged. Matching
+aligned placement deletes reclaim failed constructions. Select the native
+compiler's stack-allocation spelling for the original AVL implementation.
+
+diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
+index fe45fd6..5235c40 100644
+--- a/include/Game/GL/GLInventory.h
++++ b/include/Game/GL/GLInventory.h
+@@ -38,7 +38,11 @@ public:
+     ~freeing_GLInventoryContainer()
+     {
+         Release();
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pItems);
++#else
+         delete m_pItems;
++#endif
+     }
+ 
+     void Release()
+@@ -58,7 +62,11 @@ class deleting_GLInventory
+ public:
+     void DeleteItem(const unsigned long&, ValueType** value)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(*value);
++#else
+         delete *value;
++#endif
+     }
+ };
+ 
+@@ -77,7 +85,11 @@ public:
+     ~deleting_GLInventoryContainer()
+     {
+         Release();
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pItems);
++#else
+         delete m_pItems;
++#endif
+     }
+ 
+     void Release()
+@@ -124,7 +136,11 @@ public:
+     ~clearing_GLInventory()
+     {
+         m_pItems->Clear();
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pItems);
++#else
+         delete m_pItems;
++#endif
+     }
+ 
+     void Release(void (*fn)(ValueType*))
+diff --git a/include/NL/nlList.h b/include/NL/nlList.h
+index ef7c1a7..7eb233f 100644
+--- a/include/NL/nlList.h
++++ b/include/NL/nlList.h
+@@ -57,17 +57,29 @@ public:
+ 
+     static void DeleteEntry(T* entry)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(entry);
++#else
+         delete entry;
++#endif
+     }
+ 
+     void Free(T* entry)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(entry);
++#else
+         delete entry;
++#endif
+     }
+ 
+     void Delete(T* ptr)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(ptr);
++#else
+         delete ptr;
++#endif
+     }
+ };
+ 
+diff --git a/include/NL/nlMemory.h b/include/NL/nlMemory.h
+index 1332d3b..efdda88 100644
+--- a/include/NL/nlMemory.h
++++ b/include/NL/nlMemory.h
+@@ -39,6 +39,24 @@ inline void* operator new[](size_t size, unsigned int alignment, bool fromEnd, c
+     return nlMalloc(size, alignment, fromEnd);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// Objects made with the aligned game-arena new overloads must never reach the
++// host delete operator. Matching placement deletes also handle constructor failure.
++inline void operator delete(void* ptr, unsigned int, bool) noexcept { nlFree(ptr); }
++inline void operator delete[](void* ptr, unsigned int, bool) noexcept { nlFree(ptr); }
++inline void operator delete[](void* ptr, unsigned int, bool, const char*) noexcept { nlFree(ptr); }
++
++template <typename T>
++inline void nlDeleteGameObject(T* object)
++{
++    if (object != 0)
++    {
++        object->~T();
++        nlFree(object);
++    }
++}
++#endif
++
+ void nlInitMemory();
+ void* nlAllocateAlignedMemory(unsigned long size, bool atEnd);
+ extern u8 gMemoryInitialized;
+diff --git a/src/NL/nlAVLTree.cpp b/src/NL/nlAVLTree.cpp
+index 72c9fbf..ecc7bb1 100644
+--- a/src/NL/nlAVLTree.cpp
++++ b/src/NL/nlAVLTree.cpp
+@@ -1,4 +1,12 @@
+ #include "NL/nlAVLTree.h"
++#if defined(MSCHARGED_NATIVE)
++#if defined(_MSC_VER)
++#include <malloc.h>
++#define __alloca _alloca
++#else
++#define __alloca __builtin_alloca
++#endif
++#endif
+ 
+ /**
+  * Offset/Address/Size: 0x0 | 0x802A8D80 | size: 0x360

@@ -1,0 +1,98 @@
+Subject: Respect supplied graphics providers and expose backend validation
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Use the parent's pinned FreeType/SQLite/Zstandard targets without replacing them
+with system packages. Allow an explicit diagnostic configuration to enable Dawn's
+full backend validation; retain the default disabled setting for other callers.
+This enables the standalone GX check without changing game startup or supplying
+successful replacements for its missing graphics functions.
+
+diff --git a/extern/CMakeLists.txt b/extern/CMakeLists.txt
+index fde242d..ee06d59 100644
+--- a/extern/CMakeLists.txt
++++ b/extern/CMakeLists.txt
+@@ -194,7 +194,9 @@ if (AURORA_ENABLE_GX)
+     message(STATUS "aurora: Using existing libpng")
+   endif ()
+ 
+-  aurora_find_package_global(Freetype QUIET)
++  if (NOT TARGET Freetype::Freetype)
++    aurora_find_package_global(Freetype QUIET)
++  endif ()
+   if (NOT TARGET Freetype::Freetype)
+     find_package(PkgConfig)
+     if (PkgConfig_FOUND)
+@@ -266,19 +268,21 @@ if (AURORA_ENABLE_GX)
+     target_link_libraries(imgui PRIVATE ${AURORA_SDL3_TARGET})
+   endif ()
+ 
+-  aurora_find_package_global(SQLite3)
+-  if (TARGET SQLite3::SQLite3)
+-    message(STATUS "aurora: Using existing sqlite3")
+-    add_library(sqlite3 ALIAS SQLite3::SQLite3)
+-  elseif (TARGET SQLite::SQLite3) # CMake < 4.3
+-    message(STATUS "aurora: Using existing sqlite3")
+-    add_library(sqlite3 ALIAS SQLite::SQLite3)
+-  else ()
+-    find_package(PkgConfig)
+-    if (PkgConfig_FOUND)
+-      pkg_check_modules(sqlite3 IMPORTED_TARGET GLOBAL sqlite3)
+-      if (TARGET PkgConfig::sqlite3)
+-        add_library(sqlite3 ALIAS PkgConfig::sqlite3)
++  if (NOT TARGET sqlite3)
++    aurora_find_package_global(SQLite3)
++    if (TARGET SQLite3::SQLite3)
++      message(STATUS "aurora: Using existing sqlite3")
++      add_library(sqlite3 ALIAS SQLite3::SQLite3)
++    elseif (TARGET SQLite::SQLite3) # CMake < 4.3
++      message(STATUS "aurora: Using existing sqlite3")
++      add_library(sqlite3 ALIAS SQLite::SQLite3)
++    else ()
++      find_package(PkgConfig)
++      if (PkgConfig_FOUND)
++        pkg_check_modules(sqlite3 IMPORTED_TARGET GLOBAL sqlite3)
++        if (TARGET PkgConfig::sqlite3)
++          add_library(sqlite3 ALIAS PkgConfig::sqlite3)
++        endif ()
+       endif ()
+     endif ()
+   endif ()
+@@ -298,7 +302,9 @@ if (AURORA_ENABLE_GX)
+   endif ()
+ 
+   if (AURORA_CACHE_USE_ZSTD)
+-    aurora_find_package_global(zstd CONFIG QUIET)
++    if (NOT TARGET zstd::libzstd)
++      aurora_find_package_global(zstd CONFIG QUIET)
++    endif ()
+     if (NOT TARGET zstd::libzstd)
+       find_package(PkgConfig QUIET)
+       if(PkgConfig_FOUND)
+diff --git a/include/aurora/aurora.h b/include/aurora/aurora.h
+index 92b734f..1bf494c 100644
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -93,6 +93,7 @@ typedef struct {
+   bool pauseOnFocusLost;
+   bool allowTextureDumps;
+   bool allowCpuAdapter;
++  bool enableBackendValidation;
+   int32_t windowPosX;
+   int32_t windowPosY;
+   uint32_t windowWidth;
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index b3ae6cd..6bc45f1 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -791,7 +791,9 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     }};
+     dawn::native::DawnInstanceDescriptor dawnInstanceDescriptor{};
+     dawnInstanceDescriptor.nextInChain = &instanceTogglesDescriptor;
+-    dawnInstanceDescriptor.backendValidationLevel = dawn::native::BackendValidationLevel::Disabled;
++    dawnInstanceDescriptor.backendValidationLevel = g_config.enableBackendValidation
++        ? dawn::native::BackendValidationLevel::Full
++        : dawn::native::BackendValidationLevel::Disabled;
+     dawnInstanceDescriptor.SetLoggingCallback(wgpu_log);
+ #ifdef TRACY_ENABLE
+     dawnInstanceDescriptor.platform = tracy_dawn_platform();

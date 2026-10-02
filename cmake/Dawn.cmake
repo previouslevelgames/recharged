@@ -1,0 +1,61 @@
+# Explicit source graph for the first Linux Vulkan diagnostic. Other backend,
+# browser, toolchain, fuzzing, and upstream test sources are intentionally omitted.
+set(MSCHARGED_DAWN_NESTED
+    third_party/abseil-cpp
+    third_party/jinja2
+    third_party/markupsafe
+    third_party/spirv-headers/src
+    third_party/spirv-tools/src
+    third_party/vulkan-headers/src
+    third_party/vulkan-utility-libraries/src)
+mscharged_prepare_dependency(dawn MSCHARGED_DAWN_PREPARED ${MSCHARGED_DAWN_NESTED})
+# Use Dawn's own Abseil pin for both Dawn and Aurora in this build. The separate
+# host-only presets keep their existing direct Abseil provider.
+set(MSCHARGED_ABSEIL_PREPARED "${MSCHARGED_DAWN_PREPARED}/third_party/abseil-cpp")
+
+function(mscharged_add_dawn)
+    set(CMAKE_CXX_STANDARD 20)
+    set(BUILD_SHARED_LIBS OFF)
+    set(DAWN_FETCH_DEPENDENCIES OFF)
+    set(DAWN_ENABLE_INSTALL OFF)
+    set(DAWN_BUILD_SAMPLES OFF)
+    set(DAWN_BUILD_TESTS OFF)
+    set(DAWN_BUILD_BENCHMARKS OFF)
+    set(DAWN_BUILD_NODE_BINDINGS OFF)
+    set(DAWN_BUILD_PROTOBUF OFF)
+    set(DAWN_BUILD_FUZZERS OFF)
+    set(DAWN_USE_GLFW OFF)
+    set(DAWN_USE_WAYLAND ON)
+    set(DAWN_USE_X11 ON)
+    set(DAWN_ENABLE_VULKAN ON)
+    set(DAWN_ENABLE_NULL OFF)
+    set(DAWN_ENABLE_D3D11 OFF)
+    set(DAWN_ENABLE_D3D12 OFF)
+    set(DAWN_ENABLE_METAL OFF)
+    set(DAWN_ENABLE_DESKTOP_GL OFF)
+    set(DAWN_ENABLE_OPENGLES OFF)
+    set(DAWN_ENABLE_WEBGPU_ON_WEBGPU OFF)
+    set(DAWN_ENABLE_SWIFTSHADER OFF)
+    set(DAWN_BUILD_MONOLITHIC_LIBRARY STATIC)
+    set(DAWN_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/patches/dawn/base")
+    set(TINT_BUILD_CMD_TOOLS OFF)
+    set(TINT_BUILD_TESTS OFF)
+    set(TINT_BUILD_BENCHMARKS OFF)
+    set(TINT_BUILD_FUZZERS OFF)
+    set(TINT_BUILD_IR_BINARY OFF)
+    set(TINT_BUILD_GLSL_WRITER OFF)
+    set(TINT_BUILD_GLSL_VALIDATOR OFF)
+    set(TINT_BUILD_HLSL_WRITER OFF)
+    set(TINT_BUILD_MSL_WRITER OFF)
+    set(TINT_BUILD_SPV_READER OFF)
+    set(TINT_BUILD_SPV_WRITER ON)
+    set(TINT_BUILD_WGSL_READER ON)
+    set(TINT_BUILD_WGSL_WRITER ON)
+    set(TINT_BUILD_TINTD OFF)
+    set(TINT_BUILD_MESA OFF)
+    add_subdirectory("${MSCHARGED_DAWN_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/dawn" EXCLUDE_FROM_ALL)
+    # Aurora's core compiles its backend selection using the same flags.
+    foreach(backend IN ITEMS VULKAN NULL D3D11 D3D12 METAL DESKTOP_GL OPENGLES WEBGPU_ON_WEBGPU)
+        set(DAWN_ENABLE_${backend} "${DAWN_ENABLE_${backend}}" PARENT_SCOPE)
+    endforeach()
+endfunction()

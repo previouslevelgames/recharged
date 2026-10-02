@@ -45,7 +45,7 @@ def safe_child(root: Path, name: str) -> Path:
     return result
 
 
-def submodule_inputs(root: Path, name: str, export_roots=None):
+def submodule_inputs(root: Path, name: str, export_roots=None, nested_submodules=None):
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", name):
         raise PreparationError(f"Invalid dependency name: {name}")
     relative = f"extern/{name}"
@@ -62,6 +62,10 @@ def submodule_inputs(root: Path, name: str, export_roots=None):
     if not any(line.split(maxsplit=1)[1] == relative for line in declared):
         raise PreparationError(f"{relative} is missing from .gitmodules")
     sources = []
+    selected = None if nested_submodules is None else set(nested_submodules)
+    if selected is not None and len(selected) != len(nested_submodules):
+        raise PreparationError("Duplicate selected nested submodule")
+    found = set()
 
     def visit(repo: Path, expected: str, prefix: str):
         if export_roots and prefix and prefix.split("/", 1)[0] not in export_roots:
@@ -84,9 +88,18 @@ def submodule_inputs(root: Path, name: str, export_roots=None):
             mode, kind, oid = metadata.decode().split()
             if kind == "commit":
                 child = path.decode()
+                if not prefix and selected is not None:
+                    if child not in selected:
+                        continue
+                    if export_roots and child.split("/", 1)[0] not in export_roots:
+                        raise PreparationError(f"Selected nested submodule is outside exported roots: {child}")
+                    found.add(child)
                 visit(safe_child(repo, child), oid, f"{prefix}/{child}".strip("/"))
 
     visit(safe_child(root, relative), commit, "")
+    if selected is not None and found != selected:
+        raise PreparationError("Selected nested submodule is not a recorded gitlink: "
+                               + ", ".join(sorted(selected - found)))
     return sources
 
 
@@ -208,7 +221,8 @@ def preparation_lock(directory: Path):
 
 
 def prepare(root: Path, build: Path, name: str, *, check=False,
-            discard_generated=False, export_patch: Path | None = None) -> Path:
+            discard_generated=False, export_patch: Path | None = None,
+            nested_submodules=None) -> Path:
     root, build = root.resolve(), build.resolve()
     if not build.is_relative_to(root) or build == root:
         raise PreparationError("Use an ignored build directory inside this checkout")
@@ -216,13 +230,15 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
     if not (first in ("build", "out") or first.startswith(("build-", "cmake-build-"))):
         raise PreparationError("Build directory must be under build/, build-*/, cmake-build-*/, or out/")
     export_roots = ("include", "libs", "src") if name == "mscharged-decomp" else None
-    sources = submodule_inputs(root, name, export_roots=export_roots)
+    sources = submodule_inputs(root, name, export_roots=export_roots,
+                              nested_submodules=nested_submodules)
     patches, series_sha = patch_inputs(root, name, sources[0]["commit"])
     inputs = {
         "dependency": name, "sources": [{k: s[k] for k in ("path", "commit")} for s in sources],
         "patches": [{k: p[k] for k in ("name", "sha256")} for p in patches],
         "series_sha256": series_sha, "preparer_sha256": sha(Path(__file__).read_bytes()),
-        "format": 2, "export_roots": export_roots,
+        "format": 3, "export_roots": export_roots,
+        "nested_submodules": None if nested_submodules is None else sorted(nested_submodules),
     }
     key = sha(encoded(inputs))
     parent = build / "prepared"
@@ -234,7 +250,8 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
         if (target / "manifest.json").is_file():
             state = json.loads((target / "manifest.json").read_text())
         same_inputs = state is not None and state.get("key") == key
-        clean_output = state is not None and source_path.is_dir() and state.get("content") == content_inventory(source_path)
+        old_content = content_inventory(source_path) if state is not None and source_path.is_dir() else None
+        clean_output = state is not None and old_content is not None and state.get("content") == old_content
         if export_patch is not None:
             if not same_inputs:
                 raise PreparationError("Export requires the same pin, series, and preparer used to create this tree; restore those inputs before exporting")
@@ -267,7 +284,16 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
         with tempfile.TemporaryDirectory(prefix=f".{name}-prepare-", dir=parent) as temp:
             staged = Path(temp) / "ready"
             materialize(staged / "source", sources, patches, export_roots=export_roots)
-            state = {"key": key, "inputs": inputs, "content": content_inventory(staged / "source")}
+            new_content = content_inventory(staged / "source")
+            if clean_output:
+                # Preserve timestamps only for verified identical regular files.
+                # A focused patch update should not recompile unchanged sources.
+                for relative, metadata in new_content.items():
+                    if "sha256" in metadata and old_content.get(relative) == metadata:
+                        previous_stat = (source_path / relative).stat()
+                        os.utime(staged / "source" / relative,
+                                 ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
+            state = {"key": key, "inputs": inputs, "content": new_content}
             (staged / "manifest.json").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
             previous = Path(temp) / "previous"
             if target.exists():
@@ -285,6 +311,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dependency", default="mscharged-decomp")
     parser.add_argument("--build-dir", type=Path, default=Path("build"))
+    parser.add_argument("--nested-submodule", action="append", dest="nested_submodules",
+                        help="Export only these direct nested gitlinks, recursively at their pins; repeat for each. Omit to require all nested sources.")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--check", action="store_true", help="Verify pins, inputs, and generated contents; do not regenerate")
     modes.add_argument("--discard-generated", action="store_true", help="Explicitly allow replacing edited generated sources")
@@ -293,7 +321,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     try:
         path = prepare(root, args.build_dir, args.dependency, check=args.check,
-                       discard_generated=args.discard_generated, export_patch=args.export_patch)
+                       discard_generated=args.discard_generated, export_patch=args.export_patch,
+                       nested_submodules=args.nested_submodules)
         print(path)
     except (PreparationError, OSError, ValueError) as error:
         parser.exit(1, f"Source preparation failed: {error}\n")

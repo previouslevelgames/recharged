@@ -1,0 +1,32 @@
+Subject: Build the unchanged original graphics pre-startup helper
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+The selected helper returns true and performs no graphics initialization.
+Extract it unchanged so the native startup can pass this genuine no-op without
+linking the later, unfinished glplatStartup console GX/VI implementation.
+The full original translation unit includes the same definition.
+
+--- a/src/NL/gl/glPlat.cpp
++++ b/src/NL/gl/glPlat.cpp
+@@ -145,10 +145,7 @@
+     GXFlush();
+ }
+ 
+-bool glplatPreStartup()
+-{
+-    return true;
+-}
++#include "glPlatPreStartup.cpp"
+ 
+ static bool InitializeMaterialProgram(unsigned long&, void*& program)
+ {
+--- /dev/null
++++ b/src/NL/gl/glPlatPreStartup.cpp
+@@ -0,0 +1,6 @@
++#include "NL/gl/glPlat.h"
++
++bool glplatPreStartup()
++{
++    return true;
++}

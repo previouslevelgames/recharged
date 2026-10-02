@@ -1,0 +1,119 @@
+Subject: [PATCH] Connect native whole-file requests to NL read failure and shutdown
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+The native port provides nlLoadEntireFileAsync/nlCancelEntireFileLoad in
+src/runtime/whole_file.cpp. Keep original console implementations unselected:
+they truncate pointers into 32-bit handles and mix host delete with game-arena
+records. Native opaque tokens preserve existing game handle fields; the adapter
+uses host-owned records, explicit MEM1/MEM2 or borrowed output ownership, and
+per-request cancellation callbacks.
+
+Abort a failed whole-file request from the manager's shared Service method,
+including synchronous reads that service it, without aborting other loads.
+Close/drain owned files before releasing buffers, and release pending records
+before destroying the raw manager or game arenas. Document the native API,
+including cancellation joining busy workers and ownership at callback entry.
+
+This adds no compression, bundle/cache, original INI parsing, or graphics stubs.
+All source edits remain in generated copies. Console behavior is unchanged.
+
+diff --git a/include/NL/nlFile.h b/include/NL/nlFile.h
+index 57cc6ec..0be5afa 100644
+--- a/include/NL/nlFile.h
++++ b/include/NL/nlFile.h
+@@ -47,6 +47,17 @@ void nlRead(nlFile* file, void* buffer, unsigned int size, unsigned long bufferS
+ void nlClose(nlFile* file);
+ bool nlFileExists(const char* filename);
+ void* nlLoadEntireFile(const char* filename, unsigned long* outSize, unsigned int alignment, eAllocType type, void* buffer, unsigned long bufferSize, MemoryAllocator* allocator);
++#ifdef MSCHARGED_NATIVE
++// Native whole-file handles are opaque, nonrecycled 32-bit tokens, not pointers.
++// Missing files return 0 without a callback; empty files call back inline with
++// null/0 and return 0. Other completions run on the NL servicing thread and pass
++// the logical length. Allocated output transfers to the callback; supplied output
++// is always borrowed. A zero supplied capacity means the caller guarantees the
++// logical file length. Read/submission failures throw without a success callback.
++// Cancellation joins native workers, even while busy. Its callback borrows the
++// data and receives the original completion callback; only owned data is freed.
++// Completed/cancelled/unknown tokens return false. Shutdown drains without callbacks.
++#endif
+ unsigned int nlLoadEntireFileAsync(const char* filename, LoadAsyncCallback callback, void* userData, unsigned int alignment, eAllocType type, void* buffer, unsigned long bufferSize, MemoryAllocator* allocator);
+ bool nlCancelEntireFileLoad(unsigned int handle, void (*callback)(void*, unsigned long, void*, LoadAsyncCallback));
+ 
+diff --git a/include/NL/nlFileGC.h b/include/NL/nlFileGC.h
+index b988c6d..6e93489 100644
+--- a/include/NL/nlFileGC.h
++++ b/include/NL/nlFileGC.h
+@@ -9,6 +9,9 @@ void nlInitFileSystem(void);
+ #ifdef MSCHARGED_NATIVE
+ void nlShutdownFileSystem();
+ bool nlFileSystemReady();
++// Internal native whole-file lifecycle hooks, implemented by the port adapter.
++void nlAbortEntireFileLoad(nlFile* file);
++void nlShutdownEntireFileLoads();
+ #endif
+ void nlCancelPendingAsyncReads(nlFile* pFile, void (*callback)(nlFile*, void*, unsigned int, nlFileAsyncParam, void (*)(nlFile*, void*, unsigned int, nlFileAsyncParam)));
+ bool nlAsyncReadsPending(nlFile* file);
+diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+index ba8d67a..0c62f53 100644
+--- a/src/NL/nlFileGC.cpp
++++ b/src/NL/nlFileGC.cpp
+@@ -230,6 +230,7 @@ void nlShutdownFileSystem()
+     if (!s_pAsyncManager) return;
+     if (s_pAsyncManager->mCurrent)
+         throw std::logic_error("Cannot shut down NL files from inside a read callback");
++    nlShutdownEntireFileLoads();
+     while (s_pAsyncManager->m_activeEntryList)
+         s_pAsyncManager->CancelNative(nlDLRingGetStart(s_pAsyncManager->m_activeEntryList), 0);
+     nlFree(s_pAsyncManager->mTailBuffers);
+@@ -466,25 +467,35 @@ void AsyncManager::Service()
+     {
+         auto* entry = nlDLRingGetStart(m_activeEntryList);
+         auto* tail = entry->Phase == READ_HEAD ? entry->m_next : 0;
+-        if (tail && (tail == entry || tail->Phase != READ_TAIL || tail->m_pFile != entry->m_pFile))
+-            throw std::logic_error("Incomplete NL read head/tail pair");
+-        for (auto* part : {entry, tail})
++        try
+         {
+-            if (!part) continue;
+-            const auto state = FileCommandStatus(part->mFileInfo);
+-            if (state == DVD_STATE_BUSY || state == DVD_STATE_WAITING) return;
+-            if (state != DVD_STATE_IDLE) throw std::runtime_error("NL asynchronous DVD read failed");
++            if (tail && (tail == entry || tail->Phase != READ_TAIL || tail->m_pFile != entry->m_pFile))
++                throw std::logic_error("Incomplete NL read head/tail pair");
++            for (auto* part : {entry, tail})
++            {
++                if (!part) continue;
++                const auto state = FileCommandStatus(part->mFileInfo);
++                if (state == DVD_STATE_BUSY || state == DVD_STATE_WAITING) return;
++                if (state != DVD_STATE_IDLE) throw std::runtime_error("NL asynchronous DVD read failed");
++            }
++            // Close joins any worker callback before reading status/transfer fields
++            // or recycling the command block. Short logical reads are never success.
++            for (auto* part : {entry, tail})
++            {
++                if (!part) continue;
++                DVDClose(&part->mFileInfo);
++                const unsigned long logical = std::min(part->m_uSize,
++                    part->m_pFile->mLength-part->m_uPosition);
++                if (part->mFileInfo.cb.transferredSize < logical)
++                    throw std::runtime_error("Short NL disc read");
++            }
+         }
+-        // Close joins any worker callback before reading status/transfer fields
+-        // or recycling the command block. Short logical reads are never success.
+-        for (auto* part : {entry, tail})
++        catch (...)
+         {
+-            if (!part) continue;
+-            DVDClose(&part->mFileInfo);
+-            const unsigned long logical = std::min(part->m_uSize,
+-                part->m_pFile->mLength-part->m_uPosition);
+-            if (part->mFileInfo.cb.transferredSize < logical)
+-                throw std::runtime_error("Short NL disc read");
++            // Drop only this whole-file request. Its owned file drains the raw
++            // entries before its destination is freed; unrelated loads survive.
++            nlAbortEntireFileLoad(entry->m_pFile);
++            throw;
+         }
+         if (tail)
+         {

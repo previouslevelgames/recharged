@@ -1,19 +1,28 @@
-mscharged_prepare_dependency(imgui MSCHARGED_IMGUI_PREPARED)
+if(TARGET imgui)
+    # A single ImGui implementation serves Aurora/WGPU and the SDL launcher.
+    add_library(charged_launcher_ui INTERFACE)
+    target_link_libraries(charged_launcher_ui INTERFACE imgui SDL3::SDL3)
+    target_include_directories(charged_launcher_ui INTERFACE
+        "${MSCHARGED_IMGUI_PREPARED}/backends" "${MSCHARGED_IMGUI_PREPARED}/misc/cpp")
+else()
+    mscharged_prepare_dependency(imgui MSCHARGED_IMGUI_PREPARED)
 
-add_library(charged_launcher_ui STATIC
-    "${MSCHARGED_IMGUI_PREPARED}/imgui.cpp"
-    "${MSCHARGED_IMGUI_PREPARED}/imgui_draw.cpp"
-    "${MSCHARGED_IMGUI_PREPARED}/imgui_tables.cpp"
-    "${MSCHARGED_IMGUI_PREPARED}/imgui_widgets.cpp"
-    "${MSCHARGED_IMGUI_PREPARED}/misc/cpp/imgui_stdlib.cpp"
-    "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdl3.cpp"
-    "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdlrenderer3.cpp"
-)
-add_dependencies(charged_launcher_ui verify_prepared)
-target_include_directories(charged_launcher_ui PUBLIC
-    "${MSCHARGED_IMGUI_PREPARED}" "${MSCHARGED_IMGUI_PREPARED}/backends"
-    "${MSCHARGED_IMGUI_PREPARED}/misc/cpp")
-target_link_libraries(charged_launcher_ui PUBLIC SDL3::SDL3)
+    add_library(charged_launcher_ui STATIC
+        "${MSCHARGED_IMGUI_PREPARED}/imgui.cpp"
+        "${MSCHARGED_IMGUI_PREPARED}/imgui_draw.cpp"
+        "${MSCHARGED_IMGUI_PREPARED}/imgui_tables.cpp"
+        "${MSCHARGED_IMGUI_PREPARED}/imgui_widgets.cpp"
+        "${MSCHARGED_IMGUI_PREPARED}/misc/cpp/imgui_stdlib.cpp"
+        "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdl3.cpp"
+        "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdlrenderer3.cpp"
+    )
+    add_dependencies(charged_launcher_ui verify_prepared)
+    target_include_directories(charged_launcher_ui PUBLIC
+        "${MSCHARGED_IMGUI_PREPARED}" "${MSCHARGED_IMGUI_PREPARED}/backends"
+        "${MSCHARGED_IMGUI_PREPARED}/misc/cpp")
+    target_link_libraries(charged_launcher_ui PUBLIC SDL3::SDL3)
+
+endif()
 
 add_executable(mscharged src/launcher/main.cpp)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui mscharged_build_info)

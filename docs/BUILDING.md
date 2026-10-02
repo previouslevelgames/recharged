@@ -25,7 +25,8 @@ is a future upstream milestone, not a prerequisite for working on this setup.
 - Python 3.10 or newer; no third-party Python packages are needed.
 - CMake 3.25 or newer.
 - Ninja for the supplied presets, or another CMake-supported tool for a manual build.
-- C and C++17 compilers. The initial utilities were validated with Clang and GCC
+- C and C++20 compilers. The foundation and launcher use C++17; native asset
+  readers and Aurora use C++20. The initial utilities were validated with Clang and GCC
   on Linux; the launcher and disc reader were validated with GCC 16.
 - Rust and Cargo 1.85 or newer for nod; validated with Rust 1.95 on Linux.
 - The platform prerequisites listed in the pinned SDL source's
@@ -73,7 +74,7 @@ development build. Ordinary builds do not fetch or advance upstream revisions.
 ## Build and run
 
 From the repository root, one command configures the Release build, prepares
-patched sources, compiles, and runs all five test suites:
+patched sources, compiles, and runs all six test suites:
 
 ```sh
 cmake --workflow --preset release
@@ -235,14 +236,58 @@ ctest --test-dir build/headless --output-on-failure
 ```
 
 This configuration needs only the decomp, nod, and Corrosion submodules and runs
-four suites, omitting `launcher_smoke`.
+five suites, omitting `launcher_smoke`.
 
 ## Aurora host integration
 
-The optional `aurora` preset also builds `mscharged-aurora-check` and a sixth
+The optional `aurora` preset also builds `mscharged-aurora-check` and a seventh
 test suite for Aurora core services. It requires a C++20 compiler and additional
 pinned submodules. It does not enable GX/Vulkan rendering or game startup.
 See [the setup and next runtime milestones](RUNTIME.md).
+
+## Independent Vulkan rendering
+
+The Linux `graphics` preset builds a separate `mscharged-gx-check`, using
+prepared Aurora GX, Dawn, image/font libraries, and a generated SQLite
+amalgamation. It requires C++20, GNU Make, Tcl, and additional nested sources.
+See [the dependency setup and commands](RUNTIME.md#independent-gxvulkan-diagnostic).
+It renders generated geometry/textures without game data. It does not build the
+launcher or connect original game graphics startup.
+
+## Experimental static asset rendering
+
+The Linux `scene` preset combines the launcher, Aurora GX/Vulkan, Aurora DVD,
+and the original core/NL file services. Initialize the graphics dependencies
+listed in [RUNTIME.md](RUNTIME.md#independent-gxvulkan-diagnostic), then:
+
+```sh
+CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
+./build/scene/mscharged --experimental-scene --config ./mscharged.ini
+```
+
+This loads the ball's actual static mesh and diffuse texture from your USA
+`R4QE01` revision 1 ISO/RVZ. It is an asset preview; original scene initialization,
+materials/effects, animation, menus, and gameplay remain pending. Escape or close
+the window to exit. `--frames 180` makes the check bounded. Without the
+experimental flag, the same executable opens the normal launcher.
+Personal settings and disc contents are read without modification; generated
+GPU caches and the diagnostic log stay under `build/scene/scene-data/`.
+The preview currently uses its own camera, window, and validated Vulkan settings.
+It now runs the original `PreInitFS` memory callback and renders pool-owned
+native records through the original static model/texture inventory. Full
+`glStartup` and the original loaders/material/task graph remain pending.
+
+The workflow runs nine portable suites. To include three real GPU suites,
+including synthetic-disc rendering and failure/cleanup checks:
+
+```sh
+cmake --preset scene -DMSCHARGED_TEST_VULKAN=ON
+cmake --build --preset scene
+ctest --preset scene
+```
+
+See [the supported asset profile](RUNTIME.md#experimental-static-wii-asset-preview)
+for file formats, limitations, and optional model selection.
 
 ## Experimental game startup
 
@@ -256,11 +301,16 @@ cmake --workflow --preset startup
 
 Run `./build/startup/mscharged` without the flag to open the launcher and use
 **Try startup** after checking a USA `R4QE01` revision 1 image. This preset adds
-four suites to the Aurora preset, for ten total, and writes startup diagnostics
+seven suites to the Aurora preset, for fourteen total, and writes startup diagnostics
 under `build/startup/startup-data/`. Original MEM1/MEM2 allocator and reserved
-SDK heap initialization now complete. The current expected stop is exit code 3
-at `glplatPreStartup`, where native GX graphics are still missing. No menu or
-match is reached. See [the implemented path, memory checks, and source scan](RUNTIME.md#experimental-original-startup).
+SDK heap initialization complete, and original NL APIs read disc files both
+synchronously and asynchronously. Native animation key decoders are linked and
+original `InitializeCore()` / `nlInit()` complete. Native whole-file async loading
+also compares the complete `ini/common.ini` and `ini/datetime.ini` bytes with
+synchronous reads. Original INI parsing is not executed. The current expected
+stop is exit code 3 at `Initialize (remaining stages)`; this prototype's original graphics/resource startup and task loop remain pending.
+The separate scene preset enables the bounded static asset preview above.
+No menu or match is reached. See [the implemented path and checks](RUNTIME.md#experimental-original-startup).
 
 ## Build versions
 
@@ -285,13 +335,16 @@ builds do not require a release tag.
 
 ## What happens before compilation
 
-1. Read the decomp, nod, Corrosion, SDL, and Dear ImGui gitlinks from the port's
+1. Read the enabled dependencies' gitlinks from the port's
    Git index and require those exact checkouts. On a fresh clone these are the committed pins;
    during an intentional dependency update they are the newly staged pins.
 2. Reject tracked edits inside the dependency. Ignored and untracked local
    files are not exported.
 3. Export committed sources, including any required initialized nested
    submodules at their pins, to a temporary build directory.
+   The graphics preset selects seven direct Dawn gitlinks explicitly; their
+   recursive pins and that selection are included in the manifest/cache key.
+   Dependencies without a selection require all recorded nested sources.
    For the decomp, export only `include/`, `libs/`, and `src/`; patches must stay
    within those directories. The complete submodule remains the upstream
    reference, including its notices and decomp metadata.
@@ -303,6 +356,10 @@ builds do not require a release tag.
    contents. For the Release preset, `<build-dir>` is `build/release`.
 6. Configure the selected source list. Before each build, verify that the
    recorded inputs and generated contents still match.
+
+When refreshing a verified clean prepared tree, identical regular files retain
+their timestamps so a focused patch change does not rebuild every source.
+Content hashes, executable modes, and input checks remain authoritative.
 
 CMake watches the patch directory, preparation script, and Git index. If a
 manual dependency checkout or generated edit causes validation to fail, resolve
@@ -334,10 +391,23 @@ deterministic random values, range handling, and the portable absolute-value
 helper. The MT source currently exposes seed initialization only; there is no
 claim of a complete MT implementation or game simulation validation.
 
+`static_resources` checks bounded static Wii model/texture conversion using
+synthetic file records: big endian fields, 32-byte chunk alignment, matrix/UV
+semantics, GX tile/mip/palette sizes, malformed/truncated inputs, unsupported
+profiles, and allocation budgets. It does not validate original scene rendering.
+
+`graphics_memory` (startup/scene) checks the selected original graphics pools,
+aligned frame halves, arena ownership, failed construction/allocation cleanup,
+nested static inventories, original AVL trees, texture indices, and repeated
+shutdown. `static_inventory` (scene) checks pool-owned native model/texture
+records, original lookup, unchanged tiled/palette bytes, GPU drain callbacks,
+and failed-conversion rollback. Both use synthetic data without a GPU or disc.
+
 `source_preparation` uses disposable local Git fixtures. It checks ordered
 patches, cache reuse, pin/base validation, tracked changes, excluded local data,
-failed preparation, stale/edited output, patch export, nested submodules, and
-the restricted decomp export (15 cases).
+failed preparation, stale/edited output, patch export, nested submodules,
+explicit nested selections, clean-refresh timestamps, and the restricted decomp
+export (19 cases).
 
 `bootstrap_cli` checks INI setup, relative paths, spaces, BOM/CRLF handling,
 ISO data-partition access, wrong-game rejection, missing partitions, malformed
@@ -361,6 +431,7 @@ To run only the preparation suite:
 python3 -B tests/test_prepare_sources.py
 ```
 
-Aurora, gameplay, complete game linking, and packaging remain future integration
-steps. Add source units and checks deliberately as the decomp becomes usable.
+Original scene/task rendering, further startup integration, gameplay, complete game
+linking, and packaging remain development work. Add source units and checks
+deliberately as the decomp becomes usable.
 See [patch development](../patches/README.md) before editing generated sources.

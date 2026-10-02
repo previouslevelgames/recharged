@@ -2,3 +2,6 @@
 0002-guard-optional-rmlui-header.patch
 0003-declare-core-vi-link-dependency.patch
 0004-implement-mem2-and-os-memory-lifecycle.patch
+0005-respect-graphics-providers-and-enable-validation.patch
+0006-keep-validation-for-release-diagnostics.patch
+0007-release-gx-default-resources-on-shutdown.patch

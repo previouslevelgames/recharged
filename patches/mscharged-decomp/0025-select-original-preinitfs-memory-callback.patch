@@ -1,0 +1,105 @@
+Subject: Select original PreInitFS memory callback
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Select original PreInitFS memory callback
+Extract the original callback and global resource requirements without changing
+their budgets, order or texture capacity. The full entry includes the extraction;
+the native memory target selects it independently and exports a typed wrapper.
+Use an explicit exception rather than a console break if native initialization
+returns failure. This does not select glStartup's material/platform/state/view/
+target/font stages or any game task. Never compile both entry units together.
+
+diff --git a/include/Game/GraphicsMemoryStartup.h b/include/Game/GraphicsMemoryStartup.h
+new file mode 100644
+index 0000000..c0c3e31
+--- /dev/null
++++ b/include/Game/GraphicsMemoryStartup.h
+@@ -0,0 +1,7 @@
++#ifndef GAME_GRAPHICS_MEMORY_STARTUP_H
++#define GAME_GRAPHICS_MEMORY_STARTUP_H
++#if defined(MSCHARGED_NATIVE)
++// Runs the original memory callback; this does not call the rest of glStartup.
++void InitializeOriginalGraphicsMemory();
++#endif
++#endif
+diff --git a/src/Game/GraphicsMemoryStartup.cpp b/src/Game/GraphicsMemoryStartup.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/GraphicsMemoryStartup.cpp
+@@ -0,0 +1,37 @@
++// The original PreInitFS callback, selected independently of the incomplete main.
++#include "Game/GraphicsMemoryStartup.h"
++#include "NL/gl/glMemoryInit.h"
++#include "NL/gl/glMemory.h"
++#include "NL/nlMemory.h"
++#include "NL/nlDebug.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
++
++static GLMemoryRequirement sGlobalResourceRequirements[3] = {
++    { GLM_TextureData, MB(3) },
++    { GLM_VertexData, MB(2) },
++    { GLM_Header, MB(2) + KB(256) },
++};
++
++static void PreInitFS()
++{
++    GLMemoryConfig config;
++    config.mFrameMemSize1 = 0x80000;
++    config.mFrameMemSize2 = 0x233333;
++    config.mResourceRequirements = sGlobalResourceRequirements;
++    config.mNumResourceRequirements = 3;
++    config.mMaxTextures = 1000;
++    if (!glInitMemory(&config))
++    {
++#if defined(MSCHARGED_NATIVE)
++        throw std::runtime_error("Original PreInitFS graphics memory initialization failed");
++#else
++        nlBreak();
++#endif
++    }
++}
++
++#if defined(MSCHARGED_NATIVE)
++void InitializeOriginalGraphicsMemory() { PreInitFS(); }
++#endif
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 7c50f1d..50c9cf8 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -199,11 +199,7 @@ static TextWindowTask textWindowTask;
+ static FEDPDTask feDPDTask;
+ static FlashMemoryTask flashMemoryTask;
+ 
+-static GLMemoryRequirement sGlobalResourceRequirements[3] = {
+-    { GLM_TextureData, MB(3) },
+-    { GLM_VertexData, MB(2) },
+-    { GLM_Header, MB(2) + KB(256) },
+-};
++
+ 
+ static TweakValueBool sAllowWarble(
+     "sbAllowWarble", "/Rendering/Effects/Warble", true);
+@@ -311,19 +307,7 @@ static bool sDateTimeLoaded;
+ static u32 sWarbleTexture;
+ static char sWarbleTextureCached;
+ 
+-static void PreInitFS()
+-{
+-    GLMemoryConfig config;
+-    config.mFrameMemSize1 = 0x80000;
+-    config.mFrameMemSize2 = 0x233333;
+-    config.mResourceRequirements = sGlobalResourceRequirements;
+-    config.mNumResourceRequirements = 3;
+-    config.mMaxTextures = 1000;
+-    if (!glInitMemory(&config))
+-    {
+-        nlBreak();
+-    }
+-}
++#include "GraphicsMemoryStartup.cpp"
+ 
+ extern "C" void fn_8011C4E8(int)
+ {

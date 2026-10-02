@@ -1,0 +1,107 @@
+Subject: Share Aurora DVD declarations with the original NL file layer
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Use the actual native DVD API and its field names while retaining the console
+header branch. Canonical fixed-width 64-bit types permit both SDK headers on
+LP64 hosts. State aliases name Aurora equivalents; they do not implement absent
+Wii services.
+
+--- a/libs/RVL_SDK/include/revolution/types.h
++++ b/libs/RVL_SDK/include/revolution/types.h
+@@ -7,11 +7,11 @@
+ typedef signed char s8;
+ typedef signed short s16;
+ typedef int32_t s32;
+-typedef signed long long s64;
++typedef int64_t s64;
+ typedef unsigned char u8;
+ typedef unsigned short u16;
+ typedef uint32_t u32;
+-typedef unsigned long long u64;
++typedef uint64_t u64;
+ 
+ typedef volatile u8 vu8;
+ typedef volatile u16 vu16;
+--- a/libs/RVL_SDK/include/revolution/dvd/dvd.h
++++ b/libs/RVL_SDK/include/revolution/dvd/dvd.h
+@@ -1,5 +1,14 @@
+ #ifndef RVL_SDK_DVD_H
+ #define RVL_SDK_DVD_H
++#ifdef MSCHARGED_NATIVE
++// Native callers share Aurora's DVD structures; no Wii/native layout casts.
++#include <dolphin/dvd.h>
++#define DVD_STATE_IDLE DVD_STATE_END
++#define DVD_STATE_FATAL DVD_STATE_FATAL_ERROR
++#define DVD_STATE_COVER_OPENED DVD_STATE_COVER_OPEN
++#define DVD_STATE_WRONG_DISK_ID DVD_STATE_WRONG_DISK
++#define DVD_STATE_DISK_ERROR DVD_STATE_RETRY
++#else
+ #include <revolution/types.h>
+ #ifdef __cplusplus
+ extern "C" {
+@@ -121,4 +130,5 @@
+ #ifdef __cplusplus
+ }
+ #endif
++#endif // MSCHARGED_NATIVE
+ #endif
+--- a/src/NL/nlFileGC.cpp
++++ b/src/NL/nlFileGC.cpp
+@@ -11,6 +11,15 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++static s32 FileCommandStatus(const DVDFileInfo& info)
++{
++#ifdef MSCHARGED_NATIVE
++    return DVDGetCommandBlockStatus(&info.cb);
++#else
++    return DVDGetCommandBlockStatus(&info.block);
++#endif
++}
++
+ class DolphinFile;
+ class AsyncManager;
+ struct AsyncEntry;
+@@ -32,8 +41,13 @@
+     {
+         DVDFileInfo info;
+         DVDFastOpen(entryNum, &info);
++#ifdef MSCHARGED_NATIVE
++        mLength = info.length;
++        mStartAddress = info.startAddr;
++#else
+         mLength = info.size;
+         mStartAddress = info.offset;
++#endif
+         DVDClose(&info);
+     }
+ 
+@@ -285,7 +299,7 @@
+ 
+     while (m_activeEntryList != 0)
+     {
+-        switch (DVDGetCommandBlockStatus(&entry->mFileInfo.block))
++        switch (FileCommandStatus(entry->mFileInfo))
+         {
+         case DVD_STATE_BUSY:
+         case DVD_STATE_WAITING:
+@@ -318,7 +332,7 @@
+                     --entry->m_pFile->PendingAsync;
+                     AsyncEntry* head = entry->m_prev;
+                     head->m_uSize += entry->m_uSize;
+-                    DVDGetCommandBlockStatus(&head->mFileInfo.block);
++                    FileCommandStatus(head->mFileInfo);
+                     nlDLRingRemove(&m_activeEntryList, entry);
+                     nlDLRingAddEnd(&m_freeEntryList, entry);
+                     DVDClose(&entry->mFileInfo);
+@@ -504,7 +518,7 @@
+ 
+ bool IsAsyncReadBusy(AsyncEntry* entry)
+ {
+-    switch (DVDGetCommandBlockStatus(&entry->mFileInfo.block))
++    switch (FileCommandStatus(entry->mFileInfo))
+     {
+     case DVD_STATE_BUSY:
+         return true;

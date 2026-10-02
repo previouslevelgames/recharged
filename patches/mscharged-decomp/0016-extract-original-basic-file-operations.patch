@@ -1,0 +1,199 @@
+Subject: Select original basic and synchronous whole-file operations
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Extract the existing base file and synchronous whole-file wrappers unchanged.
+The full source includes the prefix; the prototype selects that prefix alone.
+Advanced whole-file async loading and compressed InflateStream resources remain
+outside the selected native source. Do not build both entry units together.
+
+--- a/src/NL/nlFile.cpp
++++ b/src/NL/nlFile.cpp
+@@ -28,92 +28,7 @@
+     }
+ };
+ 
+-nlFile::nlFile()
+-{
+-}
+-
+-nlFile::~nlFile()
+-{
+-}
+-
+-unsigned int nlFileSize(nlFile* file, unsigned int* size)
+-{
+-    return file->FileSize(size);
+-}
+-
+-void nlRead(nlFile* file, void* buffer, unsigned int size, unsigned long bufferSize)
+-{
+-    file->Read(buffer, size, bufferSize);
+-}
+-
+-void nlClose(nlFile* file)
+-{
+-    delete file;
+-}
+-
+-bool nlFileExists(const char* filename)
+-{
+-    nlFile* file = nlOpen(filename);
+-    bool exists = file != 0;
+-    if (file != 0)
+-    {
+-        delete file;
+-    }
+-    return exists;
+-}
+-
+-void* nlLoadEntireFile(const char* filename, unsigned long* outSize, unsigned int alignment, eAllocType type, void* buffer, unsigned long bufferSize, MemoryAllocator* allocator)
+-{
+-    unsigned int filesize;
+-    unsigned long datasize;
+-    nlFile* file;
+-    void* alloc_data = 0;
+-
+-    file = nlOpen(filename);
+-    if (file != 0)
+-    {
+-        datasize = file->FileSize(&filesize);
+-        if (datasize != 0)
+-        {
+-            if (buffer != 0)
+-            {
+-                alloc_data = buffer;
+-            }
+-            else
+-            {
+-                bufferSize = filesize;
+-                if (allocator == 0)
+-                {
+-                    allocator = CurrentAllocator;
+-                }
+-                CurrentAllocator = allocator;
+-                AllocatorStack[AllocatorStackDepth++] = allocator;
+-
+-                if (type == AllocateEnd)
+-                {
+-                    alloc_data = operator new(filesize, alignment, true);
+-                }
+-                else
+-                {
+-                    alloc_data = operator new(filesize, alignment, false);
+-                }
+-
+-                --AllocatorStackDepth;
+-                AllocatorStack[AllocatorStackDepth] = 0;
+-                CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+-            }
+-            file->Read(alloc_data, datasize, bufferSize);
+-        }
+-
+-        delete file;
+-
+-        if (outSize != 0)
+-        {
+-            *outSize = datasize;
+-        }
+-    }
+-    return alloc_data;
+-}
++#include "nlFileBasic.cpp"
+ 
+ static void nlLoadEntireFileAsyncCallback(nlFile*, void*, unsigned int, unsigned long userParam)
+ {
+--- /dev/null
++++ b/src/NL/nlFileBasic.cpp
+@@ -0,0 +1,91 @@
++#include "NL/nlFile.h"
++#include "NL/MemAlloc.h"
++#include "NL/nlFileGC.h"
++#include "NL/nlMemory.h"
++
++nlFile::nlFile()
++{
++}
++
++nlFile::~nlFile()
++{
++}
++
++unsigned int nlFileSize(nlFile* file, unsigned int* size)
++{
++    return file->FileSize(size);
++}
++
++void nlRead(nlFile* file, void* buffer, unsigned int size, unsigned long bufferSize)
++{
++    file->Read(buffer, size, bufferSize);
++}
++
++void nlClose(nlFile* file)
++{
++    delete file;
++}
++
++bool nlFileExists(const char* filename)
++{
++    nlFile* file = nlOpen(filename);
++    bool exists = file != 0;
++    if (file != 0)
++    {
++        delete file;
++    }
++    return exists;
++}
++
++void* nlLoadEntireFile(const char* filename, unsigned long* outSize, unsigned int alignment, eAllocType type, void* buffer, unsigned long bufferSize, MemoryAllocator* allocator)
++{
++    unsigned int filesize;
++    unsigned long datasize;
++    nlFile* file;
++    void* alloc_data = 0;
++
++    file = nlOpen(filename);
++    if (file != 0)
++    {
++        datasize = file->FileSize(&filesize);
++        if (datasize != 0)
++        {
++            if (buffer != 0)
++            {
++                alloc_data = buffer;
++            }
++            else
++            {
++                bufferSize = filesize;
++                if (allocator == 0)
++                {
++                    allocator = CurrentAllocator;
++                }
++                CurrentAllocator = allocator;
++                AllocatorStack[AllocatorStackDepth++] = allocator;
++
++                if (type == AllocateEnd)
++                {
++                    alloc_data = operator new(filesize, alignment, true);
++                }
++                else
++                {
++                    alloc_data = operator new(filesize, alignment, false);
++                }
++
++                --AllocatorStackDepth;
++                AllocatorStack[AllocatorStackDepth] = 0;
++                CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
++            }
++            file->Read(alloc_data, datasize, bufferSize);
++        }
++
++        delete file;
++
++        if (outSize != 0)
++        {
++            *outSize = datasize;
++        }
++    }
++    return alloc_data;
++}

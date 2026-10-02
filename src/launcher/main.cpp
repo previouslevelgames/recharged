@@ -13,6 +13,8 @@
 #ifdef MSCHARGED_HAS_GAME_STARTUP
 #include "runtime/startup.h"
 #endif
+#include "runtime/scene.h"
+#include <charconv>
 
 #include <algorithm>
 #include <chrono>
@@ -44,6 +46,10 @@ struct Options
     fs::path screenshot;
     bool smoke_test = false;
     bool experimental_startup = false;
+    bool experimental_scene = false;
+    bool scene_arguments = false;
+    bool page_selected = false;
+    SceneOptions scene;
     int page = 0;
 };
 
@@ -709,10 +715,34 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif
+#ifdef MSCHARGED_HAS_SCENE_PREVIEW
+            std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N]\n"
+                         "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n";
+#endif
             return 0;
         }
         if (arg == "--smoke-test") options.smoke_test = true;
         else if (arg == "--experimental-startup") options.experimental_startup = true;
+        else if (arg == "--experimental-scene") options.experimental_scene = true;
+        else if ((arg == "--frames" || arg == "--model" || arg == "--textures" || arg == "--model-id") && i + 1 < argc)
+        {
+            options.scene_arguments = true;
+            const std::string value = argv[++i];
+            if (arg == "--model") options.scene.model = value;
+            else if (arg == "--textures") options.scene.textures = value;
+            else
+            {
+                std::uint32_t number = 0;
+                std::string_view digits = value;
+                if (arg == "--model-id" && (digits.size() >= 2 && digits.substr(0, 2) == "0x")) digits.remove_prefix(2);
+                const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number, arg == "--model-id" ? 16 : 10);
+                if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size()
+                    || (arg == "--frames" && (!number || number > 10000)))
+                { std::cerr << "Invalid " << arg << " value: " << value << '\n'; return 2; }
+                if (arg == "--frames") options.scene.frames = number;
+                else options.scene.model_id = number;
+            }
+        }
         else if ((arg == "--config" || arg == "--screenshot" || arg == "--page") && i + 1 < argc)
         {
             const std::string value = argv[++i];
@@ -723,14 +753,34 @@ int main(int argc, char** argv)
                 const auto it = std::find(std::begin(page_ids), std::end(page_ids), value);
                 if (it == std::end(page_ids)) { std::cerr << "Unknown launcher page: " << value << '\n'; return 2; }
                 options.page = int(it - std::begin(page_ids));
+                options.page_selected = true;
             }
         }
         else { std::cerr << "Unknown or incomplete argument: " << arg << ". Use --help.\n"; return 2; }
     }
-    if (options.experimental_startup && (options.smoke_test || !options.screenshot.empty() || options.page != 0))
-    { std::cerr << "Startup cannot be combined with launcher capture/smoke options.\n"; return 2; }
+    if ((options.experimental_startup || options.experimental_scene)
+        && (options.smoke_test || !options.screenshot.empty() || options.page_selected
+            || (options.experimental_startup && options.experimental_scene)))
+    { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
+    if (options.scene_arguments && !options.experimental_scene)
+    { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
     try
     {
+        if (options.experimental_scene)
+        {
+#ifdef MSCHARGED_HAS_SCENE_PREVIEW
+            if (options.config.empty())
+            {
+                const char* base = SDL_GetBasePath();
+                Require(base != nullptr, "Cannot locate the executable");
+                options.config = DefaultConfig(PathFromUtf8(base));
+            }
+            return RunScenePreview(argc, argv, options.config, options.scene);
+#else
+            std::cerr << "Static asset preview is not in this build. Use cmake --workflow --preset scene.\n";
+            return 2;
+#endif
+        }
         if (options.experimental_startup)
         {
 #ifdef MSCHARGED_HAS_GAME_STARTUP

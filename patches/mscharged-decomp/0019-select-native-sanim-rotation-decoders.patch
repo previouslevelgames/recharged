@@ -1,0 +1,51 @@
+Subject: Select register-independent native animation rotation decoders
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Keep the console GQR setup and paired-single assembly in the console branch.
+On native builds the port supplies scalar rotation decoding with the same
+signed formats, fixed GQR scale factors and original twelve-bit packing.
+Compile the original unsigned scale and byte-weight implementations unchanged.
+Document the packed-byte versus host-order structure contract explicitly;
+this does not convert animation chunks, relocate pointers, or blend poses.
+
+diff --git a/include/Game/SAnimDecode.h b/include/Game/SAnimDecode.h
+index 7df4c80..0361edb 100644
+--- a/include/Game/SAnimDecode.h
++++ b/include/Game/SAnimDecode.h
+@@ -5,6 +5,14 @@
+ 
+ struct PackedScale;
+ 
++#ifdef MSCHARGED_NATIVE
++// Rotation inputs remain packed big-endian bytes (8/6/4 bytes respectively),
++// including unaligned keys. Outputs are host-order floats, without normalization.
++// PackedScale is an aligned host-order struct of three unsigned 16-bit fields;
++// its asset loader must convert Wii byte order before calling the decoder.
++// Weight inputs are single unsigned bytes. Input/output storage must not overlap.
++// Scalar rotation decoders encode the original GQR constants and need no state.
++#endif
+ void SAnimInitGQR();
+ extern "C" void SAnimDecodeRot16(nlQuaternion* result, const void* packed);
+ extern "C" void SAnimDecodeRot12(nlQuaternion* result, const void* packed);
+diff --git a/src/Game/SAnimDecode.cpp b/src/Game/SAnimDecode.cpp
+index a08e6ef..242f928 100644
+--- a/src/Game/SAnimDecode.cpp
++++ b/src/Game/SAnimDecode.cpp
+@@ -2,6 +2,8 @@
+ 
+ #include "Game/SAnim.h"
+ 
++#ifndef MSCHARGED_NATIVE
++// Native register-independent rotation decoders are supplied by the port.
+ // clang-format off
+ void SAnimInitGQR()
+ {
+@@ -64,6 +66,7 @@ extern "C" void SAnimDecodeRot8(register nlQuaternion* result, register const vo
+     }
+ }
+ // clang-format on
++#endif
+ 
+ extern "C" void SAnimDecodeScale(nlVector3* result, const PackedScale* packed)
+ {

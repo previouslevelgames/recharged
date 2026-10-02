@@ -1,16 +1,13 @@
 Subject: Expose the original initialization prefix for incremental native startup
 
-Upstream-base: de9c1c8a367334ee079a7989f1b3967883d830c9
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
 
 Move the existing region/language selection and nlInit call into a callable
 startup unit. Full game Initialize calls the same function, preserving order.
-Only native builds omit hardware GQR setup; the paired-single decoders are not
-claimed implemented. This allows early startup without constructing unrelated
-game task globals or masking their missing dependencies.
+Only native builds omit hardware GQR setup. Native animation rotation decoders
+are selected separately by patch 0019. This extraction allows early startup
+without constructing unrelated game task globals or masking missing dependencies.
 
-diff --git a/include/Game/Startup.h b/include/Game/Startup.h
-new file mode 100644
-index 0000000..e011b24
 --- /dev/null
 +++ b/include/Game/Startup.h
 @@ -0,0 +1,7 @@
@@ -21,9 +18,6 @@ index 0000000..e011b24
 +void InitializeCore();
 +
 +#endif // GAME_STARTUP_H
-diff --git a/src/Game/Startup.cpp b/src/Game/Startup.cpp
-new file mode 100644
-index 0000000..a99d790
 --- /dev/null
 +++ b/src/Game/Startup.cpp
 @@ -0,0 +1,85 @@
@@ -112,8 +106,6 @@ index 0000000..a99d790
 +
 +    nlInit();
 +}
-diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 945b7a7..0ab5743 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,4 +1,5 @@
@@ -122,12 +114,11 @@ index 945b7a7..0ab5743 100644
  #include "Game/TweakRegistry.h"
  #include "Game/TweakConfig.h"
  
-@@ -144,14 +145,12 @@ extern u8 lbl_806E1458;
+@@ -146,13 +147,11 @@
  
  
  
 -volatile int g_Region = 3;
- static u32 sPreviousTaskState = 1;
  
  static u32 sCountryCode;
  GameAudio* g_pGameAudio;
@@ -137,7 +128,7 @@ index 945b7a7..0ab5743 100644
  static s32 sLastVirtualFreeDelta;
  static float sAverageVirtualFreeDelta;
  static float sVirtualFreeMiB;
-@@ -229,16 +228,6 @@ extern "C" void fn_8011D5B0(glShadowedTexturedColourModelWriter*, ParticleSystem
+@@ -226,16 +225,6 @@
      nlDLListSlotPool<Particle*>*, const nlVector3&, const nlVector3&,
      const nlMatrix4*);
  
@@ -154,7 +145,7 @@ index 945b7a7..0ab5743 100644
  int GetOnlineRegion()
  {
      int region = 0;
-@@ -410,66 +399,7 @@ extern "C" void fn_8011C748(Config*)
+@@ -414,66 +403,7 @@
  
  static void Initialize()
  {

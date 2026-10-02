@@ -1,0 +1,242 @@
+Subject: Select native static texture manager lifecycle
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Select native static texture manager lifecycle
+Select original static texture lookup, binding resolution, registration and
+PlatTexture linear-buffer release without linking unadapted loaders or texture
+animation. Preserve the queue algorithm, checking capacity, index and ownership
+before access. Reclaim constructor failures and add ordered shutdown. Insert
+inventory nodes before consuming a free index, so failed insertion is atomic.
+Select glTextureManagerStatic.cpp alone for this native subset. Texture GPU
+objects are not reinterpreted as Aurora objects; native GX upload is external.
+
+diff --git a/include/NL/gl/glTexture.h b/include/NL/gl/glTexture.h
+index 225d1bd..158dc7f 100644
+--- a/include/NL/gl/glTexture.h
++++ b/include/NL/gl/glTexture.h
+@@ -17,6 +17,9 @@ bool glEndLoadTextureBundle(
+ unsigned long glGetTextureIndex(unsigned long texture);
+ 
+ void glInitTextureManager(unsigned long count);
++#if defined(MSCHARGED_NATIVE)
++void glShutdownTextureManager();
++#endif
+ void glRegisterTexture(unsigned long texture, PlatTexture* platformTexture, void* allocator);
+ void glReleaseTexture(PlatTexture* texture);
+ 
+diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
+--- a/include/NL/gl/glTextureManager.h
++++ b/include/NL/gl/glTextureManager.h
+@@ -2,6 +2,9 @@
+ #define NL_GL_GL_TEXTURE_MANAGER_H
+ 
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
+ 
+ class GLTextureAnim;
+ class PlatTexture;
+@@ -11,6 +14,10 @@
+ {
+     glTextureIndexQueue(u16* data, unsigned long capacity)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (!data || !capacity || capacity > 0xFFFF)
++            throw std::invalid_argument("Invalid GL texture queue capacity");
++#endif
+         mHead = 0;
+         mCount = 0;
+         mCapacity = capacity;
+@@ -19,6 +26,9 @@
+ 
+     void AddEnd(const u16& value)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (mCount >= mCapacity) throw std::length_error("GL texture index queue is full");
++#endif
+         u16* entry;
+         if (mCount >= mCapacity)
+         {
+@@ -34,6 +44,9 @@
+ 
+     u16 RemoveStart()
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (!mCount) throw std::length_error("GL texture index queue is empty");
++#endif
+         u16* entry;
+         if (mCount == 0)
+         {
+@@ -62,6 +75,9 @@
+ {
+ public:
+     explicit glTextureManager(unsigned long count);
++#if defined(MSCHARGED_NATIVE)
++    ~glTextureManager();
++#endif
+     unsigned long GetTextureIndex(unsigned long texture);
+     void ResolveTextureIndex(glTextureBinding* texture);
+     PlatTexture* GetTextureAtIndex(const unsigned long* texture);
+diff --git a/src/NL/gl/glTextureManagerStatic.cpp b/src/NL/gl/glTextureManagerStatic.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/NL/gl/glTextureManagerStatic.cpp
+@@ -0,0 +1,156 @@
++// Native static texture lookup/registration. Animation methods are not linked.
++#include "NL/gl/glTextureManager.h"
++#include "NL/gl/glTexture.h"
++#include "NL/gl/glModel.h"
++#include "NL/gl/glMemory.h"
++#include "NL/glx/glxTexture.h"
++#include "Game/GL/GLInventory.h"
++#include <stdexcept>
++#include <string.h>
++
++#if !defined(MSCHARGED_NATIVE)
++#error Select glTextureManager.cpp and glTexture.cpp for the console build
++#endif
++
++glTextureManager* gTextureManager = 0;
++
++glTextureManager::glTextureManager(unsigned long count)
++    : mCapacity(0), mTextures(0), mFreeIndices(0), mIndexBuffer(0)
++{
++    if (!count || count > 0xFFFF) throw std::invalid_argument("GL texture capacity must be 1..65535");
++    try
++    {
++        mTextures = (PlatTexture**)nlMalloc(count * sizeof(PlatTexture*), 8, false);
++        memset(mTextures, 0, count * sizeof(PlatTexture*));
++        mIndexBuffer = new (8, false) u16[count];
++        mFreeIndices = new (8, false) glTextureIndexQueue(mIndexBuffer, count);
++        for (u32 i = 0; i < count; ++i) mFreeIndices->AddEnd((u16)i);
++        mCapacity = count;
++    }
++    catch (...)
++    {
++        nlDeleteGameObject(mFreeIndices);
++        nlFree(mIndexBuffer); nlFree(mTextures);
++        throw;
++    }
++}
++
++glTextureManager::~glTextureManager()
++{
++    nlDeleteGameObject(mFreeIndices);
++    nlFree(mIndexBuffer); nlFree(mTextures);
++}
++
++void glInitTextureManager(unsigned long count)
++{
++    if (gTextureManager) throw std::logic_error("GL texture manager is already initialized");
++    gTextureManager = new (8, false) glTextureManager(count);
++}
++
++glTextureManager* glGetTextureManager() { return gTextureManager; }
++
++void glShutdownTextureManager()
++{
++    if (!gTextureManager) return;
++    if (gTextureManager->mFreeIndices->mCount != gTextureManager->mCapacity)
++        throw std::logic_error("Release GL resource inventories before the texture manager");
++    nlDeleteGameObject(gTextureManager);
++    gTextureManager = 0;
++}
++
++void glRegisterTexture(unsigned long texture, PlatTexture* platformTexture, void* allocator)
++{
++    GLResourcePool* resource = (GLResourcePool*)allocator;
++    if (!resource || !resource->m_inventory || !gTextureManager || !platformTexture
++        || platformTexture->m_TextureIndex != 0xFFFF)
++        throw std::invalid_argument("Invalid GL texture registration");
++    if (!gTextureManager->mFreeIndices->mCount) throw std::length_error("GL texture manager is full");
++    // Node insertion can fail; reserve its memory before consuming an index.
++    resource->m_inventory->AddTexture(texture, platformTexture);
++    gTextureManager->RegisterTexture(platformTexture);
++}
++
++void glReleaseTexture(PlatTexture* texture)
++{
++    if (!gTextureManager || !texture || texture->m_TextureIndex >= gTextureManager->mCapacity
++        || gTextureManager->mTextures[texture->m_TextureIndex] != texture)
++        throw std::invalid_argument("GL texture is not registered with this manager");
++    u32 index = texture->GetTextureIndex();
++    gTextureManager->mFreeIndices->AddEnd((u16)index);
++    gTextureManager->mTextures[index] = 0;
++    texture->m_TextureIndex = 0xFFFF;
++    texture->ClearData();
++}
++
++unsigned long glGetTextureIndex(unsigned long texture)
++{
++    if (!gTextureManager) throw std::logic_error("GL texture manager is not initialized");
++    return gTextureManager->GetTextureIndex(texture);
++}
++
++unsigned long glTextureManager::GetTextureIndex(unsigned long texture)
++{
++    PlatTexture* platformTexture = glx_GetTex(texture);
++    if (platformTexture == 0)
++    {
++        return 0xFFFF;
++    }
++    return platformTexture->GetTextureIndex();
++}
++
++void glTextureManager::ResolveTextureIndex(glTextureBinding* texture)
++{
++    if (!texture) throw std::invalid_argument("Null GL texture binding/object/index");
++    // A pool rollback or shadowing may invalidate/recycle a cached index.
++    if (texture->textureIndex != 0xFFFF
++        && (texture->textureIndex >= mCapacity
++            || mTextures[texture->textureIndex] != glx_GetTex(texture->texture)))
++        texture->textureIndex = 0xFFFF;
++    if (texture->textureIndex == 0xFFFF)
++    {
++        texture->textureIndex = GetTextureIndex(texture->texture);
++    }
++}
++
++PlatTexture* glTextureManager::GetTextureAtIndex(const unsigned long* texture)
++{
++    if (!texture) throw std::invalid_argument("Null GL texture binding/object/index");
++    if (*texture == 0xFFFF)
++    {
++        return 0;
++    }
++    if (*texture >= mCapacity) throw std::out_of_range("GL texture index exceeds capacity");
++    return mTextures[*texture];
++}
++
++PlatTexture* glTextureManager::GetTexture(glTextureBinding* texture)
++{
++    if (!texture) throw std::invalid_argument("Null GL texture binding/object/index");
++    ResolveTextureIndex(texture);
++    unsigned long textureIndex = texture->textureIndex;
++    return GetTextureAtIndex(&textureIndex);
++}
++
++void glTextureManager::RegisterTexture(PlatTexture* texture)
++{
++    if (!texture) throw std::invalid_argument("Null GL texture binding/object/index");
++    if (texture->m_TextureIndex != 0xFFFF) throw std::invalid_argument("GL texture is already registered");
++    texture->m_TextureIndex = mFreeIndices->RemoveStart();
++    mTextures[texture->GetTextureIndex()] = texture;
++}
++void PlatTexture::ClearData()
++{
++    if (m_LinearData != 0)
++    {
++        nlFree(m_LinearData);
++        m_LinearData = 0;
++    }
++}
++PlatTexture::~PlatTexture()
++{
++    if (m_LinearData != 0)
++    {
++        nlFree(m_LinearData);
++        m_LinearData = 0;
++    }
++}

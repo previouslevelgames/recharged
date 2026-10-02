@@ -1,0 +1,21 @@
+Subject: Match Vulkan pipeline robustness to enabled device features
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+
+DeviceVk enables pipelineRobustness only when robustness is enabled. The
+pipeline must use the same condition before adding per-pipeline robustness
+behaviors. Otherwise optimized callers disabling robustness violate Vulkan
+feature requirements, including on the tested Intel Mesa driver.
+
+--- a/src/dawn/native/vulkan/RenderPipelineVk.cpp
++++ b/src/dawn/native/vulkan/RenderPipelineVk.cpp
+@@ -873,7 +873,8 @@
+     // necessary because when bindless is enabled and robustBufferAccessUpdateAfterBind is false, we
+     // must only set robust buffer access on vertexInputs.
+     VkPipelineRobustnessCreateInfo robustnessCreateInfo;
+-    if (device->GetDeviceInfo().HasExt(DeviceExt::PipelineRobustness)) {
++    if (device->IsRobustnessEnabled() &&
++        device->GetDeviceInfo().HasExt(DeviceExt::PipelineRobustness)) {
+         createInfoChain.Add(&robustnessCreateInfo,
+                             VK_STRUCTURE_TYPE_PIPELINE_ROBUSTNESS_CREATE_INFO);
+ 

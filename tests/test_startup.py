@@ -25,12 +25,16 @@ class StartupTests(unittest.TestCase):
         return output
 
     def config(self, language="auto", game_id=b"R4QE01"):
-        write_disc(self.root / "disc with spaces.iso", game_id=game_id)
+        write_disc(self.root / "disc with spaces.iso", game_id=game_id, files={
+            "test.txt": b"Synthetic fixture data.\n",
+            "ini/common.ini": b"; Synthetic only\n[test]\nvalue = 7\n",
+            "ini/datetime.ini": b"; Synthetic only\n[build]\ndate = fixture\n",
+        })
         config = self.root / "personal.ini"
         config.write_text(f"; preserve this personal file\n[game]\ndisc = disc with spaces.iso\nlanguage = {language}\n")
         return config
 
-    def test_original_memory_initialization_reaches_graphics_boundary(self):
+    def test_original_core_completes_and_reaches_remaining_initialization(self):
         config = self.config()
         before = config.read_bytes()
         output = self.run_startup(config, expected=3)
@@ -39,7 +43,15 @@ class StartupTests(unittest.TestCase):
         self.assertIn("Original nlInitMemory completed; MEM1 game arena:", output)
         self.assertIn("MEM2 game arena:", output)
         self.assertIn("reserved SDK heap initialized", output)
-        self.assertIn("STOPPED at unimplemented service: glplatPreStartup", output)
+        self.assertIn("Original InitializeCore() and nlInit() completed", output)
+        self.assertIn("Native SAnim decoders verified: 16/12/8-bit rotations, unsigned scale and byte weights", output)
+        self.assertIn("Original nlInitFileSystem completed; NL sync/async reads verified: /ini/common.ini", output)
+        self.assertIn("34 of 34 bytes; FNV-1a 0x30853692", output)
+        self.assertIn("callback on servicing thread", output)
+        self.assertIn("Native NL whole-file async loads verified (bytes only): /ini/common.ini", output)
+        self.assertIn("/ini/datetime.ini", output)
+        self.assertIn("Original INI parsing is not executed", output)
+        self.assertIn("STOPPED at unimplemented service: Initialize (remaining stages)", output)
         self.assertIn("No menu or match was reached", output)
         self.assertEqual(config.read_bytes(), before)
 
@@ -48,6 +60,21 @@ class StartupTests(unittest.TestCase):
             with self.subTest(language=language):
                 output = self.run_startup(self.config(language), expected=3)
                 self.assertIn(f"Original text language ID: {identifier}", output)
+
+    def test_missing_boot_ini_is_an_error(self):
+        config = self.config()
+        write_disc(self.root / "disc with spaces.iso")
+        output = self.run_startup(config, expected=1)
+        self.assertIn("Missing boot INI: /ini/common.ini", output)
+        self.assertNotIn("whole-file async loads verified", output)
+
+    def test_empty_boot_ini_is_an_error(self):
+        config = self.config()
+        write_disc(self.root / "disc with spaces.iso", files={"test.txt": b"Synthetic fixture data.\n",
+                                                            "ini/common.ini": b""})
+        output = self.run_startup(config, expected=1)
+        self.assertIn("Boot INI is empty or exceeds the diagnostic limit", output)
+        self.assertNotIn("whole-file async loads verified", output)
 
     def test_other_region_is_not_runtime_supported(self):
         output = self.run_startup(self.config(game_id=b"R4QP01"), expected=1)

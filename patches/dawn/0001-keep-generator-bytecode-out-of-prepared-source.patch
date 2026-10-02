@@ -1,0 +1,19 @@
+Subject: Keep generator bytecode outside the immutable prepared source
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+
+The JSON generators import pinned Jinja2/MarkupSafe and local helpers while
+configuring and building. Python bytecode caches beside those sources invalidate
+the prepared-source content manifest. Disable bytecode writes for these invocations;
+retain all generated C++/header outputs under Dawn's binary directory.
+
+--- a/generator/CMakeLists.txt
++++ b/generator/CMakeLists.txt
+@@ -63,6 +63,7 @@
+     # Build the set of args common to all invocation of that generator.
+     set(BASE_ARGS
+         ${Python3_EXECUTABLE}
++        -B
+         ${arg_SCRIPT}
+         --template-dir
+         "${DAWN_TEMPLATE_DIR}"

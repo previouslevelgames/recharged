@@ -12,3 +12,15 @@
 0011-adapt-original-free-list-allocator.patch
 0012-route-native-game-frees-by-arena-ownership.patch
 0013-check-native-startup-arena-and-sdk-heaps.patch
+0014-share-native-dvd-types-and-file-metadata.patch
+0015-extract-original-graphics-prestartup.patch
+0016-extract-original-basic-file-operations.patch
+0017-adapt-native-disc-read-lifecycle.patch
+0018-share-native-sdk-compiler-macros.patch
+0019-select-native-sanim-rotation-decoders.patch
+0020-connect-native-whole-file-load-lifecycle.patch
+0021-preserve-native-container-allocation-ownership.patch
+0022-select-checked-native-static-inventory.patch
+0023-select-native-static-texture-manager-lifecycle.patch
+0024-check-native-graphics-pools-and-frame-lifecycle.patch
+0025-select-original-preinitfs-memory-callback.patch

@@ -1,0 +1,42 @@
+Subject: Retain WebGPU validation and robustness in diagnostic builds
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Release builds currently disable API validation and robustness even when the
+caller explicitly requests backend validation. Keep both checks enabled for
+that diagnostic request; retain existing optimized behavior for other callers.
+This follows the configuration field added by patch 0005.
+
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -968,16 +968,12 @@
+           store_to_cache(key.data(), key.size(), value.data(), value.size(), nullptr);
+         });
+ 
+-    constexpr std::array enableToggles{
++    std::vector<const char*> enableToggles{
+ #if _WIN32
+         "use_dxc",
+ #ifndef NDEBUG
+         "emit_hlsl_debug_symbols",
+ #endif
+-#endif
+-#ifdef NDEBUG
+-        "skip_validation",
+-        "disable_robustness",
+ #endif
+ #ifndef ANDROID
+         "use_user_defined_labels_in_backend",
+@@ -986,6 +982,12 @@
+         "enable_immediate_error_handling",
+         "gl_allow_context_on_multi_threads",
+     };
++#ifdef NDEBUG
++    if (!g_config.enableBackendValidation) {
++      enableToggles.push_back("skip_validation");
++      enableToggles.push_back("disable_robustness");
++    }
++#endif
+     constexpr std::array disableToggles{
+         "timestamp_quantization",
+         // Adreno strikes again!

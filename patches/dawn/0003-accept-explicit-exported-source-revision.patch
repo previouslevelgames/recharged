@@ -1,0 +1,31 @@
+Subject: Allow an explicit revision for exported Dawn source builds
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+
+Without its own Git metadata the generator discovers the parent port repository's
+HEAD. Use its existing --version-file support when a parent supplies a revision
+file. This keeps Dawn's version and cache identity tied to the reviewed pin.
+Normal upstream builds retain the existing Git-based behavior.
+
+--- a/src/dawn/CMakeLists.txt
++++ b/src/dawn/CMakeLists.txt
+@@ -29,12 +29,17 @@
+ # Dawn version
+ ###############################################################################
+ 
++set(DAWN_VERSION_FILE "" CACHE FILEPATH "Explicit Dawn revision for exported source builds")
++set(dawn_version_parameters "--dawn-dir" "${Dawn_SOURCE_DIR}")
++if(DAWN_VERSION_FILE)
++    list(APPEND dawn_version_parameters "--version-file" "${DAWN_VERSION_FILE}")
++endif()
++
+ DawnGenerator(
+     SCRIPT "${Dawn_SOURCE_DIR}/generator/dawn_version_generator.py"
+     PRINT_NAME "Dawn version based utilities"
+     OUTPUT_HEADERS DAWN_VERSION_AUTOGEN_HEADERS
+-    EXTRA_PARAMETERS "--dawn-dir"
+-         "${Dawn_SOURCE_DIR}"
++    EXTRA_PARAMETERS ${dawn_version_parameters}
+ )
+ 
+ dawn_add_library(

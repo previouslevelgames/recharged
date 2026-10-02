@@ -2,8 +2,8 @@
 import struct
 
 
-def write_disc(path, game_id=b"R4QE01", partition=True):
-    """A tiny, unencrypted Wii container with one original text file."""
+def write_disc(path, game_id=b"R4QE01", partition=True, files=None):
+    """A tiny, unencrypted Wii container with synthetic files and directories."""
     data = bytearray(0x60000)
     data[:6] = game_id
     data[7] = 1
@@ -19,12 +19,46 @@ def write_disc(path, game_id=b"R4QE01", partition=True):
         struct.pack_into(">II", data, 0x502B8, 0x8000 >> 2, 0x8000 >> 2)
         base = 0x58000
         data[base:base + 0x400] = data[:0x400]
-        struct.pack_into(">III", data, base + 0x420, 0x2800 >> 2, 0x3000 >> 2, 36 >> 2)
         struct.pack_into(">I", data, base + 0x2800, 0x100)  # Synthetic DOL text offset.
         struct.pack_into(">I", data, base + 0x2800 + 0x90, 4)  # Text size.
-        struct.pack_into(">III", data, base + 0x3000, 0x01000000, 0, 2)
-        payload = b"Synthetic fixture data.\n"
-        struct.pack_into(">III", data, base + 0x300C, 0, 0x3200 >> 2, len(payload))
-        data[base + 0x3018:base + 0x3021] = b"test.txt\0"
-        data[base + 0x3200:base + 0x3200 + len(payload)] = payload
+        if files is None:
+            files = {"test.txt": b"Synthetic fixture data.\n"}
+        tree = {}
+        for name, payload in files.items():
+            components = name.split("/")
+            if any(part in ("", ".", "..") for part in components):
+                raise ValueError("Invalid fixture path")
+            directory = tree
+            for part in components[:-1]:
+                directory = directory.setdefault(part, {})
+            directory[components[-1]] = payload
+        entries, names = [], bytearray()
+        position = 0x3200
+
+        def emit(name, node, parent):
+            nonlocal position
+            index = len(entries)
+            name_offset = len(names)
+            if name:
+                names.extend(name.encode("utf-8") + b"\0")
+            if isinstance(node, dict):
+                entries.append([0x01000000 | name_offset, parent, 0])
+                for child, value in node.items():
+                    emit(child, value, index)
+                entries[index][2] = len(entries)
+            else:
+                entries.append([name_offset, position >> 2, len(node)])
+                end = position + len(node)
+                if end > 0x8000:
+                    raise ValueError("Fixture payload exceeds its tiny partition")
+                data[base + position:base + end] = node
+                position = (end + 31) & ~31
+
+        emit("", tree, 0)
+        fst = b"".join(struct.pack(">III", *entry) for entry in entries) + names
+        fst += b"\0" * (-len(fst) % 4)
+        if len(fst) > 0x200:
+            raise ValueError("Fixture FST exceeds its reserved space")
+        struct.pack_into(">III", data, base + 0x420, 0x2800 >> 2, 0x3000 >> 2, len(fst) >> 2)
+        data[base + 0x3000:base + 0x3000 + len(fst)] = fst
     path.write_bytes(data)

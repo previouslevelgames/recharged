@@ -12,6 +12,26 @@ include(CTest)
 option(MSCHARGED_BUILD_LAUNCHER "Build the graphical launcher" ON)
 option(MSCHARGED_BUILD_AURORA_HOST "Build the Aurora core initialization check (no GX rendering)" OFF)
 option(MSCHARGED_BUILD_GAME_STARTUP "Build the experimental original-game startup path (not playable)" OFF)
+option(MSCHARGED_BUILD_GX_CHECK "Build the standalone Aurora GX/Vulkan diagnostic" OFF)
+option(MSCHARGED_BUILD_SCENE_PREVIEW "Build the experimental static Wii asset preview (not a game scene)" OFF)
+if(MSCHARGED_BUILD_SCENE_PREVIEW)
+    if(NOT MSCHARGED_BUILD_LAUNCHER)
+        message(FATAL_ERROR "The scene preview runs through mscharged; enable MSCHARGED_BUILD_LAUNCHER")
+    endif()
+    set(MSCHARGED_BUILD_GX_CHECK ON)
+endif()
+if(MSCHARGED_BUILD_GX_CHECK)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "The first GX diagnostic currently requires Linux/Vulkan")
+    endif()
+    if(MSCHARGED_BUILD_GAME_STARTUP)
+        message(FATAL_ERROR "Use separate graphics and startup builds until the game's GX adapter is implemented")
+    endif()
+    if(MSCHARGED_BUILD_LAUNCHER AND NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        message(FATAL_ERROR "Use the graphics preset without the launcher, or the scene preset for shared GX/launcher providers")
+    endif()
+    set(MSCHARGED_BUILD_AURORA_HOST ON)
+endif()
 if(MSCHARGED_BUILD_GAME_STARTUP)
     if(NOT MSCHARGED_BUILD_LAUNCHER)
         message(FATAL_ERROR "The startup prototype currently runs through mscharged; enable MSCHARGED_BUILD_LAUNCHER")
@@ -37,9 +57,13 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 # an upstream branch or edits the submodule working tree.
 add_custom_target(verify_prepared ALL)
 function(mscharged_prepare_dependency name output)
+    set(nested_args)
+    foreach(nested IN LISTS ARGN)
+        list(APPEND nested_args --nested-submodule "${nested}")
+    endforeach()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
-                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}"
+                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${nested_args}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         OUTPUT_VARIABLE prepared OUTPUT_STRIP_TRAILING_WHITESPACE
         COMMAND_ERROR_IS_FATAL ANY
@@ -48,7 +72,7 @@ function(mscharged_prepare_dependency name output)
     set("${output}" "${prepared}" PARENT_SCOPE)
     add_custom_target("verify_${name}"
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
-                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" --check
+                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${nested_args} --check
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "Verify pinned, unmodified ${name} and prepared sources"
         VERBATIM
@@ -122,17 +146,29 @@ target_link_libraries(mscharged-bootstrap PRIVATE mscharged_build_info)
 if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_AURORA_HOST)
     include(cmake/SDL.cmake)
 endif()
-if(MSCHARGED_BUILD_LAUNCHER)
-    include(cmake/Launcher.cmake)
-endif()
 if(MSCHARGED_BUILD_AURORA_HOST)
     include(cmake/AuroraHost.cmake)
+endif()
+if(MSCHARGED_BUILD_LAUNCHER)
+    include(cmake/Launcher.cmake)
 endif()
 if(MSCHARGED_BUILD_GAME_STARTUP)
     include(cmake/GameStartup.cmake)
 endif()
 
+if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW)
+    add_library(charged_static_resources STATIC src/resources/static_model.cpp src/resources/texture_bundle.cpp)
+    target_include_directories(charged_static_resources PUBLIC src)
+    target_compile_features(charged_static_resources PUBLIC cxx_std_20)
+endif()
+if(MSCHARGED_BUILD_SCENE_PREVIEW)
+    include(cmake/ScenePreview.cmake)
+endif()
+
 if(BUILD_TESTING)
+    add_executable(static_resource_tests tests/static_resources.cpp)
+    target_link_libraries(static_resource_tests PRIVATE charged_static_resources)
+    add_test(NAME static_resources COMMAND static_resource_tests)
     add_executable(foundation_tests tests/foundation.cpp)
     target_link_libraries(foundation_tests PRIVATE charged_foundation)
     add_test(NAME foundation COMMAND foundation_tests)
@@ -146,4 +182,4 @@ if(BUILD_TESTING)
     add_test(NAME configuration COMMAND config_tests)
 endif()
 
-message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}); playable game and GX rendering remain pending")
+message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}, independent GX check: ${MSCHARGED_BUILD_GX_CHECK}, static asset preview: ${MSCHARGED_BUILD_SCENE_PREVIEW}); playable game remains pending")

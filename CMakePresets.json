@@ -12,7 +12,12 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "BUILD_TESTING": true
+        "BUILD_TESTING": true,
+        "MSCHARGED_BUILD_LAUNCHER": true,
+        "MSCHARGED_BUILD_AURORA_HOST": false,
+        "MSCHARGED_BUILD_GAME_STARTUP": false,
+        "MSCHARGED_BUILD_GX_CHECK": false,
+        "MSCHARGED_BUILD_SCENE_PREVIEW": false
       }
     },
     {
@@ -46,6 +51,24 @@
       "cacheVariables": {
         "MSCHARGED_BUILD_GAME_STARTUP": true
       }
+    },
+    {
+      "name": "graphics",
+      "inherits": "release",
+      "displayName": "Standalone GX/Vulkan diagnostic (Release, no game)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_GX_CHECK": true,
+        "MSCHARGED_BUILD_LAUNCHER": false
+      }
+    },
+    {
+      "name": "scene",
+      "inherits": "graphics",
+      "displayName": "Experimental static Wii asset preview (Release, not playable)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_SCENE_PREVIEW": true,
+        "MSCHARGED_BUILD_LAUNCHER": true
+      }
     }
   ],
   "buildPresets": [
@@ -64,6 +87,14 @@
     {
       "name": "startup",
       "configurePreset": "startup"
+    },
+    {
+      "name": "graphics",
+      "configurePreset": "graphics"
+    },
+    {
+      "name": "scene",
+      "configurePreset": "scene"
     }
   ],
   "testPresets": [
@@ -100,6 +131,26 @@
     {
       "name": "startup",
       "configurePreset": "startup",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "graphics",
+      "configurePreset": "graphics",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "scene",
+      "configurePreset": "scene",
       "output": {
         "outputOnFailure": true
       },
@@ -174,6 +225,40 @@
         {
           "type": "test",
           "name": "startup"
+        }
+      ]
+    },
+    {
+      "name": "graphics",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "graphics"
+        },
+        {
+          "type": "build",
+          "name": "graphics"
+        },
+        {
+          "type": "test",
+          "name": "graphics"
+        }
+      ]
+    },
+    {
+      "name": "scene",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "scene"
+        },
+        {
+          "type": "build",
+          "name": "scene"
+        },
+        {
+          "type": "test",
+          "name": "scene"
         }
       ]
     }

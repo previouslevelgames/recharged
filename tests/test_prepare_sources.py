@@ -2,6 +2,7 @@
 """Exercise source preparation against disposable local Git repositories."""
 import difflib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -77,6 +78,22 @@ class SourcePreparationTests(unittest.TestCase):
         source = self.run_prepare()
         self.assertFalse((source / "scratch.txt").exists())
         self.assertFalse((source / "local.txt").exists())
+
+    def test_refresh_preserves_only_identical_verified_file_timestamps(self):
+        source = self.run_prepare()
+        stamp = 1_500_000_000_000_000_000
+        for name in ("value.txt", "remove.txt"):
+            os.utime(source / name, ns=(stamp, stamp))
+        self.patch("one.patch", "original\n", "changed\n")
+        self.run_prepare()
+        self.assertEqual((source / "remove.txt").stat().st_mtime_ns, stamp)
+        self.assertNotEqual((source / "value.txt").stat().st_mtime_ns, stamp)
+        self.assertEqual((source / "value.txt").read_text(), "changed\n")
+        (source / "remove.txt").write_text("unpreserved local edit\n")
+        os.utime(source / "remove.txt", ns=(stamp, stamp))
+        self.run_prepare(discard_generated=True)
+        self.assertNotEqual((source / "remove.txt").stat().st_mtime_ns, stamp)
+        self.run_prepare(check=True)
 
     def test_tracked_edit_rejected(self):
         (self.submodule / "value.txt").write_text("local edit\n", newline="\n")
@@ -185,6 +202,51 @@ class SourcePreparationTests(unittest.TestCase):
         (patch_dir / "base").write_text(pin + "\n", newline="\n")
         (patch_dir / "series").write_text("", newline="\n")
         return patch_dir
+
+    def nested_fixture(self):
+        nested = self.workspace / "nested"
+        nested.mkdir()
+        self.git(nested, "init", "-q", "-b", "main")
+        (nested / "child.txt").write_text("pinned child\n", newline="\n")
+        self.git(nested, "add", ".")
+        self.git(nested, "commit", "-qm", "Nested fixture")
+        for name in ("required", "optional"):
+            self.git(self.upstream, "-c", "protocol.file.allow=always", "submodule", "add",
+                     "-q", str(nested), f"third_party/{name}")
+        self.git(self.upstream, "commit", "-qam", "Nested inputs")
+        self.git(self.submodule, "fetch", "-q")
+        self.git(self.submodule, "checkout", "-q", "FETCH_HEAD")
+        self.git(self.root, "add", "extern/example")
+        self.git(self.submodule, "-c", "protocol.file.allow=always", "submodule", "update",
+                 "--init", "--checkout", "--", "third_party/required")
+        (self.patch_dir / "base").write_text(self.git(self.submodule, "rev-parse", "HEAD").strip() + "\n")
+
+    def test_explicit_nested_subset_omits_uninitialized_optional_inputs(self):
+        self.nested_fixture()
+        with self.assertRaisesRegex(PreparationError, "Initialize the pinned submodule"):
+            self.run_prepare()
+        selected = ["third_party/required"]
+        source = self.run_prepare(nested_submodules=selected)
+        self.assertEqual((source / "third_party/required/child.txt").read_text(), "pinned child\n")
+        self.assertFalse((source / "third_party/optional/child.txt").exists())
+        state = json.loads((source.parent / "manifest.json").read_text())
+        self.assertEqual(state["inputs"]["nested_submodules"], selected)
+        self.run_prepare(nested_submodules=selected, check=True)
+        with self.assertRaisesRegex(PreparationError, "stale or modified"):
+            self.run_prepare(nested_submodules=[], check=True)
+
+    def test_selected_nested_input_still_requires_exact_clean_pin(self):
+        self.nested_fixture()
+        child = self.submodule / "third_party/required"
+        (child / "child.txt").write_text("changed\n")
+        with self.assertRaisesRegex(PreparationError, "Tracked changes"):
+            self.run_prepare(nested_submodules=["third_party/required"])
+
+    def test_nested_subset_rejects_unknown_and_duplicate_gitlinks(self):
+        with self.assertRaisesRegex(PreparationError, "not a recorded gitlink"):
+            self.run_prepare(nested_submodules=["../outside"])
+        with self.assertRaisesRegex(PreparationError, "Duplicate selected"):
+            self.run_prepare(nested_submodules=["missing", "missing"])
 
     def test_decomp_export_contains_only_selected_source_roots(self):
         self.decomp_fixture()

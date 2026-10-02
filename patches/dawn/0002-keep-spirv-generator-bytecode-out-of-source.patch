@@ -1,0 +1,56 @@
+Subject: Keep SPIRV-Tools generator bytecode out of prepared sources
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+Nested-base: third_party/spirv-tools/src 5b5a25231a3543559b4f2cb27fe725a08b76b5d0
+
+SPIRV-Tools imports local Table helpers while generating grammar tables. Disable
+bytecode writes for its source generators so the immutable source snapshot remains
+verifiable during subsequent builds. Generated tables remain in its binary directory.
+
+--- a/third_party/spirv-tools/src/source/CMakeLists.txt
++++ b/third_party/spirv-tools/src/source/CMakeLists.txt
+@@ -39,7 +39,7 @@
+ set(CORE_TABLES_BODY_INC_FILE ${spirv-tools_BINARY_DIR}/core_tables_body.inc)
+ set(CORE_TABLES_HEADER_INC_FILE ${spirv-tools_BINARY_DIR}/core_tables_header.inc)
+ add_custom_command(OUTPUT ${CORE_TABLES_BODY_INC_FILE} ${CORE_TABLES_HEADER_INC_FILE}
+-    COMMAND Python3::Interpreter ${GGT_SCRIPT}
++    COMMAND Python3::Interpreter -B ${GGT_SCRIPT}
+       --core-tables-body-output=${CORE_TABLES_BODY_INC_FILE}
+       --core-tables-header-output=${CORE_TABLES_HEADER_INC_FILE}
+       --spirv-core-grammar=${SPIRV_CORE_GRAMMAR_JSON_FILE}
+@@ -84,7 +84,7 @@
+   set(OPENCL_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${CONFIG_VERSION}/extinst.opencl.std.100.grammar.json")
+   set(VIMSYNTAX_FILE "${spirv-tools_BINARY_DIR}/spvasm.vim")
+   add_custom_command(OUTPUT ${VIMSYNTAX_FILE}
+-      COMMAND Python3::Interpreter ${VIMSYNTAX_PROCESSING_SCRIPT}
++      COMMAND Python3::Interpreter -B ${VIMSYNTAX_PROCESSING_SCRIPT}
+       --spirv-core-grammar=${GRAMMAR_JSON_FILE}
+       --extinst-debuginfo-grammar=${EI_debuginfo}
+       --extinst-glsl-grammar=${GLSL_GRAMMAR_JSON_FILE}
+@@ -98,7 +98,7 @@
+ macro(spvtools_extinst_lang_headers NAME GRAMMAR_FILE)
+   set(OUT_H ${spirv-tools_BINARY_DIR}/${NAME}.h)
+   add_custom_command(OUTPUT ${OUT_H}
+-    COMMAND Python3::Interpreter ${LANG_HEADER_PROCESSING_SCRIPT}
++    COMMAND Python3::Interpreter -B ${LANG_HEADER_PROCESSING_SCRIPT}
+       --extinst-grammar=${GRAMMAR_FILE}
+       --extinst-output-path=${OUT_H}
+     DEPENDS ${LANG_HEADER_PROCESSING_SCRIPT} ${GRAMMAR_FILE}
+@@ -119,7 +119,7 @@
+ set(GENERATOR_INC_FILE ${spirv-tools_BINARY_DIR}/generators.inc)
+ set(SPIRV_XML_REGISTRY_FILE ${SPIRV_HEADER_INCLUDE_DIR}/spirv/spir-v.xml)
+ add_custom_command(OUTPUT ${GENERATOR_INC_FILE}
+-  COMMAND Python3::Interpreter ${XML_REGISTRY_PROCESSING_SCRIPT}
++  COMMAND Python3::Interpreter -B ${XML_REGISTRY_PROCESSING_SCRIPT}
+     --xml=${SPIRV_XML_REGISTRY_FILE}
+     --generator-output=${GENERATOR_INC_FILE}
+   DEPENDS ${XML_REGISTRY_PROCESSING_SCRIPT} ${SPIRV_XML_REGISTRY_FILE}
+@@ -148,7 +148,7 @@
+ set(SPIRV_TOOLS_CHANGES_FILE
+   ${spirv-tools_SOURCE_DIR}/CHANGES)
+ add_custom_command(OUTPUT ${SPIRV_TOOLS_BUILD_VERSION_INC}
+-   COMMAND Python3::Interpreter
++   COMMAND Python3::Interpreter -B
+            ${SPIRV_TOOLS_BUILD_VERSION_INC_GENERATOR}
+            ${SPIRV_TOOLS_CHANGES_FILE} ${SPIRV_TOOLS_BUILD_VERSION_INC}
+    DEPENDS ${SPIRV_TOOLS_BUILD_VERSION_INC_GENERATOR}

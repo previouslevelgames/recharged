@@ -31,8 +31,8 @@ SDL renderer. GX is explicitly disabled, so this does **not** test Dawn, Vulkan,
 shaders, game rendering, complete Wii memory behavior, or controller mappings.
 
 Aurora's DVD, card, THP, and RmlUi components are also disabled in this first
-check. Wii disc reading already works separately through nod; connecting it
-to game file requests is later work. The core check writes its own local data
+check. The separate startup preset below connects DVD/nod to original NL reads.
+The core check writes its own local data
 under `build/aurora/aurora-check-data/`, without changing personal game settings.
 
 The [Aurora patch series](../patches/README.md#aurora-series) keeps optional GX/
@@ -41,7 +41,232 @@ declares the core/VI/OS link dependencies, and implements MEM2 allocation with
 arena/heap cleanup at shutdown. The core diagnostic leaves MEM2 disabled;
 the startup checks below exercise it. Upstream submodule contents stay unchanged.
 
+## Independent GX/Vulkan diagnostic
+
+The Linux-only `graphics` preset builds `mscharged-gx-check` with real Aurora
+GX and Dawn Vulkan. It builds the bootstrap alongside it;
+the launcher and original startup use separate presets. A C++20 compiler,
+GNU Make, Tcl 8.6+, Vulkan loader/driver, and a desktop session are required.
+Install the Vulkan validation layers for the diagnostic's backend validation.
+
+Initialize the used top-level sources and the selected nested sources:
+
+```sh
+git -c submodule.recurse=false submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui extern/aurora extern/dawn extern/fmt extern/xxhash extern/tracy extern/zlib-ng extern/libpng extern/freetype extern/sqlite extern/zstd
+git -C extern/dawn -c submodule.recurse=false submodule update --init --checkout --depth 1 --jobs 3 -- third_party/abseil-cpp third_party/jinja2 third_party/markupsafe third_party/spirv-headers/src third_party/spirv-tools/src third_party/vulkan-headers/src third_party/vulkan-utility-libraries/src
+git -C extern/freetype -c submodule.recurse=false submodule update --init --checkout --depth 1 -- subprojects/dlg
+cmake --workflow --preset graphics
+./build/graphics/mscharged-gx-check --window
+```
+
+The first build compiles Dawn and its shader compiler and can take considerably
+longer than a launcher build. Limit parallel compilation on machines with less
+memory, for example `CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset graphics`.
+Without `--window`, the check renders 180 frames and exits. `--resize-test`
+also requests a window resize after frame 60; `--frames N` changes the bound.
+
+The scene contains a colored triangle and a generated, tiled GX RGBA8 checker
+texture. It uses vertex colors, projection/model matrices, one TEV stage, depth
+testing, and a depth readback. It requires the actual Vulkan backend, draw calls,
+the expected triangle depth, and no logged backend errors. No game data or personal
+INI is read. Local GPU/cache data goes under `build/graphics/gx-check-data/`.
+This is an independent rendering check; the `startup` preset uses the null
+backend and does not execute original game graphics initialization.
+
+The ordinary graphics workflow runs six suites without requiring a GPU,
+including four generated-SQLite lifecycle cases.
+To also register the desktop Vulkan check with CTest:
+
+```sh
+cmake --preset graphics -DMSCHARGED_TEST_VULKAN=ON
+cmake --build --preset graphics
+ctest --preset graphics
+```
+
+Those two additional suites need a working desktop and Vulkan device. One checks
+the default validated device with resize, and one checks Release device
+optimization flags. Both force the system Vulkan validation layer on and
+reject raw Vulkan validation errors as well as nonzero exits. The tool rejects
+a fallback backend or CPU adapter. A dummy SDL window cannot pass them.
+`--optimized-device` selects the second device configuration for manual checks;
+ordinary diagnostic runs keep API validation and robustness enabled.
+
+Linux validation on an Intel UHD Graphics 620 with Mesa 26.2.4 passed both GPU
+suites, fresh and warm cache runs, resize, and shutdown. The generated scene was
+also inspected, including all 16 checker cells after resize. A later forced X11
+run stalled in SDL's window-manager acknowledgement; the normal desktop path
+continued to pass. X11 startup reliability remains unqualified.
+The warning about `DAWN_ENABLE_VULKAN_VALIDATION_LAYERS` refers to bundled layer
+paths; this build uses the installed system validation layer.
+
+Dawn's nested Abseil is the single shared provider for Dawn and Aurora in this
+preset. Upstream tests are disabled, so neither GoogleTest checkout is built.
+The seven selected Dawn gitlinks, their recursive pins, and the selection itself
+are recorded in the preparation manifest. Optional browser, compiler-toolchain,
+other-platform, and upstream-test sources are omitted. No gclient sync or
+build-time source fetching is enabled.
+The Dawn version generator receives its verified source pin explicitly, avoiding
+accidental discovery of the parent port repository's Git revision.
+
+PNG, zlib-ng, FreeType, Zstandard, SQLite, and ImGui come from prepared pinned
+sources. SQLite's amalgamation is generated in an isolated build directory by
+`tools/prepare_sqlite.py`; its manifest records the source key, generator hash,
+host compiler/Make/Tcl versions, and generated contents. A check before
+compilation rejects stale or edited outputs. Python generator bytecode stays
+out of prepared sources through the [Dawn patches](../patches/README.md#dawn-series).
+
+Broader GX formats/state, fullscreen/DPI, device recovery, and cache invalidation
+across upgrades remain integration work. Windows/macOS graphics are unverified.
+
+## Experimental static Wii asset preview
+
+The Linux `scene` preset brings GX/Dawn Vulkan and DVD/nod into the same
+`mscharged` executable, sharing one pinned ImGui implementation with its SDL
+launcher. The common selected original core/allocator/NL services are defined
+in `cmake/NativeRuntime.cmake`. The normal `startup` preset retains its null
+backend and explicit remaining-initialization stop.
+
+Initialize the same sources as the graphics preset above, then:
+
+```sh
+CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
+./build/scene/mscharged --experimental-scene --config ./mscharged.ini
+```
+
+The first preview reads `/Art/objects/gameplay/ball.rlg` and `ball.rlt` directly
+from your USA `R4QE01` revision 1 image. It enters original `InitializeCore`,
+queues both files through `nlLoadEntireFileAsync`, services NL on the main
+thread while processing window events, and adopts/frees the buffers using the
+original game allocator. It runs the original `PreInitFS` memory callback and
+installs checked geometry/textures into pool-owned native `glModel` and
+`PlatTexture` records. Original `GLInventory` lookup and the static texture
+manager supply the renderer. It draws those records through GX and
+Aurora's real Vulkan backend. Nothing is extracted or written back to the disc.
+
+**This is a static asset preview.** It has a host camera and slow rotation,
+with one diffuse-only TEV stage. Original material effects, lighting, animation,
+the full `glStartup`, and scene/task code are not executed. Display,
+audio, and control preferences do not configure this preview. The first model
+is selected by default; alternate RLG models are not drawn over it.
+
+Escape or close the window to exit. For a bounded run or a supported alternate
+static model/bundle, use:
+
+```sh
+./build/scene/mscharged --experimental-scene --config ./mscharged.ini --frames 180
+./build/scene/mscharged --experimental-scene --config ./mscharged.ini --model-id 0x226798ba
+```
+
+`--model /DISC/PATH.rlg` and `--textures /DISC/PATH.rlt` override the pair using
+absolute Wii data-partition paths. Unsupported data fails explicitly; these
+options do not imply support for every model. Running without the experimental
+flag opens the normal launcher. The preview is absent from normal Debug/Release
+builds and from the null-backend startup build. All diagnostic/cache files stay
+under `<executable-directory>/scene-data/`, including `scene.log`. The INI is
+never saved by direct preview startup.
+
+### Checked static asset profile
+
+`src/resources/` separates fixed-width Wii records from native objects:
+
+- Static RLG groups/collections, 12-byte model records, 48-byte packet records,
+  8-byte stream records, 16-bit indices, and big endian 4x4 affine matrices.
+  Matrices follow the original NL-to-GX transpose convention and are baked once.
+  Position streams use float triples. Supported material profiles use float
+  UVs or signed 16-bit UVs with ten fractional bits. Normals/colors/additional
+  UVs have checked ranges but are unused by the diffuse preview.
+- MaskedSpecularFresnel, ScrollingDiffuse, UnlitTexture, and VertexColourTexture
+  parameter layouts are recognized only to find their first diffuse binding.
+  Their original shaders, raster-state behavior, scroll parameters, specular
+  masks, and vertex lighting/color modulation remain unimplemented here.
+- Static RLT dictionaries use offsets relative to the data block. Their metadata
+  is decoded; GX-tiled pixels and RGB5A3 palette words retain Wii byte order for
+  Aurora to upload. The reader covers RGB565, RGB5A3, CMPR, RGBA8, I8/I4/A8,
+  IA8, and CI8 physical tile sizes, mip levels, and palette bounds. This is
+  reader coverage; GPU output for every format is not established.
+- Skinning, vertex animation, animated textures, unknown chunks/programs,
+  missing diffuse bindings, malformed indices/offsets, nonfinite coordinates,
+  and unsupported matrices fail rather than producing placeholder resources.
+  Each input is limited to 16 MiB. Decoded geometry and aliased texture copies
+  have separate cumulative budgets to bound memory use.
+
+The host decoder arrays are discarded after installation. Native headers and
+indices use the original MEM1 resource pool; vertex/tiled texture/palette bytes
+use its MEM2 pool. The diffuse profile creates position and float UV streams
+and a texture binding, without inventing a material program or display list.
+Aurora GX objects are constructed separately, preserving their actual host
+size; the Wii-sized object arrays in `PlatTexture` are not reinterpreted.
+
+### Original graphics memory and static inventory
+
+`charged_graphics_memory` selects original GL/GLX memory, AVL tree, and
+`PreInitFS` code, plus explicit static inventory/texture-manager entry units.
+It retains the original 512 KiB MEM1 and `0x233333`-byte MEM2 frame budgets,
+3 MiB texture + 2 MiB vertex + 2.25 MiB header resource requirements, and
+1,000 texture slots. Both frame-buffer halves have aligned starts; padding
+does not enlarge their logical allocation limits. Addresses and marker handles
+use pointer-sized types. Failed allocations leave offsets and selected allocators
+unchanged and reclaim partially initialized pools/containers.
+
+A resource marker owns each installed batch. Releasing it removes nested
+inventory entries, returns texture indices, frees owned file/linear buffers,
+and rewinds pool storage. The static subset selects file/model/texture
+containers only. Animation, skin and chunk-loader methods remain unlinked;
+their container pointers are null, with no successful replacement functions.
+Existing texture bindings resolve again after a resource rollback or shadowing.
+Resource markers are lifetime-bound handles and must not be reused after release.
+
+The preview advances original frame memory and uses it for its camera matrices.
+Frame advancement requires an installed cache invalidator; the preview supplies
+real `GXInvalidateVtxCache` / `GXInvalidateTexAll` calls. Without that provider
+it stops explicitly. CPU-only tests inject an observed invalidation callback;
+they do not establish GPU behavior. Shutdown drains GX commands before resource
+rewind, destroys inventories before pool backing memory, then destroys the
+texture manager and frame buffers. Pending reads are cancelled/drained before
+disc/arena teardown. There is no persistent native asset cache.
+
+### Verification and next original scene work
+
+Linux verification with the owned RVZ loaded the 40,256-byte mesh and
+60,256-byte texture bundle. Model `0x8ba9ca19` has one packet, 450 vertices,
+819 indices; the bundle has four textures. Its visible CMPR diffuse texture
+and geometry were inspected in a 600-frame run. The bounded check requires
+actual GX draw calls, no logged backend errors, and a geometry depth sample
+within the perspective camera's range. Aurora's depth readback is asynchronous;
+its initial zero is never counted as geometry.
+
+The portable `static_resources` suite checks synthetic format/byte-order,
+alignment, malformed/truncated-input, and allocation-budget cases. With
+`MSCHARGED_TEST_VULKAN=ON`, `scene_synthetic` additionally renders synthetic
+assets from a generated Wii ISO and checks missing assets/bindings/model IDs,
+wrong revisions, CLI mode conflicts, and unchanged personal INI. It uses the
+installed validation layer, like the two independent GX suites. The scene
+preset has nine portable suites and three opt-in GPU suites. `graphics_memory`
+also runs in the startup preset, covering native addresses, double-buffer
+alignment, MEM1/MEM2 and partial-construction failures, nested/shadowed inventory
+entries, original AVL lookup/release, texture exhaustion/recycling, and repeat
+initialization/shutdown. `static_inventory` checks native resource ownership,
+palette-byte preservation, drain-before-release and conversion/OOM rollback.
+Targeted ASan/UBSan/leak checks cover the selected original memory/inventory/
+texture/AVL units, native adapters and checked readers. Aurora/Dawn/nod and
+remaining dependencies retain ordinary builds. This does not establish
+full game resource ownership, Wii presentation parity, or other platforms.
+
+For an original game scene, next reconstruct the required material programs
+and their native parameters, adapt original loaders to the checked native
+records, then enable platform/state/matrix/view/target/font setup and the
+original frame/task loop. The independent preview keeps those missing services
+visible while providing a real asset to check conversions and GX behavior.
+
 ## Experimental original startup
+
+The selected decomp snapshot is
+[`45f25bd65195`](https://github.com/yannicksuter/mscharged-decomp/commit/45f25bd6519586837e61251208d34d8dcf94e170).
+Upstream now marks `Game/main.cpp` as matching for the original Wii build.
+Its startup prefix is unchanged from the previous port baseline. The full
+patched entry compiles as a native reference object; the prototype below links
+only the enabled initialization subset. Matching one unit does not supply its
+other game definitions, native services, or resource conversions.
 
 The opt-in `startup` preset adds original game initialization to the same
 `mscharged` executable. It requires the dependencies and C++20 compiler used by
@@ -73,30 +298,134 @@ Aurora core / MEM1 / MEM2 / clocks
   -> original InitializeCore(): region and game text language
   -> original nlInit()
   -> original nlInitMemory(): game allocators and reserved SDK heap
-  -> STOPPED: glplatPreStartup (GX graphics)
+  -> original glplatPreStartup(): returns true at this source pin
+  -> original ticker / time / random initialization
+  -> original nlInitFileSystem(): Aurora DVD-backed NL reads
+  -> SAnimInitGQR(): native decoders encode fixed quantization constants
+  -> original nlInit() / InitializeCore() return
+  -> diagnostic NL synchronous / asynchronous disc reads
+  -> diagnostic native animation key decoding
+  -> diagnostic whole-file async reads of the two boot INIs
+  -> STOPPED: Initialize (remaining stages are not linked)
 ```
 
 The patch series extracts the unchanged region/language and `nlInit()` prefix
 from `Game/main.cpp` into `Game/Startup.cpp`. The original `Initialize()` also
 calls this prefix; the prototype links it independently while the remaining
-game sources are unfinished. Host PowerPC GQR initialization is deferred to the
-explicit `SAnimInitGQR` failure point until native animation decoding exists.
+game sources are unfinished. Native rotation decoders now encode the fixed
+PowerPC GQR behavior directly; the native `SAnimInitGQR()` has no register state
+to initialize. The original unsigned scale and byte-weight decoders compile
+unchanged from prepared `Game/SAnimDecode.cpp`.
 
-The current stop is an actual call from the original `nlInit()` immediately
-after memory initialization. GX startup, the original NL asynchronous file
-service, and native paired-single animation setup remain explicit typed failure
-points. They throw a diagnostic and are linked only in this opt-in build.
+The unchanged `glplatPreStartup()` helper is extracted and linked independently;
+actual GX/VI initialization is in the later `glplatStartup()` function. The
+prototype now runs original `nlFileGC.cpp` and the extracted basic operations
+from `nlFile.cpp`, using Aurora's native DVD types rather than casting Wii SDK
+layouts. Explicit synchronous and asynchronous prefix reads of a real disc file
+are compared, including their destination boundaries and caller-thread callback.
+The log records the path, byte count, and prefix hash, without saving game bytes.
+Files and pending worker writes are drained before disc closure and arena release.
+
+Enabled operations include path lookup, logical/padded size, seek, synchronous
+read, raw asynchronous head/tail reads, service/cancel/close, and synchronous
+whole-file loading through the standard/virtual game arenas or supplied buffers.
+The port adapter also implements asynchronous whole-file loading and cancellation.
+Bounds, capacity, allocation, short-read, and DVD errors fail explicitly.
+NL submission/service/cancel runs on the calling game thread; only Aurora's DVD
+worker performs background I/O. The original padded-buffer contract can read and
+report up to the next 32-byte boundary while advancing the logical cursor by the
+requested size. Exact buffers use tail scratch storage instead. Callback context
+is pointer-sized; the native profile rejects files outside the signed DVD read
+range, including padding.
+
+Decompression, bundles/caches, custom-heap
+ownership, priority/retry parity, and host-file loading remain outside this
+enabled subset. Host-file/custom-heap requests fail explicitly; other unselected
+APIs are not supplied as successful stubs. Callback functor storage uses explicit
+game-arena allocation; the original function-pool state API is not linked.
+The remaining original `Initialize()` stages retain an explicit diagnostic stop.
+Further graphics initialization is not executed.
 Exit code **3** means an expected development stop; **1** means a configuration,
 disc, or host error, and **2** means invalid command-line usage. The diagnostic
 log is `<executable-directory>/startup-data/startup.log`.
 
-This uses Aurora's null backend. It does not render the game, enter its task
-loop, load boot assets, or reach a menu or match. Display/audio/gameplay input
+This prototype uses Aurora's null backend. It does not render the game, enter its task
+loop, decode boot assets, or reach a menu or match. Display/audio/gameplay input
 preferences are not applied yet. Explicit English/French/Spanish preferences
 execute the original USA language branch; `auto` currently falls back to English.
 Other regions/revisions are rejected for this runtime even if disc inspection
 succeeds. Startup reads the personal INI without changing it; the launcher only
 writes settings when saved or when **Try startup** saves pending changes.
+
+### Native whole-file asynchronous loading
+
+`src/runtime/whole_file.cpp` implements `nlLoadEntireFileAsync` and
+`nlCancelEntireFileLoad` over the original prepared raw NL manager. The original
+advanced `nlFile.cpp` implementation remains unselected. Patch 0020 connects
+failed-read and shutdown cleanup to the port adapter, including reads serviced
+inside synchronous `nlRead` calls.
+
+The existing game API keeps its 32-bit handle fields. Native handles are opaque
+nonzero tokens, with no pointer casts or reuse across shutdown. Callback state
+uses pointer-sized context, and bookkeeping uses the host allocator.
+
+| Case | Native behavior |
+| --- | --- |
+| Missing file | Return 0; no callback |
+| Empty file | Inline callback with null/0; return 0 |
+| Nonempty file | Queue a read; callback on the NL servicing thread with the logical size |
+| Allocated output | Standard/virtual arena allocation with requested alignment/end; ownership transfers at callback entry, including exceptions |
+| Supplied output | Always borrowed; capacity 0 means the caller guarantees the logical length |
+| Submission/read error | Throw, drain the failed request and release owned storage; no success callback; unrelated requests survive |
+| Cancellation | Join pending workers before the cancel callback; it borrows the buffer and receives the original completion callback; release only owned data |
+| Shutdown | Drain all pending whole-file requests before manager/arena release; no callbacks |
+
+Cancellation also drains a busy native worker, matching the raw native adapter.
+This deliberately differs from the console implementation's refusal to cancel
+busy reads: Aurora submits host reads immediately. Cancellation can therefore
+wait for in-progress I/O. Completed, cancelled, and unknown tokens return false;
+handle exhaustion fails explicitly. NL calls remain confined to the game thread.
+Callbacks must free allocated output with `nlFree`, including on exceptions.
+Cancel callbacks must not free the borrowed buffer or retain it after returning.
+
+The startup diagnostic reads `ini/common.ini` and `ini/datetime.ini` both
+synchronously and through this API, compares every byte and logs lengths/hashes.
+It rejects missing, empty, or oversized boot INIs and saves no game bytes. This
+does not execute the original config parser, tweak registration, or any later
+game initialization. Those INI consumers, compressed loads, bundles and caches
+remain pending.
+
+### Native animation key decoding
+
+`charged_sanim_decode` links prepared `Game/SAnimDecode.cpp` and the port's
+`src/runtime/sanim_decode.cpp`. Patch 0019 retains console assembly for console
+builds and selects scalar native rotations. GQR6 is `0x0f070f07` (signed 16-bit,
+scale 15); GQR7 is `0x07060706` (signed 8-bit, scale 7). Dequantization multiplies
+the signed integer by `2^-scale`, using the original constants and the
+[IBM Gekko manual](https://doc.kodewerx.org/documents/gekko_user_manual.pdf),
+sections 2.1.2.9 and 2.3.4.3.12.
+
+| Entry | Input contract | Output |
+| --- | --- | --- |
+| `SAnimDecodeRot16` | 8 big-endian bytes, four signed 16-bit components | Components divided by 32,768 |
+| `SAnimDecodeRot12` | 6 packed bytes, four signed 12-bit components | Original left-shift/unpack behavior, equivalent to division by 2,048 |
+| `SAnimDecodeRot8` | 4 bytes, four signed 8-bit components | Components divided by 128 |
+| `SAnimDecodeScale` | Aligned host-order `PackedScale`, three **unsigned** 16-bit fields | Components divided by 2,048 |
+| Weight / morph weight | One unsigned byte | Value divided by 255 |
+
+Packed rotations support unaligned keys, retain Wii byte order, and are not
+normalized. Scale data must be converted by the asset loader before constructing
+the host-order struct; these entry points do not relocate animation chunk
+pointers or convert translation/root/morph metadata. Input and output must not
+overlap. Animation chunk loading, pose blending, interpolation, and original
+animation playback remain unselected.
+
+`sanim_decode` tests every component value in every lane, original mixed-sign
+fixtures, packing/byte order, output guards, input preservation, and repeated
+initialization. Startup also runs bounded synthetic keys through the actual
+linked entry points. These checks verify scalar decoding against the original
+format/register contract; they do not establish console hardware or gameplay
+animation parity.
 
 For the next source inventory step, compile the full patched original entry
 translation unit without linking or executing it:
@@ -108,16 +437,48 @@ cmake --build build/startup --target charged_game_scan
 This writes `build/startup/game-entry-undefined.txt` using the toolchain's `nm`.
 These are references from one object, including C++ library and already provided
 symbols; this is not a complete missing-definition inventory or a game link check.
+The current scan contains 235 references (234 strong undefined and one weak),
+with five incomplete inline virtual declarations in the decomp headers.
 
-CTest adds four suites to the Aurora preset, for ten total:
+After `nlInit()`, original `Initialize()` still requires `glStartup(PreInitFS)`,
+Wii input, the tweak registry, `art/global.rlt`, asynchronous configuration and
+`ini/datetime.ini`, task/audio/localization/front-end initialization, and save/
+file-cache services. Original `main()` then waits for pending reads, selects
+the initial task state, enables front-end music, and runs `nlTaskManager` forever.
+Native integration must connect those dependencies and provide event handling
+and shutdown before using that complete entry as a playable runtime.
 
+The scene preset independently executes `PreInitFS` with patched native pools
+and the selected static inventory/texture manager. The null-backend startup
+prototype still stops before `glStartup`. Its remaining graphics graph needs
+material registries, platform GX/VI, and state/matrix/target/view/font setup,
+followed by native loaders and the original frame/task integration.
+
+CTest adds seven suites to the Aurora preset, for fourteen total:
+
+- `sanim_decode`: exhaustive packed rotation components, unsigned scales and
+  weights, with independent bit-stream encoding and exact float comparisons.
 - `startup_headers`: native scalar widths and chunk pointer alignment.
 - `native_allocator`: the patched original allocator's alignment, exhaustion,
   mixed allocations from both ends, payload preservation, and coalescing.
 - `runtime_memory`: real MEM2 arenas, original memory initialization, SDK heap
   allocation, frees routed to their owning game arena, and repeated cleanup.
-- `game_startup`: the original initialization prefix with synthetic Wii data,
-  regional language selection, the explicit GX stop, and input errors.
+- `graphics_memory`: CPU checks of original frame/resource allocation,
+  selected static inventory, texture-index ownership, failure cleanup and the
+  original `PreInitFS` budgets; no GPU session is created by this suite.
+- `runtime_files`: synthetic Wii files/directories and known payload bytes;
+  exact/padded/unaligned reads, seek/EOF and capacity errors, 64-bit callback
+  context, caller-thread delivery and reentrancy, cancellation during active
+  I/O, callback exceptions, bounded pool exhaustion, whole-file arena ownership,
+  short/failed reads, and repeated initialization/shutdown. Async whole-file
+  cases cover arena/supplied ownership, empty/missing files, queue/OOM rollback,
+  recursive reads, callback exceptions, nested cancellation, stale tokens,
+  read-error isolation and active-worker shutdown.
+- `game_startup`: the completed original core initialization with synthetic Wii data,
+  real NL reads, whole-file boot INI bytes and missing/empty errors, regional
+  language selection, decoder checks, the explicit
+  remaining-initialization stop,
+  unchanged personal settings, and input errors.
 
 No proprietary game data is needed for those checks.
 
@@ -139,7 +500,8 @@ Aurora's memory, allowing the tested memory initialization to repeat.
 
 Linux checks cover 64 MiB and 128 MiB MEM2 configurations, including the
 original 128 MiB reserve branch. The standalone allocator also passes ASan and
-UBSan checks. An owned USA revision 1 RVZ reaches the GX stop after reporting
+UBSan checks. An owned USA revision 1 RVZ completes the original core and reaches
+the remaining-initialization stop after reporting
 25,148,416 bytes in the MEM1 game arena and 67,100,672 bytes in the MEM2 game
 arena. Gameplay and console-layout parity remain unverified.
 
@@ -172,16 +534,13 @@ additional backends are not promised by this initial policy.
 
 ## Next independent milestones
 
-1. **Dawn and Vulkan:** prepare the pinned Dawn dependency graph, including its
-   required nested sources. Reconcile its Abseil and GoogleTest versions with
-   Aurora's providers; build the required Linux backend with other platform
-   backends disabled. Provide the remaining pinned image/font/cache libraries
-   and generate SQLite's amalgamation from its source submodule. Create a GX
-   test scene using original geometry and textures. Check drawing, resize,
-   presentation, device errors, and shutdown before claiming graphics support.
-2. **Game data access:** connect Wii partition/FST reads to the game's file API.
-   Test asynchronous reads, bounds, error propagation, paths, and endianness using
-   synthetic fixtures; then compare reads with locally supplied game data.
+1. **GX coverage and game graphics:** extend the independent Vulkan scene to the
+   GX operations actually used by Charged. Qualify presentation, DPI/fullscreen,
+   device failures, and cache upgrades; then connect original graphics startup.
+2. **Game data access:** extend the verified original raw NL reads to whole-file
+   async, decompression, bundle/cache ownership, and boot-resource waits. Preserve
+   error/cancel behavior and compare ISO/RVZ reads of the same locally supplied
+   disc; byte reads alone do not validate native resource layouts.
 3. **Wii host services:** extend the verified startup allocator to remaining
    game allocation and address interfaces; define native pointer boundaries,
    timing, threads, callbacks, saves, and configuration. Map supported game text

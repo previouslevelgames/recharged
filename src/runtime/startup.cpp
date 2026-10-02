@@ -1,4 +1,6 @@
 #include "runtime/startup.h"
+#include "runtime/startup_animation.h"
+#include "runtime/startup_files.h"
 #include "bootstrap/config.h"
 #include "platform/disc.h"
 #include "platform/path.h"
@@ -17,26 +19,21 @@
 
 namespace
 {
-u8 system_language = 1;
 struct Session
 {
     bool initialized = false;
     bool disc = false;
     ~Session()
     {
+        if (initialized) mscharged::ResetStartupFiles();
         if (disc) aurora_dvd_close();
         if (initialized) { mscharged::ResetStartupMemory(); aurora_shutdown(); }
     }
 };
 }
 
-extern "C" u8 SCGetLanguage() { return system_language; }
-
 namespace mscharged
 {
-[[noreturn]] void MissingStartupService(const char* symbol, const char* reason)
-{ throw StartupStopped(symbol, reason); }
-
 int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_path)
 {
     std::ofstream logfile;
@@ -56,7 +53,7 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
         if (file.settings.language != "auto" && file.settings.language != "english"
             && file.settings.language != "french" && file.settings.language != "spanish")
             throw std::runtime_error("The selected text language is not supported by this USA disc.");
-        system_language = file.settings.language == "french" ? 3 : file.settings.language == "spanish" ? 4 : 1;
+        SetStartupSystemLanguage(file.settings.language == "french" ? 3 : file.settings.language == "spanish" ? 4 : 1);
         if (file.settings.language == "auto")
             log("Automatic language currently uses the USA English fallback; host-locale mapping is pending.");
 
@@ -99,6 +96,10 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
         g_Region = 0;
         log("Entering original InitializeCore() -> nlInit() -> nlInitMemory().");
         InitializeCore();
+        log("Original InitializeCore() and nlInit() completed.");
+        VerifyStartupFileReads();
+        log(VerifyStartupAnimationDecoders());
+        log(VerifyStartupWholeFileLoads());
         // Until the remaining main.cpp initialization can be linked, do not
         // manufacture a game loop if this prefix becomes fully implemented.
         MissingStartupService("Initialize (remaining stages)",
@@ -107,6 +108,7 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
     catch (const StartupStopped& error)
     {
         log(StartupMemorySummary());
+        log(StartupFileSummary());
         log("Original text language ID: " + std::to_string(static_cast<int>(g_Language)));
         log(std::string("STOPPED at unimplemented service: ") + error.what());
         log("No menu or match was reached. Exit code 3 identifies this development boundary.");

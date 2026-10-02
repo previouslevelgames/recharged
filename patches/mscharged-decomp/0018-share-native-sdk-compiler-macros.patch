@@ -1,0 +1,69 @@
+Subject: Share native compiler macros across Wii, Aurora, and host headers
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Preserve the host concatenation macro when present, use the native weak
+declaration spelling, and keep address/alignment macro definitions compatible
+with Aurora's SDK headers. This allows both real DVD and Wii/NL headers in
+one translation unit without conflicting compiler attribute definitions.
+Console attribute branches stay unchanged.
+
+--- a/include/decomp.h
++++ b/include/decomp.h
+@@ -16,7 +16,9 @@
+ #define ASM_VOLATILE(...)
+ #endif
+ 
++#ifndef __CONCAT
+ #define __CONCAT(x, y) x##y
++#endif
+ #define CONCAT(x, y) __CONCAT(x, y)
+ 
+ #define ROUND_UP(x, align) ROUNDUP((x), (align))
+@@ -30,7 +32,17 @@
+     ((x) > (high) ? (high) : ((x) < (low) ? (low) : (x)))
+ 
+ #define DECL_SECTION(x) __declspec(section x)
++#ifdef MSCHARGED_NATIVE
++#ifndef DECL_WEAK
++#if defined(__GNUC__)
++#define DECL_WEAK __attribute__((weak))
++#else
++#define DECL_WEAK
++#endif
++#endif
++#else
+ #define DECL_WEAK __declspec(weak)
++#endif
+ 
+ #define DECOMP_INLINE inline
+ #define DECOMP_DONT_INLINE __attribute__((never_inline))
+@@ -41,7 +53,11 @@
+         fake_function(__VA_ARGS__);                           \
+     }
+ 
+-#ifdef __MWERKS__
++#ifdef MSCHARGED_NATIVE
++#ifndef AT_ADDRESS
++#define AT_ADDRESS(addr)
++#endif
++#elif defined(__MWERKS__)
+ #define AT_ADDRESS(address) : (address)
+ #else
+ #define AT_ADDRESS(address)
+--- a/libs/RVL_SDK/include/revolution/types.h
++++ b/libs/RVL_SDK/include/revolution/types.h
+@@ -72,7 +72,13 @@
+ #endif
+ 
+ #define ALIGN(x) __attribute__((aligned(x)))
++#ifdef MSCHARGED_NATIVE
++#ifndef ATTRIBUTE_ALIGN
++#define ATTRIBUTE_ALIGN(num) __attribute__((aligned(num)))
++#endif
++#else
+ #define ATTRIBUTE_ALIGN(x) ALIGN(x)
++#endif
+ #define PACKED __attribute__((packed))
+ 
+ #define DEFAULT_ALIGN 32

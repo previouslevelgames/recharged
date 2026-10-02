@@ -1,0 +1,4 @@
+0001-keep-generator-bytecode-out-of-prepared-source.patch
+0002-keep-spirv-generator-bytecode-out-of-source.patch
+0003-accept-explicit-exported-source-revision.patch
+0004-respect-disabled-vulkan-robustness.patch

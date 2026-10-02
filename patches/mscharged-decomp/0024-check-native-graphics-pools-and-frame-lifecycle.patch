@@ -1,0 +1,561 @@
+Subject: Check native graphics pools and frame lifecycle
+
+Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+
+Check native graphics pools and frame lifecycle
+Preserve pointer-width addresses and resource marks, align both halves of the
+double buffers independently while retaining their original logical budgets,
+validate arithmetic and reject allocation before publishing invalid offsets.
+Allocate MEM1/MEM2 transactionally and always restore CurrentAllocator. Run
+inventory releases before freeing backing pools; reclaim game-owned pool
+objects explicitly. Add repeatable ordered shutdown and reject foreign markers,
+invalid nesting, unexpected pool handles and repeated initialization.
+Native frame advancement requires an explicit cache-invalidation provider.
+The scene supplies real GX invalidations; a missing provider stops explicitly.
+Keep console paths and original memory labels unchanged. This is a memory/static
+inventory subset, not glStartup or a complete native graphics implementation.
+
+diff --git a/include/NL/gl/glMemory.h b/include/NL/gl/glMemory.h
+index 5dedc2f..363de7a 100644
+--- a/include/NL/gl/glMemory.h
++++ b/include/NL/gl/glMemory.h
+@@ -12,8 +12,8 @@ public:
+     GLResourcePool();
+ 
+     virtual void* Allocate(unsigned long size, eGLMemory memType) = 0;
+-    virtual unsigned long MarkResource() = 0;
+-    virtual void ReleaseResource(unsigned long marker) = 0;
++    virtual GLResourceMark MarkResource() = 0;
++    virtual void ReleaseResource(GLResourceMark marker) = 0;
+     virtual unsigned long GetFreeMemory() = 0;
+     virtual unsigned long GetTotalMemory() = 0;
+     virtual unsigned long GetPeakMemoryUsage();
+diff --git a/include/NL/gl/glMemoryInit.h b/include/NL/gl/glMemoryInit.h
+index ecab61c..66f7c5d 100644
+--- a/include/NL/gl/glMemoryInit.h
++++ b/include/NL/gl/glMemoryInit.h
+@@ -13,5 +13,8 @@ struct GLMemoryConfig
+ }; // size 0x14
+ 
+ bool glInitMemory(const GLMemoryConfig* config);
++#if defined(MSCHARGED_NATIVE)
++void glShutdownMemory();
++#endif
+ 
+ #endif // NL_GL_GLMEMORYINIT_H
+diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
+index 782d1d1..b7d881b 100644
+--- a/include/NL/glx/glxMemory.h
++++ b/include/NL/glx/glxMemory.h
+@@ -2,6 +2,13 @@
+ #define NL_GLX_GLXMEMORY_H
+ 
+ #include "NL/nlMath.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++typedef uintptr_t GLResourceMark;
++void glxShutdownMemory();
++#else
++typedef unsigned long GLResourceMark;
++#endif
+ 
+ enum eGLMemory
+ {
+diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
+index 512b7fd..1c21e0f 100644
+--- a/src/NL/gl/glMemory.cpp
++++ b/src/NL/gl/glMemory.cpp
+@@ -4,6 +4,18 @@
+ #include "NL/nlDLRing.h"
+ #include "NL/nlMemory.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++
++static bool IsLinkedPool(GLResourcePool* resource)
++{
++    GLResourcePool* first = glGetResourcePools();
++    if (!first) return false;
++    GLResourcePool* item = first;
++    do { if (item == resource) return true; item = item->m_next; } while (item != first);
++    return false;
++}
++#endif
+ 
+ static GLResourcePool* sCurrentResourcePool;
+ static GLResourcePool* sResourcePoolList;
+@@ -14,6 +26,9 @@ void glResourceAllocationFailed()
+ 
+ void glInitResourcePools()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (sResourcePoolList) throw std::logic_error("Destroy GL resource pools before reinitialization");
++#endif
+     sCurrentResourcePool = 0;
+     sResourcePoolList = 0;
+ }
+@@ -22,7 +37,12 @@ GLResourcePool::GLResourcePool()
+ {
+     m_level = 0;
+     m_inventory = new (8, false) GLInventory;
++#if defined(MSCHARGED_NATIVE)
++    try { m_inventory->Create(); }
++    catch (...) { nlDeleteGameObject(m_inventory); m_inventory = 0; throw; }
++#else
+     m_inventory->Create();
++#endif
+     m_prev = 0;
+     m_next = 0;
+ }
+@@ -31,7 +51,11 @@ GLResourcePool::~GLResourcePool()
+ {
+     if (m_inventory != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_inventory);
++#else
+         delete m_inventory;
++#endif
+         m_inventory = 0;
+     }
+ 
+@@ -44,6 +68,9 @@ GLResourcePool::~GLResourcePool()
+ GLResourcePool* glCreateResourcePool(
+     const GLMemoryRequirement* requirements, int count, const char* name)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (count <= 0) throw std::invalid_argument("Invalid GL resource requirement count");
++#endif
+     GLResourcePool* resource
+         = glplatCreateResourcePool(
+             requirements,
+@@ -54,12 +81,22 @@ GLResourcePool* glCreateResourcePool(
+ 
+ void glDestroyResourcePool(GLResourcePool* resource)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!resource || !IsLinkedPool(resource)) throw std::invalid_argument("GL resource pool is not linked");
++#endif
+     nlDLRingRemove(&sResourcePoolList, resource);
++#if defined(MSCHARGED_NATIVE)
++    nlDeleteGameObject(resource);
++#else
+     delete resource;
++#endif
+ }
+ 
+ void glSetCurrentResourcePool(GLResourcePool* resource)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (resource && !IsLinkedPool(resource)) throw std::invalid_argument("GL resource pool is not linked");
++#endif
+     sCurrentResourcePool = resource;
+ }
+ 
+@@ -76,6 +113,10 @@ GLResourcePool* glGetResourcePools()
+ void* glResourceAlloc(
+     unsigned long size, eGLMemory memType, void* resource)
+ {
++#if defined(MSCHARGED_NATIVE)
++    GLResourcePool* pool = resource ? static_cast<GLResourcePool*>(resource) : sCurrentResourcePool;
++    if (!pool || !IsLinkedPool(pool)) throw std::invalid_argument("GL allocation requires a linked resource pool");
++#endif
+     return glplatResourceAlloc(size, memType, resource);
+ }
+ 
+diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+--- a/src/NL/gl/glMemoryInit.cpp
++++ b/src/NL/gl/glMemoryInit.cpp
+@@ -2,9 +2,38 @@
+ 
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glTexture.h"
++#if defined(MSCHARGED_NATIVE)
++#include "runtime/graphics_memory.h"
++#include "NL/gl/glTextureManager.h"
++#include <stdexcept>
++
++void glShutdownMemory()
++{
++    while (glGetResourcePools()) glDestroyResourcePool(glGetResourcePools());
++    glShutdownTextureManager();
++    glxShutdownMemory();
++    mscharged::SetGraphicsCacheInvalidator(0);
++}
++#endif
+ 
+ bool glInitMemory(const GLMemoryConfig* config)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!config || !config->mResourceRequirements || config->mNumResourceRequirements <= 0
++        || !config->mMaxTextures || config->mMaxTextures > 0xFFFF)
++        throw std::invalid_argument("Invalid GL memory configuration");
++    if (glGetResourcePools() || glGetTextureManager()) throw std::logic_error("GL memory is already initialized");
++    // Validate/publish the frame allocation before creating global resources.
++    if (!glxInitMemory(config->mFrameMemSize1, config->mFrameMemSize2)) return false;
++    try
++    {
++        glSetCurrentResourcePool(glCreateResourcePool(config->mResourceRequirements,
++            config->mNumResourceRequirements, "Global"));
++        glInitTextureManager(config->mMaxTextures);
++    }
++    catch (...) { glShutdownMemory(); throw; }
++    return true;
++#else
+     if (!glxInitMemory(config->mFrameMemSize1, config->mFrameMemSize2))
+     {
+         return false;
+@@ -13,4 +42,5 @@
+     glSetCurrentResourcePool(glCreateResourcePool(config->mResourceRequirements, config->mNumResourceRequirements, "Global"));
+     glInitTextureManager(config->mMaxTextures);
+     return true;
++#endif
+ }
+diff --git a/src/NL/gl/glMemoryNames.cpp b/src/NL/gl/glMemoryNames.cpp
+new file mode 100644
+index 0000000..351804f
+--- /dev/null
++++ b/src/NL/gl/glMemoryNames.cpp
+@@ -0,0 +1,3 @@
++#include "NL/glx/glxMemory.h"
++
++const char* szMemoryNames[6] = { "header", "matrix", "index", "vertex", "texture", "target" };
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index 7a1ca71..bbccac7 100644
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -1,6 +1,13 @@
++#if defined(MSCHARGED_NATIVE)
++#include "runtime/graphics_memory.h"
++#include <cstdint>
++#include <cstring>
++#include <stdexcept>
++#else
+ #include <revolution/gx.h>
+ #include "Game/Sys/debug.h"
+ #include <revolution/os.h>
++#endif
+ 
+ #include "NL/glx/glxMemory.h"
+ 
+@@ -32,8 +39,8 @@ public:
+         unsigned long sizes[2], const char* name);
+ 
+     virtual void* Allocate(unsigned long size, eGLMemory memType);
+-    virtual unsigned long MarkResource();
+-    virtual void ReleaseResource(unsigned long marker);
++    virtual GLResourceMark MarkResource();
++    virtual void ReleaseResource(GLResourceMark marker);
+     virtual unsigned long GetFreeMemory();
+     virtual unsigned long GetTotalMemory();
+     virtual unsigned long GetPeakMemoryUsage();
+@@ -42,7 +49,10 @@ public:
+     virtual ~GLXResourcePool();
+ 
+     char mName[32];
+-    unsigned long mPoolMemory[2];
++    GLResourceMark mPoolMemory[2];
++#if defined(MSCHARGED_NATIVE)
++    GLResourceMark mMarks[16] = {};
++#endif
+     unsigned long mPoolSizes[2];
+     unsigned long mUsedMemory[2];
+     unsigned long mPeakMemory[2];
+@@ -66,7 +76,7 @@ static int i_frame;
+ static bool sFrameMemoryInitialized;
+ static GLInventory::ModelReleaseCallback sModelReleaseCallback;
+ 
+-static unsigned long p_frame[2][2];
++static GLResourceMark p_frame[2][2];
+ static unsigned long n_frame[2][2];
+ 
+ static inline int RealOrVirtual(eGLMemory memType)
+@@ -82,14 +92,70 @@ static inline int RealOrVirtual(eGLMemory memType)
+     case GLM_TextureData:
+         return 1;
+     default:
++#if defined(MSCHARGED_NATIVE)
++        throw std::invalid_argument("Unknown GL memory type");
++#else
+         nlBreak();
+         return -1;
++#endif
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// Console budgets remain bounded; addresses and marker handles are pointer-sized.
++static unsigned long AlignedOffset(unsigned long used, unsigned long size, unsigned long capacity)
++{
++    if (capacity > UINT32_MAX || used > capacity || used > UINT32_MAX - 31)
++        throw std::length_error("Invalid GL pool size or offset");
++    unsigned long aligned = (used + 31UL) & ~31UL;
++    if (aligned > capacity || size > capacity - aligned)
++        throw std::bad_alloc();
++    return aligned;
++}
++
++static unsigned long FrameStride(unsigned long size)
++{
++    if (!size || size > UINT32_MAX / 2 - 31)
++        throw std::length_error("Invalid double-buffered GL frame memory budget");
++    return (size + 31UL) & ~31UL;
++}
++
++void glxShutdownMemory()
++{
++    nlFree(reinterpret_cast<void*>(p_frame[0][0]));
++    nlFree(reinterpret_cast<void*>(p_frame[0][1]));
++    memset(p_frame, 0, sizeof(p_frame));
++    memset(n_frame, 0, sizeof(n_frame));
++    memset(FrameMemSizes, 0, sizeof(FrameMemSizes));
++    sFrameMemoryInitialized = false;
++    i_frame = 0;
++}
++#endif
++
+ bool glxInitMemory(
+     unsigned long frameMemSize1, unsigned long frameMemSize2)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (sFrameMemoryInitialized) throw std::logic_error("GL frame memory is already initialized");
++    unsigned long stride[2] = { FrameStride(frameMemSize1), FrameStride(frameMemSize2) };
++    void* blocks[2] = { 0, 0 };
++    try
++    {
++        { mscharged::ScopedGameAllocator arena(StandardAllocator); blocks[0] = nlMalloc(stride[0] * 2, 32, false); }
++        { mscharged::ScopedGameAllocator arena(VirtualAllocator); blocks[1] = nlMalloc(stride[1] * 2, 32, false); }
++    }
++    catch (...) { nlFree(blocks[1]); nlFree(blocks[0]); throw; }
++    for (int pool = 0; pool < 2; ++pool)
++    {
++        p_frame[0][pool] = reinterpret_cast<GLResourceMark>(blocks[pool]);
++        p_frame[1][pool] = p_frame[0][pool] + stride[pool];
++    }
++    memset(n_frame, 0, sizeof(n_frame));
++    i_frame = 0;
++    FrameMemSizes[0] = frameMemSize1; FrameMemSizes[1] = frameMemSize2;
++    sFrameMemoryInitialized = true;
++    return true;
++#else
+     MemoryAllocator* allocator = CurrentAllocator;
+     CurrentAllocator = &StandardAllocator;
+     unsigned long pMem = (unsigned long)nlMalloc(
+@@ -122,10 +188,17 @@ bool glxInitMemory(
+     FrameMemSizes[1] = frameMemSize2;
+     sFrameMemoryInitialized = true;
+     return true;
++#endif
+ }
+ 
+ void glplatFrameAllocNextFrame()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
++    mscharged::InvalidateGraphicsCaches();
++    i_frame ^= 1;
++    n_frame[i_frame][0] = n_frame[i_frame][1] = 0;
++#else
+     if (glx_MemoryDump)
+     {
+         tDebugPrintManager::Print(DC_GLPLAT, sFrameMemoryUsedFormat,
+@@ -142,12 +215,29 @@ void glplatFrameAllocNextFrame()
+     n_frame[newFrame][1] = 0;
+     GXInvalidateVtxCache();
+     GXInvalidateTexAll();
++#endif
+ }
+ 
+ GLXResourcePool::
+     GLXResourcePool(
+         unsigned long sizes[2], const char* name)
+ {
++#if defined(MSCHARGED_NATIVE)
++    strncpy(mName, name ? name : "", sizeof(mName) - 1);
++    mName[sizeof(mName) - 1] = 0;
++    mPoolMemory[0] = mPoolMemory[1] = 0;
++    m_inventory->SetModelReleaseCallback(sModelReleaseCallback);
++    try
++    {
++        { mscharged::ScopedGameAllocator arena(StandardAllocator);
++          if (sizes[0]) mPoolMemory[0] = reinterpret_cast<GLResourceMark>(nlMalloc(sizes[0], 32, false)); }
++        { mscharged::ScopedGameAllocator arena(VirtualAllocator);
++          if (sizes[1]) mPoolMemory[1] = reinterpret_cast<GLResourceMark>(nlMalloc(sizes[1], 32, false)); }
++    }
++    catch (...) { nlFree(reinterpret_cast<void*>(mPoolMemory[0])); throw; }
++    for (int pool = 0; pool < 2; ++pool)
++    { mPoolSizes[pool] = sizes[pool]; mUsedMemory[pool] = mPeakMemory[pool] = 0; }
++#else
+     nlStrNCpy(mName, name, 32);
+ 
+     m_inventory->SetModelReleaseCallback(sModelReleaseCallback);
+@@ -165,22 +255,41 @@ GLXResourcePool::
+     mPoolSizes[1] = sizes[1];
+     mUsedMemory[1] = 0;
+     mPeakMemory[1] = 0;
++#endif
+ }
+ 
+ GLXResourcePool::
+     ~GLXResourcePool()
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Inventory callbacks must run while pool-backed object headers still exist.
++    m_inventory->Delete();
++    for (int pool = 0; pool < 2; ++pool)
++    {
++        nlFree(reinterpret_cast<void*>(mPoolMemory[pool]));
++        mPoolMemory[pool] = mPoolSizes[pool] = mUsedMemory[pool] = 0;
++    }
++#else
+     for (int i = 0; i < 2; ++i)
+     {
+         operator delete((void*)mPoolMemory[i]);
+         mUsedMemory[i] = 0;
+         mPoolSizes[i] = 0;
+     }
++#endif
+ }
+ 
+ void* GLXResourcePool::Allocate(
+     unsigned long allocationSize, eGLMemory memType)
+ {
++#if defined(MSCHARGED_NATIVE)
++    int pool = RealOrVirtual(memType);
++    unsigned long offset = AlignedOffset(mUsedMemory[pool], allocationSize, mPoolSizes[pool]);
++    if (!mPoolMemory[pool]) throw std::bad_alloc();
++    mUsedMemory[pool] = offset + allocationSize;
++    if (mUsedMemory[pool] > mPeakMemory[pool]) mPeakMemory[pool] = mUsedMemory[pool];
++    return reinterpret_cast<void*>(mPoolMemory[pool] + offset);
++#else
+     int pool = RealOrVirtual(memType);
+     unsigned long aligned = (mPoolMemory[pool] + mUsedMemory[pool] + 31) & ~31u;
+     mUsedMemory[pool] = allocationSize + (aligned - mPoolMemory[pool]);
+@@ -196,10 +305,22 @@ void* GLXResourcePool::Allocate(
+         nlBreak();
+     }
+     return (void*)aligned;
++#endif
+ }
+ 
+-unsigned long GLXResourcePool::MarkResource()
++GLResourceMark GLXResourcePool::MarkResource()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (m_level >= 15 || m_inventory->m_nLevel != m_level)
++        throw std::length_error("GL resource marker depth is invalid or exhausted");
++    unsigned long used[2] = { mUsedMemory[0], mUsedMemory[1] };
++    GLXResourceMarker* marker = static_cast<GLXResourceMarker*>(Allocate(sizeof(GLXResourceMarker), GLM_Header));
++    marker->mUsedMemory[0] = used[0]; marker->mUsedMemory[1] = used[1];
++    marker->mLevel = m_level; marker->mResource = this;
++    m_inventory->ResourceMark();
++    mMarks[m_level++] = reinterpret_cast<GLResourceMark>(marker);
++    return reinterpret_cast<GLResourceMark>(marker);
++#else
+     unsigned long value0 = mUsedMemory[0];
+     unsigned long value1 = mUsedMemory[1];
+     GLXResourceMarker* marker
+@@ -212,11 +333,25 @@ unsigned long GLXResourcePool::MarkResource()
+     m_inventory->ResourceMark();
+     m_level++;
+     return (unsigned long)marker;
++#endif
+ }
+ 
+ void GLXResourcePool::ReleaseResource(
+-    unsigned long value)
++    GLResourceMark value)
+ {
++#if defined(MSCHARGED_NATIVE)
++    int level = 0;
++    while (level < m_level && mMarks[level] != value) ++level;
++    if (!value || level == m_level) throw std::invalid_argument("Foreign or inactive GL resource marker");
++    GLXResourceMarker saved = *reinterpret_cast<const GLXResourceMarker*>(value);
++    if (saved.mResource != this || saved.mLevel != level
++        || saved.mUsedMemory[0] > mUsedMemory[0] || saved.mUsedMemory[1] > mUsedMemory[1])
++        throw std::invalid_argument("Corrupt GL resource marker");
++    m_inventory->ResourceRelease(level);
++    mUsedMemory[0] = saved.mUsedMemory[0]; mUsedMemory[1] = saved.mUsedMemory[1];
++    for (int i = level; i < m_level; ++i) mMarks[i] = 0;
++    m_level = level;
++#else
+     GLXResourceMarker* marker
+         = (GLXResourceMarker*)value;
+     int level = marker->mLevel;
+@@ -224,6 +359,7 @@ void GLXResourcePool::ReleaseResource(
+     mUsedMemory[0] = marker->mUsedMemory[0];
+     mUsedMemory[1] = marker->mUsedMemory[1];
+     m_level = level;
++#endif
+ }
+ 
+ unsigned long GLXResourcePool::GetFreeMemory()
+@@ -266,6 +402,19 @@ GLResourcePool* glplatCreateResourcePool(
+     const GLMemoryRequirement* requirements,
+     unsigned long count, const char* name)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!requirements || !count || count > GLM_Num)
++        throw std::invalid_argument("Invalid GL resource requirements");
++    unsigned long sizes[2] = { 0, 0 };
++    for (unsigned long i = 0; i < count; ++i)
++    {
++        int pool = RealOrVirtual(requirements[i].mType);
++        if (requirements[i].mSize > UINT32_MAX - sizes[0] - sizes[1])
++            throw std::length_error("GL resource requirements exceed the console budget range");
++        sizes[pool] += requirements[i].mSize;
++    }
++    return new (8, false) GLXResourcePool(sizes, name);
++#else
+     unsigned long sizes[2] = { 0, 0 };
+     for (unsigned long i = 0; i < count; ++i)
+     {
+@@ -275,17 +424,32 @@ GLResourcePool* glplatCreateResourcePool(
+ 
+     return new (8, false)
+         GLXResourcePool(sizes, name);
++#endif
+ }
+ 
+ void* glplatResourceAlloc(
+     unsigned long size, eGLMemory memType, void* resource)
+ {
++#if defined(MSCHARGED_NATIVE)
++    GLResourcePool* pool = static_cast<GLResourcePool*>(resource);
++    if (!pool) pool = glGetCurrentResourcePool();
++    if (!pool) throw std::logic_error("No current GL resource pool");
++    return pool->Allocate(size, memType);
++#else
+     return ((GLResourcePool*)resource)->Allocate(
+         size, memType);
++#endif
+ }
+ 
+ void* glplatFrameAlloc(unsigned long size, eGLMemory memType)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
++    int pool = RealOrVirtual(memType);
++    unsigned long offset = AlignedOffset(n_frame[i_frame][pool], size, FrameMemSizes[pool]);
++    n_frame[i_frame][pool] = offset + size;
++    return reinterpret_cast<void*>(p_frame[i_frame][pool] + offset);
++#else
+     unsigned long isLow = RealOrVirtual(memType);
+     unsigned long newTop
+         = (p_frame[i_frame][isLow] + n_frame[i_frame][isLow] + 31)
+@@ -299,9 +463,15 @@ void* glplatFrameAlloc(unsigned long size, eGLMemory memType)
+     }
+     n_frame[i_frame][isLow] = newSize;
+     return (void*)newTop;
++#endif
+ }
+ 
+ unsigned long glx_GetFreeMemory()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!glGetCurrentResourcePool()) throw std::logic_error("No current GL resource pool");
++    return glGetCurrentResourcePool()->GetFreeMemory();
++#else
+     return glGetCurrentResourcePool()->GetFreeMemory();
++#endif
+ }

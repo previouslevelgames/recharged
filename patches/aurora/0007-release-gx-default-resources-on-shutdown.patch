@@ -1,0 +1,24 @@
+Subject: Release owned GX default resources during shutdown
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The default texture bind group, sampler, texture/view, and pipeline layout kept
+the Dawn device/adapter/instance alive until static destruction after SDL/video
+shutdown. The validation-layer crash backtrace ends in the static bind-group
+release. Release these references with the other GX layouts while the graphics
+and window lifecycle is still active.
+
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -610,6 +610,11 @@
+ 
+ void shutdown() noexcept {
+   // TODO we should probably store this all in g_state.gx instead
++  g_emptyTextureBindGroup = {};
++  sEmptySampler = {};
++  sEmptyTextureView = {};
++  sEmptyTexture = {};
++  sPipelineLayout = {};
+   sSamplerBindGroupLayout = {};
+   sTextureBindGroupLayout = {};
+   {

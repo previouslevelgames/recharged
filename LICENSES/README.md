@@ -20,9 +20,11 @@ upstream checkouts. The bootstrap compiles selected decomp utilities and nod,
 including its Cargo dependencies; Corrosion supplies the CMake/Rust integration.
 The launcher also builds SDL3 and Dear ImGui and uses nod for disc checks.
 The optional Aurora core check also builds Aurora, Abseil, fmt, xxHash, and Tracy
-from prepared submodule sources. The remaining libraries are sources for future
-integration. SDL's included third-party codecs retain the notices in their
-source files.
+from prepared submodule sources. The separate Linux GX diagnostic also builds
+Dawn and its selected nested sources, zlib-ng, libpng, FreeType, Zstandard,
+SQLite, and ImGui's WebGPU backend. It uses Dawn's nested Abseil as the shared
+provider. SDL's included third-party codecs retain the notices in their source
+files. Unused optional libraries remain available for future integration.
 
 The following summaries identify principal notices, not a replacement for
 file-specific terms or notices on nested third-party material:
@@ -54,6 +56,16 @@ file-specific terms or notices on nested third-party material:
 Checking out an optional library does not establish that it will be distributed
 with the game. Select and document the relevant license option and distribution
 materials when integrating each component.
+
+The current graphics integration selects the FreeType License in
+[FTL.TXT](../extern/freetype/docs/FTL.TXT) and Zstandard's BSD option.
+Portions of this software are copyright © 2026 The FreeType Project
+(https://freetype.org). All rights reserved. FreeType's contributed components
+retain their own notices. Dawn's nested shader tools, Vulkan headers/utilities,
+Abseil, and build-time Jinja/MarkupSafe retain the license texts at their recorded
+checkouts; see the [selected source inventory](../extern/README.md#dawns-selected-linux-graphics-sources).
+No release package has been prepared; packaging must collect the actual linked
+components' notices and any required accompanying material.
 
 ## Adding dependencies and preparing releases
 

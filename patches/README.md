@@ -17,7 +17,22 @@ Only a completely prepared tree becomes available to CMake. Cache reuse checks
 both the inputs and generated contents. A failed new preparation leaves any
 previous tree intact, but the build's validation rejects that stale tree.
 
-## Initial Charged series
+## Charged series
+
+The current base is `45f25bd6519586837e61251208d34d8dcf94e170`, adopted from
+published `main` on 2026-10-02. The current series contains twenty-five patches.
+The dependency update retained the first eighteen. Patch 0006 was refreshed
+for the upstream entry's
+declaration/scope changes; its extracted startup behavior is unchanged.
+The other seventeen patches retain their hunks with updated base metadata.
+Patch 0019 selects native animation rotation decoders while retaining original
+unsigned scale and byte-weight code. The full series applies strictly, and
+startup/Debug/Release checks pass.
+Patch 0020 connects native whole-file request cleanup to read failure and
+shutdown; the implementation is a port adapter with opaque handles and explicit
+buffer ownership.
+Upstream's newly matching `Game/main.cpp` still needs its native dependencies;
+see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-startup).
 
 | Patch | Reason | Current validation |
 | --- | --- | --- |
@@ -26,7 +41,7 @@ previous tree intact, but the build's validation rejects that stale tree.
 | `0003-fix-native-rvl-scalar-types.patch` | Keep SDK 32-bit scalars/calendar fields fixed-width; use standard pointer types and avoid host type conflicts. | Startup compilation and scalar/calendar layout assertions. |
 | `0004-preserve-native-chunk-addresses.patch` | Align and traverse chunk pointers without truncating host addresses; retain 32-bit serialized size fields. | Native allocation/alignment/traversal checks, including addresses above 4 GiB when supplied by the host. Bounds and endian conversion remain separate work. |
 | `0005-include-replay-pose-node-definitions.patch` | Template bodies need complete replay pose types when parsed by host compilers. | Compilation of the original game entry unit. |
-| `0006-expose-original-startup-core.patch` | Extract the original region/language/`nlInit()` prefix so it can run before the rest of the game links. Skip PowerPC-only GQR assembly on native builds. | Original USA language branches and real `nlInitMemory()` entry. Native animation decoding remains pending. |
+| `0006-expose-original-startup-core.patch` | Extract the original region/language/`nlInit()` prefix so it can run before the rest of the game links. Skip PowerPC-only GQR assembly on native builds. | Original USA language branches and real `nlInitMemory()` entry. Animation rotations are connected separately through patch 0019. |
 | `0007-keep-native-arena-addresses.patch` | Compute arena capacity from pointers without first truncating their addresses. | Real MEM1/MEM2 startup arena sizes; broader Wii address translation remains pending. |
 | `0008-use-standard-memory-header.patch` | Replace four MSL `mem.h` include sites with the host `string.h`. | Native headers and entry compilation; no synthetic `mem.h` shim. |
 | `0009-read-native-bus-clock-through-host.patch` | Native timer units obtain the initialized Aurora bus clock through a host adapter. | Compilation/linking of original ticker/time units alongside Aurora. Original game scheduling remains pending. |
@@ -34,6 +49,18 @@ previous tree intact, but the build's validation rejects that stale tree.
 | `0011-adapt-original-free-list-allocator.patch` | Retain the original free-list algorithm with native pointer arithmetic, metadata size/alignment, and explicit invalid-request/OOM errors. | Mixed allocations from both ends, alignment, exhaustion, payload preservation, complete coalescing, and standalone ASan/UBSan checks. |
 | `0012-route-native-game-frees-by-arena-ownership.patch` | Route explicit game frees by owning arena rather than console address bits; keep host global new/delete standard. | MEM1/MEM2 allocations freed while a different arena is selected. Ordinary game/class allocation and ownership after custom allocator removal remain pending. |
 | `0013-check-native-startup-arena-and-sdk-heaps.patch` | Validate capacity and allocation/SDK heap results before using memory; retain original reserves and setup order. | Real original startup with 64/128 MiB MEM2, SDK allocate/free checks, repeated cleanup, synthetic Wii data, and owned USA revision 1 RVZ. |
+| `0014-share-native-dvd-types-and-file-metadata.patch` | Forward native DVD declarations to Aurora, adapt file metadata/status access, and share canonical 64-bit SDK scalars. | Compiled original NL file code against real Aurora DVD; synthetic Wii file reads. |
+| `0015-extract-original-graphics-prestartup.patch` | Select the original `glplatPreStartup()` helper without compiling the later GX/VI setup in the same file. | Original `nlInit()` advances past this unchanged helper, which returns true at the selected pin. No game graphics claim. |
+| `0016-extract-original-basic-file-operations.patch` | Select original file wrappers and synchronous whole-file loading independently of unfinished advanced async/decompression. | Original open/read/close and whole-file tests; no successful replacements for unselected APIs. |
+| `0017-adapt-native-disc-read-lifecycle.patch` | Keep callback context pointer-sized; validate read bounds/capacity and both head/tail slots; drain workers before callbacks/pool reuse; preserve reentrant callback state and clean file/allocator shutdown. | Known synthetic bytes, exact/padded/unaligned reads, seek/EOF, reentrancy, callback exceptions, active cancellation, file/request pool exhaustion, whole-file ownership/OOM/read failure, repeated cleanup. |
+| `0018-share-native-sdk-compiler-macros.patch` | Share native compiler attribute/address macros across Wii, Aurora, and host headers. | Native SDK/NL/DVD compilation without conflicting macro definitions. |
+| `0019-select-native-sanim-rotation-decoders.patch` | Keep console GQR/paired-single assembly in the console branch and select the port's scalar native rotations; document packed-byte/host-order contracts. | Exhaustive 16/12/8-bit rotation components, unsigned scales, byte weights, exact float results, guards and repeated setup; original core startup completes. Animation assets/playback remain pending. |
+| `0020-connect-native-whole-file-load-lifecycle.patch` | Connect the native whole-file adapter to read-error/shutdown cleanup and document its opaque handles, ownership and worker-draining cancellation. | Synthetic async loads, buffers, failures, reentrancy/cancel/shutdown and targeted sanitizers; owned boot INI byte comparisons. Original INI parsing, compressed loads, bundles and caches remain pending. |
+| `0021-preserve-native-container-allocation-ownership.patch` | Destroy game-allocated container nodes/trees before owning-arena free; reclaim failed aligned-new constructions; select native stack allocation for AVL. | Native pointers, partial construction, node exhaustion, tree release and sanitizer checks; host global new/delete remain standard. |
+| `0022-select-checked-native-static-inventory.patch` | Select original layered model/texture lookup and insertion; add checked level/duplicate handling and repeatable partial cleanup. | Nested rollback/shadowing, file ownership, original AVL, native ball inventory and shutdown. Animation/skin/chunk methods remain unlinked. |
+| `0023-select-native-static-texture-manager-lifecycle.patch` | Select static texture management with checked queue/index ownership, atomic node/index registration, stale-binding resolution and ordered teardown. | Exhaustion/recycling, node OOM, nested textures, tiled/palette bytes and actual CMPR diffuse rendering. Animated textures and original texture GPU methods remain unselected. |
+| `0024-check-native-graphics-pools-and-frame-lifecycle.patch` | Use pointer-sized addresses/marks, align both frame halves, validate offsets before publication, restore selected allocators and reclaim failed/finished MEM1/MEM2 pools. | Pointers above 4 GiB, independent frame payloads, invalid/foreign markers, repeated original budgets, real GX invalidation and arena recovery. |
+| `0025-select-original-preinitfs-memory-callback.patch` | Select the original graphics memory callback and requirements independently of the incomplete main; report native failure explicitly. | Native scene executes its exact original frame/resource budgets and texture capacity; repeated CPU initialization/shutdown and full-entry object compilation. This does not execute complete `glStartup`. |
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain
@@ -72,6 +99,45 @@ before freeing MEM1/MEM2. Core's OS dependency is explicit. Linux startup checks
 cover 64/128 MiB MEM2 and repeated initialization; Windows debug reservations
 have a release path but remain unverified. Wii address translation and IOS
 memory-map parity are not implemented by this patch.
+
+`0005-respect-graphics-providers-and-enable-validation.patch` uses the parent's
+prepared FreeType, SQLite, and Zstandard targets instead of looking up system
+substitutes. A default-off configuration field enables Dawn backend validation
+for the separate GX diagnostic. The separate core/startup presets retain their
+existing null backend with GX disabled.
+
+`0006-keep-validation-for-release-diagnostics.patch` retains WebGPU API
+validation and robustness when backend validation is requested, including in
+Release builds. Other callers retain Aurora's existing optimization flags.
+`0007-release-gx-default-resources-on-shutdown.patch` releases the default GX
+bind group, sampler, texture/view, and pipeline layout before device/window
+shutdown. Retained static references caused a Vulkan validation-layer crash
+at process exit in the initial desktop check.
+
+## Dawn series
+
+The series targets Dawn `1155e0ed531126f33a1279afa029349651ca1c93`.
+`0001-keep-generator-bytecode-out-of-prepared-source.patch` passes Python `-B`
+to Dawn's JSON generators, including their configuration-time invocations.
+`0002-keep-spirv-generator-bytecode-out-of-source.patch` applies the same rule to
+the pinned SPIRV-Tools source generators. Their generated C++/headers/tables
+remain under the binary directory; imported helpers and Jinja/MarkupSafe do not
+leave bytecode beside the immutable prepared source.
+
+`0003-accept-explicit-exported-source-revision.patch` exposes the version
+generator's existing revision-file argument to CMake. The parent provides
+the verified Dawn base pin; without it the exported tree discovers the port's
+Git HEAD. The generated Dawn version therefore identifies Dawn's actual source.
+
+`0004-respect-disabled-vulkan-robustness.patch` adds per-pipeline Vulkan
+robustness settings only when device robustness is enabled. Dawn previously
+added those settings even when its optimization toggle disabled the required
+device feature, producing validation errors on the tested Intel Mesa driver.
+
+The graphics build's selected nested gitlinks must also be supplied when
+manually preparing or exporting a Dawn patch. Use the paths listed in
+`cmake/Dawn.cmake` as repeated `--nested-submodule PATH` arguments. Omitting the
+selection requests all of Dawn's recorded nested sources and changes the inputs.
 
 ## Develop a new patch
 
