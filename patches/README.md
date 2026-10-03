@@ -19,15 +19,15 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `483cb6020288a347419f7e4bfa88eaa3059f063e`, adopted from
-published `main` on 2026-10-03. The ordered patches are listed in
-[`mscharged-decomp/series`](mscharged-decomp/series).
-This update refreshes 0005, 0006, 0011, 0012, 0017, 0025 and 0031 for upstream
-declaration changes, named allocator fields and allocator helper extraction.
-The allocator uses the new shared helpers with native address widths, alignment
-and failure checks; startup
-and rendering extracts retain their behavior. The remaining patch hunks are
-unchanged, with all bases updated to the selected commit.
+The current base is `01c9a4d61904afc927d6752c3cd29fca489ff5cc`, adopted from
+published upstream main. It remains an incomplete development snapshot, not a
+complete decompilation release.
+
+This update includes matched DebugCam and reviewed camera/world-animation
+naming and header cleanups. All 56 existing patch bodies remain unchanged;
+their bases advance to the selected commit. Patch 0057 adds bounded native
+debug-camera desktop controls; authored animated-camera playback is selected by 0056.
+The ordered patches are listed in [`mscharged-decomp/series`](mscharged-decomp/series).
 
 Upstream now marks both `nlEvent.cpp` and `MemAlloc.cpp` matching. Patch 0038
 connects the original immediate event registry and listeners to native startup
@@ -92,7 +92,9 @@ see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-start
 | `0052-select-native-camera-core.patch` | Select original camera stack, transition and pose routines with native allocation, borrowed ownership, checked callbacks and repeatable teardown. | Stack order, interpolation, callback failures, allocation recovery and supplied preview poses. Authored cameras, factory/impostor services and full frame tasks remain pending. |
 | `0053-preserve-native-camera-filter-arithmetic.patch` | Preserve Wii noise hashing through explicit 32-bit wrapping, initialize inactive displacement and validate native filter timing and inputs. | Independent noise values, real task-state rumble gating, clamped steps, reset/expiry and sanitizer checks. Wii presentation parity remains pending. |
 | `0054-select-native-texture-animation.patch` | Select original IFL playback and inventory traversal with bounded native records, owned animation indices and ordered release. Material binding and alpha preparation resolve the current frame. | Fixed-width decoding and dependency checks, loop/ping-pong/hold/pause timing, alias refresh, allocation failure, rollback, sanitizer/leak checks, Vulkan pixels and owned Palace/Bowser models. Frames must be static textures in the same decoded batch; full world/task integration remains pending. |
-| `0055-select-native-camera-data.patch` | Select original camera-data initialization separately from playback; initialize ownership and pair game-allocated arrays with game frees. | Bounded big-endian CAM decoding, full names, native handles, allocation rollback and sync/async NL file lifetimes. Startup loads a frontend camera; original animated-camera playback and factory selection remain pending. |
+| `0055-select-native-camera-data.patch` | Select original camera-data initialization separately from playback; initialize ownership and pair game-allocated arrays with game frees. | Bounded big-endian CAM decoding, full names, native handles, allocation rollback and sync/async NL file lifetimes. |
+| `0056-select-native-animated-camera-playback.patch` | Select original camera interpolation, cuts, transforms, timing and focal calculations; provide explicit display/simulation inputs and validate sampling. | Retained asset ownership, loop/end callbacks, mirroring, facing, FOV, original CameraMan updates and authored scene preview. Full camera factory and DOF rendering remain pending. |
+| `0057-select-native-debug-camera.patch` | Select original desktop orbit/pan/distance/height controls and pose math through explicit native input values; define angle wrapping and reject degenerate look-at inputs. | CameraMan borrowing, input/toggle/task gating, numerical checks, failure cleanup and selected sanitizers. SDL bindings, Wii DPD, player/replay targets and full factory selection remain pending. |
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain

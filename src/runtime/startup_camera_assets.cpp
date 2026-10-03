@@ -1,4 +1,6 @@
 #include "runtime/camera_assets.h"
+#include "runtime/animated_camera.h"
+#include "Game/Camera/CameraMan.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
 #include <chrono>
@@ -25,7 +27,7 @@ std::string VerifyStartupCameraAssets()
         }
         auto async = request.Result();
         const auto& a = sync->Data(); const auto& b = async->Data(); count = a.m_uKeyCount;
-        if (count != b.m_uKeyCount || a.m_uHashID != b.m_uHashID || std::strcmp(a.field_0x0C, b.field_0x0C)
+        if (count != b.m_uKeyCount || a.m_uHashID != b.m_uHashID || std::strcmp(a.m_szName, b.m_szName)
             || std::memcmp(a.cameraPos,b.cameraPos,count*sizeof(nlVector3))
             || std::memcmp(a.targetPos,b.targetPos,count*sizeof(nlVector3))
             || std::memcmp(a.cameraRot,b.cameraRot,count*sizeof(nlQuaternion))
@@ -38,10 +40,19 @@ std::string VerifyStartupCameraAssets()
         library.Clear();
         if (selected != async || selected->Data().m_uKeyCount != count)
             throw std::runtime_error("Camera asset handle lifetime differs");
+        OriginalCameras cameras;
+        AnimatedCamera playback(selected);
+        cCameraManager::PushCamera(&playback.Camera());
+        for (float time : {0.f, .25f, .5f, .75f, 1.f})
+        {
+            playback.Seek(time);
+            cameras.Advance(0, 0);
+            CheckCameraPose(playback.Camera());
+        }
     }
     if (StandardAllocator.TotalFreeMemory() != mem1 || VirtualAllocator.TotalFreeMemory() != mem2)
         throw std::runtime_error("Camera asset decoding did not recover both arenas");
     return "Native camera asset decoded through sync/async NL reads: " + std::string(path)
-        + " (" + std::to_string(count) + " keys); both arenas recovered. Original animated-camera playback remains pending.";
+        + " (" + std::to_string(count) + " keys); original authored playback sampled through CameraMan; both arenas recovered.";
 }
 }

@@ -95,7 +95,7 @@ void Ownership()
     const auto& data=a->Data();
     Check(data.m_uKeyCount==3 && data.cameraPos[2].x==2 && data.cameraPos[0].y==-2,"Native position/input lifetime differs");
     Check(data.targetPos[1].z==9 && data.cameraRot[2].w==1 && data.fFOV[1]==41 && data.fFocalLength[2]==4,"Native camera channels differ");
-    Check(std::string(data.field_0x0C)=="synthetic_camera_name_longer_than_32_bytes","Native name was truncated");
+    Check(std::string(data.m_szName)=="synthetic_camera_name_longer_than_32_bytes","Native name was truncated");
     CameraAssetLibrary library;
     library.Insert(a);Check(library.Find("FRONTEND")==a,"Alias lookup is not case insensitive");
     Reject([&] { library.Insert(CameraAsset::Decode(Fixture(),"frontend")); });

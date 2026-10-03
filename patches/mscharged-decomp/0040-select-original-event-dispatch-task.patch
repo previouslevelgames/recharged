@@ -1,6 +1,6 @@
 Subject: Select original dispatch task and base transition hook
 
-Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
 
 Extract the existing default nlTask::StateTransition from Team.cpp for independent
 source selection and retain the original DispatchEventsTask::Run(true) path.

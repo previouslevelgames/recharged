@@ -2,7 +2,7 @@
 import struct
 
 
-def camera_fixture():
+def camera_fixture(preview=False):
     data = bytearray(struct.pack(">II", 0x8002500b, 0))
 
     def chunk(tag, payload, alignment=8):
@@ -16,7 +16,8 @@ def camera_fixture():
     name = b"fixture_camera_longer_than_thirty_two_bytes\0"
     chunk(0x25000, name + b"\0" * (-len(name) % 4))
     chunk(0x2500c, struct.pack(">I", 3))
-    chunk(0x25003, struct.pack(">9f", 0, -2, 4, 1, -2, 4, 2, -2, 4))
+    positions = (-.1, 0, 4, 0, 0, 4, .1, 0, 4) if preview else (0, -2, 4, 1, -2, 4, 2, -2, 4)
+    chunk(0x25003, struct.pack(">9f", *positions))
     chunk(0x25006, struct.pack(">9f", *([7, 8, 9] * 3)))
     chunk(0x25004, struct.pack(">12f", *([0, 0, 0, 1] * 3)))
     chunk(0x25009, struct.pack(">3f", 40, 41, 42))

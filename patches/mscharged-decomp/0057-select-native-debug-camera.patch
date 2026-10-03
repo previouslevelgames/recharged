@@ -1,0 +1,267 @@
+Subject: Select original debug-camera desktop controls with explicit native inputs
+
+Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+
+Select matching orbit/pan/radius/height, input-toggle and view math independently
+of global pad/task/tweak initialization. The port owner supplies checked desktop
+pad values and diagnostic task/profiler flags. Wii DPD and player/replay target
+services reject explicitly. Defer constructor Update until the owner installs
+its input scope, initialize native-only formerly unused fields, and define the
+original low-16-bit angle conversion without out-of-range float-to-short casts.
+Reject a degenerate float look-at direction before its original normalization.
+Console source remains unchanged outside its native selection guard.
+
+diff --git a/src/Game/Camera/DebugCam.cpp b/src/Game/Camera/DebugCam.cpp
+--- a/src/Game/Camera/DebugCam.cpp
++++ b/src/Game/Camera/DebugCam.cpp
+@@ -1,3 +1,4 @@
++#ifndef MSCHARGED_NATIVE
+ #include "NL/plat/PlatPadManager.h"
+ #include "NL/plat/WiiPad.h"
+ #include "Game/Camera/DebugCam.h"
+@@ -394,3 +395,4 @@
+ 
+     glMatrixLookAt(m_matView, m_vecCamera, m_vecTarget, vecUp);
+ }
++#endif // !MSCHARGED_NATIVE
+diff --git a/src/Game/Camera/DebugCameraNative.cpp b/src/Game/Camera/DebugCameraNative.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/Camera/DebugCameraNative.cpp
+@@ -0,0 +1,236 @@
++#include "Game/Camera/DebugCam.h"
++#include "Game/MathHelpers.h"
++#include "NL/gl/glMatrix.h"
++#include "runtime/debug_camera.h"
++
++struct DebugCameraTarget
++{
++    u8 mUnidentified00[0x20];
++    nlVector3 mPosition;
++};
++
++float sfDebugCamFOV = 60.0f;
++static float sfControlSpeedScale = 100.0f;
++static float sfControlDistanceScale = 1.0f;
++static float sfControlHeightScale = 1.0f;
++static float sfTargetFollowStep = 1.0f;
++
++cDebugCamera::cDebugCamera(bool)
++    : m_fRadius(10.0f)
++    , m_fAzimuth(215.0f)
++    , m_fTheta(25.0f)
++    , m_fHeight(0.0f)
++    , m_pPad(0)
++    , m_bUseWiiControls(false)
++    , m_bEnableControls(true)
++    , mUnidentified8E(false)
++    , m_bUpdateTargets(false)
++    , m_pTarget(0)
++    , m_pTargetEntry(0)
++{
++    nlVec3Set(m_vecTarget, 0.0f, 0.0f, 0.0f);
++    m_matView.SetIdentity();
++    // Native owner calls Update after its explicit input scope is installed.
++    // Wii DPD acquisition is not supplied by this desktop diagnostic.
++    nlVec3Set(m_vecCamera, 0.0f, 0.0f, 0.0f);
++    mUnidentified8E = true;
++}
++
++cDebugCamera::~cDebugCamera()
++{
++    // The native owner exposes no target insertion or Wii DPD acquisition.
++    // The original list destructor still releases its empty entry container.
++}
++
++void cDebugCamera::UpdateTargetPositions()
++{
++    mscharged::CheckDebugCameraTargets(*this);
++}
++
++void cDebugCamera::UpdateOrbitControls(float dt)
++{
++    float x = 0.0f;
++    float y = 0.0f;
++
++    if (!m_bUseWiiControls)
++    {
++        x = mscharged::DebugInputs(*this).right_x;
++        y = mscharged::DebugInputs(*this).right_y;
++    }
++    else if (!mscharged::DebugInputs(*this).height_modifier)
++    {
++        x = mscharged::DebugInputs(*this).left_x;
++        y = mscharged::DebugInputs(*this).left_y;
++    }
++
++    m_fAzimuth += dt * (x * sfControlSpeedScale);
++    m_fTheta += dt * (y * sfControlSpeedScale);
++
++    if (m_fTheta > 89.0f)
++    {
++        m_fTheta = 89.0f;
++    }
++    if (m_fTheta < -89.0f)
++    {
++        m_fTheta = -89.0f;
++    }
++}
++
++void cDebugCamera::UpdatePanControls(float dt, float controlSpeed)
++{
++    float x = 0.0f;
++    float y = 0.0f;
++
++    if (mscharged::DebugInputs(*this).controls != mscharged::DebugCameraControls::WiiFreestyle)
++    {
++        x = mscharged::DebugInputs(*this).left_x;
++        y = mscharged::DebugInputs(*this).left_y;
++    }
++    else
++    {
++        if (mscharged::DebugInputs(*this).height_modifier)
++        {
++            x = mscharged::DebugInputs(*this).left_x;
++            y = mscharged::DebugInputs(*this).left_y;
++        }
++    }
++
++    if (x != 0.0f || y != 0.0f)
++    {
++        m_pTarget = 0;
++    }
++
++    nlVector3 offset;
++    m_matView.GetColumn_(0, offset);
++    nlVec3Scale(offset, offset, dt * (x * controlSpeed));
++    offset.z = 0.0f;
++    nlVec3Add(m_vecTarget, m_vecTarget, offset);
++
++    m_matView.GetColumn_(2, offset);
++    nlVec3Scale(offset, offset, dt * (-y * controlSpeed));
++    offset.z = 0.0f;
++    nlVec3Add(m_vecTarget, m_vecTarget, offset);
++}
++
++void cDebugCamera::UpdateRadiusAndHeightControls(float dt, float controlSpeed)
++{
++    bool heightControls = m_bUseWiiControls
++        ? mscharged::DebugInputs(*this).height_modifier
++        : mscharged::DebugInputs(*this).height_modifier;
++
++    if (!heightControls)
++    {
++        if (mscharged::DebugInputs(*this).increase)
++        {
++            m_fRadius += controlSpeed * dt;
++        }
++        if (mscharged::DebugInputs(*this).decrease)
++        {
++            m_fRadius -= controlSpeed * dt;
++        }
++    }
++    else
++    {
++        if (mscharged::DebugInputs(*this).decrease)
++        {
++            m_fHeight -= controlSpeed * dt;
++        }
++        if (mscharged::DebugInputs(*this).increase)
++        {
++            m_fHeight += controlSpeed * dt;
++        }
++    }
++
++    if (!mscharged::DebugInputs(*this).suppress_pressure_height)
++    {
++        float down = mscharged::DebugInputs(*this).height_down_pressure;
++        float up = mscharged::DebugInputs(*this).height_up_pressure;
++        float delta = up - down;
++        m_fHeight += dt * (delta * controlSpeed);
++    }
++
++    if (m_fHeight < 0.0f)
++    {
++        m_fHeight = 0.0f;
++    }
++    if (m_fRadius < 0.001)
++    {
++        m_fRadius = 0.001f;
++    }
++}
++
++void cDebugCamera::Update(float dt)
++{
++    mscharged::CheckDebugCameraAdvance(*this, dt);
++    nlVector3 vecUp;
++    float sn;
++    float cs;
++    float x;
++    float y;
++
++    float controlSpeed = sfControlDistanceScale *
++        (1.0f + sfControlHeightScale * (m_fRadius + m_fHeight));
++
++    if (!mscharged::DebugInputs(*this).tweaking && !mscharged::DebugInputs(*this).profiling)
++    {
++        m_bUseWiiControls = mscharged::DebugInputs(*this).controls != mscharged::DebugCameraControls::Desktop;
++
++        float yPressure = mscharged::DebugInputs(*this).increase_pressure;
++        float xPressure = mscharged::DebugInputs(*this).decrease_pressure;
++        if ((yPressure > 0.0f && mscharged::DebugInputs(*this).decrease_edge) ||
++            (xPressure > 0.0f && mscharged::DebugInputs(*this).increase_edge))
++        {
++            m_bEnableControls = !m_bEnableControls;
++        }
++
++        // Target cycling requires the original populated game/replay registry.
++        // The owner rejects requests before entering this selected control path.
++
++        if (m_bEnableControls)
++        {
++            UpdateOrbitControls(dt);
++            UpdatePanControls(dt, controlSpeed);
++            UpdateRadiusAndHeightControls(dt, controlSpeed);
++        }
++    }
++
++    UpdateTargetPositions();
++
++    if (m_pTarget != 0)
++    {
++        float stepSquared = sfTargetFollowStep * sfTargetFollowStep;
++        float distanceSquared = CalculateDistanceSquared(
++            m_vecTarget, m_pTarget->mPosition);
++        if (distanceSquared < stepSquared)
++        {
++            m_vecTarget = m_pTarget->mPosition;
++        }
++        else
++        {
++            nlVector3 delta;
++            nlVec3Sub(delta, m_pTarget->mPosition, m_vecTarget);
++            float scale = sfTargetFollowStep / nlSqrt(distanceSquared, true);
++            nlVec3Scale(delta, delta, scale);
++            nlVec3Add(m_vecTarget, m_vecTarget, delta);
++        }
++    }
++
++    nlVec3Set(vecUp, 0.0f, 0.0f, 1.0f);
++
++    nlSinCos(&sn, &cs,
++        mscharged::DebugCameraAngle(10430.378f * DegreesToRadians(m_fTheta)));
++    float z = m_fRadius * sn;
++    float d = m_fRadius * cs;
++    nlSinCos(&sn, &cs,
++        mscharged::DebugCameraAngle(10430.378f * DegreesToRadians(m_fAzimuth)));
++
++    x = d * cs;
++    y = d * sn;
++    nlVec3Set(m_vecCamera, x, y, z);
++    m_vecTarget.z = m_fHeight;
++    nlVec3Add(m_vecCamera, m_vecCamera, m_vecTarget);
++
++    mscharged::CheckDebugCameraLookAt(m_vecCamera, m_vecTarget);
++    glMatrixLookAt(m_matView, m_vecCamera, m_vecTarget, vecUp);
++    mscharged::CheckDebugCameraResult(*this);
++}

@@ -58,7 +58,7 @@ class StartupTests(unittest.TestCase):
         self.assertIn("Original boot configuration parsed through sync/async NL loading: 1 matching typed entries; both arenas recovered", output)
         self.assertIn("Original camera stack, transition and filters verified with supplied diagnostic poses; both arenas recovered", output)
         self.assertIn("Native camera asset decoded through sync/async NL reads:", output)
-        self.assertIn("(3 keys); both arenas recovered. Original animated-camera playback remains pending.", output)
+        self.assertIn("(3 keys); original authored playback sampled through CameraMan; both arenas recovered.", output)
         self.assertIn("Original tweak registry parsed datetime configuration: 1 values; borrowed values preserved and both arenas recovered", output)
         self.assertIn("STOPPED at unimplemented service: Initialize (remaining stages)", output)
         self.assertIn("No menu or match was reached", output)

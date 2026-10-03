@@ -1,6 +1,6 @@
 Subject: Select camera data lifetime independently of unfinished playback
 
-Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
 
 Extract original cCameraData initialization and pair owned arrays with nlFree
 on native hosts. Initialize the ownership flag for partial allocation rollback.
@@ -9,16 +9,16 @@ Camera playback and the original registry remain unselected.
 diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
 --- a/src/Game/Camera/animcam.cpp
 +++ b/src/Game/Camera/animcam.cpp
-@@ -69,6 +69,7 @@
-     out = (T*)chunk->GetData();
+@@ -60,6 +60,7 @@
+     return name;
  }
  
 +#ifndef MSCHARGED_NATIVE
  cCameraData::cCameraData()
  {
      next = NULL;
-@@ -94,6 +95,8 @@
-         delete[] field_0x0C;
+@@ -85,6 +86,8 @@
+         delete[] m_szName;
      }
  }
 +
@@ -41,7 +41,7 @@ new file mode 100644
 +    next = NULL;
 +    m_uHashID = 0;
 +    m_uKeyCount = 0;
-+    field_0x0C = NULL;
++    m_szName = NULL;
 +    cameraPos = NULL;
 +    targetPos = NULL;
 +    cameraRot = NULL;
@@ -58,6 +58,6 @@ new file mode 100644
 +        nlFree(cameraRot);
 +        nlFree(fFOV);
 +        nlFree(fFocalLength);
-+        nlFree(field_0x0C);
++        nlFree(m_szName);
 +    }
 +}

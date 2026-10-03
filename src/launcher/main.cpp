@@ -720,6 +720,9 @@ int main(int argc, char** argv)
             std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N]\n"
                          "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n"
                          "                        [--world /DISC/gameworld.tmp.zlib --model-id HEX]\n"
+                         "                        [--world /DISC/gameworld.tmp.zlib --world-res /DISC/gameworld.res.zlib\n"
+                         "                         --object-id HEX ...] [--no-world-culling] (selected static objects)\n"
+                         "                        [--camera /DISC/camera.cam]\n"
                          "                        [--unlit] [--shadow-textures /DISC/PATH.rlt --shadow-id HEX]\n";
 #endif
             return 0;
@@ -727,14 +730,18 @@ int main(int argc, char** argv)
         if (arg == "--smoke-test") options.smoke_test = true;
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
+        else if (arg == "--no-world-culling") { options.scene_arguments = true; options.scene.no_world_culling = true; }
         else if (arg == "--unlit") { options.scene_arguments = true; options.scene.unlit = true; }
         else if ((arg == "--frames" || arg == "--model" || arg == "--textures" || arg == "--model-id"
-                  || arg == "--world" || arg == "--shadow-textures" || arg == "--shadow-id") && i + 1 < argc)
+                  || arg == "--world" || arg == "--world-res" || arg == "--object-id"
+                  || arg == "--camera" || arg == "--shadow-textures" || arg == "--shadow-id") && i + 1 < argc)
         {
             options.scene_arguments = true;
             const std::string value = argv[++i];
             if (arg == "--model" || arg == "--textures") options.standalone_assets = true;
             if (arg == "--world") options.scene.world = value;
+            else if (arg == "--world-res") options.scene.world_res = value;
+            else if (arg == "--camera") options.scene.camera = value;
             else if (arg == "--model") options.scene.model = value;
             else if (arg == "--textures") options.scene.textures = value;
             else if (arg == "--shadow-textures") options.scene.shadow_textures = value;
@@ -742,13 +749,19 @@ int main(int argc, char** argv)
             {
                 std::uint32_t number = 0;
                 std::string_view digits = value;
-                const bool hex = arg == "--model-id" || arg == "--shadow-id";
+                const bool hex = arg == "--model-id" || arg == "--shadow-id" || arg == "--object-id";
                 if (hex && (digits.size() >= 2 && digits.substr(0, 2) == "0x")) digits.remove_prefix(2);
                 const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number, hex ? 16 : 10);
                 if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size()
                     || (arg == "--frames" && (!number || number > 10000)))
                 { std::cerr << "Invalid " << arg << " value: " << value << '\n'; return 2; }
                 if (arg == "--frames") options.scene.frames = number;
+                else if (arg == "--object-id")
+                {
+                    if (options.scene.object_ids.size() == 256)
+                    { std::cerr << "World preview accepts at most 256 object IDs.\n"; return 2; }
+                    options.scene.object_ids.push_back(number);
+                }
                 else if (arg == "--shadow-id") options.scene.shadow_id = number;
                 else options.scene.model_id = number;
             }
@@ -776,7 +789,16 @@ int main(int argc, char** argv)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
     if (options.scene.shadow_id.has_value() != options.scene.shadow_textures.has_value())
     { std::cerr << "--shadow-textures and --shadow-id must be supplied together.\n"; return 2; }
-    if (options.scene.world && !options.scene.model_id)
+    if (options.scene.world_res || !options.scene.object_ids.empty())
+    {
+        if (!options.scene.world || !options.scene.world_res || options.scene.object_ids.empty())
+        { std::cerr << "World objects require --world, --world-res and at least one --object-id.\n"; return 2; }
+        if (options.scene.model_id || options.scene.shadow_id || options.standalone_assets)
+        { std::cerr << "World object selection cannot be combined with model or shadow lookup options.\n"; return 2; }
+    }
+    if (options.scene.no_world_culling && !options.scene.world_res)
+    { std::cerr << "--no-world-culling requires a world object selection.\n"; return 2; }
+    if (options.scene.world && !options.scene.model_id && !options.scene.world_res)
     { std::cerr << "--world requires an explicit --model-id.\n"; return 2; }
     if (options.scene.world && options.standalone_assets)
     { std::cerr << "Select --world or separate --model/--textures assets.\n"; return 2; }

@@ -1,0 +1,372 @@
+Subject: Select original animated camera playback with bounded native services
+
+Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+
+Compile original interpolation/cuts, transforms, timing and FOV independently
+of the full camera factory. Native owners retain decoded data and provide
+presentation flags, simulation time and focal-distance output explicitly.
+Validate sample indices, deltas and look-at inputs before unsafe arithmetic.
+Raw registry/loading and gameplay service singletons remain unselected.
+
+diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+--- a/src/Game/Camera/animcam.cpp
++++ b/src/Game/Camera/animcam.cpp
+@@ -255,6 +255,7 @@
+     m_cameraDataList = NULL;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ cAnimCamera::cAnimCamera()
+ {
+     m_bUseSimulationTime = false;
+@@ -273,11 +274,15 @@
+     m_bCyclic = true;
+     m_matView.SetIdentity();
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ cAnimCamera::~cAnimCamera()
+ {
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
+ {
+     m_fAnimationTime = fTime;
+@@ -286,14 +291,18 @@
+         BuildAnimViewMatrix(m_matView);
+     }
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ static inline float CameraKeyDistanceSquared(const nlVector3& first, const nlVector3& second)
+ {
+     nlVector3 delta;
+     nlVec3Sub(delta, first, second);
+     return delta.GetLengthSq3D();
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
+ {
+     float fRealIndex = m_fAnimationTime * (float)(m_pActiveCameraData->m_uKeyCount - 1);
+@@ -401,6 +410,7 @@
+     m_FocalLength = dofBehindTarget * fScale + focalLength;
+     DepthOfFieldManager::instance.m_fDistanceFromCamera = m_FocalLength;
+ }
++#endif
+ 
+ void cAnimCamera::UnselectCameraAnimation()
+ {
+@@ -427,6 +437,7 @@
+     BuildAnimViewMatrix(m_matView);
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void cAnimCamera::Update(float dt)
+ {
+     if (!m_LetManagerDoUpdate)
+@@ -435,7 +446,9 @@
+     }
+     ManualUpdate(dt);
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ float cAnimCamera::ManualUpdate(float dt)
+ {
+     float overrun = 0.0f;
+@@ -482,3 +495,4 @@
+     BuildAnimViewMatrix(m_matView);
+     return overrun;
+ }
++#endif
+diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
+--- a/src/Game/AI/AiUtil.cpp
++++ b/src/Game/AI/AiUtil.cpp
+@@ -308,6 +308,7 @@
+     return nlVec3DotProduct(delta, vel1) - nlVec3DotProduct(delta, vel2);
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void GetLocalPoint(nlVector3& v3LocalPointOut, const nlVector3& v3WorldPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
+ {
+     float fSin; // r1+0xC
+@@ -321,7 +322,9 @@
+     v3LocalPointOut.y = (fCos * dy) - (fSin * dx);
+     v3LocalPointOut.z = v3WorldPointIn.z;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void GetWorldPoint(nlVector3& v3WorldPointOut, const nlVector3& v3LocalPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
+ {
+     f32 fSin;
+@@ -336,6 +339,7 @@
+     v3WorldPointOut.y = v3RefPosition.y + ((fCos * localY) + (fSin * localX));
+     v3WorldPointOut.z = v3LocalPointIn.z;
+ }
++#endif
+ 
+ void RotateVectorZAxis(nlVector3& v3Out, const nlVector3& v3In, unsigned short angle)
+ {
+diff --git a/src/Game/Camera/AnimatedCameraNative.cpp b/src/Game/Camera/AnimatedCameraNative.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/Camera/AnimatedCameraNative.cpp
+@@ -0,0 +1,245 @@
++// Original authored camera equations; host service inputs are explicit.
++#include "runtime/animated_camera.h"
++#include "Game/Camera/CameraMan.h"
++#include "NL/gl/glMatrix.h"
++#include "NL/platqmath.h"
++#include "NL/platvmath.h"
++static float dofBehindTarget = 2.0f;
++static float dofReferenceFOV = 45.0f;
++static float dofFOVScaleWeight = 1.0f;
++static float dofFOVScale = 1.0f;
++cCameraData* cAnimCamera::m_cameraDataList = nullptr;
++
++void GetLocalPoint(nlVector3& v3LocalPointOut, const nlVector3& v3WorldPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
++{
++    float fSin; // r1+0xC
++    float fCos; // r1+0x8
++
++    nlSinCos(&fSin, &fCos, aRefAngle);
++    float dx = v3WorldPointIn.x - v3RefPosition.x;
++    float dy = v3WorldPointIn.y - v3RefPosition.y;
++
++    v3LocalPointOut.x = (fCos * dx) + (fSin * dy);
++    v3LocalPointOut.y = (fCos * dy) - (fSin * dx);
++    v3LocalPointOut.z = v3WorldPointIn.z;
++}
++
++void GetWorldPoint(nlVector3& v3WorldPointOut, const nlVector3& v3LocalPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
++{
++    f32 fSin;
++    f32 fCos;
++
++    float localX = v3LocalPointIn.x;
++    float localY = v3LocalPointIn.y;
++
++    nlSinCos(&fSin, &fCos, aRefAngle);
++
++    v3WorldPointOut.x = v3RefPosition.x + ((fCos * localX) - (fSin * localY));
++    v3WorldPointOut.y = v3RefPosition.y + ((fCos * localY) + (fSin * localX));
++    v3WorldPointOut.z = v3LocalPointIn.z;
++}
++
++cAnimCamera::cAnimCamera()
++{
++    m_bUseSimulationTime = false;
++    m_LetManagerDoUpdate = true;
++    m_bUseLookAt = false;
++    m_fAnimationTime = 0.0f;
++    m_fAnimationSpeed = 1.0f;
++    m_fLastSimulationTime = -1.0f;
++    m_pActiveCameraData = NULL;
++    mFacingAngle = 0;
++    m_EndOfAnimationCallback = NULL;
++    nlVec3Set(m_vecTarget, 0.0f, 0.0f, 0.0f);
++    nlVec3Set(m_OffsetPos, 0.0f, 0.0f, 0.0f);
++    nlVec3Set(m_Mirror, 1.0f, 1.0f, 1.0f);
++    m_pActiveCameraData = m_cameraDataList;
++    m_bCyclic = true;
++    m_matView.SetIdentity();
++}
++
++cAnimCamera::~cAnimCamera()
++{
++}
++
++void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
++{
++    mscharged::CheckAnimatedSample(*this, fTime);
++    m_fAnimationTime = fTime;
++    if (bUpdateView)
++    {
++        BuildAnimViewMatrix(m_matView);
++    }
++}
++
++static inline float CameraKeyDistanceSquared(const nlVector3& first, const nlVector3& second)
++{
++    nlVector3 delta;
++    nlVec3Sub(delta, first, second);
++    return delta.GetLengthSq3D();
++}
++
++void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
++{
++    mscharged::CheckAnimatedSample(*this, m_fAnimationTime);
++    float fRealIndex = m_fAnimationTime * (float)(m_pActiveCameraData->m_uKeyCount - 1);
++    int nIndex = (int)fRealIndex;
++    float fWeightB = fRealIndex - (float)nIndex;
++    float fWeightA = 1.0f - fWeightB;
++    nlVector3 cameraPos = { };
++    nlVector3 targetPos = { };
++    nlQuaternion cameraRot = { 0.0f, 0.0f, 0.0f, 1.0f };
++    nlMatrix4 viewMatrix;
++    nlMatrix4 facingAngleMatrix;
++    nlVector3 up;
++    float focalLength;
++    if (m_fAnimationTime >= 1.0f)
++    {
++        nIndex = m_pActiveCameraData->m_uKeyCount - 1;
++        fRealIndex = (float)(m_pActiveCameraData->m_uKeyCount - 1);
++        m_Fov = m_pActiveCameraData->fFOV[nIndex];
++        cameraPos = m_pActiveCameraData->cameraPos[nIndex];
++        targetPos = m_pActiveCameraData->targetPos[nIndex];
++        cameraRot = m_pActiveCameraData->cameraRot[nIndex];
++        focalLength = m_pActiveCameraData->fFocalLength[nIndex];
++    }
++    else
++    {
++        nlVector3& cpN = m_pActiveCameraData->cameraPos[nIndex + 1];
++        nlVector3& cpK = m_pActiveCameraData->cameraPos[nIndex];
++        float distSq = CameraKeyDistanceSquared(cpK, cpN);
++        if (distSq > 16.0f)
++        {
++            if (fWeightB < 0.5f)
++            {
++                cameraPos = m_pActiveCameraData->cameraPos[nIndex];
++                targetPos = m_pActiveCameraData->targetPos[nIndex];
++                cameraRot = m_pActiveCameraData->cameraRot[nIndex];
++                m_Fov = m_pActiveCameraData->fFOV[nIndex];
++                focalLength = m_pActiveCameraData->fFocalLength[nIndex];
++            }
++            else
++            {
++                cameraPos = m_pActiveCameraData->cameraPos[nIndex + 1];
++                targetPos = m_pActiveCameraData->targetPos[nIndex + 1];
++                cameraRot = m_pActiveCameraData->cameraRot[nIndex + 1];
++                m_Fov = m_pActiveCameraData->fFOV[nIndex + 1];
++                focalLength = m_pActiveCameraData->fFocalLength[nIndex + 1];
++            }
++        }
++        else
++        {
++            m_Fov = fWeightA * m_pActiveCameraData->fFOV[nIndex] + fWeightB * m_pActiveCameraData->fFOV[nIndex + 1];
++            nlVec3WeightedSum(cameraPos, fWeightA, m_pActiveCameraData->cameraPos[nIndex], fWeightB, m_pActiveCameraData->cameraPos[nIndex + 1]);
++            nlVec3WeightedSum(targetPos, fWeightA, m_pActiveCameraData->targetPos[nIndex], fWeightB, m_pActiveCameraData->targetPos[nIndex + 1]);
++            focalLength = BlendCameraValue(m_pActiveCameraData->fFocalLength[nIndex], m_pActiveCameraData->fFocalLength[nIndex + 1], fWeightB);
++            nlQuatSlerp(cameraRot, m_pActiveCameraData->cameraRot[nIndex], m_pActiveCameraData->cameraRot[nIndex + 1], fWeightB);
++        }
++    }
++
++    if (mscharged::AnimatedInputs(*this).widescreen)
++    {
++        if (mscharged::AnimatedInputs(*this).letterbox)
++        {
++            m_Fov = AdjustFOVForWidescreen(m_Fov);
++        }
++    }
++
++    cameraPos.x *= m_Mirror.x;
++    cameraPos.y *= m_Mirror.y;
++    cameraPos.z *= m_Mirror.z;
++    targetPos.x *= m_Mirror.x;
++    targetPos.y *= m_Mirror.y;
++    targetPos.z *= m_Mirror.z;
++    if (m_Mirror.x != 1.0f || m_Mirror.y != 1.0f || m_Mirror.z != 1.0f)
++    {
++        cameraRot.x *= -m_Mirror.x;
++        cameraRot.y *= -m_Mirror.y;
++        cameraRot.z *= -m_Mirror.z;
++    }
++    nlVec3Add(m_vecCamera, cameraPos, m_OffsetPos);
++    nlVec3Add(m_vecTarget, targetPos, m_OffsetPos);
++    GetLocalPoint(m_vecCamera, m_vecCamera, m_OffsetPos, 0);
++    GetWorldPoint(m_vecCamera, m_vecCamera, m_OffsetPos, mFacingAngle);
++    if (m_bUseLookAt)
++    {
++        static const nlVector3 kUp = { 0.0f, 0.0f, 1.0f };
++        up = kUp;
++        mscharged::CheckAnimatedLookAt(m_vecCamera, m_vecTarget);
++        glMatrixLookAt(mView, m_vecCamera, m_vecTarget, up);
++    }
++    else
++    {
++        nlQuatToMatrix(viewMatrix, cameraRot, true);
++        float facingAngleRadians = (float)mFacingAngle * 0.0000958738f;
++        nlMakeRotationMatrixZ(facingAngleMatrix, facingAngleRadians);
++        nlMultMatrices(viewMatrix, facingAngleMatrix);
++        viewMatrix.m41 = m_vecCamera.x;
++        viewMatrix.m42 = m_vecCamera.y;
++        viewMatrix.m43 = m_vecCamera.z;
++        viewMatrix.m44 = 1.0f;
++        nlInvertMatrix(mView, viewMatrix);
++    }
++
++    float fScale = BlendCameraValue(1.0f, dofReferenceFOV / m_Fov, dofFOVScaleWeight);
++    fScale *= fScale;
++    dofFOVScale = fScale;
++    m_FocalLength = dofBehindTarget * fScale + focalLength;
++    mscharged::RecordAnimatedFocal(*this, m_FocalLength);
++}
++
++void cAnimCamera::Update(float dt)
++{
++    if (!m_LetManagerDoUpdate)
++    {
++        return;
++    }
++    ManualUpdate(dt);
++}
++
++float cAnimCamera::ManualUpdate(float dt)
++{
++    mscharged::CheckAnimatedAdvance(*this, dt);
++    float overrun = 0.0f;
++    if (m_bUseSimulationTime)
++    {
++        if (m_fLastSimulationTime < 0.0f)
++        {
++            m_fLastSimulationTime = mscharged::AnimatedInputs(*this).simulation_time;
++        }
++        else
++        {
++            float simTime = mscharged::AnimatedInputs(*this).simulation_time;
++            float delta = simTime - m_fLastSimulationTime;
++            float duration = GetDuration();
++            m_fAnimationTime += (delta * m_fAnimationSpeed) / duration;
++            m_fLastSimulationTime = simTime;
++        }
++    }
++    else
++    {
++        float duration = GetDuration();
++        m_fAnimationTime += (dt * m_fAnimationSpeed) / duration;
++    }
++
++    if (m_fAnimationTime >= 1.0f)
++    {
++        float duration = GetDuration();
++        overrun = (m_fAnimationTime - 1.0f) * duration;
++        if (m_bCyclic)
++        {
++            m_fAnimationTime -= 1.0f;
++        }
++        else
++        {
++            m_fAnimationTime = 1.0f;
++        }
++        if (m_EndOfAnimationCallback != NULL)
++        {
++            m_EndOfAnimationCallback();
++        }
++    }
++
++    BuildAnimViewMatrix(m_matView);
++    return overrun;
++}

@@ -60,8 +60,8 @@ CameraAsset::CameraAsset(resources::Bytes file, const std::string& name)
     data.cameraRot = Allocate<nlQuaternion>(decoded.keys.size());
     data.fFOV = Allocate<float>(decoded.keys.size());
     data.fFocalLength = Allocate<float>(decoded.keys.size());
-    data.field_0x0C = Allocate<char>(decoded.name.size() + 1);
-    std::memcpy(data.field_0x0C, decoded.name.c_str(), decoded.name.size() + 1);
+    data.m_szName = Allocate<char>(decoded.name.size() + 1);
+    std::memcpy(data.m_szName, decoded.name.c_str(), decoded.name.size() + 1);
     for (std::size_t i = 0; i < decoded.keys.size(); ++i)
     {
         const auto& key = decoded.keys[i];

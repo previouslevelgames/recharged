@@ -39,7 +39,7 @@ bool PrimitiveCount(std::uint8_t kind, std::size_t size)
     }
 }
 struct Budget { std::size_t vertices = 0, indices = 0; };
-void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<StaticModel>& result, Budget& budget, std::optional<std::uint32_t> selected, std::set<std::uint32_t>& ids)
+void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<StaticModel>& result, Budget& budget, std::optional<std::uint32_t> selected, std::set<std::uint32_t>& ids, ModelCoordinates coordinates)
 {
     std::map<std::uint32_t, Bytes> chunks;
     unsigned count = 0;
@@ -239,6 +239,8 @@ void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<Stati
             std::array<float, 16> matrix;
             for (std::size_t i = 0; i < 16; ++i) matrix[i] = F32(matrices, std::size_t(matrix_index) * 64 + i * 4);
             Require(matrix[3] == 0 && matrix[7] == 0 && matrix[11] == 0 && matrix[15] == 1, "Nonaffine RLG matrix is unsupported");
+            if (coordinates == ModelCoordinates::Local)
+                matrix = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
             for (std::size_t i = 0; i < unique; ++i)
             {
                 const float x = F32(stream_bytes[0], i * 12), y = F32(stream_bytes[0], i * 12 + 4), z = F32(stream_bytes[0], i * 12 + 8);
@@ -294,7 +296,7 @@ void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<Stati
     Require(next_packet == packet_count, "Unreferenced RLG packets");
 }
 
-std::vector<StaticModel> ReadModels(Bytes data, std::size_t offset, std::size_t end, std::optional<std::uint32_t> selected)
+std::vector<StaticModel> ReadModels(Bytes data, std::size_t offset, std::size_t end, std::optional<std::uint32_t> selected, ModelCoordinates coordinates)
 {
     Require(data.size() <= MaximumAssetBytes, "RLG exceeds the static preview size limit");
     const auto root = ReadChunk(data, offset, end);
@@ -304,7 +306,7 @@ std::vector<StaticModel> ReadModels(Bytes data, std::size_t offset, std::size_t 
     std::vector<StaticModel> result;
     Budget budget;
     std::set<std::uint32_t> ids;
-    if (root.id == 0x8001b000) ReadGroup(data, root_start, root_end, result, budget, selected, ids);
+    if (root.id == 0x8001b000) ReadGroup(data, root_start, root_end, result, budget, selected, ids, coordinates);
     else if (root.id == 0x8001b100)
     {
         for (auto offset = root_start; offset < root_end;)
@@ -312,7 +314,7 @@ std::vector<StaticModel> ReadModels(Bytes data, std::size_t offset, std::size_t 
             const auto group = ReadChunk(data, offset, root_end);
             Require(group.id == 0x8001b000, "Unsupported RLG model collection member");
             const auto start = static_cast<std::size_t>(group.payload.data() - data.data());
-            ReadGroup(data, start, start + group.payload.size(), result, budget, selected, ids);
+            ReadGroup(data, start, start + group.payload.size(), result, budget, selected, ids, coordinates);
             Require(group.next <= root_end, "RLG group padding exceeds collection");
             offset = group.next;
         }
@@ -325,9 +327,9 @@ std::vector<StaticModel> ReadModels(Bytes data, std::size_t offset, std::size_t 
 } // namespace
 std::vector<StaticModel> ReadStaticModels(Bytes data, std::optional<std::uint32_t> selected)
 {
-    return ReadModels(data, 0, data.size(), selected);
+    return ReadModels(data, 0, data.size(), selected, ModelCoordinates::BakedPacket);
 }
-StaticWorldModel ReadStaticWorldModel(Bytes data, std::uint32_t selected)
+StaticWorldModel ReadStaticWorldModel(Bytes data, std::uint32_t selected, ModelCoordinates coordinates)
 {
     Require(data.size() <= MaximumAssetBytes, "World asset exceeds its budget");
     const auto root = ReadChunk(data, 0, data.size());
@@ -354,7 +356,7 @@ StaticWorldModel ReadStaticWorldModel(Bytes data, std::uint32_t selected)
         offset = chunk.next;
     }
     Require(models && !textures.empty(), "World resource needs models and textures");
-    auto result = ReadModels(data, models->first, models->second, selected);
+    auto result = ReadModels(data, models->first, models->second, selected, coordinates);
     Require(result.size() == 1, "World selection must resolve one static model");
     return {std::move(result.front()), textures};
 }

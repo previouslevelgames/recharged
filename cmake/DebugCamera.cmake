@@ -1,0 +1,17 @@
+include_guard(GLOBAL)
+include(cmake/Cameras.cmake)
+add_library(charged_debug_camera STATIC
+    "${MSCHARGED_PREPARED}/src/Game/Camera/DebugCameraNative.cpp"
+    src/runtime/debug_camera.cpp)
+add_dependencies(charged_debug_camera verify_prepared)
+target_link_libraries(charged_debug_camera PUBLIC charged_cameras)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_debug_camera PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
+endif()
+if(BUILD_TESTING)
+    add_executable(debug_camera_tests tests/debug_camera.cpp tests/task_clock.cpp)
+    target_include_directories(debug_camera_tests PRIVATE "${MSCHARGED_PREPARED}/src")
+    target_link_libraries(debug_camera_tests PRIVATE charged_debug_camera)
+    add_test(NAME debug_camera COMMAND debug_camera_tests)
+    set_tests_properties(debug_camera PROPERTIES TIMEOUT 30)
+endif()

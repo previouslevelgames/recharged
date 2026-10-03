@@ -44,7 +44,11 @@ struct StaticWorldModel
     StaticModel model;
     Bytes textures; // Borrows the decompressed world buffer, until textures are decoded.
 };
+// Standalone previews bake packet matrices. WorldDrawable::DrawToView replaces
+// them with the instance matrix, so world instances must retain local vertices.
+enum class ModelCoordinates { BakedPacket, Local };
 // Decode one explicit static model; other materials are not interpreted. The
 // world object graph, animation and original world loading remain separate.
-StaticWorldModel ReadStaticWorldModel(Bytes data, std::uint32_t selected);
+StaticWorldModel ReadStaticWorldModel(Bytes data, std::uint32_t selected,
+    ModelCoordinates coordinates = ModelCoordinates::BakedPacket);
 }

@@ -1,0 +1,18 @@
+include_guard(GLOBAL)
+include(cmake/Cameras.cmake)
+include(cmake/CameraAssets.cmake)
+add_library(charged_animated_camera STATIC
+    "${MSCHARGED_PREPARED}/src/Game/Camera/AnimatedCameraNative.cpp"
+    src/runtime/animated_camera.cpp)
+add_dependencies(charged_animated_camera verify_prepared)
+target_link_libraries(charged_animated_camera PUBLIC charged_cameras charged_camera_assets)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_animated_camera PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
+endif()
+if(BUILD_TESTING)
+    add_executable(animated_camera_tests tests/animated_camera.cpp tests/task_clock.cpp)
+    target_include_directories(animated_camera_tests PRIVATE "${MSCHARGED_PREPARED}/src")
+    target_link_libraries(animated_camera_tests PRIVATE charged_animated_camera)
+    add_test(NAME animated_camera COMMAND animated_camera_tests)
+    set_tests_properties(animated_camera PROPERTIES TIMEOUT 30)
+endif()
