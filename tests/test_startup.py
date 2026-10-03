@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from disc_fixture import write_disc
+from camera_fixture import camera_fixture
 
 EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
@@ -29,6 +30,7 @@ class StartupTests(unittest.TestCase):
             "test.txt": b"Synthetic fixture data.\n",
             "ini/common.ini": b"; Synthetic only\n[test]\nvalue = 7\n",
             "ini/datetime.ini": b"; Synthetic only\n[build]\ndate = fixture\n",
+            "Art/fe/environments/cameras/camera_idle.cam": camera_fixture(),
         })
         config = self.root / "personal.ini"
         config.write_text(f"; preserve this personal file\n[game]\ndisc = disc with spaces.iso\nlanguage = {language}\n")
@@ -48,12 +50,15 @@ class StartupTests(unittest.TestCase):
         self.assertIn("Original DispatchEventsTask delivery, reset and queued payload cleanup verified; both arenas recovered", output)
         self.assertIn("Original task manager scheduled DispatchEventsTask across state masks and batches; inactive movie path and arena recovery verified", output)
         self.assertIn("Native SAnim decoders verified: 16/12/8-bit rotations, unsigned scale and byte weights", output)
-        self.assertIn("Original nlInitFileSystem completed; NL sync/async reads verified: /ini/common.ini", output)
-        self.assertIn("34 of 34 bytes; FNV-1a 0x30853692", output)
+        self.assertIn("Original nlInitFileSystem completed; NL sync/async reads verified: /Art/fe/environments/cameras/camera_idle.cam", output)
+        self.assertIn("127 of 276 bytes; FNV-1a 0x1b751ff1", output)
         self.assertIn("callback on servicing thread", output)
         self.assertIn("Native NL whole-file async loads verified (bytes only): /ini/common.ini", output)
         self.assertIn("/ini/datetime.ini", output)
         self.assertIn("Original boot configuration parsed through sync/async NL loading: 1 matching typed entries; both arenas recovered", output)
+        self.assertIn("Original camera stack, transition and filters verified with supplied diagnostic poses; both arenas recovered", output)
+        self.assertIn("Native camera asset decoded through sync/async NL reads:", output)
+        self.assertIn("(3 keys); both arenas recovered. Original animated-camera playback remains pending.", output)
         self.assertIn("Original tweak registry parsed datetime configuration: 1 values; borrowed values preserved and both arenas recovered", output)
         self.assertIn("STOPPED at unimplemented service: Initialize (remaining stages)", output)
         self.assertIn("No menu or match was reached", output)
@@ -84,6 +89,19 @@ class StartupTests(unittest.TestCase):
         output = self.run_startup(self.config(game_id=b"R4QP01"), expected=1)
         self.assertIn("R4QE01 revision 1 only", output)
         self.assertNotIn("Entering original", output)
+
+    def test_missing_or_invalid_camera_is_an_error(self):
+        for camera in (None, camera_fixture()[:-4]):
+            with self.subTest(missing=camera is None):
+                config = self.config()
+                files = {"ini/common.ini": b"[test]\nvalue=7\n",
+                         "ini/datetime.ini": b"[build]\ndate=fixture\n"}
+                if camera is not None:
+                    files["Art/fe/environments/cameras/camera_idle.cam"] = camera
+                write_disc(self.root / "disc with spaces.iso", files=files)
+                output = self.run_startup(config, expected=1)
+                self.assertIn("Camera asset is missing" if camera is None else "chunk exceeds its container", output)
+                self.assertNotIn("Native camera asset decoded", output)
 
     def test_invalid_original_configuration_fails_explicitly(self):
         for common, datetime, message in [

@@ -1,10 +1,11 @@
 #include "resources/texture_bundle.h"
 #include <algorithm>
 #include <set>
+#include <map>
 
 namespace mscharged::resources
 {
-std::vector<Texture> ReadTextureBundle(Bytes data, const std::vector<std::uint32_t>& selected)
+TextureBundle ReadTextureBundle(Bytes data, const std::vector<std::uint32_t>& selected)
 {
     Require(data.size() <= MaximumAssetBytes, "RLT exceeds the static preview size limit");
     Require(U32(data, 0) == 0x50544c47, "Invalid RLT signature");
@@ -13,17 +14,58 @@ std::vector<Texture> ReadTextureBundle(Bytes data, const std::vector<std::uint32
     const auto dictionary = Slice(data, 16, std::size_t(count) * 16);
     const auto contents = Slice(data, 16 + dictionary.size(), data.size() - 16 - dictionary.size());
     const std::uint8_t formats[] = {4, 5, 14, 6, 1, 0, 1, 3, 9};
-    std::vector<Texture> result;
+    TextureBundle result;
+    std::map<std::uint32_t, Bytes> entries;
     std::set<std::uint32_t> ids;
     std::size_t copied = 0;
     for (std::size_t i = 0; i < count; ++i)
     {
+        const auto id = U32(dictionary, i * 16);
+        Require(ids.insert(id).second, "Duplicate RLT texture ID");
+        entries.emplace(id, Slice(contents, U32(dictionary, i * 16 + 4), U32(dictionary, i * 16 + 8)));
+    }
+    std::set<std::uint32_t> required(selected.begin(), selected.end());
+    if (selected.empty()) required = ids;
+    for (auto id : required) Require(entries.count(id), "Requested texture is absent from RLT dictionary");
+    // Keep authored dictionary order when constructing records. Dependencies are
+    // included once, even when several animations share the same static frame.
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const auto id = U32(dictionary, i * 16);
+        if (!required.count(id)) continue;
+        const auto entry = entries.at(id);
+        if (U32(entry, 0) != 0x5f6c6669) continue;
+        Slice(entry, 0, 36); // Fixed Wii header; never use native sizeof/pointers.
+        Require(U32(entry, 4) == id, "RLT animation hash disagrees with its dictionary");
+        const auto frames = U32(entry, 8), mode = U32(entry, 12);
+        const auto direction = std::bit_cast<std::int32_t>(U32(entry, 16));
+        Require(frames && frames <= 4096 && mode < 3 && direction >= -1 && direction <= 1
+            && entry[20] <= 1, "Invalid RLT animation state");
+        TextureAnimation animation{id, mode, direction, entry[20] != 0, F32(entry, 28), {}};
+        Require(animation.elapsed >= 0, "Negative RLT animation elapsed time");
+        const auto records = Slice(entry, 36, std::size_t(frames) * 8);
+        Require((copied += std::size_t(frames) * sizeof(TextureAnimationFrame)) <= MaximumAssetBytes,
+            "RLT decoded data budget exceeded");
+        for (unsigned j = 0; j < frames; ++j)
+        {
+            const auto frame_id = U32(records, j * 8);
+            const float duration = F32(records, j * 8 + 4);
+            Require(duration >= 0, "Negative RLT animation frame duration");
+            const auto frame = entries.find(frame_id);
+            Require(frame != entries.end(), "RLT animation frame texture is missing");
+            Require(U32(frame->second, 0) != 0x5f6c6669, "Nested RLT texture animations are unsupported");
+            required.insert(frame_id);
+            animation.frames.push_back({frame_id, duration});
+        }
+        result.animations.push_back(std::move(animation));
+    }
+    for (std::size_t i = 0; i < count; ++i)
+    {
         Texture texture;
         texture.id = U32(dictionary, i * 16);
-        Require(ids.insert(texture.id).second, "Duplicate RLT texture ID");
-        const auto entry = Slice(contents, U32(dictionary, i * 16 + 4), U32(dictionary, i * 16 + 8));
-        if (!selected.empty() && std::find(selected.begin(), selected.end(), texture.id) == selected.end()) continue;
-        Require(U32(entry, 0) != 0x5f6c6669, "Animated RLT textures are not supported by the static preview");
+        if (!required.count(texture.id)) continue;
+        const auto entry = entries.at(texture.id);
+        if (U32(entry, 0) == 0x5f6c6669) continue;
         const auto header = Slice(entry, 0, 32);
         const auto levels = U32(header, 0), format = U32(header, 4), palette = U32(header, 20);
         texture.width = U16(header, 14); texture.height = U16(header, 16);
@@ -47,7 +89,7 @@ std::vector<Texture> ReadTextureBundle(Bytes data, const std::vector<std::uint32
         const auto pixels = Slice(entry, 32, size), colours = Slice(entry, 32 + size, std::size_t(palette) * 2);
         Require((copied += pixels.size() + colours.size()) <= MaximumAssetBytes, "RLT decoded data budget exceeded");
         texture.pixels.assign(pixels.begin(), pixels.end()); texture.palette.assign(colours.begin(), colours.end());
-        result.push_back(std::move(texture));
+        result.textures.push_back(std::move(texture));
     }
     for (auto id : selected) Require(ids.count(id), "Requested texture is absent from RLT dictionary");
     return result;

@@ -1,11 +1,12 @@
 Subject: Select native tweak registration with explicit allocation ownership
 
-Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
 
 Size node/value pools for native layouts, own pending registrations before game
 memory exists and distinguish borrowed values from registry-owned values. Extract
-existing value methods from gameplay units. Bound input/string/path storage and
-retain original registration, lookup and value parsing. State push/reset remains
+existing int/base methods from gameplay units; use upstream inline float methods.
+Bound input/string/path storage and retain original registration, lookup and
+value parsing. State push/reset remains
 an explicit boundary until its wider pool/recycled-name contract is qualified.
 
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
@@ -147,10 +148,10 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
 +#ifdef MSCHARGED_NATIVE
 +#include "runtime/tweaks.h"
 +#endif
+ #include "NL/nlFormat.h"
  
  class TweakValueFloat : public TweakValueBase
- {
-@@ -16,7 +19,11 @@
+@@ -17,7 +20,11 @@
  
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -163,27 +164,19 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
              if (entry != 0)
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
          }
-@@ -79,7 +86,7 @@
- template <typename T>
- inline TweakValueBase* TweakBinding<T>::CreateValue(const char* name, void* entry)
- {
--    TweakValueFloat* created = new (gTweakValueAllocator->Allocate(sizeof(TweakValueFloat))) TweakValueFloat(name, 0.0f);
-+    TweakValueFloat* created = new (mscharged::OwnTweakAllocation(gTweakValueAllocator->Allocate(sizeof(TweakValueFloat)))) TweakValueFloat(name, 0.0f);
-     AddTweakValue((TweakEntry*)entry, created);
-     return created;
- }
-@@ -115,7 +122,11 @@
- template <typename T>
- inline void TweakBinding<T>::ParseValue(const char* string)
- {
+@@ -73,7 +80,11 @@
+     virtual void ParseValue(
+         const char* string)
+     {
+-        value = (float)atof(string);
 +#ifdef MSCHARGED_NATIVE
-+    *m_pValue = mscharged::TweakFloat(string);
++        value = mscharged::TweakFloat(string);
 +#else
-     *m_pValue = (float)atof(string);
++        value = (float)atof(string);
 +#endif
- }
- 
- template <typename T>
+     }
+     virtual void UnidentifiedVirtual14(
+         float* minimum, float* maximum, float* increment)
 diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
 --- a/include/Game/TweakRegistry.h
 +++ b/include/Game/TweakRegistry.h
@@ -726,7 +719,7 @@ diff --git a/src/Game/TweakConfig.cpp b/src/Game/TweakConfig.cpp
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
-@@ -1720,10 +1720,13 @@
+@@ -1718,10 +1718,13 @@
  
  #include "NL/nlBind_impl.h"
  
@@ -741,7 +734,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  void TweakValueInt::CopyValueFrom(
      TweakValueBase* other)
  {
-@@ -1737,34 +1740,50 @@
+@@ -1735,34 +1738,50 @@
          break;
      }
  }
@@ -799,7 +792,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  void TweakValueInt::UnidentifiedVirtual14(
      float* minimum, float* maximum, float* increment)
  {
-@@ -1772,7 +1791,10 @@
+@@ -1770,7 +1789,10 @@
      *maximum = kGameTweakZero;
      *increment = kGameTweakZero;
  }
@@ -814,96 +807,45 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
 diff --git a/src/Game/AIPad.cpp b/src/Game/AIPad.cpp
 --- a/src/Game/AIPad.cpp
 +++ b/src/Game/AIPad.cpp
-@@ -302,10 +302,13 @@
+@@ -300,7 +300,9 @@
      }
  }
  
 +#ifndef MSCHARGED_NATIVE
- TweakValueFloat::~TweakValueFloat()
+ void* TweakValueBase::UnidentifiedVirtual1C()
  {
+     return 0;
  }
--
 +#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void TweakValueFloat::CopyValueFrom(
-     TweakValueBase* other)
+diff --git a/include/Game/TweakBindingFloat.h b/include/Game/TweakBindingFloat.h
+--- a/include/Game/TweakBindingFloat.h
++++ b/include/Game/TweakBindingFloat.h
+@@ -24,7 +24,7 @@
+ template <typename T>
+ inline TweakValueBase* TweakBinding<T>::CreateValue(const char* name, void* entry)
  {
-@@ -319,34 +322,50 @@
-         break;
-     }
+-    TweakValueFloat* created = new (gTweakValueAllocator->Allocate(sizeof(TweakValueFloat))) TweakValueFloat(name, 0.0f);
++    TweakValueFloat* created = new (mscharged::OwnTweakAllocation(gTweakValueAllocator->Allocate(sizeof(TweakValueFloat)))) TweakValueFloat(name, 0.0f);
+     AddTweakValue((TweakEntry*)entry, created);
+     return created;
  }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- int TweakValueFloat::GetStorageKind()
- {
-     return 1;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- int TweakValueFloat::GetValueType()
- {
-     return 5;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void* TweakValueFloat::GetValueAddress()
- {
-     return &value;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void TweakValueFloat::FormatValue(
-     char* buffer, unsigned long size)
- {
-     nlSNPrintf(buffer, size, "%.3f", value);
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void TweakValueFloat::ParseValue(
-     const char* string)
+@@ -60,7 +60,11 @@
+ template <typename T>
+ inline void TweakBinding<T>::ParseValue(const char* string)
  {
 +#ifdef MSCHARGED_NATIVE
-+    value = mscharged::TweakFloat(string);
++    *m_pValue = mscharged::TweakFloat(string);
 +#else
-     value = (float)atof(string);
--}
--
+     *m_pValue = (float)atof(string);
 +#endif
-+}
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void TweakValueFloat::UnidentifiedVirtual14(
-     float* minimum, float* maximum, float* increment)
- {
-@@ -354,7 +373,10 @@
-     *maximum = 0.0f;
-     *increment = 0.0f;
  }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void TweakValueFloat::UnidentifiedVirtual18()
- {
- }
-+#endif
+ 
+ template <typename T>
 diff --git a/src/Game/TweakValueNative.cpp b/src/Game/TweakValueNative.cpp
 new file mode 100644
 --- /dev/null
 +++ b/src/Game/TweakValueNative.cpp
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,74 @@
 +// Existing original value methods selected independently of gameplay.
 +#include "Game/TweakRegistry.h"
 +#include "Game/TweakValueFloat.h"
@@ -974,65 +916,9 @@ new file mode 100644
 +{
 +}
 +
-+TweakValueFloat::~TweakValueFloat()
++void* TweakValueBase::UnidentifiedVirtual1C()
 +{
-+}
-+
-+void TweakValueFloat::CopyValueFrom(
-+    TweakValueBase* other)
-+{
-+    switch (other->GetStorageKind())
-+    {
-+    case 1:
-+        value = ((TweakValueFloat*)other)->value;
-+        break;
-+    case 2:
-+        value = *((TweakFloatBinding*)other)->m_pValue;
-+        break;
-+    }
-+}
-+
-+int TweakValueFloat::GetStorageKind()
-+{
-+    return 1;
-+}
-+
-+int TweakValueFloat::GetValueType()
-+{
-+    return 5;
-+}
-+
-+void* TweakValueFloat::GetValueAddress()
-+{
-+    return &value;
-+}
-+
-+void TweakValueFloat::FormatValue(
-+    char* buffer, unsigned long size)
-+{
-+    nlSNPrintf(buffer, size, "%.3f", value);
-+}
-+
-+void TweakValueFloat::ParseValue(
-+    const char* string)
-+{
-+#ifdef MSCHARGED_NATIVE
-+    value = mscharged::TweakFloat(string);
-+#else
-+    value = (float)atof(string);
-+#endif
-+}
-+
-+void TweakValueFloat::UnidentifiedVirtual14(
-+    float* minimum, float* maximum, float* increment)
-+{
-+    *minimum = 0.0f;
-+    *maximum = 0.0f;
-+    *increment = 0.0f;
-+}
-+
-+void TweakValueFloat::UnidentifiedVirtual18()
-+{
++    return 0;
 +}
 diff --git a/src/Game/GameTweaks.cpp b/src/Game/GameTweaks.cpp
 --- a/src/Game/GameTweaks.cpp

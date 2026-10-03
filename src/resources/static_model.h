@@ -22,6 +22,7 @@ struct Material
     std::array<float, 4> scalars{};
     std::array<std::uint32_t, 5> switches{};
     std::array<float, 4> specular_colour{};
+    std::array<std::array<float, 2>, 3> scroll_speeds{}; // Per-binding X/Y velocities.
 };
 struct Packet
 {

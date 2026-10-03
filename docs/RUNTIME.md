@@ -28,8 +28,9 @@ This requires a USA `R4QE01` revision 1 ISO/RVZ. It stops explicitly with exit c
 3 after the implemented initialization checks; later startup stages remain pending.
 The same build exposes **Try startup** in the launcher.
 The checks include original memory, file access, boot configuration, tweak
-registration, events, task scheduling and frame timing. Movies and the complete
-game frame loop remain in development.
+registration, events, task scheduling, frame timing, camera diagnostics and camera
+asset loading. Movies, authored camera playback and the complete game frame loop
+remain in development.
 
 For the host check alone, use `cmake --workflow --preset aurora`, then run
 `./build/aurora/mscharged-aurora-check --window`.
@@ -72,8 +73,10 @@ CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
 ```
 
 The preview loads the ball from a USA `R4QE01` revision 1 image and renders it
-through Aurora/Vulkan with selected original materials and lighting. An explicit
-`--world /DISC/gameworld.tmp.zlib --model-id HEX` selects a static world resource;
+through Aurora/Vulkan with selected original materials, lighting and texture
+animation. Its diagnostic poses pass through the original camera core;
+authored cameras remain pending.
+An explicit `--world /DISC/gameworld.tmp.zlib --model-id HEX` selects a static world resource;
 shadow-volume models use a diagnostic receiver. Full scenes and character
 animation remain in development.
 

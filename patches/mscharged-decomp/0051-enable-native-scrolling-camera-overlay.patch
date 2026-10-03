@@ -1,0 +1,240 @@
+Subject: Select original scrolling camera overlay with explicit native camera input
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+
+Retain the original position-generated overlay coordinates, four-stage TEV,
+lighting, shadows, UV1 diffuse input and diffuse-wrap mutation order. Preserve
+the matching renderer's address-based mask-scroll condition; reject zero scale
+in the native loader because this variant has no zero-scale fallback. Supply an explicit active
+camera position without selecting or replacing the original camera manager.
+Use bounded float arrays, typed FIFO calls, checked finite texture matrices and
+registry teardown. Console camera, vertex formats and FIFO access remain intact.
+
+diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+--- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+@@ -26,15 +30,19 @@
+ 
+ GXScrollingCameraOverlayMaterialProgram::GXScrollingCameraOverlayMaterialProgram()
+ {
+-    Instance = this;
+     programHash = 0x845CAD59;
+     parameterDataSize = 60;
+     parameterCount = 12;
+     glRegisterMaterialProgram(this, programHash);
++    Instance = this;
+ }
+ 
+ GXScrollingCameraOverlayMaterialProgram::~GXScrollingCameraOverlayMaterialProgram()
+ {
++#if defined(MSCHARGED_NATIVE)
++    Instance = nullptr;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXScrollingCameraOverlayMaterialProgram::Initialize()
+@@ -52,11 +60,27 @@
+ {
+     GXClearVtxDesc();
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_S8, 6);
++#endif
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
++#endif
+ 
+     if (indexed)
+     {
+@@ -81,12 +105,42 @@
+ void GXScrollingCameraOverlayMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_NRM, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_CLR0, streams[5].address,
++        packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
++#else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[2].address,
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX1, streams[3].address,
++        packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
++#else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX2, streams[4].address,
++        packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
++#else
+     GXSetArray(GX_VA_TEX2, streams[4].address, 4);
++#endif
+ }
+ 
+ void GXScrollingCameraOverlayMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -97,14 +151,26 @@
+ 
+     while (idxPtr < end)
+     {
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(*idxPtr);
++        GXNormal1x16(*idxPtr);
++        GXColor1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++#else
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++#endif
+         ++idxPtr;
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXScrollingCameraOverlayMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -113,13 +179,25 @@
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-    }
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXNormal1x16(i);
++        GXColor1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++#else
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++#endif
++    }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXScrollingCameraOverlayMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
+--- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
+@@ -1,8 +1,18 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <dolphin/mtx.h>
++#include "runtime/material_environment.h"
++#include <cmath>
++#include <stdexcept>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+ 
++#if !defined(MSCHARGED_NATIVE)
+ #include "Game/Camera/CameraMan.h"
++#endif
+ #include "NL/gl/glView.h"
+ #include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramTextureAnimation.h"
+@@ -52,7 +62,11 @@
+ {
+     static_cast<GXScrollingCameraOverlayMaterialProgram*>(this)->ConfigureVertexFormat(true);
+     glxConfigureScrollingCameraOverlay();
++#if defined(MSCHARGED_NATIVE)
++    sScrollingCameraOverlayViewMatrix = mscharged::MaterialPreviewView();
++#else
+     view->m_Interface->GetViewMatrix(sScrollingCameraOverlayViewMatrix);
++#endif
+     sScrollingCameraOverlayLightCount = GetGameObjectLightCount(0, 1);
+     LoadGameObjectLights(sScrollingCameraOverlayLightCount, view, 0);
+     sScrollingCameraOverlayLightingActive = false;
+@@ -97,7 +111,11 @@
+     static_cast<GXScrollingCameraOverlayMaterialProgram*>(this)->BindVertexArrays(packet);
+     static_cast<GXScrollingCameraOverlayMaterialProgram*>(this)->BindParameters(packet);
+ 
++#if defined(MSCHARGED_NATIVE)
++    const nlVector3& cameraPosition = mscharged::MaterialPreviewCameraPosition();
++#else
+     const nlVector3& cameraPosition = cCameraManager::PeekCamera()->GetCameraPosition();
++#endif
+     float cameraScroll = static_cast<const GXScrollingCameraOverlayParameters*>(packet->materialParameters)->cameraScroll;
+     float inverseScale = 1.0f / static_cast<const GXScrollingCameraOverlayParameters*>(packet->materialParameters)->overlayScale;
+     Mtx cameraTextureMatrix;
+@@ -113,6 +131,12 @@
+         0.5f - cameraScroll * (cameraPosition.x * inverseScale);
+     cameraTextureMatrix[1][3] +=
+         0.5f - cameraScroll * (cameraPosition.y * inverseScale);
++#if defined(MSCHARGED_NATIVE)
++    for (const auto& row : cameraTextureMatrix)
++        for (float value : row)
++            if (!std::isfinite(value))
++                throw std::invalid_argument("Camera overlay texture matrix is non-finite");
++#endif
+     GXLoadTexMtxImm(cameraTextureMatrix, GX_TEXMTX1, GX_MTX3x4);
+ 
+     nlVector2 diffuseScrollSpeed;

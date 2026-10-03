@@ -16,5 +16,21 @@ struct Texture
     // Pixel tiles and RGB5A3 palette words retain their original Wii byte order.
     std::vector<std::uint8_t> pixels, palette;
 };
-std::vector<Texture> ReadTextureBundle(Bytes data, const std::vector<std::uint32_t>& selected = {});
+struct TextureAnimationFrame { std::uint32_t texture = 0; float duration = 0; };
+struct TextureAnimation
+{
+    std::uint32_t id = 0, mode = 0;
+    std::int32_t direction = 0;
+    bool paused = false;
+    float elapsed = 0;
+    std::vector<TextureAnimationFrame> frames;
+};
+struct TextureBundle
+{
+    std::vector<Texture> textures;
+    std::vector<TextureAnimation> animations;
+};
+// Selected animations include their static frame dependencies. Animation-to-
+// animation references are rejected; original bundles register static frames first.
+TextureBundle ReadTextureBundle(Bytes data, const std::vector<std::uint32_t>& selected = {});
 }

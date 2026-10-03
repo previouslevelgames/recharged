@@ -1,5 +1,6 @@
 include(cmake/NativeRuntime.cmake)
 include(cmake/FrameTiming.cmake)
+include(cmake/Cameras.cmake)
 add_library(charged_compressed_assets STATIC src/resources/compressed_asset.cpp)
 target_include_directories(charged_compressed_assets PUBLIC src)
 target_compile_features(charged_compressed_assets PUBLIC cxx_std_20)
@@ -16,7 +17,7 @@ add_library(charged_materials STATIC
     "${MSCHARGED_PREPARED}/src/Game/Render/LightingLookupNative.cpp"
     src/runtime/materials.cpp src/runtime/material_gx.cpp src/runtime/material_texture.cpp
     src/runtime/gpu_readback.cpp src/runtime/lighting.cpp)
-foreach(program UnlitTexture VertexColourTexture ScrollingDiffuse MaskedSpecularFresnel ShadowVolume SpecularDetailBlend ScrollingSpecular CameraScrolledOverlay)
+foreach(program UnlitTexture VertexColourTexture ScrollingDiffuse MaskedSpecularFresnel ShadowVolume SpecularDetailBlend ScrollingSpecular CameraScrolledOverlay MaskedDetailBlend ScrollingMaskedDetailBlend ScrollingCameraOverlay)
     target_sources(charged_materials PRIVATE
         "${MSCHARGED_PREPARED}/src/NL/glx/GX${program}MaterialProgram.cpp"
         "${MSCHARGED_PREPARED}/src/NL/glx/GX${program}MaterialProgramRender.cpp")
@@ -59,6 +60,10 @@ if(BUILD_TESTING)
     target_link_libraries(render_views_tests PRIVATE charged_views)
     add_test(NAME render_views COMMAND render_views_tests)
     set_tests_properties(render_views PROPERTIES TIMEOUT 30)
+    add_executable(texture_animation_tests tests/texture_animation.cpp)
+    target_link_libraries(texture_animation_tests PRIVATE charged_static_inventory)
+    add_test(NAME texture_animation COMMAND texture_animation_tests)
+    set_tests_properties(texture_animation PROPERTIES TIMEOUT 30)
     add_executable(static_inventory_tests tests/static_inventory.cpp)
     target_link_libraries(static_inventory_tests PRIVATE charged_static_inventory)
     add_test(NAME static_inventory COMMAND static_inventory_tests)
@@ -94,7 +99,7 @@ endif()
 add_library(charged_scene_preview STATIC src/runtime/scene.cpp)
 target_compile_features(charged_scene_preview PRIVATE cxx_std_20)
 target_include_directories(charged_scene_preview PUBLIC src)
-target_link_libraries(charged_scene_preview PRIVATE charged_frames charged_frame_timing charged_shadows charged_compressed_assets charged_static_inventory charged_decomp_startup
+target_link_libraries(charged_scene_preview PRIVATE charged_cameras charged_frames charged_frame_timing charged_shadows charged_compressed_assets charged_static_inventory charged_decomp_startup
     charged_host aurora::gx aurora::mtx aurora::os aurora::vi aurora::dvd aurora::core mscharged_build_info)
 target_link_libraries(mscharged PRIVATE charged_scene_preview)
 target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_SCENE_PREVIEW=1)
@@ -111,6 +116,22 @@ if(BUILD_TESTING)
     target_link_libraries(material_pipeline_tests PRIVATE charged_views charged_static_inventory aurora::gx aurora::vi aurora::core)
 endif()
 if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
+    add_test(NAME texture_animation_pipeline COMMAND material_pipeline_tests --texture-animation-only)
+    set_tests_properties(texture_animation_pipeline PROPERTIES TIMEOUT 90 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check
+        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|FAILED:")
+    add_test(NAME scrolling_camera_overlay_pipeline COMMAND material_pipeline_tests --scrolling-camera-only)
+    set_tests_properties(scrolling_camera_overlay_pipeline PROPERTIES TIMEOUT 150 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check
+        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|FAILED:")
+    add_test(NAME scrolling_masked_detail_pipeline COMMAND material_pipeline_tests --scrolling-masked-detail-only)
+    set_tests_properties(scrolling_masked_detail_pipeline PROPERTIES TIMEOUT 150 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check
+        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|FAILED:")
+    add_test(NAME masked_detail_pipeline COMMAND material_pipeline_tests --masked-detail-only)
+    set_tests_properties(masked_detail_pipeline PROPERTIES TIMEOUT 90 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check
+        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|FAILED:")
     add_test(NAME frame_pipeline COMMAND frame_pipeline_tests)
     set_tests_properties(frame_pipeline PROPERTIES TIMEOUT 90 LABELS "gpu;vulkan"
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check

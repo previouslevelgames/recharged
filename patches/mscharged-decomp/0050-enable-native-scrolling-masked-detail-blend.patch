@@ -1,0 +1,221 @@
+Subject: Select original scrolling masked detail blending with bounded native streams
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+
+Retain the original mask-weighted detail blend, four/five-stage lighting,
+projected shadows, three independently scrolling UV sets and diffuse alpha preparation. Adapt packed vertex data to
+bounded native float arrays and typed FIFO calls; reset registry state on
+teardown and supply the explicit preview view. Console formats/FIFO remain.
+
+diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+--- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramInternal.h"
+@@ -26,15 +30,19 @@
+ 
+ GXScrollingMaskedDetailBlendMaterialProgram::GXScrollingMaskedDetailBlendMaterialProgram()
+ {
+-    Instance = this;
+     programHash = 0xF2D57AC6;
+     parameterDataSize = 60;
+     parameterCount = 12;
+     glRegisterMaterialProgram(this, programHash);
++    Instance = this;
+ }
+ 
+ GXScrollingMaskedDetailBlendMaterialProgram::~GXScrollingMaskedDetailBlendMaterialProgram()
+ {
++#if defined(MSCHARGED_NATIVE)
++    Instance = nullptr;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXScrollingMaskedDetailBlendMaterialProgram::Initialize()
+@@ -52,11 +60,27 @@
+ {
+     GXClearVtxDesc();
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_S8, 6);
++#endif
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
++#endif
+ 
+     if (indexed)
+     {
+@@ -81,12 +105,42 @@
+ void GXScrollingMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_NRM, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_CLR0, streams[5].address,
++        packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
++#else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[2].address,
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX1, streams[3].address,
++        packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
++#else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX2, streams[4].address,
++        packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
++#else
+     GXSetArray(GX_VA_TEX2, streams[4].address, 4);
++#endif
+ }
+ 
+ void GXScrollingMaskedDetailBlendMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -97,14 +151,26 @@
+ 
+     while (idxPtr < end)
+     {
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(*idxPtr);
++        GXNormal1x16(*idxPtr);
++        GXColor1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++#else
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++#endif
+         ++idxPtr;
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXScrollingMaskedDetailBlendMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -113,13 +179,25 @@
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-    }
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXNormal1x16(i);
++        GXColor1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++#else
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++#endif
++    }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXScrollingMaskedDetailBlendMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
+--- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
+@@ -1,4 +1,9 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include "runtime/material_environment.h"
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/Render/StadiumLoading.h"
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+@@ -95,11 +100,19 @@
+ {
+     sScrollingMaskedDetailBlendLightingMode = LIGHTING_UNCONFIGURED;
+     static_cast<GXScrollingMaskedDetailBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
++#if defined(MSCHARGED_NATIVE)
++    sScrollingMaskedDetailBlendViewMatrix = mscharged::MaterialPreviewView();
++#else
+     view->m_Interface->GetViewMatrix(sScrollingMaskedDetailBlendViewMatrix);
++#endif
+     sScrollingMaskedDetailBlendLightCount = GetGameObjectLightCount(0, 1);
+     LoadGameObjectLights(sScrollingMaskedDetailBlendLightCount, view, 0);
+     gxSetNumChans(1);
+ 
++#if defined(MSCHARGED_NATIVE)
++    if (ShouldUseGameObjectLightTexture(0))
++    {
++#endif
+     glTextureBinding texture;
+     texture.texture = 0;
+     texture.textureIndex = 0xFFFF;
+@@ -111,6 +124,9 @@
+     texture.SetWrapT(true);
+     texture.unknown07 = 0;
+     glx_BindTexture(3, &texture);
++#if defined(MSCHARGED_NATIVE)
++    }
++#endif
+ }
+ 
+ template <>

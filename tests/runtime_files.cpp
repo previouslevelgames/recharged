@@ -1,6 +1,7 @@
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
 #include "runtime/game_config.h"
+#include "runtime/camera_assets.h"
 #include "platform/path.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
@@ -688,6 +689,79 @@ void CheckActiveWholeCancellationAndShutdown()
     std::cout << "NL busy whole-file worker draining, shutdown ownership and tokens across reinitialization passed\n";
 }
 
+void CheckCameraAssets()
+{
+    constexpr auto path = "/Art/fe/environments/cameras/camera_idle.cam";
+    const auto mem1 = StandardAllocator.TotalFreeMemory(), mem2 = VirtualAllocator.TotalFreeMemory();
+    {
+        auto sync = mscharged::LoadCameraAsset(path,"fixture");
+        Require(sync->Data().m_uKeyCount==3 && sync->Data().cameraPos[2].x==2
+            && sync->Data().fFOV[1]==41 && sync->Data().cameraRot[0].w==1, "Camera fixture decoding differs");
+        mscharged::CameraAssetLibrary library;
+        library.Insert(sync);
+        mscharged::CameraAssetLoad good(path,"fixture"), bad("/invalid.cam","bad");
+        ExpectThrow<std::logic_error>([&] { good.Result(); },"Pending camera read returned success");
+        ServiceUntil([&] { return good.Ready() && bad.Ready(); });
+        Require(good.Result()->Data().targetPos[1].y==8,"Asynchronous camera values differ");
+        ExpectThrow<std::runtime_error>([&] { bad.Result(); },"Malformed camera read succeeded");
+        Require(library.Find("FIXTURE")==sync,"Rejected camera load changed the library");
+        mscharged::CameraAssetLoad inline_empty("/empty.bin","empty");
+        Require(inline_empty.Ready(),"Inline empty camera completion was lost");
+        ExpectThrow<std::runtime_error>([&] { inline_empty.Result(); },"Empty camera silently succeeded");
+        ExpectThrow<std::runtime_error>([] { mscharged::CameraAssetLoad missing("/missing.cam","missing"); },"Missing camera request succeeded");
+        ExpectThrow<std::runtime_error>([] { mscharged::LoadCameraAsset("/missing.cam","missing"); },"Missing synchronous camera succeeded");
+        mscharged::CameraAssetLoad cancelled(path,"cancelled");
+        cancelled.Cancel();cancelled.Cancel();cancelled.Service();
+        Require(cancelled.Ready(),"Cancelled camera remains pending");
+        ExpectThrow<std::runtime_error>([&] { cancelled.Result(); },"Cancelled camera returned an asset");
+        { mscharged::CameraAssetLoad abandoned(path,"abandoned"); }
+        nlServiceFileSystem();
+        bool wrong_thread=false;
+        std::thread worker([&] { try { good.Ready(); } catch(const std::logic_error&) { wrong_thread=true; } });worker.join();
+        Require(wrong_thread,"Camera request accepted the wrong servicing thread");
+        mscharged::CameraAssetLoad serviced(path,"serviced");
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+        while(!serviced.Ready())
+        {
+            serviced.Service();
+            Require(std::chrono::steady_clock::now()<deadline,"Camera Service timed out");
+            SDL_Delay(1);
+        }
+        Require(serviced.Result()->Data().fFocalLength[2]==4,"Serviced camera result differs");
+        mscharged::CameraAssetLoad shutdown(path,"shutdown");
+        nlShutdownFileSystem();
+        nlInitFileSystem();
+        shutdown.Service();
+        Require(shutdown.Ready(),"Camera request remained pending after file service restarted");
+        ExpectThrow<std::runtime_error>([&] { shutdown.Result(); },"Camera shutdown failure was lost");
+    }
+    {
+        FaultFile fault;
+        const AuroraOverlayCallbacks callbacks{FaultFile::Open,FaultFile::Close,FaultFile::Read,FaultFile::Seek};
+        aurora_dvd_overlay_callbacks(&callbacks);
+        const AuroraOverlayFile overlay{"/camera-fault.cam",&fault,128};
+        aurora_dvd_overlay_files(&overlay,1,nullptr);
+        struct ClearOverlay { ~ClearOverlay() { aurora_dvd_overlay_files(nullptr,0,nullptr); } } cleanup;
+        for(auto mode:{FaultFile::Short,FaultFile::Error}) for(bool direct:{false,true})
+        {
+            fault.mode=mode;
+            mscharged::CameraAssetLoad failed("/camera-fault.cam","failure");
+            ExpectThrow<std::runtime_error>([&] {
+                if(!direct) ServiceUntil([&] { return failed.Ready(); });
+                else {
+                    const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+                    while(!failed.Ready()) { failed.Service();SDL_Delay(1);Require(std::chrono::steady_clock::now()<end,"Camera read timed out"); }
+                }
+            },"Camera disc read error was swallowed");
+            Require(failed.Ready() && fault.handles==0,"Failed camera read stayed pending or retained its file");
+            ExpectThrow<std::runtime_error>([&] { failed.Result(); },"Failed camera read returned an asset");
+        }
+    }
+    Require(StandardAllocator.TotalFreeMemory()==mem1 && VirtualAllocator.TotalFreeMemory()==mem2,
+        "Camera file loading/cancel/shutdown leaked an arena");
+    std::cout << mscharged::VerifyStartupCameraAssets() << '\n';
+}
+
 void CheckLifecycle()
 {
     const auto initialized_free = StandardAllocator.TotalFreeMemory();
@@ -754,6 +828,7 @@ int main(int argc, char** argv)
         CheckSync(); CheckAsync(); CheckReentrancy(); CheckCancellation(); CheckPools(); CheckWholeFiles();
         CheckAsyncWholeFiles(); CheckWholeReentrancyAndCancellation();
         CheckReadFailures(); CheckActiveWholeCancellationAndShutdown(); CheckLifecycle();
+        CheckCameraAssets();
         mscharged::VerifyStartupFileReads();
         std::cout << mscharged::StartupFileSummary() << '\n';
         const auto mem1 = StandardAllocator.TotalFreeMemory(), mem2 = VirtualAllocator.TotalFreeMemory();

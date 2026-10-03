@@ -1,6 +1,6 @@
 Subject: Connect four original static material programs to native GX
 
-Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
 
 Use typed Aurora headers, bounded native float vertex arrays, indexed FIFO API
 calls and GXEnd. Retain original TEV recipes, parameters and alpha preparation.

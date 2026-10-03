@@ -1,6 +1,8 @@
 #include "runtime/static_inventory.h"
 #include "runtime/materials.h"
 #include "Game/GL/GLInventory.h"
+#include "Game/GL/GLTextureAnim.h"
+#include <cmath>
 #include "NL/gl/glModel.h"
 #include "NL/gl/glTexture.h"
 #include "NL/gl/glTextureManager.h"
@@ -48,6 +50,40 @@ void Texture(GLResourcePool& pool, const resources::Texture& input)
     glRegisterTexture(input.id, texture, &pool);
 }
 
+void Animation(GLResourcePool& pool, const resources::TextureAnimation& input,
+               const std::vector<resources::Texture>& textures)
+{
+    if (input.frames.empty() || input.frames.size() > 4096 || input.mode >= GLAnimMode_Num
+        || input.direction < -1 || input.direction > 1 || !std::isfinite(input.elapsed) || input.elapsed < 0)
+        throw std::invalid_argument("Invalid checked texture animation metadata");
+    auto* manager = glGetTextureManager();
+    if (!manager->mFreeIndices->mCount) throw std::length_error("GL texture manager is full");
+    auto* anim = Array<GLTextureAnim>(pool, 1, GLM_Header);
+    anim->m_nFrame = 0; anim->m_uHashID = input.id;
+    anim->m_nNumTextures = anim->m_NativeFrameCount = input.frames.size();
+    anim->m_ePlayMode = static_cast<eGLTexAnimMode>(input.mode);
+    anim->m_nPlayDir = input.direction; anim->m_bPaused = input.paused;
+    anim->m_fTime = input.elapsed; anim->m_textureIndex = 0xFFFF;
+    anim->m_pAnimTex = Array<GLAnimTex>(pool, input.frames.size(), GLM_Header);
+    for (unsigned i = 0; i < input.frames.size(); ++i)
+    {
+        const auto& frame = input.frames[i];
+        // Keep dependencies in this marked batch: external/animated aliases
+        // cannot outlive or be rewound underneath its frame storage.
+        if (std::none_of(textures.begin(), textures.end(), [&](const auto& t) { return t.id == frame.texture; })
+            || !std::isfinite(frame.duration) || frame.duration < 0)
+            throw std::invalid_argument("Invalid or external texture animation frame");
+        auto* texture = pool.m_inventory->GetTexture(frame.texture);
+        if (!texture || texture->m_TextureIndex >= manager->mCapacity)
+            throw std::invalid_argument("Texture animation frame is not registered");
+        anim->SetTexture(i, {texture->m_TextureIndex, frame.duration});
+    }
+    // Validate all fallible inputs and reserve the tree node before consuming
+    // a manager slot. Mark rollback releases aliases before their frame pixels.
+    pool.m_inventory->AddTextureAnim(input.id, anim);
+    manager->RegisterTextureAnim(anim);
+}
+
 void Model(GLResourcePool& pool, const resources::StaticModel& input)
 {
     auto* model = Array<glModel>(pool, 1, GLM_Header);
@@ -64,7 +100,8 @@ void Model(GLResourcePool& pool, const resources::StaticModel& input)
         const auto id = input_packet.material.program;
         const std::vector<unsigned> layout = id == 0x386ecbdd ? std::vector<unsigned>{1,3,4}
             : id == 0x112ab470 ? std::vector<unsigned>{1,2,4,4,4,4,3}
-            : (id == 0x32475c7d || id == 0x32bc21e8) ? std::vector<unsigned>{1,2,4,4,4,3}
+            : (id == 0x32475c7d || id == 0x32bc21e8 || id == 0x09609a35 || id == 0xf2d57ac6 || id == 0x845cad59)
+                ? std::vector<unsigned>{1,2,4,4,4,3}
             : id == 0x3eccd955 ? std::vector<unsigned>{1,2,4,4,3}
             : id == 0x2169db5c ? std::vector<unsigned>{1,2,4,3}
             : id == 0xd3e572da ? std::vector<unsigned>{1,4,3} : std::vector<unsigned>{1,4};
@@ -104,7 +141,8 @@ void Model(GLResourcePool& pool, const resources::StaticModel& input)
 }
 
 StaticInventory::StaticInventory(GLResourcePool& pool, const std::vector<resources::StaticModel>& models,
-    const std::vector<resources::Texture>& textures, void (*before_release)())
+    const std::vector<resources::Texture>& textures, void (*before_release)(),
+    const std::vector<resources::TextureAnimation>& animations)
     : pool_(pool), before_release_(before_release)
 {
     if (!glGetTextureManager()) throw std::logic_error("Initialize graphics memory before static assets");
@@ -113,6 +151,7 @@ StaticInventory::StaticInventory(GLResourcePool& pool, const std::vector<resourc
     try
     {
         for (const auto& texture : textures) Texture(pool_, texture);
+        for (const auto& animation : animations) Animation(pool_, animation, textures);
         for (const auto& model : models) mscharged::Model(pool_, model);
     }
     catch (...) { Release(); throw; }

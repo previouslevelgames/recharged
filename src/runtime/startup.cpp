@@ -1,4 +1,6 @@
 #include "runtime/startup.h"
+#include "runtime/cameras.h"
+#include "runtime/camera_assets.h"
 #include "runtime/startup_animation.h"
 #include "runtime/startup_files.h"
 #include "runtime/events.h"
@@ -104,11 +106,13 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
         log(VerifyStartupEvents());
         log(VerifyStartupQueuedEvents());
         log(VerifyStartupTaskScheduler());
+        log(VerifyStartupCameraCore());
         VerifyStartupFileReads();
         log(VerifyStartupAnimationDecoders());
         log(VerifyStartupWholeFileLoads());
         log(VerifyStartupConfig());
         log(VerifyStartupTweaks());
+        log(VerifyStartupCameraAssets());
         // Until the remaining main.cpp initialization can be linked, do not
         // manufacture a game loop if this prefix becomes fully implemented.
         MissingStartupService("Initialize (remaining stages)",

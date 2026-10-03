@@ -1,6 +1,6 @@
 Subject: Adapt original queued dispatch and payload lifetimes
 
-Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
 
 Retain original callback order and one-batch/full-drain modes with native
 counter widths, transactional callback insertion, exception/cancellation cleanup,

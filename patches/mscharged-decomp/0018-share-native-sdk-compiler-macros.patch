@@ -1,6 +1,6 @@
 Subject: Share native compiler macros across Wii, Aurora, and host headers
 
-Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
 
 Preserve the host concatenation macro when present, use the native weak
 declaration spelling, and keep address/alignment macro definitions compatible

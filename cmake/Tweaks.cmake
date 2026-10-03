@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/GamePrint.cmake)
 add_library(charged_tweaks STATIC
     "${MSCHARGED_PREPARED}/src/Game/TweakRegistry.cpp"
     "${MSCHARGED_PREPARED}/src/Game/TweakNode.cpp"
@@ -9,9 +10,9 @@ add_library(charged_tweaks STATIC
     "${MSCHARGED_PREPARED}/src/Game/TweakConfig.cpp"
     "${MSCHARGED_PREPARED}/src/Game/TweakNameRecycler.cpp"
     "${MSCHARGED_PREPARED}/src/NL/PointerEntryTable.cpp"
-    src/runtime/tweaks.cpp src/runtime/game_print.cpp)
+    src/runtime/tweaks.cpp)
 add_dependencies(charged_tweaks verify_prepared)
-target_link_libraries(charged_tweaks PUBLIC charged_game_config)
+target_link_libraries(charged_tweaks PUBLIC charged_game_config charged_game_print)
 target_compile_features(charged_tweaks PUBLIC cxx_std_17)
 if(BUILD_TESTING)
     add_executable(tweaks_tests tests/tweaks.cpp)

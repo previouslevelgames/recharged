@@ -13,6 +13,9 @@ std::size_t ParameterSize(std::uint32_t program)
 {
     switch (program)
     {
+    case 0x09609a35: return 36; // MaskedDetailBlend
+    case 0xf2d57ac6: return 60; // ScrollingMaskedDetailBlend
+    case 0x845cad59: return 60; // ScrollingCameraOverlay
     case 0x32bc21e8: return 48; // CameraScrolledOverlay
     case 0x3eccd955: return 60; // ScrollingSpecular
     case 0x112ab470: return 68; // SpecularDetailBlend
@@ -79,12 +82,34 @@ void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<Stati
             const bool masked = material.program == 0x32475c7d, scrolling = material.program == 0x2169db5c;
             const bool shadow = material.program == 0x386ecbdd;
             const bool detail = material.program == 0x112ab470;
-            const bool overlay = material.program == 0x32bc21e8;
+            const bool scrolling_masked_detail = material.program == 0xf2d57ac6;
+            const bool masked_detail = material.program == 0x09609a35 || scrolling_masked_detail;
+            const bool scrolling_overlay = material.program == 0x845cad59;
+            const bool overlay = material.program == 0x32bc21e8 || scrolling_overlay;
             const bool scrolling_specular = material.program == 0x3eccd955;
-            for (unsigned i = 0; i < (detail ? 4u : (masked || overlay) ? 3u : scrolling_specular ? 2u : 1u); ++i)
+            for (unsigned i = 0; i < (detail ? 4u : (masked || overlay || masked_detail) ? 3u : scrolling_specular ? 2u : 1u); ++i)
             {
                 material.textures[i] = {U32(parameters, i * 8), parameters[i * 8 + 6]};
                 Require(!(material.textures[i].flags & ~3u) && !parameters[i * 8 + 7], "Unsupported RLG texture binding flags");
+            }
+            if (masked_detail)
+            {
+                const unsigned blend_offset = scrolling_masked_detail ? 48 : 24;
+                material.scalars[0] = F32(parameters, blend_offset);
+                Require(material.scalars[0] >= 0 && material.scalars[0] <= 1, "Invalid masked detail blend amount");
+                for (unsigned i = 0; i < 2; ++i)
+                {
+                    material.switches[i] = U32(parameters, blend_offset + 4 + i * 4);
+                    Require(material.switches[i] <= 1, "Invalid material boolean");
+                }
+                if (scrolling_masked_detail)
+                    for (unsigned texture = 0; texture < 3; ++texture)
+                        for (unsigned axis = 0; axis < 2; ++axis)
+                        {
+                            const float speed = F32(parameters, 24 + texture * 8 + axis * 4);
+                            Require(std::abs(speed) <= 1e4f, "Excessive masked detail scroll speed");
+                            material.scroll_speeds[texture][axis] = speed;
+                        }
             }
             if (shadow)
             {
@@ -97,11 +122,23 @@ void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<Stati
                 {
                     material.scalars[i] = F32(parameters, 24 + i * 4);
                     Require(std::abs(material.scalars[i]) <= 1e4f, "Excessive camera overlay scalar");
-                    material.switches[i] = U32(parameters, 36 + i * 4);
+                    material.switches[i] = U32(parameters, scrolling_overlay && i == 2 ? 52 : 36 + i * 4);
                     Require(material.switches[i] <= 1, "Invalid material boolean");
                 }
                 Require((material.scalars[0] == 0 || std::isfinite(1.f / material.scalars[0]))
                     && material.scalars[2] >= 0 && material.scalars[2] <= 1, "Invalid camera overlay scale/amount");
+                if (scrolling_overlay)
+                {
+                    Require(material.scalars[0] != 0, "Scrolling camera overlay scale cannot be zero");
+                    material.switches[3] = U32(parameters, 56);
+                    Require(material.switches[3] <= 1, "Invalid material boolean");
+                    for (unsigned axis = 0; axis < 2; ++axis)
+                    {
+                        const float speed = F32(parameters, 44 + axis * 4);
+                        Require(std::abs(speed) <= 1e4f, "Excessive camera overlay scroll speed");
+                        material.scroll_speeds[0][axis] = speed;
+                    }
+                }
             }
             if (scrolling_specular)
             {
@@ -180,7 +217,7 @@ void ReadGroup(Bytes file, std::size_t start, std::size_t end, std::vector<Stati
             // Material programs bind streams by ordinal; reject mismatched layouts.
             const std::vector<unsigned> layout = shadow ? std::vector<unsigned>{1,3,4}
                 : detail ? std::vector<unsigned>{1,2,4,4,4,4,3}
-                : (masked || overlay) ? std::vector<unsigned>{1,2,4,4,4,3}
+                : (masked || overlay || masked_detail) ? std::vector<unsigned>{1,2,4,4,4,3}
                 : scrolling_specular ? std::vector<unsigned>{1,2,4,4,3}
                 : scrolling ? std::vector<unsigned>{1,2,4,3}
                 : material.program == 0xd3e572da ? std::vector<unsigned>{1,4,3} : std::vector<unsigned>{1,4};

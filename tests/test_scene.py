@@ -5,7 +5,7 @@ import sys
 import tempfile
 
 from disc_fixture import write_disc
-from scene_fixture import make_assets, make_shadow, make_world, make_specular_world, make_scrolling_specular_world, make_camera_overlay_world
+from scene_fixture import make_assets, make_shadow, make_world, make_specular_world, make_scrolling_specular_world, make_camera_overlay_world, make_masked_detail_world, make_scrolling_masked_detail_world, make_scrolling_camera_world, animate_texture_bundle
 
 executable = pathlib.Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
@@ -27,6 +27,11 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
 
     assets = ["--model", "/scene.rlg", "--textures", "/scene.rlt"]
     run(assets, 0, "Static preview rendered: 30 frames")
+    write_disc(disc, files={"scene.rlg": model, "scene.rlt": animate_texture_bundle(texture)})
+    run(assets, 0, "2 textures, 1 texture animations; original radius")
+    write_disc(disc, files={"scene.rlg": model, "scene.rlt": animate_texture_bundle(texture, missing_frame=True)})
+    run(assets, 1, "animation frame texture is missing")
+    write_disc(disc, files={"scene.rlg": model, "scene.rlt": texture})
     run(assets + ["--shadow-id", "5a5a5a5a"], 2, "must be supplied together")
     run(assets + ["--unlit"], 0, "Unlit comparison selected")
     lit_model, lit_texture = make_assets(lit=True)
@@ -47,16 +52,32 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
     write_disc(disc, files={"world.tmp.zlib": corrupted})
     run(world_args, 1, "Invalid compressed asset")
     write_disc(disc, files={"world.tmp.zlib": make_specular_world()})
-    run(world_args, 0, "4 textures; original radius")
+    run(world_args, 0, "4 textures, 0 texture animations; original radius")
     write_disc(disc, files={"world.tmp.zlib": make_specular_world(missing_gloss=True)})
     run(world_args, 1, "Requested texture")
     write_disc(disc, files={"world.tmp.zlib": make_scrolling_specular_world()})
-    run(world_args, 0, "2 textures; original radius")
+    run(world_args, 0, "2 textures, 0 texture animations; original radius")
     write_disc(disc, files={"world.tmp.zlib": make_scrolling_specular_world(missing_specular=True)})
     run(world_args, 1, "Requested texture")
     write_disc(disc, files={"world.tmp.zlib": make_camera_overlay_world()})
-    run(world_args, 0, "3 textures; original radius")
+    run(world_args, 0, "3 textures, 0 texture animations; original radius")
     write_disc(disc, files={"world.tmp.zlib": make_camera_overlay_world(missing_mask=True)})
+    run(world_args, 1, "Requested texture")
+    write_disc(disc, files={"world.tmp.zlib": make_masked_detail_world()})
+    run(world_args, 0, "3 textures, 0 texture animations; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_masked_detail_world(missing_mask=True)})
+    run(world_args, 1, "Requested texture")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_masked_detail_world()})
+    run(world_args, 0, "3 textures, 0 texture animations; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_masked_detail_world(missing_mask=True)})
+    run(world_args, 1, "Requested texture")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_masked_detail_world(animated=True)})
+    run(world_args, 0, "4 textures, 1 texture animations; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_masked_detail_world(animated=True, missing_frame=True)})
+    run(world_args, 1, "animation frame texture is missing")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_camera_world()})
+    run(world_args, 0, "3 textures, 0 texture animations; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_camera_world(missing_mask=True)})
     run(world_args, 1, "Requested texture")
     # Original alpha preparation disables depth writes for multibit textures.
     # The visibility gate must use actual colour samples for this valid case.

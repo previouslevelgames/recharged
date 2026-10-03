@@ -1,0 +1,120 @@
+Subject: Preserve Wii noise wrapping and validate native camera filter inputs
+
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+
+Use defined 32-bit modular noise arithmetic and bounded float-to-index
+conversion on native hosts. Initialize inactive noise displacement. Retain the
+original rumble state gating and clamped integration step with an actual task
+manager; reject invalid timing and non-finite filter requests explicitly.
+
+diff --git a/src/Game/Camera/noisefilter.cpp b/src/Game/Camera/noisefilter.cpp
+--- a/src/Game/Camera/noisefilter.cpp
++++ b/src/Game/Camera/noisefilter.cpp
+@@ -1,13 +1,24 @@
+ #include "Game/Camera/noisefilter.h"
+ 
+ #include <math.h>
++#ifdef MSCHARGED_NATIVE
++#include "runtime/cameras.h"
++#include <cstdint>
++#include <cmath>
++#include <stdexcept>
++#endif
+ 
+ namespace
+ {
+ inline float Noise(int value)
+ {
++#ifdef MSCHARGED_NATIVE
++    std::uint32_t n = (std::uint32_t(value) << 13) ^ std::uint32_t(value);
++    std::uint32_t hash = n * (n * n * 15731u + 789221u) + 1376312589u;
++#else
+     int n = (value << 13) ^ value;
+     int hash = n * (n * n * 15731 + 789221) + 1376312589;
++#endif
+     return (float)(1.0 - (double)(hash & 0x7fffffff) / 1073741824.0);
+ }
+ } // namespace
+@@ -20,6 +31,10 @@
+ void cNoiseFilter::Start(
+     nlVector3 amplitude, float frequency, float duration)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::CheckCameraVector(amplitude);
++    if (!std::isfinite(frequency) || !std::isfinite(duration)) throw std::invalid_argument("Invalid camera noise parameters");
++#endif
+     Reset();
+ 
+     if (frequency < 0.0001f)
+@@ -39,6 +54,9 @@
+ 
+ void cNoiseFilter::Reset()
+ {
++#ifdef MSCHARGED_NATIVE
++    mDisplacement = {};
++#endif
+     mSampleIndex = -1;
+     mElapsedTime = 0.0f;
+     mActive = false;
+@@ -62,12 +80,18 @@
+ 
+ void cNoiseFilter::Update(float dt)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::CheckCameraDelta(dt);
++#endif
+     nlVec3Set(mDisplacement, 0.0f, 0.0f, 0.0f);
+     if (!mActive)
+     {
+         return;
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    mscharged::CheckNoiseUpdate(mElapsedTime, mFrequency, dt);
++#endif
+     mElapsedTime += dt;
+     if (mTimeRemaining >= 0.0f)
+     {
+@@ -131,4 +155,3 @@
+ {
+     return 1;
+ }
+-
+diff --git a/src/Game/Camera/rumblefilter.cpp b/src/Game/Camera/rumblefilter.cpp
+--- a/src/Game/Camera/rumblefilter.cpp
++++ b/src/Game/Camera/rumblefilter.cpp
+@@ -1,6 +1,12 @@
+ #include "Game/Camera/rumblefilter.h"
+ 
+ #include "NL/nlTask.h"
++#ifdef MSCHARGED_NATIVE
++#include "runtime/cameras.h"
++#include "runtime/tasks.h"
++#include <cmath>
++#include <stdexcept>
++#endif
+ 
+ cRumbleFilter::cRumbleFilter()
+ {
+@@ -33,6 +39,10 @@
+ 
+ void cRumbleFilter::Rumble(float x, float y, float ks, float kd)
+ {
++#ifdef MSCHARGED_NATIVE
++    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(ks) || !std::isfinite(kd))
++        throw std::invalid_argument("Invalid camera rumble parameters");
++#endif
+     nlVec2Set(v2Pos0, 0.0f, 0.0f);
+     nlVec2Set(v2Pos1, x, y);
+     nlVec2Set(v2Vel0, 0.0f, 0.0f);
+@@ -43,6 +53,10 @@
+ 
+ void cRumbleFilter::Update(float dt)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::CheckCameraDelta(dt);
++    mscharged::CheckNativeTaskThread();
++#endif
+     nlVector2 d;
+     float fDTerm;
+     float fHTerm;

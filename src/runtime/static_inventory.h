@@ -6,7 +6,8 @@
 
 namespace mscharged
 {
-// A single pool marker owns this static batch. Fixed-width disc records have
+// A single pool marker owns models, textures and their texture animations.
+// Fixed-width disc records have
 // already been validated; this adapter constructs native game records without
 // casting the original binary layouts onto host pointers.
 class StaticInventory
@@ -16,7 +17,8 @@ class StaticInventory
     void (*before_release_)() = nullptr;
 public:
     StaticInventory(GLResourcePool& pool, const std::vector<resources::StaticModel>& models,
-        const std::vector<resources::Texture>& textures, void (*before_release)() = nullptr);
+        const std::vector<resources::Texture>& textures, void (*before_release)() = nullptr,
+        const std::vector<resources::TextureAnimation>& animations = {});
     ~StaticInventory();
     StaticInventory(const StaticInventory&) = delete;
     StaticInventory& operator=(const StaticInventory&) = delete;

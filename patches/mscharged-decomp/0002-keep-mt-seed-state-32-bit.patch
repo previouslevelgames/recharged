@@ -1,5 +1,5 @@
 Subject: Keep Mersenne Twister seed state at the console width
-Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
 
 The Wii unsigned long is 32 bits; LP64 hosts make it 64 bits. Preserve
 the 624-word state width and modulo-2^32 recurrence with the existing u32

@@ -1,0 +1,15 @@
+include_guard(GLOBAL)
+add_library(charged_camera_reader STATIC src/resources/camera_animation.cpp)
+target_include_directories(charged_camera_reader PUBLIC src)
+target_compile_features(charged_camera_reader PUBLIC cxx_std_20)
+add_library(charged_camera_assets STATIC
+    "${MSCHARGED_PREPARED}/src/Game/Camera/CameraData.cpp"
+    src/runtime/camera_assets.cpp)
+add_dependencies(charged_camera_assets verify_prepared)
+target_link_libraries(charged_camera_assets PUBLIC charged_camera_reader charged_graphics_memory)
+if(BUILD_TESTING)
+    add_executable(camera_assets_tests tests/camera_assets.cpp)
+    target_link_libraries(camera_assets_tests PRIVATE charged_camera_assets)
+    add_test(NAME camera_assets COMMAND camera_assets_tests)
+    set_tests_properties(camera_assets PROPERTIES TIMEOUT 30)
+endif()

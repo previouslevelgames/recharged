@@ -1,0 +1,3 @@
+include_guard(GLOBAL)
+add_library(charged_game_print STATIC src/runtime/game_print.cpp)
+target_link_libraries(charged_game_print PUBLIC charged_graphics_memory)

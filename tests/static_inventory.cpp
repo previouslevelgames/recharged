@@ -12,6 +12,9 @@
 #include "NL/glx/GXSpecularDetailBlendMaterialProgram.h"
 #include "NL/glx/GXScrollingSpecularMaterialProgram.h"
 #include "NL/glx/GXCameraScrolledOverlayMaterialProgram.h"
+#include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
+#include "NL/glx/GXMaskedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
 #include "runtime/startup.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
@@ -356,11 +359,13 @@ int main()
                 recovered();
             }
         }
+        for (bool scrolling : {false,true})
         {
             auto overlay = model;
             auto& p = overlay.packets[0];
-            p.material = {}; p.material.program = 0x32bc21e8;
-            p.material.scalars = {-2,-.5f,.25f,0}; p.material.switches = {1,0,1,0,0};
+            p.material = {}; p.material.program = scrolling ? 0x845cad59 : 0x32bc21e8;
+            p.material.scalars = {-2,-.5f,.25f,0}; p.material.switches = scrolling ? std::array<std::uint32_t,5>{1,0,0,1,0} : std::array<std::uint32_t,5>{1,0,1,0,0};
+            if(scrolling) p.material.scroll_speeds[0]={-.5f,.25f};
             std::vector<mscharged::resources::Texture> textures;
             for (unsigned i = 0; i < 3; ++i)
             {
@@ -371,15 +376,29 @@ int main()
             {
                 mscharged::StaticInventory inventory(pool, {overlay}, textures);
                 const auto& native = inventory.Model(1)->packets[0];
-                const auto& params = *static_cast<const GXCameraScrolledOverlayParameters*>(native.materialParameters);
                 Require(native.numStreams == 6 && native.streams[4].stride == 8 && native.streams[4].index == 2
                     && static_cast<float*>(native.streams[4].address)[1] == -3 && native.streams[5].id == 3,
                     "Overlay native stream ordering");
+                if(scrolling)
+                {
+                    const auto& params=*static_cast<const GXScrollingCameraOverlayParameters*>(native.materialParameters);
                 Require(params.diffuseTexture.texture == 30 && params.overlayTexture.texture == 31
                     && params.overlayMaskTexture.texture == 32 && params.overlayMaskTexture.flags == 2
                     && params.overlayMaskTexture.textureIndex == 0xffff && params.overlayScale == -2
                     && params.cameraScroll == -.5f && params.overlayAmount == .25f && params.diffuseWrapEnabled == 1
                     && params.lightingEnabled == 0 && params.shadowEnabled == 1, "Overlay typed parameters");
+                    Require(params.diffuseScrollSpeedX==-.5f && params.diffuseScrollSpeedY==.25f
+                        && params.maskScrollEnabled==0,"Scrolling camera native parameters");
+                }
+                else
+                {
+                    const auto& params=*static_cast<const GXCameraScrolledOverlayParameters*>(native.materialParameters);
+                Require(params.diffuseTexture.texture == 30 && params.overlayTexture.texture == 31
+                    && params.overlayMaskTexture.texture == 32 && params.overlayMaskTexture.flags == 2
+                    && params.overlayMaskTexture.textureIndex == 0xffff && params.overlayScale == -2
+                    && params.cameraScroll == -.5f && params.overlayAmount == .25f && params.diffuseWrapEnabled == 1
+                    && params.lightingEnabled == 0 && params.shadowEnabled == 1, "Overlay typed parameters");
+                }
             }
             recovered();
             auto missing = textures; missing.pop_back();
@@ -394,25 +413,105 @@ int main()
             auto invalid = overlay; invalid.packets[0].material.scalars[0] = std::numeric_limits<float>::denorm_min();
             Reject<std::invalid_argument>([&] { mscharged::StaticInventory inventory(pool, {invalid}, textures); });
             recovered();
-            for (unsigned field = 0; field < 3; ++field)
+            if(scrolling)
+            {
+                invalid=overlay;invalid.packets[0].material.scalars[0]=0;
+                Reject<std::invalid_argument>([&]{mscharged::StaticInventory inventory(pool,{invalid},textures);});recovered();
+                for(unsigned i=0;i<2;++i) for(float value:{10001.f,-10001.f,std::numeric_limits<float>::quiet_NaN()})
+                {
+                    invalid=overlay;invalid.packets[0].material.scroll_speeds[0][i]=value;
+                    Reject<std::invalid_argument>([&]{mscharged::StaticInventory inventory(pool,{invalid},textures);});recovered();
+                }
+            }
+            for (unsigned field = 0; field < (scrolling ? 4u : 3u); ++field)
             {
                 invalid = overlay; invalid.packets[0].material.switches[field] = 2;
                 Reject<std::invalid_argument>([&] { mscharged::StaticInventory inventory(pool, {invalid}, textures); });
                 recovered();
             }
         }
+        for (bool scrolling : {false,true})
+        {
+            auto detail = model; auto& p = detail.packets[0];
+            p.material = {}; p.material.program = scrolling ? 0xf2d57ac6 : 0x09609a35;
+            if(scrolling) p.material.scroll_speeds={{{-.5f,.25f},{.75f,-1},{1.25f,-1.5f}}};
+            p.material.scalars[0] = .25f; p.material.switches = {1,0,0,0,0};
+            std::vector<mscharged::resources::Texture> textures;
+            for (unsigned i=0;i<3;++i)
+            { auto t=texture; t.id=40+i; textures.push_back(t); p.material.textures[i]={40+i,static_cast<u8>(i)}; }
+            for(auto& v:p.vertices){v.normal={0,0,1};v.uv1={2,-2};v.uv2={3,-3};}
+            {
+                mscharged::StaticInventory inventory(pool,{detail},textures);
+                const auto& packet=inventory.Model(1)->packets[0];
+                Require(packet.numStreams==6 && packet.streams[1].stride==12 && packet.streams[4].stride==8
+                    && packet.streams[4].index==2 && static_cast<float*>(packet.streams[4].address)[1]==-3
+                    && packet.streams[5].id==3,"Masked detail native streams");
+                if(scrolling)
+                {
+                    const auto& params=*static_cast<const GXScrollingMaskedDetailBlendParameters*>(packet.materialParameters);
+                Require(params.diffuseTexture.texture==40 && params.detailTexture.texture==41
+                    && params.blendMaskTexture.texture==42 && params.blendMaskTexture.flags==2
+                    && params.blendMaskTexture.textureIndex==0xffff && params.blendAmount==.25f
+                    && params.lightingEnabled==1 && params.shadowEnabled==0,"Masked detail native parameters");
+                    Require(params.diffuseScrollSpeedX==-.5f && params.diffuseScrollSpeedY==.25f
+                        && params.detailScrollSpeedX==.75f && params.detailScrollSpeedY==-1
+                        && params.blendMaskScrollSpeedX==1.25f && params.blendMaskScrollSpeedY==-1.5f,"Masked detail scroll pairs");
+                }
+                else
+                {
+                    const auto& params=*static_cast<const GXMaskedDetailBlendParameters*>(packet.materialParameters);
+                Require(params.diffuseTexture.texture==40 && params.detailTexture.texture==41
+                    && params.blendMaskTexture.texture==42 && params.blendMaskTexture.flags==2
+                    && params.blendMaskTexture.textureIndex==0xffff && params.blendAmount==.25f
+                    && params.lightingEnabled==1 && params.receiveShadows==0,"Masked detail native parameters");
+                }
+            }
+            recovered();
+            for(unsigned i=0;i<3;++i)
+            {
+                auto missing=textures;missing.erase(missing.begin()+i);
+                Reject<std::runtime_error>([&]{mscharged::StaticInventory inventory(pool,{detail},missing);});recovered();
+                auto invalid=detail;invalid.packets[0].material.textures[i].flags=4;
+                Reject<std::invalid_argument>([&]{mscharged::StaticInventory inventory(pool,{invalid},textures);});recovered();
+            }
+            for(float value:{-1.f,2.f,std::numeric_limits<float>::quiet_NaN()})
+            {
+                auto invalid=detail;invalid.packets[0].material.scalars[0]=value;
+                Reject<std::invalid_argument>([&]{mscharged::StaticInventory inventory(pool,{invalid},textures);});recovered();
+            }
+            if(scrolling) for(unsigned i=0;i<6;++i)
+                for(float value:{10001.f,-10001.f,std::numeric_limits<float>::infinity(),std::numeric_limits<float>::quiet_NaN()})
+                {
+                    auto invalid=detail;invalid.packets[0].material.scroll_speeds[i/2][i%2]=value;
+                    Reject<std::invalid_argument>([&]{mscharged::StaticInventory inventory(pool,{invalid},textures);});recovered();
+                }
+            for(unsigned i=0;i<2;++i)
+            {
+                auto invalid=detail;invalid.packets[0].material.switches[i]=2;
+                Reject<std::invalid_argument>([&]{mscharged::StaticInventory inventory(pool,{invalid},textures);});recovered();
+            }
+        }
         materials.Release();
         Require(!glGetMaterialProgram(0x2169db5c) && !GXScrollingDiffuseMaterialProgram::Instance
             && !GXScrollingDiffuseMaterialProgram::Initialized,"Material shutdown left stale registry/instance state");
+        Require(!glGetMaterialProgram(0x845cad59) && !GXScrollingCameraOverlayMaterialProgram::Instance
+            && !GXScrollingCameraOverlayMaterialProgram::Initialized,"Scrolling camera registry teardown");
         Require(!glGetMaterialProgram(0x32bc21e8) && !GXCameraScrolledOverlayMaterialProgram::Instance
             && !GXCameraScrolledOverlayMaterialProgram::Initialized, "Overlay registry teardown");
         Require(!glGetMaterialProgram(0x3eccd955) && !GXScrollingSpecularMaterialProgram::Instance
             && !GXScrollingSpecularMaterialProgram::Initialized, "Scrolling material shutdown left stale state");
         Require(!glGetMaterialProgram(0x112ab470) && !GXSpecularDetailBlendMaterialProgram::Instance
             && !GXSpecularDetailBlendMaterialProgram::Initialized, "Detail material shutdown left stale state");
+        Require(!glGetMaterialProgram(0xf2d57ac6) && !GXScrollingMaskedDetailBlendMaterialProgram::Instance
+            && !GXScrollingMaskedDetailBlendMaterialProgram::Initialized,"Scrolling masked detail registry teardown");
+        Require(!glGetMaterialProgram(0x09609a35) && !GXMaskedDetailBlendMaterialProgram::Instance
+            && !GXMaskedDetailBlendMaterialProgram::Initialized,"Masked detail registry teardown");
         for (unsigned i = 0; i < 3; ++i)
         {
             mscharged::MaterialPrograms restart;
+            Require(glGetMaterialProgram(0x845cad59) && GXScrollingCameraOverlayMaterialProgram::Initialized,"Scrolling camera restart");
+            Require(glGetMaterialProgram(0xf2d57ac6) && GXScrollingMaskedDetailBlendMaterialProgram::Initialized,"Scrolling masked detail restart");
+            Require(glGetMaterialProgram(0x09609a35) && GXMaskedDetailBlendMaterialProgram::Initialized,"Masked detail restart");
             Require(glGetMaterialProgram(0x32475c7d) && glGetMaterialProgram(0x112ab470)
                 && GXSpecularDetailBlendMaterialProgram::Initialized
                 && glGetMaterialProgram(0x3eccd955) && GXScrollingSpecularMaterialProgram::Initialized

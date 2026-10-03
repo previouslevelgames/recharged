@@ -1,0 +1,433 @@
+Subject: Select native texture animation playback and alias ownership
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+
+Select original GLTextureAnim playback and inventory traversal with checked
+native frame extents, delta times and owned alias indices. Preserve one-frame
+advance, discarded overshoot, pause, loop, ping-pong and hold behavior. Release
+aliases before static frame textures; reject early frame release and refresh
+of unregistered animations. Resolve cached bindings by owning ID/index.
+The native port decodes fixed-width big-endian IFL records into pool-owned
+native objects; original unchecked binary casts remain console-only. Skin,
+vertex animation and the remaining full inventory loaders stay unselected.
+
+diff --git a/include/Game/GL/GLTextureAnim.h b/include/Game/GL/GLTextureAnim.h
+--- a/include/Game/GL/GLTextureAnim.h
++++ b/include/Game/GL/GLTextureAnim.h
+@@ -2,6 +2,9 @@
+ #define GAME_GL_GLTEXTUREANIM_H
+ 
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
+ 
+ enum eGLTexAnimMode
+ {
+@@ -24,6 +27,11 @@
+ public:
+     void SetTexture(int index, const GLAnimTex& animTex)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (!m_pAnimTex || index < 0 || m_nNumTextures <= 0
++            || static_cast<u32>(m_nNumTextures) != m_NativeFrameCount || index >= m_nNumTextures)
++            throw std::out_of_range("Texture animation frame exceeds native storage");
++#endif
+         m_pAnimTex[index] = animTex;
+     }
+ 
+@@ -42,6 +50,9 @@
+     /* 0x18 */ u32 m_textureIndex;
+     /* 0x1C */ f32 m_fTime;
+     /* 0x20 */ GLAnimTex* m_pAnimTex;
++#if defined(MSCHARGED_NATIVE)
++    u32 m_NativeFrameCount; // Allocation extent; not part of the 36-byte Wii header.
++#endif
+ };
+ 
+ GLTextureAnim* glGetTextureAnim(unsigned long texture);
+diff --git a/src/Game/GL/GLTextureAnim.cpp b/src/Game/GL/GLTextureAnim.cpp
+--- a/src/Game/GL/GLTextureAnim.cpp
++++ b/src/Game/GL/GLTextureAnim.cpp
+@@ -6,7 +6,13 @@
+ #include "NL/glx/glxTexture.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include <cmath>
++#include <stdexcept>
++#endif
+ 
++// Native loaders convert bounded big-endian records before construction.
++#if !defined(MSCHARGED_NATIVE)
+ bool glIsTextureAnim(const void* data, unsigned long size)
+ {
+     if (size < sizeof(GLTextureAnim))
+@@ -51,13 +57,23 @@
+     glGetTextureManager()->RegisterTextureAnim(anim);
+ }
+ 
++#endif
++
+ void glReleaseTextureAnim(GLTextureAnim* anim)
+ {
+     glTextureManager* manager = glGetTextureManager();
++#if defined(MSCHARGED_NATIVE)
++    if (!manager || !anim || anim->m_textureIndex >= manager->mCapacity
++        || manager->mNativeAnims[anim->m_textureIndex] != anim)
++        throw std::invalid_argument("Texture animation is not registered with this manager");
++#endif
+     u32 textureHandle = anim->GetTextureIndex();
+     manager->mFreeIndices->AddEnd((u16)textureHandle);
+ 
+     manager->mTextures[textureHandle] = 0;
++#if defined(MSCHARGED_NATIVE)
++    manager->mNativeAnims[textureHandle] = 0;
++#endif
+     anim->m_textureIndex = 0xFFFF;
+ }
+ 
+@@ -68,11 +84,22 @@
+     {
+         index = m_nFrame;
+     }
++#if defined(MSCHARGED_NATIVE)
++    if (!textureArray || index < 0 || m_nNumTextures <= 0
++        || static_cast<u32>(m_nNumTextures) != m_NativeFrameCount || index >= m_nNumTextures)
++        throw std::out_of_range("Texture animation frame exceeds native storage");
++#endif
+     return textureArray[index];
+ }
+ 
+ void GLTextureAnim::Update(float dt)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!std::isfinite(dt) || dt < 0 || !std::isfinite(m_fTime + dt))
++        throw std::invalid_argument("Invalid texture animation delta time");
++    if (!glGetTextureManager()) throw std::logic_error("Texture animation manager is not initialized");
++    glGetTextureManager()->ValidateTextureAnim(this);
++#endif
+     s32 backwardFrame;
+     s32 advancedFrame;
+     s32 nextFrame;
+diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
+--- a/include/Game/GL/GLInventory.h
++++ b/include/Game/GL/GLInventory.h
+@@ -164,9 +164,8 @@
+     Tree* m_pItems;
+ };
+ 
+-// The initial native target selects file/model/texture inventory only.
+-// Animation, skin and chunk-loader methods require the full implementation;
+-// they remain unresolved if a caller attempts to enable them prematurely.
++// The native target selects file/model/texture and texture-animation inventory.
++// Skin, vertex animation and chunk-loader methods remain unselected.
+ class GLInventory
+ {
+ public:
+diff --git a/src/Game/GL/GLInventoryStatic.cpp b/src/Game/GL/GLInventoryStatic.cpp
+--- a/src/Game/GL/GLInventoryStatic.cpp
++++ b/src/Game/GL/GLInventoryStatic.cpp
+@@ -1,6 +1,8 @@
+-// Selected native static inventory. The original full unit retains animation,
+-// skin and chunk-loader code; those methods are deliberately not linked here.
++// Selected native inventory with original texture-animation traversal.
++// Skin, vertex animation and unadapted chunk loaders remain unselected.
+ #include "Game/GL/GLInventory.h"
++#include "Game/GL/GLTextureAnim.h"
++#include <cmath>
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glModel.h"
+ #include "NL/gl/glTexture.h"
+@@ -42,6 +44,7 @@
+             m_pFileData[i] = new (8, false) nlListContainer<void*>();
+             m_pModels[i] = new (8, false) clearing_GLInventory<glModel>();
+             m_pTextures[i] = new (8, false) clearing_GLInventory<PlatTexture>();
++            m_pTextureAnims[i] = new (8, false) clearing_GLInventory<GLTextureAnim>();
+         }
+         m_bCreated = true;
+     }
+@@ -56,6 +59,7 @@
+         nlDeleteGameObject(m_pFileData[i]); m_pFileData[i] = 0;
+         nlDeleteGameObject(m_pModels[i]); m_pModels[i] = 0;
+         nlDeleteGameObject(m_pTextures[i]); m_pTextures[i] = 0;
++        nlDeleteGameObject(m_pTextureAnims[i]); m_pTextureAnims[i] = 0;
+     }
+     m_bCreated = false;
+     m_nLevel = 0;
+@@ -71,6 +75,7 @@
+         m_pFileData[nLevel]->Clear();
+     }
+     if (m_pModels[nLevel]) m_pModels[nLevel]->Release(mModelReleaseCallback);
++    if (m_pTextureAnims[nLevel]) m_pTextureAnims[nLevel]->Release(glReleaseTextureAnim);
+     if (m_pTextures[nLevel]) m_pTextures[nLevel]->Release(glReleaseTexture);
+ }
+ PlatTexture* glx_GetTex(unsigned long handle)
+@@ -146,6 +151,7 @@
+ void GLInventory::AddTexture(unsigned long key, PlatTexture* texture)
+ {
+     if (!m_bCreated) throw std::logic_error("GL inventory is not initialized");
++    if (m_pTextureAnims[m_nLevel]->m_pItems->FindGet(key, 0)) throw std::invalid_argument("Texture ID already names an animation at this level");
+     if (!texture || key > UINT32_MAX) throw std::invalid_argument("Invalid static inventory entry");
+     if (m_pTextures[m_nLevel]->m_pItems->FindGet(key, 0)) throw std::invalid_argument("Duplicate static inventory key at the current level");
+     unsigned long k = key;
+@@ -172,3 +178,77 @@
+     }
+     return 0;
+ }
++
++GLTextureAnim* glGetTextureAnim(unsigned long texture)
++{
++    GLResourcePool* pResource = nlDLRingGetStart(glGetResourcePools());
++    if (!pResource) return 0;
++    for (;; pResource = pResource->m_next)
++    {
++        GLTextureAnim* anim = pResource->m_inventory->GetTextureAnim(texture);
++        if (anim != 0)
++            return anim;
++        if (nlDLRingIsEnd(glGetResourcePools(), pResource))
++            break;
++    }
++    return 0;
++}
++
++void GLInventory::AddTextureAnim(unsigned long key, GLTextureAnim* anim)
++{
++    if (!m_bCreated) throw std::logic_error("GL inventory is not initialized");
++    if (!anim || key > UINT32_MAX) throw std::invalid_argument("Invalid texture animation inventory entry");
++    if (m_pTextureAnims[m_nLevel]->m_pItems->FindGet(key, 0)
++        || m_pTextures[m_nLevel]->m_pItems->FindGet(key, 0))
++        throw std::invalid_argument("Duplicate texture or animation key at the current level");
++    unsigned long k = key;
++    GLTextureAnim* value = anim;
++    clearing_GLInventory<GLTextureAnim>::Tree* pTree = m_pTextureAnims[m_nLevel]->m_pItems;
++    pTree->Add(k, value);
++}
++
++GLTextureAnim* GLInventory::GetTextureAnim(unsigned long id)
++{
++    if (!m_bCreated) throw std::logic_error("GL inventory is not initialized");
++    for (int i = m_nLevel; i >= 0; i--)
++    {
++        unsigned long key = id;
++        GLTextureAnim** foundValue;
++        bool found =
++            m_pTextureAnims[i]->m_pItems->FindGet(key, &foundValue);
++        GLTextureAnim* result;
++        if (found)
++            result = *foundValue;
++        else
++            result = 0;
++        if (result != 0)
++            return result;
++    }
++    return 0;
++}
++
++class UpdateTextureAnimCallback
++{
++public:
++    void Update(const unsigned long&, GLTextureAnim** anim);
++    float mDeltaTime;
++};
++
++void UpdateTextureAnimCallback::Update(
++    const unsigned long&, GLTextureAnim** anim)
++{
++    (*anim)->Update(mDeltaTime);
++}
++
++void GLInventory::UpdateTextureAnims(float dt)
++{
++    if (!m_bCreated) throw std::logic_error("GL inventory is not initialized");
++    if (!std::isfinite(dt) || dt < 0) throw std::invalid_argument("Invalid texture animation delta time");
++    UpdateTextureAnimCallback textureCallback;
++    textureCallback.mDeltaTime = dt;
++    for (int i = m_nLevel; i >= 0; i--)
++    {
++        m_pTextureAnims[i]->Walk(
++            &textureCallback, &UpdateTextureAnimCallback::Update);
++    }
++}
+diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
+--- a/include/NL/gl/glTextureManager.h
++++ b/include/NL/gl/glTextureManager.h
+@@ -77,6 +77,7 @@
+     explicit glTextureManager(unsigned long count);
+ #if defined(MSCHARGED_NATIVE)
+     ~glTextureManager();
++    void ValidateTextureAnim(GLTextureAnim* anim) const;
+ #endif
+     unsigned long GetTextureIndex(unsigned long texture);
+     void ResolveTextureIndex(glTextureBinding* texture);
+@@ -90,6 +91,9 @@
+     /* 0x04 */ PlatTexture** mTextures;
+     /* 0x08 */ glTextureIndexQueue* mFreeIndices;
+     /* 0x0C */ u16* mIndexBuffer;
++#if defined(MSCHARGED_NATIVE)
++    GLTextureAnim** mNativeAnims; // Alias ownership, distinct from the current frame pointer.
++#endif
+ }; // size: 0x10
+ 
+ extern glTextureManager* gTextureManager;
+diff --git a/src/NL/gl/glTextureManagerStatic.cpp b/src/NL/gl/glTextureManagerStatic.cpp
+--- a/src/NL/gl/glTextureManagerStatic.cpp
++++ b/src/NL/gl/glTextureManagerStatic.cpp
+@@ -1,10 +1,12 @@
+-// Native static texture lookup/registration. Animation methods are not linked.
++// Native texture lookup/registration, including owned animation alias indices.
+ #include "NL/gl/glTextureManager.h"
+ #include "NL/gl/glTexture.h"
+ #include "NL/gl/glModel.h"
+ #include "NL/gl/glMemory.h"
+ #include "NL/glx/glxTexture.h"
+ #include "Game/GL/GLInventory.h"
++#include "Game/GL/GLTextureAnim.h"
++#include <cmath>
+ #include <stdexcept>
+ #include <string.h>
+ 
+@@ -15,13 +17,15 @@
+ glTextureManager* gTextureManager = 0;
+ 
+ glTextureManager::glTextureManager(unsigned long count)
+-    : mCapacity(0), mTextures(0), mFreeIndices(0), mIndexBuffer(0)
++    : mCapacity(0), mTextures(0), mFreeIndices(0), mIndexBuffer(0), mNativeAnims(0)
+ {
+     if (!count || count > 0xFFFF) throw std::invalid_argument("GL texture capacity must be 1..65535");
+     try
+     {
+         mTextures = (PlatTexture**)nlMalloc(count * sizeof(PlatTexture*), 8, false);
+         memset(mTextures, 0, count * sizeof(PlatTexture*));
++        mNativeAnims = (GLTextureAnim**)nlMalloc(count * sizeof(GLTextureAnim*), 8, false);
++        memset(mNativeAnims, 0, count * sizeof(GLTextureAnim*));
+         mIndexBuffer = new (8, false) u16[count];
+         mFreeIndices = new (8, false) glTextureIndexQueue(mIndexBuffer, count);
+         for (u32 i = 0; i < count; ++i) mFreeIndices->AddEnd((u16)i);
+@@ -30,7 +34,7 @@
+     catch (...)
+     {
+         nlDeleteGameObject(mFreeIndices);
+-        nlFree(mIndexBuffer); nlFree(mTextures);
++        nlFree(mIndexBuffer); nlFree(mNativeAnims); nlFree(mTextures);
+         throw;
+     }
+ }
+@@ -38,7 +42,7 @@
+ glTextureManager::~glTextureManager()
+ {
+     nlDeleteGameObject(mFreeIndices);
+-    nlFree(mIndexBuffer); nlFree(mTextures);
++    nlFree(mIndexBuffer); nlFree(mNativeAnims); nlFree(mTextures);
+ }
+ 
+ void glInitTextureManager(unsigned long count)
+@@ -76,6 +80,11 @@
+         || gTextureManager->mTextures[texture->m_TextureIndex] != texture)
+         throw std::invalid_argument("GL texture is not registered with this manager");
+     u32 index = texture->GetTextureIndex();
++    for (u32 i = 0; i < gTextureManager->mCapacity; ++i)
++        if (auto* anim = gTextureManager->mNativeAnims[i])
++            for (u32 frame = 0; frame < anim->m_NativeFrameCount; ++frame)
++                if (anim->m_pAnimTex[frame].m_TexHandle == index)
++                    throw std::logic_error("Release texture animations before their frame textures");
+     gTextureManager->mFreeIndices->AddEnd((u16)index);
+     gTextureManager->mTextures[index] = 0;
+     texture->m_TextureIndex = 0xFFFF;
+@@ -90,6 +99,8 @@
+ 
+ unsigned long glTextureManager::GetTextureIndex(unsigned long texture)
+ {
++    GLTextureAnim* anim = glGetTextureAnim(texture);
++    if (anim) return anim->m_textureIndex;
+     PlatTexture* platformTexture = glx_GetTex(texture);
+     if (platformTexture == 0)
+     {
+@@ -101,15 +112,9 @@
+ void glTextureManager::ResolveTextureIndex(glTextureBinding* texture)
+ {
+     if (!texture) throw std::invalid_argument("Null GL texture binding/object/index");
+-    // A pool rollback or shadowing may invalidate/recycle a cached index.
+-    if (texture->textureIndex != 0xFFFF
+-        && (texture->textureIndex >= mCapacity
+-            || mTextures[texture->textureIndex] != glx_GetTex(texture->texture)))
+-        texture->textureIndex = 0xFFFF;
+-    if (texture->textureIndex == 0xFFFF)
+-    {
+-        texture->textureIndex = GetTextureIndex(texture->texture);
+-    }
++    // Resolve by owning ID/index, not current frame pointer: animation aliases
++    // keep their own slot while frames change, and rollback may recycle slots.
++    texture->textureIndex = GetTextureIndex(texture->texture);
+ }
+ 
+ PlatTexture* glTextureManager::GetTextureAtIndex(const unsigned long* texture)
+@@ -154,3 +159,47 @@
+         m_LinearData = 0;
+     }
+ }
++
++namespace
++{
++void CheckAnimation(const glTextureManager& manager, GLTextureAnim* anim)
++{
++    if (!anim || !anim->m_pAnimTex || anim->m_nNumTextures <= 0 || anim->m_nNumTextures > 4096
++        || static_cast<u32>(anim->m_nNumTextures) != anim->m_NativeFrameCount
++        || anim->m_nFrame < 0 || anim->m_nFrame >= anim->m_nNumTextures
++        || anim->m_ePlayMode < GLAnimMode_Loop || anim->m_ePlayMode >= GLAnimMode_Num
++        || anim->m_nPlayDir < -1 || anim->m_nPlayDir > 1 || anim->m_bPaused > 1
++        || !std::isfinite(anim->m_fTime) || anim->m_fTime < 0)
++        throw std::invalid_argument("Invalid native texture animation state");
++    for (u32 i = 0; i < anim->m_NativeFrameCount; ++i)
++    {
++        const auto& frame = anim->m_pAnimTex[i];
++        if (!std::isfinite(frame.m_fTime) || frame.m_fTime < 0
++            || frame.m_TexHandle >= manager.mCapacity || !manager.mTextures[frame.m_TexHandle]
++            || manager.mNativeAnims[frame.m_TexHandle])
++            throw std::invalid_argument("Texture animation needs a registered static frame");
++    }
++}
++}
++void glTextureManager::ValidateTextureAnim(GLTextureAnim* anim) const
++{
++    CheckAnimation(*this, anim);
++    if (anim->m_textureIndex >= mCapacity || mNativeAnims[anim->m_textureIndex] != anim)
++        throw std::invalid_argument("Texture animation is not registered with this manager");
++}
++void glTextureManager::RegisterTextureAnim(GLTextureAnim* anim)
++{
++    CheckAnimation(*this, anim);
++    if (anim->m_textureIndex != 0xFFFF)
++        throw std::invalid_argument("Texture animation is already registered");
++    unsigned long index = mFreeIndices->RemoveStart();
++    anim->m_textureIndex = index;
++    mNativeAnims[index] = anim;
++    mTextures[index] = GetTextureAtIndex(&anim->GetTexture(-1).m_TexHandle);
++}
++void glTextureManager::RefreshTextureAnim(GLTextureAnim* anim)
++{
++    ValidateTextureAnim(anim);
++    u32 index = anim->m_textureIndex;
++    mTextures[index] = GetTextureAtIndex(&anim->GetTexture(-1).m_TexHandle);
++}
+diff --git a/src/NL/gl/glMaterialAlphaState.cpp b/src/NL/gl/glMaterialAlphaState.cpp
+--- a/src/NL/gl/glMaterialAlphaState.cpp
++++ b/src/NL/gl/glMaterialAlphaState.cpp
+@@ -3,6 +3,8 @@
+ #include "NL/gl/glModel.h"
+ #include "NL/gl/glState.h"
+ #include "NL/glx/glxTexture.h"
++#include "NL/gl/glTexture.h"
++#include "NL/gl/glTextureManager.h"
+ #include <stdexcept>
+ 
+ void glSetMaterialTextureAlphaState(
+@@ -12,7 +14,8 @@
+     {
+         return;
+     }
+-    const PlatTexture* loaded = glx_GetTex(texture);
++    const unsigned long index = glGetTextureIndex(texture);
++    const PlatTexture* loaded = glGetTextureManager()->GetTextureAtIndex(&index);
+     if (!loaded) throw std::runtime_error("Material diffuse texture is absent from the native inventory");
+ 
+     switch (loaded->m_Bits[3])

@@ -1,0 +1,63 @@
+Subject: Select camera data lifetime independently of unfinished playback
+
+Upstream-base: 483cb6020288a347419f7e4bfa88eaa3059f063e
+
+Extract original cCameraData initialization and pair owned arrays with nlFree
+on native hosts. Initialize the ownership flag for partial allocation rollback.
+Camera playback and the original registry remain unselected.
+
+diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+--- a/src/Game/Camera/animcam.cpp
++++ b/src/Game/Camera/animcam.cpp
+@@ -69,6 +69,7 @@
+     out = (T*)chunk->GetData();
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ cCameraData::cCameraData()
+ {
+     next = NULL;
+@@ -94,6 +95,8 @@
+         delete[] field_0x0C;
+     }
+ }
++
++#endif
+ 
+ bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
+ {
+diff --git a/src/Game/Camera/CameraData.cpp b/src/Game/Camera/CameraData.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/Camera/CameraData.cpp
+@@ -0,0 +1,30 @@
++#include "Game/Camera/animcam.h"
++#include "NL/nlMemory.h"
++
++// Original data initialization with native allocation/free pairing.
++cCameraData::cCameraData()
++{
++    ownsKeyData = false;
++    next = NULL;
++    m_uHashID = 0;
++    m_uKeyCount = 0;
++    field_0x0C = NULL;
++    cameraPos = NULL;
++    targetPos = NULL;
++    cameraRot = NULL;
++    fFOV = NULL;
++    fFocalLength = NULL;
++}
++
++cCameraData::~cCameraData()
++{
++    if (ownsKeyData)
++    {
++        nlFree(cameraPos);
++        nlFree(targetPos);
++        nlFree(cameraRot);
++        nlFree(fFOV);
++        nlFree(fFocalLength);
++        nlFree(field_0x0C);
++    }
++}

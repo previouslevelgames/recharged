@@ -4,6 +4,8 @@
 #include "runtime/gpu_readback.h"
 #include "runtime/material_environment.h"
 #include "runtime/static_inventory.h"
+#include "Game/GL/GLInventory.h"
+#include "Game/GL/GLTextureAnim.h"
 #include "runtime/graphics_memory.h"
 #include "runtime/graphics_state.h"
 #include "runtime/startup.h"
@@ -18,6 +20,9 @@
 #include "NL/glx/GXSpecularDetailBlendMaterialProgram.h"
 #include "NL/glx/GXScrollingSpecularMaterialProgram.h"
 #include "NL/glx/GXCameraScrolledOverlayMaterialProgram.h"
+#include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
+#include "NL/glx/GXMaskedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
 #include "Game/Render/LightingLookup.h"
 #include "NL/nlMemory.h"
 #include "NL/MemAlloc.h"
@@ -44,6 +49,9 @@ extern bool gScrollingSpecularHighlightsEnabled;
 extern bool gScrollingSpecularAnimationEnabled;
 extern bool gScrollingSpecularShadowsEnabled;
 extern bool gCameraOverlayShadowsEnabled;
+extern bool gScrollingCameraOverlayShadowsEnabled;
+extern bool gMaskedDetailBlendShadowsEnabled;
+extern bool gScrollingMaskedDetailBlendShadowsEnabled;
 
 using namespace mscharged;
 namespace
@@ -189,6 +197,50 @@ void PixelCase(const char *name, glModel &model, float time, std::array<unsigned
     std::cout << name << ": RGB " << unsigned(pixel[0]) << ',' << unsigned(pixel[1]) << ',' << unsigned(pixel[2])
               << ", draws " << draws << '\n';
     Check(match && draws > 0, "Original material shader pixel mismatch");
+}
+
+void TextureAnimationCases()
+{
+    auto source=Model(1400,0xf2d57ac6,1450);
+    auto& m=source.packets[0].material;m.textures[1]={1451,3};m.textures[2]={1452,3};m.scalars[0]=1;
+    auto& pool=*glGetCurrentResourcePool();
+    StaticInventory inventory(pool,{source},
+        {Texture(1401,{80,100,120,255},8,true),Texture(1402,{200,40,20,128},8,true),
+         Texture(1403,{160,180,200,255}),Texture(1406,{40,80,120,255}),
+         Texture(1404,{255,255,255,255}),Texture(1405,{0,0,0,255})},Drain,
+        {{1450,0,0,false,0,{{1401,.25f},{1402,.5f}}},
+         {1451,2,0,false,0,{{1403,.5f},{1406,.5f}}},
+         {1452,1,1,false,0,{{1404,.75f},{1405,.75f}}}});
+    auto& model=*inventory.Model(1400);
+    auto& p=*static_cast<GXScrollingMaskedDetailBlendParameters*>(model.packets[0].materialParameters);
+    auto* diffuse=glGetTextureAnim(1450);auto* mask=glGetTextureAnim(1452);
+    PixelCase("IFL initial diffuse frame",model,0,{80,100,120});
+    pool.m_inventory->UpdateTextureAnims(.125f);
+    PixelCase("IFL partial frame duration",model,0,{80,100,120});
+    pool.m_inventory->UpdateTextureAnims(.125f);
+    PixelCase("IFL diffuse alias refresh and alpha",model,0,{110,32,25});
+    p.diffuseScrollSpeedX=.5f;
+    PixelCase("IFL frame and UV scrolling are independent",model,1,{20,40,200});
+    p.diffuseScrollSpeedX=0;diffuse->m_bPaused=1;diffuse->Update(10);
+    PixelCase("IFL paused frame retains pixels",model,0,{110,32,25});
+    diffuse->m_bPaused=0;pool.m_inventory->UpdateTextureAnims(10);
+    PixelCase("IFL one-step loop drops overshoot",model,0,{80,100,120});
+    p.blendAmount=0;
+    PixelCase("IFL animated black mask retains diffuse",model,0,{80,100,120});
+    mask->Update(.75f);
+    PixelCase("IFL ping-pong mask reveals held detail",model,0,{40,80,120});
+    p.blendAmount=.5f;
+    PixelCase("IFL masked detail fractional blend",model,0,{60,90,120});
+    // Resolve an existing cached animation binding to a static ID and back.
+    p.diffuseTexture.texture=1406;p.blendAmount=1;
+    PixelCase("IFL cached alias changed to static texture",model,0,{40,80,120});
+    p.diffuseTexture.texture=1450;
+    PixelCase("IFL cached binding returns to animation",model,0,{80,100,120});
+    inventory.Release();
+    StaticInventory restart(pool,{Model(1400,0x21db4385,1450)},
+        {Texture(1401,{20,40,200,255})},Drain,{{1450,0,0,false,0,{{1401,0}}}});
+    pool.m_inventory->UpdateTextureAnims(100);
+    PixelCase("IFL single-frame alias after release and reuse",*restart.Model(1400),0,{20,40,200});
 }
 
 void SpecularDetailCases()
@@ -388,6 +440,122 @@ void ScrollingSpecularCases()
     PixelCase("Scrolling specular alpha blend",model,0,{50,62,75});
 }
 
+template<class Parameters>
+void MaskedDetailCases(unsigned id, bool& shadow_switch)
+{
+    auto source=Model(801,id,801);
+    auto& material=source.packets[0].material;
+    material.textures[1]={802,3}; material.textures[2]={803,3}; material.scalars[0]=1;
+    StaticInventory inventory(*glGetCurrentResourcePool(),{source},
+        {Texture(801,{80,100,120,255},0,true),Texture(802,{200,40,20,255},0,true),
+         Texture(803,{128,64,192,255},0,true),Texture(804,{80,100,120,0},1),
+         Texture(805,{80,100,120,128},8),Texture(806,{0,0,0,255}),Texture(807,{255,255,255,255}),
+         Texture(808,{200,40,20,0},8)},Drain);
+    auto& model=*inventory.Model(801);auto& packet=model.packets[0];
+    auto& p=*static_cast<Parameters*>(packet.materialParameters);
+    int& receive_shadows = [&]() -> int& {
+        if constexpr (requires { p.receiveShadows; }) return p.receiveShadows;
+        else return p.shadowEnabled;
+    }();
+    auto coordinate=[&](unsigned set,float u){auto* uv=static_cast<float*>(packet.streams[2+set].address);
+        for(unsigned i=0;i<packet.numUniqueVertices;++i)uv[i*2]=u;};
+    // Independent equation: w=(1-blend)*mask.rgb/255, output=diffuse*(1-w)+detail*w.
+    auto mixed=[](std::array<unsigned char,3> diffuse,std::array<unsigned char,3> detail,
+                  std::array<unsigned char,3> mask,float blend){std::array<unsigned char,3> result{};
+        for(unsigned i=0;i<3;++i){float w=(1-blend)*mask[i]/255.f;result[i]=std::lround(diffuse[i]*(1-w)+detail[i]*w);}return result;};
+    PixelCase("Masked detail full diffuse",model,0,{80,100,120});
+    p.blendAmount=0;
+    PixelCase("Masked detail per-channel mask",model,0,{140,85,45});
+    p.blendAmount=.5f;
+    PixelCase("Masked detail fractional blend",model,0,{110,92,82});
+    coordinate(0,.875f);
+    PixelCase("Masked detail independent diffuse UV",model,0,mixed({20,40,200},{200,40,20},{128,64,192},.5f));
+    coordinate(0,.125f);coordinate(1,.875f);
+    PixelCase("Masked detail independent detail UV",model,0,mixed({80,100,120},{20,40,200},{128,64,192},.5f));
+    coordinate(1,.125f);coordinate(2,.875f);
+    PixelCase("Masked detail independent mask UV",model,0,mixed({80,100,120},{200,40,20},{20,40,200},.5f));
+    coordinate(2,.125f);p.blendMaskTexture.texture=806;
+    PixelCase("Masked detail black mask",model,0,{80,100,120});
+    p.blendMaskTexture.texture=807;p.blendAmount=0;
+    PixelCase("Masked detail white mask",model,0,{200,40,20});
+    p.blendMaskTexture.texture=803;p.blendAmount=.5f;p.detailTexture.texture=808;
+    PixelCase("Masked detail ignores detail alpha",model,0,{110,92,82});
+    p.detailTexture.texture=802;
+    auto* colours=static_cast<u8*>(packet.streams[5].address);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i){colours[i*4]=128;colours[i*4+2]=128;}
+    PixelCase("Masked detail vertex modulation",model,0,{55,92,41});
+    for(unsigned i=0;i<packet.numUniqueVertices;++i)colours[i*4]=colours[i*4+2]=255;
+    GameLighting light;light.enabled=true;light.ambient={{64,128,192,0}};p.lightingEnabled=1;
+    PixelCase("Masked detail ambient",model,0,{28,46,62},light);
+    light.ambient={{0,0,0,0}};light.light_count=1;light.lights[0].enabled=true;
+    light.lights[0].worldPosition={0,0,1};light.lights[0].intensity=.5f;
+    PixelCase("Masked detail directional light",model,0,{55,46,41},light);
+    light.ramp_texture=19;
+    PixelCase("Masked detail texture light ramp",model,0,{28,46,62},light);
+    light.double_intensity=true;
+    PixelCase("Masked detail doubled texture ramp",model,0,{55,92,123},light);
+    light.double_intensity=false;light.ramp_texture=UINT32_MAX;
+    nlMatrix4 rotation;nlMakeRotationMatrixY(rotation,3.1415927f/3);rotation.SetTranslation({.25980762f,0,-.15f});
+    PixelCase("Masked detail model normal transform",model,0,{27,23,20},light,&rotation);
+    p.lightingEnabled=0;
+    PixelCase("Masked detail lighting disabled",model,0,{110,92,82},light);
+    light={};LightingLookup shadow;shadow.LoadTexture(17);light.shadow.lookup=&shadow;light.shadow.texture=17;
+    receive_shadows=1;
+    PixelCase("Masked detail projected shadow",model,0,{57,48,43},light);
+    shadow_switch=false;
+    PixelCase("Masked detail global shadow switch",model,0,{110,92,82},light);
+    shadow_switch=true;receive_shadows=0;
+    PixelCase("Masked detail material shadow switch",model,0,{110,92,82},light);
+    auto* program=static_cast<GLMaterialProgram*>(packet.materialProgram);
+    p.diffuseTexture.texture=804;program->Prepare(&packet);
+    PixelCase("Masked detail diffuse alpha discard",model,0,{20,24,30});
+    p.diffuseTexture.texture=805;program->Prepare(&packet);
+    PixelCase("Masked detail diffuse alpha blend",model,0,{65,58,56});
+    p.diffuseTexture.texture=801;program->Prepare(&packet);
+    PixelCase("Masked detail restores alpha state",model,0,{110,92,82});
+}
+
+void ScrollingMaskedDetailCases()
+{
+    auto source=Model(901,0xf2d57ac6,901);
+    auto& material=source.packets[0].material;
+    material.textures[1]={902,3};material.textures[2]={903,3};material.scalars[0]=.5f;
+    StaticInventory inventory(*glGetCurrentResourcePool(),{source},
+        {Texture(901,{80,100,120,255},0,true),Texture(902,{200,40,20,255},0,true),Texture(903,{128,64,192,255},0,true),
+         Texture(904,{80,100,120,255},0,true,true),Texture(905,{200,40,20,255},0,true,true),Texture(906,{128,64,192,255},0,true,true)},Drain);
+    auto& model=*inventory.Model(901);auto& packet=model.packets[0];
+    auto& p=*static_cast<GXScrollingMaskedDetailBlendParameters*>(packet.materialParameters);
+    std::array<glTextureBinding*,3> bindings{&p.diffuseTexture,&p.detailTexture,&p.blendMaskTexture};
+    std::array<float*,6> speeds{&p.diffuseScrollSpeedX,&p.diffuseScrollSpeedY,&p.detailScrollSpeedX,
+        &p.detailScrollSpeedY,&p.blendMaskScrollSpeedX,&p.blendMaskScrollSpeedY};
+    const std::array<std::array<unsigned char,3>,3> original{{{80,100,120},{200,40,20},{128,64,192}}};
+    auto blended=[](const auto& samples){std::array<unsigned char,3> result{};
+        for(unsigned i=0;i<3;++i){float w=.5f*samples[2][i]/255.f;result[i]=std::lround(samples[0][i]*(1-w)+samples[1][i]*w);}return result;};
+    PixelCase("Scrolling masked detail zero time",model,0,blended(original));
+    for(unsigned set=0;set<3;++set)
+    {
+        std::cout << "Scrolling texture binding " << set << '\n';
+        auto sampled=original;sampled[set]={20,40,200};
+        *speeds[set*2]=.5f;
+        PixelCase("Independent positive X scroll",model,1,blended(sampled));
+        PixelCase("Original offset wraps at whole period",model,2,blended(original));
+        *speeds[set*2]=-.5f;
+        PixelCase("Negative X scroll clamps",model,1,blended(original));
+        bindings[set]->flags=0;
+        PixelCase("Negative X scroll repeats",model,1,blended(sampled));
+        *speeds[set*2]=0;*speeds[set*2+1]=.5f;bindings[set]->texture=904+set;bindings[set]->flags=3;
+        PixelCase("Independent positive Y scroll",model,1,blended(sampled));
+        *speeds[set*2+1]=-.5f;bindings[set]->flags=0;
+        PixelCase("Independent negative Y scroll repeats",model,1,blended(sampled));
+        *speeds[set*2+1]=0;bindings[set]->texture=901+set;bindings[set]->flags=3;
+    }
+    p.diffuseScrollSpeedX=.5f;p.detailScrollSpeedX=-.5f;p.blendMaskScrollSpeedX=.5f;p.detailTexture.flags=0;
+    std::array<std::array<unsigned char,3>,3> shifted{{{20,40,200},{20,40,200},{20,40,200}}};
+    PixelCase("Three independently scrolling textures together",model,1,blended(shifted));
+    p.diffuseScrollSpeedX=p.detailScrollSpeedX=p.blendMaskScrollSpeedX=0;
+    PixelCase("Zero speeds restore original coordinates",model,100,blended(original));
+}
+
 void CameraOverlayCases()
 {
     auto source = Model(701, 0x32bc21e8, 701);
@@ -508,6 +676,154 @@ void CameraOverlayCases()
     camera.x = .75f; p.overlayScale = 2;
     pixel("Camera overlay recovers after rejected camera draws", {105,105,128});
 }
+void ScrollingCameraOverlayCases()
+{
+    auto source = Model(1001, 0x845cad59, 1001);
+    auto& material = source.packets[0].material;
+    material.textures[1] = {1002,3}; material.textures[2] = {1003,3};
+    material.scalars = {2,1,.5f,0};
+    StaticInventory inventory(*glGetCurrentResourcePool(), {source},
+        {Texture(1001,{80,100,120,255},0,true), Texture(1002,{200,80,40,128},8,true),
+         Texture(1003,{128,64,192,255},0,true), Texture(1004,{200,80,40,128},8,true,true),
+         Texture(1005,{200,80,40,0},8), Texture(1006,{80,100,120,0},1),
+         Texture(1007,{80,100,120,128},8), Texture(1008,{80,100,120,255}),
+         Texture(1009,{80,100,120,255},0,true,true), Texture(1010,{128,64,192,255},0,true,true)}, Drain);
+    auto& model = *inventory.Model(1001); auto& packet = model.packets[0];
+    auto& p = *static_cast<GXScrollingCameraOverlayParameters*>(packet.materialParameters);
+    nlVector3 camera{.75f,.75f,3};
+    float time = 0;
+    auto pixel = [&](const char* name, std::array<unsigned char,3> expected,
+                     const GameLighting& light = GameLighting{}, const nlMatrix4* world = nullptr,
+                     const nlMatrix4* view = nullptr) {
+        PixelCase(name, model, time, expected, light, world, view, nullptr, {}, 8, {}, &camera);
+    };
+    // Independent four-stage equation: diffuse*vertex/light +
+    // overlay.rgb*overlay.alpha*amount*mask.rgb. Byte tolerance is +/-3.
+    pixel("Scrolling camera overlay base alpha and mask", {105,105,128});
+    p.diffuseScrollSpeedX = .5f; time = 1;
+    pixel("Scrolling overlay diffuse and mask at t=1 with flag zero", {24,43,208});
+    p.maskScrollEnabled = 1;
+    pixel("Scrolling overlay address-based mask flag preserves motion", {24,43,208});
+    time = 2;
+    pixel("Scrolling overlay original wrapped time", {105,105,128});
+    time = 1; p.maskScrollEnabled = 0; p.diffuseScrollSpeedX = -.5f;
+    pixel("Scrolling overlay negative offsets clamp", {105,105,128});
+    p.diffuseTexture.flags = p.overlayMaskTexture.flags = 0;
+    pixel("Scrolling overlay negative offsets repeat", {24,43,208});
+    p.diffuseTexture.flags = p.overlayMaskTexture.flags = 3; p.diffuseScrollSpeedX = .5f;
+    p.diffuseTexture.texture = 1008;
+    pixel("Scrolling overlay mask motion independent of diffuse sampling", {84,103,128});
+    p.diffuseTexture.texture = 1009; p.diffuseScrollSpeedX = 0; p.diffuseScrollSpeedY = .5f;
+    pixel("Scrolling overlay vertical diffuse motion", {45,45,208});
+    p.overlayMaskTexture.texture = 1010;
+    pixel("Scrolling overlay vertical mask follows diffuse speed", {24,43,208});
+    p.diffuseScrollSpeedY = -.5f; p.diffuseTexture.flags = p.overlayMaskTexture.flags = 0;
+    pixel("Scrolling overlay negative vertical motion repeats", {24,43,208});
+    p.diffuseTexture.flags = p.overlayMaskTexture.flags = 3;
+    p.diffuseTexture.texture = 1001; p.overlayMaskTexture.texture = 1003;
+    p.diffuseScrollSpeedY = 0; time = 100;
+    pixel("Scrolling overlay zero speed ignores time", {105,105,128});
+    time = 0;
+    p.overlayAmount = 0;
+    pixel("Scrolling camera overlay zero amount", {80,100,120});
+    p.overlayAmount = 1;
+    pixel("Scrolling camera overlay full amount", {130,110,135});
+    p.overlayAmount = .5f;
+    camera.x = -.25f;
+    pixel("Scrolling camera overlay camera X motion", {85,105,195});
+    camera.x = .75f;
+    pixel("Scrolling camera overlay refresh reused camera input", {105,105,128});
+    camera.z = -100;
+    pixel("Scrolling camera overlay ignores camera Z", {105,105,128});
+    p.overlayTexture.texture = 1004; camera.y = -.25f;
+    pixel("Scrolling camera overlay camera Y motion", {85,105,195});
+    camera.y = .75f; p.overlayTexture.texture = 1002;
+    p.cameraScroll = -1;
+    pixel("Scrolling camera overlay reversed camera scroll", {85,105,195});
+    p.cameraScroll = 1; p.overlayScale = -2;
+    pixel("Scrolling camera overlay negative scale", {85,105,195});
+    p.overlayTexture.flags = 0; camera.x = 1.5f; p.overlayScale = 2;
+    pixel("Scrolling camera overlay repeating projected coordinates", {85,105,195});
+    p.overlayScale = 4;
+    pixel("Scrolling camera overlay changed projection scale", {105,105,128});
+    p.overlayTexture.flags = 3; camera.x = .75f; p.overlayScale = 2;
+    auto coordinate = [&](unsigned stream, float u) {
+        auto* data = static_cast<float*>(packet.streams[stream].address);
+        for (unsigned i = 0; i < packet.numUniqueVertices; ++i) data[i * 2] = u;
+    };
+    coordinate(3, .875f);
+    pixel("Scrolling camera overlay independent diffuse UV", {45,45,208});
+    coordinate(3, .125f); coordinate(2, .875f);
+    pixel("Scrolling camera overlay uses position instead of UV0", {105,105,128});
+    coordinate(2, .125f); coordinate(4, .875f);
+    pixel("Scrolling camera overlay independent mask UV", {84,103,128});
+    coordinate(4, .125f);
+    auto* positions = static_cast<float*>(packet.streams[0].address);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i) positions[i * 3] += 1;
+    nlMatrix4 world; world.SetIdentity(); world.SetTranslation({-1,0,0});
+    pixel("Scrolling camera overlay retains local vertex coordinates", {85,105,195}, {}, &world);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i) positions[i * 3] -= 1.25f;
+    world.SetTranslation({.25f,0,0}); p.cameraScroll = 0; camera.x = -100;
+    pixel("Scrolling camera overlay zero camera scroll", {105,105,128}, {}, &world);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i) positions[i * 3] += .25f;
+    p.cameraScroll = 1; camera.x = .75f;
+    nlMatrix4 shifted_view; shifted_view.SetIdentity(); shifted_view.SetTranslation({1,0,0});
+    world.SetTranslation({-1,0,0});
+    pixel("Scrolling camera overlay active camera independent of render view", {105,105,128}, {}, &world, &shifted_view);
+    p.overlayTexture.texture = 1005;
+    pixel("Scrolling camera overlay transparent overlay contributes nothing", {80,100,120});
+    p.overlayTexture.texture = 1002;
+    auto* colours = static_cast<u8*>(packet.streams[5].address);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+    { colours[i * 4] = 128; colours[i * 4 + 2] = 128; colours[i * 4 + 3] = 0; }
+    pixel("Scrolling camera overlay vertex colour with texture-only alpha", {65,105,68});
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+    { colours[i * 4] = 255; colours[i * 4 + 2] = 255; colours[i * 4 + 3] = 255; }
+    GameLighting light; light.enabled = true; light.ambient = {{64,128,192,0}}; p.lightingEnabled = 1;
+    pixel("Scrolling camera overlay ambient affects diffuse only", {45,55,98}, light);
+    light.ambient = {{0,0,0,0}}; light.light_count = 1;
+    light.lights[0].enabled = true; light.lights[0].worldPosition = {0,0,1}; light.lights[0].intensity = .5f;
+    pixel("Scrolling camera overlay directional diffuse", {65,55,68}, light);
+    light.lights[0].worldPosition.z = -1;
+    pixel("Scrolling camera overlay unlit diffuse retains overlay", {25,5,8}, light);
+    p.lightingEnabled = 0; light = {};
+    LightingLookup shadow; shadow.LoadTexture(17); light.shadow.lookup = &shadow; light.shadow.texture = 17;
+    p.shadowEnabled = 1;
+    pixel("Scrolling camera overlay original projected shadow", {55,55,67}, light);
+    gScrollingCameraOverlayShadowsEnabled = false;
+    pixel("Scrolling camera overlay shadow switch", {105,105,128}, light);
+    gScrollingCameraOverlayShadowsEnabled = true;
+    pixel("Scrolling camera overlay restores shadow state", {105,105,128});
+    p.overlayAmount = 0; p.diffuseTexture.flags = 0; coordinate(3,-.375f);
+    pixel("Scrolling camera overlay diffuse initially repeats", {20,40,200});
+    p.diffuseWrapEnabled = 1;
+    // Original Draw changes the flags after binding; subsequent draws clamp.
+    pixel("Scrolling camera overlay original wrap flag mutation", {80,100,120});
+    Check(p.diffuseTexture.flags == 3, "Overlay wrap mutation did not persist");
+    p.diffuseWrapEnabled = 0;
+    pixel("Scrolling camera overlay preserves mutated binding flags", {80,100,120});
+    coordinate(3,.125f);
+    auto* program = static_cast<GLMaterialProgram*>(packet.materialProgram);
+    p.diffuseTexture.texture = 1006; program->Prepare(&packet);
+    pixel("Scrolling camera overlay diffuse alpha discard", {20,24,30});
+    p.diffuseTexture.texture = 1007; program->Prepare(&packet);
+    pixel("Scrolling camera overlay diffuse alpha blend", {50,62,75});
+    p.diffuseTexture.texture = 1001; program->Prepare(&packet); p.overlayAmount = .5f;
+    bool rejected = false;
+    try { PixelCase("Missing camera must fail", model, 0, {0,0,0}); }
+    catch (const std::logic_error&) { rejected = true; }
+    Check(rejected, "Scrolling camera overlay silently accepted a missing camera");
+    p.overlayScale = 0; rejected = false;
+    try { pixel("Zero scrolling camera scale must fail", {0,0,0}); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "Scrolling camera accepted a zero texture scale");
+    camera.x = std::numeric_limits<float>::max(); p.overlayScale = .5f; rejected = false;
+    try { pixel("Overflowing camera matrix must fail", {0,0,0}); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "Scrolling camera overlay accepted an overflowing texture matrix");
+    camera.x = .75f; p.overlayScale = 2;
+    pixel("Scrolling camera overlay recovers after rejected camera draws", {105,105,128});
+}
 } // namespace
 int main(int argc, char **argv)
 {
@@ -595,10 +911,35 @@ int main(int argc, char **argv)
         StaticInventory inventory(*glGetCurrentResourcePool(),
                                   {unlit, vertex, scroll, masked, discard, blend, ci8, normal_left, normal_right},
                                   textures, Drain);
+        const bool animation_only = argc == 2 && std::string_view(argv[1]) == "--texture-animation-only";
+        if (animation_only)
+        {
+            TextureAnimationCases();
+            PixelCase("Unlit after texture animation cleanup", *inventory.Model(1), 0, {80,100,120});
+        }
         const bool targets_only = argc == 2 && std::string_view(argv[1]) == "--targets-only";
         const bool specular_only = argc == 2 && std::string_view(argv[1]) == "--specular-only";
         const bool scrolling_specular_only = argc == 2 && std::string_view(argv[1]) == "--scrolling-specular-only";
         const bool camera_overlay_only = argc == 2 && std::string_view(argv[1]) == "--camera-overlay-only";
+        const bool masked_detail_only = argc == 2 && std::string_view(argv[1]) == "--masked-detail-only";
+        const bool scrolling_masked_detail_only = argc == 2 && std::string_view(argv[1]) == "--scrolling-masked-detail-only";
+        if (scrolling_masked_detail_only)
+        {
+            MaskedDetailCases<GXScrollingMaskedDetailBlendParameters>(0xf2d57ac6, gScrollingMaskedDetailBlendShadowsEnabled);
+            ScrollingMaskedDetailCases();
+            PixelCase("Unlit after scrolling masked detail", *inventory.Model(1), 0, {80,100,120});
+        }
+        if (masked_detail_only)
+        {
+            MaskedDetailCases<GXMaskedDetailBlendParameters>(0x09609a35, gMaskedDetailBlendShadowsEnabled);
+            PixelCase("Unlit after masked detail", *inventory.Model(1), 0, {80,100,120});
+        }
+        const bool scrolling_camera_only = argc == 2 && std::string_view(argv[1]) == "--scrolling-camera-only";
+        if (scrolling_camera_only)
+        {
+            ScrollingCameraOverlayCases();
+            PixelCase("Unlit after scrolling camera overlay", *inventory.Model(1), 0, {80,100,120});
+        }
         if (camera_overlay_only)
         {
             CameraOverlayCases();
@@ -614,7 +955,7 @@ int main(int argc, char **argv)
             SpecularDetailCases();
             PixelCase("Unlit after detail/specular/shadow stages", *inventory.Model(1), 0, {80,100,120});
         }
-        if (!targets_only && !specular_only && !scrolling_specular_only && !camera_overlay_only)
+        if (!targets_only && !specular_only && !scrolling_specular_only && !camera_overlay_only && !masked_detail_only && !scrolling_masked_detail_only && !scrolling_camera_only && !animation_only)
         {
         PixelCase("Unlit diffuse", *inventory.Model(1), 0, {80, 100, 120});
         PixelCase("Vertex colour modulation", *inventory.Model(2), 0, {40, 100, 60});
@@ -715,7 +1056,7 @@ int main(int argc, char **argv)
         // Switch back to verify TEV/channel/texture state does not leak between programs.
         PixelCase("Unlit after multi-stage materials", *inventory.Model(1), 0, {80, 100, 120});
         }
-        if (!specular_only && !scrolling_specular_only && !camera_overlay_only)
+        if (!specular_only && !scrolling_specular_only && !camera_overlay_only && !masked_detail_only && !scrolling_masked_detail_only && !scrolling_camera_only && !animation_only)
         {
         for (auto format : {GLTargetFormat_RGBA8, GLTargetFormat_RGB565, GLTargetFormat_RGB5A3, GLTargetFormat_A8, GLTargetFormat_IA8})
         {

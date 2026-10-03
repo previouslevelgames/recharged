@@ -2,6 +2,7 @@
 #include "runtime/material_environment.h"
 #include "runtime/lighting_state.h"
 #include "NL/gl/glMaterialProgram.h"
+#include "NL/gl/glTextureManager.h"
 #include "NL/gl/glState.h"
 #include "NL/platvmath.h"
 #include "NL/gl/glMatrix.h"
@@ -17,6 +18,9 @@
 #include "NL/glx/GXSpecularDetailBlendMaterialProgram.h"
 #include "NL/glx/GXScrollingSpecularMaterialProgram.h"
 #include "NL/glx/GXCameraScrolledOverlayMaterialProgram.h"
+#include "NL/glx/GXMaskedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
 #include <dolphin/gx.h>
 #include <dolphin/mtx.h>
 #include <algorithm>
@@ -37,11 +41,14 @@ constexpr std::uint32_t shadow_volume = 0x386ecbdd;
 constexpr std::uint32_t detail_blend = 0x112ab470;
 constexpr std::uint32_t scrolling_specular = 0x3eccd955;
 constexpr std::uint32_t camera_overlay = 0x32bc21e8;
+constexpr std::uint32_t masked_detail = 0x09609a35;
+constexpr std::uint32_t scrolling_masked_detail = 0xf2d57ac6;
+constexpr std::uint32_t scrolling_camera_overlay = 0x845cad59;
 glTextureBinding Binding(const resources::MaterialBinding &input)
 {
     if (input.flags & ~3u)
         throw std::invalid_argument("Invalid material texture flags");
-    if (!glx_GetTex(input.texture))
+    if (!glGetTextureManager() || glGetTextureManager()->GetTextureIndex(input.texture) == 0xFFFF)
         throw std::runtime_error("Material texture is missing from the native inventory");
     return {input.texture, static_cast<u8>(input.flags & 1), static_cast<u8>((input.flags >> 1) & 1)};
 }
@@ -100,6 +107,9 @@ struct MaterialPrograms::Impl
     GXSpecularDetailBlendMaterialProgram detail;
     GXScrollingSpecularMaterialProgram scrolling_highlight;
     GXCameraScrolledOverlayMaterialProgram overlay;
+    GXMaskedDetailBlendMaterialProgram masked_detail_blend;
+    GXScrollingMaskedDetailBlendMaterialProgram scrolling_masked_detail_blend;
+    GXScrollingCameraOverlayMaterialProgram scrolling_overlay;
     Impl()
     {
         unlit.Initialize();
@@ -110,6 +120,9 @@ struct MaterialPrograms::Impl
         detail.Initialize();
         scrolling_highlight.Initialize();
         overlay.Initialize();
+        masked_detail_blend.Initialize();
+        scrolling_masked_detail_blend.Initialize();
+        scrolling_overlay.Initialize();
     }
 };
 MaterialPrograms::MaterialPrograms()
@@ -117,7 +130,8 @@ MaterialPrograms::MaterialPrograms()
     if (programs_live || glGetMaterialProgram(unlit) || glGetMaterialProgram(vertex) ||
         glGetMaterialProgram(scrolling) || glGetMaterialProgram(masked) || glGetMaterialProgram(shadow_volume)
         || glGetMaterialProgram(detail_blend) || glGetMaterialProgram(scrolling_specular)
-        || glGetMaterialProgram(camera_overlay))
+        || glGetMaterialProgram(camera_overlay) || glGetMaterialProgram(masked_detail)
+        || glGetMaterialProgram(scrolling_masked_detail) || glGetMaterialProgram(scrolling_camera_overlay))
         throw std::logic_error("Material registry already initialized");
     try
     {
@@ -156,6 +170,9 @@ void InstallMaterial(glModelPacket &packet, const resources::Material &material,
     static_assert(sizeof(GXSpecularDetailBlendParameters) == 68);
     static_assert(sizeof(GXScrollingSpecularParameters) == 60);
     static_assert(sizeof(GXCameraScrolledOverlayParameters) == 48);
+    static_assert(sizeof(GXMaskedDetailBlendParameters) == 36);
+    static_assert(sizeof(GXScrollingMaskedDetailBlendParameters) == 60);
+    static_assert(sizeof(GXScrollingCameraOverlayParameters) == 60);
     auto *program = static_cast<GLMaterialProgram *>(glGetMaterialProgram(material.program));
     if (!program || !storage)
         throw std::invalid_argument("Unregistered material or missing parameter storage");
@@ -165,9 +182,41 @@ void InstallMaterial(glModelPacket &packet, const resources::Material &material,
     for (auto value : material.switches)
         if (value > 1)
             throw std::invalid_argument("Invalid material switch");
+    for (const auto& speed : material.scroll_speeds)
+        for (float value : speed)
+            if (!std::isfinite(value) || std::abs(value) > 1e4f)
+                throw std::invalid_argument("Invalid material scroll speed");
     const auto binding = Binding(material.textures[0]);
     switch (material.program)
     {
+    case scrolling_camera_overlay:
+        if (material.scalars[0] == 0 || !std::isfinite(1.f / material.scalars[0])
+            || material.scalars[2] < 0 || material.scalars[2] > 1)
+            throw std::invalid_argument("Invalid scrolling camera overlay scale/amount");
+        new (storage) GXScrollingCameraOverlayParameters{binding,
+            Binding(material.textures[1]), Binding(material.textures[2]),
+            material.scalars[0], material.scalars[1], material.scalars[2],
+            int(material.switches[0]), int(material.switches[1]),
+            material.scroll_speeds[0][0], material.scroll_speeds[0][1],
+            int(material.switches[2]), int(material.switches[3])};
+        break;
+    case scrolling_masked_detail:
+        if (material.scalars[0] < 0 || material.scalars[0] > 1)
+            throw std::invalid_argument("Invalid scrolling masked detail blend amount");
+        new (storage) GXScrollingMaskedDetailBlendParameters{binding,
+            Binding(material.textures[1]), Binding(material.textures[2]),
+            material.scroll_speeds[0][0], material.scroll_speeds[0][1],
+            material.scroll_speeds[1][0], material.scroll_speeds[1][1],
+            material.scroll_speeds[2][0], material.scroll_speeds[2][1], material.scalars[0],
+            int(material.switches[0]), int(material.switches[1])};
+        break;
+    case masked_detail:
+        if (material.scalars[0] < 0 || material.scalars[0] > 1)
+            throw std::invalid_argument("Invalid masked detail blend amount");
+        new (storage) GXMaskedDetailBlendParameters{binding,
+            Binding(material.textures[1]), Binding(material.textures[2]), material.scalars[0],
+            int(material.switches[0]), int(material.switches[1])};
+        break;
     case camera_overlay:
         if ((material.scalars[0] != 0 && !std::isfinite(1.f / material.scalars[0]))
             || material.scalars[2] < 0 || material.scalars[2] > 1)
@@ -357,7 +406,9 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     glxCopyMatrix(transform, modelview);
     GXLoadPosMtxImm(transform, GX_PNMTX0);
     if (program->programHash == scrolling || program->programHash == masked || program->programHash == detail_blend
-        || program->programHash == scrolling_specular || program->programHash == camera_overlay)
+        || program->programHash == scrolling_specular || program->programHash == camera_overlay
+        || program->programHash == masked_detail || program->programHash == scrolling_masked_detail
+        || program->programHash == scrolling_camera_overlay)
     {
         MaterialNormalMatrix(modelview, normal);
         GXLoadNrmMtxImm(normal, GX_PNMTX0);
