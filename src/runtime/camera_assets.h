@@ -4,11 +4,13 @@
 #include <exception>
 #include <map>
 #include <memory>
+#include <span>
 #include <string>
 #include <thread>
 
 namespace mscharged
 {
+std::string CanonicalCameraAlias(std::string name);
 struct DeleteCameraData { void operator()(cCameraData*) const noexcept; };
 // Handles retain game-arena storage. Release every handle before memory shutdown.
 // No record is inserted into cAnimCamera's global registry by this owner.
@@ -40,6 +42,9 @@ public:
     CameraAssetLibrary(const CameraAssetLibrary&) = delete;
     CameraAssetLibrary& operator=(const CameraAssetLibrary&) = delete;
     void Insert(CameraAsset::Handle asset);
+    // Preflight is not a reservation; InsertAll checks again at publication.
+    void CheckAvailableAliases(std::span<const std::string> names) const;
+    void InsertAll(std::span<const CameraAsset::Handle> assets);
     CameraAsset::Handle Find(const std::string& name) const;
     void Erase(const std::string& name);
     void Clear();

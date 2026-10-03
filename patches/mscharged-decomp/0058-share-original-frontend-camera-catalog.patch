@@ -1,0 +1,134 @@
+Subject: Share the original frontend camera animation catalog with native loading
+
+Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+
+Move the unchanged 37 filename/alias entries into one shared initializer and
+share their original record type. The console factory retains its existing
+local array, ordering, literals and request loop. Native port code can consume
+the same immutable initializer with host array lengths.
+The complete factory, filters, gameplay camera and global registry stay unselected.
+
+diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
+--- a/src/Game/Camera/CameraMan.cpp
++++ b/src/Game/Camera/CameraMan.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Camera/CameraMan.h"
++#include "Game/Camera/FrontendCameraCatalog.h"
+ #ifdef MSCHARGED_NATIVE
+ #include "runtime/cameras.h"
+ #endif
+@@ -85,12 +86,6 @@
+ 
+ static char sTeamCameraAnimationNames[12][100];
+ 
+-struct CameraAnimationLoadInfo
+-{
+-    const char* fileName;
+-    const char* animationName;
+-};
+-
+ #ifndef MSCHARGED_NATIVE
+ static void ApplyCameraFilters(nlMatrix4& matView)
+ {
+@@ -214,43 +209,7 @@
+     else
+     {
+         CameraAnimationLoadInfo frontEndCameraAnimations[] = {
+-            { "art/fe/environments/cameras/camera_idle.cam", "fechoosecaptains" },
+-            { "art/fe/environments/cameras/camera_idle_start.cam", "fetitleidlecam" },
+-            { "art/fe/environments/cameras/camera_eject.cam", "feejectcam" },
+-            { "art/fe/environments/cameras/start_idle.cam", "startidle" },
+-            { "art/fe/environments/cameras/start_main_menu_move.cam", "startmainmenumove" },
+-            { "art/fe/environments/cameras/start_main_menu_back.cam", "startmainmenuback" },
+-            { "art/fe/environments/cameras/start_main_menu_ball.cam", "startmainmenuball" },
+-            { "art/fe/environments/cameras/start_main_menu_move2.cam", "startmainmenumove2" },
+-            { "art/fe/environments/cameras/camera_push.cam", "stadiumselectcam" },
+-            { "art/fe/environments/cameras/trophy_camera_idle.cam", "trophycameraidle" },
+-            { "art/fe/environments/cameras/trophy_camera_intro.cam", "trophycameraintro" },
+-            { "art/fe/environments/cameras/trophy_captain_select_cam.cam", "trophycaptainselect" },
+-            { "art/fe/environments/cameras/trophy_captain_select_to_bronxe_cam.cam", "trophytransitiontobronze" },
+-            { "art/fe/environments/cameras/trophy_bronze_centre_cam.cam", "trophycentreofbronzehof" },
+-            { "art/fe/environments/cameras/trophy_bronze_centre_rtsc_cam.cam", "trophycentreofbronze" },
+-            { "art/fe/environments/cameras/trophy_bronze_left_cam.cam", "trophyleftofbronze" },
+-            { "art/fe/environments/cameras/trophy_bronze_right_cam.cam", "trophyrightofbronze" },
+-            { "art/fe/environments/cameras/trophy_silver_centre_cam.cam", "trophycentreofsilverhof" },
+-            { "art/fe/environments/cameras/trophy_silver_centre_rtsc_cam.cam", "trophycentreofsilver" },
+-            { "art/fe/environments/cameras/trophy_silver_left_cam.cam", "trophyleftofsilver" },
+-            { "art/fe/environments/cameras/trophy_silver_right_cam.cam", "trophyrightofsilver" },
+-            { "art/fe/environments/cameras/trophy_gold_centre_cam.cam", "trophycentreofgoldhof" },
+-            { "art/fe/environments/cameras/trophy_gold_centre_rtsc_cam.cam", "trophycentreofgold" },
+-            { "art/fe/environments/cameras/trophy_gold_left_cam.cam", "trophyleftofgold" },
+-            { "art/fe/environments/cameras/trophy_gold_right_cam.cam", "trophyrightofgold" },
+-            { "art/fe/environments/cameras/trophy_choose_sides.cam", "trophychoosesides" },
+-            { "art/fe/environments/cameras/hof_bronze_cam.cam", "hofbronze" },
+-            { "art/fe/environments/cameras/hof_silver_cam.cam", "hofsilver" },
+-            { "art/fe/environments/cameras/hof_gold_cam.cam", "hofgold" },
+-            { "art/fe/environments/cameras/43_hof_bronze_cam.cam", "43hofbronze" },
+-            { "art/fe/environments/cameras/43_hof_silver_cam.cam", "43hofsilver" },
+-            { "art/fe/environments/cameras/43_hof_gold_cam.cam", "43hofgold" },
+-            { "art/fe/environments/cameras/hof_profiles_cam.cam", "hofprofiles" },
+-            { "art/fe/environments/cameras/challenges_cam.cam", "challengecam" },
+-            { "art/fe/environments/cameras/101_cam.cam", "tutorcam" },
+-            { "art/fe/environments/cameras/camera_outofball.cam", "outofballcam" },
+-            { "art/fe/environments/cameras/intro_movie_to_start.cam", "movietostart" },
++#include "Game/Camera/FrontendCameraCatalog.inc"
+         };
+ 
+         for (int animationIndex = 0; animationIndex < 37; animationIndex++)
+diff --git a/include/Game/Camera/FrontendCameraCatalog.h b/include/Game/Camera/FrontendCameraCatalog.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Camera/FrontendCameraCatalog.h
+@@ -0,0 +1,10 @@
++#ifndef _FRONTENDCAMERACATALOG_H_
++#define _FRONTENDCAMERACATALOG_H_
++
++struct CameraAnimationLoadInfo
++{
++    const char* fileName;
++    const char* animationName;
++};
++
++#endif
+diff --git a/include/Game/Camera/FrontendCameraCatalog.inc b/include/Game/Camera/FrontendCameraCatalog.inc
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Camera/FrontendCameraCatalog.inc
+@@ -0,0 +1,37 @@
++    { "art/fe/environments/cameras/camera_idle.cam", "fechoosecaptains" },
++    { "art/fe/environments/cameras/camera_idle_start.cam", "fetitleidlecam" },
++    { "art/fe/environments/cameras/camera_eject.cam", "feejectcam" },
++    { "art/fe/environments/cameras/start_idle.cam", "startidle" },
++    { "art/fe/environments/cameras/start_main_menu_move.cam", "startmainmenumove" },
++    { "art/fe/environments/cameras/start_main_menu_back.cam", "startmainmenuback" },
++    { "art/fe/environments/cameras/start_main_menu_ball.cam", "startmainmenuball" },
++    { "art/fe/environments/cameras/start_main_menu_move2.cam", "startmainmenumove2" },
++    { "art/fe/environments/cameras/camera_push.cam", "stadiumselectcam" },
++    { "art/fe/environments/cameras/trophy_camera_idle.cam", "trophycameraidle" },
++    { "art/fe/environments/cameras/trophy_camera_intro.cam", "trophycameraintro" },
++    { "art/fe/environments/cameras/trophy_captain_select_cam.cam", "trophycaptainselect" },
++    { "art/fe/environments/cameras/trophy_captain_select_to_bronxe_cam.cam", "trophytransitiontobronze" },
++    { "art/fe/environments/cameras/trophy_bronze_centre_cam.cam", "trophycentreofbronzehof" },
++    { "art/fe/environments/cameras/trophy_bronze_centre_rtsc_cam.cam", "trophycentreofbronze" },
++    { "art/fe/environments/cameras/trophy_bronze_left_cam.cam", "trophyleftofbronze" },
++    { "art/fe/environments/cameras/trophy_bronze_right_cam.cam", "trophyrightofbronze" },
++    { "art/fe/environments/cameras/trophy_silver_centre_cam.cam", "trophycentreofsilverhof" },
++    { "art/fe/environments/cameras/trophy_silver_centre_rtsc_cam.cam", "trophycentreofsilver" },
++    { "art/fe/environments/cameras/trophy_silver_left_cam.cam", "trophyleftofsilver" },
++    { "art/fe/environments/cameras/trophy_silver_right_cam.cam", "trophyrightofsilver" },
++    { "art/fe/environments/cameras/trophy_gold_centre_cam.cam", "trophycentreofgoldhof" },
++    { "art/fe/environments/cameras/trophy_gold_centre_rtsc_cam.cam", "trophycentreofgold" },
++    { "art/fe/environments/cameras/trophy_gold_left_cam.cam", "trophyleftofgold" },
++    { "art/fe/environments/cameras/trophy_gold_right_cam.cam", "trophyrightofgold" },
++    { "art/fe/environments/cameras/trophy_choose_sides.cam", "trophychoosesides" },
++    { "art/fe/environments/cameras/hof_bronze_cam.cam", "hofbronze" },
++    { "art/fe/environments/cameras/hof_silver_cam.cam", "hofsilver" },
++    { "art/fe/environments/cameras/hof_gold_cam.cam", "hofgold" },
++    { "art/fe/environments/cameras/43_hof_bronze_cam.cam", "43hofbronze" },
++    { "art/fe/environments/cameras/43_hof_silver_cam.cam", "43hofsilver" },
++    { "art/fe/environments/cameras/43_hof_gold_cam.cam", "43hofgold" },
++    { "art/fe/environments/cameras/hof_profiles_cam.cam", "hofprofiles" },
++    { "art/fe/environments/cameras/challenges_cam.cam", "challengecam" },
++    { "art/fe/environments/cameras/101_cam.cam", "tutorcam" },
++    { "art/fe/environments/cameras/camera_outofball.cam", "outofballcam" },
++    { "art/fe/environments/cameras/intro_movie_to_start.cam", "movietostart" },

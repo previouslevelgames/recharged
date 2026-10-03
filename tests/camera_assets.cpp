@@ -115,6 +115,29 @@ void Ownership()
     {ScopedGameAllocator mem2(VirtualAllocator);other=CameraAsset::Decode(Fixture(),"other");}
     Check(other->Data().m_uKeyCount==3,"Virtual arena camera allocation failed");
 }
+void TargetBits()
+{
+    // The target channel is an authored vector, not a mesh coordinate. Preserve
+    // every finite binary32 bit pattern, including signed zero/subnormals.
+    for (unsigned bits : {0u,0x80000000u,1u,0x80000001u,0x4cbebc20u,0xccbebc20u,
+                          0x7149f2cau,0xf149f2cau,0x7f7fffffu,0xff7fffffu,0xdeadbeefu})
+    {
+        auto bytes=Fixture(); const auto start=At(bytes,0x25006);
+        for(unsigned i=0;i<9;++i)Set(bytes,start+4*i,bits);
+        const auto decoded=ReadCameraAnimation(bytes);auto native=CameraAsset::Decode(bytes,"bits");
+        std::fill(bytes.begin(),bytes.end(),0xcc);
+        for(unsigned i=0;i<3;++i)
+        {
+            for(float value:decoded.keys[i].target)Check(std::bit_cast<unsigned>(value)==bits,"Decoded target bits changed");
+            const auto& v=native->Data().targetPos[i];
+            for(float value:{v.x,v.y,v.z})Check(std::bit_cast<unsigned>(value)==bits,"Retained native target bits changed");
+        }
+    }
+    for(unsigned bits:{0x7f800000u,0xff800000u,0x7fc00000u,0xffc00001u})
+    {auto bytes=Fixture();Set(bytes,At(bytes,0x25006),bits);Reject([&]{CameraAsset::Decode(bytes,"bad");});}
+    for(unsigned channel:{0x25003u,0x25004u,0x25009u,0x2500au})
+    {auto bytes=Fixture();Set(bytes,At(bytes,channel),0x7149f2ca);Reject([&]{ReadCameraAnimation(bytes);});}
+}
 void Owned(const std::filesystem::path& path)
 {
     unsigned files=0,keys=0;
@@ -145,7 +168,7 @@ int main(int argc,char** argv)
         if(argc==2)Owned(argv[1]);
         else
         {
-            Reader();for(int i=0;i<3;++i)Ownership();
+            Reader();TargetBits();for(int i=0;i<3;++i)Ownership();
             Check(StandardAllocator.TotalFreeMemory()==mem1.size()*8 && VirtualAllocator.TotalFreeMemory()==mem2.size()*8,"Camera data ownership leaked");
             unsigned failures=0,successes=0;
             for(unsigned size=128;size<=1600;size+=16)

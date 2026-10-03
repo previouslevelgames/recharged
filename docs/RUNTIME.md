@@ -77,6 +77,10 @@ animation. Its poses pass through the original camera core. Use
 `--camera /DISC/camera.cam` to play an authored track with original timing and
 transforms; choose geometry in that camera's world coordinates. Bounded runs use
 a fixed 60 Hz camera clock. Depth-of-field rendering remains pending.
+Use `--debug-camera` instead for interactive inspection: arrows orbit, WASD pans,
+Q/E changes radius, Shift+Q/E changes height, and R resets the pose. Gamepads are
+also supported; bindings appear in the preview. Gameplay input remains in
+development. Authored and debug cameras cannot be combined.
 An explicit `--world /DISC/gameworld.tmp.zlib --model-id HEX` selects a static world resource;
 shadow-volume models use a diagnostic receiver. To render object instances, also
 provide `--world-res /DISC/gameworld.res.zlib` and repeat `--object-id HEX` for

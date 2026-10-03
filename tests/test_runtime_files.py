@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from disc_fixture import write_disc
-from camera_fixture import camera_fixture
+from frontend_camera_fixture import frontend_camera_files
 
 
 def main():
@@ -21,9 +21,9 @@ def main():
             "folder/end.bin": bytes([0x81, 0x23, 0x45]),
             "ini/common.ini": b"; Synthetic only\n[test]\nvalue = 7\n",
             "ini/datetime.ini": b"; Synthetic only\n[build]\ndate = fixture\n",
-            "Art/fe/environments/cameras/camera_idle.cam": camera_fixture(),
+            **frontend_camera_files(),
             "invalid.cam": b"invalid camera bytes",
-        })
+        }, fst_capacity=0x1000)
         return subprocess.run([str(executable), str(disc), str(root)], timeout=40).returncode
 
 

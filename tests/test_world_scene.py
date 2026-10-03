@@ -90,6 +90,8 @@ with tempfile.TemporaryDirectory(prefix='mscharged-world-scene-') as directory:
             print(message)
             return output
         write(cam=camera_fixture(preview=True));run();run(selection+['--camera','/camera.cam'])
+        run(selection+['--debug-camera'],message='Original DebugCam: SDL keyboard/gamepad controls')
+        run(selection+['--debug-camera','--no-world-culling'])
         r,t=gpu_fixture(alpha=True);write(r,t,camera_fixture(preview=True));run(selection+['--camera','/camera.cam'])
         r,t=gpu_fixture(animated=True);write(r,t,camera_fixture(preview=True));run(selection+['--camera','/camera.cam'],message='2 textures, 1 texture animations; original radius')
         # Applying this stored translation would move both objects out of view.

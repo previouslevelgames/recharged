@@ -6,12 +6,14 @@ include(cmake/FrameTiming.cmake)
 include(cmake/AnimatedCamera.cmake)
 include(cmake/DebugCamera.cmake)
 include(cmake/CameraAssets.cmake)
+include(cmake/CameraBatch.cmake)
+include(cmake/FrontendCameraAssets.cmake)
 
 add_library(charged_game_startup STATIC src/runtime/startup.cpp src/runtime/startup_tasks.cpp src/runtime/startup_cameras.cpp src/runtime/startup_camera_assets.cpp)
 target_include_directories(charged_game_startup PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(charged_game_startup PRIVATE cxx_std_20)
 target_link_libraries(charged_game_startup PRIVATE charged_decomp_startup charged_host
-    charged_events charged_game_config charged_tweaks charged_frame_timing charged_cameras charged_camera_assets charged_animated_camera aurora::dvd aurora::os aurora::vi aurora::core mscharged_build_info)
+    charged_events charged_game_config charged_tweaks charged_frame_timing charged_cameras charged_camera_assets charged_frontend_camera_assets charged_animated_camera aurora::dvd aurora::os aurora::vi aurora::core mscharged_build_info)
 target_link_libraries(mscharged PRIVATE charged_game_startup)
 target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_GAME_STARTUP=1)
 

@@ -28,6 +28,8 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
 
     assets = ["--model", "/scene.rlg", "--textures", "/scene.rlt"]
     run(assets, 0, "Static preview rendered: 30 frames")
+    run(assets + ["--debug-camera"], 0, "Original DebugCam: SDL keyboard/gamepad controls")
+    run(assets + ["--debug-camera", "--camera", "/camera.cam"], 2, "cannot be combined")
     write_disc(disc, files={"scene.rlg": model, "scene.rlt": texture, "camera.cam": camera_fixture(preview=True)})
     run(assets + ["--camera", "/camera.cam"], 0, "Original authored camera playback: /camera.cam")
     run(assets + ["--camera", "/missing.cam"], 1, "Camera asset is missing")
@@ -43,6 +45,7 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
     lit_model, lit_texture = make_assets(lit=True)
     write_disc(disc, files={"scene.rlg": lit_model, "scene.rlt": lit_texture, "shadow.rlt": make_shadow()})
     shadow_args = ["--shadow-textures", "/shadow.rlt", "--shadow-id", "5a5a5a5a"]
+    run(assets + shadow_args + ["--debug-camera"], 2, "cannot be combined")
     run(assets + shadow_args, 0, "Loaded original projected-shadow lookup: 8x4")
     run(assets + ["--shadow-textures", "/scene.rlt", "--shadow-id", "12345678"], 1, "requires a CI8/RGB5A3 texture")
     write_disc(disc, files={"scene.rlg": model, "scene.rlt": texture})
@@ -54,6 +57,7 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
     run(["--world", "/world.tmp.zlib", "--model-id", "87654321", "--model", "/scene.rlg"], 2, "Select --world or separate")
     world_args = ["--world", "/world.tmp.zlib", "--model-id", "87654321"]
     run(world_args, 0, "Original stadium shadow blend samples: 2.")
+    run(world_args + ["--debug-camera"], 1, "Debug camera is not connected to the diagnostic shadow receiver")
     run(world_args + ["--camera", "/camera.cam"], 1, "Authored camera playback is not connected to the diagnostic shadow receiver")
     corrupted = bytearray(world); corrupted[-1] ^= 1
     write_disc(disc, files={"world.tmp.zlib": corrupted})

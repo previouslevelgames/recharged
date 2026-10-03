@@ -5,12 +5,11 @@
 #include "NL/nlMemory.h"
 #include "NL/nlString.h"
 #include <cstring>
+#include <set>
 #include <stdexcept>
 #include <type_traits>
 
-namespace
-{
-std::string Canonical(std::string name)
+std::string mscharged::CanonicalCameraAlias(std::string name)
 {
     if (name.empty() || name.size() > 255) throw std::invalid_argument("Camera alias must contain 1..255 ASCII bytes");
     for (auto& c : name)
@@ -20,6 +19,8 @@ std::string Canonical(std::string name)
     }
     return name;
 }
+namespace
+{
 void CheckFile(const char* filename)
 {
     if (!gMemoryInitialized || !nlFileSystemReady()) throw std::logic_error("Camera loading requires game memory and NL files");
@@ -46,7 +47,7 @@ namespace mscharged
 {
 void DeleteCameraData::operator()(cCameraData* data) const noexcept { nlDeleteGameObject(data); }
 CameraAsset::CameraAsset(resources::Bytes file, const std::string& name)
-    : thread_(std::this_thread::get_id()), name_(Canonical(name))
+    : thread_(std::this_thread::get_id()), name_(CanonicalCameraAlias(name))
 {
     if (!gMemoryInitialized) throw std::logic_error("Camera records require initialized game memory");
     const auto decoded = resources::ReadCameraAnimation(file);
@@ -87,25 +88,46 @@ void CameraAssetLibrary::CheckThread() const
 }
 void CameraAssetLibrary::Insert(CameraAsset::Handle asset)
 {
+    InsertAll({&asset, 1});
+}
+void CameraAssetLibrary::CheckAvailableAliases(std::span<const std::string> names) const
+{
     CheckThread();
-    if (!asset) throw std::invalid_argument("Cannot insert a null camera asset");
-    const auto hash = asset->Data().m_uHashID;
-    for (const auto& [name, existing] : assets_)
-        if (existing->Data().m_uHashID == hash) throw std::runtime_error("Duplicate camera alias or hash collision");
-    const auto name = asset->Name();
-    assets_.emplace(name, std::move(asset));
+    std::set<unsigned long> hashes;
+    for (const auto& [name, asset] : assets_) hashes.insert(asset->Data().m_uHashID);
+    for (const auto& name : names)
+        if (!hashes.insert(nlStringLowerHash(CanonicalCameraAlias(name).c_str())).second)
+            throw std::runtime_error("Duplicate camera alias or hash collision");
+}
+void CameraAssetLibrary::InsertAll(std::span<const CameraAsset::Handle> assets)
+{
+    CheckThread();
+    std::vector<std::string> names;
+    names.reserve(assets.size());
+    for (const auto& asset : assets)
+    {
+        if (!asset) throw std::invalid_argument("Cannot insert a null camera asset");
+        asset->Data(); // Reject handles from another memory/thread lifetime.
+        names.push_back(asset->Name());
+    }
+    CheckAvailableAliases(names);
+    // Map allocation may fail at any point. The destination changes only once
+    // every insertion succeeds, retaining the strong exception guarantee.
+    auto next = assets_;
+    for (const auto& asset : assets) next.emplace(asset->Name(), asset);
+    assets_.swap(next);
 }
 CameraAsset::Handle CameraAssetLibrary::Find(const std::string& name) const
 {
     CheckThread();
-    const auto found = assets_.find(Canonical(name));
+    const auto found = assets_.find(CanonicalCameraAlias(name));
     return found == assets_.end() ? nullptr : found->second;
 }
-void CameraAssetLibrary::Erase(const std::string& name) { CheckThread(); assets_.erase(Canonical(name)); }
+void CameraAssetLibrary::Erase(const std::string& name) { CheckThread(); assets_.erase(CanonicalCameraAlias(name)); }
 void CameraAssetLibrary::Clear() { CheckThread(); assets_.clear(); }
 CameraAsset::Handle LoadCameraAsset(const char* filename, const std::string& name)
 {
-    Canonical(name); CheckFile(filename);
+    CanonicalCameraAlias(name); CheckFile(filename);
     unsigned long size = 0;
     Buffer data(nlLoadEntireFile(filename, &size, 32, AllocateEnd, nullptr, 0, nullptr));
     return CameraAsset::Decode({static_cast<const std::uint8_t*>(data.get()), size}, name);
@@ -114,7 +136,7 @@ void CameraAssetLoad::CheckThread() const
 {
     if (thread_ != std::this_thread::get_id()) throw std::logic_error("Camera request requires its NL servicing thread");
 }
-CameraAssetLoad::CameraAssetLoad(const char* filename, const std::string& name) : name_(Canonical(name))
+CameraAssetLoad::CameraAssetLoad(const char* filename, const std::string& name) : name_(CanonicalCameraAlias(name))
 {
     CheckFile(filename);
     handle_ = nlLoadEntireFileAsync(filename, Complete, this, 32, AllocateEnd, nullptr, 0, nullptr);

@@ -23,10 +23,9 @@ The current base is `01c9a4d61904afc927d6752c3cd29fca489ff5cc`, adopted from
 published upstream main. It remains an incomplete development snapshot, not a
 complete decompilation release.
 
-This update includes matched DebugCam and reviewed camera/world-animation
-naming and header cleanups. All 56 existing patch bodies remain unchanged;
-their bases advance to the selected commit. Patch 0057 adds bounded native
-debug-camera desktop controls; authored animated-camera playback is selected by 0056.
+The selected camera sources include original authored playback (0056) and
+desktop DebugCam controls (0057). Patch 0058 shares the original frontend
+camera catalog between the console factory and native loading code.
 The ordered patches are listed in [`mscharged-decomp/series`](mscharged-decomp/series).
 
 Upstream now marks both `nlEvent.cpp` and `MemAlloc.cpp` matching. Patch 0038
@@ -94,7 +93,8 @@ see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-start
 | `0054-select-native-texture-animation.patch` | Select original IFL playback and inventory traversal with bounded native records, owned animation indices and ordered release. Material binding and alpha preparation resolve the current frame. | Fixed-width decoding and dependency checks, loop/ping-pong/hold/pause timing, alias refresh, allocation failure, rollback, sanitizer/leak checks, Vulkan pixels and owned Palace/Bowser models. Frames must be static textures in the same decoded batch; full world/task integration remains pending. |
 | `0055-select-native-camera-data.patch` | Select original camera-data initialization separately from playback; initialize ownership and pair game-allocated arrays with game frees. | Bounded big-endian CAM decoding, full names, native handles, allocation rollback and sync/async NL file lifetimes. |
 | `0056-select-native-animated-camera-playback.patch` | Select original camera interpolation, cuts, transforms, timing and focal calculations; provide explicit display/simulation inputs and validate sampling. | Retained asset ownership, loop/end callbacks, mirroring, facing, FOV, original CameraMan updates and authored scene preview. Full camera factory and DOF rendering remain pending. |
-| `0057-select-native-debug-camera.patch` | Select original desktop orbit/pan/distance/height controls and pose math through explicit native input values; define angle wrapping and reject degenerate look-at inputs. | CameraMan borrowing, input/toggle/task gating, numerical checks, failure cleanup and selected sanitizers. SDL bindings, Wii DPD, player/replay targets and full factory selection remain pending. |
+| `0057-select-native-debug-camera.patch` | Select original desktop orbit/pan/distance/height controls and pose math through explicit native input values; define angle wrapping and reject degenerate look-at inputs. | CameraMan borrowing, SDL input mapping, static preview, failure cleanup and selected sanitizers. Focused input-to-render qualification, Wii DPD, player/replay targets and full factory selection remain pending. |
+| `0058-share-original-frontend-camera-catalog.patch` | Share the unchanged original filename/alias table and record type; retain the console factory's ordering and request loop. | Strict preparation and exact ordered comparison with the pinned source; native loading uses the same 37 entries. Full frontend factory and NIS selection remain separate. |
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain
@@ -112,6 +112,12 @@ submodule remains available for source reference, notices, and decomp metadata.
 Cargo metadata and build commands. The pinned upstream `Cargo.lock` is retained
 unchanged. The nod and Corrosion submodules are prepared and verified using the
 same process as the decompilation.
+
+`nod/0002-join-preloader-workers-before-stream-release.patch` disconnects and
+joins read-ahead workers before the final reader releases its stream. This keeps
+FFI close callbacks inside the host I/O lifetime. Generated-disc tests cover an
+active blocked read, retained partition/file readers, and threading-disabled
+builds.
 
 ## Aurora series
 

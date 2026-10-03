@@ -1,0 +1,15 @@
+include_guard(GLOBAL)
+if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(nod_lifecycle_tests tests/nod_lifecycle.cpp)
+    target_compile_features(nod_lifecycle_tests PRIVATE cxx_std_20)
+    target_link_libraries(nod_lifecycle_tests PRIVATE nod::nod Threads::Threads)
+    set(nod_lifecycle_args)
+    if(NOT NOD_THREADING)
+        list(APPEND nod_lifecycle_args --without-threading)
+    endif()
+    add_test(NAME nod_lifecycle
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_nod_lifecycle.py"
+                "$<TARGET_FILE:nod_lifecycle_tests>" ${nod_lifecycle_args})
+    set_tests_properties(nod_lifecycle PROPERTIES TIMEOUT 20)
+endif()

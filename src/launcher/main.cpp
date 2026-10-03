@@ -722,7 +722,7 @@ int main(int argc, char** argv)
                          "                        [--world /DISC/gameworld.tmp.zlib --model-id HEX]\n"
                          "                        [--world /DISC/gameworld.tmp.zlib --world-res /DISC/gameworld.res.zlib\n"
                          "                         --object-id HEX ...] [--no-world-culling] (selected static objects)\n"
-                         "                        [--camera /DISC/camera.cam]\n"
+                         "                        [--camera /DISC/camera.cam | --debug-camera]\n"
                          "                        [--unlit] [--shadow-textures /DISC/PATH.rlt --shadow-id HEX]\n";
 #endif
             return 0;
@@ -731,6 +731,7 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--no-world-culling") { options.scene_arguments = true; options.scene.no_world_culling = true; }
+        else if (arg == "--debug-camera") { options.scene_arguments = true; options.scene.debug_camera = true; }
         else if (arg == "--unlit") { options.scene_arguments = true; options.scene.unlit = true; }
         else if ((arg == "--frames" || arg == "--model" || arg == "--textures" || arg == "--model-id"
                   || arg == "--world" || arg == "--world-res" || arg == "--object-id"
@@ -787,6 +788,8 @@ int main(int argc, char** argv)
     { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
+    if (options.scene.debug_camera && (options.scene.camera || options.scene.shadow_id || options.scene.shadow_textures))
+    { std::cerr << "--debug-camera cannot be combined with --camera or shadow options.\n"; return 2; }
     if (options.scene.shadow_id.has_value() != options.scene.shadow_textures.has_value())
     { std::cerr << "--shadow-textures and --shadow-id must be supplied together.\n"; return 2; }
     if (options.scene.world_res || !options.scene.object_ids.empty())

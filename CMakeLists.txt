@@ -97,6 +97,7 @@ function(mscharged_add_nod)
 endfunction()
 mscharged_add_nod()
 add_dependencies(_cargo-build_nod verify_prepared)
+include(cmake/NodLifecycle.cmake)
 
 # This list deliberately covers only currently available, independently linked
 # source. The incomplete decomp is not yet a complete native game target.

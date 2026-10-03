@@ -70,7 +70,10 @@ CameraAnimation ReadCameraAnimation(Bytes file)
         for (unsigned j = 0; j < 3; ++j)
         {
             key.position[j] = F32(positions, i * 12 + j * 4);
-            key.target[j] = F32(targets, i * 12 + j * 4);
+            // Original 0x25006 is copied verbatim and remains published even
+            // with quaternion orientation. It is not a bounded mesh position.
+            key.target[j] = std::bit_cast<float>(U32(targets, i * 12 + j * 4));
+            Require(std::isfinite(key.target[j]), "Nonfinite CAM target coordinate");
         }
         double norm = 0;
         for (unsigned j = 0; j < 4; ++j)

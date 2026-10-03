@@ -5,6 +5,7 @@
 #include "runtime/frame_timing.h"
 #include "runtime/cameras.h"
 #include "runtime/animated_camera.h"
+#include "runtime/debug_camera_input.h"
 #include "Game/Camera/CameraMan.h"
 #include "runtime/shadows.h"
 #include "Game/Render/ShadowVolume.h"
@@ -126,7 +127,8 @@ bool Update()
     bool exit = false;
     for (const auto* event = aurora_update(); event->type != AURORA_NONE; ++event)
         if (event->type == AURORA_EXIT) exit = true;
-    return exit || SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_ESCAPE];
+    const bool focused = aurora_get_window() && (SDL_GetWindowFlags(aurora_get_window()) & SDL_WINDOW_INPUT_FOCUS);
+    return exit || (focused && !ImGui::GetIO().WantCaptureKeyboard && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_ESCAPE]);
 }
 using Bounds = resources::SceneBounds;
 class ScenePool
@@ -220,6 +222,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         log(std::string("mscharged ") + build::version + "; decomp " + MSCHARGED_DECOMP_REVISION);
         if (options.shadow_id.has_value() != options.shadow_textures.has_value())
             throw std::invalid_argument("Shadow preview requires both a texture bundle and an ID");
+        if (options.debug_camera && (options.camera || options.shadow_id))
+            throw std::invalid_argument("Debug camera cannot be combined with authored camera or shadow preview");
         log("Static material and stadium shadow preview. Full world loading, character animation and game scenes are pending.");
         const auto data_path = PathUtf8(directory);
         AuroraConfig config{};
@@ -321,9 +325,11 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             throw std::invalid_argument("Object lighting and projected lookup options do not apply to shadow volumes");
         const bool camera_overlay = std::any_of(selected_model.packets.begin(), selected_model.packets.end(),
             [](const auto& p) { return p.material.program == 0x32bc21e8 || p.material.program == 0x845cad59; });
+        if (volume_preview && options.debug_camera)
+            throw std::invalid_argument("Debug camera is not connected to the diagnostic shadow receiver");
         if (volume_preview && options.camera)
             throw std::invalid_argument("Authored camera playback is not connected to the diagnostic shadow receiver");
-        if (!world_batch) bounds = Normalize(selected_model, camera_overlay || options.camera.has_value());
+        if (!world_batch) bounds = Normalize(selected_model, camera_overlay || options.camera.has_value() || options.debug_camera);
         std::size_t vertices = 0, indices = 0, packets = 0;
         std::vector<std::uint32_t> lookup_ids;
         for (const auto& model : models)
@@ -406,6 +412,22 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         OriginalCameras cameras;
         CameraPoseInput camera_input;
         std::optional<AnimatedCamera> authored_camera;
+        std::optional<DebugCamera> debug_camera;
+        std::optional<DebugCameraInput> debug_input;
+        DebugCameraOrbit fitted_orbit;
+        if (options.debug_camera)
+        {
+            // Keep original Z-up, nonnegative target height and world units.
+            // The sphere fit covers the selected geometry even below Z=0.
+            fitted_orbit.radius = std::max(.01f, 2.5f * bounds.radius + std::abs(std::min(0.f, bounds.center[2])));
+            fitted_orbit.azimuth = -90; fitted_orbit.elevation = 35;
+            fitted_orbit.height = std::max(0.f, bounds.center[2]);
+            fitted_orbit.target_x = bounds.center[0]; fitted_orbit.target_y = bounds.center[1];
+            debug_camera.emplace(); debug_camera->SetOrbit(fitted_orbit);
+            debug_input.emplace();
+            cCameraManager::PushCamera(&debug_camera->Camera());
+            log("Original DebugCam: SDL keyboard/gamepad controls; model coordinates preserved. Diagnostic bindings only.");
+        }
         if (options.camera)
         {
             CameraAssetLoad request(options.camera->c_str(), "preview");
@@ -422,7 +444,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             log("Original authored camera playback: " + *options.camera + "; "
                 + std::to_string(authored_camera->Duration()) + " seconds; model coordinates preserved. Depth-of-field rendering remains pending.");
         }
-        else cCameraManager::PushCamera(&camera_input);
+        else if (!debug_camera) cCameraManager::PushCamera(&camera_input);
         VIInit(); VIConfigure(&GXNtsc480IntDf);
         alignas(32) std::array<std::uint8_t, 65536> fifo{};
         MaterialPrograms materials;
@@ -556,6 +578,28 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 }
                 backend.camera_position = cCameraManager::m_cameraPosition;
             }
+            else if (debug_camera)
+            {
+                const auto& io = ImGui::GetIO();
+                const bool gamepad_capture = io.NavActive && (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad);
+                const auto command = debug_input->Poll(info.window, io.WantCaptureKeyboard, gamepad_capture);
+                debug_camera->SetInputs(command.inputs);
+                if (command.reset) debug_camera->SetOrbit(fitted_orbit);
+                // Avoid applying time spent unfocused or stalled as one movement.
+                const float camera_delta = frames ? (options.frames ? 1.f/60 : std::clamp(delta, 0.f, .1f)) : 0;
+                cameras.Advance(camera_delta, camera_delta);
+                view_matrices.view = cCameraManager::m_matView;
+                const float far_plane = std::max(100.f, 20 * (bounds.radius + debug_camera->Orbit().radius));
+                glMatrixPerspective(view_matrices.projection, cCameraManager::m_fFOV * 3.1415927f / 180,
+                    float(GXNtsc480IntDf.fbWidth) / GXNtsc480IntDf.efbHeight, std::max(.001f, far_plane / 200000.f), far_plane);
+                GXSetCopyClear({24,28,34,255}, GX_MAX_Z24);
+                if (!world)
+                {
+                    nlMatrix4 identity; identity.SetIdentity(); glModelSetMatrix(native_model, identity);
+                    submitted->AttachModel(native_model, 0);
+                }
+                backend.camera_position = cCameraManager::m_cameraPosition;
+            }
             else if (world)
             {
                 // Diagnostic Z-up orbit around transformed world bounds.
@@ -604,6 +648,18 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             }
             if (authored_camera)
                 ImGui::Text("Authored camera: %.2f / %.2f s", authored_camera->Time() * authored_camera->Duration(), authored_camera->Duration());
+            if (debug_camera)
+            {
+                ImGui::Text("Original DebugCam | %s | %s", debug_camera->ControlsEnabled() ? "controls enabled" : "controls frozen",
+                    debug_input->GamepadConnected() ? "gamepad connected" : "keyboard");
+                ImGui::TextUnformatted("Arrows: orbit | WASD: pan | Q/E: radius | Shift+Q/E: height");
+                ImGui::TextUnformatted("Pad: sticks orbit/pan | LB/RB radius | X+LB/RB or LT/RT height");
+                ImGui::TextUnformatted("Q+E / LB+RB: toggle controls | R / Back: reset pose");
+                if (ImGui::Button("Reset camera pose")) debug_camera->SetOrbit(fitted_orbit);
+                const auto orbit = debug_camera->Orbit();
+                ImGui::SameLine(); ImGui::Text("Radius %.2f | height %.2f", orbit.radius, orbit.height);
+                ImGui::TextUnformatted("Click the scene to release UI input. Focus/capture changes require neutral controls.");
+            }
             if (volume_preview)
             {
                 ImGui::TextUnformatted("Original stadium shadow mesh / diagnostic receiver");
@@ -641,7 +697,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         // Explicitly stop services while CPU texture storage and frame FIFO still exist.
         if (glGetCurrentFrame() != static_cast<int>(frames))
             throw std::runtime_error("Original graphics frame counter diverged from submitted frames");
-        authored_camera.reset(); cameras.Release();
+        debug_input.reset(); debug_camera.reset(); authored_camera.reset(); cameras.Release();
         lifecycle.Release(); views.Release(); shadow_drawable.reset(); shadow_layers.reset(); pool_selection.Restore(); world.reset(); inventory.reset(); materials.Release(); glShutdownMemory();
         if (StandardAllocator.TotalFreeMemory() != mem1_free || VirtualAllocator.TotalFreeMemory() != mem2_free)
             throw std::runtime_error("Graphics shutdown did not recover both original game arenas");

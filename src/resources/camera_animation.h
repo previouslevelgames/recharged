@@ -8,7 +8,10 @@ namespace mscharged::resources
 {
 struct CameraKey
 {
-    std::array<float, 3> position{}, target{};
+    std::array<float, 3> position{};
+    // Finite authored bits, without a model-space magnitude limit. Playback
+    // checks target arithmetic and validates any explicit look-at consumption.
+    std::array<float, 3> target{};
     std::array<float, 4> rotation{};
     float fov = 0, focal_length = 0;
     bool operator==(const CameraKey&) const = default;

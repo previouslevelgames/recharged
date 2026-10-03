@@ -2,7 +2,7 @@
 import struct
 
 
-def write_disc(path, game_id=b"R4QE01", partition=True, files=None):
+def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity=0x200):
     """A tiny, unencrypted Wii container with synthetic files and directories."""
     data = bytearray(0x60000)
     data[:6] = game_id
@@ -33,7 +33,9 @@ def write_disc(path, game_id=b"R4QE01", partition=True, files=None):
                 directory = directory.setdefault(part, {})
             directory[components[-1]] = payload
         entries, names = [], bytearray()
-        position = 0x3200
+        if fst_capacity < 0x200 or fst_capacity > 0x1000 or fst_capacity % 32:
+            raise ValueError("Invalid synthetic FST capacity")
+        position = 0x3000 + fst_capacity
 
         def emit(name, node, parent):
             nonlocal position
@@ -57,7 +59,7 @@ def write_disc(path, game_id=b"R4QE01", partition=True, files=None):
         emit("", tree, 0)
         fst = b"".join(struct.pack(">III", *entry) for entry in entries) + names
         fst += b"\0" * (-len(fst) % 4)
-        if len(fst) > 0x200:
+        if len(fst) > fst_capacity:
             raise ValueError("Fixture FST exceeds its reserved space")
         struct.pack_into(">III", data, base + 0x420, 0x2800 >> 2, 0x3000 >> 2, len(fst) >> 2)
         data[base + 0x3000:base + 0x3000 + len(fst)] = fst

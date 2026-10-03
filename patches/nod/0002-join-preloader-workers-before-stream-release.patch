@@ -1,0 +1,82 @@
+Subject: Join nod preloader workers before the final disc stream is released
+Upstream-base: ebd80cac99b48a323200d84365e07a58cc27412d
+
+The last Preloader previously detached its worker JoinHandles. Worker-owned
+clones could then invoke an FFI stream close after nod_free returned and after
+the host had shut down its I/O provider. Disconnect the request channel before
+joining all workers; retain the fallback stream until their destruction ends.
+The explicit shutdown path uses the same destructor. Recover a poisoned thread
+metadata lock and do not repanic on an already-unwound worker. Builds without
+threading retain their existing field cleanup.
+
+diff --git a/nod/src/disc/preloader.rs b/nod/src/disc/preloader.rs
+--- a/nod/src/disc/preloader.rs
++++ b/nod/src/disc/preloader.rs
+@@ -83,7 +83,7 @@
+ #[allow(unused)]
+ pub struct Preloader {
+     #[cfg(feature = "threading")]
+-    request_tx: Sender<SectorGroupRequest>,
++    request_tx: Option<Sender<SectorGroupRequest>>,
+     #[cfg(feature = "threading")]
+     request_rx: Receiver<SectorGroupRequest>,
+     #[cfg(feature = "threading")]
+@@ -276,7 +276,7 @@
+         }
+         let threads = Mutex::new(PreloaderThreads::new(join_handles));
+         let loader = Mutex::new(loader);
+-        Arc::new(Self { request_tx, request_rx, stat_tx, stat_rx, threads, cache, loader })
++        Arc::new(Self { request_tx: Some(request_tx), request_rx, stat_tx, stat_rx, threads, cache, loader })
+     }
+ 
+     #[cfg(not(feature = "threading"))]
+@@ -288,15 +288,7 @@
+     }
+ 
+     #[allow(unused)]
+-    pub fn shutdown(self) {
+-        #[cfg(feature = "threading")]
+-        {
+-            let guard = self.threads.into_inner().unwrap();
+-            for handle in guard.join_handles {
+-                handle.join().unwrap();
+-            }
+-        }
+-    }
++    pub fn shutdown(self) { drop(self); }
+ 
+     #[instrument(name = "Preloader::fetch", skip_all)]
+     pub fn fetch(&self, request: SectorGroupRequest, max_groups: u32) -> SectorGroupResult {
+@@ -320,7 +312,7 @@
+                 if cache_guard.contains(&request) {
+                     continue;
+                 }
+-                if self.request_tx.send(request).is_ok() {
++                if self.request_tx.as_ref().is_some_and(|tx| tx.send(request).is_ok()) {
+                     cache_guard.inflight.insert(request, WaitGroup::new());
+                 }
+             }
+@@ -358,6 +350,23 @@
+                 Ok(group)
+             }
+             Err(e) => Err(e),
++        }
++    }
++}
++
++// The final reader must release every cloned stream before its owner's host
++// I/O services can shut down. Dropping JoinHandles would detach these workers.
++#[cfg(feature = "threading")]
++impl Drop for Preloader {
++    fn drop(&mut self) {
++        // Disconnect first: idle workers are waiting in recv(), and queued work
++        // must finish before joining. Never hold a cache lock across the joins.
++        drop(self.request_tx.take());
++        let threads = self.threads.get_mut().unwrap_or_else(|error| error.into_inner());
++        for handle in threads.join_handles.drain(..) {
++            // A panicked worker has already unwound its stream. Cleanup must not
++            // panic again, including when the thread metadata lock is poisoned.
++            let _ = handle.join();
+         }
+     }
+ }

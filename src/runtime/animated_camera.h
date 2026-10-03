@@ -13,6 +13,9 @@ struct AnimatedCameraInputs
 };
 struct AnimatedCameraOptions
 {
+    // Original quaternion mode retains/publishes the finite target channel.
+    // Look-at additionally requires representable original normalization math;
+    // validation failure during playback poisons the owning camera session.
     bool cyclic = true, simulation_time = false, look_at = false;
     float speed = 1;
     nlVector3 offset{0,0,0}, mirror{1,1,1};
