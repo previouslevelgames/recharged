@@ -1,0 +1,639 @@
+Subject: Adapt original GL views, frame sorters and slot pools for native rendering
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Keep the original view traversal, per-layer AVL sorting, packet callback flags
+and pool algorithms. Allocate sorter tables lazily after game memory startup;
+release them before arena shutdown, reject cyclic/deep ownership graphs and
+expired frame packet lists. Sort using a 32-bit priority plus a complete native
+packet pointer. Preserve signed sort layers and defined Wii depth conversion.
+Select original projection/count helpers without the incomplete full startup.
+
+diff --git a/include/NL/gl/glRenderList.h b/include/NL/gl/glRenderList.h
+index b82bb96..5ecba05 100644
+--- a/include/NL/gl/glRenderList.h
++++ b/include/NL/gl/glRenderList.h
+@@ -9,7 +9,11 @@
+ class UnidentifiedPacketSorter
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(size_t size)
++#else
+     static void* operator new(unsigned long size)
++#endif
+     {
+         return glFrameAlloc(size, GLM_Header);
+     }
+@@ -19,7 +23,20 @@ public:
+     virtual void fn_10(GLView*, const glModelPacket*) = 0;
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++// Keep the original 32-bit priority followed by the entire native address.
++struct UnidentifiedPacketSortKey
++{
++    u32 priority;
++    uintptr_t packet;
++    bool operator==(const UnidentifiedPacketSortKey& b) const
++    { return priority == b.priority && packet == b.packet; }
++    bool operator<(const UnidentifiedPacketSortKey& b) const
++    { return priority < b.priority || (priority == b.priority && packet < b.packet); }
++};
++#else
+ typedef unsigned long long UnidentifiedPacketSortKey;
++#endif
+ typedef AVLTreeEntry<UnidentifiedPacketSortKey, const glModelPacket*> UnidentifiedPacketTreeEntry;
+ 
+ template <typename T>
+diff --git a/include/NL/gl/glView.h b/include/NL/gl/glView.h
+index e34503a..0622ac7 100644
+--- a/include/NL/gl/glView.h
++++ b/include/NL/gl/glView.h
+@@ -63,7 +63,20 @@ enum GLViewTargetMode
+ class GLView
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    GLView();
++    static void* operator new(size_t size) { return nlMalloc(size, 8, false); }
++    static void* operator new(size_t size, int alignment, bool end) { return nlMalloc(size, alignment, end); }
++    static void operator delete(void* ptr) { nlFree(ptr); }
++    static void operator delete(void* ptr, int, bool) { nlFree(ptr); }
++    GLView(const GLView&) = delete;
++    GLView& operator=(const GLView&) = delete;
++    void ResetPackets();
++    uint64_t m_NativeFrame = 0;
++    bool m_NativeIterating = false;
++#else
+     inline GLView();
++#endif
+     GLView(GLViewInterface*, const GLRenderPair&, GLViewSortMode);
+     virtual ~GLView();
+ 
+@@ -79,14 +92,21 @@ public:
+         return m_Children.m_Head != 0;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    void AddChild(GLView* child);
++#else
+     void AddChild(GLView* child)
+     {
+         m_Children.AddEnd(child);
+         child->m_Parent = this;
+     }
++#endif
+ 
+     void SetParent(GLView* parent)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (!parent) { if (m_Parent) m_Parent->RemoveChild(this); return; }
++#endif
+         parent->AddChild(this);
+     }
+ 
+@@ -172,5 +192,10 @@ void glViewProjectPointToViewport(GLView* view, const nlVector3* world, nlVector
+ void glViewProjectPointBetweenViews(GLView* source, GLView* destination, const nlVector3* world, nlVector3* projected);
+ void gl_ViewReset();
+ void gl_ViewStartup();
++#if defined(MSCHARGED_NATIVE)
++void gl_ViewShutdown();
++bool glNativeViewDispatchActive();
++void glNativeSetViewDispatch(bool active);
++#endif
+ 
+ #endif // NL_GL_GLVIEW_H
+diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
+index e8f69eb..d3684dd 100644
+--- a/include/NL/glx/glxMemory.h
++++ b/include/NL/glx/glxMemory.h
+@@ -7,6 +7,7 @@
+ #include <stdint.h>
+ typedef uintptr_t GLResourceMark;
+ void glxShutdownMemory();
++uint64_t glNativeFrameGeneration();
+ void glplatValidateMatrix(glMatrixHandle matrix);
+ #else
+ typedef unsigned long GLResourceMark;
+diff --git a/include/NL/nlAVLTree.h b/include/NL/nlAVLTree.h
+index b6f837e..90de373 100644
+--- a/include/NL/nlAVLTree.h
++++ b/include/NL/nlAVLTree.h
+@@ -272,6 +272,9 @@ public:
+     virtual AVLTreeNode* AllocateEntry(void* key, void* value)
+     {
+         void* storage = m_Allocator.Allocate();
++#if defined(MSCHARGED_NATIVE)
++        if (!storage) throw std::bad_alloc();
++#endif
+         Entry* newNode = new (storage) Entry;
+         newNode->node.left = 0;
+         newNode->node.right = 0;
+diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+index 6801388..05e5c74 100644
+--- a/src/NL/gl/glMemoryInit.cpp
++++ b/src/NL/gl/glMemoryInit.cpp
+@@ -11,6 +11,7 @@
+ 
+ void glShutdownMemory()
+ {
++    mscharged::ShutdownGraphicsViews();
+     gl_StateShutdown();
+     gl_MatrixShutdown();
+     while (glGetResourcePools()) glDestroyResourcePool(glGetResourcePools());
+diff --git a/src/NL/gl/glRenderList.cpp b/src/NL/gl/glRenderList.cpp
+index 4130277..51134a7 100644
+--- a/src/NL/gl/glRenderList.cpp
++++ b/src/NL/gl/glRenderList.cpp
+@@ -6,6 +6,18 @@
+ #include "NL/gl/glMaterialProgram.h"
+ #include "NL/platvmath.h"
+ #include "Game/MathHelpers.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cmath>
++#include <stdexcept>
++// Gekko fctiwz saturates outside signed 32-bit range; a host cast would be UB.
++static u32 NativeDepthWord(float value)
++{
++    if (!std::isfinite(value)) throw std::invalid_argument("Non-finite GL sort depth");
++    if (value >= 2147483648.0f) return 0x7FFFFFFF;
++    if (value <= -2147483648.0f) return 0x80000000;
++    return static_cast<u32>(static_cast<s32>(value));
++}
++#endif
+ 
+ unsigned long UnidentifiedPacketSorter_8052E2D8::fn_14(
+     GLView*, const glModelPacket* pPacket)
+@@ -23,7 +35,11 @@ unsigned long UnidentifiedPacketSorter_8052E2C0::fn_14(
+     nlMultPosVectorMatrix(pos, *view->m_Interface->GetViewMatrix());
+     pos.z = nlMinEquals(0.0f, pos.z);
+ 
++#if defined(MSCHARGED_NATIVE)
++    return NativeDepthWord(-pos.z * 2147483648.0f);
++#else
+     return (unsigned long)(int)(-pos.z * 2147483648.0f);
++#endif
+ }
+ 
+ unsigned long UnidentifiedPacketSorter_8052E2A8::fn_14(
+@@ -34,8 +50,12 @@ unsigned long UnidentifiedPacketSorter_8052E2A8::fn_14(
+     glGetMatrix(pPacket->matrix, packetMatrix);
+     nlMultPosVectorMatrix(out, *(nlVector3*)&packetMatrix.e2[3][0],
+         *view->m_Interface->GetViewMatrix());
++#if defined(MSCHARGED_NATIVE)
++    return (NativeDepthWord(-out.z * 100.0f) << 12) | (m_Sequence++ & 0xFFF);
++#else
+     return ((unsigned long)(int)(-out.z * 100.0f) << 12)
+         | (m_Sequence++ & 0xFFF);
++#endif
+ }
+ 
+ const glModelPacket* UnidentifiedPacketSorter_802CCBBC::fn_08()
+@@ -58,9 +78,13 @@ const glModelPacket* UnidentifiedPacketSorter_802CCBBC::fn_0C()
+ void UnidentifiedPacketSorter_802CCBBC::fn_10(
+     GLView* view, const glModelPacket* pPacket)
+ {
++#if defined(MSCHARGED_NATIVE)
++    UnidentifiedPacketSortKey sortKey = {static_cast<u32>(fn_14(view, pPacket)), reinterpret_cast<uintptr_t>(pPacket)};
++#else
+     UnidentifiedPacketSortKey sortKey =
+         ((UnidentifiedPacketSortKey)fn_14(view, pPacket) << 32)
+         | (unsigned long)pPacket;
++#endif
+     m_Tree.Add(sortKey, pPacket);
+ }
+ 
+diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
+index 9fdece1..5443293 100644
+--- a/src/NL/gl/glView.cpp
++++ b/src/NL/gl/glView.cpp
+@@ -10,6 +10,10 @@
+ #include "NL/nlMath.h"
+ 
+ #include <math.h>
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#include <stdexcept>
++#endif
+ 
+ const nlMatrix4 gGLViewIdentityMatrix = {
+     { { { 1.0f, 0.0f, 0.0f, 0.0f },
+@@ -59,10 +63,15 @@ class UnidentifiedPacketSorterTree_8052E504
+           DefaultKeyCompare<long> >
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(size_t size) { return ::operator new(size); }
++    static void operator delete(void* ptr) { ::operator delete(ptr); }
++#else
+     static void* operator new(unsigned long size)
+     {
+         return nlMalloc(size, 8, false);
+     }
++#endif
+ 
+     UnidentifiedPacketSorterTree_8052E504(int initial, int delta)
+         : nlAVLTreeSlotPool<long, UnidentifiedPacketSorter*,
+@@ -158,13 +167,21 @@ void gl_ViewReset()
+     while (!iterator.IsDone())
+     {
+         GLView* view = iterator.Current();
++#if defined(MSCHARGED_NATIVE)
++        view->ResetPackets();
++#else
+         view->m_Sorters->Clear();
++#endif
+         iterator.Next();
+     }
+ }
+ 
+ void gl_ViewStartup()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!glGetCurrentResourcePool()) throw std::logic_error("GL views require game graphics memory");
++    gRootView.SetViewport(0, 0, glGetScreenWidth(), glGetScreenHeight());
++#endif
+ }
+ 
+ class UnidentifiedPacketSorterIterator
+@@ -257,6 +274,10 @@ GLView::GLView(GLViewInterface* interface, const GLRenderPair& renderPair,
+     m_Name = s_UninitializedViewName;
+     m_Unknown48 = 0;
+     m_TriangleCount = 0;
++#if defined(MSCHARGED_NATIVE)
++    if (!interface || sortMode < GLViewSort_Texture || sortMode >= GLViewSort_Count)
++        throw std::invalid_argument("Invalid GL view interface or sort mode");
++#endif
+     m_Interface = interface;
+     m_Parent = 0;
+ 
+@@ -282,7 +303,11 @@ GLView::GLView(GLViewInterface* interface, const GLRenderPair& renderPair,
+     }
+ 
+     m_CreateSorter = createSorter;
++#if defined(MSCHARGED_NATIVE)
++    m_Sorters = 0; // Root construction precedes game allocator initialization.
++#else
+     m_Sorters = new UnidentifiedPacketSorterTree_8052E504(16, 16);
++#endif
+     m_Viewport.x = 0;
+     m_Viewport.y = 0;
+     m_Viewport.width = glGetScreenWidth();
+@@ -295,7 +320,10 @@ GLView::GLView(GLViewInterface* interface, const GLRenderPair& renderPair,
+     m_Visible = true;
+ }
+ 
+-inline GLView::GLView()
++#if !defined(MSCHARGED_NATIVE)
++inline
++#endif
++GLView::GLView()
+     : m_RenderPair(0, 0)
+ {
+     m_Unknown38 = 0;
+@@ -306,7 +334,11 @@ inline GLView::GLView()
+     m_Interface = &gDefaultViewInterface;
+     m_Parent = 0;
+     m_CreateSorter = fn_802CEF1C;
++#if defined(MSCHARGED_NATIVE)
++    m_Sorters = 0; // Root construction precedes game allocator initialization.
++#else
+     m_Sorters = new UnidentifiedPacketSorterTree_8052E504(16, 16);
++#endif
+     m_Viewport.x = 0;
+     m_Viewport.y = 0;
+     m_Viewport.width = glGetScreenWidth();
+@@ -321,6 +353,12 @@ inline GLView::GLView()
+ 
+ inline UnidentifiedPacketSorter* GLView::GetSorter(long sortKey)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!glGetCurrentResourcePool()) throw std::logic_error("GL packet attachment requires graphics memory");
++    if (m_NativeIterating || glNativeViewDispatchActive()) throw std::logic_error("Cannot attach packets during GL view dispatch");
++    if (m_NativeFrame != glNativeFrameGeneration()) ResetPackets();
++    if (!m_Sorters) m_Sorters = new UnidentifiedPacketSorterTree_8052E504(16, 16);
++#endif
+     UnidentifiedPacketSorter* sorter;
+     UnidentifiedPacketSorter** foundSorter;
+     AVLTreeNode* existingNode;
+@@ -338,10 +376,16 @@ inline UnidentifiedPacketSorter* GLView::GetSorter(long sortKey)
+ 
+ GLView::~GLView()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (m_Parent) m_Parent->RemoveChild(this);
++#endif
+     while (m_Children.m_Head != 0)
+     {
+         GLView* child;
+         m_Children.RemoveStart(&child);
++#if defined(MSCHARGED_NATIVE)
++        child->m_Parent = 0;
++#endif
+         delete child;
+     }
+     delete m_Sorters;
+@@ -349,11 +393,23 @@ GLView::~GLView()
+ 
+ void GLView::AttachPacket(const glModelPacket* packet, unsigned long sortKey)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!packet || !packet->materialProgram || sortKey > UINT32_MAX)
++        throw std::invalid_argument("Invalid GL packet or sort layer");
++    sortKey = static_cast<s32>(static_cast<u32>(sortKey));
++#endif
+     GetSorter(sortKey)->fn_10(this, packet);
+ }
+ 
+ void GLView::AttachModel(const glModel* model, unsigned long sortKey)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!model || model->numPackets > 65535 || (model->numPackets && !model->packets) || sortKey > UINT32_MAX)
++        throw std::invalid_argument("Invalid GL model or sort layer");
++    for (unsigned i = 0; i < model->numPackets; ++i)
++        if (!model->packets[i].materialProgram) throw std::invalid_argument("GL model packet has no material");
++    sortKey = static_cast<s32>(static_cast<u32>(sortKey));
++#endif
+     UnidentifiedPacketSorter& sorter = *GetSorter(sortKey);
+     unsigned long packetOffset;
+     unsigned long index;
+@@ -367,6 +423,13 @@ void GLView::AttachModel(const glModel* model, unsigned long sortKey)
+ 
+ void GLView::Iterate(GLViewPacketCallback callback)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!callback || m_NativeIterating) throw std::logic_error("Invalid or recursive GL view iteration");
++    if (m_Sorters && m_Sorters->m_Root && m_NativeFrame != glNativeFrameGeneration())
++        throw std::logic_error("GL view packets outlived their graphics frame");
++    struct IterationScope { bool& value; ~IterationScope() { value = false; } } scope{m_NativeIterating};
++    m_NativeIterating = true;
++#endif
+     m_TriangleCount = 0;
+     if (!m_Visible)
+         return;
+@@ -375,7 +438,11 @@ void GLView::Iterate(GLViewPacketCallback callback)
+ 
+     PacketCallbackManager callbackManager(this, callback);
+     UnidentifiedPacketSorterIterator iterator;
++#if defined(MSCHARGED_NATIVE)
++    iterator.Initialize(m_Sorters ? m_Sorters->m_Root : 0);
++#else
+     iterator.Initialize(m_Sorters->m_Root);
++#endif
+ 
+     if (iterator.IsValid())
+         callback(this, 1, 0);
+@@ -401,7 +468,14 @@ void GLView::Iterate(GLViewPacketCallback callback)
+ 
+ void GLView::RemoveChild(GLView* child)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!child || child->m_Parent != this || m_NativeIterating || glNativeViewDispatchActive())
++        throw std::invalid_argument("GL view is not an attached child or is being rendered");
++#endif
+     m_Children.RemoveEntry(child);
++#if defined(MSCHARGED_NATIVE)
++    child->m_Parent = 0;
++#endif
+ }
+ 
+ GLRenderPair GLView::GetRenderPair() const
+@@ -421,6 +495,9 @@ GLViewIterator::GLViewIterator(GLView* root)
+ 
+ void GLViewIterator::Push(GLViewIteratorEntry entry)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!entry.entry || m_Depth >= 7) throw std::length_error("GL view graph exceeds eight levels");
++#endif
+     GLViewIteratorEntry* stackEntry = &m_Stack[++m_Depth];
+     *stackEntry = entry;
+ 
+@@ -470,10 +547,57 @@ void glViewCompact()
+     while (!iterator.IsDone())
+     {
+         GLView* view = iterator.Current();
++#if defined(MSCHARGED_NATIVE)
++        view->ResetPackets();
++#else
+         view->m_Sorters->Clear();
++#endif
++#if defined(MSCHARGED_NATIVE)
++        if (view->m_Sorters) view->m_Sorters->m_Allocator.FreeBlocks();
++#else
+         view->m_Sorters->m_Allocator.FreeBlocks();
++#endif
+         iterator.Next();
+     }
+ }
+ 
+ GLView gRootView;
++
++#if defined(MSCHARGED_NATIVE)
++void GLView::ResetPackets()
++{
++    if (m_NativeIterating) throw std::logic_error("Cannot reset a GL view during iteration");
++    if (m_Sorters) m_Sorters->Clear(); // Only persistent outer nodes; packet sorters belong to the frame.
++    m_NativeFrame = glNativeFrameGeneration();
++}
++
++void GLView::AddChild(GLView* child)
++{
++    if (!child || child->m_Parent || m_NativeIterating || child->m_NativeIterating || glNativeViewDispatchActive())
++        throw std::invalid_argument("Invalid or already attached GL view child");
++    int depth = 0;
++    for (GLView* ancestor = this; ancestor; ancestor = ancestor->m_Parent)
++    {
++        if (ancestor == child) throw std::invalid_argument("Cyclic GL view graph");
++        ++depth;
++    }
++    for (GLViewIterator it(child); !it.IsDone(); it.Next())
++        if (depth + it.m_Depth >= 8) throw std::length_error("GL view graph exceeds eight levels");
++    m_Children.AddEnd(child);
++    child->m_Parent = this;
++}
++
++void gl_ViewShutdown()
++{
++    if (glNativeViewDispatchActive()) throw std::logic_error("Cannot shut down a GL graph during dispatch");
++    gRootView.~GLView();
++    ::new (static_cast<void*>(&gRootView)) GLView;
++    gRootView.SetViewport(0, 0, 0, 0);
++}
++#endif
++
++#if defined(MSCHARGED_NATIVE)
++static bool nativeViewDispatch = false;
++bool glNativeViewDispatchActive() { return nativeViewDispatch; }
++void glNativeSetViewDispatch(bool active) { nativeViewDispatch = active; }
++#endif
+diff --git a/src/NL/gl/glViewMath.cpp b/src/NL/gl/glViewMath.cpp
+new file mode 100644
+index 0000000..3a0fcd8
+--- /dev/null
++++ b/src/NL/gl/glViewMath.cpp
+@@ -0,0 +1,45 @@
++// Original view projection and primitive counts, selected independently of startup.
++#include "NL/gl/gl.h"
++#include "NL/gl/glView.h"
++#include "NL/gl/glPlat.h"
++#include "NL/nlMath.h"
++#if !defined(MSCHARGED_NATIVE)
++#error Select gl.cpp/glPlat.cpp for the console build
++#endif
++unsigned long glGetNumTriangles(eGLPrimitive primitive, unsigned long count)
++{
++    switch (primitive)
++    {
++    case GLP_TriList:
++        return count / 3;
++    case GLP_TriStrip:
++        return count >= 2 ? count - 2 : 0;
++    case GLP_TriFan:
++        return count >= 2 ? count - 2 : 0;
++    case GLP_QuadList:
++        return count / 2;
++    case GLP_LineList:
++        return count / 2;
++    case GLP_LineStrip:
++        return count ? count - 1 : 0;
++    default:
++        return 0;
++    }
++}
++
++void glplatViewProjectPoint(GLView* view, const nlVector3& v3world, nlVector3& v3NDC)
++{
++    nlMatrix4 viewMatrix;
++    nlMatrix4 projectionMatrix;
++    nlVector3 v_out;
++
++    view->m_Interface->GetViewMatrix(viewMatrix);
++    view->m_Interface->GetProjectionMatrix(projectionMatrix);
++    nlMultPosVectorMatrix(v_out, v3world, viewMatrix);
++    nlMultPosVectorMatrix(v3NDC, v_out, projectionMatrix);
++
++    const f32 wc = 1.0f / -v_out.z;
++    v3NDC.x *= wc;
++    v3NDC.y = -v3NDC.y * wc;
++    v3NDC.z *= wc;
++}
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index c8e805d..caaff44 100644
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -74,6 +74,10 @@ static unsigned char glx_MemoryDump;
+ static unsigned long FrameMemSizes[2];
+ static int i_frame;
+ static bool sFrameMemoryInitialized;
++#if defined(MSCHARGED_NATIVE)
++static uint64_t sNativeFrameGeneration = 1;
++uint64_t glNativeFrameGeneration() { return sNativeFrameGeneration; }
++#endif
+ static GLInventory::ModelReleaseCallback sModelReleaseCallback;
+ 
+ static GLResourceMark p_frame[2][2];
+@@ -122,6 +126,7 @@ static unsigned long FrameStride(unsigned long size)
+ 
+ void glxShutdownMemory()
+ {
++    ++sNativeFrameGeneration;
+     nlFree(reinterpret_cast<void*>(p_frame[0][0]));
+     nlFree(reinterpret_cast<void*>(p_frame[0][1]));
+     memset(p_frame, 0, sizeof(p_frame));
+@@ -196,6 +201,7 @@ void glplatFrameAllocNextFrame()
+ #if defined(MSCHARGED_NATIVE)
+     if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
+     mscharged::InvalidateGraphicsCaches();
++    ++sNativeFrameGeneration;
+     i_frame ^= 1;
+     n_frame[i_frame][0] = n_frame[i_frame][1] = 0;
+ #else
+diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
+index 16474fb..4fc62fa 100644
+--- a/src/NL/nlSlotPool.cpp
++++ b/src/NL/nlSlotPool.cpp
+@@ -4,11 +4,20 @@
+ #include "NL/MemAlloc.h"
+ #include "NL/nlList.h"
+ #include "NL/nlMemory.h"
++#if defined(MSCHARGED_NATIVE)
++#include "runtime/graphics_memory.h"
++#include <limits>
++#include <stdexcept>
++#endif
+ 
+ 
+ 
+ static void* DefaultSlotPoolAllocator(unsigned long size)
+ {
++#if defined(MSCHARGED_NATIVE)
++    mscharged::ScopedGameAllocator arena(VirtualAllocator);
++    return nlMalloc(size, 8, false);
++#else
+     CurrentAllocator = &VirtualAllocator;
+     AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
+ 
+@@ -18,10 +27,14 @@ static void* DefaultSlotPoolAllocator(unsigned long size)
+     AllocatorStack[AllocatorStackDepth] = 0;
+     CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+     return result;
++#endif
+ }
+ 
+ static void DefaultSlotPoolFree(void* data)
+ {
++#if defined(MSCHARGED_NATIVE)
++    nlFree(data); // Native game frees are routed by arena ownership.
++#else
+     CurrentAllocator = &VirtualAllocator;
+     AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
+ 
+@@ -30,6 +43,7 @@ static void DefaultSlotPoolFree(void* data)
+     --AllocatorStackDepth;
+     AllocatorStack[AllocatorStackDepth] = 0;
+     CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
++#endif
+ }
+ 
+ SlotPoolBase::SlotPoolBase()
+@@ -54,16 +68,16 @@ void SlotPoolBase::BaseFreeBlocks(SlotPoolBase* slotPool, unsigned int slotSize)
+ {
+     SlotPoolBlock* nextBlock;
+     SlotPoolBlock* currentBlock;
+-    int blockOffset;
++    size_t blockOffset;
+ 
+     currentBlock = slotPool->m_BlockList;
+-    blockOffset = slotSize * slotPool->m_Delta;
++    blockOffset = size_t(slotSize) * slotPool->m_Delta;
+     while (currentBlock != 0)
+     {
+         nextBlock = currentBlock->next;
+         if (nextBlock == 0)
+         {
+-            blockOffset = slotSize * slotPool->m_Initial;
++            blockOffset = size_t(slotSize) * slotPool->m_Initial;
+         }
+         slotPool->m_FreeFn((unsigned char*)currentBlock - blockOffset);
+         currentBlock = nextBlock;
+@@ -89,11 +103,20 @@ void SlotPoolBase::BaseAddNewBlock(SlotPoolBase* slotPool, unsigned int slotSize
+             numSlots = slotPool->m_Initial;
+         }
+ 
++#if defined(MSCHARGED_NATIVE)
++        if (!numSlots || slotSize < sizeof(SlotPoolEntry) || slotSize % alignof(SlotPoolEntry)
++            || numSlots > (std::numeric_limits<unsigned int>::max() - sizeof(SlotPoolBlock)) / slotSize)
++            throw std::length_error("Invalid or overflowing slot pool block");
++#endif
+         totalSlotMemory = slotSize * numSlots;
+         memoryBlock = slotPool->m_AllocFn(totalSlotMemory + sizeof(SlotPoolBlock));
+         if (memoryBlock == 0)
+         {
++#if defined(MSCHARGED_NATIVE)
++            throw std::bad_alloc();
++#else
+             nlBreak();
++#endif
+         }
+ 
+         nlListAddStart<SlotPoolBlock>(

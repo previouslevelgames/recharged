@@ -1,0 +1,378 @@
+Subject: Select original frame timing and history without debug rendering
+
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Extract original timing, history, condition-selected time regions and histogram
+math independently of debug text/mesh drawing and camera/gameplay predicates.
+Initialize formerly static-zeroed fields for scoped native ownership, validate
+timer/sample bounds and pair histogram storage with its game allocator.
+Keep original ticker conversion, history lengths and averaging behavior.
+
+diff --git a/src/Game/Debug/FrameCounter.cpp b/src/Game/Debug/FrameCounter.cpp
+--- a/src/Game/Debug/FrameCounter.cpp
++++ b/src/Game/Debug/FrameCounter.cpp
+@@ -19,9 +19,13 @@
+ #include <string.h>
+ #include "NL/nlstring_tmpl.h"
+ 
++#ifndef MSCHARGED_NATIVE
+ FrameCounter* lbl_806E1DC0;
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ int FrameCounter::NUM_FRAMES_TO_AVERAGE_OVER = 30;
++#endif
+ 
+ static float sfHappiness = 1.0f;
+ static float sfEyeHeight = 0.2f;
+@@ -37,11 +41,18 @@
+ static nlColour FrameBackgroundColour = { 0, 0, 0, 128 };
+ static const char* FrameCounterOutputString = "%2.2fFPS %0.3fms [%0.3fms %s, %0.3fms %s]";
+ 
++#ifndef MSCHARGED_NATIVE
+ const float lbl_806E6178 = 17.0f;
++#endif
++#ifndef MSCHARGED_NATIVE
+ const float lbl_806E617C = 10.0f;
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ nlListContainer<TimeRegion*> TimeRegion::sTimeRegionList;
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ FrameCounter::FrameCounter(const char* first, const char* second)
+ {
+     lbl_806E1DC0 = this;
+@@ -60,7 +71,9 @@
+     memset(m_FrameHistory, 0, sizeof(m_FrameHistory));
+     memset(m_ContinuousFrameHistory, 0, sizeof(m_ContinuousFrameHistory));
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void FrameCounter::StartTimer(int timerNum)
+ {
+     u32 currentTick = nlGetTicker();
+@@ -73,7 +86,9 @@
+     m_StartTick = currentTick;
+     m_CurrTimerNum = timerNum;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void FrameCounter::FinishTiming()
+ {
+     u32 currentTick = nlGetTicker();
+@@ -127,6 +142,7 @@
+     m_CurrTimer[1] = 0.0f;
+     m_CurrTimerNum = -1;
+ }
++#endif
+ 
+ void FrameCounter::DisplayFrameRate()
+ {
+diff --git a/src/Game/Debug/Histogram.cpp b/src/Game/Debug/Histogram.cpp
+--- a/src/Game/Debug/Histogram.cpp
++++ b/src/Game/Debug/Histogram.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include <math.h>
+ 
++#ifndef MSCHARGED_NATIVE
+ Histogram::Histogram(
+     const char* pName, int numBins, float minValue, float binSize)
+     : m_pName(pName)
+@@ -23,12 +24,16 @@
+     m_Bins = (int*)nlMalloc(m_NumBins * sizeof(int), 8, false);
+     Reset();
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ Histogram::~Histogram()
+ {
+     delete m_Bins;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void Histogram::AddSample(float value)
+ {
+     ++m_NumSamples;
+@@ -51,7 +56,9 @@
+         }
+     }
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ int Histogram::GetCumulativePercentage(int index)
+ {
+     if (m_NumSamples == 0)
+@@ -66,11 +73,14 @@
+     }
+     return (int)(100.0f * ((float)count / (float)m_NumSamples));
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ float Histogram::GetBinBoundary(int index)
+ {
+     return m_MinValue + index * m_BinSize;
+ }
++#endif
+ 
+ void Histogram::FormatBinRange(char* range, unsigned long size, int index)
+ {
+diff --git a/src/Game/Debug/TimeRegions.cpp b/src/Game/Debug/TimeRegions.cpp
+--- a/src/Game/Debug/TimeRegions.cpp
++++ b/src/Game/Debug/TimeRegions.cpp
+@@ -80,6 +80,7 @@
+     return g_pBall->m_tShotTimer.m_uPackedTime != 0;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ inline TimeRegion::TimeRegion(
+     const char* pName, bool (*pConditionFunc)())
+     : m_pName(pName)
+@@ -99,6 +100,7 @@
+     nlListAddEnd<ListEntry<TimeRegion*> >(
+         &sTimeRegionList.m_Head, &sTimeRegionList.m_Tail, entry);
+ }
++#endif
+ 
+ void InitializeTimeRegions()
+ {
+diff --git a/include/Game/Debug/FrameCounter.h b/include/Game/Debug/FrameCounter.h
+--- a/include/Game/Debug/FrameCounter.h
++++ b/include/Game/Debug/FrameCounter.h
+@@ -3,10 +3,17 @@
+ 
+ #include "types.h"
+ 
++#ifdef MSCHARGED_NATIVE
++namespace mscharged { struct NativeFrameTimingAccess; }
++#endif
+ class FrameCounter
+ {
+ public:
+     FrameCounter(const char* first, const char* second);
++#ifdef MSCHARGED_NATIVE
++    ~FrameCounter();
++    friend struct mscharged::NativeFrameTimingAccess;
++#endif
+ 
+     void StartTimer(int timerNum);
+     void FinishTiming();
+diff --git a/src/Game/Debug/FrameTiming.cpp b/src/Game/Debug/FrameTiming.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/Debug/FrameTiming.cpp
+@@ -0,0 +1,197 @@
++// Original timing/history and histogram bodies selected without debug drawing.
++#include "Game/Debug/FrameCounter.h"
++#include "Game/Debug/TimeRegions.h"
++#include "NL/nlTicker.h"
++#include "NL/nlMemory.h"
++#include <cmath>
++#include <cstring>
++#include <limits>
++#include <stdexcept>
++
++FrameCounter* lbl_806E1DC0;
++int FrameCounter::NUM_FRAMES_TO_AVERAGE_OVER = 30;
++const float lbl_806E6178 = 17.0f;
++const float lbl_806E617C = 10.0f;
++nlListContainer<TimeRegion*> TimeRegion::sTimeRegionList;
++
++FrameCounter::FrameCounter(const char* first, const char* second)
++{
++    lbl_806E1DC0 = this;
++    m_FirstName = first;
++    m_SecondName = second;
++
++    m_StartTick = 0;
++    memset(m_CurrFrame, 0, sizeof(m_CurrFrame));
++    memset(m_LastFrame, 0, sizeof(m_LastFrame));
++    m_Counter = 0;
++    m_NextHistoryPos = 0;
++    m_ContinuousFrameHistoryIndex = 0;
++    m_unk1074 = false;
++
++    m_CurrTimer[0] = 0.0f;
++    m_CurrTimer[1] = 0.0f;
++    m_CurrTimerNum = -1;
++
++    memset(m_FrameHistory, 0, sizeof(m_FrameHistory));
++    memset(m_ContinuousFrameHistory, 0, sizeof(m_ContinuousFrameHistory));
++}
++
++void FrameCounter::StartTimer(int timerNum)
++{
++    if (timerNum < 0 || timerNum > 1) throw std::out_of_range("Frame timer index must be zero or one");
++    u32 currentTick = nlGetTicker();
++
++    if (m_CurrTimerNum != -1)
++    {
++        m_CurrTimer[m_CurrTimerNum] += nlGetTickerDifference(m_StartTick, currentTick);
++    }
++
++    m_StartTick = currentTick;
++    m_CurrTimerNum = timerNum;
++}
++
++void FrameCounter::FinishTiming()
++{
++    if (NUM_FRAMES_TO_AVERAGE_OVER <= 0) throw std::invalid_argument("Frame averaging window must be positive");
++    u32 currentTick = nlGetTicker();
++    if (m_CurrTimerNum != -1)
++    {
++        m_CurrTimer[m_CurrTimerNum] += nlGetTickerDifference(m_StartTick, currentTick);
++    }
++
++    m_Counter++;
++
++    float totalFrameTime = 0.0f;
++
++    float (*history)[200] = m_ContinuousFrameHistory;
++
++    totalFrameTime += m_CurrTimer[0];
++    m_CurrFrame[0] += m_CurrTimer[0];
++    history[0][m_ContinuousFrameHistoryIndex] = m_CurrTimer[0];
++
++    totalFrameTime += m_CurrTimer[1];
++    m_CurrFrame[1] += m_CurrTimer[1];
++    history[1][m_ContinuousFrameHistoryIndex] = m_CurrTimer[1];
++
++    if (m_Counter >= (u32)NUM_FRAMES_TO_AVERAGE_OVER)
++    {
++        m_LastFrame[0] = m_CurrFrame[0] / (float)m_Counter;
++        m_CurrFrame[0] = 0.0f;
++        m_LastFrame[1] = m_CurrFrame[1] / (float)m_Counter;
++        m_CurrFrame[1] = 0.0f;
++        m_Counter = 0;
++    }
++
++    m_FrameHistory[m_NextHistoryPos] = totalFrameTime;
++    m_NextHistoryPos = (m_NextHistoryPos + 1) % 640;
++    m_ContinuousFrameHistoryIndex = (m_ContinuousFrameHistoryIndex + 1) % 200;
++
++    nlListIterator<TimeRegion*> iterator = TimeRegion::sTimeRegionList.Begin();
++    while (iterator.IsValid())
++    {
++        TimeRegion* region = iterator.Current();
++        if (region->m_pConditionFunc())
++        {
++            region->m_unk10++;
++            region->m_Histogram.AddSample(totalFrameTime);
++            region->m_fThreshold += totalFrameTime;
++        }
++
++        iterator.Next();
++    }
++
++    m_CurrTimer[0] = 0.0f;
++    m_CurrTimer[1] = 0.0f;
++    m_CurrTimerNum = -1;
++}
++
++FrameCounter::~FrameCounter()
++{
++    if (lbl_806E1DC0 == this) lbl_806E1DC0 = nullptr;
++}
++
++Histogram::Histogram(
++    const char* pName, int numBins, float minValue, float binSize)
++    : m_pName(pName)
++    , m_NumBins(numBins)
++    , m_MinValue(minValue)
++    , m_BinSize(binSize)
++    , m_NumSamples(0)
++{
++    if (numBins < 3 || numBins > 65536 || !std::isfinite(minValue) || !std::isfinite(binSize) || binSize <= 0)
++        throw std::invalid_argument("Invalid histogram bounds");
++    m_Bins = (int*)nlMalloc(m_NumBins * sizeof(int), 8, false);
++    Reset();
++}
++
++Histogram::~Histogram()
++{
++    nlFree(m_Bins);
++}
++
++void Histogram::AddSample(float value)
++{
++    if (!std::isfinite(value) || m_NumSamples == std::numeric_limits<int>::max())
++        throw std::out_of_range("Invalid histogram sample or exhausted count");
++    ++m_NumSamples;
++    float minValue = m_MinValue;
++    if (value < minValue)
++    {
++        ++m_Bins[0];
++    }
++    else
++    {
++        float binSize = m_BinSize;
++        if (value >= (m_NumBins - 2) * binSize + minValue)
++        {
++            ++m_Bins[m_NumBins - 1];
++        }
++        else
++        {
++            float bin = floor((value - minValue) / binSize);
++            ++m_Bins[(int)bin + 1];
++        }
++    }
++}
++
++int Histogram::GetCumulativePercentage(int index)
++{
++    if (index < 0 || index >= m_NumBins) throw std::out_of_range("Invalid histogram bin");
++    if (m_NumSamples == 0)
++    {
++        return 0;
++    }
++
++    int count = 0;
++    for (int i = 0; i <= index; ++i)
++    {
++        count += m_Bins[i];
++    }
++    return (int)(100.0f * ((float)count / (float)m_NumSamples));
++}
++
++float Histogram::GetBinBoundary(int index)
++{
++    return m_MinValue + index * m_BinSize;
++}
++
++TimeRegion::TimeRegion(
++    const char* pName, bool (*pConditionFunc)())
++    : m_pName(pName)
++    , m_pConditionFunc(pConditionFunc)
++    , m_fThreshold(0.0f)
++    , m_unk10(0)
++    , m_Histogram(pName, 5, lbl_806E6178, lbl_806E617C)
++{
++    if (!pConditionFunc) throw std::invalid_argument("Time region requires a condition");
++    ListEntry<TimeRegion*>* entry
++        = (ListEntry<TimeRegion*>*)nlMalloc(
++            sizeof(ListEntry<TimeRegion*>), 8, false);
++    if (entry != 0)
++    {
++        entry->next = 0;
++        entry->entry = this;
++    }
++    nlListAddEnd<ListEntry<TimeRegion*> >(
++        &sTimeRegionList.m_Head, &sTimeRegionList.m_Tail, entry);
++}

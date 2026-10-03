@@ -1,0 +1,68 @@
+Subject: Select original dispatch task and base transition hook
+
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Extract the existing default nlTask::StateTransition from Team.cpp for independent
+source selection and retain the original DispatchEventsTask::Run(true) path.
+Native initialization uses the checked game-new overload with construction-failure
+cleanup. Reset cancels pending payloads before releasing blocks and preserves the
+original persistent task; the port supplies explicit final task destruction.
+The broader task manager, MoviePlay and original main loop remain unselected.
+
+diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEventsTask.cpp
+index 20fe287..38eea4f 100644
+--- a/src/Game/Task/DispatchEventsTask.cpp
++++ b/src/Game/Task/DispatchEventsTask.cpp
+@@ -7,15 +7,27 @@ DispatchEventsTask* gDispatchEventsTask;
+ 
+ void fn_80115F10()
+ {
++#ifdef MSCHARGED_NATIVE
++    CheckNativeEventThread();
++    if (gDispatchEventsTask) throw std::logic_error("Dispatch task is already initialized");
++    gDispatchEventsTask = new (8, false) DispatchEventsTask;
++#else
+     gDispatchEventsTask =
+         new (nlMalloc(sizeof(DispatchEventsTask), 8, false)) DispatchEventsTask;
++#endif
+ }
+ 
+ void fn_80115FB4()
+ {
++#ifdef MSCHARGED_NATIVE
++    CheckNativeEventThread();
++    if (!gDispatchEventsTask) throw std::logic_error("Dispatch task is not initialized");
++    gDispatchEventsTask->dispatcher.FreeBlocks(); // Cancels callbacks before freeing blocks; keeps the task alive.
++#else
+     gDispatchEventsTask->dispatcher.Clear();
+ 
+     gDispatchEventsTask->dispatcher.FreeBlocks();
++#endif
+ }
+ 
+ void DispatchEventsTask::Run(float)
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index 92747cc..a396957 100644
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -1764,6 +1764,8 @@ void cTeam::fn_800A8DE8(RunningChecksum* runningChecksum)
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void nlTask::StateTransition(unsigned int, unsigned int)
+ {
+ }
++#endif
+diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
+new file mode 100644
+index 0000000..09263a2
+--- /dev/null
++++ b/src/NL/TaskBase.cpp
+@@ -0,0 +1,6 @@
++// Original default transition hook extracted from Game/Team.cpp.
++#include "NL/nlTask.h"
++
++void nlTask::StateTransition(unsigned int, unsigned int)
++{
++}

@@ -48,6 +48,7 @@ struct Options
     bool experimental_startup = false;
     bool experimental_scene = false;
     bool scene_arguments = false;
+    bool standalone_assets = false;
     bool page_selected = false;
     SceneOptions scene;
     int page = 0;
@@ -718,6 +719,7 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_SCENE_PREVIEW
             std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N]\n"
                          "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n"
+                         "                        [--world /DISC/gameworld.tmp.zlib --model-id HEX]\n"
                          "                        [--unlit] [--shadow-textures /DISC/PATH.rlt --shadow-id HEX]\n";
 #endif
             return 0;
@@ -727,11 +729,13 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--unlit") { options.scene_arguments = true; options.scene.unlit = true; }
         else if ((arg == "--frames" || arg == "--model" || arg == "--textures" || arg == "--model-id"
-                  || arg == "--shadow-textures" || arg == "--shadow-id") && i + 1 < argc)
+                  || arg == "--world" || arg == "--shadow-textures" || arg == "--shadow-id") && i + 1 < argc)
         {
             options.scene_arguments = true;
             const std::string value = argv[++i];
-            if (arg == "--model") options.scene.model = value;
+            if (arg == "--model" || arg == "--textures") options.standalone_assets = true;
+            if (arg == "--world") options.scene.world = value;
+            else if (arg == "--model") options.scene.model = value;
             else if (arg == "--textures") options.scene.textures = value;
             else if (arg == "--shadow-textures") options.scene.shadow_textures = value;
             else
@@ -772,6 +776,10 @@ int main(int argc, char** argv)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
     if (options.scene.shadow_id.has_value() != options.scene.shadow_textures.has_value())
     { std::cerr << "--shadow-textures and --shadow-id must be supplied together.\n"; return 2; }
+    if (options.scene.world && !options.scene.model_id)
+    { std::cerr << "--world requires an explicit --model-id.\n"; return 2; }
+    if (options.scene.world && options.standalone_assets)
+    { std::cerr << "Select --world or separate --model/--textures assets.\n"; return 2; }
     try
     {
         if (options.experimental_scene)

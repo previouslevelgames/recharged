@@ -54,8 +54,8 @@ const GLMemoryConfig config{65, 97, requirements, 2, 4};
 bool Owns(MemoryAllocator& arena, void* pointer)
 {
     auto address = reinterpret_cast<std::uintptr_t>(pointer);
-    auto begin = reinterpret_cast<std::uintptr_t>(arena.m_0C);
-    return address >= begin && address < begin + arena.m_08;
+    auto begin = reinterpret_cast<std::uintptr_t>(arena.m_memory);
+    return address >= begin && address < begin + arena.m_memory_size;
 }
 void Aligned(void* pointer)
 { Require(pointer && reinterpret_cast<std::uintptr_t>(pointer) % 32 == 0, "GL allocation lost 32-byte alignment/native address"); }

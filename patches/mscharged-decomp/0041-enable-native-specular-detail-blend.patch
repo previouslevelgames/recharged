@@ -1,0 +1,388 @@
+Subject: Select original static specular detail blend material and lights
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Keep the original eight-stage TEV recipe and diffuse/specular/shadow calls.
+Use Aurora headers, bounded native float arrays and typed FIFO calls, reset
+registry instances and the per-activation light cache, and obtain the explicit
+native view. Select the original specular-light routines alongside diffuse
+lighting with checked inputs and executable-verified scalar constants. Preserve
+the original slot-6 lighting mask; zero active lights must not reuse stale state.
+The console branches retain their formats and FIFO access. Complete stadium
+loading, other material programs and Wii presentation parity remain separate.
+
+diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+--- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXSpecularDetailBlendMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramInternal.h"
+@@ -24,15 +28,19 @@
+ 
+ GXSpecularDetailBlendMaterialProgram::GXSpecularDetailBlendMaterialProgram()
+ {
+-    Instance = this;
+     programHash = 0x112AB470;
+     parameterDataSize = 68;
+     parameterCount = 10;
+     glRegisterMaterialProgram(this, programHash);
++    Instance = this;
+ }
+ 
+ GXSpecularDetailBlendMaterialProgram::~GXSpecularDetailBlendMaterialProgram()
+ {
++#if defined(MSCHARGED_NATIVE)
++    Instance = nullptr;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXSpecularDetailBlendMaterialProgram::Initialize()
+@@ -50,12 +58,32 @@
+ {
+     GXClearVtxDesc();
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_S8, 6);
++#endif
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX3, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX3, GX_TEX_ST, GX_S16, 10);
++#endif
+ 
+     if (indexed)
+     {
+@@ -82,13 +110,48 @@
+ void GXSpecularDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_NRM, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_CLR0, streams[6].address,
++        packet->numUniqueVertices * streams[6].stride, streams[6].stride, true);
++#else
+     GXSetArray(GX_VA_CLR0, streams[6].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[2].address,
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX1, streams[3].address,
++        packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
++#else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX2, streams[4].address,
++        packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
++#else
+     GXSetArray(GX_VA_TEX2, streams[4].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX3, streams[5].address,
++        packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
++#else
+     GXSetArray(GX_VA_TEX3, streams[5].address, 4);
++#endif
+ }
+ 
+ void GXSpecularDetailBlendMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -99,15 +162,28 @@
+ 
+     while (idxPtr < end)
+     {
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
+-        WGPIPE.us = *idxPtr;
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(*idxPtr);
++        GXNormal1x16(*idxPtr);
++        GXColor1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++#else
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++        WGPIPE.us = *idxPtr;
++#endif
+         ++idxPtr;
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXSpecularDetailBlendMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -116,14 +192,27 @@
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-        WGPIPE.us = i;
+-    }
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXNormal1x16(i);
++        GXColor1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++        GXTexCoord1x16(i);
++#else
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++        WGPIPE.us = i;
++#endif
++    }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXSpecularDetailBlendMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
+--- a/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
+@@ -1,4 +1,9 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include "runtime/material_environment.h"
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+ 
+@@ -80,10 +85,19 @@
+ {
+     sSpecularDetailBlendLightingMode = LIGHTING_UNCONFIGURED;
+     static_cast<GXSpecularDetailBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
++#if defined(MSCHARGED_NATIVE)
++    sSpecularDetailBlendViewMatrix = mscharged::MaterialPreviewView();
++#else
+     view->m_Interface->GetViewMatrix(sSpecularDetailBlendViewMatrix);
++#endif
+     sSpecularDetailBlendLightCount = GetGameObjectLightCount(0, 1);
+     LoadGameObjectLights(sSpecularDetailBlendLightCount, view, 0);
++#if defined(MSCHARGED_NATIVE)
++    // A new view may have different lights even when the exponent is zero.
++    sSpecularDetailBlendSpecularExponent = -1.0f;
++#else
+     sSpecularDetailBlendSpecularExponent = 0.0f;
++#endif
+ }
+ 
+ template <>
+diff --git a/src/Game/GameObjectLightingCore.cpp b/src/Game/GameObjectLightingCore.cpp
+--- a/src/Game/GameObjectLightingCore.cpp
++++ b/src/Game/GameObjectLightingCore.cpp
+@@ -14,6 +14,7 @@
+ #include <dolphin/gx.h>
+ #include <dolphin/mtx.h>
+ #include <stdexcept>
++#include <cmath>
+ 
+ namespace
+ {
+@@ -22,6 +23,10 @@
+ constexpr u32 lbl_804DCD00[6] = {1, 2, 4, 8, 16, 32};
+ constexpr u32 lbl_804DCD18[6] = {1, 3, 7, 15, 31, 63};
+ const nlVector3 lbl_804DCD30 = {1.0f, 0.0f, 0.0f};
++const nlVector3 lbl_804DCD3C = {1.0f, 0.0f, 0.0f};
++constexpr u32 lbl_806E4D10[2] = {64, 128};
++constexpr u8 lbl_806E4D3B = 255;
++constexpr u8 lbl_806E4D3C = 255, lbl_806E4D3D = 255, lbl_806E4D3E = 255, lbl_806E4D3F = 255;
+ constexpr float lbl_806E4CD0 = 255.0f, lbl_806E4CD4 = 1.0f, lbl_806E4CD8 = 0.0f;
+ constexpr float lbl_806E4D20 = 3.1415927f, lbl_806E4D24 = 180.0f;
+ constexpr float lbl_806E4D28 = 0.666f, lbl_806E4D2C = 0.5f, lbl_806E4D30 = 1048576.0f;
+@@ -64,6 +69,119 @@
+     {
+         gxSetChanAmbColour(0, (nlColour){ 0, 0, 0, 0 });
+     }
++}
++
++void SetGameObjectSpecularLightingEnabled(s32 enabled, s32 count)
++{
++    if (count < 0 || count > 6) throw std::out_of_range("Invalid specular light count");
++    if (enabled)
++    {
++        nlColour colour = {
++            lbl_806E4D3C,
++            lbl_806E4D3D,
++            lbl_806E4D3E,
++            lbl_806E4D3F,
++        };
++        gxSetChanMatColour(1, colour);
++
++        nlColour ambient = {
++            0,
++            0,
++            0,
++            0,
++        };
++        gxSetChanAmbColour(1, ambient);
++
++        GXSetChanCtrl(GX_COLOR1, GX_TRUE, GX_SRC_REG, GX_SRC_REG, (count ? GX_LIGHT6 : GX_LIGHT_NULL),
++            GX_DF_NONE, GX_AF_SPEC);
++    }
++    else
++    {
++        GXSetChanCtrl(GX_COLOR1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, (count ? GX_LIGHT6 : GX_LIGHT_NULL),
++            GX_DF_NONE, GX_AF_NONE);
++    }
++}
++
++void LoadGameObjectSpecularLight(s32 index, GameObjectLight* lightData, f32 exponent, const nlMatrix4& viewMatrix)
++{
++    if (index < 0 || index >= 2)
++        return;
++
++    if (!lightData || !std::isfinite(exponent) || exponent < 0 || exponent > 1e4f
++        || !std::isfinite(lightData->intensity) || lightData->intensity < 0 || lightData->intensity > 16)
++        throw std::invalid_argument("Invalid specular light input");
++    GXLightObj light{};
++    nlVector3 var1;
++    nlVector3 var0;
++    nlVector3 initialDirection;
++    nlVector3 viewDir;
++    nlVector3 worldDir;
++
++    s32 var3 = (s32)(lbl_806E4CD0 * lightData->intensity);
++    if (var3 > 255)
++        var3 = 255;
++
++    GXColor colour;
++    colour.r = (u8)var3;
++    colour.a = lbl_806E4D3B;
++    colour.g = (u8)var3;
++    colour.b = (u8)var3;
++    GXInitLightColor(&light, colour);
++
++    if (lightData->enabled)
++    {
++        var0 = lightData->worldPosition;
++    }
++    else
++    {
++        float angleY = lightData->unknown08;
++        angleY = (lbl_806E4D20 * angleY) / lbl_806E4D24;
++        initialDirection = lbl_804DCD3C;
++        nlMatrix4 matY;
++        nlMatrix4 matZ;
++
++        nlMakeRotationMatrixY(matY, angleY);
++        float angleZ = lightData->unknown0C;
++        nlMakeRotationMatrixZ(
++            matZ, (lbl_806E4D20 * angleZ) / lbl_806E4D24);
++        nlMultDirVectorMatrix(var1, initialDirection, matY);
++        nlMultDirVectorMatrix(var1, matZ);
++
++        nlVec3Set(var0, -var1.x, -var1.y, -var1.z);
++    }
++
++    nlVector3 origin = {
++        0.0f,
++        0.0f,
++        0.0f,
++    };
++
++    float worldY = var0.y - origin.y;
++    float worldX = var0.x - origin.x;
++    float worldZ = var0.z - origin.z;
++
++    worldDir.x = worldX;
++    worldDir.y = worldY;
++    worldDir.z = worldZ;
++
++    {
++        float lengthSq = worldDir.GetLengthSq3D();
++        if (!std::isfinite(lengthSq) || lengthSq <= 0)
++            throw std::invalid_argument("Specular light direction must be finite and nonzero");
++        float recipLength = nlRecipSqrt(lengthSq, true);
++
++        nlVec3Scale(worldDir, recipLength);
++    }
++
++    nlMultDirVectorMatrix(viewDir, worldDir, viewMatrix);
++    nlVec3Set(viewDir, -viewDir.x, -viewDir.y, -viewDir.z);
++    GXInitSpecularDir(&light, viewDir.x, viewDir.y, viewDir.z);
++
++    GXInitLightAttn(&light, lbl_806E4CD8, lbl_806E4CD8, lbl_806E4CD4,
++        exponent * lbl_806E4D2C, lbl_806E4CD8,
++        lbl_806E4CD4 - exponent * lbl_806E4D2C);
++
++    GXLoadLightObjImm(&light, (GXLightID)lbl_806E4D10[index]);
+ }
+ 
+ void SetGameObjectLightingEnabled(bool arg0, s32 arg1, bool arg2)
+diff --git a/include/NL/glx/glxGXColour.h b/include/NL/glx/glxGXColour.h
+--- a/include/NL/glx/glxGXColour.h
++++ b/include/NL/glx/glxGXColour.h
+@@ -1,6 +1,10 @@
+ #ifndef _GLXGXCOLOUR_H_
+ #define _GLXGXCOLOUR_H_
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx/GXTev.h>
++#endif
+ 
+ #include "NL/nlColour.h"

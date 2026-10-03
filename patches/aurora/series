@@ -5,3 +5,4 @@
 0005-respect-graphics-providers-and-enable-validation.patch
 0006-keep-validation-for-release-diagnostics.patch
 0007-release-gx-default-resources-on-shutdown.patch
+0008-finish-frames-without-presentation.patch

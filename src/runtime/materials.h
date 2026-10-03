@@ -3,6 +3,8 @@
 #include "NL/gl/glModel.h"
 #include <memory>
 
+class GLView;
+
 namespace mscharged
 {
 // Selected original program instances own registry nodes until explicit teardown.
@@ -21,5 +23,5 @@ class MaterialPrograms
 std::size_t MaterialParameterSize(std::uint32_t program);
 void InstallMaterial(glModelPacket &packet, const resources::Material &material, void *storage);
 std::vector<std::uint32_t> MaterialLookupTextures(const resources::StaticModel &model);
-void DrawMaterial(glModelPacket &packet);
+void DrawMaterial(const glModelPacket &packet, GLView* view = nullptr);
 } // namespace mscharged

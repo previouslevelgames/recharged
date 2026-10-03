@@ -1,6 +1,6 @@
 Subject: Select native arithmetic for original graphics matrix helpers
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Compile the original NL math/vector helpers and RVL 4x4 matrix TU. Retain its
 portable projection and inverse bodies, add scalar native implementations of

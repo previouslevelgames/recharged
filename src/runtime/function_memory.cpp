@@ -1,4 +1,4 @@
-// Native storage for the NL callback functors used by the file layer. The
+// Native storage for the NL callback functors used by files and events. The
 // original fixed pools and their state-stack API are not enabled in this subset.
 #include "NL/nlFunctionMemory.h"
 #include "NL/nlMemory.h"

@@ -1,0 +1,303 @@
+Subject: Preserve original target registry with native lifetime and failure checks
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Keep original target naming, lookup and registration. Native platform targets
+own independent resource pools and Aurora copy-texture lifetimes. Use fixed-width
+Wii descriptions, reject invalid/aliased handles after reuse and roll back failed
+texture registration. Add ordered shutdown and matching frees for game-allocated
+registry nodes. The desktop adapter supplies GX calls and native texture records.
+
+diff --git a/include/NL/gl/glPlat.h b/include/NL/gl/glPlat.h
+index 0b53ce9..bbaf767 100644
+--- a/include/NL/gl/glPlat.h
++++ b/include/NL/gl/glPlat.h
+@@ -3,7 +3,11 @@
+ 
+ #include "NL/gl/glStruct.h"
+ 
+-#ifndef RVL_SDK_GX_FRAMEBUF_H
++#if defined(MSCHARGED_NATIVE) && defined(AURORA)
++#include <dolphin/gx/GXStruct.h>
++#endif
++
++#if !defined(DOLPHIN_GXSTRUCT_H) && !defined(RVL_SDK_GX_FRAMEBUF_H)
+ struct GXRenderModeObj
+ {
+     u32 tvInfo;
+diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
+index 657728b..d5f4715 100644
+--- a/include/NL/gl/glTarget.h
++++ b/include/NL/gl/glTarget.h
+@@ -4,6 +4,10 @@
+ #include "types.h"
+ 
+ class GLXTarget;
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++uint64_t glNativeTargetGeneration(const GLXTarget* target);
++#endif
+ 
+ enum GLTargetFormat
+ {
+@@ -26,34 +30,46 @@ struct GLTargetInfo
+         : unknown08(0)
+         , unknown0C(0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        height = width = clearFlags = clearDepthSetting = unknown20 = 0;
++        unknown10 = GLTargetInfoMode10_0;
++        format = GLTargetFormat_RGB5A3;
++        for (auto& channel : colour) channel = 0;
++#endif
+     }
+ 
+-    /* 0x00 */ unsigned long height;
+-    /* 0x04 */ unsigned long width;
+-    /* 0x08 */ unsigned long unknown08;
+-    /* 0x0C */ unsigned long unknown0C;
++    /* 0x00 */ u32 height;
++    /* 0x04 */ u32 width;
++    /* 0x08 */ u32 unknown08;
++    /* 0x0C */ u32 unknown0C;
+     /* 0x10 */ GLTargetInfoMode10 unknown10;
+     /* 0x14 */ GLTargetFormat format;
+-    /* 0x18 */ unsigned long clearFlags;
+-    /* 0x1C */ unsigned long clearDepthSetting;
+-    /* 0x20 */ unsigned long unknown20;
++    /* 0x18 */ u32 clearFlags;
++    /* 0x1C */ u32 clearDepthSetting;
++    /* 0x20 */ u32 unknown20;
+     /* 0x24 */ unsigned char colour[4];
+ }; // size: 0x28
+ 
+ struct GLRenderPair
+ {
+-    unsigned long hash;
++    u32 hash;
+     GLXTarget* target;
+ 
++#if defined(MSCHARGED_NATIVE)
++    uint64_t nativeGeneration = 0;
++#endif
+     GLRenderPair()
+         : hash(0)
+         , target(0)
+     {
+     }
+ 
+-    GLRenderPair(unsigned long targetHash, GLXTarget* platformTarget)
++    GLRenderPair(u32 targetHash, GLXTarget* platformTarget)
+         : hash(targetHash)
+         , target(platformTarget)
++#if defined(MSCHARGED_NATIVE)
++        , nativeGeneration(platformTarget ? glNativeTargetGeneration(platformTarget) : 0)
++#endif
+     {
+     }
+ 
+@@ -64,6 +80,10 @@ struct GLRenderPair
+ };
+ 
+ void gl_TargetStartup();
++#if defined(MSCHARGED_NATIVE)
++void gl_TargetShutdown();
++void glValidateTarget(GLRenderPair target);
++#endif
+ 
+ GLRenderPair glGetBackBufferTarget();
+ GLRenderPair glCreateTarget(const char* name, const GLTargetInfo* targetInfo);
+diff --git a/include/NL/glx/glxTarget.h b/include/NL/glx/glxTarget.h
+index 9bc9377..61f9319 100644
+--- a/include/NL/glx/glxTarget.h
++++ b/include/NL/glx/glxTarget.h
+@@ -13,6 +13,7 @@ public:
+         : mCopyFormat(-1)
+         , mLastCopyFrame(0)
+     {
++        mTextureHash = 0;
+         mWidth = targetInfo->width;
+         mHeight = targetInfo->height;
+         mFormat = targetInfo->format;
+diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
+index a91495e..5e7fa35 100644
+--- a/src/NL/gl/glTarget.cpp
++++ b/src/NL/gl/glTarget.cpp
+@@ -1,9 +1,16 @@
+ #include "NL/gl/glTarget.h"
++#include "NL/gl/glView.h"
+ #include "NL/glx/glxTarget.h"
+ 
+ #include "NL/gl/gl.h"
+ #include "NL/nlAVLTree.h"
+ #include "NL/nlString.h"
++#include "NL/nlstring_impl.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstring>
++#include <stdexcept>
++static bool nativeTargetsLive = false;
++#endif
+ 
+ typedef nlAVLTree<unsigned long, GLXTarget*, DefaultKeyCompare<unsigned long> > TargetTree;
+ 
+@@ -11,7 +18,11 @@ static TargetTree targets;
+ 
+ static inline GLRenderPair GetBackBufferTarget()
+ {
++#if defined(MSCHARGED_NATIVE)
++    static const unsigned long hash = glHash("target/backbuffer");
++#else
+     static const unsigned long hash __attribute__((section(".sdata2"))) = glHash("target/backbuffer");
++#endif
+     return GLRenderPair(hash, glplatGetBackBufferTarget());
+ }
+ 
+@@ -27,13 +38,28 @@ static inline GLRenderPair FindOrCreateTarget(unsigned long& hash, const GLTarge
+ {
+     GLRenderPair result = FindTarget(hash);
+     if (result)
++    {
++#if defined(MSCHARGED_NATIVE)
++        if (result.target->mWidth != targetInfo->width || result.target->mHeight != targetInfo->height
++            || result.target->mFormat != targetInfo->format)
++            throw std::invalid_argument("Existing GL target has a different size or format");
++#endif
+         return result;
++    }
+ 
+     GLXTarget* platformTarget = glplatCreateTarget(targetInfo);
+     if (platformTarget != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        try
++        {
++#endif
+         platformTarget->CreateTexture(hash);
+         targets.Add(hash, platformTarget);
++#if defined(MSCHARGED_NATIVE)
++        }
++        catch (...) { delete platformTarget; throw; }
++#endif
+     }
+     else
+     {
+@@ -44,12 +70,19 @@ static inline GLRenderPair FindOrCreateTarget(unsigned long& hash, const GLTarge
+ 
+ void gl_TargetStartup()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (nativeTargetsLive || !glplatGetBackBufferTarget())
++        throw std::logic_error("Invalid GL target startup order");
++#endif
+     unsigned long hash;
+     GLXTarget* platformTarget;
+     GLRenderPair target = GetBackBufferTarget();
+     platformTarget = target.target;
+     hash = glHash("target/backbuffer");
+     targets.Add(hash, platformTarget);
++#if defined(MSCHARGED_NATIVE)
++    nativeTargetsLive = true;
++#endif
+ }
+ 
+ GLRenderPair glGetBackBufferTarget()
+@@ -59,7 +92,12 @@ GLRenderPair glGetBackBufferTarget()
+ 
+ GLRenderPair glCreateTarget(const char* name, const GLTargetInfo* targetInfo)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!nativeTargetsLive || !name || !*name || !targetInfo || strlen(name) > 120 || !strcmp(name, "backbuffer"))
++        throw std::invalid_argument("Invalid GL target name, description or lifetime");
++#else
+     glBeginResource(name);
++#endif
+ 
+     char targetName[128];
+     nlStrNCat(targetName, "target/", name, sizeof(targetName));
+@@ -67,25 +105,66 @@ GLRenderPair glCreateTarget(const char* name, const GLTargetInfo* targetInfo)
+ 
+     GLRenderPair result = FindOrCreateTarget(hash, targetInfo);
+ 
+-    glEndResource();
++#if !defined(MSCHARGED_NATIVE)
++    glEndResource(); // Native targets own independent resource pools.
++#endif
+     return result;
+ }
+ 
+ void glDestroyTarget(GLRenderPair* target)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (glNativeViewDispatchActive()) throw std::logic_error("Cannot destroy GL targets during view dispatch");
++    if (!target) throw std::invalid_argument("Null GL target handle");
++    if (!target->hash && !target->target && !target->nativeGeneration) return;
++    glValidateTarget(*target);
++    if (target->target == glplatGetBackBufferTarget()) throw std::invalid_argument("The backbuffer belongs to GL target startup");
++#endif
+     unsigned long hash = target->hash;
+     TargetTree::Entry* entry = (TargetTree::Entry*)targets.RemoveAVLNode(
+         (AVLTreeNode**)&targets.m_Root, &hash);
+     if (entry != 0)
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(entry);
++#else
+         delete entry;
++#endif
+ 
+     target->target->DestroyTexture(target->hash);
+     delete target->target;
+     target->hash = 0;
+     target->target = 0;
++#if defined(MSCHARGED_NATIVE)
++    target->nativeGeneration = 0;
++#endif
+ }
+ 
+ unsigned long glGetTargetTexture(GLRenderPair target)
+ {
++#if defined(MSCHARGED_NATIVE)
++    glValidateTarget(target);
++    if (target.target == glplatGetBackBufferTarget())
++        throw std::invalid_argument("The backbuffer has no registered texture");
++#endif
+     return target.hash;
+ }
++
++#if defined(MSCHARGED_NATIVE)
++void glValidateTarget(GLRenderPair target)
++{
++    if (!nativeTargetsLive || !target) throw std::invalid_argument("GL target is not live");
++    auto current = FindTarget(target.hash);
++    if (!current || current.target != target.target || current.nativeGeneration != target.nativeGeneration)
++        throw std::invalid_argument("Stale or foreign GL target handle");
++}
++void gl_TargetShutdown()
++{
++    while (targets.m_Root)
++    {
++        auto target = GLRenderPair(targets.m_Root->key, targets.m_Root->value);
++        if (target.target == glplatGetBackBufferTarget()) targets.Remove(target.hash);
++        else glDestroyTarget(&target);
++    }
++    nativeTargetsLive = false;
++}
++#endif
+diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
+index 5443293..fd48083 100644
+--- a/src/NL/gl/glView.cpp
++++ b/src/NL/gl/glView.cpp
+@@ -480,8 +480,15 @@ void GLView::RemoveChild(GLView* child)
+ 
+ GLRenderPair GLView::GetRenderPair() const
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!m_RenderPair && (m_RenderPair.hash || m_RenderPair.target || m_RenderPair.nativeGeneration))
++        throw std::invalid_argument("Incomplete GL view target handle");
++#endif
+     if (m_RenderPair)
+     {
++#if defined(MSCHARGED_NATIVE)
++        glValidateTarget(m_RenderPair);
++#endif
+         return m_RenderPair;
+     }
+     return glGetBackBufferTarget();

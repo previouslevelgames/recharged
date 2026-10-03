@@ -5,7 +5,7 @@ import sys
 import tempfile
 
 from disc_fixture import write_disc
-from scene_fixture import make_assets, make_shadow
+from scene_fixture import make_assets, make_shadow, make_world, make_specular_world, make_scrolling_specular_world, make_camera_overlay_world
 
 executable = pathlib.Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
@@ -37,6 +37,27 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
     write_disc(disc, files={"scene.rlg": model, "scene.rlt": texture})
     run(assets + ["--model-id", "deadbeef"], 1, "Requested model ID is absent")
     run(["--model", "/missing.rlg", "--textures", "/scene.rlt"], 1, "Cannot open static asset")
+    world = make_world()
+    write_disc(disc, files={"world.tmp.zlib": world})
+    run(["--world", "/world.tmp.zlib"], 2, "requires an explicit --model-id")
+    run(["--world", "/world.tmp.zlib", "--model-id", "87654321", "--model", "/scene.rlg"], 2, "Select --world or separate")
+    world_args = ["--world", "/world.tmp.zlib", "--model-id", "87654321"]
+    run(world_args, 0, "Original stadium shadow blend samples: 2.")
+    corrupted = bytearray(world); corrupted[-1] ^= 1
+    write_disc(disc, files={"world.tmp.zlib": corrupted})
+    run(world_args, 1, "Invalid compressed asset")
+    write_disc(disc, files={"world.tmp.zlib": make_specular_world()})
+    run(world_args, 0, "4 textures; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_specular_world(missing_gloss=True)})
+    run(world_args, 1, "Requested texture")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_specular_world()})
+    run(world_args, 0, "2 textures; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_scrolling_specular_world(missing_specular=True)})
+    run(world_args, 1, "Requested texture")
+    write_disc(disc, files={"world.tmp.zlib": make_camera_overlay_world()})
+    run(world_args, 0, "3 textures; original radius")
+    write_disc(disc, files={"world.tmp.zlib": make_camera_overlay_world(missing_mask=True)})
+    run(world_args, 1, "Requested texture")
     # Original alpha preparation disables depth writes for multibit textures.
     # The visibility gate must use actual colour samples for this valid case.
     blended = bytearray(texture)

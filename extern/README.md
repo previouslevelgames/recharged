@@ -28,7 +28,7 @@ FetchContent declaration use it.
 
 | Source | Selected baseline | Commit | Purpose | Local notices |
 | --- | --- | --- | --- | --- |
-| [mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) | Development snapshot; matching game entry | [`45f25bd65195`](https://github.com/yannicksuter/mscharged-decomp/commit/45f25bd6519586837e61251208d34d8dcf94e170) | Utilities and original startup/NL files; full entry compiles for scanning, complete native game pending | [LICENSE](mscharged-decomp/LICENSE) |
+| [mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) | Development snapshot; matching allocator and events | [`4a9ab8151d9a`](https://github.com/yannicksuter/mscharged-decomp/commit/4a9ab8151d9a74e321e52b36c95d1e157d41af60) | Utilities, original startup/NL files and selected rendering; full entry compiles for scanning, event integration and complete native game pending | [LICENSE](mscharged-decomp/LICENSE) |
 | [aurora](https://github.com/encounter/aurora) | Development snapshot | [`d664382f5700`](https://github.com/encounter/aurora/commit/d664382f57002fbff143911c81b06b7e7a4b3ab4) | Host checks, Wii DVD/MEM2, GX diagnostics and static asset preview; original scene/task integration pending | [LICENSE](aurora/LICENSE) |
 | [dawn](https://github.com/encounter/dawn) | Aurora-selected commit | [`1155e0ed5311`](https://github.com/encounter/dawn/commit/1155e0ed531126f33a1279afa029349651ca1c93) | GX/Vulkan diagnostic and static preview backend | [LICENSE](dawn/LICENSE) |
 | [sdl](https://github.com/libsdl-org/SDL) | 3.4.10 | [`8e37db5e797b`](https://github.com/libsdl-org/SDL/commit/8e37db5e797b6167f3a00d697d816a684bd259c7) | Launcher window, rendering, dialogs, and controller input | [LICENSE.txt](sdl/LICENSE.txt) |

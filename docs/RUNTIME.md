@@ -12,7 +12,7 @@ The experimental presets add:
 | `aurora` | Host window, memory, and clock checks without game data. |
 | `startup` | Selected original game initialization and disc reads. |
 | `graphics` | Standalone Aurora GX/Vulkan rendering check without game data. |
-| `scene` | Static Wii model preview with original materials and object lighting. |
+| `scene` | Static Wii models, original materials, lighting, shadows and graphics frame lifecycle. |
 
 ## Experimental original startup
 
@@ -27,6 +27,9 @@ cmake --workflow --preset startup
 This requires a USA `R4QE01` revision 1 ISO/RVZ. It stops explicitly with exit code
 3 after the implemented initialization checks; later startup stages remain pending.
 The same build exposes **Try startup** in the launcher.
+The checks include original memory, file access, boot configuration, tweak
+registration, events, task scheduling and frame timing. Movies and the complete
+game frame loop remain in development.
 
 For the host check alone, use `cmake --workflow --preset aurora`, then run
 `./build/aurora/mscharged-aurora-check --window`.
@@ -69,8 +72,10 @@ CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
 ```
 
 The preview loads the ball from a USA `R4QE01` revision 1 image and renders it
-through Aurora/Vulkan with selected original materials and lighting. Full game
-scenes, animation, and dynamic shadows remain in development.
+through Aurora/Vulkan with selected original materials and lighting. An explicit
+`--world /DISC/gameworld.tmp.zlib --model-id HEX` selects a static world resource;
+shadow-volume models use a diagnostic receiver. Full scenes and character
+animation remain in development.
 
 Press Escape or close the window to exit. Add `--frames 180` for a bounded run,
 `--unlit` to compare lighting, or use `--help` for other preview options. Running

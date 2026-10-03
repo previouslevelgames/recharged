@@ -182,7 +182,7 @@ std::string VerifyStartupWholeFileLoads()
         text << path << " (" << std::dec << size << " bytes; FNV-1a 0x"
              << std::hex << std::setfill('0') << std::setw(8) << hash << ')';
     }
-    text << "; callbacks on servicing thread. Original INI parsing is not executed.";
+    text << "; callbacks on servicing thread. Parsing is checked separately.";
     return text.str();
 }
 

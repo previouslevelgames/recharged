@@ -1,0 +1,524 @@
+Subject: Select original shadow layers, volume blend and projection scheduling
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Extract original cameras, eleven atlas partitions, update scheduling and shadow
+projection setup while leaving full game scene and character drawing unlinked.
+Select four original layer descriptions with explicit native ownership and
+rollback. Use active EFB dimensions for the original volume target/blend pass.
+
+diff --git a/include/Game/Render/RLViewLayers.h b/include/Game/Render/RLViewLayers.h
+index 63826b9..42087de 100644
+--- a/include/Game/Render/RLViewLayers.h
++++ b/include/Game/Render/RLViewLayers.h
+@@ -2,7 +2,11 @@
+ #define GAME_RENDER_RL_VIEW_LAYERS_H
+ 
+ #include "Game/Render/RLView.h"
++#if defined(MSCHARGED_NATIVE)
++class TweakValueBool; // Only extern declarations are needed by selected native layers.
++#else
+ #include "Game/TweakValue.h"
++#endif
+ #include "NL/gl/glTarget.h"
+ #include "NL/gl/glView.h"
+ #include "NL/nlMath.h"
+@@ -43,12 +47,12 @@ public:
+ class RLViewOrthoCamera : public GLViewInterface
+ {
+ public:
+-    inline virtual void GetViewMatrix(nlMatrix4&) const;
+-    inline virtual void GetProjectionMatrix(nlMatrix4&) const;
+-    inline virtual void GetInverseViewMatrix(nlMatrix4&) const;
+-    inline virtual void GetViewProjectionMatrix(nlMatrix4&) const;
+-    inline virtual const nlMatrix4* GetViewMatrix() const;
+-    inline virtual const nlMatrix4* GetProjectionMatrix() const;
++    virtual void GetViewMatrix(nlMatrix4&) const;
++    virtual void GetProjectionMatrix(nlMatrix4&) const;
++    virtual void GetInverseViewMatrix(nlMatrix4&) const;
++    virtual void GetViewProjectionMatrix(nlMatrix4&) const;
++    virtual const nlMatrix4* GetViewMatrix() const;
++    virtual const nlMatrix4* GetProjectionMatrix() const;
+ 
+     /* 0x04 */ nlMatrix4 mMatrix;
+ }; // total size: 0x44
+diff --git a/src/Game/Render/RenderShadowNative.cpp b/src/Game/Render/RenderShadowNative.cpp
+new file mode 100644
+index 0000000..96095b3
+--- /dev/null
++++ b/src/Game/Render/RenderShadowNative.cpp
+@@ -0,0 +1,90 @@
++// Original shadow update selection and projection setup; model conversion/submission remains separate.
++#include "Game/Render/RenderShadow.h"
++#include "Game/Render/RLViewLayers.h"
++#include "Game/Render/Frustum.h"
++#include "NL/gl/glMatrix.h"
++#include <cmath>
++#include <stdexcept>
++int GetShadowPartitionCount();
++void SetShadowPartitionEnabled(int, bool);
++void SetShadowPartitionCamera(int, const nlMatrix4&, const nlMatrix4&);
++static void ValidateNativeShadowParams(const ProjectedShadowParams& p)
++{
++    if (p.nPartitionIndex < 0 || p.nPartitionIndex >= 11 || p.nVisibleInterval <= 0 || p.nInvisibleInterval <= 0
++        || !std::isfinite(p.fRadius) || p.fRadius <= 0 || p.fRadius > 1e4f
++        || !std::isfinite(p.fHeight) || p.fHeight < 0 || p.fHeight > 1e4f)
++        throw std::invalid_argument("Invalid shadow dimensions, partition or update interval");
++    for (float v : {p.vPosition.x, p.vPosition.y, p.vPosition.z, p.vLight.x, p.vLight.y, p.vLight.z})
++        if (!std::isfinite(v) || std::abs(v) > 1e6f) throw std::invalid_argument("Invalid shadow vector");
++    if (p.vLight.x*p.vLight.x + p.vLight.y*p.vLight.y < 1e-10f || std::abs(p.vLight.z) < 1e-5f)
++        throw std::invalid_argument("Shadow light is parallel to the ground or camera up vector");
++}
++bool ShouldShadowBeUpdated(const ProjectedShadowParams& params, const GLViewInterface& camera, u32 currentFrame)
++{
++    ValidateNativeShadowParams(params);
++    if (!camera.GetShadowMatrix()) throw std::invalid_argument("Shadow visibility camera has no frustum");
++    nlVector3 position = params.vPosition;
++    position.z += 0.625f * params.fHeight;
++
++    float radius = 2.0f * params.fRadius;
++    bool visible
++        = ClassifySphereInFrustum(camera.GetShadowMatrix(), &position, radius);
++    u32 interval;
++    if (visible)
++    {
++        interval = params.nVisibleInterval;
++    }
++    else
++    {
++        interval = params.nInvisibleInterval;
++    }
++
++    u32 frame = u32(params.nPartitionIndex) + currentFrame;
++    if (frame % interval != 0)
++    {
++        return 0;
++    }
++    return 1;
++}
++
++void PrepareNativeShadowPartition(const ProjectedShadowParams& params)
++{
++    ValidateNativeShadowParams(params);
++    nlVector3 up = { 0.0f, 0.0f, 1.0f };
++    nlVector3 targetPos;
++    nlVector3 viewDir;
++    nlVector3 eyePos;
++    nlVector3 vTemp;
++    nlVector3 vDir;
++    nlVector3 shadowPos;
++    nlVector3 vLight;
++
++    targetPos = params.vPosition;
++    targetPos.z += 0.5f * params.fHeight;
++
++    nlVec3Set(shadowPos, params.vLight.x, params.vLight.y, params.vLight.z);
++
++    nlVec3Set(viewDir, -shadowPos.x, -shadowPos.y, -shadowPos.z);
++    nlVec3Scale(viewDir, nlRecipSqrt(viewDir.GetLengthSq3D(), false));
++    nlVec3Neg(viewDir, viewDir);
++
++    nlVec3ScaleAdd(eyePos, 8.0f, viewDir, targetPos);
++
++    nlMatrix4 view;
++    glMatrixLookAt(view, eyePos, targetPos, up);
++
++    nlMatrix4 projection;
++    float radius = 2.0f * params.fRadius;
++    glMatrixOrthographicCentered(projection, radius, radius, 4.0f, 12.0f);
++
++    SetShadowPartitionCamera(params.nPartitionIndex, view, projection);
++    SetShadowPartitionEnabled(params.nPartitionIndex, true);
++}
++void ClearCharacterShadowsUpdated()
++{
++    int shadowIndex;
++    for (shadowIndex = 0; shadowIndex < GetShadowPartitionCount(); shadowIndex++)
++    {
++        SetShadowPartitionEnabled(shadowIndex, false);
++    }
++}
+diff --git a/src/Game/Render/ShadowLayersNative.cpp b/src/Game/Render/ShadowLayersNative.cpp
+new file mode 100644
+index 0000000..3ec105a
+--- /dev/null
++++ b/src/Game/Render/ShadowLayersNative.cpp
+@@ -0,0 +1,276 @@
++// Selected original RLViewLayers camera/partition code. Full SetupViews stays unlinked.
++#include "Game/Render/RLViewLayers.h"
++#include "Game/Render/Frustum.h"
++#include "Game/Render/ShadowVolume.h"
++#include "NL/gl/glMatrix.h"
++#include "NL/gl/glStruct.h"
++#include "NL/gl/glState.h"
++#include "NL/glx/glxTexture.h"
++#include <dolphin/gx.h>
++#include "NL/glx/GXShadowVolumeMaterialProgram.h"
++#include <cstdio>
++#include <cstring>
++#include <memory>
++#include <stdexcept>
++void CopyShadowVolumeColour(const GXColor*);
++void DestroyNativeShadowVolumeTarget();
++struct RLViewLayerDesc
++{
++    /* 0x00 */ eCLV layer;
++    /* 0x04 */ const char* name;
++    /* 0x08 */ bool useDisplayTarget;
++    /* 0x0C */ GLViewSortMode sortMode;
++};
++
++const nlMatrix4 sIdentityMatrix = {
++    1.0f, 0.0f, 0.0f, 0.0f,
++    0.0f, 1.0f, 0.0f, 0.0f,
++    0.0f, 0.0f, 1.0f, 0.0f,
++    0.0f, 0.0f, 0.0f, 1.0f,
++};
++
++static const GXColor sShadowVolumeColour = { 0, 0, 0, 0x9B };
++
++GLView* sShadowPartitionViews[11];
++RLViewCamera sShadowPartitionCameras[11];
++RLViewRect sShadowPartitionRects[11];
++char sShadowPartitionNames[11][16];
++u32 sShadowPartitionTextures[11];
++GLRenderPair sShadowPartitionPairs[11];
++RLView* sLayerViews[eCLV_Num];
++RLViewOrthoCamera sOrthoCamera;
++static void CheckPartition(int partition)
++{
++    if (partition < 0 || partition >= 11 || !sShadowPartitionViews[partition])
++        throw std::out_of_range("Invalid or inactive shadow partition");
++}
++int GetShadowPartitionCount()
++{
++    return 11;
++}
++
++void SetShadowPartitionEnabled(int partition, bool enabled)
++{
++    CheckPartition(partition);
++    GLView* v = sShadowPartitionViews[partition];
++    v->m_Target = enabled ? GLViewTarget_Mode8 : GLViewTarget_None;
++}
++
++GLView* GetShadowPartitionView(int partition)
++{
++    CheckPartition(partition);
++    return sShadowPartitionViews[partition];
++}
++
++u32 GetShadowPartitionTexture(int partition)
++{
++    CheckPartition(partition);
++    return sShadowPartitionTextures[partition];
++}
++
++void SetShadowPartitionCamera(int partition, const nlMatrix4& viewMatrix, const nlMatrix4& projectionMatrix)
++{
++    CheckPartition(partition);
++    sShadowPartitionCameras[partition].Set(viewMatrix, projectionMatrix);
++}
++
++void CreateShadowPartitionViews()
++{
++    GLTargetInfo info;
++    int i;
++
++    for (i = 0; i < 11; i++)
++    {
++        sShadowPartitionRects[i] = {};
++        sShadowPartitionRects[i].width = 0x90;
++        sShadowPartitionRects[i].height = 0x90;
++        sShadowPartitionRects[i].x = (i % 4) * 0x90;
++        sShadowPartitionRects[i].y = (i / 4) * 0x90;
++    }
++
++    for (i = 0; i < 11; i++)
++    {
++        std::snprintf(sShadowPartitionNames[i], sizeof(sShadowPartitionNames[i]), "shadow_%02d", i);
++    }
++
++    for (i = 0; i < 11; i++)
++    {
++        info = GLTargetInfo{};
++        info.width = 0x48;
++        info.height = 0x48;
++        info.format = GLTargetFormat_A8;
++        info.clearFlags = 0;
++        info.clearDepthSetting = 0;
++        char textureName[32];
++        std::snprintf(textureName, sizeof(textureName), "target/%s", sShadowPartitionNames[i]);
++        if (glx_GetTex(glGetTexture(textureName))) throw std::logic_error("Shadow partition texture already exists");
++        GLRenderPair pair = glCreateTarget(sShadowPartitionNames[i], &info);
++        sShadowPartitionPairs[i] = pair;
++        sShadowPartitionTextures[i] = pair.hash;
++    }
++
++    for (i = 0; i < 11; i++)
++    {
++        RLView* newView = new (8, false) RLView(&sShadowPartitionCameras[i], sShadowPartitionPairs[i], GLViewSort_None);
++        newView->mFogEnabled = false; // This bounded pass has no stadium fog environment.
++        newView->m_Name = sShadowPartitionNames[i];
++        newView->m_Viewport.x = sShadowPartitionRects[i].x;
++        newView->m_Viewport.y = sShadowPartitionRects[i].y;
++        newView->m_Viewport.width = sShadowPartitionRects[i].width;
++        newView->m_Viewport.height = sShadowPartitionRects[i].height;
++        newView->m_ClearColour = false;
++        newView->m_ClearDepth = false;
++        newView->m_Target = 0;
++        sShadowPartitionViews[i] = newView;
++    }
++
++    for (i = 0; i < 11; i++)
++    {
++        GetShadowPartitionView(i)->m_Enabled = true;
++        GetShadowPartitionView(i)->SetParent(sLayerViews[eCLV_ShadowTexture]);
++    }
++
++    sLayerViews[eCLV_ShadowTexture]->m_ClearColour = true;
++    sLayerViews[eCLV_ShadowTexture]->m_ClearDepth = true;
++}
++
++RLView* GetLayerView(eCLV layer)
++{
++    if (layer >= 0 && layer < eCLV_Num && sLayerViews[layer])
++    {
++        return sLayerViews[layer];
++    }
++    throw std::out_of_range("Original render layer is not selected");
++}
++
++GLViewInterface* GetOrthoCamera()
++{
++    return &sOrthoCamera;
++}
++
++const nlVector4* RLViewCamera::GetShadowMatrix() const
++{
++    if (mShadowDirty)
++    {
++        ExtractFrustumPlanes(mShadowPlanes, mProjection, mView);
++        mShadowDirty = false;
++    }
++    return mShadowPlanes;
++}
++
++void RLViewCamera::GetViewProjectionMatrix(nlMatrix4& matrix) const
++{
++    matrix = mViewProjection;
++}
++
++void RLViewCamera::GetInverseViewMatrix(nlMatrix4& matrix) const
++{
++    matrix = mViewInverse;
++}
++
++void RLViewCamera::GetProjectionMatrix(nlMatrix4& matrix) const
++{
++    matrix = mProjection;
++}
++
++const nlMatrix4* RLViewCamera::GetProjectionMatrix() const
++{
++    return &mProjection;
++}
++
++void RLViewCamera::GetViewMatrix(nlMatrix4& matrix) const
++{
++    matrix = mView;
++}
++
++const nlMatrix4* RLViewCamera::GetViewMatrix() const
++{
++    return &mView;
++}
++
++RLViewCamera::RLViewCamera()
++{
++    mView.SetIdentity();
++    mProjection.SetIdentity();
++    mViewInverse.SetIdentity();
++    mViewProjection.SetIdentity();
++    mShadowDirty = true;
++}
++
++const nlMatrix4* RLViewOrthoCamera::GetViewMatrix() const
++{
++    return &sIdentityMatrix;
++}
++
++void RLViewOrthoCamera::GetViewMatrix(nlMatrix4& matrix) const
++{
++    matrix.SetIdentity();
++}
++
++const nlMatrix4* RLViewOrthoCamera::GetProjectionMatrix() const
++{
++    return &mMatrix;
++}
++
++void RLViewOrthoCamera::GetProjectionMatrix(nlMatrix4& matrix) const
++{
++    matrix = mMatrix;
++}
++
++void RLViewOrthoCamera::GetInverseViewMatrix(nlMatrix4& matrix) const
++{
++    matrix.SetIdentity();
++}
++
++void RLViewOrthoCamera::GetViewProjectionMatrix(nlMatrix4& matrix) const
++{
++    matrix = mMatrix;
++}
++
++void ShutdownNativeShadowLayers()
++{
++    for (int i = 0; i < 11; ++i)
++    {
++        delete sShadowPartitionViews[i]; sShadowPartitionViews[i] = nullptr;
++        if (sShadowPartitionPairs[i]) glDestroyTarget(&sShadowPartitionPairs[i]);
++        sShadowPartitionTextures[i] = 0;
++        sShadowPartitionRects[i] = {};
++    }
++    for (auto& view : sLayerViews) { delete view; view = nullptr; }
++    DestroyNativeShadowVolumeTarget();
++    ResetNativeShadowVolumeMaterial();
++}
++void SetupNativeShadowLayers(GLViewInterface* sceneCamera)
++{
++    if (!sceneCamera || glGetScreenWidth() < 576 || glGetScreenHeight() < 432)
++        throw std::invalid_argument("Original shadow atlas needs at least 576x432 EFB pixels");
++    for (auto* view : sLayerViews)
++        if (view) throw std::logic_error("Original shadow layers already initialized");
++    glValidateTarget(glGetBackBufferTarget());
++    static const RLViewLayerDesc selected[] = {
++        { eCLV_ShadowTexture, "eCLV_ShadowTexture", true, GLViewSort_Texture },
++        { eCLV_Shadowed, "eCLV_Shadowed", true, GLViewSort_Texture },
++        { eCLV_ShadowVolume, "eCLV_ShadowVolume", true, GLViewSort_None },
++        { eCLV_ShadowVolumeBlend, "eCLV_ShadowVolumeBlend", true, GLViewSort_None },
++    };
++    glMatrixOrthographic(sOrthoCamera.mMatrix, float(glGetScreenWidth()), float(glGetScreenHeight()));
++    try
++    {
++        for (const auto& layer : selected)
++        {
++            GLViewInterface* camera = layer.layer == eCLV_ShadowVolumeBlend ? &sOrthoCamera : sceneCamera;
++            auto view = std::unique_ptr<RLView>(new (8, false) RLView(camera, glGetBackBufferTarget(), layer.sortMode));
++            view->m_Name = layer.name;
++            view->m_Unknown48 = layer.layer;
++            view->mFogEnabled = false;
++            view->m_Enabled = false; // Original layer default; alpha-only raster writes override this flag.
++            gRootView.AddChild(view.get());
++            sLayerViews[layer.layer] = view.release();
++        }
++        CreateShadowPartitionViews();
++        CreateShadowVolumeTarget();
++        SetShadowVolumeTarget(sLayerViews[eCLV_ShadowVolume], sLayerViews[eCLV_ShadowVolume]);
++        CopyShadowVolumeColour(&sShadowVolumeColour);
++    }
++    catch (...) { ShutdownNativeShadowLayers(); throw; }
++}
+diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
+index 848f20f..8d4e376 100644
+--- a/src/Game/Render/ShadowVolume.cpp
++++ b/src/Game/Render/ShadowVolume.cpp
+@@ -4,11 +4,19 @@
+ #include "NL/gl/glModel.h"
+ #include "NL/glx/GXShadowVolumeMaterialProgram.h"
+ #include "NL/gl/glState.h"
++#include "NL/gl/glMatrix.h"
+ #include "NL/gl/glTarget.h"
+ #include "NL/gl/glView.h"
+ #include "NL/nlString.h"
+ #include "Game/GL/GLShadowBlendMeshWriter.h"
+ #include "Game/Render/ShadowVolume.h"
++#if defined(MSCHARGED_NATIVE)
++#include "NL/gl/glStruct.h"
++#include "NL/gl/glState.h"
++#include "NL/gl/glMatrix.h"
++#include "NL/glx/glxTexture.h"
++#include <stdexcept>
++#endif
+ 
+ static char sShadowVolumeTargetName[] = "shadowvolume";
+ static char sShadowVolumeTextureName[] = "target/shadowvolume";
+@@ -16,10 +24,19 @@ static GLRenderPair sShadowVolumeTarget;
+ 
+ void CreateShadowVolumeTarget()
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (sShadowVolumeTarget || glx_GetTex(glGetTexture(sShadowVolumeTextureName)))
++        throw std::logic_error("Shadow volume target already exists");
++#endif
+     GLTargetInfo info;
+     nlZeroMemory(&info, sizeof(info));
++#if defined(MSCHARGED_NATIVE)
++    info.width = glGetScreenWidth();
++    info.height = glGetScreenHeight();
++#else
+     info.width = glplatGetDefaultTargetWidth();
+     info.height = glplatGetDefaultTargetHeight();
++#endif
+     info.format = GLTargetFormat_A8;
+     info.clearFlags = 0;
+     sShadowVolumeTarget = glCreateTarget(sShadowVolumeTargetName, &info);
+@@ -27,6 +44,10 @@ void CreateShadowVolumeTarget()
+ 
+ void SetShadowVolumeTarget(GLView* view, GLView*)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!view) throw std::invalid_argument("Missing volume view");
++    glValidateTarget(sShadowVolumeTarget);
++#endif
+     view->SetRenderPair(sShadowVolumeTarget);
+     view->m_Target = GLViewTarget_Mode8;
+ }
+@@ -34,6 +55,10 @@ void SetShadowVolumeTarget(GLView* view, GLView*)
+ void AttachShadowVolumeModels(
+     glModel* firstModel, glModel* secondModel, GLView* view, GLView*)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!firstModel || !secondModel || firstModel == secondModel || !view)
++        throw std::invalid_argument("Shadow volume needs two independent model packets");
++#endif
+     glSetDefaultState(false);
+     glSetRasterState(GLS_Culling, 1);
+     glSetRasterState(GLS_DepthTest, 1);
+@@ -56,6 +81,11 @@ void AttachShadowVolumeModels(
+ 
+ void RenderShadowVolumeBlend(GLView* view)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!view) throw std::invalid_argument("Missing volume blend view");
++    glValidateTarget(sShadowVolumeTarget);
++    glSetCurrentMatrix(glGetIdentityMatrix());
++#endif
+     static u32 shadowVolumeTexture = glGetTexture(sShadowVolumeTextureName);
+ 
+     GLShadowBlendMeshWriter writer;
+@@ -69,8 +99,13 @@ void RenderShadowVolumeBlend(GLView* view)
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
++#if defined(MSCHARGED_NATIVE)
++    float width = float(glGetScreenWidth());
++    float height = float(glGetScreenHeight());
++#else
+     float width = glGetOrthographicWidth();
+     float height = glGetOrthographicHeight();
++#endif
+     if (writer.Begin(4, GLP_TriStrip, 0))
+     {
+         static_cast<GXShadowVolumeParameters*>(writer.GetModel()
+@@ -110,3 +145,10 @@ void RenderShadowVolumeBlend(GLView* view)
+         }
+     }
+ }
++
++#if defined(MSCHARGED_NATIVE)
++void DestroyNativeShadowVolumeTarget()
++{
++    if (sShadowVolumeTarget) glDestroyTarget(&sShadowVolumeTarget);
++}
++#endif

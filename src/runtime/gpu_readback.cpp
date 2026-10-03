@@ -65,7 +65,7 @@ struct Readback : std::enable_shared_from_this<Readback>
     }
 };
 } // namespace
-ColourSamples EndFrameAndReadColours()
+ColourSamples EndFrameAndReadColours(const std::function<void()>& end_frame)
 {
     auto read = std::make_shared<Readback>();
     if (!aurora::gfx::resolve_pass({}, read->target))
@@ -77,7 +77,8 @@ ColourSamples EndFrameAndReadColours()
                                                         Readback::Map};
     const auto task = aurora::gfx::register_encoder_task_type(descriptor);
     const bool queued = aurora::gfx::push_encoder_task(task, nullptr, 0);
-    aurora_end_frame();
+    if (end_frame) end_frame();
+    else aurora_end_frame();
     aurora::gfx::synchronize();
     aurora::gfx::unregister_encoder_task_type(task);
     if (!queued)

@@ -11,6 +11,7 @@ struct SceneOptions
     std::string model = "/Art/objects/gameplay/ball.rlg";
     std::string textures = "/Art/objects/gameplay/ball.rlt";
     std::optional<std::uint32_t> model_id;
+    std::optional<std::string> world; // Compressed world resource with an explicit model ID.
     std::optional<std::string> shadow_textures;
     std::optional<std::uint32_t> shadow_id;
     bool unlit = false;

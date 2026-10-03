@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NL/MemAlloc.h"
+#include "NL/nlMemory.h"
 
 namespace mscharged
 {
@@ -9,6 +10,9 @@ namespace mscharged
 using GraphicsCacheInvalidator = void (*)();
 void SetGraphicsCacheInvalidator(GraphicsCacheInvalidator invalidator);
 void InvalidateGraphicsCaches();
+// Release registered views/targets before their game pools and frame storage.
+void SetGraphicsViewShutdown(void (*shutdown)());
+void ShutdownGraphicsViews();
 
 class ScopedGameAllocator
 {

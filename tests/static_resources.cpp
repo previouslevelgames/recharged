@@ -24,22 +24,24 @@ void Reject(const std::function<void()>& call, const char* reason)
 struct ModelFixture
 {
     Buffer data = Buffer(8);
+    std::size_t absolute_base = 0;
     std::map<std::uint32_t, std::size_t> offsets;
     void Chunk(std::uint32_t id, const Buffer& payload, unsigned alignment = 0)
     {
         const auto header = data.size(); data.resize(header + 8);
-        while (data.size() % (1u << alignment)) data.push_back(0);
+        while ((absolute_base + data.size()) % (1u << alignment)) data.push_back(0);
         offsets[id] = data.size(); data.insert(data.end(), payload.begin(), payload.end());
         Put32(data, header, id | (alignment << 24)); Put32(data, header + 4, data.size() - header - 8);
         while (data.size() % 4) data.push_back(0);
     }
-    explicit ModelFixture(bool fixed_uv = false, unsigned alignment = 5, unsigned copies = 1, unsigned index_count = 3)
+    explicit ModelFixture(bool fixed_uv = false, unsigned alignment = 5, unsigned copies = 1, unsigned index_count = 3, std::size_t base = 0, bool shadow = false)
+        : absolute_base(base)
     {
-        Buffer parameters(8); Put32(parameters, 0, 0x12345678); parameters[6] = 3;
+        Buffer parameters(shadow ? 12 : 8); if (shadow) Put32(parameters,8,1); Put32(parameters, 0, 0x12345678); parameters[6] = 3;
         Chunk(0x1b016, parameters);
         Buffer indices(index_count * 2); Put16(indices, 2, 1); Put16(indices, 4, 2);
         Chunk(0x1b007, indices); // BE indices with a legitimate zero offset.
-        Buffer vertices(36 + (fixed_uv ? 12 + 12 : 24));
+        Buffer vertices(shadow ? 72 : 36 + (fixed_uv ? 12 + 12 : 24));
         const float xyz[] = {-1, 0, 0, 1, 0, 0, 0, 1, 0};
         for (unsigned i = 0; i < 9; ++i) PutFloat(vertices, i * 4, xyz[i]);
         if (fixed_uv)
@@ -51,15 +53,16 @@ struct ModelFixture
         else
         {
             const float uv[] = {0, 1, 1, 1, 0.5f, 0};
-            for (unsigned i = 0; i < 6; ++i) PutFloat(vertices, 36 + i * 4, uv[i]);
+            for (unsigned i = 0; i < 6; ++i) PutFloat(vertices, (shadow ? 48 : 36) + i * 4, uv[i]);
         }
         Chunk(0x1b006, vertices, alignment); // Payload alignment pad is included in chunk size.
-        Buffer streams(fixed_uv ? 24 : 16); streams[5] = 12; streams[6] = 1;
+        Buffer streams(fixed_uv || shadow ? 24 : 16); streams[5] = 12; streams[6] = 1;
         Put32(streams, 8, 36); streams[13] = fixed_uv ? 4 : 8; streams[14] = 4;
         if (fixed_uv) { Put32(streams, 16, 48); streams[21] = 4; streams[22] = 3; }
+        if (shadow) { streams[13]=4; streams[14]=3; Put32(streams,16,48); streams[21]=8; streams[22]=4; }
         Chunk(0x1b005, streams);
-        Buffer packet(48); Put32(packet, 4, index_count); Put16(packet, 8, 3); packet[11] = fixed_uv ? 3 : 2;
-        Put32(packet, 16, fixed_uv ? 0xd3e572da : 0x21db4385);
+        Buffer packet(48); Put32(packet, 4, index_count); Put16(packet, 8, 3); packet[11] = fixed_uv || shadow ? 3 : 2;
+        Put32(packet, 16, shadow ? 0x386ecbdd : fixed_uv ? 0xd3e572da : 0x21db4385);
         Buffer packets;
         for (unsigned i = 0; i < copies; ++i) packets.insert(packets.end(), packet.begin(), packet.end());
         Chunk(0x1b004, packets);
@@ -167,6 +170,250 @@ void Materials()
     bad=fixture.data; bad[fixture.offsets.at(0x1b005)+21]=8; Reject([&]{ReadStaticModels(bad);},"Wrong material stream format");
     bad=fixture.data; bad[fixture.offsets.at(0x1b004)+11]=2; Reject([&]{ReadStaticModels(bad);},"Missing material vertex streams");
 }
+void SpecularDetail()
+{
+    ModelFixture fixture;
+    fixture.data.resize(8); fixture.offsets.clear();
+    Buffer parameters(68);
+    for (unsigned i = 0; i < 4; ++i)
+    {
+        Put32(parameters, i * 8, 0x10000010 + i);
+        parameters[i * 8 + 6] = i;
+    }
+    const float values[] = {.25f, .75f, 64, .2f, .4f, .6f, .8f};
+    for (unsigned i = 0; i < 7; ++i) PutFloat(parameters, 32 + i * 4, values[i]);
+    Put32(parameters, 60, 1); Put32(parameters, 64, 1);
+    fixture.Chunk(0x1b016, parameters);
+    Buffer indices(6); Put16(indices, 2, 2); Put16(indices, 4, 1);
+    fixture.Chunk(0x1b007, indices);
+    Buffer vertices(105);
+    for (unsigned i = 0; i < 9; ++i) PutFloat(vertices, i * 4, float(i));
+    for (unsigned i = 0; i < 3; ++i)
+    {
+        vertices[38 + i * 3] = 64;
+        for (unsigned uv = 0; uv < 4; ++uv)
+        {
+            Put16(vertices, 45 + uv * 12 + i * 4, (uv + 1) * 1024);
+            Put16(vertices, 47 + uv * 12 + i * 4, 0x8000 + i);
+        }
+        vertices[93 + i * 4] = 10 + i;
+        vertices[96 + i * 4] = 255;
+    }
+    fixture.Chunk(0x1b006, vertices);
+    Buffer streams(56);
+    const unsigned offsets[] = {0,36,45,57,69,81,93}, strides[] = {12,3,4,4,4,4,4}, ids[] = {1,2,4,4,4,4,3};
+    for (unsigned i = 0; i < 7; ++i)
+    { Put32(streams, i * 8, offsets[i]); streams[i * 8 + 5] = strides[i]; streams[i * 8 + 6] = ids[i]; }
+    fixture.Chunk(0x1b005, streams);
+    Buffer packet(48); Put32(packet, 4, 3); Put16(packet, 8, 3); packet[11] = 7;
+    Put32(packet, 16, 0x112ab470); fixture.Chunk(0x1b004, packet);
+    Buffer matrix(64); for (unsigned i = 0; i < 4; ++i) PutFloat(matrix, i * 20, 1);
+    fixture.Chunk(0x1b002, matrix);
+    Buffer model(12); Put32(model, 0, 1); Put32(model, 4, 1); fixture.Chunk(0x1b003, model);
+    Put32(fixture.data, 0, 0x8001b000); Put32(fixture.data, 4, fixture.data.size() - 8);
+    const auto decoded = ReadStaticModels(fixture.data);
+    const auto& p = decoded[0].packets[0];
+    Check(p.material.scalars == std::array<float,4>{.25f,.75f,64,0}
+        && p.material.specular_colour == std::array<float,4>{.2f,.4f,.6f,.8f}
+        && p.material.switches[0] == 1 && p.material.switches[1] == 1, "Detail big-endian parameters");
+    for (unsigned i = 0; i < 4; ++i)
+        Check(p.material.textures[i].texture == 0x10000010 + i && p.material.textures[i].flags == i,
+            "Detail four independent texture bindings");
+    const auto& v = p.vertices[0];
+    Check(v.uv == std::array<float,2>{1,-32} && v.uv1 == std::array<float,2>{2,-32}
+        && v.uv2 == std::array<float,2>{3,-32} && v.uv3 == std::array<float,2>{4,-32}, "Detail four signed UV sets");
+    Check(v.normal == std::array<float,3>{0,0,1} && v.colour[0] == 10 && v.colour[3] == 255
+        && p.indices == std::vector<std::uint16_t>{0,2,1}, "Detail normal, colour and indices");
+    const auto params = fixture.offsets.at(0x1b016);
+    for (unsigned field = 0; field < 7; ++field)
+        for (float value : {-1.f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), field == 2 ? 10001.f : 1.01f})
+        {
+            auto bad = fixture.data; PutFloat(bad, params + 32 + field * 4, value);
+            Reject([&] { ReadStaticModels(bad); }, "Invalid detail float accepted");
+        }
+    for (unsigned field : {60u,64u})
+    {
+        auto bad = fixture.data; Put32(bad, params + field, 2);
+        Reject([&] { ReadStaticModels(bad); }, "Invalid detail switch accepted");
+    }
+    for (unsigned slot = 0; slot < 4; ++slot)
+    {
+        auto bad = fixture.data; bad[params + slot * 8 + 6] = 4;
+        Reject([&] { ReadStaticModels(bad); }, "Invalid detail binding accepted");
+    }
+    auto bad = fixture.data; Put32(bad, fixture.offsets.at(0x1b004) + 32, 4);
+    Reject([&] { ReadStaticModels(bad); }, "Truncated detail parameters accepted");
+    bad = fixture.data; bad[fixture.offsets.at(0x1b004) + 11] = 6;
+    Reject([&] { ReadStaticModels(bad); }, "Missing fourth detail UV accepted");
+    bad = fixture.data; bad[fixture.offsets.at(0x1b005) + 45] = 8;
+    Reject([&] { ReadStaticModels(bad); }, "Invalid fourth detail UV stride accepted");
+    bad = fixture.data; Put32(bad, fixture.offsets.at(0x1b005) + 40, 100);
+    Reject([&] { ReadStaticModels(bad); }, "Out-of-bounds fourth detail UV accepted");
+}
+void ScrollingSpecular()
+{
+    ModelFixture f;
+    f.data.resize(8); f.offsets.clear();
+    Buffer params(60);
+    Put32(params,0,20); params[6]=1; Put32(params,8,21); params[14]=2;
+    const float values[] = {.75f,64,.2f,.4f,.6f,.8f,-.25f,.5f};
+    for (unsigned i=0;i<8;++i) PutFloat(params,16+i*4,values[i]);
+    Put32(params,48,1); Put32(params,52,0); Put32(params,56,1);
+    f.Chunk(0x1b016,params);
+    Buffer indices(6); Put16(indices,2,2); Put16(indices,4,1); f.Chunk(0x1b007,indices);
+    Buffer vertices(81);
+    for (unsigned i=0;i<9;++i) PutFloat(vertices,i*4,float(i));
+    for (unsigned i=0;i<3;++i)
+    {
+        vertices[38+i*3]=64;
+        Put16(vertices,45+i*4,0xfc00); Put16(vertices,47+i*4,512);
+        Put16(vertices,57+i*4,2048); Put16(vertices,59+i*4,0x8000);
+        vertices[69+i*4]=10+i; vertices[72+i*4]=255;
+    }
+    f.Chunk(0x1b006,vertices);
+    Buffer streams(40);
+    const unsigned offsets[]={0,36,45,57,69},strides[]={12,3,4,4,4},ids[]={1,2,4,4,3};
+    for (unsigned i=0;i<5;++i)
+    {Put32(streams,i*8,offsets[i]);streams[i*8+5]=strides[i];streams[i*8+6]=ids[i];}
+    f.Chunk(0x1b005,streams);
+    Buffer packet(48); Put32(packet,4,3); Put16(packet,8,3); packet[11]=5;
+    Put32(packet,16,0x3eccd955); f.Chunk(0x1b004,packet);
+    Buffer matrix(64); for(unsigned i=0;i<4;++i) PutFloat(matrix,i*20,1); f.Chunk(0x1b002,matrix);
+    Buffer model(12); Put32(model,0,1); Put32(model,4,1); f.Chunk(0x1b003,model);
+    Put32(f.data,0,0x8001b000); Put32(f.data,4,f.data.size()-8);
+    const auto models=ReadStaticModels(f.data); const auto& p=models[0].packets[0];
+    Check(p.material.scalars==std::array<float,4>{.75f,64,-.25f,.5f}
+        && p.material.specular_colour==std::array<float,4>{.2f,.4f,.6f,.8f}
+        && p.material.switches==std::array<std::uint32_t,5>{1,0,1,0,0},"Scrolling specular BE parameters");
+    Check(p.material.textures[0].texture==20 && p.material.textures[0].flags==1
+        && p.material.textures[1].texture==21 && p.material.textures[1].flags==2,"Scrolling independent bindings");
+    Check(p.vertices[0].uv==std::array<float,2>{-1,.5f} && p.vertices[0].uv1==std::array<float,2>{2,-32}
+        && p.vertices[0].normal==std::array<float,3>{0,0,1} && p.vertices[0].colour[0]==10
+        && p.indices==std::vector<std::uint16_t>{0,2,1},"Scrolling signed UVs, normal, colour and indices");
+    const auto parameters=f.offsets.at(0x1b016);
+    for(unsigned field=0;field<8;++field)
+    {
+        for(float value:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity(),
+                         field==1 || field>=6 ? 10001.f : 1.01f})
+        {auto bad=f.data;PutFloat(bad,parameters+16+field*4,value);Reject([&]{ReadStaticModels(bad);},"Invalid scrolling float");}
+        if(field<6)
+        {auto bad=f.data;PutFloat(bad,parameters+16+field*4,-1);Reject([&]{ReadStaticModels(bad);},"Negative scrolling level/exponent/colour");}
+    }
+    for(unsigned field:{48u,52u,56u})
+    {auto bad=f.data;Put32(bad,parameters+field,2);Reject([&]{ReadStaticModels(bad);},"Invalid scrolling switch");}
+    for(unsigned slot:{0u,1u})
+        for(unsigned byte:{6u,7u})
+        {auto bad=f.data;bad[parameters+slot*8+byte]=4;Reject([&]{ReadStaticModels(bad);},"Invalid scrolling binding");}
+    auto bad=f.data;Put32(bad,f.offsets.at(0x1b004)+32,4);
+    Reject([&]{ReadStaticModels(bad);},"Short scrolling parameters");
+    bad=f.data;bad[f.offsets.at(0x1b004)+11]=4;Reject([&]{ReadStaticModels(bad);},"Missing specular UV");
+    bad=f.data;bad[f.offsets.at(0x1b005)+29]=8;Reject([&]{ReadStaticModels(bad);},"Invalid specular UV stride");
+    bad=f.data;Put32(bad,f.offsets.at(0x1b005)+24,80);Reject([&]{ReadStaticModels(bad);},"Out-of-bounds specular UV");
+}
+void CameraOverlay()
+{
+    ModelFixture f;
+    f.data.resize(8); f.offsets.clear();
+    Buffer params(48);
+    for (unsigned i = 0; i < 3; ++i) { Put32(params, i * 8, 30 + i); params[i * 8 + 6] = i; }
+    PutFloat(params, 24, -2); PutFloat(params, 28, -.5f); PutFloat(params, 32, .25f);
+    Put32(params, 36, 1); Put32(params, 40, 0); Put32(params, 44, 1);
+    f.Chunk(0x1b016, params);
+    Buffer indices(6); Put16(indices, 2, 2); Put16(indices, 4, 1); f.Chunk(0x1b007, indices);
+    Buffer vertices(93);
+    for (unsigned i = 0; i < 9; ++i) PutFloat(vertices, i * 4, float(i));
+    for (unsigned i = 0; i < 3; ++i)
+    {
+        vertices[38 + i * 3] = 64;
+        for (unsigned uv = 0; uv < 3; ++uv)
+        { Put16(vertices, 45 + uv * 12 + i * 4, 1024 * (uv + 1)); Put16(vertices, 47 + uv * 12 + i * 4, 0xfc00); }
+        vertices[81 + i * 4] = 10 + i; vertices[84 + i * 4] = 255;
+    }
+    f.Chunk(0x1b006, vertices);
+    Buffer streams(48);
+    const unsigned offsets[] = {0,36,45,57,69,81}, strides[] = {12,3,4,4,4,4}, ids[] = {1,2,4,4,4,3};
+    for (unsigned i = 0; i < 6; ++i)
+    { Put32(streams, i * 8, offsets[i]); streams[i * 8 + 5] = strides[i]; streams[i * 8 + 6] = ids[i]; }
+    f.Chunk(0x1b005, streams);
+    Buffer packet(48); Put32(packet, 4, 3); Put16(packet, 8, 3); packet[11] = 6;
+    Put32(packet, 16, 0x32bc21e8); f.Chunk(0x1b004, packet);
+    Buffer matrix(64); for (unsigned i = 0; i < 4; ++i) PutFloat(matrix, i * 20, 1); f.Chunk(0x1b002, matrix);
+    Buffer model(12); Put32(model, 0, 1); Put32(model, 4, 1); f.Chunk(0x1b003, model);
+    Put32(f.data, 0, 0x8001b000); Put32(f.data, 4, f.data.size() - 8);
+    const auto models = ReadStaticModels(f.data); const auto& p = models[0].packets[0];
+    Check(p.material.scalars == std::array<float,4>{-2,-.5f,.25f,0}
+        && p.material.switches == std::array<std::uint32_t,5>{1,0,1,0,0}, "Camera overlay BE scalars/switches");
+    for (unsigned i = 0; i < 3; ++i)
+        Check(p.material.textures[i].texture == 30 + i && p.material.textures[i].flags == i, "Overlay three independent bindings");
+    Check(p.vertices[0].uv == std::array<float,2>{1,-1} && p.vertices[0].uv1 == std::array<float,2>{2,-1}
+        && p.vertices[0].uv2 == std::array<float,2>{3,-1} && p.vertices[0].normal == std::array<float,3>{0,0,1}
+        && p.vertices[0].colour[0] == 10 && p.indices == std::vector<std::uint16_t>{0,2,1}, "Overlay signed streams");
+    const auto par = f.offsets.at(0x1b016);
+    auto valid = f.data; PutFloat(valid, par + 24, 0);
+    Check(ReadStaticModels(valid)[0].packets[0].material.scalars[0] == 0, "Original zero-scale fallback is valid");
+    for (unsigned field = 0; field < 3; ++field)
+    {
+        for (float value : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), field == 2 ? 1.01f : 10001.f})
+        { auto bad = f.data; PutFloat(bad, par + 24 + field * 4, value); Reject([&] { ReadStaticModels(bad); }, "Invalid overlay scalar"); }
+        auto bad = f.data; Put32(bad, par + 36 + field * 4, 2);
+        Reject([&] { ReadStaticModels(bad); }, "Invalid overlay boolean");
+        bad = f.data; bad[par + field * 8 + 6] = 4;
+        Reject([&] { ReadStaticModels(bad); }, "Invalid overlay texture flags");
+    }
+    for (float value : {std::numeric_limits<float>::denorm_min(), -std::numeric_limits<float>::denorm_min()})
+    { auto bad = f.data; PutFloat(bad, par + 24, value); Reject([&] { ReadStaticModels(bad); }, "Overflowing inverse overlay scale"); }
+    auto bad = f.data; PutFloat(bad, par + 32, -1); Reject([&] { ReadStaticModels(bad); }, "Negative overlay amount");
+    bad = f.data; Put32(bad, f.offsets.at(0x1b004) + 32, 4); Reject([&] { ReadStaticModels(bad); }, "Short overlay parameters");
+    bad = f.data; bad[f.offsets.at(0x1b004) + 11] = 5; Reject([&] { ReadStaticModels(bad); }, "Missing overlay mask UV");
+    bad = f.data; Put32(bad, f.offsets.at(0x1b005) + 32, 92); Reject([&] { ReadStaticModels(bad); }, "Mask UV out of bounds");
+}
+void WorldModels()
+{
+    const auto texture = TextureFixture();
+    const std::size_t group_start = 8 + 8 + texture.size() + 8;
+    const ModelFixture shadow(false, 5, 1, 3, group_start, true);
+    auto selected = ReadStaticModels(ModelFixture(false,5,1,3,0,true).data);
+    Check(selected[0].packets[0].material.switches[0] == 1 && selected[0].packets[0].vertices[2].uv[0] == .5f,
+          "Big-endian shadow parameter and floating UV conversion");
+    auto invalid = ModelFixture(false,0,1,3,0,true);
+    Put32(invalid.data,invalid.offsets.at(0x1b016)+8,2);
+    Reject([&]{ReadStaticModels(invalid.data);},"Invalid shadow boolean");
+    invalid = ModelFixture(false,0,1,3,0,true);
+    invalid.data[invalid.offsets.at(0x1b005)+13]=8;
+    Reject([&]{ReadStaticModels(invalid.data);},"Shadow colour/UV stream order");
+    ModelFixture unsupported(false,5,1,3,group_start+shadow.data.size());
+    Put32(unsupported.data,unsupported.offsets.at(0x1b003),0x87654322);
+    Put32(unsupported.data,unsupported.offsets.at(0x1b004)+16,0xdeadbeef);
+    Buffer world(16);
+    Put32(world,8,0x24100); Put32(world,12,texture.size());
+    world.insert(world.end(),texture.begin(),texture.end());
+    const auto collection = world.size(); world.resize(collection+8);
+    world.insert(world.end(),shadow.data.begin(),shadow.data.end());
+    world.insert(world.end(),unsupported.data.begin(),unsupported.data.end());
+    Put32(world,collection,0x8001b100); Put32(world,collection+4,world.size()-collection-8);
+    Put32(world,0,0x80000001); Put32(world,4,world.size()-8);
+    auto decoded=ReadStaticWorldModel(world,0x87654321);
+    Check(decoded.model.id==0x87654321 && decoded.model.packets[0].vertices[0].position==std::array<float,3>{1,3,4},
+          "World-relative 32-byte alignment and explicit model selection");
+    Check(ReadTextureBundle(decoded.textures,{0x12345678})[0].width==4,"Embedded texture container boundaries");
+    Reject([&]{ReadStaticWorldModel(world,0x87654322);},"Unimplemented selected world material");
+    Reject([&]{ReadStaticWorldModel(world,0);},"Missing selected world model");
+    for(std::size_t n=0;n<world.size();++n)
+        Reject([&]{ReadStaticWorldModel(Bytes(world).first(n),0x87654321);},"Truncated world");
+    // A structurally bounded unrelated animated group must not block a selected
+    // static model. Selecting that group's model still fails explicitly.
+    auto animated=world;
+    const auto animated_group=group_start+shadow.data.size();
+    animated.insert(animated.end(),{0x80,0x01,0xb2,0x00,0,0,0,0});
+    Put32(animated,animated_group+4,unsupported.data.size());
+    Put32(animated,collection+4,animated.size()-collection-8);Put32(animated,4,animated.size()-8);
+    Check(ReadStaticWorldModel(animated,0x87654321).model.id==0x87654321,"Unselected animated world group");
+    Reject([&]{ReadStaticWorldModel(animated,0x87654322);},"Selected animated world group");
+    auto bad=world;Put32(bad,group_start+shadow.data.size()+unsupported.offsets.at(0x1b003),0x87654321);
+    Reject([&]{ReadStaticWorldModel(bad,0x87654321);},"Duplicate world model ID");
+    bad=world;Put32(bad,8,0x24101);Reject([&]{ReadStaticWorldModel(bad,0x87654321);},"Unknown world container");
+    bad=world;Put32(bad,12,0xffffffff);Reject([&]{ReadStaticWorldModel(bad,0x87654321);},"World child overflow");
+}
 void Textures()
 {
     const auto file = TextureFixture(); const auto textures = ReadTextureBundle(file);
@@ -211,6 +458,6 @@ void Textures()
 }
 int main()
 {
-    try { Models(); Materials(); Textures(); std::cout << "Static Wii resource conversion and rejection checks passed\n"; return 0; }
+    try { Models(); Materials(); SpecularDetail(); ScrollingSpecular(); CameraOverlay(); WorldModels(); Textures(); std::cout << "Static Wii resource conversion and rejection checks passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

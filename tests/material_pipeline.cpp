@@ -1,5 +1,6 @@
 // Independent synthetic pixel expectations for the original material TEV recipes.
 #include "runtime/materials.h"
+#include "runtime/views.h"
 #include "runtime/gpu_readback.h"
 #include "runtime/material_environment.h"
 #include "runtime/static_inventory.h"
@@ -11,8 +12,12 @@
 #include "NL/gl/glMemoryInit.h"
 #include "NL/gl/glMatrix.h"
 #include "NL/gl/glState.h"
+#include "NL/glx/glxTarget.h"
 #include "NL/glx/GXMaskedSpecularFresnelMaterialProgram.h"
 #include "NL/glx/GXScrollingDiffuseMaterialProgram.h"
+#include "NL/glx/GXSpecularDetailBlendMaterialProgram.h"
+#include "NL/glx/GXScrollingSpecularMaterialProgram.h"
+#include "NL/glx/GXCameraScrolledOverlayMaterialProgram.h"
 #include "Game/Render/LightingLookup.h"
 #include "NL/nlMemory.h"
 #include "NL/MemAlloc.h"
@@ -31,7 +36,14 @@
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
+#include <string_view>
+
+extern bool gScrollingSpecularHighlightsEnabled;
+extern bool gScrollingSpecularAnimationEnabled;
+extern bool gScrollingSpecularShadowsEnabled;
+extern bool gCameraOverlayShadowsEnabled;
 
 using namespace mscharged;
 namespace
@@ -73,7 +85,7 @@ struct Session
         aurora_shutdown();
     }
 };
-resources::Texture Texture(unsigned id, std::array<unsigned char, 4> c, unsigned alpha_bits = 0, bool stripe = false)
+resources::Texture Texture(unsigned id, std::array<unsigned char, 4> c, unsigned alpha_bits = 0, bool stripe = false, bool vertical = false)
 {
     resources::Texture t;
     t.id = id;
@@ -85,7 +97,7 @@ resources::Texture Texture(unsigned id, std::array<unsigned char, 4> c, unsigned
     t.pixels.resize(64);
     for (unsigned i = 0; i < 16; ++i)
     {
-        const auto pixel = stripe && i % 4 >= 2 ? std::array<unsigned char, 4>{20, 40, 200, 255} : c;
+        const auto pixel = stripe && (vertical ? i / 4 : i % 4) >= 2 ? std::array<unsigned char, 4>{20, 40, 200, 255} : c;
         t.pixels[i * 2] = pixel[3];
         t.pixels[i * 2 + 1] = pixel[0];
         t.pixels[i * 2 + 32] = pixel[1];
@@ -111,12 +123,32 @@ resources::StaticModel Model(unsigned id, unsigned program, unsigned texture)
     return {id, {p}};
 }
 void PixelCase(const char *name, glModel &model, float time, std::array<unsigned char, 3> expected,
-               const GameLighting& lighting = {}, const nlMatrix4* world = nullptr, const nlMatrix4* view = nullptr)
+               const GameLighting& lighting = {}, const nlMatrix4* world = nullptr, const nlMatrix4* view = nullptr,
+               glModel* copy_source = nullptr, GLRenderPair copy_target = {}, unsigned copy_mode = 8, GLRenderPair after_clear = {}, const nlVector3* camera_position = nullptr)
 {
     unsigned draws = 0;
     std::array<unsigned char, 3> pixel{};
     nlMatrix4 identity;
     identity.SetIdentity();
+    ViewMatrices matrices;
+    matrices.view = view ? *view : identity;
+    glMatrixOrthographicCentered(matrices.projection, 2, 2, 0, 1);
+    auto submitted = std::make_unique<GLView>(&matrices, GLRenderPair{}, GLViewSort_None);
+    std::unique_ptr<GLView> producer, clear_probe;
+    if (copy_source)
+    {
+        producer = std::make_unique<GLView>(&matrices, copy_target, GLViewSort_None);
+        producer->m_Target = copy_mode;
+        gRootView.AddChild(producer.get());
+        if (after_clear)
+        {
+            clear_probe = std::make_unique<GLView>(&matrices, after_clear, GLViewSort_None);
+            clear_probe->m_Target = GLViewTarget_Mode8;
+            gRootView.AddChild(clear_probe.get());
+        }
+        submitted->m_ClearColour = submitted->m_ClearDepth = true;
+    }
+    gRootView.AddChild(submitted.get());
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
     for (unsigned frame = 0; frame < 40;)
     {
@@ -130,20 +162,17 @@ void PixelCase(const char *name, glModel &model, float time, std::array<unsigned
         }
         glplatFrameAllocNextFrame();
         glModelSetMatrix(&model, world ? *world : identity);
-        Mtx44 projection;
-        C_MTXOrtho(projection, 1, -1, -1, 1, 0, 1);
-        Mtx matrix = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};
-        GXSetCopyClear({20, 24, 30, 255}, GX_MAX_Z24);
-        GXSetViewport(0, 0, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight, 0, 1);
-        GXSetScissor(0, 0, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
-        GXSetProjection(projection, GX_ORTHOGRAPHIC);
-        GXLoadPosMtxImm(matrix, GX_PNMTX0);
-        GXSetCurrentMtx(GX_PNMTX0);
+        GXSetPixelFmt(copy_target && copy_target.target->mFormat == GLTargetFormat_A8 ? GX_PF_RGBA6_Z24 : GX_PF_RGB8_Z24,
+                      GX_ZC_LINEAR);
+        GXSetCopyClear({20, 24, 30, static_cast<u8>(after_clear ? 0 : 255)}, GX_MAX_Z24);
+        if (producer)
         {
-            MaterialPreviewScope environment(view ? *view : identity, time, lighting);
-            for (unsigned i = 0; i < model.numPackets; ++i)
-                DrawMaterial(model.packets[i]);
+            glModelSetMatrix(copy_source, identity);
+            producer->AttachModel(copy_source, 0);
         }
+        submitted->AttachModel(&model, 0);
+        try { RenderOriginalViews(time, lighting, camera_position); }
+        catch (...) { aurora_end_frame(); throw; }
         GXDrawDone();
         if (frame == 39)
         {
@@ -160,6 +189,324 @@ void PixelCase(const char *name, glModel &model, float time, std::array<unsigned
     std::cout << name << ": RGB " << unsigned(pixel[0]) << ',' << unsigned(pixel[1]) << ',' << unsigned(pixel[2])
               << ", draws " << draws << '\n';
     Check(match && draws > 0, "Original material shader pixel mismatch");
+}
+
+void SpecularDetailCases()
+{
+    auto source = Model(501, 0x112ab470, 501);
+    auto& material = source.packets[0].material;
+    for (unsigned i = 0; i < 4; ++i) material.textures[i] = {501 + i, 3};
+    material.scalars = {1,0,0,0};
+    material.specular_colour = {1,.5f,.25f,1};
+    for (auto& v : source.packets[0].vertices) v.uv3 = v.uv;
+    StaticInventory inventory(*glGetCurrentResourcePool(), {source},
+        {Texture(501,{80,100,120,255},0,true), Texture(502,{200,40,20,255},0,true),
+         Texture(503,{128,128,128,255},0,true), Texture(504,{128,64,32,255},0,true)}, Drain);
+    auto& model = *inventory.Model(501);
+    auto& packet = model.packets[0];
+    auto& p = *static_cast<GXSpecularDetailBlendParameters*>(packet.materialParameters);
+    auto coordinate = [&](unsigned set, float u) {
+        auto* values = static_cast<float*>(packet.streams[2 + set].address);
+        for (unsigned i = 0; i < packet.numUniqueVertices; ++i) values[i * 2] = u;
+    };
+    auto normal = [&](float x, float z) {
+        auto* values = static_cast<float*>(packet.streams[1].address);
+        for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+        { values[i * 3] = x; values[i * 3 + 1] = 0; values[i * 3 + 2] = z; }
+    };
+    // Independent equation: weight = mask * (1-blend), then interpolate
+    // diffuse/detail per channel. GX's byte quantization permits +/-3 here.
+    auto blended = [](std::array<unsigned char,3> diffuse, std::array<unsigned char,3> detail,
+                      std::array<unsigned char,3> mask, float blend) {
+        std::array<unsigned char,3> result{};
+        for (unsigned i = 0; i < 3; ++i)
+        {
+            const float weight = mask[i] / 255.f * (1-blend);
+            result[i] = std::lround(diffuse[i] * (1-weight) + detail[i] * weight);
+        }
+        return result;
+    };
+    PixelCase("Detail blend=1 retains diffuse", model, 0, {80,100,120});
+    p.blendAmount = 0;
+    PixelCase("Detail blend=0 uses mask", model, 0, {140,70,70});
+    p.blendAmount = .5f;
+    PixelCase("Detail fractional blend", model, 0, {110,85,95});
+    coordinate(0,.875f);
+    PixelCase("Detail independent diffuse UV", model, 0,
+        blended({20,40,200},{200,40,20},{128,128,128},.5f));
+    coordinate(0,.125f); coordinate(1,.875f);
+    PixelCase("Detail independent detail UV", model, 0,
+        blended({80,100,120},{20,40,200},{128,128,128},.5f));
+    coordinate(1,.125f); coordinate(2,.875f);
+    PixelCase("Detail independent mask UV", model, 0,
+        blended({80,100,120},{200,40,20},{20,40,200},.5f));
+    coordinate(2,.125f);
+    auto* colours = static_cast<u8*>(packet.streams[6].address);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+    { colours[i*4] = 128; colours[i*4+2] = 128; }
+    PixelCase("Detail vertex colour", model, 0, {55,85,47});
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+    { colours[i*4] = colours[i*4+2] = 255; }
+    GameLighting lighting;
+    lighting.enabled = true; lighting.ambient = {{64,128,192,0}};
+    p.lightingEnabled = 1;
+    PixelCase("Detail original ambient", model, 0, {28,43,71}, lighting);
+    lighting.ambient = {{0,0,0,0}};
+    lighting.light_count = 1;
+    lighting.lights[0].enabled = true;
+    lighting.lights[0].worldPosition = {0,0,1};
+    lighting.lights[0].intensity = .5f;
+    PixelCase("Detail original diffuse key", model, 0, {55,42,47}, lighting);
+    p.lightingEnabled = 0; p.blendAmount = 1; p.specularLevel = .5f;
+    lighting.lights[0].intensity = 1;
+    // Front-facing half-vector gives unit specular attenuation, independently
+    // of exponent. Gloss * level * RGB tint adds (64,16,4) to diffuse.
+    PixelCase("Detail zero-exponent specular", model, 0, {144,116,124}, lighting);
+    p.specularExponent = 64;
+    PixelCase("Detail original specular light", model, 0, {144,116,124}, lighting);
+    coordinate(3,.875f);
+    PixelCase("Detail independent gloss UV", model, 0, {90,110,145}, lighting);
+    coordinate(3,.125f);
+    normal(.5f, std::sqrt(.75f));
+    // Attenuation at n.h=sqrt(.75): .75 / (32 - 31*.75) = 3/35.
+    PixelCase("Detail exponent controls highlight", model, 0, {85,101,120}, lighting);
+    normal(0,1);
+    nlMatrix4 rotated;
+    nlMakeRotationMatrixY(rotated, 3.1415927f / 6);
+    rotated.SetTranslation({.15f,0,-.04019238f});
+    PixelCase("Detail specular follows model normals", model, 0, {85,101,120}, lighting, &rotated);
+    normal(.5f, std::sqrt(.75f));
+    p.specularExponent = 0;
+    // With exponent zero the nonzero half-vector term cancels in the
+    // numerator/denominator, restoring unit attenuation even for a tilt.
+    PixelCase("Detail zero exponent after another exponent", model, 0, {144,116,124}, lighting);
+    normal(0,1);
+    lighting.lights[0].intensity = .25f;
+    PixelCase("Detail light refresh at unchanged exponent", model, 0, {96,104,121}, lighting);
+    lighting.light_count = 0;
+    PixelCase("Detail zero lights clears previous specular", model, 0, {80,100,120}, lighting);
+    lighting.light_count = 2; lighting.lights[0].intensity = 0;
+    lighting.lights[1] = lighting.lights[0]; lighting.lights[1].intensity = 1;
+    PixelCase("Detail original slot-6 mask excludes slot 7", model, 0, {80,100,120}, lighting);
+    lighting.lights[0].intensity = 1;
+    lighting.lights[0].worldPosition = {0,0,-1};
+    p.specularExponent = 64;
+    PixelCase("Detail back-facing specular", model, 0, {80,100,120}, lighting);
+    lighting = {};
+    LightingLookup shadow;
+    shadow.LoadTexture(17);
+    lighting.shadow.lookup = &shadow; lighting.shadow.texture = 17;
+    p.shadowEnabled = 1; p.specularLevel = 0; p.blendAmount = .5f;
+    PixelCase("Detail original projected shadow", model, 0, {57,44,49}, lighting);
+    PixelCase("Detail shadow state restored", model, 0, {110,85,95});
+}
+
+void ScrollingSpecularCases()
+{
+    auto source=Model(601,0x3eccd955,601);
+    auto& material=source.packets[0].material;
+    material.textures[1]={602,3}; material.scalars={.5f,0,.5f,0};
+    material.specular_colour={1,.5f,.25f,1};
+    StaticInventory inventory(*glGetCurrentResourcePool(),{source},
+        {Texture(601,{80,100,120,255},0,true),Texture(602,{128,64,32,255},0,true),
+         Texture(603,{80,100,120,255},0,true,true),Texture(604,{80,100,120,0},1),
+         Texture(605,{80,100,120,128},8)},Drain);
+    auto& model=*inventory.Model(601); auto& packet=model.packets[0];
+    auto& p=*static_cast<GXScrollingSpecularParameters*>(packet.materialParameters);
+    GameLighting light;light.enabled=true;light.light_count=1;
+    light.lights[0].enabled=true;light.lights[0].worldPosition={0,0,1};light.lights[0].intensity=1;
+    // Independent TEV equation: diffuse*lighting + gloss*level*specular*tint.
+    // Front-facing light gives unit attenuation, so the highlight is (64,16,4).
+    PixelCase("Scrolling specular zero exponent",model,0,{144,116,124},light);
+    p.specularExponent=64;
+    PixelCase("Scrolling specular fixed gloss at t=1",model,1,{84,56,204},light);
+    p.scrollSpecularTexture=1;
+    PixelCase("Scrolling specular both textures at t=1",model,1,{30,50,225},light);
+    PixelCase("Scrolling specular wrapped t=2",model,2,{144,116,124},light);
+    p.scrollSpeedX=-.5f;
+    PixelCase("Scrolling specular negative offset clamps",model,1,{144,116,124},light);
+    p.diffuseTexture.flags=p.specularTexture.flags=0;
+    PixelCase("Scrolling specular negative speed wraps",model,1,{30,50,225},light);
+    p.diffuseTexture.flags=p.specularTexture.flags=3;
+    p.scrollSpeedX=.5f;
+    gScrollingSpecularAnimationEnabled=false;
+    PixelCase("Scrolling specular animation disabled",model,1,{144,116,124},light);
+    gScrollingSpecularAnimationEnabled=true;
+    auto* uv=static_cast<float*>(packet.streams[3].address);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i)uv[i*2]=.875f;
+    PixelCase("Scrolling specular independent gloss UV",model,0,{90,110,145},light);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i)uv[i*2]=.125f;
+    p.diffuseTexture.texture=603;p.scrollSpeedX=0;p.scrollSpeedY=.5f;
+    PixelCase("Scrolling specular vertical diffuse scroll",model,1,{84,56,204},light);
+    p.diffuseTexture.texture=601;p.scrollSpeedY=0;p.scrollSpeedX=.5f;
+    gScrollingSpecularHighlightsEnabled=false;
+    PixelCase("Scrolling specular highlights disabled",model,0,{80,100,120},light);
+    gScrollingSpecularHighlightsEnabled=true;
+    p.specularLevel=0;
+    PixelCase("Scrolling specular zero level",model,0,{80,100,120},light);
+    p.specularLevel=.5f;
+    auto* colours=static_cast<u8*>(packet.streams[4].address);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i){colours[i*4]=128;colours[i*4+2]=128;}
+    PixelCase("Scrolling specular vertex modulation",model,0,{104,116,64},light);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i){colours[i*4]=255;colours[i*4+2]=255;}
+    p.lightingEnabled=1;light.light_count=0;light.ambient={{64,128,192,0}};
+    PixelCase("Scrolling specular ambient without highlights",model,0,{20,50,90},light);
+    light.light_count=1;light.ambient={{0,0,0,0}};light.lights[0].intensity=.5f;
+    PixelCase("Scrolling specular diffuse and highlight",model,0,{72,58,62},light);
+    light.double_intensity=true;
+    PixelCase("Scrolling specular doubled diffuse",model,0,{112,108,122},light);
+    light.double_intensity=false;light.ramp_texture=19;
+    PixelCase("Scrolling specular texture light ramp",model,0,{52,58,92},light);
+    light.double_intensity=true;
+    PixelCase("Scrolling specular doubled light ramp",model,0,{72,108,182},light);
+    light.double_intensity=false;light.ramp_texture=UINT32_MAX;p.lightingEnabled=0;light.lights[0].intensity=1;
+    auto* normals=static_cast<float*>(packet.streams[1].address);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i){normals[i*3]=.5f;normals[i*3+2]=std::sqrt(.75f);}
+    // n.h=sqrt(.75), attenuation=.75/(32-31*.75)=3/35 at exponent 64.
+    PixelCase("Scrolling specular exponent attenuates tilted normal",model,0,{85,101,120},light);
+    p.specularExponent=0;
+    PixelCase("Scrolling specular zero exponent refresh",model,0,{144,116,124},light);
+    for(unsigned i=0;i<packet.numUniqueVertices;++i){normals[i*3]=0;normals[i*3+2]=1;}
+    p.specularExponent=64;
+    nlMatrix4 rotated;nlMakeRotationMatrixY(rotated,3.1415927f/6);rotated.SetTranslation({.15f,0,-.04019238f});
+    PixelCase("Scrolling specular model normal matrix",model,0,{85,101,120},light,&rotated);
+    light.lights[0].intensity=.25f;
+    PixelCase("Scrolling specular refresh unchanged exponent",model,0,{96,104,121},light);
+    light.light_count=0;
+    PixelCase("Scrolling specular zero lights clears stale slot",model,0,{80,100,120},light);
+    light={};LightingLookup shadow;shadow.LoadTexture(17);
+    light.shadow.lookup=&shadow;light.shadow.texture=17;p.shadowEnabled=1;p.specularLevel=0;
+    PixelCase("Scrolling specular projected shadow",model,0,{42,52,62},light);
+    gScrollingSpecularShadowsEnabled=false;
+    PixelCase("Scrolling specular shadow switch",model,0,{80,100,120},light);
+    gScrollingSpecularShadowsEnabled=true;
+    PixelCase("Scrolling specular shadow state restored",model,0,{80,100,120});
+    auto* program=static_cast<GLMaterialProgram*>(packet.materialProgram);
+    p.diffuseTexture.texture=604;program->Prepare(&packet);
+    PixelCase("Scrolling specular alpha discard",model,0,{20,24,30});
+    p.diffuseTexture.texture=605;program->Prepare(&packet);
+    PixelCase("Scrolling specular alpha blend",model,0,{50,62,75});
+}
+
+void CameraOverlayCases()
+{
+    auto source = Model(701, 0x32bc21e8, 701);
+    auto& material = source.packets[0].material;
+    material.textures[1] = {702,3}; material.textures[2] = {703,3};
+    material.scalars = {2,1,.5f,0};
+    StaticInventory inventory(*glGetCurrentResourcePool(), {source},
+        {Texture(701,{80,100,120,255},0,true), Texture(702,{200,80,40,128},8,true),
+         Texture(703,{128,64,192,255},0,true), Texture(704,{200,80,40,128},8,true,true),
+         Texture(705,{200,80,40,0},8), Texture(706,{80,100,120,0},1),
+         Texture(707,{80,100,120,128},8)}, Drain);
+    auto& model = *inventory.Model(701); auto& packet = model.packets[0];
+    auto& p = *static_cast<GXCameraScrolledOverlayParameters*>(packet.materialParameters);
+    nlVector3 camera{.75f,.75f,3};
+    auto pixel = [&](const char* name, std::array<unsigned char,3> expected,
+                     const GameLighting& light = GameLighting{}, const nlMatrix4* world = nullptr,
+                     const nlMatrix4* view = nullptr) {
+        PixelCase(name, model, 0, expected, light, world, view, nullptr, {}, 8, {}, &camera);
+    };
+    // Independent four-stage equation: diffuse*vertex/light +
+    // overlay.rgb*overlay.alpha*amount*mask.rgb. Byte tolerance is +/-3.
+    pixel("Camera overlay base alpha and mask", {105,105,128});
+    p.overlayAmount = 0;
+    pixel("Camera overlay zero amount", {80,100,120});
+    p.overlayAmount = 1;
+    pixel("Camera overlay full amount", {130,110,135});
+    p.overlayAmount = .5f;
+    camera.x = -.25f;
+    pixel("Camera overlay camera X motion", {85,105,195});
+    camera.x = .75f;
+    pixel("Camera overlay refresh reused camera input", {105,105,128});
+    camera.z = -100;
+    pixel("Camera overlay ignores camera Z", {105,105,128});
+    p.overlayTexture.texture = 704; camera.y = -.25f;
+    pixel("Camera overlay camera Y motion", {85,105,195});
+    camera.y = .75f; p.overlayTexture.texture = 702;
+    p.cameraScroll = -1;
+    pixel("Camera overlay reversed camera scroll", {85,105,195});
+    p.cameraScroll = 1; p.overlayScale = -2;
+    pixel("Camera overlay negative scale", {85,105,195});
+    p.overlayScale = 0;
+    pixel("Camera overlay zero scale uses unit inverse", {105,105,128});
+    p.overlayTexture.flags = 0; camera.x = 1.5f; p.overlayScale = 2;
+    pixel("Camera overlay repeating projected coordinates", {85,105,195});
+    p.overlayScale = 4;
+    pixel("Camera overlay changed projection scale", {105,105,128});
+    p.overlayTexture.flags = 3; camera.x = .75f; p.overlayScale = 2;
+    auto coordinate = [&](unsigned stream, float u) {
+        auto* data = static_cast<float*>(packet.streams[stream].address);
+        for (unsigned i = 0; i < packet.numUniqueVertices; ++i) data[i * 2] = u;
+    };
+    coordinate(2, .875f);
+    pixel("Camera overlay independent diffuse UV", {45,45,208});
+    coordinate(2, .125f); coordinate(3, .875f);
+    pixel("Camera overlay uses position instead of UV1", {105,105,128});
+    coordinate(3, .125f); coordinate(4, .875f);
+    pixel("Camera overlay independent mask UV", {84,103,128});
+    coordinate(4, .125f);
+    auto* positions = static_cast<float*>(packet.streams[0].address);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i) positions[i * 3] += 1;
+    nlMatrix4 world; world.SetIdentity(); world.SetTranslation({-1,0,0});
+    pixel("Camera overlay retains local vertex coordinates", {85,105,195}, {}, &world);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i) positions[i * 3] -= 1.25f;
+    world.SetTranslation({.25f,0,0}); p.cameraScroll = 0; camera.x = -100;
+    pixel("Camera overlay zero camera scroll", {105,105,128}, {}, &world);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i) positions[i * 3] += .25f;
+    p.cameraScroll = 1; camera.x = .75f;
+    nlMatrix4 shifted_view; shifted_view.SetIdentity(); shifted_view.SetTranslation({1,0,0});
+    world.SetTranslation({-1,0,0});
+    pixel("Camera overlay active camera independent of render view", {105,105,128}, {}, &world, &shifted_view);
+    p.overlayTexture.texture = 705;
+    pixel("Camera overlay transparent overlay contributes nothing", {80,100,120});
+    p.overlayTexture.texture = 702;
+    auto* colours = static_cast<u8*>(packet.streams[5].address);
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+    { colours[i * 4] = 128; colours[i * 4 + 2] = 128; colours[i * 4 + 3] = 0; }
+    pixel("Camera overlay vertex colour with texture-only alpha", {65,105,68});
+    for (unsigned i = 0; i < packet.numUniqueVertices; ++i)
+    { colours[i * 4] = 255; colours[i * 4 + 2] = 255; colours[i * 4 + 3] = 255; }
+    GameLighting light; light.enabled = true; light.ambient = {{64,128,192,0}}; p.lightingEnabled = 1;
+    pixel("Camera overlay ambient affects diffuse only", {45,55,98}, light);
+    light.ambient = {{0,0,0,0}}; light.light_count = 1;
+    light.lights[0].enabled = true; light.lights[0].worldPosition = {0,0,1}; light.lights[0].intensity = .5f;
+    pixel("Camera overlay directional diffuse", {65,55,68}, light);
+    light.lights[0].worldPosition.z = -1;
+    pixel("Camera overlay unlit diffuse retains overlay", {25,5,8}, light);
+    p.lightingEnabled = 0; light = {};
+    LightingLookup shadow; shadow.LoadTexture(17); light.shadow.lookup = &shadow; light.shadow.texture = 17;
+    p.shadowEnabled = 1;
+    pixel("Camera overlay original projected shadow", {55,55,67}, light);
+    gCameraOverlayShadowsEnabled = false;
+    pixel("Camera overlay shadow switch", {105,105,128}, light);
+    gCameraOverlayShadowsEnabled = true;
+    pixel("Camera overlay restores shadow state", {105,105,128});
+    p.overlayAmount = 0; p.diffuseTexture.flags = 0; coordinate(2,-.375f);
+    pixel("Camera overlay diffuse initially repeats", {20,40,200});
+    p.diffuseWrapEnabled = 1;
+    // Original Draw changes the flags after binding; subsequent draws clamp.
+    pixel("Camera overlay original wrap flag mutation", {80,100,120});
+    Check(p.diffuseTexture.flags == 3, "Overlay wrap mutation did not persist");
+    p.diffuseWrapEnabled = 0;
+    pixel("Camera overlay preserves mutated binding flags", {80,100,120});
+    coordinate(2,.125f);
+    auto* program = static_cast<GLMaterialProgram*>(packet.materialProgram);
+    p.diffuseTexture.texture = 706; program->Prepare(&packet);
+    pixel("Camera overlay diffuse alpha discard", {20,24,30});
+    p.diffuseTexture.texture = 707; program->Prepare(&packet);
+    pixel("Camera overlay diffuse alpha blend", {50,62,75});
+    p.diffuseTexture.texture = 701; program->Prepare(&packet); p.overlayAmount = .5f;
+    bool rejected = false;
+    try { PixelCase("Missing camera must fail", model, 0, {0,0,0}); }
+    catch (const std::logic_error&) { rejected = true; }
+    Check(rejected, "Camera overlay silently accepted a missing camera");
+    camera.x = std::numeric_limits<float>::max(); p.overlayScale = .5f; rejected = false;
+    try { pixel("Overflowing camera matrix must fail", {0,0,0}); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "Camera overlay accepted an overflowing texture matrix");
+    camera.x = .75f; p.overlayScale = 2;
+    pixel("Camera overlay recovers after rejected camera draws", {105,105,128});
 }
 } // namespace
 int main(int argc, char **argv)
@@ -244,9 +591,31 @@ int main(int argc, char **argv)
                                                     Texture(15, {80, 100, 120, 128}, 8),
                                                     palette, shadow_texture, split_shadow,
                                                     Texture(19, {64, 128, 192, 255})};
+        OriginalViews views(GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight, Drain);
         StaticInventory inventory(*glGetCurrentResourcePool(),
                                   {unlit, vertex, scroll, masked, discard, blend, ci8, normal_left, normal_right},
                                   textures, Drain);
+        const bool targets_only = argc == 2 && std::string_view(argv[1]) == "--targets-only";
+        const bool specular_only = argc == 2 && std::string_view(argv[1]) == "--specular-only";
+        const bool scrolling_specular_only = argc == 2 && std::string_view(argv[1]) == "--scrolling-specular-only";
+        const bool camera_overlay_only = argc == 2 && std::string_view(argv[1]) == "--camera-overlay-only";
+        if (camera_overlay_only)
+        {
+            CameraOverlayCases();
+            PixelCase("Unlit after camera overlay", *inventory.Model(1), 0, {80,100,120});
+        }
+        if (scrolling_specular_only)
+        {
+            ScrollingSpecularCases();
+            PixelCase("Unlit after scrolling specular stages", *inventory.Model(1), 0, {80,100,120});
+        }
+        if (specular_only)
+        {
+            SpecularDetailCases();
+            PixelCase("Unlit after detail/specular/shadow stages", *inventory.Model(1), 0, {80,100,120});
+        }
+        if (!targets_only && !specular_only && !scrolling_specular_only && !camera_overlay_only)
+        {
         PixelCase("Unlit diffuse", *inventory.Model(1), 0, {80, 100, 120});
         PixelCase("Vertex colour modulation", *inventory.Model(2), 0, {40, 100, 60});
         PixelCase("Scrolling t=0", *inventory.Model(3), 0, {200, 40, 20});
@@ -345,6 +714,60 @@ int main(int argc, char **argv)
         PixelCase("Material restored after shadow and ramp", *inventory.Model(4), 0, {105,113,125});
         // Switch back to verify TEV/channel/texture state does not leak between programs.
         PixelCase("Unlit after multi-stage materials", *inventory.Model(1), 0, {80, 100, 120});
+        }
+        if (!specular_only && !scrolling_specular_only && !camera_overlay_only)
+        {
+        for (auto format : {GLTargetFormat_RGBA8, GLTargetFormat_RGB565, GLTargetFormat_RGB5A3, GLTargetFormat_A8, GLTargetFormat_IA8})
+        {
+            GLTargetInfo info;
+            info.width = GXNtsc480IntDf.fbWidth; info.height = GXNtsc480IntDf.efbHeight;
+            info.format = format; info.clearFlags = 7;
+            // Reuse the same name/address with different formats: stale copy-cache state must be evicted.
+            auto target = glCreateTarget("pixel/copy", &info);
+            auto producer = Model(901, 0x21db4385, 850);
+            auto consumer = Model(902, 0x21db4385, glGetTargetTexture(target));
+            for (auto& vertex : consumer.packets[0].vertices) vertex.uv = {.5f,.5f};
+            const bool alpha = format == GLTargetFormat_A8, intensity = format == GLTargetFormat_IA8;
+            const std::array<unsigned char,4> colour = alpha ? std::array<unsigned char,4>{255,255,255,64}
+                : intensity ? std::array<unsigned char,4>{255,255,255,255}
+                : format == GLTargetFormat_RGB565 ? std::array<unsigned char,4>{0,255,0,255}
+                : format == GLTargetFormat_RGB5A3 ? std::array<unsigned char,4>{0,0,255,255}
+                : std::array<unsigned char,4>{255,0,0,255};
+            StaticInventory copied(*glGetCurrentResourcePool(), {producer, consumer},
+                {Texture(850, colour)}, Drain);
+            // Observe copied channels directly, independently of material alpha compositing/discard.
+            glSetRasterState(copied.Model(902)->packets[0].rasterState, GLS_AlphaBlend, 0);
+            glSetRasterState(copied.Model(902)->packets[0].rasterState, GLS_AlphaTest, 0);
+            PixelCase(("New target contains no previous GPU copy " + std::to_string(format)).c_str(),
+                *copied.Model(902), 0, {0,0,0});
+            PixelCase(("Target copy/sample format " + std::to_string(format)).c_str(), *copied.Model(902),
+                0, alpha ? std::array<unsigned char,3>{64,64,64}
+                         : intensity ? std::array<unsigned char,3>{235,235,235}
+                                     : std::array<unsigned char,3>{colour[0],colour[1],colour[2]},
+                {}, nullptr, nullptr, copied.Model(901), target);
+            copied.Release();
+            glDestroyTarget(&target);
+        }
+        {
+            GLTargetInfo info;
+            info.width = GXNtsc480IntDf.fbWidth; info.height = GXNtsc480IntDf.efbHeight;
+            info.format = GLTargetFormat_A8; info.clearFlags = 7;
+            auto first = glCreateTarget("pixel/first-alpha", &info);
+            auto second = glCreateTarget("pixel/cleared-alpha", &info);
+            auto producer = Model(903, 0x21db4385, 851);
+            auto consumer = Model(904, 0x21db4385, glGetTargetTexture(second));
+            for (auto& vertex : consumer.packets[0].vertices) vertex.uv = {.5f,.5f};
+            StaticInventory copied(*glGetCurrentResourcePool(), {producer, consumer}, {Texture(851,{255,0,0,255})}, Drain);
+            glSetRasterState(copied.Model(904)->packets[0].rasterState, GLS_AlphaBlend, 0);
+            glSetRasterState(copied.Model(904)->packets[0].rasterState, GLS_AlphaTest, 0);
+            // The second view copies the EFB without drawing: distinguish retain, full clear and alpha-only clear.
+            PixelCase("Copy mode 8 retains EFB alpha", *copied.Model(904), 0, {255,255,255}, {}, nullptr, nullptr, copied.Model(903), first, 8, second);
+            PixelCase("Copy mode 9 clears EFB alpha", *copied.Model(904), 0, {0,0,0}, {}, nullptr, nullptr, copied.Model(903), first, 9, second);
+            PixelCase("Copy mode 10 clears EFB alpha", *copied.Model(904), 0, {0,0,0}, {}, nullptr, nullptr, copied.Model(903), first, 10, second);
+            copied.Release(); glDestroyTarget(&second); glDestroyTarget(&first);
+        }
+        }
+        views.Release();
         inventory.Release();
         programs.Release();
         glShutdownMemory();

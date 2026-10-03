@@ -1,0 +1,188 @@
+Subject: Select original graphics frame state and lifecycle
+
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Extract the original begin/end/send/discard/finish entry points and their state
+from gl.cpp for explicit native source selection. Retain discard-max semantics,
+view reset and successful-send counter ordering. Native guards enforce host frame
+ownership and unwind cleanup; reject counter exhaustion before signed overflow.
+The port supplies real Aurora rendering/presentation and drained frame-pool reuse.
+This does not select glStartup or the full BeginFrameTask/EndFrameTask graph.
+
+diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
+--- a/src/NL/gl/gl.cpp
++++ b/src/NL/gl/gl.cpp
+@@ -16,15 +16,23 @@
+ 
+ const char* szMemoryNames[6] = { "header", "matrix", "index", "vertex", "texture", "target" };
+ 
++#ifndef MSCHARGED_NATIVE
+ static int gl_frameCounter;
+ static int gl_nDiscard;
+ static int gl_state;
++#else
++#include "runtime/frames.h"
++#endif
+ 
+ bool glStartup(void (*startupCallback)())
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::ResetOriginalFrameState();
++#else
+     gl_frameCounter = 0;
+     gl_nDiscard = 0;
+     gl_state = 0;
++#endif
+ 
+     glInitResourcePools();
+     startupCallback();
+@@ -55,33 +63,42 @@
+ 
+ #include "glHash.cpp"
+ 
++#ifndef MSCHARGED_NATIVE
+ int glGetCurrentFrame()
+ {
+     return gl_frameCounter;
+ }
++#endif
+ 
+ bool glHasQuads()
+ {
+     return true;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void glBeginFrame()
+ {
+     glplatBeginFrame();
+     gl_state = 1;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void glEndFrame()
+ {
+     glplatEndFrame();
+     gl_state = 2;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ bool glIsFrameActive()
+ {
+     return gl_state == 1;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void glSendFrame()
+ {
+     if (gl_nDiscard > 0)
+@@ -98,17 +115,22 @@
+     gl_state = 0;
+     gl_frameCounter += 1;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void glDiscardFrame(int nFrames)
+ {
+     if (nFrames > gl_nDiscard)
+         gl_nDiscard = nFrames;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void glFinish()
+ {
+     glplatFinish();
+ }
++#endif
+ 
+ void glCompact()
+ {
+diff --git a/src/NL/gl/glFrame.cpp b/src/NL/gl/glFrame.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/NL/gl/glFrame.cpp
+@@ -0,0 +1,74 @@
++// Original frame state and entry points extracted from gl.cpp.
++#include "NL/gl/gl.h"
++#include "NL/gl/glPlat.h"
++#include "NL/gl/glView.h"
++#include "runtime/frames.h"
++#include <limits>
++#include <stdexcept>
++
++static int gl_frameCounter;
++static int gl_nDiscard;
++static int gl_state;
++
++int glGetCurrentFrame()
++{
++    return gl_frameCounter;
++}
++
++void glBeginFrame()
++{
++    mscharged::NativeFrameGuard nativeFrame(mscharged::FrameCall::Begin);
++    glplatBeginFrame();
++    gl_state = 1;
++}
++
++void glEndFrame()
++{
++    mscharged::NativeFrameGuard nativeFrame(mscharged::FrameCall::End);
++    glplatEndFrame();
++    gl_state = 2;
++}
++
++bool glIsFrameActive()
++{
++    return gl_state == 1;
++}
++
++void glSendFrame()
++{
++    mscharged::NativeFrameGuard nativeFrame(mscharged::FrameCall::Send);
++    if (gl_frameCounter == std::numeric_limits<int>::max())
++        throw std::overflow_error("Original graphics frame counter exhausted");
++    if (gl_nDiscard > 0)
++    {
++        glplatAbortFrame();
++        gl_nDiscard -= 1;
++    }
++    else
++    {
++        glplatSendFrame();
++    }
++
++    gl_ViewReset();
++    gl_state = 0;
++    gl_frameCounter += 1;
++}
++
++void glDiscardFrame(int nFrames)
++{
++    mscharged::NativeFrameGuard nativeFrame(mscharged::FrameCall::Discard);
++    if (nFrames > gl_nDiscard)
++        gl_nDiscard = nFrames;
++}
++
++void glFinish()
++{
++    mscharged::NativeFrameGuard nativeFrame(mscharged::FrameCall::Finish);
++    glplatFinish();
++}
++
++namespace mscharged
++{
++void ResetOriginalFrameState() { gl_frameCounter = gl_nDiscard = gl_state = 0; }
++void CancelOriginalFrameState() { gl_state = 0; }
++}

@@ -19,19 +19,21 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `45f25bd6519586837e61251208d34d8dcf94e170`, adopted from
-published `main` on 2026-10-02. The current series contains thirty-two patches.
-The dependency update retained the first eighteen. Patch 0006 was refreshed
-for the upstream entry's
-declaration/scope changes; its extracted startup behavior is unchanged.
-The other seventeen patches retain their hunks with updated base metadata.
-Patch 0019 selects native animation rotation decoders while retaining original
-unsigned scale and byte-weight code. The full series applies strictly, and
-startup/Debug/Release checks pass.
-Patch 0020 connects native whole-file request cleanup to read failure and
-shutdown; the implementation is a port adapter with opaque handles and explicit
-buffer ownership.
-Upstream's newly matching `Game/main.cpp` still needs its native dependencies;
+The current base is `4a9ab8151d9a74e321e52b36c95d1e157d41af60`, adopted from
+published `main` on 2026-10-03. The ordered patches are listed in
+[`mscharged-decomp/series`](mscharged-decomp/series).
+This update refreshes 0005, 0006, 0011, 0012, 0017, 0025 and 0031 for upstream
+declaration changes, named allocator fields and allocator helper extraction.
+The allocator uses the new shared helpers with native address widths, alignment
+and failure checks; startup
+and rendering extracts retain their behavior. The remaining patch hunks are
+unchanged, with all bases updated to the selected commit.
+
+Upstream now marks both `nlEvent.cpp` and `MemAlloc.cpp` matching. Patch 0038
+connects the original immediate event registry and listeners to native startup
+checks. Patches 0039–0040 add queued payload cleanup and the original dispatch
+task; the complete game task loop remains pending. Matching Wii code and a
+strictly applicable patch series do not establish a complete native game;
 see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-startup).
 
 | Patch | Reason | Current validation |
@@ -68,6 +70,22 @@ see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-start
 | `0030-connect-static-material-programs-to-aurora.patch` | Adapt four original material/render TUs to bounded native vertex arrays, Aurora FIFO calls and an explicit unlit preview context; retain original TEV recipes and safe quantized scrolling. | Twelve Vulkan pixel cases, owned static ball material and scrolling profile. Stadium lighting/shadows, other material programs and full scene dispatch remain pending. |
 | `0031-select-native-object-lighting-and-shadow-lookup.patch` | Select original object-light and static shadow calculations with verified missing constants, native matrix cache, bounded CI8/RGB5A3 lookup ownership and explicit palette byte order. | CPU input/tile/palette/filter/rollback checks and real Vulkan diffuse/specular/shadow results. Stadium/character/effect selection, skinned paths and dynamic shadow casters remain pending. |
 | `0032-enable-original-material-lighting-and-shadows.patch` | Enable the selected original materials' vertex/doubled/ramp lighting and projected-shadow branches, retaining per-material flags and scoped native view inputs. | Pixel comparisons for lighting/ramp/shadow modes, changed matrices and state restoration; synthetic disc shadow loading. Full original view/task dispatch remains pending. |
+| `0033-adapt-native-view-graph-and-packet-sorting.patch` | Keep original view traversal, layer/packet sorting and callback flags with complete native addresses, defined depth conversion, checked graph ownership and frame lifetimes. Select original projection/count helpers and slot pools. | Five sort modes, callback transitions, graph depth/cycles, expired frames, allocator recovery, sanitizer checks and real Vulkan view submission. |
+| `0034-check-native-render-target-ownership.patch` | Preserve original target naming/registry with fixed-width descriptions, generation-checked handles, rollback and ordered shutdown. Native adapters own target pools and Aurora copy-texture state. | Target reuse, texture-index exhaustion, all five copy formats, fresh targets after GPU cache eviction and repeated teardown. Full game view layers, dynamic shadow geometry and task startup remain pending. |
+| `0035-enable-native-shadow-material-and-mesh-writer.patch` | Preserve the original shadow material through bounded Aurora arrays/FIFO calls and explicit colour input. Replace the mesh builder's Wii field offset with a typed member; check frame mesh counts, writes, allocation failure and lifetime. | CPU bounds/ownership and sanitizer checks; real Vulkan volume accumulation, cancellation, depth occlusion and original mask blending using generated geometry. |
+| `0036-select-original-shadow-layers-and-volume-pass.patch` | Select original cameras, eleven shadow partitions, update scheduling and light-camera setup; connect the original volume attachment and blend pass with checked native ownership. | Atlas layout, update intervals, failure rollback, target reuse, half-size copies and pixel coverage. Original character/stadium geometry, full scene selection and task startup remain pending. |
+| `0037-select-native-model-copies-and-stadium-shadows.patch` | Select original model duplication with typed material sizes and bounded native records, retaining shared streams and independent packet/parameter storage. Extract original stadium shadow initialization/submission with explicit inputs. | Clone isolation, failure cleanup, indexed Vulkan shadow pixels and owned Vice geometry read from a checked compressed world bundle. Full world object loading and posed characters remain pending. |
+| `0038-adapt-native-event-ownership-and-lifetimes.patch` | Preserve full owner addresses and explicit flag masks; retain original registry/listener algorithms with checked initialization, callback transfer, deferred removal and scoped connection lifetimes. Separate the three-argument event template from Wii controller headers. | Dynamic/static/no-data/three-argument delivery, callback mutation/exceptions, allocation failure, 4,096 grouped listeners, repeated arena recovery and targeted sanitizers. Queued dispatch follows in 0039–0040. |
+| `0039-adapt-native-queued-event-lifetimes.patch` | Retain queued callback order and batch modes with checked counters, insertion and pool teardown. Cancel payloads before event destruction and retain caller ownership on rejected queues. | Delivery/cancellation, both destruction orders, callback/disposer exceptions, OOM, reentrancy, capacity and complete arena recovery. Full gameplay event ordering remains unverified. |
+| `0040-select-original-event-dispatch-task.patch` | Extract the existing default task transition hook from Team.cpp; select original dispatch task delivery with checked allocation, reset and separate final teardown. | Original Run/reset, reuse after reset, typed task destruction and startup against synthetic and owned Wii data. Complete task manager/frame/movie integration remains unselected. |
+| `0041-enable-native-specular-detail-blend.patch` | Select the original static detail/specular material and specular-light routines using bounded native arrays and typed FIFO calls. | Four independent texture/UV bindings, blend and lighting pixels, projected shadows, failure cleanup and owned static world models. Other stadium materials and complete world loading remain pending. |
+| `0042-select-native-task-scheduling.patch` | Select original task scheduling with checked borrowed ownership, exception teardown and explicit movie service boundaries. Preserve original priority/state/ticker behavior. | Registration order, masks, transitions, per-task clocks, dilation, lifetime and allocation failures, real scheduled event dispatch, inactive movies and rejected active playback. Complete frame tasks and movie decoding/audio remain pending. |
+| `0043-select-original-graphics-frame-lifecycle.patch` | Extract original begin/end/send/discard state with checked host frame ownership, drained memory reuse and failure cleanup. | Original state/counter order, repeated discards, scheduler-driven calls, Vulkan pixels, partial-render recovery and arena teardown. Full graphics startup and game frame tasks remain pending. |
+| `0044-adapt-native-configuration-and-strings.patch` | Retain original configuration parsing with native array/string ownership, checked capacities, copy-on-write ranges and owned asynchronous loads. | Typed values, failed replacements, cancellation/reentrancy, global lifetime, owned boot configuration and arena recovery. |
+| `0045-enable-native-scrolling-specular.patch` | Select the original two-texture scrolling specular material with native arrays, explicit preview time/view inputs and refreshed specular lights. | Signed UV conversion, clamp/repeat scrolling, lighting modes, highlights, projected shadows, alpha and cleanup pixels, plus owned Vice/Crater Field models. Complete world loading and task/frame integration remain pending. |
+| `0046-enable-native-camera-scrolled-overlay.patch` | Select the original position-generated overlay, lighting and shadow recipe with bounded native arrays and an explicit active-camera input. Reject non-finite texture matrices and reset registry state. | Camera movement, scale, three bindings, alpha/mask pixels, original wrap mutation, failure recovery and owned stadium models. Preview keeps authored coordinate scale; the original camera manager and complete world loading remain unselected. |
+| `0047-adapt-native-tweak-registration.patch` | Size native registry pools, preserve borrowed values and registration order, select existing value methods and bound parsing. | Pre-memory registration, typed values, repeated initialization, native bindings, static shutdown, and arena recovery. Dynamic state push/reset remains pending. |
+| `0048-select-original-frame-timing.patch` | Select original phase timing, history and histograms independently of debug drawing and gameplay predicates. | Original scheduler, tick rollover, 30-frame averages, both history wraps, conditional samples and arena recovery. |
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain
@@ -120,6 +138,11 @@ Release builds. Other callers retain Aurora's existing optimization flags.
 bind group, sampler, texture/view, and pipeline layout before device/window
 shutdown. Retained static references caused a Vulkan validation-layer crash
 at process exit in the initial desktop check.
+
+`0008-finish-frames-without-presentation.patch` closes discarded or failed host
+frames without acquiring or presenting a surface. Queued work and completion
+callbacks still finish; this does not roll back writes to the emulated framebuffer.
+The next successful frame redraws it. Existing callers retain normal presentation.
 
 ## Dawn series
 

@@ -44,13 +44,17 @@ class StartupTests(unittest.TestCase):
         self.assertIn("MEM2 game arena:", output)
         self.assertIn("reserved SDK heap initialized", output)
         self.assertIn("Original InitializeCore() and nlInit() completed", output)
+        self.assertIn("Original event registry, callback transfer, delivery, self-disconnect and state cleanup verified; both arenas recovered", output)
+        self.assertIn("Original DispatchEventsTask delivery, reset and queued payload cleanup verified; both arenas recovered", output)
+        self.assertIn("Original task manager scheduled DispatchEventsTask across state masks and batches; inactive movie path and arena recovery verified", output)
         self.assertIn("Native SAnim decoders verified: 16/12/8-bit rotations, unsigned scale and byte weights", output)
         self.assertIn("Original nlInitFileSystem completed; NL sync/async reads verified: /ini/common.ini", output)
         self.assertIn("34 of 34 bytes; FNV-1a 0x30853692", output)
         self.assertIn("callback on servicing thread", output)
         self.assertIn("Native NL whole-file async loads verified (bytes only): /ini/common.ini", output)
         self.assertIn("/ini/datetime.ini", output)
-        self.assertIn("Original INI parsing is not executed", output)
+        self.assertIn("Original boot configuration parsed through sync/async NL loading: 1 matching typed entries; both arenas recovered", output)
+        self.assertIn("Original tweak registry parsed datetime configuration: 1 values; borrowed values preserved and both arenas recovered", output)
         self.assertIn("STOPPED at unimplemented service: Initialize (remaining stages)", output)
         self.assertIn("No menu or match was reached", output)
         self.assertEqual(config.read_bytes(), before)
@@ -80,6 +84,24 @@ class StartupTests(unittest.TestCase):
         output = self.run_startup(self.config(game_id=b"R4QP01"), expected=1)
         self.assertIn("R4QE01 revision 1 only", output)
         self.assertNotIn("Entering original", output)
+
+    def test_invalid_original_configuration_fails_explicitly(self):
+        for common, datetime, message in [
+            (b"name=" + b"x" * 255, b"date=fixture\n", "Configuration line exceeds 254 bytes"),
+            (b"key=a\0b\n", b"date=fixture\n", "Configuration contains an embedded NUL"),
+            (b"key=7\n", b"", "Datetime tweak configuration contains no entries"),
+        ]:
+            with self.subTest(message=message):
+                config = self.config()
+                write_disc(self.root / "disc with spaces.iso", files={
+                    "ini/common.ini": common, "ini/datetime.ini": datetime,
+                })
+                output = self.run_startup(config, expected=1)
+                # The existing byte check rejects an empty boot INI before parsing.
+                if not datetime:
+                    self.assertIn("Boot INI is empty or exceeds the diagnostic limit", output)
+                else:
+                    self.assertIn(message, output)
 
     def test_other_revision_is_not_runtime_supported(self):
         config = self.config()

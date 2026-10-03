@@ -1,5 +1,12 @@
 // First real Wii static asset drawn through Aurora GX. This is not glStartup or a game scene.
 #include "runtime/scene.h"
+#include "runtime/views.h"
+#include "runtime/frames.h"
+#include "runtime/frame_timing.h"
+#include "runtime/shadows.h"
+#include "Game/Render/ShadowVolume.h"
+#include "resources/compressed_asset.h"
+#include "NL/glx/glxTarget.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
 #include "runtime/graphics_memory.h"
@@ -22,6 +29,7 @@
 #include "NL/nlFileGC.h"
 #include "NL/nlMemory.h"
 #include "NL/gl/glMemoryInit.h"
+#include "NL/gl/gl.h"
 #include "NL/gl/glModel.h"
 #include "NL/gl/glMatrix.h"
 #include "NL/gl/glState.h"
@@ -114,7 +122,7 @@ bool Update()
     return exit || SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_ESCAPE];
 }
 struct Bounds { std::array<float, 3> center{}; float radius = 0; };
-Bounds Normalize(resources::StaticModel& model)
+Bounds Normalize(resources::StaticModel& model, bool preserve_positions)
 {
     std::array<float, 3> low{1e7f, 1e7f, 1e7f}, high{-1e7f, -1e7f, -1e7f};
     for (const auto& packet : model.packets)
@@ -132,36 +140,37 @@ Bounds Normalize(resources::StaticModel& model)
         }
     if (!std::isfinite(bounds.radius) || bounds.radius < 1e-6f)
         throw std::runtime_error("Static model has degenerate bounds");
-    for (auto& packet : model.packets)
-        for (auto& vertex : packet.vertices)
-            for (unsigned i = 0; i < 3; ++i) vertex.position[i] = (vertex.position[i] - bounds.center[i]) / bounds.radius;
+    if (!preserve_positions)
+        for (auto& packet : model.packets)
+            for (auto& vertex : packet.vertices)
+                for (unsigned i = 0; i < 3; ++i) vertex.position[i] = (vertex.position[i] - bounds.center[i]) / bounds.radius;
     return bounds;
 }
 void InvalidateCaches() { GXInvalidateVtxCache(); GXInvalidateTexAll(); }
 void DrainGX() { AuroraGXSync(); }
-void Draw(glModel& model, float time, const GameLighting& lighting)
+nlVector3 SubmitModel(glModel& model, GLView& submitted, ViewMatrices& matrices, float time,
+                      const Bounds* authored_bounds)
 {
     GXSetCopyClear({24, 28, 34, 255}, GX_MAX_Z24);
-    GXSetViewport(0, 0, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight, 0, 1);
-    GXSetScissor(0, 0, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
-    nlMatrix4 projection, view, world;
-    glMatrixPerspective(projection, 40 * 3.1415927f / 180,
-        float(GXNtsc480IntDf.fbWidth) / GXNtsc480IntDf.efbHeight, 0.1f, 20);
-    glMatrixLookAt(view, {0, 0.3f, 4.2f}, {0, 0, 0}, {0, 1, 0});
-    nlMakeRotationMatrixY(world, time * 0.35f);
-    MaterialPreviewScope environment(view, time, lighting);
-    glModelSetMatrix(&model, world); // Original frame allocation and packet propagation.
-    Mtx44 gx_projection;
-    glxCopyMatrix(gx_projection, projection);
-    GXSetProjection(gx_projection, GX_PERSPECTIVE); GXSetCurrentMtx(GX_PNMTX0);
-    for (unsigned p = 0; p < model.numPackets; ++p)
+    const float radius = authored_bounds ? authored_bounds->radius : 1;
+    glMatrixPerspective(matrices.projection, 40 * 3.1415927f / 180,
+        float(GXNtsc480IntDf.fbWidth) / GXNtsc480IntDf.efbHeight, 0.1f * radius, 20 * radius);
+    nlVector3 camera{0, 0.3f, 4.2f}, center{0, 0, 0};
+    nlMatrix4 world;
+    if (authored_bounds)
     {
-        auto& packet = model.packets[p];
-        glSetCurrentMatrix(packet.matrix);
-        glSetCurrentRasterState(packet.rasterState);
-        DrawMaterial(packet);
+        // Position-generated UVs must retain the asset's coordinate scale.
+        // Orbit an explicit camera instead of rewriting vertex positions.
+        center = {authored_bounds->center[0], authored_bounds->center[1], authored_bounds->center[2]};
+        camera = {center.x + radius * 4.2f * std::sin(time * 0.35f),
+                  center.y + radius * 0.3f, center.z + radius * 4.2f * std::cos(time * 0.35f)};
+        world.SetIdentity();
     }
-    GXDrawDone();
+    else nlMakeRotationMatrixY(world, time * 0.35f);
+    glMatrixLookAt(matrices.view, camera, center, {0, 1, 0});
+    glModelSetMatrix(&model, world);
+    submitted.AttachModel(&model, 0);
+    return camera;
 }
 }
 
@@ -191,7 +200,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         log(std::string("mscharged ") + build::version + "; decomp " + MSCHARGED_DECOMP_REVISION);
         if (options.shadow_id.has_value() != options.shadow_textures.has_value())
             throw std::invalid_argument("Shadow preview requires both a texture bundle and an ID");
-        log("Static material preview: original object lighting and material programs. Stadium loading, dynamic shadows, animation and game scenes are pending.");
+        log("Static material and stadium shadow preview. Full world loading, character animation and game scenes are pending.");
         const auto data_path = PathUtf8(directory);
         AuroraConfig config{};
         config.appName = "Mario Strikers Charged | Static asset preview";
@@ -215,23 +224,56 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         InitializeOriginalGraphicsState();
         log("Original GL state and identity matrix initialized; native frame matrix handles and original NL camera math enabled.");
         log("Original InitializeCore completed; loading RLG/RLT through original NL whole-file async services.");
+        if (options.world && !options.model_id) throw std::invalid_argument("World preview needs an explicit model ID");
         PendingAsset model_data, texture_data;
-        model_data.Start(options.model); texture_data.Start(options.textures);
+        model_data.Start(options.world.value_or(options.model));
+        if (!options.world) texture_data.Start(options.textures);
         const auto load_start = std::chrono::steady_clock::now();
-        while (!model_data.done || !texture_data.done)
+        while (!model_data.done || (!options.world && !texture_data.done))
         {
             if (Update()) throw std::runtime_error("Static preview cancelled while loading");
             nlServiceFileSystem();
             if (std::chrono::steady_clock::now() - load_start > std::chrono::seconds(30)) throw std::runtime_error("Static asset load timed out");
             SDL_Delay(1);
         }
-        log(options.model + ": " + std::to_string(model_data.size) + " bytes; " + options.textures + ": " + std::to_string(texture_data.size) + " bytes.");
-        auto models = resources::ReadStaticModels(model_data.Bytes()); auto textures = resources::ReadTextureBundle(texture_data.Bytes());
+        std::vector<resources::StaticModel> models;
+        std::vector<resources::Texture> textures;
+        if (options.world)
+        {
+            auto decoded = resources::InflateAsset(model_data.Bytes());
+            auto selected = resources::ReadStaticWorldModel(decoded, *options.model_id);
+            std::vector<std::uint32_t> required;
+            for (const auto& packet : selected.model.packets)
+                for (unsigned i = 0; i < (packet.material.program == 0x112ab470 ? 4u
+                    : (packet.material.program == 0x32475c7d || packet.material.program == 0x32bc21e8) ? 3u
+                    : packet.material.program == 0x3eccd955 ? 2u : 1u); ++i)
+                    if (std::find(required.begin(), required.end(), packet.material.textures[i].texture) == required.end())
+                        required.push_back(packet.material.textures[i].texture);
+            textures = resources::ReadTextureBundle(selected.textures, required);
+            models.push_back(std::move(selected.model));
+            log(*options.world + ": " + std::to_string(model_data.size) + " compressed bytes -> "
+                + std::to_string(decoded.size()) + " checked world bytes; one explicit model selected.");
+        }
+        else
+        {
+            log(options.model + ": " + std::to_string(model_data.size) + " bytes; " + options.textures + ": " + std::to_string(texture_data.size) + " bytes.");
+            models = resources::ReadStaticModels(model_data.Bytes(), options.model_id);
+            textures = resources::ReadTextureBundle(texture_data.Bytes());
+        }
         model_data.data.reset(); texture_data.data.reset();
         auto selected = models.begin();
         if (options.model_id) selected = std::find_if(models.begin(), models.end(), [&](const auto& model) { return model.id == *options.model_id; });
         if (selected == models.end()) throw std::runtime_error("Requested model ID is absent from the RLG collection");
-        const auto bounds = Normalize(*selected);
+        const auto shadow_packets = std::count_if(selected->packets.begin(), selected->packets.end(),
+            [](const auto& p) { return p.material.program == 0x386ecbdd; });
+        const bool volume_preview = shadow_packets != 0;
+        if (volume_preview && shadow_packets != selected->packets.size())
+            throw std::invalid_argument("Mixed shadow-volume and ordinary packets need original world selection");
+        if (volume_preview && (options.unlit || options.shadow_id))
+            throw std::invalid_argument("Object lighting and projected lookup options do not apply to shadow volumes");
+        const bool camera_overlay = std::any_of(selected->packets.begin(), selected->packets.end(),
+            [](const auto& p) { return p.material.program == 0x32bc21e8; });
+        const auto bounds = Normalize(*selected, camera_overlay);
         const auto selected_id = selected->id;
         std::size_t vertices = 0, indices = 0;
         for (const auto& packet : selected->packets)
@@ -288,6 +330,21 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         }
         // Install only the selected model and its material dependencies.
         auto chosen = std::move(*selected); models.clear(); models.push_back(std::move(chosen));
+        constexpr std::uint32_t receiver_id = 0xfffffffe;
+        if (volume_preview)
+        {
+            if (selected_id == receiver_id || std::any_of(textures.begin(), textures.end(), [](const auto& t) { return t.id == receiver_id; }))
+                throw std::runtime_error("Diagnostic receiver ID conflicts with the selected asset");
+            resources::Texture receiver;
+            receiver.id=receiver_id; receiver.width=receiver.height=4; receiver.levels=1;
+            receiver.game_format=3; receiver.gx_format=6; receiver.bits={8,8,8,0}; receiver.pixels.assign(64,200);
+            for(unsigned i=0;i<16;++i) receiver.pixels[i*2]=255;
+            textures.push_back(std::move(receiver));
+            resources::Packet plane; plane.primitive=0; plane.material.program=0x21db4385;
+            plane.material.textures[0]={receiver_id,3}; plane.raster=0xc0007;
+            plane.vertices={{{-1.5f,-1.5f,0},{0,0}},{{1.5f,-1.5f,0},{1,0}},{{1.5f,1.5f,0},{1,1}},{{-1.5f,1.5f,0},{0,1}}};
+            plane.indices={0,1,2,0,2,3}; models.push_back({receiver_id,{std::move(plane)}});
+        }
         VIInit(); VIConfigure(&GXNtsc480IntDf);
         alignas(32) std::array<std::uint8_t, 65536> fifo{}; GXInit(fifo.data(), fifo.size());
         session.gx = true;
@@ -306,25 +363,73 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             lighting.shadow.lookup = &shadow_lookup;
             log("Loaded original projected-shadow lookup: " + std::to_string(shadow_lookup.mWidth) + "x" + std::to_string(shadow_lookup.mHeight) + ".");
         }
-        log(options.unlit ? "Unlit comparison selected." : "Original key/fill object-light defaults and ambient colour enabled; material lighting flags are preserved.");
+        if (!volume_preview)
+            log(options.unlit ? "Unlit comparison selected." : "Original key/fill object-light defaults and ambient colour enabled; material lighting flags are preserved.");
         auto* native_model = inventory.Model(selected_id);
         if (!native_model) throw std::runtime_error("Selected model is missing from original GLInventory");
         log("Checked RLG/RLT data installed as pool-owned native glModel/PlatTexture records; drawing original material Activate/Draw/Deactivate and TEV shader recipes through Aurora.");
+        ViewMatrices view_matrices;
+        OriginalViews views(GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight, DrainGX);
+        AuroraFrames backend;
+        OriginalFrames lifecycle(backend);
+        FrameCounter timing("frame", "send");
+        GLView* submitted = nullptr;
+        RLViewCamera shadow_camera;
+        std::unique_ptr<ShadowLayers> shadow_layers;
+        std::unique_ptr<StadiumShadowVolume> shadow_drawable;
+        if (volume_preview)
+        {
+            shadow_layers = std::make_unique<ShadowLayers>(shadow_camera);
+            shadow_drawable = std::make_unique<StadiumShadowVolume>(*native_model);
+            glGetBackBufferTarget().target->mClearColour={200,200,200,0};
+            log("Original stadium shadow model duplicated and submitted through volume/add/subtract/blend passes. Receiver is diagnostic geometry; full world loading is pending.");
+        }
+        else
+        {
+            auto child = std::make_unique<GLView>(&view_matrices, GLRenderPair{}, GLViewSort_Texture);
+            child->m_Name = "Static model";
+            gRootView.AddChild(child.get());
+            submitted = child.release(); // Ownership transfers after the list node is allocated.
+        }
+        log("Original GLView graph, packet sorting and callback flags connected to Aurora; native target registry initialized.");
+        log("Original graphics begin/end/send lifecycle connected; host work drains before frame memory reuse.");
+        bool volume_enabled = true;
+        float receiver_height = 0;
         // Render only game-pool records from here; discard host decoder storage.
         models.clear(); models.shrink_to_fit(); textures.clear(); textures.shrink_to_fit();
-        unsigned frames = 0, draws = 0, depth_hits = 0, colour_hits = 0;
+        unsigned frames = 0, draws = 0, depth_hits = 0, colour_hits = 0, shadow_hits = 0;
         const auto start = std::chrono::steady_clock::now();
         while (!options.frames || frames < options.frames)
         {
             if (Update()) break;
             nlServiceFileSystem();
             if (options.frames && std::chrono::steady_clock::now() - start > std::chrono::seconds(30)) throw std::runtime_error("Static preview frame deadline exceeded");
-            if (!aurora_begin_frame()) { SDL_Delay(1); continue; }
-            glplatFrameAllocNextFrame();
+            if (!lifecycle.Acquire()) { SDL_Delay(1); continue; }
+            glBeginFrame();
+            timing.StartTimer(0);
             const float elapsed = float(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
             auto frame_lighting = lighting;
             if (!shadows_enabled) frame_lighting.shadow = {};
-            Draw(*native_model, elapsed, frame_lighting);
+            backend.time = elapsed;
+            backend.lighting = volume_preview ? GameLighting{} : frame_lighting;
+            backend.camera_position.reset();
+            if (volume_preview)
+            {
+                GXSetPixelFmt(GX_PF_RGBA6_Z24, GX_ZC_LINEAR);
+                GXSetCopyClear({200,200,200,0}, GX_MAX_Z24);
+                nlMatrix4 view, projection, identity, receiver; identity.SetIdentity(); receiver.SetIdentity();
+                glMatrixPerspective(projection, 40 * 3.1415927f / 180, 4.0f/3.0f, .1f, 20);
+                glMatrixLookAt(view, {0,0,4.2f}, {0,0,0}, {0,1,0});
+                shadow_camera.Set(view, projection);
+                shadow_layers->ResetPartitions();
+                receiver.m43=receiver_height;
+                auto* ground=inventory.Model(receiver_id); glModelSetMatrix(ground, receiver);
+                shadow_layers->Layer(eCLV_Shadowed).AttachModel(ground, 0);
+                if (volume_enabled) shadow_drawable->Draw(identity);
+                RenderShadowVolumeBlend(&shadow_layers->Layer(eCLV_ShadowVolumeBlend));
+            }
+            else backend.camera_position = SubmitModel(*native_model, *submitted, view_matrices, elapsed,
+                                                       camera_overlay ? &bounds : nullptr);
             // Read actual EFB depth, before the ImGui overlay, to require visible geometry.
             // Aurora returns the latest asynchronous snapshot, and returns zero
             // before one is available. Require perspective depth near our camera
@@ -342,28 +447,44 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             ImGui::SetNextWindowBgAlpha(0.82f);
             ImGui::Begin("Static asset preview", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
             ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
-            ImGui::TextUnformatted("Original GL matrices, state, memory and static inventory.");
-            ImGui::Checkbox("Object lighting", &lighting.enabled);
+            if (volume_preview)
+            {
+                ImGui::TextUnformatted("Original stadium shadow mesh / diagnostic receiver");
+                ImGui::Checkbox("Shadow volume", &volume_enabled);
+                ImGui::SliderFloat("Receiver height", &receiver_height, -.8f, .8f);
+            }
+            else ImGui::Checkbox("Object lighting", &lighting.enabled);
             if (options.shadow_id)
             {
                 ImGui::Checkbox("Projected shadow lookup", &shadows_enabled);
                 ImGui::SliderFloat2("Shadow scale", lighting.shadow.scale.data(), 0.001f, 2.0f);
                 ImGui::SliderFloat2("Shadow offset", lighting.shadow.translation.data(), -1, 1);
             }
-            ImGui::TextUnformatted("Stadium scenes, dynamic shadows and animation are pending.");
+            ImGui::TextUnformatted("Full stadium scenes and character animation are pending.");
             ImGui::TextUnformatted("Escape or close the window to exit."); ImGui::End();
-            if ((!colour_hits && frames % 15 == 14) || (options.frames && frames + 1 == options.frames))
+            backend.read_colours = (!colour_hits && frames % 15 == 14) || (options.frames && frames + 1 == options.frames);
+            glEndFrame();
+            timing.StartTimer(1);
+            glSendFrame();
+            timing.FinishTiming();
+            if (backend.read_colours)
             {
-                const auto colours=EndFrameAndReadColours();
+                const auto& colours=backend.colours;
                 if (aurora_get_stats()->drawCallCount)
                     for (const auto& c : colours)
-                        if (std::abs(int(c[0])-24)>3 || std::abs(int(c[1])-28)>3 || std::abs(int(c[2])-34)>3) ++colour_hits;
+                    {
+                        const int r=volume_preview?200:24, g=volume_preview?200:28, b=volume_preview?200:34;
+                        if (std::abs(int(c[0])-r)>3 || std::abs(int(c[1])-g)>3 || std::abs(int(c[2])-b)>3) ++colour_hits;
+                        if (volume_preview && std::abs(int(c[0])-78)<=4 && std::abs(int(c[1])-78)<=4
+                            && std::abs(int(c[2])-78)<=4) ++shadow_hits;
+                    }
             }
-            else aurora_end_frame();
             draws += aurora_get_stats()->drawCallCount; ++frames;
         }
         // Explicitly stop services while CPU texture storage and frame FIFO still exist.
-        inventory.Release(); materials.Release(); glShutdownMemory();
+        if (glGetCurrentFrame() != static_cast<int>(frames))
+            throw std::runtime_error("Original graphics frame counter diverged from submitted frames");
+        lifecycle.Release(); views.Release(); shadow_drawable.reset(); shadow_layers.reset(); inventory.Release(); materials.Release(); glShutdownMemory();
         if (StandardAllocator.TotalFreeMemory() != mem1_free || VirtualAllocator.TotalFreeMemory() != mem2_free)
             throw std::runtime_error("Graphics shutdown did not recover both original game arenas");
         log("Original graphics shutdown recovered both game arenas.");
@@ -373,6 +494,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             throw std::runtime_error("Static preview incomplete: frames=" + std::to_string(frames) + ", draws=" + std::to_string(draws)
                 + ", depth hits=" + std::to_string(depth_hits) + ", colour hits=" + std::to_string(colour_hits) + ", backend errors=" + std::to_string(backend_errors.load()));
         log("Static preview rendered: " + std::to_string(frames) + " frames, " + std::to_string(draws) + " GX draw calls, " + std::to_string(depth_hits) + " geometry depth samples, " + std::to_string(colour_hits) + " visible colour samples. No game scene or gameplay was started.");
+        if (volume_preview) log("Original stadium shadow blend samples: " + std::to_string(shadow_hits) + ".");
         return 0;
     }
     catch (const std::exception& error) { log(std::string("FAILED: ") + error.what()); return 1; }

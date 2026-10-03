@@ -1,0 +1,70 @@
+Subject: Allow host frames to finish without presentation
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Provide an explicit non-presenting end operation for discarded/failed game
+frames. Retain FIFO draining, resource submission, completion callbacks, ImGui
+frame closure and staging-slot recovery, while skipping surface acquisition and
+presentation. This finishes queued work; it is not a rollback of EFB writes.
+Existing aurora_end_frame callers retain their behavior.
+
+diff --git a/include/aurora/aurora.h b/include/aurora/aurora.h
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -132,6 +132,9 @@
+ const AuroraEvent* aurora_update();
+ bool aurora_begin_frame();
+ void aurora_end_frame();
++// Finish queued rendering and callbacks, but do not acquire/present a surface.
++// Pair with a successful aurora_begin_frame for discarded or failed host frames.
++void aurora_end_frame_no_present();
+ 
+ void aurora_set_log_level(AuroraLogLevel level);
+ void aurora_set_pause_on_focus_lost(bool value);
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -264,7 +264,7 @@
+   return true;
+ }
+ 
+-void end_frame() noexcept {
++void end_frame(bool present = true) noexcept {
+   ZoneScoped;
+ #ifdef AURORA_ENABLE_GX
+   gx::fifo::drain();
+@@ -288,7 +288,7 @@
+   }
+ #endif
+ 
+-  gfx::end_frame([rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport,
++  gfx::end_frame([present, rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport,
+                   imguiDrawData = std::move(imguiDrawData)](
+                      wgpu::CommandEncoder& encoder, std::vector<gfx::AfterSubmitCallback> afterSubmitCallbacks) {
+     wgpu::Texture currentTexture;
+@@ -296,7 +296,7 @@
+     auto surfaceStatus = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock surfaceLock;
+-      if (window::is_presentable() && g_surface) {
++      if (present && window::is_presentable() && g_surface) {
+         ZoneScopedN("Acquire texture");
+         wgpu::SurfaceTexture surfaceTexture;
+         g_surface.GetCurrentTexture(&surfaceTexture);
+@@ -392,7 +392,7 @@
+         Log.warn("Surface present failed");
+         webgpu::release_surface();
+       }
+-    } else if (g_surface) {
++    } else if (present && g_surface) {
+       switch (surfaceStatus) {
+       case wgpu::SurfaceGetCurrentTextureStatus::Timeout:
+         Log.warn("Surface texture acquisition timed out");
+@@ -457,6 +457,7 @@
+ const AuroraEvent* aurora_update() { return aurora::update(); }
+ bool aurora_begin_frame() { return aurora::begin_frame(); }
+ void aurora_end_frame() { aurora::end_frame(); }
++void aurora_end_frame_no_present() { aurora::end_frame(false); }
+ SDL_Window* aurora_get_window() { return aurora::window::get_sdl_window(); }
+ AuroraWindowSize aurora_get_window_size() {
+   return aurora::window::get_sdl_window() != nullptr ? aurora::window::get_window_size() : AuroraWindowSize{};

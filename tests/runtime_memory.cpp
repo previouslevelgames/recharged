@@ -60,8 +60,8 @@ int main(int argc, char** argv)
             Require(probe && reinterpret_cast<std::uintptr_t>(probe)%256 == 0, "MEM2 arena alignment failed");
             OSSetMEM2ArenaLo(reinterpret_cast<void*>(low));
             nlInitMemory(); // Actual original platform memory setup, without the later GX stage.
-            Require(gMemoryInitialized && StandardAllocator.m_0C && VirtualAllocator.m_0C, "Original allocators did not initialize");
-            Require(VirtualAllocator.m_08 == mem2-(mem2 == 128u*1024*1024 ? 64u*1024*1024 : 8192),
+            Require(gMemoryInitialized && StandardAllocator.m_memory && VirtualAllocator.m_memory, "Original allocators did not initialize");
+            Require(VirtualAllocator.m_memory_size == mem2-(mem2 == 128u*1024*1024 ? 64u*1024*1024 : 8192),
                     "Original MEM2 reserve branch changed");
             const auto std_free = StandardAllocator.TotalFreeMemory();
             const auto virtual_free = VirtualAllocator.TotalFreeMemory();

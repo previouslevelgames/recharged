@@ -1,0 +1,275 @@
+Subject: Adapt original queued dispatch and payload lifetimes
+
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Retain original callback order and one-batch/full-drain modes with native
+counter widths, transactional callback insertion, exception/cancellation cleanup,
+and destruction before slot-pool release. Native event tokens cancel pending
+payloads before event destruction and reject a destroyed dispatcher. Rejected
+Queue calls retain caller payload ownership. Original callbacks remain game-owned.
+Runtime helpers implement checked bounds and exactly-once disposal in src/.
+Full game task/frame wiring and pre-main event construction remain unselected.
+
+diff --git a/include/Game/Event.h b/include/Game/Event.h
+index 9743f22..3b59ca8 100644
+--- a/include/Game/Event.h
++++ b/include/Game/Event.h
+@@ -433,10 +433,22 @@ public:
+         EventDispatcher* dispatcher, const char* name, int length)
+         : UnidentifiedEvent<T>(name, length)
+         , mDispatcher(dispatcher)
++#ifdef MSCHARGED_NATIVE
++        , mNativeQueue(mscharged::CreateQueuedEventLifetime(dispatcher, this))
++#endif
+     {
+     }
+ 
+-    virtual ~UnidentifiedQueuedEventBase() { }
++    virtual ~UnidentifiedQueuedEventBase()
++    {
++#ifdef MSCHARGED_NATIVE
++        this->NativeCheckDestruction();
++        mscharged::CloseQueuedEvent(mNativeQueue);
++#endif
++    }
++#ifdef MSCHARGED_NATIVE
++    void CancelPending() { mscharged::CancelQueuedEvent(mNativeQueue, false); }
++#endif
+ 
+     typedef typename UnidentifiedEvent<T>::Callback Callback;
+ 
+@@ -448,6 +460,10 @@ public:
+ 
+     void Dispatch(T* data, Function<T*> disposer, unsigned char deliver)
+     {
++#ifdef MSCHARGED_NATIVE
++            mscharged::InvokeQueuedPayload([&] { if (deliver) this->Deliver(data); },
++                [&] { if (disposer) disposer(data); });
++#else
+         if (deliver)
+         {
+             this->Deliver(data);
+@@ -457,10 +473,15 @@ public:
+         {
+             disposer(data);
+         }
++#endif
+     }
+ 
+     void Dispatch(Callback disposer, unsigned char deliver)
+     {
++#ifdef MSCHARGED_NATIVE
++            mscharged::InvokeQueuedPayload([&] { if (deliver) this->Deliver(); },
++                [&] { if (disposer) disposer(); });
++#else
+         if (deliver)
+         {
+             this->Deliver();
+@@ -470,10 +491,14 @@ public:
+         {
+             disposer();
+         }
++#endif
+     }
+ 
+ protected:
+     EventDispatcher* mDispatcher;
++#ifdef MSCHARGED_NATIVE
++    std::shared_ptr<mscharged::QueuedEventLifetime> mNativeQueue;
++#endif
+ };
+ 
+ template <typename T>
+@@ -497,23 +522,35 @@ public:
+ template <typename T>
+ void UnidentifiedQueuedEvent<T>::Queue(T* data, const Function<T*>& disposer)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::QueueNativeEvent(this->mNativeQueue, this->mDispatcher,
++        [data](void* target) { static_cast<UnidentifiedQueuedEventBase<T>*>(target)->Deliver(data); },
++        [data, disposer] { if (disposer) disposer(data); });
++#else
+     typedef void (UnidentifiedQueuedEventBase<T>::*DispatchFunction)(
+         T*, Function<T*>, unsigned char);
+     Function<bool> callback(
+         Bind<void>(MemFun((DispatchFunction)&UnidentifiedQueuedEventBase<T>::Dispatch),
+             this, data, disposer, placeholder0));
+     this->mDispatcher->Add(callback);
++#endif
+ }
+ 
+ template <typename T>
+ void UnidentifiedQueuedEvent<T>::Queue(const Callback& disposer)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::QueueNativeEvent(this->mNativeQueue, this->mDispatcher,
++        [](void* target) { static_cast<UnidentifiedQueuedEventBase<T>*>(target)->Deliver(); },
++        [disposer] { if (disposer) disposer(); });
++#else
+     typedef void (UnidentifiedQueuedEventBase<T>::*DispatchFunction)(
+         Callback, unsigned char);
+     Function<bool> callback(
+         Bind<void>(MemFun((DispatchFunction)&UnidentifiedQueuedEventBase<T>::Dispatch),
+             this, disposer, placeholder0));
+     this->mDispatcher->Add(callback);
++#endif
+ }
+ 
+ #endif // GAME_EVENT_H
+diff --git a/include/Game/EventDispatcher.inl b/include/Game/EventDispatcher.inl
+index e343f00..8a9f62a 100644
+--- a/include/Game/EventDispatcher.inl
++++ b/include/Game/EventDispatcher.inl
+@@ -22,19 +22,30 @@ struct UnidentifiedDispatcherInlineScope
+ 
+ inline EventDispatcher::~EventDispatcher()
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::CloseDispatcher(*this);
++#else
+     BasicSlotPool<DLListEntry<EventCallback> >* pool = &callbacks.m_Allocator;
+     pool->FreeBlocks();
++#endif
+ }
+ 
+ inline void EventDispatcher::FreeBlocks()
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::FreeDispatcherBlocks(*this);
++#else
+     BasicSlotPool<DLListEntry<EventCallback> >* pool = &callbacks.m_Allocator;
+     pool->FreeBlocks();
++#endif
+ }
+ 
+ template <typename T>
+ void EventDispatcherBase<T>::Dispatch(bool flag)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::DispatchQueuedCallbacks(*this, flag);
++#else
+     state.fields.dispatching = 1;
+     int count;
+     do
+@@ -57,11 +68,15 @@ void EventDispatcherBase<T>::Dispatch(bool flag)
+ 
+     state.fields.dispatching = 0;
+     state.fields.stopDispatch = 0;
++#endif
+ }
+ 
+ template <typename T>
+ void EventDispatcherBase<T>::Clear()
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::ClearDispatcher(*this);
++#else
+     if (!state.fields.dispatching)
+     {
+         nlDLListIterator<T> iterator = callbacks.Begin();
+@@ -74,13 +89,18 @@ void EventDispatcherBase<T>::Clear()
+         callbacks.Clear();
+         state.fields.callbackCount = 0;
+     }
++#endif
+ }
+ 
+ template <typename T>
+ void EventDispatcherBase<T>::Add(const T& callback)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::AddDispatcherCallback(*this, callback);
++#else
+     callbacks.AddEnd(callback);
+     state.fields.callbackCount++;
++#endif
+ }
+ 
+ #endif // GAME_EVENT_DISPATCHER_INL
+diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/DispatchEventsTask.h
+index 728fea1..5b6144d 100644
+--- a/include/Game/Task/DispatchEventsTask.h
++++ b/include/Game/Task/DispatchEventsTask.h
+@@ -9,7 +9,16 @@
+ #include "NL/nlTask.h"
+ 
+ typedef Function<bool> EventCallback;
++#ifdef MSCHARGED_NATIVE
++#include "runtime/event_queue.h"
++#endif
+ 
++#ifdef MSCHARGED_NATIVE
++struct EventDispatcherState
++{
++    struct { bool dispatching = false; bool stopDispatch = false; u32 callbackCount = 0; } fields;
++};
++#else
+ union EventDispatcherState
+ {
+     struct
+@@ -27,6 +36,8 @@ union EventDispatcherState
+     }
+ };
+ 
++#endif
++
+ // A class template: retail compiles Dispatch, Clear and Add after the vtables
+ // of the unit that instantiates them (in Game/Task/FixedUpdateTask.cpp the
+ // pointer-to-member constant of Clear, 0x80507D20, follows all four), which
+@@ -36,9 +47,14 @@ template <typename T>
+ class EventDispatcherBase
+ {
+ public:
++    typedef T Callback;
++
+     EventDispatcherBase()
+         : callbacks(16, 16)
+         , state()
++#ifdef MSCHARGED_NATIVE
++        , mNativeLifetime(mscharged::CreateDispatcherLifetime())
++#endif
+     {
+     }
+ 
+@@ -46,11 +62,21 @@ public:
+     virtual void Clear();
+     virtual ~EventDispatcherBase()
+     {
++#ifdef MSCHARGED_NATIVE
++            mscharged::CloseDispatcher(*this);
++#endif
+     }
+     virtual void Add(const T&);
+ 
+     DLListContainerBase<T, SlotPool<DLListEntry<T> > > callbacks;
+     EventDispatcherState state;
++#ifdef MSCHARGED_NATIVE
++    EventDispatcherBase(const EventDispatcherBase&) = delete;
++    EventDispatcherBase& operator=(const EventDispatcherBase&) = delete;
++    std::shared_ptr<mscharged::DispatcherLifetime> mNativeLifetime;
++    bool mNativeClearing = false;
++    bool mNativeClosing = false;
++#endif
+ };
+ 
+ class EventDispatcher : public EventDispatcherBase<EventCallback>
+diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
+index 3dfb150..e317175 100644
+--- a/src/NL/nlEvent.cpp
++++ b/src/NL/nlEvent.cpp
+@@ -10,6 +10,7 @@
+ #include "NL/nlString.h"
+ #ifdef MSCHARGED_NATIVE
+ #include <thread>
++#include "runtime/event_queue.h"
+ #endif
+ 
+ typedef EventConnection* ConnectionKey;
+@@ -102,6 +103,7 @@ void ShutdownNativeEventRegistry()
+         throw std::logic_error("Destroy events and pop their states before shutdown");
+     for (unsigned int count : sConnections)
+         if (count) throw std::logic_error("Event connections survived shutdown");
++    mscharged::RequireEventQueuesShutdown();
+     DropEmptyEventGroups();
+     if (sConnectionGroups.m_Root) throw std::logic_error("Event groups survived shutdown");
+     g_pEventRegistry->~EventRegistry();

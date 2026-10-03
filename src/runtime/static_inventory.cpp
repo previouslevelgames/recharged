@@ -62,7 +62,10 @@ void Model(GLResourcePool& pool, const resources::StaticModel& input)
         packet.numUniqueVertices = static_cast<u16>(input_packet.vertices.size());
         packet.primType = input_packet.primitive;
         const auto id = input_packet.material.program;
-        const std::vector<unsigned> layout = id == 0x32475c7d ? std::vector<unsigned>{1,2,4,4,4,3}
+        const std::vector<unsigned> layout = id == 0x386ecbdd ? std::vector<unsigned>{1,3,4}
+            : id == 0x112ab470 ? std::vector<unsigned>{1,2,4,4,4,4,3}
+            : (id == 0x32475c7d || id == 0x32bc21e8) ? std::vector<unsigned>{1,2,4,4,4,3}
+            : id == 0x3eccd955 ? std::vector<unsigned>{1,2,4,4,3}
             : id == 0x2169db5c ? std::vector<unsigned>{1,2,4,3}
             : id == 0xd3e572da ? std::vector<unsigned>{1,4,3} : std::vector<unsigned>{1,4};
         packet.numStreams = layout.size();
@@ -87,7 +90,8 @@ void Model(GLResourcePool& pool, const resources::StaticModel& input)
                 const auto& v = input_packet.vertices[i];
                 const void* data = output.id == 1 ? static_cast<const void*>(v.position.data())
                     : output.id == 2 ? v.normal.data() : output.id == 3 ? static_cast<const void*>(v.colour.data())
-                    : coordinate == 0 ? v.uv.data() : coordinate == 1 ? v.uv1.data() : v.uv2.data();
+                    : coordinate == 0 ? v.uv.data() : coordinate == 1 ? v.uv1.data()
+                    : coordinate == 2 ? v.uv2.data() : v.uv3.data();
                 std::memcpy(bytes + i * output.stride, data, output.stride);
             }
             if (output.id == 4) ++coordinate;

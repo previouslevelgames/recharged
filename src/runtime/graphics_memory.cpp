@@ -5,6 +5,9 @@
 namespace mscharged
 {
 namespace { GraphicsCacheInvalidator cache_invalidator = nullptr; }
+namespace { void (*shutdown_views)() = nullptr; }
+void SetGraphicsViewShutdown(void (*shutdown)()) { shutdown_views = shutdown; }
+void ShutdownGraphicsViews() { if (shutdown_views) shutdown_views(); }
 void SetGraphicsCacheInvalidator(GraphicsCacheInvalidator invalidator)
 { cache_invalidator = invalidator; }
 

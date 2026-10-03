@@ -1,6 +1,6 @@
 Subject: Route explicit native game allocations by owned arena
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Compile the original nlMalloc/nlFree layer with allocator ownership checks instead
 of console address-nibble tests. Host global new/delete remain standard so SDL,
@@ -21,9 +21,9 @@ index 0435be1..32fb999 100644
 +#include <stdexcept>
 +static bool OwnsRegion(const MemoryAllocator& allocator, const void* pointer)
 +{
-+    const uintptr_t base = (uintptr_t)allocator.m_0C;
++    const uintptr_t base = (uintptr_t)allocator.m_memory;
 +    const uintptr_t address = (uintptr_t)pointer;
-+    return base != 0 && address >= base && address - base < allocator.m_08;
++    return base != 0 && address >= base && address - base < allocator.m_memory_size;
 +}
 +#endif
  

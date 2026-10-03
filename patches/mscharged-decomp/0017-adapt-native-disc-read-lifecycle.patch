@@ -1,6 +1,6 @@
 Subject: Make original disc reads and asynchronous lifecycle safe on hosts
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Retain the console branches and original NL API while adapting native reads to
 Aurora's threaded DVD service. Keep callback state pointer-sized, reserve both
@@ -53,12 +53,17 @@ explicitly; advanced whole-file async and decompression are not in this subset.
  bool nlAsyncReadsPending(nlFile* file);
  void nlSeek(nlFile* file, unsigned int offset, unsigned long origin);
  void* nlLoadEntireHostFile(const char* fileName, unsigned long* outSize,
-@@ -17,6 +21,6 @@
+@@ -17,11 +21,11 @@
  
  bool nlAsyncReadBusy(AsyncEntry* entry);
  bool nlCancelAsyncRead(AsyncEntry* entry,
 -    void (*callback)(nlFile*, void*, unsigned int, unsigned long, void (*)(nlFile*, void*, unsigned int, unsigned long)));
 +    void (*callback)(nlFile*, void*, unsigned int, nlFileAsyncParam, void (*)(nlFile*, void*, unsigned int, nlFileAsyncParam)));
+ 
+ void nlRegHandleDVDMessageCB(const Function<void(int)>& cb);
+ void nlRegHandleDVDAllClearCB(const Function<void(int)>& cb);
+ void nlRegHandleDVDRetryingCB(const Function<void(int)>& cb);
+ void nlRegCheckForResetFromFSCB(const Function<FnVoidVoid>& cb);
  
  #endif // NL_FILE_GC_H
 --- a/include/NL/nlArrayAllocator.h

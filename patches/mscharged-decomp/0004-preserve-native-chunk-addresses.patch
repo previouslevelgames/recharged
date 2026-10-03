@@ -1,6 +1,6 @@
 Subject: Align chunk addresses without truncating native pointers
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Native main.cpp includes inline chunk traversal. Keep addresses pointer-sized
 while retaining 32-bit file fields. Bounds/endian validation belongs in loaders;

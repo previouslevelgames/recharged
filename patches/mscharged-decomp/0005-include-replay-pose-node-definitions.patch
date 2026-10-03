@@ -1,6 +1,6 @@
 Subject: Include concrete pose nodes before replay template bodies
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Replay template bodies construct and convert concrete pose nodes. Native
 compilers require their complete definitions here. No replay behavior changes.
@@ -9,9 +9,10 @@ diff --git a/include/Game/Drawable/DrawableCharacter.h b/include/Game/Drawable/D
 index 52a6bf2..e3e6090 100644
 --- a/include/Game/Drawable/DrawableCharacter.h
 +++ b/include/Game/Drawable/DrawableCharacter.h
-@@ -4,6 +4,11 @@
+@@ -4,7 +4,12 @@
  #include "Game/CharacterEffects.h"
  #include "Game/CharacterQueries.h"
+ #include "NL/nlDebug.h"
  #include "NL/nlMath.h"
 +#include "Game/Replay.h"
 +#include "Game/SAnim/pnBlender.h"

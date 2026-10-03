@@ -1,6 +1,10 @@
 #include "runtime/startup.h"
 #include "runtime/startup_animation.h"
 #include "runtime/startup_files.h"
+#include "runtime/events.h"
+#include "runtime/tasks.h"
+#include "runtime/game_config.h"
+#include "runtime/tweaks.h"
 #include "bootstrap/config.h"
 #include "platform/disc.h"
 #include "platform/path.h"
@@ -97,9 +101,14 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
         log("Entering original InitializeCore() -> nlInit() -> nlInitMemory().");
         InitializeCore();
         log("Original InitializeCore() and nlInit() completed.");
+        log(VerifyStartupEvents());
+        log(VerifyStartupQueuedEvents());
+        log(VerifyStartupTaskScheduler());
         VerifyStartupFileReads();
         log(VerifyStartupAnimationDecoders());
         log(VerifyStartupWholeFileLoads());
+        log(VerifyStartupConfig());
+        log(VerifyStartupTweaks());
         // Until the remaining main.cpp initialization can be linked, do not
         // manufacture a game loop if this prefix becomes fully implemented.
         MissingStartupService("Initialize (remaining stages)",

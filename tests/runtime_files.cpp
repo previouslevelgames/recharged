@@ -1,5 +1,6 @@
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
+#include "runtime/game_config.h"
 #include "platform/path.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
@@ -757,6 +758,58 @@ int main(int argc, char** argv)
         std::cout << mscharged::StartupFileSummary() << '\n';
         const auto mem1 = StandardAllocator.TotalFreeMemory(), mem2 = VirtualAllocator.TotalFreeMemory();
         std::cout << mscharged::VerifyStartupWholeFileLoads() << '\n';
+        std::cout << mscharged::VerifyStartupConfig() << '\n';
+        {
+            unsigned callbacks = 0;
+            auto service = [&] {
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (callbacks == 0)
+                {
+                    nlServiceFileSystem();
+                    Require(std::chrono::steady_clock::now() < deadline, "Configuration callback timed out");
+                    SDL_Delay(1);
+                }
+            };
+            auto owner = std::make_unique<Config>(Config::ALLOCATE_LOW, 1024, 32);
+            owner->LoadFromFileAsync("/ini/common.ini", Function<Config*>([&](Config* value) {
+                Require(value->mLoaded && value->Get<int>("test/value", 0) == 7, "Configuration callback ran before parsing");
+                ++callbacks;
+                owner.reset(); // Completion must not touch the destroyed owner again.
+            }));
+            service();
+            Require(!owner && callbacks == 1, "Configuration owner deletion failed");
+            owner = std::make_unique<Config>(Config::ALLOCATE_HIGH, 1024, 32);
+            owner->LoadFromFileAsync("/ini/common.ini", Function<Config*>([&](Config*) { ++callbacks; }));
+            owner.reset();
+            nlServiceFileSystem();
+            Require(callbacks == 1, "Destroyed configuration received a callback");
+            owner = std::make_unique<Config>(Config::ALLOCATE_LOW, 1024, 32);
+            callbacks = 0;
+            owner->LoadFromFileAsync("/ini/common.ini", Function<Config*>([&](Config*) { callbacks += 10; }));
+            owner->LoadFromFileAsync("/empty.bin", Function<Config*>([&](Config* value) {
+                Require(value->mLoaded, "Empty inline configuration did not complete");
+                ++callbacks;
+                value->LoadFromFileAsync("/ini/common.ini", Function<Config*>([&](Config*) { ++callbacks; }));
+            }));
+            Require(callbacks == 1 && !owner->mLoaded, "Inline reentrant load was lost");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (callbacks < 2)
+            {
+                nlServiceFileSystem(); SDL_Delay(1);
+                Require(std::chrono::steady_clock::now() < deadline, "Reentrant configuration load timed out");
+            }
+            ExpectThrow<std::runtime_error>([&] { owner->LoadFromFile("/missing.ini"); }, "Missing configuration claimed success");
+            Require(!owner->mLoaded, "Missing configuration retained loaded state");
+            callbacks = 0;
+            owner->LoadFromFileAsync("/ini/common.ini", Function<Config*>([&](Config*) { ++callbacks; throw std::runtime_error("config callback"); }));
+            ExpectThrow<std::runtime_error>(service, "Configuration callback exception was swallowed");
+            owner->LoadFromFile("/ini/common.ini");
+            Require(owner->mLoaded, "Configuration could not recover after callback failure");
+            owner->LoadFromFileAsync("/ini/common.ini", Function<Config*>([&](Config*) { ++callbacks; }));
+            nlShutdownFileSystem(); owner.reset(); nlInitFileSystem();
+            Require(callbacks == 1, "File shutdown invoked a configuration callback");
+            std::cout << "Original configuration async completion, destruction, replacement, reentrancy, exceptions and shutdown passed\n";
+        }
         Require(StandardAllocator.TotalFreeMemory() == mem1 && VirtualAllocator.TotalFreeMemory() == mem2,
                 "Boot whole-file diagnostic leaked its callback-owned output");
         return 0;

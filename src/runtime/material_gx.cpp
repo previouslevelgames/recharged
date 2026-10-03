@@ -5,11 +5,46 @@
 #include <dolphin/gx.h>
 #include <utility>
 #include <stdexcept>
+#include <optional>
 
 namespace
 {
 unsigned channels, stages, generators;
 nlColour ambient_colours[2]{}, material_colours[2]{};
+bool colour_write = true, alpha_write = true;
+struct DepthWrites { bool test; int function; bool write; } depth{true, GX_LEQUAL, true};
+std::optional<DepthWrites> saved_depth;
+}
+bool gxSetColourUpdate(bool enabled)
+{
+    GXSetColorUpdate(enabled);
+    return std::exchange(colour_write, enabled);
+}
+bool gxSetAlphaUpdate(bool enabled)
+{
+    GXSetAlphaUpdate(enabled);
+    return std::exchange(alpha_write, enabled);
+}
+void gxSetZMode(bool test, int function, bool write)
+{
+    GXSetZMode(test, GXCompare(function), write);
+    depth = {test, function, write};
+}
+void gxSetAlphaCompare(int function, unsigned char reference)
+{
+    GXSetAlphaCompare(GXCompare(function), reference, GX_AOP_AND, GX_ALWAYS, 0);
+}
+void gxSaveZMode()
+{
+    if (saved_depth) throw std::logic_error("Nested GX depth-state save");
+    saved_depth = depth;
+}
+void gxRestoreZMode()
+{
+    if (!saved_depth) throw std::logic_error("GX depth-state restore without save");
+    const auto value = *saved_depth;
+    saved_depth.reset();
+    gxSetZMode(value.test, value.function, value.write);
 }
 unsigned gxSetNumChans(unsigned n)
 {
@@ -37,6 +72,10 @@ unsigned gxGetNumTexGens()
 void gxSetTevOrder(int stage, int coord, int map, int colour)
 {
     GXSetTevOrder(GXTevStageID(stage), GXTexCoordID(coord), GXTexMapID(map), GXChannelID(colour));
+}
+void gxSetTevKColourSel(int stage, int selection)
+{
+    GXSetTevKColorSel(GXTevStageID(stage), GXTevKColorSel(selection));
 }
 void gxSetTevColourIn(int stage, int a, int b, int c, int d)
 {

@@ -1,6 +1,6 @@
 Subject: Select original PreInitFS memory callback
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Select original PreInitFS memory callback
 Extract the original callback and global resource requirements without changing
@@ -101,5 +101,5 @@ index 7c50f1d..50c9cf8 100644
 -}
 +#include "GraphicsMemoryStartup.cpp"
  
- extern "C" void fn_8011C4E8(int)
+ void OnSwappablePadChanged(int)
  {

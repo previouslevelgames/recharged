@@ -19,10 +19,10 @@ void ResetStartupMemory()
 
 std::string StartupMemorySummary()
 {
-    if (!gMemoryInitialized || !StandardAllocator.m_0C || !VirtualAllocator.m_0C)
+    if (!gMemoryInitialized || !StandardAllocator.m_memory || !VirtualAllocator.m_memory)
         return "Original game memory initialization is incomplete.";
     return "Original nlInitMemory completed; MEM1 game arena: "
-        + std::to_string(StandardAllocator.m_08) + " bytes; MEM2 game arena: "
-        + std::to_string(VirtualAllocator.m_08) + " bytes; reserved SDK heap initialized.";
+        + std::to_string(StandardAllocator.m_memory_size) + " bytes; MEM2 game arena: "
+        + std::to_string(VirtualAllocator.m_memory_size) + " bytes; reserved SDK heap initialized.";
 }
 }

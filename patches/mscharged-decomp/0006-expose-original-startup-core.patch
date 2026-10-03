@@ -1,6 +1,6 @@
 Subject: Expose the original initialization prefix for incremental native startup
 
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Move the existing region/language selection and nlInit call into a callable
 startup unit. Full game Initialize calls the same function, preserving order.
@@ -114,8 +114,8 @@ without constructing unrelated game task globals or masking missing dependencies
  #include "Game/TweakRegistry.h"
  #include "Game/TweakConfig.h"
  
-@@ -146,13 +147,11 @@
- 
+@@ -131,13 +132,11 @@
+ }; // size 0x28
  
  
 -volatile int g_Region = 3;
@@ -128,7 +128,7 @@ without constructing unrelated game task globals or masking missing dependencies
  static s32 sLastVirtualFreeDelta;
  static float sAverageVirtualFreeDelta;
  static float sVirtualFreeMiB;
-@@ -226,16 +225,6 @@
+@@ -211,16 +210,6 @@
      nlDLListSlotPool<Particle*>*, const nlVector3&, const nlVector3&,
      const nlMatrix4*);
  
@@ -145,7 +145,7 @@ without constructing unrelated game task globals or masking missing dependencies
  int GetOnlineRegion()
  {
      int region = 0;
-@@ -414,66 +403,7 @@
+@@ -399,66 +388,7 @@
  
  static void Initialize()
  {

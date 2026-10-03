@@ -1,5 +1,5 @@
 Subject: Select original object lights and projected-shadow lookup with bounded native inputs
-Upstream-base: 45f25bd6519586837e61251208d34d8dcf94e170
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
 
 Select the original diffuse-light, ambient-channel, static shadow projection
 and LightingLookup calculations independently of the stadium/camera/effect
@@ -32,10 +32,11 @@ index b3e8b86..4a97a38 100644
  class GLView;
  struct GameObjectLight;
  class nlMatrix4;
-@@ -42,10 +46,10 @@ extern "C"
+@@ -42,11 +46,11 @@ extern "C"
      int ShouldDoubleGameObjectLighting();
      int GetGameObjectLightCount(bool character, bool includeEffects);
      GameObjectLight* GetGameObjectLight(s32 index, bool character);
+     void SetGameObjectLightingMode(s32 mode);
 -    void SetGameObjectLightTexture(unsigned long texture);
 +    void SetGameObjectLightTexture(u32 texture);
      void LoadGameObjectSpecularLight(s32 index, GameObjectLight* light, f32 exponent, const nlMatrix4& viewMatrix);

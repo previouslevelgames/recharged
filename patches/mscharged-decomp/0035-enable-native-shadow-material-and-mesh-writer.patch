@@ -1,0 +1,430 @@
+Subject: Select original shadow material and checked native frame mesh writing
+Upstream-base: 4a9ab8151d9a74e321e52b36c95d1e157d41af60
+
+Preserve shadow TEV recipes and stream layout through typed Aurora calls.
+Supply shadow colour explicitly until the tweak registry is linked. Replace
+the Wii material-field offset with its typed native member; bound procedural
+mesh counts and frame lifetimes, and omit console-only cache maintenance.
+
+diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShadowBlendMeshWriter.h
+index 9b5e026..7e2d238 100644
+--- a/include/Game/GL/GLShadowBlendMeshWriter.h
++++ b/include/Game/GL/GLShadowBlendMeshWriter.h
+@@ -5,6 +5,12 @@
+ #include "NL/nlColour.h"
+ 
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "NL/glx/glxMemory.h"
++#include <cstring>
++#include <cmath>
++#include <stdexcept>
++#endif
+ 
+ class GLShadowBlendMeshWriter
+ {
+@@ -17,27 +23,59 @@ public:
+ 
+     glModel* GetModel() const
+     {
++#if defined(MSCHARGED_NATIVE)
++        NativeCheckLive();
++#endif
+         return model;
+     }
+ 
+     void Colour(const nlColour& value)
+     {
++#if defined(MSCHARGED_NATIVE)
++        NativeCheckWrite(writtenColour);
++        std::memcpy(colour++, &value, sizeof(value));
++#else
+         *colour++ = *(const u32*)&value;
++#endif
+     }
+ 
+     void Texcoord(float u, float v)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (!std::isfinite(u) || !std::isfinite(v)) throw std::invalid_argument("Invalid shadow UV");
++        NativeCheckWrite(writtenUV);
++#endif
+         *texcoord++ = u;
+         *texcoord++ = v;
+     }
+ 
+     void Vertex(float x, float y, float z)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) throw std::invalid_argument("Invalid shadow vertex");
++        NativeCheckWrite(writtenPosition);
++#endif
+         *position++ = x;
+         *position++ = y;
+         *position++ = z;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    void NativeCheckLive() const
++    {
++        if (!model || generation != glNativeFrameGeneration())
++            throw std::logic_error("Shadow mesh outlived its graphics frame");
++    }
++    void NativeCheckWrite(unsigned& written)
++    {
++        NativeCheckLive();
++        if (finished || written >= unsigned(count)) throw std::out_of_range("Shadow mesh stream overflow");
++        ++written;
++    }
++    unsigned writtenPosition = 0, writtenColour = 0, writtenUV = 0;
++    uint64_t generation = 0;
++    bool finished = false;
++#endif
+     int count;
+     glModel* model;
+     void* resource;
+diff --git a/include/NL/glx/GXShadowVolumeMaterialProgram.h b/include/NL/glx/GXShadowVolumeMaterialProgram.h
+index 0cc6f50..d5b339e 100644
+--- a/include/NL/glx/GXShadowVolumeMaterialProgram.h
++++ b/include/NL/glx/GXShadowVolumeMaterialProgram.h
+@@ -4,6 +4,10 @@
+ #include "NL/gl/glModel.h"
+ #include "NL/glx/GXMaterialProgramBase.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++void ResetNativeShadowVolumeMaterial();
++#endif
++
+ struct GXShadowVolumeParameters
+ {
+     /* 0x00 */ glTextureBinding diffuseTexture;
+diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+index 7cccfbd..b611b2a 100644
+--- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
++++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+@@ -1,9 +1,15 @@
++#if !defined(MSCHARGED_NATIVE)
+ #include <revolution/base/PPCArch.h>
+ #include <revolution/os/OSCache.h>
++#endif
+ 
+ #include "Game/GL/GLShadowBlendMeshWriter.h"
+ 
+ #include "Game/GL/glModelBuilder.h"
++#if defined(MSCHARGED_NATIVE)
++#include "NL/glx/GXShadowVolumeMaterialProgram.h"
++#include <new>
++#endif
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+@@ -25,6 +31,18 @@ GLShadowBlendMeshWriter::~GLShadowBlendMeshWriter()
+ bool GLShadowBlendMeshWriter::Begin(
+     int vertexCount, int primitive, void* allocator)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (model && !finished && generation == glNativeFrameGeneration())
++        throw std::logic_error("Shadow mesh Begin before End");
++    if (allocator || vertexCount <= 0 || vertexCount > 65535 || primitive < 0 || primitive >= 6)
++        throw std::invalid_argument("Native shadow writer requires a bounded frame mesh");
++    model = nullptr;
++    writtenPosition = writtenColour = writtenUV = 0;
++    finished = false;
++    generation = glNativeFrameGeneration();
++    try
++    {
++#endif
+     glModel* newModel;
+     resource = allocator;
+     count = vertexCount;
+@@ -41,6 +59,9 @@ bool GLShadowBlendMeshWriter::Begin(
+ 
+     glCreateModel(
+         model, vertexCount, primitive, allocator, 3, 0x386ECBDD);
++#if defined(MSCHARGED_NATIVE)
++    new (model->packets->materialParameters) GXShadowVolumeParameters{};
++#endif
+ 
+     glModelStream* streams = model->packets->streams;
+     int positionCount = vertexCount * 3;
+@@ -112,16 +133,26 @@ bool GLShadowBlendMeshWriter::Begin(
+         sizeof(float) * 2, 4);
+ 
+     return true;
++#if defined(MSCHARGED_NATIVE)
++    }
++    catch (...) { model = nullptr; position = nullptr; colour = nullptr; texcoord = nullptr; throw; }
++#endif
+ }
+ 
+ bool GLShadowBlendMeshWriter::End()
+ {
++#if defined(MSCHARGED_NATIVE)
++    NativeCheckLive();
++    if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
++        throw std::logic_error("Incomplete or already finalized shadow mesh");
++#endif
+     for (int i = 0; i < model->numPackets; ++i)
+     {
+         glModelPacket* packet = &model->packets[i];
+         glplatFinalizePacket(packet, resource != 0, resource);
+     }
+ 
++#if !defined(MSCHARGED_NATIVE)
+     for (int i = 0; i < model->packets->numStreams; ++i)
+     {
+         glModelStream* stream = &model->packets->streams[i];
+@@ -130,5 +161,9 @@ bool GLShadowBlendMeshWriter::End()
+     }
+ 
+     PPCSync();
++#else
++    // Aurora copies host arrays at submission; Wii cache writeback is unnecessary.
++    finished = true;
++#endif
+     return true;
+ }
+diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
+index 81715d9..23cf56f 100644
+--- a/src/Game/GL/glModelBuilder.cpp
++++ b/src/Game/GL/glModelBuilder.cpp
+@@ -6,6 +6,12 @@
+ #include "NL/glx/glxLoadModel.h"
+ #include "NL/gl/glLoadModel.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <cstring>
++#include <new>
++#include <stdexcept>
++#endif
++
+ struct UnidentifiedMaterialProgram_802D38A4
+ {
+     unsigned char unknown00[8];
+@@ -15,6 +21,11 @@ struct UnidentifiedMaterialProgram_802D38A4
+ void glCreateModel(glModel* pModel, int numVerts, int prim,
+     void* pResource, int numStreams, unsigned long programHash)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!pModel || numVerts <= 0 || numVerts > 65535 || prim < 0 || prim >= 6
++        || numStreams <= 0 || numStreams > 255 || !glGetMaterialProgram(programHash))
++        throw std::invalid_argument("Invalid native procedural model description");
++#endif
+     glModelPacket* pPacket;
+     if (pResource != 0)
+     {
+@@ -27,6 +38,9 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
+             sizeof(glModelPacket), GLM_Header);
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    new (pPacket) glModelPacket{};
++#endif
+     pModel->id = 0;
+     pModel->numPackets = 1;
+     pModel->packets = pPacket;
+@@ -54,12 +68,19 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
+         pPktStreams = (glModelStream*)glFrameAlloc(
+             numStreams * sizeof(glModelStream), GLM_Header);
+     }
++#if defined(MSCHARGED_NATIVE)
++    for (int i = 0; i < numStreams; ++i) new (pPktStreams + i) glModelStream{};
++#endif
+     pPacket->streams = pPktStreams;
+ 
+     pPacket->rasterState = glGetCurrentRasterState();
+ 
++#if defined(MSCHARGED_NATIVE)
++    unsigned long dataSize = static_cast<GLMaterialProgram*>(pPacket->materialProgram)->parameterDataSize;
++#else
+     unsigned long dataSize =
+         ((UnidentifiedMaterialProgram_802D38A4*)pPacket->materialProgram)->dataSize;
++#endif
+     void* data;
+     if (dataSize == 0)
+     {
+@@ -73,6 +94,9 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
+     {
+         data = glFrameAlloc(dataSize, GLM_Header);
+     }
++#if defined(MSCHARGED_NATIVE)
++    if (data) std::memset(data, 0, dataSize);
++#endif
+     pPacket->materialParameters = data;
+ }
+ 
+diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+index 182aa82..55282f2 100644
+--- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
++++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXShadowVolumeMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+@@ -25,6 +29,11 @@ GXShadowVolumeMaterialProgram::GXShadowVolumeMaterialProgram()
+ 
+ GXShadowVolumeMaterialProgram::~GXShadowVolumeMaterialProgram()
+ {
++#if defined(MSCHARGED_NATIVE)
++    ResetNativeShadowVolumeMaterial();
++    Instance = nullptr;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXShadowVolumeMaterialProgram::Initialize()
+@@ -62,9 +71,24 @@ void GXShadowVolumeMaterialProgram::ConfigureVertexFormat(bool indexed)
+ void GXShadowVolumeMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_CLR0, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_CLR0, streams[1].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[2].address,
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 8);
++#endif
+ }
+ 
+ void GXShadowVolumeMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -75,11 +99,20 @@ void GXShadowVolumeMaterialProgram::DrawIndexed(const glModelPacket* packet)
+ 
+     while (index < end)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(*index);
++        GXColor1x16(*index);
++        GXTexCoord1x16(*index);
++#else
+         WGPIPE.us = *index;
+         WGPIPE.us = *index;
+         WGPIPE.us = *index;
++#endif
+         ++index;
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXShadowVolumeMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -88,10 +121,19 @@ void GXShadowVolumeMaterialProgram::DrawDirect(const glModelPacket* packet)
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXColor1x16(i);
++        GXTexCoord1x16(i);
++#else
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
++#endif
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXShadowVolumeMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
+index f0187ff..1c77e7c 100644
+--- a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
++++ b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
+@@ -1,10 +1,17 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <stdexcept>
++#else
+ #include <revolution/gx/GXTev.h>
+ #include <revolution/gx/GXDisplayList.h>
++#endif
+ 
+ #include "NL/glx/GXShadowVolumeMaterialProgram.h"
+ #include "NL/gl/glMaterialParameters.h"
+ #include "NL/glx/glxGX.h"
++#if !defined(MSCHARGED_NATIVE)
+ #include "NL/glx/GXMaterialShadowTweaks.h"
++#endif
+ #include "NL/glx/glxDisplayList.h"
+ #include "NL/nlMemory.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+@@ -17,6 +24,16 @@ enum ShadowVolumeMode
+ };
+ 
+ static int sShadowVolumeMode;
++#if defined(MSCHARGED_NATIVE)
++// Supplied explicitly by the selected original layer setup; tweak registry is not linked.
++static GXColor sNativeShadowColour;
++static bool sNativeShadowColourSet;
++void ResetNativeShadowVolumeMaterial()
++{
++    sShadowVolumeMode = 0;
++    sNativeShadowColourSet = false;
++}
++#endif
+ 
+ static void SetShadowVolumeMode(int mode)
+ {
+@@ -51,19 +68,30 @@ static void SetShadowVolumeMode(int mode)
+ 
+ void CopyShadowVolumeColour(const GXColor* colour)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!colour) throw std::invalid_argument("Missing shadow volume colour");
++    sNativeShadowColour = *colour;
++    sNativeShadowColourSet = true;
++#else
+     sShadowVolumeRed.value = colour->r;
+     sShadowVolumeGreen.value = colour->g;
+     sShadowVolumeBlue.value = colour->b;
+     sShadowVolumeAlpha.value = colour->a;
++#endif
+ }
+ 
+ static inline void SetShadowVolumeColour()
+ {
+     GXColor colour;
++#if defined(MSCHARGED_NATIVE)
++    if (!sNativeShadowColourSet) throw std::logic_error("Shadow volume colour requires layer setup");
++    colour = sNativeShadowColour;
++#else
+     colour.r = sShadowVolumeRed.value;
+     colour.g = sShadowVolumeGreen.value;
+     colour.b = sShadowVolumeBlue.value;
+     colour.a = sShadowVolumeAlpha.value;
++#endif
+     GXSetTevColor(GX_TEVREG0, colour);
+ }
+ 
+@@ -120,6 +148,7 @@ void GXMaterialProgramImpl<GXShadowVolumeMaterialProgram>::Draw(
+         static_cast<GXShadowVolumeMaterialProgram*>(this)->DrawDirect(packet);
+ }
+ 
++#if !defined(MSCHARGED_NATIVE)
+ TweakValueInt sShadowVolumeRed(
+     "Red", "/Rendering/ShadowVolume");
+ TweakValueInt sShadowVolumeGreen(
+@@ -128,3 +157,5 @@ TweakValueInt sShadowVolumeBlue(
+     "Blue", "/Rendering/ShadowVolume");
+ TweakValueInt sShadowVolumeAlpha(
+     "Alpha", "/Rendering/ShadowVolume");
++
++#endif
