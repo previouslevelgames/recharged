@@ -1,6 +1,6 @@
 Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
 
-Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
 
 Matrix handles address live GL matrix storage. Preserve their width through
 allocation, global state, model packets, draw/text callers, render caches and
@@ -13,7 +13,7 @@ Unselected loaders/materials and missing lighting globals still require their
 own integration; widened declarations do not make those units linkable.
 
 diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting.h
-index 99c891e..b3e8b86 100644
+index 6686f80..2c91c41 100644
 --- a/include/Game/GameObjectLighting.h
 +++ b/include/Game/GameObjectLighting.h
 @@ -2,6 +2,7 @@
@@ -24,15 +24,15 @@ index 99c891e..b3e8b86 100644
  #include "types.h"
  
  class GLView;
-@@ -50,7 +51,7 @@ extern "C"
-     void SetGameObjectAmbientLightingEnabled(s32 enabled);
-     void ApplyGameObjectShadowLighting(s32 skinned, u32 shadowLevel);
-     void RestoreGameObjectShadowLighting();
--    void SetGameObjectShadowModelMatrix(u32 matrix);
-+    void SetGameObjectShadowModelMatrix(glMatrixHandle matrix);
-     void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix);
- }
- 
+@@ -49,7 +50,7 @@ void SetGameObjectLightingEnabled(bool enabled, int count, bool useVertexColour)
+ void SetGameObjectAmbientLightingEnabled(int enabled);
+ void ApplyGameObjectShadowLighting(int skinned, unsigned long shadowLevel);
+ void RestoreGameObjectShadowLighting();
+-void SetGameObjectShadowModelMatrix(unsigned long matrix);
++void SetGameObjectShadowModelMatrix(glMatrixHandle matrix);
+ void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix);
+ void fn_80182164();
+ void LoadShadowLightingLookup(unsigned long texture);
 diff --git a/include/NL/gl/glDraw2.h b/include/NL/gl/glDraw2.h
 index 5bc0470..ad0ea01 100644
 --- a/include/NL/gl/glDraw2.h
@@ -303,33 +303,36 @@ index ebdcbb5..1e70b3d 100644
          glSetMatrix(matrixHandle, matTM);
      }
 diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
-index 315a721..f0a12b7 100644
+index 4b21f44..ef11eb9 100644
 --- a/src/Game/GameObjectLighting.cpp
 +++ b/src/Game/GameObjectLighting.cpp
-@@ -143,7 +143,7 @@ extern s32 lbl_806DCC5C;
- extern bool lbl_806DCC58;
- extern bool lbl_806DCC59;
- extern bool lbl_806DCC5A;
--extern u32 lbl_806DCC70;
-+extern glMatrixHandle lbl_806DCC70;
- extern s32 lbl_806DCC74;
- extern f32 lbl_806DCC44;
- extern bool lbl_806E1413;
-@@ -333,12 +333,12 @@ void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix)
-         nlInvertMatrix(lbl_80570C18, *matrix);
+@@ -107,7 +107,7 @@ u32 gGameObjectLightTexture = (u32)-1;
+ s32 gNumInGameLights = 2;
+ u8 gCameraRelativeLightingAllowed = 1;
+ u32 gShadowLookupTexture = (u32)-1;
+-u32 gShadowModelMatrix = (u32)-1;
++glMatrixHandle gShadowModelMatrix = GL_INVALID_MATRIX;
+ s32 gShadowTexGen = -1;
+ 
+ bool gUseGameObjectLightTexture;
+@@ -886,14 +886,14 @@ void RestoreGameObjectShadowLighting()
+     }
  }
  
--void SetGameObjectShadowModelMatrix(u32 matrix)
+-void SetGameObjectShadowModelMatrix(unsigned long matrix)
 +void SetGameObjectShadowModelMatrix(glMatrixHandle matrix)
  {
-     if (!fn_80183C54())
+     if (!IsShadowLookupActive())
          return;
  
 -    if (matrix == (u32)-1)
 +    if (matrix == GL_INVALID_MATRIX)
      {
-         lbl_806DCC70 = -1;
+-        gShadowModelMatrix = -1;
++        gShadowModelMatrix = GL_INVALID_MATRIX;
      }
+     else if (matrix != gShadowModelMatrix)
+     {
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 index 0755f46..95a8327 100644
 --- a/src/Game/Render/ElectricFence.cpp
@@ -346,7 +349,7 @@ index 0755f46..95a8327 100644
          glSetMatrix(matrixHandle, objMatrix);
      }
 diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
-index c0b5a80..2d268f7 100644
+index 38cd178..3cf1524 100644
 --- a/src/Game/objectblur.cpp
 +++ b/src/Game/objectblur.cpp
 @@ -141,7 +141,7 @@ void BlurHandler::RenderMesh(unsigned long uTexID)
@@ -359,7 +362,7 @@ index c0b5a80..2d268f7 100644
      BlurPointEntry* entry;
  
 @@ -173,7 +173,7 @@ void BlurHandler::RenderMesh(unsigned long uTexID)
-     matWorld.m43 += fFlimmerOffset;
+     matWorld.m43 += sBlurZOffset;
  
      matHandle = glAllocMatrix();
 -    if (matHandle != (u32)-1)
@@ -609,7 +612,7 @@ index 1165435..b0b2b10 100644
      const glModel* pModelArray, unsigned long nModels, bool bPermanent,
 diff --git a/src/NL/gl/glModelMatrix.cpp b/src/NL/gl/glModelMatrix.cpp
 new file mode 100644
-index 0000000..170b6dc
+index 0000000..38844eb
 --- /dev/null
 +++ b/src/NL/gl/glModelMatrix.cpp
 @@ -0,0 +1,75 @@

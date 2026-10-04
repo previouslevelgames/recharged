@@ -6,6 +6,7 @@
 #include "runtime/cameras.h"
 #include "runtime/animated_camera.h"
 #include "runtime/debug_camera_input.h"
+#include "runtime/nis_pip_scene.h"
 #include "Game/Camera/CameraMan.h"
 #include "runtime/shadows.h"
 #include "Game/Render/ShadowVolume.h"
@@ -16,6 +17,7 @@
 #include "runtime/frontend_world_files.h"
 #include "runtime/frontend_visuals.h"
 #include "runtime/frontend_text_gx.h"
+#include "runtime/frontend_layout_gx.h"
 #include "runtime/frontend_input_sdl.h"
 #include "resources/frontend_text_catalog.h"
 #include "NL/glx/glxTarget.h"
@@ -185,6 +187,22 @@ public:
     { DrawFrontendText(display_, 40, 350, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight); ++rendered_; }
 };
 
+class FrontendFrameView final : public GLView
+{
+    resources::FrontendLayoutFrame frame_;
+    unsigned rendered_ = 0;
+public:
+    FrontendFrameView(GLViewInterface& interface, resources::FrontendLayoutFrame frame)
+        : GLView(&interface, GLRenderPair{}, GLViewSort_None), frame_(std::move(frame)) {}
+    unsigned Rendered() const { return rendered_; }
+    std::size_t Count() const { return frame_.text.size(); }
+    void EndRender() override
+    {
+        DrawFrontendLayout(frame_, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
+        ++rendered_;
+    }
+};
+
 Bounds Normalize(resources::StaticModel& model, bool preserve_positions)
 {
     std::array<float, 3> low{1e7f, 1e7f, 1e7f}, high{-1e7f, -1e7f, -1e7f};
@@ -251,13 +269,19 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
     try
     {
         auto options = requested;
+        if (options.nis_primary.has_value() != options.nis_secondary.has_value()
+            || (options.pip_expand && !options.nis_primary)
+            || (options.nis_primary && (options.camera || options.debug_camera || options.shadow_id || options.frontend_layout || options.frontend_frame)))
+            throw std::invalid_argument("PIP requires two NIS paths and no other camera, shadow or text selection");
+        if ((options.frontend_frame && options.frontend_layout) || (options.frontend_slide && !options.frontend_frame))
+            throw std::invalid_argument("Select one frontend text mode; slide selection requires an authored frame");
         if (options.frontend_layout && options.debug_camera)
             throw std::invalid_argument("Frontend text inspection and debug camera use separate controls");
         if (options.frontend_world)
         {
             if (options.world || options.world_res || !options.object_ids.empty() || options.model_id || options.shadow_id)
                 throw std::invalid_argument("Frontend world selection cannot be combined with explicit world/model/shadow IDs");
-            if (!options.camera && !options.debug_camera) options.camera = "/Art/fe/environments/cameras/start_idle.cam";
+            if (!options.camera && !options.debug_camera && !options.nis_primary) options.camera = "/Art/fe/environments/cameras/start_idle.cam";
         }
         const auto file = LoadConfig(config_path);
         const auto disc_path = ResolveDiscPath(file.settings, file.path);
@@ -303,12 +327,13 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         log("Original InitializeCore completed; loading RLG/RLT through original NL whole-file async services.");
         const bool world_batch = options.world_res.has_value() || options.frontend_world;
         std::optional<resources::FrontendTextCatalog> frontend_text;
-        if (options.frontend_layout)
+        std::optional<resources::FrontendLayoutFrame> frontend_frame;
+        if (options.frontend_layout || options.frontend_frame)
         {
             const auto language = file.settings.language == "french" ? FrontendLanguage::NAFrench
                 : file.settings.language == "spanish" ? FrontendLanguage::NASpanish : FrontendLanguage::English;
             FrontendVisualLoad visuals(language);
-            PendingAsset layout; layout.Start(*options.frontend_layout);
+            PendingAsset layout; layout.Start(options.frontend_frame ? *options.frontend_frame : *options.frontend_layout);
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             while (!visuals.Ready() || !layout.done)
             {
@@ -320,13 +345,38 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             const auto assets = visuals.Result();
             const auto graph = resources::ReadFrontendScene(layout.Bytes());
             const std::array fonts{assets->text, assets->heading};
-            frontend_text = resources::InspectFrontendText(graph, *assets->localization, fonts);
-            log("Frontend layout decoded: " + std::to_string(graph.slides.size()) + " slides, "
-                + std::to_string(graph.instances.size()) + " instances; " + std::to_string(frontend_text->entries.size())
-                + " stored text components. Font/localization language: " + file.settings.language + ".");
-            for (const auto& [reason, count] : frontend_text->unavailable)
-                log("Unavailable text components (" + std::to_string(count) + "): " + reason);
-            log("Text inspection uses original font pages/metrics and original FE input; authored layout, timelines and menu handlers remain pending.");
+            if (options.frontend_frame)
+            {
+                std::optional<std::uint32_t> slide_id;
+                if (options.frontend_slide)
+                {
+                    for (const auto& slide : graph.slides)
+                        if (slide.name == *options.frontend_slide
+                            && std::find(graph.presentation_slides.begin(), graph.presentation_slides.end(), slide.offset) != graph.presentation_slides.end())
+                        {
+                            if (slide_id) throw std::invalid_argument("Frontend presentation slide name is ambiguous");
+                            slide_id = slide.offset;
+                        }
+                    if (!slide_id) throw std::invalid_argument("Frontend presentation slide name is absent");
+                }
+                frontend_frame = resources::BuildFrontendLayout(graph, *assets->localization, fonts, slide_id);
+                log("Authored frontend static frame: " + std::to_string(frontend_frame->text.size())
+                    + " text components; " + std::to_string(frontend_frame->hidden) + " hidden or inactive instances.");
+                for (const auto& [reason, count] : frontend_frame->unavailable)
+                    log("Unavailable frontend frame components (" + std::to_string(count) + "): " + reason);
+                if (frontend_frame->text.empty()) throw std::runtime_error("Selected frontend frame has no supported static text");
+                log("Original stored transforms, text-box rows and Anark draw order; missing font effects, timelines and menu actions remain pending.");
+            }
+            else
+            {
+                frontend_text = resources::InspectFrontendText(graph, *assets->localization, fonts);
+                log("Frontend layout decoded: " + std::to_string(graph.slides.size()) + " slides, "
+                    + std::to_string(graph.instances.size()) + " instances; " + std::to_string(frontend_text->entries.size())
+                    + " stored text components. Font/localization language: " + file.settings.language + ".");
+                for (const auto& [reason, count] : frontend_text->unavailable)
+                    log("Unavailable text components (" + std::to_string(count) + "): " + reason);
+                log("Text inspection uses original font pages/metrics and original FE input; authored layout, timelines and menu handlers remain pending.");
+            }
         }
         if (world_batch && !options.frontend_world && (!options.world || options.object_ids.empty() || options.model_id || options.shadow_id))
             throw std::invalid_argument("World objects require resident/temporary files and explicit object IDs only");
@@ -440,7 +490,9 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             throw std::invalid_argument("Debug camera is not connected to the diagnostic shadow receiver");
         if (volume_preview && options.camera)
             throw std::invalid_argument("Authored camera playback is not connected to the diagnostic shadow receiver");
-        if (!world_batch) bounds = Normalize(selected_model, camera_overlay || options.camera.has_value() || options.debug_camera);
+        if (volume_preview && options.nis_primary)
+            throw std::invalid_argument("NIS PIP is not connected to the diagnostic shadow receiver");
+        if (!world_batch) bounds = Normalize(selected_model, camera_overlay || options.camera.has_value() || options.debug_camera || options.nis_primary.has_value());
         std::size_t vertices = 0, indices = 0, packets = 0;
         std::vector<std::uint32_t> lookup_ids;
         for (const auto& model : models)
@@ -525,7 +577,36 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         std::optional<AnimatedCamera> authored_camera;
         std::optional<DebugCamera> debug_camera;
         std::optional<DebugCameraInput> debug_input;
+        std::array<std::unique_ptr<NisCameraBinding>, 2> nis_bindings;
+        std::unique_ptr<NisCameras> nis_cameras;
+        std::unique_ptr<NisPlayback> nis_playback;
+        std::unique_ptr<NisPip> pip;
         DebugCameraOrbit fitted_orbit;
+        if (options.nis_primary)
+        {
+            std::array<PendingAsset, 2> reads;
+            reads[0].Start(*options.nis_primary); reads[1].Start(*options.nis_secondary);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (!reads[0].done || !reads[1].done)
+            {
+                if (Update()) throw std::runtime_error("NIS camera loading cancelled");
+                nlServiceFileSystem();
+                if (std::chrono::steady_clock::now() > deadline) throw std::runtime_error("NIS camera loading timed out");
+                SDL_Delay(1);
+            }
+            nis_cameras = std::make_unique<NisCameras>(cameras);
+            for (unsigned slot = 0; slot < 2; ++slot)
+            {
+                NisCameraAssets assets(reads[slot].Bytes(), slot ? *options.nis_secondary : *options.nis_primary);
+                nis_bindings[slot] = std::make_unique<NisCameraBinding>(assets, slot);
+                nis_cameras->Select(slot, *nis_bindings[slot], 0);
+            }
+            nis_cameras->Activate();
+            nis_playback = std::make_unique<NisPlayback>(*nis_cameras);
+            pip = std::make_unique<NisPip>(*nis_playback, options.pip_expand.value_or(1.f));
+            if (options.pip_expand) pip->SetMode(NisPipMode::Expand);
+            log("Original NIS PIP: two retained authored cameras, 256x128 RGB565 target; static geometry only, no actors/audio/triggers.");
+        }
         if (options.debug_camera)
         {
             // Keep original Z-up, nonnegative target height and world units.
@@ -555,7 +636,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             log("Original authored camera playback: " + *options.camera + "; "
                 + std::to_string(authored_camera->Duration()) + " seconds; model coordinates preserved. Depth-of-field rendering remains pending.");
         }
-        else if (!debug_camera) cCameraManager::PushCamera(&camera_input);
+        else if (!debug_camera && !nis_cameras) cCameraManager::PushCamera(&camera_input);
         alignas(32) std::array<std::uint8_t, 65536> fifo{};
         std::unique_ptr<StaticInventory> inventory;
         std::unique_ptr<StaticWorldObjects> world;
@@ -589,6 +670,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         RLViewCamera shadow_camera;
         std::unique_ptr<ShadowLayers> shadow_layers;
         std::unique_ptr<StadiumShadowVolume> shadow_drawable;
+        std::unique_ptr<NisPipScene> pip_scene;
+        if (pip) pip_scene = std::make_unique<NisPipScene>();
         if (volume_preview)
         {
             shadow_layers = std::make_unique<ShadowLayers>(shadow_camera);
@@ -600,6 +683,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         {
             auto child = std::make_unique<GLView>(&view_matrices, GLRenderPair{}, GLViewSort_Texture);
             child->m_Name = world ? "World opaque" : "Static model";
+            if (pip) child->m_ClearColour = child->m_ClearDepth = true;
             if (world)
             {
                 // Children render first: opaque child, then its alpha parent.
@@ -613,8 +697,10 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 gRootView.AddChild(child.get()); submitted = child.release();
             }
         }
+        if (pip_scene) pip_scene->AttachOverlay();
         log("Original GLView graph, packet sorting and callback flags connected to Aurora; native target registry initialized.");
         FrontendTextView* text_view = nullptr;
+        FrontendFrameView* frame_view = nullptr;
         std::unique_ptr<FrontendInput> frontend_input;
         std::unique_ptr<FrontendInputSDL> frontend_devices;
         if (frontend_text)
@@ -626,6 +712,12 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 frontend_input->SetRepeat(action, .35f, .12f);
             auto view = std::make_unique<FrontendTextView>(view_matrices, std::move(*frontend_text));
             gRootView.AddChild(view.get()); text_view = view.release(); frontend_text.reset();
+        }
+        if (frontend_frame)
+        {
+            auto view = std::make_unique<FrontendFrameView>(view_matrices, std::move(*frontend_frame));
+            view->m_Name = "Authored frontend static text";
+            gRootView.AddChild(view.get()); frame_view = view.release(); frontend_frame.reset();
         }
         log("Original graphics begin/end/send lifecycle connected; host work drains before frame memory reuse.");
         log("Original camera core supplies the view and position; full gameplay camera selection remains pending.");
@@ -639,6 +731,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         bool world_culling = !options.no_world_culling;
         StaticWorldSubmission world_submission;
         std::size_t world_considered = 0, world_visible = 0, world_packets = 0;
+        std::size_t pip_objects = 0, pip_packets = 0;
         const auto start = std::chrono::steady_clock::now();
         float elapsed = 0, delta = 0;
         GraphicsFrameTasks frame_tasks(graphics, lifecycle, {
@@ -681,6 +774,30 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 shadow_layers->Layer(eCLV_Shadowed).AttachModel(ground, 0);
                 if (volume_enabled) shadow_drawable->Draw(identity);
                 RenderShadowVolumeBlend(&shadow_layers->Layer(eCLV_ShadowVolumeBlend));
+            }
+            else if (nis_cameras)
+            {
+                const auto step = nis_playback->Advance({frames ? (options.frames ? 1.f/60 : delta) : 0.f, 1, 0x10});
+                if (step.active) pip->Update(step.delta);
+                cameras.Advance(0,0);
+                view_matrices.view = cCameraManager::m_matView;
+                glMatrixPerspective(view_matrices.projection, cCameraManager::m_fFOV * 3.1415927f / 180, 4.f/3, .25f, 4096.f);
+                backend.camera_position = cCameraManager::m_cameraPosition;
+                pip_scene->SetCamera(*nis_cameras->Camera(1));
+                if (world)
+                {
+                    const auto& matrices = pip_scene->Matrices();
+                    const auto secondary = SubmitStaticWorld(*world, pip_scene->Opaque(), pip_scene->Alpha(),
+                        StaticWorldFrustum::FromCamera(matrices.view, matrices.projection), world_culling);
+                    pip_objects += secondary.visible;
+                    pip_packets += secondary.opaque_packets + secondary.alpha_packets;
+                }
+                else
+                {
+                    nlMatrix4 identity; identity.SetIdentity(); glModelSetMatrix(native_model, identity);
+                    pip_scene->Opaque().AttachModel(native_model, 0); submitted->AttachModel(native_model, 0);
+                }
+                pip_scene->Submit(*pip);
             }
             else if (authored_camera)
             {
@@ -768,6 +885,11 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 if (ImGui::Button("Previous text")) text_view->Step(true);
                 ImGui::SameLine(); if (ImGui::Button("Next text")) text_view->Step(false);
             }
+            if (frame_view)
+            {
+                ImGui::Text("Authored static text: %zu components", frame_view->Count());
+                ImGui::TextUnformatted("Stored frame only; timelines and menu actions pending.");
+            }
             if (world)
             {
                 ImGui::Text("Static world selection: %zu / %zu objects submitted", world_submission.visible, world_submission.objects);
@@ -799,6 +921,12 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 ImGui::Checkbox("Projected shadow lookup", &shadows_enabled);
                 ImGui::SliderFloat2("Shadow scale", lighting.shadow.scale.data(), 0.001f, 2.0f);
                 ImGui::SliderFloat2("Shadow offset", lighting.shadow.translation.data(), -1, 1);
+            }
+            if (pip)
+            {
+                if (ImGui::Button("PIP")) pip->SetMode(NisPipMode::Pip);
+                ImGui::SameLine(); if (ImGui::Button("Swap cameras")) pip->SetMode(NisPipMode::Swap);
+                ImGui::SameLine(); if (ImGui::Button("Expand PIP")) pip->SetMode(NisPipMode::Expand);
             }
             ImGui::TextUnformatted("Full stadium scenes and character animation are pending.");
             ImGui::TextUnformatted("Escape or close the window to exit."); ImGui::End();
@@ -841,6 +969,16 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         if (glGetCurrentFrame() != static_cast<int>(frames))
             throw std::runtime_error("Original graphics frame counter diverged from submitted frames");
         frame_tasks.Release();
+        if (pip && world) log("NIS secondary world submission totals: " + std::to_string(pip_objects)
+            + " visible objects, " + std::to_string(pip_packets) + " packets. Pixel visibility is camera-dependent.");
+        pip_scene.reset(); pip.reset(); nis_playback.reset(); nis_cameras.reset();
+        for (auto& binding : nis_bindings) binding.reset();
+        if (frame_view)
+        {
+            if (frame_view->Rendered() != frames) throw std::runtime_error("Frontend static frame missed a render pass");
+            log("Authored frontend frame rendered: " + std::to_string(frames) + " frames, "
+                + std::to_string(frame_view->Count()) + " text components per frame.");
+        }
         if (text_view)
         {
             if (text_view->Rendered() != frames) throw std::runtime_error("Frontend text view missed a rendered frame");

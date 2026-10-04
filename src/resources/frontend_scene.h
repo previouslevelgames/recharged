@@ -43,6 +43,8 @@ struct FrontendInstance
     std::array<float,2> text_box{};
     std::array<std::uint8_t,4> text_effect_colour{};
     std::u16string text;
+    bool text_scissor = false;
+    std::array<std::uint16_t,4> text_scissor_box{};
 };
 struct FrontendSlide
 {

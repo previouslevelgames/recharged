@@ -1,6 +1,7 @@
 #pragma once
 #include "runtime/lighting.h"
 #include "NL/gl/glView.h"
+#include <optional>
 
 namespace mscharged
 {
@@ -21,6 +22,8 @@ class ViewMatrices : public GLViewInterface
 {
 public:
     nlMatrix4 view, projection;
+    // Secondary views need their own camera for camera-relative materials.
+    std::optional<nlVector3> material_camera;
     ViewMatrices() { view.SetIdentity(); projection.SetIdentity(); }
     void GetViewMatrix(nlMatrix4& out) const override { out = view; }
     void GetProjectionMatrix(nlMatrix4& out) const override { out = projection; }

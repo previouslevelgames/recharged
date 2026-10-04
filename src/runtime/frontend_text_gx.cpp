@@ -9,10 +9,19 @@ namespace mscharged
 void DrawFrontendText(const resources::FontLayout& layout, float x, float y,
                       unsigned width, unsigned height, std::array<std::uint8_t, 4> colour)
 {
+    resources::Require(std::isfinite(x) && std::isfinite(y) && std::abs(x) < 1e6f && std::abs(y) < 1e6f,
+        "Invalid frontend text position");
+    DrawFrontendText(layout, TextDrawTransform{{{1,0,0,x}, {0,1,0,y}, {0,0,1,0}}}, width, height, colour);
+}
+void DrawFrontendText(const resources::FontLayout& layout, const TextDrawTransform& transform,
+                      unsigned width, unsigned height, std::array<std::uint8_t, 4> colour)
+{
     using resources::Require;
-    Require(layout.font && layout.quads.size() <= 4096 && width && height && width <= 16384 && height <= 16384
-        && std::isfinite(x) && std::isfinite(y) && std::abs(x) < 1e6f && std::abs(y) < 1e6f,
+    Require(layout.font && layout.quads.size() <= 4096 && width && height && width <= 16384 && height <= 16384,
         "Invalid frontend text draw");
+    for (const auto& row : transform)
+        for (float value : row)
+            Require(std::isfinite(value) && std::abs(value) <= 1e7f, "Invalid frontend text transform");
     // Validate every record before changing state or issuing any draw.
     for (const auto& quad : layout.quads)
     {
@@ -28,7 +37,9 @@ void DrawFrontendText(const resources::FontLayout& layout, float x, float y,
             "Unsupported or malformed font texture draw profile");
     }
     Mtx44 projection{{2.0f / width, 0, 0, -1}, {0, -2.0f / height, 0, 1}, {0, 0, -1, 0}, {0, 0, 0, 1}};
-    Mtx model{{1, 0, 0, x}, {0, 1, 0, y}, {0, 0, 1, 0}};
+    Mtx model;
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned col = 0; col < 4; ++col) model[row][col] = transform[row][col];
     GXSetProjection(projection, GX_ORTHOGRAPHIC);
     GXLoadPosMtxImm(model, GX_PNMTX0); GXSetCurrentMtx(GX_PNMTX0);
     GXSetViewport(0, 0, width, height, 0, 1); GXSetScissor(0, 0, width, height);

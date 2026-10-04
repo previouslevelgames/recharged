@@ -305,7 +305,7 @@ void SpecularDetailCases()
     PixelCase("Detail original ambient", model, 0, {28,43,71}, lighting);
     lighting.ambient = {{0,0,0,0}};
     lighting.light_count = 1;
-    lighting.lights[0].enabled = true;
+    lighting.lights[0].useWorldPosition = true;
     lighting.lights[0].worldPosition = {0,0,1};
     lighting.lights[0].intensity = .5f;
     PixelCase("Detail original diffuse key", model, 0, {55,42,47}, lighting);
@@ -366,7 +366,7 @@ void ScrollingSpecularCases()
     auto& model=*inventory.Model(601); auto& packet=model.packets[0];
     auto& p=*static_cast<GXScrollingSpecularParameters*>(packet.materialParameters);
     GameLighting light;light.enabled=true;light.light_count=1;
-    light.lights[0].enabled=true;light.lights[0].worldPosition={0,0,1};light.lights[0].intensity=1;
+    light.lights[0].useWorldPosition=true;light.lights[0].worldPosition={0,0,1};light.lights[0].intensity=1;
     // Independent TEV equation: diffuse*lighting + gloss*level*specular*tint.
     // Front-facing light gives unit attenuation, so the highlight is (64,16,4).
     PixelCase("Scrolling specular zero exponent",model,0,{144,116,124},light);
@@ -487,7 +487,7 @@ void MaskedDetailCases(unsigned id, bool& shadow_switch)
     for(unsigned i=0;i<packet.numUniqueVertices;++i)colours[i*4]=colours[i*4+2]=255;
     GameLighting light;light.enabled=true;light.ambient={{64,128,192,0}};p.lightingEnabled=1;
     PixelCase("Masked detail ambient",model,0,{28,46,62},light);
-    light.ambient={{0,0,0,0}};light.light_count=1;light.lights[0].enabled=true;
+    light.ambient={{0,0,0,0}};light.light_count=1;light.lights[0].useWorldPosition=true;
     light.lights[0].worldPosition={0,0,1};light.lights[0].intensity=.5f;
     PixelCase("Masked detail directional light",model,0,{55,46,41},light);
     light.ramp_texture=19;
@@ -638,7 +638,7 @@ void CameraOverlayCases()
     GameLighting light; light.enabled = true; light.ambient = {{64,128,192,0}}; p.lightingEnabled = 1;
     pixel("Camera overlay ambient affects diffuse only", {45,55,98}, light);
     light.ambient = {{0,0,0,0}}; light.light_count = 1;
-    light.lights[0].enabled = true; light.lights[0].worldPosition = {0,0,1}; light.lights[0].intensity = .5f;
+    light.lights[0].useWorldPosition = true; light.lights[0].worldPosition = {0,0,1}; light.lights[0].intensity = .5f;
     pixel("Camera overlay directional diffuse", {65,55,68}, light);
     light.lights[0].worldPosition.z = -1;
     pixel("Camera overlay unlit diffuse retains overlay", {25,5,8}, light);
@@ -782,7 +782,7 @@ void ScrollingCameraOverlayCases()
     GameLighting light; light.enabled = true; light.ambient = {{64,128,192,0}}; p.lightingEnabled = 1;
     pixel("Scrolling camera overlay ambient affects diffuse only", {45,55,98}, light);
     light.ambient = {{0,0,0,0}}; light.light_count = 1;
-    light.lights[0].enabled = true; light.lights[0].worldPosition = {0,0,1}; light.lights[0].intensity = .5f;
+    light.lights[0].useWorldPosition = true; light.lights[0].worldPosition = {0,0,1}; light.lights[0].intensity = .5f;
     pixel("Scrolling camera overlay directional diffuse", {65,55,68}, light);
     light.lights[0].worldPosition.z = -1;
     pixel("Scrolling camera overlay unlit diffuse retains overlay", {25,5,8}, light);
@@ -981,7 +981,7 @@ int main(int argc, char **argv)
         PixelCase("Scrolling ambient", *inventory.Model(3), 0, {50,20,15}, lighting);
         lighting.ambient = {{0,0,0,0}};
         lighting.light_count = 1;
-        lighting.lights[0].enabled = true;
+        lighting.lights[0].useWorldPosition = true;
         lighting.lights[0].worldPosition = {0,0,1};
         lighting.lights[0].intensity = .5f;
         PixelCase("Directional front", *inventory.Model(4), 0, {40,50,60}, lighting);
@@ -992,10 +992,10 @@ int main(int argc, char **argv)
         PixelCase("Directional back", *inventory.Model(4), 0, {0,0,0}, lighting);
         lighting.lights[0].worldPosition.z = 1;
         lighting.lights[0].intensity = 1;
-        lighting.lights[0].unknown01 = 1;
+        lighting.lights[0].useColour = 1;
         lighting.lights[0].colour = {{255,128,0,255}};
         PixelCase("Coloured directional light", *inventory.Model(4), 0, {80,50,0}, lighting);
-        lighting.lights[0].unknown01 = 0;
+        lighting.lights[0].useColour = 0;
         nlMatrix4 rotated, camera;
         nlMakeRotationMatrixY(rotated, 3.1415927f / 3);
         rotated.SetTranslation({.2598076f,0,-.15f}); // Keep the tilted triangle centred at z=-.3.
@@ -1003,15 +1003,15 @@ int main(int argc, char **argv)
         nlMakeRotationMatrixY(rotated, 3.1415927f / 3);
         nlMakeRotationMatrixY(camera, -3.1415927f / 3);
         PixelCase("Directional light follows changed view", *inventory.Model(4), 0, {40,50,60}, lighting, &rotated, &camera);
-        lighting.lights[0].unknown02 = 1;
+        lighting.lights[0].isPointLight = 1;
         lighting.lights[0].worldPosition.z = .7f;
-        lighting.lights[0].unknown20 = 3;
+        lighting.lights[0].radius = 3;
         // Independent vertex diffuse/steep-attenuation values, interpolated at
         // the centre (weights 1/4, 1/4, 1/2): approximately .488 and .131.
         PixelCase("Point light near", *inventory.Model(4), 0, {39,49,59}, lighting);
         lighting.lights[0].worldPosition.z = 4.7f;
         PixelCase("Point light distance attenuation", *inventory.Model(4), 0, {10,13,16}, lighting);
-        lighting.lights[0].unknown02 = 0;
+        lighting.lights[0].isPointLight = 0;
         lighting.lights[0].worldPosition.z = 1;
         lighting.lights[0].intensity = 16.0f/255.0f;
         lighting.light_count = 6;

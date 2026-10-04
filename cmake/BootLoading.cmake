@@ -1,0 +1,20 @@
+include_guard(GLOBAL)
+include(cmake/Interpreter.cmake)
+add_library(charged_boot_loading STATIC
+    "${MSCHARGED_PREPARED}/src/Game/AsyncLoadingNative.cpp"
+    src/runtime/boot_loading.cpp)
+add_dependencies(charged_boot_loading verify_prepared)
+target_include_directories(charged_boot_loading PRIVATE "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs")
+target_compile_definitions(charged_boot_loading PRIVATE MSCHARGED_NATIVE=1)
+target_compile_features(charged_boot_loading PUBLIC cxx_std_20)
+target_link_libraries(charged_boot_loading PUBLIC charged_interpreter charged_graphics_memory)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_boot_loading PRIVATE -ffp-contract=off)
+endif()
+if(BUILD_TESTING)
+    add_executable(boot_loading_tests tests/boot_loading.cpp)
+    target_link_libraries(boot_loading_tests PRIVATE charged_boot_loading aurora::core)
+    add_test(NAME boot_loading COMMAND boot_loading_tests)
+    set_tests_properties(boot_loading PROPERTIES
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 30)
+endif()

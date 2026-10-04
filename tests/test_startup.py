@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from disc_fixture import write_disc
+from boot_script_fixture import boot_script_fixture
 from camera_fixture import camera_fixture
 from frontend_camera_fixture import frontend_camera_catalog, frontend_camera_files
 
@@ -32,6 +33,7 @@ class StartupTests(unittest.TestCase):
             "ini/common.ini": b"; Synthetic only\n[test]\nvalue = 7\n",
             "ini/datetime.ini": b"; Synthetic only\n[build]\ndate = fixture\n",
             **frontend_camera_files(),
+            "Art/scripts/async_loading.byte_code": boot_script_fixture(),
         }, fst_capacity=0x1000)
         config = self.root / "personal.ini"
         config.write_text(f"; preserve this personal file\n[game]\ndisc = disc with spaces.iso\nlanguage = {language}\n")
@@ -62,6 +64,8 @@ class StartupTests(unittest.TestCase):
         self.assertIn("(3 keys); original authored playback sampled through CameraMan; both arenas recovered.", output)
         self.assertIn("Original frontend camera catalog: 37 requested, 37 completed, 37 published", output)
         self.assertIn("Original tweak registry parsed datetime configuration: 1 values; borrowed values preserved and both arenas recovered", output)
+        self.assertIn("Independent original BootLoadingToFE diagnostic:", output)
+        self.assertIn("blocked at service 11", output)
         self.assertIn("STOPPED at unimplemented service: Initialize (remaining stages)", output)
         self.assertIn("No menu or match was reached", output)
         self.assertEqual(config.read_bytes(), before)

@@ -1,0 +1,501 @@
+Subject: Share original frontend transform and textbox row layout
+
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+
+Share original instance/parent transform and textbox row/offset equations with
+checked native static-layout adapters. Preserve console algorithms and original
+call sites; bound native row storage and reject non-progressing first-glyph wrap.
+The native caller limits strings, scalar ranges, glyph metrics and formatting.
+This does not select a timeline, full FE renderer or missing nlFont draw method.
+
+diff --git a/include/Game/FE/FrontendLayoutSteps.h b/include/Game/FE/FrontendLayoutSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendLayoutSteps.h
+@@ -0,0 +1,247 @@
++#ifndef GAME_FE_FRONTEND_LAYOUT_STEPS_H
++#define GAME_FE_FRONTEND_LAYOUT_STEPS_H
++#include "Game/FE/feLibObject.h"
++#include "NL/nlTextBox.h"
++#include "NL/nlstring_tmpl.h"
++#include "NL/platvmath.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
++
++template <class Instance>
++void FrontendPushTransform(const Instance* instance, const nlMatrix4& parentMatrix, nlMatrix4& combinedMatrix)
++{
++    const feVector3& tlPosition = instance->GetPosition();
++    const feVector3& tlPivot = instance->GetPivot();
++    const feVector3& tlRotation = instance->GetRotation();
++    const feVector3& tlScale = instance->GetScale();
++    unsigned long flags = 0;
++
++    if (tlPosition.f.x == 0.0f && tlPosition.f.y == 0.0f && tlPosition.f.z == 0.0f)
++    {
++        flags |= 2;
++    }
++    if (tlPivot.f.x == 0.0f && tlPivot.f.y == 0.0f && tlPivot.f.z == 0.0f)
++    {
++        flags |= 1;
++    }
++    if (tlRotation.f.x == 0.0f && tlRotation.f.y == 0.0f && tlRotation.f.z == 0.0f)
++    {
++        flags |= 4;
++    }
++    if (tlScale.f.x == 1.0f && tlScale.f.y == 1.0f && tlScale.f.z == 1.0f)
++    {
++        flags |= 8;
++    }
++
++    if ((flags & 0xF) == 0xF)
++    {
++        combinedMatrix = parentMatrix;
++        return;
++    }
++
++    nlMatrix4 scalePivotMatrix;
++    nlMatrix4 localMatrix;
++    if ((flags & 1) == 0 || (flags & 8) == 0)
++    {
++        nlMatrix4 scaleMatrix;
++        nlMatrix4 pivotMatrix;
++        nlMakeScaleMatrix(scaleMatrix, tlScale.f.x, tlScale.f.y, tlScale.f.z);
++        nlMakeTranslationMatrix(pivotMatrix, -tlPivot.f.x, -tlPivot.f.y, -tlPivot.f.z);
++        nlMultMatrices(scalePivotMatrix, pivotMatrix, scaleMatrix);
++    }
++    else
++    {
++        scalePivotMatrix.SetIdentity();
++    }
++
++    if ((flags & 4) == 0)
++    {
++        nlMatrix4 rotationMatrix;
++        nlMakeRotationMatrixEulerAngles(rotationMatrix, tlRotation.f.x, tlRotation.f.y, tlRotation.f.z);
++        nlMultMatrices(localMatrix, scalePivotMatrix, rotationMatrix);
++    }
++    else
++    {
++        localMatrix = scalePivotMatrix;
++    }
++
++    if ((flags & 2) == 0)
++    {
++        localMatrix.m41 += tlPosition.f.x;
++        localMatrix.m42 += tlPosition.f.y;
++        localMatrix.m43 += tlPosition.f.z;
++    }
++    localMatrix.m43 *= -1.0f;
++    nlMultMatrices(combinedMatrix, localMatrix, parentMatrix);
++}
++
++template <class Font, class Info, class Escape>
++void FrontendProcessString(const unsigned short* string, const Font* pFont, const nlVector2& BoxSize, unsigned long DrawOptions, const nlMatrix4* pMatrix, Info& DrawInfo)
++{
++    unsigned long CurrentRowWidth;
++    const unsigned short* pLastSpace;
++    const unsigned short* pLastNonEsc;
++    unsigned long WidthAtLastSpace;
++    unsigned char FirstChar;
++    unsigned char IsNewParagraph;
++    const unsigned short* pCurrentChar;
++    unsigned long CharWidth;
++
++    DrawInfo.pFont = pFont;
++    pCurrentChar = DrawInfo.String = string;
++    DrawInfo.DrawOptions = DrawOptions;
++    DrawInfo.RowCount = 0;
++    DrawInfo.pMatrix = pMatrix;
++
++    CurrentRowWidth = 0;
++    pLastSpace = 0;
++    pLastNonEsc = 0;
++    WidthAtLastSpace = 0;
++    FirstChar = 1;
++    IsNewParagraph = 0;
++
++#if defined(MSCHARGED_NATIVE)
++    unsigned nativeSteps = 0;
++    const unsigned nativeLength = nlStrLen(string);
++#endif
++    while (*pCurrentChar != 0)
++    {
++#if defined(MSCHARGED_NATIVE)
++        if (++nativeSteps > (nativeLength + 1) * 17)
++            throw std::runtime_error("Textbox wrapping made no bounded progress");
++#endif
++        if (*pCurrentChar == Escape::ESCAPE_BEGIN)
++        {
++            Escape esc(pCurrentChar);
++
++            if (esc.GetType() == ESC_NON_BREAKING_SPACE)
++            {
++                unsigned long prevChar = FirstChar ? 0 : (pLastNonEsc != 0 ? (unsigned long)*pLastNonEsc : 0);
++                CharWidth = pFont->GetCharWidth(' ', (unsigned short)prevChar);
++            }
++            else if (esc.GetType() == ESC_PARAGRAPH)
++            {
++                CharWidth = (unsigned long)BoxSize.x + 1;
++                WidthAtLastSpace = CurrentRowWidth;
++                IsNewParagraph = 1;
++                pLastSpace = esc.m_pEnd - 1;
++            }
++            else
++            {
++                CharWidth = 0;
++            }
++            pCurrentChar = esc.m_pEnd - 1;
++        }
++        else
++        {
++            unsigned long prevChar = FirstChar ? 0 : (pLastNonEsc != 0 ? (unsigned long)*pLastNonEsc : 0);
++            CharWidth = pFont->GetCharWidth(*pCurrentChar, (unsigned short)prevChar);
++            pLastNonEsc = pCurrentChar;
++            if (*pCurrentChar == ' ')
++            {
++                pLastSpace = pCurrentChar;
++                WidthAtLastSpace = CurrentRowWidth;
++            }
++        }
++
++        FirstChar = 0;
++
++        if ((float)(CurrentRowWidth + CharWidth) > BoxSize.x && !(DrawOptions & 0x1000))
++        {
++            if (!(DrawOptions & nlTextBox::DontWrapOnSpaces) && pLastSpace != 0)
++            {
++                CurrentRowWidth = WidthAtLastSpace;
++                pCurrentChar = pLastSpace + 1;
++                pLastSpace = 0;
++                WidthAtLastSpace = 0;
++            }
++
++            int xOffset;
++            if (DrawOptions & 0x3)
++            {
++                int remaining = (int)(BoxSize.x - (float)CurrentRowWidth);
++                xOffset = remaining >> ((DrawOptions & nlTextBox::AlignCenter) ? 1u : 0u);
++            }
++            else
++            {
++                xOffset = 0;
++            }
++
++#if defined(MSCHARGED_NATIVE)
++            if (DrawInfo.RowCount >= 16 || xOffset < -32768 || xOffset > 32767)
++                throw std::length_error("Textbox exceeds original sixteen-row capacity");
++#endif
++            DrawInfo.Rows[DrawInfo.RowCount].XOffset = xOffset;
++            unsigned short charIdx = (unsigned short)(pCurrentChar - string);
++            DrawInfo.RowCount++;
++            DrawInfo.Rows[DrawInfo.RowCount].FirstChar = charIdx;
++
++            if (*pCurrentChar != ' ')
++            {
++#if defined(MSCHARGED_NATIVE)
++                if (pCurrentChar == string)
++                    throw std::length_error("Textbox cannot fit its first glyph");
++#endif
++                pCurrentChar--;
++            }
++            CurrentRowWidth = 0;
++        }
++        else
++        {
++            CurrentRowWidth += CharWidth;
++        }
++
++        if (IsNewParagraph)
++        {
++            CurrentRowWidth = 0;
++            IsNewParagraph = 0;
++        }
++
++        pCurrentChar++;
++    }
++
++    int xOffset;
++    if (DrawOptions & 0x3)
++    {
++        xOffset = (int)(BoxSize.x - (float)CurrentRowWidth) >> ((DrawOptions & nlTextBox::AlignCenter) ? 1u : 0u);
++    }
++    else
++    {
++        xOffset = 0;
++    }
++
++#if defined(MSCHARGED_NATIVE)
++    if (DrawInfo.RowCount >= 16 || xOffset < -32768 || xOffset > 32767)
++        throw std::length_error("Textbox exceeds original sixteen-row capacity");
++#endif
++    DrawInfo.Rows[DrawInfo.RowCount].XOffset = xOffset;
++    DrawInfo.RowCount++;
++
++    s32 strLen = nlStrLen(string);
++    DrawInfo.Rows[DrawInfo.RowCount].FirstChar = (unsigned short)strLen;
++    DrawInfo.Rows[0].FirstChar = 0;
++
++    if (DrawOptions & 0x30)
++    {
++        int TotalHeight = (int)DrawInfo.RowCount * (int)pFont->m_Metrics.Height;
++        if ((float)TotalHeight > BoxSize.y)
++        {
++            DrawInfo.YOffset = 0;
++        }
++        else if (DrawOptions & nlTextBox::VAlignCenter)
++        {
++            DrawInfo.YOffset = (signed short)((int)(BoxSize.y / 2.0f) - (TotalHeight >> 1));
++        }
++        else
++        {
++            DrawInfo.YOffset = (signed short)((int)BoxSize.y - TotalHeight);
++        }
++    }
++    else
++    {
++        DrawInfo.YOffset = 0;
++    }
++}
++
++#endif // GAME_FE_FRONTEND_LAYOUT_STEPS_H
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/feRender.h"
++#include "Game/FE/FrontendLayoutSteps.h"
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/FE/fePackage.h"
+@@ -44,69 +45,7 @@
+ 
+ void FERender::PushTransformMatrix(const TLInstance* instance, const nlMatrix4& parentMatrix, nlMatrix4& combinedMatrix)
+ {
+-    const feVector3& tlPosition = instance->GetPosition();
+-    const feVector3& tlPivot = instance->GetPivot();
+-    const feVector3& tlRotation = instance->GetRotation();
+-    const feVector3& tlScale = instance->GetScale();
+-    unsigned long flags = 0;
+-
+-    if (tlPosition.f.x == 0.0f && tlPosition.f.y == 0.0f && tlPosition.f.z == 0.0f)
+-    {
+-        flags |= 2;
+-    }
+-    if (tlPivot.f.x == 0.0f && tlPivot.f.y == 0.0f && tlPivot.f.z == 0.0f)
+-    {
+-        flags |= 1;
+-    }
+-    if (tlRotation.f.x == 0.0f && tlRotation.f.y == 0.0f && tlRotation.f.z == 0.0f)
+-    {
+-        flags |= 4;
+-    }
+-    if (tlScale.f.x == 1.0f && tlScale.f.y == 1.0f && tlScale.f.z == 1.0f)
+-    {
+-        flags |= 8;
+-    }
+-
+-    if ((flags & 0xF) == 0xF)
+-    {
+-        combinedMatrix = parentMatrix;
+-        return;
+-    }
+-
+-    nlMatrix4 scalePivotMatrix;
+-    nlMatrix4 localMatrix;
+-    if ((flags & 1) == 0 || (flags & 8) == 0)
+-    {
+-        nlMatrix4 scaleMatrix;
+-        nlMatrix4 pivotMatrix;
+-        nlMakeScaleMatrix(scaleMatrix, tlScale.f.x, tlScale.f.y, tlScale.f.z);
+-        nlMakeTranslationMatrix(pivotMatrix, -tlPivot.f.x, -tlPivot.f.y, -tlPivot.f.z);
+-        nlMultMatrices(scalePivotMatrix, pivotMatrix, scaleMatrix);
+-    }
+-    else
+-    {
+-        scalePivotMatrix.SetIdentity();
+-    }
+-
+-    if ((flags & 4) == 0)
+-    {
+-        nlMatrix4 rotationMatrix;
+-        nlMakeRotationMatrixEulerAngles(rotationMatrix, tlRotation.f.x, tlRotation.f.y, tlRotation.f.z);
+-        nlMultMatrices(localMatrix, scalePivotMatrix, rotationMatrix);
+-    }
+-    else
+-    {
+-        localMatrix = scalePivotMatrix;
+-    }
+-
+-    if ((flags & 2) == 0)
+-    {
+-        localMatrix.m41 += tlPosition.f.x;
+-        localMatrix.m42 += tlPosition.f.y;
+-        localMatrix.m43 += tlPosition.f.z;
+-    }
+-    localMatrix.m43 *= -1.0f;
+-    nlMultMatrices(combinedMatrix, localMatrix, parentMatrix);
++    FrontendPushTransform(instance, parentMatrix, combinedMatrix);
+ }
+ 
+ void FERender::RenderSlide(const TLSlide* slide, const nlMatrix4& matrix)
+diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
+--- a/src/NL/nlTextBox.cpp
++++ b/src/NL/nlTextBox.cpp
+@@ -1,153 +1,12 @@
+ #include "NL/nlTextBox.h"
++#include "Game/FE/FrontendLayoutSteps.h"
+ #include "NL/nlString.h"
+ #include "NL/nlTextEscape.h"
+ #include "NL/nlstring_tmpl.h"
+ 
+ void nlTextBox::ProcessString(const FontCharString* pString, const nlFont* pFont, const nlVector2& BoxSize, unsigned long DrawOptions, const nlMatrix4* pMatrix, nlTextBox::StringDrawInfo& DrawInfo)
+ {
+-    unsigned long CurrentRowWidth;
+-    const unsigned short* pLastSpace;
+-    const unsigned short* pLastNonEsc;
+-    unsigned long WidthAtLastSpace;
+-    unsigned char FirstChar;
+-    unsigned char IsNewParagraph;
+-    const unsigned short* pCurrentChar;
+-    unsigned long CharWidth;
+-
+-    DrawInfo.pFont = pFont;
+-    pCurrentChar = DrawInfo.String = pString->m_pString;
+-    DrawInfo.DrawOptions = DrawOptions;
+-    DrawInfo.RowCount = 0;
+-    DrawInfo.pMatrix = pMatrix;
+-
+-    CurrentRowWidth = 0;
+-    pLastSpace = 0;
+-    pLastNonEsc = 0;
+-    WidthAtLastSpace = 0;
+-    FirstChar = 1;
+-    IsNewParagraph = 0;
+-
+-    while (*pCurrentChar != 0)
+-    {
+-        if (*pCurrentChar == nlEscapeSequence::ESCAPE_BEGIN)
+-        {
+-            nlEscapeSequence esc(pCurrentChar);
+-
+-            if (esc.GetType() == ESC_NON_BREAKING_SPACE)
+-            {
+-                unsigned long prevChar = FirstChar ? 0 : (pLastNonEsc != 0 ? (unsigned long)*pLastNonEsc : 0);
+-                CharWidth = pFont->GetCharWidth(' ', (unsigned short)prevChar);
+-            }
+-            else if (esc.GetType() == ESC_PARAGRAPH)
+-            {
+-                CharWidth = (unsigned long)BoxSize.x + 1;
+-                WidthAtLastSpace = CurrentRowWidth;
+-                IsNewParagraph = 1;
+-                pLastSpace = esc.m_pEnd - 1;
+-            }
+-            else
+-            {
+-                CharWidth = 0;
+-            }
+-            pCurrentChar = esc.m_pEnd - 1;
+-        }
+-        else
+-        {
+-            unsigned long prevChar = FirstChar ? 0 : (pLastNonEsc != 0 ? (unsigned long)*pLastNonEsc : 0);
+-            CharWidth = pFont->GetCharWidth(*pCurrentChar, (unsigned short)prevChar);
+-            pLastNonEsc = pCurrentChar;
+-            if (*pCurrentChar == ' ')
+-            {
+-                pLastSpace = pCurrentChar;
+-                WidthAtLastSpace = CurrentRowWidth;
+-            }
+-        }
+-
+-        FirstChar = 0;
+-
+-        if ((float)(CurrentRowWidth + CharWidth) > BoxSize.x && !(DrawOptions & 0x1000))
+-        {
+-            if (!(DrawOptions & DontWrapOnSpaces) && pLastSpace != 0)
+-            {
+-                CurrentRowWidth = WidthAtLastSpace;
+-                pCurrentChar = pLastSpace + 1;
+-                pLastSpace = 0;
+-                WidthAtLastSpace = 0;
+-            }
+-
+-            int xOffset;
+-            if (DrawOptions & 0x3)
+-            {
+-                int remaining = (int)(BoxSize.x - (float)CurrentRowWidth);
+-                xOffset = remaining >> ((DrawOptions & AlignCenter) ? 1u : 0u);
+-            }
+-            else
+-            {
+-                xOffset = 0;
+-            }
+-
+-            DrawInfo.Rows[DrawInfo.RowCount].XOffset = xOffset;
+-            unsigned short charIdx = (unsigned short)(pCurrentChar - pString->m_pString);
+-            DrawInfo.RowCount++;
+-            DrawInfo.Rows[DrawInfo.RowCount].FirstChar = charIdx;
+-
+-            if (*pCurrentChar != ' ')
+-            {
+-                pCurrentChar--;
+-            }
+-            CurrentRowWidth = 0;
+-        }
+-        else
+-        {
+-            CurrentRowWidth += CharWidth;
+-        }
+-
+-        if (IsNewParagraph)
+-        {
+-            CurrentRowWidth = 0;
+-            IsNewParagraph = 0;
+-        }
+-
+-        pCurrentChar++;
+-    }
+-
+-    int xOffset;
+-    if (DrawOptions & 0x3)
+-    {
+-        xOffset = (int)(BoxSize.x - (float)CurrentRowWidth) >> ((DrawOptions & AlignCenter) ? 1u : 0u);
+-    }
+-    else
+-    {
+-        xOffset = 0;
+-    }
+-
+-    DrawInfo.Rows[DrawInfo.RowCount].XOffset = xOffset;
+-    DrawInfo.RowCount++;
+-
+-    s32 strLen = nlStrLen(pString->m_pString);
+-    DrawInfo.Rows[DrawInfo.RowCount].FirstChar = (unsigned short)strLen;
+-    DrawInfo.Rows[0].FirstChar = 0;
+-
+-    if (DrawOptions & 0x30)
+-    {
+-        int TotalHeight = (int)DrawInfo.RowCount * (int)pFont->m_Metrics.Height;
+-        if ((float)TotalHeight > BoxSize.y)
+-        {
+-            DrawInfo.YOffset = 0;
+-        }
+-        else if (DrawOptions & VAlignCenter)
+-        {
+-            DrawInfo.YOffset = (signed short)((int)(BoxSize.y / 2.0f) - (TotalHeight >> 1));
+-        }
+-        else
+-        {
+-            DrawInfo.YOffset = (signed short)((int)BoxSize.y - TotalHeight);
+-        }
+-    }
+-    else
+-    {
+-        DrawInfo.YOffset = 0;
+-    }
++    FrontendProcessString<nlFont, nlTextBox::StringDrawInfo, nlEscapeSequence>(pString->m_pString, pFont, BoxSize, DrawOptions, pMatrix, DrawInfo);
+ }
+ 
+ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVector2& DrawAt, const nlColour& Color, eGLView View)

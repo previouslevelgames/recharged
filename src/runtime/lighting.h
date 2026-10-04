@@ -9,6 +9,8 @@ namespace mscharged
 {
 // Inputs to the original object-lighting routines. Scene/character/effect
 // managers will supply these records when their own startup paths are linked.
+// GameObjectLight::useWorldPosition selects position vs authored angles; the
+// enabled flag below controls lighting for the complete selected draw.
 struct ShadowLighting
 {
     const LightingLookup* lookup = nullptr;

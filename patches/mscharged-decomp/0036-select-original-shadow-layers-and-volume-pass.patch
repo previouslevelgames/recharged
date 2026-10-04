@@ -1,5 +1,5 @@
 Subject: Select original shadow layers, volume blend and projection scheduling
-Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
 
 Extract original cameras, eleven atlas partitions, update scheduling and shadow
 projection setup while leaving full game scene and character drawing unlinked.
@@ -10,12 +10,13 @@ diff --git a/include/Game/Render/RLViewLayers.h b/include/Game/Render/RLViewLaye
 index 63826b9..42087de 100644
 --- a/include/Game/Render/RLViewLayers.h
 +++ b/include/Game/Render/RLViewLayers.h
-@@ -2,7 +2,11 @@
+@@ -2,7 +2,12 @@
  #define GAME_RENDER_RL_VIEW_LAYERS_H
  
  #include "Game/Render/RLView.h"
 +#if defined(MSCHARGED_NATIVE)
-+class TweakValueBool; // Only extern declarations are needed by selected native layers.
++template <typename T> class TweakValue;
++typedef TweakValue<bool> TweakValueBool; // Extern declarations only.
 +#else
  #include "Game/TweakValue.h"
 +#endif

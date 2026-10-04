@@ -1,5 +1,5 @@
 Subject: Select native model duplication and stadium shadow submission
-Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
 
 Select original no-stream model duplication with typed material sizes and input
 bounds. Preserve independent packets/parameters and shared geometry. Extract the

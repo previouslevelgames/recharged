@@ -29,7 +29,10 @@ This requires a USA `R4QE01` revision 1 ISO/RVZ. It stops explicitly with exit c
 The same build exposes **Try startup** in the launcher.
 The checks include original memory, file access, boot configuration, tweak
 registration, events, task scheduling, frame timing and authored camera loading
-and playback. Movies and the complete game frame loop remain in development.
+and playback. A separate bounded diagnostic executes the original boot script
+until it reaches an unsupported service, currently particle loading. Movies and
+the complete game frame loop remain in development. Particle files, effects
+records and textures can be read and checked; particle rendering is still pending.
 
 For the host check alone, use `cmake --workflow --preset aurora`, then run
 `./build/aurora/mscharged-aurora-check --window`.
@@ -104,9 +107,21 @@ menu behavior remain pending. Use `--debug-camera` to inspect it freely.
 Add `--frontend-layout /Art/fe/main_menu_v3.fen` to inspect stored text components
 using the game's font textures and your configured USA text language. Up/Down
 or a controller selects text through the original frontend input code. This is
-a text asset viewer; authored layout, animation and menu actions are still pending.
+a text asset viewer; animation and menu actions are still pending.
 It uses separate controls from `--debug-camera`.
+
+For multiple text components in their stored layout, use
+`--frontend-frame /Art/fe/game_summary.fen --frontend-slide Slide1` instead.
+This renders the supported static text with inherited transforms, colors and
+original draw order. Unsupported images, animation, clipping and text formats
+are reported and omitted; this does not run the menu.
 
 Press Escape or close the window to exit. Add `--frames 180` for a bounded run,
 `--unlit` to compare lighting, or use `--help` for other preview options. Running
 `./build/scene/mscharged` without arguments opens the launcher.
+
+For a camera-only NIS picture-in-picture preview, add `--nis-primary /DISC/first.nis`
+and `--nis-secondary /DISC/second.nis`. Each selects its first embedded camera.
+The preview offers PIP, camera swap and expansion controls; `--pip-expand 1`
+starts a one-second expansion. Geometry remains static; NIS actors, audio and
+scripted effects are not enabled.

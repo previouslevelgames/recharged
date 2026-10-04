@@ -16,10 +16,14 @@ struct SceneOptions
     std::optional<std::string> world_res; // Resident world containing selected object instances.
     std::vector<std::uint32_t> object_ids;
     std::optional<std::string> camera; // Authored CAM track; preserves model world coordinates.
+    std::optional<std::string> nis_primary, nis_secondary; // First embedded CAM in each explicit NIS.
+    std::optional<float> pip_expand; // Start the original expansion immediately, in seconds.
     std::optional<std::string> shadow_textures;
     std::optional<std::uint32_t> shadow_id;
     bool frontend_world = false; // Original FE paths, automatic supported-static subset.
     std::optional<std::string> frontend_layout; // Stored text inspection; no FE timeline or menu handlers.
+    std::optional<std::string> frontend_frame; // Authored static text frame, with explicit unsupported branches.
+    std::optional<std::string> frontend_slide; // Optional stored presentation slide name.
     bool debug_camera = false; // Original DebugCam with diagnostic desktop controls.
     bool no_world_culling = false; // Diagnostic reference: submit every selected world object.
     bool unlit = false;

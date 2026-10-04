@@ -132,6 +132,9 @@ class Reader
             value.localization_hash=Word(at+0x90);std::copy_n(Value(at+0x94,4).begin(),4,value.text_effect_colour.begin());
             value.text_box={Number(at+0x98),Number(at+0x9c)};value.text_overload_flags=Word(at+0xa0);value.draw_options=Word(at+0x100);
             value.text=Text(Pointer(at+0x104));
+            value.text_scissor=Bool(at+0x108);
+            for(unsigned i=0;i<4;++i)
+            {Value(at+0x10a+2*i,2);value.text_scissor_box[i]=U16(data_,at+0x10a+2*i);}
         }
         result_.instances.push_back(std::move(value));End(at);
     }

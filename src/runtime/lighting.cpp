@@ -26,11 +26,11 @@ GameLighting DefaultGameLighting()
     result.light_count = 2;
     const auto& params = gStadiumGameObjectLightingParams;
     result.lights[0].intensity = params.inGameKeyIntensity;
-    result.lights[0].unknown08 = params.inGameKeyRotYDeg;
-    result.lights[0].unknown0C = params.inGameKeyRotZDeg;
+    result.lights[0].rotYDeg = params.inGameKeyRotYDeg;
+    result.lights[0].rotZDeg = params.inGameKeyRotZDeg;
     result.lights[1].intensity = params.inGameFillIntensity;
-    result.lights[1].unknown08 = params.inGameFillRotYDeg;
-    result.lights[1].unknown0C = params.inGameFillRotZDeg;
+    result.lights[1].rotYDeg = params.inGameFillRotYDeg;
+    result.lights[1].rotZDeg = params.inGameFillRotZDeg;
     return result;
 }
 
@@ -44,19 +44,19 @@ void ValidateGameLighting(const GameLighting& lighting)
     for (unsigned i = 0; i < lighting.light_count; ++i)
     {
         const auto& light = lighting.lights[i];
-        if (light.unknown01 > 1 || light.unknown02 > 1)
+        if (light.useColour > 1 || light.isPointLight > 1)
             throw std::invalid_argument("Invalid object light flags");
         Bounded(light.intensity, 16, "Invalid object light intensity");
         if (light.intensity < 0) throw std::invalid_argument("Negative object light intensity");
-        Bounded(light.unknown08, 36000, "Invalid object light Y angle");
-        Bounded(light.unknown0C, 36000, "Invalid object light Z angle");
+        Bounded(light.rotYDeg, 36000, "Invalid object light Y angle");
+        Bounded(light.rotZDeg, 36000, "Invalid object light Z angle");
         Bounded(light.worldPosition.x, 1e6f, "Invalid object light position");
         Bounded(light.worldPosition.y, 1e6f, "Invalid object light position");
         Bounded(light.worldPosition.z, 1e6f, "Invalid object light position");
-        if (light.unknown02)
+        if (light.isPointLight)
         {
-            Bounded(light.unknown20, 1e6f, "Invalid point light radius");
-            if (light.unknown20 < 1e-4f) throw std::invalid_argument("Point light radius is too small");
+            Bounded(light.radius, 1e6f, "Invalid point light radius");
+            if (light.radius < 1e-4f) throw std::invalid_argument("Point light radius is too small");
         }
     }
     if (lighting.ramp_texture != UINT32_MAX && !glx_GetTex(lighting.ramp_texture))
@@ -88,8 +88,6 @@ void EndGameLighting() { active.reset(); }
 
 // Input adapters for the original core. No stadium, character or emission
 // manager is linked by this preview; callers supply validated object records.
-extern "C"
-{
 int IsGameObjectLightingEnabled() { return mscharged::ActiveGameLighting().inputs.enabled; }
 int ShouldDoubleGameObjectLighting() { return mscharged::ActiveGameLighting().inputs.double_intensity; }
 int ShouldUseGameObjectLightTexture(int) { return mscharged::ActiveGameLighting().inputs.ramp_texture != UINT32_MAX; }
@@ -99,12 +97,11 @@ int GetGameObjectLightCount(bool character, bool)
     if (character) throw std::logic_error("Character light selection is not integrated");
     return mscharged::ActiveGameLighting().inputs.light_count;
 }
-GameObjectLight* GetGameObjectLight(s32 index, bool character)
+GameObjectLight* GetGameObjectLight(int index, bool character)
 {
     auto& lighting = mscharged::ActiveGameLighting().inputs;
     if (character || index < 0 || unsigned(index) >= lighting.light_count)
         throw std::out_of_range("Object light is outside the active input set");
     return &lighting.lights[index];
 }
-bool fn_80183C54() { return mscharged::ActiveGameLighting().inputs.shadow.lookup != nullptr; }
-}
+bool IsShadowLookupActive() { return mscharged::ActiveGameLighting().inputs.shadow.lookup != nullptr; }

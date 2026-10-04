@@ -1,0 +1,178 @@
+Subject: Share original NIS picture-in-picture rectangles, timing and target settings
+
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+
+Share the original fixed/expanding rectangles, strict expansion completion and
+camera-swap decisions without selecting Holotron or full NisPlayer dependencies.
+The selected native owner applies checked finite deltas and retained camera swaps.
+Keep the original RGB565 target descriptor and viewport dimensions source-shared.
+Console callers retain the same equations, callback order and target settings.
+
+diff --git a/include/Game/Render/NisPipSteps.h b/include/Game/Render/NisPipSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Render/NisPipSteps.h
+@@ -0,0 +1,48 @@
++#ifndef GAME_RENDER_NIS_PIP_STEPS_H
++#define GAME_RENDER_NIS_PIP_STEPS_H
++
++struct NisPipRectData
++{
++    float x, y, width, height;
++};
++
++inline NisPipRectData NisPipFixedRectangle()
++{
++    NisPipRectData rectangle = { 360.0f, 270.0f, 240.0f, 150.0f };
++    return rectangle;
++}
++
++inline NisPipRectData NisPipExpandedRectangle(float time, float duration)
++{
++    float u;
++    float t = time / duration;
++    u = 1.0f - t;
++    NisPipRectData rectangle = { 360.0f * u, 270.0f * u,
++        640.0f * t + 240.0f * u, 480.0f * t + 150.0f * u };
++    return rectangle;
++}
++
++template <class Player>
++int AdvanceNisPipSwap(Player* player)
++{
++    player->SwapCameras();
++    return 1;
++}
++
++template <class Player>
++int AdvanceNisPipExpansion(Player* player, float& time, float duration, float dt)
++{
++    time += dt;
++    if (time <= duration)
++    {
++        return 3;
++    }
++
++    player->SwapCameras();
++    return 0;
++}
++
++const unsigned NisPipViewportWidth = 0x200;
++const unsigned NisPipViewportHeight = 0x100;
++
++#endif // GAME_RENDER_NIS_PIP_STEPS_H
+diff --git a/include/Game/Render/NisPipTargetConfig.inc b/include/Game/Render/NisPipTargetConfig.inc
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Render/NisPipTargetConfig.inc
+@@ -0,0 +1,10 @@
++    nlZeroMemory(&info, sizeof(GLTargetInfo));
++    info.width = 0x100;
++    info.height = 0x80;
++    info.format = GLTargetFormat_RGB565;
++    info.clearFlags = 1;
++    info.clearDepthSetting = 0;
++    info.colour[0] = 0;
++    info.colour[1] = 0;
++    info.colour[2] = 0;
++    info.colour[3] = 0xFF;
+diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOverlay.cpp
+--- a/src/Game/Render/NisPlayerOverlay.cpp
++++ b/src/Game/Render/NisPlayerOverlay.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Render/NisPlayerOverlay.h"
++#include "Game/Render/NisPipSteps.h"
+ 
+ #include "Game/NisPlayer.h"
+ #include "Game/Camera/CameraMan.h"
+@@ -84,7 +85,8 @@
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
+     glPoly2 poly;
+-    poly.SetupRectangle(360.0f, 270.0f, 240.0f, 150.0f, 0.0f);
++    const NisPipRectData rectangle = NisPipFixedRectangle();
++    poly.SetupRectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 0.0f);
+ 
+     nlColour colour;
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
+@@ -218,8 +220,7 @@
+  */
+ int NisPlayerCameraSwapOverlay::Update(float dt)
+ {
+-    mPlayer->SwapCameras();
+-    return 1;
++    return AdvanceNisPipSwap(mPlayer);
+ }
+ 
+ /**
+@@ -252,13 +253,9 @@
+     glSetCurrentRasterState(glHandleizeRasterState());
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
+-    float u;
+-    float t = mTime / mDuration;
+-    u = 1.0f - t;
+-
++    const NisPipRectData rectangle = NisPipExpandedRectangle(mTime, mDuration);
+     glPoly2 poly;
+-    poly.SetupRectangle(360.0f * u, 270.0f * u, 640.0f * t + 240.0f * u,
+-        480.0f * t + 150.0f * u, 0.0f);
++    poly.SetupRectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 0.0f);
+ 
+     nlColour colour;
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
+@@ -271,14 +268,7 @@
+  */
+ int NisPlayerPIPExpandOverlay::Update(float dt)
+ {
+-    mTime += dt;
+-    if (mTime <= mDuration)
+-    {
+-        return 3;
+-    }
+-
+-    mPlayer->SwapCameras();
+-    return 0;
++    return AdvanceNisPipExpansion(mPlayer, mTime, mDuration, dt);
+ }
+ 
+ /**
+diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
+--- a/src/Game/Render/RLViewLayers.cpp
++++ b/src/Game/Render/RLViewLayers.cpp
+@@ -1,4 +1,5 @@
+ #include <revolution/gx.h>
++#include "Game/Render/NisPipSteps.h"
+ 
+ #include "NL/gl/glPlat.h"
+ #include "Game/Render/RLViewLayers.h"
+@@ -433,26 +434,17 @@
+     sLayerViews[eCLV_ScreenGrab]->m_ClearColour = false;
+     sLayerViews[eCLV_ScreenGrab]->m_ClearDepth = false;
+ 
+-    nlZeroMemory(&info, sizeof(GLTargetInfo));
+-    info.width = 0x100;
+-    info.height = 0x80;
+-    info.format = GLTargetFormat_RGB565;
+-    info.clearFlags = 1;
+-    info.clearDepthSetting = 0;
+-    info.colour[0] = 0;
+-    info.colour[1] = 0;
+-    info.colour[2] = 0;
+-    info.colour[3] = 0xFF;
++#include "Game/Render/NisPipTargetConfig.inc"
+     sLayerViews[eCLV_PictureInPicture]->m_Target = 0;
+     sLayerViews[eCLV_PictureInPicture]->m_ClearDepth = true;
+     sLayerViews[eCLV_PictureInPicture]->m_ClearColour = true;
+-    sLayerViews[eCLV_PictureInPicture]->SetViewport(0, 0, 0x200, 0x100);
++    sLayerViews[eCLV_PictureInPicture]->SetViewport(0, 0, NisPipViewportWidth, NisPipViewportHeight);
+     GLRenderPair pipPair = glCreateTarget(sPipTargetName, &info);
+     sLayerViews[eCLV_PictureInPictureAlpha]->SetRenderPair(pipPair);
+     sLayerViews[eCLV_PictureInPictureAlpha]->m_Target = 9;
+     sLayerViews[eCLV_PictureInPictureAlpha]->m_ClearDepth = false;
+     sLayerViews[eCLV_PictureInPictureAlpha]->m_ClearColour = false;
+-    sLayerViews[eCLV_PictureInPictureAlpha]->SetViewport(0, 0, 0x200, 0x100);
++    sLayerViews[eCLV_PictureInPictureAlpha]->SetViewport(0, 0, NisPipViewportWidth, NisPipViewportHeight);
+ 
+     info.width = glplatGetDefaultTargetWidth() >> 1;
+     info.height = glplatGetDefaultTargetHeight() >> 1;

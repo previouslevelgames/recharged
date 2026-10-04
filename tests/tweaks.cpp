@@ -12,6 +12,8 @@
 // Exercise actual registration before the game memory arenas exist.
 TweakValueBool early("Early", "/Fixture", true, false);
 TweakFloatBinding early_binding("Initially unbound", "/Fixture", nullptr, false);
+TweakBoolBinding early_bool_binding("Unbound bool", "/Fixture", nullptr, false);
+TweakIntBinding early_int_binding("Unbound int", "/Fixture", nullptr, false);
 namespace
 {
 unsigned checks=0;
@@ -29,8 +31,22 @@ void Run()
     Reject<std::logic_error>([] { ResetDynamicTweaks(); });
     Check(GetTweakBool("/Fixture/Early",false),"Pre-memory tweak registration was lost");
     Check(GetTweakFloat("/Fixture/Initially unbound",-1)==0,"Pending unbound tweak did not receive its original default");
+    Check(!GetTweakBool("/Fixture/Unbound bool",true),"Pending bool binding did not create its owned default");
+    Check(GetTweakInt("/Fixture/Unbound int",-1)==0,"Pending int binding did not create its owned default");
     {
         TweakValueBool local("Borrowed", "/Fixture", false, false);
+        float bound_value = 2.f;
+        TweakFloatBinding bound("Bound float", "/Fixture", &bound_value, false);
+        bound.ParseValue("3.5");
+        Check(bound_value == 3.5f, "Original generic float binding parser failed");
+        Reject<std::out_of_range>([&] { bound.ParseValue("nan"); });
+        Check(bound_value == 3.5f, "Rejected binding value changed the caller's storage");
+        bool bound_bool = true;
+        int bound_int = 42;
+        TweakBoolBinding boolean("Bound bool", "/Fixture", &bound_bool, false);
+        TweakIntBinding integer("Bound int", "/Fixture", &bound_int, false);
+        Check(GetTweakBool("/Fixture/Bound bool",false),"Bool binding lookup lost its actual value type");
+        Check(GetTweakInt("/Fixture/Bound int",0)==42,"Int binding lookup lost its actual value type");
         Check(TweakExists("/Fixture/Borrowed"),"Borrowed tweak was not registered");
         char input[]="[Fixture]\nBorrowed=true\nCount=42\nScale=1.25\nName=Charged\n";
         LoadTweakConfigBuffer(nullptr,input,sizeof(input)-1,"");
@@ -74,6 +90,8 @@ int main()
         {
             Run();
             Check(early_binding.m_pValue==nullptr,"Registry shutdown retained a dangling binding");
+            Check(early_bool_binding.m_pValue==nullptr,"Registry shutdown retained a dangling bool binding");
+            Check(early_int_binding.m_pValue==nullptr,"Registry shutdown retained a dangling int binding");
             Check(StandardAllocator.TotalFreeMemory()==mem1.size()*8 && VirtualAllocator.TotalFreeMemory()==mem2.size()*8,
                   "Tweak registry leaked game arenas");
         }

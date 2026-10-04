@@ -89,9 +89,11 @@ int main()
         nlMatrix4 identity; identity.SetIdentity();
         auto lighting = mscharged::DefaultGameLighting();
         static_assert(sizeof(GameObjectLight) == 36 && sizeof(StadiumLightingParams) == 64);
+        Require(!lighting.lights[0].useWorldPosition && !lighting.lights[0].useColour
+            && !lighting.lights[0].isPointLight, "Original default light coordinate/colour/type flags changed");
         Require(lighting.light_count == 2 && lighting.enabled && lighting.lights[0].intensity == .9f
-            && lighting.lights[1].intensity == .25f && lighting.lights[0].unknown08 == 55
-            && lighting.lights[1].unknown0C == -120, "Original stadium lighting defaults changed");
+            && lighting.lights[1].intensity == .25f && lighting.lights[0].rotYDeg == 55
+            && lighting.lights[1].rotZDeg == -120, "Original stadium lighting defaults changed");
         mscharged::ValidateGameLighting(lighting);
         auto invalid_lighting = lighting;
         invalid_lighting.light_count = 7;
@@ -100,7 +102,7 @@ int main()
         Reject<std::invalid_argument>([&] { mscharged::ValidateGameLighting(invalid_lighting); });
         invalid_lighting = lighting; invalid_lighting.lights[0].worldPosition.x = std::numeric_limits<float>::infinity();
         Reject<std::invalid_argument>([&] { mscharged::ValidateGameLighting(invalid_lighting); });
-        invalid_lighting = lighting; invalid_lighting.lights[0].unknown02 = 1;
+        invalid_lighting = lighting; invalid_lighting.lights[0].isPointLight = 1;
         Reject<std::invalid_argument>([&] { mscharged::ValidateGameLighting(invalid_lighting); });
         invalid_lighting = lighting; invalid_lighting.shadow.texture = 21;
         Reject<std::invalid_argument>([&] { mscharged::ValidateGameLighting(invalid_lighting); });
@@ -306,7 +308,7 @@ int main()
             Reject<std::invalid_argument>([&] { mscharged::StaticInventory inventory(pool, {invalid}, textures); });
             recovered();
             GameObjectLight light;
-            light.enabled = true; light.intensity = 1;
+            light.useWorldPosition = true; light.intensity = 1;
             Reject<std::invalid_argument>([&] { LoadGameObjectSpecularLight(0, &light, 64, identity); });
             Reject<std::invalid_argument>([&] { LoadGameObjectSpecularLight(0, nullptr, 64, identity); });
             Reject<std::invalid_argument>([&] { LoadGameObjectSpecularLight(0, &light, -1, identity); });

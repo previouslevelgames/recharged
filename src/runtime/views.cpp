@@ -122,7 +122,9 @@ void DispatchOriginalViews(float time, const GameLighting& lighting, const nlVec
         if (view->m_ClearColour || view->m_ClearDepth || view->m_Unknown32)
             pair.target->ClearBuffers(view->m_ClearColour, view->m_ClearDepth, view->m_Unknown32);
         if (!view->m_Visible) continue;
-        MaterialPreviewScope environment(*view->m_Interface->GetViewMatrix(), time, lighting, camera_position);
+        const auto* matrices = dynamic_cast<const ViewMatrices*>(view->m_Interface);
+        const auto* material_camera = matrices && matrices->material_camera ? &*matrices->material_camera : camera_position;
+        MaterialPreviewScope environment(*view->m_Interface->GetViewMatrix(), time, lighting, material_camera);
         view->Iterate(Packet);
         if (view->m_Target == 8 || view->m_Target == 9 || view->m_Target == 10)
             pair.target->CopyToTexture(view->m_Target != 8, view->m_Target == 10);

@@ -1,0 +1,45 @@
+Subject: Select original hierarchy queries and traversal on owned native records
+
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+
+Keep original accessors and BuildPushPopFlags unchanged. Exclude the Wii-only
+in-place Initialize routine and reject its use from native source at compile
+time: its 52-byte object header and four-byte pointer table cannot contain a
+64-bit native cSHierarchy. The checked port decoder constructs and retains
+separate native storage before calling the original traversal. Console code
+and hierarchy equations are unchanged.
+
+diff --git a/include/Game/SHierarchy.h b/include/Game/SHierarchy.h
+--- a/include/Game/SHierarchy.h
++++ b/include/Game/SHierarchy.h
+@@ -10,7 +10,13 @@
+ public:
+     typedef char* MemType;
+ 
++#ifdef MSCHARGED_NATIVE
++    // Wii Initialize overlays pointer-rich objects directly into file bytes.
++    // Native callers must retain a separately decoded HierarchyAsset instead.
++    static cSHierarchy* Initialize(nlChunk* pChunk) = delete;
++#else
+     static cSHierarchy* Initialize(nlChunk* pChunk);
++#endif
+     static bool IsValidChunkID(u32 id)
+     {
+         return (id & 0x80FFFFFF) == 0x80018000;
+diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
+--- a/src/Game/SHierarchy.cpp
++++ b/src/Game/SHierarchy.cpp
+@@ -82,6 +82,7 @@
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
+ {
+     nlChunk* pFirst = (nlChunk*)pChunk->GetUnalignedData();
+@@ -141,3 +142,5 @@
+ 
+     return pRetval;
+ }
++
++#endif // !MSCHARGED_NATIVE

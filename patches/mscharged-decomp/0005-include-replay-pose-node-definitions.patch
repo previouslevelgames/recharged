@@ -1,6 +1,6 @@
 Subject: Include concrete pose nodes before replay template bodies
 
-Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
 
 Replay template bodies construct and convert concrete pose nodes. Native
 compilers require their complete definitions here. No replay behavior changes.

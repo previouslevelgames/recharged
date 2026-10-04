@@ -1,0 +1,403 @@
+Subject: Share original async loading sequence, stage readiness and persistent pool inputs
+
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+
+Keep the original sequence switch and readiness/yield equations shared with a
+bounded native boot owner. Select source-defined pool requirements and original
+empty debug markers without selecting the full gameplay loading dispatcher.
+
+diff --git a/include/Game/AsyncLoadingSequence.inc b/include/Game/AsyncLoadingSequence.inc
+new file mode 100644
+--- /dev/null
++++ b/include/Game/AsyncLoadingSequence.inc
+@@ -0,0 +1,108 @@
++    case ASYNC_LOADING_BOOT_TO_FE_BEGIN:
++        manager->CallFunction(nlStringHash("BootLoadingToFE"));
++        manager->mSequenceState = ASYNC_LOADING_BOOT_TO_FE_RUN;
++        result = ASYNC_LOADING_RUNNING;
++        break;
++    case ASYNC_LOADING_BOOT_TO_FE_RUN:
++        manager->Run();
++        if (manager->IsFinished())
++        {
++            manager->mSequenceState = ASYNC_LOADING_IDLE;
++            result = ASYNC_LOADING_FE_READY;
++            completed = true;
++        }
++        else
++        {
++            result = ASYNC_LOADING_RUNNING;
++        }
++        break;
++    case ASYNC_LOADING_CLEAN_BOOT_BEGIN:
++        manager->CallFunction(nlStringHash("CleanBootShutdown"));
++        manager->mSequenceState = ASYNC_LOADING_CLEAN_BOOT_RUN;
++        result = ASYNC_LOADING_RUNNING;
++        break;
++    case ASYNC_LOADING_CLEAN_BOOT_RUN:
++        manager->Run();
++        if (manager->IsFinished())
++        {
++            manager->mSequenceState = ASYNC_LOADING_IDLE;
++            result = ASYNC_LOADING_CLEAN_BOOT_COMPLETE;
++            completed = true;
++        }
++        else
++        {
++            result = ASYNC_LOADING_RUNNING;
++        }
++        break;
++    case ASYNC_LOADING_FE_TO_GAME_BEGIN:
++        manager->CallFunction(nlStringHash("FELoadingToGame"));
++        manager->mSequenceState = ASYNC_LOADING_FE_TO_GAME_RUN;
++        result = ASYNC_LOADING_RUNNING;
++        break;
++    case ASYNC_LOADING_FE_TO_GAME_RUN:
++        manager->Run();
++        if (manager->IsFinished())
++        {
++            manager->mSequenceState = ASYNC_LOADING_IDLE;
++            result = ASYNC_LOADING_GAME_READY;
++            completed = true;
++        }
++        else
++        {
++            result = ASYNC_LOADING_RUNNING;
++        }
++        break;
++    case ASYNC_LOADING_GAME_TO_FE_BEGIN:
++        manager->CallFunction(nlStringHash("GameLoadingToFE"));
++        manager->mSequenceState = ASYNC_LOADING_GAME_TO_FE_RUN;
++        result = ASYNC_LOADING_RUNNING;
++        break;
++    case ASYNC_LOADING_GAME_TO_FE_RUN:
++        manager->Run();
++        if (manager->IsFinished())
++        {
++            manager->mSequenceState = ASYNC_LOADING_IDLE;
++            result = ASYNC_LOADING_RETURN_TO_FE;
++            completed = true;
++        }
++        else
++        {
++            result = ASYNC_LOADING_RUNNING;
++        }
++        break;
++    case ASYNC_LOADING_BOOT_TO_GAME_BEGIN:
++        manager->CallFunction(nlStringHash("BootLoadingToGame"));
++        manager->mSequenceState = ASYNC_LOADING_BOOT_TO_GAME_RUN;
++        result = ASYNC_LOADING_RUNNING;
++        break;
++    case ASYNC_LOADING_BOOT_TO_GAME_RUN:
++        manager->Run();
++        if (manager->IsFinished())
++        {
++            manager->mSequenceState = ASYNC_LOADING_IDLE;
++            result = ASYNC_LOADING_STADIUM_OR_GAME_READY;
++            completed = true;
++        }
++        else
++        {
++            result = ASYNC_LOADING_RUNNING;
++        }
++        break;
++    case ASYNC_LOADING_STADIUM_VIEWER_BEGIN:
++        manager->CallFunction(nlStringHash("BootLoadingToStadiumViewer"));
++        manager->mSequenceState = ASYNC_LOADING_STADIUM_VIEWER_RUN;
++        result = ASYNC_LOADING_RUNNING;
++        break;
++    case ASYNC_LOADING_STADIUM_VIEWER_RUN:
++        manager->Run();
++        if (manager->IsFinished())
++        {
++            manager->mSequenceState = ASYNC_LOADING_IDLE;
++            result = ASYNC_LOADING_STADIUM_OR_GAME_READY;
++            completed = true;
++        }
++        else
++        {
++            result = ASYNC_LOADING_RUNNING;
++        }
++        break;
+diff --git a/include/Game/AsyncLoadingShared.h b/include/Game/AsyncLoadingShared.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/AsyncLoadingShared.h
+@@ -0,0 +1,46 @@
++#ifndef GAME_ASYNC_LOADING_SHARED_H
++#define GAME_ASYNC_LOADING_SHARED_H
++#include "Game/AsyncLoading.h"
++#include "NL/gl/glMemory.h"
++#include "NL/nlString.h"
++
++struct PersistentResourceRequirements
++{
++    GLMemoryRequirement entries[2];
++};
++extern PersistentResourceRequirements gPersistentResourceRequirements;
++void fn_80111654(int);
++void fn_8011165C(int);
++
++// Shared original stage yield/readiness comparison. The caller supplies the
++// original ticker difference; separating acquisition permits deterministic
++// qualification without replacing the runtime clock.
++template<class Manager>
++inline void FinishAsyncLoadingStep(Manager* manager, float elapsed, float threshold)
++{
++    if (elapsed > threshold)
++    {
++        manager->StopWithoutUndo();
++    }
++}
++template<class Manager>
++inline void FinishAsyncLoadingStepOrUndo(Manager* manager, bool finished, float elapsed, float threshold)
++{
++    if (finished)
++    {
++        FinishAsyncLoadingStep(manager, elapsed, threshold);
++    }
++    else
++    {
++        manager->StopWithUndo();
++    }
++}
++template<class Manager>
++inline void AdvanceAsyncLoadingSequence(Manager* manager, int& result, bool& completed)
++{
++    switch (manager->mSequenceState)
++    {
++#include "Game/AsyncLoadingSequence.inc"
++    }
++}
++#endif
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -155,8 +155,10 @@
+ 
+ bool g_VerboseAudio;
+ bool g_bDumpMemoryStatsOnLoad;
++#ifndef MSCHARGED_NATIVE
+ float g_fScriptBlockingWarningMS = 50.0f;
+ float g_fYieldScriptBlockingTimeMS = 45.0f;
++#endif
+ 
+ static const char* lbl_806E103C;
+ static BaseSceneHandler* lbl_806E1040;
+@@ -196,12 +198,7 @@
+     }
+ }
+ 
+-struct PersistentResourceRequirements
+-{
+-    GLMemoryRequirement entries[2];
+-};
+-
+-extern PersistentResourceRequirements gPersistentResourceRequirements;
++#include "Game/AsyncLoadingShared.h"
+ 
+ static inline bool IsTeamInCurrentGame(int team)
+ {
+@@ -231,24 +228,15 @@
+ 
+ static inline void FinishLoadingStep(AsyncLoadingManager* manager)
+ {
+-    if (nlGetTickerDifference(manager->mStageStartTick, nlGetTicker())
+-        > g_fYieldScriptBlockingTimeMS)
+-    {
+-        manager->StopWithoutUndo();
+-    }
++    FinishAsyncLoadingStep(manager, nlGetTickerDifference(manager->mStageStartTick, nlGetTicker()), g_fYieldScriptBlockingTimeMS);
+ }
+ 
+ static inline void FinishLoadingStepOrUndo(
+     AsyncLoadingManager* manager, bool finished)
+ {
+-    if (finished)
+-    {
+-        FinishLoadingStep(manager);
+-    }
+-    else
+-    {
+-        manager->StopWithUndo();
+-    }
++    FinishAsyncLoadingStepOrUndo(manager, finished,
++        finished ? nlGetTickerDifference(manager->mStageStartTick, nlGetTicker()) : 0.0f,
++        g_fYieldScriptBlockingTimeMS);
+ }
+ 
+ extern "C" void fn_80116988(AudioResourceLoadOwner*, void* context)
+@@ -1177,117 +1165,7 @@
+     manager->SetLoadingComment("No Loading Comment");
+ 
+     bool completed = false;
+-    switch (manager->mSequenceState)
+-    {
+-    case ASYNC_LOADING_BOOT_TO_FE_BEGIN:
+-        manager->CallFunction(nlStringHash("BootLoadingToFE"));
+-        manager->mSequenceState = ASYNC_LOADING_BOOT_TO_FE_RUN;
+-        result = ASYNC_LOADING_RUNNING;
+-        break;
+-    case ASYNC_LOADING_BOOT_TO_FE_RUN:
+-        manager->Run();
+-        if (manager->IsFinished())
+-        {
+-            manager->mSequenceState = ASYNC_LOADING_IDLE;
+-            result = ASYNC_LOADING_FE_READY;
+-            completed = true;
+-        }
+-        else
+-        {
+-            result = ASYNC_LOADING_RUNNING;
+-        }
+-        break;
+-    case ASYNC_LOADING_CLEAN_BOOT_BEGIN:
+-        manager->CallFunction(nlStringHash("CleanBootShutdown"));
+-        manager->mSequenceState = ASYNC_LOADING_CLEAN_BOOT_RUN;
+-        result = ASYNC_LOADING_RUNNING;
+-        break;
+-    case ASYNC_LOADING_CLEAN_BOOT_RUN:
+-        manager->Run();
+-        if (manager->IsFinished())
+-        {
+-            manager->mSequenceState = ASYNC_LOADING_IDLE;
+-            result = ASYNC_LOADING_CLEAN_BOOT_COMPLETE;
+-            completed = true;
+-        }
+-        else
+-        {
+-            result = ASYNC_LOADING_RUNNING;
+-        }
+-        break;
+-    case ASYNC_LOADING_FE_TO_GAME_BEGIN:
+-        manager->CallFunction(nlStringHash("FELoadingToGame"));
+-        manager->mSequenceState = ASYNC_LOADING_FE_TO_GAME_RUN;
+-        result = ASYNC_LOADING_RUNNING;
+-        break;
+-    case ASYNC_LOADING_FE_TO_GAME_RUN:
+-        manager->Run();
+-        if (manager->IsFinished())
+-        {
+-            manager->mSequenceState = ASYNC_LOADING_IDLE;
+-            result = ASYNC_LOADING_GAME_READY;
+-            completed = true;
+-        }
+-        else
+-        {
+-            result = ASYNC_LOADING_RUNNING;
+-        }
+-        break;
+-    case ASYNC_LOADING_GAME_TO_FE_BEGIN:
+-        manager->CallFunction(nlStringHash("GameLoadingToFE"));
+-        manager->mSequenceState = ASYNC_LOADING_GAME_TO_FE_RUN;
+-        result = ASYNC_LOADING_RUNNING;
+-        break;
+-    case ASYNC_LOADING_GAME_TO_FE_RUN:
+-        manager->Run();
+-        if (manager->IsFinished())
+-        {
+-            manager->mSequenceState = ASYNC_LOADING_IDLE;
+-            result = ASYNC_LOADING_RETURN_TO_FE;
+-            completed = true;
+-        }
+-        else
+-        {
+-            result = ASYNC_LOADING_RUNNING;
+-        }
+-        break;
+-    case ASYNC_LOADING_BOOT_TO_GAME_BEGIN:
+-        manager->CallFunction(nlStringHash("BootLoadingToGame"));
+-        manager->mSequenceState = ASYNC_LOADING_BOOT_TO_GAME_RUN;
+-        result = ASYNC_LOADING_RUNNING;
+-        break;
+-    case ASYNC_LOADING_BOOT_TO_GAME_RUN:
+-        manager->Run();
+-        if (manager->IsFinished())
+-        {
+-            manager->mSequenceState = ASYNC_LOADING_IDLE;
+-            result = ASYNC_LOADING_STADIUM_OR_GAME_READY;
+-            completed = true;
+-        }
+-        else
+-        {
+-            result = ASYNC_LOADING_RUNNING;
+-        }
+-        break;
+-    case ASYNC_LOADING_STADIUM_VIEWER_BEGIN:
+-        manager->CallFunction(nlStringHash("BootLoadingToStadiumViewer"));
+-        manager->mSequenceState = ASYNC_LOADING_STADIUM_VIEWER_RUN;
+-        result = ASYNC_LOADING_RUNNING;
+-        break;
+-    case ASYNC_LOADING_STADIUM_VIEWER_RUN:
+-        manager->Run();
+-        if (manager->IsFinished())
+-        {
+-            manager->mSequenceState = ASYNC_LOADING_IDLE;
+-            result = ASYNC_LOADING_STADIUM_OR_GAME_READY;
+-            completed = true;
+-        }
+-        else
+-        {
+-            result = ASYNC_LOADING_RUNNING;
+-        }
+-        break;
+-    }
++    AdvanceAsyncLoadingSequence(manager, result, completed);
+ 
+     if (result == ASYNC_LOADING_NO_TRANSITION)
+     {
+@@ -2274,6 +2152,8 @@
+     return handle;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ PersistentResourceRequirements gPersistentResourceRequirements = {
+     { { GLM_Header, 0x3C00 }, { GLM_TextureData, 0x390800 } },
+ };
++#endif
+diff --git a/src/Game/AsyncLoadingNative.cpp b/src/Game/AsyncLoadingNative.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/AsyncLoadingNative.cpp
+@@ -0,0 +1,16 @@
++#include "Game/AsyncLoadingShared.h"
++
++float g_fScriptBlockingWarningMS = 50.0f;
++float g_fYieldScriptBlockingTimeMS = 45.0f;
++
++PersistentResourceRequirements gPersistentResourceRequirements = {
++    { { GLM_Header, 0x3C00 }, { GLM_TextureData, 0x390800 } },
++};
++
++void fn_80111654(int)
++{
++}
++
++void fn_8011165C(int)
++{
++}
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -48,17 +48,21 @@
+ static u16 sSimulationTimeType = 0xFFFF;
+ static u16 sTimeScaleType = 0xFFFF;
+ 
++#ifndef MSCHARGED_NATIVE
+ void fn_80111654(int)
+ {
+ }
++#endif
+ 
+ void fn_80111658(int)
+ {
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void fn_8011165C(int)
+ {
+ }
++#endif
+ 
+ void fn_80111660(int)
+ {

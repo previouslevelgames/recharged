@@ -128,6 +128,15 @@ void Generated()
  const auto text=std::find_if(scene.instances.begin(),scene.instances.end(),[](auto& n){return n.type==3;});
  Check(text!=scene.instances.end()&&text->text==u"Test"&&text->library==0x2a0,"FEN text/reference differs");
  Check(text->attributes.visible&&text->attributes.colour[0]==255&&text->attributes.scale[0]==1,"FEN attributes differ");
+ Check(!text->text_scissor&&text->text_scissor_box==std::array<std::uint16_t,4>{},"Default FEN text scissor differs");
+ {
+  Fixture scissor;const auto at=text->offset;scissor.data[at+0x108]=1;
+  Word(scissor.data,at+0x10a,0x000a0014);Word(scissor.data,at+0x10e,0x001e0028);
+  const auto decoded=ReadFrontendScene(scissor.File());
+  const auto value=std::find_if(decoded.instances.begin(),decoded.instances.end(),[&](auto& n){return n.offset==at;});
+  Check(value->text_scissor&&value->text_scissor_box==std::array<std::uint16_t,4>{10,20,30,40},"FEN text scissor was not retained");
+  scissor.data[at+0x108]=2;Reject([&]{ReadFrontendScene(scissor.File());});
+ }
  std::fill(file.begin(),file.end(),0);Check(text->text==u"Test","FEN result borrows input storage");
  // Every truncation is rejected, including partial relocation words.
  for(std::size_t cut=0;cut<f.File().size();++cut){auto truncated=f.File();truncated.resize(cut);Reject([&]{ReadFrontendScene(truncated);});}

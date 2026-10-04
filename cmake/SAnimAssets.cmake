@@ -1,0 +1,21 @@
+include_guard(GLOBAL)
+add_library(charged_sanim_reader STATIC src/resources/sanim.cpp)
+target_include_directories(charged_sanim_reader PUBLIC src)
+target_compile_features(charged_sanim_reader PUBLIC cxx_std_20)
+add_library(charged_sanim_assets STATIC
+    "${MSCHARGED_PREPARED}/src/Game/SAnim.cpp" src/runtime/sanim_assets.cpp)
+add_dependencies(charged_sanim_assets verify_prepared)
+target_link_libraries(charged_sanim_assets PUBLIC charged_sanim_reader charged_sanim_decode charged_graphics_memory)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_sanim_assets PRIVATE -ffp-contract=off)
+endif()
+if(BUILD_TESTING)
+    add_executable(sanim_assets_tests tests/sanim_assets.cpp)
+    target_link_libraries(sanim_assets_tests PRIVATE charged_sanim_assets)
+    add_test(NAME sanim_assets COMMAND sanim_assets_tests)
+    set_tests_properties(sanim_assets PROPERTIES TIMEOUT 30)
+    add_test(NAME sanim_assets_oracle
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sanim_assets.py"
+            "$<TARGET_FILE:sanim_assets_tests>")
+    set_tests_properties(sanim_assets_oracle PROPERTIES TIMEOUT 30)
+endif()

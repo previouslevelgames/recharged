@@ -1,0 +1,161 @@
+Subject: Select bounded original animation channel sampling on retained native records
+
+Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+
+Exclude Wii in-place pointer reconstruction, original pose dependencies and
+callback-pool ownership from this native profile. Keep original root, weight
+and equal-count morph sampling equations. Guard normalized sample times and
+channel indices. Native constant/endpoint weight sampling decodes its valid
+single key instead of reading an absent next byte with zero interpolation
+weight. Retain unequal-count morph data but reject its currently unqualified
+indexing; no reconstructed loop correction or pose success stub is introduced.
+
+diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
+--- a/include/Game/SAnim.h
++++ b/include/Game/SAnim.h
+@@ -61,14 +61,26 @@
+ public:
+     typedef char* MemType;
+ 
++#ifdef MSCHARGED_NATIVE
++    static cSAnim* Initialize(nlChunk* pChunk) = delete;
++#else
+     static cSAnim* Initialize(nlChunk* pChunk);
++#endif
+     static u8 IsValidChunkID(u32 id)
+     {
+         return (id & 0x80FFFFFF) == 0x80017000;
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    void Destroy() = delete;
++#else
+     void Destroy();
++#endif
++#ifdef MSCHARGED_NATIVE
++    void fn_80308610(nlChunk* nodeChunk, int nodeIndex) = delete;
++#else
+     void fn_80308610(nlChunk* nodeChunk, int nodeIndex);
++#endif
+ 
+     void BlendRot(int accumulatorNode, int animNode, float time, float weight,
+         cPoseAccumulator* accumulator, bool mirror) const;
+@@ -81,8 +93,13 @@
+     void GetRootRot(float time, u16* rootRotation) const;
+     void GetRootTrans(float time, nlVector3* rootTranslation) const;
+     bool fn_8030939C(int channel, float time, float* weight) const;
++#ifdef MSCHARGED_NATIVE
++    void CreateCallback(float fTime, unsigned int nParam1,
++        void (*funcCallback)(cSAnim*, unsigned int)) = delete;
++#else
+     void CreateCallback(float fTime, unsigned int nParam1,
+         void (*funcCallback)(cSAnim*, unsigned int));
++#endif
+     float GetMorphWeight(int channel, float time) const;
+ 
+     cSAnimCallback* GetCallbackList() const
+diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+--- a/src/Game/SAnim.cpp
++++ b/src/Game/SAnim.cpp
+@@ -1,6 +1,18 @@
+ #include "Game/SAnim.h"
+ #include "Game/SAnimDecode.h"
+ 
++#ifdef MSCHARGED_NATIVE
++#include <cmath>
++#include <stdexcept>
++namespace
++{
++void CheckSAnimSampleTime(float time)
++{
++    if (!std::isfinite(time) || time < 0.0f || time > 1.0f)
++        throw std::invalid_argument("Native SAnim time must be finite and in [0,1]");
++}
++}
++#else
+ #include "Game/PoseAccumulator.h"
+ #include "Game/SHierarchy.h"
+ #include "NL/nlSlotPool.h"
+@@ -417,8 +429,13 @@
+ }
+ 
+ 
++#endif // !MSCHARGED_NATIVE: in-place loader, callbacks and pose accumulation
++
+ void cSAnim::GetRootRot(float fTime, unsigned short* pRootRot) const
+ {
++#ifdef MSCHARGED_NATIVE
++    CheckSAnimSampleTime(fTime);
++#endif
+     if (m_nNumRootKeys != 0)
+     {
+         if (fTime == 1.0f || m_nNumRootKeys == 1)
+@@ -444,6 +461,9 @@
+ 
+ void cSAnim::GetRootTrans(float t, nlVector3* out) const
+ {
++#ifdef MSCHARGED_NATIVE
++    CheckSAnimSampleTime(t);
++#endif
+     if (m_nNumRootKeys != 0)
+     {
+         if (t == 1.0f || m_nNumRootKeys == 1)
+@@ -466,6 +486,11 @@
+ 
+ bool cSAnim::fn_8030939C(int channel, float time, float* weight) const
+ {
++#ifdef MSCHARGED_NATIVE
++    CheckSAnimSampleTime(time);
++    if (channel < 0 || (unsigned int)channel >= m_nNumNodes)
++        throw std::out_of_range("Native SAnim weight channel is out of bounds");
++#endif
+     if (m_Unknown2C == 0 || m_Unknown2C[channel] == 0)
+     {
+         *weight = 1.0f;
+@@ -473,6 +498,17 @@
+     }
+ 
+     unsigned char* keys = m_Unknown2C[channel];
++#ifdef MSCHARGED_NATIVE
++    if (m_Unknown18[channel] == 0)
++        throw std::logic_error("Native SAnim weight channel has no keys");
++    // The original interpolation reads the next byte even with zero weight.
++    // Constant tracks and the endpoint have no such byte in owned native data.
++    if (m_Unknown18[channel] == 1 || time == 1.0f)
++    {
++        SAnimDecodeWeight(weight, keys + m_Unknown18[channel] - 1);
++        return true;
++    }
++#endif
+     float fRealIndex = time * (float)(m_Unknown18[channel] - 1);
+     int nIndex = (int)fRealIndex;
+     float fWeightB = fRealIndex - (float)nIndex;
+@@ -486,6 +522,7 @@
+ }
+ 
+ 
++#ifndef MSCHARGED_NATIVE
+ void cSAnim::CreateCallback(float fTime, unsigned int nParam1,
+     void (*funcCallback)(cSAnim*, unsigned int))
+ {
+@@ -504,8 +541,20 @@
+ }
+ 
+ 
++#endif // !MSCHARGED_NATIVE
++
+ float cSAnim::GetMorphWeight(int channel, float fTime) const
+ {
++#ifdef MSCHARGED_NATIVE
++    CheckSAnimSampleTime(fTime);
++    if (channel < 0 || (unsigned int)channel >= m_nNumMorphChannels)
++        throw std::out_of_range("Native SAnim morph channel is out of bounds");
++    // The reconstructed loop below uses the selected count for every preceding
++    // channel. Only equal-count tracks have a qualified native interpretation.
++    for (unsigned int i = 0; i < m_nNumMorphChannels; ++i)
++        if (m_pNumMorphKeys[i] == 0 || m_pNumMorphKeys[i] != m_pNumMorphKeys[0])
++            throw std::logic_error("Native SAnim unequal-count morph sampling is unqualified");
++#endif
+     const unsigned char* keys = m_pMorphKeys;
+     int numKeys = m_pNumMorphKeys[channel];
+     int i = 0;

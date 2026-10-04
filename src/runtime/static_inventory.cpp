@@ -146,7 +146,8 @@ StaticInventory::StaticInventory(GLResourcePool& pool, const std::vector<resourc
     : pool_(pool), before_release_(before_release)
 {
     if (!glGetTextureManager()) throw std::logic_error("Initialize graphics memory before static assets");
-    if (models.empty() || textures.empty()) throw std::invalid_argument("Static inventory batch is empty");
+    // Models may reference already registered render-target textures.
+    if (models.empty()) throw std::invalid_argument("Static inventory batch is empty");
     mark_ = pool_.MarkResource();
     try
     {
