@@ -79,6 +79,18 @@ void Channels()
     std::reverse(s.slides[0].animations.begin(),s.slides[0].animations.end());FrontendAnimationPlayback opacity_then_colour(s);Check(Target(opacity_then_colour.Scene()).attributes.colour[3]==255,"Ordered colour alpha reset was lost");
     s=Scene();s.animations[0]=Track(2000,600,6,{-1,0,0},{-1,0,0});s.instances.back().attributes.colour[3]=99;
     FrontendAnimationPlayback sentinel(s);Check(Target(sentinel.Scene()).attributes.colour[3]==99,"Exact opacity -1 sentinel wrote a value");
+    // The source casts float to u8 after truncation. These are the exact valid
+    // representability boundaries, without an arbitrary epsilon or clamp.
+    for(unsigned channel:{5u,6u})for(float value:{-.999f,0.f,255.f,255.999f})
+    {
+        auto boundary=Scene();boundary.animations[0]=Track(2000,600,channel,{value,value,value},{value,value,value});
+        FrontendAnimationPlayback p(boundary);
+        Check(Target(p.Scene()).attributes.colour[channel==5?0:3]==(value<1?0:255),"Source byte truncation range differs");
+    }
+    for(float value:{-1.f,256.f})
+    {auto boundary=Scene();boundary.animations[0]=Track(2000,600,5,{value,0,0},{value,0,0});Reject([&]{FrontendAnimationPlayback bad(boundary);});}
+    {auto constant=Scene();constant.animations[0]=Track(2000,600,6,{255,0,0},{255,0,0},.25f,1.024f);
+     FrontendAnimationPlayback p(constant);p.Advance(std::nextafter(.15f,1.f));Check(Target(p.Scene()).attributes.colour[3]==255,"Constant255 Bezier roundoff rejected valid u8 output");}
     // Independent cubic Bernstein oracle (nonlinear outgoing controls).
     s=Scene();s.animations[0].keys[0].channels[0]={10,80,-20,0};s.animations[0].keys[1].channels[0][0]=30;
     for(float time:{.125f,.25f,.5f,.75f,.875f})

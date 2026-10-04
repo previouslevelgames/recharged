@@ -1,0 +1,29 @@
+Subject: Drain failed native raw reads before releasing optional whole-file owners
+
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+A raw range read has no whole-file registry entry. Cancel the failed logical
+request and its paired tail so external NL servicing cannot leave it pending
+forever. Join workers before optional whole-file storage is released, preserve
+unrelated reads, and propagate the original I/O failure without callbacks.
+
+diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+index 0c62f53..aed3b64 100644
+--- a/src/NL/nlFileGC.cpp
++++ b/src/NL/nlFileGC.cpp
+@@ -492,9 +492,12 @@ void AsyncManager::Service()
+         }
+         catch (...)
+         {
+-            // Drop only this whole-file request. Its owned file drains the raw
+-            // entries before its destination is freed; unrelated loads survive.
+-            nlAbortEntireFileLoad(entry->m_pFile);
++            // Remove this logical raw request, including its paired tail, before
++            // an optional whole-file owner releases the destination and file.
++            // Raw range reads have no whole-file owner; unrelated reads survive.
++            auto* failedFile = entry->m_pFile;
++            CancelNative(entry, 0);
++            nlAbortEntireFileLoad(failedFile);
+             throw;
+         }
+         if (tail)

@@ -59,6 +59,10 @@ public:
     // Current animated scene remains usable while replacement is pending or
     // failed. Each mutation publishes only after playback AND layout succeed.
     void Advance(float delta);
+    // Checked original loading notification clock after base scene advancement.
+    // This observes an already selected component; it does not synthesize HOME,
+    // HBM readiness or the original FEScene state6 gate.
+    bool AdvanceLoadingNotification(float delta, std::uint32_t component_instance);
     void Reset();
     // Original first matching lower-hash lookup; missing name clears active.
     // Presentation selection does not Update(0); component selection does.

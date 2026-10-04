@@ -3,6 +3,15 @@
 
 namespace mscharged
 {
+struct ParticleSimulationContext;
+class ParticleControllers;
+struct ParticleEmitterFrame
+{
+    std::array<float, 3> position{0,0,0}, direction{0,0,1}, velocity{0,0,0};
+    std::uint16_t facing = 0;
+    bool visible = true, disabled = false;
+    float time_scale = 1;
+};
 struct ParticleSimulationOptions
 {
     unsigned capacity = 256;
@@ -36,6 +45,11 @@ class ParticleSimulation
 {
     struct Implementation;
     std::unique_ptr<Implementation> impl_;
+    friend class ParticleControllers;
+    ParticleSimulation(EffectsRegistry::Handle, std::uint32_t, std::size_t,
+        std::shared_ptr<ParticleSimulationContext>, int);
+    void ApplyFrame(const ParticleEmitterFrame&);
+    void ClearParticles();
 public:
     ParticleSimulation(EffectsRegistry::Handle registry, std::uint32_t group, std::size_t spec,
         ParticleSimulationOptions options = {});

@@ -1,4 +1,4 @@
-#include "runtime/particle_simulation.h"
+#include "runtime/particle_simulation_internal.h"
 #include "runtime/graphics_memory.h"
 #include "Game/Effects/ParticleSystem.h"
 #include <algorithm>
@@ -65,21 +65,67 @@ void Qualify(const EffectsSpec& spec, const EffectsTemplate& value)
 }
 std::array<float, 3> Vector(const nlVector3& v) { return {v.x, v.y, v.z}; }
 }
+ParticleSimulationContext::ParticleSimulationContext(ParticleSimulationOptions options) : capacity(options.capacity)
+{
+    if (!capacity || capacity > 16384) throw std::invalid_argument("Invalid shared particle capacity");
+    {
+        const std::lock_guard lock(ownership);
+        if (owner || !gMemoryInitialized) throw std::logic_error("Particle simulation requires initialized, unowned game memory");
+        owner = this; live = true; saved_seed = uSeed;
+    }
+    try
+    {
+        ScopedGameAllocator arena(VirtualAllocator);
+        fxParticleStartup(int(capacity)); atlas = true;
+        free.m_Allocator.Initialize(capacity, 0);
+        particles = static_cast<Particle*>(nlMalloc(capacity * sizeof(Particle), alignof(Particle), false));
+        if (!particles) throw std::bad_alloc();
+        std::uninitialized_value_construct_n(particles, capacity);
+        for (unsigned i = 0; i < capacity; ++i) free.AddStart(particles + i);
+        uSeed = options.seed;
+    }
+    catch (...)
+    {
+        free.Clear(); free.m_Allocator.FreeBlocks();
+        if (particles) { std::destroy_n(particles, capacity); nlFree(particles); particles = nullptr; }
+        if (atlas) fxParticleShutdown();
+        uSeed = saved_seed;
+        const std::lock_guard lock(ownership); owner = nullptr; live = false;
+        throw;
+    }
+}
+void ParticleSimulationContext::Check() const
+{
+    if (!live || !gMemoryInitialized || thread != std::this_thread::get_id())
+        throw std::logic_error("Particle storage requires its live owner thread and arenas");
+}
+ParticleSimulationContext::~ParticleSimulationContext()
+{
+    if (!live) return;
+    try
+    {
+        Check(); free.Clear(); free.m_Allocator.FreeBlocks();
+        std::destroy_n(particles, capacity); nlFree(particles);
+        if (atlas) fxParticleShutdown();
+        uSeed = saved_seed;
+        const std::lock_guard lock(ownership); owner = nullptr; live = false;
+    }
+    catch (...) { std::terminate(); }
+}
 struct ParticleSimulation::Implementation
 {
     EffectsRegistry::Handle registry;
     std::shared_ptr<const EffectsGroup> group;
     std::shared_ptr<const resources::Texture> texture;
     EffectsSpec spec{}; // Copy only this record; its immutable template stays retained.
+    std::shared_ptr<ParticleSimulationContext> context;
     unsigned capacity;
     std::thread::id thread = std::this_thread::get_id();
-    bool live = false, failed = false, atlas = false;
-    std::uint32_t saved_seed = 0, seed = 0;
-    nlDLListSlotPool<Particle*> free;
-    Particle* particles = nullptr;
+    bool live = false, failed = false;
+    std::uint32_t seed = 0;
     std::unique_ptr<ParticleSystem> system;
-    Implementation(EffectsRegistry::Handle source, std::uint32_t hash, std::size_t index, ParticleSimulationOptions options)
-        : registry(std::move(source)), capacity(options.capacity)
+    Implementation(EffectsRegistry::Handle source, std::uint32_t hash, std::size_t index, std::shared_ptr<ParticleSimulationContext> storage)
+        : registry(std::move(source)), context(std::move(storage)), capacity(context->capacity)
     {
         if (!registry || capacity == 0 || capacity > 16384) throw std::invalid_argument("Invalid particle registry or capacity");
         group = registry->FindGroup(hash);
@@ -90,22 +136,8 @@ struct ParticleSimulation::Implementation
         Qualify(spec, *spec.m_pTemplate);
         texture = registry->FindTexture(spec.m_pTemplate->m_hTexture);
         if (!texture) throw std::invalid_argument("Particle template has no retained authored texture");
-        {
-            const std::lock_guard lock(ownership);
-            if (owner || !gMemoryInitialized) throw std::logic_error("Particle simulation requires initialized, unowned game memory");
-            owner = this; live = true; saved_seed = uSeed;
-        }
-        try
-        {
-            ScopedGameAllocator arena(VirtualAllocator);
-            fxParticleStartup(int(capacity)); atlas = true;
-            free.m_Allocator.Initialize(capacity, 0);
-            particles = static_cast<Particle*>(nlMalloc(capacity * sizeof(Particle), alignof(Particle), false));
-            if (!particles) throw std::bad_alloc();
-            std::uninitialized_value_construct_n(particles, capacity);
-            for (unsigned i = 0; i < capacity; ++i) free.AddEnd(particles + i);
-            Construct(options.seed);
-        }
+        context->Check(); live = true;
+        try { ScopedGameAllocator arena(VirtualAllocator); Construct(uSeed); }
         catch (...) { Cleanup(); throw; }
     }
     void Check(bool allow_failed = false) const
@@ -119,7 +151,7 @@ struct ParticleSimulation::Implementation
         // These are the selected emitter-only fields applied by the original
         // EmissionController default frame and fxUpdateParticleSystem. No actor,
         // pose, terrain or renderer service is substituted.
-        system = std::make_unique<ParticleSystem>(ParticleSystem::NativeSimulation{}, spec.m_pTemplate, &free, &spec, group->m_hashID);
+        system = std::make_unique<ParticleSystem>(ParticleSystem::NativeSimulation{}, spec.m_pTemplate, &context->free, &spec, group->m_hashID);
         system->m_Particles.m_Allocator.Initialize(capacity, 0);
         system->m_fDelay = spec.m_fDelay; system->m_uLayer = spec.m_uLayer;
         nlVec3Set(system->m_vForward, 0, 0, 1);
@@ -132,17 +164,28 @@ struct ParticleSimulation::Implementation
         if (!live) return;
         Check(true);
         system.reset(); // Original destructor returns live nodes to free first.
-        free.Clear(); free.m_Allocator.FreeBlocks();
-        if (particles) { std::destroy_n(particles, capacity); nlFree(particles); particles = nullptr; }
-        if (atlas) { fxParticleShutdown(); atlas = false; }
-        uSeed = saved_seed;
-        const std::lock_guard lock(ownership);
-        owner = nullptr; live = false;
+        live = false; context.reset();
     }
     ~Implementation() { try { Cleanup(); } catch (...) { std::terminate(); } }
 };
 ParticleSimulation::ParticleSimulation(EffectsRegistry::Handle registry, std::uint32_t group, std::size_t spec, ParticleSimulationOptions options)
-    : impl_(std::make_unique<Implementation>(std::move(registry), group, spec, options)) {}
+    : impl_(std::make_unique<Implementation>(std::move(registry), group, spec, std::make_shared<ParticleSimulationContext>(options))) {}
+ParticleSimulation::ParticleSimulation(EffectsRegistry::Handle registry, std::uint32_t group, std::size_t spec,
+    std::shared_ptr<ParticleSimulationContext> context, int)
+    : impl_(std::make_unique<Implementation>(std::move(registry), group, spec, std::move(context))) {}
+void ParticleSimulation::ApplyFrame(const ParticleEmitterFrame& frame)
+{
+    impl_->Check();
+    // Qualified emitter branch of original fxUpdateParticleSystem and
+    // ComputePositionAndVelocity; pose, terrain and ground branches reject.
+    auto& system = *impl_->system;
+    system.m_aFacing = frame.facing; system.m_uLayer = impl_->spec.m_uLayer;
+    system.m_vPosition = {frame.position[0], frame.position[1], frame.position[2] + impl_->spec.m_fOffset};
+    system.m_vVelocity = {frame.velocity[0], frame.velocity[1], frame.velocity[2]};
+    system.m_vForward = {frame.direction[0], frame.direction[1], frame.direction[2]};
+    system.UpdateCoordSys(); system.m_bVisible = frame.visible;
+}
+void ParticleSimulation::ClearParticles() { impl_->Check(true); if (impl_->system) impl_->system->ClearParticles(); }
 ParticleSimulation::~ParticleSimulation() = default;
 bool ParticleSimulation::Active() const
 {

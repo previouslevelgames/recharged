@@ -1,0 +1,271 @@
+From: mscharged-port contributors
+Subject: [PATCH] Select reconstructed original pose accumulation with native ownership
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Select available original Init/Blend/BuildNodeMatrices equations without changing
+the remaining unmatched builder arithmetic. Pair native arrays with game-arena
+allocation/free, define scratch storage, and unwind partial construction. Native
+copy/assignment, pose-tree evaluation, callbacks and replay remain unselected.
+Keep mirrored translation temporaries alive through their actual consumption and
+define unused matrix lanes copied by the original quaternion conversion.
+The port qualifies hierarchy, numeric domains and publication before execution;
+this selection does not claim the still-NonMatching translation unit is matched.
+
+diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
+--- a/include/Game/PoseAccumulator.h
++++ b/include/Game/PoseAccumulator.h
+@@ -64,11 +64,19 @@
+ {
+ public:
+     cPoseAccumulator(cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices);
++#if defined(MSCHARGED_NATIVE)
++    cPoseAccumulator(const cPoseAccumulator&) = delete;
++#else
+     cPoseAccumulator(const cPoseAccumulator& other);
++#endif
+     ~cPoseAccumulator();
++#if defined(MSCHARGED_NATIVE)
++    cPoseAccumulator& operator=(const cPoseAccumulator&) = delete;
++#else
+     cPoseAccumulator& operator=(const cPoseAccumulator& other);
+     template <typename T>
+     void Replay(T& frame);
++#endif
+     void SetScale(float fScale)
+     {
+         m_Scale = fScale;
+@@ -98,11 +106,13 @@
+     }
+     nlMatrix4& GetNodeMatrixByHashID(unsigned int nHashID) const;
+     s32 GetNumNodes() const;
++#if !defined(MSCHARGED_NATIVE)
+     void Pose(const cPoseNode& pPoseTree, const nlMatrix4& pWorldMatrix);
+     void Pose(const cPoseNode* pPoseTree, const nlMatrix4* pWorldMatrix);
+     void SetBuildNodeMatrixCallback(int nNode,
+         BuildNodeMatrixFn funcCallback, unsigned int nParam1,
+         unsigned int nParam2);
++#endif
+ 
+     cSHierarchy* m_BaseSHierarchy;
+     nlMatrix4* m_NodeMatrices;
+@@ -119,6 +129,7 @@
+     u8 m_Padding[3];
+ };
+ 
++#if !defined(MSCHARGED_NATIVE)
+ template <typename T>
+ inline void cPoseAccumulator::Replay(T& frame)
+ {
+@@ -152,4 +163,6 @@
+     }
+ }
+ 
++#endif
++
+ #endif // GAME_POSE_ACCUMULATOR_H
+diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
+--- a/src/Game/PoseAccumulator.cpp
++++ b/src/Game/PoseAccumulator.cpp
+@@ -7,6 +7,37 @@
+ #include <math.h>
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <memory>
++#include <stdexcept>
++#include <type_traits>
++
++// Explicit game allocation pairing avoids native new[] cookies and host
++// delete[] on game-arena memory. Every selected record is trivially destructible.
++template<class T>
++static T* PoseAccumulatorArray(unsigned count)
++{
++    static_assert(std::is_trivially_destructible_v<T>);
++    if (count == 0 || count > 4097) throw std::invalid_argument("Invalid native pose array size");
++    T* result = static_cast<T*>(nlMalloc(sizeof(T) * count, 8, false));
++    if (!result) throw std::bad_alloc();
++    try { std::uninitialized_value_construct_n(result, count); }
++    catch (...) { nlFree(result); throw; }
++    return result;
++}
++static void PoseAccumulatorFreeArrays(cPoseAccumulator* pose)
++{
++    nlFree(pose->m_PrevNodeMatrices); pose->m_PrevNodeMatrices = nullptr;
++    nlFree(pose->m_NodeMatrices); pose->m_NodeMatrices = nullptr;
++    nlFree(pose->m_pQuaternions); pose->m_pQuaternions = nullptr;
++    nlFree(pose->m_rot); pose->m_rot = nullptr;
++    nlFree(pose->m_scale); pose->m_scale = nullptr;
++    nlFree(pose->m_trans); pose->m_trans = nullptr;
++    nlFree(pose->m_cb); pose->m_cb = nullptr;
++}
++#endif
++
++
+ static nlQuaternion qRotIdentity = { 0.0f, 0.0f, 0.0f, 1.0f };
+ static nlVector3 v3ScaleIdentity = { 1.0f, 1.0f, 1.0f };
+ static nlVector3 v3TransIdentity = { 0.0f, 0.0f, 0.0f };
+@@ -31,6 +62,15 @@
+ cPoseAccumulator::cPoseAccumulator(
+     cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (!pSHierarchy || pSHierarchy->m_nNumNodes <= 0 || pSHierarchy->m_nNumNodes > 4096)
++        throw std::invalid_argument("Invalid native pose hierarchy");
++    m_PrevNodeMatrices = m_NodeMatrices = nullptr;
++    m_pQuaternions = nullptr;
++    m_rot = nullptr; m_scale = nullptr; m_trans = nullptr; m_cb = nullptr;
++    try
++    {
++#endif
+     m_BaseSHierarchy = pSHierarchy;
+     m_Scale = 1.0f;
+     m_bUseObject = false;
+@@ -38,19 +78,47 @@
+ 
+     if (bStorePrevNodeMatrices)
+     {
++#if defined(MSCHARGED_NATIVE)
++        m_PrevNodeMatrices = PoseAccumulatorArray<nlMatrix4>(m_nNumNodes + 1);
++#else
+         m_PrevNodeMatrices = new (8, false) nlMatrix4[m_nNumNodes + 1];
++#endif
+     }
+     else
+     {
+         m_PrevNodeMatrices = NULL;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    m_NodeMatrices = PoseAccumulatorArray<nlMatrix4>(m_nNumNodes + 1);
++#else
+     m_NodeMatrices = new (8, false) nlMatrix4[m_nNumNodes + 1];
++#endif
++#if defined(MSCHARGED_NATIVE)
++    m_pQuaternions = PoseAccumulatorArray<nlQuaternion>(m_nNumNodes + 1);
++#else
+     m_pQuaternions = new (8, false) nlQuaternion[m_nNumNodes + 1];
++#endif
++#if defined(MSCHARGED_NATIVE)
++    m_rot = PoseAccumulatorArray<RotAccum>(m_nNumNodes);
++#else
+     m_rot = new (8, false) RotAccum[m_nNumNodes];
++#endif
++#if defined(MSCHARGED_NATIVE)
++    m_scale = PoseAccumulatorArray<ScaleAccum>(m_nNumNodes);
++#else
+     m_scale = new (8, false) ScaleAccum[m_nNumNodes];
++#endif
++#if defined(MSCHARGED_NATIVE)
++    m_trans = PoseAccumulatorArray<TransAccum>(m_nNumNodes);
++#else
+     m_trans = new (8, false) TransAccum[m_nNumNodes];
++#endif
++#if defined(MSCHARGED_NATIVE)
++    m_cb = PoseAccumulatorArray<cBuildNodeMatrixCallbackInfo>(m_nNumNodes);
++#else
+     m_cb = new (8, false) cBuildNodeMatrixCallbackInfo[m_nNumNodes];
++#endif
+ 
+     for (int i = 0; i < m_BaseSHierarchy->m_nNumNodes; ++i)
+     {
+@@ -72,8 +140,17 @@
+             m_trans[i].bIdentity = false;
+         }
+     }
+-}
+-
++#if defined(MSCHARGED_NATIVE)
++        // Original i+1 scratch slots also have defined native object storage.
++        m_NodeMatrices[m_nNumNodes].SetIdentity();
++        if (m_PrevNodeMatrices) m_PrevNodeMatrices[m_nNumNodes].SetIdentity();
++        m_pQuaternions[m_nNumNodes] = qRotIdentity;
++    }
++    catch (...) { PoseAccumulatorFreeArrays(this); throw; }
++#endif
++}
++
++#if !defined(MSCHARGED_NATIVE)
+ /**
+  * Offset/Address/Size: 0x228 | 0x8030ABF8 | size: 0x11C
+  */
+@@ -130,11 +207,16 @@
+     return *this;
+ }
+ 
++#endif
++
+ /**
+  * Offset/Address/Size: 0x444 | 0x8030AE14 | size: 0x9C
+  */
+ cPoseAccumulator::~cPoseAccumulator()
+ {
++#if defined(MSCHARGED_NATIVE)
++    PoseAccumulatorFreeArrays(this);
++#else
+     if (m_PrevNodeMatrices != NULL)
+     {
+         delete[] m_PrevNodeMatrices;
+@@ -145,8 +227,10 @@
+     delete[] m_scale;
+     delete[] m_trans;
+     delete[] m_cb;
+-}
+-
++#endif
++}
++
++#if !defined(MSCHARGED_NATIVE)
+ static inline void PoseAccumulatorInitNodeAccumulators(cPoseAccumulator* pose)
+ {
+     for (int i = 0; i < pose->m_BaseSHierarchy->m_nNumNodes; ++i)
+@@ -212,6 +296,8 @@
+     pPoseTree->Evaluate(1.0f, this);
+     BuildNodeMatrices(*pWorldMatrix);
+ }
++
++#endif
+ 
+ /**
+  * Offset/Address/Size: 0x7F0 | 0x8030B1C0 | size: 0x158
+@@ -391,6 +477,11 @@
+                 float fWorldScaleZ = nlSqrt(v3WorldScaleSquared.z, true);
+ 
+                 nlMatrix4 mWorldNoScale;
++#if defined(MSCHARGED_NATIVE)
++                // nlMatrixToQuat copies all16 lanes although only its upper3x3
++                // affect the result. Define otherwise uninitialized native lanes.
++                mWorldNoScale.SetIdentity();
++#endif
+                 mWorldNoScale.m14 = 0.0f;
+                 mWorldNoScale.m24 = 0.0f;
+                 mWorldNoScale.m34 = 0.0f;
+@@ -638,10 +729,15 @@
+     if (bNegligibleWeight)
+         return;
+ 
++#if defined(MSCHARGED_NATIVE)
++    nlVector3 vtemp; // Remains alive through the blend below the mirror branch.
++#endif
+     if (bMirror)
+     {
+         cSHierarchy* h = m_BaseSHierarchy;
++#if !defined(MSCHARGED_NATIVE)
+         nlVector3 vtemp;
++#endif
+         if (nNode <= h->m_nPelvisNodeIndex
+             || nNode == h->m_nSpineNodeIndex)
+         {
+@@ -788,6 +884,7 @@
+     return m_BaseSHierarchy->m_nNumNodes;
+ }
+ 
++#if !defined(MSCHARGED_NATIVE)
+ /**
+  * Offset/Address/Size: 0x19B0 | 0x8030C380 | size: 0x28
+  */
+@@ -799,3 +896,5 @@
+     m_cb[nNode].nParam1 = nParam1;
+     m_cb[nNode].nParam2 = nParam2;
+ }
++
++#endif

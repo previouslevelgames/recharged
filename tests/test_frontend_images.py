@@ -30,10 +30,12 @@ def main():
         changed = bytearray(original)
         changed[offset + 12] = 1
         (root / "missing.bad").write_bytes(changed)
-        for mode in ("success", "missing-main", "missing-permanent", "missing-demand", "bad-main", "bad-demand", "empty-main"):
+        for mode in ("success", "missing-main", "missing-permanent", "missing-demand", "bad-main", "bad-demand", "empty-main",
+                     "missing-boot", "bad-boot"):
             payloads = files()
             if mode != "success":
-                path = "art/fe/" + ("InGameUI.Res" if mode == "missing-permanent" else
+                path = "art/fe/" + ("BootLoadingUI.res" if mode in ("missing-boot", "bad-boot") else
+                    "InGameUI.Res" if mode == "missing-permanent" else
                     "InGameUI.Dmn" if mode in ("missing-demand", "bad-demand") else "MainUI.Dmn")
                 if mode.startswith("missing-"):
                     del payloads[path]

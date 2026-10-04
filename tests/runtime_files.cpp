@@ -575,11 +575,23 @@ void CheckReadFailures()
         Callback completion;
         {
             auto file = Open("/read-fault.bin");
-            completion.Queue(file.get(), bytes.data(), 64, 64);
+            auto survivorFile = Open("/large.bin");
+            alignas(32) std::array<unsigned char, 64> survivorBytes{};
+            Callback survivor;
+            // An unpadded 65-byte request has both raw head and tail entries.
+            // Keep the failed file open: its destructor must not hide a leak.
+            auto* request = completion.Queue(file.get(), bytes.data(), 65, 65);
+            survivor.Queue(survivorFile.get(), survivorBytes.data(), 64, 64);
             const auto error = ExpectThrow<std::runtime_error>([&] { ServiceUntil([&] { return completion.calls != 0; }); },
                                                               "Short/failed disc read was reported as successful");
             Require(error == (mode == FaultFile::Short ? "Short NL disc read" : "NL asynchronous DVD read failed"),
                     "Read failure did not report its actual DVD/transfer error");
+            Require(!completion.calls && !nlAsyncReadsPending(file.get()) && !fault.handles
+                && !nlCancelAsyncRead(request, Callback::Cancel) && !survivor.calls
+                && nlAsyncReadsPending(survivorFile.get()),
+                "Failed raw read retained its pair or changed an unrelated request");
+            ServiceUntil([&] { return survivor.calls != 0; });
+            CheckBytes(survivorBytes.data(), 0, survivorBytes.size());
         }
         Require(completion.calls == 0 && !nlAsyncReadsPending(nullptr) && fault.handles == 0,
                 "Failed read called back with success or retained its worker handle");

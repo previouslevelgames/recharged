@@ -16,13 +16,14 @@
 #include "runtime/world_render.h"
 #include "runtime/frontend_world_files.h"
 #include "runtime/frontend_visuals.h"
-#include "runtime/frontend_text_gx.h"
-#include "runtime/frontend_layout_gx.h"
+#include "runtime/frontend_font_registry.h"
+#include "runtime/frontend_packets.h"
 #include "runtime/frontend_images.h"
 #include "runtime/frontend_session.h"
+#include "runtime/frontend_handler.h"
 #include "runtime/particle_files.h"
-#include "runtime/particle_simulation.h"
-#include "runtime/particle_render.h"
+#include "runtime/particle_controller.h"
+#include "runtime/particle_controller_render.h"
 #include "runtime/frontend_input_sdl.h"
 #include "resources/frontend_text_catalog.h"
 #include "resources/frontend_instances.h"
@@ -72,6 +73,7 @@
 #include <atomic>
 #include <chrono>
 #include <fstream>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -154,11 +156,11 @@ public:
     void Restore() { if (previous_) { glSetCurrentResourcePool(previous_); previous_ = nullptr; } }
 };
 
-// Last child of the original view graph: glyphs draw after queued world packets.
-// The view owns the decoded text/font pages until the frame owner drains GX and
-// destroys the graph. Placement is diagnostic, not original textbox behavior.
+// Last child of the original view graph: registered font packets follow world
+// packets. Placement is diagnostic, not original textbox behavior.
 class FrontendTextView final : public GLView
 {
+    FrontendFontRegistry& fonts_;
     resources::FrontendTextCatalog catalog_;
     resources::FontLayout display_;
     std::size_t selected_ = 0;
@@ -173,8 +175,8 @@ class FrontendTextView final : public GLView
         display_ = std::move(layout); selected_ = index;
     }
 public:
-    FrontendTextView(GLViewInterface& interface, resources::FrontendTextCatalog catalog)
-        : GLView(&interface, GLRenderPair{}, GLViewSort_Texture), catalog_(std::move(catalog))
+    FrontendTextView(GLViewInterface& interface, FrontendFontRegistry& fonts, resources::FrontendTextCatalog catalog)
+        : GLView(&interface, GLRenderPair{}, GLViewSort_None), fonts_(fonts), catalog_(std::move(catalog))
     {
         if (catalog_.entries.empty()) throw std::runtime_error("FEN has no text supported by the selected font/format profile");
         m_Name = "Frontend text inspection";
@@ -189,26 +191,26 @@ public:
     std::size_t Count() const { return catalog_.entries.size(); }
     unsigned Rendered() const { return rendered_; }
     const std::string& Name() const { return catalog_.entries[selected_].name; }
-    void EndRender() override
-    { DrawFrontendText(display_, 40, 350, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight); ++rendered_; }
+    void Submit()
+    {
+        nlMatrix4 model; model.SetIdentity(); model.e[12] = 40; model.e[13] = 350;
+        fonts_.Submit(*this, display_, model);
+    }
+    void EndRender() override { ++rendered_; }
 };
 
 class FrontendFrameView final : public GLView
 {
-    resources::FrontendLayoutFrame frame_;
+    FrontendPacketRenderer& packets_;
     unsigned rendered_ = 0;
 public:
-    FrontendFrameView(GLViewInterface& interface, resources::FrontendLayoutFrame frame)
-        : GLView(&interface, GLRenderPair{}, GLViewSort_None), frame_(std::move(frame)) {}
+    FrontendFrameView(GLViewInterface& interface, FrontendPacketRenderer& packets)
+        : GLView(&interface, GLRenderPair{}, GLViewSort_None), packets_(packets) {}
     unsigned Rendered() const { return rendered_; }
-    std::size_t TextCount() const { return frame_.TextCount(); }
-    std::size_t ImageCount() const { return frame_.ImageCount(); }
-    void Replace(resources::FrontendLayoutFrame frame) { frame_ = std::move(frame); }
-    void EndRender() override
-    {
-        DrawFrontendLayout(frame_, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
-        ++rendered_;
-    }
+    std::size_t TextCount() const { return packets_.Current()->layout.TextCount(); }
+    std::size_t ImageCount() const { return packets_.Current()->layout.ImageCount(); }
+    void Submit(FrontendSession::Handle frame) { packets_.Submit(*this, std::move(frame)); }
+    void EndRender() override { ++rendered_; }
 };
 
 Bounds Normalize(resources::StaticModel& model, bool preserve_positions)
@@ -342,10 +344,22 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         log("Original InitializeCore completed; loading RLG/RLT through original NL whole-file async services.");
         const bool world_batch = options.world_res.has_value() || options.frontend_world;
         std::optional<resources::FrontendTextCatalog> frontend_text;
+        std::vector<std::shared_ptr<const resources::FrontendFont>> inspector_fonts;
         std::optional<resources::FrontendLayoutFrame> frontend_frame;
-        std::unique_ptr<FrontendSession> frontend_session;
+        std::shared_ptr<FrontendSession> frontend_session;
         FrontendSession::Handle frontend_published_frame;
-        std::unique_ptr<ParticleSimulation> particles;
+        EffectsRegistry::Handle particle_groups;
+        std::unique_ptr<ParticleControllers> particles;
+        const auto start_particles = [&] {
+            // Complete source-audited group; every authored spec is required.
+            // Two placements are explicit preview inputs, not actor bindings.
+            for (float x : {-.6f, .6f})
+            {
+                const auto token = particles->Start(particle_groups, 0xe6650c7c);
+                ParticleEmitterFrame frame; frame.position = {x, 0, 0};
+                particles->SetFrame(token, frame);
+            }
+        };
         if (options.particles)
         {
             ParticleFileLoad load;
@@ -357,16 +371,21 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 if (std::chrono::steady_clock::now() > deadline) throw std::runtime_error("Particle loading timed out");
                 if (load.State() == ParticleFileState::Loading) SDL_Delay(1);
             }
-            // Fixed source-audited USA emitter. An absent or unsupported record
+            // Fixed source-audited USA group. An absent or unsupported record
             // is an error; selection never tries alternatives until one succeeds.
-            particles = std::make_unique<ParticleSimulation>(EffectsRegistry::FromFiles(load.Result()), 0xfda2d744, 0);
-            log("Original particle emitter fda2d744/0 loaded through four NL reads; full effects-manager startup remains pending.");
+            particle_groups = EffectsRegistry::FromFiles(load.Result());
+            particles = std::make_unique<ParticleControllers>();
+            start_particles();
+            unsigned systems = 0;
+            for (const auto& controller : particles->Snapshot()) systems += controller.systems;
+            log("Original particle group e6650c7c loaded through four NL reads: 2 controllers, "
+                + std::to_string(systems) + " emitters; full effects-manager startup remains pending.");
         }
         const auto frontend_language = file.settings.language == "french" ? FrontendLanguage::NAFrench
             : file.settings.language == "spanish" ? FrontendLanguage::NASpanish : FrontendLanguage::English;
         if (options.frontend_frame)
         {
-            frontend_session = std::make_unique<FrontendSession>();
+            frontend_session = std::make_shared<FrontendSession>();
             frontend_session->Begin({*options.frontend_frame, frontend_language,
                 options.frontend_images.value_or("main") == "ingame" ? FrontendImageProfile::InGame : FrontendImageProfile::Main,
                 options.frontend_slide.value_or(""), options.frontend_animate});
@@ -412,6 +431,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             const auto graph = resources::ReadFrontendScene(layout.Bytes());
             const std::array fonts{assets->text, assets->heading};
             frontend_text = resources::InspectFrontendText(graph, *assets->localization, fonts);
+            inspector_fonts.assign(fonts.begin(), fonts.end());
             log("Frontend layout decoded: " + std::to_string(graph.slides.size()) + " slides, "
                 + std::to_string(graph.instances.size()) + " instances; " + std::to_string(frontend_text->entries.size())
                 + " stored text components. Font/localization language: " + file.settings.language + ".");
@@ -742,35 +762,58 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         }
         if (pip_scene) pip_scene->AttachOverlay();
         GLView* particle_view = nullptr;
-        std::unique_ptr<ParticleRenderer> particle_renderer;
+        std::unique_ptr<GLResourcePool, void (*)(GLResourcePool*)> particle_pool{nullptr, glDestroyResourcePool};
+        std::unique_ptr<ParticleControllerRenderer> particle_renderer;
         if (particles)
         {
-            particle_renderer = std::make_unique<ParticleRenderer>(*glGetCurrentResourcePool(), *particles, DrainGX);
+            // Resetting these bindings must not rewind the world/font owners.
+            const GLMemoryRequirement requirement{GLM_Header, 128 * 1024};
+            particle_pool.reset(glCreateResourcePool(&requirement, 1, "Particle controller textures"));
+            particle_renderer = std::make_unique<ParticleControllerRenderer>(*particle_pool, *particles, DrainGX);
             auto view = std::make_unique<GLView>(&view_matrices, GLRenderPair{}, GLViewSort_None);
             view->m_Name = "Original billboard particles";
             gRootView.AddChild(view.get()); particle_view = view.release();
-            log("Particle texture registered in the native GL pool; original billboard meshes follow world packets.");
+            log("Particle controller textures registered in the native GL pool: "
+                + std::to_string(particle_renderer->Textures()) + " shared bindings; original billboard meshes follow world packets.");
         }
         log("Original GLView graph, packet sorting and callback flags connected to Aurora; native target registry initialized.");
         FrontendTextView* text_view = nullptr;
+        ViewMatrices text_matrices;
+        std::unique_ptr<FrontendFontRegistry> font_registry;
         FrontendFrameView* frame_view = nullptr;
+        std::unique_ptr<FrontendPacketRenderer> frame_packets;
         std::unique_ptr<FrontendInput> frontend_input;
         std::unique_ptr<FrontendInputSDL> frontend_devices;
+        std::unique_ptr<FrontendHandler> frontend_handler;
         if (frontend_text)
         {
+            font_registry = std::make_unique<FrontendFontRegistry>(*glGetCurrentResourcePool(), inspector_fonts, DrainGX);
+            glMatrixOrthographic(text_matrices.projection, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
             frontend_input = std::make_unique<FrontendInput>();
             frontend_devices = std::make_unique<FrontendInputSDL>();
             frontend_input->EnableAnalogDirections(true);
             for (const auto action : {FrontendAction::Up, FrontendAction::Down})
                 frontend_input->SetRepeat(action, .35f, .12f);
-            auto view = std::make_unique<FrontendTextView>(view_matrices, std::move(*frontend_text));
+            auto view = std::make_unique<FrontendTextView>(text_matrices, *font_registry, std::move(*frontend_text));
             gRootView.AddChild(view.get()); text_view = view.release(); frontend_text.reset();
+            inspector_fonts.clear();
+            log("Frontend text uses registered font pages and original GL packets.");
         }
         if (frontend_frame)
         {
-            auto view = std::make_unique<FrontendFrameView>(view_matrices, std::move(*frontend_frame));
+            frame_packets = std::make_unique<FrontendPacketRenderer>(DrainGX);
+            frame_packets->Prepare(frontend_session->Current());
+            frontend_input = std::make_unique<FrontendInput>();
+            frontend_devices = std::make_unique<FrontendInputSDL>();
+            frontend_input->EnableAnalogDirections(true);
+            for (const auto action : {FrontendAction::Left, FrontendAction::Right})
+                frontend_input->SetRepeat(action, .35f, .12f);
+            frontend_handler = std::make_unique<FrontendHandler>(frontend_session, *frontend_input);
+            glMatrixOrthographic(text_matrices.projection, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
+            auto view = std::make_unique<FrontendFrameView>(text_matrices, *frame_packets);
             view->m_Name = options.frontend_animate ? "Authored frontend animated layout" : "Authored frontend static layout";
             gRootView.AddChild(view.get()); frame_view = view.release(); frontend_frame.reset();
+            log("Mixed frontend text and images use retained registrations and original ordered GL packets.");
         }
         log("Original graphics begin/end/send lifecycle connected; host work drains before frame memory reuse.");
         log("Original camera core supplies the view and position; full gameplay camera selection remains pending.");
@@ -785,11 +828,12 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         bool animation_paused = false, animation_reset = false;
         unsigned animation_updates = 0;
         bool particles_paused = false, particles_reset = false, particles_visible = true;
-        unsigned particle_updates = 0, particle_peak = 0;
+        unsigned particle_updates = 0, particle_peak = 0, particle_live = 0, particle_active_controllers = 0;
         std::size_t particle_submissions = 0;
         bool preserve_component_time = false;
         std::array<char, 256> frontend_instance_path{};
         std::string frontend_message;
+        FrontendSession::Handle frontend_failed_graphics;
         std::optional<std::chrono::steady_clock::time_point> frontend_deadline;
         const auto frontend_action = [&](auto&& action) {
             try { action(); frontend_message.clear(); }
@@ -811,60 +855,63 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 glGetCurrentResourcePool()->m_inventory->UpdateTextureAnims(delta);
                 if (particles)
                 {
-                    if (particles_reset) { particles->Reset(0x9184eb0c); particles_reset = false; }
-                    else if (!particles_paused)
+                    if (!particles_paused)
                     {
                         particles->Advance(options.frames ? 1.f / 60 : std::clamp(delta, 0.f, .1f));
                         ++particle_updates;
                     }
-                    particle_peak = std::max(particle_peak, static_cast<unsigned>(particles->Snapshot().size()));
-                }
-                if (frontend_session && frontend_session->State() == FrontendSessionState::Loading)
-                {
-                    frontend_action([&] {
-                        frontend_session->Service();
-                        if (frontend_session->State() == FrontendSessionState::Loading)
-                        {
-                            if (frontend_deadline && std::chrono::steady_clock::now() > *frontend_deadline)
-                            {
-                                frontend_session->Cancel();
-                                throw std::runtime_error("Frontend reload timed out");
-                            }
-                        }
-                        else
-                        {
-                            frontend_deadline.reset();
-                            frontend_session->Result();
-                            log("Frontend replacement published after all selected resources completed.");
-                        }
-                    });
-                }
-                if (frontend_session && options.frontend_animate)
-                {
-                    if (animation_reset) { frontend_session->Reset(); animation_reset = false; }
-                    else if (!animation_paused)
-                    {
-                        const float step = frames ? (options.frames ? 1.f / 60 : std::clamp(delta, 0.f, .1f)) : 0.f;
-                        frontend_session->Advance(step);
-                        ++animation_updates;
-                    }
-                }
-                if (frontend_session && frontend_session->Current() != frontend_published_frame)
-                {
-                    frontend_published_frame = frontend_session->Current();
-                    frame_view->Replace(frontend_published_frame->layout);
+                    const auto snapshot = particles->Snapshot();
+                    particle_active_controllers = static_cast<unsigned>(snapshot.size());
+                    particle_live = 0;
+                    for (const auto& controller : snapshot) particle_live += controller.particles;
+                    particle_peak = std::max(particle_peak, particle_live);
                 }
                 if (frontend_input)
                 {
                     const auto& io = ImGui::GetIO();
                     frontend_devices->Poll(*frontend_input, info.window, std::clamp(delta, 0.f, .1f),
                         io.WantCaptureKeyboard, io.NavActive && (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad));
-                    const auto previous = text_view->Index();
-                    if (frontend_input->Button(FrontendAction::Up, FrontendButtonQuery::Repeat)) text_view->Step(true);
-                    else if (frontend_input->Button(FrontendAction::Down, FrontendButtonQuery::Repeat)) text_view->Step(false);
-                    if (previous != text_view->Index())
-                        log("Original FE input selected text component " + std::to_string(text_view->Index() + 1) + ".");
+                    if (text_view)
+                    {
+                        const auto previous = text_view->Index();
+                        if (frontend_input->Button(FrontendAction::Up, FrontendButtonQuery::Repeat)) text_view->Step(true);
+                        else if (frontend_input->Button(FrontendAction::Down, FrontendButtonQuery::Repeat)) text_view->Step(false);
+                        if (previous != text_view->Index())
+                            log("Original FE input selected text component " + std::to_string(text_view->Index() + 1) + ".");
+                    }
                 }
+                const bool frontend_ready = frontend_session && frame_packets->Current() == frontend_session->Current();
+                if (frontend_ready && options.frontend_animate)
+                {
+                    if (animation_reset) { frontend_session->Reset(); animation_reset = false; }
+                    else if (!animation_paused)
+                    {
+                        const float step = frames ? (options.frames ? 1.f / 60 : std::clamp(delta, 0.f, .1f)) : 0.f;
+                        frontend_handler->Update(frame_packets->Current(), step);
+                        ++animation_updates;
+                    }
+                    // Diagnostic authored-slide selection, never a concrete
+                    // game's menu action. DebugCam owns arrow/stick controls.
+                    if (!debug_camera)
+                    {
+                        const auto current = frontend_handler->Current();
+                        const bool previous = frontend_handler->Button(current, FrontendAction::Left, FrontendButtonQuery::Repeat);
+                        const bool next = frontend_handler->Button(current, FrontendAction::Right, FrontendButtonQuery::Repeat);
+                        const auto& slides = current->graph.presentation_slides;
+                        if ((previous || next) && !slides.empty()) frontend_action([&] {
+                            const auto active = std::find(slides.begin(), slides.end(), current->graph.active_slide);
+                            const std::size_t index = active == slides.end() ? 0 : std::size_t(active - slides.begin());
+                            const auto selected = slides[(index + (previous ? slides.size() - 1 : 1)) % slides.size()];
+                            const auto slide = std::find_if(current->graph.slides.begin(), current->graph.slides.end(),
+                                [&](const auto& value) { return value.offset == selected; });
+                            if (slide == current->graph.slides.end()) throw std::logic_error("Authored presentation slide is missing");
+                            frontend_session->SelectPresentation(slide->name);
+                            log("Original FE input selected presentation slide: " + slide->name + ".");
+                        });
+                    }
+                }
+                if (frontend_ready) frontend_published_frame = frontend_session->Current();
+
             },
             [&](float) {
             auto frame_lighting = lighting;
@@ -977,6 +1024,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             }
             if (particle_renderer)
                 particle_submissions += particle_renderer->Submit(*particle_view, particles_visible);
+            if (text_view) text_view->Submit();
+            if (frame_view) frame_view->Submit(frontend_published_frame);
             // Read actual EFB depth, before the ImGui overlay, to require visible geometry.
             // Aurora returns the latest asynchronous snapshot, and returns zero
             // before one is available. Require perspective depth near our camera
@@ -996,11 +1045,11 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
             if (particles)
             {
-                ImGui::Text("Original particles: %zu live | emitter fda2d744/0", particles->Snapshot().size());
+                ImGui::Text("Original particles: %u live | %u controllers", particle_live, particle_active_controllers);
                 ImGui::Checkbox("Pause particles", &particles_paused);
                 ImGui::SameLine(); ImGui::Checkbox("Show particles", &particles_visible);
                 if (ImGui::Button("Reset particles")) particles_reset = true;
-                ImGui::TextUnformatted("One authored emitter at the origin; complete effects manager pending.");
+                ImGui::TextUnformatted("Two group instances; complete effects manager pending.");
             }
             if (text_view)
             {
@@ -1013,12 +1062,14 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             {
                 ImGui::Text("Authored %s layout: %zu text, %zu images", options.frontend_animate ? "animated" : "static",
                     frame_view->TextCount(), frame_view->ImageCount());
+                const bool editable = frame_packets->Current() == frontend_session->Current();
+                ImGui::BeginDisabled(!editable);
                 if (frontend_session && options.frontend_animate)
                 {
-                    ImGui::Text("Frontend time: %.2f s", frontend_session->Current()->graph.presentation_time);
+                    ImGui::Text("Frontend time: %.2f s", frame_packets->Current()->graph.presentation_time);
                     ImGui::Checkbox("Pause frontend", &animation_paused);
                     ImGui::SameLine(); if (ImGui::Button("Reset frontend")) animation_reset = true;
-                    const auto current = frontend_session->Current();
+                    const auto current = frame_packets->Current();
                     const auto& graph = current->graph;
                     const auto slide_name = [&](resources::FrontendReference id) -> const char* {
                         for (const auto& slide : graph.slides) if (id == slide.offset) return slide.name.c_str();
@@ -1054,14 +1105,16 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                         ImGui::EndChild();
                         ImGui::TreePop();
                     }
-                    ImGui::TextUnformatted("Authored timeline only; scene handlers and menu actions pending.");
+                    ImGui::TextUnformatted("Original base update; game menus and transitions pending.");
+                    ImGui::TextUnformatted(debug_camera ? "Slide shortcuts disabled while DebugCam controls are active."
+                        : "Left/Right or pad: inspect authored presentation slides.");
                 }
                 else ImGui::TextUnformatted("Stored frame only; use --frontend-animate for a timeline.");
                 if (ImGui::TreeNode("Instance inspection"))
                 {
                     ImGui::SetNextItemWidth(330);
                     ImGui::InputTextWithHint("Path", "Layer/Item", frontend_instance_path.data(), frontend_instance_path.size());
-                    const auto current = frontend_session->Current();
+                    const auto current = frame_packets->Current();
                     std::optional<resources::FrontendNode> node;
                     std::string lookup_error;
                     try
@@ -1136,6 +1189,12 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                     if (!lookup_error.empty()) ImGui::TextWrapped("%s", lookup_error.c_str());
                     ImGui::TreePop();
                 }
+                ImGui::EndDisabled();
+                if (!editable)
+                {
+                    ImGui::TextUnformatted("Graphics replacement failed; the previous frame remains visible.");
+                    if (ImGui::Button("Retry frontend graphics")) frontend_failed_graphics.reset();
+                }
                 if (frontend_session->State() == FrontendSessionState::Loading)
                 {
                     ImGui::TextUnformatted("Reloading frontend; current scene remains active.");
@@ -1144,7 +1203,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                     });
                 }
                 else if (ImGui::Button("Reload frontend")) frontend_action([&] {
-                    frontend_session->Begin(frontend_session->Current()->request);
+                    frontend_session->Begin(frame_packets->Current()->request);
                     frontend_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
                 });
                 if (!frontend_message.empty()) ImGui::TextWrapped("Frontend: %s", frontend_message.c_str());
@@ -1193,11 +1252,65 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             },
             [&](float) { timing.StartTimer(1); }
         });
+        const auto finish_renderers = [&] {
+            std::exception_ptr failure;
+            try { if (font_registry) font_registry->FinishFrame(); }
+            catch (...) { failure = std::current_exception(); }
+            try { if (frame_packets) frame_packets->FinishFrame(); }
+            catch (...) { if (!failure) failure = std::current_exception(); }
+            try { if (particle_renderer) particle_renderer->FinishFrame(); }
+            catch (...) { if (!failure) failure = std::current_exception(); }
+            if (failure) std::rethrow_exception(failure);
+        };
         log("Selected begin/update/render/end callbacks use original nlTaskManager priorities 4/9/11/16; full game tasks remain pending.");
         while (!options.frames || frames < options.frames)
         {
             if (Update()) break;
             nlServiceFileSystem();
+            if (frontend_session && frontend_session->State() == FrontendSessionState::Loading)
+            {
+                frontend_action([&] {
+                    frontend_session->Service();
+                    if (frontend_session->State() == FrontendSessionState::Loading)
+                    {
+                        if (frontend_deadline && std::chrono::steady_clock::now() > *frontend_deadline)
+                        {
+                            frontend_session->Cancel();
+                            throw std::runtime_error("Frontend reload timed out");
+                        }
+                    }
+                    else
+                    {
+                        frontend_deadline.reset();
+                        frontend_session->Result();
+                        log("Frontend replacement published after all selected resources completed.");
+                    }
+                });
+            }
+            if (frontend_session)
+            {
+                const auto next = frontend_session->Current();
+                if (next != frame_packets->Current() && next != frontend_failed_graphics)
+                {
+                    try { frame_packets->Prepare(next); frontend_failed_graphics.reset(); frontend_message.clear(); }
+                    catch (const std::exception& error)
+                    {
+                        frontend_failed_graphics = next; frontend_message = error.what();
+                        log("Frontend graphics replacement failed: " + frontend_message + "; previous frame retained.");
+                    }
+                }
+                frontend_published_frame = frame_packets->Current();
+            }
+            if (particles_reset)
+            {
+                // The previous frame is drained. Recreate bindings only while
+                // idle, after invalidating the old controller tokens.
+                particle_renderer.reset();
+                particles->Reset(0x9184eb0c);
+                start_particles();
+                particle_renderer = std::make_unique<ParticleControllerRenderer>(*particle_pool, *particles, DrainGX);
+                particles_reset = false;
+            }
             if (options.frames && std::chrono::steady_clock::now() - start > std::chrono::seconds(30)) throw std::runtime_error("Static preview frame deadline exceeded");
             if (!lifecycle.Acquire()) { SDL_Delay(1); continue; }
             if (!session.gx)
@@ -1212,10 +1325,10 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             catch (...)
             {
                 // The frame owner cancels/drains before propagating failures.
-                if (particle_renderer) particle_renderer->FinishFrame();
+                finish_renderers();
                 throw;
             }
-            if (particle_renderer) particle_renderer->FinishFrame();
+            finish_renderers();
             timing.FinishTiming();
             if (backend.read_colours)
             {
@@ -1254,13 +1367,15 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             if (text_view->Rendered() != frames) throw std::runtime_error("Frontend text view missed a rendered frame");
             log("Frontend text inspection rendered: " + std::to_string(text_view->Rendered()) + " frames through the original view graph.");
         }
-        frontend_devices.reset(); frontend_input.reset();
+        frontend_handler.reset(); frontend_devices.reset(); frontend_input.reset();
         frontend_session.reset(); // Drain pending reloads before NL services/arenas shut down.
         frontend_published_frame.reset();
         if (particles)
             log("Original particle preview rendered: " + std::to_string(particle_updates) + " updates, "
                 + std::to_string(particle_submissions) + " submitted quads, " + std::to_string(particle_peak) + " peak live.");
-        particle_renderer.reset(); particles.reset();
+        frame_packets.reset(); frontend_failed_graphics.reset();
+        font_registry.reset();
+        particle_renderer.reset(); particle_pool.reset(); particles.reset(); particle_groups.reset();
         debug_input.reset(); debug_camera.reset(); authored_camera.reset(); cameras.Release();
         lifecycle.Release(); shadow_drawable.reset(); shadow_layers.reset(); pool_selection.Restore(); world.reset(); inventory.reset(); graphics.Release();
         if (StandardAllocator.TotalFreeMemory() != mem1_free || VirtualAllocator.TotalFreeMemory() != mem2_free)

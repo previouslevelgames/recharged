@@ -1,0 +1,20 @@
+include_guard(GLOBAL)
+add_library(charged_frontend_font_load STATIC src/runtime/frontend_font_load.cpp)
+add_dependencies(charged_frontend_font_load verify_prepared)
+target_include_directories(charged_frontend_font_load PRIVATE
+    "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+target_compile_definitions(charged_frontend_font_load PRIVATE MSCHARGED_NATIVE=1)
+target_compile_features(charged_frontend_font_load PUBLIC cxx_std_20)
+target_link_libraries(charged_frontend_font_load PUBLIC charged_frontend_fonts charged_decomp_startup)
+if(BUILD_TESTING)
+    add_executable(frontend_font_load_tests tests/frontend_font_load.cpp)
+    target_link_libraries(frontend_font_load_tests PRIVATE charged_frontend_font_load aurora::dvd aurora::core)
+    if(MSCHARGED_BUILD_SCENE_PREVIEW)
+        target_compile_definitions(frontend_font_load_tests PRIVATE MSCHARGED_TEST_WORLD_GX=1)
+    else()
+        add_test(NAME frontend_font_load COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_font_load.py" "$<TARGET_FILE:frontend_font_load_tests>")
+        set_tests_properties(frontend_font_load PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()

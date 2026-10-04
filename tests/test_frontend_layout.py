@@ -40,6 +40,7 @@ with tempfile.TemporaryDirectory(prefix="mscharged-fe-layout-") as folder:
         assert config.read_bytes() == before
         if expected == 0:
             assert "shutdown recovered both game arenas" in output, output
+            assert "Frontend text uses registered font pages and original GL packets." in output, output
             assert "1 stored text components" in output, output
         print(message)
 

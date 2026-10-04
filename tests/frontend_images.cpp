@@ -176,6 +176,22 @@ void Transactions()
     load.Begin(Scene({0x11, 0x33})); load.Begin(ingame, FrontendImageProfile::InGame); Pump(load, true);
     auto next = load.Result(); Inspect(next, true); Inspect(previous, false);
     Check(next != previous && load.CompletedFiles() == 2, "Replacement did not publish both qualified files");
+    load.Begin(Scene({0x11, 0x44}), FrontendImageProfile::BootLoading); Pump(load);
+    auto boot = load.Result();
+    Check(load.CompletedFiles() == 1 && boot->textures.size() == 2
+        && boot->textures.at(0x11)->pixels[0] == 127 && boot->textures.at(0x44)->pixels[0] == 7,
+        "Boot mini-bundle used another profile or changed texture bytes");
+    load.Begin(main, FrontendImageProfile::BootLoading); // main was cleared above.
+    Check(load.CompletedFiles() == 0, "Empty boot request queued image files");
+    load.Begin(Scene({0x11, 0x44}), FrontendImageProfile::BootLoading); Pump(load);
+    boot = load.Result();
+    load.Begin(Scene({0x11, 0x33}), FrontendImageProfile::BootLoading); Pump(load);
+    Check(load.State() == FrontendImageState::Failed && load.Current() == boot,
+        "Missing boot resource fell back to MainUI or replaced the prior catalog");
+    Reject([&] { load.Result(); });
+    load.Begin(Scene({0x11, 0x44}), FrontendImageProfile::BootLoading); load.Cancel();
+    Check(load.State() == FrontendImageState::Cancelled && load.Current() == boot,
+        "Boot cancellation lost the retained catalog");
     load.Unload(); Check(!load.Current(), "Unload left its handle active"); Inspect(next, true);
     load.Begin(ingame, FrontendImageProfile::InGame);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -293,8 +309,10 @@ int main(int argc, char** argv)
             {
                 load.Begin({}); auto previous = load.Result();
                 const bool ingame = mode == "missing-permanent" || mode == "missing-demand" || mode == "bad-demand";
-                try { load.Begin(ingame ? Scene({0x11, 0x22}) : Scene({0x11, 0x33}),
-                    ingame ? FrontendImageProfile::InGame : FrontendImageProfile::Main); Pump(load); } catch (const std::exception&) { load.Poll(); }
+                const bool boot = mode == "missing-boot" || mode == "bad-boot";
+                try { load.Begin(boot ? Scene({0x11, 0x44}) : ingame ? Scene({0x11, 0x22}) : Scene({0x11, 0x33}),
+                    boot ? FrontendImageProfile::BootLoading : ingame ? FrontendImageProfile::InGame : FrontendImageProfile::Main);
+                    Pump(load); } catch (const std::exception&) { load.Poll(); }
                 Check(load.State() == FrontendImageState::Failed && load.Current() == previous, "Missing/malformed image input became ready");
                 Reject([&] { load.Result(); });
             }

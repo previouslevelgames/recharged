@@ -28,6 +28,9 @@ void DrawFrontendText(const resources::FontLayout& layout, const TextDrawTransfo
         Require(quad.page < layout.font->pages.size(), "Invalid frontend font page");
         for (float value : {quad.left, quad.right, quad.top, quad.bottom, quad.u0, quad.v0, quad.u1, quad.v1})
             Require(std::isfinite(value) && std::abs(value) <= 1e7f, "Invalid frontend text quad");
+        for (float value : {quad.u0, quad.v0, quad.u1, quad.v1})
+            Require(value * 1024.f >= -32768.f && value * 1024.f < 32768.f,
+                "Frontend text UV exceeds original signed16 storage");
         const auto& page = layout.font->pages[quad.page];
         // This renderer initially selects the actual USA CI8/RGB5A3 font profile.
         Require(page.gx_format == 9 && page.game_format == 8 && page.levels == 1 && page.width && page.height
@@ -58,7 +61,9 @@ void DrawFrontendText(const resources::FontLayout& layout, const TextDrawTransfo
     GXClearVtxDesc(); GXSetVtxDesc(GX_VA_POS, GX_DIRECT); GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT); GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    // Original unclipped DrawString uses GLTexturedColourMeshWriter: signed16
+    // UVs with ten fractional bits. Scissored text is a separate float-UV path.
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 10);
     unsigned bound_page = std::numeric_limits<unsigned>::max();
     for (const auto& quad : layout.quads)
     {
@@ -71,10 +76,11 @@ void DrawFrontendText(const resources::FontLayout& layout, const TextDrawTransfo
             GXLoadTexObj(&texture, GX_TEXMAP0); bound_page = quad.page;
         }
         const auto vertex = [&](float px, float py, float u, float v)
-        { GXPosition3f32(px, py, 0); GXColor4u8(colour[0], colour[1], colour[2], colour[3]); GXTexCoord2f32(u, v); };
+        { GXPosition3f32(px, py, 0); GXColor4u8(colour[0], colour[1], colour[2], colour[3]);
+          GXTexCoord2s16(static_cast<std::int16_t>(u * 1024.f), static_cast<std::int16_t>(v * 1024.f)); };
         GXBegin(GX_QUADS, GX_VTXFMT0, 4);
-        vertex(quad.left, quad.top, quad.u0, quad.v0); vertex(quad.right, quad.top, quad.u1, quad.v0);
-        vertex(quad.right, quad.bottom, quad.u1, quad.v1); vertex(quad.left, quad.bottom, quad.u0, quad.v1);
+        vertex(quad.left, quad.top, quad.u0, quad.v0); vertex(quad.left, quad.bottom, quad.u0, quad.v1);
+        vertex(quad.right, quad.bottom, quad.u1, quad.v1); vertex(quad.right, quad.top, quad.u1, quad.v0);
         GXEnd();
     }
 }

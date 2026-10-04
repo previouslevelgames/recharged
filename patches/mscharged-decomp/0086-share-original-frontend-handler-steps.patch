@@ -1,0 +1,171 @@
+From: mscharged-port contributors
+Subject: [PATCH] Share original frontend base-handler and loading notification steps
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Share original base timeline, ring and activation contracts with checked native
+retained-scene ownership. Preserve the actual empty remove and SceneCreated
+bodies and the manager state6 gate. Share loading notification update ordering
+and its inclusive authored-clock completion predicate without selecting HOME,
+concrete screen handlers or unavailable manager/resource services.
+
+diff --git a/src/Game/FE/BaseSceneHandler.cpp b/src/Game/FE/BaseSceneHandler.cpp
+index 36bd8c3..2eb441a 100644
+--- a/src/Game/FE/BaseSceneHandler.cpp
++++ b/src/Game/FE/BaseSceneHandler.cpp
+@@ -3,26 +3,24 @@
+ #include "Game/FE/feScene.h"
+ 
+ #include "NL/nlDLRing.h"
++#include "Game/FE/FrontendHandlerSteps.h"
+ 
+ void BaseSceneHandler::Update(float dt)
+ {
+-    mFEScene->Update(dt);
++    FrontendBaseHandlerUpdate(*this, dt);
+ }
+ 
+ void BaseSceneHandler::AddScreenHandler(BaseScreenHandler* handler)
+ {
+-    handler->mFEScene = mFEScene;
+-    nlDLRingAddEnd(&mScreenHandlerList, handler);
++    FrontendBaseHandlerAdd(*this, handler);
+ }
+ 
+-void BaseSceneHandler::RemoveScreenHandler(BaseScreenHandler*)
++void BaseSceneHandler::RemoveScreenHandler(BaseScreenHandler* handler)
+ {
++    FrontendBaseHandlerRemove(handler);
+ }
+ 
+ void BaseSceneHandler::OnActivate()
+ {
+-    if (mActiveScreenHandler != 0)
+-    {
+-        mActiveScreenHandler->OnActivate();
+-    }
++    FrontendBaseHandlerActivate(*this);
+ }
+diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
+index 2e171e8..66d3257 100644
+--- a/src/Game/FE/feSceneManager.cpp
++++ b/src/Game/FE/feSceneManager.cpp
+@@ -1,6 +1,7 @@
+ #include "Game/FE/feSceneManager.h"
+ 
+ #include "Game/FE/feInput.h"
++#include "Game/FE/FrontendHandlerSteps.h"
+ #include "Game/FE/feRender.h"
+ #include "Game/FE/fePackage.h"
+ #include "Game/FE/feScene.h"
+@@ -279,8 +280,7 @@ void FESceneManager::Update(float dt)
+     {
+         if (((FEScene*)currentEntry->entry->mFEScene)->mState == 6)
+         {
+-            g_pFEInput->EnableInputIfSceneHasFocus(currentEntry->entry);
+-            currentEntry->entry->Update(dt);
++            FrontendFocusedHandlerUpdate(g_pFEInput, currentEntry->entry, dt);
+         }
+ 
+         if (nlDLRingIsEnd(headEntry, currentEntry) || currentEntry == 0)
+diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
+index 82204f5..4617c05 100644
+--- a/src/Game/SH/SHOptions.cpp
++++ b/src/Game/SH/SHOptions.cpp
+@@ -2,6 +2,7 @@
+ #include "NL/nlFunction.inl"
+ #include "Game/GameSceneManager.h"
+ #include "Game/SH/SHOptions.h"
++#include "Game/FE/FrontendHandlerSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ #include "Game/FE/FEAudio.h"
+ 
+@@ -25,6 +26,7 @@ class SHNavigation;
+ 
+ void BaseSceneHandler::SceneCreated()
+ {
++    FrontendBaseHandlerSceneCreated();
+ }
+ 
+ OptionsScene::OptionsScene()
+diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
+index b1c4789..2259b7c 100644
+--- a/src/Game/SH/SHLoading.cpp
++++ b/src/Game/SH/SHLoading.cpp
+@@ -1,6 +1,7 @@
+ #include "Game/HBMManager.h"
+ 
+ #include "Game/SH/SHLoading.h"
++#include "Game/FE/FrontendHandlerSteps.h"
+ #include "Game/FE/FrontendInstanceSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ 
+@@ -89,19 +90,7 @@ BaseLoadingScene::~BaseLoadingScene()
+ void BaseLoadingScene::Update(float dt)
+ {
+     BaseSceneHandler::Update(dt);
+-
+-    if (mTransitionActive)
+-    {
+-        TLSlide* slide = mTransitionComponent->GetActiveSlide();
+-        float duration = slide->m_duration;
+-        float start = slide->m_start;
+-        float time = slide->m_time;
+-        if (time >= start + duration)
+-        {
+-            mTransitionComponent->m_bVisible = false;
+-            mTransitionActive = false;
+-        }
+-    }
++    FrontendLoadingNotificationStep<TLComponentInstance, TLSlide>(mTransitionActive, mTransitionComponent);
+ }
+ 
+ MatchLoadingScene::MatchLoadingScene()
+diff --git a/include/Game/FE/FrontendHandlerSteps.h b/include/Game/FE/FrontendHandlerSteps.h
+new file mode 100644
+index 0000000..c1c4986
+--- /dev/null
++++ b/include/Game/FE/FrontendHandlerSteps.h
+@@ -0,0 +1,43 @@
++#ifndef FRONTEND_HANDLER_STEPS_H
++#define FRONTEND_HANDLER_STEPS_H
++#include "NL/nlDLRing.h"
++
++// Shared original BaseSceneHandler equations, independent of native ownership.
++template<class Handler> void FrontendBaseHandlerUpdate(Handler& handler, float dt)
++{ handler.mFEScene->Update(dt); }
++template<class Handler, class Screen> void FrontendBaseHandlerAdd(Handler& handler, Screen* screen)
++{
++    screen->mFEScene = handler.mFEScene;
++    nlDLRingAddEnd(&handler.mScreenHandlerList, screen);
++}
++template<class Screen> void FrontendBaseHandlerRemove(Screen*) { }
++template<class Handler> void FrontendBaseHandlerActivate(Handler& handler)
++{
++    if (handler.mActiveScreenHandler != 0)
++        handler.mActiveScreenHandler->OnActivate();
++}
++inline void FrontendBaseHandlerSceneCreated() { }
++// Original manager still checks FEScene::mState==6 before this fragment.
++template<class Input, class Handler> void FrontendFocusedHandlerUpdate(Input* input, Handler* handler, float dt)
++{
++    input->EnableInputIfSceneHasFocus(handler);
++    handler->Update(dt);
++}
++// Original BaseLoadingScene::Update: clock before notification completion.
++template<class Component, class Slide>
++void FrontendLoadingNotificationStep(bool& active, Component* component)
++{
++    if (active)
++    {
++        Slide* slide = component->GetActiveSlide();
++        float duration = slide->m_duration;
++        float start = slide->m_start;
++        float time = slide->m_time;
++        if (time >= start + duration)
++        {
++            component->m_bVisible = false;
++            active = false;
++        }
++    }
++}
++#endif

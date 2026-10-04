@@ -151,8 +151,12 @@ void Transactions()
     Check(retained->layout.ImageCount()==1&&retained->images->textures.size()==1,"Retained frame did not survive pop");
     owner.Begin(Request());
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
-    while(!owner.Progress().fen_completed||owner.Progress().visual_completed_mask!=7)
-    {nlServiceFileSystem();Check(std::chrono::steady_clock::now()<deadline,"Raw staged completion timed out");SDL_Delay(1);}
+    // Font reads now need Poll to submit directory/descriptor/page stages.
+    // Stop after real FEN/localization arrival while those stages are pending;
+    // the font owner's separate final-page test covers arrival-before-assembly.
+    while(!owner.Progress().fen_completed||!(owner.Progress().visual_completed_mask&1))
+    {nlServiceFileSystem();owner.Poll();Check(std::chrono::steady_clock::now()<deadline,"Staged completion timed out");SDL_Delay(1);}
+    Check(owner.State()==FrontendSessionState::Loading&&!owner.Current(),"Staged inputs published before font completion");
     owner.Cancel();Check(!owner.Current()&&owner.State()==FrontendSessionState::Cancelled,"Cancellation published staged FEN/font data");
     owner.Begin(Request());nlShutdownFileSystem();owner.Poll();Check(owner.State()==FrontendSessionState::Failed&&!owner.Current(),"File shutdown left pending scene");nlInitFileSystem();
 }

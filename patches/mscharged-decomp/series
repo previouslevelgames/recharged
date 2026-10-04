@@ -77,3 +77,11 @@
 0076-select-original-particle-billboards.patch
 0077-share-original-frontend-instance-steps.patch
 0078-include-tweak-pool-destruction.patch
+0079-share-original-font-text-steps.patch
+0080-share-original-font-loading-steps.patch
+0081-drain-failed-native-raw-reads.patch
+0082-select-native-font-polygons.patch
+0083-share-original-emission-controller-steps.patch
+0084-select-native-pose-accumulator.patch
+0085-select-original-frontend-image-packets.patch
+0086-share-original-frontend-handler-steps.patch

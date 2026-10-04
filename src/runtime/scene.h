@@ -26,7 +26,7 @@ struct SceneOptions
     std::optional<std::string> frontend_slide; // Optional stored presentation slide name.
     std::optional<std::string> frontend_images; // Original Main/InGame resource context; defaults to Main.
     bool frontend_animate = false; // Checked authored timeline; no scene handlers or menu transitions.
-    bool particles = false; // One qualified authored emitter; no complete effects manager.
+    bool particles = false; // Qualified authored controller groups; no complete effects manager.
     bool debug_camera = false; // Original DebugCam with diagnostic desktop controls.
     bool no_world_culling = false; // Diagnostic reference: submit every selected world object.
     bool unlit = false;

@@ -91,8 +91,16 @@ void FrontendImageLoad::Begin(const resources::FrontendScene& scene, FrontendIma
     for (auto& request : s.requests) request.complete = false;
     try
     {
-        if (profile != FrontendImageProfile::Main && profile != FrontendImageProfile::InGame)
-            throw std::invalid_argument("Unknown frontend image profile");
+        switch (profile)
+        {
+        case FrontendImageProfile::Main:
+            s.count = 1; s.paths = {"art/fe/MainUI.Dmn", ""}; break;
+        case FrontendImageProfile::InGame:
+            s.count = 2; s.paths = {"art/fe/InGameUI.Res", "art/fe/InGameUI.Dmn"}; break;
+        case FrontendImageProfile::BootLoading:
+            s.count = 1; s.paths = {"art/fe/BootLoadingUI.res", ""}; break;
+        default: throw std::invalid_argument("Unknown frontend image profile");
+        }
         resources::Require(scene.resources.size() <= 16384, "Frontend resource request exceeds its limits");
         s.selection.resources = scene.resources;
         bool have_static = false;
@@ -103,13 +111,11 @@ void FrontendImageLoad::Begin(const resources::FrontendScene& scene, FrontendIma
         }
         if (!have_static)
         {
+            s.count = 0;
             s.current = resources::ReadFrontendImages(s.selection, {});
             s.state = FrontendImageState::Ready;
             return;
         }
-        s.count = profile == FrontendImageProfile::Main ? 1 : 2;
-        s.paths = profile == FrontendImageProfile::Main ? std::array{"art/fe/MainUI.Dmn", ""}
-            : std::array{"art/fe/InGameUI.Res", "art/fe/InGameUI.Dmn"};
         s.Start();
     }
     catch (...) { s.error = std::current_exception(); s.Drain(); s.state = FrontendImageState::Failed; throw; }

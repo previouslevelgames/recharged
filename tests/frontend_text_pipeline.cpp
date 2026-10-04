@@ -22,7 +22,8 @@ void Log(AuroraLogLevel level, const char*, const char* message, unsigned size)
 { if (level >= LOG_ERROR) ++errors; std::cerr.write(message, size); std::cerr << '\n'; }
 void Check(bool good, const char* message) { if (!good) throw std::runtime_error(message); }
 struct Session { bool live = false; ~Session() { if (live) { AuroraGXSync(); aurora_shutdown(); } } };
-void Case(const resources::FontLayout& layout, std::array<std::uint8_t, 4> modulation, std::array<unsigned, 3> expected)
+void Case(const resources::FontLayout& layout, std::array<std::uint8_t, 4> modulation,
+          std::array<unsigned, 3> expected, float x = 315)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(15);
     unsigned draws = 0, quiet_frames = 0; ColourSamples samples{};
@@ -33,7 +34,7 @@ void Case(const resources::FontLayout& layout, std::array<std::uint8_t, 4> modul
             Check(event->type != AURORA_EXIT, "Font test window closed");
         if (!aurora_begin_frame()) { SDL_Delay(1); continue; }
         GXSetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR); GXSetCopyClear({20, 24, 30, 255}, GX_MAX_Z24);
-        DrawFrontendText(layout, 315, 237, 640, 480, modulation);
+        DrawFrontendText(layout, x, 237, 640, 480, modulation);
         GXDrawDone();
         // Aurora compiles newly encountered pipelines asynchronously. Wait for
         // its queue to drain, then sample a subsequent frame; never accept a
@@ -82,6 +83,20 @@ int main(int argc, char** argv)
         Case(second, {255, 255, 255, 255}, {255, 0, 0});
         Case(first, {128, 64, 192, 255}, {128, 64, 192});
         Case(first, {255, 255, 255, 128}, {138, 140, 143});
+        // Independently derived from original DrawString: A starts at -1,
+        // then (advance 10 + forward kern -2) * 1.5 places B at 11.
+        // B ends at 26, so the centre sample at local x=27 is background.
+        // The previous integer-width pen placed B at 13 and covered it.
+        auto spaced = std::make_shared<resources::FrontendFont>(*font);
+        spaced->spacing = 1.5f;
+        Case(resources::LayoutFrontendText(spaced, u"AB"), {255, 255, 255, 255}, {20, 24, 30}, 293);
+        // Original page batching draws white B (page 0) before red A (page 1),
+        // even though A appears first in the string. Their quads overlap at
+        // the centre sample. String-order submission would leave it white.
+        auto pages = std::make_shared<resources::FrontendFont>(*font);
+        pages->glyphs.at('A').page = 1;
+        pages->glyphs.at('B').offset = -10;
+        Case(resources::LayoutFrontendText(pages, u"AB"), {255, 255, 255, 255}, {255, 0, 0});
         AuroraGXSync(); Check(errors == 0, "Aurora reported font rendering errors");
         std::cout << "Frontend font page, colour, alpha and background checks passed\n";
     }

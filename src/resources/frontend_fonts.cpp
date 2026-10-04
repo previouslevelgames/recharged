@@ -1,4 +1,5 @@
 #include "resources/frontend_fonts.h"
+#include "NL/FontTextSteps.h"
 #include <algorithm>
 #include <charconv>
 #include <set>
@@ -132,26 +133,24 @@ const FontGlyph& FrontendFont::Glyph(std::uint16_t unicode) const
 }
 std::uint32_t FrontendFont::CharacterWidth(const FontGlyph& glyph, const FontGlyph* previous) const
 {
+    int kern_value = 0;
     std::int64_t width = int(glyph.advance) + int(glyph.offset);
     if (previous && previous->has_kerning)
     {
         const auto kern = kerning.find((std::uint32_t(previous->font_char) << 16) | glyph.font_char);
-        if (kern != kerning.end()) width += kern->second;
+        if (kern != kerning.end()) { kern_value = kern->second; width += kern_value; }
     }
     const float scaled = float(width) * spacing;
     Require(width >= 0 && std::isfinite(scaled) && scaled >= 0 && scaled < 65536,
             "Font advance cannot use the bounded native text profile");
-    return std::uint32_t(scaled);
+    return FontCharacterAdvance(glyph.advance, glyph.offset, kern_value, spacing);
 }
-std::shared_ptr<const FrontendFont> ReadFrontendFont(Bytes bytes, std::string_view texture_base, std::string_view alias)
+FrontendFontDescription ReadFrontendFontDescription(Bytes bytes, std::string_view texture_base, std::string_view alias)
 {
     Require(!texture_base.empty() && texture_base.size() < 240 && !alias.empty() && alias.size() < 256,
             "Invalid font name");
-    const auto entries = Bundle(bytes);
-    const auto description = entries.find(FrontendNameHash(texture_base));
-    Require(description != entries.end(), "Font description is absent from its bundle");
-    Require(description->second.size() <= 1024 * 1024, "Font descriptor exceeds its size limit");
-    std::string text(description->second.begin(), description->second.end());
+    Require(bytes.size() <= 1024 * 1024, "Font descriptor exceeds its size limit");
+    std::string text(bytes.begin(), bytes.end());
     Require(text.find('\0') == std::string::npos, "Embedded NUL in font descriptor");
     std::istringstream stream(text); std::string line;
     // FE font resources reference lowercase aliases (including "scratchy36"),
@@ -235,41 +234,222 @@ std::shared_ptr<const FrontendFont> ReadFrontendFont(Bytes bytes, std::string_vi
     for (char c; stream.get(c);) Require(c == '\r' || c == '\n' || c == ' ' || c == '\t', "Data after font descriptor terminator");
     unsigned extended = 0x80;
     for (auto& [unicode, glyph] : font->glyphs) glyph.font_char = unicode < 0x80 ? unicode : extended++;
-    Require(entries.size() == page_count + 1, "Font bundle has unexplained records");
+    FrontendFontDescription result; result.font = std::move(*font);
     for (unsigned i = 0; i < page_count; ++i)
+        result.page_hashes.push_back(FrontendNameHash(std::string(texture_base) + '_' + std::to_string(i + 1)));
+    return result;
+}
+std::shared_ptr<const FrontendFont> AssembleFrontendFont(FrontendFontDescription description, std::vector<Texture> pages)
+{
+    Require(description.font.pages.empty() && !description.page_hashes.empty() && description.page_hashes.size() <= 16
+        && pages.size() == description.page_hashes.size(), "Font pages do not match their descriptor");
+    for (std::size_t i = 0; i < pages.size(); ++i)
+        Require(pages[i].id == description.page_hashes[i] && pages[i].width == description.font.page_size
+            && pages[i].height == description.font.page_size && pages[i].levels == 1,
+            "Font texture dimensions or identity disagree with its metrics");
+    description.font.pages = std::move(pages);
+    return std::make_shared<const FrontendFont>(std::move(description.font));
+}
+std::shared_ptr<const FrontendFont> ReadFrontendFont(Bytes bytes, std::string_view texture_base, std::string_view alias)
+{
+    const auto entries = Bundle(bytes);
+    const auto found = entries.find(FrontendNameHash(texture_base));
+    Require(found != entries.end(), "Font description is absent from its bundle");
+    auto description = ReadFrontendFontDescription(found->second, texture_base, alias);
+    Require(entries.size() == description.page_hashes.size() + 1, "Font bundle has unexplained records");
+    std::vector<Texture> pages;
+    for (auto id : description.page_hashes)
     {
-        const auto id = FrontendNameHash(std::string(texture_base) + '_' + std::to_string(i + 1));
         const auto entry = entries.find(id); Require(entry != entries.end(), "Font texture page is missing");
-        auto texture = ReadTexture(entry->second, id);
-        Require(texture.width == font->page_size && texture.height == font->page_size && texture.levels == 1,
-                "Font texture dimensions disagree with its metrics");
-        font->pages.push_back(std::move(texture));
+        pages.push_back(ReadTexture(entry->second, id));
     }
-    return font;
+    return AssembleFrontendFont(std::move(description), std::move(pages));
+}
+namespace
+{
+struct PlainFontEscape
+{
+    const unsigned short* m_pEnd = nullptr;
+    ESCAPE_TYPE m_Type = ESC_UNKNOWN;
+    explicit PlainFontEscape(const unsigned short*) { throw UnsupportedResource("Original font text escapes are not selected"); }
+    ESCAPE_TYPE GetType() const { return m_Type; }
+    nlColour GetExtendedColour() const { throw UnsupportedResource("Original font colour escapes are not selected"); }
+};
+class FontLookup
+{
+    const FrontendFont& font_;
+public:
+    struct GlyphInfo
+    {
+        nlVector2 uv, uvEnd;
+        unsigned char Advance, RenderWidth, RenderHeight, RenderAscent, Page;
+        signed char Offset;
+        bool HasKernPairs;
+    };
+    std::map<unsigned short, GlyphInfo> glyphs;
+    explicit FontLookup(const FrontendFont& font) : font_(font)
+    {
+        Require(font.height && font.height <= 1024 && font.ascent <= 1024
+            && font.page_size && font.page_size <= 1024 && !font.pages.empty() && font.pages.size() <= 16
+            && !font.glyphs.empty() && font.glyphs.size() <= 4096 && font.glyphs.contains('?')
+            && std::isfinite(font.spacing) && font.spacing > 0 && font.spacing <= 10,
+            "Invalid native font metrics or inventory");
+        for (const auto& page : font.pages)
+            Require(page.width == font.page_size && page.height == font.page_size && page.levels == 1,
+                "Native font page dimensions disagree with its metrics");
+        unsigned extended = 0x80;
+        const float inverse = 1.0f / font.page_size;
+        for (const auto& [unicode, glyph] : font.glyphs)
+        {
+            Require(unicode >= 32 && unicode != 127 && (unicode < 0xd800 || unicode > 0xdfff)
+                && unicode == glyph.unicode && glyph.font_char == (unicode < 0x80 ? unicode : extended++)
+                && glyph.page < font.pages.size() && glyph.width && glyph.height
+                && unsigned(glyph.x) + glyph.width <= font.page_size
+                && unsigned(glyph.y) + glyph.height <= font.page_size,
+                "Invalid native font glyph or index");
+            const float u = float(glyph.x) * inverse, v = float(glyph.y) * inverse;
+            // Match original Load's addition order, including non-power-of-two pages.
+            GlyphInfo item{{u,v}, {u + (glyph.width - 1) * inverse, v + (glyph.height - 1) * inverse},
+                glyph.advance,glyph.width,glyph.height,glyph.ascent,glyph.page,glyph.offset,glyph.has_kerning};
+            Require(glyphs.emplace(glyph.font_char, item).second, "Duplicate native font index");
+        }
+        Require(font.kerning.size() <= 65536, "Excessive native font kerning table");
+        for (const auto& [key, value] : font.kerning)
+            Require(value >= -255 && value <= 255, "Invalid native font kerning value");
+    }
+    unsigned long GetEscapeBegin() const { return 0x7b; }
+    const GlyphInfo& GetGlyphInfo(unsigned short ch) const
+    {
+        const auto found = glyphs.find(ch);
+        if (found != glyphs.end()) return found->second;
+        Require(ch >= 32 && ch < 127, "Unqualified native font character index");
+        return glyphs.at('?'); // Original ASCII code survives fallback geometry.
+    }
+    int Kerning(unsigned short a, unsigned short b) const
+    {
+        const auto found = font_.kerning.find((std::uint32_t(a) << 16) | b);
+        return found == font_.kerning.end() ? 0 : found->second;
+    }
+    unsigned long GetCharWidth(unsigned short ch, unsigned short previous) const
+    {
+        const auto& glyph = GetGlyphInfo(ch);
+        const int kern = previous && GetGlyphInfo(previous).HasKernPairs ? Kerning(previous,ch) : 0;
+        const auto value = std::int64_t(glyph.Advance) + glyph.Offset + kern;
+        const float scaled = float(value) * font_.spacing;
+        Require(value >= 0 && std::isfinite(scaled) && scaled >= 0 && scaled < 65536,
+            "Font advance cannot use the bounded native text profile");
+        return FontCharacterWidth(*this,font_.spacing,ch,previous);
+    }
+    std::vector<unsigned short> Convert(std::u16string_view text) const
+    {
+        Require(text.size() <= 4096, "Font string exceeds its bounded length");
+        for (std::size_t i=0; i<text.size();) Scalar(text, i); // Validate original retained UTF-16.
+        std::vector<unsigned short> result; result.reserve(text.size()+1);
+        for (char16_t ch : text)
+        {
+            if (ch < 32 || ch == 127 || ch == '{')
+                throw UnsupportedResource("Control characters and original font escapes are not selected");
+            // FontCharString processes each UTF-16 unit, including fallback.
+            result.push_back(ch < 0x80 ? ch : font_.Glyph(ch).font_char);
+        }
+        result.push_back(0);
+        return result;
+    }
+    void CheckAdvances(const std::vector<unsigned short>& text, std::uint32_t width, bool bounded_width) const
+    {
+        Require(width <= 0x00ffffff, "Font wrapping width exceeds its checked integer range");
+        unsigned short previous = 0;
+        std::uint64_t total = 0;
+        for (std::size_t i=0; i+1<text.size(); ++i)
+        {
+            const auto advance = GetCharWidth(text[i], previous);
+            Require(!bounded_width || advance <= width, "Font width cannot fit a consumed character");
+            total += advance;
+            Require(total <= 0x00ffffff, "Font measurement exceeds its checked integer range");
+            const auto& glyph = GetGlyphInfo(text[i]);
+            const int next_advance = int(glyph.Advance) + (glyph.HasKernPairs && text[i+1] ? Kerning(text[i],text[i+1]) : 0);
+            Require(next_advance >= -255 && next_advance <= 510, "Invalid original draw advance");
+            previous = text[i];
+        }
+    }
+};
+struct FontSink
+{
+    FontLayout& output;
+    unsigned page = 0;
+    void BeginPage(unsigned long value)
+    {
+        Require(value < output.font->pages.size(), "Font traversal references an absent page");
+        page = value;
+    }
+    void Quad(const FontTextQuad& quad)
+    {
+        for (const auto& position : quad.m_pos)
+            Require(std::isfinite(position.x) && std::isfinite(position.y)
+                && std::abs(position.x) <= 1e7f && std::abs(position.y) <= 1e7f,
+                "Original font quad exceeds the checked draw range");
+        output.quads.push_back({static_cast<std::uint8_t>(page),
+            quad.m_pos[0].x,quad.m_pos[0].y,quad.m_pos[2].x,quad.m_pos[2].y,
+            quad.m_uv[0].x,quad.m_uv[0].y,quad.m_uv[2].x,quad.m_uv[2].y});
+    }
+    void EndPage() {}
+};
+}
+std::uint32_t FrontendStringWidth(const FrontendFont& font, std::u16string_view text,
+    bool single_line, std::uint32_t width, bool word_wrap)
+{
+    FontLookup lookup(font);const auto chars=lookup.Convert(text);lookup.CheckAdvances(chars,width,!single_line);
+    return FontGetStringWidth<FontLookup,PlainFontEscape>(chars.data(),lookup,single_line,width,word_wrap);
+}
+std::uint32_t FrontendStringLineCount(const FrontendFont& font, std::u16string_view text,
+    std::uint32_t width, bool word_wrap)
+{
+    FontLookup lookup(font);const auto chars=lookup.Convert(text);lookup.CheckAdvances(chars,width,true);
+    return FontGetStringLineCount<FontLookup,PlainFontEscape>(chars.data(),lookup,width,word_wrap);
+}
+std::uint32_t FrontendStringHeight(const FrontendFont& font, std::u16string_view text,
+    std::uint32_t width, bool word_wrap)
+{
+    const auto lines=FrontendStringLineCount(font,text,width,word_wrap);
+    const auto value=float(font.height*lines)*font.spacing;
+    Require(std::isfinite(value)&&value>=0&&value<=0x00ffffff,"Font height exceeds its checked integer range");
+    return FontStringHeight(font.height,lines,font.spacing);
+}
+FontLayout LayoutFrontendTextLine(std::shared_ptr<const FrontendFont> font, std::u16string_view text,
+    const FontLineOptions& options)
+{
+    Require(bool(font),"Native font owner is absent");
+    FontLookup lookup(*font);const auto chars=lookup.Convert(text);lookup.CheckAdvances(chars,65535,false);
+    Require(options.length>=-1 && (options.length<0 || std::size_t(options.length)<=text.size()),"Font draw length exceeds its retained string");
+    for(float value:{options.position[0],options.position[1],options.pixel_centre})
+        Require(std::isfinite(value)&&std::abs(value)<=1e6f,"Invalid font draw position");
+    const int length=options.length<0?text.size():options.length;
+    FontLayout result;result.font=std::move(font);result.quads.reserve(length);
+    FontSink sink{result};const nlColour colour{{255,255,255,255}};
+    FontDrawStringSteps<FontLookup,PlainFontEscape>(chars.data(),lookup,result.font->spacing,
+        options.position[0]+options.pixel_centre,options.position[1]+options.pixel_centre,
+        colour,length,options.flip_y,nullptr,sink);
+    auto prefix=chars;prefix.resize(length+1);prefix.back()=0;
+    result.width=FontGetStringWidth<FontLookup,PlainFontEscape>(prefix.data(),lookup,true,65535,false);
+    result.height=length?result.font->height:0;
+    return result;
 }
 FontLayout LayoutFrontendText(std::shared_ptr<const FrontendFont> font, std::u16string_view text)
 {
-    Require(bool(font) && text.size() <= 4096 && font->height && font->page_size, "Invalid or excessive font layout");
-    FontLayout result; result.font = std::move(font); const auto& face = *result.font;
-    float x = 0, baseline = face.ascent; const FontGlyph* previous = nullptr;
-    const float row = face.height * face.line_height;
-    Require(std::isfinite(row) && row > 0 && row < 65536, "Invalid font line height");
-    result.height = text.empty() ? 0 : row;
-    for (std::size_t i = 0; i < text.size();)
+    Require(bool(font) && text.size()<=4096,"Invalid or excessive font layout");
+    FontLayout result;result.font=font;
+    const float row=font->height*font->line_height;
+    Require(std::isfinite(row)&&row>0&&row<65536,"Invalid font line height");
+    FontLineOptions options;options.position[1]=font->ascent;
+    result.height=text.empty()?0:row;
+    for(std::size_t begin=0;;)
     {
-        const auto scalar = Scalar(text, i);
-        if (scalar == '\n') { x = 0; baseline += row; result.height += row; previous = nullptr; continue; }
-        if (scalar < 32 || scalar == 127 || scalar == '{')
-            throw UnsupportedResource("Control characters and original FE text escape sequences are not selected");
-        const auto& glyph = face.Glyph(scalar > 0xffff ? '?' : scalar);
-        const float advance = face.CharacterWidth(glyph, previous);
-        Require(glyph.page < face.pages.size() && glyph.width && glyph.height && glyph.x + glyph.width <= face.page_size
-            && glyph.y + glyph.height <= face.page_size, "Invalid font glyph layout");
-        const float left = x + glyph.offset, top = baseline - glyph.ascent;
-        const float inverse = 1.0f / face.page_size;
-        result.quads.push_back({glyph.page, left, top, left + glyph.width - 1, top + glyph.height - 1,
-            glyph.x * inverse, glyph.y * inverse, (glyph.x + glyph.width - 1) * inverse, (glyph.y + glyph.height - 1) * inverse});
-        x += advance; result.width = std::max(result.width, x); previous = &glyph;
+        const auto end=text.find(u'\n',begin);
+        auto line=LayoutFrontendTextLine(font,text.substr(begin,end==text.npos?text.size()-begin:end-begin),options);
+        result.width=std::max(result.width,line.width);
+        result.quads.insert(result.quads.end(),line.quads.begin(),line.quads.end());
+        if(end==text.npos)break;
+        begin=end+1;options.position[1]+=row;result.height+=row;
     }
     return result;
 }

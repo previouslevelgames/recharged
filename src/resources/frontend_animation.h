@@ -22,6 +22,10 @@ public:
     FrontendAnimationPlayback(const FrontendAnimationPlayback&)=delete;
     FrontendAnimationPlayback& operator=(const FrontendAnimationPlayback&)=delete;
     void Advance(float delta);
+    // Explicit native observation of an already active loading notification.
+    // Original BaseLoadingScene order: advance, then inclusive completion/hide.
+    // Commits neither clock nor visibility on failure; returns still-active.
+    bool AdvanceLoadingNotification(float delta, std::uint32_t component_instance);
     void Reset();
     std::unique_ptr<FrontendAnimationPlayback> Clone() const;
     // Original lower-hash first-match selection. Missing names clear active.

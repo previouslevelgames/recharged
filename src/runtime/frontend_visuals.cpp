@@ -28,8 +28,14 @@ void FrontendVisualLoad::CheckThread() const
     if (thread_ != std::this_thread::get_id())
         throw std::logic_error("Frontend visual requires its NL servicing thread");
 }
+void FrontendVisualLoad::CheckMutation() const
+{
+    CheckThread();
+    if (nlGetCurrentAsyncRead()) throw std::logic_error("Frontend visual mutation during an NL callback is unsupported");
+}
 FrontendVisualLoad::FrontendVisualLoad(FrontendLanguage language) : assets_(std::make_shared<FrontendVisualAssets>())
 {
+    CheckMutation();
     if (!gMemoryInitialized || !nlFileSystemReady())
         throw std::logic_error("Frontend visual requires initialized memory and NL files");
     const auto index = static_cast<unsigned>(language);
@@ -50,6 +56,10 @@ FrontendVisualLoad::FrontendVisualLoad(FrontendLanguage language) : assets_(std:
                 throw std::runtime_error("Frontend visual read was not queued");
             if (error_) std::rethrow_exception(error_);
         }
+        const std::array<FrontendFontRequest,2> fonts{{
+            {paths[1], "fe/fonts/eurfonttext18", "fot-rodinprob18"},
+            {paths[2], "fe/fonts/eurfontheading36", "Scratchy36"}}};
+        fonts_ = std::make_unique<FrontendFontLoad>(fonts);
     }
     catch (...) { Drain(); throw; }
 }
@@ -71,8 +81,6 @@ void FrontendVisualLoad::Complete(void* data, unsigned long size, void* context)
         switch (request.index)
         {
         case 0: owner.assets_->localization = resources::ReadLocalization(bytes, owner.language_hash_); break;
-        case 1: owner.assets_->text = resources::ReadFrontendFont(bytes, "fe/fonts/eurfonttext18", "fot-rodinprob18"); break;
-        case 2: owner.assets_->heading = resources::ReadFrontendFont(bytes, "fe/fonts/eurfontheading36", "Scratchy36"); break;
         default: throw std::logic_error("Unknown Frontend visual resource");
         }
         owner.completed_mask_ |= 1u << request.index;
@@ -81,6 +89,7 @@ void FrontendVisualLoad::Complete(void* data, unsigned long size, void* context)
 }
 void FrontendVisualLoad::Drain()
 {
+    if (fonts_) { fonts_->Cancel(); fonts_.reset(); }
     for (auto& request : requests_)
     {
         if (request.token) nlCancelEntireFileLoad(request.token, nullptr);
@@ -89,33 +98,47 @@ void FrontendVisualLoad::Drain()
 }
 void FrontendVisualLoad::Poll()
 {
-    CheckThread();
+    CheckMutation();
     if (terminal_) return;
     for (const auto& request : requests_)
         if (!request.complete && !WholeFileLoadPending(request.token) && !error_)
             error_ = std::make_exception_ptr(std::runtime_error("Frontend visual read failed or file services stopped"));
+    if (!error_)
+    {
+        try
+        {
+            fonts_->Poll();
+            completed_mask_ = (completed_mask_ & 1u) | (fonts_->Progress().completed_mask << 1);
+            if (fonts_->State() == FrontendFontLoadState::Failed) (void)fonts_->Result();
+            if (completed_mask_ == 7)
+            {
+                const auto& fonts = fonts_->Result(); assets_->text = fonts[0]; assets_->heading = fonts[1];
+                terminal_ = true;
+            }
+        }
+        catch (...) { error_ = std::current_exception(); }
+    }
     if (error_)
     {
         Drain(); assets_.reset(); terminal_ = true;
     }
-    else if (completed_mask_ == 7) terminal_ = true;
 }
 void FrontendVisualLoad::Service()
 {
-    CheckThread(); Poll();
+    CheckMutation(); Poll();
     if (terminal_) return;
     try { nlServiceFileSystem(); }
     catch (...)
     {
-        const auto error = std::current_exception();
-        Poll();
-        std::rethrow_exception(error); // Shared service failures must stay visible.
+        error_ = std::current_exception();
+        Drain(); assets_.reset(); terminal_ = true;
+        std::rethrow_exception(error_); // Shared failure cannot publish completed fonts.
     }
     Poll();
 }
 void FrontendVisualLoad::Cancel()
 {
-    CheckThread();
+    CheckMutation();
     if (terminal_) return;
     Poll();
     if (terminal_) return;

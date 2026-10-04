@@ -12,6 +12,7 @@ from effects_registry_fixture import chunk, textures
 from particle_files_fixture import PATHS
 from scene_fixture import make_assets
 from test_particle_simulation import resident
+from test_particle_controller import multi
 
 
 executable = str(Path(sys.argv[1]).resolve())
@@ -21,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="mscharged-particle-preview-") as tempor
     model, texture = make_assets()
     # Use the diagnostic's fixed group identity with wholly synthetic source
     # records; no game asset is needed by this integration check.
-    effects = resident().replace(struct.pack(">I", 0x81f2a311), struct.pack(">I", 0xfda2d744))
+    effects = multi(resident(), count=3, group=0xe6650c7c)
     effects = effects.replace(struct.pack(">I", 0x12345678), struct.pack(">I", 0x13572468))
     nonresident = chunk(0x80000001, chunk(0x24100, textures(0x13572468)))
     payloads = {
@@ -49,6 +50,8 @@ with tempfile.TemporaryDirectory(prefix="mscharged-particle-preview-") as tempor
     output = run(base, 0, "Original particle preview rendered:")
     counts = re.search(r"Original particle preview rendered: (\d+) updates, (\d+) submitted quads, (\d+) peak live", output)
     assert counts and int(counts[1]) == 90 and int(counts[2]) > 0 and int(counts[3]) > 0, output
+    assert "2 controllers, 6 emitters" in output, output
+    assert "1 shared bindings" in output, output
     assert "Original graphics shutdown recovered both game arenas." in output, output
     run(base + ["--nis-primary", "/a.nis", "--nis-secondary", "/b.nis"], 2,
         "--particles cannot be combined with PIP or shadow options")

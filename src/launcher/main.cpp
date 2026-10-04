@@ -728,7 +728,7 @@ int main(int argc, char** argv)
                          "                        [--frontend-frame /Art/fe/SCENE.fen [--frontend-slide NAME]] (static image/text layout)\n"
                          "                        [--frontend-images main|ingame] (image bundle context; default main)\n"
                          "                        [--frontend-animate] (authored timeline; pause/reset in preview)\n"
-                         "                        [--particles] (one authored billboard emitter; pause/reset in preview)\n"
+                         "                        [--particles] (authored emitter groups; pause/reset in preview)\n"
                          "                        [--camera /DISC/camera.cam | --debug-camera]\n"
                          "                        [--nis-primary /DISC/primary.nis --nis-secondary /DISC/secondary.nis]\n"
                          "                        [--pip-expand SECONDS] (camera-only PIP; no NIS actors)\n"

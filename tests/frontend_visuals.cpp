@@ -3,6 +3,7 @@
 #include "runtime/startup_files.h"
 
 #include "NL/MemAlloc.h"
+#include "NL/nlMemory.h"
 #include "NL/nlFileGC.h"
 #include <aurora/aurora.h>
 #include <aurora/dvd.h>
@@ -56,6 +57,23 @@ void Run(std::string_view mode, bool external, FrontendLanguage language)
     }
     Check(resources::LayoutFrontendText(retained->text, u"AB").quads.size() == 2,
         "Font storage died with its loading owner");
+}
+void Reentrancy()
+{
+    FrontendVisualLoad load(FrontendLanguage::English);
+    struct Callback
+    {
+        FrontendVisualLoad* owner; bool ran=false;
+        static void Run(void* data,unsigned long,void* context)
+        {
+            std::unique_ptr<void,void(*)(void*)> bytes(data,nlFree);
+            auto& c=*static_cast<Callback*>(context);c.ran=true;
+            Reject([&]{c.owner->Poll();});Reject([&]{c.owner->Service();});Reject([&]{c.owner->Cancel();});
+            Reject([&]{FrontendVisualLoad nested(FrontendLanguage::English);});
+        }
+    } callback{&load};
+    nlLoadEntireFileAsync("art/fe/english.loc",Callback::Run,&callback,32,AllocateEnd,nullptr,0,&VirtualAllocator);
+    Pump(load,false);Check(callback.ran&&load.Result()->heading,"Rejected callback mutation corrupted pending visuals");
 }
 void Cancel()
 {
@@ -134,7 +152,7 @@ int main(int argc, char** argv)
         for (unsigned i = 0; i < 3; ++i)
         {
             const auto a = StandardAllocator.TotalFreeMemory(), b = VirtualAllocator.TotalFreeMemory();
-            Run(mode, i % 2, static_cast<FrontendLanguage>(i)); if (mode == "success") { Cancel(); FailReads(); }
+            Run(mode, i % 2, static_cast<FrontendLanguage>(i)); if (mode == "success") { Cancel(); FailReads(); Reentrancy(); }
             Check(StandardAllocator.TotalFreeMemory() == a && VirtualAllocator.TotalFreeMemory() == b,
                   "Visual reads leaked native arenas");
         }

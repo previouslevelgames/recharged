@@ -1,7 +1,10 @@
 #include "frontend_font_fixture.h"
+#include <algorithm>
+#include <bit>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 
 using namespace mscharged::resources;
 using namespace font_fixture;
@@ -13,6 +16,102 @@ template<class F> void Reject(F action)
 { ++checks; try { action(); } catch (const std::exception&) { return; } throw std::runtime_error("Invalid frontend visual resource accepted"); }
 Blob Read(std::string name)
 { std::ifstream stream(name, std::ios::binary); Check(bool(stream), "Cannot read owned visual resource"); return {std::istreambuf_iterator<char>(stream), {}}; }
+void Bits(float actual,float expected)
+{ Check(std::bit_cast<std::uint32_t>(actual)==std::bit_cast<std::uint32_t>(expected),"Shared original font float bits differ"); }
+// Independent one-pass pen oracle, sorted afterward by page. Production uses
+// original repeated string traversal per page and never calls this function.
+void Oracle(const std::shared_ptr<const FrontendFont>& font,std::u16string_view text,
+    const FontLineOptions& options={})
+{
+    std::vector<FontQuad> quads;
+    float pen=options.position[0]+options.pixel_centre;
+    const float y=options.position[1]+options.pixel_centre, inverse=1.f/font->page_size;
+    const auto count=options.length<0?text.size():std::size_t(options.length);
+    const auto index=[&](char16_t ch){return ch<0x80?ch:font->Glyph(ch).font_char;};
+    std::uint32_t measured=0;
+    for(std::size_t i=0;i<count;++i)
+    {
+        const auto& g=font->Glyph(text[i]);pen+=g.offset;
+        const float top=y+(options.flip_y?int(g.ascent):-int(g.ascent));
+        const float u=g.x*inverse,v=g.y*inverse;
+        quads.push_back({g.page,pen,top,pen+float(g.width)-1.f,
+            top+float(options.flip_y?-(int(g.height)-1):int(g.height)-1),
+            u,v,u+(g.width-1)*inverse,v+(g.height-1)*inverse});
+        int next=0;
+        if(g.has_kerning&&i+1<text.size())
+        {const auto found=font->kerning.find((std::uint32_t(index(text[i]))<<16)|index(text[i+1]));if(found!=font->kerning.end())next=found->second;}
+        pen+=float(int(g.advance)+next)*font->spacing;
+        int previous=0;
+        if(i&&font->Glyph(text[i-1]).has_kerning)
+        {const auto found=font->kerning.find((std::uint32_t(index(text[i-1]))<<16)|index(text[i]));if(found!=font->kerning.end())previous=found->second;}
+        measured+=std::uint32_t(float(int(g.advance)+g.offset+previous)*font->spacing);
+    }
+    std::stable_sort(quads.begin(),quads.end(),[](auto&a,auto&b){return a.page<b.page;});
+    const auto actual=LayoutFrontendTextLine(font,text,options);
+    Check(actual.quads.size()==quads.size()&&actual.width==measured,"Original page count or measurement differs");
+    for(unsigned i=0;i<quads.size();++i)
+    {
+        const auto& a=actual.quads[i];const auto& b=quads[i];Check(a.page==b.page,"Original ascending page order differs");
+        Bits(a.left,b.left);Bits(a.top,b.top);Bits(a.right,b.right);Bits(a.bottom,b.bottom);
+        Bits(a.u0,b.u0);Bits(a.v0,b.v0);Bits(a.u1,b.u1);Bits(a.v1,b.v1);
+    }
+}
+void OriginalSteps(std::shared_ptr<const FrontendFont> font)
+{
+    for(float spacing:{.25f,1.f,1.3f,1.5f,2.75f})
+    {
+        auto changed=std::make_shared<FrontendFont>(*font);changed->spacing=spacing;
+        for(bool flip:{false,true})
+        {
+            FontLineOptions options;options.flip_y=flip;options.position={17.125f,-12.5f};options.pixel_centre=.25f;
+            for(const std::u16string text:{u"AB",u" A B ",u"\u00e9A B\u00e9",u"\u0100A",u""})
+            {
+                Oracle(changed,text,options);
+                for(unsigned count=0;count<=text.size();++count){options.length=count;Oracle(changed,text,options);}options.length=-1;
+            }
+        }
+    }
+    auto changed=std::make_shared<FrontendFont>(*font);changed->spacing=1.5f;
+    auto line=LayoutFrontendText(changed,u"AB");Bits(line.quads[1].left,11.f);Bits(line.width,28.f);
+    changed->glyphs.at('A').page=1;changed->glyphs.at('B').page=0;
+    line=LayoutFrontendTextLine(changed,u"AB");Check(line.quads[0].page==0&&line.quads[1].page==1,"Page batching was replaced with string ordering");
+    auto missing=std::make_shared<FrontendFont>(*font);missing->kerning[0x0041005a]=-3;
+    Oracle(missing,u"AZ");line=LayoutFrontendTextLine(missing,u"AZ");
+    Bits(line.quads[1].left,7);Bits(line.width,15); // Z geometry falls back; its raw ASCII kern key survives.
+    auto odd=std::make_shared<FrontendFont>(*font);odd->page_size=31;
+    for(auto& page:odd->pages)page.width=page.height=31;
+    for(auto& [unicode,glyph]:odd->glyphs){glyph.x=1;glyph.y=2;glyph.width=13;glyph.height=15;}
+    Oracle(odd,u"BA\u00e9 A"); // Original UV origin-plus-extent rounding.
+    changed=std::make_shared<FrontendFont>(*font);changed->spacing=1;
+    changed->glyphs.at('A').advance=5;changed->glyphs.at('A').offset=0;changed->glyphs.at('A').has_kerning=false;
+    Check(FrontendStringWidth(*changed,u"AAAA")==20,"Original single-line width differs");
+    Check(FrontendStringWidth(*changed,u"AAAA",false,20,false)==0,"Original strict less-than width boundary changed");
+    Check(FrontendStringWidth(*changed,u"AAAAA",false,20,false)==10,"Original overflow/revisit width changed");
+    Check(FrontendStringLineCount(*changed,u"AAAAA",20,false)==2&&FrontendStringHeight(*changed,u"AAAAA",20,false)==24,"Original multiline metrics differ");
+    Check(FrontendStringLineCount(*changed,u"")==1&&FrontendStringHeight(*changed,u"")==12,"Original empty-line metric changed");
+    changed->spacing=1.25f;Check(FrontendStringHeight(*changed,u"")==15,"Original height stopped using character spacing");
+    changed->spacing=1;
+    Reject([&]{FrontendStringWidth(*changed,u"A",false,4);});
+    Reject([&]{FrontendStringLineCount(*changed,u"AA",5,false);}); // Original loop has no progress at this width.
+    Reject([&]{FrontendStringWidth(*changed,u"AA",false,5,false);});
+    for(int length:{-2,3}){FontLineOptions o;o.length=length;Reject([&]{LayoutFrontendTextLine(font,u"AB",o);});}
+    for(float value:{std::numeric_limits<float>::infinity(),std::numeric_limits<float>::quiet_NaN(),1e7f})
+    {FontLineOptions o;o.position[0]=value;Reject([&]{LayoutFrontendTextLine(font,u"A",o);});}
+    for(auto text:{u"{nbs}",u"A\nB",u"A\tB"})
+    {Reject([&]{FrontendStringWidth(*font,text);});Reject([&]{LayoutFrontendTextLine(font,text);});}
+    for(unsigned mode=0;mode<7;++mode)
+    {
+        auto bad=std::make_shared<FrontendFont>(*font);
+        if(mode==0)bad->glyphs.at('A').font_char='B';
+        if(mode==1)bad->glyphs.at('A').page=15;
+        if(mode==2)bad->glyphs.at('A').width=0;
+        if(mode==3)bad->spacing=std::numeric_limits<float>::quiet_NaN();
+        if(mode==4)bad->glyphs.erase('?');
+        if(mode==5)bad->kerning[0x00410042]=-1000;
+        if(mode==6)bad->pages[0].width=31;
+        Reject([&]{LayoutFrontendText(bad,u"AB");});
+    }
+}
 }
 int main(int argc, char** argv)
 {
@@ -37,12 +136,13 @@ int main(int argc, char** argv)
         Check(font->Glyph(233).font_char == 128 && font->Glyph(300).unicode == '?', "Extended font index or fallback differs");
         Check(font->CharacterWidth(font->Glyph('B'), &font->Glyph('A')) == 10
             && font->CharacterWidth(font->Glyph('A'), &font->Glyph(233)) == 9, "Original font-index kerning semantics differ");
+        OriginalSteps(font);
         auto layout = LayoutFrontendText(font, u"AB\n\u00e9 "); font.reset();
         Check(layout.quads.size() == 4 && layout.width == 19 && layout.height == 30, "Font line metrics differ");
         Check(layout.quads[0].left == -1 && layout.quads[0].top == -2 && layout.quads[0].right == 14
             && layout.quads[0].u0 == .5f && layout.quads[0].u1 == 31.0f / 32, "Original packed UVs or native baseline differ");
         Check(layout.quads[2].top == 13 && layout.quads[3].page == 1, "Multiline baseline or page selection differs");
-        Check(LayoutFrontendText(layout.font, u"\U0001f600").quads.size() == 1, "Supplementary character fallback was split");
+        Check(LayoutFrontendText(layout.font, u"\U0001f600").quads.size() == 2, "Original font-character UTF-16 fallback changed");
         Check(LayoutFrontendText(layout.font, u"").quads.empty(), "Empty text generated glyphs");
         for (const std::u16string& bad : {std::u16string(u"{clr:ffffff}A"), std::u16string(u"A\tB"), std::u16string(4097, u'A'), std::u16string{0xd800}})
             Reject([&] { LayoutFrontendText(layout.font, bad); });
@@ -78,6 +178,10 @@ int main(int argc, char** argv)
                 Check(owned->glyphs.size() == count, "Owned font glyph inventory changed");
                 for (const auto& [unicode, glyph] : owned->glyphs)
                 { if (unicode != '{') Check(LayoutFrontendText(owned, std::u16string(1, unicode)).quads.size() == 1, "Owned glyph failed layout"); }
+                std::u16string all;
+                for(const auto& [unicode,glyph]:owned->glyphs)if(unicode!='{')all.push_back(unicode);
+                Oracle(owned,all);std::reverse(all.begin(),all.end());Oracle(owned,all);
+                for(bool flip:{false,true}){FontLineOptions options;options.flip_y=flip;options.position={12.5f,-23.25f};options.length=all.size()/2;Oracle(owned,all,options);}
                 std::cout << name << ": " << owned->glyphs.size() << " glyphs, " << owned->pages.size() << " pages\n";
             }
         }

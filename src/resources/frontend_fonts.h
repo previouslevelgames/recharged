@@ -38,6 +38,15 @@ struct FrontendFont
     // particular, extended Unicode kerning is not silently corrected here.
     std::uint32_t CharacterWidth(const FontGlyph& glyph, const FontGlyph* previous) const;
 };
+// Split decoding supports real original staged description/page reads. This
+// descriptor owns its metrics but has no texture pages or graphics readiness.
+struct FrontendFontDescription
+{
+    FrontendFont font;
+    std::vector<std::uint32_t> page_hashes;
+};
+FrontendFontDescription ReadFrontendFontDescription(Bytes, std::string_view texture_base, std::string_view alias);
+std::shared_ptr<const FrontendFont> AssembleFrontendFont(FrontendFontDescription, std::vector<Texture> pages);
 // Checked sector bundle + original NLG 1.1 packing profile, colour pages.
 // Font aliases are ASCII lowercase hashes as stored in FE resources; texture
 // names keep their case-sensitive original hashes.
@@ -55,8 +64,31 @@ struct FontLayout
     std::vector<FontQuad> quads;
     float width = 0, height = 0;
 };
+struct FontLineOptions
+{
+    // Original DrawString baseline coordinates; PixelCentre is zero on Wii.
+    std::array<float, 2> position{0, 0};
+    float pixel_centre = 0;
+    int length = -1; // Font-character UTF-16 units; -1 draws the full line.
+    bool flip_y = false;
+};
+// Shared original measurement. Width and height intentionally use truncated
+// character advances; drawing retains the original fractional forward kerning.
+// Plain text only. Widths that cannot make bounded original progress fail.
+std::uint32_t FrontendStringWidth(const FrontendFont&, std::u16string_view,
+    bool single_line = true, std::uint32_t width = 65535, bool word_wrap = true);
+std::uint32_t FrontendStringLineCount(const FrontendFont&, std::u16string_view,
+    std::uint32_t width = 65535, bool word_wrap = true);
+std::uint32_t FrontendStringHeight(const FrontendFont&, std::u16string_view,
+    std::uint32_t width = 65535, bool word_wrap = true);
+// Original plain colour-font quad progression and ascending page batches.
+// Retains checked pages; this does not register an original graphics font.
+FontLayout LayoutFrontendTextLine(std::shared_ptr<const FrontendFont>, std::u16string_view,
+    const FontLineOptions& options = {});
 // Bounded native baseline layout, using original metrics/packing/advances.
-// Coordinates are pixels, positive Y down. Supports newlines and fallback '?'.
+// Convenience newline adapter: pixels positive Y down, baseline at font ascent,
+// rows Height*LineHeight. Each line uses original DrawString steps. Valid UTF-16
+// is converted by code unit like FontCharString (unknown units become '?').
 // Textbox wrapping, alignment, escape commands and FE animation are not selected.
 FontLayout LayoutFrontendText(std::shared_ptr<const FrontendFont> font, std::u16string_view text);
 }

@@ -1,0 +1,21 @@
+include_guard(GLOBAL)
+include(cmake/Hierarchy.cmake)
+add_library(charged_pose_accumulator STATIC
+    src/runtime/pose_accumulator.cpp
+    "${MSCHARGED_PREPARED}/src/Game/PoseAccumulator.cpp")
+add_dependencies(charged_pose_accumulator verify_prepared)
+target_link_libraries(charged_pose_accumulator PUBLIC charged_hierarchy_assets charged_graphics_memory)
+target_compile_features(charged_pose_accumulator PUBLIC cxx_std_20)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+    target_compile_options(charged_pose_accumulator PRIVATE -ffp-contract=off -fno-strict-aliasing)
+endif()
+if(BUILD_TESTING)
+    add_executable(pose_accumulator_tests tests/pose_accumulator.cpp)
+    target_link_libraries(pose_accumulator_tests PRIVATE charged_pose_accumulator)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+        target_compile_options(pose_accumulator_tests PRIVATE -ffp-contract=off)
+    endif()
+    add_test(NAME pose_accumulator COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pose_accumulator.py" "$<TARGET_FILE:pose_accumulator_tests>")
+    set_tests_properties(pose_accumulator PROPERTIES TIMEOUT 60)
+endif()

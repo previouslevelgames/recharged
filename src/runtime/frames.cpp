@@ -2,7 +2,9 @@
 #include "runtime/views.h"
 #include "NL/gl/gl.h"
 #include "NL/gl/glMemory.h"
+#include "NL/gl/glMatrix.h"
 #include "NL/gl/glPlat.h"
+#include "NL/gl/glState.h"
 #include "NL/glx/glxMemory.h"
 #include <exception>
 #include <stdexcept>
@@ -71,6 +73,9 @@ void OriginalFrames::Submit(bool present)
     CheckPlatformCall(FrameCall::Send);
     if (present) backend_.Render();
     backend_.Drain();
+    // Packet dispatch can select a matrix in the retiring frame. Never retain
+    // that borrowed pointer as current state after its storage is recycled.
+    glSetCurrentMatrix(glGetIdentityMatrix());
     glplatFrameAllocNextFrame();
     backend_.Finish(present);
     backend_.Drain();
@@ -84,6 +89,7 @@ void OriginalFrames::Recover() noexcept
     try
     {
         gl_ViewReset();
+        glSetCurrentMatrix(glGetIdentityMatrix());
         if (glNativeFrameGeneration() == generation_) glplatFrameAllocNextFrame();
         backend_.Drain();
         CancelOriginalFrameState();

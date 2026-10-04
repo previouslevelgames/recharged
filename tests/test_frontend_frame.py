@@ -108,6 +108,7 @@ with tempfile.TemporaryDirectory(prefix="mscharged-fe-frame-") as folder:
         assert config.read_bytes() == before
         if expected == 0:
             assert "shutdown recovered both game arenas" in output, output
+            assert "Mixed frontend text and images use retained registrations and original ordered GL packets." in output, output
         print(message)
         return output
 

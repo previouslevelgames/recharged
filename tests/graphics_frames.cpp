@@ -10,6 +10,7 @@
 #include "NL/gl/glMaterialProgram.h"
 #include "NL/gl/glMemoryInit.h"
 #include "NL/gl/glPlat.h"
+#include "NL/gl/glState.h"
 #include "NL/glx/glxMemory.h"
 #include "NL/nlTask.h"
 #include <algorithm>
@@ -33,7 +34,24 @@ template<class Error = std::logic_error, class Action> void Reject(Action action
     throw std::runtime_error("Invalid graphics frame operation was accepted");
 }
 void Invalidate() { trace.push_back('I'); }
-void Observe(GLView*, unsigned long, const glModelPacket* packet) { if (packet) ++packets; }
+void Observe(GLView*, unsigned long, const glModelPacket* packet)
+{
+    if (packet)
+    {
+        // Actual view dispatch selects packet matrices. Merely counting the
+        // packets missed stale current pointers after their frame was retired.
+        glSetCurrentMatrix(packet->matrix);
+        ++packets;
+    }
+}
+void CheckIdleMatrix()
+{
+    Check(glGetCurrentMatrix() == glGetIdentityMatrix(), "Retired frame left a current borrowed matrix");
+    glStateBundle snapshot; glStateSave(snapshot); glStateRestore(snapshot);
+    nlMatrix4 matrix; glGetMatrix(glGetCurrentMatrix(), matrix);
+    Check(matrix.e[0] == 1 && matrix.e[5] == 1 && matrix.e[10] == 1 && matrix.e[15] == 1,
+        "Idle graphics state cannot restore its permanent identity matrix");
+}
 struct Backend : FrameBackend
 {
     bool available = true, open = false, fail_render = false, fail_finish = false;
@@ -96,6 +114,7 @@ void Run()
     packet.materialProgram=glGetMaterialProgram(0x21db4385); packet.numUniqueVertices=3;
     auto attach=[&] {
         nlMatrix4 identity; identity.SetIdentity(); packet.matrix=glAllocSetMatrix(identity);
+        glSetCurrentMatrix(packet.matrix); // Also exercise discarded/cancelled construction.
         view->AttachPacket(&packet,0);
     };
     backend.callback=[&] {
@@ -112,6 +131,8 @@ void Run()
     attach(); glEndFrame(); Check(!glIsFrameActive(),"glEndFrame retained active state");
     Reject([] { glEndFrame(); });
     glSendFrame();
+    CheckIdleMatrix();
+    Reject<std::invalid_argument>([&] { nlMatrix4 retired; glGetMatrix(packet.matrix,retired); });
     Check(trace==std::vector<char>({'A','R','D','I','P','D'}),"Frame submit/drain/advance/present order changed");
     Check(glGetCurrentFrame()==1 && packets==1 && generation+1==glNativeFrameGeneration(),"Original successful frame bookkeeping failed");
     packets=0; view->Iterate(Observe); Check(packets==0,"Original glSendFrame did not reset packets");
@@ -120,6 +141,7 @@ void Run()
     for (int i=0;i<3;++i)
     {
         trace.clear(); frames.Acquire(); glBeginFrame(); attach(); glEndFrame(); glSendFrame();
+        CheckIdleMatrix();
         Check((std::find(trace.begin(),trace.end(),'R')!=trace.end())==(i==2),"Discard count/max semantics changed");
         Check((std::find(trace.begin(),trace.end(),'X')!=trace.end())==(i<2),"Discarded frame was presented");
     }
@@ -129,6 +151,7 @@ void Run()
         frames.Acquire(); glBeginFrame(); attach(); glEndFrame();
         backend.fail_render=true;
         Reject<std::runtime_error>([] { glSendFrame(); });
+        CheckIdleMatrix();
         backend.fail_render=backend.fail_finish=false;
         Check(glGetCurrentFrame()==4 && !glIsFrameActive() && glNativeFrameGeneration()==before+1,
               "Failed frame advanced twice or reported successful submission");
@@ -142,10 +165,13 @@ void Run()
         second.Acquire(); glBeginFrame(); attach(); glEndFrame();
         backend.fail_finish=true; const auto before=glNativeFrameGeneration();
         Reject<std::runtime_error>([] { glSendFrame(); }); backend.fail_finish=false;
+        CheckIdleMatrix();
         Check(glGetCurrentFrame()==0 && glNativeFrameGeneration()==before+1 && !backend.open,
               "Post-close failure double-closed or double-advanced a frame");
         second.Acquire(); second.Cancel();
+        CheckIdleMatrix();
         second.Acquire(); glBeginFrame(); attach(); second.Cancel();
+        CheckIdleMatrix();
         Check(glGetCurrentFrame()==0 && !glIsFrameActive(),"Cancelled construction claimed a successful frame");
         bool wrong=false;
         std::thread worker([&] { try { second.Acquire(); } catch (const std::logic_error&) { wrong=true; } });

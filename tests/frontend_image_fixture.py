@@ -38,4 +38,5 @@ def files():
     return {"art/fe/MainUI.Dmn": bundle([(0x11, texture(value=65)),
                 (0x11, texture(value=66)), (0x33, texture(2, value=90))]),
             "art/fe/InGameUI.Res": bundle([(0x11, texture(3, value=80))]),
-            "art/fe/InGameUI.Dmn": bundle([(0x11, b"unused duplicate"), (0x22, texture(8, value=3))])}
+            "art/fe/InGameUI.Dmn": bundle([(0x11, b"unused duplicate"), (0x22, texture(8, value=3))]),
+            "art/fe/BootLoadingUI.res": bundle([(0x11, texture(value=127)), (0x44, texture(8, value=7))])}

@@ -145,6 +145,45 @@ Patch `0078-include-tweak-pool-destruction.patch` exposes the original inline
 slot-pool destructors to native tweak-registry exception cleanup. Optimized
 builds must not depend on another translation unit emitting those definitions.
 
+Patch `0079-share-original-font-text-steps.patch` shares original string metrics
+and page-ordered glyph generation with bounded native font adapters. Plain
+colour text retains fractional draw advances and original short UVs; formatted
+effects and scissored text remain separate work.
+
+Patch `0080-share-original-font-loading-steps.patch` shares the original texture
+page order and completion predicate with staged native NL font reads. Decoded
+font assets are published together; full FontManager graphics registration is
+still a separate integration step.
+
+Patch `0081-drain-failed-native-raw-reads.patch` removes failed raw NL requests
+and paired tails before optional whole-file cleanup. Workers are joined,
+unrelated reads survive, and the original I/O failure remains visible.
+
+Patch `0082-select-native-font-polygons.patch` selects original textured `glPoly2`
+packets and shares font raster setup. Native font pages retain real pool/index
+bindings through frame completion; matrix state is restored on failed submission.
+Formatted, effect and scissored text remain unselected.
+
+Patch `0083-share-original-emission-controller-steps.patch` shares controller
+timing, completion callbacks, stop guards and manager ID progression. Native
+controller groups retain the original particle pool, atlas and RNG together;
+pose, model, light, user-effect and replay services remain separate work.
+
+Patch `0084-select-native-pose-accumulator.patch` selects provisional original
+pose blending and matrix construction with paired native array ownership,
+allocation rollback and defined temporary lifetimes. The upstream TU remains
+NonMatching. Independent CPU checks cover transforms and ownership; pose-tree
+evaluation, replay and skinned rendering remain pending.
+
+Patch `0085-select-original-frontend-image-packets.patch` selects original image
+quad packets and shares their raster setup. Mixed frontend frames retain image
+and font registrations through submission, cancellation and transactional reload.
+
+Patch `0086-share-original-frontend-handler-steps.patch` shares base update,
+activation, screen-ring and loading-notification rules. Native scene ownership
+uses real frontend input; the original manager's state-6 gate and unavailable
+concrete handlers and HOME services remain explicit boundaries.
+
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain
 work in progress. The

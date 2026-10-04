@@ -4,9 +4,10 @@
 namespace mscharged
 {
 // AsyncLoading.cpp's actual FE profiles. Main loads MainUI.Dmn permanently;
-// InGame loads InGameUI.Res permanently and InGameUI.Dmn on demand. Minibundle
-// contexts are not guessed from FEN names or merged into either profile.
-enum class FrontendImageProfile { Main, InGame };
+// InGame loads InGameUI.Res permanently and InGameUI.Dmn on demand. The USA
+// boot context selects BootLoadingUI.res explicitly; it does not merge MainUI
+// resources or imply the original mini-bundle manager has initialized.
+enum class FrontendImageProfile { Main, InGame, BootLoading };
 enum class FrontendImageState { Idle, Loading, Ready, Failed, Cancelled };
 class FrontendImageLoad
 {

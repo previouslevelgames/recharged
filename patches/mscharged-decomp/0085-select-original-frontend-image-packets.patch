@@ -1,0 +1,131 @@
+From: mscharged-port contributors
+Subject: [PATCH] Select original frontend image packets and share image raster state
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Select original textured glQuad3 packet construction and colour assignment.
+Native callers retain checked real texture ownership and submit through GLView
+without the console enum/pointer conversion. Untextured fallback and unrelated
+quad utilities remain unselected. Share unchanged FERender image raster setup;
+movie/grab service readiness is not supplied.
+
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/FE/feRender.h"
+ #include "Game/FE/FrontendImageSteps.h"
++#include "Game/FE/FrontendImageState.h"
+ #include "Game/FE/FrontendLayoutSteps.h"
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
+@@ -192,15 +193,7 @@
+     unsigned long textureHandle = pTexRes->GetTextureHandle();
+     nlVector2 uv[4];
+     FrontendImageUV(pTLImageInstance, pTexRes->m_uWidth, pTexRes->m_uHeight, uv);
+-    glSetDefaultState(false);
+-    glSetRasterState(GLS_Culling, 0);
+-    if (textureHandle != grabTex && textureHandle != movieTex)
+-    {
+-        glSetRasterState(GLS_AlphaBlend, pTLImageInstance->field_0x94);
+-        glSetRasterState(GLS_AlphaTest, 1);
+-        glSetRasterState(GLS_AlphaTestRef, 0);
+-    }
+-    glSetCurrentRasterState(glHandleizeRasterState());
++    FrontendImageRasterState(textureHandle != grabTex && textureHandle != movieTex, pTLImageInstance->field_0x94);
+ 
+     nlMatrix4 matTM = matrix;
+     const nlMatrix4& view = m_pRenderScene->m_matView;
+diff --git a/include/Game/FE/FrontendImageState.h b/include/Game/FE/FrontendImageState.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendImageState.h
+@@ -0,0 +1,19 @@
++#ifndef GAME_FE_FRONTEND_IMAGE_STATE_H
++#define GAME_FE_FRONTEND_IMAGE_STATE_H
++#include "NL/gl/glState.h"
++
++// Original FERender::RenderImageInstance state, shared by ordinary native images.
++// Dynamic movie/grab producers remain separate services, never placeholders.
++inline void FrontendImageRasterState(bool ordinary, unsigned long blend)
++{
++    glSetDefaultState(false);
++    glSetRasterState(GLS_Culling, 0);
++    if (ordinary)
++    {
++        glSetRasterState(GLS_AlphaBlend, blend);
++        glSetRasterState(GLS_AlphaTest, 1);
++        glSetRasterState(GLS_AlphaTestRef, 0);
++    }
++    glSetCurrentRasterState(glHandleizeRasterState());
++}
++#endif
+diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
+--- a/src/NL/gl/glDraw3.cpp
++++ b/src/NL/gl/glDraw3.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/gl/glDraw3.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdexcept>
++#endif
+ #include "NL/gl/glTexture.h"
+ 
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+@@ -9,6 +12,7 @@
+ #include "Game/UnidentifiedStaticStorage.h"
+ 
+ 
++#if !defined(MSCHARGED_NATIVE)
+ bool glAttachQuad3(eGLView view, unsigned long count, glQuad3* quads)
+ {
+     int i = 0;
+@@ -32,11 +36,17 @@
+     return true;
+ }
+ 
++#endif
++
+ const glModel* glQuad3::GetModel() const
+ {
+     glModel* newModel = 0;
+     GLTexturedColourMeshWriter writer;
+     unsigned long texconfig = gl_GetCurrentStateBundle()->texconfig;
++#if defined(MSCHARGED_NATIVE)
++    if (!glIsFrameActive() || glNativeViewDispatchActive() || texconfig != 1)
++        throw std::logic_error("Native glQuad3 requires a collecting frame and an ordinary texture");
++#endif
+ 
+     if (glHasQuads())
+     {
+@@ -69,6 +79,7 @@
+         }
+     }
+ 
++#if !defined(MSCHARGED_NATIVE)
+     if (texconfig == 0)
+     {
+         glTextureBinding* state =
+@@ -80,6 +91,7 @@
+         state->unknown07 = 0;
+     }
+     else
++#endif
+     {
+         unsigned long textureState = glGetTextureState(GLTS_DiffuseWrap);
+         unsigned char wrapS = true;
+@@ -115,6 +127,7 @@
+     return newModel;
+ }
+ 
++#if !defined(MSCHARGED_NATIVE)
+ bool glQuad3::Attach(eGLView view, int stream)
+ {
+     ((GLView*)view)->AttachModel(GetModel(), stream);
+@@ -201,6 +214,8 @@
+     m_colour[3].c[3] = 0xFF;
+ }
+ 
++#endif
++
+ void glQuad3::SetColour(const nlColour& c)
+ {
+     unsigned char r = c.c[0];
