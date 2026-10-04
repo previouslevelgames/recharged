@@ -69,3 +69,11 @@
 0068-share-original-nis-pip-steps.patch
 0069-select-native-animation-retarget.patch
 0070-share-original-frontend-layout.patch
+0071-share-original-frontend-image-steps.patch
+0072-select-native-effects-registration.patch
+0073-share-original-frontend-animation-steps.patch
+0074-select-native-particle-simulation.patch
+0075-share-original-frontend-selection.patch
+0076-select-original-particle-billboards.patch
+0077-share-original-frontend-instance-steps.patch
+0078-include-tweak-pool-destruction.patch

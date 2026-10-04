@@ -1,6 +1,6 @@
 Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
 
-Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
 
 Matrix handles address live GL matrix storage. Preserve their width through
 allocation, global state, model packets, draw/text callers, render caches and
@@ -254,8 +254,8 @@ index 60c6d5e..db8ad4f 100644
      unsigned short GetExtendedFontChar(unsigned short Character) const;
      void DisableScissorBox() const;
      void SetScissorBox(const ScissorBox& other) const;
--    void DrawString(eGLView View, const FontCharString& Text, const nlVector2& Position, const nlColour& Colour, const nlColour& EffectColour, int Length, nlFont::TextPass Passes, bool FlipY, unsigned long* pMatrix, nlColour* pOverrideColour) const;
-+    void DrawString(eGLView View, const FontCharString& Text, const nlVector2& Position, const nlColour& Colour, const nlColour& EffectColour, int Length, nlFont::TextPass Passes, bool FlipY, glMatrixHandle* pMatrix, nlColour* pOverrideColour) const;
+-    void DrawString(GLView* View, const FontCharString& Text, const nlVector2& Position, const nlColour& Colour, const nlColour& EffectColour, int Length, nlFont::TextPass Passes, bool FlipY, unsigned long* pMatrix, nlColour* pOverrideColour) const;
++    void DrawString(GLView* View, const FontCharString& Text, const nlVector2& Position, const nlColour& Colour, const nlColour& EffectColour, int Length, nlFont::TextPass Passes, bool FlipY, glMatrixHandle* pMatrix, nlColour* pOverrideColour) const;
      unsigned char Load(const char* szFontName, char* pFontDescData, unsigned long HashId);
  
      ~nlFont();
@@ -264,8 +264,8 @@ index f46b1f4..4d98f1e 100644
 --- a/src/Game/Debug/ShapeRender.cpp
 +++ b/src/Game/Debug/ShapeRender.cpp
 @@ -465,8 +465,8 @@ void ShapeRender::DrawWireBox(
- extern "C" void fn_802BC83C(const ShapeRender* arg0, const PrimitiveShape& prim,
-     const nlMatrix4& mat_world, bool, const nlColour& colour)
+ void ShapeRender::DrawPrimitive(const PrimitiveShape& prim,
+     const nlMatrix4& mat_world, bool, const nlColour& colour) const
  {
 -    unsigned long matrix = glAllocMatrix();
 -    if (matrix != (unsigned long)-1)
@@ -377,10 +377,10 @@ index 7d609a1..cad1359 100644
 @@ -24,12 +24,12 @@ static int TriListMap[6] = { 0, 1, 2, 3, 0, 2 };
  
  
- extern "C" glModel* fn_802C834C(glPoly2* pPolys,
+ glModel* glBuildPoly2Model(glPoly2* pPolys,
 -    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured);
 +    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured);
- extern "C" glModel* fn_802C89F4(glPoly2* pPolys,
+ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
 -    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured);
 +    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured);
  
@@ -393,7 +393,7 @@ index 7d609a1..cad1359 100644
 @@ -42,11 +42,11 @@ bool glPoly2::Attach(
  }
  
- extern "C" glModel* fn_802C834C(glPoly2* pPolys,
+ glModel* glBuildPoly2Model(glPoly2* pPolys,
 -    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured)
 +    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
  {
@@ -404,14 +404,14 @@ index 7d609a1..cad1359 100644
      unsigned long numVerts;
      int* mapArray;
      int primitive;
-@@ -137,7 +137,7 @@ extern "C" glModel* fn_802C834C(glPoly2* pPolys,
+@@ -137,7 +137,7 @@ glModel* glBuildPoly2Model(glPoly2* pPolys,
  }
  
  bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
 -    unsigned long* pMatrixHandle)
 +    glMatrixHandle* pMatrixHandle)
  {
-     glModel* model = fn_802C834C(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
      if (model == 0)
 @@ -147,7 +147,7 @@ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
  }
@@ -420,7 +420,7 @@ index 7d609a1..cad1359 100644
 -    glPoly2* pPolys, unsigned long* pMatrixHandle)
 +    glPoly2* pPolys, glMatrixHandle* pMatrixHandle)
  {
-     glModel* model = fn_802C834C(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
      if (model == 0)
 @@ -157,7 +157,7 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
  }
@@ -430,11 +430,11 @@ index 7d609a1..cad1359 100644
 +    glPoly2* pPolys, const void* pUserData, glMatrixHandle* pMatrixHandle)
  {
      static unsigned long scissorbox = nlStringHash("scissorbox");
-     glModel* model = fn_802C89F4(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     glModel* model = glBuildPoly2ModelFloatUV(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
 @@ -177,11 +177,11 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
  }
  
- extern "C" glModel* fn_802C89F4(glPoly2* pPolys,
+ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
 -    unsigned long numPolys, unsigned long* pMatrixHandle, bool textured)
 +    unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
  {

@@ -47,7 +47,7 @@ void Case(const resources::FrontendLayoutFrame& layout, const std::array<RGB,9>&
         if (sample) break;
         SDL_Delay(1);
     }
-    Check(layout.text.empty() || draws > 0, "Frontend frame emitted no GPU draws");
+    Check(layout.entries.empty() || draws > 0, "Frontend frame emitted no GPU draws");
     for (unsigned pixel = 0; pixel < samples.size(); ++pixel)
     {
         std::cout << "Pixel " << pixel << ": " << unsigned(samples[pixel][0]) << ','
@@ -103,7 +103,7 @@ int main(int argc, char** argv)
         graph.instances[0].children.push_back(hidden.offset); graph.instances.push_back(hidden);
         constexpr RGB background{20,24,30};
         const auto layout = resources::BuildFrontendLayout(graph, localization, fonts);
-        Check(layout.text.size() == 4 && layout.hidden == 1 && layout.unavailable.empty(), "Unexpected fixture selection");
+        Check(layout.TextCount() == 4 && layout.hidden == 1 && layout.unavailable.empty(), "Unexpected fixture selection");
         Case(layout, {{{128,0,0},background,background,background,{0,255,0},background,background,background,{0,0,255}}});
         // Hiding the green component exposes the previously occluded yellow
         // component. Hiding the parent suppresses its complete subtree.

@@ -1,0 +1,18 @@
+Subject: Make tweak registry pool destruction visible in optimized native builds
+
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Native exception cleanup for InitializeTweakRegistry instantiates the fixed
+slot-pool destructors in this translation unit. Include their existing original
+inline definition instead of relying on another object emitting a copy.
+
+diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
+--- a/src/Game/TweakRegistry.cpp
++++ b/src/Game/TweakRegistry.cpp
+@@ -1,3 +1,6 @@
+ #include "Game/TweakRegistry.h"
++#ifdef MSCHARGED_NATIVE
++#include "NL/nlSlotPoolFixed.inl"
++#endif
+ 
+ #include "Game/UnidentifiedStaticStorage.h"

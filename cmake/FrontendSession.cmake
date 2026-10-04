@@ -1,0 +1,18 @@
+include_guard(GLOBAL)
+include(cmake/FrontendAnimation.cmake)
+include(cmake/FrontendImages.cmake)
+include(cmake/FrontendVisuals.cmake)
+add_library(charged_frontend_session STATIC src/runtime/frontend_session.cpp)
+target_link_libraries(charged_frontend_session PUBLIC charged_frontend_animation charged_frontend_image_load charged_frontend_visuals)
+if(BUILD_TESTING)
+    add_executable(frontend_session_tests tests/frontend_session.cpp)
+    target_link_libraries(frontend_session_tests PRIVATE charged_frontend_session aurora::dvd aurora::core)
+    if(MSCHARGED_BUILD_SCENE_PREVIEW)
+        target_compile_definitions(frontend_session_tests PRIVATE MSCHARGED_TEST_WORLD_GX=1)
+    else()
+        add_test(NAME frontend_session COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_session.py" "$<TARGET_FILE:frontend_session_tests>")
+        set_tests_properties(frontend_session PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()

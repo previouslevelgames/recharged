@@ -1,5 +1,5 @@
 Subject: Select native texture animation playback and alias ownership
-Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
 
 Select original GLTextureAnim playback and inventory traversal with checked
 native frame extents, delta times and owned alias indices. Preserve one-frame

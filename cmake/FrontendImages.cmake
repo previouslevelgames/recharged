@@ -1,0 +1,17 @@
+include_guard(GLOBAL)
+add_library(charged_frontend_images STATIC src/resources/frontend_images.cpp)
+target_include_directories(charged_frontend_images PUBLIC src)
+target_compile_features(charged_frontend_images PUBLIC cxx_std_20)
+target_link_libraries(charged_frontend_images PUBLIC charged_static_resources charged_frontend_scene)
+add_library(charged_frontend_image_load STATIC src/runtime/frontend_images.cpp)
+target_link_libraries(charged_frontend_image_load PUBLIC charged_frontend_images charged_decomp_startup)
+if(BUILD_TESTING)
+    add_executable(frontend_image_tests tests/frontend_images.cpp)
+    target_link_libraries(frontend_image_tests PRIVATE charged_frontend_image_load aurora::dvd aurora::core)
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME frontend_images COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_images.py" "$<TARGET_FILE:frontend_image_tests>")
+        set_tests_properties(frontend_images PROPERTIES TIMEOUT 90
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()

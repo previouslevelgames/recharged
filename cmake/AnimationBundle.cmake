@@ -17,11 +17,15 @@ target_link_libraries(charged_animation_bundle PUBLIC charged_hierarchy_assets c
 if(BUILD_TESTING)
     add_executable(animation_bundle_tests tests/animation_bundle.cpp)
     target_link_libraries(animation_bundle_tests PRIVATE charged_animation_bundle aurora::dvd aurora::core)
-    add_test(NAME animation_bundle
-        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_animation_bundle.py"
-            "$<TARGET_FILE:animation_bundle_tests>")
-    set_tests_properties(animation_bundle PROPERTIES
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 60)
+    # The loader lifecycle test uses BACKEND_NULL and dummy SDL. GX-enabled
+    # Aurora needs a real surface; exercise this test in the startup preset.
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME animation_bundle
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_animation_bundle.py"
+                "$<TARGET_FILE:animation_bundle_tests>")
+        set_tests_properties(animation_bundle PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 60)
+    endif()
     add_test(NAME character_animation_profiles COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_character_animation_profiles.py" "${MSCHARGED_PREPARED}")
     set_tests_properties(character_animation_profiles PROPERTIES TIMEOUT 30)

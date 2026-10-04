@@ -60,6 +60,7 @@ struct EffectsBundle
 };
 // Decodes serialized records according to original EffectsTemplate/EffectsGroup
 // loader order. Counts, ranges and template indices are checked before use.
+// Duplicate group hashes retain source order for original later-load replacement.
 // Obsolete serialized pointers and uninitialized inactive fields are ignored.
 // This supplies owned data, not EmissionManager registration or particle rendering.
 // Raw enum/flag values remain available, including attachment3 which the current

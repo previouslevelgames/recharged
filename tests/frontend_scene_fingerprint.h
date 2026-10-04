@@ -28,8 +28,13 @@ inline std::uint64_t FrontendSceneFingerprint(const mscharged::resources::Fronte
     word(scene.library.size());for(const auto& r:ordered(scene.library))
     {word(r.offset);word(r.type);word(r.hash);name(r.name);attributes(r.attributes);ref(r.resource);ref(r.active_slide);refs(r.slides);for(auto v:r.text_box)number(v);for(auto v:r.text_effect_colour)word(v);}
     word(scene.instances.size());for(const auto& r:ordered(scene.instances))
-    {word(r.offset);word(r.type);word(r.hash);word(r.overload_flags);word(r.priority);name(r.name);number(r.start);number(r.duration);word(r.visible);attributes(r.attributes);ref(r.library);ref(r.resource);refs(r.children);word(r.localization_hash);word(r.text_overload_flags);word(r.draw_options);for(auto v:r.text_box)number(v);for(auto v:r.text_effect_colour)word(v);word(r.text.size());for(auto v:r.text)word(v);}
+    {word(r.offset);word(r.type);word(r.hash);word(r.overload_flags);word(r.priority);name(r.name);number(r.start);number(r.duration);word(r.visible);attributes(r.attributes);ref(r.library);ref(r.resource);refs(r.children);word(r.image_blend);word(r.localization_hash);word(r.text_overload_flags);word(r.draw_options);for(auto v:r.text_box)number(v);for(auto v:r.text_effect_colour)word(v);word(r.text.size());for(auto v:r.text)word(v);}
     word(scene.slides.size());for(const auto& r:ordered(scene.slides))
-    {word(r.offset);word(r.hash);word(r.play_mode);name(r.name);number(r.start);number(r.duration);number(r.time);word(r.frozen);word(r.animated);refs(r.children);}
+    {word(r.offset);word(r.hash);word(r.play_mode);name(r.name);number(r.start);number(r.duration);number(r.time);word(r.frozen);word(r.animated);refs(r.children);refs(r.animations);}
+    word(scene.animations.size());for(const auto& r:ordered(scene.animations))
+    {
+        word(r.offset);word(r.target);word(r.type);word(r.cast);word(r.keys.size());
+        for(const auto& key:r.keys){word(key.offset);for(const auto& channel:key.channels)for(auto value:channel)number(value);}
+    }
     return hash;
 }

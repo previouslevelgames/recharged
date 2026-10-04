@@ -22,8 +22,11 @@ struct SceneOptions
     std::optional<std::uint32_t> shadow_id;
     bool frontend_world = false; // Original FE paths, automatic supported-static subset.
     std::optional<std::string> frontend_layout; // Stored text inspection; no FE timeline or menu handlers.
-    std::optional<std::string> frontend_frame; // Authored static text frame, with explicit unsupported branches.
+    std::optional<std::string> frontend_frame; // Authored static frame, with explicit unsupported branches.
     std::optional<std::string> frontend_slide; // Optional stored presentation slide name.
+    std::optional<std::string> frontend_images; // Original Main/InGame resource context; defaults to Main.
+    bool frontend_animate = false; // Checked authored timeline; no scene handlers or menu transitions.
+    bool particles = false; // One qualified authored emitter; no complete effects manager.
     bool debug_camera = false; // Original DebugCam with diagnostic desktop controls.
     bool no_world_culling = false; // Diagnostic reference: submit every selected world object.
     bool unlit = false;

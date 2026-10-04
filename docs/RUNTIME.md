@@ -31,8 +31,12 @@ The checks include original memory, file access, boot configuration, tweak
 registration, events, task scheduling, frame timing and authored camera loading
 and playback. A separate bounded diagnostic executes the original boot script
 until it reaches an unsupported service, currently particle loading. Movies and
-the complete game frame loop remain in development. Particle files, effects
-records and textures can be read and checked; particle rendering is still pending.
+the complete game frame loop remain in development. Particle files and textures
+can be read and retained, with supported effect groups resolved through original
+code. One authored billboard emitter now runs the original CPU simulation and
+quad sampling, with bounded shutdown and allocator checks. Geometry registration
+and the complete effects manager are still pending. The scene preview below
+adds rendering for the selected billboard emitter.
 
 For the host check alone, use `cmake --workflow --preset aurora`, then run
 `./build/aurora/mscharged-aurora-check --window`.
@@ -74,6 +78,11 @@ CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
 ./build/scene/mscharged --experimental-scene --config ./mscharged.ini
 ```
 
+Add `--particles` to render one authored billboard emitter at the world origin,
+with pause, visibility and reset controls. It uses the original simulation,
+mesh writer and blend/depth rules. This bounded preview does not start the
+complete effects manager and cannot be combined with PIP or shadow previews.
+
 The preview loads the ball from a USA `R4QE01` revision 1 image and renders it
 through Aurora/Vulkan with selected original materials, lighting and texture
 animation. Its poses pass through the original camera core. Use
@@ -110,11 +119,20 @@ or a controller selects text through the original frontend input code. This is
 a text asset viewer; animation and menu actions are still pending.
 It uses separate controls from `--debug-camera`.
 
-For multiple text components in their stored layout, use
-`--frontend-frame /Art/fe/game_summary.fen --frontend-slide Slide1` instead.
-This renders the supported static text with inherited transforms, colors and
-original draw order. Unsupported images, animation, clipping and text formats
-are reported and omitted; this does not run the menu.
+For a stored image/text layout, use
+`--frontend-frame /Art/fe/game_summary.fen --frontend-slide Slide1 --frontend-images ingame`
+instead. This loads the original in-game image bundles and renders supported
+static components in their authored order. Add `--frontend-animate` to play
+supported authored animation tracks, with pause/reset controls in the preview.
+Animated previews also offer original presentation/component slide selection.
+Instance inspection finds named component paths such as `Layer/Item` and changes
+visibility, position and colour through the original setter rules. These edits
+affect only the preview; animation can update them and Reload restores the file.
+Reload keeps the current scene active until all replacement resources are ready;
+pending reloads can be cancelled. Bounded runs use a fixed 60 Hz timeline.
+Other frontend layouts default to the
+`main` image bundle context; missing textures report an error. Scene handlers,
+menu actions, movies, clipping and unsupported text formats remain pending.
 
 Press Escape or close the window to exit. Add `--frames 180` for a bounded run,
 `--unlit` to compare lighting, or use `--help` for other preview options. Running

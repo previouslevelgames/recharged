@@ -12,7 +12,7 @@ class Reader
 {
     Bytes data_;
     std::set<std::uint32_t> relocations_;
-    enum class Kind { Resource, Library, Instance, Slide, Presentation };
+    enum class Kind { Resource, Library, Instance, Slide, Presentation, Animation, Key };
     struct Node { Kind kind; std::size_t size; bool busy = true; };
     std::map<std::uint32_t, Node> nodes_;
     FrontendScene result_{};
@@ -95,16 +95,16 @@ class Reader
         nodes_.emplace(at,Node{kind,size});return true;
     }
     void End(std::uint32_t at) { nodes_.at(at).busy=false; }
-    std::vector<std::uint32_t> Ring(FrontendReference tail) const
+    std::vector<std::uint32_t> Ring(FrontendReference tail,unsigned links=0) const
     {
         std::vector<std::uint32_t> values;if(!tail)return values;
-        const auto first=Present(Pointer(*tail));auto current=first;std::set<std::uint32_t> seen;
+        const auto first=Present(Pointer(*tail+links));auto current=first;std::set<std::uint32_t> seen;
         for(;;)
         {
             Require(values.size()<MaximumNodes&&seen.insert(current).second,"Malformed or excessive FEN ring");
-            Require(current%4==0,"Unaligned FEN ring node");Slice(data_,current,8);
-            const auto next=Present(Pointer(current)),prev=Present(Pointer(current+4));
-            Require(Pointer(next+4)==current&&Pointer(prev)==current,"Broken FEN ring backlink");
+            Require(current%4==0,"Unaligned FEN ring node");Slice(data_,current+links,8);
+            const auto next=Present(Pointer(current+links)),prev=Present(Pointer(current+links+4));
+            Require(Pointer(next+links+4)==current&&Pointer(prev+links)==current,"Broken FEN ring backlink");
             values.push_back(current);
             if(current==*tail){Require(next==first,"FEN tail does not close its ring");break;}
             current=next;
@@ -126,7 +126,7 @@ class Reader
         value.attributes=Attributes(at+0x3c);value.overload_flags=Word(at+0x84);value.priority=(Value(at+0x8c,2), U16(data_,at+0x8c));value.visible=Bool(at+0x8e);
         value.library=Pointer(at+12);Require(value.library.has_value(),"FEN instance has no library object");
         value.children=Ring(Pointer(at+8));for(auto child:value.children)Instance(child,depth+1);
-        if(type==2)value.resource=Pointer(at+0x90);
+        if(type==2){value.resource=Pointer(at+0x90);value.image_blend=Word(at+0x94);}
         if(type==3)
         {
             value.localization_hash=Word(at+0x90);std::copy_n(Value(at+0x94,4).begin(),4,value.text_effect_colour.begin());
@@ -138,13 +138,34 @@ class Reader
         }
         result_.instances.push_back(std::move(value));End(at);
     }
+    void Animation(std::uint32_t at,unsigned depth)
+    {
+        Begin(at,0x1c,Kind::Animation,depth);
+        FrontendAnimation animation{};animation.offset=at;animation.target=Present(Pointer(at+12));
+        Value(at+16,2);animation.cast=U16(data_,at+16);animation.type=Word(at+20);
+        Require(animation.cast<=1,"Unsupported FEN animation key cast");
+        const auto keys=Ring(Pointer(at+24),animation.cast?48:16);
+        Require(!keys.empty()&&keys.size()<=4096,"Empty or excessive FEN keyframe ring");
+        for(auto key:keys)
+        {
+            Begin(key,animation.cast?0x38:0x18,Kind::Key,depth+1);
+            FrontendAnimationKey value{};value.offset=key;
+            for(unsigned channel=0;channel<(animation.cast?3u:1u);++channel)
+                for(unsigned part=0;part<4;++part)value.channels[channel][part]=Number(key+16*channel+4*part);
+            if(!animation.keys.empty())Require(value.channels[0][3]>animation.keys.back().channels[0][3],"FEN keyframe times are not strictly ordered");
+            if(animation.cast)Require(value.channels[0][3]==value.channels[1][3]&&value.channels[0][3]==value.channels[2][3],"FEN vector key times differ");
+            animation.keys.push_back(value);End(key);
+        }
+        result_.animations.push_back(std::move(animation));End(at);
+    }
     void Slide(std::uint32_t at,unsigned depth)
     {
         if(!Begin(at,0x48,Kind::Slide,depth))return;
         FrontendSlide value{};value.offset=at;value.hash=Word(at+0x40);value.name=Name(at+0x20);
         value.start=Number(at+0x10);value.duration=Number(at+0x14);value.time=Number(at+0x18);
         Require(value.duration>=0,"Negative FEN slide duration");value.play_mode=Word(at+0x1c);Require(value.play_mode<=2,"Unknown FEN slide play mode");
-        value.frozen=Bool(at+0x44);value.animated=Pointer(at+12).has_value();
+        value.frozen=Bool(at+0x44);value.animations=Ring(Pointer(at+12),4);value.animated=!value.animations.empty();
+        for(auto animation:value.animations)Animation(animation,depth+1);
         value.children=Ring(Pointer(at+8));for(auto child:value.children)Instance(child,depth+1);
         result_.slides.push_back(std::move(value));End(at);
     }
@@ -194,6 +215,8 @@ public:
         std::map<std::uint32_t, const FrontendResource*> resources_by_offset;
         for (const auto& lib : result_.library) libraries.emplace(lib.offset, &lib);
         for (const auto& resource : result_.resources) resources_by_offset.emplace(resource.offset, &resource);
+        for(const auto& animation:result_.animations)
+            Require(std::any_of(result_.instances.begin(),result_.instances.end(),[&](const auto& v){return v.offset==animation.target;}),"FEN animation target is not an instance");
         for(const auto& instance:result_.instances)
         {
             const auto lib=libraries.find(*instance.library);

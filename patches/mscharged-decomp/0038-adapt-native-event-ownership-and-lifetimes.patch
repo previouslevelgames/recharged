@@ -1,6 +1,6 @@
 Subject: Adapt original event ownership, delivery and registry lifetime
 
-Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
 
 Keep original event hashing, AVL registration, listener ordering and callback
 transfer. Native owners retain full addresses; flags/counts use explicit masks
@@ -68,7 +68,7 @@ index 21a0139..9743f22 100644
      virtual ~EventBase() { }
      virtual void Disconnect(void* owner) = 0;
  
-@@ -34,6 +61,9 @@ public:
+@@ -34,8 +61,11 @@ public:
  protected:
      unsigned int mHash;
      void* mCurrentConnection;
@@ -76,6 +76,8 @@ index 21a0139..9743f22 100644
 +    bool mNativeDelivering;
 +#endif
  };
+ 
+ #include "Game/Task/DispatchEventsTask.h"
  
  struct EventConnection
 @@ -42,8 +72,14 @@ struct EventConnection
@@ -113,7 +115,7 @@ index 21a0139..9743f22 100644
  };
  
  // An event carrying data delivers a pointer to it. The game and HBM queues
-@@ -119,13 +161,20 @@ public:
+@@ -119,12 +161,19 @@ public:
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
@@ -124,7 +126,6 @@ index 21a0139..9743f22 100644
 +#endif
      }
  
-     virtual ~UnidentifiedTypedEvent() { }
      virtual void Disconnect(void* owner) = 0;
 -    virtual void Add(const Callback&, unsigned int, int) = 0;
 +    virtual void Add(const Callback&, EventOwnerHandle, int) = 0;

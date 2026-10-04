@@ -1,6 +1,6 @@
 Subject: Share original frontend transform and textbox row layout
 
-Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
 
 Share original instance/parent transform and textbox row/offset equations with
 checked native static-layout adapters. Preserve console algorithms and original
@@ -498,4 +498,4 @@ diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
 +    FrontendProcessString<nlFont, nlTextBox::StringDrawInfo, nlEscapeSequence>(pString->m_pString, pFont, BoxSize, DrawOptions, pMatrix, DrawInfo);
  }
  
- void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVector2& DrawAt, const nlColour& Color, eGLView View)
+ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVector2& DrawAt, const nlColour& Color, GLView* View)

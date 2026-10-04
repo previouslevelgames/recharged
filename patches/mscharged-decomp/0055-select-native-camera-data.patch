@@ -1,6 +1,6 @@
 Subject: Select camera data lifetime independently of unfinished playback
 
-Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
 
 Extract original cCameraData initialization and pair owned arrays with nlFree
 on native hosts. Initialize the ownership flag for partial allocation rollback.

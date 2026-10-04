@@ -173,6 +173,24 @@ void TextBounds()
  for(unsigned i=0;i<8191;++i)f.data[0x351+2*i]='a';
  Word(f.data,0x350+2*8191,0xd83dde00);Reject([&]{ReadFrontendScene(f.File());});
 }
+void ImageFields()
+{
+ Fixture f;
+ // Reuse the checked graph with an image instance/library/texture resource.
+ // The exported texture handle and dimensions are deliberately unrelated to
+ // the host resource; only the resource reference and blend word are retained.
+ Word(f.data,0x210,2);Word(f.data,0x314,1);Word(f.data,0x338,0);
+ f.Ptr(0x218,0x330);Word(f.data,0x21c,0xf1234567);
+ Word(f.data,0x348,0xdeadbeef);Word(f.data,0x34c,0x01230456);
+ std::erase(f.pointers,0x28c);
+ const auto decoded=ReadFrontendScene(f.File());
+ const auto image=std::find_if(decoded.instances.begin(),decoded.instances.end(),[](auto& n){return n.type==2;});
+ Check(image!=decoded.instances.end()&&image->resource==0x330,"FEN image resource reference differs");
+ Check(image->image_blend==0xf1234567,"FEN image blend word was truncated or discarded");
+ Check(decoded.resources.front().type==0,"FEN image texture type differs");
+ f.pointers.push_back(0x21c);Word(f.data,0x21c,0x330);
+ Reject([&]{ReadFrontendScene(f.File());}); // Blend state is scalar, never a pointer.
+}
 void Owned(const std::filesystem::path& folder)
 {
  std::size_t files=0,slides=0,instances=0,libraries=0,resources=0,animated=0;
@@ -190,6 +208,6 @@ void Owned(const std::filesystem::path& folder)
 }
 int main(int argc,char** argv)
 {
- try{Generated();GraphBounds();TextBounds();if(argc==2)Owned(argv[1]);std::cout<<checks<<" frontend graph checks passed\n";}
+ try{Generated();GraphBounds();TextBounds();ImageFields();if(argc==2)Owned(argv[1]);std::cout<<checks<<" frontend graph checks passed\n";}
  catch(const std::exception& e){std::cerr<<"FAILED: "<<e.what()<<" (check "<<checks<<")\n";return 1;}
 }

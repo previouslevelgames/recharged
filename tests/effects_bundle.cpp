@@ -127,7 +127,9 @@ void Generated()
     }
     auto extra=bytes;extra.push_back(0);Reject([&]{ReadEffectsBundle(extra);});
     auto duplicate=Chunk(0x80000001,Join({Blob(bytes.begin()+8,bytes.end()),Blob(bytes.begin()+8,bytes.end())}));
-    Reject([&]{ReadEffectsBundle(duplicate);});
+    const auto aliases=ReadEffectsBundle(duplicate);
+    Check(aliases.entries.size()==2 && aliases.entries[0].groups[0].hash==aliases.entries[1].groups[0].hash,
+        "Original repeated group identities lost their load order");
     for(std::size_t n=0;n<bytes.size();++n)Reject([&]{ReadEffectsBundle(Bytes(bytes).first(n));});
     auto empty=ReadEffectsBundle(Chunk(0x80000001,{}));Check(empty.entries.empty(),"Empty valid bundle rejected");
     bytes.assign(bytes.size(),0);bytes.clear();bytes.shrink_to_fit();

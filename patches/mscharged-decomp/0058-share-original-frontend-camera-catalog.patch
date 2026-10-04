@@ -1,6 +1,6 @@
 Subject: Share the original frontend camera animation catalog with native loading
 
-Upstream-base: 9ca59d250587adc0436d08176bec3898aa790fa0
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
 
 Move the unchanged 37 filename/alias entries into one shared initializer and
 share their original record type. The console factory retains its existing

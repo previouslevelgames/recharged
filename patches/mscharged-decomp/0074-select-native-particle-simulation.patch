@@ -1,0 +1,336 @@
+From: mscharged-port contributors
+Subject: [PATCH] Select original bounded CPU particle simulation and own atlas allocations
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Native simulation uses an explicit constructor tag and shares the original field
+initialization, emission, RNG, update, motion and quad bodies. It never registers
+a GL handle; native rendering and light submission remain unavailable. Preserve
+console construction, services and allocation behavior. The checked host owner
+qualifies all templates/specs before publication, owns both original particle
+lists, and retains exact authored colours. Guard actual colour indices and signed
+frame/angle conversions before the original accesses. Native atlas allocations
+are transactional and freed through their owning game arenas.
+
+--- a/include/Game/Effects/ParticleSystem.h
++++ b/include/Game/Effects/ParticleSystem.h
+@@ -49,7 +49,19 @@
+ public:
+     ParticleSystem(EffectsTemplate* pTemplate,
+         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
++        unsigned long resourceID)
++#ifdef MSCHARGED_NATIVE
++        = delete
++#endif
++        ;
++#ifdef MSCHARGED_NATIVE
++    // Explicit CPU-only construction; m_uTextureIndex stays invalid. The full
++    // constructor still requires an actual GL inventory on console.
++    struct NativeSimulation {};
++    ParticleSystem(NativeSimulation, EffectsTemplate* pTemplate,
++        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+         unsigned long resourceID);
++#endif
+     ~ParticleSystem();
+ 
+     void UpdateCoordSys();
+@@ -58,13 +70,21 @@
+     void UpdateAllParticles(float dt, const nlMatrix4* pCoordSys);
+     void UpdateLight(EffectsLight* pLight, Particle* pPart,
+         EffectsTemplate* pTemplate, const nlVector3& viewRight,
+-        const nlVector3& viewUp, const nlMatrix4* pCoordSys);
++        const nlVector3& viewUp, const nlMatrix4* pCoordSys)
++#ifdef MSCHARGED_NATIVE
++        = delete
++#endif
++        ;
+     void UpdateParticleMotion(Particle* pPart, const nlMatrix4* pCoordSys);
+     void UpdateParticle(ParticleReturn* pReturn, Particle* pPart,
+         EffectsTemplate* pTemplate, const nlVector3& viewRight,
+         const nlVector3& viewUp, const nlMatrix4* pCoordSys);
+     void ClearParticles();
+-    int RenderAllParticles(GLView* view);
++    int RenderAllParticles(GLView* view)
++#ifdef MSCHARGED_NATIVE
++        = delete
++#endif
++        ;
+     void Die();
+     bool Update(float dt);
+     float GetRemainingTime() const;
+--- a/src/Game/Effects/EffectsTemplate.cpp
++++ b/src/Game/Effects/EffectsTemplate.cpp
+@@ -7,12 +7,24 @@
+ #include "NL/gl/glState.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ 
++#endif
++
++#ifdef MSCHARGED_NATIVE
++#include <cmath>
++#include <stdexcept>
++#endif
++
+ unsigned int uSeed = 0x9184EB0C;
+ 
+ float fxAnimatedRange::Evaluate(float value) const
+ {
+     if (mUseCurve != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        if (!std::isfinite(value) || value < 0.0f || value > 1.0f
++            || mNumKeys == 0 || mKeys == 0 || mKeys[0].mTime > value)
++            throw std::domain_error("Unqualified particle curve sample");
++#endif
+         unsigned long i = 0;
+         for (; i < mNumKeys; ++i)
+         {
+@@ -71,6 +83,7 @@
+     return base + 0.5f * range;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ inline fxAnimatedRange* fxAnimatedRange::LoadFromChunk(nlChunk* chunk)
+ {
+     nlChunk* valueChunk = chunk->GetFirstChunk();
+--- a/src/Game/Effects/ParticleSystem.cpp
++++ b/src/Game/Effects/ParticleSystem.cpp
+@@ -1,8 +1,11 @@
+ #include "Game/Effects/ParticleSystem.h"
++#ifndef MSCHARGED_NATIVE
+ #include "Game/Sys/debug.h"
++#endif
+ 
+ #include <math.h>
+ 
++#ifndef MSCHARGED_NATIVE
+ #include "Game/Effects/EmissionManager.h"
+ #include "Game/GL/GLInventory.h"
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+@@ -14,8 +17,15 @@
+ #include "NL/gl/glTexture.h"
+ #include "NL/gl/glView.h"
+ #include "NL/gl/glMaterialParameters.h"
++#endif
+ #include "Game/TweakValueFloat.h"
++#ifndef MSCHARGED_NATIVE
+ #include "Game/UnidentifiedStaticStorage.h"
++#else
++#include <cmath>
++#include <limits>
++#include <stdexcept>
++#endif
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ #include "NL/platvmath.h"
+@@ -51,7 +61,11 @@
+ int gNumRenderedParticles;
+ static unsigned short hackyFacingAngle;
+ 
+-ParticleSystem::ParticleSystem(EffectsTemplate* pTemplate,
++ParticleSystem::ParticleSystem(
++#ifdef MSCHARGED_NATIVE
++    NativeSimulation,
++#endif
++    EffectsTemplate* pTemplate,
+     nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+     unsigned long resourceID)
+     : m_uResourceID(resourceID)
+@@ -76,15 +90,23 @@
+     m_aFacing = 0;
+     m_bAmDying = false;
+     m_bVisible = false;
++#ifdef MSCHARGED_NATIVE
++    m_uTextureIndex = 0xFFFFFFFF; // CPU simulation never owns a GL binding.
++#else
+     m_uTextureIndex = glGetTextureIndex(m_pTemplate->m_hTexture);
++#endif
+ }
+ 
+ ParticleSystem::~ParticleSystem()
+ {
+     if (m_pTemplate->mUnidentified040 != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        std::terminate();
++#else
+         tDebugPrintManager::Print(DC_RENDER, "OnEmitterDeath: %d\n",
+             m_pTemplate->mUnidentified040);
++#endif
+     }
+ 
+     --m_NumInstances;
+@@ -110,7 +132,11 @@
+     nlVector3 right;
+     nlVector3 ref;
+     nlVec3Set(ref, 0.0f, 0.0f, 1.0f);
++#ifdef MSCHARGED_NATIVE
++    if (std::fabs(nlVec3DotProduct(ref, grav)) > 0.99f)
++#else
+     if ((float)__fabs(nlVec3DotProduct(ref, grav)) > 0.99f)
++#endif
+     {
+         nlVec3Set(ref, 0.0f, 1.0f, 0.0f);
+     }
+@@ -413,8 +439,12 @@
+ 
+         if (m_pTemplate->mUnidentified044 != 0)
+         {
++#ifdef MSCHARGED_NATIVE
++        throw std::logic_error("Particle event diagnostics require the game debug service");
++#else
+             tDebugPrintManager::Print(DC_RENDER, "OnParticleCreation: %d\n",
+                 m_pTemplate->mUnidentified044);
++#endif
+         }
+ 
+         m_Particles.AddStart(pPart);
+@@ -479,8 +509,12 @@
+         {
+             if (m_pTemplate->mUnidentified048 != 0)
+             {
++#ifdef MSCHARGED_NATIVE
++        throw std::logic_error("Particle event diagnostics require the game debug service");
++#else
+                 tDebugPrintManager::Print(DC_RENDER, "OnParticleDeath: %d\n",
+                     m_pTemplate->mUnidentified048);
++#endif
+             }
+             m_Particles.Remove(&iterator);
+             --m_NumParticles;
+@@ -494,6 +528,7 @@
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
+     EffectsTemplate* pTemplate, const nlVector3& viewRight,
+     const nlVector3& viewUp,
+@@ -524,6 +559,8 @@
+         pLight->m_v3Position = position;
+     }
+ }
++
++#endif
+ 
+ void ParticleSystem::UpdateParticleMotion(Particle* pPart,
+     const nlMatrix4* pCoordSys)
+@@ -569,7 +606,16 @@
+     const EffectsTemplate* pTemplate)
+ {
+     float frame = 24.0f * (pPart->timeElapsed / pPart->lifeSpan);
++#ifdef MSCHARGED_NATIVE
++    if (!std::isfinite(frame) || frame < 0.0f || frame > 24.0f)
++        throw std::domain_error("Unqualified particle colour time");
++#endif
+     int first = (int)(float)floor(frame);
++#ifdef MSCHARGED_NATIVE
++    const unsigned required = first >= 24 ? 26 : unsigned(first + 2);
++    if (pTemplate->m_cColour.size() < required)
++        throw std::domain_error("Authored particle colour channel lacks the requested sample");
++#endif
+     int second = first + 1;
+     nlColour colour;
+     if (first >= 24)
+@@ -649,6 +695,16 @@
+         return;
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    const float nativeFrame = pPart->FPS * pPart->timeElapsed + pPart->frame;
++    const float nativeAngle = 65536.0f * rot;
++    if (!std::isfinite(nativeFrame) || nativeFrame < -2147483648.0f || nativeFrame >= 2147483648.0f
++        || !std::isfinite(nativeAngle) || nativeAngle < -2147483648.0f || nativeAngle >= 2147483648.0f)
++        throw std::domain_error("Particle frame or angle exceeds original signed conversion");
++    if (pTemplate->m_nFrames < 1 || pTemplate->m_nFrames > 36
++        || textureFrames[pTemplate->m_nFrames - 1] == 0)
++        throw std::logic_error("Particle atlas is unavailable");
++#endif
+     unsigned int animFrame
+         = (int)(pPart->FPS * pPart->timeElapsed + pPart->frame);
+     animFrame %= pTemplate->m_nFrames;
+@@ -702,6 +758,7 @@
+     pReturn->position[3].z = (position.z + a.z) - b.z;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ static void RenderLightOnField(GLView* view, const EffectsLight& light)
+ {
+     if (light.m_fRadius == 0.0f)
+@@ -734,6 +791,8 @@
+     view->AttachModel(q.GetModel(), 0);
+ }
+ 
++#endif
++
+ void ParticleSystem::ClearParticles()
+ {
+     nlDLListIterator<Particle*> iterator = m_Particles.Begin();
+@@ -746,6 +805,7 @@
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ int ParticleSystem::RenderAllParticles(GLView* view)
+ {
+     static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
+@@ -1049,6 +1109,8 @@
+     return numParticles;
+ }
+ 
++#endif
++
+ void ParticleSystem::Die()
+ {
+     m_fDelay = 0.0f;
+@@ -1125,6 +1187,9 @@
+ {
+     TextureFrame* p = (TextureFrame*)nlMalloc(
+         numFrames * sizeof(TextureFrame), 8, false);
++#ifdef MSCHARGED_NATIVE
++    if (p == 0) throw std::bad_alloc();
++#endif
+     TextureFrame* q = p;
+     float u = 0.0f;
+     float v = 0.0f;
+@@ -1145,8 +1210,18 @@
+ 
+ bool fxParticleStartup(int maxNumParticles)
+ {
++#ifdef MSCHARGED_NATIVE
++    for (int i = 0; i < 36; ++i)
++        if (textureFrames[i] != 0)
++            throw std::logic_error("Particle atlas is already owned");
++    try
++    {
++#endif
+     textureFrames[0]
+         = (TextureFrame*)nlMalloc(sizeof(TextureFrame), 8, false);
++#ifdef MSCHARGED_NATIVE
++    if (textureFrames[0] == 0) throw std::bad_alloc();
++#endif
+     textureFrames[0]->u = 0.0f;
+     textureFrames[0]->v = 0.0f;
+     textureFrames[0]->increment = 1.0f;
+@@ -1158,6 +1233,10 @@
+     if (MaxNumParticles == 0)
+         MaxNumParticles = maxNumParticles;
+     return true;
++#ifdef MSCHARGED_NATIVE
++    }
++    catch (...) { fxParticleShutdown(); throw; }
++#endif
+ }
+ 
+ bool fxParticleShutdown()
+@@ -1166,7 +1245,11 @@
+     {
+         if (textureFrames[i] != 0)
+         {
++#ifdef MSCHARGED_NATIVE
++            nlFree(textureFrames[i]);
++#else
+             delete[] (unsigned char*)textureFrames[i];
++#endif
+             textureFrames[i] = 0;
+         }
+     }

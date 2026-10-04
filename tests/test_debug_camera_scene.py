@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix='mscharged-debug-input-') as directory:
         sys.exit(77)
     assert result.returncode == 0, output
     assert 'Rendered SDL DebugCam: orbit=' in output and 'shutdown recovered both game arenas' in output, output
-    assert 'Static preview rendered: 60 frames' in output, output
+    assert 'Static preview rendered: 180 frames' in output, output
     assert 'VUID-' not in output and 'Validation Error' not in output, output
     assert config.read_bytes() == before
     print(output)

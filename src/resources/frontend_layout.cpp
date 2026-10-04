@@ -1,5 +1,7 @@
 #include "resources/frontend_layout.h"
+#include "resources/frontend_images.h"
 #include "Game/FE/FrontendLayoutSteps.h"
+#include "Game/FE/FrontendImageSteps.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -7,6 +9,28 @@
 
 namespace mscharged::resources
 {
+void ValidateFrontendImageTexture(const Texture& texture)
+{
+    constexpr unsigned formats[]={4,5,14,6,1,0,1,3,9};
+    Require(texture.width&&texture.width<=1024&&texture.height&&texture.height<=1024
+        &&texture.game_format<std::size(formats)&&texture.gx_format==formats[texture.game_format],
+        "Invalid frontend image texture dimensions or format");
+    unsigned maximum=1;for(unsigned size=std::max(texture.width,texture.height);size>1;size>>=1)++maximum;
+    Require(texture.levels&&texture.levels<=maximum,"Invalid frontend image mip levels");
+    const auto format=texture.game_format;
+    Require((format==8&&texture.palette_entries&&texture.palette_entries<=256)||(format!=8&&!texture.palette_entries),
+        "Invalid frontend image palette count");
+    std::size_t bytes=0;
+    for(unsigned level=0;level<texture.levels;++level)
+    {
+        const auto w=std::max(1u,unsigned(texture.width)>>level),h=std::max(1u,unsigned(texture.height)>>level);
+        const unsigned bw=(format==2||format==4||format==5||format==6||format==8)?8:4;
+        const unsigned bh=(format==2||format==5)?8:4;
+        bytes+=((w+bw-1)/bw)*((h+bh-1)/bh)*(format==3?64:32);
+    }
+    Require(texture.pixels.size()==bytes&&texture.palette.size()==std::size_t(texture.palette_entries)*2,
+        "Frontend image texture storage does not match its metadata");
+}
 namespace
 {
 constexpr unsigned MaximumNodes=16384;
@@ -135,11 +159,55 @@ class Builder
     std::map<std::uint32_t,const FrontendResource*> resources_;
     std::map<std::uint32_t,const FrontendSlide*> slides_;
     std::map<std::uint32_t,std::shared_ptr<const FrontendFont>> fonts_;
+    const FrontendImageCatalog& images_;
     std::set<std::uint32_t> active_;
     unsigned visited_=0;
     std::size_t glyphs_=0;
     FrontendLayoutFrame result_;
     nlMatrix4 scene_view_;
+    void Image(const FrontendInstance& instance,const FrontendLibraryObject& object,const nlMatrix4& matrix,
+        const std::array<float,4>& colour)
+    {
+        if(!instance.resource){++result_.unavailable["image resource assigned by a scene handler"];return;}
+        Require(resources_.contains(*instance.resource),"Frontend image resource is absent");
+        const auto& resource=*resources_.at(*instance.resource);
+        Require(resource.type==0,"Frontend image resource is not a texture");
+        // Dynamic resources require their real callbacks/targets even if a
+        // caller supplies an ordinary texture under the same hash.
+        if(resource.hash==FrontendNameHash("movie")||resource.hash==FrontendNameHash("target/grab_texture"))
+        {++result_.unavailable["dynamic movie or grab image"];return;}
+        if(const auto unavailable=images_.unavailable.find(resource.hash);unavailable!=images_.unavailable.end())
+        {++result_.unavailable[unavailable->second];return;}
+        const auto found=images_.textures.find(resource.hash);
+        if(found==images_.textures.end()){++result_.unavailable["image texture outside the supplied set"];return;}
+        Require(found->second&&found->second->id==resource.hash,"Null or mismatched frontend image texture");
+        ValidateFrontendImageTexture(*found->second);
+        Require(instance.image_blend<=7,"Invalid frontend image blend mode");
+        struct UV
+        {
+            std::array<float,4> values;
+            float GetUVX() const{return values[0];} float GetUVY() const{return values[1];}
+            float GetUVWidth() const{return values[2];} float GetUVHeight() const{return values[3];}
+        } uv{object.attributes.uv};
+        for(unsigned i=0;i<4;++i){if(instance.overload_flags&(0x40u<<i))uv.values[i]=instance.attributes.uv[i];Scalar(uv.values[i]);}
+        nlVector2 coordinates[4];FrontendImageUV(&uv,found->second->width,found->second->height,coordinates);
+        FrontendLayoutImage entry;
+        entry.instance=instance.offset;entry.priority=instance.priority;entry.name=instance.name;
+        entry.texture=found->second;entry.blend=instance.image_blend;
+        for(unsigned i=0;i<4;++i)
+        {
+            Scalar(coordinates[i].x);Scalar(coordinates[i].y);
+            for(float value:{coordinates[i].x,coordinates[i].y})
+                Require(value*1024.f>=-32768.f&&value*1024.f<32768.f,"Frontend image UV exceeds original signed16 storage");
+            entry.vertices[i]={FrontendImageQuadPositions[i].x,FrontendImageQuadPositions[i].y,coordinates[i].x,coordinates[i].y};
+            entry.colour[i]=static_cast<std::uint8_t>(static_cast<int>(colour[i]*255.f));
+        }
+        // Original images copy the inherited matrix and add view translation;
+        // they do not perform the full view multiplication used by text.
+        entry.transform={matrix.m11,-matrix.m12,0,0,matrix.m21,-matrix.m22,0,0,0,0,1,0,
+            matrix.m41+scene_view_.m41+320,240-(matrix.m42+scene_view_.m42),0,1};
+        result_.entries.push_back(std::move(entry));
+    }
     void Enter(std::uint32_t id,unsigned depth)
     {
         Require(depth<=64&&++visited_<=MaximumNodes,"Frontend frame exceeds its traversal budget");
@@ -172,7 +240,7 @@ class Builder
         entry.transform={text_matrix.m11,-text_matrix.m12,0,0,-text_matrix.m21,text_matrix.m22,0,0,0,0,1,0,
             text_matrix.m41+320,240-text_matrix.m42,0,1};
         for(unsigned i=0;i<4;++i)entry.colour[i]=static_cast<std::uint8_t>(static_cast<int>(colour[i]*255.f));
-        result_.text.push_back(std::move(entry));
+        result_.entries.push_back(std::move(entry));
     }
     void Instance(std::uint32_t id,float time,const nlMatrix4& parent,std::array<float,4> colour,unsigned depth)
     {
@@ -195,7 +263,7 @@ class Builder
                 "Active component slide is outside its ring");
             if(object.active_slide)Slide(*object.active_slide,matrix,colour,depth+1);
         }
-        else if(instance.type==2)++result_.unavailable["image component rendering"];
+        else if(instance.type==2)Image(instance,object,matrix,colour);
         for(auto child:instance.children)Instance(child,time,matrix,colour,depth+1);
         active_.erase(id);
     }
@@ -203,18 +271,21 @@ class Builder
     {
         Enter(id,depth);Require(slides_.contains(id),"Frontend active slide is absent");const auto& slide=*slides_.at(id);
         Scalar(slide.time);
-        if(slide.animated)++result_.unavailable["animated slide branch"];
+        if(slide.animated&&!slide.animation_evaluated)++result_.unavailable["animated slide branch"];
         else for(auto child:slide.children)Instance(child,slide.time,matrix,colour,depth+1);
         active_.erase(id);
     }
 public:
-    Builder(const FrontendScene& scene,const Localization& loc,std::span<const std::shared_ptr<const FrontendFont>> fonts)
-        :scene_(scene),localization_(loc)
+    Builder(const FrontendScene& scene,const Localization& loc,std::span<const std::shared_ptr<const FrontendFont>> fonts,
+        const FrontendImageCatalog& images)
+        :scene_(scene),localization_(loc),images_(images)
     {
         // Original FEScene constructor and FERender text-matrix composition.
         glMatrixLookAt(scene_view_,{0,0,600},{0,0,0},{0,1,0});
         Require(scene.instances.size()<=MaximumNodes&&scene.library.size()<=MaximumNodes&&scene.slides.size()<=MaximumNodes
-            &&scene.resources.size()<=MaximumNodes&&fonts.size()<=256,"Frontend layout input budget exceeded");
+            &&scene.resources.size()<=MaximumNodes&&fonts.size()<=256&&images.textures.size()<=4096&&images.unavailable.size()<=4096,
+            "Frontend layout input budget exceeded");
+        for(const auto& [id,texture]:images.textures)Require(!images.unavailable.contains(id),"Conflicting frontend image catalog entries");
         std::set<std::uint32_t> ids;
         const auto index=[&](const auto& input,auto& output){for(const auto& value:input){Require(ids.insert(value.offset).second,"Duplicate frontend record ID");output.emplace(value.offset,&value);}};
         index(scene.instances,instances_);index(scene.library,library_);index(scene.resources,resources_);index(scene.slides,slides_);
@@ -229,12 +300,18 @@ public:
         // Original main selects eCLV_Anark, whose GLViewSort_Reverse dispatches
         // packets in reverse submission order. Stored m_priority is not read by
         // FERender; sorting it would change the original painter order.
-        std::reverse(result_.text.begin(),result_.text.end());
+        std::reverse(result_.entries.begin(),result_.entries.end());
         return std::move(result_);
     }
 };
 }
+std::size_t FrontendLayoutFrame::TextCount() const
+{return std::count_if(entries.begin(),entries.end(),[](const auto& entry){return std::holds_alternative<FrontendLayoutText>(entry);});}
+std::size_t FrontendLayoutFrame::ImageCount() const{return entries.size()-TextCount();}
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene& scene,const Localization& loc,
     std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected)
-{return Builder(scene,loc,fonts).Build(selected);}
+{return Builder(scene,loc,fonts,FrontendImageCatalog{}).Build(selected);}
+FrontendLayoutFrame BuildFrontendLayout(const FrontendScene& scene,const Localization& loc,
+    std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected,const FrontendImageCatalog& images)
+{return Builder(scene,loc,fonts,images).Build(selected);}
 }

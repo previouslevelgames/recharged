@@ -22,11 +22,16 @@ include(cmake/FrontendInput.cmake)
 include(cmake/FrontendVisuals.cmake)
 include(cmake/FrontendScene.cmake)
 include(cmake/FrontendTextCatalog.cmake)
+include(cmake/FrontendImages.cmake)
 include(cmake/FrontendLayout.cmake)
+include(cmake/FrontendAnimation.cmake)
+include(cmake/FrontendSession.cmake)
 include(cmake/Hierarchy.cmake)
 include(cmake/BootLoading.cmake)
 include(cmake/ParticleFiles.cmake)
 include(cmake/EffectsBundle.cmake)
+include(cmake/EffectsRegistry.cmake)
+include(cmake/ParticleSimulation.cmake)
 include(cmake/SAnimAssets.cmake)
 include(cmake/AnimationBundle.cmake)
 include(cmake/NisPip.cmake)
@@ -36,7 +41,7 @@ target_include_directories(charged_game_startup PUBLIC "${CMAKE_CURRENT_SOURCE_D
 target_compile_features(charged_game_startup PRIVATE cxx_std_20)
 target_link_libraries(charged_game_startup PRIVATE charged_decomp_startup charged_host
     charged_boot_script_load charged_boot_loading
-    charged_particle_files charged_effects_resources
+    charged_particle_simulation
     charged_events charged_game_config charged_tweaks charged_frame_timing charged_cameras charged_camera_assets charged_frontend_camera_assets charged_animated_camera aurora::dvd aurora::os aurora::vi aurora::core mscharged_build_info)
 target_link_libraries(mscharged PRIVATE charged_game_startup)
 target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_GAME_STARTUP=1)

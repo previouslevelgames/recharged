@@ -1,0 +1,221 @@
+Subject: Select original effects template resolution on retained native records
+
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Share EffectsBundleData's final template-resolution loop with the original
+initializer. Native storage is decoded and retained separately; prohibit the
+Wii in-place pointer loaders and unselected user-effect parser. Nonzero native
+user-spec destruction fails explicitly; its original factories are not linked.
+Select original
+ResolveTemplates, IsPersistent and cleanup routines only, without enabling the
+EmissionManager or ParticleSystem. Native colour storage retains its exact
+serialized count: owned records have 25 colours while the reconstructed console
+array declares 26. No terminal colour or resource binding is fabricated.
+
+diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
+--- a/include/Game/Effects/EffectsBundleData.h
++++ b/include/Game/Effects/EffectsBundleData.h
+@@ -14,7 +14,13 @@
+         return (id & 0x80FFFFFF) == 0x80024000;
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    static EffectsBundleData* Initialize(nlChunk* bundle) = delete;
++#else
+     static EffectsBundleData* Initialize(nlChunk* bundle);
++#endif
++    // Shared final initialization pass, after checked native storage is built.
++    void ResolveTemplates();
+     void Destroy();
+ 
+     /* 0x00 */ unsigned char unknown_0x00[8];
+diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
+--- a/include/Game/Effects/EffectsTemplate.h
++++ b/include/Game/Effects/EffectsTemplate.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
++#ifdef MSCHARGED_NATIVE
++#include <vector>
++#endif
+ 
+ class nlChunk;
+ 
+@@ -48,7 +51,11 @@
+ class fxAnimatedRange
+ {
+ public:
++#ifdef MSCHARGED_NATIVE
++    static fxAnimatedRange* LoadFromChunk(nlChunk* chunk) = delete;
++#else
+     static fxAnimatedRange* LoadFromChunk(nlChunk* chunk);
++#endif
+     float Evaluate(float value) const;
+     float GetMaximum() const;
+ 
+@@ -62,7 +69,11 @@
+ class EffectsTemplate
+ {
+ public:
++#ifdef MSCHARGED_NATIVE
++    static EffectsTemplate* LoadFromChunk(nlChunk* chunk) = delete;
++#else
+     static EffectsTemplate* LoadFromChunk(nlChunk* chunk);
++#endif
+     void Cleanup();
+     float GetBoundingRadius();
+ 
+@@ -86,7 +97,13 @@
+     /* 0x4C */ fxRange m_rFPS;
+     /* 0x54 */ unsigned long m_uModelID;
+     /* 0x58 */ fxAnimatedRange* mProperties[8];
++#ifdef MSCHARGED_NATIVE
++    // Retain the authored count. Wii files may have 25 colours; native consumers
++    // must qualify their indices instead of inventing the reconstructed 26th.
++    std::vector<nlColour> m_cColour;
++#else
+     /* 0x78 */ nlColour m_cColour[26];
++#endif
+ 
+     bool IsInFront() const { return (mUnidentified037 & 1) != 0; }
+     bool IsLocalSpace() const { return (mUnidentified037 & 2) != 0; }
+diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
+--- a/include/Game/Effects/EffectsGroup.h
++++ b/include/Game/Effects/EffectsGroup.h
+@@ -75,8 +75,13 @@
+     bool IsPersistent() const;
+     unsigned long GetHashID() const { return m_hashID; }
+     UserEffectSpec** GetUserSpecs() const { return m_userSpecsPtr; }
++#ifdef MSCHARGED_NATIVE
++    static EffectsGroup* LoadFromChunk(nlChunk* chunk) = delete;
++    void ParseUserSpecs() = delete; // Actual user-effect factories are unselected.
++#else
+     static EffectsGroup* LoadFromChunk(nlChunk* chunk);
+     void ParseUserSpecs();
++#endif
+     void DestroyUserSpecs();
+     void ResolveTemplates(EffectsTemplate** table);
+ 
+diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBundleData.cpp
+--- a/src/Game/Effects/EffectsBundleData.cpp
++++ b/src/Game/Effects/EffectsBundleData.cpp
+@@ -2,17 +2,20 @@
+ 
+ #include "Game/Effects/EffectsGroup.h"
+ #include "Game/Effects/EffectsTemplate.h"
++#ifndef MSCHARGED_NATIVE
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "NL/nlChunk.h"
++#endif
+ 
+-static void ResolveGroupTemplates(EffectsBundleData* data)
++void EffectsBundleData::ResolveTemplates()
+ {
+-    for (unsigned long i = 0; i < data->mNumGroups; ++i)
++    for (unsigned long i = 0; i < mNumGroups; ++i)
+     {
+-        data->mGroups[i]->ResolveTemplates(data->mTemplates);
++        mGroups[i]->ResolveTemplates(mTemplates);
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
+ {
+     EffectsBundleData* data;
+@@ -38,9 +41,11 @@
+         data->mGroups[i] = EffectsGroup::LoadFromChunk(chunk);
+     }
+ 
+-    ResolveGroupTemplates(data);
++    data->ResolveTemplates();
+     return data;
+ }
++
++#endif
+ 
+ void EffectsBundleData::Destroy()
+ {
+diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
+--- a/src/Game/Effects/EffectsTemplate.cpp
++++ b/src/Game/Effects/EffectsTemplate.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/Effects/EffectsTemplate.h"
+ 
++#ifndef MSCHARGED_NATIVE
+ #include "Game/GL/GLInventory.h"
+ #include "Game/Effects/EmissionManager.h"
+ #include "NL/nlChunk.h"
+@@ -110,10 +111,13 @@
+     return result;
+ }
+ 
++#endif
++
+ void EffectsTemplate::Cleanup()
+ {
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ float EffectsTemplate::GetBoundingRadius()
+ {
+     float duration;
+@@ -139,3 +143,5 @@
+     }
+     return result;
+ }
++
++#endif // !MSCHARGED_NATIVE
+diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
+--- a/src/Game/Effects/EffectsGroup.cpp
++++ b/src/Game/Effects/EffectsGroup.cpp
+@@ -1,4 +1,8 @@
+ #include "Game/Effects/EffectsGroup.h"
++#ifdef MSCHARGED_NATIVE
++#include <stdexcept>
++#endif
++#ifndef MSCHARGED_NATIVE
+ #include "Game/Effects/EmissionManager.h"
+ #include "Game/Sys/simpleparser.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+@@ -17,6 +21,8 @@
+ 
+ static UserEffectFactory* gUserEffectTypes[3];
+ static int gnUserEffectTypes;
++
++#endif
+ 
+ bool EffectsGroup::IsPersistent() const
+ {
+@@ -40,6 +46,7 @@
+     return false;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ EffectsGroup* EffectsGroup::LoadFromChunk(nlChunk* chunk)
+ {
+     nlChunk* groupChunk = chunk->GetFirstChunk();
+@@ -95,10 +102,15 @@
+     }
+ }
+ 
++#endif
++
+ void EffectsGroup::DestroyUserSpecs()
+ {
+     if (m_userSpecs != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        throw std::logic_error("Native user-effect destruction requires qualified factories");
++#else
+         for (unsigned long i = 0; i < m_userSpecs; ++i)
+         {
+             if (m_userSpecsPtr[i] != 0)
+@@ -107,5 +119,6 @@
+             }
+         }
+         delete[] m_userSpecsPtr;
++#endif
+     }
+ }

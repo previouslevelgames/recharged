@@ -39,6 +39,7 @@ struct FrontendInstance
     FrontendAttributes attributes;
     FrontendReference library, resource;
     std::vector<std::uint32_t> children;
+    std::uint32_t image_blend = 0; // Original image field_0x94; qualified by the renderer.
     std::uint32_t localization_hash = 0, text_overload_flags = 0, draw_options = 0;
     std::array<float,2> text_box{};
     std::array<std::uint8_t,4> text_effect_colour{};
@@ -46,12 +47,26 @@ struct FrontendInstance
     bool text_scissor = false;
     std::array<std::uint16_t,4> text_scissor_box{};
 };
+struct FrontendAnimationKey
+{
+    std::uint32_t offset = 0;
+    // point, outgoing controls 1/2, time; scalar keys use channel zero.
+    std::array<std::array<float,4>,3> channels{};
+};
+struct FrontendAnimation
+{
+    std::uint32_t offset = 0, target = 0, type = 0;
+    std::uint16_t cast = 0;
+    std::vector<FrontendAnimationKey> keys;
+};
 struct FrontendSlide
 {
     std::uint32_t offset, hash, play_mode;
     std::string name;
     float start, duration, time;
     bool frozen, animated;
+    bool animation_evaluated = false; // Set only by checked timeline evaluation.
+    std::vector<std::uint32_t> animations;
     std::vector<std::uint32_t> children;
 };
 struct FrontendScene
@@ -65,12 +80,13 @@ struct FrontendScene
     std::vector<FrontendLibraryObject> library;
     std::vector<FrontendInstance> instances;
     std::vector<FrontendSlide> slides;
+    std::vector<FrontendAnimation> animations;
 };
 // Wii FENL v1 graph, decoded into owned values and checked file-relative IDs.
 // No host pointer relocation, game object construction or timeline execution.
 // Library references may be shared; owning slide/instance rings may not alias.
 // Component dependencies are acyclic and bounded across all stored slides.
-// Animation payloads remain opaque; the animated flag records presence only.
-// Animation/keyframe and text-box rendering behavior remain separate services.
+// Animation/key rings retain file-relative IDs and exact float values. Timeline
+// execution is separate; static layout excludes unevaluated animated slides.
 FrontendScene ReadFrontendScene(Bytes file);
 }

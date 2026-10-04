@@ -1,0 +1,350 @@
+From: mscharged-port contributors
+Subject: [PATCH] Share original particle raster/quad writing and select native procedural streams
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Share the original renderer's raster and per-quad stream order. Select the original
+textured-colour mesh writer with native width, bounds, frame-lifetime and coherent
+host-array handling. Preserve signed16 / 1024 UV quantization and the original
+vertex-colour material's direct draw branch. Static asset float UV streams remain
+supported through their actual stride. This does not select full particle manager,
+model/light/user callbacks, or synthetic texture handles.
+
+--- a/src/Game/Effects/ParticleSystem.cpp
++++ b/src/Game/Effects/ParticleSystem.cpp
+@@ -7,6 +7,7 @@
+ 
+ #ifndef MSCHARGED_NATIVE
+ #include "Game/Effects/EmissionManager.h"
++#include "Game/Effects/ParticleBillboard.h"
+ #include "Game/GL/GLInventory.h"
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+ #include "Game/GL/GLVertexAnim.h"
+@@ -808,7 +809,6 @@
+ #ifndef MSCHARGED_NATIVE
+ int ParticleSystem::RenderAllParticles(GLView* view)
+ {
+-    static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
+     ParticleReturn ret;
+ 
+     if (!m_bVisible)
+@@ -860,35 +860,9 @@
+         nlMultDirVectorMatrix(viewRight, rot);
+     }
+ 
+-    glSetDefaultState(true);
+-    glSetRasterState(GLS_DepthWrite, 0);
+-    glSetRasterState(GLS_Culling, cullBackFaces ? 1 : 0);
+-    if (sDisableParticleDepthTest)
+-        glSetRasterState(GLS_DepthTest, 0);
+-    if (m_AllowInFront
+-        && (m_pTemplate->IsInFront()
+-            || (m_pSpec != 0 && m_pSpec->m_bInFront)))
+-    {
+-        glSetRasterState(GLS_DepthTest, 0);
+-    }
+-    if (sUseWhiteParticleTexture)
+-    {
+-        glSetRasterState(GLS_AlphaBlend, 3);
+-    }
+-    else
+-    {
+-        switch (m_pTemplate->m_eBlend)
+-        {
+-        case EfBlend_Normal:
+-            glSetRasterState(GLS_AlphaBlend, 1);
+-            break;
+-        case EfBlend_Additive:
+-            glSetRasterState(GLS_AlphaBlend, 3);
+-            break;
+-        }
+-    }
+-    glSetRasterState(GLS_AlphaTest, 1);
+-    glSetCurrentRasterState(glHandleizeRasterState());
++    fxSetParticleRasterState(cullBackFaces, sDisableParticleDepthTest,
++        m_AllowInFront && (m_pTemplate->IsInFront() || (m_pSpec != 0 && m_pSpec->m_bInFront)),
++        sUseWhiteParticleTexture, m_pTemplate->m_eBlend);
+ 
+     static unsigned long WhiteTexture = glGetTexture("global/white");
+     if (m_pSpec != 0 && m_pSpec->m_bLight)
+@@ -1040,25 +1014,7 @@
+                 Particle* pPart = *iterator;
+                 UpdateParticle(&ret, pPart, m_pTemplate, viewRight,
+                     viewUp, pCoord);
+-                int i;
+-                if (bQuads)
+-                {
+-                    for (i = 0; i < 4; i++)
+-                    {
+-                        mesh.Texcoord(ret.texcoord[i]);
+-                        mesh.Colour(ret.c);
+-                        mesh.Vertex(ret.position[i]);
+-                    }
+-                }
+-                else
+-                {
+-                    for (i = 0; i < 6; i++)
+-                    {
+-                        mesh.Texcoord(ret.texcoord[_tris[i]]);
+-                        mesh.Colour(ret.c);
+-                        mesh.Vertex(ret.position[_tris[i]]);
+-                    }
+-                }
++                fxWriteParticleQuad(mesh, ret, bQuads);
+                 iterator.Step();
+             }
+ 
+--- /dev/null
++++ b/include/Game/Effects/ParticleBillboard.h
+@@ -0,0 +1,66 @@
++#ifndef GAME_EFFECTS_PARTICLE_BILLBOARD_H
++#define GAME_EFFECTS_PARTICLE_BILLBOARD_H
++
++#include "Game/Effects/ParticleSystem.h"
++#include "Game/GL/GLTexturedColourMeshWriter.h"
++#include "NL/gl/glState.h"
++
++// Shared original RenderAllParticles raster and per-particle stream operations.
++// The callers still own visibility, budget, camera basis, texture and view lifetime.
++inline void fxSetParticleRasterState(bool cullBackFaces, bool disableDepthTest,
++    bool inFront, bool whiteTexture, unsigned char blend)
++{
++    glSetDefaultState(true);
++    glSetRasterState(GLS_DepthWrite, 0);
++    glSetRasterState(GLS_Culling, cullBackFaces ? 1 : 0);
++    if (disableDepthTest)
++        glSetRasterState(GLS_DepthTest, 0);
++    if (inFront)
++    {
++        glSetRasterState(GLS_DepthTest, 0);
++    }
++    if (whiteTexture)
++    {
++        glSetRasterState(GLS_AlphaBlend, 3);
++    }
++    else
++    {
++        switch (blend)
++        {
++        case EfBlend_Normal:
++            glSetRasterState(GLS_AlphaBlend, 1);
++            break;
++        case EfBlend_Additive:
++            glSetRasterState(GLS_AlphaBlend, 3);
++            break;
++        }
++    }
++    glSetRasterState(GLS_AlphaTest, 1);
++    glSetCurrentRasterState(glHandleizeRasterState());
++}
++
++inline void fxWriteParticleQuad(GLTexturedColourMeshWriter& mesh,
++    const ParticleReturn& ret, bool bQuads)
++{
++    static const int _tris[6] = { 0, 1, 2, 0, 2, 3 };
++    int i;
++    if (bQuads)
++    {
++        for (i = 0; i < 4; i++)
++        {
++            mesh.Texcoord(ret.texcoord[i]);
++            mesh.Colour(ret.c);
++            mesh.Vertex(ret.position[i]);
++        }
++    }
++    else
++    {
++        for (i = 0; i < 6; i++)
++        {
++            mesh.Texcoord(ret.texcoord[_tris[i]]);
++            mesh.Colour(ret.c);
++            mesh.Vertex(ret.position[_tris[i]]);
++        }
++    }
++}
++#endif
+--- a/include/Game/GL/GLTexturedColourMeshWriter.h
++++ b/include/Game/GL/GLTexturedColourMeshWriter.h
+@@ -4,6 +4,12 @@
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
++#ifdef MSCHARGED_NATIVE
++#include "NL/glx/glxMemory.h"
++#include <cmath>
++#include <cstring>
++#include <stdexcept>
++#endif
+ 
+ class GLTexturedColourMeshWriter
+ {
+@@ -16,21 +22,38 @@
+ 
+     glModel* GetModel() const
+     {
++#ifdef MSCHARGED_NATIVE
++        NativeCheckLive();
++#endif
+         return model;
+     }
+ 
+     void Colour(const nlColour& c)
+     {
++#ifdef MSCHARGED_NATIVE
++        NativeCheckWrite(writtenColour);
++        std::memcpy(colour++, &c, sizeof(c));
++#else
+         ColourPlat(*(const unsigned long*)&c);
++#endif
+     }
+ 
+     void ColourPlat(unsigned long nColourPlat)
+     {
++#ifdef MSCHARGED_NATIVE
++        NativeCheckWrite(writtenColour);
++#endif
+         *colour++ = nColourPlat;
+     }
+ 
+     void Texcoord(const nlVector2& uv)
+     {
++#ifdef MSCHARGED_NATIVE
++        for (float v : {uv.x, uv.y})
++            if (!std::isfinite(v) || v * 1024.0f < -32768.0f || v * 1024.0f >= 32768.0f)
++                throw std::invalid_argument("Particle UV exceeds original signed16 storage");
++        NativeCheckWrite(writtenUV);
++#endif
+         short u = (short)(uv.x * 1024.0f);
+         short v = (short)(uv.y * 1024.0f);
+         *texcoord++ = u;
+@@ -39,12 +62,20 @@
+ 
+     void Texcoord(int u, int v)
+     {
++#ifdef MSCHARGED_NATIVE
++        if (u < -32768 || u > 32767 || v < -32768 || v > 32767)
++            throw std::invalid_argument("Particle UV exceeds original signed16 storage");
++        NativeCheckWrite(writtenUV);
++#endif
+         *texcoord++ = u;
+         *texcoord++ = v;
+     }
+ 
+     void TexcoordZero()
+     {
++#ifdef MSCHARGED_NATIVE
++        NativeCheckWrite(writtenUV);
++#endif
+         *texcoord++ = 0;
+         *texcoord++ = 0;
+     }
+@@ -56,11 +87,32 @@
+ 
+     void Vertex(float x, float y, float z)
+     {
++#ifdef MSCHARGED_NATIVE
++        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
++            throw std::invalid_argument("Invalid particle vertex");
++        NativeCheckWrite(writtenPosition);
++#endif
+         *position++ = x;
+         *position++ = y;
+         *position++ = z;
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    void NativeCheckLive() const
++    {
++        if (!model || generation != glNativeFrameGeneration())
++            throw std::logic_error("Particle mesh outlived its graphics frame");
++    }
++    void NativeCheckWrite(unsigned& written)
++    {
++        NativeCheckLive();
++        if (finished || written >= unsigned(count)) throw std::out_of_range("Particle mesh stream overflow");
++        ++written;
++    }
++    unsigned writtenPosition = 0, writtenColour = 0, writtenUV = 0;
++    uint64_t generation = 0;
++    bool finished = false;
++#endif
+     int count;
+     glModel* model;
+     void* resource;
+--- a/src/Game/GL/GLTexturedColourMeshWriter.cpp
++++ b/src/Game/GL/GLTexturedColourMeshWriter.cpp
+@@ -1,5 +1,7 @@
++#ifndef MSCHARGED_NATIVE
+ #include <revolution/base/PPCArch.h>
+ #include <revolution/os/OSCache.h>
++#endif
+ 
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+ #include "NL/nlMemory.h"
+@@ -26,6 +28,18 @@
+ bool GLTexturedColourMeshWriter::Begin(
+     int numVerts, int prim, void* pResource)
+ {
++#ifdef MSCHARGED_NATIVE
++    if (model && !finished && generation == glNativeFrameGeneration())
++        throw std::logic_error("Particle mesh Begin before End");
++    if (pResource || numVerts <= 0 || numVerts > 65535 || prim < 0 || prim >= 6)
++        throw std::invalid_argument("Native particle writer requires a bounded frame mesh");
++    model = nullptr;
++    writtenPosition = writtenColour = writtenUV = 0;
++    finished = false;
++    generation = glNativeFrameGeneration();
++    try
++    {
++#endif
+     glModel* newModel;
+     resource = pResource;
+     count = numVerts;
+@@ -106,19 +120,33 @@
+     glSetModelStream(streams + 2, 2, colour, sizeof(u32), 3);
+ 
+     return true;
++#ifdef MSCHARGED_NATIVE
++    }
++    catch (...) { model = nullptr; position = nullptr; colour = nullptr; texcoord = nullptr; throw; }
++#endif
+ }
+ 
+ bool GLTexturedColourMeshWriter::End()
+ {
++#ifdef MSCHARGED_NATIVE
++    NativeCheckLive();
++    if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
++        throw std::logic_error("Incomplete or already finalized particle mesh");
++#endif
+     for (int i = 0; i < model->numPackets; ++i)
+     {
+         glplatFinalizePacket(&model->packets[i], resource != 0, resource);
+     }
++#ifndef MSCHARGED_NATIVE
+     for (int i = 0; i < model->packets->numStreams; ++i)
+     {
+         glModelStream* stream = &model->packets->streams[i];
+         DCStoreRangeNoSync(stream->address, count * stream->stride);
+     }
+     PPCSync();
++#else
++    // Aurora copies host arrays at submission; Wii cache writeback is unnecessary.
++    finished = true;
++#endif
+     return true;
+ }
+--- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
+@@ -74,6 +74,12 @@
+ {
+     glModelStream* streams = packet->streams;
+ #if defined(MSCHARGED_NATIVE)
++    // Static asset adapters retain float UVs; the original procedural mesh
++    // writer retains the Wii signed16 / 1024 stream. Select its actual format.
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST,
++        streams[1].stride == 4 ? GX_S16 : GX_F32, streams[1].stride == 4 ? 10 : 0);
++#endif
++#if defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else

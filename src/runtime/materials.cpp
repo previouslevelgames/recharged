@@ -374,8 +374,24 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     RequireMaterialPreview();
     auto *program = static_cast<GLMaterialProgram *>(packet.materialProgram);
     if (!program || !packet.materialParameters || packet.displayList
-        || (!packet.indexBuffer && program->programHash != shadow_volume))
+        || (!packet.indexBuffer && program->programHash != shadow_volume && program->programHash != vertex))
         throw std::runtime_error("Incomplete or unsupported native material packet");
+    if (program->programHash == vertex)
+    {
+        if (packet.numStreams != 3 || !packet.streams || !packet.numUniqueVertices
+            || packet.numVertices > 65535 || packet.primType < 0 || packet.primType >= 6)
+            throw std::invalid_argument("Invalid vertex-colour packet");
+        const unsigned ids[] = {1,4,3};
+        for (unsigned i=0;i<3;++i)
+            if (!packet.streams[i].address || packet.streams[i].id != ids[i]
+                || (i==0 ? packet.streams[i].stride!=12 : i==2 ? packet.streams[i].stride!=4
+                    : packet.streams[i].stride!=4 && packet.streams[i].stride!=8))
+                throw std::invalid_argument("Invalid vertex-colour stream");
+        if (packet.indexBuffer)
+            for (unsigned i=0;i<packet.numVertices;++i)
+                if (packet.indexBuffer[i]>=packet.numUniqueVertices)
+                    throw std::out_of_range("Vertex-colour index exceeds its arrays");
+    }
     if (program->programHash == shadow_volume)
     {
         const auto& params = *static_cast<const GXShadowVolumeParameters*>(packet.materialParameters);

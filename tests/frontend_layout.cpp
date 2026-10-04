@@ -1,6 +1,7 @@
 #include "resources/frontend_layout.h"
 #include "frontend_layout_fixture.h"
 #include "frontend_font_fixture.h"
+#include "frontend_image_fixture.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -29,11 +30,11 @@ struct Fixture
     FrontendInstance& Text(unsigned i=0){return scene.instances[i+1];}
 };
 const FrontendLayoutText& Entry(const FrontendLayoutFrame& frame,unsigned id=300)
-{const auto it=std::find_if(frame.text.begin(),frame.text.end(),[&](auto& entry){return entry.instance==id;});Check(it!=frame.text.end(),"Expected authored text is absent");return *it;}
+{const auto it=std::find_if(frame.entries.begin(),frame.entries.end(),[&](auto& entry){return std::holds_alternative<FrontendLayoutText>(entry)&&std::get<FrontendLayoutText>(entry).instance==id;});Check(it!=frame.entries.end(),"Expected authored text is absent");return std::get<FrontendLayoutText>(*it);}
 void Baseline()
 {
-    Fixture f;auto result=f.Build();Check(result.text.size()==3&&result.unavailable.empty()&&result.hidden==0,"Static frame did not select its three text components");
-    Check(result.text[0].instance==500&&result.text[1].instance==400&&result.text[2].instance==300,"Original Anark reverse submission order changed");
+    Fixture f;auto result=f.Build();Check(result.TextCount()==3&&result.unavailable.empty()&&result.hidden==0,"Static frame did not select its three text components");
+    Check(std::get<FrontendLayoutText>(result.entries[0]).instance==500&&std::get<FrontendLayoutText>(result.entries[1]).instance==400&&std::get<FrontendLayoutText>(result.entries[2]).instance==300,"Original Anark reverse submission order changed");
     for(unsigned i=0;i<3;++i)
     {
         const auto& entry=Entry(result,300+100*i);Near(entry.transform[12],160+160*i);Near(entry.transform[13],120+120*i);
@@ -83,37 +84,37 @@ void TextBoxes()
 void Selection()
 {
     Fixture f;f.scene.slides[0].time=2;f.Text().start=2;f.Text().duration=0;
-    Check(f.Build().text.size()==3,"Exact time endpoint was rejected");
-    f.scene.slides[0].time=2.0002f;Check(f.Build().text.size()==2,"Out-of-time instance was rendered");
-    f.scene.slides[0].time=2.00005f;Check(f.Build().text.size()==3,"Original near-time tolerance was discarded");
-    f.Parent().visible=false;auto result=f.Build();Check(result.text.empty()&&result.hidden==1,"Invisible parent leaked descendants");
-    f.Parent().visible=true;f.scene.library[0].attributes.visible=false;Check(f.Build().text.empty(),"Invisible library leaked descendants");
-    f.scene.library[0].attributes.visible=true;f.Parent().attributes.visible=false;Check(f.Build().text.size()==3,"Unused overloaded visibility field changed original semantics");
-    f.scene.slides[0].animated=true;result=f.Build();Check(result.text.empty()&&result.unavailable.at("animated slide branch")==1,"Animation payload was silently treated as a static frame");
+    Check(f.Build().TextCount()==3,"Exact time endpoint was rejected");
+    f.scene.slides[0].time=2.0002f;Check(f.Build().TextCount()==2,"Out-of-time instance was rendered");
+    f.scene.slides[0].time=2.00005f;Check(f.Build().TextCount()==3,"Original near-time tolerance was discarded");
+    f.Parent().visible=false;auto result=f.Build();Check(result.entries.empty()&&result.hidden==1,"Invisible parent leaked descendants");
+    f.Parent().visible=true;f.scene.library[0].attributes.visible=false;Check(f.Build().entries.empty(),"Invisible library leaked descendants");
+    f.scene.library[0].attributes.visible=true;f.Parent().attributes.visible=false;Check(f.Build().TextCount()==3,"Unused overloaded visibility field changed original semantics");
+    f.scene.slides[0].animated=true;result=f.Build();Check(result.entries.empty()&&result.unavailable.at("animated slide branch")==1,"Animation payload was silently treated as a static frame");
     auto alternative=f.scene.slides[0];alternative.offset=101;alternative.animated=false;alternative.name="Alternative";
     f.scene.slides.push_back(alternative);f.scene.presentation_slides.push_back(101);
-    Check(BuildFrontendLayout(f.scene,f.localization,f.fonts,101).text.size()==3,"Explicit authored presentation slide was not selected");
+    Check(BuildFrontendLayout(f.scene,f.localization,f.fonts,101).TextCount()==3,"Explicit authored presentation slide was not selected");
     Reject([&]{BuildFrontendLayout(f.scene,f.localization,f.fonts,999);});
-    f.scene.active_slide.reset();Check(f.Build().text.empty(),"Absent active slide invented a default");
+    f.scene.active_slide.reset();Check(f.Build().entries.empty(),"Absent active slide invented a default");
 }
 void Components()
 {
     Fixture f;auto& parent=f.Parent();parent.type=4;f.scene.library[0].type=3;
     f.scene.library[0].slides={101};f.scene.library[0].active_slide=101;
     auto nested=f.scene.slides[0];nested.offset=101;nested.children=parent.children;parent.children.clear();f.scene.slides.push_back(nested);
-    Check(f.Build().text.size()==3,"Stored component active slide was not followed");
-    f.scene.library[0].active_slide.reset();Check(f.Build().text.empty(),"Component without active slide invented a choice");
+    Check(f.Build().TextCount()==3,"Stored component active slide was not followed");
+    f.scene.library[0].active_slide.reset();Check(f.Build().entries.empty(),"Component without active slide invented a choice");
     f.scene.library[0].active_slide=101;f.scene.slides[1].children={200};Reject([&]{f.Build();});
 }
 void UnsupportedAndErrors()
 {
     Fixture f;
     for(auto text:{u"A{b}",u"A\nB",u"\U0001f600",u"AX"})
-    {f.Text().text=text;auto result=f.Build();Check(result.text.size()==2&&result.unavailable.size()==1,"Unsupported text was not explicitly omitted");}
-    f.Text().text=u"AB";f.Text().text_scissor=true;Check(f.Build().text.size()==2,"Scissored text lost clipping without rejection");f.Text().text_scissor=false;
-    for(unsigned options:{4u,8u,0x100u,0x2000u,0x30u}){f.Text().draw_options=options;Check(f.Build().text.size()==2,"Unqualified draw options were accepted");}
+    {f.Text().text=text;auto result=f.Build();Check(result.TextCount()==2&&result.unavailable.size()==1,"Unsupported text was not explicitly omitted");}
+    f.Text().text=u"AB";f.Text().text_scissor=true;Check(f.Build().TextCount()==2,"Scissored text lost clipping without rejection");f.Text().text_scissor=false;
+    for(unsigned options:{4u,8u,0x100u,0x2000u,0x30u}){f.Text().draw_options=options;Check(f.Build().TextCount()==2,"Unqualified draw options were accepted");}
     f.Text().draw_options=0;f.Parent().overload_flags=2;f.Parent().attributes.rotation[0]=.1f;
-    Check(f.Build().text.empty(),"Nonplanar ancestor branch was rendered");
+    Check(f.Build().entries.empty(),"Nonplanar ancestor branch was rendered");
     f.Parent().attributes.rotation[0]=NAN;Reject([&]{f.Build();});
     f.Parent().attributes.rotation[0]=0;f.Text().duration=-1;Reject([&]{f.Build();});f.Text().duration=100;
     f.Parent().children.push_back(200);Reject([&]{f.Build();});f.Parent().children.pop_back();
@@ -121,6 +122,50 @@ void UnsupportedAndErrors()
     f.Text().library=999;Reject([&]{f.Build();});f.Text().library=30;
     f.scene.instances.push_back(f.Text());Reject([&]{f.Build();});f.scene.instances.pop_back();
     f.Text().text_box={32768,64};Reject([&]{f.Build();});
+}
+void Images()
+{
+    Fixture f;constexpr unsigned hash=0x3456789;frontend_image_fixture::AddImage(f.scene,hash);
+    FrontendImageCatalog images;auto texture=frontend_image_fixture::Texture(hash);images.textures[hash]=texture;
+    const auto build=[&]{return BuildFrontendLayout(f.scene,f.localization,f.fonts,{},images);};
+    auto result=build();Check(result.TextCount()==3&&result.ImageCount()==1&&result.unavailable.empty(),"Image was not mixed with text");
+    Check(std::get<FrontendLayoutImage>(result.entries[0]).instance==600,"Mixed Anark order grouped images/text incorrectly");
+    auto& image=f.scene.instances.back();auto& object=f.scene.library.back();
+    object.attributes.uv={.1f,.2f,.6f,.4f};image.attributes.uv={.3f,.4f,.2f,.1f};
+    for(unsigned mask=0;mask<16;++mask)
+    {
+        image.overload_flags=1|16|(mask<<6);result=build();const auto& entry=std::get<FrontendLayoutImage>(result.entries[0]);
+        std::array<float,4> uv;for(unsigned i=0;i<4;++i)uv[i]=(mask&(1u<<i))?image.attributes.uv[i]:object.attributes.uv[i];
+        const float left=uv[0]+1.f/32,right=uv[0]+uv[2]-1.f/32;
+        const float top=1-uv[1]-1.f/32,bottom=1-(uv[1]+uv[3])+1.f/32;
+        const std::array<float,4> x{-50,-50,50,50},y{50,-50,-50,50},u{left,left,right,right},v{bottom,top,top,bottom};
+        for(unsigned i=0;i<4;++i){Near(entry.vertices[i].x,x[i]);Near(entry.vertices[i].y,y[i]);Near(entry.vertices[i].u,u[i]);Near(entry.vertices[i].v,v[i]);}
+        Near(entry.transform[12],320);Near(entry.transform[13],240);Near(entry.transform[0],1);Near(entry.transform[5],-1);
+    }
+    image.overload_flags=1|16;image.attributes.position={7,9,0};image.attributes.colour={200,100,128,64};
+    f.Parent().overload_flags=1|4|8|16;f.Parent().attributes.position={11,17,0};f.Parent().attributes.scale={2,3,1};
+    f.Parent().attributes.pivot={4,5,0};f.Parent().attributes.colour={128,200,100,128};result=build();
+    const auto& inherited=std::get<FrontendLayoutImage>(result.entries[0]);Near(inherited.transform[0],2);Near(inherited.transform[5],-3);
+    Near(inherited.transform[12],337);Near(inherited.transform[13],211);Check(inherited.colour==std::array<std::uint8_t,4>{100,78,50,32},"Image inherited colour changed");
+    // A text command before AND after the image proves global reversal.
+    f.Parent().children={300,600,400,500};result=build();
+    Check(std::holds_alternative<FrontendLayoutText>(result.entries[0])&&std::holds_alternative<FrontendLayoutText>(result.entries[1])
+        &&std::holds_alternative<FrontendLayoutImage>(result.entries[2])&&std::holds_alternative<FrontendLayoutText>(result.entries[3]),"Mixed command sequence changed");
+    for(unsigned blend=0;blend<8;++blend){image.image_blend=blend;result=build();Check(std::get<FrontendLayoutImage>(result.entries[2]).blend==blend,"Original image blend changed");}
+    image.image_blend=8;Reject(build);image.image_blend=1;
+    image.overload_flags|=0x40;image.attributes.uv[0]=32;Reject(build);image.attributes.uv[0]=NAN;Reject(build);image.attributes.uv[0]=-.125f;
+    result=build();Check(result.ImageCount()==1,"Original repeated/flipped UV domain was constrained to unit range");
+    images.unavailable[hash]="unavailable source";Reject(build);images.textures.clear();result=build();
+    Check(result.ImageCount()==0&&result.unavailable.at("unavailable source")==1,"Unavailable resource was silently rendered");images.unavailable.clear();
+    result=build();Check(result.ImageCount()==0&&result.unavailable.at("image texture outside the supplied set")==1,"Missing image resource became a placeholder");
+    images.textures[hash]=texture;image.resource.reset();Check(build().ImageCount()==0,"Handler-assigned image invented a resource");image.resource=601;
+    f.scene.resources.back().hash=FrontendNameHash("movie");images.textures[f.scene.resources.back().hash]=texture;
+    result=build();Check(result.ImageCount()==0&&result.unavailable.at("dynamic movie or grab image")==1,"Dynamic movie image accepted an ordinary texture");
+    f.scene.resources.back().hash=hash;images.textures.erase(FrontendNameHash("movie"));
+    texture->width=0;Reject(build);texture->width=16;texture->pixels.pop_back();Reject(build);texture=frontend_image_fixture::Texture(hash);images.textures[hash]=texture;
+    result=build();auto retained=std::get<FrontendLayoutImage>(result.entries[2]).texture;
+    images.textures.clear();texture.reset();f.scene={};Check(retained&&retained->pixels.size()==1024,"Image storage died with source catalog");
+    for(unsigned format:{1u,2u,3u,8u}){auto t=frontend_image_fixture::Texture(hash,format);ValidateFrontendImageTexture(*t);t->levels=12;Reject([&]{ValidateFrontendImageTexture(*t);});}
 }
 void Owned(const std::filesystem::path& root)
 {
@@ -138,8 +183,8 @@ void Owned(const std::filesystem::path& root)
             if(slide->animated)continue;
             try
             {
-                auto result=BuildFrontendLayout(scene,*loc,fonts,id);++frames;entries+=result.text.size();
-                std::cout<<file.path().filename().string()<<'\t'<<slide->name<<'\t'<<result.text.size()<<'\t'<<result.hidden;
+                auto result=BuildFrontendLayout(scene,*loc,fonts,id);++frames;entries+=result.TextCount();
+                std::cout<<file.path().filename().string()<<'\t'<<slide->name<<'\t'<<result.TextCount()<<'\t'<<result.hidden;
                 for(const auto& [reason,count]:result.unavailable)std::cout<<'\t'<<reason<<'='<<count;
                 std::cout<<'\n';
             }
@@ -152,6 +197,6 @@ void Owned(const std::filesystem::path& root)
 }
 int main(int argc,char** argv)
 {
-    try{for(unsigned repeat=0;repeat<3;++repeat){Baseline();Inheritance();TextBoxes();Selection();Components();UnsupportedAndErrors();}if(argc==2)Owned(argv[1]);std::cout<<checks<<" original frontend static layout checks passed\n";return 0;}
+    try{for(unsigned repeat=0;repeat<3;++repeat){Baseline();Inheritance();TextBoxes();Selection();Components();UnsupportedAndErrors();Images();}if(argc==2)Owned(argv[1]);std::cout<<checks<<" original frontend static layout checks passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<"FAILED: "<<e.what()<<" (check "<<checks<<")\n";return 1;}
 }

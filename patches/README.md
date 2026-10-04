@@ -19,13 +19,14 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `9ca59d250587adc0436d08176bec3898aa790fa0`, adopted from
+The current base is `389ec8223cba8dda09934884b1a2967704bec363`, adopted from
 published upstream main. It remains an incomplete development snapshot, not a
-complete decompilation release. This adoption adds source-linked StadiumLoading
-and SoundInstance, with named stadium finalization and typed audio ownership.
-These full units are not automatically selected for native linking. All 66
-existing patches apply without body changes; their base declarations follow the
-new pin. Native resource, physics, effects and audio services remain separate work.
+complete decompilation release. This adoption adds source-linked font drawing,
+measurement, asynchronous font loading and replay choreography. Patches 0026
+and 0070 follow the original text renderer's corrected GLView pointer type;
+the other existing patch bodies apply unchanged. Native source selection and
+verification remain explicit; upstream matching does not enable whole-game
+linking automatically.
 
 The selected camera sources include original authored playback (0056) and
 desktop DebugCam controls (0057). Patch 0058 shares the original frontend
@@ -109,6 +110,40 @@ see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-start
 | `0066-share-original-async-loading-steps.patch` | Share original loading sequence, yield/readiness equations and persistent-pool inputs with a bounded native boot owner. Select only source-defined empty debug markers. | Synthetic sequence, yield, limits and pool-lifetime checks; owned boot bytecode stops explicitly at particle loading. The complete loading dispatcher and frontend remain unlinked. |
 | `0067-select-native-sanim-sampling.patch` | Select original root, weight and equal-count morph sampling on retained native animation records. Disable Wii in-place loading and unselected callback ownership; bound sampling and avoid reading past constant/endpoint weight keys. | Checked channels, independent generated sampling comparisons and owned frontend animations. Unequal-count morph sampling, pose accumulation and skinning remain unqualified. |
 | `0068-share-original-nis-pip-steps.patch` | Share original PIP rectangles, expansion/swap timing and target settings with retained native cameras and rendering. | Exact endpoint and swap tests, target ownership, synthetic-disc entry and two-camera Vulkan composite pixels. Full NisPlayer actors, audio and Holotron remain separate. |
+
+Patch `0072-select-native-effects-registration.patch` shares original group/template
+resolution, persistence and cleanup on retained native records. Exact authored
+colour counts and resource IDs are preserved; user-effect factories, geometry
+registration and particle simulation remain separate services.
+
+Patch `0073-share-original-frontend-animation-steps.patch` shares original key
+sampling, Bezier interpolation and presentation/slide timing with a checked
+native owner. Authored animation runs in the scene preview; full frontend scene
+handlers and menu transitions remain unlinked.
+
+Patch `0074-select-native-particle-simulation.patch` selects original particle
+emission, motion, RNG and quad sampling for a checked CPU owner. It retains the
+authored colour table, bounds native sample conversions and pairs atlas memory
+with its game allocator. GL registration, lighting and rendering stay unselected.
+
+Patch `0075-share-original-frontend-selection.patch` shares the original
+presentation/component clock reset predicates. The native scene session owns
+actual FEN/font/image loading and retained frames; it does not supply the original
+scene-manager stack, handler callbacks or menu readiness.
+
+Patch `0076-select-original-particle-billboards.patch` shares original billboard
+raster and quad writing, selects the textured-colour mesh writer and handles its
+signed short UV streams on the native vertex-colour material path. Real texture
+bindings and original frame storage are owned by the bounded renderer.
+
+Patch `0077-share-original-frontend-instance-steps.patch` shares original named
+instance traversal, setter effects and the loading scene's component setup.
+Native mutations publish complete retained layouts; the HOME-menu manager and
+full scene-handler lifecycle remain separate dependencies.
+
+Patch `0078-include-tweak-pool-destruction.patch` exposes the original inline
+slot-pool destructors to native tweak-registry exception cleanup. Optimized
+builds must not depend on another translation unit emitting those definitions.
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain

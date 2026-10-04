@@ -1,7 +1,6 @@
 #include "resources/effects_bundle.h"
 #include "resources/chunk_reader.h"
 #include <algorithm>
-#include <set>
 
 namespace mscharged::resources
 {
@@ -158,13 +157,12 @@ EffectsBundle ReadEffectsBundle(Bytes resident)
 {
     const auto root=Root(resident);
     Cursor entries(resident,root.payload);EffectsBundle result;Budget budget;
-    std::set<std::uint32_t> group_ids;
     while(entries.position<entries.end)
     {
         Require(result.entries.size()<MaxEntries,"Effects entry budget exceeded");
         auto entry=Entry(resident,entries.Next(0x80024000).payload,budget);
-        for(const auto& group:entry.groups)
-            Require(group_ids.insert(group.hash).second,"Duplicate effects group hash");
+        // EmissionManager replaces repeated group hashes in load order. Keep
+        // every authored entry here; the registration owner resolves aliases.
         result.entries.push_back(std::move(entry));
     }
     return result;

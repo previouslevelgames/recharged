@@ -1,0 +1,444 @@
+Subject: Share original frontend instance setters and loading-scene setup prefix
+
+Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+
+Share actual attribute/visibility/string/resource setter effects with checked
+native snapshots. Share BaseLoadingScene's authored component setup while keeping
+the original HBMManager call in the console caller and explicit as the remaining
+native boundary. No manager readiness, global defaults or menu services selected.
+
+diff --git a/src/Game/FE/tlInstance.cpp b/src/Game/FE/tlInstance.cpp
+--- a/src/Game/FE/tlInstance.cpp
++++ b/src/Game/FE/tlInstance.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/tlInstance.h"
++#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ #include "NL/nlMath.h"
+ #include "NL/nlString.h"
+@@ -133,72 +134,52 @@
+ 
+ void TLInstance::SetAssetPosition(float x, float y, float z)
+ {
+-    m_overloadFlags |= 0x1;
+-    m_overloadedAttributes.v3Position.f.x = x;
+-    m_overloadedAttributes.v3Position.f.y = y;
+-    m_overloadedAttributes.v3Position.f.z = z;
++    FrontendSetAssetPosition(*this, x, y, z);
+ }
+ 
+ void TLInstance::SetAssetRotation(float x, float y, float z)
+ {
+-    m_overloadFlags |= 0x2;
+-    m_overloadedAttributes.v3Rotation.f.x = x;
+-    m_overloadedAttributes.v3Rotation.f.y = y;
+-    m_overloadedAttributes.v3Rotation.f.z = z;
++    FrontendSetAssetRotation(*this, x, y, z);
+ }
+ 
+ void TLInstance::SetAssetScale(float x, float y, float z)
+ {
+-    m_overloadFlags |= 0x4;
+-    m_overloadedAttributes.v3Scale.f.x = x;
+-    m_overloadedAttributes.v3Scale.f.y = y;
+-    m_overloadedAttributes.v3Scale.f.z = z;
++    FrontendSetAssetScale(*this, x, y, z);
+ }
+ 
+ void TLInstance::SetAssetColour(const nlColour& color)
+ {
+-    m_overloadFlags |= 0x10;
+-    m_overloadedAttributes.colour = color;
++    FrontendSetAssetColour(*this, color);
+ }
+ 
+ void TLInstance::SetAssetPivot(float x, float y, float z)
+ {
+-    m_overloadFlags |= 0x8;
+-    m_overloadedAttributes.v3Pivot.f.x = x;
+-    m_overloadedAttributes.v3Pivot.f.y = y;
+-    m_overloadedAttributes.v3Pivot.f.z = z;
++    FrontendSetAssetPivot(*this, x, y, z);
+ }
+ 
+ void TLInstance::SetAssetUVX(float value)
+ {
+-    m_overloadFlags |= 0x40;
+-    m_overloadedAttributes.fUVX = value;
++    FrontendSetAssetUVX(*this, value);
+ }
+ 
+ void TLInstance::SetAssetUVY(float value)
+ {
+-    m_overloadFlags |= 0x80;
+-    m_overloadedAttributes.fUVY = value;
++    FrontendSetAssetUVY(*this, value);
+ }
+ 
+ void TLInstance::SetAssetUVWidth(float value)
+ {
+-    m_overloadFlags |= 0x100;
+-    m_overloadedAttributes.fUVWidth = value;
++    FrontendSetAssetUVWidth(*this, value);
+ }
+ 
+ void TLInstance::SetAssetUVHeight(float value)
+ {
+-    m_overloadFlags |= 0x200;
+-    m_overloadedAttributes.fUVHeight = value;
++    FrontendSetAssetUVHeight(*this, value);
+ }
+ 
+ void TLInstance::SetAssetVisible(bool visible)
+ {
+-    nlColour color = m_overloadedAttributes.colour;
+-    color.c[3] = visible ? 0xFF : 0;
+-    m_overloadFlags |= 0x10;
+-    m_overloadedAttributes.colour = color;
++    FrontendSetAssetVisible(*this, visible);
+ }
+ 
+ inline void TLInstance::SetName(const char* name)
+diff --git a/include/Game/FE/FrontendInstanceSteps.h b/include/Game/FE/FrontendInstanceSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendInstanceSteps.h
+@@ -0,0 +1,138 @@
++#ifndef GAME_FE_FRONTEND_INSTANCE_STEPS_H
++#define GAME_FE_FRONTEND_INSTANCE_STEPS_H
++#include "Game/FE/tlInstance.h"
++
++// Shared original TLInstance setter bodies. The checked native adapter supplies
++// native-owned attributes without constructing a console object graph.
++template<class Instance>
++inline void FrontendSetAssetPosition(Instance& object, float x, float y, float z)
++{
++    object.m_overloadFlags |= 0x1;
++    object.m_overloadedAttributes.v3Position.f.x = x;
++    object.m_overloadedAttributes.v3Position.f.y = y;
++    object.m_overloadedAttributes.v3Position.f.z = z;
++}
++template<class Instance>
++inline void FrontendSetAssetRotation(Instance& object, float x, float y, float z)
++{
++    object.m_overloadFlags |= 0x2;
++    object.m_overloadedAttributes.v3Rotation.f.x = x;
++    object.m_overloadedAttributes.v3Rotation.f.y = y;
++    object.m_overloadedAttributes.v3Rotation.f.z = z;
++}
++template<class Instance>
++inline void FrontendSetAssetScale(Instance& object, float x, float y, float z)
++{
++    object.m_overloadFlags |= 0x4;
++    object.m_overloadedAttributes.v3Scale.f.x = x;
++    object.m_overloadedAttributes.v3Scale.f.y = y;
++    object.m_overloadedAttributes.v3Scale.f.z = z;
++}
++template<class Instance>
++inline void FrontendSetAssetColour(Instance& object, const nlColour& color)
++{
++    object.m_overloadFlags |= 0x10;
++    object.m_overloadedAttributes.colour = color;
++}
++template<class Instance>
++inline void FrontendSetAssetPivot(Instance& object, float x, float y, float z)
++{
++    object.m_overloadFlags |= 0x8;
++    object.m_overloadedAttributes.v3Pivot.f.x = x;
++    object.m_overloadedAttributes.v3Pivot.f.y = y;
++    object.m_overloadedAttributes.v3Pivot.f.z = z;
++}
++template<class Instance>
++inline void FrontendSetAssetUVX(Instance& object, float value)
++{
++    object.m_overloadFlags |= 0x40;
++    object.m_overloadedAttributes.fUVX = value;
++}
++template<class Instance>
++inline void FrontendSetAssetUVY(Instance& object, float value)
++{
++    object.m_overloadFlags |= 0x80;
++    object.m_overloadedAttributes.fUVY = value;
++}
++template<class Instance>
++inline void FrontendSetAssetUVWidth(Instance& object, float value)
++{
++    object.m_overloadFlags |= 0x100;
++    object.m_overloadedAttributes.fUVWidth = value;
++}
++template<class Instance>
++inline void FrontendSetAssetUVHeight(Instance& object, float value)
++{
++    object.m_overloadFlags |= 0x200;
++    object.m_overloadedAttributes.fUVHeight = value;
++}
++template<class Instance>
++inline void FrontendSetAssetVisible(Instance& object, bool visible)
++{
++    nlColour color = object.m_overloadedAttributes.colour;
++    color.c[3] = visible ? 0xFF : 0;
++    object.m_overloadFlags |= 0x10;
++    object.m_overloadedAttributes.colour = color;
++}
++template<class Flags>
++inline void FrontendSetStringIdFlags(Flags& flags) { flags |= 0x8u; }
++template<class Flags>
++inline void FrontendSetUserStringFlags(Flags& flags) { flags &= 0xFFFFFFF7; }
++inline void FrontendSetVisible(bool& target, bool visible) { target = visible; }
++template<class Reference>
++inline void FrontendSetImageResource(Reference& target, const Reference& resource)
++{
++    if (resource != Reference()) target = resource;
++}
++// BaseLoadingScene::SceneCreated up to its real HBMManager dependency.
++// Finder keeps original FindOrDefault on console; the native adapter fails
++// explicitly when a required authored component is absent or has the wrong type.
++template<class Scene, class Viewport, class Finder>
++inline void FrontendLoadingSceneSetupPrefix(Scene& scene, Viewport widescreen, Finder find)
++{
++    scene.mTransitionComponent = find(scene.mPresentation->m_currentSlide, "Layer", "no home");
++    scene.mTransitionComponent->m_bVisible = false;
++    if (widescreen())
++    {
++        scene.mWidescreen = true;
++        scene.mTransitionComponent->SetActiveSlide("widescreen", true, false);
++    }
++}
++// Shared original FEFindInstance control flow. Access maps original pointers or
++// checked file-relative node IDs; ring matching remains first-match in each.
++template<class Access>
++typename Access::Node FrontendFindRecursive(Access&, typename Access::Node, const unsigned long*);
++template<class Access>
++typename Access::Node FrontendFindSlideChildren(Access& access, typename Access::Node top, const unsigned long* levels)
++{
++    if (!top) return typename Access::Node();
++    typename Access::Node child = access.Child(top, levels[0]);
++    if (!child || levels[1] == 0) return child;
++    return FrontendFindRecursive(access, child, levels + 1);
++}
++template<class Access>
++typename Access::Node FrontendFindRecursive(Access& access, typename Access::Node instance, const unsigned long* levels)
++{
++    if (!instance) return typename Access::Node();
++    bool component = access.IsComponent(instance);
++    typename Access::Node child;
++    if (component)
++    {
++        child = access.ComponentSlide(instance, levels[0]);
++        if (!child)
++            return FrontendFindSlideChildren(access, access.ActiveComponentSlide(instance), levels);
++    }
++    else child = access.Child(instance, levels[0]);
++    if (!child || levels[1] == 0) return child;
++    if (component) return FrontendFindSlideChildren(access, child, levels + 1);
++    return FrontendFindRecursive(access, child, levels + 1);
++}
++template<class Access>
++typename Access::Node FrontendFindPresentation(Access& access, const unsigned long* levels)
++{
++    typename Access::Node child = access.PresentationSlide(levels[0]);
++    if (!child) return FrontendFindSlideChildren(access, access.ActivePresentationSlide(), levels);
++    if (levels[1] == 0) return child;
++    return FrontendFindSlideChildren(access, child, levels + 1);
++}
++#endif
+diff --git a/src/Game/FE/feFinder.cpp b/src/Game/FE/feFinder.cpp
+--- a/src/Game/FE/feFinder.cpp
++++ b/src/Game/FE/feFinder.cpp
+@@ -1,54 +1,50 @@
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/tlComponent.h"
++#include "Game/FE/FrontendInstanceSteps.h"
++
++struct FrontendOriginalFinder
++{
++    struct Node
++    {
++        void* pointer;
++        bool slide;
++        Node(void* value = 0, bool isSlide = false) : pointer(value), slide(isSlide) {}
++        operator bool() const { return pointer != 0; }
++    };
++    FEPresentation* presentation;
++    FrontendOriginalFinder(FEPresentation* p = 0) : presentation(p) {}
++    Node Child(Node n, unsigned long hash) const
++    {
++        TLInstance* children = n.slide ? ((TLSlide*)n.pointer)->pChildren : ((TLInstance*)n.pointer)->pChildren;
++        return Node(FindItemByHashID(children, hash));
++    }
++    bool IsComponent(Node n) const { return ((TLInstance*)n.pointer)->m_type == TLAT_COMPONENT; }
++    Node ComponentSlide(Node n, unsigned long hash) const
++    { return Node(FindItemByHashID(((TLComponent*)((TLInstance*)n.pointer)->m_component)->pChildren, hash), true); }
++    Node ActiveComponentSlide(Node n) const
++    { return Node(((TLComponentInstance*)n.pointer)->GetActiveSlide(), true); }
++    Node PresentationSlide(unsigned long hash) const
++    { return Node(FindItemByHashID(presentation->m_slides, hash), true); }
++    Node ActivePresentationSlide() const { return Node(presentation->m_currentSlide, true); }
++};
+ 
+ void* FEFindInstance(FEPresentation* pPresentation, unsigned long Level1, unsigned long Level2,
+     unsigned long Level3, unsigned long Level4, unsigned long Level5, unsigned long Level6)
+ {
+-    if (pPresentation == 0)
+-        return 0;
+-
+-    TLSlide* pChild = FindItemByHashID(pPresentation->m_slides, Level1);
+-    if (pChild == 0)
+-        return FEFinder<void, TLAT_UNKNOWN>::_Find(pPresentation->m_currentSlide,
+-            Level1, Level2, Level3, Level4, Level5, Level6);
+-    if (Level2 == 0)
+-        return pChild;
+-    return FEFinder<void, TLAT_UNKNOWN>::_Find(pChild,
+-        Level2, Level3, Level4, Level5, Level6, 0);
++    if (pPresentation == 0) return 0;
++    const unsigned long levels[] = { Level1, Level2, Level3, Level4, Level5, Level6, 0 };
++    FrontendOriginalFinder access(pPresentation);
++    return FrontendFindPresentation(access, levels).pointer;
+ }
+-
+ void* FEFindInstance(TLInstance* pInstance, unsigned long Level1, unsigned long Level2,
+     unsigned long Level3, unsigned long Level4, unsigned long Level5, unsigned long Level6)
+ {
+     return FEFindInstanceRecursive(pInstance, Level1, Level2, Level3, Level4, Level5, Level6);
+ }
+-
+ void* FEFindInstanceRecursive(TLInstance* pInstance, unsigned long Level1, unsigned long Level2,
+     unsigned long Level3, unsigned long Level4, unsigned long Level5, unsigned long Level6)
+ {
+-    if (pInstance == 0)
+-        return 0;
+-
+-    eTimeLineAssetType type = pInstance->m_type;
+-    void* pChild;
+-    if (type == TLAT_COMPONENT)
+-    {
+-        TLComponent* pComponent = (TLComponent*)pInstance->m_component;
+-        pChild = FindItemByHashID(pComponent->pChildren, Level1);
+-        if (pChild == 0)
+-            return FEFinder<void, TLAT_UNKNOWN>::_Find(
+-                ((TLComponentInstance*)pInstance)->GetActiveSlide(),
+-                Level1, Level2, Level3, Level4, Level5, Level6);
+-    }
+-    else
+-    {
+-        pChild = FindItemByHashID(pInstance->pChildren, Level1);
+-    }
+-
+-    if (pChild == 0 || Level2 == 0)
+-        return pChild;
+-    if (type == TLAT_COMPONENT)
+-        return FEFinder<void, TLAT_UNKNOWN>::_Find((TLSlide*)pChild,
+-            Level2, Level3, Level4, Level5, Level6, 0);
+-    return FEFindInstanceRecursive((TLInstance*)pChild, Level2, Level3, Level4, Level5, Level6, 0);
++    const unsigned long levels[] = { Level1, Level2, Level3, Level4, Level5, Level6, 0 };
++    FrontendOriginalFinder access;
++    return FrontendFindRecursive(access, FrontendOriginalFinder::Node(pInstance), levels).pointer;
+ }
+diff --git a/include/Game/FE/tlInstance.inl b/include/Game/FE/tlInstance.inl
+--- a/include/Game/FE/tlInstance.inl
++++ b/include/Game/FE/tlInstance.inl
+@@ -2,10 +2,11 @@
+ #define GAME_FE_TLINSTANCE_INL
+ 
+ #include "Game/FE/tlInstance.h"
++#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ inline void TLInstance::SetVisible(bool visible)
+ {
+-    m_bVisible = visible;
++    FrontendSetVisible(m_bVisible, visible);
+ }
+ 
+ inline eTimeLineAssetType TLInstance::GetType() const
+diff --git a/include/Game/FE/tlImageInstance.h b/include/Game/FE/tlImageInstance.h
+--- a/include/Game/FE/tlImageInstance.h
++++ b/include/Game/FE/tlImageInstance.h
+@@ -2,6 +2,7 @@
+ #define GAME_FE_TL_IMAGE_INSTANCE_H
+ 
+ #include "Game/FE/tlInstance.h"
++#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ class FETextureResource;
+ 
+@@ -18,8 +19,7 @@
+     FETextureResource*& GetTextureResource() { return m_pTextureResource; }
+     void SetTextureResource(FETextureResource* resource)
+     {
+-        if (resource != 0)
+-            m_pTextureResource = resource;
++        FrontendSetImageResource(m_pTextureResource, resource);
+     }
+ 
+     /* 0x90 */ FETextureResource* m_pTextureResource;
+diff --git a/src/Game/FE/tlTextInstance.cpp b/src/Game/FE/tlTextInstance.cpp
+--- a/src/Game/FE/tlTextInstance.cpp
++++ b/src/Game/FE/tlTextInstance.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/tlTextInstance.h"
++#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
+@@ -10,5 +11,5 @@
+         id += 4;
+     }
+     m_LocStrId = nlStringLowerHash(id);
+-    m_OverloadFlags |= 0x8u;
++    FrontendSetStringIdFlags(m_OverloadFlags);
+ }
+diff --git a/src/Game/FE/tlTextInstance_runtime.cpp b/src/Game/FE/tlTextInstance_runtime.cpp
+--- a/src/Game/FE/tlTextInstance_runtime.cpp
++++ b/src/Game/FE/tlTextInstance_runtime.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/tlTextInstance.h"
++#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ #include "Game/FE/feText.h"
+ #include "NL/nlAlgorithm.h"
+@@ -166,7 +167,7 @@
+ {
+     m_wcUserString = utf16;
+     m_pFontString = 0;
+-    m_OverloadFlags &= 0xFFFFFFF7;
++    FrontendSetUserStringFlags(m_OverloadFlags);
+ }
+ 
+ void TLTextInstance::SetScissorBox(u16 left, u16 top, u16 width, u16 height)
+diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
+--- a/src/Game/SH/SHLoading.cpp
++++ b/src/Game/SH/SHLoading.cpp
+@@ -1,6 +1,7 @@
+ #include "Game/HBMManager.h"
+ 
+ #include "Game/SH/SHLoading.h"
++#include "Game/FE/FrontendInstanceSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ 
+ #include "Game/BaseGameSceneManager.h"
+@@ -173,16 +174,17 @@
+     }
+ }
+ 
++struct LoadingSceneTransitionFinder
++{
++    TLComponentInstance* operator()(TLSlide* slide, const char* layer, const char* component) const
++    {
++        return FEFinder<TLComponentInstance, TLAT_COMPONENT>::FindOrDefault(slide, layer, component);
++    }
++};
++
+ void BaseLoadingScene::SceneCreated()
+ {
+-    mTransitionComponent = FEFinder<TLComponentInstance, TLAT_COMPONENT>::FindOrDefault(mPresentation->m_currentSlide, "Layer", "no home");
+-    mTransitionComponent->m_bVisible = false;
+-
+-    if (IsWidescreen())
+-    {
+-        mWidescreen = true;
+-        mTransitionComponent->SetActiveSlide("widescreen", true, false);
+-    }
++    FrontendLoadingSceneSetupPrefix(*this, &IsWidescreen, LoadingSceneTransitionFinder());
+ 
+     gpHBMManager->SetBlocked(false);
+ }

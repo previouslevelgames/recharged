@@ -17,12 +17,20 @@ struct Controls
     nlVector3 start{}, orbit{}, reset{}, pan{}, final{};
     std::array<bool, 5> observed{};
     bool raised = false, reported = false, focused = false;
+    int phase_start = -1;
+    bool lost_focus = false;
     static void Update(void* context)
     {
         auto& self = *static_cast<Controls*>(context);
         if (!self.joystick) return;
         const int frame = glGetCurrentFrame();
-        self.focused = self.focused || SDL_GetKeyboardFocus() != nullptr;
+        const bool focused = SDL_GetKeyboardFocus() != nullptr;
+        self.focused = self.focused || focused;
+        // Wayland may grant focus after several rendered frames. Start with
+        // neutral input so the production focus latch can rearm before orbit.
+        if (self.phase_start < 0 && focused && frame >= 2) self.phase_start = frame + 2;
+        const int phase = self.phase_start < 0 ? -1 : frame - self.phase_start;
+        if (phase >= 0 && phase <= 59 && !focused) self.lost_focus = true;
         int count = 0; SDL_Window** windows = SDL_GetWindows(&count);
         if (!self.raised && count && !(SDL_GetWindowFlags(windows[0]) & SDL_WINDOW_HIDDEN))
         { SDL_RaiseWindow(windows[0]); self.raised = true; }
@@ -33,13 +41,13 @@ struct Controls
             self.reported = true;
         }
         SDL_free(windows);
-        SDL_SetJoystickVirtualAxis(self.joystick, SDL_GAMEPAD_AXIS_RIGHTX, frame >= 3 && frame < 20 ? 32767 : 0);
-        SDL_SetJoystickVirtualAxis(self.joystick, SDL_GAMEPAD_AXIS_LEFTX, frame >= 35 && frame < 50 ? 16384 : 0);
-        SDL_SetJoystickVirtualButton(self.joystick, SDL_GAMEPAD_BUTTON_BACK, frame == 25 || frame == 55);
+        SDL_SetJoystickVirtualAxis(self.joystick, SDL_GAMEPAD_AXIS_RIGHTX, phase >= 3 && phase < 20 ? 32767 : 0);
+        SDL_SetJoystickVirtualAxis(self.joystick, SDL_GAMEPAD_AXIS_LEFTX, phase >= 35 && phase < 50 ? 16384 : 0);
+        SDL_SetJoystickVirtualButton(self.joystick, SDL_GAMEPAD_BUTTON_BACK, phase == 25 || phase == 55);
         const std::array<int, 5> samples{2,23,29,52,59};
         const std::array<nlVector3*, 5> values{&self.start,&self.orbit,&self.reset,&self.pan,&self.final};
         for (unsigned i = 0; i < samples.size(); ++i)
-            if (frame == samples[i]) { *values[i] = cCameraManager::m_cameraPosition; self.observed[i] = true; }
+            if (phase == samples[i]) { *values[i] = cCameraManager::m_cameraPosition; self.observed[i] = true; }
     }
 };
 float Distance(const nlVector3& a, const nlVector3& b)
@@ -49,7 +57,7 @@ int main(int argc, char** argv)
 {
     if (argc < 2) return 2;
     mscharged::SceneOptions options;
-    options.debug_camera = true; options.frames = 60;
+    options.debug_camera = true; options.frames = 180;
     options.world = "/world.tmp.zlib"; options.world_res = "/world.res.zlib";
     options.object_ids = {0x10,0x20};
     if (argc >= 5)
@@ -87,7 +95,8 @@ int main(int argc, char** argv)
     if (SDL_WasInit(SDL_INIT_GAMEPAD))
     { SDL_CloseJoystick(controls.joystick); SDL_DetachVirtualJoystick(id); SDL_Quit(); }
     if (result) return result;
-    if (!controls.focused) { std::cout << "Rendered input check skipped: compositor did not focus the preview\n"; return 77; }
+    if (!controls.focused || controls.lost_focus || !controls.observed.back())
+    { std::cout << "Rendered input check skipped: compositor did not maintain focus for the complete input sequence\n"; return 77; }
     for (bool observed : controls.observed) if (!observed) { std::cerr << "Missing rendered input sample\n"; return 1; }
     const float orbit = Distance(controls.start,controls.orbit), pan = Distance(controls.reset,controls.pan);
     const float reset = Distance(controls.start,controls.reset), final = Distance(controls.start,controls.final);
