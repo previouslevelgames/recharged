@@ -19,14 +19,13 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `389ec8223cba8dda09934884b1a2967704bec363`, adopted from
-published upstream main. It remains an incomplete development snapshot, not a
-complete decompilation release. This adoption adds source-linked font drawing,
-measurement, asynchronous font loading and replay choreography. Patches 0026
-and 0070 follow the original text renderer's corrected GLView pointer type;
-the other existing patch bodies apply unchanged. Native source selection and
-verification remain explicit; upstream matching does not enable whole-game
-linking automatically.
+The current base is `9f985f9aca654d7ec13ff894830f19aeb3f7aefd`, adopted from
+published upstream main. It remains an incomplete development snapshot. This
+update includes matching, source-linked pose accumulation, world visibility and
+DebugWriteCache. Patches 0038 and 0066 follow revised event/header context;
+0084 preserves the matched pose arithmetic, adapts the two PowerPC return-value
+captures and retires the native world-matrix initialization workaround now
+covered upstream. Native source selection and validation remain explicit.
 
 The selected camera sources include original authored playback (0056) and
 desktop DebugCam controls (0057). Patch 0058 shares the original frontend
@@ -169,11 +168,11 @@ timing, completion callbacks, stop guards and manager ID progression. Native
 controller groups retain the original particle pool, atlas and RNG together;
 pose, model, light, user-effect and replay services remain separate work.
 
-Patch `0084-select-native-pose-accumulator.patch` selects provisional original
+Patch `0084-select-native-pose-accumulator.patch` selects matched original
 pose blending and matrix construction with paired native array ownership,
-allocation rollback and defined temporary lifetimes. The upstream TU remains
-NonMatching. Independent CPU checks cover transforms and ownership; pose-tree
-evaluation, replay and skinned rendering remain pending.
+allocation rollback and defined temporary lifetimes. The TU is now matching
+and linked upstream. Independent CPU checks cover transforms and ownership;
+pose-tree evaluation, replay and complete character rendering remain pending.
 
 Patch `0085-select-original-frontend-image-packets.patch` selects original image
 quad packets and shares their raster setup. Mixed frontend frames retain image
@@ -183,6 +182,15 @@ Patch `0086-share-original-frontend-handler-steps.patch` shares base update,
 activation, screen-ring and loading-notification rules. Native scene ownership
 uses real frontend input; the original manager's state-6 gate and unavailable
 concrete handlers and HOME services remain explicit boundaries.
+
+Patch `0087-share-original-retail-boot-loading.patch` shares the retail boot
+screen's setup, input, fade and phase selection with a retained native adapter.
+It stops at the original logo sound request until audio services are available.
+
+Patch `0088-share-original-sanim-pose-steps.patch` shares the original bone-channel
+interpolation and unmapped-node fallback with native pose sampling. Native bounds
+checks handle singleton and rounded terminal samples; complete animation
+controllers, morphs and skinning remain separate work.
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain

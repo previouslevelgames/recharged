@@ -1,0 +1,595 @@
+From: mscharged-port contributors
+Subject: [PATCH] Share original retail boot loading setup and phase steps
+Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+
+Retain original setup, input order, clocks, strap fade and service boundaries
+with typed retained-scene adapters and console forwarding to the same bodies.
+
+diff --git a/include/Game/FE/FrontendBootLoadingSteps.h b/include/Game/FE/FrontendBootLoadingSteps.h
+new file mode 100644
+index 0000000..68400ae
+--- /dev/null
++++ b/include/Game/FE/FrontendBootLoadingSteps.h
+@@ -0,0 +1,258 @@
++#ifndef FRONTEND_BOOT_LOADING_STEPS_H
++#define FRONTEND_BOOT_LOADING_STEPS_H
++#include "NL/nlLocalization.h"
++// Original retail BootLoadingScene fragments. Services and native ownership are
++// supplied explicitly; no audio/HOME/scene-manager readiness is synthesized.
++template<class Image, class Component, class Presentation, class State, class Wide, class Language, class FindImage, class FindComponent, class Phase>
++void FrontendBootCreated(State& s, int currentLanguage, int language, Wide widescreen, Language systemLanguage,
++                         FindImage findImage, FindComponent findComponent, Phase setPhase)
++{
++    Presentation* presentation = s.mPresentation;
++    if (currentLanguage == nlLocalization::LangJapanese)
++    {
++        if (widescreen())
++        {
++            s.mStrapImage = findImage(presentation, false, "strap",
++                "Layer", "strap_16_9_jp");
++            Image* image = findImage(presentation, true, "strap",
++                "Layer", "strap_jp");
++            image->SetVisible(false);
++            s.mWidescreen = true;
++        }
++        else
++        {
++            s.mStrapImage = findImage(presentation, false, "strap",
++                "Layer", "strap_jp");
++            Image* image = findImage(presentation, true, "strap",
++                "Layer", "strap_16_9_jp");
++            image->SetVisible(false);
++        }
++    }
++    else if (widescreen())
++    {
++        s.mStrapImage = findImage(presentation, false, "strap",
++            "Layer", "strap_16_9_us");
++        Image* image = findImage(presentation, true, "strap",
++            "Layer", "strap_us");
++        image->SetVisible(false);
++        s.mWidescreen = true;
++    }
++    else
++    {
++        s.mStrapImage = findImage(presentation, false, "strap",
++            "Layer", "strap_us");
++        Image* image = findImage(presentation, true, "strap",
++            "Layer", "strap_16_9_us");
++        image->SetVisible(false);
++    }
++    Image* image = 0;
++    switch (language)
++    {
++    case nlLocalization::LangFrench:
++    case nlLocalization::LangNAFrench:
++        if (widescreen())
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_16_9_French");
++        else
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_French");
++        break;
++    case nlLocalization::LangGerman:
++        if (widescreen())
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_16_9_German");
++        else
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_German");
++        break;
++    case nlLocalization::LangSpanish:
++    case nlLocalization::LangNASpanish:
++        if (widescreen())
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_16_9_Spanish");
++        else
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_Spanish");
++        break;
++    case nlLocalization::LangItalian:
++        if (widescreen())
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_16_9_Italian");
++        else
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_Italian");
++        break;
++    }
++    if (systemLanguage() == 6)
++    {
++        if (widescreen())
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_16_9_Dutch");
++        else
++            image = findImage(presentation, false, "art",
++                "Layer", "strap_Dutch");
++    }
++    if (image != 0)
++        s.mStrapImage->SetTextureResource(image->GetTextureResource());
++    setPhase();
++    s.mHomeButtonWarning = findComponent(presentation->m_currentSlide,
++        "Layer", "no home", 0, 0, 0, 0);
++    s.mHomeButtonWarning->SetVisible(false);
++    Component* component;
++    component = findComponent(presentation, "Slide1",
++        "Layer", "no home");
++    component->SetVisible(false);
++    component = findComponent(presentation, "ESRB",
++        "Layer", "no home");
++    component->SetVisible(false);
++    component = findComponent(presentation, "strap",
++        "Layer", "no home");
++    component->SetVisible(false);
++    component = findComponent(presentation, "nunchuk",
++        "Layer", "no home");
++    component->SetVisible(false);
++    component = findComponent(presentation, "NLG",
++        "Layer", "no home");
++    component->SetVisible(false);
++    if (s.mWidescreen)
++        s.mHomeButtonWarning->SetActiveSlide("widescreen", true, false);
++    else
++        s.mHomeButtonWarning->SetActiveSlide("Slide1", true, false);
++}
++template<class Colour, class Slide, class State, class Update, class Region, class Pressed, class Phase, class Unload>
++void FrontendBootUpdate(State& s, float fDeltaT, Update baseUpdate, Region region, Pressed pressed, Phase setPhase, Unload unloadBank)
++{
++    baseUpdate(fDeltaT);
++    if (s.mPhase == 0)
++    {
++        Slide* slide = s.mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            s.mPhase = 3;
++            s.mElapsedTime = 0.0f;
++            setPhase();
++        }
++    }
++    else if (s.mPhase == 1)
++    {
++        if (s.mStrapDismissed)
++        {
++            int fadeRate = 2 * 255;
++            s.mStrapAlpha -= fadeRate * fDeltaT;
++            if (s.mStrapAlpha <= 0.0f)
++                s.mStrapAlpha = 0.0f;
++            Colour colour = { 255, 255, 255, 0 };
++            colour.c[3] = (unsigned char)s.mStrapAlpha;
++            s.mStrapImage->SetAssetColour(colour);
++            if (s.mStrapAlpha <= 0.0f)
++            {
++                s.mElapsedTime = 0.0f;
++                s.mPhase = 2;
++                setPhase();
++            }
++        }
++        else
++        {
++            s.mElapsedTime += fDeltaT;
++            if (s.mElapsedTime >= 1.5f)
++            {
++                if (pressed(8, 0x20, true, 0)
++                    || pressed(8, 0x08, true, 0)
++                    || pressed(8, 0x1E, true, 0)
++                    || pressed(8, 0x1F, true, 0)
++                    || pressed(8, 0x2A, true, 0)
++                    || pressed(8, 0x2B, true, 0)
++                    || pressed(8, 0x28, true, 0)
++                    || pressed(8, 0x29, true, 0))
++                    s.mStrapDismissed = true;
++                if (s.mElapsedTime >= 15.5f)
++                    s.mStrapDismissed = true;
++            }
++        }
++    }
++    else if (s.mPhase == 2)
++    {
++        Slide* slide = s.mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            s.mElapsedTime = 0.0f;
++            if (region() == 0)
++                s.mPhase = 0;
++            else
++                s.mPhase = 3;
++            setPhase();
++        }
++    }
++    else if (s.mPhase == 3)
++    {
++        Slide* slide = s.mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            s.mPhase = 4;
++            s.mElapsedTime = 0.0f;
++            unloadBank(0x17);
++        }
++    }
++    else if (s.mPhase == 4)
++    {
++        if (s.mElapsedTime >= 0.0f)
++        {
++            s.mElapsedTime += fDeltaT;
++            if (s.mElapsedTime >= 0.5f)
++            {
++                setPhase();
++                s.mElapsedTime = -1.0f;
++            }
++        }
++    }
++    if (s.mHomeButtonWarningActive)
++    {
++        Slide* slide = s.mHomeButtonWarning->GetActiveSlide();
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            s.mHomeButtonWarning->SetVisible(false);
++            s.mHomeButtonWarningActive = false;
++        }
++    }
++}
++template<class Slide, class State, class Play, class FindComponent>
++void FrontendBootSetPhase(State& s, Play playSound, FindComponent findComponent)
++{
++    switch (s.mPhase)
++    {
++    case 0:
++        s.mPresentation->SetActiveSlide("ESRB", true);
++        break;
++    case 1:
++        s.mPresentation->SetActiveSlide("strap", true);
++        break;
++    case 2:
++        s.mPresentation->SetActiveSlide("nunchuk", true);
++        break;
++    case 4:
++        s.mPresentation->SetActiveSlide("Slide1", true);
++        break;
++    case 3:
++        s.mPresentation->SetActiveSlide("NLG", true);
++        playSound(0x17, 0xDE83984E, 0, 0);
++        break;
++    }
++    if (s.mHomeButtonWarning != 0)
++    {
++        float time = s.mHomeButtonWarning->GetActiveSlide()->GetCurrentTime();
++        s.mHomeButtonWarning = findComponent(
++            s.mPresentation->GetActiveSlide(), "Layer", "no home");
++        if (s.mWidescreen)
++            s.mHomeButtonWarning->SetActiveSlide("widescreen", true, false);
++        else
++            s.mHomeButtonWarning->SetActiveSlide("Slide1", true, false);
++        if (s.mHomeButtonWarningActive)
++        {
++            Slide* slide = s.mHomeButtonWarning->GetActiveSlide();
++            if (time < slide->GetStartTime() + slide->GetDuration())
++                s.mHomeButtonWarning->SetVisible(true);
++        }
++        s.mHomeButtonWarning->Update(time);
++    }
++}
++#endif
+diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
+index 96459df..1d407d2 100644
+--- a/src/Game/SH/SHBootLoading.cpp
++++ b/src/Game/SH/SHBootLoading.cpp
+@@ -3,6 +3,7 @@
+ #include "Game/Audio/RegistryPools.h"
+ 
+ #include "Game/SH/SHBootLoading.h"
++#include "Game/FE/FrontendBootLoadingSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/FEAudio.h"
+@@ -25,6 +26,50 @@
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/tlDefault.h"
+ 
++
++namespace
++{
++struct BootWide { bool operator()() const { return IsWidescreen(); } };
++struct BootSystemLanguage { int operator()() const { return SCGetLanguage(); } };
++struct BootRegion { int operator()() const { return GetRegion(); } };
++struct BootPhase
++{
++    BootLoadingScene* scene;
++    void operator()() const { scene->SetPhaseSlide(); }
++};
++struct BootBaseUpdate
++{
++    BootLoadingScene* scene;
++    void operator()(float delta) const { scene->BaseSceneHandler::Update(delta); }
++};
++struct BootPressed
++{
++    bool operator()(int pad, int action, bool remap, eFEINPUT_PAD* found) const
++    { return g_pFEInput->JustPressed((eFEINPUT_PAD)pad, action, remap, found); }
++};
++struct BootUnload
++{
++    void operator()(int bank) const { g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(bank); }
++};
++struct BootPlay
++{
++    void operator()(int bank, unsigned long cue, const void* name, void* context) const
++    { FEAudio::PlaySound(bank, cue, name, context); }
++};
++struct BootImageFinder
++{
++    TLImageInstance* operator()(FEPresentation* p, bool useDefault, const char* slide, const char* layer, const char* name) const
++    { return useDefault ? FEFinder<TLImageInstance, 2>::FindOrDefault(p, slide, layer, name) : FEFinder<TLImageInstance, 2>::Find(p, slide, layer, name); }
++};
++struct BootComponentFinder
++{
++    TLComponentInstance* operator()(FEPresentation* p, const char* slide, const char* layer, const char* name) const
++    { return FEFinder<TLComponentInstance, 4>::FindOrDefault(p, slide, layer, name); }
++    TLComponentInstance* operator()(TLSlide* slide, const char* layer, const char* name, int = 0, int = 0, int = 0, int = 0) const
++    { return FEFinder<TLComponentInstance, 4>::FindOrDefault(slide, nlStringLowerHash(layer), nlStringLowerHash(name), 0, 0, 0, 0); }
++};
++}
++
+ BootLoadingScene::BootLoadingScene()
+     : mElapsedTime(0.0f)
+     , mStrapAlpha(255.0f)
+@@ -42,253 +87,21 @@ BootLoadingScene::~BootLoadingScene()
+ 
+ void BootLoadingScene::SceneCreated()
+ {
+-    FEPresentation* presentation = mPresentation;
+-    if (g_pLocalization->m_CurrentLanguage == nlLocalization::LangJapanese)
+-    {
+-        if (IsWidescreen())
+-        {
+-            mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_jp"));
+-            TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
+-                InlineHasher("Layer"), InlineHasher("strap_jp"));
+-            image->SetVisible(false);
+-            mWidescreen = true;
+-        }
+-        else
+-        {
+-            mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
+-                InlineHasher("Layer"), InlineHasher("strap_jp"));
+-            TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_jp"));
+-            image->SetVisible(false);
+-        }
+-    }
+-    else if (IsWidescreen())
+-    {
+-        mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
+-            InlineHasher("Layer"), InlineHasher("strap_16_9_us"));
+-        TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
+-            InlineHasher("Layer"), InlineHasher("strap_us"));
+-        image->SetVisible(false);
+-        mWidescreen = true;
+-    }
+-    else
+-    {
+-        mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
+-            InlineHasher("Layer"), InlineHasher("strap_us"));
+-        TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
+-            InlineHasher("Layer"), InlineHasher("strap_16_9_us"));
+-        image->SetVisible(false);
+-    }
+-    TLImageInstance* image = 0;
+-    switch (g_Language)
+-    {
+-    case nlLocalization::LangFrench:
+-    case nlLocalization::LangNAFrench:
+-        if (IsWidescreen())
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_French"));
+-        else
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_French"));
+-        break;
+-    case nlLocalization::LangGerman:
+-        if (IsWidescreen())
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_German"));
+-        else
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_German"));
+-        break;
+-    case nlLocalization::LangSpanish:
+-    case nlLocalization::LangNASpanish:
+-        if (IsWidescreen())
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_Spanish"));
+-        else
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_Spanish"));
+-        break;
+-    case nlLocalization::LangItalian:
+-        if (IsWidescreen())
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_Italian"));
+-        else
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_Italian"));
+-        break;
+-    }
+-    if (SCGetLanguage() == 6)
+-    {
+-        if (IsWidescreen())
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_16_9_Dutch"));
+-        else
+-            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
+-                InlineHasher("Layer"), InlineHasher("strap_Dutch"));
+-    }
+-    if (image != 0)
+-        mStrapImage->SetTextureResource(image->GetTextureResource());
+-    SetPhaseSlide();
+-    mHomeButtonWarning = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation->m_currentSlide,
+-        nlStringLowerHash("Layer"), nlStringLowerHash("no home"), 0, 0, 0, 0);
+-    mHomeButtonWarning->SetVisible(false);
+-    TLComponentInstance* component;
+-    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("Slide1"),
+-        InlineHasher("Layer"), InlineHasher("no home"));
+-    component->SetVisible(false);
+-    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("ESRB"),
+-        InlineHasher("Layer"), InlineHasher("no home"));
+-    component->SetVisible(false);
+-    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("strap"),
+-        InlineHasher("Layer"), InlineHasher("no home"));
+-    component->SetVisible(false);
+-    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("nunchuk"),
+-        InlineHasher("Layer"), InlineHasher("no home"));
+-    component->SetVisible(false);
+-    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("NLG"),
+-        InlineHasher("Layer"), InlineHasher("no home"));
+-    component->SetVisible(false);
+-    if (mWidescreen)
+-        mHomeButtonWarning->SetActiveSlide("widescreen", true, false);
+-    else
+-        mHomeButtonWarning->SetActiveSlide("Slide1", true, false);
++    BootPhase phase = { this };
++    FrontendBootCreated<TLImageInstance, TLComponentInstance, FEPresentation>(*this, g_pLocalization->m_CurrentLanguage,
++        g_Language, BootWide(), BootSystemLanguage(), BootImageFinder(), BootComponentFinder(), phase);
+ }
+ 
+ void BootLoadingScene::Update(float fDeltaT)
+ {
+-    BaseSceneHandler::Update(fDeltaT);
+-    if (mPhase == 0)
+-    {
+-        TLSlide* slide = mPresentation->m_currentSlide;
+-        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
+-        {
+-            mPhase = 3;
+-            mElapsedTime = 0.0f;
+-            SetPhaseSlide();
+-        }
+-    }
+-    else if (mPhase == 1)
+-    {
+-        if (mStrapDismissed)
+-        {
+-            int fadeRate = 2 * 255;
+-            mStrapAlpha -= fadeRate * fDeltaT;
+-            if (mStrapAlpha <= 0.0f)
+-                mStrapAlpha = 0.0f;
+-            nlColour colour = { 255, 255, 255, 0 };
+-            colour.c[3] = (unsigned char)mStrapAlpha;
+-            mStrapImage->SetAssetColour(colour);
+-            if (mStrapAlpha <= 0.0f)
+-            {
+-                mElapsedTime = 0.0f;
+-                mPhase = 2;
+-                SetPhaseSlide();
+-            }
+-        }
+-        else
+-        {
+-            mElapsedTime += fDeltaT;
+-            if (mElapsedTime >= 1.5f)
+-            {
+-                if (g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x20, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x08, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x1E, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x1F, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x2A, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x2B, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x28, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x29, true, 0))
+-                    mStrapDismissed = true;
+-                if (mElapsedTime >= 15.5f)
+-                    mStrapDismissed = true;
+-            }
+-        }
+-    }
+-    else if (mPhase == 2)
+-    {
+-        TLSlide* slide = mPresentation->m_currentSlide;
+-        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
+-        {
+-            mElapsedTime = 0.0f;
+-            if (GetRegion() == 0)
+-                mPhase = 0;
+-            else
+-                mPhase = 3;
+-            SetPhaseSlide();
+-        }
+-    }
+-    else if (mPhase == 3)
+-    {
+-        TLSlide* slide = mPresentation->m_currentSlide;
+-        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
+-        {
+-            mPhase = 4;
+-            mElapsedTime = 0.0f;
+-            g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
+-        }
+-    }
+-    else if (mPhase == 4)
+-    {
+-        if (mElapsedTime >= 0.0f)
+-        {
+-            mElapsedTime += fDeltaT;
+-            if (mElapsedTime >= 0.5f)
+-            {
+-                SetPhaseSlide();
+-                mElapsedTime = -1.0f;
+-            }
+-        }
+-    }
+-    if (mHomeButtonWarningActive)
+-    {
+-        TLSlide* slide = mHomeButtonWarning->GetActiveSlide();
+-        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
+-        {
+-            mHomeButtonWarning->m_bVisible = false;
+-            mHomeButtonWarningActive = false;
+-        }
+-    }
++    BootBaseUpdate update = { this };
++    BootPhase phase = { this };
++    FrontendBootUpdate<nlColour, TLSlide>(*this, fDeltaT, update, BootRegion(), BootPressed(), phase, BootUnload());
+ }
+ 
+ void BootLoadingScene::SetPhaseSlide()
+ {
+-    switch (mPhase)
+-    {
+-    case 0:
+-        mPresentation->SetActiveSlide("ESRB", true);
+-        break;
+-    case 1:
+-        mPresentation->SetActiveSlide("strap", true);
+-        break;
+-    case 2:
+-        mPresentation->SetActiveSlide("nunchuk", true);
+-        break;
+-    case 4:
+-        mPresentation->SetActiveSlide("Slide1", true);
+-        break;
+-    case 3:
+-        mPresentation->SetActiveSlide("NLG", true);
+-        FEAudio::PlaySound(0x17, 0xDE83984E, 0, 0);
+-        break;
+-    }
+-    if (mHomeButtonWarning != 0)
+-    {
+-        float time = mHomeButtonWarning->GetActiveSlide()->m_time;
+-        mHomeButtonWarning = FEFinder<TLComponentInstance, 4>::FindOrDefault(
+-            mPresentation->GetActiveSlide(), "Layer", "no home");
+-        if (mWidescreen)
+-            mHomeButtonWarning->SetActiveSlide("widescreen", true, false);
+-        else
+-            mHomeButtonWarning->SetActiveSlide("Slide1", true, false);
+-        if (mHomeButtonWarningActive)
+-        {
+-            TLSlide* slide = mHomeButtonWarning->GetActiveSlide();
+-            if (time < slide->GetStartTime() + slide->GetDuration())
+-                mHomeButtonWarning->m_bVisible = true;
+-        }
+-        mHomeButtonWarning->Update(time);
+-    }
++    FrontendBootSetPhase<TLSlide>(*this, BootPlay(), BootComponentFinder());
+ }
+ 
+ void BootLoadingScene::ShowHomeButtonWarning()

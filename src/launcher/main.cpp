@@ -726,8 +726,9 @@ int main(int argc, char** argv)
                          "                        [--frontend-world] (available static frontend objects; no menu)\n"
                          "                        [--frontend-layout /Art/fe/SCENE.fen] (stored text inspection)\n"
                          "                        [--frontend-frame /Art/fe/SCENE.fen [--frontend-slide NAME]] (static image/text layout)\n"
-                         "                        [--frontend-images main|ingame] (image bundle context; default main)\n"
+                         "                        [--frontend-images main|ingame|boot] (image bundle context; default main)\n"
                          "                        [--frontend-animate] (authored timeline; pause/reset in preview)\n"
+                         "                        [--frontend-boot] (retail boot screen; stops at unavailable services)\n"
                          "                        [--particles] (authored emitter groups; pause/reset in preview)\n"
                          "                        [--camera /DISC/camera.cam | --debug-camera]\n"
                          "                        [--nis-primary /DISC/primary.nis --nis-secondary /DISC/secondary.nis]\n"
@@ -741,6 +742,7 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
+        else if (arg == "--frontend-boot") { options.scene_arguments = true; options.scene.frontend_boot = true; }
         else if (arg == "--particles") { options.scene_arguments = true; options.scene.particles = true; }
         else if (arg == "--no-world-culling") { options.scene_arguments = true; options.scene.no_world_culling = true; }
         else if (arg == "--debug-camera") { options.scene_arguments = true; options.scene.debug_camera = true; }
@@ -817,6 +819,14 @@ int main(int argc, char** argv)
     { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
+    if (options.scene.frontend_boot && (options.standalone_assets || options.scene.model_id || options.scene.world
+        || options.scene.world_res || !options.scene.object_ids.empty() || options.scene.frontend_world
+        || options.scene.frontend_layout || options.scene.frontend_frame || options.scene.frontend_slide
+        || options.scene.frontend_images || options.scene.frontend_animate || options.scene.nis_primary
+        || options.scene.nis_secondary || options.scene.pip_expand || options.scene.camera || options.scene.debug_camera
+        || options.scene.shadow_id || options.scene.shadow_textures || options.scene.particles || options.scene.unlit
+        || options.scene.no_world_culling))
+    { std::cerr << "--frontend-boot selects its own retail scene and resources; only --frames and --config may accompany it.\n"; return 2; }
     if (options.scene.nis_primary.has_value() != options.scene.nis_secondary.has_value()
         || (options.scene.pip_expand && !options.scene.nis_primary))
     { std::cerr << "PIP requires both --nis-primary and --nis-secondary.\n"; return 2; }
@@ -827,8 +837,8 @@ int main(int argc, char** argv)
     if ((options.scene.frontend_frame && options.scene.frontend_layout) || (options.scene.frontend_slide && !options.scene.frontend_frame))
     { std::cerr << "Select --frontend-frame or --frontend-layout; --frontend-slide requires --frontend-frame.\n"; return 2; }
     if (options.scene.frontend_images && (!options.scene.frontend_frame
-        || (*options.scene.frontend_images != "main" && *options.scene.frontend_images != "ingame")))
-    { std::cerr << "--frontend-images requires --frontend-frame and either main or ingame.\n"; return 2; }
+        || (*options.scene.frontend_images != "main" && *options.scene.frontend_images != "ingame" && *options.scene.frontend_images != "boot")))
+    { std::cerr << "--frontend-images requires --frontend-frame and main, ingame or boot.\n"; return 2; }
     if (options.scene.frontend_animate && !options.scene.frontend_frame)
     { std::cerr << "--frontend-animate requires --frontend-frame.\n"; return 2; }
     if (options.scene.particles && (options.scene.nis_primary || options.scene.shadow_id || options.scene.shadow_textures))

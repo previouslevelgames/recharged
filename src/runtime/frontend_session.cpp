@@ -108,6 +108,11 @@ struct FrontendSession::Implementation
     static resources::FrontendLayoutFrame Layout(const FrontendSessionFrame& next)
     {
         const std::array fonts{next.visuals->text, next.visuals->heading};
+        if(next.request.image_profile==FrontendImageProfile::BootLoading)
+        {
+            if(next.visuals->font_registration_order.empty())throw std::logic_error("Boot layout requires actual font registration order");
+            return resources::BuildFrontendLayout(next.graph,*next.visuals->localization,next.visuals->font_registration_order,{},*next.images,{true,true});
+        }
         return resources::BuildFrontendLayout(next.graph, *next.visuals->localization, fonts, {}, *next.images);
     }
     void Poll()
@@ -237,4 +242,12 @@ resources::FrontendLoadingSetup FrontendSession::SetupLoadingScene(const Handle&
     s.Mutate([&](auto& playback) { result = playback.SetupLoadingScene(widescreen); return true; });
     return result;
 }
+void FrontendSession::BootTransaction(const Handle& expected,
+    const std::function<void(resources::FrontendAnimationPlayback&)>& operation)
+{
+    auto& s=*impl_;s.CheckMutation();
+    if (!expected || expected!=s.current) throw std::logic_error("Boot handler requires the visible current snapshot");
+    s.Mutate([&](auto& playback){operation(playback);return true;});
+}
+
 }

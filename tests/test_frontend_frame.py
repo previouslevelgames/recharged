@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix="mscharged-fe-frame-") as folder:
     run(extra=("--frontend-slide", "Slide"))
     run(1, "Frontend presentation slide name is absent", ("--frontend-slide", "missing"))
     run(2, "Select --frontend-frame or --frontend-layout", ("--frontend-layout", "/Art/fe/test.fen"))
-    run(2, "--frontend-images requires --frontend-frame and either main or ingame", ("--frontend-images", "invalid"))
+    run(2, "--frontend-images requires --frontend-frame and main, ingame or boot", ("--frontend-images", "invalid"))
     no_frame = subprocess.run([executable, "--experimental-scene", "--frontend-images", "main"],
                               capture_output=True, text=True, timeout=10)
     assert no_frame.returncode == 2 and "requires --frontend-frame" in no_frame.stderr

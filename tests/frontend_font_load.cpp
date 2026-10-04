@@ -80,7 +80,7 @@ void Lifecycle()
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
         while(f.Progress().completed_reads<stages){f.Service();Check(std::chrono::steady_clock::now()<deadline,"Font cancellation stage timed out");SDL_Delay(1);}
         bool wrong=false;std::thread t([&]{try{f.Poll();}catch(const std::logic_error&){wrong=true;}});t.join();Check(wrong,"Font owner accepted foreign thread");
-        f.Cancel();f.Cancel();Check(f.State()==FrontendFontLoadState::Cancelled&&!nlAsyncReadsPending(nullptr),"Font cancel retained requests");Reject([&]{f.Result();});
+        f.Cancel();f.Cancel();Check(f.State()==FrontendFontLoadState::Cancelled&&!nlAsyncReadsPending(nullptr),"Font cancel retained requests");Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});
     }
     // Raw page arrival alone must not publish. Drive earlier stages explicitly,
     // then withhold Poll once every final page callback has actually completed.
@@ -88,8 +88,8 @@ void Lifecycle()
         FrontendFontLoad f(requests);const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
         while(f.Progress().requested_pages<4){nlServiceFileSystem();f.Poll();Check(std::chrono::steady_clock::now()<end,"Page submission timed out");SDL_Delay(1);}
         while(f.Progress().completed_pages<4){nlServiceFileSystem();Check(std::chrono::steady_clock::now()<end,"Raw final-page completion timed out");SDL_Delay(1);}
-        Check(f.State()==FrontendFontLoadState::Loading,"Raw page callbacks published fonts without assembly");Reject([&]{f.Result();});
-        f.Cancel();Check(f.State()==FrontendFontLoadState::Cancelled&&!nlAsyncReadsPending(nullptr),"Final-page cancellation published or retained work");Reject([&]{f.Result();});
+        Check(f.State()==FrontendFontLoadState::Loading,"Raw page callbacks published fonts without assembly");Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});
+        f.Cancel();Check(f.State()==FrontendFontLoadState::Cancelled&&!nlAsyncReadsPending(nullptr),"Final-page cancellation published or retained work");Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});
     }
     // 16 independent slots using genuine reads; source aliases remain distinct.
     std::vector<FrontendFontRequest> many(16,requests[0]);for(unsigned i=0;i<many.size();++i)many[i].alias="font"+std::to_string(i);
@@ -97,7 +97,7 @@ void Lifecycle()
     for(unsigned stage:{0u,32u,96u})for(auto mode:{Overlay::Error,Overlay::Short,Overlay::Blocked})
     {
         Overlay o(mode,stage);auto f=std::make_unique<FrontendFontLoad>(requests);
-        if(mode!=Overlay::Blocked){Pump(*f,mode==Overlay::Short,true);Reject([&]{f->Result();});Check(f->State()==FrontendFontLoadState::Failed,"Failed range became ready");}
+        if(mode!=Overlay::Blocked){Pump(*f,mode==Overlay::Short,true);Reject([&]{f->Result();});Reject([&]{f->RegistrationOrder();});Check(f->State()==FrontendFontLoadState::Failed,"Failed range became ready");}
         else
         {
             const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(2);
@@ -107,7 +107,7 @@ void Lifecycle()
         Check(o.entered&&o.finished&&!o.handles&&!nlAsyncReadsPending(nullptr),"Font failure/cancel did not drain worker and file");
     }
     {
-        FrontendFontLoad f(requests);nlShutdownFileSystem();f.Poll();Check(f.State()==FrontendFontLoadState::Failed,"Font missed file-service shutdown");Reject([&]{f.Result();});
+        FrontendFontLoad f(requests);nlShutdownFileSystem();f.Poll();Check(f.State()==FrontendFontLoadState::Failed,"Font missed file-service shutdown");Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});
     }
     nlInitFileSystem();
     // Fewer available slots than initial headers: partial submission must drain.
@@ -125,7 +125,7 @@ void Lifecycle()
     for(bool fail:{false,true})
     {FrontendFontLoad f(requests);Callback callback{&f,false,fail};nlLoadEntireFileAsync(requests[0].path.c_str(),Callback::Call,&callback,32,AllocateEnd,nullptr,0,&VirtualAllocator);
      Pump(f,false,fail);Check(callback.ran,"Shared callback did not run");
-     if(fail){Check(f.State()==FrontendFontLoadState::Failed&&!nlAsyncReadsPending(nullptr),"Shared exception published or retained font work");Reject([&]{f.Result();});}
+     if(fail){Check(f.State()==FrontendFontLoadState::Failed&&!nlAsyncReadsPending(nullptr),"Shared exception published or retained font work");Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});}
      else Check(f.State()==FrontendFontLoadState::Ready,"Callback rejection corrupted font load");}
     struct Blocks{std::vector<void*> values;~Blocks(){for(auto p:values)VirtualAllocator.Free(p);}}blocks;
     for(unsigned size=1024*1024;size>=32;size/=2)for(;;){try{blocks.values.push_back(VirtualAllocator.Allocate(size,32,false));}catch(const std::bad_alloc&){break;}}
@@ -151,16 +151,20 @@ int main(int argc,char**argv)
             if(mode=="empty"||mode=="missing")Reject([&]{FrontendFontLoad f(Requests());});
             else
             {
-                FrontendFontLoad f(Requests());Reject([&]{f.Result();});Pump(f,repeat%2);
+                FrontendFontLoad f(Requests());Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});Pump(f,repeat%2);
                 if(mode=="success"||mode=="owned")
                 {
-                    retained=f.Result();const auto progress=f.Progress();unsigned pages=0;for(auto& font:retained)pages+=font->pages.size();
+                    retained=f.Result();const auto order=f.RegistrationOrder();
+                    Check(order.size()==2&&order[0]<2&&order[1]<2&&order[0]!=order[1],"Successful descriptor order is not a complete permutation");
+                    const std::array registration{retained[order[0]],retained[order[1]]};
+                    Check(resources::FindFrontendFont(registration,0xbadcafe,true)==retained[order[0]],"Fallback ignored actual native descriptor publication order");
+                    const auto progress=f.Progress();unsigned pages=0;for(auto& font:retained)pages+=font->pages.size();
                     Check(progress.completed_fonts==2&&progress.completed_mask==3&&progress.requested_pages==pages&&progress.completed_pages==pages
                         &&progress.requested_reads==6+pages&&progress.completed_reads==6+pages,"Source font stage counters differ");
                     Check(retained[0]->alias==resources::FrontendNameHash("fot-rodinprob18")&&retained[1]->alias==resources::FrontendNameHash("scratchy36"),"Source font aliases differ");
                     if(mode=="owned")Check(retained[0]->glyphs.size()==267&&retained[1]->glyphs.size()==117,"Owned font glyph counts differ");
                 }
-                else{Reject([&]{f.Result();});Check(f.State()==FrontendFontLoadState::Failed,"Malformed bundle became ready");}
+                else{Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});Check(f.State()==FrontendFontLoadState::Failed,"Malformed bundle became ready");}
             }
             if(mode=="success")Lifecycle();
             Check(!nlAsyncReadsPending(nullptr)&&StandardAllocator.TotalFreeMemory()==a&&VirtualAllocator.TotalFreeMemory()==b,"Font batch failed both-arena recovery");

@@ -151,7 +151,7 @@ void PoseAccumulator::BlendAngle(unsigned node, std::uint16_t angle, float weigh
 }
 void PoseAccumulator::BlendScale(unsigned node, std::array<float,3> values, float weight, bool mirror)
 {
-    impl_->Mutable(node,weight); const auto v=Vector(values,16); Sum(impl_->pose->m_scale[node].fAccumulatedWeight,weight);
+    impl_->Mutable(node,weight); const auto v=Vector(values,32); Sum(impl_->pose->m_scale[node].fAccumulatedWeight,weight);
     impl_->pose->BlendScale(node,&v,weight,mirror); // Original bMirror is intentionally unused here.
 }
 void PoseAccumulator::BlendTranslation(unsigned node, std::array<float,3> values, float weight, bool mirror)
@@ -173,7 +173,7 @@ void PoseAccumulator::BlendTranslationIdentity(unsigned node, float weight)
 }
 void PoseAccumulator::MultiplyScale(unsigned node, std::array<float,3> values, float weight)
 {
-    impl_->Mutable(node,weight); const auto v=Vector(values,16);
+    impl_->Mutable(node,weight); const auto v=Vector(values,32);
     if (std::abs(weight) >= .001f)
     {
         const auto& old=impl_->pose->m_scale[node].s;
@@ -184,6 +184,12 @@ void PoseAccumulator::MultiplyScale(unsigned node, std::array<float,3> values, f
         }
     }
     impl_->pose->MultiplyScale(node,&v,weight);
+}
+void PoseAccumulator::SetAnimationTranslation(unsigned node, const nlVector3& translation)
+{
+    impl_->Mutable(node,0);
+    const auto value=Vector({translation.x,translation.y,translation.z},1e7f);
+    impl_->pose->m_trans[node].t=value;
 }
 void PoseAccumulator::Build(const nlMatrix4& world, float scale)
 {

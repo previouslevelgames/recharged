@@ -58,6 +58,24 @@ void Oracle(const std::shared_ptr<const FrontendFont>& font,std::u16string_view 
 }
 void OriginalSteps(std::shared_ptr<const FrontendFont> font)
 {
+    // Shared original fallback follows registration order, never hash-map order.
+    auto first=std::make_shared<FrontendFont>(*font),second=std::make_shared<FrontendFont>(*font);
+    first->alias=0xffff0000;second->alias=1;const std::array registered{std::shared_ptr<const FrontendFont>(first),std::shared_ptr<const FrontendFont>(second)};
+    Check(FindFrontendFont(registered,1,true)==second,"Font exact match lost to first-font fallback");
+    Check(FindFrontendFont(registered,3,true)==first&&!FindFrontendFont(registered,3),"Original first registered fallback or strict mode differs");
+    const std::array reversed{registered[1],registered[0]};Check(FindFrontendFont(reversed,3,true)==second,"Font fallback sorted aliases instead of registration order");
+    Check(!FindFrontendFont({},3,true),"Empty font registry fabricated a fallback");
+    const std::array duplicate{registered[0],registered[0]};Reject([&]{FindFrontendFont(duplicate,1,true);});
+    FontLineOptions paragraph;paragraph.paragraphs=true;
+    auto paragraph_font=std::make_shared<FrontendFont>(*font);paragraph_font->glyphs.at('A').page=1;paragraph_font->glyphs.at('B').page=0;
+    auto paragraph_line=LayoutFrontendTextLine(paragraph_font,u"A{p}B",paragraph);
+    Check(paragraph_line.quads.size()==2&&paragraph_line.quads[0].page==0&&paragraph_line.quads[1].page==1,"Paragraph token corrupted original page traversal");
+    Bits(paragraph_line.quads[0].left,9);Bits(paragraph_line.quads[1].left,-1);Bits(paragraph_line.width,19);
+    Check(LayoutFrontendTextLine(font,u"{p}",paragraph).quads.empty(),"Paragraph rendered literal glyphs");
+    for(auto text:{u"{",u"{p",u"{p:}",u"{P}",u"{nbs}",u"{clr:FFFFFF}",u"{{}",u"A\nB"})
+        Reject([&]{LayoutFrontendTextLine(font,text,paragraph);});
+    for(int length:{2,3}){paragraph.length=length;Reject([&]{LayoutFrontendTextLine(font,u"A{p}B",paragraph);});}
+    paragraph.length=4;Check(LayoutFrontendTextLine(font,u"A{p}B",paragraph).quads.size()==1,"Exact paragraph endpoint was rejected");
     for(float spacing:{.25f,1.f,1.3f,1.5f,2.75f})
     {
         auto changed=std::make_shared<FrontendFont>(*font);changed->spacing=spacing;

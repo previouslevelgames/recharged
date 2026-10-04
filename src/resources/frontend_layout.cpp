@@ -1,5 +1,6 @@
 #include "resources/frontend_layout.h"
 #include "resources/frontend_images.h"
+#include "resources/frontend_text_escape.h"
 #include "Game/FE/FrontendLayoutSteps.h"
 #include "Game/FE/FrontendImageSteps.h"
 #include <algorithm>
@@ -97,16 +98,6 @@ struct PlainFont
         return font.CharacterWidth(*found->second,prior==glyphs.end()?nullptr:prior->second);
     }
 };
-// Formatted strings reject before the shared original algorithm is entered.
-// Keep an explicit failure boundary if that precondition changes in the future.
-struct UnavailableEscape
-{
-    // Original nlTextEscape.cpp's sentinel; parser operations remain unavailable.
-    static constexpr unsigned short ESCAPE_BEGIN=0x007b;
-    const unsigned short* m_pEnd=nullptr;
-    explicit UnavailableEscape(const unsigned short*){throw UnsupportedResource("Frontend text escapes are not selected");}
-    unsigned GetType() const{throw UnsupportedResource("Frontend text escapes are not selected");}
-};
 struct Rows
 {
     const PlainFont* pFont=nullptr;
@@ -118,19 +109,22 @@ struct Rows
     Row Rows[17]{};
 };
 FontLayout TextBox(std::shared_ptr<const FrontendFont> font,std::u16string_view text,
-    std::array<float,2> size,std::uint32_t options)
+    std::array<float,2> size,std::uint32_t options,bool paragraphs)
 {
     for(float v:size)Require(std::isfinite(v)&&v>=0&&v<=32767,"Textbox size exceeds checked signed offsets");
     PlainFont adapter(*font);std::vector<unsigned short> converted;converted.reserve(text.size()+1);
-    for(char16_t ch:text)
+    for(std::size_t i=0;i<text.size();++i)
     {
+        const char16_t ch=text[i];
+        if(ch=='{'&&paragraphs&&FrontendParagraphAt(text,i))
+        {converted.insert(converted.end(),{0x7b,0x70,0x7d});i+=2;continue;}
         const auto found=font->glyphs.find(ch);
         Require(found!=font->glyphs.end(),"Frontend text contains an unavailable authored glyph");
         converted.push_back(found->second.font_char);
     }
     converted.push_back(0);
     Rows rows;
-    FrontendProcessString<PlainFont,Rows,UnavailableEscape>(converted.data(),&adapter,{size[0],size[1]},options|nlTextBox::FlipY,nullptr,rows);
+    FrontendProcessString<PlainFont,Rows,FrontendParagraphEscape>(converted.data(),&adapter,{size[0],size[1]},options|nlTextBox::FlipY,nullptr,rows);
     const float x=(options&15)==nlTextBox::AlignCenter?-size[0]/2:(options&15)==nlTextBox::AlignRight?-size[0]:0;
     const float y=(options&0xf0)==nlTextBox::VAlignCenter?size[1]/2:(options&0xf0)==nlTextBox::VAlignBottom?size[1]:0;
     const float leading=options&nlTextBox::UseFullHeight?font->internal_leading:0;
@@ -139,7 +133,8 @@ FontLayout TextBox(std::shared_ptr<const FrontendFont> font,std::u16string_view 
     {
         const auto begin=rows.Rows[row].FirstChar,end=rows.Rows[row+1].FirstChar;
         Require(begin<=end&&end<=text.size(),"Original textbox returned an invalid row range");
-        auto line=LayoutFrontendText(output.font,text.substr(begin,end-begin));
+        FontLineOptions line_options;line_options.position[1]=output.font->ascent;line_options.paragraphs=paragraphs;
+        auto line=LayoutFrontendTextLine(output.font,text.substr(begin,end-begin),line_options);
         const float dx=x+rows.Rows[row].XOffset;
         // TLTextInstance::Render's anchor followed by original DrawString's
         // FlipY, integer YOffset, ascent/leading and one Height per row.
@@ -160,6 +155,8 @@ class Builder
     std::map<std::uint32_t,const FrontendSlide*> slides_;
     std::map<std::uint32_t,std::shared_ptr<const FrontendFont>> fonts_;
     const FrontendImageCatalog& images_;
+    std::vector<std::shared_ptr<const FrontendFont>> font_order_;
+    FrontendLayoutOptions options_;
     std::set<std::uint32_t> active_;
     unsigned visited_=0;
     std::size_t glyphs_=0;
@@ -221,20 +218,29 @@ class Builder
         Require(resources_.contains(*object.resource),"Frontend text font resource is absent");
         const auto& resource=*resources_.at(*object.resource);
         Require(resource.type==1,"Frontend text resource is not a font");
-        const auto selected=fonts_.find(resource.hash);
-        if(selected==fonts_.end()){++result_.unavailable["font alias outside the supplied set"];return;}
+        const auto selected=FindFrontendFont(font_order_,resource.hash,options_.original_font_fallback);
+        if(!selected){++result_.unavailable["font alias outside the supplied set"];return;}
+        if(selected->alias!=resource.hash)result_.font_fallbacks.emplace(resource.hash,selected->alias);
         const auto& text=instance.text_overload_flags&8?localization_.Get(instance.localization_hash):instance.text;
         if(text.empty()){++result_.unavailable["empty or handler-assigned text"];return;}
         Require(text.size()<=4096,"Frontend textbox exceeds its string budget");
-        if(std::any_of(text.begin(),text.end(),[](char16_t c){return c<32||c==127||c=='{'||c=='}'||(c>=0xd800&&c<=0xdfff);}))
-        {++result_.unavailable["formatted, control or surrogate text"];return;}
+        for(std::size_t i=0;i<text.size();++i)
+        {
+            const char16_t c=text[i];
+            if(c=='{'&&options_.paragraphs&&FrontendParagraphAt(text,i)){i+=2;continue;}
+            if(c<32||c==127||c=='{'||c=='}'||(c>=0xd800&&c<=0xdfff))
+            {++result_.unavailable["formatted, control or surrogate text"];return;}
+        }
         if((instance.draw_options&~0x1e33u)||(instance.draw_options&15)>2||(instance.draw_options&0xf0)>0x20)
         {++result_.unavailable["unsupported textbox draw options"];return;}
-        if(std::any_of(text.begin(),text.end(),[&](char16_t c){return !selected->second->glyphs.contains(c);}))
-        {++result_.unavailable["missing authored font glyph"];return;}
+        for(std::size_t i=0;i<text.size();++i)
+        {
+            if(text[i]=='{'&&options_.paragraphs){i+=2;continue;}
+            if(!selected->glyphs.contains(text[i])){++result_.unavailable["missing authored font glyph"];return;}
+        }
         FrontendLayoutText entry;
         entry.instance=instance.offset;entry.priority=instance.priority;entry.name=instance.name;entry.text=text;
-        entry.layout=TextBox(selected->second,text,instance.text_box,instance.draw_options);
+        entry.layout=TextBox(selected,text,instance.text_box,instance.draw_options,options_.paragraphs);
         Require(entry.layout.quads.size()<=262144-glyphs_,"Frontend frame glyph budget exceeded");glyphs_+=entry.layout.quads.size();
         nlMatrix4 text_matrix;nlMultMatrices(text_matrix,matrix,scene_view_);
         entry.transform={text_matrix.m11,-text_matrix.m12,0,0,-text_matrix.m21,text_matrix.m22,0,0,0,0,1,0,
@@ -277,8 +283,8 @@ class Builder
     }
 public:
     Builder(const FrontendScene& scene,const Localization& loc,std::span<const std::shared_ptr<const FrontendFont>> fonts,
-        const FrontendImageCatalog& images)
-        :scene_(scene),localization_(loc),images_(images)
+        const FrontendImageCatalog& images,const FrontendLayoutOptions& options)
+        :scene_(scene),localization_(loc),images_(images),font_order_(fonts.begin(),fonts.end()),options_(options)
     {
         // Original FEScene constructor and FERender text-matrix composition.
         glMatrixLookAt(scene_view_,{0,0,600},{0,0,0},{0,1,0});
@@ -309,9 +315,9 @@ std::size_t FrontendLayoutFrame::TextCount() const
 {return std::count_if(entries.begin(),entries.end(),[](const auto& entry){return std::holds_alternative<FrontendLayoutText>(entry);});}
 std::size_t FrontendLayoutFrame::ImageCount() const{return entries.size()-TextCount();}
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene& scene,const Localization& loc,
-    std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected)
-{return Builder(scene,loc,fonts,FrontendImageCatalog{}).Build(selected);}
+    std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected,const FrontendLayoutOptions& options)
+{return Builder(scene,loc,fonts,FrontendImageCatalog{},options).Build(selected);}
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene& scene,const Localization& loc,
-    std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected,const FrontendImageCatalog& images)
-{return Builder(scene,loc,fonts,images).Build(selected);}
+    std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected,const FrontendImageCatalog& images,const FrontendLayoutOptions& options)
+{return Builder(scene,loc,fonts,images,options).Build(selected);}
 }

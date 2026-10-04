@@ -38,5 +38,8 @@ public:
     FrontendFontLoadState State() const;
     FrontendFontLoadProgress Progress() const;
     const ResultType& Result() const;
+    // Actual successful descriptor callback order, visible only with Ready.
+    // Indices address Result(), whose requested-order contract is unchanged.
+    const std::vector<unsigned>& RegistrationOrder() const;
 };
 }

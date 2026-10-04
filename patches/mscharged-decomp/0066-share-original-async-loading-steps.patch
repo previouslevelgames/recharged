@@ -1,6 +1,6 @@
 Subject: Share original async loading sequence, stage readiness and persistent pool inputs
 
-Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
 
 Keep the original sequence switch and readiness/yield equations shared with a
 bounded native boot owner. Select source-defined pool requirements and original
@@ -347,7 +347,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      if (result == ASYNC_LOADING_NO_TRANSITION)
      {
 @@ -2274,6 +2152,8 @@
-     return handle;
+     }
  }
  
 +#ifndef MSCHARGED_NATIVE

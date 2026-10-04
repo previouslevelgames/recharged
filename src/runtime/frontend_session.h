@@ -4,6 +4,8 @@
 #include "resources/frontend_layout.h"
 #include "resources/frontend_instances.h"
 #include <string>
+#include <functional>
+namespace mscharged::resources { class FrontendAnimationPlayback; }
 
 namespace mscharged
 {
@@ -41,6 +43,9 @@ class FrontendSession
 {
     struct Implementation;
     std::unique_ptr<Implementation> impl_;
+    friend class FrontendBootLoading;
+    void BootTransaction(const std::shared_ptr<const FrontendSessionFrame>&,
+        const std::function<void(resources::FrontendAnimationPlayback&)>&);
 public:
     using Handle = std::shared_ptr<const FrontendSessionFrame>;
     FrontendSession();

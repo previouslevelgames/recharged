@@ -26,6 +26,7 @@ struct FrontendFontLoad::Implementation
         std::unique_ptr<std::uint8_t,FreeBuffer> bytes;
         std::uint32_t size=0;
         bool complete=false,page=false;
+        unsigned completion_order=0;
         resources::Bytes Bytes()const{return {bytes.get(),size};}
     };
     struct Entry {std::uint32_t offset=0,size=0;};
@@ -37,6 +38,7 @@ struct FrontendFontLoad::Implementation
         std::unique_ptr<nlFile> file;
         std::uint32_t size=0,directory=0,count=0,data=0;
         Stage stage=Stage::Header;
+        unsigned description_order=0;
         std::unique_ptr<Read> read;
         std::map<std::uint32_t,Entry> entries;
         resources::FrontendFontDescription description;
@@ -47,6 +49,8 @@ struct FrontendFontLoad::Implementation
     unsigned count=0;
     FrontendFontLoadProgress progress;
     ResultType result;
+    std::vector<unsigned> registration_order;
+    unsigned completion_sequence=0;
     FrontendFontLoadState state=FrontendFontLoadState::Loading;
     std::exception_ptr error;
     std::thread::id thread=std::this_thread::get_id();
@@ -67,7 +71,7 @@ struct FrontendFontLoad::Implementation
         {
             owner.Thread();
             resources::Require(!read.complete&&read.file==file&&read.bytes.get()==data&&read.size==size,"Font callback identity or byte count differs");
-            read.complete=true;++owner.progress.completed_reads;if(read.page)++owner.progress.completed_pages;
+            read.complete=true;read.completion_order=++owner.completion_sequence;++owner.progress.completed_reads;if(read.page)++owner.progress.completed_pages;
         }
         catch(...){if(!owner.error)owner.error=std::current_exception();}
     }
@@ -150,6 +154,7 @@ struct FrontendFontLoad::Implementation
             slot.description=resources::ReadFrontendFontDescription(bytes,slot.request.texture_base,slot.request.alias);
             resources::Require(slot.entries.size()==slot.description.page_hashes.size()+1,"Font bundle has unexplained records");
             for(auto hash:slot.description.page_hashes)resources::Require(slot.entries.contains(hash),"Font texture page is absent");
+            slot.description_order=slot.read->completion_order;
             slot.read.reset();slot.stage=Stage::Pages;
             struct PageOrder
             {
@@ -187,7 +192,9 @@ struct FrontendFontLoad::Implementation
             if(FontLoadSlotsComplete(slots.data(),slots.size()))
             {
                 ResultType next;next.reserve(count);for(unsigned i=0;i<count;++i)next.push_back(slots[i].font);
-                result=std::move(next);state=FrontendFontLoadState::Ready;
+                std::vector<unsigned> order;for(unsigned i=0;i<count;++i)order.push_back(i);
+                std::sort(order.begin(),order.end(),[&](unsigned a,unsigned b){return slots[a].description_order<slots[b].description_order;});
+                result=std::move(next);registration_order=std::move(order);state=FrontendFontLoadState::Ready;
             }
         }
         catch(...){Fail(std::current_exception());}
@@ -215,4 +222,7 @@ const FrontendFontLoad::ResultType& FrontendFontLoad::Result()const
     impl_->Thread();if(impl_->error)std::rethrow_exception(impl_->error);
     if(impl_->state!=FrontendFontLoadState::Ready)throw std::logic_error("Font batch is pending or cancelled");return impl_->result;
 }
+const std::vector<unsigned>& FrontendFontLoad::RegistrationOrder()const
+{(void)Result();return impl_->registration_order;}
+
 }

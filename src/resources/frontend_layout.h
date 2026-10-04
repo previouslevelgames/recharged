@@ -41,6 +41,7 @@ struct FrontendLayoutFrame
     std::vector<Entry> entries; // One final Anark reverse order across both types.
     std::map<std::string,unsigned> unavailable;
     unsigned hidden = 0;
+    std::map<std::uint32_t,std::uint32_t> font_fallbacks; // Missing alias -> original first registered font.
     std::size_t TextCount() const;
     std::size_t ImageCount() const;
 };
@@ -49,6 +50,11 @@ using FrontendImageVertex = FrontendLayoutFrame::ImageVertex;
 using FrontendLayoutEntry = FrontendLayoutFrame::Entry;
 // Defensive validation for retained public Texture values before layout/drawing.
 void ValidateFrontendImageTexture(const Texture&);
+struct FrontendLayoutOptions
+{
+    bool original_font_fallback = false;
+    bool paragraphs = false; // Qualified original {p} only; no colour or nbs commands.
+};
 // Evaluate a bounded stored static frame, without executing animation, handlers,
 // slide transitions or menu logic. Omission selects the saved active presentation
 // slide; an explicit ID must belong to its presentation ring. Nested components
@@ -56,8 +62,8 @@ void ValidateFrontendImageTexture(const Texture&);
 // Returned text and font-page handles outlive the input scene/localization.
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene&, const Localization&,
     std::span<const std::shared_ptr<const FrontendFont>> fonts,
-    FrontendReference presentation_slide = {});
+    FrontendReference presentation_slide = {}, const FrontendLayoutOptions& = {});
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene&, const Localization&,
     std::span<const std::shared_ptr<const FrontendFont>> fonts,
-    FrontendReference presentation_slide, const FrontendImageCatalog& images);
+    FrontendReference presentation_slide, const FrontendImageCatalog& images, const FrontendLayoutOptions& = {});
 }

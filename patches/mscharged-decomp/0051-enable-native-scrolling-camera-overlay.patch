@@ -1,5 +1,5 @@
 Subject: Select original scrolling camera overlay with explicit native camera input
-Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
 
 Retain the original position-generated overlay coordinates, four-stage TEV,
 lighting, shadows, UV1 diffuse input and diffuse-wrap mutation order. Preserve

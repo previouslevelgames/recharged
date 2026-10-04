@@ -12,6 +12,7 @@ struct FrontendVisualAssets
 {
     std::shared_ptr<const resources::Localization> localization;
     std::shared_ptr<const resources::FrontendFont> text, heading;
+    std::vector<std::shared_ptr<const resources::FrontendFont>> font_registration_order;
 };
 // Original USA frontend language paths and FontLoading's non-Japanese eur fonts.
 // Loads localization and source-ordered font bundle stages through NL services,

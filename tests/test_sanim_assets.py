@@ -147,10 +147,11 @@ def oracle(data):
                 if width == 8:
                     values, divisor = struct.unpack(">hhhh", raw), 32768
                 elif width == 6:
-                    packed = int.from_bytes(raw, "big")
-                    values = [((packed >> shift) & 4095) for shift in (36, 24, 12, 0)]
-                    values = [v - 4096 if v >= 2048 else v for v in values]
-                    divisor = 2048
+                    # Original expands each three-byte pair into two signed
+                    # big-endian16 lanes. Odd lanes take byte2 as their high byte.
+                    expanded = bytes((raw[0], raw[1] & 0xf0, raw[2], (raw[1] << 4) & 255,
+                                      raw[3], raw[4] & 0xf0, raw[5], (raw[4] << 4) & 255))
+                    values, divisor = struct.unpack(">hhhh", expanded), 32768
                 else:
                     values, divisor = struct.unpack("bbbb", raw), 128
                 decoded_rotation.extend(words(bits(v / divisor) for v in values))

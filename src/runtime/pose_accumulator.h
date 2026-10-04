@@ -13,8 +13,12 @@ namespace mscharged
 // interpolation, skinning, callback, replay or character implementation.
 class PoseAccumulator
 {
+    friend class AnimationPose;
     struct Implementation;
     std::unique_ptr<Implementation> impl_;
+    // Controller -1 fallback writes t directly, preserving identity/weight.
+    // Calling BlendTranslation would change those original semantics.
+    void SetAnimationTranslation(unsigned node, const nlVector3& translation);
 public:
     explicit PoseAccumulator(HierarchyAsset::Handle hierarchy, bool store_previous = true);
     ~PoseAccumulator();

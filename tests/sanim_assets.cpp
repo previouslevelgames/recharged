@@ -69,7 +69,7 @@ void Animation(Blob& b,unsigned frames=3,unsigned roots=3,bool unequal=false,uns
             {
                 if(p&1)Half(rot,65530);
                 else if(p&16)for(unsigned value:{0x8000u,0u,0x7fffu,0xffffu})Half(rot,value);
-                else if(p&32)for(unsigned char v:{0x80,0x00,0x01,0x7f,0xff,0xff})rot.push_back(v);
+                else if(p&32)for(unsigned char v:{0x80,0x01,0x00,0x7f,0xff,0xff})rot.push_back(v);
                 else for(unsigned char v:{0x80,0,0x7f,0xff})rot.push_back(v);
             }
             for(unsigned key=0;key<(p&4?1:frames);++key)

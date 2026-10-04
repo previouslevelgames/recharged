@@ -113,6 +113,7 @@ void FrontendVisualLoad::Poll()
             if (completed_mask_ == 7)
             {
                 const auto& fonts = fonts_->Result(); assets_->text = fonts[0]; assets_->heading = fonts[1];
+                for(auto index:fonts_->RegistrationOrder())assets_->font_registration_order.push_back(fonts.at(index));
                 terminal_ = true;
             }
         }

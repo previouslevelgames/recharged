@@ -1,6 +1,6 @@
 Subject: Validate native startup arena allocation and reserved SDK heap
 
-Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
 
 Keep original MEM1/MEM2 allocation order and reserve sizes. Validate capacities,
 allocation pointers, and SDK heap setup before memset or allocator initialization

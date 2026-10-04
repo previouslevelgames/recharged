@@ -260,6 +260,16 @@ FrontendAnimationPlayback::~FrontendAnimationPlayback()=default;
 void FrontendAnimationPlayback::Advance(float delta){impl_->Advance(delta);}
 bool FrontendAnimationPlayback::AdvanceLoadingNotification(float delta,std::uint32_t id)
 {return impl_->AdvanceLoadingNotification(delta,id);}
+void FrontendAnimationPlayback::AdvanceComponent(std::uint32_t id,float delta)
+{
+    Finite(delta);Require(delta>=0&&delta<=60,"Frontend component delta exceeds its bounded profile");
+    auto& s=*impl_;Require(s.index.instances.contains(id),"Frontend component instance is absent");
+    const auto& instance=s.current.instances.at(s.index.instances.at(id));
+    Require(instance.type==4&&instance.library&&s.index.library.contains(*instance.library),"Frontend component library is absent");
+    const auto& object=s.current.library.at(s.index.library.at(*instance.library));Require(object.type==3,"Frontend component library type differs");
+    auto next=s.current;Step step{next,s.index};if(object.active_slide)step.Slide(*object.active_slide,delta,0);
+    s.current=std::move(next);s.channels=step.channels;
+}
 void FrontendAnimationPlayback::Reset(){impl_->Reset();}
 std::unique_ptr<FrontendAnimationPlayback> FrontendAnimationPlayback::Clone() const
 {return std::unique_ptr<FrontendAnimationPlayback>(new FrontendAnimationPlayback(std::make_unique<Impl>(*impl_)));}

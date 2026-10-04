@@ -1,6 +1,6 @@
 Subject: Select the material registry and original alpha preparation
 
-Upstream-base: 389ec8223cba8dda09934884b1a2967704bec363
+Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
 
 Keep descriptor/scalar widths at 32 bits, reject duplicate native registrations,
 and expose explicit registry teardown before allocator shutdown. Extract only

@@ -1,5 +1,7 @@
 #include "resources/frontend_fonts.h"
 #include "NL/FontTextSteps.h"
+#include "resources/frontend_text_escape.h"
+#include "Game/Font/FontLookupSteps.h"
 #include <algorithm>
 #include <charconv>
 #include <set>
@@ -267,14 +269,7 @@ std::shared_ptr<const FrontendFont> ReadFrontendFont(Bytes bytes, std::string_vi
 }
 namespace
 {
-struct PlainFontEscape
-{
-    const unsigned short* m_pEnd = nullptr;
-    ESCAPE_TYPE m_Type = ESC_UNKNOWN;
-    explicit PlainFontEscape(const unsigned short*) { throw UnsupportedResource("Original font text escapes are not selected"); }
-    ESCAPE_TYPE GetType() const { return m_Type; }
-    nlColour GetExtendedColour() const { throw UnsupportedResource("Original font colour escapes are not selected"); }
-};
+using PlainFontEscape=FrontendParagraphEscape;
 class FontLookup
 {
     const FrontendFont& font_;
@@ -340,13 +335,16 @@ public:
             "Font advance cannot use the bounded native text profile");
         return FontCharacterWidth(*this,font_.spacing,ch,previous);
     }
-    std::vector<unsigned short> Convert(std::u16string_view text) const
+    std::vector<unsigned short> Convert(std::u16string_view text,bool paragraphs=false) const
     {
         Require(text.size() <= 4096, "Font string exceeds its bounded length");
         for (std::size_t i=0; i<text.size();) Scalar(text, i); // Validate original retained UTF-16.
         std::vector<unsigned short> result; result.reserve(text.size()+1);
-        for (char16_t ch : text)
+        for (std::size_t i=0;i<text.size();++i)
         {
+            const char16_t ch=text[i];
+            if(ch=='{'&&paragraphs&&FrontendParagraphAt(text,i))
+            {result.insert(result.end(),{0x7b,0x70,0x7d});i+=2;continue;}
             if (ch < 32 || ch == 127 || ch == '{')
                 throw UnsupportedResource("Control characters and original font escapes are not selected");
             // FontCharString processes each UTF-16 unit, including fallback.
@@ -362,6 +360,8 @@ public:
         std::uint64_t total = 0;
         for (std::size_t i=0; i+1<text.size(); ++i)
         {
+            if(text[i]==0x7b)
+            {Require(i+3<text.size()&&text[i+1]=='p'&&text[i+2]=='}',"Unqualified font paragraph sequence");i+=2;continue;}
             const auto advance = GetCharWidth(text[i], previous);
             Require(!bounded_width || advance <= width, "Font width cannot fit a consumed character");
             total += advance;
@@ -395,6 +395,24 @@ struct FontSink
     void EndPage() {}
 };
 }
+std::shared_ptr<const FrontendFont> FindFrontendFont(
+    std::span<const std::shared_ptr<const FrontendFont>> fonts,std::uint32_t alias,bool fallback)
+{
+    Require(fonts.size()<=256,"Font registration order exceeds the native catalog budget");
+    struct Entry {Entry* m_next=nullptr;Entry* m_prev=nullptr;const FrontendFont* entry=nullptr;};
+    std::vector<Entry> ring(fonts.size());std::set<std::uint32_t> hashes;
+    for(std::size_t i=0;i<fonts.size();++i)
+    {
+        Require(fonts[i]&&hashes.insert(fonts[i]->alias).second,"Missing or duplicate registered font");
+        ring[i]={&ring[(i+1)%ring.size()],&ring[(i+ring.size()-1)%ring.size()],fonts[i].get()};
+    }
+    bool missing=false;
+    const auto* found=FrontendFindLoadedFont<const FrontendFont>(ring.empty()?nullptr:&ring.back(),ring.empty()?nullptr:&ring.front(),alias,
+        [](const FrontendFont* font){return font->alias;},[&](unsigned long){missing=true;});
+    if(!found||(missing&&!fallback))return {};
+    for(const auto& font:fonts)if(font.get()==found)return font;
+    throw std::logic_error("Original font lookup returned a foreign owner");
+}
 std::uint32_t FrontendStringWidth(const FrontendFont& font, std::u16string_view text,
     bool single_line, std::uint32_t width, bool word_wrap)
 {
@@ -419,11 +437,14 @@ FontLayout LayoutFrontendTextLine(std::shared_ptr<const FrontendFont> font, std:
     const FontLineOptions& options)
 {
     Require(bool(font),"Native font owner is absent");
-    FontLookup lookup(*font);const auto chars=lookup.Convert(text);lookup.CheckAdvances(chars,65535,false);
+    FontLookup lookup(*font);const auto chars=lookup.Convert(text,options.paragraphs);lookup.CheckAdvances(chars,65535,false);
     Require(options.length>=-1 && (options.length<0 || std::size_t(options.length)<=text.size()),"Font draw length exceeds its retained string");
     for(float value:{options.position[0],options.position[1],options.pixel_centre})
         Require(std::isfinite(value)&&std::abs(value)<=1e6f,"Invalid font draw position");
     const int length=options.length<0?text.size():options.length;
+    if(options.paragraphs)
+        for(std::size_t i=0;i<std::size_t(length);++i)if(text[i]=='{')
+        {Require(FrontendParagraphAt(text,i)&&i+3<=std::size_t(length),"Font draw length splits a paragraph escape");i+=2;}
     FontLayout result;result.font=std::move(font);result.quads.reserve(length);
     FontSink sink{result};const nlColour colour{{255,255,255,255}};
     FontDrawStringSteps<FontLookup,PlainFontEscape>(chars.data(),lookup,result.font->spacing,

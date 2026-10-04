@@ -21,6 +21,7 @@
 #include "runtime/frontend_images.h"
 #include "runtime/frontend_session.h"
 #include "runtime/frontend_handler.h"
+#include "runtime/frontend_boot_loading.h"
 #include "runtime/particle_files.h"
 #include "runtime/particle_controller.h"
 #include "runtime/particle_controller_render.h"
@@ -279,6 +280,19 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
     try
     {
         auto options = requested;
+        if (options.frontend_boot)
+        {
+            if (options.frontend_frame || options.frontend_layout || options.frontend_slide || options.frontend_images
+                || options.frontend_animate || options.frontend_world || options.world || options.world_res
+                || options.model_id || !options.object_ids.empty() || options.camera || options.debug_camera
+                || options.nis_primary || options.nis_secondary || options.pip_expand || options.shadow_id
+                || options.shadow_textures || options.particles || options.unlit || options.no_world_culling
+                || options.model != SceneOptions{}.model || options.textures != SceneOptions{}.textures)
+                throw std::invalid_argument("Retail boot selects its own scene and resources");
+            options.frontend_frame = "/Art/fe/boot_loading.fen";
+            options.frontend_images = "boot";
+            options.frontend_animate = true;
+        }
         if (options.nis_primary.has_value() != options.nis_secondary.has_value()
             || (options.pip_expand && !options.nis_primary)
             || (options.nis_primary && (options.camera || options.debug_camera || options.shadow_id || options.frontend_layout || options.frontend_frame)))
@@ -286,8 +300,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         if ((options.frontend_frame && options.frontend_layout) || (options.frontend_slide && !options.frontend_frame))
             throw std::invalid_argument("Select one frontend text mode; slide selection requires an authored frame");
         if (options.frontend_images && (!options.frontend_frame
-            || (*options.frontend_images != "main" && *options.frontend_images != "ingame")))
-            throw std::invalid_argument("Frontend images require an authored frame and main or ingame context");
+            || (*options.frontend_images != "main" && *options.frontend_images != "ingame" && *options.frontend_images != "boot")))
+            throw std::invalid_argument("Frontend images require an authored frame and main, ingame or boot context");
         if (options.frontend_animate && !options.frontend_frame)
             throw std::invalid_argument("Frontend animation requires an authored frame");
         if (options.particles && (options.nis_primary || options.shadow_id || options.shadow_textures))
@@ -319,10 +333,11 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             throw std::invalid_argument("Shadow preview requires both a texture bundle and an ID");
         if (options.debug_camera && (options.camera || options.shadow_id))
             throw std::invalid_argument("Debug camera cannot be combined with authored camera or shadow preview");
-        log("Static material and stadium shadow preview. Full world loading, character animation and game scenes are pending.");
+        log(options.frontend_boot ? "Retail boot screen diagnostic. Complete game startup remains pending."
+            : "Static material and stadium shadow preview. Full world loading, character animation and game scenes are pending.");
         const auto data_path = PathUtf8(directory);
         AuroraConfig config{};
-        config.appName = "Mario Strikers Charged | Static asset preview";
+        config.appName = options.frontend_boot ? "Mario Strikers Charged | Boot screen" : "Mario Strikers Charged | Static asset preview";
         config.userPath = config.cachePath = data_path.c_str(); config.resourcesPath = base;
         config.desiredBackend = BACKEND_VULKAN; config.enableBackendValidation = true;
         config.windowWidth = 960; config.windowHeight = 720; config.windowPosX = config.windowPosY = -1;
@@ -341,7 +356,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             [] { VIInit(); VIConfigure(&GXNtsc480IntDf); }, DrainGX);
         log("Original graphics memory initialized: two MEM1/MEM2 frames, Global resource pool, static GLInventory and 1000 texture indices.");
         log("Original GL state and identity matrix initialized; native frame matrix handles and original NL camera math enabled.");
-        log("Original InitializeCore completed; loading RLG/RLT through original NL whole-file async services.");
+        log(options.frontend_boot ? "Original InitializeCore completed; loading retail boot resources through original NL reads."
+            : "Original InitializeCore completed; loading RLG/RLT through original NL whole-file async services.");
         const bool world_batch = options.world_res.has_value() || options.frontend_world;
         std::optional<resources::FrontendTextCatalog> frontend_text;
         std::vector<std::shared_ptr<const resources::FrontendFont>> inspector_fonts;
@@ -387,7 +403,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         {
             frontend_session = std::make_shared<FrontendSession>();
             frontend_session->Begin({*options.frontend_frame, frontend_language,
-                options.frontend_images.value_or("main") == "ingame" ? FrontendImageProfile::InGame : FrontendImageProfile::Main,
+                options.frontend_images == "boot" ? FrontendImageProfile::BootLoading
+                    : options.frontend_images == "ingame" ? FrontendImageProfile::InGame : FrontendImageProfile::Main,
                 options.frontend_slide.value_or(""), options.frontend_animate});
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             while (frontend_session->State() == FrontendSessionState::Loading)
@@ -457,14 +474,14 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             }
             frontend_files = load.Result();
         }
-        else
+        else if (!options.frontend_boot)
         {
             model_data.Start(options.world.value_or(options.model));
             if (!options.world) texture_data.Start(options.textures);
             if (world_batch) resident_data.Start(*options.world_res);
         }
         const auto load_start = std::chrono::steady_clock::now();
-        while (!options.frontend_world && (!model_data.done || (!options.world && !texture_data.done) || (world_batch && !resident_data.done)))
+        while (!options.frontend_boot && !options.frontend_world && (!model_data.done || (!options.world && !texture_data.done) || (world_batch && !resident_data.done)))
         {
             if (Update()) throw std::runtime_error("Static preview cancelled while loading");
             nlServiceFileSystem();
@@ -522,7 +539,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             log(*options.world + ": " + std::to_string(model_data.size) + " compressed bytes -> "
                 + std::to_string(decoded.size()) + " checked world bytes; one explicit model selected.");
         }
-        else
+        else if (!options.frontend_boot)
         {
             log(options.model + ": " + std::to_string(model_data.size) + " bytes; " + options.textures + ": " + std::to_string(texture_data.size) + " bytes.");
             models = resources::ReadStaticModels(model_data.Bytes(), options.model_id);
@@ -531,23 +548,23 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         model_data.data.reset(); texture_data.data.reset(); resident_data.data.reset();
         auto selected = models.begin();
         if (options.model_id) selected = std::find_if(models.begin(), models.end(), [&](const auto& model) { return model.id == *options.model_id; });
-        if (selected == models.end()) throw std::runtime_error("Requested model ID is absent from the RLG collection");
-        if (!world_batch)
+        if (!options.frontend_boot && selected == models.end()) throw std::runtime_error("Requested model ID is absent from the RLG collection");
+        if (!options.frontend_boot && !world_batch)
         {
             auto chosen = std::move(*selected); models.clear(); models.push_back(std::move(chosen));
         }
-        auto& selected_model = models.front();
-        const auto selected_id = selected_model.id;
-        const auto shadow_packets = std::count_if(selected_model.packets.begin(), selected_model.packets.end(),
-            [](const auto& p) { return p.material.program == 0x386ecbdd; });
+        auto* selected_model = models.empty() ? nullptr : &models.front();
+        const auto selected_id = selected_model ? selected_model->id : 0;
+        const auto shadow_packets = selected_model ? std::count_if(selected_model->packets.begin(), selected_model->packets.end(),
+            [](const auto& p) { return p.material.program == 0x386ecbdd; }) : 0;
         const bool volume_preview = shadow_packets != 0;
         if (volume_preview && options.particles)
             throw std::invalid_argument("Particle preview is not connected to the diagnostic shadow receiver");
-        if (volume_preview && shadow_packets != selected_model.packets.size())
+        if (volume_preview && shadow_packets != selected_model->packets.size())
             throw std::invalid_argument("Mixed shadow-volume and ordinary packets need original world selection");
         if (volume_preview && (options.unlit || options.shadow_id))
             throw std::invalid_argument("Object lighting and projected lookup options do not apply to shadow volumes");
-        const bool camera_overlay = std::any_of(selected_model.packets.begin(), selected_model.packets.end(),
+        const bool camera_overlay = selected_model && std::any_of(selected_model->packets.begin(), selected_model->packets.end(),
             [](const auto& p) { return p.material.program == 0x32bc21e8 || p.material.program == 0x845cad59; });
         if (volume_preview && options.debug_camera)
             throw std::invalid_argument("Debug camera is not connected to the diagnostic shadow receiver");
@@ -555,7 +572,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             throw std::invalid_argument("Authored camera playback is not connected to the diagnostic shadow receiver");
         if (volume_preview && options.nis_primary)
             throw std::invalid_argument("NIS PIP is not connected to the diagnostic shadow receiver");
-        if (!world_batch) bounds = Normalize(selected_model, camera_overlay || options.camera.has_value() || options.debug_camera || options.nis_primary.has_value());
+        if (selected_model && !world_batch) bounds = Normalize(*selected_model, camera_overlay || options.camera.has_value() || options.debug_camera || options.nis_primary.has_value());
         std::size_t vertices = 0, indices = 0, packets = 0;
         std::vector<std::uint32_t> lookup_ids;
         for (const auto& model : models)
@@ -575,7 +592,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         else description << "Selected model 0x" << std::hex << selected_id << std::dec << ": ";
         description << packets << " packets, " << vertices << " vertices, " << indices << " indices; " << textures.size()
             << " textures, " << animations.size() << " texture animations; original radius " << bounds.radius << '.';
-        log(description.str());
+        if (!options.frontend_boot) log(description.str());
         if (!lookup_ids.empty())
         {
             PendingAsset global;
@@ -706,7 +723,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         if (world_batch)
             world = std::make_unique<StaticWorldObjects>(world_objects, models, texture_bundle,
                 WorldObjectMemory{4 * 1024 * 1024, 24 * 1024 * 1024}, DrainGX);
-        else inventory = std::make_unique<StaticInventory>(*glGetCurrentResourcePool(), models, textures, DrainGX, animations);
+        else if (!options.frontend_boot) inventory = std::make_unique<StaticInventory>(*glGetCurrentResourcePool(), models, textures, DrainGX, animations);
         ScenePool pool_selection(world ? &world->Pool() : glGetCurrentResourcePool());
         GameLighting lighting = DefaultGameLighting();
         lighting.enabled = !options.unlit;
@@ -719,11 +736,12 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             lighting.shadow.lookup = &shadow_lookup;
             log("Loaded original projected-shadow lookup: " + std::to_string(shadow_lookup.mWidth) + "x" + std::to_string(shadow_lookup.mHeight) + ".");
         }
-        if (!volume_preview)
+        if (!volume_preview && !options.frontend_boot)
             log(options.unlit ? "Unlit comparison selected." : "Original key/fill object-light defaults and ambient colour enabled; material lighting flags are preserved.");
         auto* native_model = inventory ? inventory->Model(selected_id) : nullptr;
-        if (!world && !native_model) throw std::runtime_error("Selected model is missing from original GLInventory");
-        log("Checked RLG/RLT data installed as pool-owned native glModel/PlatTexture records; drawing original material Activate/Draw/Deactivate and TEV shader recipes through Aurora.");
+        if (!options.frontend_boot && !world && !native_model) throw std::runtime_error("Selected model is missing from original GLInventory");
+        if (!options.frontend_boot)
+            log("Checked RLG/RLT data installed as pool-owned native glModel/PlatTexture records; drawing original material Activate/Draw/Deactivate and TEV shader recipes through Aurora.");
         ViewMatrices view_matrices;
         AuroraFrames backend;
         OriginalFrames lifecycle(backend);
@@ -785,6 +803,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         std::unique_ptr<FrontendInput> frontend_input;
         std::unique_ptr<FrontendInputSDL> frontend_devices;
         std::unique_ptr<FrontendHandler> frontend_handler;
+        std::unique_ptr<FrontendBootLoading> frontend_boot;
         if (frontend_text)
         {
             font_registry = std::make_unique<FrontendFontRegistry>(*glGetCurrentResourcePool(), inspector_fonts, DrainGX);
@@ -802,21 +821,35 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         if (frontend_frame)
         {
             frame_packets = std::make_unique<FrontendPacketRenderer>(DrainGX);
-            frame_packets->Prepare(frontend_session->Current());
             frontend_input = std::make_unique<FrontendInput>();
             frontend_devices = std::make_unique<FrontendInputSDL>();
             frontend_input->EnableAnalogDirections(true);
             for (const auto action : {FrontendAction::Left, FrontendAction::Right})
                 frontend_input->SetRepeat(action, .35f, .12f);
-            frontend_handler = std::make_unique<FrontendHandler>(frontend_session, *frontend_input);
+            if (options.frontend_boot)
+            {
+                frontend_boot = std::make_unique<FrontendBootLoading>(frontend_session, *frontend_input);
+                frontend_published_frame = frontend_boot->Current();
+                log("Original retail BootLoadingScene selected: strap, nunchuk and ESRB; audio service remains pending.");
+            }
+            else frontend_handler = std::make_unique<FrontendHandler>(frontend_session, *frontend_input);
+            frame_packets->Prepare(frontend_session->Current());
             glMatrixOrthographic(text_matrices.projection, GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight);
             auto view = std::make_unique<FrontendFrameView>(text_matrices, *frame_packets);
             view->m_Name = options.frontend_animate ? "Authored frontend animated layout" : "Authored frontend static layout";
+            if (options.frontend_boot)
+            {
+                // Original glxInitTargets and glxSwap clear the boot backbuffer
+                // to transparent black. The diagnostic frame owns that clear
+                // until the complete original swap loop is connected.
+                glGetBackBufferTarget().target->mClearColour = {0, 0, 0, 0};
+                view->m_ClearColour = view->m_ClearDepth = true;
+            }
             gRootView.AddChild(view.get()); frame_view = view.release(); frontend_frame.reset();
             log("Mixed frontend text and images use retained registrations and original ordered GL packets.");
         }
         log("Original graphics begin/end/send lifecycle connected; host work drains before frame memory reuse.");
-        log("Original camera core supplies the view and position; full gameplay camera selection remains pending.");
+        if (!options.frontend_boot) log("Original camera core supplies the view and position; full gameplay camera selection remains pending.");
         bool volume_enabled = true;
         float receiver_height = 0;
         // Render only game-pool records from here; discard host decoder storage.
@@ -869,7 +902,10 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 if (frontend_input)
                 {
                     const auto& io = ImGui::GetIO();
-                    frontend_devices->Poll(*frontend_input, info.window, std::clamp(delta, 0.f, .1f),
+                    // Bounded boot diagnostics qualify the auto-dismiss path
+                    // with explicit neutral input, independently of the desktop.
+                    if (frontend_boot && options.frames) frontend_input->Update({}, 1.f / 60);
+                    else frontend_devices->Poll(*frontend_input, info.window, std::clamp(delta, 0.f, .1f),
                         io.WantCaptureKeyboard, io.NavActive && (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad));
                     if (text_view)
                     {
@@ -883,16 +919,35 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 const bool frontend_ready = frontend_session && frame_packets->Current() == frontend_session->Current();
                 if (frontend_ready && options.frontend_animate)
                 {
-                    if (animation_reset) { frontend_session->Reset(); animation_reset = false; }
+                    if (animation_reset)
+                    {
+                        if (frontend_boot)
+                        {
+                            frontend_boot->Reset(frame_packets->Current());
+                            log("Retail boot screen reset by preview control.");
+                        }
+                        else frontend_session->Reset();
+                        animation_reset = false;
+                    }
                     else if (!animation_paused)
                     {
                         const float step = frames ? (options.frames ? 1.f / 60 : std::clamp(delta, 0.f, .1f)) : 0.f;
-                        frontend_handler->Update(frame_packets->Current(), step);
+                        if (frontend_boot)
+                        {
+                            const auto before = frontend_boot->Status();
+                            frontend_boot->Update(frame_packets->Current(), step);
+                            const auto after = frontend_boot->Status();
+                            if (before.phase != after.phase)
+                                log("Original boot screen phase: " + std::to_string(after.phase));
+                            if (before.boundary != after.boundary)
+                                log("Boot screen stopped at FEAudio::PlaySound(0x17, 0xde83984e). Audio and full startup remain pending.");
+                        }
+                        else frontend_handler->Update(frame_packets->Current(), step);
                         ++animation_updates;
                     }
                     // Diagnostic authored-slide selection, never a concrete
                     // game's menu action. DebugCam owns arrow/stick controls.
-                    if (!debug_camera)
+                    if (!debug_camera && !frontend_boot)
                     {
                         const auto current = frontend_handler->Current();
                         const bool previous = frontend_handler->Button(current, FrontendAction::Left, FrontendButtonQuery::Repeat);
@@ -1012,7 +1067,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 GXSetCopyClear({24,28,34,255}, GX_MAX_Z24);
                 backend.camera_position = cCameraManager::m_cameraPosition;
             }
-            else backend.camera_position = SubmitModel(*native_model, *submitted, view_matrices, cameras, camera_input, elapsed,
+            else if (native_model) backend.camera_position = SubmitModel(*native_model, *submitted, view_matrices, cameras, camera_input, elapsed,
                                                        camera_overlay ? &bounds : nullptr);
             if (world)
             {
@@ -1041,8 +1096,26 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             if (visible_depth) ++depth_hits;
             ImGui::SetNextWindowPos({16, 16}, ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.82f);
-            ImGui::Begin("Static asset preview", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-            ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
+            ImGui::Begin(options.frontend_boot ? "Retail boot screen" : "Static asset preview", nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+            if (frontend_boot)
+            {
+                const auto state = frontend_boot->Status();
+                ImGui::TextUnformatted("Original startup screen / work in progress");
+                if (state.boundary == FrontendBootBoundary::PlayLogoSound)
+                    ImGui::TextUnformatted("Stopped: logo sound playback is not implemented yet.");
+                else ImGui::TextUnformatted("Enter or controller A: continue after the original delay.");
+                ImGui::BeginDisabled(options.frames != 0);
+                if (ImGui::Button("Restart boot screen")) animation_reset = true;
+                ImGui::EndDisabled();
+                if (frame_packets->Current() != frontend_session->Current())
+                {
+                    ImGui::TextUnformatted("Graphics replacement failed; the previous frame remains visible.");
+                    if (ImGui::Button("Retry frontend graphics")) frontend_failed_graphics.reset();
+                }
+                if (!frontend_message.empty()) ImGui::TextWrapped("Frontend: %s", frontend_message.c_str());
+            }
+            else ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
             if (particles)
             {
                 ImGui::Text("Original particles: %u live | %u controllers", particle_live, particle_active_controllers);
@@ -1058,7 +1131,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 if (ImGui::Button("Previous text")) text_view->Step(true);
                 ImGui::SameLine(); if (ImGui::Button("Next text")) text_view->Step(false);
             }
-            if (frame_view)
+            if (frame_view && !frontend_boot)
             {
                 ImGui::Text("Authored %s layout: %zu text, %zu images", options.frontend_animate ? "animated" : "static",
                     frame_view->TextCount(), frame_view->ImageCount());
@@ -1233,7 +1306,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 ImGui::Checkbox("Shadow volume", &volume_enabled);
                 ImGui::SliderFloat("Receiver height", &receiver_height, -.8f, .8f);
             }
-            else ImGui::Checkbox("Object lighting", &lighting.enabled);
+            else if (!frontend_boot) ImGui::Checkbox("Object lighting", &lighting.enabled);
             if (options.shadow_id)
             {
                 ImGui::Checkbox("Projected shadow lookup", &shadows_enabled);
@@ -1246,7 +1319,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 ImGui::SameLine(); if (ImGui::Button("Swap cameras")) pip->SetMode(NisPipMode::Swap);
                 ImGui::SameLine(); if (ImGui::Button("Expand PIP")) pip->SetMode(NisPipMode::Expand);
             }
-            ImGui::TextUnformatted("Full stadium scenes and character animation are pending.");
+            if (!frontend_boot) ImGui::TextUnformatted("Full stadium scenes and character animation are pending.");
             ImGui::TextUnformatted("Escape or close the window to exit."); ImGui::End();
             backend.read_colours = (!colour_hits && frames % 15 == 14) || (options.frames && frames + 1 == options.frames);
             },
@@ -1361,13 +1434,19 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 + (options.frontend_animate ? " image components in the last frame." : " image components per frame."));
             if (frontend_session && options.frontend_animate) log("Original frontend timeline advanced: " + std::to_string(animation_updates)
                 + " updates; presentation time " + std::to_string(frontend_session->Current()->graph.presentation_time) + " seconds.");
+            if (frontend_boot)
+            {
+                const auto status = frontend_boot->Status();
+                log("Retail boot final phase: " + std::to_string(status.phase) + "; elapsed "
+                    + std::to_string(status.elapsed) + "; strap alpha " + std::to_string(status.strap_alpha));
+            }
         }
         if (text_view)
         {
             if (text_view->Rendered() != frames) throw std::runtime_error("Frontend text view missed a rendered frame");
             log("Frontend text inspection rendered: " + std::to_string(text_view->Rendered()) + " frames through the original view graph.");
         }
-        frontend_handler.reset(); frontend_devices.reset(); frontend_input.reset();
+        frontend_boot.reset(); frontend_handler.reset(); frontend_devices.reset(); frontend_input.reset();
         frontend_session.reset(); // Drain pending reloads before NL services/arenas shut down.
         frontend_published_frame.reset();
         if (particles)
@@ -1386,7 +1465,10 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         if (backend_errors || !draws || (!depth_hits && !colour_hits) || (options.frames && frames < options.frames))
             throw std::runtime_error("Static preview incomplete: frames=" + std::to_string(frames) + ", draws=" + std::to_string(draws)
                 + ", depth hits=" + std::to_string(depth_hits) + ", colour hits=" + std::to_string(colour_hits) + ", backend errors=" + std::to_string(backend_errors.load()));
-        log("Static preview rendered: " + std::to_string(frames) + " frames, " + std::to_string(draws) + " GX draw calls, " + std::to_string(depth_hits) + " geometry depth samples, " + std::to_string(colour_hits) + " visible colour samples. No game scene or gameplay was started.");
+        if (options.frontend_boot)
+            log("Retail boot screen rendered: " + std::to_string(frames) + " frames, " + std::to_string(draws)
+                + " GX draw calls. Original handler prefix executed; full game startup remains pending.");
+        else log("Static preview rendered: " + std::to_string(frames) + " frames, " + std::to_string(draws) + " GX draw calls, " + std::to_string(depth_hits) + " geometry depth samples, " + std::to_string(colour_hits) + " visible colour samples. No game scene or gameplay was started.");
         if (world_batch) log("Static world submission totals: " + std::to_string(world_visible)
             + " / " + std::to_string(world_considered) + " objects, " + std::to_string(world_packets) + " packets.");
         if (volume_preview) log("Original stadium shadow blend samples: " + std::to_string(shadow_hits) + ".");

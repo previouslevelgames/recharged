@@ -42,9 +42,10 @@ extern "C" void SAnimDecodeRot12(nlQuaternion* result, const void* packed)
     {
         const auto* key = bytes + 3 * pair;
         const unsigned first = (static_cast<unsigned>(key[0]) << 4) | (key[1] >> 4);
-        const unsigned second = (static_cast<unsigned>(key[1] & 0x0f) << 8) | key[2];
+        const unsigned second = (static_cast<unsigned>(key[2]) << 4) | (key[1] & 0x0f);
         // Original unpacking shifts each signed 12-bit component left four
-        // bits, then uses GQR6's signed 16-bit scale of 2^-15.
+        // bits, then uses GQR6's signed 16-bit scale of 2^-15. The second
+        // component's high eight bits are byte2; its low nibble is in byte1.
         result->e[2 * pair] = DecodeSigned(first, 0x800, 1.0f / 2048.0f);
         result->e[2 * pair + 1] = DecodeSigned(second, 0x800, 1.0f / 2048.0f);
     }

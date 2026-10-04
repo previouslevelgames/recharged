@@ -26,6 +26,8 @@ public:
     // Original BaseLoadingScene order: advance, then inclusive completion/hide.
     // Commits neither clock nor visibility on failure; returns still-active.
     bool AdvanceLoadingNotification(float delta, std::uint32_t component_instance);
+    // Original TLComponentInstance::Update: selected component slide only.
+    void AdvanceComponent(std::uint32_t instance, float delta);
     void Reset();
     std::unique_ptr<FrontendAnimationPlayback> Clone() const;
     // Original lower-hash first-match selection. Missing names clear active.

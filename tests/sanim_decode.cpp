@@ -42,7 +42,7 @@ using RotationDecoder = void (*)(nlQuaternion*, const void*);
 void GoldenRotations()
 {
     const unsigned char rot16[] = {0x80, 0x00, 0x7f, 0xff, 0xff, 0xff, 0x12, 0x34};
-    const unsigned char rot12[] = {0x7f, 0xf8, 0x00, 0x00, 0x1f, 0xff};
+    const unsigned char rot12[] = {0x7f, 0xf0, 0x80, 0x00, 0x1f, 0xff};
     const unsigned char rot8[] = {0x80, 0x7f, 0xff, 0x12};
     const std::array<float, 4> expected16{-1, 0.999969482421875f, -0.000030517578125f, 0.1422119140625f};
     const std::array<float, 4> expected12{0.99951171875f, -1, 0.00048828125f, -0.00048828125f};
@@ -73,12 +73,15 @@ void AllRotations(unsigned width, RotationDecoder decode)
             value, value ^ mask, (value + count / 2) & mask, (13 * value + 47) & mask};
         std::memset(key, 0, bytes);
         storage[0] = 0xa5;
-        // An independent bit-stream encoder avoids reproducing the decoder's
-        // paired-byte/nibble indexing. Each lane visits its entire input range.
+        // Rot12 stores both high bytes followed by their nibbles in one shared
+        // byte: A-high, A-low/B-low, B-high. It is not a contiguous bit stream.
+        // Each lane visits its entire signed input range.
         for (unsigned lane = 0; lane < 4; ++lane)
             for (unsigned bit = 0; bit < width; ++bit)
             {
-                const unsigned stream = lane * width + bit;
+                const unsigned stream = width == 12
+                    ? (lane / 2) * 24 + (bit < 8 ? (lane % 2) * 16 + bit : 8 + (lane % 2) * 4 + bit - 8)
+                    : lane * width + bit;
                 if (components[lane] & (1u << (width - bit - 1)))
                     key[stream / 8] |= 1u << (7 - stream % 8);
             }
@@ -100,6 +103,37 @@ void AllRotations(unsigned width, RotationDecoder decode)
                     "Rotation differs from signed GQR dequantization");
         }
     }
+}
+
+void OriginalRot12Unpack()
+{
+    // Independent literal transcription of the original byte assignments,
+    // followed by signed16 GQR6 dequantization. This oracle starts from raw
+    // bytes, not from the encoder used by AllRotations.
+    for (unsigned lane = 0; lane < 6; ++lane)
+        for (unsigned value = 0; value < 256; ++value)
+        {
+            std::array<unsigned char, 6> key{0x91,0xe5,0x27,0x63,0x1a,0xfe};
+            key[lane] = value;
+            const std::array<unsigned char, 8> expanded{
+                key[0], static_cast<unsigned char>(key[1] & 0xf0),
+                key[2], static_cast<unsigned char>(key[1] << 4),
+                key[3], static_cast<unsigned char>(key[4] & 0xf0),
+                key[5], static_cast<unsigned char>(key[4] << 4)};
+            Guarded<nlQuaternion> out;
+            SAnimDecodeRot12(&out.value,key.data()); out.Check();
+            for (unsigned component = 0; component < 4; ++component)
+            {
+                const unsigned word = expanded[2*component]*256u + expanded[2*component+1];
+                const int signed_word = word >= 32768 ? int(word)-65536 : int(word);
+                const float expected = float(std::ldexp(double(signed_word),-15));
+                Require(Bits(out.value.e[component]) == Bits(expected), "Rot12 differs from original byte unpack/GQR loads");
+            }
+        }
+    const unsigned char identity[] = {0,0,0,0,15,127};
+    nlQuaternion out; SAnimDecodeRot12(&out,identity);
+    Require(out.x == 0 && out.y == 0 && out.z == 0 && out.w == 2047.f/2048,
+            "Rot12 high/low nibble identity vector changed");
 }
 
 void AllScales()
@@ -151,13 +185,15 @@ int main()
         SAnimInitGQR();
         AllRotations(16, SAnimDecodeRot16);
         AllRotations(12, SAnimDecodeRot12);
+        OriginalRot12Unpack();
         AllRotations(8, SAnimDecodeRot8);
         AllScales();
         AllWeights();
         SAnimInitGQR();
         GoldenRotations();
         std::cout << "SAnim decoders passed: 65,536 Rot16, 4,096 Rot12, 256 Rot8 keys (all lanes), "
-                     "65,536 unsigned scale triples, 256 weight/morph pairs; guards and repeated init.\n";
+                     "1,536 original Rot12 byte-unpack cases, 65,536 unsigned scale triples, "
+                     "256 weight/morph pairs; guards and repeated init.\n";
         return 0;
     }
     catch (const std::exception& error)

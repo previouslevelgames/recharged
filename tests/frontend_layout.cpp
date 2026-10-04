@@ -81,6 +81,26 @@ void TextBoxes()
     result=f.Build();Check(Entry(result).text==u"BA","Original localization flag lost precedence");
     f.Text().text_overload_flags=0;result=f.Build();Check(Entry(result).layout.quads.size()==2,"Extended font character mapping changed");
 }
+void ParagraphsAndFallback()
+{
+    Fixture f;f.Text().text_box={128,128};f.Text().draw_options=0;f.Text().text=u"A{p}B";
+    const FrontendLayoutOptions options{true,true};
+    const auto build=[&]{return BuildFrontendLayout(f.scene,f.localization,f.fonts,{},options);};
+    Check(f.Build().TextCount()==2,"Strict layout accepted paragraph formatting");
+    auto frame=build();const auto& entry=Entry(frame);Check(entry.layout.quads.size()==2,"Paragraph generated extra glyphs");
+    Near(entry.layout.quads[0].left,-1);Near(entry.layout.quads[0].top,-2);
+    Near(entry.layout.quads[1].left,0);Near(entry.layout.quads[1].top,10);Near(entry.layout.height,24);
+    for(const auto text:{u"{p}A",u"A{p}",u"A{p}{p}B"})
+    {f.Text().text=text;frame=build();const auto& e=Entry(frame);Near(e.layout.height,text==std::u16string_view(u"A{p}{p}B")?36:24);}
+    f.Text().text=u"A{p}{p}B";frame=build();Near(Entry(frame).layout.quads[1].top,22);
+    for(const auto text:{u"A{nbs}B",u"A{p",u"A{clr:FFFFFF}B",u"A}B"})
+    {f.Text().text=text;Check(build().TextCount()==2,"Unqualified formatting became plain text");}
+    f.Text().text=u"AB";f.scene.resources[0].hash=0xbadcafe;
+    Check(f.Build().TextCount()==0,"Strict layout invented missing font binding");
+    frame=build();Check(frame.TextCount()==3&&frame.font_fallbacks.at(0xbadcafe)==f.font->alias,"Original fallback was not explicit in layout result");
+    Check(Entry(frame).layout.font==f.font,"Fallback lost retained font identity");
+    f.Text().text=u"A";for(unsigned i=0;i<17;++i)f.Text().text+=u"{p}A";Reject(build);
+}
 void Selection()
 {
     Fixture f;f.scene.slides[0].time=2;f.Text().start=2;f.Text().duration=0;
@@ -197,6 +217,6 @@ void Owned(const std::filesystem::path& root)
 }
 int main(int argc,char** argv)
 {
-    try{for(unsigned repeat=0;repeat<3;++repeat){Baseline();Inheritance();TextBoxes();Selection();Components();UnsupportedAndErrors();Images();}if(argc==2)Owned(argv[1]);std::cout<<checks<<" original frontend static layout checks passed\n";return 0;}
+    try{for(unsigned repeat=0;repeat<3;++repeat){Baseline();Inheritance();TextBoxes();ParagraphsAndFallback();Selection();Components();UnsupportedAndErrors();Images();}if(argc==2)Owned(argv[1]);std::cout<<checks<<" original frontend static layout checks passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<"FAILED: "<<e.what()<<" (check "<<checks<<")\n";return 1;}
 }

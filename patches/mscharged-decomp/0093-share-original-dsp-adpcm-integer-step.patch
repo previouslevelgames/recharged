@@ -1,0 +1,120 @@
+From: mscharged-port contributors
+Subject: [PATCH] Share original DSP ADPCM integer sample arithmetic
+Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+
+Share the three identical THPAudio sample equations without selecting its
+unchecked container decoder. Native negative sample arithmetic uses defined
+64-bit multiplication; console equations and caller stores remain unchanged.
+
+diff --git a/libs/RVL_SDK/include/revolution/thp/THPAdpcmStep.h b/libs/RVL_SDK/include/revolution/thp/THPAdpcmStep.h
+new file mode 100644
+index 0000000..9630df6
+--- /dev/null
++++ b/libs/RVL_SDK/include/revolution/thp/THPAdpcmStep.h
+@@ -0,0 +1,30 @@
++#ifndef REVOLUTION_THP_ADPCM_STEP_H
++#define REVOLUTION_THP_ADPCM_STEP_H
++#include <revolution/types.h>
++// Original THP DSP ADPCM equation. Container/address validation belongs to the
++// caller; SP tables share the codec but are not THP frames.
++static inline s64 THPAdpcmAccumulator(s32 sample, u32 scale, s16 coefficient0,
++                                    s16 coefficient1, s16 history1, s16 history2)
++{
++    s64 yn;
++    yn = coefficient1 * history2;
++    yn += coefficient0 * history1;
++#if defined(MSCHARGED_NATIVE)
++    // Defined multiplication preserves negative signed samples and avoids
++    // signed-left-shift undefined behavior in the original scalar C spelling.
++    yn += (s64)sample * ((s64)1 << scale) * 2048;
++    yn *= 32;
++#else
++    yn += (sample << scale) << 11;
++    yn <<= 5;
++#endif
++    yn += 0x8000;
++    if (yn > 2147483647LL) {
++        yn = 2147483647LL;
++    }
++    if (yn < -2147483648LL) {
++        yn = -2147483648LL;
++    }
++    return yn;
++}
++#endif
+diff --git a/src/RVL_SDK/thp/THPAudio.c b/src/RVL_SDK/thp/THPAudio.c
+index 3296f84..cc610e6 100644
+--- a/src/RVL_SDK/thp/THPAudio.c
++++ b/src/RVL_SDK/thp/THPAudio.c
+@@ -1,4 +1,5 @@
+ #include <revolution/thp.h>
++#include <revolution/thp/THPAdpcmStep.h>
+ 
+ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
+     THPAudioRecordHeader *header;
+@@ -38,19 +39,8 @@ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
+ 
+         for (i = 0; i < header->sampleSize; i++) {
+             sample = __THPAudioGetNewSample(&decInfo);
+-            yn  = header->lCoef[decInfo.predictor][1] * yn2;
+-            yn += header->lCoef[decInfo.predictor][0] * yn1;
+-            yn += (sample << decInfo.scale) << 11;
+-            yn <<= 5;
+-            yn += 0x8000;
+-
+-            if (yn > 2147483647LL) {
+-                yn = 2147483647LL;
+-            }
+-
+-            if (yn < -2147483648LL) {
+-                yn = -2147483648LL;
+-            }
++            yn = THPAdpcmAccumulator(sample, decInfo.scale,
++                header->lCoef[decInfo.predictor][0], header->lCoef[decInfo.predictor][1], yn1, yn2);
+ 
+             *decLeftPtr = (s16)(yn >> 16);
+             decLeftPtr += step;
+@@ -68,19 +58,8 @@ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
+ 
+         for (i = 0 ; i < header->sampleSize ; i++) {
+             sample = __THPAudioGetNewSample(&decInfo);
+-            yn  = header->lCoef[decInfo.predictor][1] * yn2;
+-            yn += header->lCoef[decInfo.predictor][0] * yn1;
+-            yn += (sample << decInfo.scale) << 11;
+-            yn <<= 5;
+-            yn += 0x8000;
+-
+-            if (yn > 2147483647LL) {
+-                yn = 2147483647LL;
+-            }
+-
+-            if (yn < -2147483648LL) {
+-                yn = -2147483648LL;
+-            }
++            yn = THPAdpcmAccumulator(sample, decInfo.scale,
++                header->lCoef[decInfo.predictor][0], header->lCoef[decInfo.predictor][1], yn1, yn2);
+ 
+             *decLeftPtr = (s16)(yn >> 16);
+             decLeftPtr += step;
+@@ -95,19 +74,8 @@ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
+ 
+         for (i = 0 ; i < header->sampleSize ; i++) {
+             sample = __THPAudioGetNewSample(&decInfo);
+-            yn  = header->rCoef[decInfo.predictor][1] * yn2;
+-            yn += header->rCoef[decInfo.predictor][0] * yn1;
+-            yn += (sample << decInfo.scale) << 11;
+-            yn <<= 5;
+-            yn += 0x8000;
+-
+-            if (yn > 2147483647LL) {
+-                yn = 2147483647LL;
+-            }
+-
+-            if (yn < -2147483648LL) {
+-                yn = -2147483648LL;
+-            }
++            yn = THPAdpcmAccumulator(sample, decInfo.scale,
++                header->rCoef[decInfo.predictor][0], header->rCoef[decInfo.predictor][1], yn1, yn2);
+ 
+             *decRightPtr = (s16)(yn >> 16);
+             decRightPtr += step;

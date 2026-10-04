@@ -53,6 +53,11 @@ std::shared_ptr<const FrontendFont> AssembleFrontendFont(FrontendFontDescription
 // Other descriptor profiles fail explicitly rather than approximating them.
 std::shared_ptr<const FrontendFont> ReadFrontendFont(Bytes bytes, std::string_view texture_base,
                                                    std::string_view alias);
+// Original FontManager first-match/first-registered fallback over explicit
+// successful descriptor-registration order. Empty input returns no font.
+std::shared_ptr<const FrontendFont> FindFrontendFont(
+    std::span<const std::shared_ptr<const FrontendFont>> registration_order,
+    std::uint32_t alias, bool allow_original_fallback = false);
 struct FontQuad
 {
     std::uint8_t page = 0;
@@ -71,6 +76,7 @@ struct FontLineOptions
     float pixel_centre = 0;
     int length = -1; // Font-character UTF-16 units; -1 draws the full line.
     bool flip_y = false;
+    bool paragraphs = false; // Exact original {p} only, prevalidated before pointer parsing.
 };
 // Shared original measurement. Width and height intentionally use truncated
 // character advances; drawing retains the original fractional forward kerning.

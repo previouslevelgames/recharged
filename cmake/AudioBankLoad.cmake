@@ -1,0 +1,18 @@
+include_guard(GLOBAL)
+include(cmake/AudioBank.cmake)
+add_library(charged_audio_bank_load STATIC src/runtime/audio_bank_load.cpp)
+add_dependencies(charged_audio_bank_load verify_prepared)
+target_link_libraries(charged_audio_bank_load PUBLIC charged_audio_bank charged_decomp_startup)
+target_compile_features(charged_audio_bank_load PUBLIC cxx_std_20)
+if(BUILD_TESTING)
+    add_executable(audio_bank_load_tests tests/audio_bank_load.cpp)
+    target_link_libraries(audio_bank_load_tests PRIVATE charged_audio_bank_load aurora::dvd aurora::core)
+    if(MSCHARGED_BUILD_SCENE_PREVIEW)
+        target_compile_definitions(audio_bank_load_tests PRIVATE MSCHARGED_TEST_WORLD_GX=1)
+    else()
+        add_test(NAME audio_bank_load COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_audio_bank_load.py" "$<TARGET_FILE:audio_bank_load_tests>")
+        set_tests_properties(audio_bank_load PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()
