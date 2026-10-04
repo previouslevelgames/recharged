@@ -25,4 +25,7 @@ struct CameraAnimation
 // Decode Wii records into owned host values; never retain pointers into the file.
 // The playback equations and camera selection belong to the original game.
 CameraAnimation ReadCameraAnimation(Bytes file);
+// Decode one complete CAM chunk inside a larger file. All chunk alignment is
+// relative to file, and end includes the CAM chunk's final four-byte padding.
+CameraAnimation ReadCameraAnimation(Bytes file, std::size_t offset, std::size_t end);
 }

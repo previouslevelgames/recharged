@@ -19,10 +19,13 @@ class CameraAsset
     std::unique_ptr<cCameraData, DeleteCameraData> data_;
     std::thread::id thread_;
     std::string name_;
-    CameraAsset(resources::Bytes file, const std::string& name);
+    CameraAsset(resources::Bytes file, const std::string& name, std::size_t offset, std::size_t end);
 public:
     using Handle = std::shared_ptr<const CameraAsset>;
     static Handle Decode(resources::Bytes file, const std::string& name);
+    // Retain a CAM embedded in a larger file without changing absolute chunk
+    // alignment. Neither overload retains the input bytes.
+    static Handle Decode(resources::Bytes file, const std::string& name, std::size_t offset, std::size_t end);
     ~CameraAsset();
     CameraAsset(const CameraAsset&) = delete;
     CameraAsset& operator=(const CameraAsset&) = delete;

@@ -13,6 +13,7 @@ add_library(charged_graphics_memory STATIC
     "${MSCHARGED_PREPARED}/src/NL/gl/glMatrix.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glModelMatrix.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glState.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/gl/glStat.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glHash.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxModelMatrix.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxMatrix.cpp"

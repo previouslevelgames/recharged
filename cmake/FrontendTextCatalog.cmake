@@ -1,0 +1,8 @@
+include_guard(GLOBAL)
+add_library(charged_frontend_text_catalog STATIC src/resources/frontend_text_catalog.cpp)
+target_link_libraries(charged_frontend_text_catalog PUBLIC charged_frontend_fonts charged_frontend_scene)
+if(BUILD_TESTING)
+    add_executable(frontend_text_catalog_tests tests/frontend_text_catalog.cpp)
+    target_link_libraries(frontend_text_catalog_tests PRIVATE charged_frontend_text_catalog)
+    add_test(NAME frontend_text_catalog COMMAND frontend_text_catalog_tests)
+endif()

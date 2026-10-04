@@ -23,6 +23,9 @@ with tempfile.TemporaryDirectory(prefix="mscharged-scene-") as directory:
         output = result.stdout + result.stderr
         assert result.returncode == code and text in output, output
         assert "VUID-" not in output and "Validation Error" not in output, output
+        if code == 0:
+            assert "original nlTaskManager priorities 4/9/11/16" in output, output
+            assert "Original graphics shutdown recovered both game arenas." in output, output
         assert config.read_bytes() == before
         print(text)
 

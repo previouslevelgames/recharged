@@ -45,6 +45,7 @@ void CheckNativeCameraThread()
     if (!owner || thread != std::this_thread::get_id())
         throw std::logic_error("Camera core requires its initialized owner thread");
 }
+void CheckNativeCameraTeardown() { Ready(true); }
 void CheckCameraDelta(float delta)
 {
     if (!std::isfinite(delta) || delta < 0)
@@ -199,6 +200,12 @@ OriginalCameras::~OriginalCameras()
 {
     try { Release(); } catch (...) { std::terminate(); }
 }
+bool OriginalCameras::Active() const
+{
+    if (owner != this || !live_) return false;
+    CheckNativeCameraThread();
+    return true;
+}
 void OriginalCameras::Release()
 {
     if (!live_) return;
@@ -222,6 +229,7 @@ void OriginalCameras::Release()
 }
 void OriginalCameras::AttachFilters(cBaseCamera& camera)
 {
+    if (!Active()) throw std::logic_error("Camera session is no longer active");
     Ready();
     if (camera.m_pFilter[0] || camera.m_pFilter[1]) throw std::logic_error("Camera already has filters");
     TrackNativeCamera(&camera);
@@ -229,12 +237,21 @@ void OriginalCameras::AttachFilters(cBaseCamera& camera)
 }
 void OriginalCameras::Advance(float delta, float simulation_delta)
 {
+    if (!Active()) throw std::logic_error("Camera session is no longer active");
     CheckCameraDelta(delta); CheckCameraDelta(simulation_delta);
     NativeCameraCall call;
     UpdateNativeCameraPose(delta, simulation_delta);
 }
-cRumbleFilter& OriginalCameras::Rumble() { Ready(); return *g_pRumbleFilter; }
-cNoiseFilter& OriginalCameras::Noise() { Ready(); return *g_pNoiseFilter; }
+cRumbleFilter& OriginalCameras::Rumble()
+{
+    if (!Active()) throw std::logic_error("Camera session is no longer active");
+    Ready(); return *g_pRumbleFilter;
+}
+cNoiseFilter& OriginalCameras::Noise()
+{
+    if (!Active()) throw std::logic_error("Camera session is no longer active");
+    Ready(); return *g_pNoiseFilter;
+}
 }
 
 cBaseCamera::~cBaseCamera() { mscharged::DestroyNativeCamera(this); }

@@ -1,0 +1,108 @@
+Subject: [PATCH] share original NIS camera timing and trigger crossing arithmetic
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+
+Extract the original frame product/clamp/carry ordering, positive primary carry
+and half-open trigger crossing into shared inline helpers. The original methods
+and the bounded native camera/trigger scheduler use those exact expressions.
+No actor, asynchronous-loading, audio, overlay or complete NisPlayer service is
+selected by this extraction. Input validation belongs to the native owner.
+
+diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
+--- a/src/Game/NisPlayer.cpp
++++ b/src/Game/NisPlayer.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/NisPlayer.h"
++#include "Game/NisPlaybackTiming.h"
+ #include "Game/Blinker.h"
+ #include "NL/nlBasicString.h"
+ #include "Game/Render/StadiumLoading.h"
+@@ -426,13 +427,7 @@
+ {
+     float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
+     float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
+-    deltaT = realTimeDelta * timeDilation;
+-    if (deltaT > 0.5f)
+-    {
+-        deltaT = 0.5f;
+-    }
+-    deltaT += mCameraOverrun;
+-    mCameraOverrun = 0.0f;
++    deltaT = NisPlaybackTiming::FrameDelta(realTimeDelta, timeDilation, mCameraOverrun);
+     HandleAsyncs();
+ 
+     for (int i = 0; i < 8; i++)
+@@ -455,9 +450,9 @@
+             if (mCamera[i].m_pActiveCameraData != 0)
+             {
+                 float overrun = mCamera[i].ManualUpdate(deltaT);
+-                if (i == 0 && overrun > 0.0f)
++                if (i == 0)
+                 {
+-                    mCameraOverrun = overrun;
++                    NisPlaybackTiming::KeepPrimaryOverrun(overrun, mCameraOverrun);
+                 }
+             }
+         }
+diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
+--- a/src/Game/Render/Nis.cpp
++++ b/src/Game/Render/Nis.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Render/Nis.h"
++#include "Game/NisPlaybackTiming.h"
+ 
+ #include "Game/AI/AIPad.h"
+ #include "Game/AnimInventory.h"
+@@ -330,8 +331,7 @@
+     {
+         for (int i = 0; i < mNumTriggers; ++i)
+         {
+-            float triggerFrame = (mTriggers[i].frameNumber / 30.0f) / duration;
+-            if ((oldTime <= triggerFrame) && (newTime > triggerFrame))
++            if (NisPlaybackTiming::Crossed(oldTime, newTime, duration, mTriggers[i].frameNumber))
+             {
+                 mTriggers[i].Fire(*this);
+             }
+diff --git a/include/Game/NisPlaybackTiming.h b/include/Game/NisPlaybackTiming.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/NisPlaybackTiming.h
+@@ -0,0 +1,39 @@
++#ifndef GAME_NISPLAYBACKTIMING_H
++#define GAME_NISPLAYBACKTIMING_H
++
++// Shared arithmetic extracted from NisPlayer::Update and Nis::UpdateTriggers.
++// Native owners validate inputs and supply the surrounding game services.
++namespace NisPlaybackTiming
++{
++inline float FrameDelta(float realTimeDelta, float timeDilation, float& cameraOverrun)
++{
++    float deltaT = realTimeDelta * timeDilation;
++    if (deltaT > 0.5f)
++    {
++        deltaT = 0.5f;
++    }
++    deltaT += cameraOverrun;
++    cameraOverrun = 0.0f;
++    return deltaT;
++}
++
++inline void KeepPrimaryOverrun(float overrun, float& cameraOverrun)
++{
++    if (overrun > 0.0f)
++    {
++        cameraOverrun = overrun;
++    }
++}
++
++inline bool Crossed(float oldTime, float newTime, float duration, float frameNumber)
++{
++    if (duration == 0.0f)
++    {
++        return false;
++    }
++    float triggerFrame = (frameNumber / 30.0f) / duration;
++    return (oldTime <= triggerFrame) && (newTime > triggerFrame);
++}
++}
++
++#endif

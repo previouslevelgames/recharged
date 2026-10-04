@@ -4,6 +4,7 @@
 #include "NL/nlMemory.h"
 #include <aurora/aurora.h>
 #include <dolphin/os.h>
+#include <revolution/os/OS_fwd.h>
 #include <SDL3/SDL.h>
 #include <cstdint>
 #include <cstring>

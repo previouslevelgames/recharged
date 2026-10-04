@@ -19,9 +19,12 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `01c9a4d61904afc927d6752c3cd29fca489ff5cc`, adopted from
+The current base is `2c71062ca827c5d2115ab76f4da80aaa8c515ff8`, adopted from
 published upstream main. It remains an incomplete development snapshot, not a
-complete decompilation release.
+complete decompilation release. This adoption includes source-linked NisPlayer,
+NetworkStats, and AvoidController. Those units are not automatically selected
+for native linking. Patches 0003 and 0044 adapt the new OS forward declaration
+and preserve native logging; 0031 refreshes the extracted lighting lookup.
 
 The selected camera sources include original authored playback (0056) and
 desktop DebugCam controls (0057). Patch 0058 shares the original frontend
@@ -95,6 +98,12 @@ see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-start
 | `0056-select-native-animated-camera-playback.patch` | Select original camera interpolation, cuts, transforms, timing and focal calculations; provide explicit display/simulation inputs and validate sampling. | Retained asset ownership, loop/end callbacks, mirroring, facing, FOV, original CameraMan updates and authored scene preview. Full camera factory and DOF rendering remain pending. |
 | `0057-select-native-debug-camera.patch` | Select original desktop orbit/pan/distance/height controls and pose math through explicit native input values; define angle wrapping and reject degenerate look-at inputs. | CameraMan borrowing, SDL input mapping, static preview, failure cleanup and selected sanitizers. Focused input-to-render qualification, Wii DPD, player/replay targets and full factory selection remain pending. |
 | `0058-share-original-frontend-camera-catalog.patch` | Share the unchanged original filename/alias table and record type; retain the console factory's ordering and request loop. | Strict preparation and exact ordered comparison with the pinned source; native loading uses the same 37 entries. Full frontend factory and NIS selection remain separate. |
+| `0059-select-native-interpreter-execution.patch` | Select original interpreter execution and operations with checked native stacks, frame/string references and typed host services. | All original opcodes, available operations, calls/returns, pause/retry, budgets, malformed inputs and selected sanitizer checks. Real NIS trigger collection and game services are separate integration steps. |
+| `0060-share-original-nis-playback-timing.patch` | Share original NIS frame clamp/carry and trigger crossing arithmetic with bounded camera scheduling. | Camera timing, ordered trigger dispatch, explicit missing services and selection/teardown tests; complete NisPlayer actor and effect services remain pending. |
+| `0061-select-original-nis-trigger-definitions.patch` | Select original trigger-definition service bodies and name hashing with checked native arguments and owned records. | All 310 owned functions and 457 name selections match an independent bytecode oracle; generated and sanitizer checks pass. Effect/audio/event execution remains separate. |
+| `0062-share-original-graphics-startup-stages.patch` | Share original memory/state/view startup stages and frame task priorities. Native graphics own the selected material profile and host services transactionally. | Original scheduler order, rollback, arena recovery, synthetic Vulkan and owned frontend rendering pass. Full glStartup, remaining programs and game tasks stay unselected. |
+| `0063-select-native-frontend-input.patch` | Select original FE input/repeat/focus and pad delegation with native ownership, defined polar wrapping and the shared action remap. | Four-pad desktop input, focus/capture/hotplug gates, SDL sampling and selected sanitizers pass. Wii gameplay motion and rumble remain separate. |
+| `0064-hide-unselected-console-pad-class.patch` | Hide the unused concrete console pad class in native builds so speculative devirtualization cannot introduce its console allocator. | Optimized original input tests and the native scene executable link pass; console source behavior is unchanged. |
 
 The initial explicit game allocator is adapted; complete game allocation,
 math, pointer-bearing interfaces, data conversion, and Wii services remain

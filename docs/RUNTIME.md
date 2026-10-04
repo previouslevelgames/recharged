@@ -19,7 +19,7 @@ The experimental presets add:
 Initialize the additional dependencies, then build and run from the repository root:
 
 ```sh
-git submodule update --init --checkout extern/aurora extern/abseil-cpp extern/fmt extern/xxhash extern/tracy
+git submodule update --init --checkout extern/aurora extern/abseil-cpp extern/fmt extern/xxhash extern/tracy extern/zlib-ng
 cmake --workflow --preset startup
 ./build/startup/mscharged --experimental-startup --config ./mscharged.ini
 ```
@@ -91,13 +91,21 @@ culling follows the active camera, with opaque and transparent packets in separa
 passes. Use `--no-world-culling` or the preview toggle for comparison. Full scene
 loading, visibility hierarchies and character animation remain in development.
 
-For an authored frontend camera viewing one environment fragment:
+To preview the supported static objects in the frontend environment:
 
 ```sh
-./build/scene/mscharged --experimental-scene \
-  --world /Art/fe/environments/main/gameworld.tmp.zlib --model-id a883bcfb \
-  --camera /Art/fe/environments/cameras/camera_idle.cam
+./build/scene/mscharged --experimental-scene --frontend-world
 ```
+
+This reads the original compressed world files and selects an authored frontend
+camera. Unsupported object types are reported; animated objects, effects and
+menu behavior remain pending. Use `--debug-camera` to inspect it freely.
+
+Add `--frontend-layout /Art/fe/main_menu_v3.fen` to inspect stored text components
+using the game's font textures and your configured USA text language. Up/Down
+or a controller selects text through the original frontend input code. This is
+a text asset viewer; authored layout, animation and menu actions are still pending.
+It uses separate controls from `--debug-camera`.
 
 Press Escape or close the window to exit. Add `--frames 180` for a bounded run,
 `--unlit` to compare lighting, or use `--help` for other preview options. Running

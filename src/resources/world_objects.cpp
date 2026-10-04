@@ -32,6 +32,8 @@ struct Index
     std::map<std::uint32_t, std::size_t> ids;
     std::set<std::uint32_t> parented;
 };
+void Supported(bool condition, const char* reason)
+{ if (!condition) throw UnsupportedResource(reason); }
 Index ReadIndex(Bytes file)
 {
     Require(file.size() <= MaximumAssetBytes, "Resident world exceeds its budget");
@@ -111,8 +113,8 @@ std::vector<WorldObjectRecord> ReadWorldObjectIndex(Bytes resident)
 
 void ValidateStaticWorldObject(const StaticWorldObject& object)
 {
-    Require(object.type == 0x101 || object.type == 0x10002, "Unsupported static world drawable type");
-    Require(object.creation_flags == 3, "Unsupported static world object lifecycle flags");
+    Supported(object.type == 0x101 || object.type == 0x10002, "Unsupported static world drawable type");
+    Supported(object.creation_flags == 3, "Unsupported static world object lifecycle flags");
     for (float value : object.transform)
         Require(std::isfinite(value) && std::abs(value) <= 1e7f, "Invalid world transform");
     Require(object.transform[3] == 0 && object.transform[7] == 0 && object.transform[11] == 0
@@ -138,10 +140,10 @@ std::vector<StaticWorldObject> ReadStaticWorldObjects(Bytes resident, std::span<
         const auto found = index.ids.find(id);
         Require(found != index.ids.end(), "Selected world object is absent");
         const auto& record = index.records[found->second];
-        Require(record.type == 0x101 || record.type == 0x10002, "Selected world object is not a supported static drawable");
-        Require(!record.animated && !index.parented.contains(id), "Selected world object requires animation or parent data");
+        Supported(record.type == 0x101 || record.type == 0x10002, "Selected world object is not a supported static drawable");
+        Supported(!record.animated && !index.parented.contains(id), "Selected world object requires animation or parent data");
         const auto bytes = Slice(resident, record.offset, record.size);
-        Require(U32(bytes, 0x14) == 0xffffffff, "Selected world object has an animation node");
+        Supported(U32(bytes, 0x14) == 0xffffffff, "Selected world object has an animation node");
         StaticWorldObject object;
         object.id = id; object.type = record.type; object.model = U32(bytes, 0x64);
         object.creation_flags = U32(bytes, 0xc);
@@ -149,7 +151,7 @@ std::vector<StaticWorldObject> ReadStaticWorldObjects(Bytes resident, std::span<
         object.radius = F32(bytes, 0x60);
         if (record.type == 0x10002)
         {
-            Require(U32(bytes, 0x88) == 0 && F32(bytes, 0x8c) == 1,
+            Supported(U32(bytes, 0x88) == 0 && F32(bytes, 0x8c) == 1,
                     "Selected stadium object requires dynamic visibility or material behavior");
             for (unsigned i = 0; i < 3; ++i)
             {

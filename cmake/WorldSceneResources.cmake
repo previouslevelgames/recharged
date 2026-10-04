@@ -1,0 +1,5 @@
+include_guard(GLOBAL)
+add_library(charged_world_scene STATIC src/resources/world_scene.cpp)
+target_include_directories(charged_world_scene PUBLIC src)
+target_compile_features(charged_world_scene PUBLIC cxx_std_20)
+target_link_libraries(charged_world_scene PUBLIC charged_world_resources charged_static_resources)

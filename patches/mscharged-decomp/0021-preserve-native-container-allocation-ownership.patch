@@ -1,6 +1,6 @@
 Subject: Preserve native container allocation ownership
 
-Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
 
 Preserve native container allocation ownership
 Add explicit destruction followed by owning-arena free for NewAdapter nodes

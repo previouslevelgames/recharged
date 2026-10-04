@@ -18,6 +18,8 @@ struct SceneOptions
     std::optional<std::string> camera; // Authored CAM track; preserves model world coordinates.
     std::optional<std::string> shadow_textures;
     std::optional<std::uint32_t> shadow_id;
+    bool frontend_world = false; // Original FE paths, automatic supported-static subset.
+    std::optional<std::string> frontend_layout; // Stored text inspection; no FE timeline or menu handlers.
     bool debug_camera = false; // Original DebugCam with diagnostic desktop controls.
     bool no_world_culling = false; // Diagnostic reference: submit every selected world object.
     bool unlit = false;

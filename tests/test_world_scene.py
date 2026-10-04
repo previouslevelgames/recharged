@@ -87,8 +87,26 @@ with tempfile.TemporaryDirectory(prefix='mscharged-world-scene-') as directory:
             assert config.read_bytes() == original
             if code == 0:
                 assert 'Static preview rendered: 30 frames' in output and 'shutdown recovered both game arenas' in output, output
+                assert 'original nlTaskManager priorities 4/9/11/16' in output, output
             print(message)
             return output
+        # Use the original frontend paths without explicit object selection.
+        def frontend_write(r=resident, t=temporary):
+            def compressed(data):
+                return struct.pack('>I', len(data)) + zlib.compress(data)
+            write_disc(disc, files={
+                'Art/fe/environments/main/gameworld.res.zlib': compressed(r),
+                'Art/fe/environments/main/gameworld.tmp.zlib': compressed(t),
+                'Art/fe/environments/cameras/start_idle.cam': camera_fixture(preview=True),
+                'ini/Stadiums/FEWorld.ini': b'[Render/Fog]\nFog Enabled = false\n'}, fst_capacity=0x800)
+        frontend_write()
+        run(['--frontend-world'], message='Frontend world coverage: 2 supported objects, 0 unavailable, 0 parent records')
+        partial = bytearray(resident); struct.pack_into('>I', partial, 32+8, 0x108)
+        frontend_write(partial)
+        run(['--frontend-world'], message='Frontend world coverage: 1 supported objects, 1 unavailable, 0 parent records')
+        r,t=gpu_fixture(missing_model=True);frontend_write(r,t)
+        run(['--frontend-world'],1,'Requested model ID is absent')
+        run(['--frontend-world','--object-id','10'],2,'cannot be combined')
         write(cam=camera_fixture(preview=True));run();run(selection+['--camera','/camera.cam'])
         run(selection+['--debug-camera'],message='Original DebugCam: SDL keyboard/gamepad controls')
         run(selection+['--debug-camera','--no-world-culling'])

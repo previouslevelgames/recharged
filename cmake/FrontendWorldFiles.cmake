@@ -1,0 +1,21 @@
+include_guard(GLOBAL)
+include(cmake/GameConfig.cmake)
+include(cmake/CompressedAssets.cmake)
+include(cmake/WorldSceneResources.cmake)
+add_library(charged_frontend_world_files STATIC src/runtime/frontend_world_files.cpp)
+target_include_directories(charged_frontend_world_files PUBLIC src)
+target_compile_features(charged_frontend_world_files PUBLIC cxx_std_20)
+target_link_libraries(charged_frontend_world_files PUBLIC charged_compressed_assets charged_game_config charged_decomp_startup)
+if(BUILD_TESTING)
+    add_executable(frontend_world_files_tests tests/frontend_world_files.cpp)
+    target_link_libraries(frontend_world_files_tests PRIVATE charged_frontend_world_files charged_world_scene aurora::dvd aurora::core)
+    if(MSCHARGED_BUILD_GX_CHECK)
+        target_compile_definitions(frontend_world_files_tests PRIVATE MSCHARGED_TEST_WORLD_GX=1)
+    else()
+        add_test(NAME frontend_world_files
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_world_files.py"
+            "$<TARGET_FILE:frontend_world_files_tests>")
+        set_tests_properties(frontend_world_files PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 60)
+    endif()
+endif()

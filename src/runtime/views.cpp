@@ -6,6 +6,7 @@
 #include "NL/gl/glState.h"
 #include "NL/gl/glStruct.h"
 #include "NL/gl/glPlat.h"
+#include "NL/gl/glStartupStages.h"
 #include "NL/glx/glxTarget.h"
 #include "NL/glx/glxMatrix.h"
 #include "NL/platvmath.h"
@@ -62,8 +63,7 @@ OriginalViews::OriginalViews(unsigned width, unsigned height, void (*drain)())
     try
     {
         InitializeNativeTargets(width, height, drain);
-        gl_TargetStartup();
-        gl_ViewStartup();
+        gl_StartupViews();
         active_views = this;
         SetGraphicsViewShutdown([] { active_views->Release(); });
         views_live = live_ = true;

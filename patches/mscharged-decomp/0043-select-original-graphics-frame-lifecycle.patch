@@ -1,6 +1,6 @@
 Subject: Select original graphics frame state and lifecycle
 
-Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
 
 Extract the original begin/end/send/discard/finish entry points and their state
 from gl.cpp for explicit native source selection. Retain discard-max semantics,

@@ -1,0 +1,224 @@
+Subject: Select original NIS trigger-definition services for native collection
+
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+
+Extract the original NisPlayer interpreter service bodies, replacing console
+stack/string reads with checked typed arguments and AddTrigger publication with
+an owned native record. Keep the original trigger IDs, defaults, bool/word
+parameters and float clamp equations. Extract the original case-sensitive name
+hash for selection. Full NisPlayer/Nis objects and trigger firing stay unselected;
+console source is unchanged.
+
+diff --git a/src/Game/NisTriggerDefinitionsNative.cpp b/src/Game/NisTriggerDefinitionsNative.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/NisTriggerDefinitionsNative.cpp
+@@ -0,0 +1,208 @@
++#include "Game/Render/Nis.h"
++#include "runtime/nis_trigger_script.h"
++#include <stdexcept>
++
++namespace mscharged
++{
++NisPlaybackTrigger DecodeOriginalNisTriggerCall(unsigned int functionId, std::span<const InterpreterValue> arguments)
++{
++    NativeNisTriggerCall call(arguments);
++    switch (functionId)
++    {
++    case 0:
++    {
++        bool triggerParam1 = call.WordFromEnd(1) != 0;
++        float frame = call.FloatFromEnd(2);
++        call.Consume(2);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.param1 = triggerParam1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_8, frame, "", "", &params);
++        break;
++    }
++    case 1:
++    {
++        float frame = call.FloatFromEnd(1);
++        call.Consume(1);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_9, frame, "", "", &params);
++        break;
++    }
++    case 2:
++    {
++        unsigned long triggerParam1 = call.WordFromEnd(1);
++        const char* target = call.StringFromEnd(2);
++        const char* name = call.StringFromEnd(3);
++        float frame = call.FloatFromEnd(4);
++        call.Consume(4);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.param1 = triggerParam1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_EFFECT, frame, name, target, &params);
++        break;
++    }
++    case 3:
++    {
++        unsigned long triggerParam2 = call.WordFromEnd(1);
++        unsigned long triggerParam1 = call.WordFromEnd(2);
++        float frame = call.FloatFromEnd(3);
++        call.Consume(3);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.param1 = triggerParam1;
++        params.param2 = triggerParam2;
++        call.AddTrigger(NIS_TRIGGER_TYPE_PLAY_SOUND, frame, "", "", &params);
++        break;
++    }
++    case 4:
++    {
++        const char* target = call.StringFromEnd(1);
++        const char* name = call.StringFromEnd(2);
++        float frame = call.FloatFromEnd(3);
++        call.Consume(3);
++
++        call.AddTrigger(NIS_TRIGGER_TYPE_RAISE_EVENT, frame, name, target, nullptr);
++        break;
++    }
++    case 5:
++    {
++        float value = call.FloatFromEnd(1);
++        float frame = call.FloatFromEnd(2);
++        call.Consume(2);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.float1 = value;
++        if (params.float1 > 1.0f)
++        {
++            params.float1 = 1.0f;
++        }
++        if (params.float1 < 0.0f)
++        {
++            params.float1 = 0.0f;
++        }
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_7, frame, "", "", &params);
++        break;
++    }
++    case 6:
++    {
++        bool triggerParam1 = call.WordFromEnd(1) != 0;
++        float frame = call.FloatFromEnd(2);
++        call.Consume(2);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.param1 = triggerParam1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_5, frame, "", "", &params);
++        break;
++    }
++    case 7:
++    {
++        unsigned long triggerParam1 = call.WordFromEnd(1);
++        float frame = call.FloatFromEnd(2);
++        call.Consume(2);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.param1 = triggerParam1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_4, frame, "", "", &params);
++        break;
++    }
++    case 8:
++    {
++        unsigned long triggerParam1 = call.WordFromEnd(1);
++        float frame = call.FloatFromEnd(2);
++        call.Consume(2);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.param1 = triggerParam1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_6, frame, "", "", &params);
++        break;
++    }
++    case 9:
++    {
++        float frame = call.FloatFromEnd(1);
++        call.Consume(1);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_10, frame, "", "", &params);
++        break;
++    }
++    case 10:
++    {
++        float delta = call.FloatFromEnd(1);
++        float frame = call.FloatFromEnd(2);
++        call.Consume(2);
++
++        Nis::TriggerParams params;
++        params.float1 = -1.0f;
++        params.param1 = -1;
++        params.param2 = -1;
++        params.param3 = -1;
++        params.param4 = -1;
++        params.float1 = delta;
++        call.AddTrigger(NIS_TRIGGER_TYPE_TIME_DILATION, frame, "", "", &params);
++        break;
++    }
++    default:
++        throw std::runtime_error("Unbound original NIS trigger-definition service");
++        break;
++    }
++    return call.Finish();
++}
++
++std::uint32_t OriginalNisTriggerHash(const char* str)
++{
++    u32 hash = -1;
++    while (*str)
++    {
++        hash += hash << 5;
++        hash += (unsigned char)*str++;
++    }
++    return hash;
++}
++
++}

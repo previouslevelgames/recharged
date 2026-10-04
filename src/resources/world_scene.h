@@ -23,4 +23,20 @@ struct StaticWorldScene
 // Shared models/textures are decoded once and all output owns its storage.
 StaticWorldScene ReadStaticWorldScene(Bytes resident, Bytes temporary,
     std::span<const std::uint32_t> objects);
+
+struct UnavailableWorldObject
+{
+    std::uint32_t id, type;
+    std::string reason;
+};
+struct AvailableWorldScene
+{
+    StaticWorldScene scene;
+    std::size_t parent_records = 0;
+    std::vector<UnavailableWorldObject> unavailable;
+};
+// Discover every drawable supported by the current static implementation.
+// Unsupported features are returned explicitly; malformed selected data fails
+// the whole load. This result is a partial scene, never a complete World owner.
+AvailableWorldScene ReadAvailableWorldScene(Bytes resident, Bytes temporary);
 }

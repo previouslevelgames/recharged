@@ -23,7 +23,7 @@ std::size_t ParameterSize(std::uint32_t program)
     case 0x32475c7d: return 48; // MaskedSpecularFresnel
     case 0x2169db5c: return 36; // ScrollingDiffuse
     case 0x21db4385: case 0xd3e572da: return 8;
-    default: throw std::runtime_error("Unsupported RLG material program in static preview");
+    default: throw UnsupportedResource("Unsupported RLG material program in static preview");
     }
 }
 bool PrimitiveCount(std::uint8_t kind, std::size_t size)

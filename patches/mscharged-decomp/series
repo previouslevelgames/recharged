@@ -57,3 +57,9 @@
 0056-select-native-animated-camera-playback.patch
 0057-select-native-debug-camera.patch
 0058-share-original-frontend-camera-catalog.patch
+0059-select-native-interpreter-execution.patch
+0060-share-original-nis-playback-timing.patch
+0061-select-original-nis-trigger-definitions.patch
+0062-share-original-graphics-startup-stages.patch
+0063-select-native-frontend-input.patch
+0064-hide-unselected-console-pad-class.patch

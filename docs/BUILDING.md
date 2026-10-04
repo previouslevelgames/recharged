@@ -61,5 +61,5 @@ resolve from the INI's directory. To use another configuration:
 ## Experimental builds
 
 See [runtime status and commands](RUNTIME.md) for original startup checks and
-the Linux Vulkan static asset preview. These use additional dependencies and
+the Linux Vulkan static asset preview. These use additional dependencies (including `extern/zlib-ng` for startup) and
 currently support USA `R4QE01` revision 1 game data.

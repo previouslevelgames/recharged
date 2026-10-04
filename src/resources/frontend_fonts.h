@@ -1,0 +1,62 @@
+#pragma once
+#include "resources/texture_bundle.h"
+#include <map>
+#include <memory>
+#include <string>
+#include <string_view>
+
+namespace mscharged::resources
+{
+// NLOC strings retain UTF-16 code units; wchar_t is not a Wii string type.
+struct Localization
+{
+    std::uint32_t language = 0, flags = 0;
+    std::map<std::uint32_t, std::u16string> strings;
+    const std::u16string& Get(std::uint32_t id) const;
+};
+std::shared_ptr<const Localization> ReadLocalization(Bytes bytes, std::uint32_t language);
+std::string Utf16ToUtf8(std::u16string_view text);
+std::uint32_t FrontendNameHash(std::string_view name);
+
+struct FontGlyph
+{
+    std::uint16_t unicode = 0, font_char = 0, x = 0, y = 0;
+    std::uint8_t page = 0, advance = 0, width = 0, height = 0, ascent = 0;
+    std::int8_t offset = 0;
+    bool has_kerning = false;
+};
+struct FrontendFont
+{
+    std::uint32_t alias = 0;
+    std::uint16_t height = 0, ascent = 0, internal_leading = 0, page_size = 0;
+    float spacing = 1, line_height = 1;
+    std::map<std::uint16_t, FontGlyph> glyphs;
+    std::map<std::uint32_t, int> kerning;
+    std::vector<Texture> pages;
+    const FontGlyph& Glyph(std::uint16_t unicode) const;
+    // Original GetCharWidth arithmetic and font-index kerning keys. In
+    // particular, extended Unicode kerning is not silently corrected here.
+    std::uint32_t CharacterWidth(const FontGlyph& glyph, const FontGlyph* previous) const;
+};
+// Checked sector bundle + original NLG 1.1 packing profile, colour pages.
+// Font aliases are ASCII lowercase hashes as stored in FE resources; texture
+// names keep their case-sensitive original hashes.
+// Other descriptor profiles fail explicitly rather than approximating them.
+std::shared_ptr<const FrontendFont> ReadFrontendFont(Bytes bytes, std::string_view texture_base,
+                                                   std::string_view alias);
+struct FontQuad
+{
+    std::uint8_t page = 0;
+    float left = 0, top = 0, right = 0, bottom = 0, u0 = 0, v0 = 0, u1 = 0, v1 = 0;
+};
+struct FontLayout
+{
+    std::shared_ptr<const FrontendFont> font;
+    std::vector<FontQuad> quads;
+    float width = 0, height = 0;
+};
+// Bounded native baseline layout, using original metrics/packing/advances.
+// Coordinates are pixels, positive Y down. Supports newlines and fallback '?'.
+// Textbox wrapping, alignment, escape commands and FE animation are not selected.
+FontLayout LayoutFrontendText(std::shared_ptr<const FrontendFont> font, std::u16string_view text);
+}

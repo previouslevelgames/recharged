@@ -1,0 +1,171 @@
+Subject: Select original frontend input with an explicit native pad backend
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+
+Make the native pad base abstract where console method bodies are unavailable;
+a real desktop backend supplies every query. Native owners supply bounded pad
+and FE object lifetimes instead of the console allocation-only startup helpers.
+Initialize polar state, define signed angle wrapping, and share the original
+51-action table. Original FE repeat, edge and focus logic remains unchanged.
+Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
+
+--- a/include/NL/platpad.h
++++ b/include/NL/platpad.h
+@@ -19,11 +19,36 @@
+ public:
+     PadBackend(int padIndex)
+         : m_padIndex(padIndex)
++#ifdef MSCHARGED_NATIVE
++        , m_polarAnalogLeft()
++        , m_polarAnalogRight()
++#endif
+         , m_isLeftAnalogToDPadMapEnabled(false)
+     {
+     }
+ 
+     virtual ~PadBackend() { }
++#ifdef MSCHARGED_NATIVE
++    virtual bool IsConnected() = 0;
++    virtual bool IsPressed(int button, bool remap) = 0;
++    virtual float GetPressure(int button, bool remap) = 0;
++    virtual float GetPressureDerivative(int button, bool remap) = 0;
++    virtual bool PlatJustPressed(int button, bool remap) = 0;
++    virtual bool PlatJustReleased(int button, bool remap) = 0;
++    virtual int GetButtonIndex(int button, bool remap) = 0;
++    virtual int GetButtonMask(int buttonIndex) = 0;
++    virtual float GetButtonStateTime(int button, bool remap) = 0;
++    virtual float AnalogLeftX() = 0;
++    virtual float AnalogLeftY() = 0;
++    virtual float AnalogRightX() = 0;
++    virtual float AnalogRightY() = 0;
++    virtual bool RumbleActive() = 0;
++    virtual void StartRumble(float duration, float intensity, float frequency) = 0;
++    virtual void StopRumble() = 0;
++    virtual void Update(float deltaTime);
++    virtual int GetClassID() = 0;
++
++#else
+     virtual bool IsConnected();
+     virtual bool IsPressed(int button, bool remap);
+     virtual float GetPressure(int button, bool remap);
+@@ -42,6 +67,8 @@
+     virtual void StopRumble();
+     virtual void Update(float deltaTime);
+     virtual int GetClassID();
++
++#endif
+ 
+     void DisableLeftAnalogToDPadMap()
+     {
+@@ -91,7 +118,11 @@
+     virtual void Update(float dt);
+     virtual int GetClassID() { return gPlatPadClassID; }
+ 
++#ifdef MSCHARGED_NATIVE
++    static void* operator new(size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
+     {
+         return gPlatPadAllocator.Allocate();
+     }
+--- a/src/NL/plat/PadBackend.cpp
++++ b/src/NL/plat/PadBackend.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/platpad.h"
++#ifdef MSCHARGED_NATIVE
++#include <stdexcept>
++#endif
+ 
+ int gNextPadClassID;
+ 
+@@ -13,7 +16,11 @@
+ 
+     if ((0.f != x) || (0.f != y))
+     {
++#ifdef MSCHARGED_NATIVE
++        m_polarAnalogLeft.a = (u16)(s32)(10430.378f * nlATan2f(y, x));
++#else
+         m_polarAnalogLeft.a = (u16)(10430.378f * nlATan2f(y, x));
++#endif
+     }
+ 
+     x = this->AnalogRightX();
+@@ -21,7 +28,11 @@
+     m_polarAnalogRight.r = nlSqrt((x * x) + (y * y), 1);
+     if ((0.f != x) || (0.f != y))
+     {
++#ifdef MSCHARGED_NATIVE
++        m_polarAnalogRight.a = (u16)(s32)(10430.378f * nlATan2f(y, x));
++#else
+         m_polarAnalogRight.a = (u16)(10430.378f * nlATan2f(y, x));
++#endif
+     }
+ }
+ 
+@@ -100,5 +111,10 @@
+ 
+ int GetPadButtonMask(int buttonIndex)
+ {
++#ifdef MSCHARGED_NATIVE
++    if (buttonIndex < 0 || buttonIndex > 31) throw std::out_of_range("Pad button index");
++    return (int)(1u << buttonIndex);
++#else
+     return 1 << buttonIndex;
++#endif
+ }
+--- a/src/NL/plat/globalpad.cpp
++++ b/src/NL/plat/globalpad.cpp
+@@ -7,6 +7,7 @@
+ {
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void PadManager::Initialize(int padCount, int padSetCount)
+ {
+     mPadCount = padCount;
+@@ -23,6 +24,8 @@
+         }
+     }
+ }
++
++#endif
+ 
+ void PadManager::Update(float deltaTime)
+ {
+--- a/src/Game/FE/feInput.cpp
++++ b/src/Game/FE/feInput.cpp
+@@ -19,10 +19,13 @@
+ FEInput* g_pFEInput = 0;
+ FEPadData g_aFEPadData[4];
+ 
++#ifndef MSCHARGED_NATIVE
+ void FEInput::Initialize()
+ {
+     g_pFEInput = new ((u8*)nlMalloc(sizeof(FEInput), 8, false)) FEInput();
+ }
++
++#endif
+ 
+ void FEInput::Reset(bool arg0)
+ {
+--- a/src/Game/PadActions.cpp
++++ b/src/Game/PadActions.cpp
+@@ -19,9 +19,9 @@
+ 
+ bool g_bEnableGamecubePadMonkey;
+ 
+-int g_pPadRemapArray[51] = {
+-    0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
+-};
++#ifndef MSCHARGED_NATIVE
++#include "Game/PadActionMap.inc"
++#endif
+ 
+ static int sWiiRemoteButtonRemap[51] = {
+     0x00000000, 0x00000000, 0x00000100, 0x00000200, 0x00000010, 0x00000000, 0x00000000, 0x00000800, 0x00001000, 0x00000200, 0x00000100, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000800, 0x00000400, 0x00000200, 0x00000100, 0x00000010, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000800, 0x00000800, 0x00000400, 0x00000000, 0x00000800, 0x00000400, 0x00000010, 0x00000100, 0x00000100, 0x00000100, 0x00000400, 0x00000200, 0x00002000, 0x00004000, 0x00000200, 0x00000100, 0x00004000, 0x00002000, 0x00002000, 0x00004000, 0x00008000, 0x00000200, 0x00000010, 0x00001000, 0x00000010
+--- /dev/null
++++ b/include/Game/PadActionMap.inc
+@@ -0,0 +1,3 @@
++int g_pPadRemapArray[51] = {
++    0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
++};

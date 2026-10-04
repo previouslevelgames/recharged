@@ -1,12 +1,14 @@
 Subject: Adapt original configuration parsing and string ownership
 
-Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
 
 Retain original sections, hashing and typed parsing. Replace Wii array-cookie
 and fixed temporary-string storage assumptions, correct native copy-on-write
 ranges, check input/table/string bounds and retain temporary ownership on errors.
 Delegate file callbacks and global lifetime to explicit native owners. This does
 not initialize the tweak registry or select the complete original startup.
+Keep native logging routed to the host adapter instead of the console inline
+no-op now supplied by the upstream header.
 
 diff --git a/include/NL/nlString.h b/include/NL/nlString.h
 --- a/include/NL/nlString.h
@@ -602,3 +604,22 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
 +    mLoaded = true;
 +}
 +#endif
+diff --git a/include/NL/nlPrint.h b/include/NL/nlPrint.h
+--- a/include/NL/nlPrint.h
++++ b/include/NL/nlPrint.h
+@@ -3,10 +3,15 @@
+ 
+ struct __va_list_struct;
+ 
++#ifdef MSCHARGED_NATIVE
++int nlPrintf(const char* format, ...);
++#else
+ inline int nlPrintf(const char* format, ...)
+ {
+     return 0;
+ }
++
++#endif
+ 
+ int nlVSNPrintf(char* buffer, unsigned long size, const char* format, __va_list_struct* args);
+ int nlSNPrintf(char* buffer, unsigned long size, const char* format, ...);

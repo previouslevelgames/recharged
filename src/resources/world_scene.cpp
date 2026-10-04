@@ -6,6 +6,28 @@
 
 namespace mscharged::resources
 {
+AvailableWorldScene ReadAvailableWorldScene(Bytes resident, Bytes temporary)
+{
+    AvailableWorldScene result;
+    std::vector<std::uint32_t> selected;
+    for (const auto& record : ReadWorldObjectIndex(resident))
+    {
+        if (record.type == 0x10) { ++result.parent_records; continue; }
+        try
+        {
+            // Validate the complete supported path before including an object.
+            // In particular, a missing model/texture or invalid index must not
+            // be misreported as an unimplemented object type.
+            ReadStaticWorldScene(resident, temporary, std::span(&record.id, 1));
+            selected.push_back(record.id);
+        }
+        catch (const UnsupportedResource& error)
+        { result.unavailable.push_back({record.id, record.type, error.what()}); }
+    }
+    Require(!selected.empty(), "World contains no objects supported by the current static implementation");
+    result.scene = ReadStaticWorldScene(resident, temporary, selected);
+    return result;
+}
 StaticWorldScene ReadStaticWorldScene(Bytes resident, Bytes temporary,
     std::span<const std::uint32_t> selected)
 {
@@ -26,7 +48,7 @@ StaticWorldScene ReadStaticWorldScene(Bytes resident, Bytes temporary,
             for (const auto& packet : selected_model.model.packets)
             {
                 const auto program = packet.material.program;
-                Require(program != 0x386ecbdd, "World preview does not submit shadow-volume models");
+                if (program == 0x386ecbdd) throw UnsupportedResource("World preview does not submit shadow-volume models");
                 const unsigned bindings = program == 0x112ab470 ? 4
                     : (program == 0x32475c7d || program == 0x32bc21e8 || program == 0x09609a35
                         || program == 0xf2d57ac6 || program == 0x845cad59) ? 3
@@ -38,6 +60,12 @@ StaticWorldScene ReadStaticWorldScene(Bytes resident, Bytes temporary,
             texture_data = selected_model.textures;
             models.emplace(object.model, result.models.size());
             result.models.push_back(std::move(selected_model.model));
+        }
+        catch (const UnsupportedResource& error)
+        {
+            std::ostringstream message;
+            message << "World object 0x" << std::hex << object.id << " / model 0x" << object.model << ": " << error.what();
+            throw UnsupportedResource(message.str());
         }
         catch (const std::exception& error)
         {

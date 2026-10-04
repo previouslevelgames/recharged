@@ -1,5 +1,5 @@
 Subject: Select original object lights and projected-shadow lookup with bounded native inputs
-Upstream-base: 01c9a4d61904afc927d6752c3cd29fca489ff5cc
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
 
 Select the original diffuse-light, ambient-channel, static shadow projection
 and LightingLookup calculations independently of the stadium/camera/effect
@@ -535,24 +535,24 @@ index 0000000..fc45b8f
 +    nlColour colour;
 +    if (tint)
 +    {
-+        nlColour shadowColour = { { 0, 0, 0, 255 } };
++        u8 shadowColour[4] = { 0, 0, 0, 255 };
++        shadowColour[0] = (u8)m_NativeShadowTint.c[0];
++        shadowColour[1] = (u8)m_NativeShadowTint.c[1];
++        shadowColour[2] = (u8)m_NativeShadowTint.c[2];
 +        nlFloatColour shadow;
-+        shadowColour.c[0] = (u8)m_NativeShadowTint.c[0];
-+        shadow.c[0] = shadowColour.c[0] * (1.0f / 255.0f);
-+        shadowColour.c[1] = (u8)m_NativeShadowTint.c[1];
-+        shadow.c[1] = shadowColour.c[1] * (1.0f / 255.0f);
-+        shadowColour.c[2] = (u8)m_NativeShadowTint.c[2];
-+        shadow.c[2] = shadowColour.c[2] * (1.0f / 255.0f);
-+        shadow.c[3] = shadowColour.c[3] * (1.0f / 255.0f);
-+        nlColour highlightColour = { { 0, 0, 0, 255 } };
++        shadow.c[0] = shadowColour[0] * (1.0f / 255.0f);
++        shadow.c[1] = shadowColour[1] * (1.0f / 255.0f);
++        shadow.c[2] = shadowColour[2] * (1.0f / 255.0f);
++        shadow.c[3] = shadowColour[3] * (1.0f / 255.0f);
++        u8 highlightColour[4] = { 0, 0, 0, 255 };
++        highlightColour[0] = (u8)m_NativeHighlightTint.c[0];
++        highlightColour[1] = (u8)m_NativeHighlightTint.c[1];
++        highlightColour[2] = (u8)m_NativeHighlightTint.c[2];
 +        nlFloatColour highlight;
-+        highlightColour.c[0] = (u8)m_NativeHighlightTint.c[0];
-+        highlight.c[0] = highlightColour.c[0] * (1.0f / 255.0f);
-+        highlightColour.c[1] = (u8)m_NativeHighlightTint.c[1];
-+        highlight.c[1] = highlightColour.c[1] * (1.0f / 255.0f);
-+        highlightColour.c[2] = (u8)m_NativeHighlightTint.c[2];
-+        highlight.c[2] = highlightColour.c[2] * (1.0f / 255.0f);
-+        highlight.c[3] = highlightColour.c[3] * (1.0f / 255.0f);
++        highlight.c[0] = highlightColour[0] * (1.0f / 255.0f);
++        highlight.c[1] = highlightColour[1] * (1.0f / 255.0f);
++        highlight.c[2] = highlightColour[2] * (1.0f / 255.0f);
++        highlight.c[3] = highlightColour[3] * (1.0f / 255.0f);
 +        float inverseFactor = 1.0f - value / 255.0f;
 +        nlFloatColour result;
 +        result.c[0] = inverseFactor * shadow.c[0] + (value / 255.0f) * highlight.c[0];

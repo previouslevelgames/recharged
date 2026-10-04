@@ -9,6 +9,13 @@
 namespace mscharged::resources
 {
 using Bytes = std::span<const std::uint8_t>;
+// A structurally readable feature outside the selected native implementation.
+// Keep it distinct from malformed data, allocation failures and missing assets.
+class UnsupportedResource : public std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
+};
 inline void Require(bool condition, const char* message)
 { if (!condition) throw std::runtime_error(message); }
 inline Bytes Slice(Bytes data, std::size_t offset, std::size_t size)

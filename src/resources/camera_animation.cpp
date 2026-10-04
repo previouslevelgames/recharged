@@ -7,16 +7,20 @@ namespace mscharged::resources
 {
 CameraAnimation ReadCameraAnimation(Bytes file)
 {
+    return ReadCameraAnimation(file, 0, file.size());
+}
+CameraAnimation ReadCameraAnimation(Bytes file, std::size_t offset, std::size_t end)
+{
     Require(file.size() <= MaximumAssetBytes, "CAM exceeds the 16 MiB asset limit");
-    const auto root = ReadChunk(file, 0, file.size());
-    Require(root.id == 0x8002500b && root.next == file.size(), "Invalid CAM root or trailing data");
+    const auto root = ReadChunk(file, offset, end);
+    Require(root.id == 0x8002500b && root.next == end, "Invalid CAM root or trailing data");
     std::map<std::uint32_t, Bytes> chunks;
     const auto first = std::size_t(root.payload.data() - file.data());
-    const auto end = first + root.payload.size();
-    for (auto offset = first; offset < end;)
+    const auto payload_end = first + root.payload.size();
+    for (auto offset = first; offset < payload_end;)
     {
-        auto chunk = ReadChunk(file, offset, end);
-        Require(chunk.next <= end, "CAM child padding exceeds its container");
+        auto chunk = ReadChunk(file, offset, payload_end);
+        Require(chunk.next <= payload_end, "CAM child padding exceeds its container");
         Require(chunk.id >= 0x25000 && chunk.id <= 0x2500f && chunk.id != 0x2500b,
                 "Unsupported CAM chunk");
         Require(chunks.emplace(chunk.id, chunk.payload).second, "Duplicate CAM chunk");

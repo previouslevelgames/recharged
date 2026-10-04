@@ -1,0 +1,585 @@
+Subject: Select checked original interpreter execution for native bytecode
+
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+
+Extract the original execution methods, retaining their instruction dispatch,
+control flow and numeric equations. Native owner hooks validate each access and
+keep string/frame/code references separate from 32-bit numeric values. Numeric
+globals are selected; tweak registration and original pointer relocation remain
+unselected. Original operation bodies retain arithmetic and case-insensitive
+string comparisons, resolving checked native strings through an explicit hook.
+Console InterpreterCore and string pointer behavior remain unchanged.
+
+diff --git a/src/Game/InterpreterNative.cpp b/src/Game/InterpreterNative.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/InterpreterNative.cpp
+@@ -0,0 +1,331 @@
++#include "Game/InterpreterCore.h"
++#include "Game/InterpreterOperations.h"
++#include "NL/nlAlgorithm.h"
++#include "runtime/interpreter.h"
++#include <cstring>
++#include <stdexcept>
++
++void InterpreterCore::Reset()
++{
++    m_RunState = 2;
++    m_SP = m_StackSegment;
++    m_SavedSP = m_SP;
++    m_BP = 0;
++    m_IP = 0;
++}
++
++void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
++{
++    mscharged::NativeInterpreterBeginCall(*this, *entry, count, true);
++    m_SP[0] = 0;
++    m_SP[1] = mscharged::NativeInterpreterFrameReference(*this, m_BP);
++    m_BP = m_SP - count;
++
++    if (entry->flags == 3)
++    {
++        m_BP--;
++    }
++
++    m_SP += entry->frameSize;
++    if (m_RunState != 1)
++    {
++        m_RunState = 0;
++    }
++
++    u16* saved_ip = m_IP;
++    m_IP = mscharged::NativeInterpreterFunctionCode(*this, *entry);
++    Step();
++
++    if (m_RunState != 3)
++    {
++        m_IP = saved_ip;
++        if (entry->flags & 1)
++        {
++            m_SP--;
++        }
++    }
++}
++
++bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
++{
++    if (m_RunState == 3)
++    {
++        Reset();
++    }
++
++    if (entry == 0)
++    {
++        return false;
++    }
++
++    if (entry->flags == 3)
++    {
++        m_SP++;
++    }
++
++    switch (count)
++    {
++    case 4:
++        m_SP[3] = value3;
++    case 3:
++        m_SP[2] = value2;
++    case 2:
++        m_SP[1] = value1;
++    case 1:
++        m_SP[0] = value0;
++        m_SP += count;
++    case 0:
++        break;
++    default:
++        throw std::invalid_argument("Original fixed-argument interpreter call supports at most four values");
++        break;
++    }
++
++    RunFunction(entry, count);
++    return true;
++}
++
++bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
++{
++    if (m_RunState == 3)
++    {
++        Reset();
++    }
++
++    if (entry == 0)
++    {
++        return false;
++    }
++
++    if (entry->flags == 3)
++    {
++        m_SP++;
++    }
++
++    memcpy(m_SP, values, count << 2);
++    m_SP += count;
++    RunFunction(entry, count);
++    return true;
++}
++
++FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int& hash)
++{
++    unsigned long value = hash;
++    return nlBSearch<FunctionEntryPoint, unsigned long>(value, m_Header->m_FunctionTable, m_Header->numFunctions);
++}
++
++FunctionEntryPoint* InterpreterCore::GetFunctionEntryPoint(unsigned int index)
++{
++    return &m_Header->m_FunctionTable[index];
++}
++
++void InterpreterCore::Run()
++{
++    Step();
++}
++
++void InterpreterCore::Step()
++{
++    unsigned int wasNotRunning = m_RunState != 1;
++    m_RunState = 1;
++    m_Stop = 0;
++
++    while (!m_Stop)
++    {
++        mscharged::NativeInterpreterBeforeInstruction(*this);
++        u16* instructionPointer = m_IP;
++        u16 instruction = *instructionPointer;
++        u16 opcode = instruction >> 11;
++        u16 operand = instruction & 0x7FF;
++
++        switch (opcode)
++        {
++        case 0:
++            *m_SP = m_Header->m_DataSegment[operand];
++            m_SP++;
++            break;
++
++        case 1:
++            *m_SP = mscharged::NativeInterpreterStringReference(*this, m_Header->m_DataSegment[operand]);
++            m_SP++;
++            break;
++
++        case 2:
++            *m_SP = operand;
++            m_SP++;
++            break;
++
++        case 3:
++            *m_SP = mscharged::NativeInterpreterStringReference(*this, operand);
++            m_SP++;
++            break;
++
++        case 4:
++            if (Pop() == 0)
++            {
++                break;
++            }
++        case 5:
++            m_IP += operand;
++            continue;
++
++        case 6:
++            if (Pop() == 0)
++            {
++                break;
++            }
++        case 7:
++            m_IP -= operand;
++            continue;
++
++        case 8:
++            if (wasNotRunning)
++            {
++                m_SavedSP = m_SP;
++            }
++            DoFunctionCall(operand);
++            break;
++
++        case 9:
++        {
++            FunctionEntryPoint* entry = &m_Header->m_FunctionTable[operand];
++            mscharged::NativeInterpreterBeginCall(*this, *entry, entry->numArgs, false);
++            m_SP[0] = mscharged::NativeInterpreterCodeReference(*this, instructionPointer);
++            m_SP[1] = mscharged::NativeInterpreterFrameReference(*this, m_BP);
++            m_BP = m_SP - entry->numArgs;
++            m_SP += entry->frameSize;
++            m_IP = mscharged::NativeInterpreterFunctionCode(*this, *entry);
++            continue;
++        }
++
++        case 10:
++        {
++            u32* oldBP = m_BP;
++            u32* frame = oldBP + (operand >> 1);
++            u32* newSP = oldBP + (operand & 1);
++            m_SP = frame;
++            m_BP = mscharged::NativeInterpreterFramePointer(*this, frame[1]);
++            m_IP = mscharged::NativeInterpreterCodePointer(*this, frame[0]);
++            m_SP = newSP;
++            if (m_IP == 0)
++            {
++                m_Stop = 1;
++                continue;
++            }
++            break;
++        }
++
++        case 11:
++            *m_SP = m_BP[operand];
++            m_SP++;
++            break;
++
++        case 12:
++            m_BP[operand] = Pop();
++            break;
++
++        case 13:
++            gInterpreterOperations[operand](this);
++            break;
++
++        case 14:
++        {
++            if (operand < m_Header->numGlobals)
++            {
++                *m_SP = m_Globals[operand];
++                m_SP++;
++            }
++            else
++            {
++                throw std::logic_error("Native interpreter tweak services are not selected");
++            }
++            break;
++        }
++
++        case 15:
++        {
++            if (operand < m_Header->numGlobals)
++            {
++                m_Globals[operand] = Pop();
++            }
++            else
++            {
++                throw std::logic_error("Native interpreter tweak services are not selected");
++            }
++            break;
++        }
++
++        case 16:
++            m_SP += (s8)operand;
++            break;
++
++        case 17:
++            m_BP[operand] = m_SP[-1];
++            break;
++
++        case 18:
++            m_BP[operand & 0x1F] = m_BP[operand >> 5];
++            break;
++
++        case 19:
++            m_BP[operand >> 5] = 16 - (operand & 0x1F);
++            break;
++
++        case 20:
++        {
++            u32 upper = operand >> 5;
++            u32 lower = operand & 0x1F;
++            m_SP[0] = m_BP[upper];
++            m_SP[1] = m_BP[upper + 16 - lower];
++            m_SP += 2;
++            break;
++        }
++
++        case 21:
++        {
++            int index0;
++            int index1;
++            int index2;
++            index0 = instruction & 0x7FF;
++            index0 >>= 6;
++            index1 = index0 + 4 - ((operand >> 3) & 7);
++            index2 = index1 + 4 - (operand & 7);
++            m_SP[0] = m_BP[index0];
++            m_SP[1] = m_BP[index1];
++            m_SP[2] = m_BP[index2];
++            m_SP += 3;
++            break;
++        }
++        }
++
++        m_IP++;
++    }
++
++    if (!wasNotRunning)
++    {
++        m_Stop = 0;
++    }
++    else if (m_RunState != 3)
++    {
++        m_RunState = 2;
++    }
++}
++
++void InterpreterCore::StopWithoutUndo()
++{
++    m_Stop = 1;
++    m_RunState = 3;
++}
++
++void InterpreterCore::StopWithUndo()
++{
++    m_IP--;
++    m_SP = m_SavedSP;
++    m_Stop = 1;
++    m_RunState = 3;
++}
++
++int InterpreterCore::GetInstructionOffset()
++{
++    return (m_IP - m_Header->m_CodeSegment);
++}
+diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations.cpp
+--- a/src/Game/InterpreterOperations.cpp
++++ b/src/Game/InterpreterOperations.cpp
+@@ -2,6 +2,19 @@
+ 
+ #include "Game/InterpreterCore.h"
+ #include "NL/nlString.h"
++#ifdef MSCHARGED_NATIVE
++#include "NL/nlstring_tmpl.h"
++#include "runtime/interpreter.h"
++#endif
++
++static inline const char* StackString(InterpreterCore* core, u32 value)
++{
++#ifdef MSCHARGED_NATIVE
++    return mscharged::NativeInterpreterString(*core, value);
++#else
++    return (const char*)value;
++#endif
++}
+ 
+ static inline float& StackFloat(u32* value)
+ {
+@@ -175,8 +188,8 @@
+ void InterpreterOpGreaterEqualString(InterpreterCore* core)
+ {
+     core->m_SP--;
+-    const char* lhs = (const char*)core->m_SP[-1];
+-    const char* rhs = (const char*)core->m_SP[0];
++    const char* lhs = StackString(core, core->m_SP[-1]);
++    const char* rhs = StackString(core, core->m_SP[0]);
+     core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) >= 0;
+ }
+ 
+@@ -197,8 +210,8 @@
+ void InterpreterOpGreaterString(InterpreterCore* core)
+ {
+     core->m_SP--;
+-    const char* lhs = (const char*)core->m_SP[-1];
+-    const char* rhs = (const char*)core->m_SP[0];
++    const char* lhs = StackString(core, core->m_SP[-1]);
++    const char* rhs = StackString(core, core->m_SP[0]);
+     core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) > 0;
+ }
+ 
+@@ -219,8 +232,8 @@
+ void InterpreterOpLessEqualString(InterpreterCore* core)
+ {
+     core->m_SP--;
+-    const char* lhs = (const char*)core->m_SP[-1];
+-    const char* rhs = (const char*)core->m_SP[0];
++    const char* lhs = StackString(core, core->m_SP[-1]);
++    const char* rhs = StackString(core, core->m_SP[0]);
+     core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) <= 0;
+ }
+ 
+@@ -241,8 +254,8 @@
+ void InterpreterOpLessString(InterpreterCore* core)
+ {
+     core->m_SP--;
+-    const char* lhs = (const char*)core->m_SP[-1];
+-    const char* rhs = (const char*)core->m_SP[0];
++    const char* lhs = StackString(core, core->m_SP[-1]);
++    const char* rhs = StackString(core, core->m_SP[0]);
+     core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) < 0;
+ }
+ 
+@@ -263,8 +276,8 @@
+ void InterpreterOpNotEqualString(InterpreterCore* core)
+ {
+     core->m_SP--;
+-    const char* lhs = (const char*)core->m_SP[-1];
+-    const char* rhs = (const char*)core->m_SP[0];
++    const char* lhs = StackString(core, core->m_SP[-1]);
++    const char* rhs = StackString(core, core->m_SP[0]);
+ 
+     if (lhs == rhs)
+     {
+@@ -296,8 +309,8 @@
+ void InterpreterOpEqualString(InterpreterCore* core)
+ {
+     core->m_SP--;
+-    const char* lhs = (const char*)core->m_SP[-1];
+-    const char* rhs = (const char*)core->m_SP[0];
++    const char* lhs = StackString(core, core->m_SP[-1]);
++    const char* rhs = StackString(core, core->m_SP[0]);
+ 
+     if (lhs == rhs)
+     {
+diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
+--- a/src/Game/InterpreterCore.cpp
++++ b/src/Game/InterpreterCore.cpp
+@@ -23,6 +23,7 @@
+     /* 0x14 */ TweakBoolBinding* boolBindings;
+ };
+ 
++#ifndef MSCHARGED_NATIVE
+ InterpreterCore::InterpreterCore(unsigned int size)
+ {
+     m_StackSegment = (u32*)nlMalloc(size * 4, 8, false);
+@@ -30,7 +31,9 @@
+     m_Globals = 0;
+     m_TweakStorage = 0;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ InterpreterCore::~InterpreterCore()
+ {
+     if (m_Globals != 0)
+@@ -50,7 +53,9 @@
+     }
+     nlFree(m_StackSegment);
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::Reset()
+ {
+     m_RunState = 2;
+@@ -59,6 +64,7 @@
+     m_BP = 0;
+     m_IP = 0;
+ }
++#endif
+ 
+ void InterpreterCore::InitializeTweaks()
+ {
+@@ -177,6 +183,7 @@
+     Reset();
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
+ {
+     m_SP[0] = 0;
+@@ -207,7 +214,9 @@
+         }
+     }
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
+ {
+     if (m_RunState == 3)
+@@ -246,7 +255,9 @@
+     RunFunction(entry, count);
+     return true;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
+ {
+     if (m_RunState == 3)
+@@ -269,6 +280,7 @@
+     RunFunction(entry, count);
+     return true;
+ }
++#endif
+ 
+ void InterpreterCore::RegisterTweak(unsigned int index, unsigned int type, const char* name, u8 flags, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
+ {
+@@ -361,22 +373,29 @@
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int& hash)
+ {
+     unsigned long value = hash;
+     return nlBSearch<FunctionEntryPoint, unsigned long>(value, m_Header->m_FunctionTable, m_Header->numFunctions);
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ FunctionEntryPoint* InterpreterCore::GetFunctionEntryPoint(unsigned int index)
+ {
+     return &m_Header->m_FunctionTable[index];
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::Run()
+ {
+     Step();
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::Step()
+ {
+     unsigned int wasNotRunning = m_RunState != 1;
+@@ -596,13 +615,17 @@
+         m_RunState = 2;
+     }
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::StopWithoutUndo()
+ {
+     m_Stop = 1;
+     m_RunState = 3;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::StopWithUndo()
+ {
+     m_IP--;
+@@ -610,11 +633,14 @@
+     m_Stop = 1;
+     m_RunState = 3;
+ }
+-
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ int InterpreterCore::GetInstructionOffset()
+ {
+     return (m_IP - m_Header->m_CodeSegment);
+ }
++#endif
+ 
+ void InterpreterCore::AllocateTweaks(unsigned int)
+ {

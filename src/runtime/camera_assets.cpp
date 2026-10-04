@@ -46,11 +46,11 @@ template<class T, std::size_t N> void Copy(T& out, const std::array<float, N>& i
 namespace mscharged
 {
 void DeleteCameraData::operator()(cCameraData* data) const noexcept { nlDeleteGameObject(data); }
-CameraAsset::CameraAsset(resources::Bytes file, const std::string& name)
+CameraAsset::CameraAsset(resources::Bytes file, const std::string& name, std::size_t offset, std::size_t end)
     : thread_(std::this_thread::get_id()), name_(CanonicalCameraAlias(name))
 {
     if (!gMemoryInitialized) throw std::logic_error("Camera records require initialized game memory");
-    const auto decoded = resources::ReadCameraAnimation(file);
+    const auto decoded = resources::ReadCameraAnimation(file, offset, end);
     data_.reset(new (8, false) cCameraData);
     auto& data = *data_;
     data.ownsKeyData = true;
@@ -71,7 +71,9 @@ CameraAsset::CameraAsset(resources::Bytes file, const std::string& name)
     }
 }
 CameraAsset::Handle CameraAsset::Decode(resources::Bytes file, const std::string& name)
-{ return Handle(new CameraAsset(file, name)); }
+{ return Decode(file, name, 0, file.size()); }
+CameraAsset::Handle CameraAsset::Decode(resources::Bytes file, const std::string& name, std::size_t offset, std::size_t end)
+{ return Handle(new CameraAsset(file, name, offset, end)); }
 CameraAsset::~CameraAsset()
 {
     if (!gMemoryInitialized || thread_ != std::this_thread::get_id()) std::terminate();

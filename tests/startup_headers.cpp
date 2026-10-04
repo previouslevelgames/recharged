@@ -1,5 +1,6 @@
 #include <revolution/types.h>
 #include <revolution/os/OSTime_fwd.h>
+#include <revolution/os/OS_fwd.h>
 #include "NL/nlChunk.h"
 
 #include <cstdint>
@@ -9,6 +10,7 @@
 
 static_assert(sizeof(s32) == 4 && sizeof(u32) == 4);
 static_assert(sizeof(OSTick) == 4 && sizeof(OSTime) == 8);
+static_assert(sizeof(decltype(OSGetConsoleType())) == 4);
 static_assert(sizeof(OSCalendarTime) == 40);
 static_assert(sizeof(uintptr_t) == sizeof(void*));
 static_assert(sizeof(nlChunk) == 8); // Serialized chunk header must not expand.

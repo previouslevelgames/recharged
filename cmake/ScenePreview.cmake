@@ -11,15 +11,7 @@ if(BUILD_TESTING)
     add_test(NAME debug_camera_input COMMAND debug_camera_input_tests)
     set_tests_properties(debug_camera_input PROPERTIES TIMEOUT 30 ENVIRONMENT "SDL_VIDEODRIVER=dummy")
 endif()
-add_library(charged_compressed_assets STATIC src/resources/compressed_asset.cpp)
-target_include_directories(charged_compressed_assets PUBLIC src)
-target_compile_features(charged_compressed_assets PUBLIC cxx_std_20)
-target_link_libraries(charged_compressed_assets PRIVATE ZLIB::ZLIB)
-if(BUILD_TESTING)
-    add_executable(compressed_asset_tests tests/compressed_assets.cpp)
-    target_link_libraries(compressed_asset_tests PRIVATE charged_compressed_assets)
-    add_test(NAME compressed_assets COMMAND compressed_asset_tests)
-endif()
+include(cmake/CompressedAssets.cmake)
 add_library(charged_materials STATIC
     "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialProgram.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialAlphaState.cpp"
@@ -106,16 +98,20 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_shadows PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
 endif()
-add_library(charged_world_scene STATIC src/resources/world_scene.cpp)
-target_link_libraries(charged_world_scene PUBLIC charged_world_resources charged_static_resources)
-target_compile_features(charged_world_scene PUBLIC cxx_std_20)
-target_include_directories(charged_world_scene PUBLIC src)
+include(cmake/WorldSceneResources.cmake)
+include(cmake/FrontendWorldFiles.cmake)
+include(cmake/FrontendInput.cmake)
+include(cmake/FrontendVisuals.cmake)
+include(cmake/FrontendScene.cmake)
+include(cmake/FrontendTextCatalog.cmake)
+include(cmake/GraphicsStartup.cmake)
 add_library(charged_scene_preview STATIC src/runtime/scene.cpp)
 target_compile_features(charged_scene_preview PRIVATE cxx_std_20)
 target_include_directories(charged_scene_preview PUBLIC src)
-target_link_libraries(charged_scene_preview PRIVATE charged_animated_camera charged_debug_camera_input charged_frames charged_frame_timing charged_shadows charged_compressed_assets charged_static_inventory charged_decomp_startup
+target_link_libraries(charged_scene_preview PRIVATE charged_graphics_startup charged_frontend_world_files charged_animated_camera charged_debug_camera_input charged_frames charged_frame_timing charged_shadows charged_compressed_assets charged_static_inventory charged_decomp_startup
     charged_world_scene charged_world_objects charged_host aurora::gx aurora::mtx aurora::os aurora::vi aurora::dvd aurora::core mscharged_build_info)
 target_link_libraries(mscharged PRIVATE charged_scene_preview)
+target_link_libraries(charged_scene_preview PRIVATE charged_frontend_visuals charged_frontend_text_gx charged_frontend_text_catalog charged_frontend_input)
 target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_SCENE_PREVIEW=1)
 if(BUILD_TESTING)
     include(cmake/Tasks.cmake)
@@ -144,6 +140,10 @@ if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
     add_test(NAME world_scene_synthetic COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_world_scene.py"
         --gpu "$<TARGET_FILE:mscharged>")
     set_tests_properties(world_scene_synthetic PROPERTIES TIMEOUT 120 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check)
+    add_test(NAME frontend_layout_synthetic COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_layout.py"
+        "$<TARGET_FILE:mscharged>")
+    set_tests_properties(frontend_layout_synthetic PROPERTIES TIMEOUT 120 LABELS "gpu;vulkan"
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check)
     add_test(NAME texture_animation_pipeline COMMAND material_pipeline_tests --texture-animation-only)
     set_tests_properties(texture_animation_pipeline PROPERTIES TIMEOUT 90 LABELS "gpu;vulkan"

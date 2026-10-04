@@ -1,0 +1,28 @@
+Subject: Hide unselected console pad implementation from native devirtualization
+
+Upstream-base: 2c71062ca827c5d2115ab76f4da80aaa8c515ff8
+
+Keep the console cPlatPad definition out of native source selection, retaining
+its forward declaration. GCC Release speculative devirtualization of the real
+cGlobalPad backend destructor otherwise emits the console deleting destructor
+and references gPlatPadAllocator, although no console pad is constructed.
+The native menu owner supplies DesktopPad and ordinary owning deletion. No
+console allocator provider or compiler optimization workaround is introduced.
+
+--- a/include/NL/platpad.h
++++ b/include/NL/platpad.h
+@@ -90,6 +90,7 @@
+ extern nlArrayAllocator<cPlatPad> gPlatPadAllocator;
+ extern int gPlatPadClassID;
+ 
++#ifndef MSCHARGED_NATIVE
+ class cPlatPad : public PadBackend
+ {
+ public:
+@@ -132,5 +133,6 @@
+         gPlatPadAllocator.DeleteEntry(static_cast<cPlatPad*>(ptr));
+     }
+ }; // size 0x1C
++#endif // !MSCHARGED_NATIVE
+ 
+ #endif // NL_PLATPAD_H

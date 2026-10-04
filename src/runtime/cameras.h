@@ -20,6 +20,9 @@ public:
     ~OriginalCameras();
     OriginalCameras(const OriginalCameras&) = delete;
     OriginalCameras& operator=(const OriginalCameras&) = delete;
+    // Identifies this session, including after another session has started.
+    // Active sessions require their owner thread even for this query.
+    bool Active() const;
     void Release();
     void AttachFilters(cBaseCamera& camera);
     void Advance(float delta, float simulation_delta);
@@ -33,6 +36,9 @@ void* AllocateNativeCamera(std::size_t size, unsigned alignment = 8, bool from_e
 void FreeNativeCamera(void* pointer) noexcept;
 void DestroyNativeCamera(cBaseCamera* camera) noexcept;
 void CheckNativeCameraThread();
+// Allows cleanup after a failed operation, while still rejecting reentrant,
+// closing, uninitialized or wrong-thread access.
+void CheckNativeCameraTeardown();
 void CheckCameraInsert(cBaseCamera* camera);
 void CheckCameraPop(bool transition);
 void CheckCameraTransition(float duration, int transition);
