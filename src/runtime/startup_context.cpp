@@ -1,11 +1,7 @@
 #include "runtime/startup.h"
 
-namespace { std::uint8_t system_language = 1; }
-extern "C" std::uint8_t SCGetLanguage() { return system_language; }
-
 namespace mscharged
 {
-void SetStartupSystemLanguage(std::uint8_t language) { system_language = language; }
 [[noreturn]] void MissingStartupService(const char* symbol, const char* reason)
 { throw StartupStopped(symbol, reason); }
 }

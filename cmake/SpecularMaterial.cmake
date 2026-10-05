@@ -28,6 +28,8 @@ if(BUILD_TESTING)
             GXTexCoord1x16)
             target_link_options(specular_material_tests PRIVATE "LINKER:--wrap=${symbol}")
         endforeach()
+        target_link_options(specular_material_tests PRIVATE
+            "LINKER:--wrap=_Z31RestoreGameObjectShadowLightingv")
         add_test(NAME specular_material COMMAND specular_material_tests)
         set_tests_properties(specular_material PROPERTIES TIMEOUT 30)
     endif()

@@ -11,6 +11,7 @@ void DrawFrontendLayout(const resources::FrontendLayoutFrame& frame, unsigned wi
         if(const auto* image=std::get_if<resources::FrontendLayoutImage>(&command))
         {DrawFrontendImage(*image,width,height);continue;}
         const auto& entry=std::get<resources::FrontendLayoutText>(command);
+        resources::Require(!entry.scissor,"Clipped text requires the retained original frontend packet renderer");
         const auto& m = entry.transform;
         // The layout has already qualified planar transforms, depth ordering
         // and the original centered, Y-up to top-left viewport conversion.

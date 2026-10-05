@@ -3,9 +3,10 @@ Subject: Select original PreInitFS memory callback
 Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Select original PreInitFS memory callback
-Extract the original callback and global resource requirements without changing
-their budgets, order or texture capacity. The full entry includes the extraction;
-the native memory target selects it independently and exports a typed wrapper.
+Add a diagnostic copy of the original callback and global resource requirements
+without changing budgets, order or texture capacity. Leave main.cpp and its
+original PreInitFS implementation unchanged. The native memory diagnostic selects
+this independent unit and exports a typed wrapper.
 Use an explicit exception rather than a console break if native initialization
 returns failure. This does not select glStartup's material/platform/state/view/
 target/font stages or any game task. Never compile both entry units together.
@@ -65,41 +66,3 @@ new file mode 100644
 +#if defined(MSCHARGED_NATIVE)
 +void InitializeOriginalGraphicsMemory() { PreInitFS(); }
 +#endif
-diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 7c50f1d..50c9cf8 100644
---- a/src/Game/main.cpp
-+++ b/src/Game/main.cpp
-@@ -199,11 +199,7 @@ static TextWindowTask textWindowTask;
- static FEDPDTask feDPDTask;
- static FlashMemoryTask flashMemoryTask;
- 
--static GLMemoryRequirement sGlobalResourceRequirements[3] = {
--    { GLM_TextureData, MB(3) },
--    { GLM_VertexData, MB(2) },
--    { GLM_Header, MB(2) + KB(256) },
--};
-+
- 
- static TweakValueBool sAllowWarble(
-     "sbAllowWarble", "/Rendering/Effects/Warble", true);
-@@ -311,19 +307,7 @@ static bool sDateTimeLoaded;
- static u32 sWarbleTexture;
- static char sWarbleTextureCached;
- 
--static void PreInitFS()
--{
--    GLMemoryConfig config;
--    config.mFrameMemSize1 = 0x80000;
--    config.mFrameMemSize2 = 0x233333;
--    config.mResourceRequirements = sGlobalResourceRequirements;
--    config.mNumResourceRequirements = 3;
--    config.mMaxTextures = 1000;
--    if (!glInitMemory(&config))
--    {
--        nlBreak();
--    }
--}
-+#include "GraphicsMemoryStartup.cpp"
- 
- void OnSwappablePadChanged(int)
- {

@@ -225,7 +225,6 @@ class Builder
     void Text(const FrontendInstance& instance,const FrontendLibraryObject& object,const nlMatrix4& matrix,
         const std::array<float,4>& colour)
     {
-        if(instance.text_scissor){++result_.unavailable["scissored text component"];return;}
         if(!object.resource){++result_.unavailable["font assigned by a scene handler"];return;}
         Require(resources_.contains(*object.resource),"Frontend text font resource is absent");
         const auto& resource=*resources_.at(*object.resource);
@@ -253,6 +252,7 @@ class Builder
             if(!selected->glyphs.contains(text[i])){++result_.unavailable["missing authored font glyph"];return;}
         }
         FrontendLayoutText entry;
+        if(instance.text_scissor)entry.scissor=instance.text_scissor_box;
         entry.instance=instance.offset;entry.priority=instance.priority;entry.name=instance.name;entry.text=text;
         entry.layout=TextBox(selected,text,instance.text_box,instance.draw_options,options_.paragraphs);
         Require(entry.layout.quads.size()<=262144-glyphs_,"Frontend frame glyph budget exceeded");glyphs_+=entry.layout.quads.size();

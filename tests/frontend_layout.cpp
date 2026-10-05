@@ -135,7 +135,10 @@ void UnsupportedAndErrors()
     Fixture f;
     for(auto text:{u"A{b}",u"A\nB",u"\U0001f600",u"AX"})
     {f.Text().text=text;auto result=f.Build();Check(result.TextCount()==2&&result.unavailable.size()==1,"Unsupported text was not explicitly omitted");}
-    f.Text().text=u"AB";f.Text().text_scissor=true;Check(f.Build().TextCount()==2,"Scissored text lost clipping without rejection");f.Text().text_scissor=false;
+    f.Text().text=u"AB";f.Text().text_scissor=true;f.Text().text_scissor_box={100,80,320,280};
+    auto clipped=f.Build();Check(clipped.TextCount()==3&&clipped.unavailable.empty(),"Scissored text was omitted");
+    Check(Entry(clipped).scissor==f.Text().text_scissor_box,"Authored framebuffer scissor changed with the text transform");
+    f.Text().text_scissor=false;Check(!Entry(f.Build()).scissor,"Disabled text scissor leaked into the next layout");
     for(unsigned options:{4u,8u,0x100u,0x2000u,0x30u}){f.Text().draw_options=options;Check(f.Build().TextCount()==2,"Unqualified draw options were accepted");}
     f.Text().draw_options=0;f.Parent().overload_flags=2;f.Parent().attributes.rotation[0]=.1f;
     Check(f.Build().entries.empty(),"Nonplanar ancestor branch was rendered");

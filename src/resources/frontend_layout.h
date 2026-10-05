@@ -4,6 +4,7 @@
 #include "resources/texture_bundle.h"
 #include "resources/frontend_movie_image.h"
 #include <map>
+#include <optional>
 #include <variant>
 
 namespace mscharged::resources
@@ -21,6 +22,8 @@ struct FrontendLayoutText
     // Column storage, not GX's row-major projection storage. Planar affine only.
     std::array<float,16> transform{};
     std::array<std::uint8_t,4> colour{};
+    // Original framebuffer X/Y/width/height, independent of the text transform.
+    std::optional<std::array<std::uint16_t,4>> scissor;
 };
 struct FrontendLayoutFrame
 {

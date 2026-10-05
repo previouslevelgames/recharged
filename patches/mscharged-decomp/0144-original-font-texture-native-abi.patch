@@ -1,0 +1,396 @@
+Subject: Adapt original FontManager callbacks and Wii texture data to native SDK ABI
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Preserve original font requests, registration/fallback/completion decisions and
+platform texture algorithms. Adapt real callback pointers and game ownership,
+Wii32/16 big-endian texture/directory fields, and canonical native GX/TLUT
+object sizes/signatures. No font loader/resource manager replica is introduced.
+This bounded compiler/data/SDK milestone does not establish original texture
+loading callbacks, GPU upload, font readiness, or Credits drawing.
+
+diff --git a/include/Game/Font/fontmanager.h b/include/Game/Font/fontmanager.h
+--- a/include/Game/Font/fontmanager.h
++++ b/include/Game/Font/fontmanager.h
+@@ -3,6 +3,15 @@
+ 
+ #include "NL/nlDLListContainer.h"
+ #include "NL/nlSingleton.h"
++#if defined(MSCHARGED_NATIVE)
++#include "NL/nlMemory.h"
++#include <stdint.h>
++typedef uintptr_t FontAsyncParam;
++typedef u32 FontWord;
++#else
++typedef unsigned long FontAsyncParam;
++typedef unsigned long FontWord;
++#endif
+ 
+ class nlFont;
+ class GLResourcePool;
+@@ -10,6 +19,14 @@
+ class FontManager : public nlSingleton<FontManager>
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(size_t size) { return nlMalloc(size); }
++    static void* operator new(size_t size, unsigned int alignment, bool fromEnd)
++    { return nlMalloc(size, alignment, fromEnd); }
++    static void operator delete(void* pointer) noexcept { nlFree(pointer); }
++    static void operator delete(void* pointer, unsigned int, bool) noexcept
++    { nlFree(pointer); }
++#endif
+     FontManager();
+     virtual ~FontManager();
+ 
+@@ -18,9 +35,9 @@
+     bool LoadFont(const char* szBundleFilename, const char* szFileName, const char* szFileFontName);
+     void SetResourcePool(GLResourcePool* pResourcePool);
+ 
+-    static void BundleOpenComplete(void*, unsigned long, unsigned long uParam);
+-    static void FontDescriptionLoadComplete(void* buffer, unsigned long, unsigned long uParam);
+-    static void TextureLoadComplete(void* buffer, unsigned long uReadSize, unsigned long uParam);
++    static void BundleOpenComplete(void*, unsigned long, FontAsyncParam uParam);
++    static void FontDescriptionLoadComplete(void* buffer, unsigned long, FontAsyncParam uParam);
++    static void TextureLoadComplete(void* buffer, unsigned long uReadSize, FontAsyncParam uParam);
+ 
+     /* 0x04 */ nlDLListSlotPool<nlFont*> m_fonts;
+     /* 0x20 */ GLResourcePool* m_pResourcePool;
+diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
+--- a/include/NL/glx/glxTexture.h
++++ b/include/NL/glx/glxTexture.h
+@@ -5,6 +5,10 @@
+ #include "NL/gl/glTextureManager.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx/GXStruct.h>
++#include <stddef.h>
++#endif
+ 
+ class GLView;
+ struct glTextureBinding;
+@@ -25,26 +29,64 @@
+     GXTex_Num = 9,
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++// Serialized Wii texture words stay big-endian and at their authored widths.
++// Decode only when the original platform code reads a field; pixel and palette
++// data following these records remain byte-identical to the disc payload.
++template <typename T>
++struct glTextureData
++{
++    static_assert(sizeof(T) == 2 || sizeof(T) == 4, "Wii texture scalar width");
++    u8 bytes[sizeof(T)];
++
++    operator T() const
++    {
++        u32 value = 0;
++        for (size_t i = 0; i < sizeof(T); ++i)
++            value = (value << 8) | bytes[i];
++        return static_cast<T>(value);
++    }
++
++    glTextureData& operator=(T value)
++    {
++        u32 word = static_cast<u32>(value);
++        for (size_t i = sizeof(T); i != 0; --i)
++        {
++            bytes[i - 1] = static_cast<u8>(word);
++            word >>= 8;
++        }
++        return *this;
++    }
++};
++typedef glTextureData<u32> glTextureDataWord;
++typedef glTextureData<u16> glTextureDataHalf;
++typedef glTextureData<eGXTextureFormat> glTextureDataFormat;
++#else
++typedef unsigned long glTextureDataWord;
++typedef unsigned short glTextureDataHalf;
++typedef eGXTextureFormat glTextureDataFormat;
++#endif
++
+ struct GXTextureHeader
+ {
+-    /* 0x00 */ unsigned long numLevels;
+-    /* 0x04 */ eGXTextureFormat format;
++    /* 0x00 */ glTextureDataWord numLevels;
++    /* 0x04 */ glTextureDataFormat format;
+     /* 0x08 */ unsigned char numBits[4];
+     /* 0x0C */ unsigned char missingTexture;
+     /* 0x0D */ unsigned char _pad0D;
+-    /* 0x0E */ unsigned short width;
+-    /* 0x10 */ unsigned short height;
++    /* 0x0E */ glTextureDataHalf width;
++    /* 0x10 */ glTextureDataHalf height;
+     /* 0x12 */ unsigned char _pad12[2];
+-    /* 0x14 */ unsigned long numEntries;
+-    /* 0x18 */ unsigned long _pad18[2];
++    /* 0x14 */ glTextureDataWord numEntries;
++    /* 0x18 */ glTextureDataWord _pad18[2];
+ };
+ 
+ struct BundleEntry
+ {
+-    /* 0x00 */ unsigned long hash;
+-    /* 0x04 */ unsigned long offset;
+-    /* 0x08 */ unsigned long fileSize;
+-    /* 0x0C */ unsigned long pad;
++    /* 0x00 */ glTextureDataWord hash;
++    /* 0x04 */ glTextureDataWord offset;
++    /* 0x08 */ glTextureDataWord fileSize;
++    /* 0x0C */ glTextureDataWord pad;
+ };
+ 
+ struct glTexBundleDict : public BundleEntry
+@@ -53,11 +95,19 @@
+ 
+ struct BundleHeader
+ {
+-    unsigned long magic;
+-    unsigned long numTextures;
+-    unsigned long pad1;
+-    unsigned long pad2;
+-};
++    glTextureDataWord magic;
++    glTextureDataWord numTextures;
++    glTextureDataWord pad1;
++    glTextureDataWord pad2;
++};
++
++#if defined(MSCHARGED_NATIVE)
++static_assert(sizeof(GXTextureHeader) == 32, "Wii texture header must remain 32 bytes");
++static_assert(offsetof(GXTextureHeader, width) == 14, "Wii texture width offset");
++static_assert(offsetof(GXTextureHeader, numEntries) == 20, "Wii palette count offset");
++static_assert(sizeof(BundleHeader) == 16 && sizeof(glTexBundleDict) == 16,
++    "Wii texture bundle records must remain 16 bytes");
++#endif
+ 
+ class PlatTexture
+ {
+@@ -113,8 +163,15 @@
+     /* 0x18 */ void* m_LinearData;
+     /* 0x1C */ u16* m_PaletteData;
+     /* 0x20 */ u8 m_Bits[4];
++#if defined(MSCHARGED_NATIVE)
++    // Aurora's native GX objects include host pointers. Match both their SDK
++    // storage size and the alignment required by those internal pointers.
++    alignas(void*) u32 m_TexObj[sizeof(GXTexObj) / sizeof(u32)];
++    alignas(void*) u32 m_TlutObj[sizeof(GXTlutObj) / sizeof(u32)];
++#else
+     /* 0x24 */ u32 m_TexObj[8];
+     /* 0x44 */ u32 m_TlutObj[3];
++#endif
+ };
+ 
+ PlatTexture* glx_GetTex(unsigned long handle);
+diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
+--- a/src/Game/Font/fontmanager.cpp
++++ b/src/Game/Font/fontmanager.cpp
+@@ -37,41 +37,41 @@
+     struct PendingTexture
+     {
+         void* pBuffer;
+-        unsigned long uHashID;
++        FontWord uHashID;
+     } pendingTextures[16];
+-    unsigned long uNumTextures;
+-    unsigned long uNumTexturesLoaded;
++    FontWord uNumTextures;
++    FontWord uNumTexturesLoaded;
+ };
+ 
+ FontLoadState gFontLoadStates[16];
+ 
+-static inline void LoadFontTexture(FontLoadState* state, unsigned long uFileHashID)
++static inline void LoadFontTexture(FontLoadState* state, FontWord uFileHashID)
+ {
+     BundleFileDirectoryEntry entry;
+     if (state->pBundle->GetFileInfo(uFileHashID, &entry, true))
+     {
+         void* textureData = nlMalloc(entry.m_length, 0x20, true);
+-        state->pBundle->ReadFileAsync(uFileHashID, textureData, entry.m_length, FontManager::TextureLoadComplete, (unsigned long)state);
++        state->pBundle->ReadFileAsync(uFileHashID, textureData, entry.m_length, FontManager::TextureLoadComplete, (FontAsyncParam)state);
+         state->pendingTextures[state->uNumTextures].pBuffer = textureData;
+         state->pendingTextures[state->uNumTextures].uHashID = uFileHashID;
+         state->uNumTextures++;
+     }
+ }
+ 
+-void FontManager::BundleOpenComplete(void*, unsigned long, unsigned long uParam)
++void FontManager::BundleOpenComplete(void*, unsigned long, FontAsyncParam uParam)
+ {
+     FontLoadState* state = (FontLoadState*)uParam;
+-    unsigned long uFileHashID = nlStringHash(state->szFileName);
++    FontWord uFileHashID = nlStringHash(state->szFileName);
+     BundleFileDirectoryEntry entry;
+ 
+     if (state->pBundle->GetFileInfo(uFileHashID, &entry, true))
+     {
+         void* fileData = nlMalloc(entry.m_length, 0x20, true);
+-        state->pBundle->ReadFileAsync(uFileHashID, fileData, entry.m_length, FontDescriptionLoadComplete, (unsigned long)state);
+-    }
+-}
+-
+-void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, unsigned long uParam)
++        state->pBundle->ReadFileAsync(uFileHashID, fileData, entry.m_length, FontDescriptionLoadComplete, (FontAsyncParam)state);
++    }
++}
++
++void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, FontAsyncParam uParam)
+ {
+     FontLoadState* state = (FontLoadState*)uParam;
+     char* fontData = (char*)buffer;
+@@ -80,11 +80,15 @@
+     nlFont* pNewFont = new (8, false) nlFont();
+     pNewFont->Load(state->szFileName, fontData, nlStringHash(state->szFontName));
+     FontManager::Instance()->m_fonts.AddEnd(pNewFont);
++#if defined(MSCHARGED_NATIVE)
++    nlFree(fontData);
++#else
+     delete[] fontData;
+-
+-    for (unsigned long i = 0; i < pNewFont->m_PageCount; i++)
+-    {
+-        unsigned long uTextureHashID = pNewFont->m_TextureHandles[i];
++#endif
++
++    for (FontWord i = 0; i < pNewFont->m_PageCount; i++)
++    {
++        FontWord uTextureHashID = pNewFont->m_TextureHandles[i];
+         state->pBundle->GetFileInfo(uTextureHashID, &entry, true);
+         LoadFontTexture(state, uTextureHashID);
+ 
+@@ -99,7 +103,7 @@
+     state->uNumTexturesLoaded = 0;
+ }
+ 
+-void FontManager::TextureLoadComplete(void* buffer, unsigned long uReadSize, unsigned long uParam)
++void FontManager::TextureLoadComplete(void* buffer, unsigned long uReadSize, FontAsyncParam uParam)
+ {
+     FontLoadState* state = (FontLoadState*)uParam;
+     char* textureData = (char*)buffer;
+@@ -116,7 +120,11 @@
+         }
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    nlFree(textureData);
++#else
+     delete[] textureData;
++#endif
+ 
+     if (state->uNumTexturesLoaded == state->uNumTextures)
+     {
+@@ -224,7 +232,7 @@
+     nlToLower(state->szFontName);
+     state->uNumTextures = 0;
+     state->uNumTexturesLoaded = 0;
+-    state->pBundle->OpenAsync(szBundleFilename, BundleOpenComplete, (unsigned long)state, false);
++    state->pBundle->OpenAsync(szBundleFilename, BundleOpenComplete, (FontAsyncParam)state, false);
+     return true;
+ }
+ 
+diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
+--- a/src/NL/glx/glxTexture.cpp
++++ b/src/NL/glx/glxTexture.cpp
+@@ -17,6 +17,7 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++#if !defined(MSCHARGED_NATIVE)
+ enum GXTexWrapMode
+ {
+     GX_CLAMP,
+@@ -24,6 +25,7 @@
+     GX_MIRROR,
+     GX_MAX_TEXWRAPMODE
+ };
++#endif
+ 
+ enum eGLTextureMode
+ {
+@@ -34,6 +36,9 @@
+     GLTM_Num = 4
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/gx_texture_compat.h"
++#else
+ extern "C"
+ {
+     void GXInitTlutObj(
+@@ -54,6 +59,7 @@
+     void GXLoadTexObj(void* object, unsigned long textureMap);
+     void GXInvalidateTexAll();
+ }
++#endif
+ 
+ TweakValueBool gbReduceTextures("gbReduceTextures", "/Rendering/Engine", false);
+ 
+@@ -194,6 +200,9 @@
+         pTex->m_PaletteData =
+             (u16*)glResourceAlloc(numEntries * 2, GLM_TextureData, allocator);
+         pTex->m_nPaletteEntries = numEntries;
++#if defined(MSCHARGED_NATIVE)
++        pTex->m_NativePaletteBytes = numEntries * 2;
++#endif
+         memcpy(pTex->m_PaletteData, textureData + textureSize,
+             header->numEntries * 2);
+     }
+@@ -218,7 +227,11 @@
+     unsigned long size;
+     data = nlLoadEntireFile(filename, &size, 32, AllocateStart, 0, 0, 0);
+     result = glEndLoadTextureBundle(data, size, allocator, 0);
++#if defined(MSCHARGED_NATIVE)
++    nlFree(data);
++#else
+     delete[] (unsigned char*)data;
++#endif
+     return result;
+ }
+ 
+@@ -331,6 +344,9 @@
+     m_MaxLevel = numLevels;
+     m_Format = format;
+     m_SwizzledData = (void*)textureData;
++#if defined(MSCHARGED_NATIVE)
++    m_NativeDataBytes = GCTextureSize(format, width, height, numLevels, -1);
++#endif
+     m_LinearData = 0;
+ }
+ 
+@@ -359,6 +375,10 @@
+     {
+         m_SwizzledData = glResourceAlloc(textureSize, GLM_TextureData, allocator);
+     }
++
++#if defined(MSCHARGED_NATIVE)
++    m_NativeDataBytes = textureSize;
++#endif
+ 
+     if (linearData)
+     {
+@@ -520,13 +540,21 @@
+         wrapT = GX_REPEAT;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    alignas(void*) u32 textureObject[sizeof(GXTexObj) / sizeof(u32)];
++#else
+     unsigned long textureObject[8];
++#endif
+     memcpy(textureObject, pTex->m_TexObj, sizeof(textureObject));
+     GXInitTexObjWrapMode(textureObject, wrapS, wrapT);
+ 
+     if (pTex->m_nPaletteEntries != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        alignas(void*) u32 tlutObject[sizeof(GXTlutObj) / sizeof(u32)];
++#else
+         unsigned long tlutObject[3];
++#endif
+         memcpy(tlutObject, pTex->m_TlutObj, sizeof(tlutObject));
+         GXInitTexObjTlut(textureObject, textureMap);
+         GXLoadTlut(tlutObject, textureMap);

@@ -26,7 +26,7 @@ struct Driver
     std::uint64_t sequence=0;
     unsigned neutral=0;
     bool entered=false,completed=false,nlg_final=false,credits_frames=false;
-    unsigned parser_tokens=0,max_lines=0;
+    unsigned parser_tokens=0,max_lines=0,max_text_quads=0;
     static constexpr auto Deadline=std::chrono::seconds(240);
     const std::chrono::steady_clock::time_point start=std::chrono::steady_clock::now();
     void Input(FrontendMenuScenes& menus,SDL_Window* window)
@@ -89,6 +89,17 @@ struct Driver
                 parser_tokens=source.parser_tokens;
                 Check(source.lines_on_screen<=20,"Credits exceeded its20 original text slots");
                 max_lines=std::max(max_lines,source.lines_on_screen);
+                if(frame.menu)
+                {
+                    unsigned quads=0;
+                    for(const auto& entry:frame.menu->layout.entries)
+                        if(const auto* text=std::get_if<resources::FrontendLayoutText>(&entry))
+                            if(resources::FrontendLowerHash(text->name.substr(0,4))==resources::FrontendLowerHash("line")&&!text->text.empty())
+                            {
+                                quads+=text->layout.quads.size();
+                            }
+                    max_text_quads=std::max(max_text_quads,quads);
+                }
             }
         }
         if(entered&&visits[23]&&state.scene==13&&state.interactive)
@@ -96,6 +107,7 @@ struct Driver
             Check(nlg_final&&credits_frames,"Credits returned without actual NLG final output and Credits movie frames");
             Check(phases.contains(0)&&phases.contains(1)&&phases.contains(2)&&phases.contains(3),"Original Credits source phases were not presented");
             Check(parser_tokens>0&&max_lines>0&&state.pointer_enabled,"Credits scrolling parser or actual pointer restoration failed");
+            Check(max_text_quads>0,"Scrolling Credits text never reached the submitted frontend layout");
             completed=true;SDL_Event event{};event.type=SDL_EVENT_QUIT;Check(SDL_PushEvent(&event),"Cannot request normal Credits shutdown");
         }
     }

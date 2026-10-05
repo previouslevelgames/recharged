@@ -110,13 +110,13 @@ struct FrontendSession::Implementation
     }
     static resources::FrontendLayoutFrame Layout(const FrontendSessionFrame& next)
     {
-        const std::array fonts{next.visuals->text, next.visuals->heading};
-        if(next.request.image_profile==FrontendImageProfile::BootLoading)
-        {
-            if(next.visuals->font_registration_order.empty())throw std::logic_error("Boot layout requires actual font registration order");
-            return resources::BuildFrontendLayout(next.graph,*next.visuals->localization,next.visuals->font_registration_order,{},*next.images,{true,true});
-        }
-        return resources::BuildFrontendLayout(next.graph, *next.visuals->localization, fonts, {}, *next.images);
+        if(next.visuals->font_registration_order.empty())throw std::logic_error("Frontend layout requires actual font registration order");
+        // FontManager::GetFontByHashID returns the first registered font when
+        // an authored alias is absent. Preserve the real load publication order
+        // for every original scene, with fallbacks recorded in the layout.
+        return resources::BuildFrontendLayout(next.graph,*next.visuals->localization,
+            next.visuals->font_registration_order,{},*next.images,
+            {true,next.request.image_profile==FrontendImageProfile::BootLoading});
     }
     void Poll()
     {

@@ -125,3 +125,9 @@
 0132-share-original-weighted-skin-gather.patch
 0133-select-original-specular-material.patch
 0135-native-zero-morph-weighted-software-equations.patch
+0140-select-original-clipped-font-polygons.patch
+0141-original-bundle-native-abi.patch
+0143-original-font-native-abi.patch
+0145-original-tweak-native-abi.patch
+0146-original-print-native-abi.patch
+0144-original-font-texture-native-abi.patch

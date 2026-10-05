@@ -139,16 +139,9 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
  #include "Game/GameObjectLighting.h"
  #include "NL/gl/glMaterialParameters.h"
  
-@@ -95,21 +101,40 @@
- template <>
- void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
+@@ -97,7 +103,11 @@
  {
-+#if defined(MSCHARGED_NATIVE)
-+    // Rebuild lights for every real view, including an authored zero exponent.
-+    sSpecularExponent = -1.0f;
-+#else
      sSpecularExponent = 0.0f;
-+#endif
      static_cast<GXSpecularMaterialProgram*>(this)->ConfigureVertexFormat(true);
 +#if defined(MSCHARGED_NATIVE)
 +    sSpecularViewMatrix = mscharged::MaterialPreviewView();
@@ -158,39 +151,19 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
      SetGameObjectShadowViewMatrix(&sSpecularViewMatrix);
      SetGameObjectShadowModelMatrix(-1);
      sSpecularLightCount = GetGameObjectLightCount(0, 1);
-     LoadGameObjectLights(sSpecularLightCount, view, 0);
-+#if defined(MSCHARGED_NATIVE)
-+    sSpecularLightingEnabled = sSpecularDefaultLightingEnabled && IsGameObjectLightingEnabled();
-+    glxConfigureSpecularLighting(sSpecularLightingEnabled);
-+#else
-     sSpecularLightingEnabled = sSpecularDefaultLightingEnabled;
-     glxConfigureSpecularLighting(sSpecularDefaultLightingEnabled);
-+#endif
- }
- 
+@@ -109,7 +119,11 @@
  template <>
  void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Deactivate()
  {
 +#if defined(MSCHARGED_NATIVE)
 +    GXSetCurrentMtx(GX_PNMTX0);
-+    RestoreGameObjectShadowLighting();
 +#else
      gxSetCurrentMtx(0, true);
 +#endif
      gxSetTevColourOp(2, 0, 0, 0, true, 0);
      SetGameObjectAmbientLightingEnabled(0);
      SetGameObjectLightingEnabled(0, sSpecularLightCount, 1);
-@@ -168,6 +193,9 @@
-     static_cast<GXSpecularMaterialProgram*>(this)->BindParameters(packet);
- 
-     bool enabled = static_cast<const GXSpecularParameters*>(packet->materialParameters)->lightingEnabled == 1;
-+#if defined(MSCHARGED_NATIVE)
-+    enabled = enabled && IsGameObjectLightingEnabled();
-+#endif
-     if (enabled != sSpecularLightingEnabled)
-     {
-         sSpecularLightingEnabled = enabled;
-@@ -196,9 +224,13 @@
+@@ -196,9 +210,13 @@
      nlMultMatrices(modelview, model, sSpecularViewMatrix);
      SetGameObjectShadowModelMatrix(packet->matrix);
  
@@ -206,7 +179,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
      }
      else
      {
-@@ -213,8 +245,13 @@
+@@ -213,8 +231,13 @@
          if (sSpecularDepthPrepassEnabled)
          {
              bool colourUpdate = gxSetColourUpdate(false);
@@ -220,7 +193,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
              gxSetColourUpdate(colourUpdate);
              gxSetZMode(true, GX_EQUAL, true);
          }
-@@ -223,13 +260,21 @@
+@@ -223,13 +246,21 @@
          gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
          GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
          gxSetTevAlphaIn(1, 7, 7, 7, 6);

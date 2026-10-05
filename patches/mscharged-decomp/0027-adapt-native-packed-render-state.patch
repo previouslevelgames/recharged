@@ -7,8 +7,9 @@ logical bits 0-31 occupy the high word of the numeric u64. Replace only the
 native glSetTextureState assembly path, retaining the original console body.
 Use numeric shifts for native extraction, including fields crossing the word
 boundary. Validate native state/type enums and matrix storage before use, and
-reset state before memory teardown. Select the original hash independently of
-the unlinked full graphics startup. Full material/GX state dispatch is separate.
+reset state before memory teardown. Add a hash copy for selected-source
+diagnostics, leaving the complete original gl.cpp body unchanged. Full
+material/GX state dispatch is separate.
 
 diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
 index 6eb22d9..c34f8cc 100644
@@ -43,22 +44,6 @@ index 956ba4e..e327674 100644
  }; // total size: 0x30
  
  struct gl_StateBitfield
-diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
-index cd8f025..8217711 100644
---- a/src/NL/gl/gl.cpp
-+++ b/src/NL/gl/gl.cpp
-@@ -53,10 +53,7 @@ bool glStartup(void (*startupCallback)())
-     return true;
- }
- 
--unsigned long glHash(const char* string)
--{
--    return nlStringHash(string);
--}
-+#include "glHash.cpp"
- 
- int glGetCurrentFrame()
- {
 diff --git a/src/NL/gl/glHash.cpp b/src/NL/gl/glHash.cpp
 new file mode 100644
 index 0000000..4f62970

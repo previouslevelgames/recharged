@@ -1,158 +1,14 @@
-Subject: Select original frame timing and history without debug rendering
+Subject: Add separately selected frame timing diagnostics
 
 Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
-Extract original timing, history, condition-selected time regions and histogram
-math independently of debug text/mesh drawing and camera/gameplay predicates.
-Initialize formerly static-zeroed fields for scoped native ownership, validate
-timer/sample bounds and pair histogram storage with its game allocator.
-Keep original ticker conversion, history lengths and averaging behavior.
+Add timing/history diagnostic copies selected separately from the complete
+original FrameCounter, Histogram and TimeRegions sources. Preserve all original
+production constructor, timing, rendering and condition bodies. Extra scoped
+initialization, bounds checks and diagnostic destructor access apply only when
+MSCHARGED_DIAGNOSTIC_TIMING is enabled. Pair the original Histogram's allocated
+bins with owning nlFree on the native host; keep its source sampling decisions.
 
-diff --git a/src/Game/Debug/FrameCounter.cpp b/src/Game/Debug/FrameCounter.cpp
---- a/src/Game/Debug/FrameCounter.cpp
-+++ b/src/Game/Debug/FrameCounter.cpp
-@@ -19,9 +19,13 @@
- #include <string.h>
- #include "NL/nlstring_tmpl.h"
- 
-+#ifndef MSCHARGED_NATIVE
- FrameCounter* lbl_806E1DC0;
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- int FrameCounter::NUM_FRAMES_TO_AVERAGE_OVER = 30;
-+#endif
- 
- static float sfHappiness = 1.0f;
- static float sfEyeHeight = 0.2f;
-@@ -37,11 +41,18 @@
- static nlColour FrameBackgroundColour = { 0, 0, 0, 128 };
- static const char* FrameCounterOutputString = "%2.2fFPS %0.3fms [%0.3fms %s, %0.3fms %s]";
- 
-+#ifndef MSCHARGED_NATIVE
- const float lbl_806E6178 = 17.0f;
-+#endif
-+#ifndef MSCHARGED_NATIVE
- const float lbl_806E617C = 10.0f;
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- nlListContainer<TimeRegion*> TimeRegion::sTimeRegionList;
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- FrameCounter::FrameCounter(const char* first, const char* second)
- {
-     lbl_806E1DC0 = this;
-@@ -60,7 +71,9 @@
-     memset(m_FrameHistory, 0, sizeof(m_FrameHistory));
-     memset(m_ContinuousFrameHistory, 0, sizeof(m_ContinuousFrameHistory));
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void FrameCounter::StartTimer(int timerNum)
- {
-     u32 currentTick = nlGetTicker();
-@@ -73,7 +86,9 @@
-     m_StartTick = currentTick;
-     m_CurrTimerNum = timerNum;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void FrameCounter::FinishTiming()
- {
-     u32 currentTick = nlGetTicker();
-@@ -127,6 +142,7 @@
-     m_CurrTimer[1] = 0.0f;
-     m_CurrTimerNum = -1;
- }
-+#endif
- 
- void FrameCounter::DisplayFrameRate()
- {
-diff --git a/src/Game/Debug/Histogram.cpp b/src/Game/Debug/Histogram.cpp
---- a/src/Game/Debug/Histogram.cpp
-+++ b/src/Game/Debug/Histogram.cpp
-@@ -12,6 +12,7 @@
- 
- #include <math.h>
- 
-+#ifndef MSCHARGED_NATIVE
- Histogram::Histogram(
-     const char* pName, int numBins, float minValue, float binSize)
-     : m_pName(pName)
-@@ -23,12 +24,16 @@
-     m_Bins = (int*)nlMalloc(m_NumBins * sizeof(int), 8, false);
-     Reset();
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- Histogram::~Histogram()
- {
-     delete m_Bins;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void Histogram::AddSample(float value)
- {
-     ++m_NumSamples;
-@@ -51,7 +56,9 @@
-         }
-     }
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- int Histogram::GetCumulativePercentage(int index)
- {
-     if (m_NumSamples == 0)
-@@ -66,11 +73,14 @@
-     }
-     return (int)(100.0f * ((float)count / (float)m_NumSamples));
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- float Histogram::GetBinBoundary(int index)
- {
-     return m_MinValue + index * m_BinSize;
- }
-+#endif
- 
- void Histogram::FormatBinRange(char* range, unsigned long size, int index)
- {
-diff --git a/src/Game/Debug/TimeRegions.cpp b/src/Game/Debug/TimeRegions.cpp
---- a/src/Game/Debug/TimeRegions.cpp
-+++ b/src/Game/Debug/TimeRegions.cpp
-@@ -80,6 +80,7 @@
-     return g_pBall->m_tShotTimer.m_uPackedTime != 0;
- }
- 
-+#ifndef MSCHARGED_NATIVE
- inline TimeRegion::TimeRegion(
-     const char* pName, bool (*pConditionFunc)())
-     : m_pName(pName)
-@@ -99,6 +100,7 @@
-     nlListAddEnd<ListEntry<TimeRegion*> >(
-         &sTimeRegionList.m_Head, &sTimeRegionList.m_Tail, entry);
- }
-+#endif
- 
- void InitializeTimeRegions()
- {
 diff --git a/include/Game/Debug/FrameCounter.h b/include/Game/Debug/FrameCounter.h
 --- a/include/Game/Debug/FrameCounter.h
 +++ b/include/Game/Debug/FrameCounter.h
@@ -160,14 +16,14 @@ diff --git a/include/Game/Debug/FrameCounter.h b/include/Game/Debug/FrameCounter
  
  #include "types.h"
  
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_TIMING
 +namespace mscharged { struct NativeFrameTimingAccess; }
 +#endif
  class FrameCounter
  {
  public:
      FrameCounter(const char* first, const char* second);
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_TIMING
 +    ~FrameCounter();
 +    friend struct mscharged::NativeFrameTimingAccess;
 +#endif
@@ -376,3 +232,18 @@ new file mode 100644
 +    nlListAddEnd<ListEntry<TimeRegion*> >(
 +        &sTimeRegionList.m_Head, &sTimeRegionList.m_Tail, entry);
 +}
+diff --git a/src/Game/Debug/Histogram.cpp b/src/Game/Debug/Histogram.cpp
+--- a/src/Game/Debug/Histogram.cpp
++++ b/src/Game/Debug/Histogram.cpp
+@@ -27,7 +27,11 @@ Histogram::Histogram(
+ 
+ Histogram::~Histogram()
+ {
++#ifdef MSCHARGED_NATIVE
++    nlFree(m_Bins);
++#else
+     delete m_Bins;
++#endif
+ }
+ 
+ void Histogram::AddSample(float value)

@@ -24,17 +24,25 @@ FrontendPacketState::~FrontendPacketState()
         glSetTextureState(static_cast<eGLTextureState>(i),glGetTextureState(texture_,static_cast<eGLTextureState>(i)));
     glStateRestore(bundle_);
 }
-FontPackets PrepareFontPackets(const resources::FontLayout& layout,const nlMatrix4& model,std::array<std::uint8_t,4> colour)
+FontPackets PrepareFontPackets(const resources::FontLayout& layout,const nlMatrix4& model,std::array<std::uint8_t,4> colour,
+    std::optional<std::array<std::uint16_t,4>> scissor)
 {
     resources::Require(layout.font && layout.quads.size() <= 4096,"Invalid font polygon batch");
     for (float value:model.e) CheckFrontendCoordinate(value);
     FontPackets result; result.model=model; result.quads.resize(layout.quads.size());
+    if(scissor)
+    {
+        const auto& box=*scissor;
+        resources::Require(box[2]>0&&box[3]>0&&unsigned(box[0])+box[2]<=1024&&unsigned(box[1])+box[3]<=1024,
+            "Text scissor exceeds the qualified framebuffer domain");
+        result.scissor=nlVector4{float(box[0]),float(box[1]),float(box[2]),float(box[3])};
+    }
     for (std::size_t i=0;i<layout.quads.size();++i)
     {
         const auto& q=layout.quads[i]; auto& poly=result.quads[i];
         resources::Require(q.page < layout.font->pages.size(),"Font polygon page is not registered");
         for (float value:{q.left,q.top,q.right,q.bottom,q.u0,q.v0,q.u1,q.v1}) CheckFrontendCoordinate(value);
-        for (float value:{q.u0,q.v0,q.u1,q.v1})
+        if(!scissor)for (float value:{q.u0,q.v0,q.u1,q.v1})
             resources::Require(value*1024.f>=-32768.f && value*1024.f<32768.f,"Font polygon UV exceeds original signed16 storage");
         poly.m_pos[0]={q.left,q.top}; poly.m_pos[1]={q.left,q.bottom};
         poly.m_pos[2]={q.right,q.bottom}; poly.m_pos[3]={q.right,q.top};
@@ -51,6 +59,7 @@ FontPackets PrepareFontPackets(const resources::FontLayout& layout,const nlMatri
 }
 void AttachFontPackets(GLView& view,const FontPackets& input,int layer)
 {
+    static_assert(sizeof(nlVector4)==16);
     if (input.quads.empty()) return;
     FrontendPacketState state;
     FontSetTextRasterState();
@@ -60,7 +69,11 @@ void AttachFontPackets(GLView& view,const FontPackets& input,int layer)
     for (const auto& run:input.runs)
     {
         glSetCurrentTexture(run.texture,GLTT_Diffuse);
-        if (!glAttachPoly2(&view,layer,run.end-run.begin,const_cast<glPoly2*>(input.quads.data()+run.begin),&matrix))
+        auto* quads=const_cast<glPoly2*>(input.quads.data()+run.begin);
+        const bool attached=input.scissor?
+            glAttachPoly2(&view,layer,run.end-run.begin,quads,&*input.scissor,&matrix):
+            glAttachPoly2(&view,layer,run.end-run.begin,quads,&matrix);
+        if (!attached)
             throw std::runtime_error("Original font polygon attachment failed");
     }
 }

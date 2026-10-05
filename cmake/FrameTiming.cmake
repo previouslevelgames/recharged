@@ -6,6 +6,9 @@ add_library(charged_frame_timing STATIC
     "${MSCHARGED_PREPARED}/src/Game/Debug/FrameTiming.cpp"
     src/runtime/frame_timing.cpp)
 add_dependencies(charged_frame_timing verify_prepared)
+# Extra access/destruction and scoped initialization belong only to the legacy
+# diagnostic implementation, not original FrameCounter production source.
+target_compile_definitions(charged_frame_timing PUBLIC MSCHARGED_DIAGNOSTIC_TIMING=1)
 target_link_libraries(charged_frame_timing PUBLIC charged_graphics_memory)
 target_compile_features(charged_frame_timing PUBLIC cxx_std_17)
 if(BUILD_TESTING)

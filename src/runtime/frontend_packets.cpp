@@ -64,7 +64,7 @@ PreparedPackets PreparePackets(const FrontendSession::Handle& input,
         {
             Require(text->layout.font && (text->layout.font==input->visuals->text || text->layout.font==input->visuals->heading),
                 "Frontend text does not retain this generation's font");
-            packets.emplace_back(detail::PrepareFontPackets(text->layout,Matrix(text->transform),text->colour));
+            packets.emplace_back(detail::PrepareFontPackets(text->layout,Matrix(text->transform),text->colour,text->scissor));
             quads+=text->layout.quads.size();
         }
         else if(const auto* movie=std::get_if<resources::FrontendLayoutMovie>(&entry))

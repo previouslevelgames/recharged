@@ -1,14 +1,8 @@
-#include "runtime/startup.h"
 #include <dolphin/os.h>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <thread>
-
-namespace mscharged
-{
-void InitializeStartupOS() { OSInit(); ResetStartupMemory(); }
-}
 
 // Only interfaces with a verified equivalent are forwarded to Aurora.
 extern "C" void* OSGetMEM1ArenaLo() { return OSGetArenaLo(); }

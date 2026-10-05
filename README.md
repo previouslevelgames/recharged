@@ -1,36 +1,21 @@
 # Mario Strikers Charged — Native Port
 
-A native source port of **Mario Strikers Charged** for Nintendo Wii, built from
-[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) with
-[Aurora](https://github.com/encounter/aurora) as its compatibility and rendering
-foundation.
-
-**This is not a binary recompilation project.** The goal is a full native port
-built by adapting the reconstructed C/C++ game and engine source to modern
-systems.
+A native C/C++ port of **Mario Strikers Charged** for Nintendo Wii, based on
+[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp), with
+[Aurora](https://github.com/encounter/aurora) providing platform and rendering
+support. This compiles reconstructed game source for modern systems rather than
+recompiling the PowerPC game binary.
 
 ## Status
 
-**Work in progress.** The port grows alongside the ongoing decompilation,
-cleanup, and validation of the original game. Development builds are currently
-verified on Linux; Windows and macOS are intended targets.
-**The game is not playable yet.**
-
-## Why a native source port?
-
-Compared with translating console machine instructions, working directly with
-reconstructed source makes it easier to:
-
-- **Debug and maintain the game:** follow readable gameplay and engine code,
-  types, and data structures when diagnosing problems.
-- **Integrate modern platforms:** adapt engine services and memory layouts for
-  native graphics, audio, and input APIs.
-- **Improve and extend the game:** refactor and optimize code or add features
-  through explicit, reviewable source changes while preserving original behavior.
+**Work in progress; the game is not playable yet.** The port advances alongside
+the decompilation's reconstruction, cleanup, and validation. Development builds
+are verified on Linux; Windows and macOS are intended targets.
 
 ## Build
 
-From the repository root:
+Requires Git, CMake 3.25+, Ninja, Python 3.10+, a C/C++20 compiler, Rust/Cargo
+1.85+, and SDL's platform development dependencies. From the repository root:
 
 ```sh
 git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
@@ -38,28 +23,28 @@ cmake --workflow --preset release
 ./build/release/mscharged
 ```
 
-This builds and opens the development launcher. See
-[build instructions](docs/BUILDING.md) for prerequisites, Debug builds, and
-experimental runtime checks.
+This builds and opens the development launcher. For Debug, use
+`cmake --workflow --preset debug` and `./build/debug/mscharged`.
+See [build instructions](docs/BUILDING.md) for setup details and
+[runtime checks](docs/RUNTIME.md) for experimental builds.
 
 ## Game data
 
-Use an **ISO or RVZ** from your own copy of Mario Strikers Charged and select it
-in the launcher. Game data is not included with this project.
-See [disc setup](docs/BUILDING.md#configure-your-disc) for configuration details.
+Select an **ISO or RVZ from your own copy** in the launcher. Game data is not
+included. Local files in `game/` and your personal `mscharged.ini` are excluded
+from Git. See [disc setup](docs/BUILDING.md#configure-your-disc).
 
-## Source and development
+## Porting approach
 
-The decompilation, Aurora, and other source dependencies are Git submodules
-pinned to specific commits. Before building, the port applies its patches to
-generated source copies, keeping upstream checkouts clean. Dependency updates
-are reviewed explicitly, so new upstream commits do not change an existing
-port checkout.
+The build copies the pinned decomp's complete `include/`, `libs/`, and `src/`
+trees, applies reviewed compatibility patches, and compiles the prepared source
+natively. The goal is to execute the original game flow from `main(...)`
+throughout the game. Native adapters provide hardware services; patches address
+compiler and platform differences while preserving retail behavior. Dependencies
+remain clean submodules at explicit revisions, advanced through reviewed updates.
 
-- [Dependencies and attribution](extern/README.md)
-- [Patch workflow](patches/README.md)
-- [Current runtime implementation](docs/RUNTIME.md)
-- [Contributing](CONTRIBUTING.md)
+See the short [port strategy](docs/PORTING.md), [patch workflow](patches/README.md),
+and [contributing guide](CONTRIBUTING.md).
 
 ## License
 

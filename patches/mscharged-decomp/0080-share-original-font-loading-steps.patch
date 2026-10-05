@@ -2,75 +2,11 @@ Subject: Share original font page ordering and slot completion
 
 Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
-Retain console callbacks and registration while sharing source order and slot
-completion with checked native staged file ownership. Native decode completion
-is distinct from original graphics-resource registration and manager readiness.
+Extract original source page order and slot completion for checked native
+staged file ownership. Leave the Matching fontmanager.cpp translation unit
+unchanged. Native decode completion is distinct from original graphics-resource
+registration and manager readiness.
 
-diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
---- a/src/Game/Font/fontmanager.cpp
-+++ b/src/Game/Font/fontmanager.cpp
-@@ -1,4 +1,5 @@
- #include "Game/Font/fontmanager.h"
-+#include "Game/Font/FontLoadSteps.h"
- #include "NL/nlBundleFile.h"
- #include "NL/nlFont.h"
- #include "NL/nlMemory.h"
-@@ -71,6 +72,18 @@
-     }
- }
- 
-+struct FontTextureLoader
-+{
-+    FontLoadState* state;
-+    FontTextureLoader(FontLoadState* value) : state(value) {}
-+    void operator()(unsigned long hash) const
-+    {
-+        BundleFileDirectoryEntry entry;
-+        state->pBundle->GetFileInfo(hash, &entry, true);
-+        LoadFontTexture(state, hash);
-+    }
-+};
-+
- void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, unsigned long uParam)
- {
-     FontLoadState* state = (FontLoadState*)uParam;
-@@ -82,19 +95,7 @@
-     FontManager::Instance()->m_fonts.AddEnd(pNewFont);
-     delete[] fontData;
- 
--    for (unsigned long i = 0; i < pNewFont->m_PageCount; i++)
--    {
--        unsigned long uTextureHashID = pNewFont->m_TextureHandles[i];
--        state->pBundle->GetFileInfo(uTextureHashID, &entry, true);
--        LoadFontTexture(state, uTextureHashID);
--
--        if (pNewFont->m_TextureType == SplitFX)
--        {
--            uTextureHashID = pNewFont->m_EffectTextureHandles[i];
--            state->pBundle->GetFileInfo(uTextureHashID, &entry, true);
--            LoadFontTexture(state, uTextureHashID);
--        }
--    }
-+    FontLoadTextureOrder(*pNewFont, FontTextureLoader(state));
- 
-     state->uNumTexturesLoaded = 0;
- }
-@@ -128,14 +129,7 @@
- 
- bool FontManager::IsLoadingComplete() const
- {
--    for (int i = 0; i < 16; i++)
--    {
--        if (!gFontLoadStates[i].bComplete)
--        {
--            return false;
--        }
--    }
--    return true;
-+    return FontLoadSlotsComplete(gFontLoadStates, 16);
- }
- 
- FontManager::FontManager()
 diff --git a/include/Game/Font/FontLoadSteps.h b/include/Game/Font/FontLoadSteps.h
 new file mode 100644
 --- /dev/null

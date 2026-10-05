@@ -15,16 +15,19 @@ endif()
 include(cmake/CompressedAssets.cmake)
 add_library(charged_materials STATIC
     src/runtime/movie_draw_observer.cpp
+    src/runtime/framebuffer_queries.cpp
+    "${MSCHARGED_PREPARED}/src/NL/gl/glStruct.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXMovieMaterialProgram.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXMovieMaterialProgramRender.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialProgram.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialAlphaState.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialParameterArray.cpp"
     "${MSCHARGED_PREPARED}/src/Game/GameObjectLightingCore.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Render/LightingLookupNative.cpp"
     src/runtime/materials.cpp src/runtime/material_gx.cpp src/runtime/material_texture.cpp
     src/runtime/gpu_readback.cpp src/runtime/lighting.cpp src/runtime/skin_material.cpp
     "${MSCHARGED_PREPARED}/src/NL/glx/glxSkinMatrix.cpp")
-foreach(program UnlitTexture VertexColourTexture ScrollingDiffuse MaskedSpecularFresnel ShadowVolume SpecularDetailBlend ScrollingSpecular CameraScrolledOverlay MaskedDetailBlend ScrollingMaskedDetailBlend ScrollingCameraOverlay CharacterSkinCustom FloatTexturedColour ConstantColour)
+foreach(program UnlitTexture VertexColourTexture ScissoredVertexColourTexture ScrollingDiffuse MaskedSpecularFresnel ShadowVolume SpecularDetailBlend ScrollingSpecular CameraScrolledOverlay MaskedDetailBlend ScrollingMaskedDetailBlend ScrollingCameraOverlay CharacterSkinCustom FloatTexturedColour ConstantColour)
     target_sources(charged_materials PRIVATE
         "${MSCHARGED_PREPARED}/src/NL/glx/GX${program}MaterialProgram.cpp"
         "${MSCHARGED_PREPARED}/src/NL/glx/GX${program}MaterialProgramRender.cpp")
@@ -55,10 +58,11 @@ add_library(charged_views STATIC
     "${MSCHARGED_PREPARED}/src/NL/gl/glView.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glRenderList.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glTarget.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/gl/glStruct.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glViewMath.cpp"
     src/runtime/views.cpp src/runtime/targets.cpp)
 add_dependencies(charged_views verify_prepared)
+# Preview lifetime/state checks belong only to this legacy graph.
+target_compile_definitions(charged_views PUBLIC MSCHARGED_DIAGNOSTIC_VIEWS=1)
 target_include_directories(charged_views PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
 target_link_libraries(charged_views PUBLIC charged_materials PRIVATE aurora::gx)
 target_compile_features(charged_views PUBLIC cxx_std_20)

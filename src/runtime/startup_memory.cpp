@@ -1,9 +1,12 @@
 #include "runtime/startup.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
+#include <dolphin/os.h>
 
 namespace mscharged
 {
+void InitializeStartupOS() { OSInit(); ResetStartupMemory(); }
+
 void ResetStartupMemory()
 {
     // The prototype owns no surviving game objects; clear pointers before Aurora

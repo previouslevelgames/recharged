@@ -2,13 +2,15 @@ Subject: Share original graphics startup stages and task priorities
 
 Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
-Share the original resource callback, state/default/matrix and target/view
-stages between glStartup and explicitly selected native services. Keep full
-glStartup, its 43-program registry, platform startup and fonts unselected.
+Provide selected-source diagnostic copies of the original resource callback,
+state/default/matrix and target/view stages without refactoring glStartup.
+Retain the original startup order and decisions in gl.cpp. Full glStartup and
+its material/platform/font dependencies remain to be linked.
 Spell the original Wii -1 texture sentinel as 0xFFFFFFFFu so LP64 does not
 produce a different unsigned-long value. Console state ordering is unchanged.
-Share the four original frame priorities and world state mask from AddTasks;
-the native scheduler uses selected callbacks, not full game task substitutes.
+Provide the four original frame priorities and world state mask as constants
+for diagnostics. Leave original main.cpp AddTasks calls and constants unchanged.
+The diagnostic scheduler does not establish execution of full game tasks.
 
 diff --git a/include/NL/gl/glStartupStages.h b/include/NL/gl/glStartupStages.h
 new file mode 100644
@@ -54,41 +56,15 @@ new file mode 100644
 diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
 --- a/src/NL/gl/gl.cpp
 +++ b/src/NL/gl/gl.cpp
-@@ -1,4 +1,5 @@
- #include "NL/gl/gl.h"
-+#include "NL/gl/glStartupStages.h"
- #include "NL/gl/glFont.h"
- 
- #include "NL/gl/glMatrix.h"
-@@ -34,25 +35,14 @@
-     gl_state = 0;
- #endif
- 
--    glInitResourcePools();
--    startupCallback();
-+    gl_StartupMemory(startupCallback);
-     glInitMaterialPrograms();
- 
-     if (!glplatStartup(glGetScreenInfo()))
-         return false;
- 
--    gl_StatStartup();
--    gl_StateStartup();
--    for (int i = 0; i < GLTT_Num; ++i)
+@@ -44,7 +44,7 @@
+     gl_StatStartup();
+     gl_StateStartup();
+     for (int i = 0; i < GLTT_Num; ++i)
 -        glSetCurrentTexture(-1, (eGLTextureType)i);
--
--    glSetRasterStateDefaults();
--    glSetCurrentRasterState(glHandleizeRasterState());
--    glSetTextureStateDefaults();
--    glSetCurrentTextureState(glHandleizeTextureState());
--    gl_MatrixStartup();
--    gl_TargetStartup();
--    gl_ViewStartup();
-+    gl_StartupState();
-+    gl_StartupViews();
++        glSetCurrentTexture(0xFFFFFFFFu, (eGLTextureType)i);
  
-     if (!glplatPostStartup())
-         return false;
+     glSetRasterStateDefaults();
+     glSetCurrentRasterState(glHandleizeRasterState());
 diff --git a/include/Game/Task/GraphicsTaskPriorities.h b/include/Game/Task/GraphicsTaskPriorities.h
 new file mode 100644
 --- /dev/null
@@ -102,37 +78,3 @@ new file mode 100644
 +enum { Begin = 4, Update = 9, Render = 11, End = 16, WorldStates = 0x0002001B };
 +}
 +#endif
-diff --git a/src/Game/main.cpp b/src/Game/main.cpp
---- a/src/Game/main.cpp
-+++ b/src/Game/main.cpp
-@@ -7,6 +7,7 @@
- #include "Game/Audio/AudioGlobals.h"
- 
- #include "Game/Task/BeginFrameTask.h"
-+#include "Game/Task/GraphicsTaskPriorities.h"
- #include "Game/Task/ComUpdateTask.h"
- #include "Game/DB/StadiumInfo.h"
- #include "Game/DB/GameProgress.h"
-@@ -544,18 +545,18 @@
- static void AddTasks()
- {
-     nlTaskManager::AddTask(&resetTask, 0, (u32)-1);
--    nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);
-+    nlTaskManager::AddTask(&beginFrameTask, GraphicsTaskPriorities::Begin, (u32)-1);
-     nlTaskManager::AddTask(&sLoadingTask, 2, 0x01F80000);
-     nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
-     nlTaskManager::AddTask(&platPadUpdateTask, 5, (u32)-1);
-     nlTaskManager::AddTask(GetFixedUpdateTask(), 8, 0xFE07FFDF);
--    nlTaskManager::AddTask(&worldUpdateTask, 9, 0x0002001B);
--    nlTaskManager::AddTask(&gameRenderTask, 11, 0x0002001B);
-+    nlTaskManager::AddTask(&worldUpdateTask, GraphicsTaskPriorities::Update, GraphicsTaskPriorities::WorldStates);
-+    nlTaskManager::AddTask(&gameRenderTask, GraphicsTaskPriorities::Render, GraphicsTaskPriorities::WorldStates);
-     nlTaskManager::AddTask(&movieRenderTask, 11, (u32)-1);
-     nlTaskManager::AddTask(&frontEndTask, 13, (u32)-1);
-     nlTaskManager::AddTask(&particleUpdateTask, 12, 0x0002001F);
-     nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
--    nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);
-+    nlTaskManager::AddTask(&endFrameTask, GraphicsTaskPriorities::End, (u32)-1);
-     nlTaskManager::AddTask(&gTransitionTask, 1, (u32)-1);
-     nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
-     nlTaskManager::AddTask(&feDPDTask, 13, 5);

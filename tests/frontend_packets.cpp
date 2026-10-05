@@ -14,6 +14,9 @@
 #include "NL/gl/glTexture.h"
 #include "NL/gl/glTextureManager.h"
 #include "NL/glx/glxTexture.h"
+#include "NL/glx/GXScissoredVertexColourTextureMaterialProgram.h"
+#include "NL/gl/glMaterialParameters.h"
+#include "Game/GL/GLFloatTexturedColourMeshWriter.h"
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -64,6 +67,29 @@ void Session()
         Check(!renderer.Current() && !renderer.Textures(),"Empty renderer claimed a visible scene");
         Reject([&]{renderer.Prepare({});});
         renderer.Prepare(first); Check(renderer.Current()==first && renderer.Textures()==3,"Initial mixed graphics publication failed");
+        auto clipped=std::make_shared<FrontendSessionFrame>(*first);
+        auto& clipped_text=std::get<resources::FrontendLayoutText>(clipped->layout.entries[0]);
+        clipped_text.scissor=std::array<std::uint16_t,4>{100,80,320,280};
+        clipped_text.layout.quads[0].u0=.1234567f;
+        renderer.Prepare(clipped);Begin(frames);renderer.Submit(*view,clipped);
+        packets.clear();view->Iterate(Inspect);Check(packets.size()==2,"Clipping lost original mixed packet order");
+        const auto* clipped_packet=packets[0];
+        Check(static_cast<GLMaterialProgram*>(clipped_packet->materialProgram)->programHash==0x0027bcf6,
+            "Clipped font selected a substitute material");
+        const auto& box=*static_cast<const GXScissoredTextureParameters*>(clipped_packet->materialParameters);
+        Check(box.scissorX==100&&box.scissorY==80&&box.scissorWidth==320&&box.scissorHeight==280,
+            "Original packet scissor array or LP64 cell width differs");
+        Check(clipped_packet->streams[1].stride==8&&static_cast<const float*>(clipped_packet->streams[1].address)[0]==.1234567f,
+            "Clipped font UV was quantized to the plain short-UV path");
+        const auto saved_box=box;
+        for(auto count:{0ul,3ul,5ul,~0ul})Reject([&]{glSetMaterialParameterArray(const_cast<glModelPacket*>(clipped_packet),0xe745de0e,&saved_box.scissorX,count);});
+        Reject([&]{glSetMaterialParameterArray(const_cast<glModelPacket*>(clipped_packet),0x1234,&saved_box.scissorX,4);});
+        Check(std::memcmp(&box,&saved_box,sizeof(box))==0,"Invalid material array call changed the packet");
+        End(renderer);
+        auto bad_clip=std::make_shared<FrontendSessionFrame>(*clipped);
+        std::get<resources::FrontendLayoutText>(bad_clip->layout.entries[0]).scissor=std::array<std::uint16_t,4>{0,0,0,480};
+        Reject([&]{renderer.Prepare(bad_clip);});Check(renderer.Current()==clipped,"Invalid scissor retired a retained scene");
+        renderer.Prepare(first);
         const auto old_index=glGetTextureIndex(frontend_packet_fixture::ImageHash);
         Check(old_index!=0xffff && glGetTextureManager()->mFreeIndices->mCount==slots-3,"Mixed textures lack real slots");
         Check(glGetCurrentResourcePool()==&pool && pool.GetFreeMemory()==free,"Mixed graphics changed the world pool");

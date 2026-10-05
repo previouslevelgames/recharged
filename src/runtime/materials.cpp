@@ -19,6 +19,7 @@ extern bool gMovieYUVEnabled;
 #include "NL/gl/glView.h"
 #include "NL/glx/GXUnlitTextureMaterialProgram.h"
 #include "NL/glx/GXVertexColourTextureMaterialProgram.h"
+#include "NL/glx/GXScissoredVertexColourTextureMaterialProgram.h"
 #include "NL/glx/GXScrollingDiffuseMaterialProgram.h"
 #include "NL/glx/GXMaskedSpecularFresnelMaterialProgram.h"
 #include "NL/glx/GXShadowVolumeMaterialProgram.h"
@@ -58,6 +59,7 @@ constexpr std::uint32_t scrolling_masked_detail = 0xf2d57ac6;
 constexpr std::uint32_t scrolling_camera_overlay = 0x845cad59;
 constexpr std::uint32_t character_skin = 0x041c3281;
 constexpr std::uint32_t specular_skin = 0x22cadb20;
+constexpr std::uint32_t scissored_vertex = 0x0027bcf6;
 constexpr std::uint32_t float_colour = 0x19065bf6, constant_colour = 0xee9d919d;
 glTextureBinding Binding(const resources::MaterialBinding &input)
 {
@@ -113,6 +115,7 @@ struct MaterialPrograms::Impl
 {
     GXUnlitTextureMaterialProgram unlit;
     GXVertexColourTextureMaterialProgram vertex;
+    GXScissoredVertexColourTextureMaterialProgram scissored;
     GXScrollingDiffuseMaterialProgram scrolling;
     GXMaskedSpecularFresnelMaterialProgram masked;
     GXShadowVolumeMaterialProgram shadow;
@@ -131,6 +134,7 @@ struct MaterialPrograms::Impl
     {
         unlit.Initialize();
         vertex.Initialize();
+        scissored.Initialize();
         scrolling.Initialize();
         masked.Initialize();
         shadow.Initialize();
@@ -149,7 +153,7 @@ struct MaterialPrograms::Impl
 };
 MaterialPrograms::MaterialPrograms()
 {
-    if (programs_live || glGetMaterialProgram(unlit) || glGetMaterialProgram(vertex) ||
+    if (programs_live || glGetMaterialProgram(unlit) || glGetMaterialProgram(vertex) || glGetMaterialProgram(scissored_vertex) ||
         glGetMaterialProgram(scrolling) || glGetMaterialProgram(masked) || glGetMaterialProgram(shadow_volume)
         || glGetMaterialProgram(detail_blend) || glGetMaterialProgram(scrolling_specular)
         || glGetMaterialProgram(camera_overlay) || glGetMaterialProgram(masked_detail)
@@ -408,9 +412,10 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     RequireMaterialPreview();
     auto *program = static_cast<GLMaterialProgram *>(packet.materialProgram);
     if (!program || !packet.materialParameters || packet.displayList
-        || (!packet.indexBuffer && program->programHash != shadow_volume && program->programHash != vertex && program->programHash != movie_program))
+        || (!packet.indexBuffer && program->programHash != shadow_volume && program->programHash != vertex
+            && program->programHash != scissored_vertex && program->programHash != movie_program))
         throw std::runtime_error("Incomplete or unsupported native material packet");
-    if (program->programHash == vertex || program->programHash == float_colour)
+    if (program->programHash == vertex || program->programHash == float_colour || program->programHash == scissored_vertex)
     {
         if (packet.numStreams != 3 || !packet.streams || !packet.numUniqueVertices
             || packet.numVertices > 65535 || packet.primType < 0 || packet.primType >= 6)
@@ -421,12 +426,23 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
                 || (i==0 ? packet.streams[i].stride!=12 : i==2 ? packet.streams[i].stride!=4
                     : packet.streams[i].stride!=4 && packet.streams[i].stride!=8))
                 throw std::invalid_argument("Invalid vertex-colour stream");
-        if (program->programHash == float_colour && packet.streams[1].stride != 8)
+        if ((program->programHash == float_colour || program->programHash == scissored_vertex) && packet.streams[1].stride != 8)
             throw std::invalid_argument("Float-textured colour requires float UVs");
         if (packet.indexBuffer)
             for (unsigned i=0;i<packet.numVertices;++i)
                 if (packet.indexBuffer[i]>=packet.numUniqueVertices)
                     throw std::out_of_range("Vertex-colour index exceeds its arrays");
+        if(program->programHash==scissored_vertex)
+        {
+            static_assert(sizeof(GXScissoredTextureParameters)==24);
+            const auto& p=*static_cast<const GXScissoredTextureParameters*>(packet.materialParameters);
+            for(float value:{p.scissorX,p.scissorY,p.scissorWidth,p.scissorHeight})
+                if(!std::isfinite(value)||std::abs(value)>1024)
+                    throw std::invalid_argument("Invalid native scissor coordinate");
+            if(p.scissorX>-.1f&&(p.scissorX<0||p.scissorY<0||p.scissorWidth<1||p.scissorHeight<1
+                ||p.scissorX+p.scissorWidth>1024||p.scissorY+p.scissorHeight>1024))
+                throw std::invalid_argument("Native scissor exceeds the qualified framebuffer domain");
+        }
     }
     if (program->programHash == constant_colour)
     {

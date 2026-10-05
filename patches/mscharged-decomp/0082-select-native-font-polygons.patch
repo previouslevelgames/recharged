@@ -2,12 +2,11 @@ From: mscharged-port contributors
 Subject: [PATCH] Select original plain font polygons and share text raster setup
 Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
-Select original textured short-UV glPoly2 construction and attachment with
-native bounds and exception-safe matrix restoration. Float/scissor, untextured
-white fallback and utility polygon paths remain unselected on native builds.
-Share original DrawString raster setup and the unchanged glHasQuads capability
-without linking unrelated full graphics startup. No FontManager publication
-or full original font service is supplied by this selection.
+Legacy checked polygon restrictions require MSCHARGED_DIAGNOSTIC_POLYGONS.
+Original native glDraw2 retains all textured/untextured/float/scissor/utility
+paths and original state-restoration/order decisions. Native matrix handles
+remain the earlier ABI adaptation. Added text raster/quad helpers belong to
+selected-source diagnostics; whole original gl.cpp and nlFont remain intact.
 
 diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
 --- a/src/NL/gl/glDraw2.cpp
@@ -16,10 +15,10 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  #include "NL/gl/glTexture.h"
  
  #include "Game/GL/GLTexturedColourMeshWriter.h"
-+#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
  #include "Game/GL/GLFloatTexturedColourMeshWriter.h"
 +#endif
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
 +#include <stdexcept>
 +#endif
  #include "NL/platvmath.h"
@@ -29,7 +28,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  glModel* glBuildPoly2Model(glPoly2* pPolys,
      unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
  {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
 +    if (!pPolys || numPolys == 0 || numPolys > 65535 / 6 || !textured)
 +        throw std::invalid_argument("Native glPoly2 requires bounded textured quads");
 +#endif
@@ -40,7 +39,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  
      oldMatrix = glSetCurrentMatrix(
          pMatrixHandle != 0 ? *pMatrixHandle : glGetIdentityMatrix());
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
 +    struct MatrixRestore
 +    {
 +        glMatrixHandle value;
@@ -54,7 +53,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
              state->unknown07 = 0;
          }
      }
-+#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
      else
      {
          if (writer.Begin(numVerts * numPolys, primitive, 0))
@@ -70,7 +69,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
      glMatrixHandle* pMatrixHandle)
  {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
 +    if (!view || view->m_NativeIterating || glNativeViewDispatchActive())
 +        throw std::logic_error("Native glPoly2 requires a non-dispatching view");
 +#endif
@@ -81,7 +80,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
      glPoly2* pPolys, glMatrixHandle* pMatrixHandle)
  {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
 +    if (!view || view->m_NativeIterating || glNativeViewDispatchActive())
 +        throw std::logic_error("Native glPoly2 requires a non-dispatching view");
 +#endif
@@ -92,7 +91,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
      return true;
  }
  
-+#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
  bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
      glPoly2* pPolys, const void* pUserData, glMatrixHandle* pMatrixHandle)
  {
@@ -105,21 +104,6 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  void glPoly2::SetColour(const nlColour& col)
  {
      m_colour[0] = col;
-diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
---- a/src/NL/gl/gl.cpp
-+++ b/src/NL/gl/gl.cpp
-@@ -60,10 +60,7 @@
- }
- #endif
- 
--bool glHasQuads()
--{
--    return true;
--}
-+#include "glQuadSupport.cpp"
- 
- #ifndef MSCHARGED_NATIVE
- void glBeginFrame()
 diff --git a/src/NL/gl/glQuadSupport.cpp b/src/NL/gl/glQuadSupport.cpp
 new file mode 100644
 --- /dev/null
@@ -131,28 +115,6 @@ new file mode 100644
 +{
 +    return true;
 +}
-diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
---- a/src/NL/nlFont.cpp
-+++ b/src/NL/nlFont.cpp
-@@ -1,3 +1,4 @@
-+#include "NL/FontTextState.h"
- #include "NL/nlFont.h"
- #include "NL/nlList.h"
- #include "NL/nlPrint.h"
-@@ -465,12 +466,7 @@
-     float pixelCentre = glGetScreenInfo()->PixelCentre;
-     int length = Length == -1 ? nlStrLen(Text.m_pString) : Length;
-     glPoly2* quads = (glPoly2*)__alloca((unsigned long)(length * sizeof(glPoly2)));
--    glSetDefaultState(false);
--    glSetRasterState(GLS_AlphaBlend, 1);
--    glSetRasterState(GLS_AlphaTest, 1);
--    glSetRasterState(GLS_AlphaTestRef, 0);
--    glSetRasterState(GLS_Culling, 0);
--    glSetCurrentRasterState(glHandleizeRasterState());
-+    FontSetTextRasterState();
-     FontStringContext lookup(*this);
-     OriginalFontPageSink sink(*this, View, quads, pMatrix, Passes == PASS_Effect && m_TextureType == SplitFX);
-     FontTextColourResult result = FontDrawStringSteps<FontStringContext, nlEscapeSequence>(Text.m_pString, lookup,
 diff --git a/include/NL/FontTextState.h b/include/NL/FontTextState.h
 new file mode 100644
 --- /dev/null

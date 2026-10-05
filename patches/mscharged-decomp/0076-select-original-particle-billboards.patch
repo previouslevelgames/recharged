@@ -177,11 +177,11 @@ model/light/user callbacks, or synthetic texture handles.
  
  class GLTexturedColourMeshWriter
  {
-@@ -16,21 +22,38 @@
+@@ -16,21 +22,40 @@
  
      glModel* GetModel() const
      {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        NativeCheckLive();
 +#endif
          return model;
@@ -190,7 +190,9 @@ model/light/user callbacks, or synthetic texture handles.
      void Colour(const nlColour& c)
      {
 +#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        NativeCheckWrite(writtenColour);
++#endif
 +        std::memcpy(colour++, &c, sizeof(c));
 +#else
          ColourPlat(*(const unsigned long*)&c);
@@ -199,7 +201,7 @@ model/light/user callbacks, or synthetic texture handles.
  
      void ColourPlat(unsigned long nColourPlat)
      {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        NativeCheckWrite(writtenColour);
 +#endif
          *colour++ = nColourPlat;
@@ -207,7 +209,7 @@ model/light/user callbacks, or synthetic texture handles.
  
      void Texcoord(const nlVector2& uv)
      {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        for (float v : {uv.x, uv.y})
 +            if (!std::isfinite(v) || v * 1024.0f < -32768.0f || v * 1024.0f >= 32768.0f)
 +                throw std::invalid_argument("Particle UV exceeds original signed16 storage");
@@ -220,7 +222,7 @@ model/light/user callbacks, or synthetic texture handles.
  
      void Texcoord(int u, int v)
      {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        if (u < -32768 || u > 32767 || v < -32768 || v > 32767)
 +            throw std::invalid_argument("Particle UV exceeds original signed16 storage");
 +        NativeCheckWrite(writtenUV);
@@ -231,7 +233,7 @@ model/light/user callbacks, or synthetic texture handles.
  
      void TexcoordZero()
      {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        NativeCheckWrite(writtenUV);
 +#endif
          *texcoord++ = 0;
@@ -241,7 +243,7 @@ model/light/user callbacks, or synthetic texture handles.
  
      void Vertex(float x, float y, float z)
      {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
 +            throw std::invalid_argument("Invalid particle vertex");
 +        NativeCheckWrite(writtenPosition);
@@ -251,7 +253,7 @@ model/light/user callbacks, or synthetic texture handles.
          *position++ = z;
      }
  
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +    void NativeCheckLive() const
 +    {
 +        if (!model || generation != glNativeFrameGeneration())
@@ -284,7 +286,7 @@ model/light/user callbacks, or synthetic texture handles.
  bool GLTexturedColourMeshWriter::Begin(
      int numVerts, int prim, void* pResource)
  {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +    if (model && !finished && generation == glNativeFrameGeneration())
 +        throw std::logic_error("Particle mesh Begin before End");
 +    if (pResource || numVerts <= 0 || numVerts > 65535 || prim < 0 || prim >= 6)
@@ -299,11 +301,11 @@ model/light/user callbacks, or synthetic texture handles.
      glModel* newModel;
      resource = pResource;
      count = numVerts;
-@@ -106,19 +120,33 @@
+@@ -106,19 +120,35 @@
      glSetModelStream(streams + 2, 2, colour, sizeof(u32), 3);
  
      return true;
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +    }
 +    catch (...) { model = nullptr; position = nullptr; colour = nullptr; texcoord = nullptr; throw; }
 +#endif
@@ -311,7 +313,7 @@ model/light/user callbacks, or synthetic texture handles.
  
  bool GLTexturedColourMeshWriter::End()
  {
-+#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +    NativeCheckLive();
 +    if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
 +        throw std::logic_error("Incomplete or already finalized particle mesh");
@@ -329,7 +331,9 @@ model/light/user callbacks, or synthetic texture handles.
      PPCSync();
 +#else
 +    // Aurora copies host arrays at submission; Wii cache writeback is unnecessary.
++#ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
 +    finished = true;
++#endif
 +#endif
      return true;
  }

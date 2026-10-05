@@ -1,0 +1,445 @@
+Subject: Compile original NL bundle flow with native Wii words and callback ownership
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Preserve original bundle selection, search order, seeks, read counts and callback
+sequence. Adapt exact Wii16-byte header/12-byte entries at the data boundary,
+retain pointer-sized contexts and owning game allocations, and drain raw NL
+workers before freeing cancelled metadata. Global host new/delete is unchanged.
+
+diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
+--- a/include/NL/nlBundleFile.h
++++ b/include/NL/nlBundleFile.h
+@@ -10,8 +10,16 @@
+ 
+ struct nlFile;
+ 
+-typedef void (*FileReadAsyncCallback)(void*, unsigned long, unsigned long);
+-typedef void (*FileOpenAsyncCallback)(void*, unsigned long, unsigned long);
++#ifdef MSCHARGED_NATIVE
++#include <stdint.h>
++typedef uintptr_t BundleAsyncParam;
++struct AsyncReadCallbackData;
++#else
++typedef unsigned long BundleAsyncParam;
++#endif
++
++typedef void (*FileReadAsyncCallback)(void*, unsigned long, BundleAsyncParam);
++typedef void (*FileOpenAsyncCallback)(void*, unsigned long, BundleAsyncParam);
+ 
+ extern char gBundleFileNotFoundFormat[];
+ 
+@@ -25,9 +33,16 @@
+ 
+ struct BundleFileDirectoryEntry
+ {
++#ifdef MSCHARGED_NATIVE
++    // These are three serialized Wii words, not native pointer-sized handles.
++    u32 m_hash;
++    u32 m_blockNumber;
++    u32 m_length;
++#else
+     unsigned long m_hash;
+     unsigned long m_blockNumber;
+     unsigned long m_length;
++#endif
+ };
+ 
+ class BundleFile
+@@ -36,8 +51,19 @@
+     BundleFile();
+     ~BundleFile();
+ 
++#ifdef MSCHARGED_NATIVE
++    // Keep this game's object allocation family local to BundleFile. Host
++    // libraries and their standard global new/delete remain unchanged.
++    static void* operator new(size_t size) { return nlMalloc(size); }
++    static void* operator new(size_t size, unsigned int alignment, bool fromEnd)
++    { return nlMalloc(size, alignment, fromEnd); }
++    static void operator delete(void* pointer) noexcept { nlFree(pointer); }
++    static void operator delete(void* pointer, unsigned int, bool) noexcept
++    { nlFree(pointer); }
++#endif
++
+     bool Open(const char* filename, bool keepFilename);
+-    bool OpenAsync(const char* filename, FileOpenAsyncCallback callback, unsigned long userParam, bool keepFilename);
++    bool OpenAsync(const char* filename, FileOpenAsyncCallback callback, BundleAsyncParam userParam, bool keepFilename);
+     void Close();
+ 
+     bool GetFileInfo(const char* filename, BundleFileDirectoryEntry* entry, bool printError);
+@@ -50,9 +76,9 @@
+     }
+ 
+     void ReadFileByIndex(unsigned long index, void* buffer, unsigned long size);
+-    void ReadFileAsync(const char* filename, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam);
+-    void ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam);
+-    void ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam);
++    void ReadFileAsync(const char* filename, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam);
++    void ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam);
++    void ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam);
+ 
+     static inline u32 HashFilename(const char* filename)
+     {
+@@ -122,9 +148,14 @@
+     u32 nDataOffsetInSectors;
+     nlFile* m_pFile;
+     FileOpenAsyncCallback m_pOpenCallback;
+-    unsigned long m_openUserParam;
++    BundleAsyncParam m_openUserParam;
+     char* m_pFilename;
+     BundleFileDirectoryEntry* m_pDirectory;
++#ifdef MSCHARGED_NATIVE
++    // Only host callback-context ownership; original loading/ready decisions
++    // continue to belong to the calling game source.
++    AsyncReadCallbackData* m_nativeReadContexts;
++#endif
+ };
+ 
+ #endif // NL_BUNDLE_FILE_H
+diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
+--- a/src/NL/nlBundleFile.cpp
++++ b/src/NL/nlBundleFile.cpp
+@@ -10,33 +10,174 @@
+ struct AsyncReadCallbackData
+ {
+     FileReadAsyncCallback callback;
+-    unsigned long userParam;
++    BundleAsyncParam userParam;
++#ifdef MSCHARGED_NATIVE
++    BundleFile* owner;
++    AsyncReadCallbackData* next;
++    AsyncReadCallbackData** previous;
++    bool* completionDuringSubmission;
++#endif
+ };
+ 
+-static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam);
+-static void cbFileReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam);
+-
+-static void cbBundleHeaderReadAsyncCallback(nlFile*, void*, unsigned int, unsigned long userParam)
++static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam);
++static void cbFileReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam);
++
++#ifdef MSCHARGED_NATIVE
++#include <limits>
++#include <stddef.h>
++#include <stdexcept>
++
++static_assert(sizeof(BundleFileHeader) == 16, "Wii bundle header has four words");
++static_assert(sizeof(BundleFileDirectoryEntry) == 12, "Wii bundle entries have three words");
++static_assert(offsetof(BundleFile, m_pFile) == 16, "Original raw read targets only the four header words");
++
++struct NativeBundleHeaderBuffer
++{
++    void* pointer;
++    explicit NativeBundleHeaderBuffer(void* buffer) : pointer(buffer) {}
++    ~NativeBundleHeaderBuffer() { if (pointer) nlFree(pointer); }
++    void Free() { nlFree(pointer); pointer = 0; }
++};
++
++static u32 NativeBundleWord(const void* source)
++{
++    const u8* bytes = static_cast<const u8*>(source);
++    return (u32(bytes[0]) << 24) | (u32(bytes[1]) << 16)
++        | (u32(bytes[2]) << 8) | u32(bytes[3]);
++}
++
++static void NativeDecodeBundleHeader(BundleFile* bundle)
++{
++    const u8* bytes = reinterpret_cast<const u8*>(bundle);
++    const u32 sector = NativeBundleWord(bytes);
++    const u32 files = NativeBundleWord(bytes + 4);
++    const u32 directory = NativeBundleWord(bytes + 8);
++    const u32 data = NativeBundleWord(bytes + 12);
++    const uint64_t size = nlFileSize(bundle->m_pFile, 0);
++    const uint64_t offset = uint64_t(directory) * sector;
++    const uint64_t length = uint64_t(files) * sizeof(BundleFileDirectoryEntry);
++    if (sector == 0 || offset > size || length > size - offset
++        || length > 0x3FFFFFFFu)
++        throw std::runtime_error("Wii bundle directory exceeds its native file/allocation range");
++    bundle->nSectorSize = sector;
++    bundle->nNumFiles = files;
++    bundle->nDirectoryOffsetInSectors = directory;
++    bundle->nDataOffsetInSectors = data;
++}
++
++static void NativeDecodeBundleDirectory(BundleFile* bundle)
++{
++    const uint64_t size = nlFileSize(bundle->m_pFile, 0);
++    for (u32 i = 0; i < bundle->nNumFiles; ++i)
++    {
++        BundleFileDirectoryEntry& entry = bundle->m_pDirectory[i];
++        const u8* bytes = reinterpret_cast<const u8*>(&entry);
++        const u32 hash = NativeBundleWord(bytes);
++        const u32 block = NativeBundleWord(bytes + 4);
++        const u32 length = NativeBundleWord(bytes + 8);
++        const uint64_t offset = uint64_t(block) * bundle->nSectorSize;
++        if (offset > size || length > size - offset)
++            throw std::runtime_error("Wii bundle entry exceeds its native file range");
++        entry.m_hash = hash;
++        entry.m_blockNumber = block;
++        entry.m_length = length;
++    }
++}
++
++static void NativeRegisterBundleRead(BundleFile* bundle, AsyncReadCallbackData* data)
++{
++    data->owner = bundle;
++    data->next = bundle->m_nativeReadContexts;
++    data->previous = &bundle->m_nativeReadContexts;
++    if (data->next) data->next->previous = &data->next;
++    bundle->m_nativeReadContexts = data;
++}
++
++static void NativeDetachBundleRead(AsyncReadCallbackData* data)
++{
++    *data->previous = data->next;
++    if (data->next) data->next->previous = data->previous;
++    data->owner = 0;
++}
++
++static void NativeReleaseBundleReads(BundleFile* bundle)
++{
++    // Original nlClose has already joined/cancelled every worker using these
++    // contexts. No completion callback is fabricated for a cancelled read.
++    while (bundle->m_nativeReadContexts)
++    {
++        AsyncReadCallbackData* data = bundle->m_nativeReadContexts;
++        NativeDetachBundleRead(data);
++        nlFree(data);
++    }
++}
++
++static void NativeSubmitBundleRead(BundleFile* bundle, void* buffer,
++    unsigned long size, AsyncReadCallbackData* data)
++{
++    // A zero-byte NL request completes inline. Its original user callback may
++    // destroy the bundle or throw, so submission must not reuse freed metadata.
++    bool completed = false;
++    data->completionDuringSubmission = &completed;
++    NativeRegisterBundleRead(bundle, data);
++    try
++    {
++        if (size > std::numeric_limits<u32>::max())
++            throw std::length_error("Native bundle read exceeds a Wii byte count");
++        nlReadAsync(bundle->m_pFile, buffer, size, cbFileReadAsyncCallback,
++            (BundleAsyncParam)data, 0);
++    }
++    catch (...)
++    {
++        if (!completed)
++        {
++            NativeDetachBundleRead(data);
++            nlFree(data);
++        }
++        throw;
++    }
++    if (!completed) data->completionDuringSubmission = 0;
++}
++#endif
++
++static void cbBundleHeaderReadAsyncCallback(nlFile*, void*, unsigned int, BundleAsyncParam userParam)
+ {
+     BundleFile* bundle = (BundleFile*)userParam;
++#ifdef MSCHARGED_NATIVE
++    NativeDecodeBundleHeader(bundle);
++#endif
+     nlSeek(bundle->m_pFile, bundle->nDirectoryOffsetInSectors * bundle->nSectorSize, 0);
+     bundle->m_pDirectory = (BundleFileDirectoryEntry*)nlMalloc(bundle->nNumFiles * sizeof(BundleFileDirectoryEntry), 0x20, true);
+-    nlReadAsync(bundle->m_pFile, bundle->m_pDirectory, bundle->nNumFiles * sizeof(BundleFileDirectoryEntry), cbBundleDirectoryReadAsyncCallback, (unsigned long)bundle, 0);
+-}
+-
+-static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam)
++    nlReadAsync(bundle->m_pFile, bundle->m_pDirectory, bundle->nNumFiles * sizeof(BundleFileDirectoryEntry), cbBundleDirectoryReadAsyncCallback, (BundleAsyncParam)bundle, 0);
++}
++
++static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam)
+ {
+     BundleFile* bundle = (BundleFile*)userParam;
++#ifdef MSCHARGED_NATIVE
++    NativeDecodeBundleDirectory(bundle);
++#endif
+     bundle->m_pOpenCallback(buffer, size, bundle->m_openUserParam);
+     bundle->m_pOpenCallback = 0;
+     bundle->m_openUserParam = 0;
+ }
+ 
+-static void cbFileReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam)
++static void cbFileReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam)
+ {
+     AsyncReadCallbackData* data = (AsyncReadCallbackData*)userParam;
++#ifdef MSCHARGED_NATIVE
++    // Detach before the original callback: FontManager's last texture callback
++    // closes and destroys this BundleFile. Keep the current context alive until
++    // that callback returns, including an exception from a native service.
++    if (data->completionDuringSubmission) *data->completionDuringSubmission = true;
++    NativeDetachBundleRead(data);
++    try { data->callback(buffer, size, data->userParam); }
++    catch (...) { nlFree(data); throw; }
++    nlFree(data);
++#else
+     data->callback(buffer, size, data->userParam);
+     delete data;
++#endif
+ }
+ 
+ BundleFile::BundleFile()
+@@ -46,6 +187,9 @@
+     m_openUserParam = 0;
+     m_pFilename = 0;
+     m_pDirectory = 0;
++#ifdef MSCHARGED_NATIVE
++    m_nativeReadContexts = 0;
++#endif
+ }
+ 
+ BundleFile::~BundleFile()
+@@ -55,14 +199,25 @@
+         nlClose(m_pFile);
+         m_pFile = 0;
+     }
++#ifdef MSCHARGED_NATIVE
++    NativeReleaseBundleReads(this);
++#endif
+     if (m_pDirectory != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        nlFree(m_pDirectory);
++#else
+         delete[] m_pDirectory;
++#endif
+         m_pDirectory = 0;
+     }
+     if (m_pFilename != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        nlFree(m_pFilename);
++#else
+         delete[] m_pFilename;
++#endif
+         m_pFilename = 0;
+     }
+ }
+@@ -101,9 +256,17 @@
+     }
+ 
+     BundleFileHeader* header = (BundleFileHeader*)nlMalloc(sizeof(BundleFileHeader), 0x20, true);
++#ifdef MSCHARGED_NATIVE
++    NativeBundleHeaderBuffer headerBuffer(header);
++#endif
+     nlRead(m_pFile, header, sizeof(BundleFileHeader), 0);
+     memcpy(this, header, sizeof(BundleFileHeader));
++#ifdef MSCHARGED_NATIVE
++    headerBuffer.Free();
++    NativeDecodeBundleHeader(this);
++#else
+     delete header;
++#endif
+ 
+     if (nNumFiles == 0)
+     {
+@@ -114,11 +277,14 @@
+         nlSeek(m_pFile, nDirectoryOffsetInSectors * nSectorSize, 0);
+         m_pDirectory = (BundleFileDirectoryEntry*)nlMalloc(nNumFiles * sizeof(BundleFileDirectoryEntry), 0x20, true);
+         nlRead(m_pFile, m_pDirectory, nNumFiles * sizeof(BundleFileDirectoryEntry), 0);
++#ifdef MSCHARGED_NATIVE
++        NativeDecodeBundleDirectory(this);
++#endif
+     }
+     return true;
+ }
+ 
+-bool BundleFile::OpenAsync(const char* filename, FileOpenAsyncCallback callback, unsigned long userParam, bool keepFilename)
++bool BundleFile::OpenAsync(const char* filename, FileOpenAsyncCallback callback, BundleAsyncParam userParam, bool keepFilename)
+ {
+     m_pOpenCallback = callback;
+     m_openUserParam = userParam;
+@@ -152,7 +318,7 @@
+     copy_done:
+         copy[n] = 0;
+     }
+-    nlReadAsync(m_pFile, this, sizeof(BundleFileHeader), cbBundleHeaderReadAsyncCallback, (unsigned long)this, 0);
++    nlReadAsync(m_pFile, this, sizeof(BundleFileHeader), cbBundleHeaderReadAsyncCallback, (BundleAsyncParam)this, 0);
+     return true;
+ }
+ 
+@@ -163,14 +329,25 @@
+         nlClose(m_pFile);
+         m_pFile = 0;
+     }
++#ifdef MSCHARGED_NATIVE
++    NativeReleaseBundleReads(this);
++#endif
+     if (m_pDirectory != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        nlFree(m_pDirectory);
++#else
+         delete[] m_pDirectory;
++#endif
+         m_pDirectory = 0;
+     }
+     if (m_pFilename != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        nlFree(m_pFilename);
++#else
+         delete[] m_pFilename;
++#endif
+         m_pFilename = 0;
+     }
+ }
+@@ -222,7 +399,7 @@
+     nlRead(m_pFile, buffer, entry->m_length, 0);
+ }
+ 
+-void BundleFile::ReadFileAsync(const char* filename, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
++void BundleFile::ReadFileAsync(const char* filename, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam)
+ {
+     u32 index = FindHashIndex(HashFilename(filename));
+     AsyncReadCallbackData* data = (AsyncReadCallbackData*)nlMalloc(sizeof(AsyncReadCallbackData), 8, true);
+@@ -230,10 +407,14 @@
+     data->userParam = userParam;
+     BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+     nlSeek(m_pFile, entry->m_blockNumber * nSectorSize, 0);
++#ifdef MSCHARGED_NATIVE
++    NativeSubmitBundleRead(this, buffer, size, data);
++#else
+     nlReadAsync(m_pFile, buffer, size, cbFileReadAsyncCallback, (unsigned long)data, 0);
+-}
+-
+-void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
++#endif
++}
++
++void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam)
+ {
+     u32 index = FindHashIndex(hash);
+     AsyncReadCallbackData* data = (AsyncReadCallbackData*)nlMalloc(sizeof(AsyncReadCallbackData), 8, true);
+@@ -241,15 +422,23 @@
+     data->userParam = userParam;
+     BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+     nlSeek(m_pFile, entry->m_blockNumber * nSectorSize, 0);
++#ifdef MSCHARGED_NATIVE
++    NativeSubmitBundleRead(this, buffer, size, data);
++#else
+     nlReadAsync(m_pFile, buffer, size, cbFileReadAsyncCallback, (unsigned long)data, 0);
+-}
+-
+-void BundleFile::ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
++#endif
++}
++
++void BundleFile::ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam)
+ {
+     AsyncReadCallbackData* data = (AsyncReadCallbackData*)nlMalloc(sizeof(AsyncReadCallbackData), 8, true);
+     data->callback = callback;
+     data->userParam = userParam;
+     BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+     nlSeek(m_pFile, entry->m_blockNumber * nSectorSize, 0);
++#ifdef MSCHARGED_NATIVE
++    NativeSubmitBundleRead(this, buffer, size, data);
++#else
+     nlReadAsync(m_pFile, buffer, size, cbFileReadAsyncCallback, (unsigned long)data, 0);
+-}
++#endif
++}

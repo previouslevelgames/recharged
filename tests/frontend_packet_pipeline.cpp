@@ -46,7 +46,7 @@ void Acquire(OriginalFrames& frames)
     }
 }
 void Case(const char* name,FrontendPacketRenderer& renderer,GLView& view,OriginalFrames& frames,AuroraFrames& backend,
-    FrontendSession::Handle frame,std::array<int,3> expected,bool prepare=true)
+    FrontendSession::Handle frame,std::array<int,3> expected,bool prepare=true,bool centre_only=false)
 {
     if(prepare)renderer.Prepare(frame);
     const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(15);unsigned quiet=0;
@@ -66,6 +66,9 @@ void Case(const char* name,FrontendPacketRenderer& renderer,GLView& view,Origina
         {
             Check(std::abs(int(c[i])-expected[i])<=3,"Mixed original packet overlap pixel differs");
             Check(std::abs(int(backend.colours[0][i])-std::array{20,24,30}[i])<=3,"Mixed packets changed background pixels");
+            if(centre_only)for(unsigned pixel=0;pixel<9;++pixel)if(pixel!=4)
+                Check(std::abs(int(backend.colours[pixel][i])-std::array{20,24,30}[i])<=3,
+                    "Original font scissor allowed a pixel outside its rectangle");
         }
     }
     catch(...){frames.Cancel();renderer.FinishFrame();throw;}
@@ -90,6 +93,19 @@ int main(int argc,char** argv)
         auto* view=new(8,false)GLView(&matrices,{},GLViewSort_None);gRootView.AddChild(view);
         AuroraFrames backend;OriginalFrames frames(backend);FrontendPacketRenderer renderer(Drain);
         auto first=frontend_packet_fixture::Frame();Case("image over text",renderer,*view,frames,backend,first,{0,0,255});
+        auto clipped=std::make_shared<FrontendSessionFrame>(*first);clipped->layout.entries.resize(1);
+        auto& text_clip=std::get<resources::FrontendLayoutText>(clipped->layout.entries[0]);
+        text_clip.transform=frontend_packet_fixture::Transform();
+        auto& wide=text_clip.layout.quads[0];wide.left=80;wide.right=560;wide.top=60;wide.bottom=420;
+        text_clip.scissor=std::array<std::uint16_t,4>{300,220,40,40};
+        Case("float-UV font clipped in screen space",renderer,*view,frames,backend,clipped,{255,255,255},true,true);
+        auto excluded=std::make_shared<FrontendSessionFrame>(*clipped);
+        std::get<resources::FrontendLayoutText>(excluded->layout.entries[0]).scissor=std::array<std::uint16_t,4>{5,5,30,30};
+        Case("font outside scissor",renderer,*view,frames,backend,excluded,{20,24,30},true,true);
+        auto restored=std::make_shared<FrontendSessionFrame>(*excluded);restored->layout.entries.push_back(first->layout.entries[1]);
+        Case("following image restores full scissor",renderer,*view,frames,backend,restored,{0,0,255});
+        auto text_restored=std::make_shared<FrontendSessionFrame>(*excluded);text_restored->layout.entries.push_back(first->layout.entries[0]);
+        Case("following plain font restores full scissor",renderer,*view,frames,backend,text_restored,{255,255,255});
         auto reversed=std::make_shared<FrontendSessionFrame>(*first);std::reverse(reversed->layout.entries.begin(),reversed->layout.entries.end());
         Case("text over image",renderer,*view,frames,backend,reversed,{255,255,255});
         auto triple=std::make_shared<FrontendSessionFrame>(*first);auto text=std::get<resources::FrontendLayoutText>(triple->layout.entries[0]);

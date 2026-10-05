@@ -289,13 +289,13 @@ index 5443293..fd48083 100644
  
  GLRenderPair GLView::GetRenderPair() const
  {
-+#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_VIEWS)
 +    if (!m_RenderPair && (m_RenderPair.hash || m_RenderPair.target || m_RenderPair.nativeGeneration))
 +        throw std::invalid_argument("Incomplete GL view target handle");
 +#endif
      if (m_RenderPair)
      {
-+#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_VIEWS)
 +        glValidateTarget(m_RenderPair);
 +#endif
          return m_RenderPair;

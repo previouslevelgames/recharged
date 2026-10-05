@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/system.h"
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
@@ -15,7 +16,6 @@ public:
 };
 
 [[noreturn]] void MissingStartupService(const char* symbol, const char* reason);
-void SetStartupSystemLanguage(std::uint8_t language);
 void InitializeStartupOS();
 void ResetStartupMemory();
 std::string StartupMemorySummary();

@@ -24,6 +24,12 @@
 #include <limits>
 using namespace mscharged;
 namespace rec=specular_gx_record;
+extern "C" void __real__Z31RestoreGameObjectShadowLightingv();
+extern "C" void __wrap__Z31RestoreGameObjectShadowLightingv()
+{
+ rec::Record("RestoreGameObjectShadowLighting");
+ __real__Z31RestoreGameObjectShadowLightingv();
+}
 namespace
 {
 unsigned checks=0;
@@ -81,6 +87,8 @@ struct Packet
 void Trace(const Packet& p,unsigned passes,bool lit)
 {
  Check(Count("GXBegin")==passes&&Count("GXEnd")==passes,"Original Specular pass count differs");
+ Check(Count("RestoreGameObjectShadowLighting")==1,"Original Specular Draw shadow restore count differs");
+ unsigned final_end=0,restore=0;for(unsigned i=0;i<rec::events.size();++i){if(rec::events[i].name=="GXEnd")final_end=i;if(rec::events[i].name=="RestoreGameObjectShadowLighting")restore=i;}Check(restore>final_end,"Specular shadow restored before original Draw finished");
  Check(Count("GXSetArray")==5,"Specular did not bind five retained native GX arrays");
  const GXAttr attributes[]{GX_VA_POS,GX_VA_NRM,GX_VA_TEX0,GX_VA_TEX1,GX_VA_TEX2};
  for(unsigned s=0;s<5;++s)Check(Event("GXSetArray",{attributes[s],rec::Value(SpecularVertexArray(p.packet,s)),std::uint64_t(3*p.streams[s].stride),p.streams[s].stride,1}),"Specular GX array extent/stride/endian differs");
@@ -114,6 +122,7 @@ void Session()
  Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.Pose();ValidateNativeSpecularPacket(p.packet);
  nlMatrix4 view;view.SetIdentity();GameLighting light;light.enabled=true;light.light_count=1;light.ramp_texture=0xabc103;
  light.lights[0].intensity=.5f;light.lights[0].useWorldPosition=true;light.lights[0].worldPosition={1,0,0};
+ {MaterialPreviewScope context(view,0,light);program->Activate(nullptr);rec::Reset();program->Deactivate();Check(!Count("RestoreGameObjectShadowLighting"),"Native Deactivate added an original game-side shadow request");Check(Count("GXSetCurrentMtx")==1&&Event("GXSetCurrentMtx",{0}),"Original forced matrix reset was not forwarded once");}
  {
   MaterialPreviewScope context(view,0,light);rec::Reset();DrawMaterial(p.packet);Trace(p,1,true);
   bool atten=false;for(const auto& e:rec::events)if(e.name=="GXInitLightAttn"&&e.args.size()==7)atten|=e.args[1]==rec::Value(0.f)&&e.args[2]==rec::Value(0.f)&&e.args[3]==rec::Value(1.f)&&e.args[4]==rec::Value(32.f)&&e.args[5]==rec::Value(0.f)&&e.args[6]==rec::Value(-31.f);Check(atten,"Original exponent attenuation equation differs");
@@ -122,9 +131,10 @@ void Session()
   p.params.alphaValue=0;rec::Reset();DrawMaterial(p.packet);Check(!Count("GXBegin")&&!Count("GXSetArray"),"Original alpha-zero branch issued geometry");p.params.alphaValue=1;
  }
  {
-  light.enabled=false;MaterialPreviewScope context(view,0,light);rec::Reset();DrawMaterial(p.packet);Trace(p,1,false);
+  light.enabled=false;MaterialPreviewScope context(view,0,light);rec::Reset();DrawMaterial(p.packet);Trace(p,1,true);
+  p.params.lightingEnabled=0;rec::Reset();DrawMaterial(p.packet);Trace(p,1,false);p.params.lightingEnabled=1;
  }
- for(float exponent:{0.f,0.f,64.f}){light.enabled=true;MaterialPreviewScope context(view,0,light);p.params.specularExponent=exponent;rec::Reset();DrawMaterial(p.packet);Check(Count("GXInitSpecularDir")==1,"Specular exponent/view reuse skipped genuine source light refresh");}
+ for(float exponent:{0.f,0.f,64.f}){light.enabled=true;MaterialPreviewScope context(view,0,light);p.params.specularExponent=exponent;rec::Reset();DrawMaterial(p.packet);Check(Count("GXInitSpecularDir")==unsigned(exponent!=0),"Original zero-exponent cache sentinel behavior differs");}
  {
   light.double_intensity=true;MaterialPreviewScope context(view,0,light);rec::Reset();DrawMaterial(p.packet);Check(Event("GXSetTevColorOp",{2,GX_TEV_ADD,GX_TB_ZERO,GX_CS_SCALE_2,1,GX_TEVREG0}),"Original double-light TEV scaling differs");light.double_intensity=false;
  }

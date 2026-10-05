@@ -1,0 +1,205 @@
+Subject: Adapt original tweak pending storage and current-thread stack
+
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep the original registry/constructor decisions and allocator. A pending
+record is sizeof its native layout, including full-width string defaults;
+matching deletes return it to the game allocator. Typed value addresses
+replace casts between unrelated binding specializations, retaining the
+original switch/byte writes. The decomp currently contains no pending
+default writers: preserve that source gap without inventing defaults.
+Query actual host current-thread stack limits and retain the original
+inclusive range test; path algorithms stay original outside diagnostics.
+
+diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
+--- a/include/Game/TweakValue.h
++++ b/include/Game/TweakValue.h
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/TweakValueBase.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_NATIVE
++#include "platform/tweak_storage.h"
++#endif
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+ #include "runtime/tweaks.h"
+ #else
+@@ -164,6 +167,8 @@
+         {
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+             void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++            void* entry = mscharged::AllocateNativeTweakPending();
+ #else
+             void* entry = nlMalloc(0x18, 8, true);
+ #endif
+@@ -318,6 +323,8 @@
+         {
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+             void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++            void* entry = mscharged::AllocateNativeTweakPending();
+ #else
+             void* entry = nlMalloc(0x18, 8, true);
+ #endif
+diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
+--- a/include/Game/TweakValueBool.h
++++ b/include/Game/TweakValueBool.h
+@@ -1,6 +1,9 @@
+ #ifndef GAME_TWEAK_VALUE_BOOL_H
+ #define GAME_TWEAK_VALUE_BOOL_H
+ #include "Game/TweakValue.h"
++#ifdef MSCHARGED_NATIVE
++#include "platform/tweak_storage.h"
++#endif
+ inline void ParseBooleanTweakValue(bool& result, const char* value)
+ {
+     if (TweakValueStringEquals(value, "true") || TweakValueStringEquals(value, "triggered")
+@@ -43,6 +46,8 @@
+         {
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+             void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++            void* entry = mscharged::AllocateNativeTweakPending();
+ #else
+             void* entry = nlMalloc(0x18, 8, true);
+ #endif
+diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
+--- a/include/Game/TweakValueFloat.h
++++ b/include/Game/TweakValueFloat.h
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/TweakValue.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_NATIVE
++#include "platform/tweak_storage.h"
++#endif
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+ #include "runtime/tweaks.h"
+ #endif
+@@ -22,6 +25,8 @@
+         {
+             #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+ void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++void* entry = mscharged::AllocateNativeTweakPending();
+ #else
+ void* entry = nlMalloc(0x18, 8, true);
+ #endif
+diff --git a/include/Game/TweakValueInt.h b/include/Game/TweakValueInt.h
+--- a/include/Game/TweakValueInt.h
++++ b/include/Game/TweakValueInt.h
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/TweakValue.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_NATIVE
++#include "platform/tweak_storage.h"
++#endif
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+ #include "runtime/tweaks.h"
+ #endif
+@@ -21,6 +24,8 @@
+         {
+             #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+ void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++void* entry = mscharged::AllocateNativeTweakPending();
+ #else
+ void* entry = nlMalloc(0x18, 8, true);
+ #endif
+@@ -49,6 +54,8 @@
+         {
+             #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+ void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++void* entry = mscharged::AllocateNativeTweakPending();
+ #else
+ void* entry = nlMalloc(0x18, 8, true);
+ #endif
+diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
+--- a/include/Game/TweakRegistry.h
++++ b/include/Game/TweakRegistry.h
+@@ -160,7 +160,14 @@
+         u8 m_Default8;
+         int m_Default32;
+         float m_DefaultFloat;
++#ifdef MSCHARGED_NATIVE
++        const char* m_DefaultPointer;
++#endif
+     };
++
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_TWEAKS)
++    static void operator delete(void* pointer) { nlFree(pointer); }
++#endif
+ 
+     static TweakPendingValue* PopHead()
+     {
+diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
+--- a/src/Game/TweakRegistry.cpp
++++ b/src/Game/TweakRegistry.cpp
+@@ -311,6 +311,23 @@
+                     break;
+                 default:
+                     throw std::logic_error("Unsupported native tweak default type");
++                }
++#elif defined(MSCHARGED_NATIVE)
++                void* address = value->GetValueAddress();
++                switch (type)
++                {
++                case 5:
++                    *static_cast<float*>(address) = pending->m_DefaultFloat;
++                    break;
++                case 3:
++                    *static_cast<int*>(address) = pending->m_Default32;
++                    break;
++                case 2:
++                    *static_cast<u8*>(address) = pending->m_Default8;
++                    break;
++                case 8:
++                    *static_cast<const char**>(address) = pending->m_DefaultPointer;
++                    break;
+                 }
+ #else
+                 TweakFloatBinding* impl = (TweakFloatBinding*)value;
+diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
+--- a/src/Game/TweakNode.cpp
++++ b/src/Game/TweakNode.cpp
+@@ -195,6 +195,8 @@
+     }
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+     copyOwner.reset();
++#elif defined(MSCHARGED_NATIVE)
++    nlFree(copy);
+ #else
+     delete copy;
+ #endif
+diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
+--- a/src/Game/TweakValueBase.cpp
++++ b/src/Game/TweakValueBase.cpp
+@@ -1,4 +1,8 @@
++#ifdef MSCHARGED_NATIVE
++#include "platform/thread.h"
++#else
+ #include <revolution/os/OSThread.h>
++#endif
+ 
+ #include "Game/TweakValueBase.h"
+ #include "Game/TweakRegistry.h"
+@@ -68,8 +72,16 @@
+ #else
+ int IsTweakNameOnStack(const char* name)
+ {
++#ifdef MSCHARGED_NATIVE
++    const auto limits = mscharged::CurrentThreadStackLimits();
++    const auto stackBegin = limits.high;
++    const auto stackEnd = limits.low;
++    const auto address = reinterpret_cast<std::uintptr_t>(name);
++    return stackEnd <= address && stackBegin >= address;
++#else
+     const char* stackBegin = (const char*)OSGetCurrentThread()->stackBegin;
+     const char* stackEnd = (const char*)OSGetCurrentThread()->stackEnd;
+     return stackEnd <= name && stackBegin >= name;
++#endif
+ }
+ #endif

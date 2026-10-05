@@ -12,6 +12,9 @@ add_library(charged_tweaks STATIC
     "${MSCHARGED_PREPARED}/src/NL/PointerEntryTable.cpp"
     src/runtime/tweaks.cpp)
 add_dependencies(charged_tweaks verify_prepared)
+# The historical scoped registry has extra lifetime and parsing behavior.
+# Keep those hooks out of the complete original game source targets.
+target_compile_definitions(charged_tweaks PUBLIC MSCHARGED_DIAGNOSTIC_TWEAKS=1)
 target_link_libraries(charged_tweaks PUBLIC charged_game_config charged_game_print)
 target_compile_features(charged_tweaks PUBLIC cxx_std_17)
 if(BUILD_TESTING)
