@@ -25,6 +25,7 @@ struct FrontendImageLoad::Implementation
     std::exception_ptr error;
     FrontendImageState state = FrontendImageState::Idle;
     bool servicing = false;
+    bool permanent_main = false;
     auto Requests() { return std::span(requests).first(count); }
     void CheckThread() const
     {
@@ -88,6 +89,7 @@ void FrontendImageLoad::Begin(const resources::FrontendScene& scene, FrontendIma
 {
     auto& s = *impl_; s.CheckMutation(); s.Drain();
     s.error = {}; s.count = 0; s.state = FrontendImageState::Loading;
+    s.permanent_main = false;
     for (auto& request : s.requests) request.complete = false;
     try
     {
@@ -120,6 +122,15 @@ void FrontendImageLoad::Begin(const resources::FrontendScene& scene, FrontendIma
     }
     catch (...) { s.error = std::current_exception(); s.Drain(); s.state = FrontendImageState::Failed; throw; }
 }
+void FrontendImageLoad::BeginPermanentMain()
+{
+    auto& s = *impl_; s.CheckMutation(); s.Drain();
+    s.error = {}; s.count = 1; s.state = FrontendImageState::Loading;
+    s.permanent_main = true; s.selection = {}; s.paths = {"art/fe/MainUI.Dmn", ""};
+    for (auto& request : s.requests) request.complete = false;
+    try { s.Start(); }
+    catch (...) { s.error = std::current_exception(); s.Drain(); s.state = FrontendImageState::Failed; throw; }
+}
 void FrontendImageLoad::Poll()
 {
     auto& s = *impl_; s.CheckMutation();
@@ -135,7 +146,8 @@ void FrontendImageLoad::Poll()
             const std::array bundles{
                 resources::FrontendImageBundle{s.bytes[0], resources::FrontendImageBundleKind::Permanent},
                 resources::FrontendImageBundle{s.bytes[1], resources::FrontendImageBundleKind::OnDemand}};
-            auto next = resources::ReadFrontendImages(s.selection, std::span(bundles).first(s.count));
+            auto next = s.permanent_main ? resources::ReadPermanentFrontendImages(s.bytes[0])
+                : resources::ReadFrontendImages(s.selection, std::span(bundles).first(s.count));
             s.current = std::move(next); s.Drain(); s.state = FrontendImageState::Ready;
         }
     }

@@ -17,6 +17,7 @@ struct FrontendSession::Implementation
     FrontendSessionState state = FrontendSessionState::Idle;
     FrontendSessionProgress progress;
     Handle current;
+    FrontendSessionResources::Handle current_resources;
     std::unique_ptr<resources::FrontendAnimationPlayback> playback;
     std::exception_ptr error;
     bool servicing = false;
@@ -31,6 +32,8 @@ struct FrontendSession::Implementation
         std::unique_ptr<resources::FrontendScene> graph;
         std::unique_ptr<FrontendVisualLoad> visuals;
         std::unique_ptr<FrontendImageLoad> images;
+        FrontendSessionResourcesMode mode = FrontendSessionResourcesMode::Scene;
+        FrontendSessionResources::Handle shared;
         explicit Pending(Implementation& s, FrontendSessionRequest r) : owner(s), request(std::move(r)) {}
         ~Pending() { if (token) nlCancelEntireFileLoad(token, nullptr); }
         void Start()
@@ -52,7 +55,7 @@ struct FrontendSession::Implementation
                 if (size < 16 || size > resources::MaximumAssetBytes)
                     throw std::length_error("Frontend scene file exceeds its limits");
             }
-            visuals = std::make_unique<FrontendVisualLoad>(request.language);
+            if (!shared) visuals = std::make_unique<FrontendVisualLoad>(request.language);
             token = nlLoadEntireFileAsync(path.c_str(), Complete, this, 32, AllocateEnd, nullptr, 0, &VirtualAllocator);
             if (!token && !complete) throw std::runtime_error("Frontend scene read was not queued");
             if (error) std::rethrow_exception(error);
@@ -124,13 +127,17 @@ struct FrontendSession::Implementation
             if (p.error) std::rethrow_exception(p.error);
             if (!p.complete && !WholeFileLoadPending(p.token))
                 throw std::runtime_error("Frontend scene read failed or file services stopped");
-            p.visuals->Poll();
-            if (p.visuals->Ready()) (void)p.visuals->Result();
-            if (p.graph && !p.images)
+            if (p.visuals)
+            {
+                p.visuals->Poll();
+                if (p.visuals->Ready()) (void)p.visuals->Result();
+            }
+            if (p.graph && !p.images && !p.shared)
             {
                 (void)InitialSlide(p); // Reject the explicit CLI selection before image work.
                 p.images = std::make_unique<FrontendImageLoad>();
-                p.images->Begin(*p.graph, p.request.image_profile);
+                if (p.mode == FrontendSessionResourcesMode::PermanentMain) p.images->BeginPermanentMain();
+                else p.images->Begin(*p.graph, p.request.image_profile);
             }
             if (p.images)
             {
@@ -138,10 +145,38 @@ struct FrontendSession::Implementation
                 if (p.images->State() == FrontendImageState::Failed) (void)p.images->Result();
             }
             progress = p.Progress();
-            if (!p.graph || !p.visuals->Ready() || !p.images || p.images->State() != FrontendImageState::Ready) return;
+            if (!p.graph || (!p.shared && (!p.visuals->Ready() || !p.images || p.images->State() != FrontendImageState::Ready))) return;
             auto next = std::make_shared<FrontendSessionFrame>();
-            next->request = p.request; next->visuals = p.visuals->Result(); next->images = p.images->Result();
+            next->request = p.request;
+            next->visuals = p.shared ? p.shared->visuals_ : p.visuals->Result();
+            next->images = p.shared ? p.shared->images_ : p.images->Result();
             next->image_completed_files = progress.image_completed_files;
+            resources::RequireFrontendImages(*p.graph, *next->images);
+            auto next_resources = p.shared;
+            if (!next_resources && p.mode == FrontendSessionResourcesMode::PermanentMain)
+            {
+                // Include font pages in the same registration bounds as the
+                // graphics owner. Image/font hash collisions are not aliases.
+                std::map<std::uint32_t, const resources::Texture*> textures;
+                std::size_t bytes = 0;
+                const auto add = [&](const resources::Texture& texture)
+                {
+                    const auto [entry, inserted] = textures.emplace(texture.id, &texture);
+                    resources::Require(inserted || entry->second == &texture, "Shared frontend texture hashes collide");
+                    if (!inserted) return;
+                    const auto size = texture.pixels.size() + texture.palette.size();
+                    resources::Require(textures.size() <= 1024 && size <= 64 * 1024 * 1024 - bytes,
+                        "Shared frontend resources exceed 1024 textures or 64 MiB");
+                    bytes += size;
+                };
+                for (const auto& [hash, texture] : next->images->textures) add(*texture);
+                for (const auto& font : {next->visuals->text, next->visuals->heading})
+                    for (const auto& page : font->pages) add(page);
+                auto verified = std::shared_ptr<FrontendSessionResources>(new FrontendSessionResources);
+                verified->language_ = p.request.language;
+                verified->visuals_ = next->visuals; verified->images_ = next->images;
+                next_resources = std::move(verified);
+            }
             std::unique_ptr<resources::FrontendAnimationPlayback> next_playback;
             const auto selected = InitialSlide(p);
             if (p.request.animate)
@@ -151,7 +186,8 @@ struct FrontendSession::Implementation
             }
             else { next->graph = *p.graph; next->graph.active_slide = selected; }
             next->layout = Layout(*next);
-            Drain(); playback = std::move(next_playback); current = std::move(next); state = FrontendSessionState::Ready;
+            Drain(); playback = std::move(next_playback); current = std::move(next);
+            current_resources = std::move(next_resources); state = FrontendSessionState::Ready;
         }
         catch (...) { error = std::current_exception(); Drain(); state = FrontendSessionState::Failed; }
     }
@@ -166,7 +202,7 @@ struct FrontendSession::Implementation
         next->image_completed_files = current->image_completed_files;
         next->graph = next_playback->Scene(); next->channels_evaluated = next_playback->ChannelsEvaluated();
         next->layout = Layout(*next);
-        // Admit external boot services only after every fallible scene/layout
+        // Admit external handler services only after every fallible scene/layout
         // allocation has succeeded. Publication below consists of noexcept moves.
         if (before_publish) before_publish();
         playback = std::move(next_playback); current = std::move(next);
@@ -176,10 +212,36 @@ struct FrontendSession::Implementation
 FrontendSession::FrontendSession() : impl_(std::make_unique<Implementation>()) {}
 FrontendSession::~FrontendSession() { try { Pop(); } catch (...) { std::terminate(); } }
 void FrontendSession::Begin(FrontendSessionRequest request)
+{ Begin(std::move(request), FrontendSessionResourcesMode::Scene); }
+void FrontendSession::Begin(FrontendSessionRequest request, FrontendSessionResourcesMode mode)
 {
-    auto& s = *impl_; s.CheckMutation(); s.Drain(); s.error = {}; s.progress = {}; s.state = FrontendSessionState::Loading;
-    try { s.pending = std::make_unique<Implementation::Pending>(s, std::move(request)); s.pending->Start(); }
+    auto& s = *impl_; s.CheckMutation();
+    if (mode != FrontendSessionResourcesMode::Scene && mode != FrontendSessionResourcesMode::PermanentMain)
+        throw std::invalid_argument("Unknown frontend session resource mode");
+    if (mode == FrontendSessionResourcesMode::PermanentMain && request.image_profile != FrontendImageProfile::Main)
+        throw std::invalid_argument("Permanent sharing requires the Main image profile");
+    s.Drain(); s.error = {}; s.progress = {}; s.state = FrontendSessionState::Loading;
+    try { s.pending = std::make_unique<Implementation::Pending>(s, std::move(request)); s.pending->mode = mode; s.pending->Start(); }
     catch (...) { s.error = std::current_exception(); s.Drain(); s.state = FrontendSessionState::Failed; throw; }
+}
+void FrontendSession::BeginShared(FrontendSessionRequest request, FrontendSessionResources::Handle resources)
+{
+    auto& s = *impl_; s.CheckMutation();
+    if (!resources || request.image_profile != FrontendImageProfile::Main || request.language != resources->language_)
+        throw std::invalid_argument("Shared frontend resources require their verified language and Main profile");
+    s.Drain(); s.error = {}; s.progress = {}; s.state = FrontendSessionState::Loading;
+    try
+    {
+        s.pending = std::make_unique<Implementation::Pending>(s, std::move(request));
+        s.pending->shared = std::move(resources); s.pending->Start();
+    }
+    catch (...) { s.error = std::current_exception(); s.Drain(); s.state = FrontendSessionState::Failed; throw; }
+}
+FrontendSessionResources::Handle FrontendSession::SharedResources() const
+{
+    impl_->CheckThread();
+    if (!impl_->current_resources) throw std::logic_error("Current frontend scene has no shared permanent resources");
+    return impl_->current_resources;
 }
 void FrontendSession::Poll() { impl_->CheckMutation(); impl_->Poll(); }
 void FrontendSession::Service()
@@ -201,7 +263,7 @@ void FrontendSession::Cancel()
 }
 void FrontendSession::Pop()
 {
-    auto& s = *impl_; s.CheckMutation(); s.Drain(); s.playback.reset(); s.current.reset();
+    auto& s = *impl_; s.CheckMutation(); s.Drain(); s.playback.reset(); s.current.reset(); s.current_resources.reset();
     s.error = {}; s.progress = {}; s.state = FrontendSessionState::Idle;
 }
 FrontendSessionState FrontendSession::State() const { impl_->CheckThread(); return impl_->state; }
@@ -245,12 +307,12 @@ resources::FrontendLoadingSetup FrontendSession::SetupLoadingScene(const Handle&
     s.Mutate([&](auto& playback) { result = playback.SetupLoadingScene(widescreen); return true; });
     return result;
 }
-void FrontendSession::BootTransaction(const Handle& expected,
+void FrontendSession::HandlerTransaction(const Handle& expected,
     const std::function<void(resources::FrontendAnimationPlayback&)>& operation,
     const std::function<void()>& before_publish)
 {
     auto& s=*impl_;s.CheckMutation();
-    if (!expected || expected!=s.current) throw std::logic_error("Boot handler requires the visible current snapshot");
+    if (!expected || expected!=s.current) throw std::logic_error("Frontend handler requires the visible current snapshot");
     s.Mutate([&](auto& playback){operation(playback);return true;}, before_publish);
 }
 

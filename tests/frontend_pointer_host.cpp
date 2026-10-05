@@ -253,13 +253,29 @@ void SDLWindow()
     FrontendInput input;Update(input);FrontendPointerHost host(input);auto frame=Frame();
     int ww,wh,pw,ph;Check(SDL_GetWindowSize(window.get(),&ww,&wh)&&SDL_GetWindowSizeInPixels(window.get(),&pw,&ph),"SDL extent read failed");
     FrontendPointerViewport v{SDL_GetWindowID(window.get()),unsigned(ww),unsigned(wh),unsigned(pw),unsigned(ph),0,0,double(pw),double(ph)};
-    auto token=host.Publish(frame,v,{});SDL_WarpMouseInWindow(window.get(),127.5f,230.25f);SDL_PumpEvents();
+    unsigned leaves=0;
+    auto region=std::make_shared<FrontendPointerRegion>(input,frame,FrontendPointerBinding{100},
+        [&](auto kind,unsigned,const auto& source){Check(source==frame,"Resize callback lost its retained frame");if(kind==FrontendPointerCallback::Leave)++leaves;});
+    auto token=host.Publish(frame,v,std::array{region});SDL_WarpMouseInWindow(window.get(),127.5f,230.25f);SDL_PumpEvents();
     const auto result=host.Poll(token,window.get());
     Check(!result.active&&!result.event.pressed,"Hidden SDL window admitted pointer input");
     Reject([&]{host.Poll(token,nullptr);});
     std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> other(SDL_CreateWindow("other fixture",640,480,SDL_WINDOW_HIDDEN),SDL_DestroyWindow);
     Check(bool(other),SDL_GetError());Reject([&]{host.Poll(token,other.get());});
-    Check(SDL_SetWindowSize(window.get(),800,600),SDL_GetError());SDL_PumpEvents();Reject([&]{host.Poll(token,window.get());});
+    // Establish original listener history independently of this hidden window's
+    // physical focus, then resize the actual SDL window before presentation.
+    region->Deliver(frame,{0,{0,0}});
+    Check(SDL_SetWindowSize(window.get(),800,600),SDL_GetError());SDL_PumpEvents();
+    const auto resized=host.Poll(token,window.get());
+    Check(!resized.active&&!resized.event.pressed&&resized.listeners==1&&leaves==1&&!host.Failed()
+        &&host.Current()==token,"SDL resize did not leave the retained frame or poisoned the host");
+    Check(!host.Poll(token,window.get()).active&&leaves==1,"Repeated resize invented another Leave");
+    Check(SDL_GetWindowSize(window.get(),&ww,&wh)&&SDL_GetWindowSizeInPixels(window.get(),&pw,&ph),"Resized SDL extent read failed");
+    v.window_width=ww;v.window_height=wh;v.pixel_width=pw;v.pixel_height=ph;v.width=pw;v.height=ph;
+    token=host.Publish(frame,v,std::array{region});auto sample=Sample(v,100);sample.x=ww/2.f;sample.y=wh/2.f;sample.primary_down=true;
+    Check(!host.Route(token,sample).active,"Held input crossed the resized presentation gate");
+    sample.sequence++;sample.primary_down=false;Check(!host.Route(token,sample).active,"Resized presentation skipped neutral recovery");
+    sample.sequence++;Check(host.Route(token,sample).active,"Resized presentation did not recover on neutral input");
     host.Release();
 }
 void Owned(const std::filesystem::path& path)

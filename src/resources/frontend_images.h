@@ -28,4 +28,9 @@ bool IsDynamicFrontendImage(std::uint32_t hash);
 // fail explicitly; fonts and scene contexts are outside this image catalog.
 FrontendImageCatalog::Handle ReadFrontendImages(const FrontendScene& scene,
     std::span<const FrontendImageBundle> bundles);
+// Original permanent loading visits every directory entry, retaining the first
+// occurrence of a hash. No on-demand profile is implicitly made permanent.
+FrontendImageCatalog::Handle ReadPermanentFrontendImages(Bytes bundle);
+// Validate the complete resource ring, including hidden static references.
+void RequireFrontendImages(const FrontendScene&, const FrontendImageCatalog&);
 }

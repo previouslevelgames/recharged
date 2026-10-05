@@ -221,6 +221,8 @@ class Builder
         const auto selected=FindFrontendFont(font_order_,resource.hash,options_.original_font_fallback);
         if(!selected){++result_.unavailable["font alias outside the supplied set"];return;}
         if(selected->alias!=resource.hash)result_.font_fallbacks.emplace(resource.hash,selected->alias);
+        if((instance.text_overload_flags&8)&&!localization_.strings.contains(instance.localization_hash))
+        {++result_.unavailable["missing localization ID "+std::to_string(instance.localization_hash)];return;}
         const auto& text=instance.text_overload_flags&8?localization_.Get(instance.localization_hash):instance.text;
         if(text.empty()){++result_.unavailable["empty or handler-assigned text"];return;}
         Require(text.size()<=4096,"Frontend textbox exceeds its string budget");

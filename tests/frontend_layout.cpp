@@ -79,6 +79,10 @@ void TextBoxes()
     f.Text().text=u"A";f.Text().text_box={8,64};Reject([&]{f.Build();});
     f.Text().text_box={100,64};f.Text().text=u"A\u00e9";f.Text().localization_hash=1;f.Text().text_overload_flags=8;f.localization.strings[1]=u"BA";
     result=f.Build();Check(Entry(result).text==u"BA","Original localization flag lost precedence");
+    f.Text().localization_hash=15;result=f.Build();
+    Check(result.TextCount()==2&&result.unavailable.at("missing localization ID 15")==1,"Missing localization did not remain explicitly unavailable");
+    Reject([&]{f.localization.Get(15);});
+    const auto saved=f.scene.library[1].resource;f.scene.library[1].resource=0xffffffff;Reject([&]{f.Build();});f.scene.library[1].resource=saved;
     f.Text().text_overload_flags=0;result=f.Build();Check(Entry(result).layout.quads.size()==2,"Extended font character mapping changed");
 }
 void ParagraphsAndFallback()

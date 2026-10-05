@@ -126,23 +126,30 @@ void FrontendCameras::TransitionCallback(eCameraMessage message)
     auto* owner = transition_owner_;
     transition_owner_ = nullptr;
     if (!owner) return;
-    const auto callback = owner->callback_;
-    owner->callback_ = nullptr;
+    auto callback = std::move(owner->callback_);
+    owner->transition_selection_.reset();
     if (callback) callback(message);
 }
-void FrontendCameras::OwnTransition(void (*callback)(eCameraMessage)) noexcept
+void FrontendCameras::OwnTransition(std::function<void(eCameraMessage)> callback,
+    FrontendCameraSelectionHandle selection) noexcept
 {
     // The original operation first aborts any previous transition. Publish its
     // new callback owner only after that operation has succeeded.
-    if (transition_owner_) transition_owner_->callback_ = nullptr;
+    if (transition_owner_)
+    {
+        transition_owner_->callback_ = {};
+        transition_owner_->transition_selection_.reset();
+    }
     transition_owner_ = this;
-    callback_ = callback;
+    callback_ = std::move(callback);
+    transition_selection_ = std::move(selection);
 }
 void FrontendCameras::CancelTransition(bool live_core) noexcept
 {
     if (transition_owner_ != this) return;
     transition_owner_ = nullptr;
-    callback_ = nullptr;
+    callback_ = {};
+    transition_selection_.reset();
     if (live_core && cCameraManager::m_pCallback == TransitionCallback)
     {
         cCameraManager::m_pCallback = nullptr;
@@ -158,6 +165,18 @@ void FrontendCameras::Destroy(bool live_core) noexcept
 }
 const cBaseCamera& FrontendCameras::Push(const std::string& name, void (*callback)(eCameraMessage),
     float duration, bool delete_current)
+{
+    return PushPrepared(name,callback,duration,delete_current,true,{});
+}
+FrontendCameraSelectionHandle FrontendCameras::PushAnimated(const std::string& name,
+    bool cyclic, std::function<void()> on_end, std::function<void(eCameraMessage)> transition_end,
+    float duration, bool delete_current)
+{
+    return PushPrepared(name,std::move(transition_end),duration,delete_current,cyclic,std::move(on_end)).selection;
+}
+FrontendCameras::Camera& FrontendCameras::PushPrepared(const std::string& name,
+    std::function<void(eCameraMessage)> callback, float duration, bool delete_current,
+    bool cyclic, std::function<void()> on_end)
 {
     Ready(); CheckCameraDelta(duration);
     const auto alias = CanonicalCameraAlias(name);
@@ -178,6 +197,8 @@ const cBaseCamera& FrontendCameras::Push(const std::string& name, void (*callbac
         ScopedGameAllocator arena(VirtualAllocator);
         camera.reset(new (8, false) Camera(*this, std::move(asset)));
     }
+    camera->SetCyclic(cyclic);
+    camera->on_end = std::move(on_end);
     cameras_.push_back(camera.get());
     // Reserve the manager's tracking entry before an immediate replacement
     // destroys its old camera. Push's existing insertion then finds this entry.
@@ -191,21 +212,32 @@ const cBaseCamera& FrontendCameras::Push(const std::string& name, void (*callbac
     else
     {
         cCameraManager::PushCameraWithTransition(camera.get(), duration, eCT_EASE_IN, TransitionCallback, delete_current);
-        OwnTransition(callback);
+        OwnTransition(std::move(callback),camera->selection);
     }
     return *camera.release();
 }
 void FrontendCameras::Pop(void (*callback)(eCameraMessage), float duration)
 {
+    PopPrepared(callback,duration);
+}
+void FrontendCameras::PopAnimated(const FrontendCameraSelectionHandle& expected,
+    std::function<void(eCameraMessage)> callback,float duration)
+{
+    Ready(); Selected(expected);
+    PopPrepared(std::move(callback),duration);
+}
+void FrontendCameras::PopPrepared(std::function<void(eCameraMessage)> callback, float duration)
+{
     Ready(); CheckCameraDelta(duration);
     if (!Owned(cCameraManager::PeekCamera())) throw std::logic_error("Frontend pop requires an owned current camera");
     if (duration > 0) { CheckCameraPop(true); CheckCameraTransition(duration, eCT_EASE_IN); }
+    const auto selection=Owned(cCameraManager::PeekCamera())->selection;
     Operation operation(*this);
     if (duration == 0) delete cCameraManager::PopCamera();
     else
     {
         delete cCameraManager::PopCameraWithTransition(duration, eCT_EASE_IN, TransitionCallback);
-        OwnTransition(callback);
+        OwnTransition(std::move(callback),selection);
     }
 }
 void FrontendCameras::Advance(float delta, float simulation_delta)
@@ -230,10 +262,23 @@ FrontendCameras::Camera& FrontendCameras::Selected(const FrontendCameraSelection
 }
 FrontendCameraSelectionHandle FrontendCameras::Selection() const
 {
-    Ready(); auto* camera = Owned(cCameraManager::PeekCamera());
-    if (!camera || cCameraManager::m_transition != eCT_NONE)
+    Ready();
+    if (cCameraManager::m_transition != eCT_NONE)
         throw std::logic_error("Frontend selection requires an owned unblended current camera");
+    return CurrentSelection();
+}
+FrontendCameraSelectionHandle FrontendCameras::CurrentSelection() const
+{
+    Ready(); auto* camera = Owned(cCameraManager::PeekCamera());
+    if (!camera) throw std::logic_error("Frontend selection requires its owned current camera");
     return camera->selection;
+}
+bool FrontendCameras::IsCurrent(const FrontendCameraSelectionHandle& identity) const
+{
+    Ready();
+    if(!identity)return false;
+    auto* camera=Owned(const_cast<cBaseCamera*>(identity->camera));
+    return camera&&camera->selection==identity&&camera==cCameraManager::PeekCamera();
 }
 FrontendCameraSelectionHandle FrontendCameras::Select(const FrontendCameraSelectionHandle& expected,
     const std::string& name, bool cyclic, std::function<void()> callback)
@@ -283,6 +328,15 @@ bool FrontendCameras::DetachEndCallback(const FrontendCameraSelectionHandle& sel
     busy_ = true;
     camera->on_end = {};
     busy_ = false;
+    return true;
+}
+bool FrontendCameras::DetachTransitionCallback(const FrontendCameraSelectionHandle& selection)
+{
+    CheckThread();
+    if(busy_)throw std::logic_error("Cannot detach frontend blend callback during dispatch");
+    if(core_.Active())CheckNativeCameraTeardown();
+    if(!selection||transition_owner_!=this||transition_selection_!=selection)return false;
+    callback_={};transition_selection_.reset();
     return true;
 }
 std::size_t FrontendCameras::Size() const { Ready(); return cameras_.size(); }

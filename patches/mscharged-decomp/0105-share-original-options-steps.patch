@@ -1,0 +1,310 @@
+Subject: Share selected original Options visual and callback steps
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Retain console delegates for authored lookup, pointer callbacks and in/out
+state timing. Native callers own retained resources and report unsupported
+NAV, global DPD, music and scene-manager services explicitly.
+
+diff --git a/include/Game/FE/FrontendOptionsSteps.h b/include/Game/FE/FrontendOptionsSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendOptionsSteps.h
+@@ -0,0 +1,125 @@
++#ifndef GAME_FE_FRONTEND_OPTIONS_STEPS_H
++#define GAME_FE_FRONTEND_OPTIONS_STEPS_H
++// Selected original OptionsScene bodies. Callers provide actual services or
++// expose the unresolved dependency; this header does not establish readiness.
++template<class TLComponentInstance, template<class,int> class FEFinder, class Scene>
++void FrontendOptionsCreated(Scene& scene)
++{
++    auto* presentation = scene.GetPresentation();
++    scene.mOptionInstances[0] = FEFinder<TLComponentInstance, 4>::Find(
++        presentation, "in", "Layer", "options_list", "BTN_0");
++    scene.mOptionInstances[1] = FEFinder<TLComponentInstance, 4>::Find(
++        presentation, "in", "Layer", "options_list", "BTN_1");
++    scene.mOptionInstances[2] = FEFinder<TLComponentInstance, 4>::Find(
++        presentation, "in", "Layer", "options_list", "BTN_2");
++}
++template<class TLComponentInstance,class feVector3,template<class,int> class FEFinder,class Scene>
++void FrontendOptionsBind(Scene& scene,int i)
++{
++        feVector3 position = scene.mOptionInstances[i]->GetAssetPosition();
++        TLComponentInstance* instance = FEFinder<TLComponentInstance, 3>::Find(
++            scene.mOptionInstances[i], "off", "BUTTON_0", "list_back_480x70 ");
++        scene.mOptionButtons[i].SetInstanceBounds(
++            instance, true, position.f.x, position.f.y, 1.0f, 0.5f);
++}
++template<class Scene,class Waiting,class Hide,class Play>
++void FrontendOptionsPress(Scene& scene,int item,Waiting pointerWaiting,Hide hideNavigation,Play play)
++{
++    for (int i = 0; i < 3; ++i)
++    {
++        scene.mOptionButtons[i].Disable();
++    }
++
++    for (int i = 0; i < 4; ++i)
++    {
++        pointerWaiting(i);
++    }
++
++    play(0xF0AFD586, 0, 0, 1);
++
++    switch (item)
++    {
++    case 1:
++        play(0x304FDD1E, 0, 0, 1);
++        scene.mNextScene = static_cast<decltype(scene.mNextScene)>(14);
++        break;
++    case 0:
++        play(0x304FDD1E, 0, 0, 1);
++        scene.mNextScene = static_cast<decltype(scene.mNextScene)>(15);
++        break;
++    case 2:
++        scene.mNextScene = static_cast<decltype(scene.mNextScene)>(23);
++        break;
++    }
++
++    scene.mState = 2;
++
++    hideNavigation();
++
++    scene.mPresentation->SetActiveSlide("out", true);
++    scene.mPresentation->Update(0.0f);
++}
++template<class Scene,class Play>
++void FrontendOptionsEnter(Scene& scene,int index,unsigned item,Play play)
++{
++    if (!scene.mOptionButtons[item].HasOtherPointerState(1, index))
++    {
++        scene.mOptionInstances[item]->SetActiveSlide("over", true, false);
++        scene.mOptionButtons[item].SetPointerState(1, index);
++        play(0xF6EB899E, 0, 0, 1);
++    }
++}
++template<class Scene>
++void FrontendOptionsLeave(Scene& scene,int index,unsigned item)
++{
++    if (!scene.mOptionButtons[item].HasOtherPointerState(1, index))
++    {
++        scene.mOptionInstances[item]->SetActiveSlide("off", true, false);
++        scene.mOptionButtons[item].SetPointerState(0, index);
++    }
++}
++template<class Scene,class Waiting,class Show,class Push,class Play,class Transition,class Pop>
++bool FrontendOptionsGate(Scene& scene,Waiting pointerWaiting,Show showBack,Push push,Play play,Transition transition,Pop pop)
++{
++    if (scene.mState == 0 || scene.mState == 2 || scene.mState == 3)
++    {
++        auto* slide = scene.mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
++        {
++            for (int i = 0; i < 4; ++i)
++            {
++                pointerWaiting(i);
++            }
++            return false;
++        }
++
++        if (scene.mState == 0)
++        {
++            showBack();
++            scene.mState = 1;
++        }
++        else if (scene.mState == 2)
++        {
++            push(scene.mNextScene);
++            return false;
++        }
++        else if (scene.mState == 3)
++        {
++            play(0x4430B152, 0, 0, 1);
++            transition();
++            pop();
++            return false;
++        }
++    }
++
++    return true;
++}
++template<class Scene,class Hide>
++void FrontendOptionsBack(Scene& scene,Hide hideNavigation)
++{
++    scene.mState = 3;
++    hideNavigation();
++    scene.mPresentation->SetActiveSlide("out", true);
++    scene.mPresentation->Update(0.0f);
++}
++#endif
+diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
+--- a/src/Game/SH/SHOptions.cpp
++++ b/src/Game/SH/SHOptions.cpp
+@@ -2,6 +2,7 @@
+ #include "NL/nlFunction.inl"
+ #include "Game/GameSceneManager.h"
+ #include "Game/SH/SHOptions.h"
++#include "Game/FE/FrontendOptionsSteps.h"
+ #include "Game/FE/FrontendHandlerSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ #include "Game/FE/FEAudio.h"
+@@ -48,13 +49,7 @@
+ 
+ void OptionsScene::SceneCreated()
+ {
+-    FEPresentation* presentation = GetPresentation();
+-    mOptionInstances[0] = FEFinder<TLComponentInstance, 4>::Find(
+-        presentation, "in", "Layer", "options_list", "BTN_0");
+-    mOptionInstances[1] = FEFinder<TLComponentInstance, 4>::Find(
+-        presentation, "in", "Layer", "options_list", "BTN_1");
+-    mOptionInstances[2] = FEFinder<TLComponentInstance, 4>::Find(
+-        presentation, "in", "Layer", "options_list", "BTN_2");
++    FrontendOptionsCreated<TLComponentInstance, FEFinder>(*this);
+ 
+     TLComponentInstance* screen = 0;
+     SHNavigation* object = GetNavigationScene();
+@@ -91,41 +86,13 @@
+ {
+     BaseSceneHandler::Update(fDeltaT);
+ 
+-    if (mState == 0 || mState == 2 || mState == 3)
+-    {
+-        TLSlide* slide = mPresentation->m_currentSlide;
+-        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
+-        {
+-            for (int i = 0; i < 4; ++i)
+-            {
+-                GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-            }
+-            return;
+-        }
+-
+-        if (mState == 0)
+-        {
+-            SHNavigation* object = GetNavigationScene();
+-            if (object != 0)
+-            {
+-                object->SetButtons(4, true);
+-            }
+-            mState = 1;
+-        }
+-        else if (mState == 2)
+-        {
+-            GameSceneManager::Instance()->Push(mNextScene, SCREEN_NOTHING, true);
+-            return;
+-        }
+-        else if (mState == 3)
+-        {
+-            FEAudio::PlayAnimAudioEvent(0x4430B152, 0, 0, 1);
+-            FrontEndPresentation::GetInstance()->Call("TransitionOptionsToMainMenu");
+-            GameSceneManager::Instance()->Pop();
+-            return;
+-        }
+-    }
+-
++    if (!FrontendOptionsGate(*this,
++        [](int i) { GetPointerInstance(i)->SetActiveSlide("waiting", true, false); },
++        []() { SHNavigation* object = GetNavigationScene(); if (object != 0) object->SetButtons(4, true); },
++        [](SceneList next) { GameSceneManager::Instance()->Push(next, SCREEN_NOTHING, true); },
++        [](unsigned long cue, const char* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); },
++        []() { FrontEndPresentation::GetInstance()->Call("TransitionOptionsToMainMenu"); },
++        []() { GameSceneManager::Instance()->Pop(); })) return;
+     if (!mInitialized)
+     {
+         InitializePointerButtons();
+@@ -149,14 +116,7 @@
+ 
+         if (mBackButton.UpdateBackButton(event, fDeltaT))
+         {
+-            mState = 3;
+-            SHNavigation* object = GetNavigationScene();
+-            if (object != 0)
+-            {
+-                object->HideButtons();
+-            }
+-            mPresentation->SetActiveSlide("out", true);
+-            mPresentation->Update(0.0f);
++            FrontendOptionsBack(*this, []() { SHNavigation* object = GetNavigationScene(); if (object != 0) object->HideButtons(); });
+             return;
+         }
+ 
+@@ -169,64 +129,17 @@
+ 
+ void OptionsScene::OnButtonPointerPress(int, void* context)
+ {
+-    for (int i = 0; i < 3; ++i)
+-    {
+-        mOptionButtons[i].Disable();
+-    }
+-
+-    for (int i = 0; i < 4; ++i)
+-    {
+-        GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-    }
+-
+-    FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
+-
+-    switch ((int)context)
+-    {
+-    case 1:
+-        FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
+-        mNextScene = (SceneList)14;
+-        break;
+-    case 0:
+-        FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
+-        mNextScene = (SceneList)15;
+-        break;
+-    case 2:
+-        mNextScene = (SceneList)23;
+-        break;
+-    }
+-
+-    mState = 2;
+-
+-    SHNavigation* object = GetNavigationScene();
+-    if (object != 0)
+-    {
+-        object->HideButtons();
+-    }
+-
+-    mPresentation->SetActiveSlide("out", true);
+-    mPresentation->Update(0.0f);
++    FrontendOptionsPress(*this, (int)context, [](int i) { GetPointerInstance(i)->SetActiveSlide("waiting", true, false); }, []() { SHNavigation* object = GetNavigationScene(); if (object != 0) object->HideButtons(); }, [](unsigned long cue, const char* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); });
+ }
+ 
+ void OptionsScene::OnButtonPointerEnter(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (!mOptionButtons[item].HasOtherPointerState(1, index))
+-    {
+-        mOptionInstances[item]->SetActiveSlide("over", true, false);
+-        mOptionButtons[item].SetPointerState(1, index);
+-        FEAudio::PlayAnimAudioEvent(0xF6EB899E, 0, 0, 1);
+-    }
++    FrontendOptionsEnter(*this, index, (unsigned int)context, [](unsigned long cue, const char* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); });
+ }
+ 
+ void OptionsScene::OnButtonPointerLeave(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (!mOptionButtons[item].HasOtherPointerState(1, index))
+-    {
+-        mOptionInstances[item]->SetActiveSlide("off", true, false);
+-        mOptionButtons[item].SetPointerState(0, index);
+-    }
++    FrontendOptionsLeave(*this, index, (unsigned int)context);
+ }
+ 
+ void OptionsScene::InitializePointerButtons()
+@@ -243,11 +156,7 @@
+ 
+     for (int i = 0; i < 3; ++i)
+     {
+-        feVector3 position = mOptionInstances[i]->GetAssetPosition();
+-        TLComponentInstance* instance = FEFinder<TLComponentInstance, 3>::Find(
+-            mOptionInstances[i], "off", "BUTTON_0", "list_back_480x70 ");
+-        mOptionButtons[i].SetInstanceBounds(
+-            instance, true, position.f.x, position.f.y, 1.0f, 0.5f);
++        FrontendOptionsBind<TLComponentInstance, feVector3, FEFinder>(*this, i);
+         mOptionButtons[i].SetPointerEnterCallback(over);
+         mOptionButtons[i].SetPointerLeaveCallback(off);
+         mOptionButtons[i].SetPointerPressCallback(select);

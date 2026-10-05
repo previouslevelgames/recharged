@@ -1,0 +1,436 @@
+Subject: Share original Main menu visual and pointer callback bodies
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Retain source lookup, optional empty component selection, bounds offsets,
+Open/Close, Select dispatch and other-pointer state equations in console delegates
+and checked native owners. No full menu readiness, save/Mii/music/navigation or
+ApplyItem service is supplied by this patch. Required visual assets remain errors.
+
+diff --git a/include/Game/FE/FrontendMainMenuSteps.h b/include/Game/FE/FrontendMainMenuSteps.h
+new file mode 100644
+index 0000000..8025309
+--- /dev/null
++++ b/include/Game/FE/FrontendMainMenuSteps.h
+@@ -0,0 +1,186 @@
++#ifndef GAME_FE_FRONTEND_MAIN_MENU_STEPS_H
++#define GAME_FE_FRONTEND_MAIN_MENU_STEPS_H
++#include "Game/FE/FrontendSelectionSteps.h"
++
++// Selected original Main Menu visual and callback bodies. Host services and
++// resource/lifetime validation belong to callers; this is not scene readiness.
++template<class TLComponentInstance, class TLInstance, class TLImageInstance,
++         class TLTextInstance, template<class, int> class FEFinder, class Menu>
++void FrontendMainMenuVisualCreated(Menu& menu, bool japanese)
++{
++    const auto GetPresentation = [&]() { return menu.GetPresentation(); };
++    auto& mMenuItemInstances=menu.mMenuItemInstances;
++    auto& mMenuHighlights=menu.mMenuHighlights;
++    auto& mMenuGroups=menu.mMenuGroups;
++    auto& mMenuHitImages=menu.mMenuHitImages;
++    auto& mItemDescription=menu.mItemDescription;
++    GetPresentation()->SetActiveSlide("MAIN", true);
++    TLComponentInstance* hiddenItem;
++    if (japanese)
++    {
++        hiddenItem = FEFinder<TLComponentInstance, 4>::template Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item");
++        mMenuItemInstances[4] = FEFinder<TLComponentInstance, 4>::template Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item_jp");
++    }
++    else
++    {
++        hiddenItem = FEFinder<TLComponentInstance, 4>::template Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item_jp");
++        mMenuItemInstances[4] = FEFinder<TLComponentInstance, 4>::template Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item");
++    }
++
++    hiddenItem->SetVisible(false);
++
++    mMenuItemInstances[0] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Domination_Menu_Item");
++    mMenuItemInstances[1] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Online _Menu_Item");
++    mMenuItemInstances[2] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "RTSC_Menu_Item");
++    mMenuItemInstances[3] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Challenges_Menu_Item");
++    mMenuItemInstances[6] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Options_Menu_Item");
++    mMenuItemInstances[5] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "HOF_Menu_Item");
++
++    mMenuHighlights[0] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[0]->GetActiveSlide(), "GRUDGE");
++    mMenuHighlights[1] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[1]->GetActiveSlide(), "online");
++    mMenuHighlights[2] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[2]->GetActiveSlide(), "quest");
++    mMenuHighlights[3] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[3]->GetActiveSlide(), "scenario");
++    mMenuHighlights[6] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[6]->GetActiveSlide(), "HOF");
++    mMenuHighlights[4] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[4]->GetActiveSlide(), "HOF");
++    mMenuHighlights[5] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[5]->GetActiveSlide(), "HOF");
++
++    mMenuGroups[0] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[0], "off", "group");
++    mMenuGroups[1] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[1], "off", "group");
++    mMenuGroups[2] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[2], "off", "group");
++    mMenuGroups[3] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[3], "off", "group");
++    mMenuGroups[6] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[6], "off", "group");
++    mMenuGroups[4] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[4], "off", "group");
++    mMenuGroups[5] = FEFinder<TLInstance, 5>::template Find<>(mMenuHighlights[5], "off", "group");
++
++    mMenuHitImages[0] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[0], "btn_main_domination");
++    mMenuHitImages[1] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[1], "btn_main_online");
++    mMenuHitImages[2] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[2], "btn_main_RTSC");
++    mMenuHitImages[3] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[3], "btn_main_challenges");
++    mMenuHitImages[6] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[6], "btn_main_OPTIONS");
++    mMenuHitImages[4] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[4], "btn_main_101");
++    mMenuHitImages[5] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[5], "btn_main_HOF");
++
++    mItemDescription = FEFinder<TLTextInstance, 3>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Text");
++}
++template<class TLComponentInstance, template<class, int> class FEFinder, class Menu>
++void FrontendMainMenuFindArrows(Menu& menu)
++{
++    const int NUM_ITEMS=Menu::NUM_ITEMS;
++    auto& mMenuArrows=menu.mMenuArrows;
++    auto& mMenuItemInstances=menu.mMenuItemInstances;
++    for (int i = 0; i < NUM_ITEMS; ++i)
++    {
++        mMenuArrows[i] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[i]->GetActiveSlide(), "arrows");
++    }
++}
++template<class Menu, class Audio>
++void FrontendMainMenuOpen(Menu& menu, unsigned int index, unsigned int item, Audio play_audio)
++{
++    auto& mHighlightedItemCounts=menu.mHighlightedItemCounts;
++    auto& mMenuItems=menu.mMenuItems;
++    auto& mMenuHighlights=menu.mMenuHighlights;
++    auto& mMenuArrows=menu.mMenuArrows;
++    ++mHighlightedItemCounts[index];
++    if (!mMenuItems[item].HasOtherPointerState(1, index))
++    {
++        mMenuHighlights[item]->SetActiveSlide("over", true, false);
++        mMenuArrows[item]->SetActiveSlide("over", true, false);
++        mMenuItems[item].SetPointerState(1, index);
++        play_audio(0x6B0689D4, 0, 0, true);
++    }
++}
++template<class Menu>
++void FrontendMainMenuClose(Menu& menu, unsigned int index, unsigned int item)
++{
++    auto& mHighlightedItemCounts=menu.mHighlightedItemCounts;
++    auto& mMenuItems=menu.mMenuItems;
++    auto& mMenuHighlights=menu.mMenuHighlights;
++    auto& mMenuArrows=menu.mMenuArrows;
++    --mHighlightedItemCounts[index];
++    if (!mMenuItems[item].HasOtherPointerState(1, index))
++    {
++        mMenuHighlights[item]->SetActiveSlide("off", true, false);
++        mMenuArrows[item]->SetActiveSlide("off", true, false);
++        mMenuItems[item].SetPointerState(0, index);
++    }
++}
++template<class MediaBuild, class Audio, class Online, class Apply>
++void FrontendMainMenuSelect(unsigned int item, MediaBuild media_build, Audio play_audio,
++                           Online select_online, Apply apply_item)
++{
++    if (media_build() && (item == 3 || item == 5 || item == 6))
++    {
++        play_audio(0x7326DD54, 0, 0, true);
++        return;
++    }
++
++    play_audio(0x0A93E9A0, 0, 0, true);
++    if (item == 1)
++    {
++        select_online();
++    }
++    else
++    {
++        apply_item(item);
++    }
++}
++template<class States>
++bool FrontendPointerHasOtherState(const States& mPointerStates, int value, unsigned int which)
++{
++    for (unsigned int i = 0; i < 4; i++)
++    {
++        if (i != which && value == mPointerStates[i])
++        {
++            return true;
++        }
++    }
++    return false;
++}
++template<class feVector3, class Menu>
++void FrontendMainMenuBind(Menu& menu, int i)
++{
++    auto& mMenuItemInstances=menu.mMenuItemInstances;
++    auto& mMenuGroups=menu.mMenuGroups;
++    auto& mMenuHitImages=menu.mMenuHitImages;
++    auto& mMenuItems=menu.mMenuItems;
++        feVector3 position = mMenuItemInstances[i]->GetAssetPosition();
++        feVector3 groupPosition = mMenuGroups[i]->GetAssetPosition();
++        float offsetX = position.f.x + groupPosition.f.x;
++        float offsetY = position.f.y + groupPosition.f.y;
++        mMenuItems[i].SetInstanceBounds(mMenuHitImages[i], true, offsetX, offsetY, 1.0f, 1.0f);
++}
++template<class TLSlide, class Component, class Finder>
++void FrontendMainComponentSelect(Component& component, unsigned long hash, bool arg2, bool arg3, Finder find_slide)
++{
++    auto& pChildren=component.pChildren;
++    auto& m_pActiveSlide=component.m_pActiveSlide;
++
++    TLSlide* slide = find_slide(pChildren, hash);
++    if (slide != 0)
++    {
++        FrontendSelectComponentTime(slide->m_time, arg2, slide != m_pActiveSlide, arg3);
++    }
++
++    m_pActiveSlide = slide;
++    if (slide != 0)
++    {
++        slide->Update(0.0f);
++    }
++
++}
++template<class SetVisible>
++void FrontendMainMenuDescription(bool mItemSelected, int highlighted_count, SetVisible set_visible)
++{
++    if (!mItemSelected)
++    {
++        if (highlighted_count > 0)
++        {
++            set_visible(false);
++        }
++        else
++        {
++            set_visible(true);
++        }
++    }
++}
++#endif
+diff --git a/src/Game/FE/fePointerButton.cpp b/src/Game/FE/fePointerButton.cpp
+index 3e1d050..81f0949 100644
+--- a/src/Game/FE/fePointerButton.cpp
++++ b/src/Game/FE/fePointerButton.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/fePointerButton.h"
++#include "Game/FE/FrontendMainMenuSteps.h"
+ 
+ #include "Game/Audio/AudioGlobals.h"
+ #include "Game/FE/feInput.h"
+@@ -29,14 +30,7 @@ FEPointerButton::FEPointerButton(void* context)
+ 
+ bool FEPointerButton::HasOtherPointerState(int value, unsigned int which) const
+ {
+-    for (unsigned int i = 0; i < 4; i++)
+-    {
+-        if (i != which && value == mPointerStates[i])
+-        {
+-            return true;
+-        }
+-    }
+-    return false;
++    return FrontendPointerHasOtherState(mPointerStates, value, which);
+ }
+ 
+ void FEPointerButton::OnPointerUpdate(int index, void* context)
+diff --git a/src/Game/FE/tlComponent.cpp b/src/Game/FE/tlComponent.cpp
+index 964bddd..e84ed3b 100644
+--- a/src/Game/FE/tlComponent.cpp
++++ b/src/Game/FE/tlComponent.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/FE/tlComponent.h"
+ #include "Game/FE/FrontendSelectionSteps.h"
++#include "Game/FE/FrontendMainMenuSteps.h"
+ 
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/tlSlide.h"
+@@ -18,17 +19,7 @@ void TLComponent::SetActiveSlide(const char* name, bool arg2, bool arg3)
+ 
+ void TLComponent::SetActiveSlide(unsigned long hash, bool arg2, bool arg3)
+ {
+-    TLSlide* slide = FindItemByHashID<TLSlide>(pChildren, hash);
+-    if (slide != 0)
+-    {
+-        FrontendSelectComponentTime(slide->m_time, arg2, slide != m_pActiveSlide, arg3);
+-    }
+-
+-    m_pActiveSlide = slide;
+-    if (slide != 0)
+-    {
+-        slide->Update(0.0f);
+-    }
++    FrontendMainComponentSelect<TLSlide>(*this, hash, arg2, arg3, FindItemByHashID<TLSlide>);
+ }
+ 
+ void TLComponent::SetActiveSlide(TLSlide* slide, bool arg2, bool arg3)
+diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
+index 44eef24..1f299b7 100644
+--- a/src/Game/SH/SHMainMenu.cpp
++++ b/src/Game/SH/SHMainMenu.cpp
+@@ -1,6 +1,7 @@
+ #include <RVLFaceLib/RFL_Database.h>
+ 
+ #include "Game/SH/SHMainMenu.h"
++#include "Game/FE/FrontendMainMenuSteps.h"
+ 
+ #include "Game/GameInfo.h"
+ #include "Game/GameSceneManager.h"
+@@ -76,53 +77,9 @@ void UnidentifiedMainMenuEarlyUser(SHMainMenu* menu)
+  */
+ void SHMainMenu::SceneCreated()
+ {
+-    GetPresentation()->SetActiveSlide("MAIN", true);
+-    TLComponentInstance* hiddenItem;
+-    if (g_pLocalization->GetCurrentLanguage() == nlLocalization::LangJapanese)
+-    {
+-        hiddenItem = FEFinder<TLComponentInstance, 4>::Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item");
+-        mMenuItemInstances[4] = FEFinder<TLComponentInstance, 4>::Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item_jp");
+-    }
+-    else
+-    {
+-        hiddenItem = FEFinder<TLComponentInstance, 4>::Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item_jp");
+-        mMenuItemInstances[4] = FEFinder<TLComponentInstance, 4>::Find<>(GetPresentation()->GetActiveSlide(), "Layer", "101_Menu_Item");
+-    }
+-
+-    hiddenItem->SetVisible(false);
+-
+-    mMenuItemInstances[0] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Domination_Menu_Item");
+-    mMenuItemInstances[1] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Online _Menu_Item");
+-    mMenuItemInstances[2] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "RTSC_Menu_Item");
+-    mMenuItemInstances[3] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Challenges_Menu_Item");
+-    mMenuItemInstances[6] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Options_Menu_Item");
+-    mMenuItemInstances[5] = FEFinder<TLComponentInstance, 4>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "HOF_Menu_Item");
+-
+-    mMenuHighlights[0] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[0]->GetActiveSlide(), "GRUDGE");
+-    mMenuHighlights[1] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[1]->GetActiveSlide(), "online");
+-    mMenuHighlights[2] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[2]->GetActiveSlide(), "quest");
+-    mMenuHighlights[3] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[3]->GetActiveSlide(), "scenario");
+-    mMenuHighlights[6] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[6]->GetActiveSlide(), "HOF");
+-    mMenuHighlights[4] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[4]->GetActiveSlide(), "HOF");
+-    mMenuHighlights[5] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[5]->GetActiveSlide(), "HOF");
++    FrontendMainMenuVisualCreated<TLComponentInstance, TLInstance, TLImageInstance,
++        TLTextInstance, FEFinder>(*this, g_pLocalization->GetCurrentLanguage() == nlLocalization::LangJapanese);
+ 
+-    mMenuGroups[0] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[0], "off", "group");
+-    mMenuGroups[1] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[1], "off", "group");
+-    mMenuGroups[2] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[2], "off", "group");
+-    mMenuGroups[3] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[3], "off", "group");
+-    mMenuGroups[6] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[6], "off", "group");
+-    mMenuGroups[4] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[4], "off", "group");
+-    mMenuGroups[5] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[5], "off", "group");
+-
+-    mMenuHitImages[0] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[0], "btn_main_domination");
+-    mMenuHitImages[1] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[1], "btn_main_online");
+-    mMenuHitImages[2] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[2], "btn_main_RTSC");
+-    mMenuHitImages[3] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[3], "btn_main_challenges");
+-    mMenuHitImages[6] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[6], "btn_main_OPTIONS");
+-    mMenuHitImages[4] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[4], "btn_main_101");
+-    mMenuHitImages[5] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[5], "btn_main_HOF");
+-
+-    mItemDescription = FEFinder<TLTextInstance, 3>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Text");
+     SHNavigation* scene = GetNavigationScene();
+     TLComponentInstance* backButton = 0;
+     if (scene != 0)
+@@ -131,10 +88,7 @@ void SHMainMenu::SceneCreated()
+         backButton = scene->GetButton(4);
+     }
+ 
+-    for (int i = 0; i < NUM_ITEMS; ++i)
+-    {
+-        mMenuArrows[i] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[i]->GetActiveSlide(), "arrows");
+-    }
++    FrontendMainMenuFindArrows<TLComponentInstance, FEFinder>(*this);
+     if (g_pNetworkSessionBase->GetSessionMode() != 0)
+     {
+         g_pNetworkSessionBase->Shutdown();
+@@ -243,17 +197,8 @@ void SHMainMenu::Update(float fDeltaT)
+             {
+                 mMenuItems[i].HandlePointerEvent(&event);
+             }
+-            if (!mItemSelected)
+-            {
+-                if (mHighlightedItemCounts[pad] > 0)
+-                {
+-                    mItemDescription->m_bVisible = false;
+-                }
+-                else
+-                {
+-                    mItemDescription->m_bVisible = true;
+-                }
+-            }
++            FrontendMainMenuDescription(mItemSelected, mHighlightedItemCounts[pad],
++                [this](bool visible) { mItemDescription->m_bVisible = visible; });
+         }
+     }
+ }
+@@ -272,11 +217,7 @@ void SHMainMenu::InitializeMenuItems()
+ 
+     for (int i = 0; i < NUM_ITEMS; ++i)
+     {
+-        feVector3 position = mMenuItemInstances[i]->GetAssetPosition();
+-        feVector3 groupPosition = mMenuGroups[i]->GetAssetPosition();
+-        float offsetX = position.f.x + groupPosition.f.x;
+-        float offsetY = position.f.y + groupPosition.f.y;
+-        mMenuItems[i].SetInstanceBounds(mMenuHitImages[i], true, offsetX, offsetY, 1.0f, 1.0f);
++        FrontendMainMenuBind<feVector3>(*this, i);
+         mMenuItems[i].SetPointerEnterCallback(openFunc);
+         mMenuItems[i].SetPointerLeaveCallback(closeFunc);
+         mMenuItems[i].SetPointerPressCallback(applyFunc);
+@@ -288,14 +229,7 @@ void SHMainMenu::InitializeMenuItems()
+  */
+ void SHMainMenu::CloseItem(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    --mHighlightedItemCounts[index];
+-    if (!mMenuItems[item].HasOtherPointerState(1, index))
+-    {
+-        mMenuHighlights[item]->SetActiveSlide("off", true, false);
+-        mMenuArrows[item]->SetActiveSlide("off", true, false);
+-        mMenuItems[item].SetPointerState(0, index);
+-    }
++    FrontendMainMenuClose(*this, index, (unsigned int)context);
+ }
+ 
+ /**
+@@ -312,15 +246,7 @@ void SHMainMenu::ReturnToWiiMenu()
+  */
+ void SHMainMenu::OpenItem(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    ++mHighlightedItemCounts[index];
+-    if (!mMenuItems[item].HasOtherPointerState(1, index))
+-    {
+-        mMenuHighlights[item]->SetActiveSlide("over", true, false);
+-        mMenuArrows[item]->SetActiveSlide("over", true, false);
+-        mMenuItems[item].SetPointerState(1, index);
+-        FEAudio::PlayAnimAudioEvent(0x6B0689D4, 0, 0, true);
+-    }
++    FrontendMainMenuOpen(*this, index, (unsigned int)context, FEAudio::PlayAnimAudioEvent);
+ }
+ 
+ /**
+@@ -329,15 +255,10 @@ void SHMainMenu::OpenItem(unsigned int index, void* context)
+ void SHMainMenu::SelectItem(unsigned int index, void* context)
+ {
+     unsigned int item = (unsigned int)context;
+-    if (GetTweakBool("/user/media_build", false) && (item == 3 || item == 5 || item == 6))
+-    {
+-        FEAudio::PlayAnimAudioEvent(0x7326DD54, 0, 0, true);
+-        return;
+-    }
+-
+-    FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
+-    if (item == 1)
+-    {
++    FrontendMainMenuSelect(item,
++        []() { return GetTweakBool("/user/media_build", false); },
++        FEAudio::PlayAnimAudioEvent,
++        [&]() {
+         if (!SaveEnabled)
+         {
+             FEPopupMenu* popup = (FEPopupMenu*)GameSceneManager::Instance()->Push((SceneList)10, SCREEN_NOTHING, false);
+@@ -358,11 +279,8 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
+             SaveLoad::StartLoad(true);
+             mWaitingForLoad = true;
+         }
+-    }
+-    else
+-    {
+-        ApplyItem(item);
+-    }
++        },
++        [&](unsigned int selected) { ApplyItem(selected); });
+ }
+ 
+ /**

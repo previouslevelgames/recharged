@@ -157,6 +157,42 @@ void BorrowedBase()
      frontend.Push(Alias(1));}
     Check(cCameraManager::PeekCamera()==&base,"Frontend destruction removed a borrowed camera");core.Advance(0,0);
 }
+void PresentationCallbacks()
+{
+    OriginalCameras core;CameraAssetLibrary library;Fill(library,3);FrontendCameras frontend(core,library);
+    frontend.Push(Alias(0));
+    unsigned ends=0;std::vector<eCameraMessage> blends;
+    auto selected=frontend.PushAnimated(Alias(1),false,[&]{++ends;},[&](auto message){blends.push_back(message);},1);
+    Check(frontend.IsCurrent(selected),"Pushed presentation selection is unavailable during blending");
+    Reject([&]{frontend.Selection();});Reject([&]{frontend.Seek(selected,0);});
+    frontend.Advance(.1f,.25f);
+    Check(ends==1&&blends.empty(),"Source animation completion was conflated with blend completion");
+    frontend.Advance(0,.75f);Check(blends.empty(),"Presentation blend completed at equality instead of original greater-than");
+    frontend.Advance(0,.01f);
+    Check(blends==std::vector<eCameraMessage>{eCM_COMPLETE}&&frontend.Selection()==selected,
+        "Retained presentation blend completion or identity differs");
+    Check(!frontend.DetachTransitionCallback(selected),"Completed blend retained its callback identity");
+    Check(frontend.DetachEndCallback(selected),"Current animation callback did not detach");
+    const auto before=ends;frontend.Advance(0,0);Check(ends==before,"Detached animation completion fired");
+    frontend.PopAnimated(selected,[&](auto message){blends.push_back(message);},1);
+    Check(!frontend.IsCurrent(selected)&&frontend.Size()==1,"Source presentation pop retained its deleted animation");
+    Check(frontend.DetachTransitionCallback(selected),"Deleted popped animation lost its live blend callback identity");
+    frontend.Advance(0,1.1f);
+    Check(blends.size()==1&&cCameraManager::m_transition==eCT_NONE,"Detached callback stopped real camera blending or fired");
+    auto a=frontend.PushAnimated(Alias(1),false,{},[&](auto message){blends.push_back(message);},1);
+    auto b=frontend.PushAnimated(Alias(2),false,{},[&](auto message){blends.push_back(message);},1);
+    Check(blends.back()==eCM_ABORTED_BY_PUSH&&!frontend.IsCurrent(a)&&frontend.IsCurrent(b),
+        "Replacement presentation callback or selection identity differs");
+    Check(!frontend.DetachTransitionCallback(a),"Stale presentation identity removed a later callback");
+    frontend.Advance(0,1.1f);Check(blends.back()==eCM_COMPLETE,"Later presentation blend completion was removed");
+    Reject([&]{frontend.PopAnimated(a);});
+    bool foreign=false;std::thread thread([&]{try{frontend.IsCurrent(b);}catch(const std::logic_error&){foreign=true;}});thread.join();
+    Check(foreign,"Foreign thread queried presentation camera identity");
+    auto c=frontend.PushAnimated(Alias(1),false,{},[&](auto){throw std::runtime_error("presentation callback failure");},1);
+    Reject([&]{frontend.Advance(0,1.1f);});
+    Check(frontend.Failed(),"Presentation callback failure did not poison camera owner");
+    frontend.DetachEndCallback(c);frontend.DetachTransitionCallback(c);frontend.Release();
+}
 void Mutation()
 {
     OriginalCameras core;CameraAssetLibrary library;Fill(library,2);FrontendCameras frontend(core,library);
@@ -308,7 +344,7 @@ int main()
         StandardAllocator.Initialize(mem1.data(),mem1.size()*8);VirtualAllocator.Initialize(mem2.data(),mem2.size()*8);gMemoryInitialized=1;
         for(unsigned session=0;session<3;++session)
         {
-            messages.clear();Selection();Validation();Playback();messages.clear();Transitions();BorrowedBase();Mutation();
+            messages.clear();Selection();Validation();Playback();messages.clear();Transitions();BorrowedBase();PresentationCallbacks();Mutation();
             CallbackFailure(false,false);CallbackFailure(true,false);CallbackFailure(false,true);SessionTeardown();AllocationFailures();
             EmptyTransitionTeardown(false);EmptyTransitionTeardown(true);EmptyTransitionMutation();SharedOwners(false);SharedOwners(true);
             DirectCoreFailure(false);DirectCoreFailure(true);ExternalStackMutation();SessionIdentity();

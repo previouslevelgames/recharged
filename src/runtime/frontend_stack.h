@@ -1,5 +1,6 @@
 #pragma once
 #include "runtime/frontend_handler.h"
+#include "runtime/frontend_stack_visual.h"
 #include <functional>
 #include <memory>
 #include <string_view>
@@ -15,6 +16,8 @@ struct FrontendStackRequest
     std::string initial_slide;
     bool animate = true;
     unsigned movement = 0; // Original ScreenMovement: nothing 0, forward 1, back 2.
+    FrontendSessionResourcesMode resources_mode = FrontendSessionResourcesMode::Scene;
+    FrontendSessionResources::Handle shared_resources; // Opaque verified Main owners; new FEN only.
 };
 enum class FrontendStackState
 { Queued, Loading, AwaitingHandler, AwaitingPublication, Published, Failed };
@@ -36,6 +39,18 @@ struct FrontendStackCallbacks
     // remaining update work must be provided explicitly; no success default.
     std::function<void(FrontendStackContext&, float)> after_base_update;
 };
+// Unlike the legacy borrowed callback context, these explicit owners may be
+// retained by the returned concrete visual. Input/NL still outlive the stack.
+struct FrontendStackVisualContext
+{
+    std::uint64_t token;
+    std::shared_ptr<FrontendSession> session;
+    std::shared_ptr<FrontendHandler> handler;
+    unsigned movement = 0;
+};
+using FrontendStackVisualFactory = std::function<std::shared_ptr<FrontendStackVisual>(FrontendStackVisualContext)>;
+enum class FrontendStackHandlerScope { Unbound, SuppliedCallbacks, SelectedVisual };
+enum class FrontendStackSubhandlers { Unavailable, SuppliedCallbacks, SourceEmpty };
 struct FrontendStackEntry
 {
     std::uint64_t token = 0;
@@ -44,6 +59,9 @@ struct FrontendStackEntry
     bool visible = true, queued_pop = false;
     FrontendSession::Handle prepared, published;
     unsigned movement = 0;
+    FrontendStackHandlerScope handler_scope = FrontendStackHandlerScope::Unbound;
+    FrontendStackSubhandlers subhandlers = FrontendStackSubhandlers::Unavailable;
+    bool full_scene_created = false; // Selected visuals never establish this.
 };
 struct FrontendStackPublication
 {
@@ -77,14 +95,20 @@ public:
     void QueuePop(Token);
     void Cancel(Token); // Remove an unpublished queued/loading/candidate entry.
     void Bind(Token, FrontendStackCallbacks); // Complete callbacks, once, before creation.
+    void BindVisual(Token, FrontendStackVisualFactory); // Main1/Options13 selected scope only.
     void Poll(); // Process FIFO commands, observe actual resource completion/creation.
     void Service(); // Poll, one real NL service pass, Poll.
-    void Update(float delta); // Poll first; published ready handlers in stack order.
+    using PresentedInput = std::function<void(Token, const FrontendSession::Handle&)>;
+    // Selected visuals receive exactly one proven base update, their source
+    // gate, then this input window against last acknowledged geometry. Mutations
+    // apply to current proven resources and remain unpresented until Publish.
+    void Update(float delta, PresentedInput = {});
     void Publish(Token, const FrontendSession::Handle& prepared);
     void Publish(std::span<const FrontendStackPublication>); // One drain, atomic complete batch.
     void SetVisible(Token, bool);
     void SetTopMost(Token); // Zero clears; affects render order, not update order.
     FrontendStackEntry Entry(Token) const;
+    FrontendSessionResources::Handle Resources(Token) const; // Null for ordinary Scene loads.
     std::vector<FrontendStackEntry> Entries() const; // Processed newest-first, then queued pushes.
     std::vector<FrontendStackEntry> RenderPlan() const; // Retained published frames only.
     bool AllReady() const; // Native callbacks+publication+empty queue only; not the game's full gate.

@@ -99,10 +99,15 @@ void Transactions()
     Check(text->graph.instances[0].text.empty(),"Setter mutated retained old snapshot");
     Reject([&]{owner.Apply(text,{&text_edit,1});});
     FrontendInstanceChange position;position.instance=0x80;position.property=FrontendInstanceProperty::Position;position.vector={17,29,0};
-    FrontendInstanceChange missing;missing.instance=0x80;missing.property=FrontendInstanceProperty::StringId;missing.string_id="LOC_missing";
-    const std::array bad_edits{position,missing};Reject([&]{owner.Apply(edited,bad_edits);});
+    FrontendInstanceChange invalid;invalid.instance=0x80;invalid.property=FrontendInstanceProperty::String;invalid.text.assign(4097,u'A');
+    const std::array bad_edits{position,invalid};Reject([&]{owner.Apply(edited,bad_edits);});
     Check(owner.Current()==edited&&owner.Current()->graph.instances[0].attributes.position==edited->graph.instances[0].attributes.position,
-        "Layout failure published partial static mutations");
+        "Rejected edit published partial static mutations");
+    FrontendInstanceChange missing;missing.instance=0x80;missing.property=FrontendInstanceProperty::StringId;missing.string_id="LOC_missing";
+    owner.Apply(edited,{&missing,1});
+    Check(owner.Current()->layout.TextCount()==0&&owner.Current()->layout.unavailable.size()==1,
+        "Missing localization was not retained as explicitly unavailable");
+    Check(edited->graph.instances[0].text==u"BA","Unavailable text mutated an older snapshot");
     owner.Begin(Request(false));Pump(owner);text=owner.Result();Inspect(text,false);
 
     owner.Begin(Request());Check(owner.Current()==text,"Loading replacement removed current scene");

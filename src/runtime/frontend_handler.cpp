@@ -7,13 +7,14 @@
 #include <limits>
 #include <map>
 #include <thread>
+#include <utility>
 
 namespace mscharged
 {
 namespace
 {
 void Require(bool okay,const char* message){if(!okay)throw std::logic_error(message);}
-std::atomic<std::uint64_t> next_screen{1};
+std::atomic<std::uint64_t> next_screen{1}, next_handler{1};
 struct DispatchGuard
 {
     bool& busy;
@@ -27,7 +28,9 @@ struct FrontendHandler::Implementation
     std::shared_ptr<FrontendSession> session;
     FrontendInput& input;
     const std::thread::id thread=std::this_thread::get_id();
-    bool busy=false,exclusive=false;
+    bool busy=false,exclusive=false,stack_owned=false,stack_update=false;
+    const std::uint64_t identity=next_handler.fetch_add(1);
+    std::uint64_t sequence=0,consumed=0;
     struct Scene
     {
         Implementation& handler;
@@ -58,7 +61,7 @@ struct FrontendHandler::Implementation
     Implementation(FrontendHandler& h,std::shared_ptr<FrontendSession> retained,FrontendInput& i)
         :owner(h),session(std::move(retained)),input(i)
     {
-        Require(bool(session),"Frontend handler requires a retained session");
+        Require(bool(session)&&identity&&identity!=UINT64_MAX,"Frontend handler requires a retained session and identity");
         session->Current();input.HasFocusLock(this);FrontendBaseHandlerSceneCreated();
     }
     void Thread() const{Require(thread==std::this_thread::get_id(),"Frontend handler requires its creating thread");}
@@ -89,14 +92,39 @@ FrontendHandler::FrontendHandler(std::shared_ptr<FrontendSession> session,Fronte
     :impl_(std::make_unique<Implementation>(*this,std::move(session),input)){}
 FrontendHandler::~FrontendHandler()=default;
 FrontendHandler::Frame FrontendHandler::Current() const{impl_->Ready();return impl_->session->Current();}
-void FrontendHandler::Update(const Frame& expected,float delta)
+FrontendHandler::UpdateProof::UpdateProof(const FrontendHandler* owner,std::uint64_t identity,std::uint64_t sequence,
+    float delta,Frame before,Frame after):owner_(owner),identity_(identity),sequence_(sequence),delta_(delta),before_(std::move(before)),after_(std::move(after)){}
+FrontendHandler::UpdateProof::UpdateProof(UpdateProof&& other) noexcept { *this=std::move(other); }
+FrontendHandler::UpdateProof& FrontendHandler::UpdateProof::operator=(UpdateProof&& other) noexcept
+{
+    if(this!=&other){owner_=std::exchange(other.owner_,nullptr);identity_=std::exchange(other.identity_,0);
+        sequence_=std::exchange(other.sequence_,0);delta_=std::exchange(other.delta_,0);
+        before_=std::move(other.before_);after_=std::move(other.after_);}return *this;
+}
+bool FrontendHandler::Binds(const std::shared_ptr<FrontendSession>& session)const
+{impl_->Ready();return impl_->session==session;}
+FrontendHandler::Frame FrontendHandler::ConsumeUpdate(UpdateProof&& proof,const Frame& before)
+{
+    auto& s=*impl_;s.Mutable();
+    Require(proof.owner_==this&&proof.identity_==s.identity&&proof.sequence_&&proof.sequence_==s.sequence
+        &&s.consumed!=proof.sequence_&&proof.before_==before&&before&&proof.after_==s.session->Current(),
+        "Frontend base update proof is foreign, stale, consumed or changed");
+    Require(proof.after_&&before->visuals==proof.after_->visuals&&before->images==proof.after_->images
+        &&before->request.path==proof.after_->request.path,"Frontend base update changed resource generation");
+    s.consumed=proof.sequence_;proof.owner_=nullptr;proof.sequence_=0;return std::move(proof.after_);
+}
+void FrontendHandler::Update(const Frame& expected,float delta){(void)UpdateOnce(expected,delta);}
+FrontendHandler::UpdateProof FrontendHandler::UpdateOnce(const Frame& expected,float delta)
 {
     auto& s=*impl_;s.Mutable();s.Expected(expected);
+    Require(!s.stack_owned||s.stack_update,"Stack owns the only frontend base update");
     Require(std::isfinite(delta)&&delta>=0&&delta<=60,"Frontend handler time exceeds its bounded profile");
     Require(expected->request.animate,"Frontend base handler update requires an animated native session");
     if(s.notification&&(expected->visuals!=s.notification_visuals||expected->images!=s.notification_images))s.ClearNotification();
+    Require(s.sequence!=UINT64_MAX,"Frontend base update sequence exhausted");
     DispatchGuard guard(s.busy);
     FrontendFocusedHandlerUpdate(&s,&s,delta);
+    return UpdateProof(this,s.identity,++s.sequence,delta,expected,s.session->Current());
 }
 bool FrontendHandler::Button(const Frame& expected,FrontendAction action,FrontendButtonQuery query,int pad,int* found)
 {
@@ -161,5 +189,14 @@ void FrontendHandler::WatchLoadingNotification(const Frame& expected,std::uint32
     s.notification=id;s.notification_visuals=expected->visuals;s.notification_images=expected->images;
 }
 bool FrontendHandler::LoadingNotificationActive() const{impl_->Ready();return impl_->notification.has_value();}
-void FrontendHandler::Release(){impl_->Release();}
+void FrontendHandler::AttachStack()
+{auto& s=*impl_;s.Mutable();Require(!s.stack_owned&&!s.exclusive,"Frontend handler is already owned or focus-locked");s.stack_owned=true;}
+FrontendHandler::UpdateProof FrontendHandler::StackUpdateOnce(const Frame& frame,float delta)
+{
+    auto& s=*impl_;s.Mutable();Require(s.stack_owned&&!s.stack_update,"Frontend stack update requires its attached handler");
+    DispatchGuard guard(s.stack_update);return UpdateOnce(frame,delta);
+}
+void FrontendHandler::ReleaseStack()
+{auto& s=*impl_;s.Thread();Require(!s.busy&&!s.stack_update,"Cannot release a updating frontend handler");s.stack_owned=false;s.Release();}
+void FrontendHandler::Release(){Require(!impl_->stack_owned,"Stack owns frontend base-handler teardown");impl_->Release();}
 }

@@ -1,0 +1,181 @@
+Subject: Share original save-state and option-default steps
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Native preferences reuse scoped state fragments without defining global game save
+readiness. NAND, normal save data, error UI and banner operations stay unselected.
+
+diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
+--- a/src/Game/DB/UserOptions.cpp
++++ b/src/Game/DB/UserOptions.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "Game/Audio/AudioSystem.h"
+ #include "Game/Audio/RegistryPools.h"
++#include "Game/DB/SaveStateSteps.h"
+ 
+ #include <string.h>
+ 
+@@ -40,12 +41,7 @@
+ AudioSettings::AudioSettings()
+ {
+     memset(this, 0, sizeof(AudioSettings));
+-    MusicVolume = 10;
+-    SFXVolume = 10;
+-    VoiceVolume = 10;
+-    DefaultMusicVolume = 10;
+-    DefaultSFXVolume = 10;
+-    DefaultVoiceVolume = 10;
++    SaveAudioDefaults(*this);
+ }
+ 
+ void AudioSettings::ApplySettings()
+@@ -215,6 +211,5 @@
+ VisualSettings::VisualSettings()
+ {
+     memset(this, 0, sizeof(VisualSettings));
+-    mIsAutoZoomCamera = true;
+-    mCameraZoomLevel = 0.5f;
+-}
++    SaveVisualDefaults(*this);
++}
+diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
+--- a/src/Game/DB/SaveLoad.cpp
++++ b/src/Game/DB/SaveLoad.cpp
+@@ -1,5 +1,6 @@
+ #include "NL/nlSingleton.inl"
+ #include "Game/DB/SaveLoad.h"
++#include "Game/DB/SaveStateSteps.h"
+ #include "Game/TweakRegistry.h"
+ 
+ #include "Game/GameSceneManager.h"
+@@ -76,7 +77,7 @@
+ static const char* SaveFileName = "Strikers2";
+ static const char* OnlineSaveFileName = "Online";
+ static const char* BannerFileName = "banner.bin";
+-bool SaveEnabled = true;
++bool SaveEnabled = SaveStateInitiallyEnabled;
+ static bool RetryEnabled = true;
+ 
+ static TPLPalette* IconTPLs[4];
+@@ -215,9 +216,7 @@
+ 
+ void SaveLoad::CancelSave()
+ {
+-    ResetTask::s_resetPaused = false;
+-    SaveEnabled = false;
+-    InOperation = false;
++    SaveStateCancel(ResetTask::s_resetPaused, SaveEnabled, InOperation);
+ }
+ 
+ void SaveLoad::ContinueWithoutSaving()
+@@ -478,8 +477,7 @@
+ {
+     if (result == 0)
+     {
+-        BannerOpenMode = 1;
+-        InOperation = true;
++        SaveStateDirectory(1, BannerOpenMode, InOperation);
+         HandleNANDResult(nlFlashOpen(BannerFileName, 1, BannerLengthCallback));
+     }
+     else
+@@ -492,8 +490,7 @@
+ {
+     if (result == 0)
+     {
+-        BannerOpenMode = 0;
+-        InOperation = true;
++        SaveStateDirectory(0, BannerOpenMode, InOperation);
+         HandleNANDResult(nlFlashOpen(BannerFileName, 1, BannerLengthCallback));
+     }
+     else
+@@ -557,7 +554,7 @@
+ 
+     OnlineMode = online;
+     SaveSceneManager = GameSceneManager::Instance() != 0 ? GameSceneManager::Instance() : g_pOverlayManager;
+-    if (SaveEnabled && !nlFlashCallbackPending())
++    if (SaveStateCanStart(SaveEnabled, nlFlashCallbackPending))
+     {
+         BannerFileExists = false;
+         HandleNANDResult(nlFlashChangeDirectory(0, StartSaveDirectoryCallback));
+@@ -575,7 +572,7 @@
+     OnlineMode = online;
+     bool loaded = online ? OnlineSaveLoaded : NormalSaveLoaded;
+     SaveSceneManager = GameSceneManager::Instance() != 0 ? GameSceneManager::Instance() : g_pOverlayManager;
+-    if (SaveEnabled && !loaded && !nlFlashCallbackPending())
++    if (SaveStateCanLoad(SaveEnabled, loaded, nlFlashCallbackPending))
+     {
+         BannerFileExists = false;
+         RetryEnabled = true;
+@@ -904,7 +901,7 @@
+ 
+ void SaveLoad::FinishOperation(s32)
+ {
+-    InOperation = false;
++    SaveStateFinish(InOperation);
+ }
+ 
+ void SaveLoad::BannerCloseCallback(s32 result)
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -1,3 +1,4 @@
++#include "Game/DB/SaveStateSteps.h"
+ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+ {
+     switch (function)
+@@ -389,7 +390,7 @@
+             mCameraTransitionFinished = false;
+         break;
+     case 47:
+-        if (SaveEnabled && InOperation)
++        if (SaveStateDepartureBlocked(SaveEnabled, InOperation))
+         {
+             StopWithUndo();
+         }
+diff --git a/include/Game/DB/SaveStateSteps.h b/include/Game/DB/SaveStateSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/DB/SaveStateSteps.h
+@@ -0,0 +1,41 @@
++#ifndef GAME_DB_SAVE_STATE_STEPS_H
++#define GAME_DB_SAVE_STATE_STEPS_H
++// Selected UserOptions/SaveLoad statements. These do not implement NAND, a
++// save serializer, UI error decisions, or completion of a normal game save.
++template<class Audio> inline void SaveAudioDefaults(Audio& a)
++{
++    a.MusicVolume = 10;
++    a.SFXVolume = 10;
++    a.VoiceVolume = 10;
++    a.DefaultMusicVolume = 10;
++    a.DefaultSFXVolume = 10;
++    a.DefaultVoiceVolume = 10;
++}
++template<class Visual> inline void SaveVisualDefaults(Visual& v)
++{
++    v.mIsAutoZoomCamera = true;
++    v.mCameraZoomLevel = 0.5f;
++}
++const bool SaveStateInitiallyEnabled = true;
++template<class Pending> inline bool SaveStateCanStart(bool enabled, Pending pending) { return enabled && !pending(); }
++template<class Pending> inline bool SaveStateCanLoad(bool enabled, bool loaded, Pending pending)
++{
++    return enabled && !loaded && !pending();
++}
++inline void SaveStateDirectory(unsigned int mode, unsigned int& bannerMode, bool& inOperation)
++{
++    bannerMode = mode;
++    inOperation = true;
++}
++inline void SaveStateCancel(bool& resetPaused, bool& enabled, bool& inOperation)
++{
++    resetPaused = false;
++    enabled = false;
++    inOperation = false;
++}
++inline void SaveStateFinish(bool& inOperation) { inOperation = false; }
++inline bool SaveStateDepartureBlocked(bool enabled, bool inOperation)
++{
++    return enabled && inOperation;
++}
++#endif

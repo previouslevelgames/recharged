@@ -26,14 +26,18 @@ class FrontendCameras
     std::thread::id thread_ = std::this_thread::get_id();
     std::vector<Camera*> cameras_;
     static thread_local FrontendCameras* transition_owner_;
-    void (*callback_)(eCameraMessage) = nullptr;
+    std::function<void(eCameraMessage)> callback_;
+    FrontendCameraSelectionHandle transition_selection_;
     bool busy_ = false, failed_ = false, released_ = false;
     void CheckThread() const;
     void Ready() const;
     Camera* Owned(cBaseCamera* camera) const;
     void Forget(Camera* camera) noexcept;
     static void TransitionCallback(eCameraMessage message);
-    void OwnTransition(void (*callback)(eCameraMessage)) noexcept;
+    void OwnTransition(std::function<void(eCameraMessage)>, FrontendCameraSelectionHandle) noexcept;
+    Camera& PushPrepared(const std::string&, std::function<void(eCameraMessage)>, float,
+        bool delete_current, bool cyclic, std::function<void()>);
+    void PopPrepared(std::function<void(eCameraMessage)>, float);
     void CancelTransition(bool live_core) noexcept;
     void Destroy(bool live_core) noexcept;
     Camera& Selected(const FrontendCameraSelectionHandle&, bool active = true) const;
@@ -51,6 +55,16 @@ public:
     const cBaseCamera& Push(const std::string& alias, void (*callback)(eCameraMessage) = nullptr,
         float duration = 0, bool delete_current = false);
     void Pop(void (*callback)(eCameraMessage) = nullptr, float duration = 0);
+    // Presentation host23 installs cyclic/end state on the newly pushed
+    // animation before a camera blend can finish. The returned selection is
+    // owned during blending; Seek/Time/Select still require an unblended camera.
+    FrontendCameraSelectionHandle PushAnimated(const std::string& alias,
+        bool cyclic, std::function<void()> on_end,
+        std::function<void(eCameraMessage)> transition_end = {},
+        float duration = 0, bool delete_current = false);
+    void PopAnimated(const FrontendCameraSelectionHandle& expected,
+        std::function<void(eCameraMessage)> transition_end = {}, float duration = 0);
+    bool IsCurrent(const FrontendCameraSelectionHandle&) const; // Includes an active blend.
     void Advance(float delta, float simulation_delta);
     const cBaseCamera* ActiveCamera() const;
     std::string ActiveAlias() const;
@@ -58,6 +72,9 @@ public:
     // wrapper and old time/view but invalidates prior selection handles. Current
     // selection requires an owned top camera with no active manager transition.
     FrontendCameraSelectionHandle Selection() const;
+    // Same exact owned top identity during a manager blend. It does not allow
+    // seeking or replacing the animation while the original blend is active.
+    FrontendCameraSelectionHandle CurrentSelection() const;
     FrontendCameraSelectionHandle Select(const FrontendCameraSelectionHandle& expected,
         const std::string& alias, bool cyclic, std::function<void()> on_end = {});
     void Seek(const FrontendCameraSelectionHandle&, float normalized_time);
@@ -67,6 +84,9 @@ public:
     // Remove only this exact selection's callback, including an inactive owned
     // camera. Allowed after failure/core release; never removes a later binding.
     bool DetachEndCallback(const FrontendCameraSelectionHandle&);
+    // Remove only this selection's retained blend callback, including after
+    // Pop deletes the animation. The original manager blend keeps advancing.
+    bool DetachTransitionCallback(const FrontendCameraSelectionHandle&);
     std::size_t Size() const;
     bool Failed() const;
 

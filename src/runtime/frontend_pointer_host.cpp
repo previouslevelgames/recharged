@@ -193,8 +193,26 @@ FrontendPointerDispatch FrontendPointerHost::Poll(const FrontendPointerPresentat
     Require(!SDL_GetWindowRelativeMouseMode(window), "Frontend pointer requires absolute SDL mouse coordinates");
     Require(s.sequence != std::numeric_limits<std::uint64_t>::max(), "Frontend pointer sample sequence exhausted");
     int ww = 0, wh = 0, pw = 0, ph = 0;
-    Require(SDL_GetWindowSize(window, &ww, &wh) && SDL_GetWindowSizeInPixels(window, &pw, &ph)
-        && ww > 0 && wh > 0 && pw > 0 && ph > 0, "Cannot read frontend pointer SDL window extent");
+    Require(SDL_GetWindowSize(window, &ww, &wh) && SDL_GetWindowSizeInPixels(window, &pw, &ph),
+        "Cannot read frontend pointer SDL window extent");
+    const auto& shown=presentation->Viewport();
+    if(ww<=0||wh<=0||pw<=0||ph<=0||unsigned(ww)!=shown.window_width||unsigned(wh)!=shown.window_height
+        ||unsigned(pw)!=shown.pixel_width||unsigned(ph)!=shown.pixel_height)
+    {
+        // A resize/suspended drawable has no matching rendered coordinates.
+        // Deliver genuine Leave callbacks against the retained old frame and
+        // keep input neutral until the renderer acknowledges a new viewport.
+        s.CheckListeners();Busy guard(s.busy);
+        FrontendPointerDispatch result;result.event.index=s.index;result.event.position={-9999.9f,-9999.9f};
+        try
+        {
+            for(const auto& region:s.listeners){region->Deliver(presentation->Frame(),result.event);++result.listeners;}
+            s.CheckListeners();
+        }
+        catch(...){s.failed=true;throw;}
+        s.blocked=true;s.previous_mouse=s.previous_accept=false;++s.sequence;
+        return result;
+    }
     int count = 0;
     std::unique_ptr<SDL_MouseID, decltype(&SDL_free)> ids(SDL_GetMice(&count), SDL_free);
     Require(bool(ids) && count >= 0 && count <= 1024, "Cannot enumerate SDL mouse devices");

@@ -147,7 +147,7 @@ FrontendBootLoading::FrontendBootLoading(std::shared_ptr<FrontendSession> sessio
     s.audio=std::move(audio);
     CheckBoot(!s.audio||s.audio->Status().state==FrontendBootAudioState::Loaded,"Boot handler requires a loaded unused audio owner");
     s.Mutable(s.current);
-    s.session->BootTransaction(s.current,[&](auto& playback){BootStep step(playback,s.input,{});step.Created(s.language,s.widescreen);next=step.Result();});
+    s.session->HandlerTransaction(s.current,[&](auto& playback){BootStep step(playback,s.input,{});step.Created(s.language,s.widescreen);next=step.Result();});
     s.state=next;s.current=s.session->Current();
 }
 FrontendBootLoading::~FrontendBootLoading(){try{Release();}catch(...){std::terminate();}}
@@ -158,7 +158,7 @@ void FrontendBootLoading::Update(const Frame& expected,float delta)
     auto& s=*impl_;s.Mutable(expected);CheckBoot(std::isfinite(delta)&&delta>=0&&delta<=60,"Boot handler delta exceeds its bounded profile");
     if(s.state.status.boundary!=FrontendBootBoundary::None)return;
     s.input.Focus(&s);BootState next;AudioCommand command=AudioCommand::None;
-    s.session->BootTransaction(expected,[&](auto& playback){
+    s.session->HandlerTransaction(expected,[&](auto& playback){
         BootStep step(playback,s.input,s.state,bool(s.audio));step.Advance(delta);
         next=step.Result();command=step.audio_command;
     },[&]{
@@ -172,7 +172,7 @@ void FrontendBootLoading::Reset(const Frame& expected)
     auto& s=*impl_;s.Mutable(expected);BootState next;
     CheckBoot(!s.audio||s.audio->Status().state==FrontendBootAudioState::Loaded,
         "Restart after logo playback requires newly loaded boot resources");
-    s.session->BootTransaction(expected,[&](auto& playback){playback.Reset();BootStep step(playback,s.input,{});step.Created(s.language,s.widescreen);next=step.Result();});
+    s.session->HandlerTransaction(expected,[&](auto& playback){playback.Reset();BootStep step(playback,s.input,{});step.Created(s.language,s.widescreen);next=step.Result();});
     s.state=next;s.current=s.session->Current();
 }
 void FrontendBootLoading::Release()

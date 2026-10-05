@@ -22,6 +22,9 @@ public:
     // Only resource metadata is copied. Static requests read actual NL files;
     // text-only/dynamic-only requests need no image bundle and submit no work.
     void Begin(const resources::FrontendScene& scene, FrontendImageProfile profile = FrontendImageProfile::Main);
+    // Load all MainUI permanent textures once, independently of a scene's ring.
+    // The other profiles retain their existing scene-scoped/on-demand contract.
+    void BeginPermanentMain();
     void Poll();
     void Service();
     void Cancel();

@@ -92,4 +92,36 @@ FrontendImageCatalog::Handle ReadFrontendImages(const FrontendScene& scene, std:
         }
     return result;
 }
+FrontendImageCatalog::Handle ReadPermanentFrontendImages(Bytes bundle)
+{
+    auto result = std::make_shared<FrontendImageCatalog>();
+    std::size_t retained = 0;
+    for (const auto& entry : ReadFrontendImageDirectory(bundle))
+    {
+        if (result->textures.contains(entry.hash)) continue;
+        Require(entry.hash != 0xffffffffU && !IsDynamicFrontendImage(entry.hash),
+            "Permanent frontend bundle contains an unsupported texture identity");
+        Require(result->textures.size() < 1024, "Permanent frontend bundle exceeds 1024 textures");
+        auto texture = std::make_shared<Texture>(ReadTexture(Slice(bundle, entry.offset, entry.length), entry.hash));
+        const auto size = texture->pixels.size() + texture->palette.size();
+        Require(size <= 64 * 1024 * 1024 - retained, "Permanent frontend textures exceed 64 MiB");
+        retained += size;
+        result->textures.emplace(entry.hash, std::move(texture));
+    }
+    for (const auto hash : {Hash("movie"), Hash("target/grab_texture")})
+        result->unavailable.emplace(hash, "Dynamic frontend image producer is not selected");
+    return result;
+}
+void RequireFrontendImages(const FrontendScene& scene, const FrontendImageCatalog& catalog)
+{
+    Require(scene.resources.size() <= 16384, "Frontend resource request exceeds its limits");
+    for (const auto& resource : scene.resources)
+    {
+        Require(resource.type <= 2, "Unknown frontend resource type");
+        if (resource.type != 0 || IsDynamicFrontendImage(resource.hash)) continue;
+        const auto found = catalog.textures.find(resource.hash);
+        Require(found != catalog.textures.end() && found->second && found->second->id == resource.hash,
+            "Frontend static image is absent from the retained resource profile");
+    }
+}
 }

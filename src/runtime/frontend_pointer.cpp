@@ -161,13 +161,14 @@ struct FrontendPointerRegion::Implementation
     FrontendInput& input;
     Frame frame;
     FrontendPointerBounds bounds;
+    std::uint32_t measured_instance;
     Callback callback;
     std::thread::id thread=std::this_thread::get_id();
     bool busy=false,live=true,mDisabled=false,mIgnoreInputLock=false;
     Event mPreviousEvents[4];
     void* mContext=nullptr;
     Implementation(FrontendInput& in,Frame value,FrontendPointerBinding binding,Callback cb)
-        :input(in),frame(std::move(value)),bounds(MeasureFrontendPointerBounds(frame,binding)),callback(std::move(cb))
+        :input(in),frame(std::move(value)),bounds(MeasureFrontendPointerBounds(frame,binding)),measured_instance(binding.instance),callback(std::move(cb))
     { (void)input.InputLocked(); }
     void Ready() const
     { Check(std::this_thread::get_id()==thread,"Frontend pointer used from a different thread");Check(live,"Frontend pointer has been released"); }
@@ -191,7 +192,18 @@ void FrontendPointerRegion::Rebind(Frame frame,FrontendPointerBinding binding)
     impl_->Mutable();auto bounds=MeasureFrontendPointerBounds(frame,binding);
     // Original useRotation=false only clears rotation; it preserves old pivot.
     if(!binding.use_rotation)bounds.pivot=impl_->bounds.pivot;
-    impl_->bounds=bounds;impl_->frame=std::move(frame);
+    impl_->bounds=bounds;impl_->measured_instance=binding.instance;impl_->frame=std::move(frame);
+}
+void FrontendPointerRegion::RebindFrame(Frame frame)
+{
+    impl_->Mutable();
+    Check(frame&&impl_->frame,"Frontend pointer frame rebinding requires retained frames");
+    Check(frame->visuals==impl_->frame->visuals&&frame->images==impl_->frame->images
+        &&frame->request.path==impl_->frame->request.path,
+        "Frontend pointer frame rebinding requires the measured scene resources");
+    Check(std::any_of(frame->graph.instances.begin(),frame->graph.instances.end(),[&](const auto& instance)
+        {return instance.offset==impl_->measured_instance;}),"Frontend pointer measured instance is absent");
+    impl_->frame=std::move(frame);
 }
 void FrontendPointerRegion::SetBounds(float min_x,float max_x,float max_y,float min_y)
 {

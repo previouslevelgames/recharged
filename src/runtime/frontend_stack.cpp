@@ -1,6 +1,7 @@
 #include "runtime/frontend_stack.h"
 #include "Game/FE/FrontendSceneCatalog.h"
 #include "Game/FE/FrontendStackSteps.h"
+#include "Game/FE/FrontendSubhandlerSteps.h"
 #include "NL/nlFile.h"
 #include "NL/nlFileGC.h"
 #include <algorithm>
@@ -46,7 +47,9 @@ struct FrontendSceneStack::Implementation
         FrontendStackRequest request;
         FrontendStackCallbacks callbacks;
         std::shared_ptr<FrontendSession> session;
-        std::unique_ptr<FrontendHandler> handler;
+        std::shared_ptr<FrontendHandler> handler;
+        FrontendStackVisualFactory visual_factory;
+        std::shared_ptr<FrontendStackVisual> visual;
         std::exception_ptr error;
     };
     struct Message { Token token; bool push; };
@@ -103,7 +106,7 @@ struct FrontendSceneStack::Implementation
     }
     void Initialize(EntryData& e)
     {
-        if (!Complete(e.callbacks)) return;
+        if (!Complete(e.callbacks) && !e.visual_factory) return;
         struct Adapter
         {
             Implementation& owner;
@@ -113,17 +116,35 @@ struct FrontendSceneStack::Implementation
                 Require(frame && entry.session->Current() == frame, "Frontend creation requires its exact presentation");
                 // The native presentation binding is retained session ownership,
                 // established here before either original creation stage runs.
-                entry.handler = std::make_unique<FrontendHandler>(entry.session, owner.input);
+                entry.handler = std::make_shared<FrontendHandler>(entry.session, owner.input);
             }
             void SceneCreated()
             {
                 FrontendStackContext context{entry.value.token, *entry.session, *entry.handler, entry.value.movement};
-                entry.callbacks.scene_created(context); owner.Validate(entry);
+                if (entry.visual_factory)
+                {
+                    auto visual = entry.visual_factory({entry.value.token, entry.session, entry.handler, entry.value.movement});
+                    Require(visual && visual->StackScene() == entry.value.scene
+                        && visual->StackSession() == entry.session && visual->StackHandler() == entry.handler
+                        && visual->Current() == entry.session->Current(), "Selected visual factory returned foreign ownership");
+                    visual->AttachStack(); entry.visual=std::move(visual);entry.handler->AttachStack();
+                    entry.value.handler_scope = FrontendStackHandlerScope::SelectedVisual;
+                }
+                else { entry.callbacks.scene_created(context); entry.value.handler_scope = FrontendStackHandlerScope::SuppliedCallbacks; }
+                owner.Validate(entry);
             }
             void InitializeSubHandlers()
             {
                 FrontendStackContext context{entry.value.token, *entry.session, *entry.handler, entry.value.movement};
-                entry.callbacks.initialize_subhandlers(context); owner.Validate(entry);
+                if (entry.visual)
+                {
+                    // Both selected concrete classes inherit this exact empty
+                    // source method; it does not complete their SceneCreated.
+                    FrontendBaseHandlerInitializeSubHandlers();
+                    entry.value.subhandlers = FrontendStackSubhandlers::SourceEmpty;
+                }
+                else { entry.callbacks.initialize_subhandlers(context); entry.value.subhandlers = FrontendStackSubhandlers::SuppliedCallbacks; }
+                owner.Validate(entry);
             }
         } adapter{*this, e};
         FrontendInitializeScene(adapter, e.value.prepared);
@@ -148,8 +169,10 @@ struct FrontendSceneStack::Implementation
             void UnloadPackage() { if (entry.session) entry.session->Cancel(); }
         } adapter{*this, e, drained};
         FrontendUnloadScene(adapter);
-        if (e.handler) e.handler->Release();
-        e.handler.reset(); e.callbacks = {};
+        if (e.visual) e.visual->ReleaseStack();
+        e.visual.reset();
+        if (e.handler) { if(e.visual_factory) e.handler->ReleaseStack(); else e.handler->Release(); }
+        e.handler.reset(); e.callbacks = {}; e.visual_factory = {};
         if (e.session) e.session->Pop();
         if (top_most == token) top_most = 0;
         std::erase(stack.values, token); entries.erase(token);
@@ -170,7 +193,9 @@ struct FrontendSceneStack::Implementation
                     request.path = '/' + std::string(FrontendSceneStack::SourcePath(e.request.scene));
                     request.language = e.request.language; request.image_profile = e.request.image_profile;
                     request.initial_slide = e.request.initial_slide; request.animate = e.request.animate;
-                    e.session->Begin(std::move(request)); e.value.state = FrontendStackState::Loading;
+                    if(e.request.shared_resources)e.session->BeginShared(std::move(request),e.request.shared_resources);
+                    else e.session->Begin(std::move(request),e.request.resources_mode);
+                    e.value.state = FrontendStackState::Loading;
                 }
                 catch (...) { Fail(e); }
             }
@@ -225,6 +250,12 @@ FrontendSceneStack::Token FrontendSceneStack::QueuePush(FrontendStackRequest req
     auto& s = *impl_; s.Mutable(); CheckCallbacks(callbacks); (void)SourcePath(request.scene);
     Require(request.language == FrontendLanguage::English || request.language == FrontendLanguage::NAFrench
         || request.language == FrontendLanguage::NASpanish, "Frontend scene stack supports the qualified USA languages");
+    Require(request.resources_mode==FrontendSessionResourcesMode::Scene||request.resources_mode==FrontendSessionResourcesMode::PermanentMain,
+        "Frontend stack resource mode is unsupported");
+    Require(!request.shared_resources||request.resources_mode==FrontendSessionResourcesMode::Scene,
+        "Frontend stack cannot both load permanent resources and borrow a token");
+    Require((!request.shared_resources&&request.resources_mode==FrontendSessionResourcesMode::Scene)
+        ||request.image_profile==FrontendImageProfile::Main,"Shared frontend stack resources require Main profile");
     Require(request.movement <= 2, "Frontend scene movement is outside original ScreenMovement");
     Require(s.entries.size() < 32, "Frontend scene stack exceeds its original 32-entry limit");
     const auto token = next_token.fetch_add(1);
@@ -267,10 +298,19 @@ void FrontendSceneStack::Bind(Token token, FrontendStackCallbacks callbacks)
 {
     auto& s = *impl_; s.Mutable(); auto& e = s.Find(token);
     Require(Complete(callbacks), "Frontend scene handler services are unavailable");
-    Require(!Complete(e.callbacks) && !e.value.queued_pop
+    Require(!Complete(e.callbacks) && !e.visual_factory && !e.value.queued_pop
         && (e.value.state == FrontendStackState::Queued || e.value.state == FrontendStackState::Loading
             || e.value.state == FrontendStackState::AwaitingHandler), "Frontend scene creation is already bound or complete");
     Guard guard(s.busy); e.callbacks = std::move(callbacks);
+}
+void FrontendSceneStack::BindVisual(Token token, FrontendStackVisualFactory factory)
+{
+    auto& s=*impl_;s.Mutable();auto& e=s.Find(token);
+    Require(factory&&(e.value.scene==1||e.value.scene==13), "Selected visual factory supports Main and Options only");
+    Require(!Complete(e.callbacks)&&!e.visual_factory&&!e.value.queued_pop
+        &&(e.value.state==FrontendStackState::Queued||e.value.state==FrontendStackState::Loading
+            ||e.value.state==FrontendStackState::AwaitingHandler), "Frontend visual creation is already bound or complete");
+    Guard guard(s.busy);e.visual_factory=std::move(factory);
 }
 void FrontendSceneStack::Poll()
 { auto& s = *impl_; s.Mutable(); Guard guard(s.busy); s.Poll(); }
@@ -289,7 +329,7 @@ void FrontendSceneStack::Service()
     }
     s.Poll();
 }
-void FrontendSceneStack::Update(float delta)
+void FrontendSceneStack::Update(float delta, PresentedInput input)
 {
     auto& s = *impl_; s.Mutable();
     Require(std::isfinite(delta) && delta >= 0 && delta <= 60, "Frontend scene delta exceeds its bounded profile");
@@ -302,9 +342,22 @@ void FrontendSceneStack::Update(float delta)
         {
             s.Validate(e);
             Require(e.session->Current() == e.value.published, "Frontend handler mutated outside its stack callback");
-            e.handler->Update(e.value.published, delta);
-            FrontendStackContext context{token, *e.session, *e.handler, e.value.movement};
-            e.callbacks.after_base_update(context, delta); s.Validate(e);
+            if (e.visual)
+            {
+                Require(e.visual->Current()==e.value.published,"Selected visual mutated outside its stack update");
+                auto proof=e.handler->StackUpdateOnce(e.value.published,delta);
+                Require(proof.Before()==e.value.published&&proof.After()==e.session->Current()&&proof.Delta()==delta,
+                    "Frontend stack base update proof differs");
+                e.visual->UpdateStack(std::move(proof),e.value.published,[&]{if(input)input(token,e.value.published);});
+                Require(e.visual->Current()==e.session->Current(),"Selected visual lost its current frame");
+            }
+            else
+            {
+                e.handler->Update(e.value.published, delta);
+                FrontendStackContext context{token, *e.session, *e.handler, e.value.movement};
+                e.callbacks.after_base_update(context, delta);
+            }
+            s.Validate(e);
             e.value.prepared = e.session->Current();
             e.value.state = FrontendStackState::AwaitingPublication;
         }
@@ -354,6 +407,13 @@ void FrontendSceneStack::SetTopMost(Token token)
 { auto& s = *impl_; s.Mutable(); if (token) (void)s.Find(token); s.top_most = token; }
 FrontendStackEntry FrontendSceneStack::Entry(Token token) const
 { impl_->Ready(); return impl_->Find(token).value; }
+FrontendSessionResources::Handle FrontendSceneStack::Resources(Token token)const
+{
+    const auto& s=*impl_;s.Ready();const auto& e=s.Find(token);
+    if(!e.request.shared_resources&&e.request.resources_mode==FrontendSessionResourcesMode::Scene)return {};
+    Require(e.session&&e.session->Current(),"Frontend stack resources are not ready");
+    return e.session->SharedResources();
+}
 std::vector<FrontendStackEntry> FrontendSceneStack::Entries() const
 {
     const auto& s = *impl_; s.Ready(); std::vector<FrontendStackEntry> result;

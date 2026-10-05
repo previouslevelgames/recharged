@@ -2,7 +2,7 @@
 
 The port is a work in progress alongside the incomplete decompilation. The
 launcher, disc access, selected original initialization, and a static world
-preview work on Linux. **Menus and matches are not available yet.**
+preview work on Linux. **Full game startup and matches remain in development.**
 
 Start with the prerequisites and launcher dependencies in [Building](BUILDING.md).
 The experimental presets add:
@@ -127,6 +127,15 @@ draw order. Font descriptions and texture pages load through staged NL reads;
 failed or cancelled loads leave the current scene intact.
 Both frontend viewers register retained textures and submit original polygon
 packets, preserving the authored order of mixed text and images.
+
+Use `--experimental-scene --frontend-main` for the original Main Menu intro,
+mouse/Enter hover and selection, sound effects and streamed music. This is an
+unfinished menu diagnostic: selected actions report their pending services;
+saves, scene transitions and the full game startup are still being implemented.
+
+Use `--experimental-scene --frontend-options` for the original Options screen,
+button feedback, intro/outro, music and the original navigation overlay. Back
+plays the original outro; returning to Main and opening submenus are in progress.
 
 For a stored image/text layout, use
 `--frontend-frame /Art/fe/game_summary.fen --frontend-slide Slide1 --frontend-images ingame`

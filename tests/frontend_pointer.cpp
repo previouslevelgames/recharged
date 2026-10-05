@@ -113,7 +113,7 @@ void Events()
     FrontendPointerRegion region(input,f,{100},[&](auto kind,unsigned pad,const auto& frame)
     {
         Check(frame==self->Current()&&self->Enabled(),"Callback query/retained frame differs");log.emplace_back(kind,pad);
-        if(reentry){Reject([&]{self->Deliver({});});Reject([&]{self->Disable();});Reject([&]{self->Rebind(f,{100});});Reject([&]{self->Release();});}
+        if(reentry){Reject([&]{self->Deliver({});});Reject([&]{self->Disable();});Reject([&]{self->Rebind(f,{100});});Reject([&]{self->RebindFrame(f);});Reject([&]{self->Release();});}
         if(fail&&kind==FrontendPointerCallback::Press)throw std::runtime_error("injected callback failure");
     });self=&region;
     const std::array order{FrontendPointerCallback::Enter,FrontendPointerCallback::Update,FrontendPointerCallback::Inside,FrontendPointerCallback::Press,FrontendPointerCallback::Unidentified,FrontendPointerCallback::Release};
@@ -135,6 +135,15 @@ void Events()
     Reject([&]{region.Deliver({4,{0,0}});});Reject([&]{region.Deliver({0,{NAN,0}});});
     auto replacement=Images();replacement->graph.instances[0].attributes.position[0]=200;
     const auto before=region.Bounds();Reject([&]{region.Rebind(replacement,{999});});Check(region.Current()==f&&region.Bounds().min_x==before.min_x,"Failed rebind changed current");
+    // Original once-initialized bounds/history survive later animation frames.
+    region.Disable();region.Enable();region.Deliver({0,{10,20}});log.clear();
+    Reject([&]{region.RebindFrame({});});Check(region.Current()==f,"Null frame retag changed current");
+    auto foreign_frame=Images();foreign_frame->request.path="different.fen";
+    Reject([&]{region.RebindFrame(foreign_frame);});
+    bool wrong_retag=false;std::thread foreign_retag([&]{try{region.RebindFrame(replacement);}catch(const std::exception&){wrong_retag=true;}});foreign_retag.join();Check(wrong_retag,"Foreign thread retagged pointer");
+    region.RebindFrame(replacement);Near(region.Bounds().min_x,before.min_x);Near(region.Bounds().rotation,before.rotation);
+    Reject([&]{region.Deliver(f,{0,{10,20}});});region.Deliver(replacement,{0,{10,20}});
+    Check(log.size()==2&&log[0].first==FrontendPointerCallback::Update&&log[1].first==FrontendPointerCallback::Inside,"Frame retag lost original previous-event history");
     region.Rebind(replacement,{100});Check(region.Current()==replacement,"Rebind did not publish snapshot");
     Reject([&]{region.Deliver(f,{0,{200,20}});});
     bool wrong=false;std::thread foreign([&]{try{region.Contains({0,0});}catch(const std::exception&){wrong=true;}});foreign.join();Check(wrong,"Foreign thread accessed pointer");

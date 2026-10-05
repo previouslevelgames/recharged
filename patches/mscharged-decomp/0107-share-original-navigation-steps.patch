@@ -1,0 +1,736 @@
+Subject: Share original NAV visuals and back button kernels
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Console methods delegate to the same authored selection, visibility, label,
+pointer and back-button operations as the retained native adapter.
+No DPD, HOME, scene-manager, speaker or rumble readiness is supplied.
+
+diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
+--- a/src/Game/SH/SHNavigation.cpp
++++ b/src/Game/SH/SHNavigation.cpp
+@@ -1,4 +1,5 @@
+ #include "NL/plat/PlatPadManager.h"
++#include "Game/FE/FrontendNavigationSteps.h"
+ #include "NL/plat/PlatPadStatus.h"
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/BaseGameSceneManager.h"
+@@ -63,48 +64,10 @@
+ 
+ void SHNavigation::SceneCreated()
+ {
+-    TLInstance* layer = FEFinder<TLInstance, 1>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer");
+-
+-    for (int index = 0; index < 4; ++index)
+-    {
+-        char name[64];
+-        nlSNPrintf(name, sizeof(name), "cursor%d", index);
+-        mPointerInstances[index] = FEFinder<TLComponentInstance, 4>::Find(layer, name);
+-        SetPointerInstance(index, mPointerInstances[index]);
+-        mPointerInstances[index]->SetActiveSlide("waiting", true, false);
+-    }
+-
+-    mBackButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "back");
+-    mBreadcrumbs = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "breadcrumbs");
+-    mPlayButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "Play_Now");
+-    mDoneButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "done");
+-    mLowerDoneButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "LOWER DONE");
+-    mProgressButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "PROGRESS");
+-    mTransition = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "transition");
+-    mTransition->SetVisible(false);
+-    mHomeWarning = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "no home");
+-    mHomeWarning->SetVisible(false);
+-
+-    TLComponentInstance* timer = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "the_timer");
+-    if (GameInfoManager::Instance()->GetUserInfo().IsWidescreen())
+-    {
+-        mPlusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+16:9");
+-        mMinusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-16:9");
+-        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+")->SetVisible(false);
+-        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-")->SetVisible(false);
+-        timer->SetActiveSlide("16:9", true, false);
+-        mIsWidescreen = true;
+-        mHomeWarning->SetActiveSlide("widescreen", true, false);
+-    }
+-    else
+-    {
+-        mPlusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+");
+-        mMinusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-");
+-        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+16:9")->SetVisible(false);
+-        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-16:9")->SetVisible(false);
+-        timer->SetActiveSlide("4:3", true, false);
+-    }
+-
++    TLComponentInstance* timer = FrontendNavigationCreated<TLInstance,TLComponentInstance,FEFinder>(*this,
++        [] { return GameInfoManager::Instance()->GetUserInfo().IsWidescreen(); },
++        [](char* name, unsigned size, int index) { nlSNPrintf(name, size, "cursor%d", index); },
++        [](int index, TLComponentInstance* instance) { SetPointerInstance(index, instance); });
+     mPageControls.SetMinusButton(mMinusButton);
+     mPageControls.SetPlusButton(mPlusButton);
+ 
+@@ -134,13 +97,8 @@
+         u16 angle;
+         u8 valid = true;
+         nlVector2 position = GetPointerPosition(index, &angle, &valid);
+-        if (valid)
+-        {
+-            mPointerInstances[index]->SetAssetPosition(position.x, position.y, 0.0f);
+-            mPointerInstances[index]->SetAssetRotation(
+-                0.0f, 0.0f, AngUnitsToRad_fromUnsignedShort((u16)-angle));
+-        }
+-        mPointerInstances[index]->m_bVisible = valid && !sPointerHidden;
++        FrontendNavigationPointerPose(mPointerInstances[index],position,angle,valid,sPointerHidden,
++            [](unsigned short angle) { return AngUnitsToRad_fromUnsignedShort(angle); });
+     }
+ 
+     if (mTransitionPlaying)
+@@ -216,87 +174,27 @@
+ 
+ void SHNavigation::SetButtonVisibility(int mask, bool visible)
+ {
+-    if (visible)
+-    {
+-        this->mVisibleButtons |= mask;
+-    }
+-    else
+-    {
+-        this->mVisibleButtons &= ~mask;
+-    }
+-
+-    this->mPlusButton->m_bVisible = this->mVisibleButtons & 1;
+-    this->mMinusButton->m_bVisible = (this->mVisibleButtons >> 1) & 1;
+-    this->mBackButton->m_bVisible = (this->mVisibleButtons >> 2) & 1;
+-    this->mBreadcrumbs->m_bVisible = (this->mVisibleButtons >> 3) & 1;
+-    this->mPlayButton->m_bVisible = (this->mVisibleButtons >> 4) & 1;
+-    this->mDoneButton->m_bVisible = (this->mVisibleButtons >> 5) & 1;
+-    this->mLowerDoneButton->m_bVisible = (this->mVisibleButtons >> 6) & 1;
+-    this->mProgressButton->m_bVisible = (this->mVisibleButtons >> 7) & 1;
++    FrontendNavigationSetButtonVisibility(*this,mask,visible);
+ }
+ 
+ void SHNavigation::RestoreButtonVisibility()
+ {
+-    this->mPlusButton->m_bVisible = this->mVisibleButtons & 1;
+-    this->mMinusButton->m_bVisible = (this->mVisibleButtons >> 1) & 1;
+-    this->mBackButton->m_bVisible = (this->mVisibleButtons >> 2) & 1;
+-    this->mBreadcrumbs->m_bVisible = (this->mVisibleButtons >> 3) & 1;
+-    this->mPlayButton->m_bVisible = (this->mVisibleButtons >> 4) & 1;
+-    this->mDoneButton->m_bVisible = (this->mVisibleButtons >> 5) & 1;
+-    this->mLowerDoneButton->m_bVisible = (this->mVisibleButtons >> 6) & 1;
+-    this->mProgressButton->m_bVisible = (this->mVisibleButtons >> 7) & 1;
++    FrontendNavigationRestoreButtonVisibility(*this);
+ }
+ 
+ void SHNavigation::HideButtons()
+ {
+-    this->mPlusButton->m_bVisible = false;
+-    this->mMinusButton->m_bVisible = false;
+-    this->mBackButton->m_bVisible = false;
+-    this->mBreadcrumbs->m_bVisible = false;
+-    this->mPlayButton->m_bVisible = false;
+-    this->mDoneButton->m_bVisible = false;
+-    this->mLowerDoneButton->m_bVisible = false;
+-    this->mProgressButton->m_bVisible = false;
++    FrontendNavigationHideButtons(*this);
+ }
+ 
+ void SHNavigation::ResetButtons(bool enabled)
+ {
+-    this->mVisibleButtons = 0;
+-
+-    TLComponentInstance* component = FEFinder<TLComponentInstance, 4>::FindOrDefault(
+-        this->mBackButton->GetActiveSlide(), "back");
+-    component->SetActiveSlide("off", true, false);
+-
+-    if (enabled)
+-    {
+-        this->mPlusButton->SetActiveSlide("off", true, false);
+-        this->mMinusButton->SetActiveSlide("off", true, false);
+-    }
+-
+-    this->mPlayButton->SetActiveSlide("off", true, false);
+-    this->mDoneButton->SetActiveSlide("off", true, false);
+-    this->mLowerDoneButton->SetActiveSlide("off", true, false);
+-    this->mProgressButton->SetActiveSlide("off", true, false);
+-    SetPlayButtonText(0);
+-    SetBackButtonText(0);
+-    SetDoneButtonText(0);
++    FrontendNavigationResetButtons<TLComponentInstance,TLTextInstance,FEFinder>(*this,enabled);
+ }
+ 
+ void SHNavigation::SetButtons(int value, bool enabled)
+ {
+-    ResetButtons(enabled);
+-    this->mVisibleButtons = value;
+-    this->mPlusButton->m_bVisible = this->mVisibleButtons & 1;
+-    this->mMinusButton->m_bVisible = (this->mVisibleButtons >> 1) & 1;
+-    this->mBackButton->m_bVisible = (this->mVisibleButtons >> 2) & 1;
+-    this->mBreadcrumbs->m_bVisible = (this->mVisibleButtons >> 3) & 1;
+-    this->mPlayButton->m_bVisible = (this->mVisibleButtons >> 4) & 1;
+-    this->mDoneButton->m_bVisible = (this->mVisibleButtons >> 5) & 1;
+-    this->mLowerDoneButton->m_bVisible = (this->mVisibleButtons >> 6) & 1;
+-    this->mProgressButton->m_bVisible = (this->mVisibleButtons >> 7) & 1;
+-    SetPlayButtonText(0);
+-    SetBackButtonText(0);
+-    SetDoneButtonText(0);
++    FrontendNavigationSetButtons<TLComponentInstance,TLTextInstance,FEFinder>(*this,value,enabled);
+ }
+ 
+ TLComponentInstance* SHNavigation::GetButton(int value)
+@@ -339,93 +237,17 @@
+ 
+ void SHNavigation::SetPlayButtonText(int value)
+ {
+-    TLTextInstance* text0 = FEFinder<TLTextInstance, 3>::FindOrDefault(this->mPlayButton,
+-        "off", "Group", "playnow");
+-
+-    TLTextInstance* text1 = FEFinder<TLTextInstance, 3>::FindOrDefault(this->mPlayButton,
+-        "over", "Group", "playnow");
+-
+-    TLTextInstance* text2 = FEFinder<TLTextInstance, 3>::FindOrDefault(this->mPlayButton,
+-        "down", "Group", "playnow");
+-
+-    switch (value)
+-    {
+-    case 0:
+-        text0->SetStringId("PLAY_NOW");
+-        text1->SetStringId("PLAY_NOW");
+-        text2->SetStringId("PLAY_NOW");
+-        break;
+-    case 1:
+-        text0->SetStringId("RESTART_CUP");
+-        text1->SetStringId("RESTART_CUP");
+-        text2->SetStringId("RESTART_CUP");
+-        break;
+-    case 2:
+-        text0->SetStringId("CONTINUE");
+-        text1->SetStringId("CONTINUE");
+-        text2->SetStringId("CONTINUE");
+-        break;
+-    case 3:
+-        text0->SetStringId("PLAY_NOW_READY");
+-        text1->SetStringId("PLAY_NOW_READY");
+-        text2->SetStringId("PLAY_NOW_READY");
+-        break;
+-    }
++    FrontendNavigationSetPlayButtonText<TLComponentInstance,TLTextInstance,FEFinder>(*this,value);
+ }
+ 
+ void SHNavigation::SetDoneButtonText(int value)
+ {
+-    TLTextInstance* text0 = FEFinder<TLTextInstance, 3>::FindOrDefault(this->mDoneButton,
+-        "off", "Group", "done");
+-
+-    TLTextInstance* text1 = FEFinder<TLTextInstance, 3>::FindOrDefault(this->mDoneButton,
+-        "over", "Group", "done");
+-
+-    TLTextInstance* text2 = FEFinder<TLTextInstance, 3>::FindOrDefault(this->mDoneButton,
+-        "down", "Group", "done");
+-
+-    switch (value)
+-    {
+-    case 0:
+-        text0->SetStringId("DONE");
+-        text1->SetStringId("DONE");
+-        text2->SetStringId("DONE");
+-        break;
+-    case 1:
+-        text0->SetStringId("OPTIONS_ACCEPT");
+-        text1->SetStringId("OPTIONS_ACCEPT");
+-        text2->SetStringId("OPTIONS_ACCEPT");
+-        break;
+-    }
++    FrontendNavigationSetDoneButtonText<TLComponentInstance,TLTextInstance,FEFinder>(*this,value);
+ }
+ 
+ void SHNavigation::SetBackButtonText(int value)
+ {
+-    TLComponentInstance* component = FEFinder<TLComponentInstance, 4>::FindOrDefault(
+-        this->mBackButton->GetActiveSlide(), "back");
+-
+-    TLTextInstance* text0 = FEFinder<TLTextInstance, 3>::FindOrDefault(component,
+-        "off", "back text");
+-
+-    TLTextInstance* text1 = FEFinder<TLTextInstance, 3>::FindOrDefault(component,
+-        "over", "back text");
+-
+-    TLTextInstance* text2 = FEFinder<TLTextInstance, 3>::FindOrDefault(component,
+-        "down", "back text");
+-
+-    switch (value)
+-    {
+-    case 0:
+-        text0->SetStringId("BACK");
+-        text1->SetStringId("BACK");
+-        text2->SetStringId("BACK");
+-        break;
+-    case 1:
+-        text0->SetStringId("LOG_OUT");
+-        text1->SetStringId("LOG_OUT");
+-        text2->SetStringId("LOG_OUT");
+-        break;
+-    }
++    FrontendNavigationSetBackButtonText<TLComponentInstance,TLTextInstance,FEFinder>(*this,value);
+ }
+ 
+ void SHNavigation::StartTransition()
+diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
+--- a/src/Game/FE/feBackButton.cpp
++++ b/src/Game/FE/feBackButton.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/feBackButton.h"
++#include "Game/FE/FrontendNavigationSteps.h"
+ #include "NL/nlFunction.inl"
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/tlImageInstance.h"
+@@ -51,17 +52,7 @@
+  */
+ void FEBackButton::SetButtonInstance(TLComponentInstance* instance)
+ {
+-    if (IsWidescreen())
+-    {
+-        instance->SetActiveSlide("16:9", true, false);
+-    }
+-    else
+-    {
+-        instance->SetActiveSlide("4:3", true, false);
+-    }
+-
+-    mButtonPosition = instance->GetAssetPosition();
+-    mButtonInstance = FEFinder<TLComponentInstance, 2>::Find<TLSlide>(instance->GetActiveSlide(), "back");
++    FrontendBackSetInstance<TLComponentInstance,TLSlide,FEFinder>(*this,instance,[] { return IsWidescreen(); });
+ }
+ 
+ static void InitializePointerButton(FEBackButton* button)
+@@ -74,11 +65,7 @@
+     FEPointerListener::Callback callback(PointerBinding(
+         MemFun(&FEBackButton::OnPointerInside), button, Placeholder<0>(), Placeholder<1>()));
+     button->SetPointerInsideCallback(callback);
+-
+-    TLImageInstance* over = FEFinder<TLImageInstance, TLAT_IMAGE>::FindOrDefault(
+-        button->mButtonInstance, "over", "list_high_250x60");
+-    feVector3 position = button->mButtonInstance->GetAssetPosition();
+-    button->SetInstanceBounds(over, true, position.f.x, position.f.y, 1.0f, 1.0f);
++    FrontendBackBounds<TLImageInstance,feVector3,FEFinder>(button);
+ }
+ 
+ /**
+@@ -104,28 +91,7 @@
+     {
+         manager = g_pOverlayManager;
+     }
+-
+-    if (mPressed && mPushBackScene)
+-    {
+-        if (mBackScene != SCENE_INVALID)
+-        {
+-            manager->Push((SceneList)mBackScene, SCREEN_BACK, true);
+-        }
+-        mPressed = false;
+-        return true;
+-    }
+-
+-    if (mPressed && !mPushBackScene)
+-    {
+-        if (mPopScene)
+-        {
+-            manager->Pop();
+-        }
+-        mPressed = false;
+-        return true;
+-    }
+-
+-    return false;
++    return FrontendBackFinish<SCENE_INVALID>(*this,[manager](int scene) { manager->Push((SceneList)scene,SCREEN_BACK,true); },[manager] { manager->Pop(); });
+ }
+ 
+ /**
+@@ -133,13 +99,7 @@
+  */
+ void FEBackButton::OnPointerEnter(int index, void* context)
+ {
+-    if (!HasOtherPointerState(1, index))
+-    {
+-        mButtonInstance->SetActiveSlide("over", true, false);
+-        FEAudio::PlayAnimAudioEvent(0xACCDCA48, 0, 0, 1);
+-    }
+-    SetPointerState(1, index);
+-    FEPointerButton::OnPointerEnter(index, context);
++    FrontendBackEnter(*this,index,context,[](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },[this](int index,void* context) { FEPointerButton::OnPointerEnter(index,context); });
+ }
+ 
+ /**
+@@ -147,7 +107,7 @@
+  */
+ void FEBackButton::OnPointerInside(int index, void*)
+ {
+-    mPointerInside[index] = true;
++    FrontendBackInside(*this,index);
+ }
+ 
+ /**
+@@ -155,9 +115,7 @@
+  */
+ void FEBackButton::OnPointerPress(int index, void* context)
+ {
+-    FEPointerButton::OnPointerPress(index, context);
+-    FEAudio::PlayAnimAudioEvent(0x6F6A3A07, 0, 0, 1);
+-    mPressed = true;
++    FrontendBackPress(*this,index,context,[](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },[this](int index,void* context) { FEPointerButton::OnPointerPress(index,context); });
+ }
+ 
+ /**
+@@ -165,8 +123,7 @@
+  */
+ void FEBackButton::OnPointerRelease(int index, void* context)
+ {
+-    FEPointerButton::OnPointerRelease(index, context);
+-    mPressed = false;
++    FrontendBackRelease(*this,index,context,[this](int index,void* context) { FEPointerButton::OnPointerRelease(index,context); });
+ }
+ 
+ /**
+@@ -174,12 +131,5 @@
+  */
+ void FEBackButton::OnPointerLeave(int index, void* context)
+ {
+-    if (!HasOtherPointerState(1, index))
+-    {
+-        mUnidentifiedB8 = 0.0f;
+-        mButtonInstance->SetActiveSlide("off", true, false);
+-        mUnidentifiedCE = false;
+-    }
+-    SetPointerState(0, index);
+-    FEPointerButton::OnPointerLeave(index, context);
++    FrontendBackLeave(*this,index,context,[this](int index,void* context) { FEPointerButton::OnPointerLeave(index,context); });
+ }
+diff --git a/include/Game/FE/FrontendNavigationSteps.h b/include/Game/FE/FrontendNavigationSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendNavigationSteps.h
+@@ -0,0 +1,325 @@
++#ifndef GAME_FE_FRONTEND_NAVIGATION_STEPS_H
++#define GAME_FE_FRONTEND_NAVIGATION_STEPS_H
++// Selected original visual/listener kernels. Platform/global services remain caller-owned.
++template<class TLInstance,class TLComponentInstance,template<class,int>class FEFinder,class Scene,class Wide,class Name,class Publish>
++TLComponentInstance* FrontendNavigationCreated(Scene& scene,Wide widescreen,Name namePointer,Publish publishPointer)
++{
++    TLInstance* layer = FEFinder<TLInstance, 1>::FindOrDefault(scene.GetPresentation()->GetActiveSlide(), "Layer");
++
++    for (int index = 0; index < 4; ++index)
++    {
++        char name[64];
++        namePointer(name, sizeof(name), index);
++        scene.mPointerInstances[index] = FEFinder<TLComponentInstance, 4>::Find(layer, name);
++        publishPointer(index, scene.mPointerInstances[index]);
++        scene.mPointerInstances[index]->SetActiveSlide("waiting", true, false);
++    }
++
++    scene.mBackButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "back");
++    scene.mBreadcrumbs = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "breadcrumbs");
++    scene.mPlayButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "Play_Now");
++    scene.mDoneButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "done");
++    scene.mLowerDoneButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "LOWER DONE");
++    scene.mProgressButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "PROGRESS");
++    scene.mTransition = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "transition");
++    scene.mTransition->SetVisible(false);
++    scene.mHomeWarning = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "no home");
++    scene.mHomeWarning->SetVisible(false);
++
++    TLComponentInstance* timer = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "the_timer");
++    if (widescreen())
++    {
++        scene.mPlusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+16:9");
++        scene.mMinusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-16:9");
++        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+")->SetVisible(false);
++        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-")->SetVisible(false);
++        timer->SetActiveSlide("16:9", true, false);
++        scene.mIsWidescreen = true;
++        scene.mHomeWarning->SetActiveSlide("widescreen", true, false);
++    }
++    else
++    {
++        scene.mPlusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+");
++        scene.mMinusButton = FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-");
++        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "+16:9")->SetVisible(false);
++        FEFinder<TLComponentInstance, 4>::FindOrDefault(layer, "-16:9")->SetVisible(false);
++        timer->SetActiveSlide("4:3", true, false);
++    }
++
++    return timer;
++}
++template<class Scene>
++void FrontendNavigationHideButtons(Scene& scene)
++{
++    scene.mPlusButton->m_bVisible = false;
++    scene.mMinusButton->m_bVisible = false;
++    scene.mBackButton->m_bVisible = false;
++    scene.mBreadcrumbs->m_bVisible = false;
++    scene.mPlayButton->m_bVisible = false;
++    scene.mDoneButton->m_bVisible = false;
++    scene.mLowerDoneButton->m_bVisible = false;
++    scene.mProgressButton->m_bVisible = false;
++}
++template<class Scene>
++void FrontendNavigationRestoreButtonVisibility(Scene& scene)
++{
++    scene.mPlusButton->m_bVisible = scene.mVisibleButtons & 1;
++    scene.mMinusButton->m_bVisible = (scene.mVisibleButtons >> 1) & 1;
++    scene.mBackButton->m_bVisible = (scene.mVisibleButtons >> 2) & 1;
++    scene.mBreadcrumbs->m_bVisible = (scene.mVisibleButtons >> 3) & 1;
++    scene.mPlayButton->m_bVisible = (scene.mVisibleButtons >> 4) & 1;
++    scene.mDoneButton->m_bVisible = (scene.mVisibleButtons >> 5) & 1;
++    scene.mLowerDoneButton->m_bVisible = (scene.mVisibleButtons >> 6) & 1;
++    scene.mProgressButton->m_bVisible = (scene.mVisibleButtons >> 7) & 1;
++}
++template<class Scene>
++void FrontendNavigationSetButtonVisibility(Scene& scene,int mask,bool visible)
++{
++    if (visible)
++    {
++        scene.mVisibleButtons |= mask;
++    }
++    else
++    {
++        scene.mVisibleButtons &= ~mask;
++    }
++
++    scene.mPlusButton->m_bVisible = scene.mVisibleButtons & 1;
++    scene.mMinusButton->m_bVisible = (scene.mVisibleButtons >> 1) & 1;
++    scene.mBackButton->m_bVisible = (scene.mVisibleButtons >> 2) & 1;
++    scene.mBreadcrumbs->m_bVisible = (scene.mVisibleButtons >> 3) & 1;
++    scene.mPlayButton->m_bVisible = (scene.mVisibleButtons >> 4) & 1;
++    scene.mDoneButton->m_bVisible = (scene.mVisibleButtons >> 5) & 1;
++    scene.mLowerDoneButton->m_bVisible = (scene.mVisibleButtons >> 6) & 1;
++    scene.mProgressButton->m_bVisible = (scene.mVisibleButtons >> 7) & 1;
++}
++template<class TLComponentInstance,class TLTextInstance,template<class,int>class FEFinder,class Scene>
++void FrontendNavigationResetButtons(Scene& scene,bool enabled)
++{
++    scene.mVisibleButtons = 0;
++
++    TLComponentInstance* component = FEFinder<TLComponentInstance, 4>::FindOrDefault(
++        scene.mBackButton->GetActiveSlide(), "back");
++    component->SetActiveSlide("off", true, false);
++
++    if (enabled)
++    {
++        scene.mPlusButton->SetActiveSlide("off", true, false);
++        scene.mMinusButton->SetActiveSlide("off", true, false);
++    }
++
++    scene.mPlayButton->SetActiveSlide("off", true, false);
++    scene.mDoneButton->SetActiveSlide("off", true, false);
++    scene.mLowerDoneButton->SetActiveSlide("off", true, false);
++    scene.mProgressButton->SetActiveSlide("off", true, false);
++    scene.SetPlayButtonText(0);
++    scene.SetBackButtonText(0);
++    scene.SetDoneButtonText(0);
++}
++template<class TLComponentInstance,class TLTextInstance,template<class,int>class FEFinder,class Scene>
++void FrontendNavigationSetButtons(Scene& scene,int value,bool enabled)
++{
++    scene.ResetButtons(enabled);
++    scene.mVisibleButtons = value;
++    scene.mPlusButton->m_bVisible = scene.mVisibleButtons & 1;
++    scene.mMinusButton->m_bVisible = (scene.mVisibleButtons >> 1) & 1;
++    scene.mBackButton->m_bVisible = (scene.mVisibleButtons >> 2) & 1;
++    scene.mBreadcrumbs->m_bVisible = (scene.mVisibleButtons >> 3) & 1;
++    scene.mPlayButton->m_bVisible = (scene.mVisibleButtons >> 4) & 1;
++    scene.mDoneButton->m_bVisible = (scene.mVisibleButtons >> 5) & 1;
++    scene.mLowerDoneButton->m_bVisible = (scene.mVisibleButtons >> 6) & 1;
++    scene.mProgressButton->m_bVisible = (scene.mVisibleButtons >> 7) & 1;
++    scene.SetPlayButtonText(0);
++    scene.SetBackButtonText(0);
++    scene.SetDoneButtonText(0);
++}
++template<class TLComponentInstance,class TLTextInstance,template<class,int>class FEFinder,class Scene>
++void FrontendNavigationSetPlayButtonText(Scene& scene,int value)
++{
++    TLTextInstance* text0 = FEFinder<TLTextInstance, 3>::FindOrDefault(scene.mPlayButton,
++        "off", "Group", "playnow");
++
++    TLTextInstance* text1 = FEFinder<TLTextInstance, 3>::FindOrDefault(scene.mPlayButton,
++        "over", "Group", "playnow");
++
++    TLTextInstance* text2 = FEFinder<TLTextInstance, 3>::FindOrDefault(scene.mPlayButton,
++        "down", "Group", "playnow");
++
++    switch (value)
++    {
++    case 0:
++        text0->SetStringId("PLAY_NOW");
++        text1->SetStringId("PLAY_NOW");
++        text2->SetStringId("PLAY_NOW");
++        break;
++    case 1:
++        text0->SetStringId("RESTART_CUP");
++        text1->SetStringId("RESTART_CUP");
++        text2->SetStringId("RESTART_CUP");
++        break;
++    case 2:
++        text0->SetStringId("CONTINUE");
++        text1->SetStringId("CONTINUE");
++        text2->SetStringId("CONTINUE");
++        break;
++    case 3:
++        text0->SetStringId("PLAY_NOW_READY");
++        text1->SetStringId("PLAY_NOW_READY");
++        text2->SetStringId("PLAY_NOW_READY");
++        break;
++    }
++}
++template<class TLComponentInstance,class TLTextInstance,template<class,int>class FEFinder,class Scene>
++void FrontendNavigationSetDoneButtonText(Scene& scene,int value)
++{
++    TLTextInstance* text0 = FEFinder<TLTextInstance, 3>::FindOrDefault(scene.mDoneButton,
++        "off", "Group", "done");
++
++    TLTextInstance* text1 = FEFinder<TLTextInstance, 3>::FindOrDefault(scene.mDoneButton,
++        "over", "Group", "done");
++
++    TLTextInstance* text2 = FEFinder<TLTextInstance, 3>::FindOrDefault(scene.mDoneButton,
++        "down", "Group", "done");
++
++    switch (value)
++    {
++    case 0:
++        text0->SetStringId("DONE");
++        text1->SetStringId("DONE");
++        text2->SetStringId("DONE");
++        break;
++    case 1:
++        text0->SetStringId("OPTIONS_ACCEPT");
++        text1->SetStringId("OPTIONS_ACCEPT");
++        text2->SetStringId("OPTIONS_ACCEPT");
++        break;
++    }
++}
++template<class TLComponentInstance,class TLTextInstance,template<class,int>class FEFinder,class Scene>
++void FrontendNavigationSetBackButtonText(Scene& scene,int value)
++{
++    TLComponentInstance* component = FEFinder<TLComponentInstance, 4>::FindOrDefault(
++        scene.mBackButton->GetActiveSlide(), "back");
++
++    TLTextInstance* text0 = FEFinder<TLTextInstance, 3>::FindOrDefault(component,
++        "off", "back text");
++
++    TLTextInstance* text1 = FEFinder<TLTextInstance, 3>::FindOrDefault(component,
++        "over", "back text");
++
++    TLTextInstance* text2 = FEFinder<TLTextInstance, 3>::FindOrDefault(component,
++        "down", "back text");
++
++    switch (value)
++    {
++    case 0:
++        text0->SetStringId("BACK");
++        text1->SetStringId("BACK");
++        text2->SetStringId("BACK");
++        break;
++    case 1:
++        text0->SetStringId("LOG_OUT");
++        text1->SetStringId("LOG_OUT");
++        text2->SetStringId("LOG_OUT");
++        break;
++    }
++}
++template<class Instance,class Position,class Radians>
++void FrontendNavigationPointerPose(Instance* pointer,Position position,unsigned short angle,bool valid,bool sPointerHidden,Radians radians)
++{
++    if (valid)
++    {
++            pointer->SetAssetPosition(position.x, position.y, 0.0f);
++            pointer->SetAssetRotation(
++                0.0f, 0.0f, radians((unsigned short)-angle));
++    }
++        pointer->m_bVisible = valid && !sPointerHidden;
++}
++template<class TLComponentInstance,class TLSlide,template<class,int>class FEFinder,class Button,class Wide>
++void FrontendBackSetInstance(Button& button,TLComponentInstance* instance,Wide widescreen)
++{
++    if (widescreen())
++    {
++        instance->SetActiveSlide("16:9", true, false);
++    }
++    else
++    {
++        instance->SetActiveSlide("4:3", true, false);
++    }
++
++    button.mButtonPosition = instance->GetAssetPosition();
++    button.mButtonInstance = FEFinder<TLComponentInstance, 2>::template Find<TLSlide>(instance->GetActiveSlide(), "back");
++}
++template<class TLImageInstance,class feVector3,template<class,int>class FEFinder,class Button>
++void FrontendBackBounds(Button* button)
++{    TLImageInstance* over = FEFinder<TLImageInstance, 2>::FindOrDefault(
++        button->mButtonInstance, "over", "list_high_250x60");
++    feVector3 position = button->mButtonInstance->GetAssetPosition();
++    button->SetInstanceBounds(over, true, position.f.x, position.f.y, 1.0f, 1.0f);
++}
++template<class Button,class Play,class Base>
++void FrontendBackEnter(Button& button,int index,void* context,Play play,Base base)
++{
++    if (!button.HasOtherPointerState(1, index))
++    {
++        button.mButtonInstance->SetActiveSlide("over", true, false);
++        play(0xACCDCA48, 0, 0, 1);
++    }
++    button.SetPointerState(1, index);
++    base(index,context);
++}
++template<class Button,class Base>
++void FrontendBackLeave(Button& button,int index,void* context,Base base)
++{
++    if (!button.HasOtherPointerState(1, index))
++    {
++        button.mUnidentifiedB8 = 0.0f;
++        button.mButtonInstance->SetActiveSlide("off", true, false);
++        button.mUnidentifiedCE = false;
++    }
++    button.SetPointerState(0, index);
++    base(index,context);
++}
++template<class Button>
++void FrontendBackInside(Button& button,int index)
++{
++    button.mPointerInside[index] = true;
++}
++template<class Button,class Play,class Base>
++void FrontendBackPress(Button& button,int index,void* context,Play play,Base base)
++{
++    base(index,context);
++    play(0x6F6A3A07, 0, 0, 1);
++    button.mPressed = true;
++}
++template<class Button,class Base>
++void FrontendBackRelease(Button& button,int index,void* context,Base base)
++{
++    base(index,context);
++    button.mPressed = false;
++}
++template<int Invalid,class Button,class Push,class Pop>
++bool FrontendBackFinish(Button& button,Push push,Pop pop)
++{    if (button.mPressed && button.mPushBackScene)
++    {
++        if (button.mBackScene != Invalid)
++        {
++            push(button.mBackScene);
++        }
++        button.mPressed = false;
++        return true;
++    }
++
++    if (button.mPressed && !button.mPushBackScene)
++    {
++        if (button.mPopScene)
++        {
++            pop();
++        }
++        button.mPressed = false;
++        return true;
++    }
++
++    return false;
++}
++#endif

@@ -49,6 +49,11 @@ public:
     // Rebinding preserves previous pointer history, as original SetInstanceBounds
     // does. Failure retains the current frame and bounds. Disable resets history.
     void Rebind(Frame, FrontendPointerBinding);
+    // Original once-initialized listeners keep their bounds as animation moves
+    // between slides. Retag delivery with a new immutable frame without
+    // remeasuring. Caller retains the same authored instance/resources; a new
+    // scene/resource set requires Rebind. History and rotation/pivot survive.
+    void RebindFrame(Frame);
     void SetBounds(float min_x, float max_x, float max_y, float min_y); // Keeps original rotation/pivot.
     void Enable();
     void Disable();

@@ -8,6 +8,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
     target_compile_options(charged_frontend_stack PRIVATE -ffp-contract=off)
 endif()
 if(BUILD_TESTING)
+    include(cmake/FrontendMainMenu.cmake)
+    include(cmake/FrontendOptions.cmake)
+    add_executable(frontend_stack_visual_tests tests/frontend_stack_visual.cpp)
+    target_link_libraries(frontend_stack_visual_tests PRIVATE charged_frontend_stack
+        charged_frontend_main_menu charged_frontend_options charged_audio_bank_load aurora::dvd aurora::core)
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME frontend_stack_visual COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_stack_visual.py" "$<TARGET_FILE:frontend_stack_visual_tests>")
+        set_tests_properties(frontend_stack_visual PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
     add_executable(frontend_stack_tests tests/frontend_stack.cpp)
     target_link_libraries(frontend_stack_tests PRIVATE charged_frontend_stack aurora::dvd aurora::core)
     if(MSCHARGED_BUILD_SCENE_PREVIEW)

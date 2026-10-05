@@ -32,6 +32,15 @@ names. Patches 0098–0099 share original resident source states and frontend
 pointer production for checked native owners; full audio and menu startup remain
 in development.
 
+Patch 0111 shares the inherited empty `InitializeSubHandlers` stage used by
+Main and Options. Their selected native visual owners share one base handler
+with the scene stack, preserving one original update before input. Complete
+scene creation and game services remain separate integration work.
+
+Patch 0113 shares original option defaults and selected save-operation flag
+rules. The native preferences provider uses these rules with a dedicated host
+file; it does not load or complete the original Wii game save.
+
 The selected camera sources include original authored playback (0056) and
 desktop DebugCam controls (0057). Patch 0058 shares the original frontend
 camera catalog between the console factory and native loading code.

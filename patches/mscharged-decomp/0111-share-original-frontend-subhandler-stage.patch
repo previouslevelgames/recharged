@@ -1,0 +1,38 @@
+Subject: Share original inherited empty frontend subhandler stage
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Selected Main/Options native visual owners call the same inherited stage;
+full SceneCreated and FEScene state6 remain separate dependencies.
+
+diff --git a/include/Game/BaseSceneHandler.h b/include/Game/BaseSceneHandler.h
+--- a/include/Game/BaseSceneHandler.h
++++ b/include/Game/BaseSceneHandler.h
+@@ -2,6 +2,7 @@
+ #define GAME_BASE_SCENE_HANDLER_H
+ 
+ #include "types.h"
++#include "Game/FE/FrontendSubhandlerSteps.h"
+ 
+ class FEPresentation;
+ class FEScene;
+@@ -35,7 +36,7 @@
+ 
+     virtual ~BaseSceneHandler() { }
+     virtual void Update(float dt);
+-    virtual void InitializeSubHandlers() { }
++    virtual void InitializeSubHandlers() { FrontendBaseHandlerInitializeSubHandlers(); }
+     virtual void AddScreenHandler(BaseScreenHandler* handler);
+     virtual void RemoveScreenHandler(BaseScreenHandler* handler);
+     virtual void SetPresentation(FEPresentation* presentation) { mPresentation = presentation; }
+diff --git a/include/Game/FE/FrontendSubhandlerSteps.h b/include/Game/FE/FrontendSubhandlerSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendSubhandlerSteps.h
+@@ -0,0 +1,6 @@
++#ifndef FRONTEND_SUBHANDLER_STEPS_H
++#define FRONTEND_SUBHANDLER_STEPS_H
++// Exact inherited BaseSceneHandler implementation. Main and Options do not
++// override it. This empty stage does not complete either SceneCreated.
++inline void FrontendBaseHandlerInitializeSubHandlers() { }
++#endif

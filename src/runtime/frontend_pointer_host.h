@@ -74,6 +74,8 @@ public:
     FrontendPointerDispatch Route(const FrontendPointerPresentationHandle&, const FrontendPointerDesktopSample&);
     // Reads SDL's aggregate absolute cursor without pumping/consuming events.
     // Window identity, live extents and mouse focus must match publication.
+    // Resize/suspension delivers an inactive Leave on the old frame; input
+    // resumes only after matching renderer publication and neutral observation.
     FrontendPointerDispatch Poll(const FrontendPointerPresentationHandle&, SDL_Window*, bool mouse_capture = false);
     bool Failed() const;
     // Callback failures can have external side effects and earlier listeners
