@@ -153,6 +153,11 @@ void ApplyFrontendInstanceChanges(FrontendScene& scene,std::span<const FrontendI
         case FrontendInstanceProperty::String:
             type(3);Require(change.text.size()<=4096&&change.text.find(u'\0')==std::u16string::npos,"Invalid frontend user string");
             target.text=change.text;FrontendSetUserStringFlags(target.text_overload_flags);break;
+        case FrontendInstanceProperty::TextDrawOptions:
+            type(3);target.draw_options=change.draw_options;target.text_overload_flags|=0x10;break;
+        case FrontendInstanceProperty::TextBox:
+            type(3);for(float v:change.text_box){Finite(v);Require(v>=0,"Negative frontend text box");}
+            target.text_box=change.text_box;target.text_overload_flags|=4;break;
         case FrontendInstanceProperty::ImageResource:
             type(2);if(change.image_resource)
             {

@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 
+class GLResourcePool;
 namespace mscharged
 {
 enum class EffectsVertexMode { Loop, Hold };
@@ -32,6 +33,12 @@ class EffectsVertexResources
 public:
     EffectsVertexResources(const resources::EffectsGeometry&, const resources::TextureBundle&,
         std::function<void()> drain, EffectsVertexMemory = {});
+    // Register into the caller's exact live pool under a retained marker. The
+    // caller must keep that pool and its preceding resources alive until Release;
+    // no pool destruction or global inventory substitution occurs in this mode.
+    EffectsVertexResources(GLResourcePool&, const resources::EffectsGeometry&,
+        const resources::TextureBundle&, std::function<void()> drain);
+    const GLResourcePool* Pool() const;
     ~EffectsVertexResources();
     EffectsVertexResources(const EffectsVertexResources&) = delete;
     EffectsVertexResources& operator=(const EffectsVertexResources&) = delete;

@@ -21,6 +21,9 @@ int Action(FrontendAction action)
     {
     case FrontendAction::Left: case FrontendAction::Right: case FrontendAction::Up:
     case FrontendAction::Down: case FrontendAction::Accept: case FrontendAction::Back:
+    case FrontendAction::TitleReset40: case FrontendAction::TitleReset41:
+    case FrontendAction::TitleReset44: case FrontendAction::TitleReset45:
+    case FrontendAction::TitleReset48: case FrontendAction::TitleReset49:
     case FrontendAction::Start: return static_cast<int>(action);
     }
     throw std::invalid_argument("Unsupported frontend action");

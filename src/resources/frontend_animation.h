@@ -39,6 +39,8 @@ public:
                          bool force_reset = false, bool preserve_time = false);
     void Apply(std::span<const FrontendInstanceChange>);
     FrontendLoadingSetup SetupLoadingScene(bool widescreen);
+    // Apply an actual native movie registration to the current resource only.
+    void BindMovieResource(std::uint32_t,std::shared_ptr<const FrontendMovieImage>);
     const FrontendScene& Scene() const;
     float PresentationTime() const;
     std::size_t ChannelsEvaluated() const; // Last committed update, incl shared slide visits.

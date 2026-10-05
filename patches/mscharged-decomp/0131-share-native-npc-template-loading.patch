@@ -1,0 +1,135 @@
+Subject: Share original NPC template resource selection and readiness
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep original ordered template selection, resource paths and completion predicate
+shared with a checked native owner. Actor constructors and console in-place
+loaders remain unchanged and are not selected by this native resource profile.
+
+diff --git a/include/Game/Render/NPCLoadSteps.h b/include/Game/Render/NPCLoadSteps.h
+new file mode 100644
+index 0000000..46722e9
+--- /dev/null
++++ b/include/Game/Render/NPCLoadSteps.h
+@@ -0,0 +1,45 @@
++#ifndef GAME_RENDER_NPCLOADSTEPS_H
++#define GAME_RENDER_NPCLOADSTEPS_H
++
++// Shared original template-only selection, source paths and wait condition.
++// The caller owns inventory storage, checked native records and async lifetimes.
++template <class Iterator, class Template>
++inline bool SelectPendingNPCFromList(Iterator iterator, Template*& pending)
++{
++    while (iterator.hasNext())
++    {
++        if (!(*iterator)->loaded)
++        {
++            pending = *iterator;
++            return true;
++        }
++        iterator.next();
++    }
++    return false;
++}
++inline const char* NPCAnimationPathFormat() { return "art/animation/%s.sanim.zlib"; }
++inline const char* NPCHierarchyPathFormat() { return "art/animation/%s.shier"; }
++inline const char* NPCTexturesPathFormat() { return "art/characters/npcs/%s/%s.rlt"; }
++inline const char* NPCModelsPathFormat() { return "art/characters/npcs/%s/%s.rlg"; }
++inline bool NPCResourcesFinished(bool animationStarted, bool animationsLoaded,
++    bool hierarchyLoaded, bool texturesLoaded, unsigned long modelID)
++{
++    if (animationStarted && !animationsLoaded)
++    {
++        return false;
++    }
++    if (!hierarchyLoaded)
++    {
++        return false;
++    }
++    if (!texturesLoaded)
++    {
++        return false;
++    }
++    if (modelID == (unsigned long)-1)
++    {
++        return false;
++    }
++    return true;
++}
++#endif
+diff --git a/src/Game/Render/NPCManager.cpp b/src/Game/Render/NPCManager.cpp
+index 538fd1b..9a8dc0c 100644
+--- a/src/Game/Render/NPCManager.cpp
++++ b/src/Game/Render/NPCManager.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/Render/KoopaShellObject.h"
+ #include "Game/Render/NPCManager.h"
++#include "Game/Render/NPCLoadSteps.h"
+ #include "Game/Render/FlyingCamera.h"
+ #include "Game/Render/tu_801B43F8.h"
+ #include "Game/Render/WindDebrisConfig.h"
+@@ -114,14 +115,9 @@ bool NPCManager::SelectNextNPCTemplate()
+         nlDLListIterator<NPCTemplate*> iterator;
+         iterator = i == 0 ? mPersistentTemplates.Begin()
+                      : mTransientTemplates.Begin();
+-        while (iterator.hasNext())
++        if (SelectPendingNPCFromList(iterator, mPendingTemplate))
+         {
+-            if (!(*iterator)->loaded)
+-            {
+-                mPendingTemplate = *iterator;
+-                return true;
+-            }
+-            iterator.next();
++            return true;
+         }
+     }
+     return false;
+@@ -378,41 +374,30 @@ void NPCManager::BeginLoadNPCTemplate()
+     }
+ 
+     char path[256];
+-    nlSNPrintf(path, sizeof(path), "art/animation/%s.sanim.zlib", mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), NPCAnimationPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
+     if (nlLoadCompressedFileAsync(path, OnNPCAnimationsLoaded, &mPendingTemplate->mInventorySAnim, 0x20, AllocateStart, 0x40000, 0, 0, 0, 0, &StandardAllocator))
+     {
+         mPendingTemplate->mAnimationLoadStarted = true;
+     }
+ 
+-    nlSNPrintf(path, sizeof(path), "art/animation/%s.shier", mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), NPCHierarchyPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
+     cInventory<cSHierarchy>* pInventory = mPendingTemplate->mPersistent
+                                             ? mPersistentHierarchies
+                                             : mTransientHierarchies;
+     nlLoadEntireFileAsync(path, OnNPCHierarchyLoaded, pInventory, 0x20, AllocateStart, 0, 0, &StandardAllocator);
+ 
+-    nlSNPrintf(path, sizeof(path), "art/characters/npcs/%s/%s.rlt", mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), NPCTexturesPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
+     glBeginLoadTextureBundle(path, OnNPCTexturesLoaded, mPendingTemplate, pContext);
+ 
+-    nlSNPrintf(path, sizeof(path), "art/characters/npcs/%s/%s.rlg", mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), NPCModelsPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
+     glBeginLoadModel(path, OnNPCModelLoaded, mPendingTemplate, pContext);
+ }
+ 
+ bool NPCManager::FinishLoadNPCTemplate()
+ {
+-    if (mPendingTemplate->mAnimationLoadStarted
+-        && !mPendingTemplate->mAnimationsLoaded)
+-    {
+-        return false;
+-    }
+-    if (!mPendingTemplate->mHierarchyLoaded)
+-    {
+-        return false;
+-    }
+-    if (!mPendingTemplate->mTexturesLoaded)
+-    {
+-        return false;
+-    }
+-    if (mPendingTemplate->modelID == -1)
++    if (!NPCResourcesFinished(mPendingTemplate->mAnimationLoadStarted,
++            mPendingTemplate->mAnimationsLoaded, mPendingTemplate->mHierarchyLoaded,
++            mPendingTemplate->mTexturesLoaded, mPendingTemplate->modelID))
+     {
+         return false;
+     }

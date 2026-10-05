@@ -1,0 +1,184 @@
+Subject: [PATCH] share original frontend resource context completion
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Share original package state5/queue/creation order, resource context switches,
+resource Update removal/completion scheduling and the actual empty completion
+body. Preserve the console bodies in their original branch. Native callers
+require retained validated registration leases and explicit
+creation services. This does not relocate Wii data, select the complete original
+frontend managers or manufacture full concrete SceneCreated readiness.
+
+diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
+--- a/src/Game/FE/feScene.cpp
++++ b/src/Game/FE/feScene.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/FE/feScene.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/FE/FrontendResourceSteps.h"
++#endif
+ 
+ #include "Game/FE/fePackage.h"
+ #include "Game/FE/feSceneManager.h"
+@@ -172,11 +175,17 @@
+ 
+     nlFree(m_pPointerTable);
+     m_pPointerTable = 0;
++#if defined(MSCHARGED_NATIVE)
++    FrontendScenePackageResources(*this,
++        [this] { LoadPackageResources(m_pFEPackage); },
++        [this] { FESceneManager::Instance()->InitializeScene(this); });
++#else
+     mState = 5;
+ 
+     LoadPackageResources(m_pFEPackage);
+ 
+     FESceneManager::Instance()->InitializeScene(this);
++#endif
+ 
+     if (m_pAllocator != 0)
+     {
+@@ -207,6 +216,9 @@
+ 
+ void FEScene::AllResourcesLoadedCallback()
+ {
++#if defined(MSCHARGED_NATIVE)
++    FrontendSceneResourcesLoadedCallback();
++#endif
+ }
+ 
+ void FEScene::ReleaseResourceHandles()
+diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.cpp
+--- a/src/Game/FE/feResourceManager.cpp
++++ b/src/Game/FE/feResourceManager.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/FE/feResourceManager.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/FE/FrontendResourceSteps.h"
++#endif
+ 
+ #include <stddef.h>
+ 
+@@ -440,6 +443,17 @@
+ 
+ ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)
+ {
++#if defined(MSCHARGED_NATIVE)
++    struct ContextServices
++    {
++        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
++        FESceneResource* PermanentContext() { return s_pPermanentBundleSceneResource; }
++        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
++        unsigned long MarkResource(FESceneResource*) { return s_pResourcePool->MarkResource(); }
++    } services;
++    FrontendIssueResourceContext(services, pFeSceneResource);
++    return FERR_WaitingForResource;
++#else
+     if (s_pCurrentFESceneResourceContext != 0
+         && s_pCurrentFESceneResourceContext != pFeSceneResource
+         && s_pPermanentBundleSceneResource != s_pCurrentFESceneResourceContext)
+@@ -452,6 +466,7 @@
+     pFeSceneResource->m_bValid = true;
+     s_pCurrentFESceneResourceContext = pFeSceneResource;
+     return FERR_WaitingForResource;
++#endif
+ }
+ 
+ ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad pendingResource)
+@@ -479,6 +494,23 @@
+ 
+ void FEResourceManager::Update(float dt)
+ {
++#if defined(MSCHARGED_NATIVE)
++    struct QueueServices
++    {
++        FEResourceManager& manager;
++        FEResourceHandle*& CurrentResource() { return s_pCurrentResourceBeingLoaded; }
++        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
++        bool Empty() const { return pendingResourceQueue.m_Head == 0; }
++        void RemoveFirst() { pendingResourceQueue.RemoveStart(0); }
++        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
++        bool IssueFirstAlreadyLoaded()
++        {
++            return manager.IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry)
++                == FERR_AlreadyLoaded;
++        }
++    } services = {*this};
++    FrontendResourceQueueUpdate(services);
++#else
+     ResourceResult result;
+     bool bQueueNextResource = true;
+     while (bQueueNextResource)
+@@ -508,6 +540,7 @@
+         result = IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry);
+         bQueueNextResource = result == FERR_AlreadyLoaded;
+     }
++#endif
+ }
+ 
+ GLResourcePool* FEResourceManager::GetResourcePool()
+diff --git a/include/Game/FE/FrontendResourceSteps.h b/include/Game/FE/FrontendResourceSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendResourceSteps.h
+@@ -0,0 +1,61 @@
++#ifndef FRONTEND_RESOURCE_STEPS_H
++#define FRONTEND_RESOURCE_STEPS_H
++#include "Game/FE/FrontendStackSteps.h"
++
++// Exact FEScene/FEResourceManager order shared with checked native ownership.
++// Callers supply genuine handle validity and resource-pool marks. These steps
++// never infer readiness from decoded assets or a native published frame.
++template<class Scene, class Queue, class Initialize>
++void FrontendScenePackageResources(Scene& scene, Queue queue, Initialize initialize)
++{
++    scene.mState = 5;
++    queue();
++    initialize();
++}
++inline void FrontendSceneResourcesLoadedCallback() { }
++template<class Context> void FrontendCompleteResourceContext(Context* context)
++{
++    context->m_pFESceneContext->mState = 6;
++    context->m_pFESceneContext->AllResourcesLoadedCallback();
++}
++template<class Services, class Context>
++void FrontendIssueResourceContext(Services& services, Context* incoming)
++{
++    auto* current = services.CurrentContext();
++    if (current != 0 && current != incoming && services.PermanentContext() != current)
++        services.CompleteContext(current);
++    incoming->m_glResourceMarker = services.MarkResource(incoming);
++    incoming->m_bValid = true;
++    services.CurrentContext() = incoming;
++}
++template<class Services> void FrontendResourceQueueUpdate(Services& services)
++{
++    bool queueNext = true;
++    while (queueNext)
++    {
++        if (services.CurrentResource() != 0 && !services.CurrentResource()->IsValid())
++            return;
++        if (services.CurrentResource() != 0)
++        {
++            services.RemoveFirst();
++            services.CurrentResource() = 0;
++            if (services.Empty() && services.CurrentContext() != 0)
++            {
++                services.CompleteContext(services.CurrentContext());
++                services.CurrentContext() = 0;
++            }
++        }
++        if (services.Empty())
++            return;
++        queueNext = services.IssueFirstAlreadyLoaded();
++    }
++}
++template<class Range, class Pending>
++bool FrontendAllResourceScenesValid(const Range& scenes, const Pending& pending)
++{
++    for (const auto* scene : scenes)
++        if (!FrontendOriginalSceneReady(scene->mState))
++            return false;
++    return pending.empty();
++}
++#endif

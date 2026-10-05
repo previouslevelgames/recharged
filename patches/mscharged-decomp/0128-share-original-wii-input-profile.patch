@@ -1,0 +1,319 @@
+Subject: Share original pure Wii input device policies
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+diff --git a/include/NL/plat/WiiPadSteps.h b/include/NL/plat/WiiPadSteps.h
+new file mode 100644
+index 0000000..72acf59
+--- /dev/null
++++ b/include/NL/plat/WiiPadSteps.h
+@@ -0,0 +1,135 @@
++#ifndef NL_PLAT_WII_PAD_STEPS_H
++#define NL_PLAT_WII_PAD_STEPS_H
++#include "NL/plat/WiiPad.h"
++
++// Original pure policy shared by console device owners and checked native
++// sample adapters. No device discovery, remap table or platform service.
++inline float WiiNormalizeClampedStick(int axis)
++{
++    return axis / 56.0f;
++}
++
++inline unsigned short WiiFreestyleStickDPad(float x, float y)
++{
++    return MapWiiStickToDPad(x, y, 1, 2, 4, 8);
++}
++
++inline unsigned short WiiClassicStickDPad(float x, float y)
++{
++    return MapWiiStickToDPad(x, y, 2, 0x8000, 0x4000, 1);
++}
++
++inline int WiiClassicButtonIndex(int button)
++{
++    int buttonIndex = 0;
++    switch (button)
++    {
++    case 0x1:
++        buttonIndex = 0;
++        break;
++    case 0x2:
++        buttonIndex = 1;
++        break;
++    case 0x4:
++        buttonIndex = 2;
++        break;
++    case 0x8:
++        buttonIndex = 3;
++        break;
++    case 0x10:
++        buttonIndex = 4;
++        break;
++    case 0x20:
++        buttonIndex = 5;
++        break;
++    case 0x40:
++        buttonIndex = 6;
++        break;
++    case 0x80:
++        buttonIndex = 7;
++        break;
++    case 0x100:
++        buttonIndex = 8;
++        break;
++    case 0x200:
++        buttonIndex = 9;
++        break;
++    case 0x400:
++        buttonIndex = 10;
++        break;
++    case 0x800:
++        buttonIndex = 11;
++        break;
++    case 0x1000:
++        buttonIndex = 12;
++        break;
++    case 0x2000:
++        buttonIndex = 13;
++        break;
++    case 0x4000:
++        buttonIndex = 14;
++        break;
++    case 0x8000:
++        buttonIndex = 15;
++        break;
++    }
++    return buttonIndex;
++}
++
++inline int WiiClassicButtonMask(int buttonIndex)
++{
++    int button = 0;
++    switch (buttonIndex)
++    {
++    case 0:
++        button = 0x1;
++        break;
++    case 1:
++        button = 0x2;
++        break;
++    case 2:
++        button = 0x4;
++        break;
++    case 3:
++        button = 0x8;
++        break;
++    case 4:
++        button = 0x10;
++        break;
++    case 5:
++        button = 0x20;
++        break;
++    case 6:
++        button = 0x40;
++        break;
++    case 7:
++        button = 0x80;
++        break;
++    case 8:
++        button = 0x100;
++        break;
++    case 9:
++        button = 0x200;
++        break;
++    case 10:
++        button = 0x400;
++        break;
++    case 11:
++        button = 0x800;
++        break;
++    case 12:
++        button = 0x1000;
++        break;
++    case 13:
++        button = 0x2000;
++        break;
++    case 14:
++        button = 0x4000;
++        break;
++    case 15:
++        button = 0x8000;
++        break;
++    }
++    return button;
++}
++#endif
+diff --git a/src/NL/plat/WiiClassicPad.cpp b/src/NL/plat/WiiClassicPad.cpp
+index 2470197..730f31c 100644
+--- a/src/NL/plat/WiiClassicPad.cpp
++++ b/src/NL/plat/WiiClassicPad.cpp
+@@ -1,5 +1,6 @@
+ #include "NL/plat/WiiClassicPad.h"
+ #include "NL/plat/WiiPad.h"
++#include "NL/plat/WiiPadSteps.h"
+ #include "NL/plat/PlatPadManager.h"
+ #include "NL/plat/SwappablePad.h"
+ 
+@@ -48,13 +49,13 @@ void WiiClassicPad::UpdateState(float dt)
+ {
+     mDPDData.Update(&mCurrentStatus->kpad);
+     WPADCLStatus* status = &mCurrentStatus->wpad;
+-    mAnalogLeft.x = status->clLStickX / 56.0f;
+-    mAnalogLeft.y = status->clLStickY / 56.0f;
+-    mAnalogRight.x = status->clRStickX / 56.0f;
+-    mAnalogRight.y = status->clRStickY / 56.0f;
++    mAnalogLeft.x = WiiNormalizeClampedStick(status->clLStickX);
++    mAnalogLeft.y = WiiNormalizeClampedStick(status->clLStickY);
++    mAnalogRight.x = WiiNormalizeClampedStick(status->clRStickX);
++    mAnalogRight.y = WiiNormalizeClampedStick(status->clRStickY);
+     if (m_isLeftAnalogToDPadMapEnabled)
+     {
+-        status->clButton |= MapWiiStickToDPad(mAnalogLeft.x, mAnalogLeft.y, 2, 0x8000, 0x4000, 1);
++        status->clButton |= WiiClassicStickDPad(mAnalogLeft.x, mAnalogLeft.y);
+     }
+ 
+     int changed = mCurrentStatus->wpad.clButton ^ mPreviousStatus->wpad.clButton;
+@@ -109,116 +110,12 @@ int WiiClassicPad::GetButtonIndex(int button, bool remap)
+ {
+     if (remap)
+         button = gWiiClassicButtonRemap[button];
+-    int buttonIndex = 0;
+-    switch (button)
+-    {
+-    case 0x1:
+-        buttonIndex = 0;
+-        break;
+-    case 0x2:
+-        buttonIndex = 1;
+-        break;
+-    case 0x4:
+-        buttonIndex = 2;
+-        break;
+-    case 0x8:
+-        buttonIndex = 3;
+-        break;
+-    case 0x10:
+-        buttonIndex = 4;
+-        break;
+-    case 0x20:
+-        buttonIndex = 5;
+-        break;
+-    case 0x40:
+-        buttonIndex = 6;
+-        break;
+-    case 0x80:
+-        buttonIndex = 7;
+-        break;
+-    case 0x100:
+-        buttonIndex = 8;
+-        break;
+-    case 0x200:
+-        buttonIndex = 9;
+-        break;
+-    case 0x400:
+-        buttonIndex = 10;
+-        break;
+-    case 0x800:
+-        buttonIndex = 11;
+-        break;
+-    case 0x1000:
+-        buttonIndex = 12;
+-        break;
+-    case 0x2000:
+-        buttonIndex = 13;
+-        break;
+-    case 0x4000:
+-        buttonIndex = 14;
+-        break;
+-    case 0x8000:
+-        buttonIndex = 15;
+-        break;
+-    }
+-    return buttonIndex;
++    return WiiClassicButtonIndex(button);
+ }
+ 
+ int WiiClassicPad::GetButtonMask(int buttonIndex)
+ {
+-    int button = 0;
+-    switch (buttonIndex)
+-    {
+-    case 0:
+-        button = 0x1;
+-        break;
+-    case 1:
+-        button = 0x2;
+-        break;
+-    case 2:
+-        button = 0x4;
+-        break;
+-    case 3:
+-        button = 0x8;
+-        break;
+-    case 4:
+-        button = 0x10;
+-        break;
+-    case 5:
+-        button = 0x20;
+-        break;
+-    case 6:
+-        button = 0x40;
+-        break;
+-    case 7:
+-        button = 0x80;
+-        break;
+-    case 8:
+-        button = 0x100;
+-        break;
+-    case 9:
+-        button = 0x200;
+-        break;
+-    case 10:
+-        button = 0x400;
+-        break;
+-    case 11:
+-        button = 0x800;
+-        break;
+-    case 12:
+-        button = 0x1000;
+-        break;
+-    case 13:
+-        button = 0x2000;
+-        break;
+-    case 14:
+-        button = 0x4000;
+-        break;
+-    case 15:
+-        button = 0x8000;
+-        break;
+-    }
+-    return button;
++    return WiiClassicButtonMask(buttonIndex);
+ }
+ 
+ float WiiClassicPad::GetButtonStateTime(int button, bool remap)
+diff --git a/src/NL/plat/WiiFreestylePad.cpp b/src/NL/plat/WiiFreestylePad.cpp
+index 5af1a64..7a0e5c3 100644
+--- a/src/NL/plat/WiiFreestylePad.cpp
++++ b/src/NL/plat/WiiFreestylePad.cpp
+@@ -1,5 +1,6 @@
+ #include "NL/plat/WiiFreestylePad.h"
+ #include "NL/plat/WiiPad.h"
++#include "NL/plat/WiiPadSteps.h"
+ #include "NL/plat/PlatPadManager.h"
+ #include "NL/plat/SwappablePad.h"
+ 
+@@ -16,11 +17,11 @@ inline void WiiFreestylePad::UpdateState(float dt)
+     mDPDData.Update(&mCurrentStatus->kpad);
+ 
+     status = &mCurrentStatus->wpad;
+-    mAnalogLeft.x = status->fsStickX / 56.0f;
+-    mAnalogLeft.y = status->fsStickY / 56.0f;
++    mAnalogLeft.x = WiiNormalizeClampedStick(status->fsStickX);
++    mAnalogLeft.y = WiiNormalizeClampedStick(status->fsStickY);
+     if (m_isLeftAnalogToDPadMapEnabled)
+     {
+-        status->button |= MapWiiStickToDPad(mAnalogLeft.x, mAnalogLeft.y, 1, 2, 4, 8);
++        status->button |= WiiFreestyleStickDPad(mAnalogLeft.x, mAnalogLeft.y);
+     }
+ 
+     changed = mCurrentStatus->wpad.button ^ mPreviousStatus->wpad.button;

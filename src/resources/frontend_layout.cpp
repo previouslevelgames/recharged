@@ -169,10 +169,22 @@ class Builder
         Require(resources_.contains(*instance.resource),"Frontend image resource is absent");
         const auto& resource=*resources_.at(*instance.resource);
         Require(resource.type==0,"Frontend image resource is not a texture");
-        // Dynamic resources require their real callbacks/targets even if a
-        // caller supplies an ordinary texture under the same hash.
-        if(resource.hash==FrontendNameHash("movie")||resource.hash==FrontendNameHash("target/grab_texture"))
-        {++result_.unavailable["dynamic movie or grab image"];return;}
+        // Runtime movie handle overrides the serialized resource name exactly
+        // as FETextureResource::SetTextureHandle; no fabricated static texture.
+        if(resource.native_movie||resource.hash==FrontendNameHash("movie"))
+        {
+            FrontendLayoutMovie entry;entry.instance=instance.offset;entry.resource=resource.offset;
+            entry.priority=instance.priority;entry.name=instance.name;entry.image=resource.native_movie;
+            entry.uv=object.attributes.uv;
+            for(unsigned i=0;i<4;++i){if(instance.overload_flags&(0x40u<<i))entry.uv[i]=instance.attributes.uv[i];Scalar(entry.uv[i]);}
+            entry.transform={matrix.m11,-matrix.m12,0,0,matrix.m21,-matrix.m22,0,0,0,0,matrix.m33,0,
+                matrix.m41+scene_view_.m41+320,240-(matrix.m42+scene_view_.m42),0,1};
+            entry.colour=colour;
+            if(!entry.image)++result_.unavailable["movie image awaiting actual provider"];
+            result_.entries.push_back(std::move(entry));return;
+        }
+        if(resource.hash==FrontendNameHash("target/grab_texture"))
+        {++result_.unavailable["dynamic grab image"];return;}
         if(const auto unavailable=images_.unavailable.find(resource.hash);unavailable!=images_.unavailable.end())
         {++result_.unavailable[unavailable->second];return;}
         const auto found=images_.textures.find(resource.hash);
@@ -260,7 +272,11 @@ class Builder
         if(!ValidTime(time,instance.start,instance.duration)||!instance.visible||!object.attributes.visible)
         {++result_.hidden;active_.erase(id);return;}
         const auto attributes=Effective(instance,object);
-        if(attributes.rotation[0]!=0||attributes.rotation[1]!=0||attributes.position[2]!=0||attributes.pivot[2]!=0||attributes.scale[2]!=1)
+        // Image/movie/text geometry lies in XY with z=0. Pure finite Z
+        // scaling, including authored Title component/image scale0, leaves
+        // that plane unchanged. Retain the full source matrix. Descendants
+        // must independently satisfy the same rotation/translation/pivot gate.
+        if(attributes.rotation[0]!=0||attributes.rotation[1]!=0||attributes.position[2]!=0||attributes.pivot[2]!=0)
         {++result_.unavailable["nonplanar instance branch"];active_.erase(id);return;}
         const auto matrix=Combine(attributes,parent);
         for(unsigned i=0;i<4;++i)colour[i]=(attributes.colour[i]*colour[i])/255.f;
@@ -315,11 +331,15 @@ public:
 }
 std::size_t FrontendLayoutFrame::TextCount() const
 {return std::count_if(entries.begin(),entries.end(),[](const auto& entry){return std::holds_alternative<FrontendLayoutText>(entry);});}
-std::size_t FrontendLayoutFrame::ImageCount() const{return entries.size()-TextCount();}
+std::size_t FrontendLayoutFrame::ImageCount() const
+{return std::count_if(entries.begin(),entries.end(),[](const auto& entry){return std::holds_alternative<Image>(entry);});}
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene& scene,const Localization& loc,
     std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected,const FrontendLayoutOptions& options)
 {return Builder(scene,loc,fonts,FrontendImageCatalog{},options).Build(selected);}
 FrontendLayoutFrame BuildFrontendLayout(const FrontendScene& scene,const Localization& loc,
     std::span<const std::shared_ptr<const FrontendFont>> fonts,FrontendReference selected,const FrontendImageCatalog& images,const FrontendLayoutOptions& options)
 {return Builder(scene,loc,fonts,images,options).Build(selected);}
+std::size_t FrontendLayoutFrame::MovieCount() const
+{return std::count_if(entries.begin(),entries.end(),[](const auto& entry){return std::holds_alternative<Movie>(entry);});}
+
 }

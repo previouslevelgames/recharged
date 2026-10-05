@@ -56,6 +56,12 @@ std::array<FrontendPadSample, 4> FrontendInputMap::Sample(const FrontendInputDev
         if (input.buttons[SDL_GAMEPAD_BUTTON_SOUTH]) sample.buttons |= 0x100;
         if (input.buttons[SDL_GAMEPAD_BUTTON_EAST]) sample.buttons |= 0x200;
         if (input.buttons[SDL_GAMEPAD_BUTTON_START]) sample.buttons |= 0x1000;
+        // Original Title sequence-reset aliases40/41/44/45/48/49 use
+        // the existing PadActionMap Y/X/R/L/L/R masks on desktop gamepads.
+        if (input.buttons[SDL_GAMEPAD_BUTTON_NORTH]) sample.buttons |= 0x800;
+        if (input.buttons[SDL_GAMEPAD_BUTTON_WEST]) sample.buttons |= 0x400;
+        if (input.buttons[SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER]) sample.buttons |= 0x40;
+        if (input.buttons[SDL_GAMEPAD_BUTTON_LEFT_SHOULDER]) sample.buttons |= 0x20;
         sample.left_x = Axis(input.left_x); sample.left_y = -Axis(input.left_y);
         sample = Gate(sample, capture.focused && !capture.gamepad && input.id != 0, pad_blocked_[i], pad_previous_[i]);
         result[i] = sample;

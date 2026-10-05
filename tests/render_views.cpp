@@ -185,7 +185,7 @@ int main()
         Check(!gRootView.m_Sorters, "Root view allocated before game memory initialization");
         static_assert(sizeof(GLTargetInfo) == 40);
         // Keys differing only above bit 31 remain separate; high pointer bits cannot overwrite priority.
-        UnidentifiedPacketSortKey a{1,UINT64_C(0x100000000)}, b{1,UINT64_C(0x200000000)}, c{2,0};
+        GLPacketSortKey a{1,UINT64_C(0x100000000)}, b{1,UINT64_C(0x200000000)}, c{2,0};
         Check(a < b && b < c && !(a == b), "Native sorter truncated a pointer or corrupted priority");
         std::vector<std::uint64_t> mem1(1024*1024), mem2(1024*1024);
         ResetStartupMemory();

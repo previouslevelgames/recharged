@@ -3,7 +3,7 @@ import struct
 from frontend_visual_fixture import files as visual_files, name_hash
 from frontend_image_fixture import bundle, texture
 
-def scene(missing=False,missing_door=False):
+def scene(missing=False,missing_door=False,title_accept=False):
     data=bytearray(24);pointers=set();libraries=[];resources=[]
     def allocate(n):at=len(data);data.extend(bytes(n));return at
     def word(at,value):struct.pack_into('>I',data,at,value)
@@ -49,7 +49,7 @@ def scene(missing=False,missing_door=False):
     children=[]
     for i in range(4):
         if missing and i==3:continue
-        states=[slide(state,(instance(2,'pointer',image_lib),)) for state in ('waiting','cursor')]
+        states=[slide(state,(instance(2,'pointer',image_lib),)) for state in (('waiting','cursor','A') if title_accept else ('waiting','cursor'))]
         children.append(comp('cursor'+str(i),states))
     timer=comp('the_timer',[slide(state,(label('Timer'),)) for state in ('4:3','16:9')]);children.append(timer)
     children.append(comp('no home',[slide('Slide1'),slide('widescreen')]))

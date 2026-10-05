@@ -35,6 +35,7 @@ struct FrontendTransition::Implementation
     bool busy = false;
     FrontendTransitionState state = FrontendTransitionState::Idle;
     FrontendSession::Handle title;
+    FrontendSessionResources::Handle resources;
     FrontendStackCallbacks callbacks;
     FrontendCameraSelectionHandle selection;
     std::shared_ptr<Completion> completion = std::make_shared<Completion>();
@@ -116,6 +117,7 @@ struct FrontendTransition::Implementation
             FrontendStackRequest request;
             request.scene=1; request.movement=1; request.language=title->request.language;
             request.image_profile=FrontendImageProfile::Main; request.initial_slide="MAIN";
+            if(resources)request.shared_resources=resources;
             queued = stack.QueuePush(std::move(request), callbacks);
             break;
         }
@@ -157,11 +159,11 @@ void FrontendTransition::Begin(FrontendSceneStack::Token token,const FrontendSes
     const bool complete=callbacks.scene_created&&callbacks.initialize_subhandlers&&callbacks.after_base_update;
     Require(complete||(!callbacks.scene_created&&!callbacks.initialize_subhandlers&&!callbacks.after_base_update),
         "Frontend transition main callbacks must be complete or explicitly unavailable");
-    auto selected=s.cameras.Selection();
+    auto selected=s.cameras.Selection();auto resources=s.stack.Resources(token);
     Guard guard(s.busy);
     try
     {
-        s.Detach();s.title=expected;s.callbacks=std::move(callbacks);s.queued.reset();s.calls.clear();
+        s.Detach();s.title=expected;s.resources=std::move(resources);s.callbacks=std::move(callbacks);s.queued.reset();s.calls.clear();
         s.wait=0;s.completion->finished=false;s.selection=std::move(selected);s.vm.Reset();
         s.state=FrontendTransitionState::Running;
         Require(s.vm.Execute(title_to_main),"Original title-to-main function is missing");
@@ -191,14 +193,14 @@ std::span<const unsigned> FrontendTransition::Calls() const {impl_->Thread();ret
 void FrontendTransition::Cancel()
 {
     auto& s=*impl_;s.Mutable(true);Guard guard(s.busy);
-    s.Detach();s.vm.Reset();s.title.reset();s.callbacks={};s.wait=0;s.calls.clear();
+    s.Detach();s.vm.Reset();s.title.reset();s.resources.reset();s.callbacks={};s.wait=0;s.calls.clear();
     // Source Reset does not undo a Push already issued by this script.
     s.state=FrontendTransitionState::Cancelled;
 }
 void FrontendTransition::Release()
 {
     auto& s=*impl_;s.Thread();if(s.state==FrontendTransitionState::Released)return;
-    s.Mutable(true);Guard guard(s.busy);s.Detach();s.vm.Reset();s.callbacks={};s.title.reset();
+    s.Mutable(true);Guard guard(s.busy);s.Detach();s.vm.Reset();s.callbacks={};s.title.reset();s.resources.reset();
     s.state=FrontendTransitionState::Released;
 }
 }

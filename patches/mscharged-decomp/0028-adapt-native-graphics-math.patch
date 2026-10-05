@@ -1,6 +1,6 @@
 Subject: Select native arithmetic for original graphics matrix helpers
 
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Compile the original NL math/vector helpers and RVL 4x4 matrix TU. Retain its
 portable projection and inverse bodies, add scalar native implementations of
@@ -37,25 +37,22 @@ index 59f60ba..0fe420e 100644
      float oneMinusCos = 1.0f - fCos;
      result.m11 = oneMinusCos * (axis.x * axis.x) + fCos;
 diff --git a/src/NL/nlMath.cpp b/src/NL/nlMath.cpp
-index ac09438..562ff4d 100644
+index 298109a..5d6a9ce 100644
 --- a/src/NL/nlMath.cpp
 +++ b/src/NL/nlMath.cpp
-@@ -4,8 +4,14 @@
+@@ -3,6 +3,11 @@
+ #include "types.h"
  
  #include <math.h>
- 
 +#if defined(MSCHARGED_NATIVE)
 +#include "runtime/graphics_math.h"
 +#include <limits>
 +#define __frsqrte(value) mscharged::NativeReciprocalSqrtEstimate(value)
-+#else
- extern int __float_nan[];
- extern int __float_huge[];
 +#endif
  
  struct nlATanCoefficients
  {
-@@ -14,12 +20,20 @@ struct nlATanCoefficients
+@@ -11,12 +16,20 @@ struct nlATanCoefficients
  
  static inline float nlFAbs(float value)
  {
@@ -76,7 +73,7 @@ index ac09438..562ff4d 100644
  }
  
  float nlSqrt(float x, bool accurate)
-@@ -37,13 +51,25 @@ float nlSqrt(float x, bool accurate)
+@@ -34,13 +47,25 @@ float nlSqrt(float x, bool accurate)
      }
      else if (x < 0.0)
      {
@@ -102,7 +99,7 @@ index ac09438..562ff4d 100644
          }
          return x;
      }
-@@ -62,11 +88,19 @@ float nlRecipSqrt(float x, bool accurate)
+@@ -59,11 +84,19 @@ float nlRecipSqrt(float x, bool accurate)
      }
      else if (x != zero)
      {
@@ -122,7 +119,7 @@ index ac09438..562ff4d 100644
      }
  }
  
-@@ -228,11 +262,19 @@ int nlACos(float x)
+@@ -225,11 +258,19 @@ int nlACos(float x)
          float zero = 0.0f;
          if (radicand != zero)
          {
@@ -163,26 +160,18 @@ index bcaa97e..a81cc2f 100644
 +#endif
  }
 diff --git a/src/NL/plat/platqmath.cpp b/src/NL/plat/platqmath.cpp
-index 58f4d64..77b13eb 100644
+index d8cf6a1..efa8979 100644
 --- a/src/NL/plat/platqmath.cpp
 +++ b/src/NL/plat/platqmath.cpp
-@@ -1,5 +1,8 @@
- #include "NL/nlMath.h"
- 
+@@ -1,4 +1,8 @@
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/mtx.h>
 +#else
- struct Quaternion;
- 
- extern "C"
-@@ -9,6 +12,7 @@ extern "C"
-     void C_QUATSlerp(const Quaternion* p, const Quaternion* q,
-         Quaternion* r, float t);
- }
+ #include <revolution/mtx.h>
 +#endif
  
- void nlQuatSlerp(
-     nlQuaternion& out, const nlQuaternion& q1, const nlQuaternion& q2, float t)
+ #include "NL/nlMath.h"
+ 
 diff --git a/src/NL/plat/platvmath.cpp b/src/NL/plat/platvmath.cpp
 index 2271167..ac68f04 100644
 --- a/src/NL/plat/platvmath.cpp

@@ -1,6 +1,6 @@
 Subject: Select original task scheduling and explicit movie service boundary
 
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Retain original intrusive insertion, state notification order, per-task ticker
 sampling, bounds/dilation and post-task MoviePlay calls. Native registration is
@@ -13,9 +13,10 @@ No full frame-task initialization, movie decoder or successful service stub is
 introduced. The Wii ticker arithmetic remains unchanged, including wrap behavior.
 
 diff --git a/include/NL/nlTask.h b/include/NL/nlTask.h
+index d4e99f6..dd8258c 100644
 --- a/include/NL/nlTask.h
 +++ b/include/NL/nlTask.h
-@@ -7,10 +7,21 @@
+@@ -7,10 +7,21 @@ class nlTask
  {
  public:
      nlTask()
@@ -37,7 +38,119 @@ diff --git a/include/NL/nlTask.h b/include/NL/nlTask.h
      virtual void Run(float) = 0;
      virtual const char* GetName() = 0;
      // Spelled out so the mangled name stays ...FUiUi even in translation
+diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+index e8730cc..7bb21c1 100644
+--- a/src/Game/Sys/movie.cpp
++++ b/src/Game/Sys/movie.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/Sys/movie.h"
++#ifdef MSCHARGED_NATIVE
++#include "runtime/startup.h"
++#else
+ #include "Game/Sys/debug.h"
+ 
+ #include "RVL_SDK/thp/THPSimple.h"
+@@ -25,6 +28,8 @@
+ static THPVideoInfo videoInfo;
+ static PlatTexture* pTex[4];
+ 
++#endif
++
+ static unsigned int g_uLastDecodeRenderTick = -1;
+ static bool g_bSyncedDecode = true;
+ 
+@@ -45,6 +50,10 @@ static unsigned int g_uLastPlayFrame;
+ 
+ bool MovieInit()
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::MissingStartupService("MovieInit",
++        "Wii THPSimple decoding, audio and movie texture lifetime are not connected.");
++#else
+     if (g_bTHPInitialized)
+     {
+         return true;
+@@ -53,13 +62,19 @@ bool MovieInit()
+     THPSimpleInit(1);
+     g_bTHPInitialized = true;
+     return true;
++#endif
+ }
+ 
+ bool MovieQuit()
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::MissingStartupService("MovieQuit",
++        "Wii THPSimple decoding, audio and movie texture lifetime are not connected.");
++#else
+     THPSimpleQuit();
+     g_bTHPInitialized = false;
+     return true;
++#endif
+ }
+ 
+ void SetSyncedDecode(bool value)
+@@ -70,6 +85,10 @@ void SetSyncedDecode(bool value)
+ bool MovieStart(
+     const char* szFilename, bool bSound, bool bLoopMovie, bool bMono)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged::MissingStartupService("MovieStart",
++        "Wii THPSimple decoding, audio and movie texture lifetime are not connected.");
++#else
+     if (g_bActive)
+     {
+         return false;
+@@ -146,6 +165,7 @@ bool MovieStart(
+     g_bActive = true;
+     g_uCurrentFrame = 0;
+     return true;
++#endif
+ }
+ 
+ bool MovieStop()
+@@ -154,7 +174,10 @@ bool MovieStop()
+     {
+         return false;
+     }
+-
++#ifdef MSCHARGED_NATIVE
++    mscharged::MissingStartupService("MovieStop",
++        "Active Wii movie playback requires THPSimple, audio and GX texture services.");
++#else
+     g_bActive = false;
+     lbl_806E2419 = false;
+ 
+@@ -182,6 +205,7 @@ bool MovieStop()
+ 
+     glGetCurrentResourcePool()->ReleaseResource(resourceMarker);
+     return true;
++#endif
+ }
+ 
+ void MovieRenderTick()
+@@ -195,7 +219,10 @@ bool MoviePlay()
+     {
+         return false;
+     }
+-
++#ifdef MSCHARGED_NATIVE
++    mscharged::MissingStartupService("MoviePlay",
++        "Active Wii movie playback requires THPSimple, audio and GX texture services.");
++#else
+     if (g_bMovieMustStop)
+     {
+         g_bFinished = true;
+@@ -266,6 +293,7 @@ bool MoviePlay()
+     }
+ 
+     return true;
++#endif
+ }
+ 
+ bool IsMovieActive()
 diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
+index 09263a2..a5560e7 100644
 --- a/src/NL/TaskBase.cpp
 +++ b/src/NL/TaskBase.cpp
 @@ -4,3 +4,8 @@
@@ -50,6 +163,7 @@ diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
 +nlTask::~nlTask() { mscharged::DestroyNativeTask(this); }
 +#endif
 diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
+index 1d918f0..bb80fa6 100644
 --- a/src/NL/nlTask.cpp
 +++ b/src/NL/nlTask.cpp
 @@ -1,4 +1,7 @@
@@ -60,7 +174,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
  
  #include "NL/nlDLRing.h"
  #include "NL/nlMemory.h"
-@@ -13,7 +16,14 @@
+@@ -13,7 +16,14 @@ float g_fTaskTimeLowerBound;
  
  void nlTaskManager::Startup(u32 initialState)
  {
@@ -75,7 +189,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
      m_pInstance->mPreviousState = initialState;
      m_pInstance->mCurrentState = initialState;
      m_pInstance->mPendingState = initialState;
-@@ -24,9 +34,16 @@
+@@ -24,9 +34,16 @@ void nlTaskManager::Startup(u32 initialState)
  
  void nlTaskManager::AddTask(nlTask* task, u32 priority, u32 activeStates)
  {
@@ -92,7 +206,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
  
      if (m_pInstance->mTaskList == 0)
      {
-@@ -57,6 +74,9 @@
+@@ -57,6 +74,9 @@ void nlTaskManager::AddTask(nlTask* task, u32 priority, u32 activeStates)
  
  void nlTaskManager::RunAllTasks()
  {
@@ -102,7 +216,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
      nlTask* currentTask = nlDLRingGetStart<nlTask>(m_pInstance->mTaskList);
      if (currentTask != 0)
      {
-@@ -110,10 +130,16 @@
+@@ -110,10 +130,16 @@ void nlTaskManager::RunAllTasks()
  
  void nlTaskManager::SetNextState(unsigned int nextState)
  {
@@ -119,113 +233,3 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
 +#endif
      m_pInstance->mTimeDilation = timeDilation;
  }
-diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
---- a/src/Game/Sys/movie.cpp
-+++ b/src/Game/Sys/movie.cpp
-@@ -1,4 +1,7 @@
- #include "Game/Sys/movie.h"
-+#ifdef MSCHARGED_NATIVE
-+#include "runtime/startup.h"
-+#else
- #include "Game/Sys/debug.h"
- 
- #include "RVL_SDK/thp/THPSimple.h"
-@@ -24,6 +27,8 @@
- 
- static THPVideoInfo videoInfo;
- static PlatTexture* pTex[4];
-+
-+#endif
- 
- static unsigned int lbl_806DFAC0 = -1;
- static bool g_bSyncedDecode = true;
-@@ -45,6 +50,10 @@
- 
- bool fn_80370E20()
- {
-+#ifdef MSCHARGED_NATIVE
-+    mscharged::MissingStartupService("fn_80370E20",
-+        "Wii THPSimple decoding, audio and movie texture lifetime are not connected.");
-+#else
-     if (lbl_806E241A)
-     {
-         return true;
-@@ -53,13 +62,19 @@
-     THPSimpleInit(1);
-     lbl_806E241A = true;
-     return true;
-+#endif
- }
- 
- bool fn_80370E64()
- {
-+#ifdef MSCHARGED_NATIVE
-+    mscharged::MissingStartupService("fn_80370E64",
-+        "Wii THPSimple decoding, audio and movie texture lifetime are not connected.");
-+#else
-     THPSimpleQuit();
-     lbl_806E241A = false;
-     return true;
-+#endif
- }
- 
- void SetSyncedDecode(bool value)
-@@ -70,6 +85,10 @@
- bool MovieStart(
-     const char* szFilename, bool bSound, bool bLoopMovie, bool bMono)
- {
-+#ifdef MSCHARGED_NATIVE
-+    mscharged::MissingStartupService("MovieStart",
-+        "Wii THPSimple decoding, audio and movie texture lifetime are not connected.");
-+#else
-     if (g_bActive)
-     {
-         return false;
-@@ -146,6 +165,7 @@
-     g_bActive = true;
-     lbl_806E2424 = 0;
-     return true;
-+#endif
- }
- 
- bool MovieStop()
-@@ -154,7 +174,10 @@
-     {
-         return false;
-     }
--
-+#ifdef MSCHARGED_NATIVE
-+    mscharged::MissingStartupService("MovieStop",
-+        "Active Wii movie playback requires THPSimple, audio and GX texture services.");
-+#else
-     g_bActive = false;
-     lbl_806E2419 = false;
- 
-@@ -182,6 +205,7 @@
- 
-     glGetCurrentResourcePool()->ReleaseResource(resourceMarker);
-     return true;
-+#endif
- }
- 
- void fn_80371254()
-@@ -195,7 +219,10 @@
-     {
-         return false;
-     }
--
-+#ifdef MSCHARGED_NATIVE
-+    mscharged::MissingStartupService("MoviePlay",
-+        "Active Wii movie playback requires THPSimple, audio and GX texture services.");
-+#else
-     if (g_bMovieMustStop)
-     {
-         lbl_806E2434 = true;
-@@ -266,6 +293,7 @@
-     }
- 
-     return true;
-+#endif
- }
- 
- bool IsMovieActive()

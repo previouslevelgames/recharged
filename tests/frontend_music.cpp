@@ -209,6 +209,14 @@ void Runtime(int argc,char** argv)
    else
    {
     music.BeginSelect(0,seed);Check(seed==123&&music.Status().requested_reads==1,"Music metadata/seed ordering differs");
+    const auto pending_title=music.Status();unsigned duplicate_seed=456;
+    music.BeginSelect(0,duplicate_seed);const auto repeated_title=music.Status();
+    Check(repeated_title.load==FrontendMusicLoadState::Loading&&repeated_title.requested_reads==pending_title.requested_reads
+        &&repeated_title.completed_reads==pending_title.completed_reads&&!repeated_title.cue&&duplicate_seed==456,
+        "Repeated pending Title selection restarted or published its real load");
+    Reject([&]{music.BeginSelect(1,duplicate_seed);});
+    Check(music.Status().load==FrontendMusicLoadState::Loading&&music.Status().requested_reads==pending_title.requested_reads,
+        "Different pending selection changed the actual Title request");
     if(mode=="cancel")
     {
      while(music.Status().requested_reads<attempt+1){music.Service();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
@@ -244,7 +252,12 @@ void Runtime(int argc,char** argv)
      }
      else
      {
-      music.BeginSelect(1,seed);Check(music.Status().cue==0xe326f931,"Pending replacement retired old music");Pump(music);
+      music.BeginSelect(1,seed);Check(music.Status().cue==0xe326f931,"Pending replacement retired old music");
+      const auto pending_main=music.Status();duplicate_seed=789;music.BeginSelect(1,duplicate_seed);
+      Check(music.Status().load==FrontendMusicLoadState::Loading&&music.Status().cue==pending_main.cue
+          &&music.Status().requested_reads==pending_main.requested_reads&&music.Status().completed_reads==pending_main.completed_reads&&duplicate_seed==789,
+          "Repeated pending Main selection replaced its request or current output");
+      Reject([&]{music.BeginSelect(0,duplicate_seed);});Pump(music);
       Check(music.Status().cue==0x445abf3a&&seed==123,"Main replacement/seed differs");
       const auto until=std::chrono::steady_clock::now()+std::chrono::milliseconds(mode=="owned"?(attempt==0?9500:250):400);
       while(std::chrono::steady_clock::now()<until){music.Service();std::this_thread::sleep_for(std::chrono::milliseconds(1));}

@@ -27,7 +27,7 @@ std::optional<FrontendNode> FindFrontendNode(const FrontendScene&, FrontendNode 
 enum class FrontendInstanceProperty
 {
     Visible, AssetVisible, Position, Rotation, Scale, Pivot, Colour,
-    UVX, UVY, UVWidth, UVHeight, StringId, String, ImageResource,
+    UVX, UVY, UVWidth, UVHeight, StringId, String, ImageResource, TextDrawOptions, TextBox,
 };
 struct FrontendInstanceChange
 {
@@ -39,6 +39,8 @@ struct FrontendInstanceChange
     std::array<std::uint8_t,4> colour{};
     std::string string_id;
     std::u16string text; // Owned SetString payload; embedded NUL is rejected.
+    std::uint32_t draw_options=0; // Exact source text flags; unsupported rendering remains explicit.
+    std::array<float,2> text_box{};
     FrontendReference image_resource; // Null retains original SetTextureResource no-op.
 };
 // Ordered original setter effects over a copied graph; commit only on success.

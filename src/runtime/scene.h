@@ -40,8 +40,9 @@ struct SceneOptions
     std::optional<std::string> frontend_pointer; // Observe original pointer events for a rendered instance path.
     bool frontend_animate = false; // Checked authored timeline; no scene handlers or menu transitions.
     bool frontend_boot = false; // Retail boot handler through its qualified service boundary.
-    bool frontend_main = false; // Selected original Main/Options/Audio/Visual flow; complete startup/services pending.
-    bool frontend_options = false; // Original Options/NAV with Audio/Visual and return to Main.
+    bool frontend_title = false; // Original Title-to-Main flow; Intro/full startup remain pending.
+    bool frontend_main = false; // Selected original Main/Options/Audio/Visual/Credits flow; complete startup/services pending.
+    bool frontend_options = false; // Original Options/NAV with Audio/Visual/Credits and return to Main.
     bool character_shock = false; // Authored Bowser shock mesh and FE bone animation diagnostic.
     bool particles = false; // Qualified authored controller groups; no complete effects manager.
     bool debug_camera = false; // Original DebugCam with diagnostic desktop controls.

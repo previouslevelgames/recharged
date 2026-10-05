@@ -1,6 +1,6 @@
 Subject: Adapt original event ownership, delivery and registry lifetime
 
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Keep original event hashing, AVL registration, listener ordering and callback
 transfer. Native owners retain full addresses; flags/counts use explicit masks
@@ -16,10 +16,10 @@ of Wii input services. Queued dispatch and game task globals remain unselected.
 Runtime support is in src/.
 
 diff --git a/include/Game/Event.h b/include/Game/Event.h
-index 21a0139..9743f22 100644
+index 23c60e9..0ba4ee3 100644
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
-@@ -5,11 +5,16 @@
+@@ -4,11 +4,16 @@
  #include "NL/nlArrayAllocator.h"
  #include "NL/nlBind.h"
  #include "NL/nlDLListContainer.h"
@@ -37,7 +37,7 @@ index 21a0139..9743f22 100644
  void* FindEventConnection(void* event, void* owner);
  void UnregisterEventConnection(void* event, void* connection);
  
-@@ -23,8 +28,30 @@ public:
+@@ -22,8 +27,30 @@ public:
      EventBase(const char* name, int length)
          : mHash(HashEventName(name, length))
      {
@@ -68,7 +68,7 @@ index 21a0139..9743f22 100644
      virtual ~EventBase() { }
      virtual void Disconnect(void* owner) = 0;
  
-@@ -34,8 +61,11 @@ public:
+@@ -33,6 +60,9 @@ public:
  protected:
      unsigned int mHash;
      void* mCurrentConnection;
@@ -78,9 +78,7 @@ index 21a0139..9743f22 100644
  };
  
  #include "Game/Task/DispatchEventsTask.h"
- 
- struct EventConnection
-@@ -42,8 +72,14 @@ struct EventConnection
+@@ -43,8 +73,14 @@ struct EventConnection
          : mOwner(0)
          , mEvent(0)
      {
@@ -95,7 +93,7 @@ index 21a0139..9743f22 100644
      }
  
      ~EventConnection();
-@@ -51,6 +87,11 @@ struct EventConnection
+@@ -52,6 +88,11 @@ struct EventConnection
      // The owner's first word holds the live connection pointer.
      void* mOwner;
      void* mEvent;
@@ -107,7 +105,7 @@ index 21a0139..9743f22 100644
      union
      {
          unsigned int mFlags;
-@@ -66,6 +107,7 @@ struct EventConnection
+@@ -67,6 +108,7 @@ struct EventConnection
              unsigned short mGroupCount : 16;
          };
      };
@@ -115,7 +113,7 @@ index 21a0139..9743f22 100644
  };
  
  // An event carrying data delivers a pointer to it. The game and HBM queues
-@@ -119,12 +161,19 @@ public:
+@@ -120,12 +162,19 @@ public:
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
@@ -162,10 +160,10 @@ index 21a0139..9743f22 100644
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::DeliverEvent(*this, mListeners, [data](auto& callback) { callback(data); });
 +#else
-         nlDLListIterator<Listener> iterator = mListeners.Begin();
+         nlDLListIterator<Listener> iterator;
+         iterator = mListeners.Begin();
          while (iterator.hasNext())
-         {
-@@ -195,10 +251,14 @@ public:
+@@ -197,10 +253,14 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -177,10 +175,10 @@ index 21a0139..9743f22 100644
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::DeliverEvent(*this, mListeners, [](auto& callback) { callback(); });
 +#else
-         nlDLListIterator<Listener> iterator = mListeners.Begin();
+         nlDLListIterator<Listener> iterator;
+         iterator = mListeners.Begin();
          while (iterator.hasNext())
-         {
-@@ -223,18 +283,23 @@ public:
+@@ -227,18 +287,23 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -205,7 +203,7 @@ index 21a0139..9743f22 100644
      }
  
      void Remove(Listener* listener);
-@@ -253,6 +318,9 @@ public:
+@@ -257,6 +322,9 @@ public:
  template <typename T>
  UnidentifiedEvent<T>::~UnidentifiedEvent()
  {
@@ -215,7 +213,7 @@ index 21a0139..9743f22 100644
      RemoveAll();
      UnregisterEvent(this);
  }
-@@ -271,6 +339,9 @@ void UnidentifiedEvent<T>::RestartAt(
+@@ -275,6 +343,9 @@ void UnidentifiedEvent<T>::RestartAt(
  template <typename T>
  void UnidentifiedEvent<T>::Remove(Listener* listener)
  {
@@ -225,7 +223,7 @@ index 21a0139..9743f22 100644
      UnregisterEventConnection(this, listener);
      if (this->mCurrentConnection == listener)
      {
-@@ -279,13 +350,18 @@ void UnidentifiedEvent<T>::Remove(Listener* listener)
+@@ -283,13 +354,18 @@ void UnidentifiedEvent<T>::Remove(Listener* listener)
      }
  
      DeleteListener(listener);
@@ -244,7 +242,7 @@ index 21a0139..9743f22 100644
  }
  
  template <typename T>
-@@ -325,13 +401,20 @@ public:
+@@ -329,13 +405,20 @@ public:
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
@@ -266,7 +264,7 @@ index 21a0139..9743f22 100644
  protected:
      static void* sType;
  };
-@@ -358,7 +441,7 @@ public:
+@@ -362,7 +445,7 @@ public:
      typedef typename UnidentifiedEvent<T>::Callback Callback;
  
      virtual void Add(const typename UnidentifiedEvent<T>::Callback& callback,
@@ -330,7 +328,7 @@ index a79cb68..0ecd7b9 100644
  }
  
 diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedStaticEvent.h
-index 081745c..4160cfc 100644
+index bc6fba4..908eef0 100644
 --- a/include/Game/UnidentifiedStaticEvent.h
 +++ b/include/Game/UnidentifiedStaticEvent.h
 @@ -27,17 +27,24 @@ public:
@@ -356,10 +354,10 @@ index 081745c..4160cfc 100644
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::DeliverEvent(*this, mListeners, [data](auto& callback) { callback(data); });
 +#else
-         nlDLListIterator<Listener> iterator = mListeners.Begin();
+         nlDLListIterator<Listener> iterator;
+         iterator = mListeners.Begin();
          while (iterator.hasNext())
-         {
-@@ -62,10 +69,14 @@ public:
+@@ -64,10 +71,14 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -371,10 +369,10 @@ index 081745c..4160cfc 100644
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::DeliverEvent(*this, mListeners, [](auto& callback) { callback(); });
 +#else
-         nlDLListIterator<Listener> iterator = mListeners.Begin();
+         nlDLListIterator<Listener> iterator;
+         iterator = mListeners.Begin();
          while (iterator.hasNext())
-         {
-@@ -91,6 +102,7 @@ public:
+@@ -95,6 +106,7 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -382,7 +380,7 @@ index 081745c..4160cfc 100644
      }
  
  protected:
-@@ -102,6 +114,9 @@ protected:
+@@ -106,6 +118,9 @@ protected:
  
      void Remove(Listener* listener)
      {
@@ -392,7 +390,7 @@ index 081745c..4160cfc 100644
          UnregisterEventConnection(this, listener);
          if (this->mCurrentConnection == listener)
          {
-@@ -109,12 +124,17 @@ protected:
+@@ -113,12 +128,17 @@ protected:
              return;
          }
          DeleteListener(listener);
@@ -410,7 +408,7 @@ index 081745c..4160cfc 100644
      }
  
      void DeleteListener(Listener* listener)
-@@ -130,6 +150,9 @@ protected:
+@@ -134,6 +154,9 @@ protected:
  template <typename T, int Count>
  UnidentifiedStaticEvent<T, Count>::~UnidentifiedStaticEvent()
  {
@@ -420,7 +418,7 @@ index 081745c..4160cfc 100644
      RemoveAll();
      UnregisterEvent(this);
  }
-@@ -143,8 +166,11 @@ void UnidentifiedStaticEvent<T, Count>::Disconnect(void* owner)
+@@ -147,8 +170,11 @@ void UnidentifiedStaticEvent<T, Count>::Disconnect(void* owner)
  
  template <typename T, int Count>
  void UnidentifiedStaticEvent<T, Count>::Add(
@@ -433,7 +431,7 @@ index 081745c..4160cfc 100644
      ListenerEntry* entry;
      mListeners.m_Allocator.Allocate(entry);
      new (entry) ListenerEntry;
-@@ -153,6 +179,7 @@ void UnidentifiedStaticEvent<T, Count>::Add(
+@@ -157,6 +183,7 @@ void UnidentifiedStaticEvent<T, Count>::Add(
  
      listener->callback.UnidentifiedTransfer(callback);
      RegisterEventConnection(this, listener, value, flags);
@@ -443,10 +441,10 @@ index 081745c..4160cfc 100644
  #endif // GAME_UNIDENTIFIED_STATIC_EVENT_H
 diff --git a/include/Game/UnidentifiedStaticEvent3.h b/include/Game/UnidentifiedStaticEvent3.h
 new file mode 100644
-index 0000000..11c5210
+index 0000000..71bacec
 --- /dev/null
 +++ b/include/Game/UnidentifiedStaticEvent3.h
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,158 @@
 +#ifndef GAME_UNIDENTIFIED_STATIC_EVENT3_H
 +#define GAME_UNIDENTIFIED_STATIC_EVENT3_H
 +
@@ -495,7 +493,8 @@ index 0000000..11c5210
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::DeliverEvent(*this, mListeners, [&](auto& callback) { callback(p1, p2, p3); });
 +#else
-+        nlDLListIterator<Listener> iterator = mListeners.Begin();
++        nlDLListIterator<Listener> iterator;
++        iterator = mListeners.Begin();
 +        while (iterator.hasNext())
 +        {
 +            Listener* listener = &*iterator;
@@ -605,7 +604,7 @@ index 0000000..11c5210
 +
 +#endif
 diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
-index a9b51fd..1122ea7 100644
+index 70b616b..0824166 100644
 --- a/include/NL/nlFunction.h
 +++ b/include/NL/nlFunction.h
 @@ -112,11 +112,20 @@ public:
@@ -670,7 +669,7 @@ index a9b51fd..1122ea7 100644
      }
  
      operator bool() const
-@@ -310,10 +337,19 @@ public:
+@@ -315,10 +342,19 @@ public:
      }
  
  private:
@@ -690,7 +689,7 @@ index a9b51fd..1122ea7 100644
          FunctorBase* mFunctor;
      };
  };
-@@ -632,10 +668,19 @@ public:
+@@ -637,10 +673,19 @@ public:
  
      void UnidentifiedTransfer(Function3& other)
      {
@@ -710,7 +709,7 @@ index a9b51fd..1122ea7 100644
      }
  
      operator bool() const
-@@ -658,10 +703,19 @@ public:
+@@ -663,10 +708,19 @@ public:
      }
  
  private:
@@ -731,9 +730,10 @@ index a9b51fd..1122ea7 100644
      };
  };
 diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
+index 8a85bcb..3ec1751 100644
 --- a/include/NL/plat/PlatPadManager.h
 +++ b/include/NL/plat/PlatPadManager.h
-@@ -5,140 +5,7 @@
+@@ -5,142 +5,7 @@
  #include "NL/platpad.h"
  #include "Game/Event.h"
  
@@ -773,7 +773,8 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 -
 -    void Deliver(P1 p1, P2 p2, P3 p3)
 -    {
--        nlDLListIterator<Listener> iterator = mListeners.Begin();
+-        nlDLListIterator<Listener> iterator;
+-        iterator = mListeners.Begin();
 -        while (iterator.hasNext())
 -        {
 -            Listener* listener = &*iterator;
@@ -789,7 +790,8 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 -            iterator.next();
 -            if (((listener->mFlags >> 29) & 1) != 0)
 -            {
--                nlDLListIterator<Listener> position = mListeners.Begin(
+-                nlDLListIterator<Listener> position;
+-                position = mListeners.Begin(
 -                    (ListenerEntry*)((char*)listener - 8));
 -                ListenerEntry* entry = position.CurrentEntry();
 -                nlDLRingRemove(&mListeners.m_Head, entry);
@@ -873,8 +875,8 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 -};
 +#include "Game/UnidentifiedStaticEvent3.h"
  
- struct PlatPadManager
- {
+ // Device type stored per channel in PlatPadManager::type.
+ enum PlatPadType
 diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
 index 7f8ff32..3dfb150 100644
 --- a/src/NL/nlEvent.cpp

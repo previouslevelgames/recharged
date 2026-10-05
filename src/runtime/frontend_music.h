@@ -35,6 +35,7 @@ public:
     FrontendMusic& operator=(const FrontendMusic&)=delete;
     // Selection takes no random draws in this qualified single-voice/single-source
     // profile. The passed seed is verified/preserved; no private RNG is created.
+    // Repeating the pending cue preserves its load; it does not claim readiness.
     void BeginSelect(unsigned index,unsigned& seed);
     void Poll();
     void Service();

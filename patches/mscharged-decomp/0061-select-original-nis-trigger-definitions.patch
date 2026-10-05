@@ -1,6 +1,6 @@
 Subject: Select original NIS trigger-definition services for native collection
 
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Extract the original NisPlayer interpreter service bodies, replacing console
 stack/string reads with checked typed arguments and AddTrigger publication with
@@ -38,7 +38,7 @@ new file mode 100644
 +        params.param3 = -1;
 +        params.param4 = -1;
 +        params.param1 = triggerParam1;
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_8, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_DEPTH_OF_FIELD, frame, "", "", &params);
 +        break;
 +    }
 +    case 1:
@@ -52,7 +52,7 @@ new file mode 100644
 +        params.param2 = -1;
 +        params.param3 = -1;
 +        params.param4 = -1;
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_9, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_SHOW_ELECTRIC_FENCE, frame, "", "", &params);
 +        break;
 +    }
 +    case 2:
@@ -122,7 +122,7 @@ new file mode 100644
 +        {
 +            params.float1 = 0.0f;
 +        }
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_7, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_CHARACTER_DIRT, frame, "", "", &params);
 +        break;
 +    }
 +    case 6:
@@ -138,7 +138,7 @@ new file mode 100644
 +        params.param3 = -1;
 +        params.param4 = -1;
 +        params.param1 = triggerParam1;
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_5, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_CROWD_EXCITEMENT, frame, "", "", &params);
 +        break;
 +    }
 +    case 7:
@@ -154,7 +154,7 @@ new file mode 100644
 +        params.param3 = -1;
 +        params.param4 = -1;
 +        params.param1 = triggerParam1;
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_4, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_RUMBLE, frame, "", "", &params);
 +        break;
 +    }
 +    case 8:
@@ -170,7 +170,7 @@ new file mode 100644
 +        params.param3 = -1;
 +        params.param4 = -1;
 +        params.param1 = triggerParam1;
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_6, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_STADIUM_EFFECTS, frame, "", "", &params);
 +        break;
 +    }
 +    case 9:
@@ -184,7 +184,7 @@ new file mode 100644
 +        params.param2 = -1;
 +        params.param3 = -1;
 +        params.param4 = -1;
-+        call.AddTrigger(NIS_TRIGGER_TYPE_UNIDENTIFIED_10, frame, "", "", &params);
++        call.AddTrigger(NIS_TRIGGER_TYPE_HIDE_ELECTRIC_FENCE, frame, "", "", &params);
 +        break;
 +    }
 +    case 10:

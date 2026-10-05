@@ -1,11 +1,40 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original font fallback and bounded text escape parsing
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Preserve font first-match/first-registered fallback and original escape parsing.
 Native callers prevalidate the qualified paragraph-only grammar and assemble
 the original four-byte key explicitly; no host pointer/long aliasing.
 
+diff --git a/include/Game/Font/FontLookupSteps.h b/include/Game/Font/FontLookupSteps.h
+new file mode 100644
+index 0000000..0021fcf
+--- /dev/null
++++ b/include/Game/Font/FontLookupSteps.h
+@@ -0,0 +1,23 @@
++#ifndef GAME_FONT_FONT_LOOKUP_STEPS_H
++#define GAME_FONT_FONT_LOOKUP_STEPS_H
++#include "NL/nlDLRing.h"
++// Original first match, then first registered font after warning. Registration
++// means successful FontDescriptionLoadComplete order, not texture completion.
++template<class Font, class Entry, class Hash, class Warn>
++Font* FrontendFindLoadedFont(Entry* head, Entry* entry, unsigned long hash, Hash fontHash, Warn warn)
++{
++    Entry* first = entry;
++    while (entry != 0)
++    {
++        Font* font = entry->entry;
++        if (hash == fontHash(font))
++            return font;
++        if (nlDLRingIsEnd(head, entry) || entry == 0)
++            entry = 0;
++        else
++            entry = entry->m_next;
++    }
++    warn(hash);
++    return first != 0 ? first->entry : 0;
++}
++#endif
 diff --git a/include/NL/FrontendTextEscapeSteps.h b/include/NL/FrontendTextEscapeSteps.h
 new file mode 100644
 index 0000000..f2133fa
@@ -87,35 +116,70 @@ index 0000000..f2133fa
 +    state.m_Type = type;
 +}
 +#endif
-diff --git a/include/Game/Font/FontLookupSteps.h b/include/Game/Font/FontLookupSteps.h
-new file mode 100644
-index 0000000..0021fcf
---- /dev/null
-+++ b/include/Game/Font/FontLookupSteps.h
-@@ -0,0 +1,23 @@
-+#ifndef GAME_FONT_FONT_LOOKUP_STEPS_H
-+#define GAME_FONT_FONT_LOOKUP_STEPS_H
-+#include "NL/nlDLRing.h"
-+// Original first match, then first registered font after warning. Registration
-+// means successful FontDescriptionLoadComplete order, not texture completion.
-+template<class Font, class Entry, class Hash, class Warn>
-+Font* FrontendFindLoadedFont(Entry* head, Entry* entry, unsigned long hash, Hash fontHash, Warn warn)
+diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
+index 7f1a327..0a0d579 100644
+--- a/src/Game/Font/fontmanager.cpp
++++ b/src/Game/Font/fontmanager.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Font/fontmanager.h"
++#include "Game/Font/FontLookupSteps.h"
+ #include "Game/Font/FontLoadSteps.h"
+ #include "NL/nlBundleFile.h"
+ #include "NL/nlFont.h"
+@@ -162,40 +163,23 @@ FontManager::~FontManager()
+     m_fonts.Clear();
+ }
+ 
++namespace
 +{
-+    Entry* first = entry;
-+    while (entry != 0)
-+    {
-+        Font* font = entry->entry;
-+        if (hash == fontHash(font))
-+            return font;
-+        if (nlDLRingIsEnd(head, entry) || entry == 0)
-+            entry = 0;
-+        else
-+            entry = entry->m_next;
-+    }
-+    warn(hash);
-+    return first != 0 ? first->entry : 0;
++struct OriginalFontHash
++{
++    unsigned long operator()(const nlFont* font) const { return font->m_Metrics.FontName; }
++};
++struct OriginalMissingFont
++{
++    void operator()(unsigned long hash) const
++    { nlPrintf("FontManager: Warning, failed to find font 0x%08x\n", hash); }
++};
 +}
-+#endif
+ nlFont* FontManager::GetFontByHashID(unsigned long uHashID)
+ {
+     nlDLListIterator<nlFont*> it;
+     it = m_fonts.Begin();
+-    DLListEntry<nlFont*>* head = it.m_Head;
+-    DLListEntry<nlFont*>* entry = it.m_Curr;
+-
+-    while (entry != 0)
+-    {
+-        nlFont* font = entry->entry;
+-        if (uHashID == font->m_Metrics.FontName)
+-        {
+-            return font;
+-        }
+-
+-        if (nlDLRingIsEnd(head, entry) || entry == 0)
+-        {
+-            entry = 0;
+-        }
+-        else
+-        {
+-            entry = entry->m_next;
+-        }
+-    }
+-
+-    nlPrintf("FontManager: Warning, failed to find font 0x%08x\n", uHashID);
+-
+-    nlDLListIterator<nlFont*> start;
+-    start = m_fonts.Begin();
+-    if (start.hasNext())
+-    {
+-        return *start;
+-    }
+-    return 0;
++    return FrontendFindLoadedFont<nlFont>(it.m_Head, it.m_Curr, uHashID, OriginalFontHash(), OriginalMissingFont());
+ }
+ 
+ bool FontManager::LoadFont(const char* szBundleFilename, const char* szFileName, const char* szFileFontName)
 diff --git a/src/NL/nlTextEscape.cpp b/src/NL/nlTextEscape.cpp
 index a60ee90..1bf9ebb 100644
 --- a/src/NL/nlTextEscape.cpp
@@ -210,65 +274,3 @@ index a60ee90..1bf9ebb 100644
 +{
 +    FrontendParseTextEscape(*this, str, OriginalEscapeLookup());
  }
-diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
-index cac9ca9..4475afd 100644
---- a/src/Game/Font/fontmanager.cpp
-+++ b/src/Game/Font/fontmanager.cpp
-@@ -1,4 +1,5 @@
- #include "Game/Font/fontmanager.h"
-+#include "Game/Font/FontLookupSteps.h"
- #include "Game/Font/FontLoadSteps.h"
- #include "NL/nlBundleFile.h"
- #include "NL/nlFont.h"
-@@ -161,38 +162,22 @@ FontManager::~FontManager()
-     m_fonts.Clear();
- }
- 
-+namespace
-+{
-+struct OriginalFontHash
-+{
-+    unsigned long operator()(const nlFont* font) const { return font->m_Metrics.FontName; }
-+};
-+struct OriginalMissingFont
-+{
-+    void operator()(unsigned long hash) const
-+    { nlPrintf("FontManager: Warning, failed to find font 0x%08x\n", hash); }
-+};
-+}
- nlFont* FontManager::GetFontByHashID(unsigned long uHashID)
- {
-     nlDLListIterator<nlFont*> it = m_fonts.Begin();
--    DLListEntry<nlFont*>* head = it.m_Head;
--    DLListEntry<nlFont*>* entry = it.m_Curr;
--
--    while (entry != 0)
--    {
--        nlFont* font = entry->entry;
--        if (uHashID == font->m_Metrics.FontName)
--        {
--            return font;
--        }
--
--        if (nlDLRingIsEnd(head, entry) || entry == 0)
--        {
--            entry = 0;
--        }
--        else
--        {
--            entry = entry->m_next;
--        }
--    }
--
--    nlPrintf("FontManager: Warning, failed to find font 0x%08x\n", uHashID);
--
--    nlDLListIterator<nlFont*> start = m_fonts.Begin();
--    if (start.hasNext())
--    {
--        return *start;
--    }
--    return 0;
-+    return FrontendFindLoadedFont<nlFont>(it.m_Head, it.m_Curr, uHashID, OriginalFontHash(), OriginalMissingFont());
- }
- 
- bool FontManager::LoadFont(const char* szBundleFilename, const char* szFileName, const char* szFileFontName)

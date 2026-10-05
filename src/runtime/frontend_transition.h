@@ -20,6 +20,8 @@ struct FrontendTransitionStatus
 // are provided. It neither advances CameraMan nor supplies concrete Title/Main
 // handlers, music, movies, save services or a successful boot state.
 // Camera/library/stack/input/NL/arenas must outlive this owner.
+// Permanent Main resources stay retained through the Title Pop and destination
+// FEN load. Ordinary independently loaded Title requests remain independent.
 class FrontendTransition
 {
     struct Implementation;

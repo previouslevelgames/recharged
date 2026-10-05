@@ -1,0 +1,161 @@
+Subject: Share original movie-player update with retained native Credits
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index 199743f..628e51f 100644
+--- a/src/Game/SH/SHMoviePlayer.cpp
++++ b/src/Game/SH/SHMoviePlayer.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/SH/SHMoviePlayer.h"
++#include "Game/FE/FrontendMoviePlayerSteps.h"
+ #include "NL/nlFunction.inl"
+ #include "Game/BasicStadium.h"
+ #include "Game/EventRegistry.h"
+@@ -76,60 +77,19 @@ void MoviePlayerScene::SetMovieDetails(const char* filename, bool withsound, boo
+ 
+ void MoviePlayerScene::Update(float fDeltaT)
+ {
+-    BaseSceneHandler::Update(fDeltaT);
+-    if (g_e3_Build)
+-    {
+-        MoviePlayerVirtual3C();
+-        return;
+-    }
+-    if (!mMovieStarted)
+-    {
+-        mMovieStarted = MovieStart(mMovieFilename, false, mLoopMovie, SCGetSoundMode() == 0);
+-        SetSyncedDecode(true);
+-
+-        const char* streamName;
+-        if (strstr(mMovieFilename, "nlg"))
+-        {
+-            streamName = "FE_Eggman_Movie";
+-        }
+-        else
+-        {
+-            streamName = "FE_Intro_Movie";
+-        }
+-        char var_68[64];
+-        nlSNPrintf(var_68, 64, "%s/Volume", streamName);
+-        float volume = (float)GetConfigInt(gMovieConfig, var_68, 100) / 100.0f;
+-        nlSNPrintf(var_68, 64, "%s/FadeIn", streamName);
+-        int fadeIn = GetConfigInt(gMovieConfig, var_68, 500);
+-        THPSimpleSetVolume(0, 0);
+-        THPSimpleSetVolume((int)(127.0f * volume), fadeIn);
+-        if (GameInfoManager::Instance()->mIsInStrikers101Mode)
+-        {
+-            g_bRenderWorld = false;
+-        }
+-    }
+-    if (!mMovieStarted || CheckMoviePlayerAbort())
+-    {
+-        MovieStop();
+-        MoviePlayerVirtual3C();
+-        mMovieStarted = false;
+-        return;
+-    }
+-    if (!mSwappedTexture)
+-    {
+-        mMovieInstance = FEFinder<TLImageInstance, 2>::Find<TLSlide>(
+-            mPresentation->m_currentSlide,
+-            "Layer",
+-            "movie");
+-        unsigned long movieHandle = glGetTexture("movie");
+-        mMovieInstance->m_pTextureResource->SetTextureHandle(movieHandle);
+-        mSwappedTexture = true;
+-    }
+-    if (IsMovieFinished())
+-    {
+-        MovieStop();
+-        MoviePlayerVirtual3C();
+-    }
++    FrontendMoviePlayerUpdate(*this,fDeltaT,[&](float dt){BaseSceneHandler::Update(dt);},[]{return g_e3_Build;},
++        [](const char* path,bool sound,bool loop,bool mono){return MovieStart(path,sound,loop,mono);},
++        []{return SCGetSoundMode()==0;},[](bool enabled){SetSyncedDecode(enabled);},
++        [](const char* path){return strstr(path,"nlg")!=0;},
++        [](char* out,unsigned size,const char* format,const char* name){nlSNPrintf(out,size,format,name);},
++        [](const char* name,int fallback){return GetConfigInt(gMovieConfig,name,fallback);},
++        [](int volume,int fade){THPSimpleSetVolume(volume,fade);},
++        []{return GameInfoManager::Instance()->mIsInStrikers101Mode;},[](bool enabled){g_bRenderWorld=enabled;},
++        [&]{return CheckMoviePlayerAbort();},[]{MovieStop();},[&]{
++            mMovieInstance=FEFinder<TLImageInstance,2>::Find<TLSlide>(mPresentation->m_currentSlide,"Layer","movie");
++            unsigned long movieHandle=glGetTexture("movie");
++            mMovieInstance->m_pTextureResource->SetTextureHandle(movieHandle);
++        },[]{return IsMovieFinished();});
+ }
+ 
+ bool MoviePlayerScene::CheckMoviePlayerAbort()
+diff --git a/include/Game/FE/FrontendMoviePlayerSteps.h b/include/Game/FE/FrontendMoviePlayerSteps.h
+new file mode 100644
+index 0000000..20c1dcb
+--- /dev/null
++++ b/include/Game/FE/FrontendMoviePlayerSteps.h
+@@ -0,0 +1,68 @@
++#ifndef GAME_FE_FRONTEND_MOVIE_PLAYER_STEPS_H
++#define GAME_FE_FRONTEND_MOVIE_PLAYER_STEPS_H
++
++// Original MoviePlayerScene::Update order, shared by its console delegate and
++// the retained native Credits owner. Presentation/output services remain typed.
++template<class S,class Base,class E3,class Start,class Mono,class Synced,class Contains,
++    class Format,class Config,class Volume,class Tutorial,class Render,class Abort,
++    class Stop,class Swap,class Finished>
++void FrontendMoviePlayerUpdate(S& s,float fDeltaT,Base baseUpdate,E3 e3Build,Start start,
++    Mono mono,Synced synced,Contains containsNlg,Format format,Config config,Volume setVolume,
++    Tutorial strikers101,Render renderWorld,Abort abortMovie,Stop stop,Swap swapTexture,Finished finished)
++{
++    auto& mMovieStarted=s.mMovieStarted;
++    auto& mSwappedTexture=s.mSwappedTexture;
++    auto& mMovieFilename=s.mMovieFilename;
++    auto& mLoopMovie=s.mLoopMovie;
++    baseUpdate(fDeltaT);
++    if (e3Build())
++    {
++        s.MoviePlayerVirtual3C();
++        return;
++    }
++    if (!mMovieStarted)
++    {
++        mMovieStarted = start(mMovieFilename, false, mLoopMovie, mono());
++        synced(true);
++
++        const char* streamName;
++        if (containsNlg(mMovieFilename))
++        {
++            streamName = "FE_Eggman_Movie";
++        }
++        else
++        {
++            streamName = "FE_Intro_Movie";
++        }
++        char var_68[64];
++        format(var_68, 64, "%s/Volume", streamName);
++        float volume = (float)config(var_68, 100) / 100.0f;
++        format(var_68, 64, "%s/FadeIn", streamName);
++        int fadeIn = config(var_68, 500);
++        setVolume(0, 0);
++        setVolume((int)(127.0f * volume), fadeIn);
++        if (strikers101())
++        {
++            renderWorld(false);
++        }
++    }
++    if (!mMovieStarted || abortMovie())
++    {
++        stop();
++        s.MoviePlayerVirtual3C();
++        mMovieStarted = false;
++        return;
++    }
++    if (!mSwappedTexture)
++    {
++        swapTexture();
++        mSwappedTexture = true;
++    }
++    if (finished())
++    {
++        stop();
++        s.MoviePlayerVirtual3C();
++    }
++}
++
++#endif

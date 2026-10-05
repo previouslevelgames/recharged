@@ -1,0 +1,99 @@
+Subject: Share original per-bone weighted skin pair gathering
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Preserve bone/vertex/lane order, first-zero termination, exact authored weights
+and original rigidSkin updates. Native callers validate scratch capacity and
+retained input storage. This does not select software deformation or rendering.
+
+diff --git a/include/Game/GL/SkinPoseSteps.h b/include/Game/GL/SkinPoseSteps.h
+--- a/include/Game/GL/SkinPoseSteps.h
++++ b/include/Game/GL/SkinPoseSteps.h
+@@ -56,4 +56,41 @@
+ {
+     glxCopyMatrix(destination, pose);
+ }
++// Exact per-bone loop from ShaderSkinMesh::BuildPacketSkinData. The caller
++// must validate indices and the original 2*numVertices scratch capacity first.
++template <class Pair, class IndexRow, class WeightRow>
++inline int SkinGatherBoneWeights(Pair* pairs, unsigned long bone,
++    unsigned long numVertices, const IndexRow* indices,
++    const WeightRow* weights, bool& rigidSkin)
++{
++    const IndexRow* pIndices = indices;
++    const WeightRow* pWeights = weights;
++    Pair* pPair = pairs;
++    int numPairs = 0;
++    for (unsigned long j = 0; j < numVertices; j++)
++    {
++        if (0.0f != (*pWeights)[1])
++        {
++            rigidSkin = false;
++        }
++        for (unsigned long k = 0; k < 4; k++)
++        {
++            float weight = (*pWeights)[k];
++            if (0.0f == weight)
++            {
++                break;
++            }
++            if (bone == (*pIndices)[k])
++            {
++                pPair->vertexIndex = j;
++                pPair->vertexWeight = weight;
++                pPair++;
++                numPairs++;
++            }
++        }
++        pIndices++;
++        pWeights++;
++    }
++    return numPairs;
++}
+ #endif
+diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+--- a/src/Game/GL/ShaderSkinMesh.cpp
++++ b/src/Game/GL/ShaderSkinMesh.cpp
+@@ -118,41 +118,12 @@
+     const float (*weights)[4] = (const float (*)[4])weightStream->address;
+ 
+     BoneSkinWeights* entry;
+-    const unsigned char (*pIndices)[4];
+-    const float (*pWeights)[4];
+-    SkinWeight* pPair;
+     unsigned long i;
+     for (i = 0; i < numBones; i++)
+     {
+         entry = &data->boneWeights[i];
+-        pIndices = indices;
+-        pWeights = weights;
+-        pPair = pairs;
+-        int numPairs = 0;
+-        for (unsigned long j = 0; j < numVertices; j++)
+-        {
+-            if (0.0f != (*pWeights)[1])
+-            {
+-                rigidSkin = false;
+-            }
+-            for (unsigned long k = 0; k < 4; k++)
+-            {
+-                float weight = (*pWeights)[k];
+-                if (0.0f == weight)
+-                {
+-                    break;
+-                }
+-                if (i == (*pIndices)[k])
+-                {
+-                    pPair->vertexIndex = j;
+-                    pPair->vertexWeight = weight;
+-                    pPair++;
+-                    numPairs++;
+-                }
+-            }
+-            pIndices++;
+-            pWeights++;
+-        }
++        int numPairs = SkinGatherBoneWeights(pairs, i, numVertices,
++            indices, weights, rigidSkin);
+         if (numPairs > 0)
+         {
+             entry->numWeights = numPairs;

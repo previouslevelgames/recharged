@@ -283,8 +283,14 @@ FrontendNavigationBackBinding FrontendNavigation::BackButton(const FrontendSessi
 }
 void FrontendNavigation::SetPointerSlide(const FrontendSession::Handle& frame,unsigned index,FrontendNavigationPointer value)
 {
-    auto& s=*impl_;s.Expected(frame);CheckNav(index<4&&(value==FrontendNavigationPointer::Waiting||value==FrontendNavigationPointer::Cursor),"NAV pointer selection is unsupported");
-    s.session->HandlerTransaction(frame,[&](auto& playback){Step step(playback,s.state);step.mPointerInstances[index]->SetActiveSlide(value==FrontendNavigationPointer::Waiting?"waiting":"cursor",true,false);});s.current=s.session->Current();
+    auto& s=*impl_;s.Expected(frame);CheckNav(index<4&&(value==FrontendNavigationPointer::Waiting||value==FrontendNavigationPointer::Cursor||value==FrontendNavigationPointer::Accept),"NAV pointer selection is unsupported");
+    const char* name=value==FrontendNavigationPointer::Waiting?"waiting":value==FrontendNavigationPointer::Cursor?"cursor":"A";
+    s.session->HandlerTransaction(frame,[&](auto& playback){Step step(playback,s.state);step.mPointerInstances[index]->SetActiveSlide(name,true,false);});s.current=s.session->Current();
+}
+void FrontendNavigation::SetDesktopPointersEnabled(const FrontendSession::Handle& frame,bool enabled)
+{
+    auto& s=*impl_;s.Expected(frame);
+    UpdatePointers(frame,{},!enabled);s.state.status.pointer_input_enabled=enabled;
 }
 void FrontendNavigation::UpdatePointers(const FrontendSession::Handle& frame,const std::array<FrontendNavigationPointerSample,4>& samples,bool hidden)
 {

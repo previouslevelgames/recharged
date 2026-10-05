@@ -283,8 +283,15 @@ struct FrontendMusic::Implementation
     {
         Require(index<=1,"Only Title and Main frontend music are selected");
         if(state==FrontendMusicLoadState::Unloaded)throw std::logic_error("Music bank has been unloaded");
-        if(state==FrontendMusicLoadState::Loading)throw std::logic_error("Music replacement is already pending");
         const auto hash=index?0x445abf3a:0xe326f931;
+        if(state==FrontendMusicLoadState::Loading)
+        {
+            // FEMusic::StartStreamIfDifferent records its selected cue when
+            // requesting output. Repeating that selection while the real NL
+            // load is pending retains the same owner and remains Loading.
+            if(pending_hash==hash)return;
+            throw std::logic_error("Music replacement is already pending");
+        }
         if(current&&current->selection.cue==hash&&current->m_Unknown10!=1&&current->m_Unknown10!=6){error=nullptr;state=FrontendMusicLoadState::Ready;return;}
         Require(gMemoryInitialized&&nlFileSystemReady(),"Music requires initialized NL services");
         Cancel();error=nullptr;pending_hash=hash;pending_seed=seed;

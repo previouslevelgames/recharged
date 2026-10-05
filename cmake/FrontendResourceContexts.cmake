@@ -1,0 +1,20 @@
+include_guard(GLOBAL)
+include(cmake/FrontendSession.cmake)
+add_library(charged_frontend_resource_contexts STATIC src/runtime/frontend_resource_contexts.cpp)
+add_dependencies(charged_frontend_resource_contexts verify_prepared)
+target_link_libraries(charged_frontend_resource_contexts PUBLIC charged_frontend_session)
+target_compile_features(charged_frontend_resource_contexts PUBLIC cxx_std_20)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+    target_compile_options(charged_frontend_resource_contexts PRIVATE -ffp-contract=off)
+endif()
+if(BUILD_TESTING)
+    add_executable(frontend_resource_context_tests tests/frontend_resource_contexts.cpp)
+    target_link_libraries(frontend_resource_context_tests PRIVATE charged_frontend_resource_contexts
+        charged_graphics_memory aurora::dvd aurora::core)
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME frontend_resource_contexts COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_resource_contexts.py" "$<TARGET_FILE:frontend_resource_context_tests>")
+        set_tests_properties(frontend_resource_contexts PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()

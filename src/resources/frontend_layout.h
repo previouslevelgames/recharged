@@ -2,6 +2,7 @@
 #include "resources/frontend_fonts.h"
 #include "resources/frontend_scene.h"
 #include "resources/texture_bundle.h"
+#include "resources/frontend_movie_image.h"
 #include <map>
 #include <variant>
 
@@ -37,14 +38,26 @@ struct FrontendLayoutFrame
         std::array<std::uint8_t,4> colour{};
         std::uint32_t blend = 0;
     };
-    using Entry = std::variant<FrontendLayoutText,Image>;
+    struct Movie
+    {
+        std::uint32_t instance=0,resource=0;
+        std::uint16_t priority=0;
+        std::string name;
+        std::shared_ptr<const FrontendMovieImage> image; // Null is explicitly unresolved.
+        std::array<float,4> uv{}; // Authored UV channels; actual plane size supplies half texels.
+        std::array<float,16> transform{};
+        std::array<float,4> colour{}; // Original callback uses float tint, not quantized nlColour.
+    };
+    using Entry = std::variant<FrontendLayoutText,Image,Movie>;
     std::vector<Entry> entries; // One final Anark reverse order across both types.
     std::map<std::string,unsigned> unavailable;
     unsigned hidden = 0;
     std::map<std::uint32_t,std::uint32_t> font_fallbacks; // Missing alias -> original first registered font.
     std::size_t TextCount() const;
     std::size_t ImageCount() const;
+    std::size_t MovieCount() const;
 };
+using FrontendLayoutMovie = FrontendLayoutFrame::Movie;
 using FrontendLayoutImage = FrontendLayoutFrame::Image;
 using FrontendImageVertex = FrontendLayoutFrame::ImageVertex;
 using FrontendLayoutEntry = FrontendLayoutFrame::Entry;

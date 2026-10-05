@@ -4,8 +4,10 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <memory>
 namespace mscharged::resources
 {
+class FrontendMovieImage;
 using FrontendReference = std::optional<std::uint32_t>;
 struct FrontendAttributes
 {
@@ -18,6 +20,8 @@ struct FrontendResource
 {
     std::uint32_t offset, type, hash, file_block;
     bool saved_valid;
+    // Native runtime texture handle/dimensions; never read from export bytes.
+    std::shared_ptr<const FrontendMovieImage> native_movie;
 };
 struct FrontendLibraryObject
 {

@@ -1,0 +1,469 @@
+Subject: Share selected original Title visual, input and departure fragments
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
+--- a/src/Game/SH/SHTitleScreen.cpp
++++ b/src/Game/SH/SHTitleScreen.cpp
+@@ -3,6 +3,7 @@
+ #include "NL/nlFunction.inl"
+ #include "Game/GameSceneManager.h"
+ #include "Game/SH/SHTitleScreen.h"
++#include "Game/FE/FrontendTitleSteps.h"
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/FEAudio.h"
+ 
+@@ -38,17 +39,12 @@
+ static bool setDimmingTime;
+ 
+ extern const int sControllerDefaults[10] = {
+-    13, 14, 13, 14, 11, 12, 0, 1, 2, 0,
++#include "Game/FE/FrontendTitleDefaults.inc"
+ };
+ 
+ void StartMovieCB()
+ {
+-    for (int i = 0; i < 4; ++i)
+-    {
+-        GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-    }
+-    FrontEndPresentation::GetInstance()->Call("TransitionTitleScreenToMainMenu");
+-    FEAudio::PlayAnimAudioEvent(0x80060B2D, 0, 0, 1);
++    FrontendTitleStartMovie([](int i,const char* slide){GetPointerInstance(i)->SetActiveSlide(slide,true,false);},[]{FrontEndPresentation::GetInstance()->Call("TransitionTitleScreenToMainMenu");},[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
+ }
+ 
+ TitleScene::TitleScene(ScreenMovement movement)
+@@ -81,41 +77,7 @@
+ 
+ void TitleScene::SceneCreated()
+ {
+-    if (IsWidescreen())
+-    {
+-        mPresentation->SetActiveSlide("widescreen", true);
+-    }
+-    else
+-    {
+-        mPresentation->SetActiveSlide("regular", true);
+-    }
+-
+-    for (int i = 0; i < 4; ++i)
+-    {
+-        GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-    }
+-
+-    mTextPressStart = FEFinder<TLComponentInstance, 2>::Find<TLSlide>(
+-        mPresentation->m_currentSlide,
+-        nlStringLowerHash("Layer2"),
+-        nlStringLowerHash("Component2"),
+-        0,
+-        0,
+-        0,
+-        0);
+-
+-    FEMusic::StartStreamIfDifferent(0);
+-    SetPointerEnabled(0);
+-    SHNavigation* object = GetNavigationScene();
+-    if (object != 0)
+-    {
+-        object->SetButtons(0, true);
+-    }
+-
+-    if (mMovement != SCREEN_BACK)
+-    {
+-        FEAudio::PlayAnimAudioEvent(0x26894C84, 0, 0, 1);
+-    }
++    FrontendTitleCreated<TLComponentInstance,FEFinder,TLSlide>(*this,[]{return IsWidescreen();},[](int i,const char* slide){GetPointerInstance(i)->SetActiveSlide(slide,true,false);},[](int i){FEMusic::StartStreamIfDifferent(i);},[](bool value){SetPointerEnabled(value);},[]{SHNavigation* nav=GetNavigationScene();if(nav)nav->SetButtons(0,true);},[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
+ }
+ 
+ inline void TitleScene::InitializePointerButtons()
+@@ -130,7 +92,7 @@
+     FEPointerListener::Callback select(
+         PointerBinding(MemFun(&TitleScene::OnControllerPointerPress), this, Placeholder<0>(), Placeholder<1>()));
+ 
+-    mControllerComponent.SetInstanceBounds(mTextPressStart, true, 0.0f, 0.0f, 1.0f, 1.0f);
++    FrontendTitleBind(*this);
+     mControllerComponent.SetPointerEnterCallback(enter);
+     mControllerComponent.SetPointerLeaveCallback(leave);
+     mControllerComponent.SetPointerPressCallback(select);
+@@ -138,24 +100,7 @@
+ 
+ void TitleScene::Update(float dt)
+ {
+-    BaseSceneHandler::Update(dt);
+-    m_fTimeElapsed += dt;
+-    if (m_fTimeElapsed < 1.5f)
+-        return;
+-
+-    if (!mInitialized)
+-    {
+-        InitializePointerButtons();
+-
+-        for (int i = 0; i < 4; ++i)
+-        {
+-            GetPointerInstance(i)->SetActiveSlide("cursor", true, false);
+-        }
+-        mInitialized = true;
+-    }
+-
+-    if (mStartedDemo)
+-        return;
++    if(!FrontendTitleBeginUpdate(*this,dt,[&](float value){BaseSceneHandler::Update(value);},[&]{InitializePointerButtons();},[](int i,const char* slide){GetPointerInstance(i)->SetActiveSlide(slide,true,false);}))return;
+ 
+     float demoTimeout = GetConfigFloat(Config::Global(), "fe_demo_mode_time_out", 60.0f);
+     if (GetTweakBool("/user/dosoak", false))
+@@ -188,86 +133,9 @@
+             continue;
+         }
+ 
+-        if (m_fTimeElapsed > 160.0f)
+-        {
+-            FEMusic::StopStream();
+-            SetPointerEnabled(false);
+-            IntroMovieScene* scene = static_cast<IntroMovieScene*>(
+-                GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, true));
+-            if (scene != 0)
+-            {
+-                scene->ResetMoviePlayer();
+-            }
+-            mStartedDemo = true;
+-            m_fTimeElapsed = 0.0f;
+-            return;
+-        }
+-
+-        pointer->SetActiveSlide("A", true, false);
+-        if (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0))
+-        {
+-            OnControllerPointerPress(pad, 0);
+-        }
+-
+-        bool acceptedInput = false;
+-        for (int input = 0; input < 6; ++input)
+-        {
+-            if (!mControllerReady[input])
+-            {
+-                if (g_pFEInput->JustPressed(
+-                        (eFEINPUT_PAD)pad, mControllerDefaults[input], true, 0))
+-                {
+-                    mControllerReady[input] = true;
+-                    acceptedInput = true;
+-                    break;
+-                }
+-                else if (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1F, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x29, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x28, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2D, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2C, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x30, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x31, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0C, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0B, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0D, true, 0)
+-                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0E, true, 0))
+-                {
+-                    for (int reset = 0; reset < 6; ++reset)
+-                    {
+-                        mControllerReady[reset] = false;
+-                    }
+-                }
+-            }
+-        }
+-
+-        if (!acceptedInput
+-            && (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1F, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x29, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x28, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2D, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2C, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x30, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x31, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0C, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0B, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0D, true, 0)
+-                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0E, true, 0)))
+-        {
+-            for (int reset = 0; reset < 6; ++reset)
+-            {
+-                mControllerReady[reset] = false;
+-            }
+-        }
+-
+-        bool sequenceReady = true;
+-        for (int input = 0; input < 6; ++input)
+-        {
+-            sequenceReady = sequenceReady && mControllerReady[input];
+-        }
+-
++        if(FrontendTitleIdle(*this,[]{FEMusic::StopStream();},[](bool v){SetPointerEnabled(v);},[]{IntroMovieScene* scene=static_cast<IntroMovieScene*>(GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE,SCREEN_NOTHING,true));if(scene)scene->ResetMoviePlayer();}))return;
++
++        bool sequenceReady=FrontendTitlePadInput(*this,pad,[&]{pointer->SetActiveSlide("A",true,false);},[](int p,int action,bool remap,eFEINPUT_PAD* found){return g_pFEInput->JustPressed((eFEINPUT_PAD)p,action,remap,found);},[&](int p){OnControllerPointerPress(p,0);});
+         if (sequenceReady && g_pPlatPadManager->type[pad] == 2)
+         {
+             WiiFreestylePadStatus status = *g_pPlatPadManager->GetFreestyleStatus(pad);
+@@ -378,15 +246,7 @@
+ 
+ void TitleScene::OnControllerPointerPress(int index, void*)
+ {
+-    mTextPressStart->SetActiveSlide("down", true, false);
+-    mControllerComponent.SetPointerState(2, index);
+-    FEAudio::PlayAnimAudioEvent(0x55C84A9D, 0, 0, 1);
+-    SetPointerEnabled(1);
+-    GameSceneManager::Instance()->Pop();
+-    GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();
+-    GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();
+-    VISetTimeToDimming(0);
+-    setDimmingTime = false;
++    FrontendTitlePressPrefix(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);},[](bool v){SetPointerEnabled(v);},[]{GameSceneManager::Instance()->Pop();},[]{GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();},[]{GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();},[](int v){VISetTimeToDimming(v);setDimmingTime=false;});
+ 
+     WPADInfo info;
+     if (WPADGetInfo(index, &info) == WPAD_ERR_OK && info.battery <= 1)
+@@ -403,17 +263,12 @@
+ 
+ void TitleScene::OnControllerPointerEnter(int index, void*)
+ {
+-    mTextPressStart->SetActiveSlide("over", true, false);
+-    mControllerComponent.SetPointerState(1, index);
+-    FEAudio::PlayAnimAudioEvent(0xAA73EF32, 0, 0, 1);
+-    mUnidentifiedDF = true;
++    FrontendTitleEnter(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
+ }
+ 
+ void TitleScene::OnControllerPointerLeave(int index, void*)
+ {
+-    mTextPressStart->SetActiveSlide("off", true, false);
+-    mControllerComponent.SetPointerState(0, index);
+-    mUnidentifiedDF = false;
++    FrontendTitleLeave(*this,index);
+ }
+ 
+ HealthWarningSceneV2::HealthWarningSceneV2()
+diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
+--- a/src/Game/DB/UserOptions.cpp
++++ b/src/Game/DB/UserOptions.cpp
+@@ -3,6 +3,7 @@
+ 
+ #include "Game/Audio/AudioSystem.h"
+ #include "Game/Audio/RegistryPools.h"
++#include "Game/FE/FrontendTitleSteps.h"
+ #include "Game/DB/SaveStateSteps.h"
+ 
+ #include <string.h>
+@@ -95,6 +96,7 @@
+ 
+ void GameplaySettings::OnSettingsUpdated() const
+ {
++    FrontendTitleGameplaySettingsUpdated();
+ }
+ 
+ CheatSettings::CheatSettings()
+@@ -114,6 +116,7 @@
+ 
+ void CheatSettings::OnSettingsUpdated() const
+ {
++    FrontendTitleCheatSettingsUpdated();
+ }
+ 
+ VisualSettings::VisualSettings()
+diff --git a/include/Game/FE/FrontendTitleSteps.h b/include/Game/FE/FrontendTitleSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendTitleSteps.h
+@@ -0,0 +1,192 @@
++#ifndef GAME_FE_FRONTEND_TITLE_STEPS_H
++#define GAME_FE_FRONTEND_TITLE_STEPS_H
++// Selected exact TitleScene fragments. Console delegates retain unselected Wii,
++// icon/banner, smoke/soak and full scene-manager services.
++inline void FrontendTitleGameplaySettingsUpdated() {}
++inline void FrontendTitleCheatSettingsUpdated() {}
++template<class Pointer,class Transition,class Play>
++void FrontendTitleStartMovie(Pointer pointer,Transition transition,Play play)
++{
++    for (int i = 0; i < 4; ++i)
++    {
++        pointer(i,"waiting");
++    }
++    transition();
++    play(0x80060B2D, 0, 0, 1);
++}
++template<class TLComponentInstance,template<class,int>class FEFinder,class TLSlide,class S,class Wide,class Pointer,class Music,class Enable,class Nav,class Play>
++void FrontendTitleCreated(S& s,Wide wide,Pointer pointer,Music music,Enable enable,Nav navigation,Play play)
++{
++    if (wide())
++    {
++        s.mPresentation->SetActiveSlide("widescreen", true);
++    }
++    else
++    {
++        s.mPresentation->SetActiveSlide("regular", true);
++    }
++
++    for (int i = 0; i < 4; ++i)
++    {
++        pointer(i,"waiting");
++    }
++
++    s.mTextPressStart = FEFinder<TLComponentInstance, 2>::template Find<TLSlide>(
++        s.mPresentation->m_currentSlide,
++        "Layer2",
++        "Component2",
++        0,
++        0,
++        0,
++        0);
++
++    music(0);
++    enable(false);
++    navigation();
++
++    if (s.mMovement != 2)
++    {
++        play(0x26894C84, 0, 0, 1);
++    }
++}
++template<class S,class Base,class Initialize,class Pointer>
++bool FrontendTitleBeginUpdate(S& s,float dt,Base baseUpdate,Initialize initialize,Pointer pointer)
++{
++    baseUpdate(dt);
++    s.m_fTimeElapsed += dt;
++    if (s.m_fTimeElapsed < 1.5f)
++        return false;
++
++    if (!s.mInitialized)
++    {
++        initialize();
++
++        for (int i = 0; i < 4; ++i)
++        {
++            pointer(i,"cursor");
++        }
++        s.mInitialized = true;
++    }
++
++    if (s.mStartedDemo)
++        return false;
++
++    return true;
++}
++template<class S,class Stop,class Enable,class Intro>
++bool FrontendTitleIdle(S& s,Stop stopMusic,Enable enable,Intro intro)
++{        if (s.m_fTimeElapsed > 160.0f)
++        {
++            stopMusic();
++            enable(false);
++            intro();
++            s.mStartedDemo = true;
++            s.m_fTimeElapsed = 0.0f;
++            return true;
++        }
++
++    return false;
++}
++template<class S,class Pointer,class Pressed,class Press>
++bool FrontendTitlePadInput(S& s,int pad,Pointer pointerA,Pressed pressed,Press press)
++{        pointerA();
++        if (pressed(pad, 0x1E, true, 0))
++        {
++            press(pad);
++        }
++
++        bool acceptedInput = false;
++        for (int input = 0; input < 6; ++input)
++        {
++            if (!s.mControllerReady[input])
++            {
++                if (pressed(
++                        pad, s.mControllerDefaults[input], true, 0))
++                {
++                    s.mControllerReady[input] = true;
++                    acceptedInput = true;
++                    break;
++                }
++                else if (pressed(pad, 0x1E, true, 0)
++                    || pressed(pad, 0x1F, true, 0)
++                    || pressed(pad, 0x29, true, 0)
++                    || pressed(pad, 0x28, true, 0)
++                    || pressed(pad, 0x2D, true, 0)
++                    || pressed(pad, 0x2C, true, 0)
++                    || pressed(pad, 0x30, true, 0)
++                    || pressed(pad, 0x31, true, 0)
++                    || pressed(pad, 0x0C, true, 0)
++                    || pressed(pad, 0x0B, true, 0)
++                    || pressed(pad, 0x0D, true, 0)
++                    || pressed(pad, 0x0E, true, 0))
++                {
++                    for (int reset = 0; reset < 6; ++reset)
++                    {
++                        s.mControllerReady[reset] = false;
++                    }
++                }
++            }
++        }
++
++        if (!acceptedInput
++            && (pressed(pad, 0x1E, true, 0)
++                || pressed(pad, 0x1F, true, 0)
++                || pressed(pad, 0x29, true, 0)
++                || pressed(pad, 0x28, true, 0)
++                || pressed(pad, 0x2D, true, 0)
++                || pressed(pad, 0x2C, true, 0)
++                || pressed(pad, 0x30, true, 0)
++                || pressed(pad, 0x31, true, 0)
++                || pressed(pad, 0x0C, true, 0)
++                || pressed(pad, 0x0B, true, 0)
++                || pressed(pad, 0x0D, true, 0)
++                || pressed(pad, 0x0E, true, 0)))
++        {
++            for (int reset = 0; reset < 6; ++reset)
++            {
++                s.mControllerReady[reset] = false;
++            }
++        }
++
++        bool sequenceReady = true;
++        for (int input = 0; input < 6; ++input)
++        {
++            sequenceReady = sequenceReady && s.mControllerReady[input];
++        }
++
++        return sequenceReady;
++}
++template<class S,class Play>
++void FrontendTitleEnter(S& s,int index,Play play)
++{
++    s.mTextPressStart->SetActiveSlide("over", true, false);
++    s.mControllerComponent.SetPointerState(1, index);
++    play(0xAA73EF32, 0, 0, 1);
++    s.mUnidentifiedDF = true;
++}
++template<class S>
++void FrontendTitleLeave(S& s,int index)
++{
++    s.mTextPressStart->SetActiveSlide("off", true, false);
++    s.mControllerComponent.SetPointerState(0, index);
++    s.mUnidentifiedDF = false;
++}
++template<class S,class Play,class Enable,class Pop,class Gameplay,class Cheats,class Dimming>
++void FrontendTitlePressPrefix(S& s,int index,Play play,Enable enable,Pop pop,Gameplay gameplay,Cheats cheats,Dimming dimming)
++{
++    s.mTextPressStart->SetActiveSlide("down", true, false);
++    s.mControllerComponent.SetPointerState(2, index);
++    play(0x55C84A9D, 0, 0, 1);
++    enable(true);
++    pop();
++    gameplay();
++    cheats();
++    dimming(0);
++
++}
++template<class S>
++void FrontendTitleBind(S& s)
++{
++    s.mControllerComponent.SetInstanceBounds(s.mTextPressStart, true, 0.0f, 0.0f, 1.0f, 1.0f);
++}
++#endif
+diff --git a/include/Game/FE/FrontendTitleDefaults.inc b/include/Game/FE/FrontendTitleDefaults.inc
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendTitleDefaults.inc
+@@ -0,0 +1 @@
++    13, 14, 13, 14, 11, 12, 0, 1, 2, 0,

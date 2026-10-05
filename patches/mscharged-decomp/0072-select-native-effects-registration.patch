@@ -1,6 +1,6 @@
 Subject: Select original effects template resolution on retained native records
 
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Share EffectsBundleData's final template-resolution loop with the original
 initializer. Native storage is decoded and retained separately; prohibit the
@@ -27,8 +27,8 @@ diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/Eff
 +    // Shared final initialization pass, after checked native storage is built.
 +    void ResolveTemplates();
      void Destroy();
+     EffectsGroup* GetGroup(int index) const { return mGroups[index]; }
  
-     /* 0x00 */ unsigned char unknown_0x00[8];
 diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
 --- a/include/Game/Effects/EffectsTemplate.h
 +++ b/include/Game/Effects/EffectsTemplate.h

@@ -117,9 +117,10 @@ struct EffectsVertexResources::Implementation
     std::function<void()> drain;
     std::thread::id thread=std::this_thread::get_id();
     std::optional<std::uint64_t> pending;
-    bool busy=false;
+    bool busy=false, owns_pool=true;
+    int level=0;
     Implementation(const resources::EffectsGeometry& geometry,const resources::TextureBundle& source,
-        std::function<void()> callback,EffectsVertexMemory memory):drain(std::move(callback))
+        std::function<void()> callback,EffectsVertexMemory memory,GLResourcePool* borrowed=nullptr):drain(std::move(callback)),owns_pool(!borrowed)
     {
         Require(drain&&glGetTextureManager()&&!glIsFrameActive()&&!glNativeViewDispatchActive(),
             "Effects vertex resources require idle graphics memory and a real drain callback");
@@ -127,14 +128,23 @@ struct EffectsVertexResources::Implementation
         Require(memory.headers&&memory.geometry&&memory.textures&&memory.headers<=maximum
             &&memory.geometry<=maximum&&memory.textures<=maximum,"Invalid effects vertex resource pool budgets");
         Validate(geometry,source);textures.reserve(source.textures.size());
+        if(borrowed)
+        {
+            Require(Linked(borrowed)&&borrowed->m_inventory&&borrowed->m_level==borrowed->m_inventory->m_nLevel,
+                "Borrowed effects pool is absent or has inconsistent resource levels");
+            for(const auto& model:geometry.models)
+                Require(!borrowed->m_inventory->GetModel(model.id)&&!borrowed->m_inventory->GetVertexAnim(model.id),
+                    "Borrowed effects inventory already owns this model or animation ID");
+        }
         const GLMemoryRequirement requirements[]={{GLM_Header,static_cast<unsigned long>(memory.headers)},
             {GLM_VertexData,static_cast<unsigned long>(memory.geometry)},
             {GLM_TextureData,static_cast<unsigned long>(memory.textures)}};
         ScopedGameAllocator allocation(VirtualAllocator);
         try
         {
-            pool=glCreateResourcePool(requirements,3,"Effects vertex resources");CurrentPool selected(pool);
+            pool=borrowed?borrowed:glCreateResourcePool(requirements,3,"Effects vertex resources");CurrentPool selected(pool);
             inventory=std::make_unique<StaticInventory>(*pool,geometry.models,source.textures);
+            level=pool->m_level;
             for(const auto& texture:source.textures)
             {
                 auto* native=pool->m_inventory->GetTexture(texture.id);auto* manager=glGetTextureManager();
@@ -163,13 +173,13 @@ struct EffectsVertexResources::Implementation
                 catch(...){nlDeleteGameObject(animation);throw;}
             }
         }
-        catch(...){inventory.reset();if(pool)glDestroyResourcePool(pool);pool=nullptr;throw;}
+        catch(...){inventory.reset();if(pool&&owns_pool)glDestroyResourcePool(pool);pool=nullptr;throw;}
     }
     void Thread() const
     {Require(thread==std::this_thread::get_id()&&!busy,"Effects vertex resources require their nonrecursive owner thread");}
     void Check() const
     {
-        Thread();Require(pool&&Linked(pool)&&glGetTextureManager()&&pool->m_level==1&&pool->m_inventory->m_nLevel==1,
+        Thread();Require(pool&&Linked(pool)&&glGetTextureManager()&&pool->m_level==level&&pool->m_inventory->m_nLevel==level,
             "Effects vertex resource pool was released or its ownership level changed");
         Require(!glNativeViewDispatchActive(),"Effects vertex resources cannot mutate during view dispatch");
         for(const auto& texture:textures)
@@ -194,13 +204,17 @@ struct EffectsVertexResources::Implementation
     void Release()
     {
         Thread();if(!pool)return;Idle();busy=true;
-        try{drain();inventory.reset();records.clear();textures.clear();glDestroyResourcePool(pool);pool=nullptr;drain={};busy=false;}
+        try{drain();inventory.reset();records.clear();textures.clear();if(owns_pool)glDestroyResourcePool(pool);pool=nullptr;drain={};busy=false;}
         catch(...){busy=false;throw;}
     }
     ~Implementation(){try{Release();}catch(...){std::terminate();}}
 };
 EffectsVertexResources::EffectsVertexResources(const resources::EffectsGeometry& geometry,const resources::TextureBundle& textures,
     std::function<void()> drain,EffectsVertexMemory memory):impl_(std::make_unique<Implementation>(geometry,textures,std::move(drain),memory)){}
+EffectsVertexResources::EffectsVertexResources(GLResourcePool& pool,const resources::EffectsGeometry& geometry,
+    const resources::TextureBundle& textures,std::function<void()> drain)
+    :impl_(std::make_unique<Implementation>(geometry,textures,std::move(drain),EffectsVertexMemory{},&pool)){}
+const GLResourcePool* EffectsVertexResources::Pool() const{impl_->Check();return impl_->pool;}
 EffectsVertexResources::~EffectsVertexResources()=default;
 bool EffectsVertexResources::Active() const{impl_->Thread();return impl_->pool;}
 std::size_t EffectsVertexResources::Size() const{impl_->Check();return impl_->records.size();}

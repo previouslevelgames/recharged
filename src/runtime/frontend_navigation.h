@@ -13,7 +13,7 @@ struct FrontendNavigationDoneBinding
     bool visible=false; // Explicit visibility in the acknowledged source generation.
 };
 using FrontendNavigationBackBinding = FrontendNavigationDoneBinding;
-enum class FrontendNavigationPointer { Waiting, Cursor };
+enum class FrontendNavigationPointer { Waiting, Cursor, Accept };
 struct FrontendNavigationPointerSample
 {
     std::array<float,2> position{};
@@ -71,6 +71,9 @@ public:
     // original SetDoneButtonBounds(0), not a measured or guessed text rectangle.
     FrontendNavigationDoneBinding DoneButton(const FrontendSession::Handle&) const;
     void SetPointerSlide(const FrontendSession::Handle&,unsigned,FrontendNavigationPointer);
+    // Actual selected desktop cursor visibility/input authority. The original
+    // Wii SetDPDEnabled endpoints are outside this explicit desktop profile.
+    void SetDesktopPointersEnabled(const FrontendSession::Handle&,bool);
     void UpdatePointers(const FrontendSession::Handle&,
         const std::array<FrontendNavigationPointerSample,4>&,bool hidden=false);
     // Retains a real script callback. Source pending update calls it once before

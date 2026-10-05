@@ -23,7 +23,7 @@ for bad_source, bad_header in (
     (source.replace('"art/animation/mariofe.sanim",', 'nullptr,'), header),
     (source.replace('"art/animation/mariofe.sanim",', '"art/animation/mariofe.cam",'), header),
     (source.replace('"art/animation/mario.shier",', '"art/animation/mario.shier", 19,'), header),
-    (source.replace("fn_801BE234,", "InventedCallback(),"), header),
+    (source.replace("CharacterAnimTriggerCallback,", "InventedCallback(),"), header),
     (source.replace("GLOBALAnimProperties,", "Unknown + 1,"), header),
     (source.replace("    },\n    {", "    },,\n    {", 1), header),
     (source.replace("    },\n    {", "    }\n    {", 1), header),
@@ -31,6 +31,7 @@ for bad_source, bad_header in (
     (source, header.replace("szHierarchyFilename;", "newHierarchyField;")),
     (source, header.replace("int nNumAnimProperties;", "int nNumAnimProperties; int newField;")),
 ):
+    assert bad_source != source or bad_header != header, "The drift fixture did not alter the reviewed source"
     try:
         module.extract(bad_source, bad_header)
     except (ValueError, TypeError):

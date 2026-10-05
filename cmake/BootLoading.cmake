@@ -14,7 +14,11 @@ endif()
 if(BUILD_TESTING)
     add_executable(boot_loading_tests tests/boot_loading.cpp)
     target_link_libraries(boot_loading_tests PRIVATE charged_boot_loading aurora::core)
-    add_test(NAME boot_loading COMMAND boot_loading_tests)
-    set_tests_properties(boot_loading PROPERTIES
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 30)
+    # This host test initializes BACKEND_NULL; GX-enabled Aurora needs a real
+    # drawable. The separate boot_effects test supplies a CPU frame backend.
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME boot_loading COMMAND boot_loading_tests)
+        set_tests_properties(boot_loading PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy" TIMEOUT 30)
+    endif()
 endif()

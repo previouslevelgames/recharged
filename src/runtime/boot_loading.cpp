@@ -45,6 +45,11 @@ struct BootLoading::Implementation
     std::string error;
     std::vector<unsigned> calls;
     GLResourcePool* pool = nullptr;
+    BootEffectsBinding::Handle effects;
+    bool effects_started=false;
+    BootNpcBinding::Handle npcs;
+    bool npcs_started=false;
+    BootLoadingMemory memory;
     bool busy = false, dispatched = false;
     const std::size_t trace_limit;
     std::function<std::uint32_t()> ticker;
@@ -53,9 +58,11 @@ struct BootLoading::Implementation
     InterpreterFlow flow = InterpreterFlow::Continue;
     std::size_t instructions = 0, host_calls = 0;
 
-    Implementation(resources::Bytes bytes, InterpreterLimits limits, std::function<std::uint32_t()> clock)
-        : interpreter(bytes, limits), trace_limit(limits.host_calls), ticker(clock ? std::move(clock) : nlGetTicker)
+    Implementation(resources::Bytes bytes, InterpreterLimits limits, std::function<std::uint32_t()> clock, BootEffectsBinding::Handle effects_binding, BootLoadingMemory native_memory, BootNpcBinding::Handle npc_binding)
+        : interpreter(bytes, limits), effects(std::move(effects_binding)), npcs(std::move(npc_binding)), memory(native_memory), trace_limit(limits.host_calls), ticker(clock ? std::move(clock) : nlGetTicker)
     {
+        if((memory.headers==0)!=(memory.resources==0)||memory.headers>64*1024*1024||memory.resources>64*1024*1024)
+            throw std::invalid_argument("Native boot pool needs two nonzero bounded capacities or original defaults");
         // Validate the entry before a pool or runtime side effect is possible.
         const auto script = resources::ReadScriptBytecode(bytes);
         const auto entry = std::find_if(script->functions.begin(), script->functions.end(),
@@ -65,12 +72,18 @@ struct BootLoading::Implementation
         calls.reserve(std::min<std::size_t>(limits.host_calls, 256));
         for (unsigned id = 0; id < 144; ++id)
         {
-            InterpreterHostCall call{id, {}, id == 119, [this, id](auto args) { return Invoke(id, args); }};
+            InterpreterHostCall call{id, {}, id == 119 || (id==108&&bool(npcs)), [this, id](auto args) { return Invoke(id, args); }};
+            if (id == 1 && npcs) call.arguments = {InterpreterValueKind::String,InterpreterValueKind::Word};
             if (id == 120) call.arguments = {InterpreterValueKind::String};
             if (id == 49 || id == 61) call.arguments = {InterpreterValueKind::Word};
             interpreter.Bind(std::move(call));
         }
+        if(effects&&effects->owner_) throw std::logic_error("Effects binding is already retained by another boot owner");
+        if(npcs&&npcs->owner_) throw std::logic_error("NPC binding is already retained by another boot owner");
+        if(effects) effects->owner_=this;
+        if(npcs) npcs->owner_=this;
     }
+    ~Implementation(){if(effects&&effects->owner_==this)effects->owner_=nullptr;if(npcs&&npcs->owner_==this)npcs->owner_=nullptr;}
     void Ready() const
     {
         if (thread != std::this_thread::get_id()) throw std::logic_error("Boot loading requires its owner thread");
@@ -83,6 +96,10 @@ struct BootLoading::Implementation
     }
     void Release()
     {
+        busy=true;
+        struct ReleaseGuard{bool& value;~ReleaseGuard(){value=false;}} release_guard{busy};
+        if (npcs_started) { npcs->release_(); npcs_started=false; }
+        if (effects_started) { effects->release_(); effects_started=false; }
         if (!pool) return;
         // Only this owner destroys the pool; callers receive a const observation.
         glDestroyResourcePool(pool);
@@ -103,22 +120,58 @@ struct BootLoading::Implementation
         // wait may finish during BEGIN; completion is still published on RUN.
         if (interpreter.Status() == InterpreterStatus::Paused) { dispatched = true; interpreter.Resume(); }
     }
-    InterpreterHostResult Invoke(unsigned id, std::span<const InterpreterValue>)
+    InterpreterHostResult Invoke(unsigned id, std::span<const InterpreterValue> args)
     {
         if (calls.size() >= trace_limit) throw std::length_error("Boot session host-call trace limit exceeded");
         calls.push_back(id);
         flow = InterpreterFlow::Continue;
         switch (id)
         {
+        case 1:
+            if(!npcs)throw UnqualifiedService(id, "Original NPC template resource provider is unavailable");
+            if(!pool)throw std::logic_error("NPC templates require this boot's persistent pool");
+            npcs_started=true;
+            npcs->create_(*pool,std::get<std::string>(args[0]),std::get<std::uint32_t>(args[1])!=0);
+            break;
+        case 108:
+            if(!npcs)throw UnqualifiedService(id,"Original NPC template selection is unavailable");
+            return {npcs->select_()?1u:0u,flow};
+        case 138:
+            if(!npcs)throw UnqualifiedService(id,"Original NPC template loading is unavailable");
+            npcs->begin_();
+            FinishAsyncLoadingStep(this,nlGetTickerDifference(mStageStartTick,ticker()),g_fYieldScriptBlockingTimeMS);
+            break;
+        case 76:
+            if(!npcs)throw UnqualifiedService(id,"Original NPC template finalization is unavailable");
+            FinishAsyncLoadingStepOrUndo(this,npcs->finish_(),nlGetTickerDifference(mStageStartTick,ticker()),g_fYieldScriptBlockingTimeMS);
+            break;
         case 4:
         {
             if (pool) throw std::logic_error("Persistent boot resource pool already exists");
             RequireGraphics();
             fn_80111654(4); // Original empty debug marker, selected from FixedUpdateTask.
-            const auto requirements = gPersistentResourceRequirements;
+            auto requirements = gPersistentResourceRequirements;
+            if(memory.headers)
+            {
+                requirements.entries[0]={GLM_Header,memory.headers};
+                requirements.entries[1]={GLM_TextureData,memory.resources};
+            }
             pool = glCreateResourcePool(requirements.entries, std::size(requirements.entries), "PersistentResourcePool");
             break;
         }
+        case 41:
+            if (!effects) throw UnqualifiedService(id, ServiceDescription(id));
+            if (!pool || effects_started) throw std::logic_error("Effects begin requires this boot's persistent pool exactly once");
+            effects_started=true; // Retain partial read/registration ownership on failure.
+            effects->start_(*pool);
+            FinishAsyncLoadingStep(this, nlGetTickerDifference(mStageStartTick, ticker()), g_fYieldScriptBlockingTimeMS);
+            break;
+        case 28:
+            if (!effects) throw UnqualifiedService(id, ServiceDescription(id));
+            if (!effects_started) throw std::logic_error("Effects finalize requires an admitted begin");
+            FinishAsyncLoadingStepOrUndo(this, effects->finish_(),
+                nlGetTickerDifference(mStageStartTick, ticker()), g_fYieldScriptBlockingTimeMS);
+            break;
         case 48: case 83: // Original explicit empty cases.
         case 49: case 61: // Original discarded numeric argument; VM performs typed pop.
             break;
@@ -139,7 +192,12 @@ struct BootLoading::Implementation
     }
 };
 BootLoading::BootLoading(resources::Bytes bytes, InterpreterLimits limits, std::function<std::uint32_t()> ticker)
-    : impl_(std::make_unique<Implementation>(bytes, limits, std::move(ticker))) {}
+    :BootLoading(bytes,limits,std::move(ticker),{}){}
+BootLoading::BootLoading(resources::Bytes bytes, InterpreterLimits limits, std::function<std::uint32_t()> ticker, BootEffectsBinding::Handle effects, BootLoadingMemory memory)
+    :BootLoading(bytes,limits,std::move(ticker),std::move(effects),memory,{}){}
+BootLoading::BootLoading(resources::Bytes bytes, InterpreterLimits limits, std::function<std::uint32_t()> ticker,
+    BootEffectsBinding::Handle effects,BootLoadingMemory memory,BootNpcBinding::Handle npcs)
+    :impl_(std::make_unique<Implementation>(bytes,limits,std::move(ticker),std::move(effects),memory,std::move(npcs))){}
 BootLoading::~BootLoading()
 {
     try { impl_->Ready(); impl_->Release(); } catch (...) { std::terminate(); }

@@ -1,0 +1,20 @@
+include_guard(GLOBAL)
+# Registration uses actual material/texture/frame providers, available in the
+# scene graphics graph. The ordinary Startup prefix keeps its explicit41 stop.
+if(TARGET charged_effects_vertex)
+    include(cmake/BootLoading.cmake)
+    add_library(charged_boot_effects STATIC src/runtime/boot_effects.cpp)
+    add_dependencies(charged_boot_effects verify_prepared)
+    target_compile_features(charged_boot_effects PUBLIC cxx_std_20)
+    target_link_libraries(charged_boot_effects PUBLIC charged_boot_loading charged_effects_registry charged_effects_vertex)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+        target_compile_options(charged_boot_effects PRIVATE -ffp-contract=off)
+    endif()
+    if(BUILD_TESTING)
+        add_executable(boot_effects_tests tests/boot_effects.cpp)
+        target_link_libraries(boot_effects_tests PRIVATE charged_boot_effects aurora::dvd aurora::core)
+        add_test(NAME boot_effects COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_boot_effects.py"
+            "$<TARGET_FILE:boot_effects_tests>")
+        set_tests_properties(boot_effects PROPERTIES TIMEOUT 120)
+    endif()
+endif()

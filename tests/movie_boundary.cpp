@@ -64,8 +64,8 @@ int main()
         {
             if (IsMovieActive() || MoviePlay() || MovieStop() || IsMovieFinished() || GetMovieFrame())
                 throw std::runtime_error("Original inactive movie contract changed");
-            Stopped("fn_80370E20", [] { fn_80370E20(); });
-            Stopped("fn_80370E64", [] { fn_80370E64(); });
+            Stopped("MovieInit", [] { MovieInit(); });
+            Stopped("MovieQuit", [] { MovieQuit(); });
             Stopped("MovieStart", [] { MovieStart("intro.thp", true, false, false); });
             if (IsMovieActive()) throw std::runtime_error("Rejected MovieStart published active state");
             g_bActive = true; // Test-only state injection into the compiled original unit.

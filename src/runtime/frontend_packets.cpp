@@ -1,5 +1,7 @@
 #include "runtime/frontend_packets.h"
 #include "runtime/frontend_font_packets.h"
+#include "runtime/frontend_movie_render.h"
+#include "Game/FE/FrontendImageSteps.h"
 #include "runtime/views.h"
 #include "NL/gl/glMatrix.h"
 #include "Game/FE/FrontendImageState.h"
@@ -10,12 +12,13 @@
 #include "NL/gl/glTextureManager.h"
 #include "NL/glx/glxTexture.h"
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <optional>
 #include <thread>
 #include <variant>
 // Original GLViewSort_None factory; compare identity to reject reordering views.
-extern UnidentifiedPacketSorter* fn_802CEFC0();
+extern GLPacketSorter* CreateUnsortedPacketSorter();
 namespace mscharged
 {
 namespace
@@ -30,7 +33,14 @@ bool Linked(const GLResourcePool* pool)
 bool SameOwners(const FrontendSession::Handle& a,const FrontendSession::Handle& b)
 { return a && b && a->visuals==b->visuals && a->images==b->images; }
 struct ImagePacket { glQuad3 quad; nlMatrix4 model; std::uint32_t texture,blend; };
-using Packet=std::variant<detail::FontPackets,ImagePacket>;
+struct MoviePacket { FrontendMovieQuad quad; };
+struct PendingMoviePacket {}; // Deliberate nondraw entry; never a static image fallback.
+struct PreparedPackets
+{
+    std::vector<std::variant<detail::FontPackets,ImagePacket,MoviePacket,PendingMoviePacket>> packets;
+    FrontendMovieEntryStatus movies;
+};
+using Packet=std::variant<detail::FontPackets,ImagePacket,MoviePacket,PendingMoviePacket>;
 nlMatrix4 Matrix(const std::array<float,16>& input)
 {
     for (float value:input) detail::CheckFrontendCoordinate(value);
@@ -40,11 +50,13 @@ nlMatrix4 Matrix(const std::array<float,16>& input)
     result.e[0]=input[0]; result.e[1]=input[1]; result.e[4]=input[4]; result.e[5]=input[5];
     result.e[12]=input[12]; result.e[13]=input[13]; return result;
 }
-std::vector<Packet> PreparePackets(const FrontendSession::Handle& input)
+PreparedPackets PreparePackets(const FrontendSession::Handle& input,
+    const FrontendMovieImageBinding::Handle& binding,const FrontendMovieImageBinding::Handle& retired)
 {
     Require(input && input->visuals && input->images,"Frontend packets require retained visual and image owners");
     Require(input->layout.entries.size()<=4096,"Frontend packet layout exceeds 4096 entries");
-    std::vector<Packet> packets; packets.reserve(input->layout.entries.size());
+    PreparedPackets prepared; auto& packets=prepared.packets; packets.reserve(input->layout.entries.size());
+    unsigned movie_count=0;
     std::size_t quads=0;
     for (const auto& entry:input->layout.entries)
     {
@@ -54,6 +66,76 @@ std::vector<Packet> PreparePackets(const FrontendSession::Handle& input)
                 "Frontend text does not retain this generation's font");
             packets.emplace_back(detail::PrepareFontPackets(text->layout,Matrix(text->transform),text->colour));
             quads+=text->layout.quads.size();
+        }
+        else if(const auto* movie=std::get_if<resources::FrontendLayoutMovie>(&entry))
+        {
+            Require(++movie_count==1,"Only one authored movie instance per frame is qualified");
+            const auto node=std::find_if(input->graph.instances.begin(),input->graph.instances.end(),
+                [&](const auto& item){return item.offset==movie->instance;});
+            const auto resource=std::find_if(input->graph.resources.begin(),input->graph.resources.end(),
+                [&](const auto& item){return item.offset==movie->resource;});
+            Require(node!=input->graph.instances.end()&&node->type==2&&node->resource==movie->resource
+                &&resource!=input->graph.resources.end()&&resource->type==0&&resource->native_movie==movie->image,
+                "Movie entry differs from its retained graph instance/resource");
+            const std::array<std::string_view,2> names{"Layer","movie"};
+            const auto selected=resources::FindFrontendNode(input->graph,{},resources::FrontendNamedPath(names),resources::FrontendNodeType::Image);
+            Require(selected&&selected->id==movie->instance,"Movie entry is not the current authored Layer/movie");
+            MoviePacket packet;packet.quad.transform=movie->transform;packet.quad.colour=movie->colour;
+            (void)Matrix(movie->transform);
+            for(float value:movie->transform)Require(std::abs(value)<=65536,"Movie matrix exceeds its checked drawable profile");
+            for(float value:movie->colour)Require(std::isfinite(value)&&value>=0&&value<=1,"Invalid movie float tint");
+            for(float value:movie->uv){detail::CheckFrontendCoordinate(value);Require(std::abs(value)<=65536,"Movie UV exceeds its checked drawable profile");}
+            // The resource name is unchanged by SetTextureHandle. Only a
+            // renderer-created opaque image can identify an installed epoch.
+            if(!movie->image)
+            {
+                Require(resource->hash==resources::FrontendNameHash("movie"),"Unbound movie entry has no authored movie identity");
+                // A known failing provider is never turned into a pending success.
+                if(binding&&SameOwners(input,binding->SourceFrame())&&input->request.path==binding->SourceFrame()->request.path
+                    &&input->graph.id==binding->SourceFrame()->graph.id&&movie->resource==binding->Resource())binding->Playback()->Check();
+                ++prepared.movies.awaiting_binding;packets.emplace_back(PendingMoviePacket{});continue;
+            }
+            const auto known=binding&&movie->image==binding->Image()?binding:
+                retired&&movie->image==retired->Image()?retired:FrontendMovieImageBinding::Handle{};
+            Require(bool(known),"Movie entry has stale or foreign registration metadata");
+            const auto& source=known->SourceFrame();
+            Require(SameOwners(input,source)&&input->request.path==source->request.path&&input->graph.id==source->graph.id
+                &&movie->resource==known->Resource(),"Frontend movie entry belongs to another retained scene");
+            const auto original_node=std::find_if(source->graph.instances.begin(),source->graph.instances.end(),
+                [&](const auto& item){return item.offset==node->offset;});
+            const auto original_resource=std::find_if(source->graph.resources.begin(),source->graph.resources.end(),
+                [&](const auto& item){return item.offset==resource->offset;});
+            Require(original_node!=source->graph.instances.end()&&original_node->type==node->type
+                &&original_node->resource==node->resource&&original_node->hash==node->hash&&original_node->library==node->library
+                &&original_resource!=source->graph.resources.end()&&original_resource->type==resource->type
+                &&original_resource->hash==resource->hash&&original_resource->file_block==resource->file_block,
+                "Movie authored instance/resource provenance changed");
+            known->Playback()->Check();
+            if(known->Playback()->Status().state==FrontendMovieState::Cancelled)
+            {
+                // Credits selects its next instance while the same resource
+                // still holds the cancelled NLG epoch. Preserve that nondraw
+                // position across idle retirement; retain no old GPU lease.
+                ++prepared.movies.cancelled;packets.emplace_back(PendingMoviePacket{});continue;
+            }
+            Require(known==binding&&known->Active()&&movie->instance==known->Instance(),
+                "Movie entry has inactive or mismatched registration metadata");
+            if(!known->Playback()->Current())
+            {++prepared.movies.awaiting_frame;packets.emplace_back(PendingMoviePacket{});continue;}
+            ++prepared.movies.ready;
+            struct UV{const std::array<float,4>& v;float GetUVX()const{return v[0];}float GetUVY()const{return v[1];}
+                float GetUVWidth()const{return v[2];}float GetUVHeight()const{return v[3];}}uv{movie->uv};
+            for(float value:movie->uv)detail::CheckFrontendCoordinate(value);
+            nlVector2 coordinates[4];FrontendImageUV(&uv,movie->image->Width(),movie->image->Height(),coordinates);
+            for(unsigned i=0;i<4;++i)
+            {
+                detail::CheckFrontendCoordinate(coordinates[i].x);detail::CheckFrontendCoordinate(coordinates[i].y);
+                Require(std::abs(coordinates[i].x)<=65536&&std::abs(coordinates[i].y)<=65536,"Movie UV exceeds its checked drawable profile");
+                packet.quad.positions[i]={FrontendImageQuadPositions[i].x,FrontendImageQuadPositions[i].y};
+                packet.quad.uv[i]={coordinates[i].x,coordinates[i].y};
+            }
+            packet.quad.source_image_state=true;packets.emplace_back(std::move(packet));++quads;
+
         }
         else
         {
@@ -78,7 +160,7 @@ std::vector<Packet> PreparePackets(const FrontendSession::Handle& input)
         }
         Require(quads<=16384,"Frontend frame exceeds 16384 quads");
     }
-    return packets;
+    return prepared;
 }
 struct Generation
 {
@@ -87,7 +169,7 @@ struct Generation
     resources::FrontendImageCatalog::Handle images;
     std::unique_ptr<GLResourcePool,void(*)(GLResourcePool*)> pool{nullptr,glDestroyResourcePool};
     std::map<std::uint32_t,Texture> textures;
-    bool submitted=false;
+    bool submitted=false;int expected_level=0;
     Generation(const FrontendSession::Handle& input,const Generation* old) : visuals(input->visuals),images(input->images)
     {
         std::size_t bytes=0;
@@ -154,7 +236,7 @@ struct Generation
     ~Generation() { pool.reset(); }
     void Check(bool visible) const
     {
-        if (!pool || !Linked(pool.get()) || pool->m_level!=0 || !glGetTextureManager())
+        if (!pool || !Linked(pool.get()) || pool->m_level!=expected_level || !glGetTextureManager())
             throw std::logic_error("Frontend graphics generation lost its original pool");
         for (const auto& [hash,t]:textures)
         {
@@ -177,6 +259,9 @@ struct FrontendPacketRenderer::Implementation
     void (*drain)();
     std::unique_ptr<Generation> generation;
     FrontendSession::Handle current;
+    FrontendMovieImageBinding::Handle movie_binding,retired_movie;
+    FrontendMoviePacketStatus movie_status;
+    std::shared_ptr<FrontendMovieRenderer> movie_renderer;
     std::optional<std::uint64_t> pending;
     bool busy=false,failed=false,released=false;
     explicit Implementation(void (*d)()) : drain(d)
@@ -188,6 +273,7 @@ struct FrontendPacketRenderer::Implementation
             throw std::logic_error("Frontend packets require their nonrecursive live owner thread outside view dispatch");
         if (!glGetTextureManager()) throw std::logic_error("Frontend graphics services have been released");
         if (generation) generation->Check(true);
+        if(movie_binding)Require(movie_binding->Active(),"Frontend movie binding was retired externally");
     }
     void Idle() const
     { Check(); if (glIsFrameActive() || pending) throw std::logic_error("Finish frontend packets before replacing graphics ownership"); }
@@ -198,11 +284,25 @@ struct FrontendPacketRenderer::Implementation
         if (glIsFrameActive() || frame!=glNativeFrameGeneration()) throw std::logic_error("Frontend drain changed frame ownership");
         if (generation) generation->Check(true);
     }
+    void RetireMovie()
+    {
+        Idle();if(!movie_binding)return;busy=true;
+        try
+        {
+            Drain();movie_renderer->Release();movie_renderer.reset();
+            movie_binding->lifetime_->active=false;movie_binding->lifetime_->graphics.reset();
+            retired_movie.reset();
+            if(movie_binding->Playback()->Status().state==FrontendMovieState::Cancelled)retired_movie=std::move(movie_binding);
+            else movie_binding.reset();
+            generation->expected_level=0;generation->Check(true);busy=false;
+        }
+        catch(...){busy=false;throw;}
+    }
     void Release()
     {
         if (released) { if (thread!=std::this_thread::get_id() || busy) throw std::logic_error("Invalid frontend release thread"); return; }
-        Idle(); busy=true;
-        try { Drain(); generation.reset(); current.reset(); released=true; busy=false; }
+        RetireMovie();Idle(); busy=true;
+        try { Drain(); generation.reset(); current.reset(); retired_movie.reset(); released=true; busy=false; }
         catch (...) { busy=false; throw; }
     }
     ~Implementation() { try { Release(); } catch (...) { std::terminate(); } }
@@ -211,8 +311,9 @@ FrontendPacketRenderer::FrontendPacketRenderer(void (*drain)()) : impl_(std::mak
 FrontendPacketRenderer::~FrontendPacketRenderer()=default;
 void FrontendPacketRenderer::Prepare(FrontendSession::Handle input)
 {
-    auto& s=*impl_; s.Idle(); (void)PreparePackets(input);
+    auto& s=*impl_; s.Idle(); (void)PreparePackets(input,s.movie_binding,s.retired_movie);
     if (SameOwners(s.current,input)) { s.current=std::move(input); return; }
+    Require(!s.movie_binding,"Retire movie registration before replacing frontend resources");
     s.busy=true;
     try
     {
@@ -221,29 +322,76 @@ void FrontendPacketRenderer::Prepare(FrontendSession::Handle input)
         auto next=std::make_unique<Generation>(input,s.generation.get()); next->Check(false);
         if (s.generation) s.generation->Check(true);
         s.generation.reset(); // Original ring now resolves candidate authored hashes.
-        s.generation=std::move(next); s.current=std::move(input); s.busy=false;
+        s.generation=std::move(next); s.current=std::move(input); s.retired_movie.reset(); s.busy=false;
     }
     catch (...) { s.busy=false; throw; }
 }
+FrontendMovieImageBinding::Handle FrontendPacketRenderer::BindMovie(std::shared_ptr<FrontendSession> session,
+    std::uint32_t instance,std::shared_ptr<FrontendMoviePlayback> playback)
+{
+    auto& s=*impl_;s.Idle();Require(!s.movie_binding&&session&&playback,"Movie binding requires one live concrete provider");
+    const auto frame=session->Current();Require(frame&&SameOwners(frame,s.current),"Prepare exact scene resources before movie binding");
+    playback->Check();Require(playback->Status().state!=FrontendMovieState::Cancelled,"Cannot bind a cancelled movie");
+    const std::array<std::string_view,2> path{"Layer","movie"};
+    const auto selected=resources::FindFrontendNode(frame->graph,{},resources::FrontendNamedPath(path),resources::FrontendNodeType::Image);
+    Require(selected&&selected->id==instance,"Movie instance differs from original active Layer/movie lookup");
+    const auto node=std::find_if(frame->graph.instances.begin(),frame->graph.instances.end(),[&](const auto& item){return item.offset==instance;});
+    Require(node!=frame->graph.instances.end()&&node->resource,"Authored movie instance lacks its resource");
+    const auto resource=std::find_if(frame->graph.resources.begin(),frame->graph.resources.end(),[&](const auto& item){return item.offset==*node->resource;});
+    Require(resource!=frame->graph.resources.end()&&resource->type==0,"Authored movie resource is not a texture");
+    auto binding=std::shared_ptr<FrontendMovieImageBinding>(new FrontendMovieImageBinding);
+    auto image=std::shared_ptr<resources::FrontendMovieImage>(new resources::FrontendMovieImage);
+    image->width_=playback->Info().width;image->height_=playback->Info().height;image->instance_=instance;image->resource_=resource->offset;
+    binding->playback_=std::move(playback);binding->session_=std::move(session);binding->frame_=frame;
+    binding->instance_=instance;binding->resource_=resource->offset;binding->image_=std::move(image);
+    binding->lifetime_=std::make_shared<FrontendMovieImageBinding::Lifetime>();
+    s.busy=true;
+    try
+    {
+        s.Drain();auto renderer=std::make_shared<FrontendMovieRenderer>(*s.generation->pool,binding->image_->Width(),binding->image_->Height(),s.drain);
+        s.generation->expected_level=s.generation->pool->m_level;
+        binding->lifetime_->graphics=renderer;s.movie_renderer=std::move(renderer);s.movie_binding=binding;s.busy=false;return binding;
+    }
+    catch(...){s.busy=false;throw;}
+}
+void FrontendPacketRenderer::RetireMovie(){impl_->RetireMovie();}
 FrontendSession::Handle FrontendPacketRenderer::Current() const { impl_->Check(); return impl_->current; }
 std::size_t FrontendPacketRenderer::Textures() const { impl_->Check(); return impl_->generation ? impl_->generation->textures.size() : 0; }
+FrontendMoviePacketStatus FrontendPacketRenderer::MovieStatus() const
+{
+    auto& s=*impl_;s.Check();auto status=s.movie_status;
+    status.current=s.current?PreparePackets(s.current,s.movie_binding,s.retired_movie).movies:FrontendMovieEntryStatus{};
+    return status;
+}
 unsigned FrontendPacketRenderer::Submit(GLView& view,FrontendSession::Handle input)
 {
     auto& s=*impl_; s.Check();
     if (!glIsFrameActive() || s.failed || (s.pending && *s.pending!=glNativeFrameGeneration())
-        || !view.m_Interface || view.m_NativeIterating || view.m_CreateSorter!=fn_802CEFC0)
+        || !view.m_Interface || view.m_NativeIterating || view.m_CreateSorter!=CreateUnsortedPacketSorter)
         throw std::logic_error("Frontend submission requires an unsorted collecting view and a finished previous frame");
     Require(SameOwners(s.current,input),"Prepare changed frontend resources while idle before submission");
-    const auto packets=PreparePackets(input);
+    const auto prepared=PreparePackets(input,s.movie_binding,s.retired_movie);
+    const auto& packets=prepared.packets;
     s.busy=true;
     try
     {
-        unsigned quads=0;
+        unsigned quads=0,movie_packets=0;
         if (!packets.empty()) { s.pending=glNativeFrameGeneration(); s.generation->submitted=true; }
         for (const auto& packet:packets)
         {
             if (const auto* text=std::get_if<detail::FontPackets>(&packet))
             { detail::AttachFontPackets(view,*text,0); quads+=text->quads.size(); }
+            else if(const auto* movie=std::get_if<MoviePacket>(&packet))
+            {
+                s.movie_binding->Playback()->Check();
+                const auto status=s.movie_binding->Playback()->Status().state;
+                Require(status!=FrontendMovieState::Cancelled&&status!=FrontendMovieState::Failed,"Movie packet provider is inactive");
+                // Before the first real decode, registration exists but no
+                // movie frame is claimed or given a presentation receipt.
+                if(auto frame=s.movie_binding->Playback()->Current())
+                {s.movie_renderer->Submit(view,std::move(frame),movie->quad);++quads;++movie_packets;}
+            }
+            else if(std::holds_alternative<PendingMoviePacket>(packet)) continue;
             else
             {
                 const auto& image=std::get<ImagePacket>(packet); detail::FrontendPacketState state;
@@ -256,6 +404,13 @@ unsigned FrontendPacketRenderer::Submit(GLView& view,FrontendSession::Handle inp
                 view.AttachModel(model,0); ++quads;
             }
         }
+        if(s.movie_status.frame_generation!=glNativeFrameGeneration())
+        {s.movie_status={};s.movie_status.frame_generation=glNativeFrameGeneration();}
+        s.movie_status.frame.awaiting_binding+=prepared.movies.awaiting_binding;
+        s.movie_status.frame.awaiting_frame+=prepared.movies.awaiting_frame;
+        s.movie_status.frame.cancelled+=prepared.movies.cancelled;
+        s.movie_status.frame.ready+=prepared.movies.ready;
+        s.movie_status.submitted_packets+=movie_packets;
         s.current=std::move(input); s.busy=false; return quads;
     }
     catch (...) { s.failed=true; s.busy=false; throw; }
@@ -266,7 +421,17 @@ void FrontendPacketRenderer::FinishFrame()
     if (glIsFrameActive() || *s.pending==glNativeFrameGeneration())
         throw std::logic_error("Send or cancel frontend packets before finishing their frame");
     s.busy=true;
-    try { s.Drain(); s.pending.reset(); s.failed=false; s.busy=false; }
+    try
+    {
+        s.Drain();
+        if(s.movie_renderer)
+        {
+            auto receipt=s.movie_renderer->FinishFrame();
+            if(receipt&&s.movie_binding->Playback()->Status().state!=FrontendMovieState::Cancelled)
+                s.movie_binding->Playback()->Acknowledge(receipt);
+        }
+        s.pending.reset();s.failed=false;s.busy=false;
+    }
     catch (...) { s.busy=false; throw; }
 }
 void FrontendPacketRenderer::Release() { impl_->Release(); }

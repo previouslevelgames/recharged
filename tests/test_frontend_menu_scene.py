@@ -13,7 +13,9 @@ with tempfile.TemporaryDirectory(prefix='charged-menu-vulkan-') as folder:
     isolated = Path(folder) / executable.name
     shutil.copyfile(executable, isolated)
     isolated.chmod(0o755)
-    result = subprocess.run([str(isolated), str(config)], capture_output=True,
+    options = sys.argv[3:]
+    assert options in ([], ['--title']), options
+    result = subprocess.run([str(isolated), str(config), *options], capture_output=True,
                             text=True, timeout=180,
                             env={**os.environ, 'SDL_AUDIODRIVER': 'dummy',
                                  'VK_INSTANCE_LAYERS': 'VK_LAYER_KHRONOS_validation'})
@@ -23,4 +25,5 @@ with tempfile.TemporaryDirectory(prefix='charged-menu-vulkan-') as folder:
     assert result.returncode == 0, (result.returncode, output)
     assert 'VUID-' not in output and 'Validation Error' not in output, output
     assert 'shutdown recovered both game arenas' in output, output
-    assert 'Vulkan Main/Options/Audio/Visual flow passed' in output, output
+    assert ('Vulkan Title/Main/Options/Audio/Visual flow passed' if options
+            else 'Vulkan Main/Options/Audio/Visual flow passed') in output, output

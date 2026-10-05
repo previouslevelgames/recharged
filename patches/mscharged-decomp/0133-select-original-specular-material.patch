@@ -1,0 +1,244 @@
+From: mscharged-port contributors
+Subject: [PATCH] Select original Specular material with typed native skin transport
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep the original Specular0x22cadb20 TEV/light/exponent/ramp/shadow/alpha
+decisions. Use native parameter offsets/fixed scalar widths and five bounded
+GX arrays. Transport the original stitch byte plus five index16 streams through
+GX; explicit typed software-pose arrays replace truncated Wii pointer fields.
+Missing pose/ramp/shadow services remain genuine failures, not shader aliases.
+Restore depth/colour/blend state during failed native alpha-pass transport.
+
+diff --git a/include/NL/glx/GXSpecularMaterialProgram.h b/include/NL/glx/GXSpecularMaterialProgram.h
+--- a/include/NL/glx/GXSpecularMaterialProgram.h
++++ b/include/NL/glx/GXSpecularMaterialProgram.h
+@@ -11,13 +11,21 @@
+     /* 0x08 */ glTextureBinding detailTexture;
+     /* 0x10 */ glTextureBinding glossTexture;
+     /* 0x18 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x1C */ unsigned long skinMatricesSize;
++#endif
+     /* 0x20 */ float blendAmount;
+     /* 0x24 */ float alphaValue;
+     /* 0x28 */ float specularLevel;
+     /* 0x2C */ float specularExponent;
+     /* 0x30 */ nlFloatColour specularColour;
++#if defined(MSCHARGED_NATIVE)
++    u32 shadowLevel;
++#else
+     /* 0x40 */ unsigned long shadowLevel;
++#endif
+     /* 0x44 */ int lightingEnabled;
+ }; // size: 0x48
+ 
+diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMaterialProgram.cpp
+--- a/src/NL/glx/GXSpecularMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgram.cpp
+@@ -1,4 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include "runtime/specular_material.h"
++#include <stddef.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXSpecularMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+@@ -8,6 +14,21 @@
+ GXSpecularMaterialProgram* GXSpecularMaterialProgram::Instance;
+ bool GXSpecularMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXSpecularMaterialProgram::Parameters[11] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXSpecularParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXSpecularParameters, detailTexture) }, // NLG_DETAIL
++    { 0x93014DE7, 0x01010103, offsetof(GXSpecularParameters, glossTexture) }, // NLG_GLOSS
++    { 0xFB3B01EC, 0x02030411, offsetof(GXSpecularParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXSpecularParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXSpecularParameters, alphaValue) }, // alphaValue
++    { 0x29D1D576, 0x01010101, offsetof(GXSpecularParameters, specularLevel) }, // specularLevel
++    { 0xCCBCF02F, 0x01010101, offsetof(GXSpecularParameters, specularExponent) }, // specularExponent
++    { 0x4FBDBBF2, 0x01040101, offsetof(GXSpecularParameters, specularColour) }, // specularColour
++    { 0x46CCF41D, 0x01010102, offsetof(GXSpecularParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXSpecularParameters, lightingEnabled) }, // lightingEnabled
++};
++#else
+ GXMaterialParameter GXSpecularMaterialProgram::Parameters[11] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -21,12 +42,17 @@
+     { 0x46CCF41D, 0x01010102, 64 }, // shadowLevel
+     { 0x8E10B600, 0x01010102, 68 }, // lightingEnabled
+ };
++#endif
+ 
+ GXSpecularMaterialProgram::GXSpecularMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x22CADB20;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXSpecularParameters);
++#else
+     parameterDataSize = 72;
++#endif
+     parameterCount = 11;
+     glRegisterMaterialProgram(this, programHash);
+ }
+@@ -76,11 +102,36 @@
+ void GXSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, mscharged::SpecularVertexArray(*packet, 0),
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_NRM, mscharged::SpecularVertexArray(*packet, 1),
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_NRM, streams[1].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, mscharged::SpecularVertexArray(*packet, 2),
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX1, mscharged::SpecularVertexArray(*packet, 3),
++        packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
++#else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX2, mscharged::SpecularVertexArray(*packet, 4),
++        packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
++#else
+     GXSetArray(GX_VA_TEX2, streams[4].address, 4);
++#endif
+ }
+ 
+ void GXSpecularMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+--- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+@@ -1,4 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include "runtime/material_environment.h"
++#include "runtime/specular_material.h"
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+ 
+@@ -95,21 +101,40 @@
+ template <>
+ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Rebuild lights for every real view, including an authored zero exponent.
++    sSpecularExponent = -1.0f;
++#else
+     sSpecularExponent = 0.0f;
++#endif
+     static_cast<GXSpecularMaterialProgram*>(this)->ConfigureVertexFormat(true);
++#if defined(MSCHARGED_NATIVE)
++    sSpecularViewMatrix = mscharged::MaterialPreviewView();
++#else
+     view->m_Interface->GetViewMatrix(sSpecularViewMatrix);
++#endif
+     SetGameObjectShadowViewMatrix(&sSpecularViewMatrix);
+     SetGameObjectShadowModelMatrix(-1);
+     sSpecularLightCount = GetGameObjectLightCount(0, 1);
+     LoadGameObjectLights(sSpecularLightCount, view, 0);
++#if defined(MSCHARGED_NATIVE)
++    sSpecularLightingEnabled = sSpecularDefaultLightingEnabled && IsGameObjectLightingEnabled();
++    glxConfigureSpecularLighting(sSpecularLightingEnabled);
++#else
+     sSpecularLightingEnabled = sSpecularDefaultLightingEnabled;
+     glxConfigureSpecularLighting(sSpecularDefaultLightingEnabled);
++#endif
+ }
+ 
+ template <>
+ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Deactivate()
+ {
++#if defined(MSCHARGED_NATIVE)
++    GXSetCurrentMtx(GX_PNMTX0);
++    RestoreGameObjectShadowLighting();
++#else
+     gxSetCurrentMtx(0, true);
++#endif
+     gxSetTevColourOp(2, 0, 0, 0, true, 0);
+     SetGameObjectAmbientLightingEnabled(0);
+     SetGameObjectLightingEnabled(0, sSpecularLightCount, 1);
+@@ -168,6 +193,9 @@
+     static_cast<GXSpecularMaterialProgram*>(this)->BindParameters(packet);
+ 
+     bool enabled = static_cast<const GXSpecularParameters*>(packet->materialParameters)->lightingEnabled == 1;
++#if defined(MSCHARGED_NATIVE)
++    enabled = enabled && IsGameObjectLightingEnabled();
++#endif
+     if (enabled != sSpecularLightingEnabled)
+     {
+         sSpecularLightingEnabled = enabled;
+@@ -196,9 +224,13 @@
+     nlMultMatrices(modelview, model, sSpecularViewMatrix);
+     SetGameObjectShadowModelMatrix(packet->matrix);
+ 
++#if defined(MSCHARGED_NATIVE)
++    if (!mscharged::SpecularUsesSoftwareSkin(*packet))
++#else
+     if (packet->skinnedVertices == 0)
+-    {
+-        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatricesSize / 48, &modelview, 0);
++#endif
++    {
++        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatricesSize / sizeof(*static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices), &modelview, 0);
+     }
+     else
+     {
+@@ -213,8 +245,13 @@
+         if (sSpecularDepthPrepassEnabled)
+         {
+             bool colourUpdate = gxSetColourUpdate(false);
++#if defined(MSCHARGED_NATIVE)
++            try { mscharged::DrawNativeSpecularPacket(*packet); }
++            catch (...) { gxSetColourUpdate(colourUpdate); throw; }
++#else
+             GXCallDisplayList(
+                 packet->displayList->list, packet->displayList->size);
++#endif
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+         }
+@@ -223,13 +260,21 @@
+         gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+         GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+         gxSetTevAlphaIn(1, 7, 7, 7, 6);
++#if defined(MSCHARGED_NATIVE)
++        mscharged::DrawNativeSpecularPacket(*packet);
++#else
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
++#endif
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+     }
+     else
+     {
++#if defined(MSCHARGED_NATIVE)
++        mscharged::DrawNativeSpecularPacket(*packet);
++#else
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
++#endif
+     }
+ 
+     RestoreGameObjectShadowLighting();

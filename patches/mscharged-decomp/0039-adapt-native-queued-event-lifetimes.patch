@@ -1,6 +1,6 @@
 Subject: Adapt original queued dispatch and payload lifetimes
 
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Retain original callback order and one-batch/full-drain modes with native
 counter widths, transactional callback insertion, exception/cancellation cleanup,
@@ -11,10 +11,10 @@ Runtime helpers implement checked bounds and exactly-once disposal in src/.
 Full game task/frame wiring and pre-main event construction remain unselected.
 
 diff --git a/include/Game/Event.h b/include/Game/Event.h
-index 9743f22..3b59ca8 100644
+index 0ba4ee3..ecbc0a6 100644
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
-@@ -433,10 +433,22 @@ public:
+@@ -437,10 +437,22 @@ public:
          EventDispatcher* dispatcher, const char* name, int length)
          : UnidentifiedEvent<T>(name, length)
          , mDispatcher(dispatcher)
@@ -38,7 +38,7 @@ index 9743f22..3b59ca8 100644
  
      typedef typename UnidentifiedEvent<T>::Callback Callback;
  
-@@ -448,6 +460,10 @@ public:
+@@ -452,6 +464,10 @@ public:
  
      void Dispatch(T* data, Function<T*> disposer, unsigned char deliver)
      {
@@ -49,7 +49,7 @@ index 9743f22..3b59ca8 100644
          if (deliver)
          {
              this->Deliver(data);
-@@ -457,10 +473,15 @@ public:
+@@ -461,10 +477,15 @@ public:
          {
              disposer(data);
          }
@@ -65,7 +65,7 @@ index 9743f22..3b59ca8 100644
          if (deliver)
          {
              this->Deliver();
-@@ -470,10 +491,14 @@ public:
+@@ -474,10 +495,14 @@ public:
          {
              disposer();
          }
@@ -80,7 +80,7 @@ index 9743f22..3b59ca8 100644
  };
  
  template <typename T>
-@@ -497,23 +522,35 @@ public:
+@@ -501,23 +526,35 @@ public:
  template <typename T>
  void UnidentifiedQueuedEvent<T>::Queue(T* data, const Function<T*>& disposer)
  {
@@ -117,7 +117,7 @@ index 9743f22..3b59ca8 100644
  
  #endif // GAME_EVENT_H
 diff --git a/include/Game/EventDispatcher.inl b/include/Game/EventDispatcher.inl
-index e343f00..8a9f62a 100644
+index 5a49e24..2516917 100644
 --- a/include/Game/EventDispatcher.inl
 +++ b/include/Game/EventDispatcher.inl
 @@ -22,19 +22,30 @@ struct UnidentifiedDispatcherInlineScope
@@ -166,8 +166,8 @@ index e343f00..8a9f62a 100644
 +#else
      if (!state.fields.dispatching)
      {
-         nlDLListIterator<T> iterator = callbacks.Begin();
-@@ -74,13 +89,18 @@ void EventDispatcherBase<T>::Clear()
+         nlDLListIterator<T> iterator;
+@@ -75,13 +90,18 @@ void EventDispatcherBase<T>::Clear()
          callbacks.Clear();
          state.fields.callbackCount = 0;
      }

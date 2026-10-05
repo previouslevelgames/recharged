@@ -730,7 +730,8 @@ int main(int argc, char** argv)
                          "                        [--frontend-animate] (authored timeline; pause/reset in preview)\n"
                          "                        [--frontend-pointer Layer/Item] (rendered bounds/input inspection; no menu action)\n"
                          "                        [--frontend-boot] (retail boot screen; stops at unavailable services)\n"
-                         "                        [--frontend-main] (Main/Options/Audio/Visual; full startup pending)\n"
+                         "                        [--frontend-title] (original Title to Main; Intro/full startup pending)\n"
+                         "                        [--frontend-main] (Main/Options/Audio/Visual/Credits; full startup pending)\n"
                          "                        [--frontend-options] (open Options directly)\n"
                          "                        [--character-shock] (original Bowser skin and FE animation)\n"
                          "                        [--particles] (authored emitter groups; pause/reset in preview)\n"
@@ -747,6 +748,7 @@ int main(int argc, char** argv)
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
         else if (arg == "--frontend-boot") { options.scene_arguments = true; options.scene.frontend_boot = true; }
+        else if (arg == "--frontend-title") { options.scene_arguments = true; options.scene.frontend_title = true; }
         else if (arg == "--frontend-main") { options.scene_arguments = true; options.scene.frontend_main = true; }
         else if (arg == "--frontend-options") { options.scene_arguments = true; options.scene.frontend_options = true; }
         else if (arg == "--character-shock") { options.scene_arguments = true; options.scene.character_shock = true; }
@@ -834,15 +836,15 @@ int main(int argc, char** argv)
     { std::cerr << "--frame-timeout requires --frames.\n"; return 2; }
     if (options.scene.frontend_pointer && (!options.scene.frontend_frame || options.scene.frontend_pointer->empty()))
     { std::cerr << "--frontend-pointer requires --frontend-frame and a nonempty instance path.\n"; return 2; }
-    if ((options.scene.frontend_main || options.scene.frontend_options) && (options.standalone_assets || options.scene.model_id || options.scene.world
+    if ((options.scene.frontend_title || options.scene.frontend_main || options.scene.frontend_options) && (options.standalone_assets || options.scene.model_id || options.scene.world
         || options.scene.world_res || !options.scene.object_ids.empty() || options.scene.frontend_world
         || options.scene.frontend_layout || options.scene.frontend_frame || options.scene.frontend_slide
         || options.scene.frontend_images || options.scene.frontend_pointer || options.scene.frontend_animate || options.scene.nis_primary
         || options.scene.nis_secondary || options.scene.pip_expand || options.scene.camera || options.scene.debug_camera
         || options.scene.shadow_id || options.scene.shadow_textures || options.scene.particles || options.scene.unlit
         || options.scene.no_world_culling || options.scene.character_shock || options.scene.frontend_boot
-        || (options.scene.frontend_main && options.scene.frontend_options)))
-    { std::cerr << "Select either --frontend-main or --frontend-options with its own resources; use --frames, --frame-timeout or --config.\n"; return 2; }
+        || (unsigned(options.scene.frontend_title)+unsigned(options.scene.frontend_main)+unsigned(options.scene.frontend_options)>1)))
+    { std::cerr << "Select one of --frontend-title, --frontend-main or --frontend-options with its own resources; use --frames, --frame-timeout or --config.\n"; return 2; }
     if (options.scene.frontend_boot && (options.standalone_assets || options.scene.model_id || options.scene.world
         || options.scene.world_res || !options.scene.object_ids.empty() || options.scene.frontend_world
         || options.scene.frontend_layout || options.scene.frontend_frame || options.scene.frontend_slide

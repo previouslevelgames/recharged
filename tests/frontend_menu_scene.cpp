@@ -12,6 +12,7 @@
 #include <iostream>
 #include <map>
 #include <stdexcept>
+#include <string_view>
 
 using namespace mscharged;
 namespace
@@ -35,6 +36,7 @@ struct Driver
     std::uint64_t sequence = 0;
     unsigned stage = 0, neutral = 0;
     bool completed = false;
+    bool title = false, title_pressed = false, title_transition = false;
     const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 
     void Presented(const FrontendMenuScenes& menus, const FrontendPointerViewport& v)
@@ -50,6 +52,9 @@ struct Driver
             "NAV replaced permanent Main resources");
         if (frame.menu)
         {
+            if(title&&frame.scene==0&&menus.Status().title&&menus.Status().title->initialized)
+                Check(frame.menu->layout.ImageCount()>0&&!frame.menu->layout.unavailable.contains("nonplanar instance branch"),
+                    "Original Title flat image/component Z scaling did not render");
             Check(images==frame.menu->images.get() && visuals==frame.menu->visuals.get(),
                 "Presented menu and NAV differ in resource ownership");
             ++presented[frame.scene];
@@ -61,6 +66,13 @@ struct Driver
                 last_token=frame.token;
             }
         }
+        if(title && menus.Status().title_transition
+            && menus.Status().title_transition->state==FrontendTransitionState::Running)
+        {
+            title_transition=true;
+            Check(!frame.menu && !menus.Status().interactive,
+                "Title camera transition published a fabricated menu");
+        }
         if(stage==steps.size() && menus.Status().scene==1 && menus.Status().interactive && !completed)
         {
             completed=true;
@@ -71,7 +83,7 @@ struct Driver
     void Input(FrontendMenuScenes& menus, SDL_Window* window)
     {
         if(stage==steps.size())return;
-        const auto step=steps[stage];
+        const auto step=title&&!title_pressed?Step{0,0}:steps[stage];
         if(menus.Status().scene!=step.scene)return;
         Check(SDL_GetWindowID(window)==viewport.window, "Input targets another presented window");
         const auto bounds=step.button==-1 ? menus.DoneBounds()
@@ -92,7 +104,8 @@ struct Driver
         if(sample.primary_down)
         {
             Check(result.active && result.event.pressed, "Rendered desktop sample did not admit one press");
-            ++stage;neutral=0;
+            if(title&&!title_pressed)title_pressed=true;else ++stage;
+            neutral=0;
         }
         else ++neutral;
     }
@@ -102,18 +115,20 @@ int main(int argc,char** argv)
 {
     try
     {
-        Check(argc==2,"Supply a disc INI through test_frontend_menu_scene.py");
+        Check(argc==2||(argc==3&&std::string_view(argv[2])=="--title"),
+            "Supply a disc INI through test_frontend_menu_scene.py, optionally --title");
         const auto* base=SDL_GetBasePath();Check(base,"Cannot locate the isolated executable");
         const auto settings=std::filesystem::path(base)/"scene-data/native-preferences.bin";
         Check(!std::filesystem::exists(settings),"Rendered menu test requires an isolated executable directory");
         const auto defaults=resources::DefaultNativePreferences();
         Check(defaults.audio[0]>0,"Test requires source default Music volume above zero");
         Driver driver;
+        driver.title=argc==3;
         ScenePreviewHooks hooks{
             [&](auto& menu,auto* window){driver.Input(menu,window);},
             [&](const auto& menu,const auto& viewport){driver.Presented(menu,viewport);}
         };
-        SceneOptions options;options.frontend_main=true;
+        SceneOptions options;options.frontend_title=driver.title;options.frontend_main=!driver.title;
         const int result=RunScenePreview(argc,argv,argv[1],options,&hooks);
         if(result)return result;
         Check(driver.completed && driver.stage==steps.size(),"Rendered source menu flow did not complete");
@@ -121,13 +136,16 @@ int main(int argc,char** argv)
             Check(driver.presented[scene]>0,"A selected menu was never actually presented");
         Check(driver.visits[1]==2 && driver.visits[13]==3 && driver.visits[14]==1 && driver.visits[15]==1,
             "Rendered flow did not create fresh source handlers");
+        if(driver.title)Check(driver.title_pressed&&driver.title_transition&&driver.visits[0]==1&&driver.presented[0]>0,
+            "Original Title input/camera/scene lifecycle was not presented");
         resources::NativePreferencesBytes bytes{};
         std::ifstream saved(settings,std::ios::binary);saved.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
         Check(bool(saved),"Real menu preference saves did not reach their file");
         const auto values=resources::DecodeNativePreferences(bytes);
         auto expected=defaults;--expected.audio[0];expected.auto_zoom=false;expected.camera_zoom=.75f;
         Check(values==expected,"Rendered Audio/Visual saves lost original or unrelated preferences");
-        std::cout<<"Vulkan Main/Options/Audio/Visual flow passed:9 original pointer actions, "
+        std::cout<<(driver.title?"Vulkan Title/Main/Options/Audio/Visual flow passed:10 original pointer actions, "
+            :"Vulkan Main/Options/Audio/Visual flow passed:9 original pointer actions, ")
             <<"fresh source handlers, retained NAV, actual native saves and normal shutdown\n";
     }
     catch(const std::exception& error){std::cerr<<"FAILED: "<<error.what()<<'\n';return 1;}

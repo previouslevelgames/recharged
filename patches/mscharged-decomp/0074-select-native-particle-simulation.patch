@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original bounded CPU particle simulation and own atlas allocations
-Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
 Native simulation uses an explicit constructor tag and shares the original field
 initialization, emission, RNG, update, motion and quad bodies. It never registers
@@ -11,12 +11,15 @@ lists, and retains exact authored colours. Guard actual colour indices and signe
 frame/angle conversions before the original accesses. Native atlas allocations
 are transactional and freed through their owning game arenas.
 
+diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
+index aa948c1..41249c3 100644
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
-@@ -49,7 +49,19 @@
+@@ -48,8 +48,20 @@ class ParticleSystem
+ {
  public:
      ParticleSystem(EffectsTemplate* pTemplate,
-         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
++        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
 +        unsigned long resourceID)
 +#ifdef MSCHARGED_NATIVE
 +        = delete
@@ -27,13 +30,13 @@ are transactional and freed through their owning game arenas.
 +    // constructor still requires an actual GL inventory on console.
 +    struct NativeSimulation {};
 +    ParticleSystem(NativeSimulation, EffectsTemplate* pTemplate,
-+        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
          unsigned long resourceID);
 +#endif
      ~ParticleSystem();
  
      void UpdateCoordSys();
-@@ -58,13 +70,21 @@
+@@ -58,13 +70,21 @@ public:
      void UpdateAllParticles(float dt, const nlMatrix4* pCoordSys);
      void UpdateLight(EffectsLight* pLight, Particle* pPart,
          EffectsTemplate* pTemplate, const nlVector3& viewRight,
@@ -57,6 +60,8 @@ are transactional and freed through their owning game arenas.
      void Die();
      bool Update(float dt);
      float GetRemainingTime() const;
+diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
+index 6777291..4fccf65 100644
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
 @@ -7,12 +7,24 @@
@@ -84,7 +89,7 @@ are transactional and freed through their owning game arenas.
          unsigned long i = 0;
          for (; i < mNumKeys; ++i)
          {
-@@ -71,6 +83,7 @@
+@@ -71,6 +83,7 @@ float fxAnimatedRange::GetMaximum() const
      return base + 0.5f * range;
  }
  
@@ -92,6 +97,8 @@ are transactional and freed through their owning game arenas.
  inline fxAnimatedRange* fxAnimatedRange::LoadFromChunk(nlChunk* chunk)
  {
      nlChunk* valueChunk = chunk->GetFirstChunk();
+diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index 907f90f..d3a7a94 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
 @@ -1,8 +1,11 @@
@@ -122,7 +129,7 @@ are transactional and freed through their owning game arenas.
  #include "NL/nlMemory.h"
  #include "NL/nlString.h"
  #include "NL/platvmath.h"
-@@ -51,7 +61,11 @@
+@@ -51,7 +61,11 @@ static int MaxNumParticles;
  int gNumRenderedParticles;
  static unsigned short hackyFacingAngle;
  
@@ -135,7 +142,7 @@ are transactional and freed through their owning game arenas.
      nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
      unsigned long resourceID)
      : m_uResourceID(resourceID)
-@@ -76,15 +90,23 @@
+@@ -76,15 +90,23 @@ ParticleSystem::ParticleSystem(EffectsTemplate* pTemplate,
      m_aFacing = 0;
      m_bAmDying = false;
      m_bVisible = false;
@@ -159,7 +166,7 @@ are transactional and freed through their owning game arenas.
      }
  
      --m_NumInstances;
-@@ -110,7 +132,11 @@
+@@ -110,7 +132,11 @@ void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
      nlVector3 right;
      nlVector3 ref;
      nlVec3Set(ref, 0.0f, 0.0f, 1.0f);
@@ -171,7 +178,7 @@ are transactional and freed through their owning game arenas.
      {
          nlVec3Set(ref, 0.0f, 1.0f, 0.0f);
      }
-@@ -413,8 +439,12 @@
+@@ -413,8 +439,12 @@ void ParticleSystem::CreateNewParticles(int numParticles)
  
          if (m_pTemplate->mUnidentified044 != 0)
          {
@@ -184,7 +191,7 @@ are transactional and freed through their owning game arenas.
          }
  
          m_Particles.AddStart(pPart);
-@@ -479,8 +509,12 @@
+@@ -480,8 +510,12 @@ void ParticleSystem::UpdateAllParticles(float dt,
          {
              if (m_pTemplate->mUnidentified048 != 0)
              {
@@ -195,9 +202,9 @@ are transactional and freed through their owning game arenas.
                      m_pTemplate->mUnidentified048);
 +#endif
              }
-             m_Particles.Remove(&iterator);
+             m_Particles.Remove(&iterator, 0);
              --m_NumParticles;
-@@ -494,6 +528,7 @@
+@@ -495,6 +529,7 @@ void ParticleSystem::UpdateAllParticles(float dt,
      }
  }
  
@@ -205,16 +212,16 @@ are transactional and freed through their owning game arenas.
  void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
      EffectsTemplate* pTemplate, const nlVector3& viewRight,
      const nlVector3& viewUp,
-@@ -524,6 +559,8 @@
-         pLight->m_v3Position = position;
+@@ -526,6 +561,8 @@ void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
      }
  }
-+
-+#endif
  
++#endif
++
  void ParticleSystem::UpdateParticleMotion(Particle* pPart,
      const nlMatrix4* pCoordSys)
-@@ -569,7 +606,16 @@
+ {
+@@ -570,7 +607,16 @@ static nlColour EvaluateParticleColour(Particle* pPart,
      const EffectsTemplate* pTemplate)
  {
      float frame = 24.0f * (pPart->timeElapsed / pPart->lifeSpan);
@@ -231,7 +238,7 @@ are transactional and freed through their owning game arenas.
      int second = first + 1;
      nlColour colour;
      if (first >= 24)
-@@ -649,6 +695,16 @@
+@@ -650,6 +696,16 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
          return;
      }
  
@@ -248,7 +255,7 @@ are transactional and freed through their owning game arenas.
      unsigned int animFrame
          = (int)(pPart->FPS * pPart->timeElapsed + pPart->frame);
      animFrame %= pTemplate->m_nFrames;
-@@ -702,6 +758,7 @@
+@@ -703,6 +759,7 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
      pReturn->position[3].z = (position.z + a.z) - b.z;
  }
  
@@ -256,7 +263,7 @@ are transactional and freed through their owning game arenas.
  static void RenderLightOnField(GLView* view, const EffectsLight& light)
  {
      if (light.m_fRadius == 0.0f)
-@@ -734,6 +791,8 @@
+@@ -735,6 +792,8 @@ static void RenderLightOnField(GLView* view, const EffectsLight& light)
      view->AttachModel(q.GetModel(), 0);
  }
  
@@ -264,8 +271,8 @@ are transactional and freed through their owning game arenas.
 +
  void ParticleSystem::ClearParticles()
  {
-     nlDLListIterator<Particle*> iterator = m_Particles.Begin();
-@@ -746,6 +805,7 @@
+     nlDLListIterator<Particle*> iterator;
+@@ -748,6 +807,7 @@ void ParticleSystem::ClearParticles()
      }
  }
  
@@ -273,7 +280,7 @@ are transactional and freed through their owning game arenas.
  int ParticleSystem::RenderAllParticles(GLView* view)
  {
      static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
-@@ -1049,6 +1109,8 @@
+@@ -1054,6 +1114,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
      return numParticles;
  }
  
@@ -282,7 +289,7 @@ are transactional and freed through their owning game arenas.
  void ParticleSystem::Die()
  {
      m_fDelay = 0.0f;
-@@ -1125,6 +1187,9 @@
+@@ -1130,6 +1192,9 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
  {
      TextureFrame* p = (TextureFrame*)nlMalloc(
          numFrames * sizeof(TextureFrame), 8, false);
@@ -292,7 +299,7 @@ are transactional and freed through their owning game arenas.
      TextureFrame* q = p;
      float u = 0.0f;
      float v = 0.0f;
-@@ -1145,8 +1210,18 @@
+@@ -1150,8 +1215,18 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
  
  bool fxParticleStartup(int maxNumParticles)
  {
@@ -311,7 +318,7 @@ are transactional and freed through their owning game arenas.
      textureFrames[0]->u = 0.0f;
      textureFrames[0]->v = 0.0f;
      textureFrames[0]->increment = 1.0f;
-@@ -1158,6 +1233,10 @@
+@@ -1163,6 +1238,10 @@ bool fxParticleStartup(int maxNumParticles)
      if (MaxNumParticles == 0)
          MaxNumParticles = maxNumParticles;
      return true;
@@ -322,7 +329,7 @@ are transactional and freed through their owning game arenas.
  }
  
  bool fxParticleShutdown()
-@@ -1166,7 +1245,11 @@
+@@ -1171,7 +1250,11 @@ bool fxParticleShutdown()
      {
          if (textureFrames[i] != 0)
          {

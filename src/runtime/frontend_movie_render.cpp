@@ -2,6 +2,7 @@
 #include "runtime/movie_draw_observer.h"
 #include "runtime/views.h"
 #include "Game/GL/MovieQuadSteps.h"
+#include "Game/FE/FrontendImageState.h"
 #include "Game/GL/GLInventory.h"
 #include "NL/gl/glMemory.h"
 #include "NL/gl/gl.h"
@@ -13,6 +14,7 @@
 #include <aurora/aurora.h>
 #include <dolphin/gx.h>
 #include <cmath>
+#include <algorithm>
 #include <thread>
 #include <optional>
 #include <stdexcept>
@@ -99,6 +101,11 @@ void FrontendMovieRenderer::Submit(GLView& view,resources::ThpMovieFrameHandle f
         &&frame->u.size()==frame->y.size()/4&&frame->v.size()==frame->u.size(),"Movie output planes differ from retained texture storage");
     for(const auto& values:{quad.positions,quad.uv})for(const auto& point:values)for(auto f:point)
         Require(std::isfinite(f)&&std::abs(f)<=65536,"Movie quad has an invalid coordinate");
+    for(float value:quad.transform)Require(std::isfinite(value)&&std::abs(value)<=65536,"Movie matrix exceeds finite coordinate profile");
+    Require(quad.transform[2]==0&&quad.transform[3]==0&&quad.transform[6]==0&&quad.transform[7]==0
+        &&quad.transform[8]==0&&quad.transform[9]==0&&quad.transform[11]==0&&quad.transform[14]==0&&quad.transform[15]==1,
+        "Movie image transform must be planar affine");
+    for(float value:quad.colour)Require(std::isfinite(value)&&value>=0&&value<=1,"Movie tint is outside source colour range");
     s.busy=true;struct Leave{bool& b;~Leave(){b=false;}}leave{s.busy};
     s.pending=glNativeFrameGeneration();s.presentation=aurora_get_last_presentation().sequence;s.retained=std::move(frame);
     const std::array<const std::vector<std::uint8_t>*,3> planes{&s.retained->y,&s.retained->u,&s.retained->v};
@@ -106,15 +113,23 @@ void FrontendMovieRenderer::Submit(GLView& view,resources::ThpMovieFrameHandle f
     GXInvalidateTexAll();
     // The original image caller supplies raster state; this movie-only view
     // uses opaque replace with no depth. YUV material deliberately emits alpha0.
-    const auto raster=glHandleizeRasterState();glStateBundle saved;glStateSave(saved);glStateRestore(saved);
-    struct Restore{const glStateBundle& state;unsigned long raster;~Restore(){for(unsigned i=0;i<GLS_Num;++i)
-        glSetRasterState(static_cast<eGLState>(i),glGetRasterState(raster,static_cast<eGLState>(i)));glStateRestore(state);}}restore{saved,raster};
+    const auto raster=glHandleizeRasterState();const auto texture=glHandleizeTextureState();glStateBundle saved;glStateSave(saved);glStateRestore(saved);
+    struct Restore{const glStateBundle& state;unsigned long raster;decltype(glHandleizeTextureState()) texture;~Restore(){for(unsigned i=0;i<GLS_Num;++i)
+        glSetRasterState(static_cast<eGLState>(i),glGetRasterState(raster,static_cast<eGLState>(i)));
+        for(unsigned i=0;i<GLTS_Num;++i)glSetTextureState(static_cast<eGLTextureState>(i),glGetTextureState(texture,static_cast<eGLTextureState>(i)));
+        glStateRestore(state);}}restore{saved,raster,texture};
+    if(quad.source_image_state)FrontendImageRasterState(false,0);
+    else
+    {
     glSetRasterState(GLS_AlphaBlend,0);glSetRasterState(GLS_AlphaTest,0);glSetRasterState(GLS_DepthTest,0);
     glSetRasterState(GLS_DepthWrite,0);glSetRasterState(GLS_Culling,0);glSetRasterState(GLS_ColourWrite,1);
     glSetCurrentRasterState(glHandleizeRasterState());
-    nlMatrix4 identity;identity.SetIdentity();glSetCurrentMatrix(glAllocSetMatrix(identity));
+    }
+    nlMatrix4 model_matrix;std::copy(quad.transform.begin(),quad.transform.end(),model_matrix.e);
+    const auto matrix=glAllocSetMatrix(model_matrix);Require(matrix!=GL_INVALID_MATRIX,"Movie matrix allocation failed");
+    glSetCurrentMatrix(matrix);
     nlVector2 positions[4],uv[4];for(unsigned i=0;i<4;++i){positions[i]={quad.positions[i][0],quad.positions[i][1]};uv[i]={quad.uv[i][0],quad.uv[i][1]};}
-    nlFloatColour tint;tint.c[0]=tint.c[1]=tint.c[2]=tint.c[3]=1;
+    nlFloatColour tint;std::copy(quad.colour.begin(),quad.colour.end(),tint.c);
     auto* model=BuildMovieImageQuad(&view,s.hashes[0],tint,positions,uv);Require(model&&model->numPackets==1,"Original movie quad failed");
     s.packet=model->packets;detail::BeginMovieDrawObservation(s.packet);
 }

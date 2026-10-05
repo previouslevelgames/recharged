@@ -61,6 +61,7 @@ class FrontendSession
     std::unique_ptr<Implementation> impl_;
     friend class FrontendBootLoading;
     friend class FrontendCredits;
+    friend class FrontendTitle;
     friend class FrontendMainMenu;
     friend class FrontendOptions;
     friend class FrontendAudioOptions;

@@ -19,18 +19,41 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `d6850f8dae162827f94d3f9b01a91538c02849dd`, adopted from
-published upstream main. It remains an incomplete development snapshot. This
-update includes matching, source-linked pose accumulation, world visibility and
-DebugWriteCache. Patches 0038 and 0066 follow revised event/header context;
-0084 preserves the matched pose arithmetic, adapts the two PowerPC return-value
-captures and retires the native world-matrix initialization workaround now
-covered upstream. Native source selection and validation remain explicit.
-The audio backend, bank loader and bundle manager are now source-linked;
-AudioSource remains incomplete. Patch 0094 follows its updated header and field
-names. Patches 0098–0099 share original resident source states and frontend
-pointer production for checked native owners; full audio and menu startup remain
-in development.
+Patch 0132 shares the original weighted-skin influence gathering and retains
+authored seven-stream Specular resources. Weights retain their original bits
+and order; decoding alone does not install an NPC, pose or draw a character.
+
+Patch 0133 selects the original Specular material and its GX render program.
+The native transport preserves signed-short UVs, original lighting and alpha
+passes. Fractional skinning requires separately retained software pose output;
+material registration alone does not establish character rendering readiness.
+
+Patch 0135 shares the original zero-morph software-skin equations, with explicit
+binary32 fused operations in place of paired-single instructions. The native
+pose owner preserves bone accumulation order and retained hierarchy identity;
+NPC animation, drawing and morph integration remain separate work.
+
+Patch 0128 shares the original pure Remote/Freestyle/Classic input policies.
+The native profile adapter compiles unchanged WiiPad functions and checks raw
+buttons and calibrated sticks. Hardware discovery, motion and Wii services are
+separate; the existing desktop input policy is preserved.
+
+Patch 0127 shares the original Title initialization, timing and input steps.
+The selected native owner uses real frontend music/cues and checked presentation
+ownership. Its external scene, navigation and Wii services require explicit
+providers; full original startup remains separate.
+
+
+The current base is `443164c91fded218656a8443432e642fdad57838`, adopted from
+published upstream main. It remains an incomplete development snapshot. The
+update source-links EmissionManager, FlyingCamera and the AI ScriptMachine
+upstream. Native source selection remains explicit.
+
+Patches 0028, 0033, 0038, 0039, 0042, 0061, 0074, 0083, 0089, 0106, 0123 and 0131
+follow upstream math declarations, container APIs and the named packet sorter,
+movie, NIS trigger and effects interfaces. All other patch bodies are unchanged for this
+update. Matching Wii source does not establish full native startup, device
+support or gameplay.
 
 Patch 0111 shares the inherited empty `InitializeSubHandlers` stage used by
 Main and Options. Their selected native visual owners share one base handler
@@ -77,8 +100,13 @@ separate work.
 
 
 Patch 0120 shares the original Credits phase, text and scrolling rules. Its
-selected native owner reaches the NLG movie request; actual playback and
-completion remain explicit integration work.
+selected native owner executes bounded source phase and scrolling behavior.
+The selected Credits flow is available from Options with actual movie and text
+presentation; complete original startup remains separate.
+
+Patch 0125 shares the original MoviePlayer update order. The native Credits owner
+uses real movie cancellation, retained text parsing and checked movie bindings;
+natural completion requires the playback provider's presentation/audio receipt.
 
 Patch 0123 shares original movie decode cadence, PCM mixing and float-quad
 construction. The selected native provider reads through NL, outputs through

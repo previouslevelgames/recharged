@@ -6,6 +6,8 @@ extern bool gMovieYUVEnabled;
 #include "runtime/material_environment.h"
 #include "runtime/lighting_state.h"
 #include "runtime/skin_material.h"
+#include "runtime/specular_material.h"
+#include "NL/glx/GXSpecularMaterialProgram.h"
 #include "NL/gl/glMaterialProgram.h"
 #include "NL/gl/glTextureManager.h"
 #include "NL/gl/glState.h"
@@ -55,6 +57,7 @@ constexpr std::uint32_t masked_detail = 0x09609a35;
 constexpr std::uint32_t scrolling_masked_detail = 0xf2d57ac6;
 constexpr std::uint32_t scrolling_camera_overlay = 0x845cad59;
 constexpr std::uint32_t character_skin = 0x041c3281;
+constexpr std::uint32_t specular_skin = 0x22cadb20;
 constexpr std::uint32_t float_colour = 0x19065bf6, constant_colour = 0xee9d919d;
 glTextureBinding Binding(const resources::MaterialBinding &input)
 {
@@ -120,6 +123,7 @@ struct MaterialPrograms::Impl
     GXScrollingMaskedDetailBlendMaterialProgram scrolling_masked_detail_blend;
     GXScrollingCameraOverlayMaterialProgram scrolling_overlay;
     GXCharacterSkinCustomMaterialProgram skin;
+    GXSpecularMaterialProgram specular;
     GXFloatTexturedColourMaterialProgram float_textured;
     GXConstantColourMaterialProgram constant;
     GXMovieMaterialProgram movie;
@@ -137,6 +141,7 @@ struct MaterialPrograms::Impl
         scrolling_masked_detail_blend.Initialize();
         scrolling_overlay.Initialize();
         skin.Initialize();
+        specular.Initialize();
         float_textured.Initialize();
         constant.Initialize();
         movie.Initialize();
@@ -149,7 +154,7 @@ MaterialPrograms::MaterialPrograms()
         || glGetMaterialProgram(detail_blend) || glGetMaterialProgram(scrolling_specular)
         || glGetMaterialProgram(camera_overlay) || glGetMaterialProgram(masked_detail)
         || glGetMaterialProgram(scrolling_masked_detail) || glGetMaterialProgram(scrolling_camera_overlay)
-        || glGetMaterialProgram(character_skin) || glGetMaterialProgram(float_colour) || glGetMaterialProgram(constant_colour) || glGetMaterialProgram(movie_program))
+        || glGetMaterialProgram(character_skin) || glGetMaterialProgram(specular_skin) || glGetMaterialProgram(float_colour) || glGetMaterialProgram(constant_colour) || glGetMaterialProgram(movie_program))
         throw std::logic_error("Material registry already initialized");
     try
     {
@@ -486,6 +491,7 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
                 throw std::runtime_error("Movie YUV texture is missing");
     }
     if (program->programHash == character_skin) ValidateNativeSkinPacket(packet);
+    if (program->programHash == specular_skin) ValidateNativeSpecularPacket(packet);
     Baseline();
     Raster(packet.rasterState);
     // Original glx_SwitchRaster always permits alpha-only writes. The view's

@@ -1,4 +1,5 @@
 #include "resources/frontend_animation.h"
+#include "resources/frontend_movie_image.h"
 #include "Game/FE/FrontendAnimationSteps.h"
 #include "Game/FE/FrontendSelectionSteps.h"
 #include "Game/FE/FrontendInstanceSteps.h"
@@ -286,6 +287,15 @@ bool FrontendAnimationPlayback::SelectComponent(std::uint32_t id,std::string_vie
 {return impl_->SelectComponent(id,name,reset,preserve);}
 void FrontendAnimationPlayback::Apply(std::span<const FrontendInstanceChange> changes)
 {ApplyFrontendInstanceChanges(impl_->current,changes);impl_->channels=0;}
+void FrontendAnimationPlayback::BindMovieResource(std::uint32_t offset,std::shared_ptr<const FrontendMovieImage> image)
+{
+    Require(image&&image->Resource()==offset,"Movie resource metadata identity differs");
+    const auto resource=std::find_if(impl_->current.resources.begin(),impl_->current.resources.end(),[&](const auto& v){return v.offset==offset;});
+    const auto instance=std::find_if(impl_->current.instances.begin(),impl_->current.instances.end(),[&](const auto& v){return v.offset==image->Instance();});
+    Require(resource!=impl_->current.resources.end()&&resource->type==0&&instance!=impl_->current.instances.end()
+        &&instance->type==2&&instance->resource==offset,"Movie runtime binding requires its authored instance/resource");
+    resource->native_movie=std::move(image);
+}
 FrontendLoadingSetup FrontendAnimationPlayback::SetupLoadingScene(bool widescreen)
 {return impl_->SetupLoadingScene(widescreen);}
 const FrontendScene& FrontendAnimationPlayback::Scene() const{return impl_->current;}

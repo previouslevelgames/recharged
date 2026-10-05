@@ -251,6 +251,7 @@ int main(int argc,char** argv)
   Host host;auto result=aurora_initialize(argc,argv,&config);host.live=true;Check(result.window,"Aurora init failed");InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Credits disc absent");host.disc=true;nlInitFileSystem();
   const auto a=StandardAllocator.TotalFreeMemory(),b=VirtualAllocator.TotalFreeMemory();Runtime(owned,output);Check(!nlAsyncReadsPending(nullptr)&&a==StandardAllocator.TotalFreeMemory()&&b==VirtualAllocator.TotalFreeMemory(),"Credits resources did not recover native arenas");
   std::cout<<checks<<" Credits source/lifecycle checks passed\n";
+  return 0;
  }
  catch(const std::exception& e){allocation_budget=-1;std::cerr<<"FAILED: "<<e.what()<<" (check "<<checks<<")\n";return 1;}
 }

@@ -1,0 +1,17 @@
+include_guard(GLOBAL)
+add_library(charged_wii_input_profile STATIC
+    "${MSCHARGED_PREPARED}/src/NL/plat/WiiPad.cpp"
+    src/runtime/wii_input_profile.cpp)
+add_dependencies(charged_wii_input_profile verify_prepared)
+target_compile_definitions(charged_wii_input_profile PRIVATE MSCHARGED_NATIVE=1)
+target_compile_features(charged_wii_input_profile PUBLIC cxx_std_20)
+target_link_libraries(charged_wii_input_profile PUBLIC charged_graphics_memory)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_wii_input_profile PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char)
+endif()
+if(BUILD_TESTING)
+    add_executable(wii_input_profile_tests tests/wii_input_profile.cpp)
+    target_link_libraries(wii_input_profile_tests PRIVATE charged_wii_input_profile)
+    add_test(NAME wii_input_profile COMMAND wii_input_profile_tests)
+    set_tests_properties(wii_input_profile PROPERTIES TIMEOUT 30)
+endif()

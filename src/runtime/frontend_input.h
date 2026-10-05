@@ -7,7 +7,7 @@ namespace mscharged
 {
 // Original abstract action indices from PadActions/FE consumers. Physical input
 // mapping is a desktop policy; FE queries retain the original remap and timing.
-enum class FrontendAction : int { Left = 11, Right = 12, Up = 13, Down = 14, Accept = 30, Back = 31, Start = 32 };
+enum class FrontendAction : int { Left = 11, Right = 12, Up = 13, Down = 14, Accept = 30, Back = 31, Start = 32, TitleReset40 = 40, TitleReset41 = 41, TitleReset44 = 44, TitleReset45 = 45, TitleReset48 = 48, TitleReset49 = 49 };
 struct FrontendPadSample
 {
     bool connected = false, suppress_edges = false;
