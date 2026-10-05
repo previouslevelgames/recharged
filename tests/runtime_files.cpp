@@ -18,15 +18,31 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <stdexcept>
 #include <thread>
 #include <vector>
+
+thread_local long dvd_allocation_budget = -1;
+void* operator new(std::size_t size)
+{
+    if (dvd_allocation_budget == 0) throw std::bad_alloc();
+    if (dvd_allocation_budget > 0) --dvd_allocation_budget;
+    if (auto* value = std::malloc(size ? size : 1)) return value;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t size) { return ::operator new(size); }
+void operator delete(void* value) noexcept { std::free(value); }
+void operator delete[](void* value) noexcept { std::free(value); }
+void operator delete(void* value, std::size_t) noexcept { std::free(value); }
+void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 
 void nlRegHandleDVDMessageCB(const Function<void(int)>& callback);
 
@@ -560,6 +576,52 @@ struct FaultFile
     }
 };
 
+void CheckDvdAllocationFailures()
+{
+    struct Budget
+    {
+        explicit Budget(long value) { dvd_allocation_budget = value; }
+        ~Budget() { dvd_allocation_budget = -1; }
+    };
+    const auto entry = DVDConvertPathToEntrynum("/large.bin");
+    Require(entry >= 0, "DVD admission fixture is absent");
+    DVDFileInfo info{};
+    const bool opened = [&] { Budget failure(0); return DVDFastOpen(entry, &info); }();
+    Require(!opened && !info.cb.userData && DVDClose(&info), "Failed nod command allocation published ownership");
+    auto file = Open("/large.bin");
+    alignas(32) std::array<std::array<unsigned char,32>,65> buffers{};
+    bool rejected = false;
+    try { Budget failure(0); nlReadAsync(file.get(), buffers[0].data(), 32, nullptr, 0, 32); }
+    catch (const std::bad_alloc&) { rejected = true; }
+    Require(rejected && !nlAsyncReadsPending(file.get()), "Failed raw open retained PendingAsync");
+    for (unsigned i = 0; i < 64; ++i)
+    {
+        nlSeek(file.get(), 0, 0);
+        nlReadAsync(file.get(), buffers[i].data(), 32, nullptr, 0, 32);
+    }
+    ExpectThrow<std::bad_alloc>([&] { nlReadAsync(file.get(), buffers[64].data(), 32, nullptr, 0, 32); },
+                               "Failed DVD admission lost the original request capacity");
+    nlCancelPendingAsyncReads(file.get(), nullptr);
+    Require(!nlAsyncReadsPending(nullptr), "Restored DVD request queue did not drain");
+
+    FaultFile fault;
+    const AuroraOverlayCallbacks callbacks{FaultFile::Open, FaultFile::Close, FaultFile::Read, FaultFile::Seek};
+    aurora_dvd_overlay_callbacks(&callbacks);
+    const AuroraOverlayFile overlay{"/allocation-fault.bin", &fault, 128};
+    aurora_dvd_overlay_files(&overlay, 1, nullptr);
+    struct Clear { ~Clear() { aurora_dvd_overlay_files(nullptr, 0, nullptr); } } cleanup;
+    const auto overlay_entry = DVDConvertPathToEntrynum("/allocation-fault.bin");
+    Require(overlay_entry >= 0, "Overlay allocation fixture is absent");
+    for (long value : {0L, 1L})
+    {
+        DVDFileInfo overlay_info{};
+        const bool accepted = [&] { Budget failure(value); return DVDFastOpen(overlay_entry, &overlay_info); }();
+        Require(!accepted && !overlay_info.cb.userData && fault.handles == 0 && DVDClose(&overlay_info),
+                "Failed overlay allocation retained provider ownership");
+    }
+    std::cout << "DVD nod/overlay allocation failure and original 64-request recovery passed\n";
+}
+
 void CheckReadFailures()
 {
     FaultFile fault;
@@ -839,7 +901,7 @@ int main(int argc, char** argv)
         nlInitFileSystem();
         CheckSync(); CheckAsync(); CheckReentrancy(); CheckCancellation(); CheckPools(); CheckWholeFiles();
         CheckAsyncWholeFiles(); CheckWholeReentrancyAndCancellation();
-        CheckReadFailures(); CheckActiveWholeCancellationAndShutdown(); CheckLifecycle();
+        CheckDvdAllocationFailures(); CheckReadFailures(); CheckActiveWholeCancellationAndShutdown(); CheckLifecycle();
         CheckCameraAssets();
         mscharged::VerifyStartupFileReads();
         std::cout << mscharged::StartupFileSummary() << '\n';

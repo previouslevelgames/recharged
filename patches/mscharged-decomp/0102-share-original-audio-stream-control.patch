@@ -1,0 +1,192 @@
+From: mscharged-port
+Subject: Share original audio stream control states through typed platform operations
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Keep present original Play/Stop/Pause/Resume branches shared with the native
+bounded stereo stream owner. Console AX/interrupt/cancellation work remains
+in delegates. Missing Prepare/Update bodies are not replaced or stubbed.
+
+diff --git a/include/Game/Audio/AudioStreamControlSteps.h b/include/Game/Audio/AudioStreamControlSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Audio/AudioStreamControlSteps.h
+@@ -0,0 +1,63 @@
++#ifndef GAME_AUDIO_STREAM_CONTROL_STEPS_H
++#define GAME_AUDIO_STREAM_CONTROL_STEPS_H
++// Original present AudioReadState state branches; platform work stays typed.
++template<class Source,class Prepare,class Start>
++bool AudioStreamPlaySteps(Source& source,unsigned int value,Prepare prepare,Start start)
++{
++    source.m_PlayCount = value;
++    switch (source.m_Unknown10)
++    {
++    case 1:
++        prepare();
++    case 2:
++        source.m_Unknown28 = 5;
++        break;
++    case 3:
++        start();
++        source.m_Unknown10 = 4;
++        break;
++    default:
++        return false;
++    }
++    return true;
++}
++template<class Source,class Stop,class Pending,class Cancel>
++void AudioStreamStopSteps(Source& source,Stop stop,Pending pending,Cancel cancel)
++{
++    switch (source.m_Unknown10)
++    {
++    case 4:
++        stop();
++    case 2:
++        source.m_Unknown28 = 6;
++        if (pending())
++            cancel();
++        source.m_Unknown10 = 6;
++        break;
++    case 3:
++    case 7:
++        source.m_Unknown10 = 6;
++        break;
++    case 5:
++        break;
++    }
++}
++template<class Source,class Pause>
++bool AudioStreamPauseSteps(Source& source,Pause pause)
++{
++    if (source.m_Unknown10 != 4)
++        return false;
++    pause();
++    source.m_Unknown10 = 7;
++    return true;
++}
++template<class Source,class Resume>
++bool AudioStreamResumeSteps(Source& source,Resume resume)
++{
++    if (source.m_Unknown10 != 7)
++        return false;
++    resume();
++    source.m_Unknown10 = 4;
++    return true;
++}
++#endif
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+--- a/src/Game/Audio/AudioSource.cpp
++++ b/src/Game/Audio/AudioSource.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/Audio/AudioResidentSteps.h"
+ #include "Game/Audio/AudioSource.h"
++#include "Game/Audio/AudioStreamControlSteps.h"
+ #include "Game/Audio/AudioVoiceSteps.h"
+ #include "Game/Audio/AudioResourcePlatform.h"
+ 
+@@ -386,34 +387,16 @@
+ 
+ bool AudioReadState::Play(unsigned int value)
+ {
+-    m_PlayCount = value;
+-    switch (m_Unknown10)
+-    {
+-    case 1:
+-        Prepare();
+-    case 2:
+-        m_Unknown28 = 5;
+-        break;
+-    case 3:
+-    {
++    return AudioStreamPlaySteps(*this, value, [&] { Prepare(); }, [&] {
+         AudioStreamChannel* channel = GetChannelIterator();
+         while ((channel = GetNextChannel(channel)) != 0)
+             AXSetVoiceState(channel->m_Voice, AX_VOICE_RUN);
+-        m_Unknown10 = 4;
+-        break;
+-    }
+-    default:
+-        return false;
+-    }
+-    return true;
++    });
+ }
+ 
+ void AudioReadState::Stop()
+ {
+-    switch (m_Unknown10)
+-    {
+-    case 4:
+-    {
++    AudioStreamStopSteps(*this, [&] {
+         bool enabled;
+         AudioStreamChannel* channel = GetChannelIterator();
+         while ((channel = GetNextChannel(channel)) != 0)
+@@ -423,48 +406,33 @@
+                 AXSetVoiceState(channel->m_Voice, AX_VOICE_STOP);
+             OSRestoreInterrupts(enabled);
+         }
+-    }
+-    case 2:
+-        m_Unknown28 = 6;
+-        if (m_Unknown20_00 != 0)
+-            g_pAudioBackend->QueueReadCancellation(this);
+-        m_Unknown10 = 6;
+-        break;
+-    case 3:
+-    case 7:
+-        m_Unknown10 = 6;
+-        break;
+-    case 5:
+-        break;
+-    }
++    }, [&] { return m_Unknown20_00 != 0; }, [&] {
++        g_pAudioBackend->QueueReadCancellation(this);
++    });
+ }
+ 
+ bool AudioReadState::Pause()
+ {
+-    if (m_Unknown10 != 4)
+-        return false;
+-    AudioStreamChannel* channel = GetChannelIterator();
+-    while ((channel = GetNextChannel(channel)) != 0)
+-    {
+-        channel->m_Unknown0C = (channel->m_Voice->pb.addr.currentAddressHi << 16) | channel->m_Voice->pb.addr.currentAddressLo;
+-        AXSetVoiceState(channel->m_Voice, AX_VOICE_STOP);
+-    }
+-    m_Unknown10 = 7;
+-    return true;
++    return AudioStreamPauseSteps(*this, [&] {
++        AudioStreamChannel* channel = GetChannelIterator();
++        while ((channel = GetNextChannel(channel)) != 0)
++        {
++            channel->m_Unknown0C = (channel->m_Voice->pb.addr.currentAddressHi << 16) | channel->m_Voice->pb.addr.currentAddressLo;
++            AXSetVoiceState(channel->m_Voice, AX_VOICE_STOP);
++        }
++    });
+ }
+ 
+ bool AudioReadState::Resume()
+ {
+-    if (m_Unknown10 != 7)
+-        return false;
+-    AudioStreamChannel* channel = GetChannelIterator();
+-    while ((channel = GetNextChannel(channel)) != 0)
+-    {
+-        AXSetVoiceCurrentAddr(channel->m_Voice, channel->m_Unknown0C);
+-        AXSetVoiceState(channel->m_Voice, AX_VOICE_RUN);
+-    }
+-    m_Unknown10 = 4;
+-    return true;
++    return AudioStreamResumeSteps(*this, [&] {
++        AudioStreamChannel* channel = GetChannelIterator();
++        while ((channel = GetNextChannel(channel)) != 0)
++        {
++            AXSetVoiceCurrentAddr(channel->m_Voice, channel->m_Unknown0C);
++            AXSetVoiceState(channel->m_Voice, AX_VOICE_RUN);
++        }
++    });
+ }
+ 
+ void TrackAudioRead(AudioReadState* state, AsyncEntry* request)

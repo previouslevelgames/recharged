@@ -41,6 +41,12 @@ public:
     static void* operator new(std::size_t) = delete;
     cBaseCamera& Camera() { CheckNativeCameraThread(); return *this; }
     void Configure(const AnimatedCameraOptions& options);
+    // Original successful SelectCameraAnimation changes the retained track and
+    // resets only its simulation clock. Time/view stay unchanged until Seek or
+    // Update; absent aliases are rejected by the owning catalog before this call.
+    void Select(CameraAsset::Handle);
+    void SetCyclic(bool);
+    void SetEndCallback(void (*callback)());
     void SetInputs(AnimatedCameraInputs inputs);
     void Seek(float normalized_time);
     float Advance(float delta); // Original ManualUpdate; manager Update also works.

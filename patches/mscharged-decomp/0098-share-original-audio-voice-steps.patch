@@ -1,0 +1,338 @@
+From: mscharged-port contributors
+Subject: [PATCH] Share original audio source state and lifetime steps
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Share original resident source prepare/play/update/stop/public-state transitions
+and backend initialize/publish/remove/destroy ordering through typed adapters.
+Console adapters retain AX address, state and interrupt operations. Native
+one-shot output supplies real SDL ownership without selecting backend startup,
+streaming, loop addresses, controller speakers or aux effects.
+
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+index 3a12575..350fe35 100644
+--- a/src/Game/Audio/AudioSource.cpp
++++ b/src/Game/Audio/AudioSource.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/Audio/AudioResidentSteps.h"
+ #include "Game/Audio/AudioSource.h"
++#include "Game/Audio/AudioVoiceSteps.h"
+ #include "Game/Audio/AudioResourcePlatform.h"
+ 
+ #include "Game/Audio/AudioBackend.h"
+@@ -116,18 +117,33 @@ void AudioSource::SetSpatialParameters(Plat3dSoundSrc* source)
+     }
+ }
+ 
+-void AudioSource::UpdateState()
++// Console voice operations preserve the original AX/interrupt contracts.
++struct AudioSampleVoiceAccess
+ {
+-    if (m_Unknown10 == 5)
+-    {
+-        m_Unknown04 = 3;
+-    }
+-    else
++    AudioSampleSource& source;
++    AudioSampleVoiceAccess(AudioSampleSource& value) : source(value) { }
++    void SetLoop(bool value) { AXSetVoiceLoop(source.m_Unknown1C, value); }
++    unsigned int CurrentAddress() const
++    { return (source.m_Unknown1C->pb.addr.currentAddressHi << 16) | source.m_Unknown1C->pb.addr.currentAddressLo; }
++    void SetLoopAddress(unsigned long value) { AXSetVoiceLoopAddr(source.m_Unknown1C, value); }
++    unsigned long SilenceAddress() const { return (unsigned long)g_pAudioSilenceBuffer * 2; }
++    void Start() { AXSetVoiceState(source.m_Unknown1C, AX_VOICE_RUN); }
++    bool Stopped() const { return source.m_Unknown1C->pb.state == AX_VOICE_STOP; }
++    void StopAtSilence()
+     {
+-        m_Unknown04 = m_Unknown10;
++        bool enabled = OSDisableInterrupts();
++        if (source.m_Unknown1C != 0)
++        {
++            AXSetVoiceState(source.m_Unknown1C, AX_VOICE_STOP);
++            AXSetVoiceLoopAddr(source.m_Unknown1C, (unsigned long)g_pAudioSilenceBuffer * 2);
++        }
++        OSRestoreInterrupts(enabled);
+     }
+-    if (m_Unknown04 == 6 && HasVoice() && !WasVoiceDropped())
+-        ReleaseVoice(true);
++};
++
++void AudioSource::UpdateState()
++{
++    AudioSourceStateStep(*this);
+ }
+ 
+ void AudioSource::SetControllerSpeaker(bool enabled, unsigned int channel)
+@@ -183,83 +199,19 @@ AudioSampleSource::~AudioSampleSource()
+ 
+ void AudioSampleSource::Update()
+ {
+-    switch (m_Unknown10)
+-    {
+-    case 5:
+-        if (m_PlayCount == 1)
+-        {
+-            AXSetVoiceLoop(m_Unknown1C, false);
+-        }
+-        else
+-        {
+-            AXSetVoiceLoop(m_Unknown1C, true);
+-            AXSetVoiceLoopAddr(m_Unknown1C,
+-                (m_Unknown1C->pb.addr.currentAddressHi << 16) | m_Unknown1C->pb.addr.currentAddressLo);
+-        }
+-        AXSetVoiceState(m_Unknown1C, AX_VOICE_RUN);
+-        m_Unknown10 = 4;
+-        break;
+-    case 4:
+-        if (m_Unknown1C->pb.state == AX_VOICE_STOP)
+-        {
+-            m_Unknown10 = 6;
+-        }
+-        else
+-        {
+-            unsigned int address = (m_Unknown1C->pb.addr.currentAddressHi << 16) | m_Unknown1C->pb.addr.currentAddressLo;
+-            if (address < m_Unknown18)
+-            {
+-                ++m_Unknown14_0C;
+-                bool canLoop = m_Unknown14_0C < m_PlayCount || m_PlayCount == 0xFFFF;
+-                if (!canLoop)
+-                {
+-                    AXSetVoiceLoop(m_Unknown1C, false);
+-                    AXSetVoiceLoopAddr(m_Unknown1C, (unsigned long)g_pAudioSilenceBuffer * 2);
+-                }
+-            }
+-            m_Unknown18 = address;
+-        }
+-        break;
+-    case 6:
+-        m_Unknown10 = 1;
+-        break;
+-    case 0:
+-        return;
+-    case 1:
+-    case 3:
+-    case 7:
+-        break;
+-    }
++    AudioSampleVoiceAccess voice(*this);
++    AudioSampleUpdateStep(*this, voice);
+ }
+ 
+ bool AudioSampleSource::Play(unsigned int value)
+ {
+-    m_PlayCount = value;
+-    m_Unknown10 = 5;
+-    return true;
++    return AudioSamplePlayStep(*this, value);
+ }
+ 
+ void AudioSampleSource::Stop()
+ {
+-    switch (m_Unknown10)
+-    {
+-    case 4:
+-    {
+-        bool enabled = OSDisableInterrupts();
+-        if (m_Unknown1C != 0)
+-        {
+-            AXSetVoiceState(m_Unknown1C, AX_VOICE_STOP);
+-            AXSetVoiceLoopAddr(m_Unknown1C, (unsigned long)g_pAudioSilenceBuffer * 2);
+-        }
+-        OSRestoreInterrupts(enabled);
+-        break;
+-    }
+-    case 3:
+-    case 7:
+-        m_Unknown10 = 6;
+-        m_Unknown04 = 6;
+-        break;
+-    }
++    AudioSampleVoiceAccess voice(*this);
++    AudioSampleStopStep(*this, voice);
+ }
+ 
+ bool AudioSampleSource::Pause()
+@@ -667,6 +619,5 @@ bool AudioSampleSource::WasVoiceDropped()
+ 
+ bool AudioSampleSource::Prepare()
+ {
+-    m_Unknown10 = 3;
+-    return false;
++    return AudioSamplePrepareStep(*this);
+ }
+diff --git a/src/Game/Audio/AudioBackend.cpp b/src/Game/Audio/AudioBackend.cpp
+index ddc2b9f..80ecb17 100644
+--- a/src/Game/Audio/AudioBackend.cpp
++++ b/src/Game/Audio/AudioBackend.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Audio/AudioBackend.h"
++#include "Game/Audio/AudioVoiceSteps.h"
+ #include "Game/Audio/AudioSource.h"
+ #include "Game/Audio/AudioResourcePlatform.h"
+ 
+@@ -213,6 +214,26 @@ void UpdateAudioSources()
+     }
+ }
+ 
++struct AudioBackendSourceRegistry
++{
++    AudioBackend& backend;
++    AudioBackendSourceRegistry(AudioBackend& value) : backend(value) { }
++    void Add(AudioSource* source)
++    {
++        bool enabled = OSDisableInterrupts();
++        backend.m_Sources.AddEnd(source);
++        OSRestoreInterrupts(enabled);
++    }
++    void LastCreated(AudioSource* source) { g_pLastCreatedAudioSource = source; }
++    void Remove(AudioSource* source)
++    {
++        bool enabled = OSDisableInterrupts();
++        backend.m_Sources.RemoveEntry(source);
++        OSRestoreInterrupts(enabled);
++    }
++    void Destroy(AudioSource* source) { delete source; }
++};
++
+ AudioSource* AudioBackend::CreateSource(AudioSourceInfo* info, XSoundOwner*)
+ {
+     AudioSource* source = 0;
+@@ -227,20 +248,14 @@ AudioSource* AudioBackend::CreateSource(AudioSourceInfo* info, XSoundOwner*)
+     {
+         source = new AudioSampleSource;
+     }
+-    source->Initialize(info);
+-    bool enabled = OSDisableInterrupts();
+-    m_Sources.AddEnd(source);
+-    OSRestoreInterrupts(enabled);
+-    g_pLastCreatedAudioSource = source;
+-    return source;
++    AudioBackendSourceRegistry registry(*this);
++    return AudioInitializeAndPublishSource(source, info, registry);
+ }
+ 
+ void AudioBackend::ReleaseSource(AudioSource* source)
+ {
+-    bool enabled = OSDisableInterrupts();
+-    m_Sources.RemoveEntry(source);
+-    OSRestoreInterrupts(enabled);
+-    delete source;
++    AudioBackendSourceRegistry registry(*this);
++    AudioRemoveAndDestroySource(source, registry);
+ }
+ 
+ void AudioBackend::QueueRead(nlFile* file, unsigned int offset,
+diff --git a/include/Game/Audio/AudioVoiceSteps.h b/include/Game/Audio/AudioVoiceSteps.h
+new file mode 100644
+index 0000000..6124ed3
+--- /dev/null
++++ b/include/Game/Audio/AudioVoiceSteps.h
+@@ -0,0 +1,109 @@
++#ifndef GAME_AUDIO_AUDIO_VOICE_STEPS_H
++#define GAME_AUDIO_AUDIO_VOICE_STEPS_H
++// Shared original source states. Voice adapters own real platform output;
++// the native resident profile rejects loops and unsupported address operations.
++template<class Source> void AudioSourceStateStep(Source& source)
++{
++    if (source.m_Unknown10 == 5)
++    {
++        source.m_Unknown04 = 3;
++    }
++    else
++    {
++        source.m_Unknown04 = source.m_Unknown10;
++    }
++    if (source.m_Unknown04 == 6 && source.HasVoice() && !source.WasVoiceDropped())
++        source.ReleaseVoice(true);
++}
++template<class Source> bool AudioSamplePrepareStep(Source& source)
++{
++    source.m_Unknown10 = 3;
++    return false;
++}
++template<class Source> bool AudioSamplePlayStep(Source& source, unsigned int value)
++{
++    source.m_PlayCount = value;
++    source.m_Unknown10 = 5;
++    return true;
++}
++template<class Source, class Voice> void AudioSampleUpdateStep(Source& source, Voice& voice)
++{
++    switch (source.m_Unknown10)
++    {
++    case 5:
++        if (source.m_PlayCount == 1)
++        {
++            voice.SetLoop(false);
++        }
++        else
++        {
++            voice.SetLoop(true);
++            voice.SetLoopAddress(voice.CurrentAddress());
++        }
++        voice.Start();
++        source.m_Unknown10 = 4;
++        break;
++    case 4:
++        if (voice.Stopped())
++        {
++            source.m_Unknown10 = 6;
++        }
++        else
++        {
++            unsigned int address = voice.CurrentAddress();
++            if (address < source.m_Unknown18)
++            {
++                ++source.m_Unknown14_0C;
++                bool canLoop = source.m_Unknown14_0C < source.m_PlayCount || source.m_PlayCount == 0xFFFF;
++                if (!canLoop)
++                {
++                    voice.SetLoop(false);
++                    voice.SetLoopAddress(voice.SilenceAddress());
++                }
++            }
++            source.m_Unknown18 = address;
++        }
++        break;
++    case 6:
++        source.m_Unknown10 = 1;
++        break;
++    case 0:
++        return;
++    case 1:
++    case 3:
++    case 7:
++        break;
++    }
++}
++template<class Source, class Voice> void AudioSampleStopStep(Source& source, Voice& voice)
++{
++    switch (source.m_Unknown10)
++    {
++    case 4:
++    {
++        voice.StopAtSilence();
++        break;
++    }
++    case 3:
++    case 7:
++        source.m_Unknown10 = 6;
++        source.m_Unknown04 = 6;
++        break;
++    }
++}
++// Original backend order, independent of native resource/slot representation.
++template<class Source, class Info, class Registry>
++Source* AudioInitializeAndPublishSource(Source* source, Info* info, Registry& registry)
++{
++    source->Initialize(info);
++    registry.Add(source);
++    registry.LastCreated(source);
++    return source;
++}
++template<class Source, class Registry>
++void AudioRemoveAndDestroySource(Source* source, Registry& registry)
++{
++    registry.Remove(source);
++    registry.Destroy(source);
++}
++#endif

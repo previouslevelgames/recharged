@@ -3,12 +3,15 @@
 #include "runtime/cameras.h"
 #include "Game/Camera/CameraMan.h"
 #include <string>
+#include <functional>
 #include <thread>
 #include <vector>
 
 namespace mscharged
 {
 inline constexpr std::size_t MaximumFrontendCameras = 16;
+struct FrontendCameraSelection;
+using FrontendCameraSelectionHandle = std::shared_ptr<const FrontendCameraSelection>;
 
 // Bounded ownership for the original FE presentation-camera operations. The
 // core, library and native arenas must outlive this owner. Only original catalog
@@ -33,6 +36,7 @@ class FrontendCameras
     void OwnTransition(void (*callback)(eCameraMessage)) noexcept;
     void CancelTransition(bool live_core) noexcept;
     void Destroy(bool live_core) noexcept;
+    Camera& Selected(const FrontendCameraSelectionHandle&, bool active = true) const;
 public:
     FrontendCameras(OriginalCameras& core, const CameraAssetLibrary& library);
     ~FrontendCameras();
@@ -50,6 +54,19 @@ public:
     void Advance(float delta, float simulation_delta);
     const cBaseCamera* ActiveCamera() const;
     std::string ActiveAlias() const;
+    // Exact retained selection identity; reselection preserves the CameraMan
+    // wrapper and old time/view but invalidates prior selection handles. Current
+    // selection requires an owned top camera with no active manager transition.
+    FrontendCameraSelectionHandle Selection() const;
+    FrontendCameraSelectionHandle Select(const FrontendCameraSelectionHandle& expected,
+        const std::string& alias, bool cyclic, std::function<void()> on_end = {});
+    void Seek(const FrontendCameraSelectionHandle&, float normalized_time);
+    void SetCyclic(const FrontendCameraSelectionHandle&, bool);
+    float Time(const FrontendCameraSelectionHandle&) const;
+    float Duration(const FrontendCameraSelectionHandle&) const;
+    // Remove only this exact selection's callback, including an inactive owned
+    // camera. Allowed after failure/core release; never removes a later binding.
+    bool DetachEndCallback(const FrontendCameraSelectionHandle&);
     std::size_t Size() const;
     bool Failed() const;
 

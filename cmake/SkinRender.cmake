@@ -1,0 +1,25 @@
+include_guard(GLOBAL)
+include(cmake/SkinPose.cmake)
+add_library(charged_skin_render STATIC src/runtime/skin_render.cpp
+    "${MSCHARGED_PREPARED}/src/NL/gl/GLFontAtlas.cpp")
+add_dependencies(charged_skin_render verify_prepared)
+target_link_libraries(charged_skin_render PUBLIC charged_skin_pose charged_views PRIVATE aurora::gx)
+target_include_directories(charged_skin_render PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+target_compile_features(charged_skin_render PUBLIC cxx_std_20)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_skin_render PRIVATE -ffp-contract=off -fno-strict-aliasing)
+endif()
+if(BUILD_TESTING)
+    add_executable(skin_render_tests tests/skin_render.cpp)
+    target_link_libraries(skin_render_tests PRIVATE charged_skin_render charged_frames)
+    add_test(NAME skin_render COMMAND skin_render_tests)
+    add_executable(skin_pipeline_tests tests/skin_pipeline.cpp)
+    target_link_libraries(skin_pipeline_tests PRIVATE charged_skin_render charged_frames aurora::gx aurora::dvd aurora::core)
+    if(MSCHARGED_TEST_VULKAN)
+        add_test(NAME skin_pipeline COMMAND skin_pipeline_tests)
+        set_tests_properties(skin_pipeline PROPERTIES TIMEOUT 90 LABELS "gpu;vulkan"
+            ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
+            RESOURCE_LOCK gx_check
+            FAIL_REGULAR_EXPRESSION "VUID-|Error:|Validation Error|FAILED:")
+    endif()
+endif()

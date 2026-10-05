@@ -1,6 +1,6 @@
 Subject: Share original graphics startup stages and task priorities
 
-Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
 
 Share the original resource callback, state/default/matrix and target/view
 stages between glStartup and explicitly selected native services. Keep full

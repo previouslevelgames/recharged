@@ -49,3 +49,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
 endif()
 
 include(cmake/GraphicsMemory.cmake)
+include(cmake/EffectsVertex.cmake)

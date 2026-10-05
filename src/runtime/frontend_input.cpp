@@ -184,6 +184,7 @@ void FrontendInput::PopFocus(const void* scene)
 }
 void FrontendInput::Focus(const void* scene) { Ready(); state_->input->EnableInputIfSceneHasFocus(Scene(scene)); }
 bool FrontendInput::HasFocusLock(const void* scene) const { Ready(); return state_->input->HasInputLock(Scene(scene)); }
+bool FrontendInput::InputLocked() const { Ready(); return state_->input->m_InputLockDepth != 0; }
 void FrontendInput::Reset()
 {
     Ready(); state_->input->Reset(true);

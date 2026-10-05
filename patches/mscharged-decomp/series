@@ -90,4 +90,15 @@
 0089-share-original-frontend-font-fallback-and-escape.patch
 0090-share-original-rigid-skin-pose-steps.patch
 0091-share-original-audio-bank-selection.patch
+0092-select-original-rigid-character-material.patch
 0093-share-original-dsp-adpcm-integer-step.patch
+0094-share-original-resident-audio-mix-steps.patch
+0095-share-original-frontend-scene-lifecycle.patch
+0096-share-original-frontend-pointer-steps.patch
+0097-enable-native-effects-geometry-materials.patch
+0098-share-original-audio-voice-steps.patch
+0099-share-original-frontend-pointer-production.patch
+0100-share-original-resident-cue-lifecycle.patch
+0101-share-original-frontend-transition-waits.patch
+0102-share-original-audio-stream-control.patch
+0103-select-retained-vertex-animations.patch

@@ -155,7 +155,7 @@ struct FrontendSession::Implementation
         }
         catch (...) { error = std::current_exception(); Drain(); state = FrontendSessionState::Failed; }
     }
-    template<class F> bool Mutate(F operation)
+    template<class F> bool Mutate(F operation, const std::function<void()>& before_publish = {})
     {
         CheckMutation();
         if (!current || !playback) throw std::logic_error("Frontend timeline mutation requires a current animated scene");
@@ -166,6 +166,9 @@ struct FrontendSession::Implementation
         next->image_completed_files = current->image_completed_files;
         next->graph = next_playback->Scene(); next->channels_evaluated = next_playback->ChannelsEvaluated();
         next->layout = Layout(*next);
+        // Admit external boot services only after every fallible scene/layout
+        // allocation has succeeded. Publication below consists of noexcept moves.
+        if (before_publish) before_publish();
         playback = std::move(next_playback); current = std::move(next);
         return selected;
     }
@@ -243,11 +246,12 @@ resources::FrontendLoadingSetup FrontendSession::SetupLoadingScene(const Handle&
     return result;
 }
 void FrontendSession::BootTransaction(const Handle& expected,
-    const std::function<void(resources::FrontendAnimationPlayback&)>& operation)
+    const std::function<void(resources::FrontendAnimationPlayback&)>& operation,
+    const std::function<void()>& before_publish)
 {
     auto& s=*impl_;s.CheckMutation();
     if (!expected || expected!=s.current) throw std::logic_error("Boot handler requires the visible current snapshot");
-    s.Mutate([&](auto& playback){operation(playback);return true;});
+    s.Mutate([&](auto& playback){operation(playback);return true;}, before_publish);
 }
 
 }

@@ -1,0 +1,69 @@
+Subject: Retain DVD provider handles through command allocation failure
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Keep nod and overlay handles scoped until command metadata allocation succeeds.
+Report allocation failure through the existing BOOL admission result, allowing
+native NL callers to restore reserved request slots and PendingAsync counts.
+No failed command or provider handle is published.
+
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -16,6 +16,7 @@
+ #include <limits>
+ #include <memory>
+ #include <mutex>
++#include <new>
+ #include <string>
+ #include <thread>
+ #include <utility>
+@@ -1078,21 +1079,33 @@
+   fileInfo->startAddr = 0;
+   fileInfo->length = entry.nextOrLength;
+ 
+-  if (entry.isOverlay) {
+-    const auto handle = s_overlayCallbacks.open(entry.overlayData);
+-    if (!handle) {
+-      return FALSE;
+-    }
+-
+-    fileInfo->cb.userData = new CommandDataOverlay(handle);
+-  } else {
+-    NodHandle* handle = nullptr;
+-    NodResult result = nod_partition_open_file(s_partition, entry.origEntryNum, &handle);
+-    if (result != NOD_RESULT_OK || handle == nullptr) {
+-      return FALSE;
+-    }
+-
+-    fileInfo->cb.userData = new CommandDataNod(handle);
++  try {
++    if (entry.isOverlay) {
++      // Opening the provider succeeds before allocating command metadata. Keep
++      // the provider handle owned until that allocation can no longer fail.
++      const auto close = s_overlayCallbacks.close;
++      std::unique_ptr<void, decltype(close)> handle(s_overlayCallbacks.open(entry.overlayData), close);
++      if (!handle) {
++        return FALSE;
++      }
++      auto command = std::make_unique<CommandDataOverlay>(handle.get());
++      handle.release();
++      fileInfo->cb.userData = command.release();
++    } else {
++      NodHandle* opened = nullptr;
++      const NodResult result = nod_partition_open_file(s_partition, entry.origEntryNum, &opened);
++      std::unique_ptr<NodHandle, decltype(&nod_free)> handle(opened, &nod_free);
++      if (result != NOD_RESULT_OK || !handle) {
++        return FALSE;
++      }
++      auto command = std::make_unique<CommandDataNod>(handle.get());
++      handle.release();
++      fileInfo->cb.userData = command.release();
++    }
++  } catch (const std::bad_alloc&) {
++    // This BOOL API must report failed admission so callers can restore their
++    // request slots; no command or provider handle is published on failure.
++    return FALSE;
+   }
+ 
+   atomic_store_release(fileInfo->cb.state, DVD_STATE_END);

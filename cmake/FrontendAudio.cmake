@@ -1,0 +1,33 @@
+include_guard(GLOBAL)
+include(cmake/AudioVoices.cmake)
+include(cmake/AudioBankLoad.cmake)
+add_library(charged_frontend_audio STATIC src/runtime/frontend_audio.cpp)
+add_dependencies(charged_frontend_audio verify_prepared)
+target_link_libraries(charged_frontend_audio PUBLIC charged_audio_voices)
+target_include_directories(charged_frontend_audio PRIVATE "${MSCHARGED_PREPARED}/include"
+    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+target_compile_definitions(charged_frontend_audio PRIVATE MSCHARGED_NATIVE=1)
+target_compile_features(charged_frontend_audio PUBLIC cxx_std_20)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_frontend_audio PRIVATE -ffp-contract=off)
+endif()
+if(BUILD_TESTING)
+    add_executable(frontend_audio_tests tests/frontend_audio.cpp)
+    target_link_libraries(frontend_audio_tests PRIVATE charged_frontend_audio SDL3::SDL3)
+    add_test(NAME frontend_audio COMMAND frontend_audio_tests)
+    set_tests_properties(frontend_audio PROPERTIES TIMEOUT 45)
+    add_executable(frontend_audio_load_tests tests/frontend_audio_load.cpp)
+    target_link_libraries(frontend_audio_load_tests PRIVATE charged_frontend_audio
+        charged_audio_bank_load aurora::dvd aurora::core)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+        target_compile_options(frontend_audio_tests PRIVATE -ffp-contract=off)
+        target_compile_options(frontend_audio_load_tests PRIVATE -ffp-contract=off)
+    endif()
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME frontend_audio_load COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_audio_load.py"
+            "$<TARGET_FILE:frontend_audio_tests>" "$<TARGET_FILE:frontend_audio_load_tests>")
+        set_tests_properties(frontend_audio_load PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()

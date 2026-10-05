@@ -1,0 +1,73 @@
+Subject: Share original frontend presentation camera and time waits
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Share exact callback-consumption and single-float wait subtraction from original
+presentation services44/48. The console dispatcher retains StopWithUndo; the
+native original interpreter supplies typed retained camera/scene services.
+Concrete title/main handlers, movies, audio and boot readiness remain separate.
+
+diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
+--- a/src/Game/Render/FrontEndPresentation.cpp
++++ b/src/Game/Render/FrontEndPresentation.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Render/FrontEndPresentation.h"
++#include "Game/FE/FrontendTransitionSteps.h"
+ 
+ #include "Game/GameSceneManager.h"
+ #include "Game/DB/GameProgress.h"
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -366,10 +366,8 @@
+         break;
+     }
+     case 44:
+-        if (!mCameraFinished)
+-            StopWithUndo();
+-        else
+-            mCameraFinished = false;
++        if (FrontendPresentationWaitCamera(mCameraFinished))
++            StopWithUndo();
+         break;
+     case 45:
+     {
+@@ -395,11 +393,8 @@
+         }
+         break;
+     case 48:
+-        mWaitTime -= mDeltaTime;
+-        if (mWaitTime > 0.0f)
+-            StopWithUndo();
+-        else
+-            mWaitTime = 0.0f;
++        if (FrontendPresentationWaitTime(mWaitTime, mDeltaTime))
++            StopWithUndo();
+         break;
+     case 49:
+     {
+diff --git a/include/Game/FE/FrontendTransitionSteps.h b/include/Game/FE/FrontendTransitionSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendTransitionSteps.h
+@@ -0,0 +1,21 @@
++#ifndef FRONTEND_TRANSITION_STEPS_H
++#define FRONTEND_TRANSITION_STEPS_H
++
++// Original FrontEndPresentation service44 consumes the actual camera callback
++// once. Service48 subtracts this Update's delta immediately on every retry.
++inline bool FrontendPresentationWaitCamera(bool& finished)
++{
++    if (!finished)
++        return true;
++    finished = false;
++    return false;
++}
++inline bool FrontendPresentationWaitTime(float& wait, float delta)
++{
++    wait -= delta;
++    if (wait > 0.0f)
++        return true;
++    wait = 0.0f;
++    return false;
++}
++#endif

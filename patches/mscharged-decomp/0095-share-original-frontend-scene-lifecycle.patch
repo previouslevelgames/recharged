@@ -1,0 +1,471 @@
+Subject: Share original frontend scene catalog and lifecycle ordering
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Retain all107 original scene IDs and filenames in a shared initializer; extract
+unchanged scene enums/record and original enqueue, stack insertion, initialize,
+resource-unload order and readiness/render predicates. Native ownership uses
+checked typed FEN storage and explicit handler/publication readiness. Original
+state6 and resource completion, concrete handlers and binary relocation remain
+console behavior; no native success provider or factory is supplied.
+
+diff --git a/include/Game/BaseGameSceneManager.h b/include/Game/BaseGameSceneManager.h
+--- a/include/Game/BaseGameSceneManager.h
++++ b/include/Game/BaseGameSceneManager.h
+@@ -3,50 +3,7 @@
+ 
+ #include "Game/BaseSceneHandler.h"
+ 
+-enum SceneList
+-{
+-    SCENE_INVALID = -2,
+-    SCENE_TITLE = 0,
+-    SCENE_MAIN_MENU = 1,
+-    SCENE_CHOOSE_CAPTAINS_DOMINATION = 2,
+-    SCENE_CHOOSE_SIDEKICKS_DOMINATION = 3,
+-    SCENE_CHOOSE_CAPTAINS_STRIKER_CUP = 6,
+-    SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP = 7,
+-    SCENE_POPUP_MENU = 10,
+-    SCENE_SUPER_LOADING = 17,
+-    SCENE_BOOT_LOADING = 18,
+-    SCENE_BOOT_LOADING_JPN = 19,
+-    SCENE_INTRO_MOVIE = 22,
+-    SCENE_ASYNC_LOADING = 25,
+-    SCENE_WIDESCREEN_LOADING = 26,
+-    SCENE_GAMEPLAY_OPTIONS = 27,
+-    SCENE_OPTIONS_CHEATS_LIST = 28,
+-    SCENE_GAME_RESULTS = 33,
+-    SCENE_ONLINE_MENU = 40,
+-    SCENE_ONLINE_GUEST_CONTROLLER_SELECT = 43,
+-    SCENE_ONLINE_INVITE_PREVIEW = 45,
+-    SCENE_ONLINE_RANKING = 46,
+-    SCENE_ONLINE_FRIEND_CODE_ENTRY = 48,
+-    SCENE_ONLINE_LOGIN = 51,
+-    SCENE_ONLINE_INVITE_RESPONSE = 52,
+-    SCENE_ONLINE_INVITE_STATUS = 53,
+-    SCENE_ONLINE_MII_SELECT = 54,
+-    SCENE_ONLINE_MII_SELECT_OVERLAY = 55,
+-    OVERLAY_HUD = 89,
+-};
+-
+-enum ScreenMovement
+-{
+-    SCREEN_NOTHING = 0,
+-    SCREEN_FORWARD = 1,
+-    SCREEN_BACK = 2,
+-};
+-
+-struct SceneEntry
+-{
+-    SceneList mSceneID;
+-    const char* mFenFileName;
+-}; // size 0x8
++#include "Game/FE/FrontendSceneCatalog.h"
+ 
+ extern SceneEntry SceneEntryTable[];
+ 
+diff --git a/include/Game/FE/FrontendSceneCatalog.h b/include/Game/FE/FrontendSceneCatalog.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendSceneCatalog.h
+@@ -0,0 +1,49 @@
++#ifndef FRONTEND_SCENE_CATALOG_H
++#define FRONTEND_SCENE_CATALOG_H
++
++enum SceneList
++{
++    SCENE_INVALID = -2,
++    SCENE_TITLE = 0,
++    SCENE_MAIN_MENU = 1,
++    SCENE_CHOOSE_CAPTAINS_DOMINATION = 2,
++    SCENE_CHOOSE_SIDEKICKS_DOMINATION = 3,
++    SCENE_CHOOSE_CAPTAINS_STRIKER_CUP = 6,
++    SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP = 7,
++    SCENE_POPUP_MENU = 10,
++    SCENE_SUPER_LOADING = 17,
++    SCENE_BOOT_LOADING = 18,
++    SCENE_BOOT_LOADING_JPN = 19,
++    SCENE_INTRO_MOVIE = 22,
++    SCENE_ASYNC_LOADING = 25,
++    SCENE_WIDESCREEN_LOADING = 26,
++    SCENE_GAMEPLAY_OPTIONS = 27,
++    SCENE_OPTIONS_CHEATS_LIST = 28,
++    SCENE_GAME_RESULTS = 33,
++    SCENE_ONLINE_MENU = 40,
++    SCENE_ONLINE_GUEST_CONTROLLER_SELECT = 43,
++    SCENE_ONLINE_INVITE_PREVIEW = 45,
++    SCENE_ONLINE_RANKING = 46,
++    SCENE_ONLINE_FRIEND_CODE_ENTRY = 48,
++    SCENE_ONLINE_LOGIN = 51,
++    SCENE_ONLINE_INVITE_RESPONSE = 52,
++    SCENE_ONLINE_INVITE_STATUS = 53,
++    SCENE_ONLINE_MII_SELECT = 54,
++    SCENE_ONLINE_MII_SELECT_OVERLAY = 55,
++    OVERLAY_HUD = 89,
++};
++
++enum ScreenMovement
++{
++    SCREEN_NOTHING = 0,
++    SCREEN_FORWARD = 1,
++    SCREEN_BACK = 2,
++};
++
++struct SceneEntry
++{
++    SceneList mSceneID;
++    const char* mFenFileName;
++}; // size 0x8
++
++#endif
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -143,113 +143,7 @@
+ }
+ 
+ SceneEntry SceneEntryTable[] = {
+-    { SCENE_TITLE, "art/fe/sms2_start.fen" },
+-    { SCENE_MAIN_MENU, "art/fe/main_menu_v3.fen" },
+-    { SCENE_CHOOSE_CAPTAINS_DOMINATION, "art/fe/choose_captains_domination.fen" },
+-    { SCENE_CHOOSE_SIDEKICKS_DOMINATION, "art/fe/choose_sidekicks_domination.fen" },
+-    { (SceneList)4, "art/fe/domination_choose_sides.fen" },
+-    { (SceneList)5, "art/fe/choose_stadiums_domination.fen" },
+-    { SCENE_CHOOSE_CAPTAINS_STRIKER_CUP, "art/fe/choose_captains_domination.fen" },
+-    { SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP, "art/fe/choose_sidekicks_domination.fen" },
+-    { (SceneList)8, "art/fe/domination_choose_sides.fen" },
+-    { (SceneList)9, "art/fe/cup_cheater.fen" },
+-    { SCENE_POPUP_MENU, "art/fe/popup_menu.fen" },
+-    { (SceneList)11, "art/fe/spoils_menu_v2.fen" },
+-    { (SceneList)12, "art/fe/custom_tournament_options_v2.fen" },
+-    { (SceneList)13, "art/fe/options_main_menu.fen" },
+-    { (SceneList)14, "art/fe/options_audio_options.fen" },
+-    { (SceneList)15, "art/fe/options_visual_options.fen" },
+-    { (SceneList)16, "art/fe/englegal.fen" },
+-    { SCENE_SUPER_LOADING, "art/fe/loadingscreen.fen" },
+-    { SCENE_BOOT_LOADING, "art/fe/boot_loading.fen" },
+-    { SCENE_BOOT_LOADING_JPN, "art/fe/boot_loading_jpn.fen" },
+-    { (SceneList)20, "art/fe/movieplayer.fen" },
+-    { (SceneList)21, "art/fe/movieplayer.fen" },
+-    { SCENE_INTRO_MOVIE, "art/fe/movieplayer.fen" },
+-    { (SceneList)23, "art/fe/credits.fen" },
+-    { (SceneList)24, "art/fe/sms2_network_start.fen" },
+-    { SCENE_ASYNC_LOADING, "art/fe/asyncloading.fen" },
+-    { SCENE_WIDESCREEN_LOADING, "art/fe/WIDESCREEN_LOADING_SCREEN.fen" },
+-    { SCENE_GAMEPLAY_OPTIONS, "art/fe/options.fen" },
+-    { SCENE_OPTIONS_CHEATS_LIST, "art/fe/options_cheats_list.fen" },
+-    { (SceneList)29, "art/fe/fe_overlay.fen" },
+-    { (SceneList)30, "art/fe/wiicursor.fen" },
+-    { (SceneList)31, "art/fe/roadtostrikerscup_hub.fen" },
+-    { (SceneList)32, "art/fe/cup_schedule.fen" },
+-    { (SceneList)33, "art/fe/striker_times_2.fen" },
+-    { (SceneList)34, "art/fe/cup_knockout.fen" },
+-    { (SceneList)35, "art/fe/cup_final_rounds.fen" },
+-    { (SceneList)36, "art/fe/striker_cup_standings.fen" },
+-    { (SceneList)37, "art/fe/striker_cup_awards_golden_boot.fen" },
+-    { (SceneList)38, "art/fe/striker_cup_awards_brick_wall.fen" },
+-    { (SceneList)39, "art/fe/striker_times_2.fen" },
+-    { SCENE_ONLINE_MENU, "art/fe/online_menu.fen" },
+-    { (SceneList)41, "art/fe/online_ranked_menu.fen" },
+-    { (SceneList)42, "art/fe/online_unranked_menu.fen" },
+-    { SCENE_ONLINE_GUEST_CONTROLLER_SELECT, "art/fe/online_active_controllers.fen" },
+-    { (SceneList)44, "art/fe/online_invite_players.fen" },
+-    { SCENE_ONLINE_INVITE_PREVIEW, "art/fe/online_preview.fen" },
+-    { SCENE_ONLINE_RANKING, "art/fe/leaderboard_rankings.fen" },
+-    { (SceneList)47, "art/fe/online_friends_list.fen" },
+-    { SCENE_ONLINE_FRIEND_CODE_ENTRY, "art/fe/online_friends_code_enter.fen" },
+-    { (SceneList)49, "art/fe/online_draft_screen.fen" },
+-    { (SceneList)50, "art/fe/online_draft_screen.fen" },
+-    { SCENE_ONLINE_LOGIN, "art/fe/online_login.fen" },
+-    { SCENE_ONLINE_INVITE_RESPONSE, "art/fe/online_invitation.fen" },
+-    { SCENE_ONLINE_INVITE_STATUS, "art/fe/online_login.fen" },
+-    { SCENE_ONLINE_MII_SELECT, "art/fe/online_mii_select.fen" },
+-    { SCENE_ONLINE_MII_SELECT_OVERLAY, "art/fe/online_mii_select_overlay.fen" },
+-    { (SceneList)56, "art/fe/online_friends_choose_sides.fen" },
+-    { (SceneList)57, "art/fe/online_connection_quality.fen" },
+-    { (SceneList)58, "art/fe/hof_profile.fen" },
+-    { (SceneList)59, "art/fe/hof_game_summary.fen" },
+-    { (SceneList)60, "art/fe/hof_game_summary.fen" },
+-    { (SceneList)61, "art/fe/hof_game_summary.fen" },
+-    { (SceneList)62, "art/fe/hof_fire_cup.fen" },
+-    { (SceneList)63, "art/fe/hof_striker_cup.fen" },
+-    { (SceneList)64, "art/fe/hof_crystal_cup.fen" },
+-    { (SceneList)65, "art/fe/hof_player_cards.fen" },
+-    { (SceneList)66, "art/fe/hof_cup_history.fen" },
+-    { (SceneList)67, "art/fe/hof_award_history.fen" },
+-    { (SceneList)68, "art/fe/hof_award_history.fen" },
+-    { (SceneList)69, "art/fe/hof_cup_history.fen" },
+-    { (SceneList)70, "art/fe/hof_award_history.fen" },
+-    { (SceneList)71, "art/fe/hof_award_history.fen" },
+-    { (SceneList)72, "art/fe/hof_cup_history.fen" },
+-    { (SceneList)73, "art/fe/hof_award_history.fen" },
+-    { (SceneList)74, "art/fe/hof_award_history.fen" },
+-    { (SceneList)75, "art/fe/striker_challenge_hub.fen" },
+-    { (SceneList)76, "art/fe/striker_challenge_hub.fen" },
+-    { (SceneList)77, "art/fe/striker_times_2.fen" },
+-    { (SceneList)78, "art/fe/domination_choose_sides.fen" },
+-    { (SceneList)79, "art/fe/e3howtoholdcontroller.fen" },
+-    { (SceneList)80, "art/fe/pausemenu_v3.fen" },
+-    { (SceneList)81, "art/fe/ingame_choose_sides.fen" },
+-    { (SceneList)82, "art/fe/options_audio_options.fen" },
+-    { (SceneList)83, "art/fe/options_visual_options.fen" },
+-    { (SceneList)84, "art/fe/pausemenu101_v3.fen" },
+-    { (SceneList)85, "art/fe/lesson.fen" },
+-    { (SceneList)86, "art/fe/strikers_101_lessons_v3.fen" },
+-    { (SceneList)87, "art/fe/lessonmovieplayer.fen" },
+-    { (SceneList)88, 0 },
+-    { OVERLAY_HUD, "art/fe/hud_2.fen" },
+-    { (SceneList)90, "art/fe/ingame_text.fen" },
+-    { (SceneList)91, "art/fe/striker_times_2.fen" },
+-    { (SceneList)92, "art/fe/striker_times_2.fen" },
+-    { (SceneList)93, "art/fe/online_ranking.fen" },
+-    { (SceneList)94, "art/fe/striker_times_2.fen" },
+-    { (SceneList)95, "art/fe/goal_overlay.fen" },
+-    { (SceneList)96, "art/fe/demo_overlay.fen" },
+-    { (SceneList)97, "art/fe/igticker.fen" },
+-    { (SceneList)98, "art/fe/x2_sts.fen" },
+-    { (SceneList)99, "art/fe/loading_screen.fen" },
+-    { (SceneList)100, "art/fe/megastrike_metre.fen" },
+-    { (SceneList)101, "art/fe/pip.fen" },
+-    { (SceneList)102, "art/fe/SUPER_ABILITY_PRESENTATION.fen" },
+-    { (SceneList)103, "art/fe/challenge_preview.fen" },
+-    { (SceneList)104, "art/fe/controller_config.fen" },
+-    { (SceneList)105, "art/fe/defensive_play.fen" },
+-    { (SceneList)106, 0 },
++#include "Game/FE/FrontendSceneEntries.inc"
+ };
+ 
+ BaseGameSceneManager::BaseGameSceneManager()
+diff --git a/include/Game/FE/FrontendSceneEntries.inc b/include/Game/FE/FrontendSceneEntries.inc
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendSceneEntries.inc
+@@ -0,0 +1,107 @@
++    { SCENE_TITLE, "art/fe/sms2_start.fen" },
++    { SCENE_MAIN_MENU, "art/fe/main_menu_v3.fen" },
++    { SCENE_CHOOSE_CAPTAINS_DOMINATION, "art/fe/choose_captains_domination.fen" },
++    { SCENE_CHOOSE_SIDEKICKS_DOMINATION, "art/fe/choose_sidekicks_domination.fen" },
++    { (SceneList)4, "art/fe/domination_choose_sides.fen" },
++    { (SceneList)5, "art/fe/choose_stadiums_domination.fen" },
++    { SCENE_CHOOSE_CAPTAINS_STRIKER_CUP, "art/fe/choose_captains_domination.fen" },
++    { SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP, "art/fe/choose_sidekicks_domination.fen" },
++    { (SceneList)8, "art/fe/domination_choose_sides.fen" },
++    { (SceneList)9, "art/fe/cup_cheater.fen" },
++    { SCENE_POPUP_MENU, "art/fe/popup_menu.fen" },
++    { (SceneList)11, "art/fe/spoils_menu_v2.fen" },
++    { (SceneList)12, "art/fe/custom_tournament_options_v2.fen" },
++    { (SceneList)13, "art/fe/options_main_menu.fen" },
++    { (SceneList)14, "art/fe/options_audio_options.fen" },
++    { (SceneList)15, "art/fe/options_visual_options.fen" },
++    { (SceneList)16, "art/fe/englegal.fen" },
++    { SCENE_SUPER_LOADING, "art/fe/loadingscreen.fen" },
++    { SCENE_BOOT_LOADING, "art/fe/boot_loading.fen" },
++    { SCENE_BOOT_LOADING_JPN, "art/fe/boot_loading_jpn.fen" },
++    { (SceneList)20, "art/fe/movieplayer.fen" },
++    { (SceneList)21, "art/fe/movieplayer.fen" },
++    { SCENE_INTRO_MOVIE, "art/fe/movieplayer.fen" },
++    { (SceneList)23, "art/fe/credits.fen" },
++    { (SceneList)24, "art/fe/sms2_network_start.fen" },
++    { SCENE_ASYNC_LOADING, "art/fe/asyncloading.fen" },
++    { SCENE_WIDESCREEN_LOADING, "art/fe/WIDESCREEN_LOADING_SCREEN.fen" },
++    { SCENE_GAMEPLAY_OPTIONS, "art/fe/options.fen" },
++    { SCENE_OPTIONS_CHEATS_LIST, "art/fe/options_cheats_list.fen" },
++    { (SceneList)29, "art/fe/fe_overlay.fen" },
++    { (SceneList)30, "art/fe/wiicursor.fen" },
++    { (SceneList)31, "art/fe/roadtostrikerscup_hub.fen" },
++    { (SceneList)32, "art/fe/cup_schedule.fen" },
++    { (SceneList)33, "art/fe/striker_times_2.fen" },
++    { (SceneList)34, "art/fe/cup_knockout.fen" },
++    { (SceneList)35, "art/fe/cup_final_rounds.fen" },
++    { (SceneList)36, "art/fe/striker_cup_standings.fen" },
++    { (SceneList)37, "art/fe/striker_cup_awards_golden_boot.fen" },
++    { (SceneList)38, "art/fe/striker_cup_awards_brick_wall.fen" },
++    { (SceneList)39, "art/fe/striker_times_2.fen" },
++    { SCENE_ONLINE_MENU, "art/fe/online_menu.fen" },
++    { (SceneList)41, "art/fe/online_ranked_menu.fen" },
++    { (SceneList)42, "art/fe/online_unranked_menu.fen" },
++    { SCENE_ONLINE_GUEST_CONTROLLER_SELECT, "art/fe/online_active_controllers.fen" },
++    { (SceneList)44, "art/fe/online_invite_players.fen" },
++    { SCENE_ONLINE_INVITE_PREVIEW, "art/fe/online_preview.fen" },
++    { SCENE_ONLINE_RANKING, "art/fe/leaderboard_rankings.fen" },
++    { (SceneList)47, "art/fe/online_friends_list.fen" },
++    { SCENE_ONLINE_FRIEND_CODE_ENTRY, "art/fe/online_friends_code_enter.fen" },
++    { (SceneList)49, "art/fe/online_draft_screen.fen" },
++    { (SceneList)50, "art/fe/online_draft_screen.fen" },
++    { SCENE_ONLINE_LOGIN, "art/fe/online_login.fen" },
++    { SCENE_ONLINE_INVITE_RESPONSE, "art/fe/online_invitation.fen" },
++    { SCENE_ONLINE_INVITE_STATUS, "art/fe/online_login.fen" },
++    { SCENE_ONLINE_MII_SELECT, "art/fe/online_mii_select.fen" },
++    { SCENE_ONLINE_MII_SELECT_OVERLAY, "art/fe/online_mii_select_overlay.fen" },
++    { (SceneList)56, "art/fe/online_friends_choose_sides.fen" },
++    { (SceneList)57, "art/fe/online_connection_quality.fen" },
++    { (SceneList)58, "art/fe/hof_profile.fen" },
++    { (SceneList)59, "art/fe/hof_game_summary.fen" },
++    { (SceneList)60, "art/fe/hof_game_summary.fen" },
++    { (SceneList)61, "art/fe/hof_game_summary.fen" },
++    { (SceneList)62, "art/fe/hof_fire_cup.fen" },
++    { (SceneList)63, "art/fe/hof_striker_cup.fen" },
++    { (SceneList)64, "art/fe/hof_crystal_cup.fen" },
++    { (SceneList)65, "art/fe/hof_player_cards.fen" },
++    { (SceneList)66, "art/fe/hof_cup_history.fen" },
++    { (SceneList)67, "art/fe/hof_award_history.fen" },
++    { (SceneList)68, "art/fe/hof_award_history.fen" },
++    { (SceneList)69, "art/fe/hof_cup_history.fen" },
++    { (SceneList)70, "art/fe/hof_award_history.fen" },
++    { (SceneList)71, "art/fe/hof_award_history.fen" },
++    { (SceneList)72, "art/fe/hof_cup_history.fen" },
++    { (SceneList)73, "art/fe/hof_award_history.fen" },
++    { (SceneList)74, "art/fe/hof_award_history.fen" },
++    { (SceneList)75, "art/fe/striker_challenge_hub.fen" },
++    { (SceneList)76, "art/fe/striker_challenge_hub.fen" },
++    { (SceneList)77, "art/fe/striker_times_2.fen" },
++    { (SceneList)78, "art/fe/domination_choose_sides.fen" },
++    { (SceneList)79, "art/fe/e3howtoholdcontroller.fen" },
++    { (SceneList)80, "art/fe/pausemenu_v3.fen" },
++    { (SceneList)81, "art/fe/ingame_choose_sides.fen" },
++    { (SceneList)82, "art/fe/options_audio_options.fen" },
++    { (SceneList)83, "art/fe/options_visual_options.fen" },
++    { (SceneList)84, "art/fe/pausemenu101_v3.fen" },
++    { (SceneList)85, "art/fe/lesson.fen" },
++    { (SceneList)86, "art/fe/strikers_101_lessons_v3.fen" },
++    { (SceneList)87, "art/fe/lessonmovieplayer.fen" },
++    { (SceneList)88, 0 },
++    { OVERLAY_HUD, "art/fe/hud_2.fen" },
++    { (SceneList)90, "art/fe/ingame_text.fen" },
++    { (SceneList)91, "art/fe/striker_times_2.fen" },
++    { (SceneList)92, "art/fe/striker_times_2.fen" },
++    { (SceneList)93, "art/fe/online_ranking.fen" },
++    { (SceneList)94, "art/fe/striker_times_2.fen" },
++    { (SceneList)95, "art/fe/goal_overlay.fen" },
++    { (SceneList)96, "art/fe/demo_overlay.fen" },
++    { (SceneList)97, "art/fe/igticker.fen" },
++    { (SceneList)98, "art/fe/x2_sts.fen" },
++    { (SceneList)99, "art/fe/loading_screen.fen" },
++    { (SceneList)100, "art/fe/megastrike_metre.fen" },
++    { (SceneList)101, "art/fe/pip.fen" },
++    { (SceneList)102, "art/fe/SUPER_ABILITY_PRESENTATION.fen" },
++    { (SceneList)103, "art/fe/challenge_preview.fen" },
++    { (SceneList)104, "art/fe/controller_config.fen" },
++    { (SceneList)105, "art/fe/defensive_play.fen" },
++    { (SceneList)106, 0 },
+diff --git a/include/Game/FE/FrontendStackSteps.h b/include/Game/FE/FrontendStackSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendStackSteps.h
+@@ -0,0 +1,24 @@
++#ifndef FRONTEND_STACK_STEPS_H
++#define FRONTEND_STACK_STEPS_H
++
++// Original scene-manager ordering and predicates, shared with checked native
++// ownership. The native owner supplies its own explicit readiness predicate;
++// it does not manufacture original FEScene state6.
++inline bool FrontendOriginalSceneReady(int state) { return state == 6; }
++inline bool FrontendSceneVisible(bool ready, bool visible) { return ready && visible; }
++template<class Queue, class Message> void FrontendQueueScene(Queue& queue, Message message)
++{ queue.AddEnd(message); }
++template<class Stack, class Handler> void FrontendPushScene(Stack& stack, Handler handler)
++{ stack.AddStart(handler); }
++template<class Handler, class Presentation> void FrontendInitializeScene(Handler& handler, Presentation presentation)
++{
++    handler.SetPresentation(presentation);
++    handler.SceneCreated();
++    handler.InitializeSubHandlers();
++}
++template<class Scene> void FrontendUnloadScene(Scene& scene)
++{
++    scene.ReleaseResourceHandles();
++    scene.UnloadPackage();
++}
++#endif
+diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
+--- a/src/Game/FE/feSceneManager.cpp
++++ b/src/Game/FE/feSceneManager.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/feSceneManager.h"
++#include "Game/FE/FrontendStackSteps.h"
+ 
+ #include "Game/FE/feInput.h"
+ #include "Game/FE/FrontendHandlerSteps.h"
+@@ -36,7 +37,7 @@
+ 
+     while (currentEntry != 0)
+     {
+-        if (currentEntry->entry->mFEScene->mState != 6)
++        if (!FrontendOriginalSceneReady(currentEntry->entry->mFEScene->mState))
+         {
+             return false;
+         }
+@@ -134,7 +135,7 @@
+ 
+         if (pPackagePushPopMessage->m_bPush != false)
+         {
+-            pSceneManager->m_sceneHandlerStack.AddStart(pPackagePushPopMessage->m_pSceneHandler);
++            FrontendPushScene(pSceneManager->m_sceneHandlerStack, pPackagePushPopMessage->m_pSceneHandler);
+ 
+             LoadScene(
+                 pPackagePushPopMessage->m_szFilename,
+@@ -156,8 +157,7 @@
+                 sceneIterator.Step();
+             }
+ 
+-            pPackagePushPopMessage->m_pSceneHandler->mFEScene->ReleaseResourceHandles();
+-            pPackagePushPopMessage->m_pSceneHandler->mFEScene->UnloadPackage();
++            FrontendUnloadScene(*pPackagePushPopMessage->m_pSceneHandler->mFEScene);
+ 
+             FEScene* pFEScene = pPackagePushPopMessage->m_pSceneHandler->mFEScene;
+             delete pPackagePushPopMessage->m_pSceneHandler;
+@@ -183,7 +183,7 @@
+     msg->m_pSceneHandler->mHashID = nlStringLowerHash(szFilename);
+     msg->m_pAllocator = pAllocator != 0 ? pAllocator : CurrentAllocator;
+ 
+-    m_pushPopMessageQueue.AddEnd(msg);
++    FrontendQueueScene(m_pushPopMessageQueue, msg);
+ }
+ 
+ void FESceneManager::QueueScenePop()
+@@ -211,7 +211,7 @@
+         sceneIterator.Step();
+     }
+ 
+-    m_pushPopMessageQueue.AddEnd(msg);
++    FrontendQueueScene(m_pushPopMessageQueue, msg);
+ }
+ 
+ void FESceneManager::RenderActiveScenes()
+@@ -223,7 +223,7 @@
+         if (!IsObjectQueuedForPop(m_topMostScene))
+         {
+             FEScene* scene = m_topMostScene->mFEScene;
+-            if (scene->mState == 6 && m_topMostScene->mVisible)
++            if (FrontendSceneVisible(FrontendOriginalSceneReady(scene->mState), m_topMostScene->mVisible))
+             {
+                 FERender::RenderScene(scene);
+             }
+@@ -241,7 +241,7 @@
+             if (!IsObjectQueuedForPop(pSceneHandler))
+             {
+                 FEScene* scene = pSceneHandler->mFEScene;
+-                if (scene->mState == 6 && pSceneHandler->mVisible)
++                if (FrontendSceneVisible(FrontendOriginalSceneReady(scene->mState), pSceneHandler->mVisible))
+                 {
+                     FERender::RenderScene(scene);
+                 }
+@@ -255,9 +255,7 @@
+ void FESceneManager::InitializeScene(FEScene* pFEScene)
+ {
+     BaseSceneHandler* pSceneHandler = GetSceneHandler(pFEScene->m_uHashID);
+-    pSceneHandler->SetPresentation(pFEScene->m_pFEPackage->GetPresentation());
+-    pSceneHandler->SceneCreated();
+-    pSceneHandler->InitializeSubHandlers();
++    FrontendInitializeScene(*pSceneHandler, pFEScene->m_pFEPackage->GetPresentation());
+ }
+ 
+ void FESceneManager::Update(float dt)
+@@ -278,7 +276,7 @@
+ 
+     while (currentEntry != 0)
+     {
+-        if (((FEScene*)currentEntry->entry->mFEScene)->mState == 6)
++        if (FrontendOriginalSceneReady(((FEScene*)currentEntry->entry->mFEScene)->mState))
+         {
+             FrontendFocusedHandlerUpdate(g_pFEInput, currentEntry->entry, dt);
+         }

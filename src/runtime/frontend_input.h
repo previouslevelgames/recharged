@@ -42,6 +42,7 @@ public:
     void PopFocus(const void* scene);
     void Focus(const void* scene);
     bool HasFocusLock(const void* scene) const;
+    bool InputLocked() const;
     void Reset();
 };
 }

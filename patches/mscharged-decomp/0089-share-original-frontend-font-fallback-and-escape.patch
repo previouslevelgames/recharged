@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original font fallback and bounded text escape parsing
-Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
 
 Preserve font first-match/first-registered fallback and original escape parsing.
 Native callers prevalidate the qualified paragraph-only grammar and assemble

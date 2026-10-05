@@ -41,9 +41,10 @@ void ValidateGameLighting(const GameLighting& lighting)
     Bounded(lighting.intensity_scale, 16, "Invalid lighting intensity scale");
     if (lighting.intensity_scale < 0)
         throw std::invalid_argument("Negative lighting intensity scale");
-    for (unsigned i = 0; i < lighting.light_count; ++i)
+    if (lighting.character && lighting.character->light_count > lighting.character->lights.size())
+        throw std::invalid_argument("Character lighting supports at most six explicit lights");
+    const auto validate_light = [](const GameObjectLight& light)
     {
-        const auto& light = lighting.lights[i];
         if (light.useColour > 1 || light.isPointLight > 1)
             throw std::invalid_argument("Invalid object light flags");
         Bounded(light.intensity, 16, "Invalid object light intensity");
@@ -58,7 +59,10 @@ void ValidateGameLighting(const GameLighting& lighting)
             Bounded(light.radius, 1e6f, "Invalid point light radius");
             if (light.radius < 1e-4f) throw std::invalid_argument("Point light radius is too small");
         }
-    }
+    };
+    for (unsigned i = 0; i < lighting.light_count; ++i) validate_light(lighting.lights[i]);
+    if (lighting.character)
+        for (unsigned i = 0; i < lighting.character->light_count; ++i) validate_light(lighting.character->lights[i]);
     if (lighting.ramp_texture != UINT32_MAX && !glx_GetTex(lighting.ramp_texture))
         throw std::invalid_argument("Lighting ramp is absent from the native inventory");
     const auto& shadow = lighting.shadow;
@@ -94,14 +98,39 @@ int ShouldUseGameObjectLightTexture(int) { return mscharged::ActiveGameLighting(
 u32 GetGameObjectLightTexture() { return mscharged::ActiveGameLighting().inputs.ramp_texture; }
 int GetGameObjectLightCount(bool character, bool)
 {
-    if (character) throw std::logic_error("Character light selection is not integrated");
-    return mscharged::ActiveGameLighting().inputs.light_count;
+    const auto& lighting = mscharged::ActiveGameLighting().inputs;
+    if (character)
+    {
+        if (!lighting.character) throw std::logic_error("Character lights require explicit native inputs");
+        return lighting.character->light_count;
+    }
+    return lighting.light_count;
 }
 GameObjectLight* GetGameObjectLight(int index, bool character)
 {
     auto& lighting = mscharged::ActiveGameLighting().inputs;
-    if (character || index < 0 || unsigned(index) >= lighting.light_count)
+    if (character)
+    {
+        if (!lighting.character || index < 0 || unsigned(index) >= lighting.character->light_count)
+            throw std::out_of_range("Character light is outside the explicit input set");
+        return &lighting.character->lights[index];
+    }
+    if (index < 0 || unsigned(index) >= lighting.light_count)
         throw std::out_of_range("Object light is outside the active input set");
     return &lighting.lights[index];
 }
 bool IsShadowLookupActive() { return mscharged::ActiveGameLighting().inputs.shadow.lookup != nullptr; }
+void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix)
+{
+    // Original setter in GameObjectLighting.cpp, with per-view native storage.
+    // Actual skinned shadow sampling still has its explicit integration gate.
+    if (!IsShadowLookupActive()) return;
+    if (!matrix) throw std::invalid_argument("Shadow view matrix is absent");
+    for (float value : matrix->e)
+        if (!std::isfinite(value)) throw std::invalid_argument("Non-finite shadow view matrix");
+    nlMatrix4 inverse;
+    nlInvertMatrix(inverse, *matrix);
+    for (float value : inverse.e)
+        if (!std::isfinite(value)) throw std::invalid_argument("Non-finite shadow inverse view matrix");
+    mscharged::ActiveGameLighting().shadow_inverse_view = inverse;
+}

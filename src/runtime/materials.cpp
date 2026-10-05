@@ -1,6 +1,7 @@
 #include "runtime/materials.h"
 #include "runtime/material_environment.h"
 #include "runtime/lighting_state.h"
+#include "runtime/skin_material.h"
 #include "NL/gl/glMaterialProgram.h"
 #include "NL/gl/glTextureManager.h"
 #include "NL/gl/glState.h"
@@ -21,6 +22,9 @@
 #include "NL/glx/GXMaskedDetailBlendMaterialProgram.h"
 #include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
 #include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
+#include "NL/glx/GXCharacterSkinCustomMaterialProgram.h"
+#include "NL/glx/GXFloatTexturedColourMaterialProgram.h"
+#include "NL/glx/GXConstantColourMaterialProgram.h"
 #include <dolphin/gx.h>
 #include <dolphin/mtx.h>
 #include <algorithm>
@@ -29,6 +33,7 @@
 
 namespace mscharged
 {
+void RestoreMaterialSavedStates();
 namespace
 {
 bool programs_live = false, preview_live = false;
@@ -44,6 +49,8 @@ constexpr std::uint32_t camera_overlay = 0x32bc21e8;
 constexpr std::uint32_t masked_detail = 0x09609a35;
 constexpr std::uint32_t scrolling_masked_detail = 0xf2d57ac6;
 constexpr std::uint32_t scrolling_camera_overlay = 0x845cad59;
+constexpr std::uint32_t character_skin = 0x041c3281;
+constexpr std::uint32_t float_colour = 0x19065bf6, constant_colour = 0xee9d919d;
 glTextureBinding Binding(const resources::MaterialBinding &input)
 {
     if (input.flags & ~3u)
@@ -89,10 +96,7 @@ void Raster(u32 state)
     const GXBlendFactor dest[] = {GX_BL_ZERO, GX_BL_INVSRCALPHA, GX_BL_ONE,  GX_BL_ONE,
                                   GX_BL_ZERO, GX_BL_ONE,         GX_BL_ZERO, GX_BL_ZERO};
     const auto blend = glGetRasterState(state, GLS_AlphaBlend);
-    GXSetBlendMode(blend == 0   ? GX_BM_NONE
-                   : blend == 7 ? GX_BM_SUBTRACT
-                                : GX_BM_BLEND,
-                   source[blend], dest[blend], GX_LO_CLEAR);
+    gxSetBlendMode(blend != 0, source[blend], dest[blend], blend == 7);
     gxSetColourUpdate(colour & 1);
     gxSetAlphaUpdate((colour >> 1) & 1);
 }
@@ -110,6 +114,9 @@ struct MaterialPrograms::Impl
     GXMaskedDetailBlendMaterialProgram masked_detail_blend;
     GXScrollingMaskedDetailBlendMaterialProgram scrolling_masked_detail_blend;
     GXScrollingCameraOverlayMaterialProgram scrolling_overlay;
+    GXCharacterSkinCustomMaterialProgram skin;
+    GXFloatTexturedColourMaterialProgram float_textured;
+    GXConstantColourMaterialProgram constant;
     Impl()
     {
         unlit.Initialize();
@@ -123,6 +130,9 @@ struct MaterialPrograms::Impl
         masked_detail_blend.Initialize();
         scrolling_masked_detail_blend.Initialize();
         scrolling_overlay.Initialize();
+        skin.Initialize();
+        float_textured.Initialize();
+        constant.Initialize();
     }
 };
 MaterialPrograms::MaterialPrograms()
@@ -131,7 +141,8 @@ MaterialPrograms::MaterialPrograms()
         glGetMaterialProgram(scrolling) || glGetMaterialProgram(masked) || glGetMaterialProgram(shadow_volume)
         || glGetMaterialProgram(detail_blend) || glGetMaterialProgram(scrolling_specular)
         || glGetMaterialProgram(camera_overlay) || glGetMaterialProgram(masked_detail)
-        || glGetMaterialProgram(scrolling_masked_detail) || glGetMaterialProgram(scrolling_camera_overlay))
+        || glGetMaterialProgram(scrolling_masked_detail) || glGetMaterialProgram(scrolling_camera_overlay)
+        || glGetMaterialProgram(character_skin) || glGetMaterialProgram(float_colour) || glGetMaterialProgram(constant_colour))
         throw std::logic_error("Material registry already initialized");
     try
     {
@@ -173,6 +184,7 @@ void InstallMaterial(glModelPacket &packet, const resources::Material &material,
     static_assert(sizeof(GXMaskedDetailBlendParameters) == 36);
     static_assert(sizeof(GXScrollingMaskedDetailBlendParameters) == 60);
     static_assert(sizeof(GXScrollingCameraOverlayParameters) == 60);
+    static_assert(sizeof(GXConstantColourParameters) == 24);
     auto *program = static_cast<GLMaterialProgram *>(glGetMaterialProgram(material.program));
     if (!program || !storage)
         throw std::invalid_argument("Unregistered material or missing parameter storage");
@@ -259,6 +271,16 @@ void InstallMaterial(glModelPacket &packet, const resources::Material &material,
         break;
     case vertex:
         new (storage) GXVertexColourTextureParameters{binding};
+        break;
+    case float_colour:
+        new (storage) GXFloatTexturedColourParameters{binding};
+        break;
+    case constant_colour:
+        for (const auto value : material.specular_colour)
+            if (!std::isfinite(value) || value < 0 || value > 1)
+                throw std::invalid_argument("Invalid constant material colour");
+        new (storage) GXConstantColourParameters{binding,
+            {{material.specular_colour[0], material.specular_colour[1], material.specular_colour[2], material.specular_colour[3]}}};
         break;
     case scrolling:
         new (storage) GXScrollingDiffuseParameters{binding,
@@ -376,7 +398,7 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     if (!program || !packet.materialParameters || packet.displayList
         || (!packet.indexBuffer && program->programHash != shadow_volume && program->programHash != vertex))
         throw std::runtime_error("Incomplete or unsupported native material packet");
-    if (program->programHash == vertex)
+    if (program->programHash == vertex || program->programHash == float_colour)
     {
         if (packet.numStreams != 3 || !packet.streams || !packet.numUniqueVertices
             || packet.numVertices > 65535 || packet.primType < 0 || packet.primType >= 6)
@@ -387,10 +409,28 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
                 || (i==0 ? packet.streams[i].stride!=12 : i==2 ? packet.streams[i].stride!=4
                     : packet.streams[i].stride!=4 && packet.streams[i].stride!=8))
                 throw std::invalid_argument("Invalid vertex-colour stream");
+        if (program->programHash == float_colour && packet.streams[1].stride != 8)
+            throw std::invalid_argument("Float-textured colour requires float UVs");
         if (packet.indexBuffer)
             for (unsigned i=0;i<packet.numVertices;++i)
                 if (packet.indexBuffer[i]>=packet.numUniqueVertices)
                     throw std::out_of_range("Vertex-colour index exceeds its arrays");
+    }
+    if (program->programHash == constant_colour)
+    {
+        if (packet.numStreams != 2 || !packet.streams || !packet.numUniqueVertices || packet.numVertices > 65535
+            || packet.primType < 0 || packet.primType >= 6)
+            throw std::invalid_argument("Invalid constant-colour packet");
+        for (unsigned i=0;i<2;++i)
+            if (!packet.streams[i].address || packet.streams[i].id != (i ? 4u : 1u)
+                || packet.streams[i].stride != (i ? 8u : 12u))
+                throw std::invalid_argument("Invalid constant-colour stream");
+        for (const auto value : static_cast<const GXConstantColourParameters*>(packet.materialParameters)->constantColour.c)
+            if (!std::isfinite(value) || value < 0 || value > 1)
+                throw std::invalid_argument("Invalid constant-colour packet parameter");
+        for (unsigned i=0;i<packet.numVertices;++i)
+            if (packet.indexBuffer[i]>=packet.numUniqueVertices)
+                throw std::out_of_range("Constant-colour index exceeds its arrays");
     }
     if (program->programHash == shadow_volume)
     {
@@ -409,6 +449,7 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
                 if (packet.indexBuffer[i] >= packet.numUniqueVertices)
                     throw std::out_of_range("Shadow index exceeds its vertex arrays");
     }
+    if (program->programHash == character_skin) ValidateNativeSkinPacket(packet);
     Baseline();
     Raster(packet.rasterState);
     // Original glx_SwitchRaster always permits alpha-only writes. The view's
@@ -436,6 +477,7 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     }
     catch (...)
     {
+        RestoreMaterialSavedStates();
         program->Deactivate();
         throw;
     }

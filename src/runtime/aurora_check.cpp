@@ -85,6 +85,7 @@ int main(int argc, char** argv)
         session.initialized = true;
         Require(info.window != nullptr && info.backend == BACKEND_NULL, "Unexpected Aurora host initialization result");
         Require(info.windowSize.width > 0 && info.windowSize.height > 0, "Aurora returned an empty window");
+        Require(!aurora_get_last_presentation().sequence, "GX-disabled host invented a game presentation");
         Update(); // Aurora initializes controllers on its first update.
         Require((SDL_WasInit(SDL_INIT_GAMEPAD) & SDL_INIT_GAMEPAD) != 0, "Controller subsystem did not initialize");
 
@@ -136,6 +137,7 @@ int main(int argc, char** argv)
             Require(SDL_PushEvent(&exit_event), "Cannot inject exit event");
             Require(Update(), "Aurora did not forward the exit event");
         }
+        Require(!aurora_get_last_presentation().sequence, "Core-only SDL rendering published a GX presentation");
         std::cout << "Aurora host checks passed: window, event loop, controller initialization, MEM1 and clocks.\n"
                      "GX/Vulkan rendering, Wii MEM2/input/audio and game startup remain pending.\n";
         return 0;

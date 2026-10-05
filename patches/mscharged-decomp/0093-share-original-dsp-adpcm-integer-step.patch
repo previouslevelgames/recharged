@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original DSP ADPCM integer sample arithmetic
-Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
 
 Share the three identical THPAudio sample equations without selecting its
 unchecked container decoder. Native negative sample arithmetic uses defined

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original bounded native font measurement and quad steps
-Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
 
 Retain the matched character arithmetic, width/line-count loops, page traversal,
 quad placement, kerning and colour flow in helpers consumed by both original

@@ -1,0 +1,143 @@
+Subject: Share original frontend pointer conversion and options event production
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Share exact feDPD normalized-coordinate conversion, integer viewport margins,
+and OptionsScene position-before-action30 event construction. Console callers
+retain genuine Wii DPDData, connection/validity, angle and backend branches.
+Native desktop routing is an explicit policy over retained rendered frames;
+no Wii class ID, DPD validity, speaker or rumble service is synthesized.
+
+diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
+--- a/src/Game/FE/feDPD.cpp
++++ b/src/Game/FE/feDPD.cpp
+@@ -4,6 +4,7 @@
+ #include "NL/plat/WiiFreestylePad.h"
+ 
+ #include "Game/FE/feDPD.h"
++#include "Game/FE/FrontendPointerHostSteps.h"
+ 
+ #include "Game/FE/feInput.h"
+ #include "Game/PadActions.h"
+@@ -26,20 +27,7 @@
+ 
+ static inline void ClampPointerPosition(int pad, nlVector2 position, int width, int height)
+ {
+-    int maxX = width / 2 - 20;
+-    int minX = -width / 2 + 20;
+-    int maxY = height / 2 - 5;
+-    int minY = -height / 2 + 5;
+-
+-    if (position.x <= maxX && position.x >= minX)
+-        gFEPointerPositions[pad].x = position.x;
+-    else
+-        gFEPointerPositions[pad].x = (float)(position.x > maxX ? maxX : minX);
+-
+-    if (position.y <= maxY && position.y >= minY)
+-        gFEPointerPositions[pad].y = position.y;
+-    else
+-        gFEPointerPositions[pad].y = (float)(position.y > maxY ? maxY : minY);
++    gFEPointerPositions[pad] = FrontendClampPointerPosition(position, width, height);
+ }
+ 
+ FEDPDTask::FEDPDTask()
+@@ -120,8 +108,7 @@
+         if (data->mValidFlag > 0)
+         {
+             data->GetPosition(&position, angle);
+-            position.x = -1.0f * (position.x * (float)width / 2.0f);
+-            position.y = position.y * (float)height / 2.0f;
++            FrontendDPDToAssetPosition(position, width, height);
+             *valid = true;
+ 
+             ClampPointerPosition(pad, position, width, height);
+diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
+--- a/src/Game/SH/SHOptions.cpp
++++ b/src/Game/SH/SHOptions.cpp
+@@ -17,6 +17,7 @@
+ #include "NL/nlBind.h"
+ #include "NL/nlString.h"
+ #include "Game/FE/feDPD.h"
++#include "Game/FE/FrontendPointerHostSteps.h"
+ #include "Game/FE/FEAudio.h"
+ #include "Game/SH/SHNavigation.h"
+ 
+@@ -70,6 +71,20 @@
+     FEMusic::StartStreamIfDifferent(1);
+ }
+ 
++// Actual source services for the shared options event producer.
++struct OptionsPointerSource
++{
++    nlVector2 Position(int index)
++    {
++        bool valid = true;
++        return GetPointerPosition(index, (u8*)&valid);
++    }
++    bool JustPressed(int index)
++    {
++        return g_pFEInput->JustPressed((eFEINPUT_PAD)index, 0x1E, true, 0);
++    }
++};
++
+ void OptionsScene::Update(float fDeltaT)
+ {
+     BaseSceneHandler::Update(fDeltaT);
+@@ -126,11 +141,9 @@
+ 
+         pointer->SetActiveSlide("cursor", true, false);
+ 
+-        bool valid = true;
+         FEPointerEvent event;
+-        event.mIndex = i;
+-        event.mPosition = GetPointerPosition(i, (u8*)&valid);
+-        event.mPressed = g_pFEInput->JustPressed((eFEINPUT_PAD)i, 0x1E, true, 0);
++        OptionsPointerSource source;
++        FrontendOptionsPointerEvent(event, i, source);
+ 
+         if (mBackButton.UpdateBackButton(event, fDeltaT))
+         {
+diff --git a/include/Game/FE/FrontendPointerHostSteps.h b/include/Game/FE/FrontendPointerHostSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendPointerHostSteps.h
+@@ -0,0 +1,40 @@
++#ifndef FRONTEND_POINTER_HOST_STEPS_H
++#define FRONTEND_POINTER_HOST_STEPS_H
++#include "NL/nlMath.h"
++
++// Original feDPD arithmetic. The desktop adapter supplies an explicit absolute
++// mouse policy, never a fabricated Wii DPDData/backend class.
++inline nlVector2 FrontendClampPointerPosition(nlVector2 position, int width, int height)
++{
++    nlVector2 result;
++    int maxX = width / 2 - 20;
++    int minX = -width / 2 + 20;
++    int maxY = height / 2 - 5;
++    int minY = -height / 2 + 5;
++
++    if (position.x <= maxX && position.x >= minX)
++        result.x = position.x;
++    else
++        result.x = (float)(position.x > maxX ? maxX : minX);
++
++    if (position.y <= maxY && position.y >= minY)
++        result.y = position.y;
++    else
++        result.y = (float)(position.y > maxY ? maxY : minY);
++    return result;
++}
++inline void FrontendDPDToAssetPosition(nlVector2& position, int width, int height)
++{
++    position.x = -1.0f * (position.x * (float)width / 2.0f);
++    position.y = position.y * (float)height / 2.0f;
++}
++// Source ordering is observable: position first, action30 JustPressed second.
++// Constructor defaults for Released/Unidentified remain untouched.
++template<class Event, class Source>
++void FrontendOptionsPointerEvent(Event& event, int index, Source& source)
++{
++    event.mIndex = index;
++    event.mPosition = source.Position(index);
++    event.mPressed = source.JustPressed(index);
++}
++#endif

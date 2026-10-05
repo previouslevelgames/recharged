@@ -151,6 +151,23 @@ void AnimatedCamera::Configure(const AnimatedCameraOptions& options)
     m_EndOfAnimationCallback = options.on_end; m_fLastSimulationTime = -1;
     Scope scope(*this); BuildAnimViewMatrix(m_matView);
 }
+void AnimatedCamera::Select(CameraAsset::Handle asset)
+{
+    if (!asset) throw std::invalid_argument("Animated camera selection needs a retained asset");
+    NativeCameraCall call;
+    const auto* data = &asset->Data();
+    asset_ = std::move(asset);
+    m_fLastSimulationTime = -1.0f;
+    m_pActiveCameraData = const_cast<cCameraData*>(data);
+}
+void AnimatedCamera::SetCyclic(bool value)
+{
+    NativeCameraCall call; m_bCyclic = value;
+}
+void AnimatedCamera::SetEndCallback(void (*callback)())
+{
+    NativeCameraCall call; m_EndOfAnimationCallback = callback;
+}
 void AnimatedCamera::SetInputs(AnimatedCameraInputs inputs)
 {
     CheckCameraDelta(inputs.simulation_time);

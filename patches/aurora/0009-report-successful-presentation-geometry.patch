@@ -1,0 +1,150 @@
+Subject: Report the actual successful presentation rectangle
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Publish a thread-safe snapshot only after successful surface Present, using
+the same retained viewport as the EFB blit. Native input can bind exact
+presented frames and reject stale resize geometry. Discarded/skipped frames
+do not advance the sequence. GX-disabled builds expose an empty snapshot.
+Queue presentation does not establish physical display scanout.
+
+diff --git a/include/aurora/aurora.h b/include/aurora/aurora.h
+index 2be6918..2f76577 100644
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -127,6 +127,20 @@ typedef struct {
+   AuroraWindowSize windowSize;
+ } AuroraInfo;
+ 
++/** Last successfully presented surface, including its actual content rectangle.
++ * Sequence changes only after a successful Present. This acknowledges queue
++ * presentation, not physical display scanout. Zero means no presentation.
++ */
++typedef struct {
++  uint64_t sequence;
++  uint32_t window_id;
++  AuroraWindowSize size;
++  float x;
++  float y;
++  float width;
++  float height;
++} AuroraPresentation;
++
+ AuroraInfo aurora_initialize(int argc, char* argv[], const AuroraConfig* config);
+ void aurora_shutdown();
+ const AuroraEvent* aurora_update();
+@@ -145,6 +159,8 @@ void aurora_set_timescale(float scale);
+ 
+ SDL_Window* aurora_get_window();
+ AuroraWindowSize aurora_get_window_size();
++/** Thread-safe snapshot. Empty before presentation, after shutdown, or without GX. */
++AuroraPresentation aurora_get_last_presentation();
+ 
+ AuroraBackend aurora_get_backend();
+ const AuroraBackend* aurora_get_available_backends(size_t* count);
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+index 493964f..35f158a 100644
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include <SDL3/SDL_filesystem.h>
+ #include <magic_enum.hpp>
++#include <mutex>
+ 
+ #include "system_info.hpp"
+ #include "tracy/Tracy.hpp"
+@@ -47,6 +48,19 @@ using webgpu::g_device;
+ using webgpu::g_queue;
+ using webgpu::g_surface;
+ 
++std::mutex g_presentationMutex;
++AuroraPresentation g_lastPresentation{};
++
++AuroraPresentation last_presentation() noexcept {
++  const std::lock_guard lock{g_presentationMutex};
++  return g_lastPresentation;
++}
++
++void reset_presentation() noexcept {
++  const std::lock_guard lock{g_presentationMutex};
++  g_lastPresentation = {};
++}
++
+ uint32_t clamp_scissor_coord(double value, uint32_t maximum) noexcept {
+   if (!std::isfinite(value)) {
+     return 0;
+@@ -100,6 +114,9 @@ bool g_initialFrame = false;
+ 
+ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexcept {
+   g_config = config;
++#ifdef AURORA_ENABLE_GX
++  reset_presentation();
++#endif
+   Log.info("Aurora initializing");
+   log_system_information();
+   if (g_config.appName == nullptr) {
+@@ -212,6 +229,7 @@ void shutdown() noexcept {
+ #ifdef AURORA_ENABLE_GX
+   gx::fifo::shutdown();
+   gfx::render_worker::synchronize();
++  reset_presentation();
+ #ifdef AURORA_ENABLE_RMLUI
+   rmlui::shutdown();
+ #endif
+@@ -277,6 +295,17 @@ void end_frame(bool present = true) noexcept {
+   const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
+                                                            webgpu::g_graphicsConfig.surfaceConfiguration.height,
+                                                            presentSource.size.width, presentSource.size.height);
++  AuroraPresentation presentation{};
++  presentation.window_id = SDL_GetWindowID(window::get_sdl_window());
++  presentation.size = window::get_window_size();
++  presentation.size.fb_width = presentSource.size.width;
++  presentation.size.fb_height = presentSource.size.height;
++  presentation.size.native_fb_width = webgpu::g_graphicsConfig.surfaceConfiguration.width;
++  presentation.size.native_fb_height = webgpu::g_graphicsConfig.surfaceConfiguration.height;
++  presentation.x = viewport.left;
++  presentation.y = viewport.top;
++  presentation.width = viewport.width;
++  presentation.height = viewport.height;
+ 
+   wgpu::BindGroup rmlBindGroup;
+   bool rmlOverlay = false;
+@@ -288,9 +317,9 @@ void end_frame(bool present = true) noexcept {
+   }
+ #endif
+ 
+-  gfx::end_frame([present, rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport,
++  gfx::end_frame([present, presentation, rmlBindGroup = std::move(rmlBindGroup), rmlOverlay, viewport,
+                   imguiDrawData = std::move(imguiDrawData)](
+-                     wgpu::CommandEncoder& encoder, std::vector<gfx::AfterSubmitCallback> afterSubmitCallbacks) {
++                     wgpu::CommandEncoder& encoder, std::vector<gfx::AfterSubmitCallback> afterSubmitCallbacks) mutable {
+     wgpu::Texture currentTexture;
+     wgpu::TextureView currentView;
+     auto surfaceStatus = wgpu::SurfaceGetCurrentTextureStatus::Error;
+@@ -387,6 +416,11 @@ void end_frame(bool present = true) noexcept {
+         }
+       }
+       if (status) {
++        {
++          const std::lock_guard lock{g_presentationMutex};
++          presentation.sequence = g_lastPresentation.sequence + 1;
++          g_lastPresentation = presentation;
++        }
+         gfx::after_present();
+       } else {
+         Log.warn("Surface present failed");
+@@ -462,6 +496,13 @@ SDL_Window* aurora_get_window() { return aurora::window::get_sdl_window(); }
+ AuroraWindowSize aurora_get_window_size() {
+   return aurora::window::get_sdl_window() != nullptr ? aurora::window::get_window_size() : AuroraWindowSize{};
+ }
++AuroraPresentation aurora_get_last_presentation() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::last_presentation();
++#else
++  return {};
++#endif
++}
+ AuroraBackend aurora_get_backend() { return aurora::g_config.desiredBackend; }
+ const AuroraBackend* aurora_get_available_backends(size_t* count) {
+   if (count != nullptr) {

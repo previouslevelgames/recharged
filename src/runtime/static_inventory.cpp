@@ -104,7 +104,7 @@ void Model(GLResourcePool& pool, const resources::StaticModel& input)
                 ? std::vector<unsigned>{1,2,4,4,4,3}
             : id == 0x3eccd955 ? std::vector<unsigned>{1,2,4,4,3}
             : id == 0x2169db5c ? std::vector<unsigned>{1,2,4,3}
-            : id == 0xd3e572da ? std::vector<unsigned>{1,4,3} : std::vector<unsigned>{1,4};
+            : id == 0xd3e572da || id == 0x19065bf6 ? std::vector<unsigned>{1,4,3} : std::vector<unsigned>{1,4};
         packet.numStreams = layout.size();
         packet.rasterState = input_packet.raster;
         packet.indexBuffer = Array<u16>(pool, input_packet.indices.size(), GLM_IndexData);

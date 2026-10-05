@@ -103,8 +103,9 @@ be selected; missing or unsupported objects report an error. Original sphere/box
 culling follows the active camera, with opaque and transparent packets in separate
 passes. Use `--no-world-culling` or the preview toggle for comparison. Full scene
 loading, visibility hierarchies and character animation remain in development.
-Original bone animation can be sampled into native poses; skinned character
-rendering and the complete animation controller remain in development.
+Use `--experimental-scene --character-shock` to preview Bowser's shock mesh
+with original bone animation and skin materials. Multiple-weight skinning,
+morphs and the complete character controller remain in development.
 
 To preview the supported static objects in the frontend environment:
 
@@ -136,6 +137,9 @@ Animated previews also offer original presentation/component slide selection.
 Left/Right or a controller selects presentation slides through the original
 frontend input code, unless the debug camera is active. The bounded native
 handler uses original base update rules; game menu actions remain pending.
+`--frontend-pointer Layer/Item` inspects original pointer events for a rendered
+image/text instance. It uses the actual presented viewport and respects UI capture
+and focus changes; concrete menu actions remain in development.
 Instance inspection finds named component paths such as `Layer/Item` and changes
 visibility, position and colour through the original setter rules. These edits
 affect only the preview; animation can update them and Reload restores the file.
@@ -152,10 +156,10 @@ Press Escape or close the window to exit. Add `--frames 180` for a bounded run,
 To exercise the retail boot screen, use `--experimental-scene --frontend-boot`.
 It loads the original startup assets and runs the boot handler's timing and
 input. Enter or controller A dismisses the strap after its minimum delay.
-The strap, Nunchuk and ESRB screens render their authored text and images.
-The diagnostic stops at the logo sound request. Complete startup and the main
-menu remain in progress. Bounded boot
-runs (`--frames N`) use neutral input to exercise automatic dismissal.
+The strap, Nunchuk, ESRB and logo screens render their authored content, including
+the original logo sound. The final loading screen waits for the remaining game
+startup services; the main menu is still in progress. Bounded runs (`--frames N`)
+use neutral input to exercise automatic dismissal.
 
 For a camera-only NIS picture-in-picture preview, add `--nis-primary /DISC/first.nis`
 and `--nis-secondary /DISC/second.nis`. Each selects its first embedded camera.

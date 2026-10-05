@@ -25,13 +25,16 @@ struct SceneOptions
     std::optional<std::string> frontend_frame; // Authored static frame, with explicit unsupported branches.
     std::optional<std::string> frontend_slide; // Optional stored presentation slide name.
     std::optional<std::string> frontend_images; // Explicit Main/InGame/BootLoading context; defaults to Main.
+    std::optional<std::string> frontend_pointer; // Observe original pointer events for a rendered instance path.
     bool frontend_animate = false; // Checked authored timeline; no scene handlers or menu transitions.
     bool frontend_boot = false; // Retail boot handler through its qualified service boundary.
+    bool character_shock = false; // Authored Bowser shock mesh and FE bone animation diagnostic.
     bool particles = false; // Qualified authored controller groups; no complete effects manager.
     bool debug_camera = false; // Original DebugCam with diagnostic desktop controls.
     bool no_world_culling = false; // Diagnostic reference: submit every selected world object.
     bool unlit = false;
     unsigned frames = 0; // Zero keeps the preview open until Escape/window close.
+    std::optional<unsigned> frame_timeout; // Explicit wall-clock bound for long diagnostics; defaults30s.
 };
 int RunScenePreview(int argc, char** argv, const std::filesystem::path& config, const SceneOptions& options);
 }

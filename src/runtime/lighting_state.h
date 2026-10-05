@@ -11,6 +11,7 @@ struct GameLightingState
     GameLighting inputs;
     glMatrixHandle shadow_matrix = glMatrixHandle(-1);
     int shadow_generator = -1;
+    std::optional<nlMatrix4> shadow_inverse_view;
 };
 GameLightingState& ActiveGameLighting();
 void BeginGameLighting(const GameLighting& lighting);

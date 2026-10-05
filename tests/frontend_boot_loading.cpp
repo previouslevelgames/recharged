@@ -1,4 +1,6 @@
 #include "runtime/frontend_boot_loading.h"
+#include "runtime/frontend_boot_audio.h"
+#include "audio_bank_fixture.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
 #include "NL/MemAlloc.h"
@@ -11,10 +13,16 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <source_location>
 #include <thread>
+thread_local long allocation_budget=-1;
+void* operator new(std::size_t n){if(allocation_budget==0)throw std::bad_alloc();if(allocation_budget>0)--allocation_budget;if(auto p=std::malloc(n?n:1))return p;throw std::bad_alloc();}
+void* operator new[](std::size_t n){return ::operator new(n);}
+void operator delete(void* p)noexcept{std::free(p);}void operator delete[](void* p)noexcept{std::free(p);}
+void operator delete(void* p,std::size_t)noexcept{std::free(p);}void operator delete[](void* p,std::size_t)noexcept{std::free(p);}
 using namespace mscharged;
 using namespace mscharged::resources;
 namespace
@@ -40,6 +48,81 @@ std::string Active(const FrontendSession::Handle& f)
 {for(const auto& slide:f->graph.slides)if(f->graph.active_slide==slide.offset)return slide.name;throw std::runtime_error("Missing active boot slide");}
 void Neutral(FrontendInput& input,std::array<FrontendPadSample,4>& pads)
 {for(auto& p:pads){p.connected=true;p.buttons=0;}input.Update(pads,0);}
+void AudioGenerated()
+{
+ using namespace audio_bank_fixture;
+ SDL_SetHint(SDL_HINT_AUDIO_DRIVER,"dummy");
+ auto fixture=Make();Put(fixture.bytes,fixture.map+20,0xde83984e);Put(fixture.bytes,fixture.cues+40,0xde83984e);
+ const auto loaded=std::make_shared<const LoadedAudioBank>(LoadedAudioBank{25,23,{25,"FE_GEN_Splash"},{23,0,1,false},ReadAudioResidentBank(fixture.bytes,fixture.wave)});
+ Data section;Append(section,0x23401,Words({2,0xf1000100,0}));Append(section,0x23402,Words({0,0,0,0,0,0,1,0,0,0xf1000100,0,0}));
+ const auto calculation=ReadAudioCalculationInitial(Wrap(0x80000001,Wrap(0x80023400,section)));
+ FrontendInput input;std::array<FrontendPadSample,4> pads{};Neutral(input,pads);
+ for(bool invalid_device:{true,false})
+ {
+  auto session=std::make_shared<FrontendSession>();session->Begin(Request());Pump(*session);
+  unsigned seed=0xabcdef12;auto audio=std::make_shared<FrontendBootAudio>(loaded,calculation,seed,invalid_device?0x01234567:0);
+  FrontendBootLoading boot(session,input,false,audio);
+  boot.Update(boot.Current(),15.5f);boot.Update(boot.Current(),.5f);boot.Update(boot.Current(),.5f);boot.Update(boot.Current(),.25f);
+  Check(boot.Status().phase==0,"Audio admission test missed ESRB phase");
+  const auto before=boot.Current();const auto status=boot.Status();const auto rng=seed;
+  if(invalid_device)
+  {
+   Reject([&]{boot.Update(before,.25f);});
+   Check(boot.Current()==before&&session->Current()==before&&seed==rng&&boot.Status().phase==status.phase&&
+    audio->Status().state==FrontendBootAudioState::Loaded,"Failed real audio device published boot state or RNG");
+   continue;
+  }
+  unsigned failed=0;bool committed=false;
+  // Sweep clone, original-step, retained graph/layout and audio preparation
+  // allocations. A started stream must never survive a failed publication.
+  for(long budget=0;budget<4096&&!committed;++budget)
+  {
+   allocation_budget=budget;
+   try{boot.Update(before,.25f);committed=true;}catch(const std::bad_alloc&){++failed;}
+   allocation_budget=-1;
+   if(!committed)Check(boot.Current()==before&&session->Current()==before&&seed==rng&&boot.Status().phase==status.phase&&
+    audio->Status().state==FrontendBootAudioState::Loaded,"Failed boot allocation admitted audio or partial scene");
+  }
+  Check(committed&&failed>50,"Boot transaction sweep missed scene and audio allocations");
+  Check(Active(boot.Current())=="NLG"&&boot.Status().phase==3&&boot.Status().boundary==FrontendBootBoundary::None&&seed!=rng,
+    "Successful audio admission failed to publish original NLG phase");
+  Check(audio->Status().sample.has_value(),"Boot audio produced no selected sample");
+  Reject([&]{boot.Reset(boot.Current());});
+  boot.Update(boot.Current(),.5f);
+  Check(boot.Status().phase==4&&audio->Status().state==FrontendBootAudioState::Unloaded,"Original phase3 did not unload real audio");
+  boot.Update(boot.Current(),.25f);Check(Active(boot.Current())=="NLG","Final loading slide selected before original delay");
+  boot.Update(boot.Current(),.25f);Check(Active(boot.Current())=="Slide1"&&boot.Status().elapsed==-1,"Original half-second final slide transition differs");
+  const auto after_seed=seed;boot.Update(boot.Current(),1);Check(seed==after_seed&&boot.Status().phase==4,"Waiting boot scene consumed another audio selection");
+  Check(Active(before)=="ESRB","Audio commit changed retained preceding scene");
+  std::cout<<"Boot audio transaction rejected "<<failed<<" allocation points before complete publication\n";
+ }
+}
+std::vector<std::uint8_t> ReadAudioFile(const char* path)
+{
+ unsigned long size=0;void* data=nlLoadEntireFile(path,&size,32,AllocateStart,nullptr,0,nullptr);
+ std::unique_ptr<void,void(*)(void*)> owner(data,nlFree);Check(data&&size,"Owned boot audio metadata missing");
+ return {static_cast<std::uint8_t*>(data),static_cast<std::uint8_t*>(data)+size};
+}
+void AudioOwned()
+{
+ SDL_SetHint(SDL_HINT_AUDIO_DRIVER,"dummy");const auto global=ReadAudioFile("/audio/nlxgs.bun");
+ auto calculation=ReadAudioCalculationInitial(global);AudioBankLoad load(ReadAudioBankCatalog(global),25,23);
+ const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(15);
+ while(load.State()==AudioBankLoadState::Loading){load.Service();Check(std::chrono::steady_clock::now()<deadline,"Owned boot bank timed out");SDL_Delay(1);}
+ FrontendInput input;std::array<FrontendPadSample,4> pads{};Neutral(input,pads);
+ auto session=std::make_shared<FrontendSession>();session->Begin(Request());Pump(*session);
+ unsigned seed=0xabcdef12;auto audio=std::make_shared<FrontendBootAudio>(load.Result(),calculation,seed);
+ FrontendBootLoading boot(session,input,false,audio);unsigned frames=0,nlg_images=0;
+ while((boot.Status().phase!=4||boot.Status().elapsed>=0)&&frames<3000)
+ {
+  boot.Update(boot.Current(),1.f/60);++frames;
+  Check(boot.Status().boundary==FrontendBootBoundary::None,"Owned audio boot hit unavailable service");
+  if(boot.Status().phase==3)nlg_images+=boot.Current()->layout.ImageCount();
+ }
+ Check(frames<3000&&nlg_images>60&&Active(boot.Current())=="Slide1"&&audio->Status().state==FrontendBootAudioState::Unloaded,
+    "Owned logo/audio/unload did not reach original final loading slide");
+ std::cout<<"Owned logo/audio boot: "<<frames<<" original updates, "<<nlg_images<<" NLG image entries; phase4 Slide1 waiting for startup services\n";
+}
 void Generated()
 {
  FrontendInput input;auto session=std::make_shared<FrontendSession>();std::array<FrontendPadSample,4> pads{};
@@ -150,10 +233,10 @@ int main(int argc,char**argv)
   InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Cannot open boot disc");host.disc=true;nlInitFileSystem();
   for(unsigned repeat=0;repeat<3;++repeat)
   {
-   const auto a=StandardAllocator.TotalFreeMemory(),b=VirtualAllocator.TotalFreeMemory();if(owned)Owned();else Generated();
+   const auto a=StandardAllocator.TotalFreeMemory(),b=VirtualAllocator.TotalFreeMemory();if(owned){Owned();AudioOwned();}else{Generated();AudioGenerated();}
    Check(!nlAsyncReadsPending(nullptr)&&StandardAllocator.TotalFreeMemory()==a&&VirtualAllocator.TotalFreeMemory()==b,"Handler lifetime failed native cleanup");
   }
   std::cout<<checks<<" frontend boot checks passed\n";
  }
- catch(const std::exception& e){std::cerr<<"FAILED: "<<e.what()<<" (check "<<checks<<")\n";return 1;}
+ catch(const std::exception& e){allocation_budget=-1;std::cerr<<"FAILED: "<<e.what()<<" (check "<<checks<<")\n";return 1;}
 }

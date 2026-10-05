@@ -1,0 +1,16 @@
+include_guard(GLOBAL)
+add_library(charged_effects_vertex_render STATIC src/runtime/effects_vertex_render.cpp)
+add_dependencies(charged_effects_vertex_render verify_prepared)
+target_link_libraries(charged_effects_vertex_render PUBLIC charged_effects_vertex)
+target_compile_features(charged_effects_vertex_render PUBLIC cxx_std_20)
+if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
+    add_executable(effects_vertex_pipeline_tests tests/effects_vertex_pipeline.cpp)
+    target_link_libraries(effects_vertex_pipeline_tests PRIVATE charged_effects_vertex_render aurora::gx aurora::vi aurora::core)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+        target_compile_options(effects_vertex_pipeline_tests PRIVATE -ffp-contract=off)
+    endif()
+    add_test(NAME effects_vertex_pipeline COMMAND effects_vertex_pipeline_tests)
+    set_tests_properties(effects_vertex_pipeline PROPERTIES TIMEOUT 120 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check
+        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|FAILED:")
+endif()

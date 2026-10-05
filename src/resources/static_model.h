@@ -2,6 +2,7 @@
 #include "resources/binary_reader.h"
 #include <array>
 #include <optional>
+#include <map>
 #include <vector>
 
 namespace mscharged::resources
@@ -39,6 +40,24 @@ struct StaticModel
 };
 // Bounded static RLG profile. Skinning, animation and unknown materials fail explicitly.
 std::vector<StaticModel> ReadStaticModels(Bytes data, std::optional<std::uint32_t> selected = {});
+struct EffectsVertexAnimation
+{
+    std::uint32_t model, frames, vertices, stride, unknown;
+    std::vector<std::uint32_t> streams;
+    std::vector<std::array<float,3>> positions; // Source frame/packet/vertex order.
+};
+struct EffectsGeometry
+{
+    std::vector<StaticModel> models;
+    std::vector<EffectsVertexAnimation> animations;
+    // RLGReader copies these chunks into its skin-data inventory unchanged.
+    // Retained metadata does not create a skinned-particle runtime.
+    std::map<std::uint32_t,std::vector<std::uint8_t>> skin_metadata;
+};
+// Original effectsgeometry.bun: source-ordered model groups plus the qualified
+// position-only vertex animations. Coordinates stay local until an effect
+// supplies its transform. No GL registration or manager readiness is implied.
+EffectsGeometry ReadEffectsGeometry(Bytes data);
 struct StaticWorldModel
 {
     StaticModel model;

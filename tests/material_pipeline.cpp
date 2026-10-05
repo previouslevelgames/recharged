@@ -868,6 +868,9 @@ int main(int argc, char **argv)
         MaterialPrograms programs;
         auto unlit = Model(1, 0x21db4385, 10), vertex = Model(2, 0xd3e572da, 10), scroll = Model(3, 0x2169db5c, 11),
              masked = Model(4, 0x32475c7d, 10);
+        auto float_colour = Model(20,0x19065bf6,10),constant_colour = Model(21,0xee9d919d,10);
+        for(auto& v:float_colour.packets[0].vertices)v.colour={128,255,128,255};
+        constant_colour.packets[0].material.specular_colour={.5f,1,.25f,1};
         for (auto &v : vertex.packets[0].vertices)
             v.colour = {128, 255, 128, 255};
         scroll.packets[0].material.scalars[0] = .5f;
@@ -909,9 +912,16 @@ int main(int argc, char **argv)
                                                     Texture(19, {64, 128, 192, 255})};
         OriginalViews views(GXNtsc480IntDf.fbWidth, GXNtsc480IntDf.efbHeight, Drain);
         StaticInventory inventory(*glGetCurrentResourcePool(),
-                                  {unlit, vertex, scroll, masked, discard, blend, ci8, normal_left, normal_right},
+                                  {unlit, vertex, scroll, masked, discard, blend, ci8, normal_left, normal_right,float_colour,constant_colour},
                                   textures, Drain);
         const bool animation_only = argc == 2 && std::string_view(argv[1]) == "--texture-animation-only";
+        const bool effects_only = argc == 2 && std::string_view(argv[1]) == "--effects-only";
+        if (effects_only || argc == 1)
+        {
+            PixelCase("Float UV vertex-colour modulation",*inventory.Model(20),0,{40,100,60});
+            PixelCase("Constant-colour modulation",*inventory.Model(21),0,{40,100,30});
+            PixelCase("Unlit after effects materials",*inventory.Model(1),0,{80,100,120});
+        }
         if (animation_only)
         {
             TextureAnimationCases();
@@ -955,7 +965,7 @@ int main(int argc, char **argv)
             SpecularDetailCases();
             PixelCase("Unlit after detail/specular/shadow stages", *inventory.Model(1), 0, {80,100,120});
         }
-        if (!targets_only && !specular_only && !scrolling_specular_only && !camera_overlay_only && !masked_detail_only && !scrolling_masked_detail_only && !scrolling_camera_only && !animation_only)
+        if (!targets_only && !specular_only && !scrolling_specular_only && !camera_overlay_only && !masked_detail_only && !scrolling_masked_detail_only && !scrolling_camera_only && !animation_only && !effects_only)
         {
         PixelCase("Unlit diffuse", *inventory.Model(1), 0, {80, 100, 120});
         PixelCase("Vertex colour modulation", *inventory.Model(2), 0, {40, 100, 60});
@@ -1056,7 +1066,7 @@ int main(int argc, char **argv)
         // Switch back to verify TEV/channel/texture state does not leak between programs.
         PixelCase("Unlit after multi-stage materials", *inventory.Model(1), 0, {80, 100, 120});
         }
-        if (!specular_only && !scrolling_specular_only && !camera_overlay_only && !masked_detail_only && !scrolling_masked_detail_only && !scrolling_camera_only && !animation_only)
+        if (!specular_only && !scrolling_specular_only && !camera_overlay_only && !masked_detail_only && !scrolling_masked_detail_only && !scrolling_camera_only && !animation_only && !effects_only)
         {
         for (auto format : {GLTargetFormat_RGBA8, GLTargetFormat_RGB565, GLTargetFormat_RGB5A3, GLTargetFormat_A8, GLTargetFormat_IA8})
         {

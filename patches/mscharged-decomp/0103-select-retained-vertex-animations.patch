@@ -1,0 +1,198 @@
+Subject: Retain original vertex animation resources and frame stream descriptors
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Select original GLVertexAnim construction, update and frame binding; pair its
+stream-ID allocation with nlFree and privately copy only rebound descriptors.
+Extend native GL inventory with original Add/Get and genuine owned teardown.
+The original aggregate UpdateVertexAnims remains unselected: its current-level
+index inside the loop repeats top-level entries. No multi-level parity claimed.
+
+diff --git a/src/Game/GL/GLVertexAnimModel.cpp b/src/Game/GL/GLVertexAnimModel.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/Game/GL/GLVertexAnimModel.cpp
+@@ -0,0 +1,56 @@
++// Original frame binding selected separately from resource lifetime/update.
++#include "Game/GL/GLVertexAnim.h"
++#include "Game/GL/glModelBuilder.h"
++#include "NL/gl/glMemory.h"
++#include <string.h>
++#include <cmath>
++#include <stdexcept>
++glModel* GLVertexAnim::GetModel(int frame)
++{
++#if defined(MSCHARGED_NATIVE)
++    if (frame < 0 && (!std::isfinite(m_fFrame) || m_fFrame < 0 || m_fFrame >= m_nNumFrames))
++        throw std::out_of_range("Vertex animation current frame is invalid");
++#endif
++    int actualFrame = (frame < 0) ? (int)m_fFrame : frame;
++#if defined(MSCHARGED_NATIVE)
++    if (!m_pModel || !m_pVertices || actualFrame < 0 || actualFrame >= m_nNumFrames)
++        throw std::out_of_range("Vertex animation frame or retained model is unavailable");
++#endif
++
++    glModel* model = glModelDupNoStreams(m_pModel, false, 0);
++    u8* vertices = m_pVertices
++                 + actualFrame * m_nVertexStride * m_nNumVertices;
++
++    for (glModelPacket* packet = model->packets;
++         packet < model->packets + model->numPackets; packet++)
++    {
++#if defined(MSCHARGED_NATIVE)
++        // cloneNoStreams deliberately shares this array. Animated address
++        // rebinding must belong to this frame clone, not its retained source or
++        // another frame sample. The actual original offset/binding loop follows.
++        auto* descriptors = static_cast<glModelStream*>(
++            glFrameAlloc(packet->numStreams * sizeof(glModelStream), GLM_Header));
++        memcpy(descriptors, packet->streams, packet->numStreams * sizeof(glModelStream));
++        packet->streams = descriptors;
++#endif
++        glModelStream* streams = packet->streams;
++        glModelStream* endVertexData = streams + packet->numStreams;
++        u32 offset = 0;
++        for (int i = 0; streams + i < endVertexData; i++)
++        {
++            for (int j = 0; j < m_nNumAnimatedStreams; j++)
++            {
++                if (m_pAnimatedStreamIDs[j] == streams[i].id)
++                {
++                    glSetStreamAddress(&streams[i],
++                        vertices + offset * packet->numUniqueVertices);
++                    offset += streams[i].stride;
++                    break;
++                }
++            }
++        }
++        vertices += offset * packet->numUniqueVertices;
++    }
++
++    return model;
++}
+diff --git a/src/Game/GL/GLVertexAnim.cpp b/src/Game/GL/GLVertexAnim.cpp
+--- a/src/Game/GL/GLVertexAnim.cpp
++++ b/src/Game/GL/GLVertexAnim.cpp
+@@ -4,6 +4,11 @@
+ #include "NL/nlMemory.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "NL/gl/glMemory.h"
++#include <stdexcept>
++#include <cmath>
++#endif
+ 
+ struct UnidentifiedGLVertexAnimHeader_802D3D48
+ {
+@@ -40,9 +45,14 @@
+ 
+ GLVertexAnim::~GLVertexAnim()
+ {
++#if defined(MSCHARGED_NATIVE)
++    nlFree(m_pAnimatedStreamIDs);
++#else
+     delete m_pAnimatedStreamIDs;
++#endif
+ }
+ 
++#if !defined(MSCHARGED_NATIVE)
+ glModel* GLVertexAnim::GetModel(int frame)
+ {
+     int actualFrame = (frame < 0) ? (int)m_fFrame : frame;
+@@ -76,6 +86,8 @@
+     return model;
+ }
+ 
++#endif
++
+ void GLVertexAnim::Update(float dt)
+ {
+     if (m_bDone)
+diff --git a/src/Game/GL/GLInventoryStatic.cpp b/src/Game/GL/GLInventoryStatic.cpp
+--- a/src/Game/GL/GLInventoryStatic.cpp
++++ b/src/Game/GL/GLInventoryStatic.cpp
+@@ -1,7 +1,9 @@
+ // Selected native inventory with original texture-animation traversal.
+-// Skin, vertex animation and unadapted chunk loaders remain unselected.
++// Skin and unadapted chunk loaders remain unselected.
++// Vertex animation Add/Get/ownership is selected; its aggregate update is not.
+ #include "Game/GL/GLInventory.h"
+ #include "Game/GL/GLTextureAnim.h"
++#include "Game/GL/GLVertexAnim.h"
+ #include <cmath>
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glModel.h"
+@@ -45,6 +47,7 @@
+             m_pModels[i] = new (8, false) clearing_GLInventory<glModel>();
+             m_pTextures[i] = new (8, false) clearing_GLInventory<PlatTexture>();
+             m_pTextureAnims[i] = new (8, false) clearing_GLInventory<GLTextureAnim>();
++            m_pVertexAnims[i] = new (8, false) deleting_GLInventoryContainer<GLVertexAnim>();
+         }
+         m_bCreated = true;
+     }
+@@ -60,6 +63,7 @@
+         nlDeleteGameObject(m_pModels[i]); m_pModels[i] = 0;
+         nlDeleteGameObject(m_pTextures[i]); m_pTextures[i] = 0;
+         nlDeleteGameObject(m_pTextureAnims[i]); m_pTextureAnims[i] = 0;
++        nlDeleteGameObject(m_pVertexAnims[i]); m_pVertexAnims[i] = 0;
+     }
+     m_bCreated = false;
+     m_nLevel = 0;
+@@ -76,6 +80,7 @@
+     }
+     if (m_pModels[nLevel]) m_pModels[nLevel]->Release(mModelReleaseCallback);
+     if (m_pTextureAnims[nLevel]) m_pTextureAnims[nLevel]->Release(glReleaseTextureAnim);
++    if (m_pVertexAnims[nLevel]) m_pVertexAnims[nLevel]->Release();
+     if (m_pTextures[nLevel]) m_pTextures[nLevel]->Release(glReleaseTexture);
+ }
+ PlatTexture* glx_GetTex(unsigned long handle)
+@@ -252,3 +257,36 @@
+             &textureCallback, &UpdateTextureAnimCallback::Update);
+     }
+ }
++
++void GLInventory::AddVertexAnim(unsigned long key, GLVertexAnim* vertexAnim)
++{
++    if (!m_bCreated) throw std::logic_error("GL inventory is not initialized");
++    if (!vertexAnim || key > UINT32_MAX || vertexAnim->m_uHashID != key)
++        throw std::invalid_argument("Invalid vertex animation inventory entry");
++    if (m_pVertexAnims[m_nLevel]->m_pItems->FindGet(key, 0))
++        throw std::invalid_argument("Duplicate vertex animation key at the current level");
++    unsigned long k = key;
++    GLVertexAnim* value = vertexAnim;
++    deleting_GLInventoryContainer<GLVertexAnim>::Tree* pTree =
++        m_pVertexAnims[m_nLevel]->m_pItems;
++    pTree->Add(k, value);
++}
++
++GLVertexAnim* GLInventory::GetVertexAnim(unsigned long id)
++{
++    if (!m_bCreated) throw std::logic_error("GL inventory is not initialized");
++    for (int i = m_nLevel; i >= 0; i--)
++    {
++        unsigned long key = id;
++        GLVertexAnim** pResult;
++        bool found = m_pVertexAnims[i]->m_pItems->FindGet(key, &pResult);
++        GLVertexAnim* result;
++        if (found)
++            result = *pResult;
++        else
++            result = 0;
++        if (result != 0)
++            return result;
++    }
++    return 0;
++}
+diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
+--- a/include/Game/GL/GLInventory.h
++++ b/include/Game/GL/GLInventory.h
+@@ -164,8 +164,8 @@
+     Tree* m_pItems;
+ };
+ 
+-// The native target selects file/model/texture and texture-animation inventory.
+-// Skin, vertex animation and chunk-loader methods remain unselected.
++// Native file/model/texture and both animation resource owners are selected.
++// Skin/chunk loading and aggregate vertex-animation update remain unselected.
+ class GLInventory
+ {
+ public:

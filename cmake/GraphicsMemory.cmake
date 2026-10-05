@@ -33,6 +33,13 @@ target_compile_features(charged_graphics_memory PRIVATE cxx_std_17)
 set_target_properties(charged_graphics_memory PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 target_compile_definitions(charged_graphics_memory PRIVATE TARGET_PC=1)
 target_link_libraries(charged_graphics_memory PUBLIC charged_decomp_startup aurora::mtx)
+# Charged's selected mtx44.c owns the projection entry points. Aurora's mtx.c
+# also contains them alongside the 3x4 skin operations now needed by the port.
+# Give the selected Charged providers distinct names and propagate that choice
+# to their consumers. Aurora-only diagnostics retain their original provider.
+# This does not depend on static archive order or weak symbols.
+target_compile_definitions(charged_graphics_memory PUBLIC
+    C_MTXFrustum=Charged_C_MTXFrustum C_MTXOrtho=Charged_C_MTXOrtho)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_graphics_memory PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
 endif()

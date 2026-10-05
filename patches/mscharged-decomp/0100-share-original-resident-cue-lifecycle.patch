@@ -1,0 +1,807 @@
+From: mscharged-port contributors
+Subject: [PATCH] Share original resident cue event lifecycle
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Share original event/sequence/cue state and source-completion rules, instance
+clock/state aggregation and active-count lifetime. Console methods delegate to
+the same helpers. Native retained owners qualify static resident one-shot
+profiles without selecting streams, RPC or whole AudioBackend initialization.
+
+diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenceEvent.cpp
+index 6466969..b858c98 100644
+--- a/src/Game/Audio/AudioSequenceEvent.cpp
++++ b/src/Game/Audio/AudioSequenceEvent.cpp
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #include "Game/Audio/AudioResidentSteps.h"
+ #include "Game/Audio/AudioBackend.h"
+ #include "Game/Audio/RegistryPools.h"
+@@ -127,8 +128,7 @@ void SoundPlaybackEvent::StartPlayback()
+ 
+ void SoundPlaybackEvent::Prepare()
+ {
+-    source->Prepare();
+-    state = 2;
++    AudioPlaybackPrepareStep(*this);
+ }
+ 
+ AudioSourceInfo* SoundPlaybackEvent::SelectSourceInfo()
+@@ -143,46 +143,7 @@ AudioSourceInfo* SoundPlaybackEvent::SelectSourceInfo()
+ 
+ int SoundPlaybackEvent::Update(float)
+ {
+-    if (source != 0)
+-        source->UpdateState();
+-
+-    switch (state)
+-    {
+-    case 2:
+-        if (source->GetState() == 3)
+-            state = 3;
+-        break;
+-    case 4:
+-        if (source->GetState() == 1)
+-        {
+-            state = 8;
+-            flags = 0;
+-        }
+-        break;
+-    case 7:
+-        if (source->GetState() == 1)
+-        {
+-            state = 8;
+-            flags = 0;
+-        }
+-        break;
+-    case 5:
+-        return state;
+-    default:
+-        break;
+-    }
+-
+-    if (flags == 0)
+-        return state;
+-
+-    bool condition = owner->soundInstance->previousTime < startTime
+-                  && owner->soundInstance->currentTime >= startTime;
+-    if (condition)
+-        StartPlayback();
+-    if (state != 4)
+-        return state;
+-    UpdatePlaybackParameters(false);
+-    return state;
++    return AudioPlaybackUpdateStep(*this);
+ }
+ 
+ void SoundPlaybackEvent::Pause()
+@@ -284,9 +245,7 @@ void SoundPlaybackEvent::AccumulateRpcModifiers(
+ 
+ void SoundPlaybackEvent::Stop()
+ {
+-    source->Stop();
+-    state = 7;
+-    flags = 0;
++    AudioPlaybackStopStep(*this);
+ }
+ 
+ u32 SoundPlaybackEvent::GetSources(AudioSource** results)
+diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioSequenceEvent.h
+index 73f83bf..26bc591 100644
+--- a/include/Game/Audio/AudioSequenceEvent.h
++++ b/include/Game/Audio/AudioSequenceEvent.h
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #ifndef GAME_AUDIO_AUDIOSEQUENCEEVENT_H
+ #define GAME_AUDIO_AUDIOSEQUENCEEVENT_H
+ 
+@@ -102,9 +103,8 @@ struct SoundPlaybackEvent : AudioSequenceEvent
+     virtual ~SoundPlaybackEvent();
+     virtual void Play()
+     {
+-        flags = 1;
+-        Update(0.0f);
+-    }
++    AudioPlaybackPlayStep(*this);
++}
+     virtual void Prepare();
+     virtual void Stop();
+     virtual void Pause();
+diff --git a/src/Game/Audio/AudioSequenceInstance.cpp b/src/Game/Audio/AudioSequenceInstance.cpp
+index c974487..d07d868 100644
+--- a/src/Game/Audio/AudioSequenceInstance.cpp
++++ b/src/Game/Audio/AudioSequenceInstance.cpp
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #include "Game/Audio/AudioSequenceInstance.h"
+ #include "Game/Audio/AudioSequenceEvent.h"
+ 
+@@ -52,13 +53,7 @@ AudioSequenceInstance::~AudioSequenceInstance()
+  */
+ void AudioSequenceInstance::Play()
+ {
+-    for (AudioSequenceEvent* event = events; event != 0;
+-        event = event->next)
+-    {
+-        event->Play();
+-    }
+-    if (next != 0)
+-        next->Play();
++    AudioSequencePlayStep(*this);
+ }
+ 
+ /**
+@@ -66,13 +61,7 @@ void AudioSequenceInstance::Play()
+  */
+ void AudioSequenceInstance::Prepare()
+ {
+-    for (AudioSequenceEvent* event = events; event != 0;
+-        event = event->next)
+-    {
+-        event->Prepare();
+-    }
+-    if (next != 0)
+-        next->Prepare();
++    AudioSequencePrepareStep(*this);
+ }
+ 
+ /**
+@@ -108,22 +97,7 @@ void AudioSequenceInstance::Resume()
+  */
+ int AudioSequenceInstance::Update(float time)
+ {
+-    int result = 9;
+-    for (AudioSequenceEvent* event = events; event != 0;
+-        event = event->next)
+-    {
+-        if (!stopped || event->state != 0)
+-        {
+-            int state = event->Update(time);
+-            result = nlMin(result, state);
+-        }
+-    }
+-    if (next != 0)
+-    {
+-        int state = next->Update(time);
+-        result = nlMin(result, state);
+-    }
+-    return result;
++    return AudioSequenceUpdateStep(*this, time);
+ }
+ 
+ /**
+@@ -131,15 +105,7 @@ int AudioSequenceInstance::Update(float time)
+  */
+ void AudioSequenceInstance::Stop()
+ {
+-    stopped = true;
+-    for (AudioSequenceEvent* event = events; event != 0;
+-        event = event->next)
+-    {
+-        if ((u32)(event->state - 2) <= 3)
+-            event->Stop();
+-    }
+-    if (next != 0)
+-        next->Stop();
++    AudioSequenceStopStep(*this);
+ }
+ 
+ /**
+diff --git a/src/Game/Audio/SoundInstance.cpp b/src/Game/Audio/SoundInstance.cpp
+index 213cf2f..6eb5b06 100644
+--- a/src/Game/Audio/SoundInstance.cpp
++++ b/src/Game/Audio/SoundInstance.cpp
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #include "Game/Audio/AudioResidentSteps.h"
+ #include "Game/Audio/AudioSequenceInstance.h"
+ #include "Game/Audio/SoundInstance.h"
+@@ -53,11 +54,7 @@ SoundInstance::SoundInstance(
+ 
+ void SoundInstance::Play(float)
+ {
+-    volume.Update(0.0f, 1.0f);
+-    pitch.Update(0.0f, 1.0f);
+-    if (voices != 0)
+-        voices->Play();
+-    state = SOUND_INSTANCE_STATE_PLAYING;
++    AudioInstancePlayStep(*this);
+ }
+ 
+ static inline void PrepareSoundInstanceRpcNodes(SoundInstance* instance)
+@@ -110,14 +107,7 @@ void SoundInstance::SetVolume(
+ 
+ void SoundInstance::Stop(void* force)
+ {
+-    if (state != SOUND_INSTANCE_STATE_PLAYING
+-        || force != 0 || activeRpc == 0)
+-    {
+-        activeRpc = 0;
+-        if (voices != 0)
+-            voices->Stop();
+-    }
+-    state = SOUND_INSTANCE_STATE_STOPPING;
++    AudioInstanceStopStep(*this, force);
+ }
+ 
+ void SoundInstance::Pause()
+@@ -142,13 +132,7 @@ void SoundInstance::GetSources(AudioSource** sources, unsigned int* count)
+ 
+ void SoundInstance::Update(float dt)
+ {
+-    if (state == SOUND_INSTANCE_STATE_PLAYING || state == SOUND_INSTANCE_STATE_STOPPING)
+-    {
+-        volume.Update(dt, 1.0f);
+-        pitch.Update(dt, 1.0f);
+-        previousTime = currentTime;
+-        currentTime += dt;
+-    }
++    AudioInstanceClockStep(*this, dt);
+ 
+     if (activeRpc != 0 && state == SOUND_INSTANCE_STATE_STOPPING)
+     {
+@@ -165,29 +149,7 @@ void SoundInstance::Update(float dt)
+     int voiceState = voices != 0
+                        ? voices->Update(dt)
+                        : SOUND_INSTANCE_STATE_STOPPED;
+-    switch (state)
+-    {
+-    case SOUND_INSTANCE_STATE_PLAYING:
+-        if (voiceState == SOUND_INSTANCE_STATE_STOPPED)
+-        {
+-            RemoveAudioRpcRuntimeNodes(
+-                GetAudioRpcController(),
+-                this);
+-            rpcEntries.Clear();
+-            AudioSequenceInstance* voice = voices;
+-            while (voice != 0)
+-            {
+-                AudioSequenceInstance* next = voice->next;
+-                delete voice;
+-                voice = next;
+-            }
+-            voices = 0;
+-            state = SOUND_INSTANCE_STATE_STOPPED;
+-        }
+-        break;
+-    case SOUND_INSTANCE_STATE_STOPPING:
+-        if (voiceState == SOUND_INSTANCE_STATE_STOPPED)
+-        {
++    AudioInstanceStateStep(*this, voiceState, [&]() {
+             RemoveAudioRpcRuntimeNodes(
+                 GetAudioRpcController(),
+                 this);
+@@ -200,23 +162,7 @@ void SoundInstance::Update(float dt)
+                 voice = next;
+             }
+             voices = 0;
+-            state = SOUND_INSTANCE_STATE_STOPPED;
+-        }
+-        break;
+-    case SOUND_INSTANCE_STATE_PREPARING:
+-        if (voiceState == SOUND_INSTANCE_STATE_PREPARED)
+-            state = SOUND_INSTANCE_STATE_PREPARED;
+-        break;
+-    case SOUND_INSTANCE_STATE_FAILED:
+-        state = SOUND_INSTANCE_STATE_STOPPED;
+-        break;
+-    case SOUND_INSTANCE_STATE_INITIAL:
+-    case SOUND_INSTANCE_STATE_PENDING:
+-    case SOUND_INSTANCE_STATE_PREPARED:
+-    case SOUND_INSTANCE_STATE_PAUSED:
+-    case SOUND_INSTANCE_STATE_STOPPED:
+-        break;
+-    }
++    });
+ 
+     if (releaseTime >= 0.0f)
+     {
+diff --git a/include/Game/Audio/SoundInstance.h b/include/Game/Audio/SoundInstance.h
+index af9761a..152c6ce 100644
+--- a/include/Game/Audio/SoundInstance.h
++++ b/include/Game/Audio/SoundInstance.h
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #ifndef GAME_AUDIO_SOUND_INSTANCE_H
+ #define GAME_AUDIO_SOUND_INSTANCE_H
+ 
+@@ -12,18 +13,7 @@ class AudioSource;
+ class AudioSequenceInstance;
+ class XSoundHandle;
+ 
+-enum SoundInstanceState
+-{
+-    SOUND_INSTANCE_STATE_INITIAL = 0,
+-    SOUND_INSTANCE_STATE_PENDING = 1,
+-    SOUND_INSTANCE_STATE_PREPARING = 2,
+-    SOUND_INSTANCE_STATE_PREPARED = 3,
+-    SOUND_INSTANCE_STATE_PLAYING = 4,
+-    SOUND_INSTANCE_STATE_PAUSED = 5,
+-    SOUND_INSTANCE_STATE_FAILED = 6,
+-    SOUND_INSTANCE_STATE_STOPPING = 7,
+-    SOUND_INSTANCE_STATE_STOPPED = 8
+-};
++
+ 
+ struct SoundInstance
+ {
+diff --git a/src/Game/Audio/XSoundCueHandle.cpp b/src/Game/Audio/XSoundCueHandle.cpp
+index f97809a..c34d3de 100644
+--- a/src/Game/Audio/XSoundCueHandle.cpp
++++ b/src/Game/Audio/XSoundCueHandle.cpp
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #include "NL/nlDebugString.h"
+ #include "Game/Audio/AudioSource.h"
+ #include "Game/Audio/AudioSlider.h"
+@@ -41,7 +42,7 @@ XSoundCueHandle::XSoundCueHandle(void* resource, XSoundOwner* owner, unsigned in
+ 
+     this->definition = ((AudioResourceLoadOwner*)m_Slot)->m_ResourceObject->cues
+                      + cueIndex;
+-    this->definition->activeCount++;
++    AudioCueRetainCount(*this->definition);
+     if (this->definition->useSlider)
+         bits.flag8000 = false;
+ 
+@@ -75,7 +76,7 @@ XSoundCueHandle::XSoundCueHandle(void* resource, XSoundOwner* owner, unsigned in
+ 
+ XSoundCueHandle::~XSoundCueHandle()
+ {
+-    definition->activeCount--;
++    AudioCueReleaseCount(*definition);
+     if (GetLocalSliders() != 0)
+         GetLocalSliders()->owner = 0;
+     if (instance != 0)
+@@ -96,57 +97,17 @@ void GetSoundSources(void* handle, AudioSource** sources, unsigned int* output)
+ 
+ bool XSoundCueHandle::Play(bool callbackEnabled)
+ {
+-    switch (m_State)
+-    {
+-    case 1:
+-        bits.playWhenPrepared = true;
+-        this->Prepare(callbackEnabled);
+-        return false;
+-    case 2:
+-    case 5:
+-        bits.playWhenPrepared = true;
+-        return false;
+-    case 3:
+-        this->instance->Play(0.0f);
+-        m_State = this->instance->state;
+-        return m_State == 4;
+-    case 4:
+-        break;
+-    case 6:
+-        return false;
+-    default:
+-        break;
+-    }
+-    return false;
++    return AudioCuePlayStep(*this, callbackEnabled);
+ }
+ 
+ bool XSoundCueHandle::Prepare(bool callbackEnabled)
+ {
+-    if (m_State == 6)
+-        return false;
+-    m_CallbackEnabled = callbackEnabled;
+-    this->instance->Prepare();
+-    m_State = 2;
+-    return true;
++    return AudioCuePrepareStep(*this, callbackEnabled);
+ }
+ 
+ void XSoundCueHandle::Stop(u8 callbackEnabled, void* force)
+ {
+-    switch (m_State)
+-    {
+-    case 7:
+-        if (force != 0)
+-            this->instance->Stop(force);
+-        break;
+-    case 8:
+-        break;
+-    default:
+-        this->instance->Stop(force);
+-        break;
+-    }
+-    m_CallbackEnabled = callbackEnabled;
+-    m_State = 7;
+-    bits.flag8000 = true;
++    AudioCueStopStep(*this, callbackEnabled, force);
+ }
+ 
+ void XSoundCueHandle::Pause()
+@@ -164,43 +125,7 @@ void XSoundCueHandle::Resume()
+ 
+ void XSoundCueHandle::Update(float dt)
+ {
+-    if (m_State == 4)
+-    {
+-        m_PreviousTime = m_CurrentTime;
+-        m_CurrentTime += dt;
+-    }
+-    if (m_State == 6)
+-        m_State = 8;
+-
+-    if (m_State != 8 && m_State != 5 && m_State != 9)
+-    {
+-        if (this->definition->useSlider)
+-            UpdateSlider(dt);
+-        this->instance->Update(dt);
+-
+-        if (m_State != 9)
+-        {
+-            if (m_State == 2)
+-            {
+-                if (this->instance->state == 3)
+-                {
+-                    m_State = 3;
+-                    if (this->bits.playWhenPrepared)
+-                    {
+-                        this->instance->Play(0.0f);
+-                        m_State = this->instance->state;
+-                    }
+-                }
+-            }
+-            else if (this->instance->nextInstance != 0)
+-                m_State = 4;
+-            else
+-                m_State = this->instance->state;
+-        }
+-    }
+-
+-    if (m_State == 8 && m_CallbackEnabled)
+-        this->Release();
++    AudioCueUpdateStep(*this, dt);
+ }
+ 
+ void XSoundCueHandle::UpdateSlider(float dt)
+diff --git a/src/Game/Audio/GameStreams.cpp b/src/Game/Audio/GameStreams.cpp
+index c74ee0b..01aa7f0 100644
+--- a/src/Game/Audio/GameStreams.cpp
++++ b/src/Game/Audio/GameStreams.cpp
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #include "revolution/os/OSTime.h"
+ #include "Game/Sys/audio.h"
+ #include "Game/Audio/GameStreams.h"
+@@ -49,7 +50,7 @@ void XSoundHandle::SetCallbackEnabled(unsigned char enabled)
+ 
+ void XSoundCueHandle::Release()
+ {
+-    m_State = 9;
++    AudioCueReleaseStep(*this);
+ }
+ 
+ void InitializeGameStreams()
+diff --git a/src/Game/FE/FEAudio.cpp b/src/Game/FE/FEAudio.cpp
+index 3899a75..ea230a3 100644
+--- a/src/Game/FE/FEAudio.cpp
++++ b/src/Game/FE/FEAudio.cpp
+@@ -1,3 +1,4 @@
++#include "Game/Audio/AudioCuePlaybackSteps.h"
+ #include "Game/FE/FEAudio.h"
+ 
+ #include "Game/Audio/RegistryPools.h"
+@@ -84,14 +85,5 @@ bool FEAudio::IsSoundFinished(unsigned long cueId, void* context)
+         return true;
+     }
+ 
+-    switch (handle->m_State)
+-    {
+-    case 2:
+-    case 3:
+-    case 4:
+-    case 5:
+-        return false;
+-    default:
+-        return true;
+-    }
++    return AudioFrontendFinishedStep(handle->m_State);
+ }
+diff --git a/include/Game/Audio/AudioCuePlaybackSteps.h b/include/Game/Audio/AudioCuePlaybackSteps.h
+new file mode 100644
+index 0000000..e64040d
+--- /dev/null
++++ b/include/Game/Audio/AudioCuePlaybackSteps.h
+@@ -0,0 +1,299 @@
++#ifndef GAME_AUDIO_CUE_PLAYBACK_STEPS_H
++#define GAME_AUDIO_CUE_PLAYBACK_STEPS_H
++// Original event, instance and cue control flow with typed retained owners.
++enum SoundInstanceState
++{
++    SOUND_INSTANCE_STATE_INITIAL = 0,
++    SOUND_INSTANCE_STATE_PENDING = 1,
++    SOUND_INSTANCE_STATE_PREPARING = 2,
++    SOUND_INSTANCE_STATE_PREPARED = 3,
++    SOUND_INSTANCE_STATE_PLAYING = 4,
++    SOUND_INSTANCE_STATE_PAUSED = 5,
++    SOUND_INSTANCE_STATE_FAILED = 6,
++    SOUND_INSTANCE_STATE_STOPPING = 7,
++    SOUND_INSTANCE_STATE_STOPPED = 8
++};
++template<class Event> void AudioPlaybackPrepareStep(Event& event)
++{
++    event.source->Prepare();
++    event.state = 2;
++}
++template<class Event> void AudioPlaybackStopStep(Event& event)
++{
++    event.source->Stop();
++    event.state = 7;
++    event.flags = 0;
++}
++template<class Event> int AudioPlaybackUpdateStep(Event& event)
++{
++    if (event.source != 0)
++        event.source->UpdateState();
++
++    switch (event.state)
++    {
++    case 2:
++        if (event.source->GetState() == 3)
++            event.state = 3;
++        break;
++    case 4:
++        if (event.source->GetState() == 1)
++        {
++            event.state = 8;
++            event.flags = 0;
++        }
++        break;
++    case 7:
++        if (event.source->GetState() == 1)
++        {
++            event.state = 8;
++            event.flags = 0;
++        }
++        break;
++    case 5:
++        return event.state;
++    default:
++        break;
++    }
++
++    if (event.flags == 0)
++        return event.state;
++
++    bool condition = event.owner->soundInstance->previousTime < event.startTime
++                  && event.owner->soundInstance->currentTime >= event.startTime;
++    if (condition)
++        event.StartPlayback();
++    if (event.state != 4)
++        return event.state;
++    event.UpdatePlaybackParameters(false);
++    return event.state;
++}
++template<class Event> void AudioPlaybackPlayStep(Event& event)
++{
++        event.flags = 1;
++        event.Update(0.0f);
++    }
++template<class Sequence> void AudioSequencePlayStep(Sequence& sequence)
++{
++    for (auto* event = sequence.events; event != 0;
++        event = event->next)
++    {
++        event->Play();
++    }
++    if (sequence.next != 0)
++        sequence.next->Play();
++}
++template<class Sequence> void AudioSequencePrepareStep(Sequence& sequence)
++{
++    for (auto* event = sequence.events; event != 0;
++        event = event->next)
++    {
++        event->Prepare();
++    }
++    if (sequence.next != 0)
++        sequence.next->Prepare();
++}
++template<class Sequence> void AudioSequenceStopStep(Sequence& sequence)
++{
++    sequence.stopped = true;
++    for (auto* event = sequence.events; event != 0;
++        event = event->next)
++    {
++        if ((unsigned int)(event->state - 2) <= 3)
++            event->Stop();
++    }
++    if (sequence.next != 0)
++        sequence.next->Stop();
++}
++template<class Sequence> int AudioSequenceUpdateStep(Sequence& sequence, float time)
++{
++    int result = 9;
++    for (auto* event = sequence.events; event != 0;
++        event = event->next)
++    {
++        if (!sequence.stopped || event->state != 0)
++        {
++            int state = event->Update(time);
++            result = (result < state ? result : state);
++        }
++    }
++    if (sequence.next != 0)
++    {
++        int state = sequence.next->Update(time);
++        result = (result < state ? result : state);
++    }
++    return result;
++}
++template<class Instance> void AudioInstancePlayStep(Instance& instance)
++{
++    instance.volume.Update(0.0f, 1.0f);
++    instance.pitch.Update(0.0f, 1.0f);
++    if (instance.voices != 0)
++        instance.voices->Play();
++    instance.state = SOUND_INSTANCE_STATE_PLAYING;
++}
++template<class Instance> void AudioInstanceStopStep(Instance& instance, void* force)
++{
++    if (instance.state != SOUND_INSTANCE_STATE_PLAYING
++        || force != 0 || instance.activeRpc == 0)
++    {
++        instance.activeRpc = 0;
++        if (instance.voices != 0)
++            instance.voices->Stop();
++    }
++    instance.state = SOUND_INSTANCE_STATE_STOPPING;
++}
++template<class Instance> void AudioInstanceClockStep(Instance& instance, float dt)
++{
++    if (instance.state == SOUND_INSTANCE_STATE_PLAYING || instance.state == SOUND_INSTANCE_STATE_STOPPING)
++    {
++        instance.volume.Update(dt, 1.0f);
++        instance.pitch.Update(dt, 1.0f);
++        instance.previousTime = instance.currentTime;
++        instance.currentTime += dt;
++    }
++}
++template<class Instance, class Cleanup> void AudioInstanceStateStep(Instance& instance, int voiceState, Cleanup cleanup)
++{
++    switch (instance.state)
++    {
++    case SOUND_INSTANCE_STATE_PLAYING:
++        if (voiceState == SOUND_INSTANCE_STATE_STOPPED)
++        {
++            cleanup();
++            instance.state = SOUND_INSTANCE_STATE_STOPPED;
++        }
++        break;
++    case SOUND_INSTANCE_STATE_STOPPING:
++        if (voiceState == SOUND_INSTANCE_STATE_STOPPED)
++        {
++            cleanup();
++            instance.state = SOUND_INSTANCE_STATE_STOPPED;
++        }
++        break;
++    case SOUND_INSTANCE_STATE_PREPARING:
++        if (voiceState == SOUND_INSTANCE_STATE_PREPARED)
++            instance.state = SOUND_INSTANCE_STATE_PREPARED;
++        break;
++    case SOUND_INSTANCE_STATE_FAILED:
++        instance.state = SOUND_INSTANCE_STATE_STOPPED;
++        break;
++    case SOUND_INSTANCE_STATE_INITIAL:
++    case SOUND_INSTANCE_STATE_PENDING:
++    case SOUND_INSTANCE_STATE_PREPARED:
++    case SOUND_INSTANCE_STATE_PAUSED:
++    case SOUND_INSTANCE_STATE_STOPPED:
++        break;
++    }
++}
++template<class Cue> bool AudioCuePlayStep(Cue& cue, bool callbackEnabled)
++{
++    switch (cue.m_State)
++    {
++    case 1:
++        cue.bits.playWhenPrepared = true;
++        cue.Prepare(callbackEnabled);
++        return false;
++    case 2:
++    case 5:
++        cue.bits.playWhenPrepared = true;
++        return false;
++    case 3:
++        cue.instance->Play(0.0f);
++        cue.m_State = cue.instance->state;
++        return cue.m_State == 4;
++    case 4:
++        break;
++    case 6:
++        return false;
++    default:
++        break;
++    }
++    return false;
++}
++template<class Cue> bool AudioCuePrepareStep(Cue& cue, bool callbackEnabled)
++{
++    if (cue.m_State == 6)
++        return false;
++    cue.m_CallbackEnabled = callbackEnabled;
++    cue.instance->Prepare();
++    cue.m_State = 2;
++    return true;
++}
++template<class Cue> void AudioCueStopStep(Cue& cue, unsigned char callbackEnabled, void* force)
++{
++    switch (cue.m_State)
++    {
++    case 7:
++        if (force != 0)
++            cue.instance->Stop(force);
++        break;
++    case 8:
++        break;
++    default:
++        cue.instance->Stop(force);
++        break;
++    }
++    cue.m_CallbackEnabled = callbackEnabled;
++    cue.m_State = 7;
++    cue.bits.flag8000 = true;
++}
++template<class Cue> void AudioCueUpdateStep(Cue& cue, float dt)
++{
++    if (cue.m_State == 4)
++    {
++        cue.m_PreviousTime = cue.m_CurrentTime;
++        cue.m_CurrentTime += dt;
++    }
++    if (cue.m_State == 6)
++        cue.m_State = 8;
++
++    if (cue.m_State != 8 && cue.m_State != 5 && cue.m_State != 9)
++    {
++        if (cue.definition->useSlider)
++            cue.UpdateSlider(dt);
++        cue.instance->Update(dt);
++
++        if (cue.m_State != 9)
++        {
++            if (cue.m_State == 2)
++            {
++                if (cue.instance->state == 3)
++                {
++                    cue.m_State = 3;
++                    if (cue.bits.playWhenPrepared)
++                    {
++                        cue.instance->Play(0.0f);
++                        cue.m_State = cue.instance->state;
++                    }
++                }
++            }
++            else if (cue.instance->nextInstance != 0)
++                cue.m_State = 4;
++            else
++                cue.m_State = cue.instance->state;
++        }
++    }
++
++    if (cue.m_State == 8 && cue.m_CallbackEnabled)
++        cue.Release();
++}
++template<class Cue> void AudioCueReleaseStep(Cue& cue)
++{
++    cue.m_State = 9;
++}
++template<class Definition> void AudioCueRetainCount(Definition& definition) { definition.activeCount++; }
++template<class Definition> void AudioCueReleaseCount(Definition& definition) { definition.activeCount--; }
++inline bool AudioFrontendFinishedStep(int state)
++{
++    switch (state)
++    {
++    case 2:
++    case 3:
++    case 4:
++    case 5:
++        return false;
++    default:
++        return true;
++    }
++}
++#endif

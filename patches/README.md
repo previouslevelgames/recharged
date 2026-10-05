@@ -19,13 +19,18 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
-The current base is `9f985f9aca654d7ec13ff894830f19aeb3f7aefd`, adopted from
+The current base is `d6850f8dae162827f94d3f9b01a91538c02849dd`, adopted from
 published upstream main. It remains an incomplete development snapshot. This
 update includes matching, source-linked pose accumulation, world visibility and
 DebugWriteCache. Patches 0038 and 0066 follow revised event/header context;
 0084 preserves the matched pose arithmetic, adapts the two PowerPC return-value
 captures and retires the native world-matrix initialization workaround now
 covered upstream. Native source selection and validation remain explicit.
+The audio backend, bank loader and bundle manager are now source-linked;
+AudioSource remains incomplete. Patch 0094 follows its updated header and field
+names. Patches 0098–0099 share original resident source states and frontend
+pointer production for checked native owners; full audio and menu startup remain
+in development.
 
 The selected camera sources include original authored playback (0056) and
 desktop DebugCam controls (0057). Patch 0058 shares the original frontend
@@ -254,6 +259,17 @@ at process exit in the initial desktop check.
 frames without acquiring or presenting a surface. Queued work and completion
 callbacks still finish; this does not roll back writes to the emulated framebuffer.
 The next successful frame redraws it. Existing callers retain normal presentation.
+
+`0009-report-successful-presentation-geometry.patch` records the exact content
+rectangle and window identity only after successful surface presentation. Native
+pointer routing uses that retained snapshot; discarded frames do not advance it.
+The snapshot is empty with GX disabled and resets on initialization/shutdown.
+
+`0010-retain-dvd-handles-on-allocation-failure.patch` closes opened nod/overlay
+handles if command allocation fails and reports failure through the existing
+DVD admission result. Native NL callers can then restore their reserved request
+slot and pending count. Synthetic tests cover both providers and all 64 slots;
+music replacement tests also exercise this path under scoped sanitizers.
 
 ## Dawn series
 

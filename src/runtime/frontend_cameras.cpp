@@ -4,6 +4,7 @@
 #include "runtime/graphics_memory.h"
 #include "NL/MemAlloc.h"
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +12,11 @@
 namespace mscharged
 {
 thread_local FrontendCameras* FrontendCameras::transition_owner_ = nullptr;
+struct FrontendCameraSelection
+{
+    const cBaseCamera* camera = nullptr;
+    std::string alias;
+};
 // Original CameraMan can delete a replaced camera. Its native allocation owns
 // this wrapper; the embedded playback camera stays borrowed and is never put in
 // the manager's allocation registry or stack as a separate object.
@@ -20,18 +26,53 @@ class FrontendCameras::Camera final : public cBaseCamera
     AnimatedCamera playback_;
     cBaseCamera& body_;
 public:
-    const std::string alias;
+    static thread_local Camera* updating;
+    FrontendCameraSelectionHandle selection;
+    std::function<void()> on_end;
+    static void End()
+    {
+        if (!updating) throw std::logic_error("Frontend end callback has no active camera owner");
+        if (updating->on_end) updating->on_end();
+    }
     Camera(FrontendCameras& owner, CameraAsset::Handle asset)
-        : owner_(owner), playback_(asset), body_(playback_.Camera()), alias(asset->Name()) {}
-    ~Camera() override { owner_.Forget(this); }
+        : owner_(owner), playback_(asset), body_(playback_.Camera())
+    {
+        selection = std::make_shared<FrontendCameraSelection>(FrontendCameraSelection{this,asset->Name()});
+        playback_.SetEndCallback(End);
+    }
+    ~Camera() override
+    {
+        const bool was_busy = owner_.busy_;
+        owner_.busy_ = true; on_end = {}; owner_.Forget(this); owner_.busy_ = was_busy;
+    }
     eCameraType GetType() override { return body_.GetType(); }
-    void Update(float delta) override { body_.Update(delta); }
+    void Update(float delta) override
+    {
+        if (updating) throw std::logic_error("Frontend camera update is reentrant");
+        const bool was_busy = owner_.busy_;
+        owner_.busy_ = true; updating = this;
+        try { body_.Update(delta); }
+        catch (...) { owner_.failed_ = true; updating = nullptr; owner_.busy_ = was_busy; throw; }
+        updating = nullptr; owner_.busy_ = was_busy;
+    }
+    void Select(CameraAsset::Handle asset, FrontendCameraSelectionHandle identity,
+        bool cyclic, std::function<void()> callback)
+    {
+        playback_.Select(std::move(asset)); playback_.SetCyclic(cyclic);
+        selection = std::move(identity); on_end = std::move(callback);
+    }
+    void Seek(float time) { playback_.Seek(time); }
+    void SetCyclic(bool value) { playback_.SetCyclic(value); }
+    float Time() const { return playback_.Time(); }
+    float Duration() const { return playback_.Duration(); }
     void Reactivate() override { body_.Reactivate(); }
     const nlMatrix4& GetViewMatrix() const override { return body_.GetViewMatrix(); }
     const nlVector3& GetCameraPosition() const override { return body_.GetCameraPosition(); }
     const nlVector3& GetTargetPosition() const override { return body_.GetTargetPosition(); }
     float GetFOV() const override { return body_.GetFOV(); }
 };
+
+thread_local FrontendCameras::Camera* FrontendCameras::Camera::updating = nullptr;
 
 class FrontendCameras::Operation
 {
@@ -175,7 +216,74 @@ void FrontendCameras::Advance(float delta, float simulation_delta)
 const cBaseCamera* FrontendCameras::ActiveCamera() const { Ready(); return Owned(cCameraManager::PeekCamera()); }
 std::string FrontendCameras::ActiveAlias() const
 {
-    Ready(); const auto* camera = Owned(cCameraManager::PeekCamera()); return camera ? camera->alias : std::string();
+    Ready(); const auto* camera = Owned(cCameraManager::PeekCamera()); return camera ? camera->selection->alias : std::string();
+}
+FrontendCameras::Camera& FrontendCameras::Selected(const FrontendCameraSelectionHandle& identity, bool active) const
+{
+    if (!identity) throw std::invalid_argument("Frontend camera selection is absent");
+    auto* camera = Owned(const_cast<cBaseCamera*>(identity->camera));
+    if (!camera || camera->selection != identity)
+        throw std::logic_error("Frontend camera selection is stale or belongs to another owner");
+    if (active && (camera != cCameraManager::PeekCamera() || cCameraManager::m_transition != eCT_NONE))
+        throw std::logic_error("Frontend camera selection requires its active unblended camera");
+    return *camera;
+}
+FrontendCameraSelectionHandle FrontendCameras::Selection() const
+{
+    Ready(); auto* camera = Owned(cCameraManager::PeekCamera());
+    if (!camera || cCameraManager::m_transition != eCT_NONE)
+        throw std::logic_error("Frontend selection requires an owned unblended current camera");
+    return camera->selection;
+}
+FrontendCameraSelectionHandle FrontendCameras::Select(const FrontendCameraSelectionHandle& expected,
+    const std::string& name, bool cyclic, std::function<void()> callback)
+{
+    Ready(); auto& camera = Selected(expected);
+    const auto alias = CanonicalCameraAlias(name);
+    const auto catalog = FrontendCameraCatalog();
+    if (std::none_of(catalog.begin(),catalog.end(),[&](const auto& entry){return alias == entry.animationName;}))
+        throw std::invalid_argument("Unsupported frontend camera alias: " + alias);
+    auto asset = library_.Find(alias);
+    if (!asset) throw std::invalid_argument("Frontend camera asset is not loaded: " + alias);
+    auto identity = std::make_shared<FrontendCameraSelection>(FrontendCameraSelection{&camera,alias});
+    Operation operation(*this);
+    camera.Select(std::move(asset), identity, cyclic, std::move(callback));
+    return identity;
+}
+void FrontendCameras::Seek(const FrontendCameraSelectionHandle& selection, float time)
+{
+    Ready(); auto& camera = Selected(selection);
+    if (!std::isfinite(time) || time < 0 || time > 1)
+        throw std::out_of_range("Frontend camera seek requires normalized time zero through one");
+    Operation operation(*this); camera.Seek(time);
+}
+void FrontendCameras::SetCyclic(const FrontendCameraSelectionHandle& selection, bool cyclic)
+{
+    Ready(); auto& camera = Selected(selection); Operation operation(*this); camera.SetCyclic(cyclic);
+}
+float FrontendCameras::Time(const FrontendCameraSelectionHandle& selection) const
+{ Ready(); return Selected(selection).Time(); }
+float FrontendCameras::Duration(const FrontendCameraSelectionHandle& selection) const
+{ Ready(); return Selected(selection).Duration(); }
+bool FrontendCameras::DetachEndCallback(const FrontendCameraSelectionHandle& selection)
+{
+    CheckThread();
+    if (busy_) throw std::logic_error("Cannot detach frontend camera callback during dispatch");
+    if (!core_.Active())
+    {
+        if (!cameras_.empty()) throw std::logic_error("Released core retained frontend camera allocations");
+        return false;
+    }
+    CheckNativeCameraTeardown();
+    if (!selection) return false;
+    auto* camera = Owned(const_cast<cBaseCamera*>(selection->camera));
+    if (!camera || camera->selection != selection) return false;
+    // Keep the static source dispatch thunk harmless. Removing its retained
+    // callback needs no camera rebuild and is safe after a failed core update.
+    busy_ = true;
+    camera->on_end = {};
+    busy_ = false;
+    return true;
 }
 std::size_t FrontendCameras::Size() const { Ready(); return cameras_.size(); }
 bool FrontendCameras::Failed() const { CheckThread(); return failed_; }

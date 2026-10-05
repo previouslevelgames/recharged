@@ -14,6 +14,8 @@ nlColour ambient_colours[2]{}, material_colours[2]{};
 bool colour_write = true, alpha_write = true;
 struct DepthWrites { bool test; int function; bool write; } depth{true, GX_LEQUAL, true};
 std::optional<DepthWrites> saved_depth;
+struct Blend { bool enabled; int source, destination; bool subtract; } blend{false, GX_BL_ONE, GX_BL_ZERO, false};
+std::optional<Blend> saved_blend;
 }
 bool gxSetColourUpdate(bool enabled)
 {
@@ -45,6 +47,33 @@ void gxRestoreZMode()
     const auto value = *saved_depth;
     saved_depth.reset();
     gxSetZMode(value.test, value.function, value.write);
+}
+void gxSetBlendMode(bool enabled, int source, int destination, bool subtract)
+{
+    if (source < 0 || source > GX_BL_INVDSTALPHA || destination < 0 || destination > GX_BL_INVDSTALPHA)
+        throw std::invalid_argument("Invalid native GX blend factors");
+    GXSetBlendMode(!enabled ? GX_BM_NONE : subtract ? GX_BM_SUBTRACT : GX_BM_BLEND,
+        GXBlendFactor(source), GXBlendFactor(destination), GX_LO_CLEAR);
+    blend = {enabled, source, destination, subtract};
+}
+void gxSaveBlendMode()
+{
+    if (saved_blend) throw std::logic_error("Nested GX blend-state save");
+    saved_blend = blend;
+}
+void gxRestoreBlendMode()
+{
+    if (!saved_blend) throw std::logic_error("GX blend-state restore without save");
+    const auto value = *saved_blend; saved_blend.reset();
+    gxSetBlendMode(value.enabled, value.source, value.destination, value.subtract);
+}
+namespace mscharged
+{
+void RestoreMaterialSavedStates()
+{
+    if (saved_blend) gxRestoreBlendMode();
+    if (saved_depth) gxRestoreZMode();
+}
 }
 unsigned gxSetNumChans(unsigned n)
 {

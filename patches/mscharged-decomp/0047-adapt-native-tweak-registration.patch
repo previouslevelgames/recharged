@@ -1,6 +1,6 @@
 Subject: Select native tweak registration with explicit allocation ownership
 
-Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
 
 Size node/value pools for native layouts, own pending registrations before game
 memory exists and distinguish borrowed values from registry-owned values. Extract

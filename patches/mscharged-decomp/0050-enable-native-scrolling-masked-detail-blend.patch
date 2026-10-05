@@ -1,5 +1,5 @@
 Subject: Select original scrolling masked detail blending with bounded native streams
-Upstream-base: 9f985f9aca654d7ec13ff894830f19aeb3f7aefd
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
 
 Retain the original mask-weighted detail blend, four/five-stage lighting,
 projected shadows, three independently scrolling UV sets and diffuse alpha preparation. Adapt packed vertex data to

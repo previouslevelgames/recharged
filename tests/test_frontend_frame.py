@@ -25,6 +25,8 @@ def frame(with_image=False):
         struct.pack_into(">I", data, at, value)
     relocations += [second, second + 4, second + 12]
     data[second + 0x18:second + 0x20] = b"LabelTwo"
+    for at, name in ((0x80, "label"), (second, "labeltwo")):
+        struct.pack_into(">I", data, at + 0x38, name_hash(name))
     for at, x in ((0x80, -100), (second, 100)):
         struct.pack_into(">2f", data, at + 0x98, 128, 64)
         struct.pack_into(">I", data, at + 0x84, 1)  # Override position.
@@ -114,6 +116,10 @@ with tempfile.TemporaryDirectory(prefix="mscharged-fe-frame-") as folder:
 
     write_disc(disc, files=payloads, fst_capacity=0x800)
     run()
+    output = run(extra=("--frontend-pointer", "Label"))
+    assert "Frontend pointer bound to a successful Aurora presentation: Label." in output, output
+    run(1, "Frontend pointer instance path is absent", ("--frontend-pointer", "missing"))
+    run(1, "Pointer path components must not be empty", ("--frontend-pointer", "Label//child"))
     run(extra=("--frontend-slide", "Slide"))
     run(1, "Frontend presentation slide name is absent", ("--frontend-slide", "missing"))
     run(2, "Select --frontend-frame or --frontend-layout", ("--frontend-layout", "/Art/fe/test.fen"))

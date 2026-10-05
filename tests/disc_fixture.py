@@ -2,9 +2,11 @@
 import struct
 
 
-def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity=0x200):
+def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity=0x200, partition_size=0x8000):
     """A tiny, unencrypted Wii container with synthetic files and directories."""
-    data = bytearray(0x60000)
+    if partition_size < 0x8000 or partition_size > 0x100000 or partition_size % 0x8000:
+        raise ValueError("Invalid synthetic partition size")
+    data = bytearray(0x58000 + partition_size)
     data[:6] = game_id
     data[7] = 1
     data[0x18:0x1C] = bytes.fromhex("5d1c9ea3")
@@ -16,7 +18,7 @@ def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity
         struct.pack_into(">II", data, 0x40020, 0x50000 >> 2, 0)
         issuer = b"Root-CA00000001-XS00000003"
         data[0x50140:0x50140 + len(issuer)] = issuer
-        struct.pack_into(">II", data, 0x502B8, 0x8000 >> 2, 0x8000 >> 2)
+        struct.pack_into(">II", data, 0x502B8, 0x8000 >> 2, partition_size >> 2)
         base = 0x58000
         data[base:base + 0x400] = data[:0x400]
         struct.pack_into(">I", data, base + 0x2800, 0x100)  # Synthetic DOL text offset.
@@ -51,7 +53,7 @@ def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity
             else:
                 entries.append([name_offset, position >> 2, len(node)])
                 end = position + len(node)
-                if end > 0x8000:
+                if end > partition_size:
                     raise ValueError("Fixture payload exceeds its tiny partition")
                 data[base + position:base + end] = node
                 position = (end + 31) & ~31
