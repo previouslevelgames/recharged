@@ -27,14 +27,17 @@ struct Voice
     AudioVoices* voices;
     AudioVoiceHandle handle;
     float prepared_volume;
+    bool live_gain=false;
     bool closed=false;
-    Voice(AudioVoices& output,const AudioBankSelectionResult& selected,resources::AudioCalculationInitial::Handle calculation)
+    Voice(AudioVoices& output,const AudioBankSelectionResult& selected,resources::AudioCalculationInitial::Handle calculation,
+        AudioCategoryVolumes::Handle volumes)
         :voices(&output)
     {
         const auto& definition=selected.bank->Voices().at(selected.voice);
         const auto& sequence=selected.bank->Sequences().at(selected.events.at(0).sequence);
+        live_gain=bool(volumes);
         prepared_volume=AudioResidentPlaybackVolume(0.0f,
-            AudioResidentInstanceVolume(0.0f,calculation->Value(definition.slider),std::clamp(definition.volume,-96.0f,6.0f)),0.0f,sequence.volume);
+            AudioResidentInstanceVolume(0.0f,volumes?volumes->Value(definition.slider):calculation->Value(definition.slider),std::clamp(definition.volume,-96.0f,6.0f)),0.0f,sequence.volume);
         handle=voices->Create(selected,std::move(calculation));
     }
     void Close(){if(!closed){closed=true;voices->Destroy(handle);}}
@@ -44,6 +47,7 @@ struct Voice
     bool Play(unsigned value){return voices->Play(handle,value);}
     void UpdateState(){voices->PollState(handle);}
     int GetState()const{return voices->Status(handle).state;}
+    void SetVolume(float db){voices->SetVolume(handle,db);prepared_volume=db;}
 };
 struct Event
 {
@@ -86,16 +90,20 @@ struct Instance
     SoundInstanceState state=SOUND_INSTANCE_STATE_INITIAL;
     float previousTime=-1,currentTime=0;
     float target_volume=0,target_pitch=0,slider=0;
-    explicit Instance(const AudioBankSelectionResult& selected,resources::AudioCalculationInitial::Handle calculation,AudioVoices& output)
+    AudioCategoryVolumes::Handle volumes;std::uint32_t slider_index=0;
+    explicit Instance(const AudioBankSelectionResult& selected,resources::AudioCalculationInitial::Handle calculation,AudioVoices& output,
+        AudioCategoryVolumes::Handle category_volumes)
+        :volumes(std::move(category_volumes))
     {
         const auto& voice=selected.bank->Voices().at(selected.voice);
         const auto& event=selected.events.at(0);
-        target_volume=voice.volume;target_pitch=voice.pitch;slider=calculation->Value(voice.slider);
+        target_volume=voice.volume;target_pitch=voice.pitch;slider_index=voice.slider;
+        slider=volumes?volumes->Value(slider_index):calculation->Value(slider_index);
         volume.Reset(0,-96,6);pitch.Reset(0,-12,12);
         storage=std::make_unique<Sequence>(this);storage->volumeOffset=selected.bank->Sequences().at(event.sequence).volume;
         storage->storage=std::make_unique<Event>(storage.get());storage->events=storage->storage.get();
         storage->events->startTime=event.start_time;
-        storage->events->storage=std::make_unique<Voice>(output,selected,std::move(calculation));
+        storage->events->storage=std::make_unique<Voice>(output,selected,std::move(calculation),volumes);
         storage->events->source=storage->events->storage.get();voices=storage.get();
     }
     void Prepare()
@@ -118,6 +126,7 @@ struct Instance
     void Update(float dt)
     {
         Check(!activeRpc&&!nextInstance,"Frontend audio static instance has unsupported RPC/slider state");
+        if(volumes)slider=volumes->Value(slider_index);
         AudioInstanceClockStep(*this,dt);
         const int next=voices?voices->Update(dt):SOUND_INSTANCE_STATE_STOPPED;
         AudioInstanceStateStep(*this,next,[&]{ReleaseSequences();});
@@ -127,11 +136,12 @@ void Event::UpdatePlaybackParameters(bool force)
 {
     const auto& instance=*owner->soundInstance;
     const float db=AudioResidentPlaybackVolume(0.0f,AudioResidentInstanceVolume(0.0f,instance.slider,instance.volume.value),0.0f,owner->volumeOffset);
-    // This profile has immutable calculation/sequence gain and no modifiers.
-    // PCM was prepared with exactly this gain before publication. Re-evaluate
-    // the original parameter equation; never accept a silent dynamic change.
-    Check(std::isfinite(db)&&db==source->prepared_volume&&instance.pitch.value==0,
+    // The default profile keeps immutable calculation/sequence gain. An explicit
+    // category authority reevaluates the same original equation and updates
+    // real SDL input gain; spatial/RPC/pitch modifiers remain unsupported.
+    Check(std::isfinite(db)&&(source->live_gain||db==source->prepared_volume)&&instance.pitch.value==0,
           "Frontend audio parameters changed outside the static output profile");
+    if(source->live_gain&&(force||currentVolume!=db))source->SetVolume(db);
     if(force||currentVolume!=db)currentVolume=db;
     currentPitch=0;
 }
@@ -171,14 +181,16 @@ struct FrontendAudio::Implementation
     resources::AudioCalculationInitial::Handle calculation;
     std::unique_ptr<AudioBankSelection> selection;
     AudioVoices voices;
+    AudioCategoryVolumes::Handle volumes;
     std::vector<Definition> definitions;
     std::vector<Slot> slots;
     std::vector<std::uint32_t> order;
     bool loaded=true,enabled=true,busy=false;
     Implementation(LoadedAudioBank::Handle b,resources::AudioCalculationInitial::Handle c,AudioVoicesOptions options)
-        :bank(std::move(b)),calculation(std::move(c)),voices(options)
+        :bank(std::move(b)),calculation(std::move(c)),voices(options),volumes(options.category_volumes)
     {
         resources::Require(bank&&bank->bank&&calculation,"Frontend audio needs retained checked assets");
+        if(volumes)volumes->RequireCompatible(calculation);
         resources::Require(bank->name_index==23&&bank->slot_index==21&&bank->name.name=="FE_GEN_Sfx"&&!bank->slot.streaming,
                            "Frontend audio requires resident FE_GEN_Sfx name23/slot21");
         // Copy identity records because a caller can retain a mutable alias.
@@ -240,7 +252,7 @@ std::optional<FrontendAudioHandle> FrontendAudio::Play(std::uint32_t hash,unsign
         next_selection=std::make_unique<AudioBankSelection>(*p.selection);
         auto selected=next_selection->Select({hash,0,0,0},next_seed);Check(bool(selected),"Frontend cue selection disappeared");
         cue->sample=selected->events.at(0).sample;
-        cue->storage=std::make_unique<Instance>(*selected,p.calculation,p.voices);cue->instance=cue->storage.get();
+        cue->storage=std::make_unique<Instance>(*selected,p.calculation,p.voices,p.volumes);cue->instance=cue->storage.get();
     }
     cue->Play(auto_release); // All allocations/output admission finish before publication.
     const auto handle=cue->handle;
@@ -290,6 +302,8 @@ void FrontendAudio::Cancel(FrontendAudioHandle handle){auto& p=*impl_;p.Mutable(
 FrontendAudioStatus FrontendAudio::Status(FrontendAudioHandle handle)const
 {
     const auto& cue=impl_->Get(handle);FrontendAudioStatus status{cue.hash,cue.m_State,0,0,0,cue.m_CallbackEnabled,cue.limited,cue.sample};
+    if(cue.instance&&cue.instance->storage&&cue.instance->storage->events&&cue.instance->storage->events->source)
+        status.output_volume_db=cue.instance->storage->events->source->prepared_volume;
     if(cue.instance)
     {
         status.instance_state=cue.instance->state;
@@ -300,6 +314,7 @@ FrontendAudioStatus FrontendAudio::Status(FrontendAudioHandle handle)const
     }
     return status;
 }
+AudioCategoryVolumes::Handle FrontendAudio::CategoryVolumes()const{impl_->Ready();return impl_->volumes;}
 bool FrontendAudio::IsFinished(FrontendAudioHandle handle)const
 {const auto* cue=impl_->Find(handle);return !cue||AudioFrontendFinishedStep(cue->m_State);}
 std::uint32_t FrontendAudio::ActiveCount(std::uint32_t hash)const{return impl_->definitions.at(impl_->Index(hash)).activeCount;}

@@ -2,8 +2,7 @@ include_guard(GLOBAL)
 include(cmake/ColourMesh.cmake)
 add_library(charged_frontend_font_registry STATIC
     src/runtime/frontend_font_registry.cpp src/runtime/frontend_font_packets.cpp
-    "${MSCHARGED_PREPARED}/src/NL/gl/glDraw2.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/gl/glQuadSupport.cpp")
+    "${MSCHARGED_PREPARED}/src/NL/gl/glDraw2.cpp")
 add_dependencies(charged_frontend_font_registry verify_prepared)
 target_link_libraries(charged_frontend_font_registry PUBLIC charged_frontend_fonts charged_colour_mesh charged_frames)
 target_include_directories(charged_frontend_font_registry PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")

@@ -138,7 +138,7 @@ struct FrontendSceneStack::Implementation
                 FrontendStackContext context{entry.value.token, *entry.session, *entry.handler, entry.value.movement};
                 if (entry.visual)
                 {
-                    // Both selected concrete classes inherit this exact empty
+                    // The selected concrete classes inherit this exact empty
                     // source method; it does not complete their SceneCreated.
                     FrontendBaseHandlerInitializeSubHandlers();
                     entry.value.subhandlers = FrontendStackSubhandlers::SourceEmpty;
@@ -306,7 +306,7 @@ void FrontendSceneStack::Bind(Token token, FrontendStackCallbacks callbacks)
 void FrontendSceneStack::BindVisual(Token token, FrontendStackVisualFactory factory)
 {
     auto& s=*impl_;s.Mutable();auto& e=s.Find(token);
-    Require(factory&&(e.value.scene==1||e.value.scene==13), "Selected visual factory supports Main and Options only");
+    Require(factory&&(e.value.scene==1||e.value.scene==13||e.value.scene==14||e.value.scene==15||e.value.scene==23), "Selected visual factory supports Main, Options, Audio, Visual and Credits only");
     Require(!Complete(e.callbacks)&&!e.visual_factory&&!e.value.queued_pop
         &&(e.value.state==FrontendStackState::Queued||e.value.state==FrontendStackState::Loading
             ||e.value.state==FrontendStackState::AwaitingHandler), "Frontend visual creation is already bound or complete");
@@ -345,6 +345,11 @@ void FrontendSceneStack::Update(float delta, PresentedInput input)
             if (e.visual)
             {
                 Require(e.visual->Current()==e.value.published,"Selected visual mutated outside its stack update");
+                const bool admitted=e.visual->CanUpdateStack();
+                s.Validate(e);
+                Require(e.session->Current()==e.value.published&&e.visual->Current()==e.value.published,
+                    "Selected visual mutated during pre-base admission");
+                if(!admitted)continue;
                 auto proof=e.handler->StackUpdateOnce(e.value.published,delta);
                 Require(proof.Before()==e.value.published&&proof.After()==e.session->Current()&&proof.Delta()==delta,
                     "Frontend stack base update proof differs");

@@ -4,6 +4,15 @@
 
 namespace mscharged
 {
+enum class FrontendNavigationDoneSlide { Off, Over, Down };
+struct FrontendNavigationDoneBinding
+{
+    FrontendSession::Handle frame;
+    std::uint32_t component=0;
+    FrontendPointerBounds bounds;
+    bool visible=false; // Explicit visibility in the acknowledged source generation.
+};
+using FrontendNavigationBackBinding = FrontendNavigationDoneBinding;
 enum class FrontendNavigationPointer { Waiting, Cursor };
 struct FrontendNavigationPointerSample
 {
@@ -38,6 +47,8 @@ class FrontendNavigation
     struct Implementation;
     std::unique_ptr<Implementation> impl_;
     bool ApplyPending(unsigned);
+    friend class FrontendNavigationDone;
+    void CheckDoneInput(const FrontendSession::Handle&) const;
 public:
     FrontendNavigation(std::shared_ptr<FrontendSession>,FrontendInput&,
         std::shared_ptr<FrontendAudio>,unsigned& caller_seed,bool widescreen=false,unsigned controller=0);
@@ -47,9 +58,18 @@ public:
     FrontendSession::Handle Current() const;
     FrontendNavigationStatus Status() const;
     FrontendPointerBounds Bounds() const;
+    // Exact presented Back component, original measured bounds and retained visibility.
+    FrontendNavigationBackBinding BackButton(const FrontendSession::Handle&) const;
     void Acknowledge(const FrontendSession::Handle&,FrontendPointerViewport);
     void HideButtons(const FrontendSession::Handle&);
     void SetButtons(const FrontendSession::Handle&,unsigned mask,bool enabled=true);
+    // Checked original done component; label0 DONE, label1 OPTIONS_ACCEPT.
+    // Mutations accept Current(), including within WithPresentedInput.
+    void SetDoneButtonText(const FrontendSession::Handle&,unsigned);
+    void SetDoneButtonSlide(const FrontendSession::Handle&,FrontendNavigationDoneSlide);
+    // Requires this exact actually acknowledged NAV frame. Bound constants are
+    // original SetDoneButtonBounds(0), not a measured or guessed text rectangle.
+    FrontendNavigationDoneBinding DoneButton(const FrontendSession::Handle&) const;
     void SetPointerSlide(const FrontendSession::Handle&,unsigned,FrontendNavigationPointer);
     void UpdatePointers(const FrontendSession::Handle&,
         const std::array<FrontendNavigationPointerSample,4>&,bool hidden=false);

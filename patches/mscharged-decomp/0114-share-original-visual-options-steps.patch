@@ -1,0 +1,544 @@
+Subject: Share original visual options interaction and settings steps
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Selected original scene15 bodies delegate to retained typed native visual
+owners. Full GameInfo, game-save, global DPD/NAV and camera are not supplied.
+
+diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.cpp
+--- a/src/Game/FE/feOptionsSubMenus.cpp
++++ b/src/Game/FE/feOptionsSubMenus.cpp
+@@ -2,6 +2,7 @@
+ #include "Game/FE/feOptionsSubMenus.h"
+ #include "Game/FE/FrontendAudioOptionsSteps.h"
+ #include "Game/FE/FEAudio.h"
++#include "Game/FE/FrontendVisualOptionsSteps.h"
+ 
+ #include "Game/DB/SaveLoad.h"
+ #include "Game/DB/UserOptions.h"
+@@ -263,13 +264,7 @@
+         mZoomButtonComponents[i].mContext = (void*)i;
+         mZoomButtonComponents[i].mSpeakerEnabled = false;
+     }
+-
+-    VisualSettings settings = *GameInfoManager::Instance()->GetVisualOptions();
+-    mSettings[0] = !settings.mIsAutoZoomCamera;
+-    mSettings[1] = (int)(4.0f * settings.mCameraZoomLevel);
+-    mNavigation.SetPopScene(false);
+-    mBackupSettings[0] = mSettings[0];
+-    mBackupSettings[1] = mSettings[1];
++    FrontendVisualOptionsInitialize(*this,*GameInfoManager::Instance()->GetVisualOptions());
+ }
+ 
+ OptionsVisualMenuV2::~OptionsVisualMenuV2()
+@@ -296,44 +291,13 @@
+         mSaveButton = navigation->GetButton(0x20);
+     }
+     mNavigation.SetButtonInstance(backButton);
+-
+-    if (mOverlayMode == 0)
+-    {
+-        FEFinder<TLInstance, 2>::Find<>(presentation,
+-            "OPTIONS_IN", "Layer", "blackbox")->m_bVisible = false;
+-        FEFinder<TLInstance, 2>::Find<>(presentation,
+-            "OPTIONS_OUT", "Layer", "blackbox")->m_bVisible = false;
+-    }
+-
+-    for (int i = 0; i < 4; ++i)
+-        GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-
+-    for (int i = 0; i < 5; ++i)
+-    {
+-        char name[12];
+-        nlSNPrintf(name, 12, "BUTTON_%d", i);
+-        mButtons[i] = FEFinder<TLComponentInstance, 4>::Find<>(presentation,
+-            "OPTIONS_IN", "Layer", "visual_options", "ZOOM LEVELS", name);
+-    }
+-    mZoomButtons[0] = FEFinder<TLComponentInstance, 4>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "BTN_AUTOZOOM");
+-    mZoomButtons[1] = FEFinder<TLComponentInstance, 4>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "MANUAL_ZOOM");
+-
+-    mZoomButtons[mSettings[0]]->SetActiveSlide("down", true, false);
+-    FEPointerButton& zoomButton = mZoomButtonComponents[mSettings[0]];
+-    for (int i = 0; i < 4; ++i)
+-        zoomButton.SetPointerState(2, i);
+-    mButtons[mSettings[1]]->SetActiveSlide("down", true, false);
+-    FEPointerButton& button = mButtonComponents[mSettings[1]];
+-    for (int i = 0; i < 4; ++i)
+-        button.SetPointerState(2, i);
+-
+-    TLTextInstance* text = FEFinder<TLTextInstance, 4>::Find(
+-        mPresentation->m_currentSlide, "Layer", "visual_options", "SERIES SETTING");
+-    unsigned short number[4];
+-    nlSNPrintf(number, 4, (const unsigned short*)L"%d", mSettings[1] + 1);
+-    UpdateZoomLevelText(text, number, g_pLocalization->GetString("OPTIONS_VISUAL_ZOOMLEVEL"));
++    FrontendVisualOptionsCreated<TLInstance,TLComponentInstance,TLTextInstance,FEFinder>(*this,
++        [](int i) { GetPointerInstance(i)->SetActiveSlide("waiting",true,false); },
++        [](char* name,int size,int i) { nlSNPrintf(name,size,"BUTTON_%d",i); },
++        [this](TLTextInstance* text,int value) {
++            unsigned short number[4];nlSNPrintf(number,4,(const unsigned short*)L"%d",value);
++            UpdateZoomLevelText(text,number,g_pLocalization->GetString("OPTIONS_VISUAL_ZOOMLEVEL"));
++        });
+ }
+ 
+ void OptionsVisualMenuV2::Update(float fDeltaT)
+@@ -348,41 +312,10 @@
+     }
+ 
+     BaseSceneHandler::Update(fDeltaT);
+-
+-    if (mState == 0 || mState == 2 || mState == 3)
+-    {
+-        TLSlide* slide = mPresentation->m_currentSlide;
+-        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
+-        {
+-            for (int i = 0; i < 4; ++i)
+-                GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-            return;
+-        }
+-
+-        if (mState == 0)
+-        {
+-            SHNavigation* navigation = GetNavigationScene();
+-            if (navigation != 0)
+-            {
+-                navigation->SetButtons(0x24, true);
+-                navigation->SetDoneButtonText(1);
+-            }
+-            mState = 1;
+-        }
+-        else if (mState == 2)
+-        {
+-            return;
+-        }
+-        else if (mState == 3)
+-        {
+-            if (mOverlayMode == 0)
+-                GameSceneManager::Instance()->Push((SceneList)13, SCREEN_NOTHING, true);
+-            else
+-                g_pOverlayManager->Push((SceneList)0x50, SCREEN_NOTHING, true);
+-            return;
+-        }
+-    }
+-
++    if (!FrontendVisualOptionsGate(*this,[] { return GetNavigationScene(); },
++        [](int i) { GetPointerInstance(i)->SetActiveSlide("waiting",true,false); },
++        [](int id) { GameSceneManager::Instance()->Push((SceneList)id,SCREEN_NOTHING,true); },
++        [](int id) { g_pOverlayManager->Push((SceneList)id,SCREEN_NOTHING,true); })) return;
+     if (!mPointerButtonsInitialized)
+     {
+         InitializePointerButtons();
+@@ -408,15 +341,7 @@
+ 
+         if (mNavigation.UpdateBackButton(event, fDeltaT))
+         {
+-            GameInfoManager::Instance()->mUserInfo.mVisualOptions.mCameraZoomLevel = mBackupSettings[1] / 4.0;
+-            GameInfoManager::Instance()->mUserInfo.mVisualOptions.mIsAutoZoomCamera = mBackupSettings[0] == 0;
+-            FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
+-            mState = 3;
+-            SHNavigation* navigation = GetNavigationScene();
+-            if (navigation != 0)
+-                navigation->SetButtons(0, true);
+-            mPresentation->SetActiveSlide("OPTIONS_OUT", true);
+-            mPresentation->Update(0.0f);
++            FrontendVisualOptionsBack(*this,[]() -> VisualSettings& { return GameInfoManager::Instance()->mUserInfo.mVisualOptions; }, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); }, [] { return GetNavigationScene(); });
+             return;
+         }
+ 
+@@ -452,8 +377,7 @@
+     feVector3 position = levels->GetAssetPosition();
+     for (int i = 0; i < 5; ++i)
+     {
+-        mButtonComponents[i].SetInstanceBounds(mButtons[i], true,
+-            position.f.x, position.f.y, 1.0f, 1.0f);
++        FrontendVisualOptionsLevelBounds(mButtonComponents[i],mButtons[i],position);
+         mButtonComponents[i].SetPointerEnterCallback(enter);
+         mButtonComponents[i].SetPointerLeaveCallback(leave);
+         mButtonComponents[i].SetPointerPressCallback(press);
+@@ -467,8 +391,7 @@
+         MemFun(&OptionsVisualMenuV2::OnZoomModePointerPress), this, Placeholder<0>(), Placeholder<1>()));
+     for (int i = 0; i < 2; ++i)
+     {
+-        mZoomButtonComponents[i].SetInstanceBounds(mZoomButtons[i], true,
+-            0.0f, 0.0f, 1.0f, 1.0f);
++        FrontendVisualOptionsModeBounds(mZoomButtonComponents[i],mZoomButtons[i]);
+         mZoomButtonComponents[i].SetPointerEnterCallback(enter);
+         mZoomButtonComponents[i].SetPointerLeaveCallback(leave);
+         mZoomButtonComponents[i].SetPointerPressCallback(press);
+@@ -481,108 +404,40 @@
+ 
+ void OptionsVisualMenuV2::OnZoomLevelPointerEnter(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (!mButtonComponents[item].HasOtherPointerState(2, -1))
+-    {
+-        mButtonComponents[item].PlayHoverFeedback(index);
+-        if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-        {
+-            mButtons[item]->SetActiveSlide("over", true, false);
+-            FEAudio::PlayAnimAudioEvent(0x96DEB5C3, 0, 0, 1);
+-        }
+-        mButtonComponents[item].SetPointerState(1, index);
+-    }
++    FrontendVisualOptionsLevelEnter(*this,index,(unsigned int)context, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
+ }
+ 
+ void OptionsVisualMenuV2::OnZoomLevelPointerLeave(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (!mButtonComponents[item].HasOtherPointerState(2, -1))
+-    {
+-        if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-        {
+-            mButtons[item]->SetActiveSlide("off", true, false);
+-        }
+-        mButtonComponents[item].SetPointerState(0, index);
+-    }
++    FrontendVisualOptionsLevelLeave(*this,index,(unsigned int)context);
+ }
+ 
+ void OptionsVisualMenuV2::OnZoomLevelPointerPress(int index, void* context)
+ {
+-    int item = (int)context;
+-    if (mButtonComponents[item].HasOtherPointerState(2, -1))
+-        return;
+-
+-    FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
+-    mButtons[mSettings[1]]->SetActiveSlide("off", true, false);
+-    mButtonComponents[mSettings[1]].ResetPointerStates();
+-    mButtons[item]->SetActiveSlide("down", true, false);
+-    for (int i = 0; i < 4; ++i)
+-        mButtonComponents[item].SetPointerState(2, i);
+-    mSettings[1] = item;
+-    GameInfoManager::Instance()->mUserInfo.mVisualOptions.mCameraZoomLevel = item / 4.0;
+-
+-    TLTextInstance* text = FEFinder<TLTextInstance, 4>::Find(
+-        mPresentation->m_currentSlide, "Layer", "visual_options", "SERIES SETTING");
+-    unsigned short number[4];
+-    nlSNPrintf(number, 4, (const unsigned short*)L"%d", mSettings[1] + 1);
+-    UpdateZoomLevelText(text, number, g_pLocalization->GetString("OPTIONS_VISUAL_ZOOMLEVEL"));
++    FrontendVisualOptionsLevelPress(*this,index,(unsigned int)context, []() -> VisualSettings& { return GameInfoManager::Instance()->mUserInfo.mVisualOptions; }, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); }, [this](int value) {
++            TLTextInstance* text = FEFinder<TLTextInstance,4>::Find(mPresentation->m_currentSlide,"Layer","visual_options","SERIES SETTING");
++            unsigned short number[4];nlSNPrintf(number,4,(const unsigned short*)L"%d",value);
++            UpdateZoomLevelText(text,number,g_pLocalization->GetString("OPTIONS_VISUAL_ZOOMLEVEL"));
++        });
+ }
+ 
+ void OptionsVisualMenuV2::OnZoomModePointerEnter(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if ((unsigned int)mSettings[0] == item
+-        || mZoomButtonComponents[item].HasOtherPointerState(2, -1))
+-    {
+-        return;
+-    }
+-
+-    mZoomButtonComponents[item].PlayHoverFeedback(index);
+-    if (!mZoomButtonComponents[item].HasOtherPointerState(1, index))
+-    {
+-        mZoomButtons[item]->SetActiveSlide("over", true, false);
+-        FEAudio::PlayAnimAudioEvent(0xF6EB899E, 0, 0, 1);
+-    }
+-    mZoomButtonComponents[item].SetPointerState(1, index);
++    FrontendVisualOptionsModeEnter(*this,index,(unsigned int)context, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
+ }
+ 
+ void OptionsVisualMenuV2::OnZoomModePointerLeave(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if ((unsigned int)mSettings[0] == item
+-        || mZoomButtonComponents[item].HasOtherPointerState(2, -1))
+-    {
+-        return;
+-    }
+-    if (!mZoomButtonComponents[item].HasOtherPointerState(1, index))
+-    {
+-        mZoomButtons[item]->SetActiveSlide("off", true, false);
+-    }
+-    mZoomButtonComponents[item].SetPointerState(0, index);
++    FrontendVisualOptionsModeLeave(*this,index,(unsigned int)context);
+ }
+ 
+ void OptionsVisualMenuV2::OnZoomModePointerPress(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if ((unsigned int)mSettings[0] == item
+-        || mZoomButtonComponents[item].HasOtherPointerState(2, -1))
+-        return;
+-
+-    mZoomButtons[mSettings[0]]->SetActiveSlide("off", true, false);
+-    mZoomButtonComponents[mSettings[0]].ResetPointerStates();
+-    mZoomButtons[item]->SetActiveSlide("down", true, false);
+-    for (int i = 0; i < 4; ++i)
+-        mZoomButtonComponents[item].SetPointerState(2, i);
+-    FEAudio::PlayAnimAudioEvent(0x362F2841, 0, 0, 1);
+-    mSettings[0] = item;
+-    GameInfoManager::Instance()->mUserInfo.mVisualOptions.mIsAutoZoomCamera = item == 0;
+-
+-    TLTextInstance* text = FEFinder<TLTextInstance, 4>::Find(
+-        mPresentation->m_currentSlide, "Layer", "visual_options", "SERIES SETTING");
+-    unsigned short number[4];
+-    nlSNPrintf(number, 4, (const unsigned short*)L"%d", mSettings[1] + 1);
+-    UpdateZoomLevelText(text, number, g_pLocalization->GetString("OPTIONS_VISUAL_ZOOMLEVEL"));
++    FrontendVisualOptionsModePress(*this,index,(unsigned int)context, []() -> VisualSettings& { return GameInfoManager::Instance()->mUserInfo.mVisualOptions; }, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); }, [this](int value) {
++            TLTextInstance* text = FEFinder<TLTextInstance,4>::Find(mPresentation->m_currentSlide,"Layer","visual_options","SERIES SETTING");
++            unsigned short number[4];nlSNPrintf(number,4,(const unsigned short*)L"%d",value);
++            UpdateZoomLevelText(text,number,g_pLocalization->GetString("OPTIONS_VISUAL_ZOOMLEVEL"));
++        });
+ }
+ 
+ void OptionsVisualMenuV2::OnSaveButtonPointerEnter(int index, void*)
+@@ -606,17 +461,5 @@
+ 
+ void OptionsVisualMenuV2::OnSaveButtonPointerPress(int, void*)
+ {
+-    mState = 3;
+-    SHNavigation* navigation = GetNavigationScene();
+-    if (navigation != 0)
+-    {
+-        navigation->SetButtons(0, true);
+-    }
+-    mPresentation->SetActiveSlide("OPTIONS_OUT", true);
+-    mPresentation->Update(0.0f);
+-    mSaveButton->SetActiveSlide("down", true, false);
+-    FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
+-    FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
+-    mSaveStarted = true;
+-    SaveLoad::StartSave(false);
+-}
++    FrontendVisualOptionsSave(*this,[] { return GetNavigationScene(); }, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); }, [](bool online) { SaveLoad::StartSave(online); });
++}
+diff --git a/include/Game/FE/FrontendVisualOptionsSteps.h b/include/Game/FE/FrontendVisualOptionsSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendVisualOptionsSteps.h
+@@ -0,0 +1,228 @@
++#ifndef GAME_FE_FRONTEND_VISUAL_OPTIONS_STEPS_H
++#define GAME_FE_FRONTEND_VISUAL_OPTIONS_STEPS_H
++// Selected original mode0 scene15 kernels; game/save/camera services stay explicit.
++template<class Scene,class Settings>
++void FrontendVisualOptionsInitialize(Scene& scene,const Settings& settings)
++{
++    scene.mSettings[0] = !settings.mIsAutoZoomCamera;
++    scene.mSettings[1] = (int)(4.0f * settings.mCameraZoomLevel);
++    scene.mNavigation.SetPopScene(false);
++    scene.mBackupSettings[0] = scene.mSettings[0];
++    scene.mBackupSettings[1] = scene.mSettings[1];
++}
++template<class TLInstance,class TLComponentInstance,class TLTextInstance,template<class,int>class FEFinder,class Scene,class Wait,class Name,class Text>
++void FrontendVisualOptionsCreated(Scene& scene,Wait waitPointer,Name nameButton,Text formatText)
++{
++    auto* presentation = scene.mPresentation;
++    if (scene.mOverlayMode == 0)
++    {
++        FEFinder<TLInstance, 2>::template Find<>(presentation,
++            "OPTIONS_IN", "Layer", "blackbox")->m_bVisible = false;
++        FEFinder<TLInstance, 2>::template Find<>(presentation,
++            "OPTIONS_OUT", "Layer", "blackbox")->m_bVisible = false;
++    }
++
++    for (int i = 0; i < 4; ++i)
++        waitPointer(i);
++
++    for (int i = 0; i < 5; ++i)
++    {
++        char name[12];
++        nameButton(name, 12, i);
++        scene.mButtons[i] = FEFinder<TLComponentInstance, 4>::template Find<>(presentation,
++            "OPTIONS_IN", "Layer", "visual_options", "ZOOM LEVELS", name);
++    }
++    scene.mZoomButtons[0] = FEFinder<TLComponentInstance, 4>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "BTN_AUTOZOOM");
++    scene.mZoomButtons[1] = FEFinder<TLComponentInstance, 4>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "MANUAL_ZOOM");
++
++    scene.mZoomButtons[scene.mSettings[0]]->SetActiveSlide("down", true, false);
++    auto& zoomButton = scene.mZoomButtonComponents[scene.mSettings[0]];
++    for (int i = 0; i < 4; ++i)
++        zoomButton.SetPointerState(2, i);
++    scene.mButtons[scene.mSettings[1]]->SetActiveSlide("down", true, false);
++    auto& button = scene.mButtonComponents[scene.mSettings[1]];
++    for (int i = 0; i < 4; ++i)
++        button.SetPointerState(2, i);
++
++    TLTextInstance* text = FEFinder<TLTextInstance, 4>::Find(
++        scene.mPresentation->m_currentSlide, "Layer", "visual_options", "SERIES SETTING");
++    formatText(text,scene.mSettings[1] + 1);
++}
++template<class Button,class Instance,class Position>
++void FrontendVisualOptionsLevelBounds(Button& button,Instance* instance,const Position& position)
++{button.SetInstanceBounds(instance,true,position.f.x,position.f.y,1.0f,1.0f);}
++template<class Button,class Instance>
++void FrontendVisualOptionsModeBounds(Button& button,Instance* instance)
++{button.SetInstanceBounds(instance,true,0.0f,0.0f,1.0f,1.0f);}
++template<class TLInstance,class feVector3,template<class,int>class FEFinder,class Scene>
++void FrontendVisualOptionsBind(Scene& scene)
++{    TLInstance* levels = FEFinder<TLInstance, 2>::template Find<>(scene.mPresentation,
++        "OPTIONS_IN", "Layer", "visual_options", "ZOOM LEVELS");
++    feVector3 position = levels->GetAssetPosition();
++    for (int i=0;i<5;++i)
++        FrontendVisualOptionsLevelBounds(scene.mButtonComponents[i],scene.mButtons[i],position);
++    for (int i=0;i<2;++i)
++        FrontendVisualOptionsModeBounds(scene.mZoomButtonComponents[i],scene.mZoomButtons[i]);
++}
++template<class Scene,class Play>
++void FrontendVisualOptionsLevelEnter(Scene& scene,int index,unsigned int item,Play play)
++{
++    if (!scene.mButtonComponents[item].HasOtherPointerState(2, -1))
++    {
++        scene.mButtonComponents[item].PlayHoverFeedback(index);
++        if (!scene.mButtonComponents[item].HasOtherPointerState(1, index))
++        {
++            scene.mButtons[item]->SetActiveSlide("over", true, false);
++            play(0x96DEB5C3, 0, 0, 1);
++        }
++        scene.mButtonComponents[item].SetPointerState(1, index);
++    }
++}
++template<class Scene>
++void FrontendVisualOptionsLevelLeave(Scene& scene,int index,unsigned int item)
++{
++    if (!scene.mButtonComponents[item].HasOtherPointerState(2, -1))
++    {
++        if (!scene.mButtonComponents[item].HasOtherPointerState(1, index))
++        {
++            scene.mButtons[item]->SetActiveSlide("off", true, false);
++        }
++        scene.mButtonComponents[item].SetPointerState(0, index);
++    }
++}
++template<class Scene,class Visual,class Play,class Text>
++void FrontendVisualOptionsLevelPress(Scene& scene,int index,unsigned int item,Visual visual,Play play,Text formatText)
++{
++    if (scene.mButtonComponents[item].HasOtherPointerState(2, -1))
++        return;
++
++    play(0x3021A1EE, 0, 0, 1);
++    scene.mButtons[scene.mSettings[1]]->SetActiveSlide("off", true, false);
++    scene.mButtonComponents[scene.mSettings[1]].ResetPointerStates();
++    scene.mButtons[item]->SetActiveSlide("down", true, false);
++    for (int i = 0; i < 4; ++i)
++        scene.mButtonComponents[item].SetPointerState(2, i);
++    scene.mSettings[1] = item;
++    visual().mCameraZoomLevel = item / 4.0;
++
++    formatText(scene.mSettings[1] + 1);
++}
++template<class Scene,class Play>
++void FrontendVisualOptionsModeEnter(Scene& scene,int index,unsigned int item,Play play)
++{
++    if ((unsigned int)scene.mSettings[0] == item
++        || scene.mZoomButtonComponents[item].HasOtherPointerState(2, -1))
++    {
++        return;
++    }
++
++    scene.mZoomButtonComponents[item].PlayHoverFeedback(index);
++    if (!scene.mZoomButtonComponents[item].HasOtherPointerState(1, index))
++    {
++        scene.mZoomButtons[item]->SetActiveSlide("over", true, false);
++        play(0xF6EB899E, 0, 0, 1);
++    }
++    scene.mZoomButtonComponents[item].SetPointerState(1, index);
++}
++template<class Scene>
++void FrontendVisualOptionsModeLeave(Scene& scene,int index,unsigned int item)
++{
++    if ((unsigned int)scene.mSettings[0] == item
++        || scene.mZoomButtonComponents[item].HasOtherPointerState(2, -1))
++    {
++        return;
++    }
++    if (!scene.mZoomButtonComponents[item].HasOtherPointerState(1, index))
++    {
++        scene.mZoomButtons[item]->SetActiveSlide("off", true, false);
++    }
++    scene.mZoomButtonComponents[item].SetPointerState(0, index);
++}
++template<class Scene,class Visual,class Play,class Text>
++void FrontendVisualOptionsModePress(Scene& scene,int index,unsigned int item,Visual visual,Play play,Text formatText)
++{
++    if ((unsigned int)scene.mSettings[0] == item
++        || scene.mZoomButtonComponents[item].HasOtherPointerState(2, -1))
++        return;
++
++    scene.mZoomButtons[scene.mSettings[0]]->SetActiveSlide("off", true, false);
++    scene.mZoomButtonComponents[scene.mSettings[0]].ResetPointerStates();
++    scene.mZoomButtons[item]->SetActiveSlide("down", true, false);
++    for (int i = 0; i < 4; ++i)
++        scene.mZoomButtonComponents[item].SetPointerState(2, i);
++    play(0x362F2841, 0, 0, 1);
++    scene.mSettings[0] = item;
++    visual().mIsAutoZoomCamera = item == 0;
++
++    formatText(scene.mSettings[1] + 1);
++}
++template<class Scene,class Navigation,class Wait,class Push,class Overlay>
++bool FrontendVisualOptionsGate(Scene& scene,Navigation getNavigation,Wait waitPointer,Push push,Overlay pushOverlay)
++{    if (scene.mState == 0 || scene.mState == 2 || scene.mState == 3)
++    {
++        auto* slide = scene.mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
++        {
++            for (int i = 0; i < 4; ++i)
++                waitPointer(i);
++            return false;
++        }
++
++        if (scene.mState == 0)
++        {
++            auto* navigation = getNavigation();
++            if (navigation != 0)
++            {
++                navigation->SetButtons(0x24, true);
++                navigation->SetDoneButtonText(1);
++            }
++            scene.mState = 1;
++        }
++        else if (scene.mState == 2)
++        {
++            return false;
++        }
++        else if (scene.mState == 3)
++        {
++            if (scene.mOverlayMode == 0)
++                push(13);
++            else
++                pushOverlay(0x50);
++            return false;
++        }
++    }
++
++    return true;
++}
++template<class Scene,class Visual,class Play,class Navigation>
++void FrontendVisualOptionsBack(Scene& scene,Visual visual,Play play,Navigation getNavigation)
++{            visual().mCameraZoomLevel = scene.mBackupSettings[1] / 4.0;
++            visual().mIsAutoZoomCamera = scene.mBackupSettings[0] == 0;
++            play(0x304FDD1E, 0, 0, 1);
++            scene.mState = 3;
++            auto* navigation = getNavigation();
++            if (navigation != 0)
++                navigation->SetButtons(0, true);
++            scene.mPresentation->SetActiveSlide("OPTIONS_OUT", true);
++            scene.mPresentation->Update(0.0f);
++}
++template<class Scene,class Navigation,class Play,class Save>
++void FrontendVisualOptionsSave(Scene& scene,Navigation getNavigation,Play play,Save save)
++{
++    scene.mState = 3;
++    auto* navigation = getNavigation();
++    if (navigation != 0)
++    {
++        navigation->SetButtons(0, true);
++    }
++    scene.mPresentation->SetActiveSlide("OPTIONS_OUT", true);
++    scene.mPresentation->Update(0.0f);
++    scene.mSaveButton->SetActiveSlide("down", true, false);
++    play(0xF0AFD586, 0, 0, 1);
++    play(0x304FDD1E, 0, 0, 1);
++    scene.mSaveStarted = true;
++    save(false);
++}
++#endif

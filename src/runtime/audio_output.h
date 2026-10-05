@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <thread>
+#include <optional>
 
 namespace mscharged
 {
@@ -22,6 +23,9 @@ public:
     std::uint32_t Rate()const{return pcm_->Rate();}
     std::uint32_t Sample()const{return pcm_->SourceSample();}
     ResidentAudioMix Mix()const{return mix_;}
+    // Retained decoded PCM with original pan, before input gain. This can
+    // recover a previously muted voice without amplifying baked/clamped data.
+    std::vector<float> BeforeInputGain()const;
 private:
     ResidentAudioBuffer()=default;
     resources::AudioResidentBank::Handle bank_;
@@ -30,13 +34,13 @@ private:
     ResidentAudioMix mix_{};
     std::vector<float> stereo_;
     friend Handle PrepareResidentAudio(const AudioBankSelectionResult&,
-        resources::AudioCalculationInitial::Handle);
+        resources::AudioCalculationInitial::Handle,std::optional<float>);
 };
 // One authored resident sound event with no delay, pitch or random playback
 // modifiers. Original bank selection already consumed its source-choice RNG.
 // SDL resampling/mixing is native host output, not bit-exact AX emulation.
 ResidentAudioBuffer::Handle PrepareResidentAudio(const AudioBankSelectionResult&,
-    resources::AudioCalculationInitial::Handle);
+    resources::AudioCalculationInitial::Handle,std::optional<float> slider_override={});
 
 enum class ResidentAudioState { Prepared,Playing,InputConsumed,Stopped };
 struct ResidentAudioStatus
@@ -44,6 +48,7 @@ struct ResidentAudioStatus
     ResidentAudioState state;
     int queued_input_bytes;
     int available_output_bytes;
+    float input_gain=1;
 };
 // Thread-affine logical SDL device/stream owner. Initialization queues retained
 // PCM into a paused device; Start admits real output. InputConsumed means SDL
@@ -53,13 +58,14 @@ struct ResidentAudioStatus
 class ResidentAudioOutput
 {
 public:
-    explicit ResidentAudioOutput(ResidentAudioBuffer::Handle,std::uint32_t device_id=0);
+    explicit ResidentAudioOutput(ResidentAudioBuffer::Handle,std::uint32_t device_id=0,bool live_gain=false);
     ~ResidentAudioOutput();
     ResidentAudioOutput(const ResidentAudioOutput&)=delete;
     ResidentAudioOutput& operator=(const ResidentAudioOutput&)=delete;
     void Start();
     ResidentAudioStatus Status();
     void Stop();
+    void SetVolume(float volume_db); // Requires explicit live-gain construction.
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

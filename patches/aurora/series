@@ -8,3 +8,5 @@
 0008-finish-frames-without-presentation.patch
 0009-report-successful-presentation-geometry.patch
 0010-retain-dvd-handles-on-allocation-failure.patch
+0011-add-bounded-thp-decoding.patch
+0012-add-encoded-gx-draw-receipts.patch

@@ -17,6 +17,7 @@ struct FrontendAudioStatus
     int state=0,instance_state=0,event_state=0,source_state=0;
     bool auto_release=false,limited=false;
     std::optional<std::uint32_t> sample;
+    std::optional<float> output_volume_db;
 };
 // A retained native resident FE_GEN_Sfx bank in original name23/slot21.
 // Loaded means checked bank ownership, never full AudioBackend readiness.
@@ -51,5 +52,6 @@ public:
     bool Enabled() const;
     void Unload(std::uint32_t slot=21); // Cancel all output before releasing bank/calculation.
     bool Loaded() const;
+    AudioCategoryVolumes::Handle CategoryVolumes()const;
 };
 }

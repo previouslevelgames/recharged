@@ -24,7 +24,7 @@ void Supported(bool good,const char* message){if(!good)throw resources::Unsuppor
 std::runtime_error Error(const char* operation){return std::runtime_error(std::string(operation)+": "+SDL_GetError());}
 }
 ResidentAudioBuffer::Handle PrepareResidentAudio(const AudioBankSelectionResult& selection,
-    resources::AudioCalculationInitial::Handle calculation)
+    resources::AudioCalculationInitial::Handle calculation,std::optional<float> slider_override)
 {
     using resources::Require;
     Require(bool(selection.bank)&&bool(calculation),"Resident output requires retained bank and calculation table");
@@ -46,7 +46,8 @@ ResidentAudioBuffer::Handle PrepareResidentAudio(const AudioBankSelectionResult&
         "Resident pitch and random playback modifiers are unavailable");
     Supported(sound.delay_min==0&&sound.delay_range==0&&event.start_time==0,
         "Delayed resident playback is unavailable");
-    const float slider=calculation->Value(voice.slider);
+    const float slider=slider_override.value_or(calculation->Value(voice.slider));
+    Require(std::isfinite(slider)&&slider>=-96&&slider<=6,"Resident slider exceeds its original finite range");
     // Original zero-duration Prepare targets clamp the voice transition before Play.
     const float target=std::clamp(voice.volume,-96.0f,6.0f);
     const float instance=AudioResidentInstanceVolume(0.0f,slider,target);
@@ -78,11 +79,20 @@ ResidentAudioBuffer::Handle PrepareResidentAudio(const AudioBankSelectionResult&
     }
     return result;
 }
+std::vector<float> ResidentAudioBuffer::BeforeInputGain()const
+{
+    std::vector<float> stereo;stereo.reserve(pcm_->Samples().size()*2);
+    const float left=float(mix_.left)/32768.0f,right=float(mix_.right)/32768.0f;
+    for(auto sample:pcm_->Samples())
+    {const float value=float(sample)/32768.0f;stereo.push_back(value*left);stereo.push_back(value*right);}
+    return stereo;
+}
 struct ResidentAudioOutput::Impl
 {
     ResidentAudioBuffer::Handle buffer;
     SDL_AudioStream* stream=nullptr;
     bool initialized=false;
+    bool live_gain=false;
     ResidentAudioState state=ResidentAudioState::Prepared;
     ~Impl(){Close();}
     void Close()noexcept
@@ -92,18 +102,21 @@ struct ResidentAudioOutput::Impl
         if(initialized){SDL_QuitSubSystem(SDL_INIT_AUDIO);initialized=false;}
     }
 };
-ResidentAudioOutput::ResidentAudioOutput(ResidentAudioBuffer::Handle buffer,std::uint32_t device):impl_(std::make_unique<Impl>())
+ResidentAudioOutput::ResidentAudioOutput(ResidentAudioBuffer::Handle buffer,std::uint32_t device,bool live_gain):impl_(std::make_unique<Impl>())
 {
     resources::Require(bool(buffer)&&!buffer->Stereo().empty(),"Audio output requires prepared resident samples");
     resources::Require(buffer->Rate()<=std::uint32_t(std::numeric_limits<int>::max())&&
         buffer->Stereo().size_bytes()<=std::size_t(std::numeric_limits<int>::max()),"Audio output exceeds SDL input limits");
     impl_->buffer=std::move(buffer);
+    impl_->live_gain=live_gain;
     if(!SDL_InitSubSystem(SDL_INIT_AUDIO))throw Error("SDL audio initialization failed");
     impl_->initialized=true;
     const SDL_AudioSpec spec{SDL_AUDIO_F32,2,static_cast<int>(impl_->buffer->Rate())};
     impl_->stream=SDL_OpenAudioDeviceStream(device?device:SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,&spec,nullptr,nullptr);
     if(!impl_->stream)throw Error("SDL audio device/stream creation failed");
-    const auto data=impl_->buffer->Stereo();
+    const auto before=live_gain?impl_->buffer->BeforeInputGain():std::vector<float>{};
+    const auto data=live_gain?std::span<const float>(before):impl_->buffer->Stereo();
+    if(live_gain)SetVolume(impl_->buffer->Mix().volume_db);
     if(!SDL_PutAudioStreamData(impl_->stream,data.data(),static_cast<int>(data.size_bytes())))throw Error("SDL audio queue failed");
     if(!SDL_FlushAudioStream(impl_->stream))throw Error("SDL audio flush failed");
 }
@@ -124,7 +137,16 @@ ResidentAudioStatus ResidentAudioOutput::Status()
     const int input=SDL_GetAudioStreamQueued(impl_->stream),output=SDL_GetAudioStreamAvailable(impl_->stream);
     if(input<0||output<0){const auto error=Error("SDL audio stream query failed");impl_->Close();throw error;}
     if(impl_->state==ResidentAudioState::Playing&&!input&&!output)impl_->state=ResidentAudioState::InputConsumed;
-    return{impl_->state,input,output};
+    const float gain=SDL_GetAudioStreamGain(impl_->stream);
+    if(!std::isfinite(gain)||gain<0)throw Error("SDL stream gain query failed");
+    return{impl_->state,input,output,gain};
+}
+void ResidentAudioOutput::SetVolume(float db)
+{
+    Thread();resources::Require(impl_->live_gain&&impl_->stream,"Resident live gain requires its retained active output");
+    resources::Require(std::isfinite(db)&&db>=-96&&db<=6,"Resident live volume exceeds its original range");
+    const float gain=float(MIXTableVolume(AudioResidentInputTenths(db),volume_table))/32768.0f;
+    if(!SDL_SetAudioStreamGain(impl_->stream,gain))throw Error("Resident live stream gain failed");
 }
 void ResidentAudioOutput::Stop()
 {

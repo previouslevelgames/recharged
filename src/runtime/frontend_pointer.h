@@ -43,6 +43,10 @@ public:
     using Frame = FrontendSession::Handle;
     using Callback = std::function<void(FrontendPointerCallback, unsigned, const Frame&)>;
     FrontendPointerRegion(FrontendInput&, Frame, FrontendPointerBinding, Callback = {});
+    // Source-authored absolute bounds with retained component identity. Does
+    // not measure geometry; RebindFrame still requires the same scene owners.
+    FrontendPointerRegion(FrontendInput&, Frame, std::uint32_t retained_instance,
+        FrontendPointerBounds, Callback = {});
     ~FrontendPointerRegion();
     FrontendPointerRegion(const FrontendPointerRegion&) = delete;
     FrontendPointerRegion& operator=(const FrontendPointerRegion&) = delete;

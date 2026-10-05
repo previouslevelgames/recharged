@@ -41,6 +41,23 @@ Patch 0113 shares original option defaults and selected save-operation flag
 rules. The native preferences provider uses these rules with a dedicated host
 file; it does not load or complete the original Wii game save.
 
+Patch 0112 shares the original Audio Options controls and category volume rules.
+The selected native screen can change real resident and streamed audio gains;
+complete audio startup, navigation and game-save integration remain separate.
+
+Patch 0114 shares the original Visual Options controls, pointer feedback and
+zoom settings. The selected native screen preserves the original Back behavior
+and can save scoped native preferences; gameplay camera and full game saves
+remain separate services.
+
+Patch 0115 shares Main's original Options action. The native adapter queues the
+actual source scene pop, hides navigation, plays its cue and starts the original
+transition script. Missing transition services remain explicit.
+
+Patch 0116 shares Audio Options' original save feedback while leaving the Wii
+save call intact. Its selected native owner now uses the scene stack's single
+base update and original input lock, with separately scoped preference saving.
+
 The selected camera sources include original authored playback (0056) and
 desktop DebugCam controls (0057). Patch 0058 shares the original frontend
 camera catalog between the console factory and native loading code.
@@ -52,6 +69,22 @@ checks. Patches 0039–0040 add queued payload cleanup and the original dispatch
 task; the complete game task loop remains pending. Matching Wii code and a
 strictly applicable patch series do not establish a complete native game;
 see [the entry and runtime scope](../docs/RUNTIME.md#experimental-original-startup).
+
+Patch 0118 shares the original Audio/Visual Done hover callbacks and fixed
+button bounds. Native submenu input uses the retained NAV components and
+explicit host preference persistence; full Wii save and haptic services remain
+separate work.
+
+
+Patch 0120 shares the original Credits phase, text and scrolling rules. Its
+selected native owner reaches the NLG movie request; actual playback and
+completion remain explicit integration work.
+
+Patch 0123 shares original movie decode cadence, PCM mixing and float-quad
+construction. The selected native provider reads through NL, outputs through
+SDL, and renders with the original YUV movie material. Completion requires the
+exact final frame's presentation and flushed audio consumption. Full game audio
+mixing and live volume changes remain separate work.
 
 | Patch | Reason | Current validation |
 | --- | --- | --- |
@@ -230,6 +263,15 @@ active blocked read, retained partition/file readers, and threading-disabled
 builds.
 
 ## Aurora series
+
+Patch 0011 adds bounded video/PCM entry points to the existing THP decoder,
+sharing its valid decoding arithmetic. Native movie reads validate container,
+frame and output bounds. Decoding is separate from presentation and playback.
+
+Patch 0012 records tagged GX draws after they are encoded into the render pass.
+Native movie playback combines this evidence with successful frame presentation
+and drain before accepting a displayed frame. A skipped cold pipeline does not
+issue draw evidence; an encoded draw alone does not prove GPU completion.
 
 `aurora/0001-isolate-core-build-dependencies.patch` makes SQLite conditional on
 GX, matching where Aurora defines that dependency, and stops Aurora's dependency

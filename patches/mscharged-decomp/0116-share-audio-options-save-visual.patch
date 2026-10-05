@@ -1,0 +1,54 @@
+Subject: Share original Audio options save visual ordering
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Keep original SaveLoad::StartSave(false) outside the shared visual prefix.
+Native preferences are a separately named real host service, not original
+GameInfo/save readiness. Original navigation, slide and cue order is retained.
+
+diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.cpp
+--- a/src/Game/FE/feOptionsSubMenus.cpp
++++ b/src/Game/FE/feOptionsSubMenus.cpp
+@@ -217,17 +217,8 @@
+ 
+ void OptionsAudioMenuV2::OnSaveButtonPointerPress(int, void*)
+ {
+-    mState = 3;
+-    SHNavigation* navigation = GetNavigationScene();
+-    if (navigation != 0)
+-    {
+-        navigation->SetButtons(0, true);
+-    }
+-    mPresentation->SetActiveSlide("OPTIONS_OUT", true);
+-    mSaveStarted = true;
+-    mSaveButton->SetActiveSlide("down", true, false);
+-    FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
+-    FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
++    FrontendAudioOptionsSaveVisual(*this,[] { return GetNavigationScene(); },
++        [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
+     SaveLoad::StartSave(false);
+ }
+ 
+diff --git a/include/Game/FE/FrontendAudioOptionsSteps.h b/include/Game/FE/FrontendAudioOptionsSteps.h
+--- a/include/Game/FE/FrontendAudioOptionsSteps.h
++++ b/include/Game/FE/FrontendAudioOptionsSteps.h
+@@ -320,4 +320,19 @@
+                 navigation->SetButtons(0, true);
+             scene.mPresentation->SetActiveSlide("OPTIONS_OUT", true);
+ }
++template<class Scene,class Navigation,class Play>
++void FrontendAudioOptionsSaveVisual(Scene& scene,Navigation getNavigation,Play play)
++{
++    scene.mState = 3;
++    auto* navigation = getNavigation();
++    if (navigation != 0)
++    {
++        navigation->SetButtons(0, true);
++    }
++    scene.mPresentation->SetActiveSlide("OPTIONS_OUT", true);
++    scene.mSaveStarted = true;
++    scene.mSaveButton->SetActiveSlide("down", true, false);
++    play(0xF0AFD586, 0, 0, 1);
++    play(0x304FDD1E, 0, 0, 1);
++}
+ #endif

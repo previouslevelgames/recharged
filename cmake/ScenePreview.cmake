@@ -14,6 +14,9 @@ if(BUILD_TESTING)
 endif()
 include(cmake/CompressedAssets.cmake)
 add_library(charged_materials STATIC
+    src/runtime/movie_draw_observer.cpp
+    "${MSCHARGED_PREPARED}/src/NL/glx/GXMovieMaterialProgram.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/glx/GXMovieMaterialProgramRender.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialProgram.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glMaterialAlphaState.cpp"
     "${MSCHARGED_PREPARED}/src/Game/GameObjectLightingCore.cpp"
@@ -36,6 +39,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
 endif()
 add_library(charged_frames STATIC
     "${MSCHARGED_PREPARED}/src/NL/gl/glFrame.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/gl/glQuadSupport.cpp"
     src/runtime/frames.cpp src/runtime/frame_aurora.cpp)
 add_dependencies(charged_frames verify_prepared)
 target_include_directories(charged_frames PUBLIC src PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
@@ -143,7 +147,18 @@ include(cmake/FrontendMainMenu.cmake)
 include(cmake/FrontendOptions.cmake)
 include(cmake/FrontendNavigation.cmake)
 include(cmake/FrontendOptionsNavigation.cmake)
+include(cmake/FrontendAudioOptions.cmake)
+include(cmake/FrontendVisualOptions.cmake)
 include(cmake/FrontendMenuTransition.cmake)
+include(cmake/FrontendMenuDeparture.cmake)
+include(cmake/FrontendAudioNavigation.cmake)
+include(cmake/FrontendVisualNavigation.cmake)
+include(cmake/FrontendCredits.cmake)
+include(cmake/FrontendCreditsStack.cmake)
+include(cmake/ThpMovie.cmake)
+include(cmake/FrontendMovie.cmake)
+include(cmake/FrontendMovieRendering.cmake)
+include(cmake/FrontendMenuScenes.cmake)
 include(cmake/NisPip.cmake)
 add_library(charged_nis_pip_scene STATIC src/runtime/nis_pip_scene.cpp)
 target_link_libraries(charged_nis_pip_scene PUBLIC charged_nis_pip charged_nis_pip_render charged_static_inventory PRIVATE aurora::gx)
@@ -160,6 +175,7 @@ target_link_libraries(charged_scene_preview PRIVATE charged_frontend_main_menu c
 target_link_libraries(charged_scene_preview PRIVATE charged_frontend_navigation charged_frontend_stack)
 target_link_libraries(charged_scene_preview PRIVATE charged_frontend_options_navigation)
 target_link_libraries(charged_scene_preview PRIVATE charged_frontend_music)
+target_link_libraries(charged_scene_preview PRIVATE charged_frontend_menu_scenes charged_frontend_menu_input charged_world_effects charged_frontend_visual_options)
 target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_SCENE_PREVIEW=1)
 if(BUILD_TESTING)
     include(cmake/Tasks.cmake)
@@ -179,6 +195,13 @@ if(BUILD_TESTING)
     target_link_libraries(material_pipeline_tests PRIVATE charged_views charged_static_inventory aurora::gx aurora::vi aurora::core)
 endif()
 if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
+    # This executable takes a caller-owned disc INI; retail data is not a CI fixture.
+    add_executable(frontend_menu_scene_tests tests/frontend_menu_scene.cpp)
+    target_link_libraries(frontend_menu_scene_tests PRIVATE charged_scene_preview charged_frontend_menu_scenes SDL3::SDL3)
+    add_test(NAME frontend_movie_pipeline COMMAND frontend_movie_pipeline_tests)
+    set_tests_properties(frontend_movie_pipeline PROPERTIES TIMEOUT 120 LABELS "gpu;vulkan"
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation;SDL_AUDIODRIVER=dummy" RESOURCE_LOCK gx_check
+        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|FAILED:")
     add_test(NAME effects_material_pipeline COMMAND material_pipeline_tests --effects-only)
     set_tests_properties(effects_material_pipeline PROPERTIES TIMEOUT 90 LABELS "gpu;vulkan"
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation" RESOURCE_LOCK gx_check

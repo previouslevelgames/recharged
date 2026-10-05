@@ -1,0 +1,921 @@
+Subject: Share original audio options visual and volume target kernels
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Original source methods delegate to the same visual, listener, category clamp
+and target equations as checked native owners. Global GameInfo, SaveLoad, NAV
+and complete SceneCreated readiness are not supplied by these selected kernels.
+
+diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
+--- a/src/Game/DB/UserOptions.cpp
++++ b/src/Game/DB/UserOptions.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/DB/UserOptions.h"
++#include "Game/Audio/AudioOptionsVolumeSteps.h"
+ 
+ #include "Game/Audio/AudioSystem.h"
+ #include "Game/Audio/RegistryPools.h"
+@@ -23,19 +24,6 @@
+     UnidentifiedAudioCategoryLookup(0xAB29FE50, 0), // "global"
+ };
+ 
+-static const float VOLUME_TABLE[] = {
+-    -96.0f,
+-    -36.0f,
+-    -18.0f,
+-    -15.0f,
+-    -12.0f,
+-    -9.0f,
+-    -6.0f,
+-    -4.5f,
+-    -3.0f,
+-    -1.5f,
+-    0.0f,
+-};
+ 
+ AudioSettings::AudioSettings()
+ {
+@@ -50,122 +38,42 @@
+ 
+ void AudioSettings::ApplySettings()
+ {
+-    MusicVolume = MusicVolume < 0 ? 0 : MusicVolume;
+-    MusicVolume = MusicVolume > 10 ? 10 : MusicVolume;
+-    AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
+-    float volume = VOLUME_TABLE[MusicVolume];
+-    if (volume < pValues->m_unk68)
+     {
+-        pValues->m_unk5C = pValues->m_unk68;
++        AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
++        AudioOptionsApplyVolume(MusicVolume, pValues->m_unk5C, pValues->m_unk60, pValues->m_unk68, pValues->m_unk6C);
+     }
+-    else if (volume > pValues->m_unk6C)
+     {
+-        pValues->m_unk5C = pValues->m_unk6C;
++        AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
++        AudioOptionsApplyVolume(SFXVolume, pValues->m_unkAC, pValues->m_unkB0, pValues->m_unkB8, pValues->m_unkBC);
+     }
+-    else
+     {
+-        pValues->m_unk5C = volume;
++        AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
++        AudioOptionsApplyVolume(VoiceVolume, pValues->m_unk84, pValues->m_unk88, pValues->m_unk90, pValues->m_unk94);
+     }
+-    pValues->m_unk60 = 0.0f;
+-
+-    SFXVolume = SFXVolume < 0 ? 0 : SFXVolume;
+-    SFXVolume = SFXVolume > 10 ? 10 : SFXVolume;
+-    pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
+-    volume = VOLUME_TABLE[SFXVolume];
+-    if (volume < pValues->m_unkB8)
+-    {
+-        pValues->m_unkAC = pValues->m_unkB8;
+-    }
+-    else if (volume > pValues->m_unkBC)
+-    {
+-        pValues->m_unkAC = pValues->m_unkBC;
+-    }
+-    else
+-    {
+-        pValues->m_unkAC = volume;
+-    }
+-    pValues->m_unkB0 = 0.0f;
+-
+-    VoiceVolume = VoiceVolume < 0 ? 0 : VoiceVolume;
+-    VoiceVolume = VoiceVolume > 10 ? 10 : VoiceVolume;
+-    pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
+-    volume = VOLUME_TABLE[VoiceVolume];
+-    if (volume < pValues->m_unk90)
+-    {
+-        pValues->m_unk84 = pValues->m_unk90;
+-    }
+-    else if (volume > pValues->m_unk94)
+-    {
+-        pValues->m_unk84 = pValues->m_unk94;
+-    }
+-    else
+-    {
+-        pValues->m_unk84 = volume;
+-    }
+-    pValues->m_unk88 = 0.0f;
+ }
+ 
+ void AudioSettings::ApplyMusicVolume()
+ {
+-    MusicVolume = MusicVolume < 0 ? 0 : MusicVolume;
+-    MusicVolume = MusicVolume > 10 ? 10 : MusicVolume;
+-    AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
+-    float volume = VOLUME_TABLE[MusicVolume];
+-    if (volume < pValues->m_unk68)
+     {
+-        pValues->m_unk5C = pValues->m_unk68;
++        AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
++        AudioOptionsApplyVolume(MusicVolume, pValues->m_unk5C, pValues->m_unk60, pValues->m_unk68, pValues->m_unk6C);
+     }
+-    else if (volume > pValues->m_unk6C)
+-    {
+-        pValues->m_unk5C = pValues->m_unk6C;
+-    }
+-    else
+-    {
+-        pValues->m_unk5C = volume;
+-    }
+-    pValues->m_unk60 = 0.0f;
+ }
+ 
+ void AudioSettings::ApplySFXVolume()
+ {
+-    SFXVolume = SFXVolume < 0 ? 0 : SFXVolume;
+-    SFXVolume = SFXVolume > 10 ? 10 : SFXVolume;
+-    AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
+-    float volume = VOLUME_TABLE[SFXVolume];
+-    if (volume < pValues->m_unkB8)
+     {
+-        pValues->m_unkAC = pValues->m_unkB8;
++        AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
++        AudioOptionsApplyVolume(SFXVolume, pValues->m_unkAC, pValues->m_unkB0, pValues->m_unkB8, pValues->m_unkBC);
+     }
+-    else if (volume > pValues->m_unkBC)
+-    {
+-        pValues->m_unkAC = pValues->m_unkBC;
+-    }
+-    else
+-    {
+-        pValues->m_unkAC = volume;
+-    }
+-    pValues->m_unkB0 = 0.0f;
+ }
+ 
+ void AudioSettings::ApplyVoiceVolume()
+ {
+-    VoiceVolume = VoiceVolume < 0 ? 0 : VoiceVolume;
+-    VoiceVolume = VoiceVolume > 10 ? 10 : VoiceVolume;
+-    AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
+-    float volume = VOLUME_TABLE[VoiceVolume];
+-    if (volume < pValues->m_unk90)
+     {
+-        pValues->m_unk84 = pValues->m_unk90;
++        AudioValues* pValues = g_pAudioSystem->m_unkCC->m_unk10->m_unk08;
++        AudioOptionsApplyVolume(VoiceVolume, pValues->m_unk84, pValues->m_unk88, pValues->m_unk90, pValues->m_unk94);
+     }
+-    else if (volume > pValues->m_unk94)
+-    {
+-        pValues->m_unk84 = pValues->m_unk94;
+-    }
+-    else
+-    {
+-        pValues->m_unk84 = volume;
+-    }
+-    pValues->m_unk88 = 0.0f;
+ }
+ 
+ GameplaySettings::GameplaySettings()
+diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.cpp
+--- a/src/Game/FE/feOptionsSubMenus.cpp
++++ b/src/Game/FE/feOptionsSubMenus.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/FE/feOptionsSubMenus.h"
++#include "Game/FE/FrontendAudioOptionsSteps.h"
+ #include "Game/FE/FEAudio.h"
+ 
+ #include "Game/DB/SaveLoad.h"
+@@ -75,61 +76,13 @@
+ 
+     for (int i = 0; i < 4; ++i)
+         GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-
+-    if (mOverlayMode == 0)
+-    {
+-        FEFinder<TLInstance, 2>::Find<>(presentation,
+-            "OPTIONS_IN", "Layer", "blackbox")->m_bVisible = false;
+-        FEFinder<TLInstance, 2>::Find<>(presentation,
+-            "OPTIONS_OUT", "Layer", "blackbox")->m_bVisible = false;
+-    }
+-
+-    TLComponentInstance* right = FEFinder<TLComponentInstance, 4>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "scrollbar_right");
+-    TLComponentInstance* left = FEFinder<TLComponentInstance, 4>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "scrollbar_left");
+-    mButtons[0] = FEFinder<TLComponentInstance, 4>::Find<>(left->GetActiveSlide(), "down_arrow");
+-    mButtons[1] = FEFinder<TLComponentInstance, 4>::Find<>(right->GetActiveSlide(), "up_arrow");
+-    mButtons[2] = FEFinder<TLComponentInstance, 4>::Find<>(left->GetActiveSlide(), "down_arrow2");
+-    mButtons[3] = FEFinder<TLComponentInstance, 4>::Find<>(right->GetActiveSlide(), "up_arrow2");
+-    mButtons[4] = FEFinder<TLComponentInstance, 4>::Find<>(left->GetActiveSlide(), "down_arrow3");
+-    mButtons[5] = FEFinder<TLComponentInstance, 4>::Find<>(right->GetActiveSlide(), "up_arrow3");
+-
+-    TLInstance* volume[3];
+-    volume[0] = FEFinder<TLInstance, 2>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "MUSIC VOLUME");
+-    volume[1] = FEFinder<TLInstance, 2>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "SFX VOLUME");
+-    volume[2] = FEFinder<TLInstance, 2>::Find<>(presentation,
+-        "OPTIONS_IN", "Layer", "visual_options", "VOX VOLUME");
+-    for (int i = 0; i < 10; ++i)
+-    {
+-        char name[12];
+-        if (i == 0)
+-            nlSNPrintf(name, 12, "whitebox");
+-        else
+-            nlSNPrintf(name, 12, "whitebox%d", i + 1);
+-        mVolumeBars[0][i] = FEFinder<TLInstance, 2>::Find<>(volume[0], name);
+-        mVolumeBars[1][i] = FEFinder<TLInstance, 2>::Find<>(volume[1], name);
+-        mVolumeBars[2][i] = FEFinder<TLInstance, 2>::Find<>(volume[2], name);
+-    }
+-
+-    UpdateVolumeLevelText(0);
+-    UpdateVolumeLevelText(1);
+-    UpdateVolumeLevelText(2);
+-    UpdateVolumeBars(0);
+-    UpdateVolumeBars(1);
+-    UpdateVolumeBars(2);
+-    MarkUnusedVolumeButtons();
++    FrontendAudioOptionsCreated<TLInstance,TLComponentInstance,FEFinder>(*this,
++        [](char* name, int size, int index) { if (index == 0) nlSNPrintf(name,size,"whitebox"); else nlSNPrintf(name,size,"whitebox%d",index); });
+ }
+ 
+ void OptionsAudioMenuV2::MarkUnusedVolumeButtons()
+ {
+-    for (int i = 0; i < 6; ++i)
+-    {
+-        if (!IsVolumeButtonEnabled(i))
+-            mButtons[i]->SetActiveSlide("unused", true, false);
+-    }
++    FrontendAudioOptionsMarkUnused(*this);
+ }
+ 
+ void OptionsAudioMenuV2::Update(float fDeltaT)
+@@ -144,41 +97,10 @@
+     }
+ 
+     BaseSceneHandler::Update(fDeltaT);
+-
+-    if (mState == 0 || mState == 2 || mState == 3)
+-    {
+-        TLSlide* slide = mPresentation->m_currentSlide;
+-        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
+-        {
+-            for (int i = 0; i < 4; ++i)
+-                GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-            return;
+-        }
+-
+-        if (mState == 0)
+-        {
+-            SHNavigation* navigation = GetNavigationScene();
+-            if (navigation != 0)
+-            {
+-                navigation->SetButtons(0x24, true);
+-                navigation->SetDoneButtonText(1);
+-            }
+-            mState = 1;
+-        }
+-        else if (mState == 2)
+-        {
+-            return;
+-        }
+-        else if (mState == 3)
+-        {
+-            if (mOverlayMode == 0)
+-                GameSceneManager::Instance()->Push((SceneList)13, SCREEN_NOTHING, true);
+-            else
+-                g_pOverlayManager->Push((SceneList)0x50, SCREEN_NOTHING, true);
+-            return;
+-        }
+-    }
+-
++    if (!FrontendAudioOptionsGate(*this,[] { return GetNavigationScene(); },
++        [](int i) { GetPointerInstance(i)->SetActiveSlide("waiting",true,false); },
++        [](int id) { GameSceneManager::Instance()->Push((SceneList)id,SCREEN_NOTHING,true); },
++        [](int id) { g_pOverlayManager->Push((SceneList)id,SCREEN_NOTHING,true); })) return;
+     if (!mPointerButtonsInitialized)
+     {
+         InitializePointerButtons();
+@@ -204,17 +126,9 @@
+ 
+         if (mNavigation.UpdateBackButton(event, fDeltaT))
+         {
+-            AudioSettings* settings = GameInfoManager::Instance()->GetAudioSettings();
+-            settings->MusicVolume = mBackupSettings[0];
+-            settings->SFXVolume = mBackupSettings[1];
+-            settings->VoiceVolume = mBackupSettings[2];
+-            settings->ApplySettings();
+-            FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
+-            mState = 3;
+-            SHNavigation* navigation = GetNavigationScene();
+-            if (navigation != 0)
+-                navigation->SetButtons(0, true);
+-            mPresentation->SetActiveSlide("OPTIONS_OUT", true);
++            FrontendAudioOptionsBack(*this,[] { return GameInfoManager::Instance()->GetAudioSettings(); },
++                [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },
++                [] { return GetNavigationScene(); });
+             return;
+         }
+ 
+@@ -251,12 +165,7 @@
+     feVector3 rightPosition = right->GetAssetPosition();
+     for (int i = 0; i < 6; ++i)
+     {
+-        if (i == 0 || i == 2 || i == 4)
+-            mButtonComponents[i].SetInstanceBounds(mButtons[i], false,
+-                leftPosition.f.x, leftPosition.f.y, 1.0f, 1.0f);
+-        else
+-            mButtonComponents[i].SetInstanceBounds(mButtons[i], false,
+-                rightPosition.f.x, rightPosition.f.y, 1.0f, 1.0f);
++        FrontendAudioOptionsBindItem(*this,i,leftPosition,rightPosition);
+         mButtonComponents[i].SetPointerEnterCallback(enter);
+         mButtonComponents[i].SetPointerLeaveCallback(leave);
+         mButtonComponents[i].SetPointerPressCallback(press);
+@@ -269,142 +178,22 @@
+ 
+ void OptionsAudioMenuV2::UpdateVolumeBars(int setting)
+ {
+-    int volume = 0;
+-    nlColour selected;
+-    nlColour unselected;
+-    nlColourSet(selected, 0xA9, 0xD0, 0x46, 0xFF);
+-    nlColourSet(unselected, 0, 0, 0, 0xFF);
+-
+-    if (setting == 0)
+-    {
+-        volume = mSettings[0];
+-    }
+-    else if (setting == 1)
+-    {
+-        volume = mSettings[1];
+-    }
+-    else if (setting == 2)
+-    {
+-        volume = mSettings[2];
+-    }
+-
+-    for (int i = 0; i < 10; ++i)
+-    {
+-        if (i < volume)
+-        {
+-            mVolumeBars[setting][i]->SetAssetColour(selected);
+-        }
+-        else
+-        {
+-            mVolumeBars[setting][i]->SetAssetColour(unselected);
+-        }
+-    }
++    FrontendAudioOptionsBars<nlColour>(*this,setting,[](nlColour& c,int r,int g,int b,int a) { nlColourSet(c,r,g,b,a); });
+ }
+ 
+ void OptionsAudioMenuV2::OnVolumeButtonPointerEnter(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (mButtonComponents[item].HasOtherPointerState(2, -1)
+-        || !IsVolumeButtonEnabled(item))
+-    {
+-        return;
+-    }
+-
+-    mButtonComponents[item].PlayHoverFeedback(index);
+-    if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-    {
+-        mButtons[item]->SetActiveSlide("over", true, false);
+-        FEAudio::PlayAnimAudioEvent(0x96DEB5C3, 0, 0, 1);
+-    }
+-    mButtonComponents[item].SetPointerState(1, index);
++    FrontendAudioOptionsEnter(*this,index,(unsigned int)context, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
+ }
+ 
+ void OptionsAudioMenuV2::OnVolumeButtonPointerLeave(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (mButtonComponents[item].HasOtherPointerState(2, -1)
+-        || !IsVolumeButtonEnabled(item))
+-    {
+-        return;
+-    }
+-
+-    if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-    {
+-        mButtons[item]->SetActiveSlide("off", true, false);
+-    }
+-    mButtonComponents[item].SetPointerState(0, index);
++    FrontendAudioOptionsLeave(*this,index,(unsigned int)context);
+ }
+ 
+ void OptionsAudioMenuV2::OnVolumeButtonPointerPress(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
+-    if (mButtonComponents[item].HasOtherPointerState(2, -1)
+-        || !IsVolumeButtonEnabled(item))
+-        return;
+-
+-    AudioSettings* settings = GameInfoManager::Instance()->GetAudioSettings();
+-    switch (item)
+-    {
+-    case 0:
+-        settings->MusicVolume = --mSettings[0];
+-        settings->ApplyMusicVolume();
+-        UpdateVolumeBars(0);
+-        UpdateVolumeLevelText(0);
+-        mButtons[1]->SetActiveSlide("off", true, false);
+-        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
+-        break;
+-    case 1:
+-        settings->MusicVolume = ++mSettings[0];
+-        settings->ApplyMusicVolume();
+-        UpdateVolumeBars(0);
+-        UpdateVolumeLevelText(0);
+-        mButtons[0]->SetActiveSlide("off", true, false);
+-        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
+-        break;
+-    case 2:
+-        settings->SFXVolume = --mSettings[1];
+-        settings->ApplySFXVolume();
+-        UpdateVolumeBars(1);
+-        UpdateVolumeLevelText(1);
+-        mButtons[3]->SetActiveSlide("off", true, false);
+-        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
+-        break;
+-    case 3:
+-        settings->SFXVolume = ++mSettings[1];
+-        settings->ApplySFXVolume();
+-        UpdateVolumeBars(1);
+-        UpdateVolumeLevelText(1);
+-        mButtons[2]->SetActiveSlide("off", true, false);
+-        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
+-        break;
+-    case 4:
+-        settings->VoiceVolume = --mSettings[2];
+-        settings->ApplyVoiceVolume();
+-        UpdateVolumeBars(2);
+-        UpdateVolumeLevelText(2);
+-        if (mOverlayMode == 0)
+-            FEAudio::PlayAnimAudioEvent(0x1F824C84, 0, 0, 1);
+-        else
+-            FEAudio::PlaySound(1, 0x270203ED, 0, 0);
+-        mButtons[5]->SetActiveSlide("off", true, false);
+-        break;
+-    case 5:
+-        settings->VoiceVolume = ++mSettings[2];
+-        settings->ApplyVoiceVolume();
+-        UpdateVolumeBars(2);
+-        UpdateVolumeLevelText(2);
+-        if (mOverlayMode == 0)
+-            FEAudio::PlayAnimAudioEvent(0x1F824C84, 0, 0, 1);
+-        else
+-            FEAudio::PlaySound(1, 0x270203ED, 0, 0);
+-        mButtons[4]->SetActiveSlide("off", true, false);
+-        break;
+-    }
+-
+-    if (IsVolumeButtonEnabled(item))
+-        mButtons[item]->SetActiveSlide("slide1", true, false);
+-    else
+-        mButtons[item]->SetActiveSlide("unused", true, false);
++    FrontendAudioOptionsPress(*this,index,(unsigned int)context, [] { return GameInfoManager::Instance()->GetAudioSettings(); }, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); }, [](int bank,unsigned long cue,const void* name,void* context) { FEAudio::PlaySound(bank,cue,name,context); });
+ }
+ 
+ void OptionsAudioMenuV2::OnSaveButtonPointerEnter(int index, void*)
+@@ -444,40 +233,16 @@
+ 
+ void OptionsAudioMenuV2::UpdateVolumeLevelText(int setting)
+ {
+-    unsigned short number[4];
+-    if (setting == 0)
+-    {
+-        TLTextInstance* text = FEFindTextInstance(
+-            mPresentation->m_currentSlide, "Layer", "visual_options", "MUSIC SETTING");
+-        nlSNPrintf(number, 4, (const unsigned short*)L"%d", mSettings[0]);
+-        BasicString<unsigned short, Detail::TempStringAllocator> formatted = Format(
+-            BasicString<unsigned short, Detail::TempStringAllocator>(
+-                g_pLocalization->GetString("OPTIONS_AUDIO_MUSIC_LEVEL")), number);
+-        memcpy(mFormattedSettings[0], formatted.c_str(), 0x20);
+-        text->SetString(mFormattedSettings[0]);
+-    }
+-    else if (setting == 1)
+-    {
+-        TLTextInstance* text = FEFindTextInstance(
+-            mPresentation->m_currentSlide, "Layer", "visual_options", "SFX SETTING2");
+-        nlSNPrintf(number, 4, (const unsigned short*)L"%d", mSettings[1]);
+-        BasicString<unsigned short, Detail::TempStringAllocator> formatted = Format(
+-            BasicString<unsigned short, Detail::TempStringAllocator>(
+-                g_pLocalization->GetString("OPTIONS_AUDIO_SFX_LEVEL")), number);
+-        memcpy(mFormattedSettings[1], formatted.c_str(), 0x20);
+-        text->SetString(mFormattedSettings[1]);
+-    }
+-    else
+-    {
+-        TLTextInstance* text = FEFindTextInstance(
+-            mPresentation->m_currentSlide, "Layer", "visual_options", "VOX SETTING3");
+-        nlSNPrintf(number, 4, (const unsigned short*)L"%d", mSettings[2]);
+-        BasicString<unsigned short, Detail::TempStringAllocator> formatted = Format(
+-            BasicString<unsigned short, Detail::TempStringAllocator>(
+-                g_pLocalization->GetString("OPTIONS_AUDIO_VOX_LEVEL")), number);
+-        memcpy(mFormattedSettings[2], formatted.c_str(), 0x20);
+-        text->SetString(mFormattedSettings[2]);
+-    }
++    FrontendAudioOptionsText(*this,setting,
++        [](TLSlide* slide,const char* layer,const char* group,const char* name) { return FEFindTextInstance(slide,layer,group,name); },
++        [this](TLTextInstance* text,int index,const char* key,int level) {
++            unsigned short number[4];
++            nlSNPrintf(number,4,(const unsigned short*)L"%d",level);
++            BasicString<unsigned short, Detail::TempStringAllocator> formatted = Format(
++                BasicString<unsigned short, Detail::TempStringAllocator>(g_pLocalization->GetString(key)),number);
++            memcpy(mFormattedSettings[index],formatted.c_str(),0x20);
++            text->SetString(mFormattedSettings[index]);
++        });
+ }
+ 
+ OptionsVisualMenuV2::OptionsVisualMenuV2(int mode)
+diff --git a/include/Game/FE/feOptionsSubMenus.h b/include/Game/FE/feOptionsSubMenus.h
+--- a/include/Game/FE/feOptionsSubMenus.h
++++ b/include/Game/FE/feOptionsSubMenus.h
+@@ -2,6 +2,7 @@
+ #define _FEOPTIONSSUBMENUS_H_
+ 
+ #include "Game/BaseSceneHandler.h"
++#include "Game/FE/FrontendAudioOptionsSteps.h"
+ #include "Game/FE/fePointerButton.h"
+ #include "Game/FE/feBackButton.h"
+ 
+@@ -48,33 +49,8 @@
+ 
+     bool IsVolumeButtonEnabled(unsigned int item) const
+     {
+-        bool enabled;
+-        switch (item)
+-        {
+-        case 0:
+-            enabled = mSettings[0] > 0;
+-            break;
+-        case 1:
+-            enabled = mSettings[0] < 10;
+-            break;
+-        case 2:
+-            enabled = mSettings[1] > 0;
+-            break;
+-        case 3:
+-            enabled = mSettings[1] < 10;
+-            break;
+-        case 4:
+-            enabled = mSettings[2] > 0;
+-            break;
+-        case 5:
+-            enabled = mSettings[2] < 10;
+-            break;
+-        default:
+-            enabled = false;
+-            break;
+-        }
+-        return enabled;
+-    }
++        return FrontendAudioOptionsEnabled(*this,item);
++}
+ 
+     /* 0x028 */ int mOverlayMode;
+     /* 0x02C */ FEBackButton mNavigation;
+diff --git a/include/Game/FE/FrontendAudioOptionsSteps.h b/include/Game/FE/FrontendAudioOptionsSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendAudioOptionsSteps.h
+@@ -0,0 +1,323 @@
++#ifndef GAME_FE_FRONTEND_AUDIO_OPTIONS_STEPS_H
++#define GAME_FE_FRONTEND_AUDIO_OPTIONS_STEPS_H
++// Selected original scene14 visual/listener kernels; services remain explicit.
++template<class TLInstance,class TLComponentInstance,template<class,int>class FEFinder,class Scene,class Name>
++void FrontendAudioOptionsCreated(Scene& scene,Name nameBar)
++{
++    auto* presentation = scene.mPresentation;
++    if (scene.mOverlayMode == 0)
++    {
++        FEFinder<TLInstance, 2>::template Find<>(presentation,
++            "OPTIONS_IN", "Layer", "blackbox")->m_bVisible = false;
++        FEFinder<TLInstance, 2>::template Find<>(presentation,
++            "OPTIONS_OUT", "Layer", "blackbox")->m_bVisible = false;
++    }
++
++    TLComponentInstance* right = FEFinder<TLComponentInstance, 4>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "scrollbar_right");
++    TLComponentInstance* left = FEFinder<TLComponentInstance, 4>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "scrollbar_left");
++    scene.mButtons[0] = FEFinder<TLComponentInstance, 4>::template Find<>(left->GetActiveSlide(), "down_arrow");
++    scene.mButtons[1] = FEFinder<TLComponentInstance, 4>::template Find<>(right->GetActiveSlide(), "up_arrow");
++    scene.mButtons[2] = FEFinder<TLComponentInstance, 4>::template Find<>(left->GetActiveSlide(), "down_arrow2");
++    scene.mButtons[3] = FEFinder<TLComponentInstance, 4>::template Find<>(right->GetActiveSlide(), "up_arrow2");
++    scene.mButtons[4] = FEFinder<TLComponentInstance, 4>::template Find<>(left->GetActiveSlide(), "down_arrow3");
++    scene.mButtons[5] = FEFinder<TLComponentInstance, 4>::template Find<>(right->GetActiveSlide(), "up_arrow3");
++
++    TLInstance* volume[3];
++    volume[0] = FEFinder<TLInstance, 2>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "MUSIC VOLUME");
++    volume[1] = FEFinder<TLInstance, 2>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "SFX VOLUME");
++    volume[2] = FEFinder<TLInstance, 2>::template Find<>(presentation,
++        "OPTIONS_IN", "Layer", "visual_options", "VOX VOLUME");
++    for (int i = 0; i < 10; ++i)
++    {
++        char name[12];
++        if (i == 0)
++            nameBar(name, 12, 0);
++        else
++            nameBar(name, 12, i + 1);
++        scene.mVolumeBars[0][i] = FEFinder<TLInstance, 2>::template Find<>(volume[0], name);
++        scene.mVolumeBars[1][i] = FEFinder<TLInstance, 2>::template Find<>(volume[1], name);
++        scene.mVolumeBars[2][i] = FEFinder<TLInstance, 2>::template Find<>(volume[2], name);
++    }
++
++    scene.UpdateVolumeLevelText(0);
++    scene.UpdateVolumeLevelText(1);
++    scene.UpdateVolumeLevelText(2);
++    scene.UpdateVolumeBars(0);
++    scene.UpdateVolumeBars(1);
++    scene.UpdateVolumeBars(2);
++    scene.MarkUnusedVolumeButtons();
++}
++template<class Scene>
++bool FrontendAudioOptionsEnabled(const Scene& scene,unsigned int item)
++{
++        bool enabled;
++        switch (item)
++        {
++        case 0:
++            enabled = scene.mSettings[0] > 0;
++            break;
++        case 1:
++            enabled = scene.mSettings[0] < 10;
++            break;
++        case 2:
++            enabled = scene.mSettings[1] > 0;
++            break;
++        case 3:
++            enabled = scene.mSettings[1] < 10;
++            break;
++        case 4:
++            enabled = scene.mSettings[2] > 0;
++            break;
++        case 5:
++            enabled = scene.mSettings[2] < 10;
++            break;
++        default:
++            enabled = false;
++            break;
++        }
++        return enabled;
++    }
++template<class Scene>
++void FrontendAudioOptionsMarkUnused(Scene& scene)
++{
++    for (int i = 0; i < 6; ++i)
++    {
++        if (!scene.IsVolumeButtonEnabled(i))
++            scene.mButtons[i]->SetActiveSlide("unused", true, false);
++    }
++}
++template<class Colour,class Scene,class SetColour>
++void FrontendAudioOptionsBars(Scene& scene,int setting,SetColour setColour)
++{
++    int volume = 0;
++    Colour selected;
++    Colour unselected;
++    setColour(selected, 0xA9, 0xD0, 0x46, 0xFF);
++    setColour(unselected, 0, 0, 0, 0xFF);
++
++    if (setting == 0)
++    {
++        volume = scene.mSettings[0];
++    }
++    else if (setting == 1)
++    {
++        volume = scene.mSettings[1];
++    }
++    else if (setting == 2)
++    {
++        volume = scene.mSettings[2];
++    }
++
++    for (int i = 0; i < 10; ++i)
++    {
++        if (i < volume)
++        {
++            scene.mVolumeBars[setting][i]->SetAssetColour(selected);
++        }
++        else
++        {
++            scene.mVolumeBars[setting][i]->SetAssetColour(unselected);
++        }
++    }
++}
++template<class Scene,class Play>
++void FrontendAudioOptionsEnter(Scene& scene,int index,unsigned int item,Play play)
++{
++    if (scene.mButtonComponents[item].HasOtherPointerState(2, -1)
++        || !scene.IsVolumeButtonEnabled(item))
++    {
++        return;
++    }
++
++    scene.mButtonComponents[item].PlayHoverFeedback(index);
++    if (!scene.mButtonComponents[item].HasOtherPointerState(1, index))
++    {
++        scene.mButtons[item]->SetActiveSlide("over", true, false);
++        play(0x96DEB5C3, 0, 0, 1);
++    }
++    scene.mButtonComponents[item].SetPointerState(1, index);
++}
++template<class Scene>
++void FrontendAudioOptionsLeave(Scene& scene,int index,unsigned int item)
++{
++    if (scene.mButtonComponents[item].HasOtherPointerState(2, -1)
++        || !scene.IsVolumeButtonEnabled(item))
++    {
++        return;
++    }
++
++    if (!scene.mButtonComponents[item].HasOtherPointerState(1, index))
++    {
++        scene.mButtons[item]->SetActiveSlide("off", true, false);
++    }
++    scene.mButtonComponents[item].SetPointerState(0, index);
++}
++template<class Scene,class Settings,class Play,class PlaySound>
++void FrontendAudioOptionsPress(Scene& scene,int index,unsigned int item,Settings getSettings,Play play,PlaySound playSound)
++{
++    if (scene.mButtonComponents[item].HasOtherPointerState(2, -1)
++        || !scene.IsVolumeButtonEnabled(item))
++        return;
++
++    auto* settings = getSettings();
++    switch (item)
++    {
++    case 0:
++        settings->MusicVolume = --scene.mSettings[0];
++        settings->ApplyMusicVolume();
++        scene.UpdateVolumeBars(0);
++        scene.UpdateVolumeLevelText(0);
++        scene.mButtons[1]->SetActiveSlide("off", true, false);
++        play(0x3021A1EE, 0, 0, 1);
++        break;
++    case 1:
++        settings->MusicVolume = ++scene.mSettings[0];
++        settings->ApplyMusicVolume();
++        scene.UpdateVolumeBars(0);
++        scene.UpdateVolumeLevelText(0);
++        scene.mButtons[0]->SetActiveSlide("off", true, false);
++        play(0x3021A1EE, 0, 0, 1);
++        break;
++    case 2:
++        settings->SFXVolume = --scene.mSettings[1];
++        settings->ApplySFXVolume();
++        scene.UpdateVolumeBars(1);
++        scene.UpdateVolumeLevelText(1);
++        scene.mButtons[3]->SetActiveSlide("off", true, false);
++        play(0x3021A1EE, 0, 0, 1);
++        break;
++    case 3:
++        settings->SFXVolume = ++scene.mSettings[1];
++        settings->ApplySFXVolume();
++        scene.UpdateVolumeBars(1);
++        scene.UpdateVolumeLevelText(1);
++        scene.mButtons[2]->SetActiveSlide("off", true, false);
++        play(0x3021A1EE, 0, 0, 1);
++        break;
++    case 4:
++        settings->VoiceVolume = --scene.mSettings[2];
++        settings->ApplyVoiceVolume();
++        scene.UpdateVolumeBars(2);
++        scene.UpdateVolumeLevelText(2);
++        if (scene.mOverlayMode == 0)
++            play(0x1F824C84, 0, 0, 1);
++        else
++            playSound(1, 0x270203ED, 0, 0);
++        scene.mButtons[5]->SetActiveSlide("off", true, false);
++        break;
++    case 5:
++        settings->VoiceVolume = ++scene.mSettings[2];
++        settings->ApplyVoiceVolume();
++        scene.UpdateVolumeBars(2);
++        scene.UpdateVolumeLevelText(2);
++        if (scene.mOverlayMode == 0)
++            play(0x1F824C84, 0, 0, 1);
++        else
++            playSound(1, 0x270203ED, 0, 0);
++        scene.mButtons[4]->SetActiveSlide("off", true, false);
++        break;
++    }
++
++    if (scene.IsVolumeButtonEnabled(item))
++        scene.mButtons[item]->SetActiveSlide("slide1", true, false);
++    else
++        scene.mButtons[item]->SetActiveSlide("unused", true, false);
++}
++template<class Scene,class FindText,class FormatText>
++void FrontendAudioOptionsText(Scene& scene,int setting,FindText findText,FormatText formatText)
++{
++    if (setting == 0)
++    {
++        auto* text = findText(
++            scene.mPresentation->m_currentSlide, "Layer", "visual_options", "MUSIC SETTING");
++        formatText(text,0,"OPTIONS_AUDIO_MUSIC_LEVEL",scene.mSettings[0]);
++    }
++    else if (setting == 1)
++    {
++        auto* text = findText(
++            scene.mPresentation->m_currentSlide, "Layer", "visual_options", "SFX SETTING2");
++        formatText(text,1,"OPTIONS_AUDIO_SFX_LEVEL",scene.mSettings[1]);
++    }
++    else
++    {
++        auto* text = findText(
++            scene.mPresentation->m_currentSlide, "Layer", "visual_options", "VOX SETTING3");
++        formatText(text,2,"OPTIONS_AUDIO_VOX_LEVEL",scene.mSettings[2]);
++    }
++}
++template<class Scene,class Position>
++void FrontendAudioOptionsBindItem(Scene& scene,int i,const Position& leftPosition,const Position& rightPosition)
++{        if (i == 0 || i == 2 || i == 4)
++            scene.mButtonComponents[i].SetInstanceBounds(scene.mButtons[i], false,
++                leftPosition.f.x, leftPosition.f.y, 1.0f, 1.0f);
++        else
++            scene.mButtonComponents[i].SetInstanceBounds(scene.mButtons[i], false,
++                rightPosition.f.x, rightPosition.f.y, 1.0f, 1.0f);
++}
++template<class TLInstance,class feVector3,template<class,int>class FEFinder,class Scene>
++void FrontendAudioOptionsBind(Scene& scene)
++{    TLInstance* right = FEFinder<TLInstance, 2>::Find(scene.mPresentation,
++        "OPTIONS_IN", "Layer", "visual_options", "scrollbar_right");
++    TLInstance* left = FEFinder<TLInstance, 2>::Find(scene.mPresentation,
++        "OPTIONS_IN", "Layer", "visual_options", "scrollbar_left");
++    feVector3 leftPosition = left->GetAssetPosition();
++    feVector3 rightPosition = right->GetAssetPosition();
++    for(int i=0;i<6;++i) FrontendAudioOptionsBindItem(scene,i,leftPosition,rightPosition);
++}
++template<class Scene,class Navigation,class Wait,class Push,class Overlay>
++bool FrontendAudioOptionsGate(Scene& scene,Navigation getNavigation,Wait waitPointer,Push push,Overlay pushOverlay)
++{    if (scene.mState == 0 || scene.mState == 2 || scene.mState == 3)
++    {
++        auto* slide = scene.mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
++        {
++            for (int i = 0; i < 4; ++i)
++                waitPointer(i);
++            return false;
++        }
++
++        if (scene.mState == 0)
++        {
++            auto* navigation = getNavigation();
++            if (navigation != 0)
++            {
++                navigation->SetButtons(0x24, true);
++                navigation->SetDoneButtonText(1);
++            }
++            scene.mState = 1;
++        }
++        else if (scene.mState == 2)
++        {
++            return false;
++        }
++        else if (scene.mState == 3)
++        {
++            if (scene.mOverlayMode == 0)
++                push(13);
++            else
++                pushOverlay(0x50);
++            return false;
++        }
++    }
++
++    return true;
++}
++template<class Scene,class Settings,class Play,class Navigation>
++void FrontendAudioOptionsBack(Scene& scene,Settings getSettings,Play play,Navigation getNavigation)
++{            auto* settings = getSettings();
++            settings->MusicVolume = scene.mBackupSettings[0];
++            settings->SFXVolume = scene.mBackupSettings[1];
++            settings->VoiceVolume = scene.mBackupSettings[2];
++            settings->ApplySettings();
++            play(0x304FDD1E, 0, 0, 1);
++            scene.mState = 3;
++            auto* navigation = getNavigation();
++            if (navigation != 0)
++                navigation->SetButtons(0, true);
++            scene.mPresentation->SetActiveSlide("OPTIONS_OUT", true);
++}
++#endif
+diff --git a/include/Game/Audio/AudioOptionsVolumeSteps.h b/include/Game/Audio/AudioOptionsVolumeSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Audio/AudioOptionsVolumeSteps.h
+@@ -0,0 +1,15 @@
++#ifndef GAME_AUDIO_OPTIONS_VOLUME_STEPS_H
++#define GAME_AUDIO_OPTIONS_VOLUME_STEPS_H
++// Original UserOptions category table and target/elapsed assignment.
++inline void AudioOptionsApplyVolume(int& level,float& target,float& elapsed,float minimum,float maximum)
++{
++    static const float table[]={-96.0f,-36.0f,-18.0f,-15.0f,-12.0f,-9.0f,-6.0f,-4.5f,-3.0f,-1.5f,0.0f};
++    level=level<0?0:level;
++    level=level>10?10:level;
++    float volume=table[level];
++    if(volume<minimum)target=minimum;
++    else if(volume>maximum)target=maximum;
++    else target=volume;
++    elapsed=0.0f;
++}
++#endif

@@ -270,6 +270,13 @@ void FrontendAnimationPlayback::AdvanceComponent(std::uint32_t id,float delta)
     auto next=s.current;Step step{next,s.index};if(object.active_slide)step.Slide(*object.active_slide,delta,0);
     s.current=std::move(next);s.channels=step.channels;
 }
+void FrontendAnimationPlayback::AdvanceSlide(std::uint32_t id,float delta)
+{
+    Finite(delta);Require(delta>=0&&delta<=60,"Frontend slide delta exceeds its bounded profile");
+    auto& s=*impl_;Require(s.index.slides.contains(id),"Frontend slide is absent");
+    auto next=s.current;Step step{next,s.index};step.Slide(id,delta,0);
+    s.current=std::move(next);s.channels=step.channels;
+}
 void FrontendAnimationPlayback::Reset(){impl_->Reset();}
 std::unique_ptr<FrontendAnimationPlayback> FrontendAnimationPlayback::Clone() const
 {return std::unique_ptr<FrontendAnimationPlayback>(new FrontendAnimationPlayback(std::make_unique<Impl>(*impl_)));}

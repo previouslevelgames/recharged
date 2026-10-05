@@ -14,6 +14,9 @@ class FrontendStackVisual
     virtual std::shared_ptr<FrontendHandler> StackHandler() const = 0;
     virtual unsigned StackScene() const = 0;
     virtual void AttachStack() = 0;
+    // Source-specific admission occurs before any base clock/focus update.
+    // Main/Options admit directly; Audio/Visual options check the real input lock.
+    virtual bool CanUpdateStack() const { return true; }
     virtual void UpdateStack(FrontendHandler::UpdateProof&&,
         const FrontendSession::Handle& presented, const std::function<void()>& input) = 0;
     virtual void ReleaseStack() = 0;

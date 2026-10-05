@@ -1,4 +1,8 @@
 #include "runtime/materials.h"
+#include "runtime/movie_draw_observer.h"
+#include "NL/gl/gl.h"
+#include "NL/glx/GXMovieMaterialProgram.h"
+extern bool gMovieYUVEnabled;
 #include "runtime/material_environment.h"
 #include "runtime/lighting_state.h"
 #include "runtime/skin_material.h"
@@ -41,6 +45,7 @@ nlMatrix4 preview_view;
 float preview_time = 0;
 nlVector3 preview_camera;
 bool preview_has_camera = false;
+constexpr std::uint32_t movie_program = 0xec35caab;
 constexpr std::uint32_t unlit = 0x21db4385, vertex = 0xd3e572da, scrolling = 0x2169db5c, masked = 0x32475c7d;
 constexpr std::uint32_t shadow_volume = 0x386ecbdd;
 constexpr std::uint32_t detail_blend = 0x112ab470;
@@ -117,6 +122,7 @@ struct MaterialPrograms::Impl
     GXCharacterSkinCustomMaterialProgram skin;
     GXFloatTexturedColourMaterialProgram float_textured;
     GXConstantColourMaterialProgram constant;
+    GXMovieMaterialProgram movie;
     Impl()
     {
         unlit.Initialize();
@@ -133,6 +139,7 @@ struct MaterialPrograms::Impl
         skin.Initialize();
         float_textured.Initialize();
         constant.Initialize();
+        movie.Initialize();
     }
 };
 MaterialPrograms::MaterialPrograms()
@@ -142,7 +149,7 @@ MaterialPrograms::MaterialPrograms()
         || glGetMaterialProgram(detail_blend) || glGetMaterialProgram(scrolling_specular)
         || glGetMaterialProgram(camera_overlay) || glGetMaterialProgram(masked_detail)
         || glGetMaterialProgram(scrolling_masked_detail) || glGetMaterialProgram(scrolling_camera_overlay)
-        || glGetMaterialProgram(character_skin) || glGetMaterialProgram(float_colour) || glGetMaterialProgram(constant_colour))
+        || glGetMaterialProgram(character_skin) || glGetMaterialProgram(float_colour) || glGetMaterialProgram(constant_colour) || glGetMaterialProgram(movie_program))
         throw std::logic_error("Material registry already initialized");
     try
     {
@@ -396,7 +403,7 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     RequireMaterialPreview();
     auto *program = static_cast<GLMaterialProgram *>(packet.materialProgram);
     if (!program || !packet.materialParameters || packet.displayList
-        || (!packet.indexBuffer && program->programHash != shadow_volume && program->programHash != vertex))
+        || (!packet.indexBuffer && program->programHash != shadow_volume && program->programHash != vertex && program->programHash != movie_program))
         throw std::runtime_error("Incomplete or unsupported native material packet");
     if (program->programHash == vertex || program->programHash == float_colour)
     {
@@ -449,6 +456,35 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
                 if (packet.indexBuffer[i] >= packet.numUniqueVertices)
                     throw std::out_of_range("Shadow index exceeds its vertex arrays");
     }
+    if (program->programHash == movie_program)
+    {
+        static_assert(sizeof(GXMovieParameters)==24);
+        if (!gMovieYUVEnabled || packet.numStreams!=2 || !packet.streams || packet.numUniqueVertices!=4
+            || (packet.indexBuffer ? packet.numVertices!=4 : packet.numVertices!=0) || packet.primType!=GLP_QuadList)
+            throw std::invalid_argument("Movie material requires its qualified four-vertex YUV quad");
+        for (unsigned i=0;i<2;++i)
+        {
+            const auto& stream=packet.streams[i];
+            if (!stream.address || stream.id!=(i?4u:1u) || stream.stride!=(i?8u:12u))
+                throw std::invalid_argument("Invalid movie position/UV stream");
+            const auto* values=static_cast<const float*>(stream.address);
+            for (unsigned k=0;k<packet.numUniqueVertices*(i?2:3);++k)
+                if (!std::isfinite(values[k]) || std::abs(values[k])>65536)
+                    throw std::invalid_argument("Invalid movie coordinate");
+        }
+        if (packet.indexBuffer)
+            for (unsigned i=0;i<packet.numVertices;++i)
+                if (packet.indexBuffer[i]>=packet.numUniqueVertices)
+                    throw std::out_of_range("Movie index exceeds its arrays");
+        const auto& params=*static_cast<const GXMovieParameters*>(packet.materialParameters);
+        if (params.texture.texture!=glGetTexture("movie"))
+            throw std::invalid_argument("Movie material binding differs from its original Y plane");
+        for (auto value:params.tint.c)
+            if (!std::isfinite(value) || value<0 || value>1) throw std::invalid_argument("Invalid movie tint");
+        for (const auto* name:{"movie","movie_u","movie_v"})
+            if (!glGetTextureManager() || glGetTextureManager()->GetTextureIndex(glGetTexture(name))==0xffff)
+                throw std::runtime_error("Movie YUV texture is missing");
+    }
     if (program->programHash == character_skin) ValidateNativeSkinPacket(packet);
     Baseline();
     Raster(packet.rasterState);
@@ -473,7 +509,10 @@ void DrawMaterial(const glModelPacket &packet, GLView* view)
     try
     {
         program->Activate(view);
-        program->Draw(&packet);
+        if (program->programHash == movie_program) detail::BeginMoviePacketDraw(&packet);
+        try { program->Draw(&packet); }
+        catch (...) { if (program->programHash == movie_program) detail::EndMoviePacketDraw(&packet); throw; }
+        if (program->programHash == movie_program) detail::EndMoviePacketDraw(&packet);
     }
     catch (...)
     {

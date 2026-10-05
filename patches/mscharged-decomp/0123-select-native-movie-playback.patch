@@ -1,0 +1,742 @@
+From: mscharged-port
+Subject: Share original movie cadence, sample gain and quad kernels; select native GX movie transport
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Retain original console equations. Native GX uses checked host array extents and
+FIFO commands; movie ownership, scheduling admission and completion stay in the
+port. No VI/AI/HOME service is fabricated.
+
+diff --git a/include/Game/GL/MovieQuadSteps.h b/include/Game/GL/MovieQuadSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/GL/MovieQuadSteps.h
+@@ -0,0 +1,64 @@
++#ifndef MOVIE_QUAD_STEPS_H
++#define MOVIE_QUAD_STEPS_H
++#include "Game/GL/GLMovieMeshWriter.h"
++#include "NL/glx/GXMovieMaterialProgram.h"
++#include "NL/gl/glView.h"
++#include "NL/gl/glPlat.h"
++#include "NL/gl/gl.h"
++#include <string.h>
++static int sTriStripIndices[4] = { 3, 0, 2, 1 };
++static int sQuadIndices[4] = { 0, 1, 2, 3 };
++
++inline glModel* BuildMovieImageQuad(GLView* view, unsigned long texture,
++    const nlFloatColour& colour, const nlVector2* positions,
++    const nlVector2* texcoords)
++{
++    GLMovieMeshWriter writer;
++    int* indices;
++    int primitive;
++
++    if (glHasQuads())
++    {
++        indices = sQuadIndices;
++        primitive = 3;
++    }
++    else
++    {
++        indices = sTriStripIndices;
++        primitive = 1;
++    }
++
++    if (writer.Begin(4, primitive, 0))
++    {
++        memcpy(&((GXMovieParameters*)writer.model->packets->materialParameters)->tint, &colour,
++            sizeof(nlFloatColour));
++
++        glTextureBinding* state
++            = &((GXMovieParameters*)writer.model->packets->materialParameters)->texture;
++        state->texture = texture;
++        state->textureIndex = 0xFFFF;
++        state->SetWrapS(1);
++        state->SetWrapT(1);
++        state->unknown07 = 0;
++
++        for (int n = 0; n < 2; n++)
++        {
++            int i0 = indices[0];
++            writer.Texcoord(texcoords[i0]);
++            writer.Vertex(positions[i0].x, positions[i0].y, 0.0f);
++            int i1 = indices[1];
++            writer.Texcoord(texcoords[i1]);
++            writer.Vertex(positions[i1].x, positions[i1].y, 0.0f);
++            indices += 2;
++        }
++
++        if (writer.End())
++        {
++            view->AttachModel(writer.model, 0);
++            return writer.model;
++        }
++    }
++    return 0;
++}
++
++#endif
+diff --git a/include/Game/Sys/MovieClockSteps.h b/include/Game/Sys/MovieClockSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/Sys/MovieClockSteps.h
+@@ -0,0 +1,5 @@
++#ifndef MOVIE_CLOCK_STEPS_H
++#define MOVIE_CLOCK_STEPS_H
++template <class Counter> inline bool MovieDecodeDue(Counter now, Counter next) { return now >= next; }
++template <class Counter> inline Counter MovieNextDecode(Counter now) { return now + 2; }
++#endif
+diff --git a/include/RVL_SDK/thp/THPMovieSteps.h b/include/RVL_SDK/thp/THPMovieSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/RVL_SDK/thp/THPMovieSteps.h
+@@ -0,0 +1,59 @@
++#ifndef THP_MOVIE_STEPS_H
++#define THP_MOVIE_STEPS_H
++// Shared original THPSimple sample ramp and non-null game-mix equations.
++template <class Control>
++inline void THPMovieSetVolume(Control& ctrl, long vol, long time, long samplePerMs)
++{
++    ctrl.targetVolume = (float)vol;
++    if (time != 0)
++    {
++        ctrl.rampCount = samplePerMs * time;
++        ctrl.deltaVolume = (ctrl.targetVolume - ctrl.curVolume) / (float)ctrl.rampCount;
++    }
++    else
++    {
++        ctrl.curVolume = ctrl.targetVolume;
++        ctrl.rampCount = 0;
++    }
++}
++template <class Control>
++inline unsigned short THPMovieNextVolume(Control& ctrl, const unsigned short* table)
++{
++    if (ctrl.rampCount != 0)
++    {
++        ctrl.rampCount--;
++        ctrl.curVolume += ctrl.deltaVolume;
++    }
++    else
++    {
++        ctrl.curVolume = ctrl.targetVolume;
++    }
++    return table[(long)ctrl.curVolume];
++}
++inline void THPMovieMixPair(short* dst, const short* libsrc, const short* thpsrc,
++    unsigned short vol, bool mono)
++{
++    long mix;
++    if (mono)
++    {
++        mix = *libsrc++ + ((vol * *thpsrc++) >> 15);
++        mix += *libsrc++ + ((vol * *thpsrc++) >> 15);
++        mix >>= 1;
++        if (mix < -0x8000) mix = -0x8000;
++        if (mix > 0x7FFF) mix = 0x7FFF;
++        dst[0] = mix;
++        dst[1] = mix;
++    }
++    else
++    {
++        mix = libsrc[0] + ((vol * thpsrc[0]) >> 15);
++        if (mix < -0x8000) mix = -0x8000;
++        if (mix > 0x7FFF) mix = 0x7FFF;
++        dst[0] = mix;
++        mix = libsrc[1] + ((vol * thpsrc[1]) >> 15);
++        if (mix < -0x8000) mix = -0x8000;
++        if (mix > 0x7FFF) mix = 0x7FFF;
++        dst[1] = mix;
++    }
++}
++#endif
+diff --git a/include/RVL_SDK/thp/THPVolumeTable.inc b/include/RVL_SDK/thp/THPVolumeTable.inc
+new file mode 100644
+--- /dev/null
++++ b/include/RVL_SDK/thp/THPVolumeTable.inc
+@@ -0,0 +1,128 @@
++0x0000,
++    0x0002,
++    0x0008,
++    0x0012,
++    0x0020,
++    0x0032,
++    0x0049,
++    0x0063,
++    0x0082,
++    0x00A4,
++    0x00CB,
++    0x00F5,
++    0x0124,
++    0x0157,
++    0x018E,
++    0x01C9,
++    0x0208,
++    0x024B,
++    0x0292,
++    0x02DD,
++    0x032C,
++    0x037F,
++    0x03D7,
++    0x0432,
++    0x0492,
++    0x04F5,
++    0x055D,
++    0x05C9,
++    0x0638,
++    0x06AC,
++    0x0724,
++    0x07A0,
++    0x0820,
++    0x08A4,
++    0x092C,
++    0x09B8,
++    0x0A48,
++    0x0ADD,
++    0x0B75,
++    0x0C12,
++    0x0CB2,
++    0x0D57,
++    0x0DFF,
++    0x0EAC,
++    0x0F5D,
++    0x1012,
++    0x10CA,
++    0x1187,
++    0x1248,
++    0x130D,
++    0x13D7,
++    0x14A4,
++    0x1575,
++    0x164A,
++    0x1724,
++    0x1801,
++    0x18E3,
++    0x19C8,
++    0x1AB2,
++    0x1BA0,
++    0x1C91,
++    0x1D87,
++    0x1E81,
++    0x1F7F,
++    0x2081,
++    0x2187,
++    0x2291,
++    0x239F,
++    0x24B2,
++    0x25C8,
++    0x26E2,
++    0x2801,
++    0x2923,
++    0x2A4A,
++    0x2B75,
++    0x2CA3,
++    0x2DD6,
++    0x2F0D,
++    0x3048,
++    0x3187,
++    0x32CA,
++    0x3411,
++    0x355C,
++    0x36AB,
++    0x37FF,
++    0x3956,
++    0x3AB1,
++    0x3C11,
++    0x3D74,
++    0x3EDC,
++    0x4048,
++    0x41B7,
++    0x432B,
++    0x44A3,
++    0x461F,
++    0x479F,
++    0x4923,
++    0x4AAB,
++    0x4C37,
++    0x4DC7,
++    0x4F5C,
++    0x50F4,
++    0x5290,
++    0x5431,
++    0x55D6,
++    0x577E,
++    0x592B,
++    0x5ADC,
++    0x5C90,
++    0x5E49,
++    0x6006,
++    0x61C7,
++    0x638C,
++    0x6555,
++    0x6722,
++    0x68F4,
++    0x6AC9,
++    0x6CA2,
++    0x6E80,
++    0x7061,
++    0x7247,
++    0x7430,
++    0x761E,
++    0x7810,
++    0x7A06,
++    0x7C00,
++    0x7DFE,
++    0x8000,
+diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.cpp
+--- a/src/Game/GL/GLMovieMeshWriter.cpp
++++ b/src/Game/GL/GLMovieMeshWriter.cpp
+@@ -1,5 +1,7 @@
++#ifndef MSCHARGED_NATIVE
+ #include <revolution/base/PPCArch.h>
+ #include <revolution/os/OSCache.h>
++#endif
+ 
+ #include "Game/GL/GLMovieMeshWriter.h"
+ #include "Game/GL/glModelBuilder.h"
+@@ -97,6 +99,8 @@
+         glplatFinalizePacket(&model->packets[i], resource != 0, resource);
+     }
+ 
++
++#ifndef MSCHARGED_NATIVE
+     for (int i = 0; i < model->packets->numStreams; ++i)
+     {
+         glModelStream* stream = &model->packets->streams[i];
+@@ -104,5 +108,8 @@
+     }
+ 
+     PPCSync();
++#else
++    // Aurora copies retained host streams during checked submission.
++#endif
+     return true;
+ }
+diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+--- a/src/Game/Sys/movie.cpp
++++ b/src/Game/Sys/movie.cpp
+@@ -1,3 +1,4 @@
+ #include "Game/Sys/movie.h"
++#include "Game/Sys/MovieClockSteps.h"
+ #ifdef MSCHARGED_NATIVE
+ #include "runtime/startup.h"
+@@ -211,7 +212,7 @@
+     bool decode = false;
+     if (g_bSyncedDecode)
+     {
+-        if (frame >= lbl_806E2428)
++        if (MovieDecodeDue(frame, lbl_806E2428))
+         {
+             decode = true;
+         }
+@@ -253,7 +254,7 @@
+         }
+ 
+         ++lbl_806E2424;
+-        lbl_806E2428 = frame + 2;
++        lbl_806E2428 = MovieNextDecode(frame);
+ 
+         GXInvalidateTexAll();
+         pTex[0]->Prepare();
+diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
+--- a/src/Game/Task/GameRenderTask.cpp
++++ b/src/Game/Task/GameRenderTask.cpp
+@@ -135,57 +135,12 @@
+     p.Attach(GetLayerView(eCLV_WarbleBlend), 0, 0);
+ }
+ 
+-static int sTriStripIndices[4] = { 3, 0, 2, 1 };
+-static int sQuadIndices[4] = { 0, 1, 2, 3 };
+-
++#include "Game/GL/MovieQuadSteps.h"
+ static void RenderImageQuad(GLView* view, unsigned long texture,
+     const nlFloatColour& colour, const nlVector2* positions,
+     const nlVector2* texcoords)
+ {
+-    GLMovieMeshWriter writer;
+-    int* indices;
+-    int primitive;
+-
+-    if (glHasQuads())
+-    {
+-        indices = sQuadIndices;
+-        primitive = 3;
+-    }
+-    else
+-    {
+-        indices = sTriStripIndices;
+-        primitive = 1;
+-    }
+-
+-    if (writer.Begin(4, primitive, 0))
+-    {
+-        memcpy(&((GXMovieParameters*)writer.model->packets->materialParameters)->tint, &colour,
+-            sizeof(nlFloatColour));
+-
+-        glTextureBinding* state
+-            = &((GXMovieParameters*)writer.model->packets->materialParameters)->texture;
+-        state->texture = texture;
+-        state->textureIndex = 0xFFFF;
+-        state->SetWrapS(1);
+-        state->SetWrapT(1);
+-        state->unknown07 = 0;
+-
+-        for (int n = 0; n < 2; n++)
+-        {
+-            int i0 = indices[0];
+-            writer.Texcoord(texcoords[i0]);
+-            writer.Vertex(positions[i0].x, positions[i0].y, 0.0f);
+-            int i1 = indices[1];
+-            writer.Texcoord(texcoords[i1]);
+-            writer.Vertex(positions[i1].x, positions[i1].y, 0.0f);
+-            indices += 2;
+-        }
+-
+-        if (writer.End())
+-        {
+-            view->AttachModel(writer.model, 0);
+-        }
+-    }
++    BuildMovieImageQuad(view, texture, colour, positions, texcoords);
+ }
+ 
+ void InstallImageRenderCallback()
+diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialProgram.cpp
+--- a/src/NL/glx/GXMovieMaterialProgram.cpp
++++ b/src/NL/glx/GXMovieMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#ifdef MSCHARGED_NATIVE
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXMovieMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramInternal.h"
+@@ -15,15 +19,19 @@
+ 
+ GXMovieMaterialProgram::GXMovieMaterialProgram()
+ {
+-    Instance = this;
+     programHash = 0xEC35CAAB;
+     parameterDataSize = 24;
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
++    Instance = this;
+ }
+ 
+ GXMovieMaterialProgram::~GXMovieMaterialProgram()
+ {
++#ifdef MSCHARGED_NATIVE
++    if (Instance == this) Instance = 0;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXMovieMaterialProgram::Initialize()
+@@ -58,8 +66,16 @@
+ void GXMovieMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#ifdef MSCHARGED_NATIVE
++    GXSetArray(GX_VA_POS, streams[0].address, packet->numUniqueVertices * 12, 12, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#ifdef MSCHARGED_NATIVE
++    GXSetArray(GX_VA_TEX0, streams[1].address, packet->numUniqueVertices * 8, 8, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[1].address, 8);
++#endif
+ }
+ 
+ void GXMovieMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -70,10 +86,18 @@
+ 
+     while (idxPtr < end)
+     {
++#ifdef MSCHARGED_NATIVE
++        GXPosition1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++#else
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
++#endif
+         ++idxPtr;
+     }
++#ifdef MSCHARGED_NATIVE
++    GXEnd();
++#endif
+ }
+ 
+ void GXMovieMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -82,9 +106,17 @@
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
++#ifdef MSCHARGED_NATIVE
++        GXPosition1x16(i);
++        GXTexCoord1x16(i);
++#else
+         WGPIPE.us = i;
+         WGPIPE.us = i;
++#endif
+     }
++#ifdef MSCHARGED_NATIVE
++    GXEnd();
++#endif
+ }
+ 
+ const GXMaterialParameter* GXMovieMaterialProgram::GetParameters()
+diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+--- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+@@ -1,4 +1,12 @@
++#ifdef MSCHARGED_NATIVE
++#include <dolphin/gx.h>
++#include "runtime/movie_draw_observer.h"
++#define glTextureLoad mscharged::detail::LoadMovieTexture
++#define glTextureGetWidth mscharged::detail::MovieTextureWidth
++#define glTextureGetHeight mscharged::detail::MovieTextureHeight
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ 
+ #include "NL/gl/glState.h"
+diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
+--- a/src/RVL_SDK/thp/THPSimple.cpp
++++ b/src/RVL_SDK/thp/THPSimple.cpp
+@@ -1,3 +1,4 @@
++#include "RVL_SDK/thp/THPMovieSteps.h"
+ #include "RVL_SDK/thp/THPSimple.h"
+ 
+ #include "NL/gl/glState.h"
+@@ -75,134 +76,7 @@
+ static s16 SoundBuffer[2][192] ALIGN(32);
+ 
+ static unsigned short VolumeTable[128] = {
+-    0x0000,
+-    0x0002,
+-    0x0008,
+-    0x0012,
+-    0x0020,
+-    0x0032,
+-    0x0049,
+-    0x0063,
+-    0x0082,
+-    0x00A4,
+-    0x00CB,
+-    0x00F5,
+-    0x0124,
+-    0x0157,
+-    0x018E,
+-    0x01C9,
+-    0x0208,
+-    0x024B,
+-    0x0292,
+-    0x02DD,
+-    0x032C,
+-    0x037F,
+-    0x03D7,
+-    0x0432,
+-    0x0492,
+-    0x04F5,
+-    0x055D,
+-    0x05C9,
+-    0x0638,
+-    0x06AC,
+-    0x0724,
+-    0x07A0,
+-    0x0820,
+-    0x08A4,
+-    0x092C,
+-    0x09B8,
+-    0x0A48,
+-    0x0ADD,
+-    0x0B75,
+-    0x0C12,
+-    0x0CB2,
+-    0x0D57,
+-    0x0DFF,
+-    0x0EAC,
+-    0x0F5D,
+-    0x1012,
+-    0x10CA,
+-    0x1187,
+-    0x1248,
+-    0x130D,
+-    0x13D7,
+-    0x14A4,
+-    0x1575,
+-    0x164A,
+-    0x1724,
+-    0x1801,
+-    0x18E3,
+-    0x19C8,
+-    0x1AB2,
+-    0x1BA0,
+-    0x1C91,
+-    0x1D87,
+-    0x1E81,
+-    0x1F7F,
+-    0x2081,
+-    0x2187,
+-    0x2291,
+-    0x239F,
+-    0x24B2,
+-    0x25C8,
+-    0x26E2,
+-    0x2801,
+-    0x2923,
+-    0x2A4A,
+-    0x2B75,
+-    0x2CA3,
+-    0x2DD6,
+-    0x2F0D,
+-    0x3048,
+-    0x3187,
+-    0x32CA,
+-    0x3411,
+-    0x355C,
+-    0x36AB,
+-    0x37FF,
+-    0x3956,
+-    0x3AB1,
+-    0x3C11,
+-    0x3D74,
+-    0x3EDC,
+-    0x4048,
+-    0x41B7,
+-    0x432B,
+-    0x44A3,
+-    0x461F,
+-    0x479F,
+-    0x4923,
+-    0x4AAB,
+-    0x4C37,
+-    0x4DC7,
+-    0x4F5C,
+-    0x50F4,
+-    0x5290,
+-    0x5431,
+-    0x55D6,
+-    0x577E,
+-    0x592B,
+-    0x5ADC,
+-    0x5C90,
+-    0x5E49,
+-    0x6006,
+-    0x61C7,
+-    0x638C,
+-    0x6555,
+-    0x6722,
+-    0x68F4,
+-    0x6AC9,
+-    0x6CA2,
+-    0x6E80,
+-    0x7061,
+-    0x7247,
+-    0x7430,
+-    0x761E,
+-    0x7810,
+-    0x7A06,
+-    0x7C00,
+-    0x7DFE,
+-    0x8000,
++#include "RVL_SDK/thp/THPVolumeTable.inc"
+ };
+ 
+ static void __THPAsyncCancelCB(nlFile*, void*, unsigned int, unsigned long, void (*)(nlFile*, void*, unsigned int, unsigned long))
+@@ -719,49 +593,11 @@
+ 
+                 for (i = 0; i < requestSample; i++)
+                 {
+-                    if (SimpleControl.rampCount != 0)
+-                    {
+-                        SimpleControl.rampCount--;
+-                        SimpleControl.curVolume += SimpleControl.deltaVolume;
+-                    }
+-                    else
+-                    {
+-                        SimpleControl.curVolume = SimpleControl.targetVolume;
+-                    }
+-
+-                    vol = VolumeTable[(long)SimpleControl.curVolume];
+-                    if (SimpleControl.mono)
+-                    {
+-                        mix = *libsrc++ + ((vol * *thpsrc++) >> 15);
+-                        mix += *libsrc++ + ((vol * *thpsrc++) >> 15);
+-                        mix >>= 1;
+-                        if (mix < -0x8000)
+-                            mix = -0x8000;
+-                        if (mix > 0x7FFF)
+-                            mix = 0x7FFF;
+-                        dst[0] = mix;
+-                        dst[1] = mix;
+-                        dst += 2;
+-                    }
+-                    else
+-                    {
+-                        mix = libsrc[0] + ((vol * thpsrc[0]) >> 15);
+-                        if (mix < -0x8000)
+-                            mix = -0x8000;
+-                        if (mix > 0x7FFF)
+-                            mix = 0x7FFF;
+-                        dst[0] = mix;
+-
+-                        mix = libsrc[1] + ((vol * thpsrc[1]) >> 15);
+-                        if (mix < -0x8000)
+-                            mix = -0x8000;
+-                        if (mix > 0x7FFF)
+-                            mix = 0x7FFF;
+-                        dst[1] = mix;
+-                        dst += 2;
+-                        libsrc += 2;
+-                        thpsrc += 2;
+-                    }
++                    vol = THPMovieNextVolume(SimpleControl, VolumeTable);
++                    THPMovieMixPair(dst, libsrc, thpsrc, vol, SimpleControl.mono);
++                    dst += 2;
++                    libsrc += 2;
++                    thpsrc += 2;
+                 }
+ 
+                 sample -= requestSample;
+@@ -798,17 +634,7 @@
+                 dst = destination;
+                 for (i = 0; i < requestSample; i++)
+                 {
+-                    if (SimpleControl.rampCount != 0)
+-                    {
+-                        SimpleControl.rampCount--;
+-                        SimpleControl.curVolume += SimpleControl.deltaVolume;
+-                    }
+-                    else
+-                    {
+-                        SimpleControl.curVolume = SimpleControl.targetVolume;
+-                    }
+-
+-                    vol = VolumeTable[(long)SimpleControl.curVolume];
++                    vol = THPMovieNextVolume(SimpleControl, VolumeTable);
+                     mix = (vol * thpsrc[0]) >> 15;
+                     if (mix < -0x8000)
+                         mix = -0x8000;
+@@ -922,17 +748,7 @@
+ 
+         int old = OSDisableInterrupts();
+         ctrl = &SimpleControl;
+-        ctrl->targetVolume = (float)vol;
+-        if (time != 0)
+-        {
+-            ctrl->rampCount = samplePerMs * time;
+-            ctrl->deltaVolume = (ctrl->targetVolume - ctrl->curVolume) / (float)ctrl->rampCount;
+-        }
+-        else
+-        {
+-            ctrl->curVolume = ctrl->targetVolume;
+-            ctrl->rampCount = 0;
+-        }
++        THPMovieSetVolume(*ctrl, vol, time, samplePerMs);
+ 
+         OSRestoreInterrupts(old);
+         return 1;

@@ -1,4 +1,7 @@
 include_guard(GLOBAL)
+add_library(charged_host_retrace_clock STATIC src/runtime/host_retrace_clock.cpp)
+target_include_directories(charged_host_retrace_clock PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(charged_host_retrace_clock PUBLIC cxx_std_17)
 add_library(charged_frame_timing STATIC
     "${MSCHARGED_PREPARED}/src/Game/Debug/FrameTiming.cpp"
     src/runtime/frame_timing.cpp)
@@ -6,6 +9,10 @@ add_dependencies(charged_frame_timing verify_prepared)
 target_link_libraries(charged_frame_timing PUBLIC charged_graphics_memory)
 target_compile_features(charged_frame_timing PUBLIC cxx_std_17)
 if(BUILD_TESTING)
+    add_executable(host_retrace_clock_tests tests/host_retrace_clock.cpp)
+    target_link_libraries(host_retrace_clock_tests PRIVATE charged_host_retrace_clock)
+    add_test(NAME host_retrace_clock COMMAND host_retrace_clock_tests)
+    set_tests_properties(host_retrace_clock PROPERTIES TIMEOUT 30)
     include(cmake/Tasks.cmake)
     add_executable(frame_timing_tests tests/frame_timing.cpp tests/task_clock.cpp)
     target_include_directories(frame_timing_tests PRIVATE "${MSCHARGED_PREPARED}/src")

@@ -2,6 +2,7 @@
 #include "Game/Audio/AudioVoiceSteps.h"
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <exception>
 #include <limits>
 #include <stdexcept>
@@ -27,6 +28,7 @@ struct VoiceInputs
     const AudioBankSelectionResult& selected;
     resources::AudioCalculationInitial::Handle calculation;
     std::uint32_t device;
+    AudioCategoryVolumes::Handle volumes;
 };
 struct Source
 {
@@ -37,10 +39,15 @@ struct Source
     int m_Unknown04=0,m_Unknown10=0;
     unsigned m_PlayCount=0,m_Unknown14_0C=1,m_Unknown18=0;
     bool started=false,failed=false;
+    float volume_db=0,input_gain=1;
     void Initialize(VoiceInputs* inputs)
     {
-        buffer=PrepareResidentAudio(inputs->selected,std::move(inputs->calculation));
-        output=std::make_unique<ResidentAudioOutput>(buffer,inputs->device);
+        std::optional<float> slider;
+        if(inputs->volumes)
+        {inputs->volumes->RequireCompatible(inputs->calculation);slider=inputs->volumes->Value(inputs->selected.bank->Voices().at(inputs->selected.voice).slider);}
+        buffer=PrepareResidentAudio(inputs->selected,std::move(inputs->calculation),slider);
+        output=std::make_unique<ResidentAudioOutput>(buffer,inputs->device,bool(inputs->volumes));
+        volume_db=buffer->Mix().volume_db;input_gain=output->Status().input_gain;
         input_bytes=buffer->Stereo().size_bytes();
         m_Unknown10=1;m_Unknown04=1;
     }
@@ -160,7 +167,7 @@ AudioVoiceHandle AudioVoices::Create(const AudioBankSelectionResult& selected,re
     auto source=std::make_unique<Source>();
     source->handle={impl_->identity,std::uint32_t(free-impl_->slots.begin()),free->generation+1};
     const auto handle=source->handle;
-    VoiceInputs inputs{selected,std::move(calculation),impl_->options.device_id};
+    VoiceInputs inputs{selected,std::move(calculation),impl_->options.device_id,impl_->options.category_volumes};
     Implementation::Registry registry{*impl_,&source};
     AudioInitializeAndPublishSource(source.get(),&inputs,registry);
     return handle;
@@ -185,6 +192,18 @@ void AudioVoices::Stop(AudioVoiceHandle handle)
     impl_->Mutable();auto& source=impl_->Get(handle);Check(!source.failed,"Native audio source failed");
     try{AudioSampleStopStep(source,source);}catch(...){source.Fail();throw;}
 }
+void AudioVoices::SetVolume(AudioVoiceHandle handle,float db)
+{
+    impl_->Mutable();Check(bool(impl_->options.category_volumes),"Audio voice has no live category authority");
+    resources::Require(std::isfinite(db)&&db>=-96&&db<=6,"Live audio volume must remain finite in the original range");
+    auto& source=impl_->Get(handle);Check(!source.failed,"Audio voice output has failed");
+    // Original AudioSampleSource::SetInputVolume returns when HasVoice is false.
+    // A completed/cancelled SDL output likewise has no samples to modify; keep
+    // the last actually submitted gain instead of claiming a new output value.
+    if(!source.output||source.output->Status().state==ResidentAudioState::Stopped)return;
+    try{source.output->SetVolume(db);source.volume_db=db;source.input_gain=source.output->Status().input_gain;}
+    catch(...){source.Fail();throw;}
+}
 void AudioVoices::ServiceAudio()
 {
     impl_->Mutable();impl_->busy=true;struct Guard{bool& busy;~Guard(){busy=false;}}guard{impl_->busy};
@@ -204,7 +223,7 @@ int AudioVoices::PollState(AudioVoiceHandle handle)
 AudioVoiceStatus AudioVoices::Status(AudioVoiceHandle handle)const
 {
     const auto& source=impl_->Get(handle);
-    return{source.m_Unknown04,source.m_Unknown10,source.HasVoice(),source.failed,source.buffer->Sample(),source.input_bytes};
+    return{source.m_Unknown04,source.m_Unknown10,source.HasVoice(),source.failed,source.buffer->Sample(),source.input_bytes,source.volume_db,source.input_gain};
 }
 std::vector<AudioVoiceHandle> AudioVoices::Sources()const
 {

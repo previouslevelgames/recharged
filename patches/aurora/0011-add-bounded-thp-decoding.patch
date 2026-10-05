@@ -1,0 +1,184 @@
+Subject: Add bounded native THP decoder entry points
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Keep the SDK signatures and valid arithmetic shared. Bound header/entropy
+reads and output planes, check malformed DC accumulation before signed overflow,
+and validate complete audio channels before entering the actual PCM decoder.
+
+diff --git a/include/dolphin/thp.h b/include/dolphin/thp.h
+--- a/include/dolphin/thp.h
++++ b/include/dolphin/thp.h
+@@ -2,6 +2,7 @@
+ #define _DOLPHIN_THP_H_
+ 
+ #include <dolphin/types.h>
++#include <stddef.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -11,6 +12,15 @@
+ s32 THPVideoDecode(const void* file, void* tileY, void* tileU, void* tileV, void* work /* unused */);
+ u32 THPAudioDecode(s16* audioBuffer, const u8* audioFrame, s32 flag);
+ 
++// Additive native bounds. Planes use GX I8 tile layout. Audio preserves the SDK
++// interleaved R,L (flag0) or planar R then L (flag1) channel order. Zero audio
++// return means invalid/truncated input. Output may be partially written on a
++// video decode error; callers publish only after successful completion.
++s32 AuroraTHPVideoDecodeBounded(const void* file, size_t fileSize,
++                               void* tileY, size_t sizeY, void* tileU, size_t sizeU, void* tileV, size_t sizeV,
++                               u32 width, u32 height);
++u32 AuroraTHPAudioDecodeBounded(s16* output, size_t outputSamples, const u8* frame, size_t frameSize, s32 flag);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/lib/dolphin/thp/THPDec.cpp b/lib/dolphin/thp/THPDec.cpp
+--- a/lib/dolphin/thp/THPDec.cpp
++++ b/lib/dolphin/thp/THPDec.cpp
+@@ -214,8 +214,8 @@
+   return 0;
+ }
+ 
+-s32 parse_headers(const void* file, DecodeContext& context) noexcept {
+-  auto reader = aurora::ByteReader::unbounded(file);
++s32 parse_headers(const void* file, size_t size, DecodeContext& context) noexcept {
++  auto reader = aurora::ByteReader{static_cast<const u8*>(file), size};
+   while (true) {
+     u8 prefix = 0;
+     if (!reader.try_read(prefix) || prefix != 0xFF) {
+@@ -297,12 +297,16 @@
+ 
+ class BitReader {
+ public:
+-  BitReader(const u8* data, size_t byteOffset) noexcept : mData{data}, mBitPosition{byteOffset * 8} {}
++  BitReader(const u8* data, size_t size, size_t byteOffset) noexcept
++  : mData{data}, mSize{size}, mBitPosition{byteOffset * 8} {}
++
++  bool good() const noexcept { return mGood; }
+ 
+   u32 read(u8 count) noexcept {
+     u32 value = 0;
+     for (u8 i = 0; i < count; ++i) {
+       const size_t bytePosition = mBitPosition >> 3;
++      if (bytePosition >= mSize) { mGood = false; return 0; }
+       value = (value << 1) | ((mData[bytePosition] >> (7 - (mBitPosition & 7))) & 1);
+       ++mBitPosition;
+     }
+@@ -313,13 +317,16 @@
+ 
+ private:
+   const u8* mData;
++  size_t mSize;
+   size_t mBitPosition;
++  bool mGood = true;
+ };
+ 
+ bool decode_huffman(BitReader& reader, const HuffmanTable& table, u8& symbol) noexcept {
+   u32 code = 0;
+   for (size_t length = 1; length <= 16; ++length) {
+     code = (code << 1) | reader.read(1);
++    if (!reader.good()) return false;
+     const u32 firstCode = table.firstCodes[length];
+     const u32 count = table.counts[length];
+     if (code >= firstCode && code - firstCode < count) {
+@@ -349,7 +356,10 @@
+     return false;
+   }
+   const u32 encodedDifference = reader.read(bitCount);
+-  component.predictedDc += extend_value(encodedDifference, bitCount);
++  const s64 predicted = s64{component.predictedDc} + extend_value(encodedDifference, bitCount);
++  if (!reader.good() || predicted < std::numeric_limits<s32>::min() ||
++      predicted > std::numeric_limits<s32>::max()) return false;
++  component.predictedDc = static_cast<s32>(predicted);
+   block[0] = static_cast<s16>(component.predictedDc);
+ 
+   size_t coefficient = 1;
+@@ -373,6 +383,7 @@
+       return false;
+     }
+     const u32 encodedValue = reader.read(bitCount);
++    if (!reader.good()) return false;
+     block[kNaturalOrder[coefficient]] = static_cast<s16>(extend_value(encodedValue, bitCount));
+     ++coefficient;
+   }
+@@ -536,7 +547,9 @@
+ extern "C" {
+ BOOL THPInit(void) { return TRUE; }
+ 
+-s32 THPVideoDecode(const void* file, void* tileY, void* tileU, void* tileV, void*) {
++static s32 decode_video(const void* file, size_t fileSize,
++                        void* tileY, size_t sizeY, void* tileU, size_t sizeU, void* tileV, size_t sizeV,
++                        u32 expectedWidth, u32 expectedHeight) {
+   if (file == nullptr) {
+     return kNoInput;
+   }
+@@ -545,15 +558,26 @@
+   }
+ 
+   DecodeContext context{};
+-  const s32 headerResult = parse_headers(file, context);
++  const s32 headerResult = parse_headers(file, fileSize, context);
+   if (headerResult != 0) {
+     return headerResult;
+   }
+ 
++  if (context.width == 0 || context.height == 0 ||
++      (expectedWidth != 0 && (context.width != expectedWidth || context.height != expectedHeight))) {
++    return kBadSyntax;
++  }
++  const auto tiledSize = [](size_t width, size_t height) { return ((width + 7) / 8) * ((height + 3) / 4) * 32; };
++  if (sizeY < tiledSize(context.width, context.height) ||
++      sizeU < tiledSize((context.width + 1) / 2, (context.height + 1) / 2) ||
++      sizeV < tiledSize((context.width + 1) / 2, (context.height + 1) / 2)) {
++    return kNoOutput;
++  }
++
+   const u16 chromaWidth = static_cast<u16>((context.width + 1) / 2);
+   const u16 chromaHeight = static_cast<u16>((context.height + 1) / 2);
+ 
+-  BitReader bits{static_cast<const uint8_t*>(file), context.scanOffset};
++  BitReader bits{static_cast<const uint8_t*>(file), fileSize, context.scanOffset};
+   const u16 mcuColumns = static_cast<u16>((context.width + 15) / 16);
+   const u16 mcuRows = static_cast<u16>((context.height + 15) / 16);
+   u32 restartCount = 0;
+@@ -587,4 +611,16 @@
+   }
+   return 0;
+ }
+-}
++
++s32 THPVideoDecode(const void* file, void* tileY, void* tileU, void* tileV, void*) {
++  constexpr size_t unlimited = std::numeric_limits<size_t>::max();
++  return decode_video(file, unlimited, tileY, unlimited, tileU, unlimited, tileV, unlimited, 0, 0);
++}
++
++s32 AuroraTHPVideoDecodeBounded(const void* file, size_t fileSize,
++                               void* tileY, size_t sizeY, void* tileU, size_t sizeU, void* tileV, size_t sizeV,
++                               u32 width, u32 height) {
++  if (fileSize > std::numeric_limits<size_t>::max() / 8 || width == 0 || height == 0) return kBadSyntax;
++  return decode_video(file, fileSize, tileY, sizeY, tileU, sizeU, tileV, sizeV, width, height);
++}
++}
+diff --git a/lib/dolphin/thp/THPAudio.cpp b/lib/dolphin/thp/THPAudio.cpp
+--- a/lib/dolphin/thp/THPAudio.cpp
++++ b/lib/dolphin/thp/THPAudio.cpp
+@@ -117,4 +117,18 @@
+   }
+   return header.sampleCount;
+ }
++
++// Bounded native admission; the actual sample equations and SDK R,L output
++// order remain shared with THPAudioDecode above.
++u32 AuroraTHPAudioDecodeBounded(s16* output, size_t outputSamples, const u8* frame, size_t frameSize, s32 flag) {
++  if (output == nullptr || frame == nullptr || frameSize < kHeaderSize || (flag != 0 && flag != 1)) return 0;
++  const AudioHeader header = read_header(frame);
++  if (header.sampleCount == 0 || header.sampleCount > outputSamples / 2) return 0;
++  const uint64_t channelSize = ((uint64_t{header.sampleCount} + 13) / 14) * 8;
++  if (channelSize > frameSize - kHeaderSize) return 0;
++  if (header.nextChannelOffset != 0 &&
++      (header.nextChannelOffset < channelSize || header.nextChannelOffset > frameSize - kHeaderSize ||
++       channelSize > frameSize - kHeaderSize - header.nextChannelOffset)) return 0;
++  return THPAudioDecode(output, frame, flag);
+ }
++}

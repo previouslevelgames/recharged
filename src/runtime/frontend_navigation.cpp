@@ -4,6 +4,7 @@
 #include "Game/FE/FrontendNavigationSteps.h"
 #include "Game/FE/FrontendNavigationTransitionSteps.h"
 #include "Game/FE/FrontendMainMenuSteps.h"
+#include "Game/FE/FrontendDoneButtonSteps.h"
 #include "NL/nlFileGC.h"
 #include "NL/nlMath.h"
 #include <algorithm>
@@ -206,6 +207,79 @@ void FrontendNavigation::SetButtons(const FrontendSession::Handle& frame,unsigne
 {
     auto& s=*impl_;s.Expected(frame);CheckNav(mask<=255,"NAV mask exceeds eight original buttons");State next;
     s.session->HandlerTransaction(frame,[&](auto& playback){Step step(playback,s.state);FrontendNavigationSetButtons<Step::Node,Step::Node,Step::Finder>(step,int(mask),enabled);next=step.Result();});s.state=std::move(next);s.current=s.session->Current();
+}
+void FrontendNavigation::SetDoneButtonText(const FrontendSession::Handle& frame,unsigned value)
+{
+    auto& s=*impl_;s.Expected(frame);CheckNav(value<=1,"NAV Done label is unsupported");
+    s.session->HandlerTransaction(frame,[&](auto& playback){Step step(playback,s.state);
+        CheckNav(step.mDoneButton->root.id&&step.mDoneButton->Value().type==4,"NAV Done component is absent");
+        for(const char* slide:{"off","over","down"})
+        {auto* text=Step::Finder<Step::Node,3>::Find(step.mDoneButton,slide,"Group","done");CheckNav(text&&text->root.id&&text->Value().type==3,"NAV Done label is absent or mistyped");}
+        step.SetDoneButtonText(int(value));});s.current=s.session->Current();
+}
+void FrontendNavigation::SetDoneButtonSlide(const FrontendSession::Handle& frame,FrontendNavigationDoneSlide value)
+{
+    auto& s=*impl_;s.Expected(frame);
+    CheckNav(value==FrontendNavigationDoneSlide::Off||value==FrontendNavigationDoneSlide::Over||value==FrontendNavigationDoneSlide::Down,"NAV Done slide is unsupported");
+    const char* name=value==FrontendNavigationDoneSlide::Off?"off":value==FrontendNavigationDoneSlide::Over?"over":"down";
+    s.session->HandlerTransaction(frame,[&](auto& playback){Step step(playback,s.state);
+        const auto& node=step.mDoneButton->Value();CheckNav(step.mDoneButton->root.id&&node.type==4&&node.library,"NAV Done component is absent or mistyped");
+        CheckNav(playback.SelectComponent(*node.library,name,true,false),"NAV Done feedback slide is absent");});s.current=s.session->Current();
+}
+void FrontendNavigation::CheckDoneInput(const FrontendSession::Handle& frame)const
+{
+    auto& s=*impl_;s.Ready();CheckNav(!s.busy&&frame&&s.input_source==frame&&s.host.Current()&&s.host.Current()->Frame()==frame,
+        "Done routing requires NAV's exact presented-input window");
+}
+FrontendNavigationDoneBinding FrontendNavigation::DoneButton(const FrontendSession::Handle& frame)const
+{
+    auto& s=*impl_;s.Ready();
+    CheckNav(frame&&s.host.Current()&&s.host.Current()->Frame()==frame,"NAV Done binding requires its actual acknowledged frame");
+    const auto component=s.state.buttons[5];
+    const auto it=std::find_if(frame->graph.instances.begin(),frame->graph.instances.end(),[&](const auto& n){return n.offset==component;});
+    CheckNav(component&&it!=frame->graph.instances.end()&&it->type==4&&it->library,"NAV Done binding has no authored component");
+    struct Bounds
+    {
+        FrontendPointerBounds value;
+        void SetBounds(float x0,float x1,float y1,float y0){value.min_x=x0;value.max_x=x1;value.max_y=y1;value.min_y=y0;}
+    } bounds;
+    const auto library=std::find_if(frame->graph.library.begin(),frame->graph.library.end(),[&](const auto& n){return n.offset==*it->library;});
+    CheckNav(library!=frame->graph.library.end()&&library->type==3,"NAV Done component library is absent");
+    FrontendDoneButtonBounds(&bounds,0);return{frame,component,bounds.value,it->visible&&library->attributes.visible};
+}
+FrontendNavigationBackBinding FrontendNavigation::BackButton(const FrontendSession::Handle& frame)const
+{
+    auto& s=*impl_;s.Ready();CheckNav(frame&&s.host.Current()&&s.host.Current()->Frame()==frame&&s.region,
+        "NAV Back binding requires its actual acknowledged frame");
+    const auto component=s.state.buttons[2];
+    const auto it=std::find_if(frame->graph.instances.begin(),frame->graph.instances.end(),[&](const auto& n){return n.offset==component;});
+    CheckNav(component&&it!=frame->graph.instances.end()&&it->type==4&&it->library,"NAV Back component is absent or mistyped");
+    const auto library=std::find_if(frame->graph.library.begin(),frame->graph.library.end(),[&](const auto& n){return n.offset==*it->library;});
+    CheckNav(library!=frame->graph.library.end()&&library->type==3,"NAV Back component library is absent");
+    // The root component is toggled by original NAV SetButtons. Also require
+    // actual published child geometry; invisible/unavailable ancestry cannot
+    // make a keyboard shortcut target merely stored source bounds.
+    std::vector<std::uint32_t> descendants{component};bool rendered=false;
+    for(std::size_t at=0;at<descendants.size();++at)
+    {
+        CheckNav(descendants.size()<=frame->graph.instances.size(),"NAV Back ancestry exceeds scene bounds");
+        const auto node=std::find_if(frame->graph.instances.begin(),frame->graph.instances.end(),[&](const auto& n){return n.offset==descendants[at];});
+        CheckNav(node!=frame->graph.instances.end(),"NAV Back ancestry instance absent");
+        for(const auto& entry:frame->layout.entries)std::visit([&](const auto& draw){if(draw.instance==node->offset&&draw.colour[3])rendered=true;},entry);
+        descendants.insert(descendants.end(),node->children.begin(),node->children.end());
+        if(node->type==4&&node->library)
+        {
+            const auto lib=std::find_if(frame->graph.library.begin(),frame->graph.library.end(),[&](const auto& n){return n.offset==*node->library;});
+            CheckNav(lib!=frame->graph.library.end(),"NAV Back child library absent");
+            if(lib->active_slide)
+            {
+                const auto slide=std::find_if(frame->graph.slides.begin(),frame->graph.slides.end(),[&](const auto& n){return n.offset==*lib->active_slide;});
+                CheckNav(slide!=frame->graph.slides.end(),"NAV Back active child slide absent");
+                descendants.insert(descendants.end(),slide->children.begin(),slide->children.end());
+            }
+        }
+    }
+    return{frame,component,s.region->Bounds(),it->visible&&library->attributes.visible&&rendered};
 }
 void FrontendNavigation::SetPointerSlide(const FrontendSession::Handle& frame,unsigned index,FrontendNavigationPointer value)
 {

@@ -1,0 +1,147 @@
+Subject: Share original submenu Done pointer bounds and hover callbacks
+
+Upstream-base: d6850f8dae162827f94d3f9b01a91538c02849dd
+
+Preserve exact authored absolute bounds and common Audio/Visual hover bodies.
+Press still executes its selected source callback; native host preferences are
+explicitly scoped and do not supply original GameInfo or complete SaveLoad.
+
+diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.cpp
+--- a/src/Game/FE/feOptionsSubMenus.cpp
++++ b/src/Game/FE/feOptionsSubMenus.cpp
+@@ -3,6 +3,7 @@
+ #include "Game/FE/FrontendAudioOptionsSteps.h"
+ #include "Game/FE/FEAudio.h"
+ #include "Game/FE/FrontendVisualOptionsSteps.h"
++#include "Game/FE/FrontendDoneButtonSteps.h"
+ 
+ #include "Game/DB/SaveLoad.h"
+ #include "Game/DB/UserOptions.h"
+@@ -199,21 +200,12 @@
+ 
+ void OptionsAudioMenuV2::OnSaveButtonPointerEnter(int index, void*)
+ {
+-    mSaveButtonComponent.SetPointerState(1, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    {
+-        mSaveButton->SetActiveSlide("over", true, false);
+-        FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
+-    }
++    FrontendDoneButtonEnter(*this,index, [](unsigned long cue,const char* name,void* context,bool restart) { FEAudio::PlayAnimAudioEvent(cue,name,context,restart); });
+ }
+ 
+ void OptionsAudioMenuV2::OnSaveButtonPointerLeave(int index, void*)
+ {
+-    mSaveButtonComponent.SetPointerState(0, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    {
+-        mSaveButton->SetActiveSlide("off", true, false);
+-    }
++    FrontendDoneButtonLeave(*this,index);
+ }
+ 
+ void OptionsAudioMenuV2::OnSaveButtonPointerPress(int, void*)
+@@ -433,21 +425,12 @@
+ 
+ void OptionsVisualMenuV2::OnSaveButtonPointerEnter(int index, void*)
+ {
+-    mSaveButtonComponent.SetPointerState(1, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    {
+-        mSaveButton->SetActiveSlide("over", true, false);
+-        FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
+-    }
++    FrontendDoneButtonEnter(*this,index, [](unsigned long cue,const char* name,void* context,bool restart) { FEAudio::PlayAnimAudioEvent(cue,name,context,restart); });
+ }
+ 
+ void OptionsVisualMenuV2::OnSaveButtonPointerLeave(int index, void*)
+ {
+-    mSaveButtonComponent.SetPointerState(0, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    {
+-        mSaveButton->SetActiveSlide("off", true, false);
+-    }
++    FrontendDoneButtonLeave(*this,index);
+ }
+ 
+ void OptionsVisualMenuV2::OnSaveButtonPointerPress(int, void*)
+diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
+--- a/src/Game/FE/feHelpFuncs.cpp
++++ b/src/Game/FE/feHelpFuncs.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/feHelpFuncs_decl.h"
++#include "Game/FE/FrontendDoneButtonSteps.h"
+ 
+ #include <cmath>
+ #include <stdio.h>
+@@ -52,8 +53,6 @@
+     "TOURNAMENT",
+ };
+ 
+-static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
+-static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
+ 
+ // Retail's .sdata2 pool for this unit opens with 0.0f, ahead of the constants
+ // EnableAutoPressed creates, although no surviving function generated before
+@@ -351,16 +350,7 @@
+ void SetDoneButtonBounds(
+     FEPointerButton* component, TLComponentInstance*, int value)
+ {
+-    if (value)
+-    {
+-        component->SetBounds(sPlayButtonBounds[0], sPlayButtonBounds[1],
+-            sPlayButtonBounds[2], sPlayButtonBounds[3]);
+-    }
+-    else
+-    {
+-        component->SetBounds(sDoneButtonBounds[0], sDoneButtonBounds[1],
+-            sDoneButtonBounds[2], sDoneButtonBounds[3]);
+-    }
++    FrontendDoneButtonBounds(component,value);
+ }
+ 
+ // Retail leaves the result unspecified for an invalid cheat ID.
+diff --git a/include/Game/FE/FrontendDoneButtonSteps.h b/include/Game/FE/FrontendDoneButtonSteps.h
+new file mode 100644
+--- /dev/null
++++ b/include/Game/FE/FrontendDoneButtonSteps.h
+@@ -0,0 +1,39 @@
++#ifndef CHARGED_FRONTEND_DONE_BUTTON_STEPS_H
++#define CHARGED_FRONTEND_DONE_BUTTON_STEPS_H
++static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
++static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
++
++template<class Component>
++void FrontendDoneButtonBounds(Component* component,int value)
++{
++    if (value)
++    {
++        component->SetBounds(sPlayButtonBounds[0], sPlayButtonBounds[1],
++            sPlayButtonBounds[2], sPlayButtonBounds[3]);
++    }
++    else
++    {
++        component->SetBounds(sDoneButtonBounds[0], sDoneButtonBounds[1],
++            sDoneButtonBounds[2], sDoneButtonBounds[3]);
++    }
++}
++template<class Scene,class Play>
++void FrontendDoneButtonEnter(Scene& scene,int index,Play play)
++{
++    scene.mSaveButtonComponent.SetPointerState(1, index);
++    if (!scene.mSaveButtonComponent.HasOtherPointerState(1, index))
++    {
++        scene.mSaveButton->SetActiveSlide("over", true, false);
++        play(0xAA73EF33, 0, 0, 1);
++    }
++}
++template<class Scene>
++void FrontendDoneButtonLeave(Scene& scene,int index)
++{
++    scene.mSaveButtonComponent.SetPointerState(0, index);
++    if (!scene.mSaveButtonComponent.HasOtherPointerState(1, index))
++    {
++        scene.mSaveButton->SetActiveSlide("off", true, false);
++    }
++}
++#endif

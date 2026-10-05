@@ -170,6 +170,14 @@ struct FrontendPointerRegion::Implementation
     Implementation(FrontendInput& in,Frame value,FrontendPointerBinding binding,Callback cb)
         :input(in),frame(std::move(value)),bounds(MeasureFrontendPointerBounds(frame,binding)),measured_instance(binding.instance),callback(std::move(cb))
     { (void)input.InputLocked(); }
+    Implementation(FrontendInput& in,Frame value,std::uint32_t instance,FrontendPointerBounds authored,Callback cb)
+        :input(in),frame(std::move(value)),bounds(authored),measured_instance(instance),callback(std::move(cb))
+    {
+        (void)input.InputLocked();BoundsValid(bounds);
+        Check(frame&&instance&&std::count_if(frame->graph.instances.begin(),frame->graph.instances.end(),
+            [&](const auto& v){return v.offset==instance;})==1,
+            "Authored pointer bounds require one retained instance");
+    }
     void Ready() const
     { Check(std::this_thread::get_id()==thread,"Frontend pointer used from a different thread");Check(live,"Frontend pointer has been released"); }
     void Mutable() const {Ready();Check(!busy,"Frontend pointer cannot mutate during a callback");}
@@ -185,6 +193,8 @@ struct FrontendPointerRegion::Implementation
 };
 FrontendPointerRegion::FrontendPointerRegion(FrontendInput& input,Frame frame,FrontendPointerBinding binding,Callback callback)
     :impl_(std::make_unique<Implementation>(input,std::move(frame),binding,std::move(callback))){}
+FrontendPointerRegion::FrontendPointerRegion(FrontendInput& input,Frame frame,std::uint32_t instance,FrontendPointerBounds bounds,Callback callback)
+    :impl_(std::make_unique<Implementation>(input,std::move(frame),instance,bounds,std::move(callback))){}
 FrontendPointerRegion::~FrontendPointerRegion()
 { if(impl_->busy||std::this_thread::get_id()!=impl_->thread)std::terminate(); }
 void FrontendPointerRegion::Rebind(Frame frame,FrontendPointerBinding binding)

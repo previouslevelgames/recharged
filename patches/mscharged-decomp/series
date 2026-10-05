@@ -109,4 +109,11 @@
 0108-share-original-navigation-transition-steps.patch
 0109-share-original-world-effect-scheduling.patch
 0111-share-original-frontend-subhandler-stage.patch
+0112-share-original-audio-options-steps.patch
 0113-share-original-save-state-steps.patch
+0114-share-original-visual-options-steps.patch
+0115-share-original-main-options-departure.patch
+0116-share-audio-options-save-visual.patch
+0118-share-original-options-done-pointer.patch
+0120-share-original-credits-steps.patch
+0123-select-native-movie-playback.patch

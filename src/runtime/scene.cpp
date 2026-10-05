@@ -22,11 +22,11 @@
 #include "runtime/frontend_session.h"
 #include "runtime/frontend_handler.h"
 #include "runtime/frontend_pointer_display.h"
-#include "runtime/frontend_main_menu.h"
-#include "runtime/frontend_options.h"
-#include "runtime/frontend_navigation.h"
-#include "runtime/frontend_options_navigation.h"
-#include "runtime/frontend_stack.h"
+#include "runtime/frontend_menu_scenes.h"
+#include "runtime/frontend_menu_cursor.h"
+#include "runtime/frontend_camera_assets.h"
+#include "runtime/frontend_visual_settings.h"
+#include "runtime/world_effects.h"
 #include "runtime/frontend_music.h"
 #include "runtime/frontend_boot_loading.h"
 #include "runtime/frontend_boot_audio.h"
@@ -152,13 +152,13 @@ struct PendingAsset
     }
     resources::Bytes Bytes() const { return {static_cast<const std::uint8_t*>(data.get()), size}; }
 };
-bool Update()
+bool Update(bool native_menu_back = false)
 {
     bool exit = false;
     for (const auto* event = aurora_update(); event->type != AURORA_NONE; ++event)
         if (event->type == AURORA_EXIT) exit = true;
     const bool focused = aurora_get_window() && (SDL_GetWindowFlags(aurora_get_window()) & SDL_WINDOW_INPUT_FOCUS);
-    return exit || (focused && !ImGui::GetIO().WantCaptureKeyboard && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_ESCAPE]);
+    return exit || (!native_menu_back && focused && !ImGui::GetIO().WantCaptureKeyboard && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_ESCAPE]);
 }
 using Bounds = resources::SceneBounds;
 class CharacterPreview
@@ -373,7 +373,8 @@ nlVector3 SubmitModel(glModel& model, GLView& submitted, ViewMatrices& matrices,
 }
 }
 
-int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_path, const SceneOptions& requested)
+int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_path, const SceneOptions& requested,
+    const ScenePreviewHooks* hooks)
 {
     std::ofstream logfile;
     auto log = [&](const std::string& message) {
@@ -462,8 +463,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             throw std::invalid_argument("Debug camera cannot be combined with authored camera or shadow preview");
         log(options.character_shock ? "Original Bowser shock skin and FE animation diagnostic. Full characters/gameplay remain pending."
             : options.frontend_boot ? "Retail boot screen diagnostic. Complete game startup remains pending."
-            : options.frontend_options ? "Original Options visual, input and audio diagnostic. Navigation and submenus remain pending."
-            : options.frontend_main ? "Original Main Menu visual, input and audio diagnostic. Full startup and menu actions remain pending."
+            : options.frontend_options ? "Original Main/Options source-flow diagnostic. Full startup and additional menus remain pending."
+            : options.frontend_main ? "Original Main/Options source-flow diagnostic. Full startup and additional menus remain pending."
             : "Static material and stadium shadow preview. Full world loading, character animation and game scenes are pending.");
         const auto data_path = PathUtf8(directory);
         AuroraConfig config{};
@@ -506,14 +507,19 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         std::optional<resources::FrontendLayoutFrame> frontend_frame;
         std::unique_ptr<FrontendInput> frontend_input;
         std::unique_ptr<FrontendInputSDL> frontend_devices;
-        std::unique_ptr<FrontendSceneStack> frontend_stack;
-        FrontendSceneStack::Token frontend_menu_token = 0;
-        std::shared_ptr<FrontendMainMenu> frontend_main;
-        std::shared_ptr<FrontendOptions> frontend_options;
-        std::shared_ptr<FrontendSession> navigation_session;
-        std::unique_ptr<FrontendNavigation> frontend_navigation;
-        std::unique_ptr<FrontendOptionsNavigation> options_navigation;
-        FrontendSession::Handle navigation_frame, navigation_acknowledged_frame;
+        OriginalCameras cameras;
+        CameraAssetLibrary menu_camera_assets;
+        std::unique_ptr<FrontendCameras> menu_cameras;
+        std::unique_ptr<WorldEffects> menu_effects;
+        resources::WorldEffectData::Handle menu_effect_records;
+        std::shared_ptr<NativePreferences> native_preferences;
+        AudioCategoryVolumes::Handle menu_volumes;
+        FrontendVisualSettings::Handle menu_visual_settings;
+        std::uint64_t menu_volume_frame = 0;
+        std::unique_ptr<FrontendMenuScenes> frontend_menus;
+        std::unique_ptr<FrontendMenuCursor> menu_cursor;
+        FrontendMenuScenesFrame menu_frame;
+        FrontendSession::Handle navigation_frame;
         std::shared_ptr<FrontendSession> frontend_session;
         std::shared_ptr<FrontendBootAudio> boot_audio;
         std::shared_ptr<FrontendAudio> menu_audio;
@@ -579,9 +585,21 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 }
                 if(menu_preview)
                 {
-                    menu_audio=std::make_shared<FrontendAudio>(load.Result(),calculation);
+                    native_preferences=std::make_shared<NativePreferences>(std::filesystem::absolute(directory/"native-preferences.bin"));
+                    native_preferences->StartLoad();
+                    while(native_preferences->Status().host_pending)
+                    {
+                        if(Update())throw std::runtime_error("Native preferences loading cancelled");
+                        native_preferences->Poll();native_preferences->RethrowFailure();
+                        if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("Native preferences timed out");
+                        SDL_Delay(1);
+                    }
+                    const auto preferences=native_preferences->Current();
+                    menu_volumes=std::make_shared<AudioCategoryVolumes>(resources::ReadAudioVolumeProfile(global.Bytes()),preferences->audio);
+                    menu_visual_settings=std::make_shared<FrontendVisualSettings>(preferences->auto_zoom,preferences->camera_zoom);
+                    menu_audio=std::make_shared<FrontendAudio>(load.Result(),calculation,AudioVoicesOptions{64,64*1024*1024,0,menu_volumes});
                     log("Resident frontend audio loaded through NL: FE_GEN_Sfx name23/slot21 and original cue/source lifecycles.");
-                    menu_music=std::make_unique<FrontendMusic>(catalog,calculation);
+                    menu_music=std::make_unique<FrontendMusic>(catalog,calculation,FrontendMusicOptions{0,menu_volumes});
                     menu_music->BeginSelect(1,nlDefaultSeed);
                     while(menu_music->Status().load==FrontendMusicLoadState::Loading)
                     {
@@ -605,46 +623,48 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             {
                 frontend_input = std::make_unique<FrontendInput>();
                 frontend_devices = std::make_unique<FrontendInputSDL>();
-                frontend_stack = std::make_unique<FrontendSceneStack>(*frontend_input, [&] { if (session.gx) DrainGX(); });
-                FrontendStackRequest request;
-                request.scene = options.frontend_options ? 13 : 1;
-                request.language = frontend_language;
-                request.initial_slide = *options.frontend_slide;
-                request.resources_mode = FrontendSessionResourcesMode::PermanentMain;
-                frontend_menu_token = frontend_stack->QueuePush(std::move(request));
-                frontend_stack->BindVisual(frontend_menu_token, [&](FrontendStackVisualContext context) -> std::shared_ptr<FrontendStackVisual> {
-                    frontend_session = context.session;
-                    if (options.frontend_options)
-                    {
-                        frontend_options = std::make_shared<FrontendOptions>(context.session, *frontend_input,
-                            menu_audio, nlDefaultSeed, context.handler, 0);
-                        return frontend_options;
-                    }
-                    frontend_main = std::make_shared<FrontendMainMenu>(context.session, *frontend_input,
-                        menu_audio, nlDefaultSeed, context.handler, false);
-                    return frontend_main;
-                });
-                while (frontend_stack->Entry(frontend_menu_token).state != FrontendStackState::AwaitingPublication)
+                auto camera_load=LoadFrontendCameraAssets(menu_camera_assets);
+                PendingAsset script;script.Start("/Art/scripts/fe_presentation.byte_code");
+                while(camera_load.State()==CameraBatchState::Loading||!script.done)
                 {
-                    if (Update()) throw std::runtime_error("Frontend menu loading cancelled");
-                    frontend_stack->Service(); frontend_stack->RethrowFailure(frontend_menu_token);
-                    if (std::chrono::steady_clock::now() > deadline) throw std::runtime_error("Frontend menu loading timed out");
+                    if(Update())throw std::runtime_error("Menu camera/script loading cancelled");
+                    nlServiceFileSystem();camera_load.Poll();
+                    if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("Menu camera/script loading timed out");
                     SDL_Delay(1);
                 }
-                navigation_session = std::make_shared<FrontendSession>();
-                navigation_session->BeginShared({"/Art/fe/fe_overlay.fen", frontend_language,
-                    FrontendImageProfile::Main, "Slide1", true}, frontend_stack->Resources(frontend_menu_token));
-                while (navigation_session->State() == FrontendSessionState::Loading)
+                camera_load.Publish();
+                menu_cameras=std::make_unique<FrontendCameras>(cameras,menu_camera_assets);
+                menu_cameras->Push("startidle");
+                if(options.frontend_options)menu_cameras->Push("fechoosecaptains");
+                FrontendWorldFileLoad effect_files;
+                while(effect_files.State()<=FrontendWorldFileState::Tweaks)
                 {
-                    if (Update()) throw std::runtime_error("Navigation loading cancelled");
-                    navigation_session->Service();
-                    if (std::chrono::steady_clock::now() > deadline) throw std::runtime_error("Navigation loading timed out");
+                    if(Update())throw std::runtime_error("Menu effect records loading cancelled");
+                    effect_files.Service();
+                    if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("Menu effect records timed out");
                     SDL_Delay(1);
                 }
-                navigation_session->Result();
-                frontend_navigation = std::make_unique<FrontendNavigation>(navigation_session, *frontend_input, menu_audio, nlDefaultSeed);
-                navigation_frame = frontend_navigation->Current();
-                log("Original menu stack and NAV share one permanent MainUI/font resource set; selected visual scope, full SceneCreated pending.");
+                menu_effect_records=resources::WorldEffectData::Decode(effect_files.Result()->resident);
+                menu_effects=std::make_unique<WorldEffects>(menu_effect_records);
+                menu_cursor=std::make_unique<FrontendMenuCursor>();
+                frontend_menus=std::make_unique<FrontendMenuScenes>(*frontend_input,menu_audio,nlDefaultSeed,*menu_cameras,
+                    script.Bytes(),native_preferences,[&](unsigned index){menu_music->BeginSelect(index,nlDefaultSeed);},
+                    [&](unsigned type){
+                        const auto& records=menu_effect_records->Records();
+                        if(std::any_of(records.begin(),records.end(),[&](const auto& e){return e.timing==int(type);}))
+                            throw resources::UnsupportedResource("Menu transition world-effect emission requires its real world/particle service");
+                        if(menu_effects->Trigger(type)!=0)throw std::logic_error("Absent menu effect unexpectedly matched");
+                        return true;
+                    },[&]{if(session.gx)DrainGX();},options.frontend_options?13:1,frontend_language,menu_volumes,menu_visual_settings);
+                while(!frontend_menus->Current().menu||!frontend_menus->Current().navigation)
+                {
+                    if(Update())throw std::runtime_error("Menu loading cancelled");
+                    frontend_menus->Service();
+                    if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("Menu loading timed out");
+                    SDL_Delay(1);
+                }
+                menu_frame=frontend_menus->Current();navigation_frame=menu_frame.navigation;
+                log("Original Main/Options queue, scripts and cameras share permanent menu/NAV resources; complete startup remains pending.");
             }
             else
             {
@@ -661,7 +681,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                     SDL_Delay(1);
                 }
             }
-            const auto current = frontend_session->Result();
+            const auto current = frontend_menus ? menu_frame.menu : frontend_session->Result();
             frontend_published_frame = current;
             frontend_frame = current->layout;
             log("Frontend image context: " + options.frontend_images.value_or("main") + "; "
@@ -677,7 +697,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 log("Unavailable frontend frame components (" + std::to_string(count) + "): " + reason);
             if (frontend_frame->entries.empty() && !options.frontend_animate)
                 throw std::runtime_error("Selected frontend frame has no supported static components");
-            log("Frontend scene session owns FEN, fonts, images and playback; original handlers and menu actions remain pending.");
+            if(!menu_preview)log("Frontend scene session owns FEN, fonts, images and playback; original handlers and menu actions remain pending.");
         }
         else if (options.frontend_layout)
         {
@@ -899,7 +919,6 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             plane.indices={0,1,2,0,2,3}; models.push_back({receiver_id,{std::move(plane)}});
         }
         // Validate camera files before GX queues commands for its first render target.
-        OriginalCameras cameras;
         CameraPoseInput camera_input;
         std::optional<AnimatedCamera> authored_camera;
         std::optional<DebugCamera> debug_camera;
@@ -963,7 +982,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             log("Original authored camera playback: " + *options.camera + "; "
                 + std::to_string(authored_camera->Duration()) + " seconds; model coordinates preserved. Depth-of-field rendering remains pending.");
         }
-        else if (!debug_camera && !nis_cameras) cCameraManager::PushCamera(&camera_input);
+        else if (!debug_camera && !nis_cameras && !menu_preview) cCameraManager::PushCamera(&camera_input);
         alignas(32) std::array<std::uint8_t, 65536> fifo{};
         std::unique_ptr<StaticInventory> inventory;
         std::unique_ptr<StaticWorldObjects> world;
@@ -1107,24 +1126,17 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 frontend_published_frame = frontend_boot->Current();
                 log("Original retail BootLoadingScene selected: strap, nunchuk, ESRB and logo with resident audio.");
             }
-            else if (options.frontend_options)
+            else if (frontend_menus)
             {
-                frontend_published_frame = frontend_options->Current();
-                options_navigation = std::make_unique<FrontendOptionsNavigation>(*frontend_options,*frontend_navigation,
-                    [&](unsigned index) { menu_music->BeginSelect(index,nlDefaultSeed); });
-                log("Original Options visual/input owner selected with source NAV/back controls; submenus and return script remain pending.");
-            }
-            else if (options.frontend_main)
-            {
-                frontend_published_frame = frontend_main->Current();
-                log("Original Main menu visual/input owner selected with shared NAV cursors; save/HOF/ApplyItem services remain pending.");
+                frontend_published_frame=menu_frame.menu;
+                log("Original menu flow selected: Main Options action and Options Back execute source transitions.");
             }
             else frontend_handler = std::make_unique<FrontendHandler>(frontend_session, *frontend_input);
             if (options.frontend_pointer) (void)pointer_binding(frontend_session->Current());
-            frame_packets->Prepare(frontend_session->Current());
-            if (frontend_navigation)
+            frame_packets->Prepare(frontend_published_frame);
+            if (frontend_menus)
             {
-                navigation_frame = frontend_navigation->Current();
+                navigation_frame = menu_frame.navigation;
                 if (navigation_frame->visuals != frontend_published_frame->visuals || navigation_frame->images != frontend_published_frame->images)
                     throw std::logic_error("Menu and NAV have different resource owners");
                 log("Menu and navigation registered together: " + std::to_string(frame_packets->Textures()) + " shared textures.");
@@ -1213,15 +1225,39 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                             log("Original FE input selected text component " + std::to_string(text_view->Index() + 1) + ".");
                     }
                 }
+                if(menu_volumes)
+                    menu_volumes->Update(++menu_volume_frame,frames?(options.frames?1.f/60:std::clamp(delta,0.f,.1f)):0.f);
                 if(menu_audio)
                 {
                     menu_audio->ServiceAudio();
                     menu_audio->Update(frames ? (options.frames ? 1.f/60 : std::clamp(delta,0.f,.1f)) : 0.f);
                 }
                 if(menu_music){menu_music->Service();menu_music->Check();}
-                const bool frontend_ready = frontend_session && (frontend_stack
-                    ? frontend_published_frame == frontend_session->Current()
-                    : frame_packets->Current() == frontend_session->Current());
+                if(frontend_menus && !animation_paused)
+                {
+                    const float step=frames?(options.frames?1.f/60:std::clamp(delta,0.f,.1f)):0.f;
+                    const auto before=frontend_menus->Status();
+                    frontend_menus->Update(step,[&]{
+                        if(hooks && hooks->menu_input)hooks->menu_input(*frontend_menus,info.window);
+                        else
+                        {
+                            const auto back=frontend_menus->BackShortcut();
+                            if(back){pointer_dispatch=*back;return;}
+                            const auto sample=menu_cursor->Poll(frontend_devices->LastSnapshot(),info.window,ImGui::GetIO().WantCaptureMouse);
+                            // A resize has no valid new input projection until a
+                            // real frame is presented. Preserve the existing Leave route.
+                            pointer_dispatch=sample?frontend_menus->Route(*sample):frontend_menus->Poll(info.window,true);
+                        }
+                    });
+                    menu_frame=frontend_menus->Current();frontend_published_frame=menu_frame.menu;navigation_frame=menu_frame.navigation;
+                    const auto after=frontend_menus->Status();
+                    if(after.scene!=before.scene)log("Original menu scene: "+std::to_string(after.scene));
+                    if(!before.interactive&&after.interactive)log("Original menu pointer controls are interactive.");
+                    if(after.pending_scene!=before.pending_scene&&after.pending_scene)
+                        log("Original menu requests scene "+std::to_string(*after.pending_scene)+"; its service remains in development.");
+                    ++animation_updates;
+                }
+                const bool frontend_ready = frontend_session && frame_packets->Current() == frontend_session->Current();
                 if (frontend_ready && options.frontend_animate)
                 {
                     if (animation_reset)
@@ -1251,59 +1287,12 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                             if (before.phase != after.phase && after.phase == 4 && boot_audio)
                                 log("Original boot bank unload completed; startup-manager readiness remains pending.");
                         }
-                        else if(frontend_stack)
-                        {
-                            const auto before_options = frontend_options ? frontend_options->Status() : FrontendOptionsStatus{};
-                            const auto before_main = frontend_main ? frontend_main->Status() : FrontendMainMenuStatus{};
-                            frontend_stack->Update(step,[&](auto token,const auto& presented) {
-                                if (token != frontend_menu_token) throw std::logic_error("Unexpected menu input owner");
-                                if (options_navigation) options_navigation->ApplyCommands();
-                                frontend_navigation->AdvanceVisual(frontend_navigation->Current(),step);
-                                const auto& io = ImGui::GetIO();
-                                if (pointer_present_sequence)
-                                {
-                                    if (frontend_options && before_options.initialized && frontend_options->Status().state == 1)
-                                    {
-                                        const auto dispatch = options_navigation->Poll(presented,navigation_acknowledged_frame,info.window,io.WantCaptureMouse);
-                                        pointer_dispatch = dispatch.pointer;
-                                        if (dispatch.back_pressed) log("Original NAV Back completed; Options is playing its original outro.");
-                                        options_navigation->ApplyCommands();
-                                    }
-                                    else if (frontend_main)
-                                    {
-                                        pointer_dispatch = frontend_main->Poll(info.window,io.WantCaptureMouse);
-                                        const auto selected = frontend_main->Status().selection;
-                                        if (selected && !before_main.selection) log("Original Main SelectItem: " + std::to_string(selected->item)
-                                            + (selected->service == FrontendMainSelectionService::ApplyItem
-                                                ? "; waiting for ApplyItem/transition service." : "; waiting for online save/Mii service."));
-                                    }
-                                    else pointer_dispatch = {};
-                                }
-                                if (frontend_main && frontend_main->Status().interactive)
-                                    frontend_navigation->SetPointerSlide(frontend_navigation->Current(),0,FrontendNavigationPointer::Cursor);
-                                std::array<FrontendNavigationPointerSample,4> cursors{};
-                                cursors.at(pointer_dispatch.event.index) = {pointer_dispatch.event.position,0,pointer_dispatch.active};
-                                frontend_navigation->UpdatePointers(frontend_navigation->Current(),cursors);
-                            });
-                            frontend_stack->RethrowFailure(frontend_menu_token);
-                            navigation_frame = frontend_navigation->Current();
-                            if (frontend_options)
-                            {
-                                const auto after = frontend_options->Status();
-                                if (!before_options.initialized && after.initialized)
-                                    log("Original Options intro completed; three pointer regions and NAV Back are active.");
-                                if (!before_options.transition && after.transition)
-                                    log("Original Options outro completed; requested scene " + std::to_string(after.transition->scene) + " is awaiting its original service.");
-                            }
-                            if (frontend_main && !before_main.interactive && frontend_main->Status().interactive)
-                                log("Original Main intro completed; seven authored pointer regions initialized. Full menu service readiness remains pending.");
-                        }
                         else frontend_handler->Update(frame_packets->Current(), step);
                         ++animation_updates;
                     }
                     // Diagnostic authored-slide selection, never a concrete
                     // game's menu action. DebugCam owns arrow/stick controls.
-                    if (!debug_camera && !frontend_boot && !frontend_main && !frontend_options)
+                    if (!debug_camera && !frontend_boot && !frontend_menus)
                     {
                         const auto current = frontend_handler->Current();
                         const bool previous = frontend_handler->Button(current, FrontendAction::Left, FrontendButtonQuery::Repeat);
@@ -1443,8 +1432,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             if (text_view) text_view->Submit();
             if (frame_view)
             {
-                frame_view->BeginSubmission(); frame_view->Submit(frontend_published_frame);
-                if (frontend_navigation) frame_view->Submit(navigation_frame);
+                frame_view->BeginSubmission(); if(frontend_published_frame)frame_view->Submit(frontend_published_frame);
+                if (frontend_menus) frame_view->Submit(navigation_frame);
             }
             // Read actual EFB depth, before the ImGui overlay, to require visible geometry.
             // Aurora returns the latest asynchronous snapshot, and returns zero
@@ -1486,7 +1475,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 }
                 if (!frontend_message.empty()) ImGui::TextWrapped("Frontend: %s", frontend_message.c_str());
             }
-            else if(!frontend_main&&!frontend_options)ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
+            else if(!frontend_menus)ImGui::TextUnformatted("Original Wii mesh and material programs / Aurora GX Vulkan");
             if (character)
             {
                 ImGui::TextUnformatted("Bowser shock mesh / original FE animation");
@@ -1510,24 +1499,14 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 if (ImGui::Button("Previous text")) text_view->Step(true);
                 ImGui::SameLine(); if (ImGui::Button("Next text")) text_view->Step(false);
             }
-            if(frame_view && frontend_options)
+            if(frame_view && frontend_menus)
             {
-                const auto status=frontend_options->Status();
-                ImGui::TextUnformatted("Options — work in progress");
+                const auto status=frontend_menus->Status();
+                ImGui::TextUnformatted(status.scene==1?"Main Menu — work in progress":status.scene==13?"Options — work in progress":"Menu transition");
                 ImGui::Text("%zu images | %zu text components",frame_view->ImageCount(),frame_view->TextCount());
-                ImGui::TextUnformatted(status.initialized?"Mouse/Enter: original button feedback and sounds.":"Playing the original Options intro.");
-                if(status.transition)ImGui::TextUnformatted("The selected submenu is still in development.");
-                ImGui::TextUnformatted("Back uses the original navigation button. The return scene and submenus are in development.");
-                ImGui::Checkbox("Pause menu animation",&animation_paused);
-            }
-            else if (frame_view && frontend_main)
-            {
-                const auto status=frontend_main->Status();
-                ImGui::TextUnformatted("Main Menu — work in progress");
-                ImGui::Text("%zu images | %zu text components",frame_view->ImageCount(),frame_view->TextCount());
-                ImGui::TextUnformatted(status.interactive?"Mouse/Enter: original hover and selection with sound.":"Playing the original menu intro.");
-                if(status.selection)ImGui::Text("Item %u selected; its next action is still in development.",status.selection->item);
-                ImGui::TextUnformatted("Original music is playing. Saves and menu transitions are still in development.");
+                ImGui::TextUnformatted(status.interactive?"Mouse/Enter: original controls and sounds.":"Playing the original menu transition.");
+                if(status.pending_scene)ImGui::Text("Scene %u is still in development.",*status.pending_scene);
+                if(status.main_selection&&status.main_selection->item!=6)ImGui::TextUnformatted("This menu action is still in development.");
                 ImGui::Checkbox("Pause menu animation",&animation_paused);
             }
             else if (frame_view && !frontend_boot)
@@ -1726,7 +1705,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 ImGui::SameLine(); if (ImGui::Button("Expand PIP")) pip->SetMode(NisPipMode::Expand);
             }
             if (!frontend_boot) ImGui::TextUnformatted("Complete stadium scenes and playable characters are pending.");
-            ImGui::TextUnformatted("Escape or close the window to exit."); ImGui::End();
+            ImGui::TextUnformatted(frontend_menus ? "Arrows / D-pad: move. Enter / A: select. Escape / B: back. Close window to exit." : "Escape or close the window to exit."); ImGui::End();
             backend.read_colours = (!colour_hits && frames % 15 == 14) || (options.frames && frames + 1 == options.frames);
             },
             [&](float) { timing.StartTimer(1); }
@@ -1746,7 +1725,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
         log("Selected begin/update/render/end callbacks use original nlTaskManager priorities 4/9/11/16; full game tasks remain pending.");
         while (!options.frames || frames < options.frames)
         {
-            if (Update()) break;
+            if (Update(bool(frontend_menus))) break;
             nlServiceFileSystem();
             if (frontend_session && frontend_session->State() == FrontendSessionState::Loading)
             {
@@ -1780,8 +1759,13 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                         log("Frontend graphics replacement failed: " + frontend_message + "; previous frame retained.");
                     }
                 }
-                frontend_published_frame = frontend_stack ? next : frame_packets->Current();
-                if (frontend_navigation) navigation_frame = frontend_navigation->Current();
+                frontend_published_frame = frame_packets->Current();
+            }
+            if(frontend_menus)
+            {
+                menu_frame=frontend_menus->Current();frontend_published_frame=menu_frame.menu;navigation_frame=menu_frame.navigation;
+                // Menu and NAV retain the same permanent registered texture set.
+                frame_packets->Prepare(frontend_published_frame?frontend_published_frame:navigation_frame);
             }
             if (character && animation_reset) { character->Reset(); animation_reset = false; }
             if (particles_reset)
@@ -1812,7 +1796,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 throw;
             }
             finish_renderers();
-            if(frontend_main||frontend_options)
+            if(frontend_menus)
             {
                 const auto present=aurora_get_last_presentation();
                 if(present.sequence>pointer_present_sequence)
@@ -1820,14 +1804,9 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                     const auto& size=present.size;
                     const FrontendPointerViewport viewport{present.window_id,size.width,size.height,
                         size.native_fb_width,size.native_fb_height,present.x,present.y,present.width,present.height};
-                    // Both snapshots reached the same composed presentation.
-                    // The packet renderer's Current is the overlay after its
-                    // second submission; it is not the menu's input frame.
-                    frontend_stack->Publish(frontend_menu_token,frontend_published_frame);
-                    if(frontend_main)frontend_main->Acknowledge(frontend_published_frame,viewport);
-                    else frontend_options->Acknowledge(frontend_published_frame,viewport);
-                    frontend_navigation->Acknowledge(navigation_frame,viewport);
-                    navigation_acknowledged_frame = navigation_frame;
+                    frontend_menus->Acknowledge(menu_frame,viewport);
+                    if(menu_frame.menu)menu_cursor->Acknowledge(menu_frame.token,menu_frame.menu,viewport);
+                    if(hooks && hooks->menu_presented)hooks->menu_presented(*frontend_menus,viewport);
                     if(!pointer_present_sequence)log("Original menu input bound to its exact successful Aurora presentation.");
                     pointer_present_sequence=present.sequence;
                 }
@@ -1871,7 +1850,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 if (aurora_get_stats()->drawCallCount)
                     for (const auto& c : colours)
                     {
-                        const bool black_frontend=options.frontend_boot||options.frontend_main;
+                        const bool black_frontend=options.frontend_boot||menu_preview;
                         const int r=volume_preview?200:black_frontend?0:24, g=volume_preview?200:black_frontend?0:28, b=volume_preview?200:black_frontend?0:34;
                         if (std::abs(int(c[0])-r)>3 || std::abs(int(c[1])-g)>3 || std::abs(int(c[2])-b)>3) ++colour_hits;
                         if (volume_preview && std::abs(int(c[0])-78)<=4 && std::abs(int(c[1])-78)<=4
@@ -1910,30 +1889,19 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             log("Frontend text inspection rendered: " + std::to_string(text_view->Rendered()) + " frames through the original view graph.");
         }
         frontend_pointer.reset();
-        if(frontend_main)
+        if(frontend_menus)
         {
-            const auto status=frontend_main->Status();
-            log("Main menu final: "+std::string(status.interactive?"interactive":"intro")
-                +"; "+std::to_string(std::count(status.default_arrows.begin(),status.default_arrows.end(),true))+" original empty arrows; "
-                +(status.selection?"selection awaiting its original service":"no selection"));
+            const auto status=frontend_menus->Status();
+            log("Original menu final: scene "+std::to_string(status.scene)+"; "+(status.interactive?"interactive":"transition")
+                +"; shared texture registrations "+std::to_string(frame_packets->Textures()));
             const auto music=menu_music->Status();
-            log("Original Main music: "+std::to_string(music.completed_reads)+" NL reads; "+std::to_string(music.submitted_frames)+" submitted stereo frames.");
+            log("Original menu music: "+std::to_string(music.completed_reads)+" NL reads; "+std::to_string(music.submitted_frames)+" submitted stereo frames.");
+            frontend_menus->Release();frontend_menus.reset();menu_cursor.reset();
         }
-        if(frontend_options)
-        {
-            const auto status=frontend_options->Status();
-            log("Options final: state "+std::to_string(status.state)+"; "+std::string(status.initialized?"three pointer regions initialized":"intro")
-                +"; "+(status.transition?"selection awaiting its original service":"no selection"));
-            const auto music=menu_music->Status();
-            log("Original Options music: "+std::to_string(music.completed_reads)+" NL reads; "+std::to_string(music.submitted_frames)+" submitted stereo frames.");
-        }
-        if (frontend_navigation)
-            log("Original NAV composed with menu: mask " + std::to_string(frontend_navigation->Status().visible_buttons)
-                + "; shared texture registrations " + std::to_string(frame_packets->Textures()) + ".");
-        options_navigation.reset();frontend_navigation.reset();
-        if (frontend_stack) frontend_stack->Release();
-        frontend_options.reset();frontend_main.reset();frontend_stack.reset();menu_music.reset();menu_audio.reset();
-        navigation_session.reset();navigation_frame.reset();navigation_acknowledged_frame.reset();
+        menu_frame={};navigation_frame.reset();menu_music.reset();menu_audio.reset();
+        menu_volumes.reset();menu_visual_settings.reset();native_preferences.reset();
+        if(menu_effects)menu_effects->Release();menu_effects.reset();menu_effect_records.reset();
+        if(menu_cameras)menu_cameras->Release();menu_cameras.reset();menu_camera_assets.Clear();
         frontend_boot.reset(); boot_audio.reset(); frontend_handler.reset(); frontend_devices.reset(); frontend_input.reset();
         frontend_session.reset(); // Drain pending reloads before NL services/arenas shut down.
         frontend_published_frame.reset();

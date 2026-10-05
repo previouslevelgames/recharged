@@ -71,7 +71,7 @@ struct Selection
     float prepared_db;std::uint32_t voice,sequence;
 };
 Selection Select(resources::AudioStreamBank::Handle bank,resources::AudioCalculationInitial::Handle calc,
-                 std::uint32_t hash,unsigned seed)
+                 std::uint32_t hash,unsigned seed,AudioCategoryVolumes::Handle volumes)
 {
     const auto ci=bank->CuesByKey().Find({hash,0,0,0});Require(ci!=0xffff,"Frontend music cue is absent");
     const auto& cue=bank->Cues().at(ci);
@@ -94,7 +94,7 @@ Selection Select(resources::AudioStreamBank::Handle bank,resources::AudioCalcula
     Require(AudioEventStartTimeSteps(&d,[&](float a,float b){return nlRandomf(a,b,&seed);})==0,"Music start time differs");
     const auto selected=AudioSelectSourceSteps(&d,[&](unsigned range){return nlRandom(range,&seed);});
     Require(seed==original_seed,"Single-source music unexpectedly consumed random state");
-    const float db=AudioResidentPlaybackVolume(0,AudioResidentInstanceVolume(0,calc->Value(voice.slider),std::clamp(voice.volume,-96.0f,6.0f)),0,sequence.volume);
+    const float db=AudioResidentPlaybackVolume(0,AudioResidentInstanceVolume(0,volumes?volumes->Value(voice.slider):calc->Value(voice.slider),std::clamp(voice.volume,-96.0f,6.0f)),0,sequence.volume);
     Require(std::isfinite(db),"Music gain is nonfinite");
     const float gain=float(MIXTableVolume(AudioResidentInputTenths(db),volume_table))/32768.0f;
     // Owned original stereo SetPan(0) gives positions0/127. MIX retains its
@@ -110,6 +110,7 @@ struct FrontendMusic::Implementation
         resources::AudioStreamBank::Handle bank;
         resources::AudioStreamFormat::Handle format;
         resources::AudioCalculationInitial::Handle calculation;
+        AudioCategoryVolumes::Handle volumes;
         Selection selection{};
         resources::AudioStreamDecoder decoder;
         std::unique_ptr<nlFile> file;
@@ -129,8 +130,14 @@ struct FrontendMusic::Implementation
             {
                 const auto& voice=source->bank->Voices().at(source->selection.voice);
                 const auto& seq=source->bank->Sequences().at(source->selection.sequence);
-                const float db=AudioResidentPlaybackVolume(0,AudioResidentInstanceVolume(0,source->calculation->Value(voice.slider),std::clamp(voice.volume,-96.0f,6.0f)),0,seq.volume);
-                Require(db==source->selection.prepared_db&&voice.pitch==0,"Stream parameters left qualified static mix profile");
+                const float db=AudioResidentPlaybackVolume(0,AudioResidentInstanceVolume(0,source->volumes?source->volumes->Value(voice.slider):source->calculation->Value(voice.slider),std::clamp(voice.volume,-96.0f,6.0f)),0,seq.volume);
+                Require((source->volumes||db==source->selection.prepared_db)&&voice.pitch==0,"Stream parameters left qualified mix profile");
+                if(source->volumes&&source->output)
+                {
+                    const float gain=float(MIXTableVolume(AudioResidentInputTenths(db),volume_table))/32768.0f;
+                    if(!SDL_SetAudioStreamGain(source->output,gain))throw AudioError("Music category gain failed");
+                    source->selection.input_gain=gain;source->selection.prepared_db=db;
+                }
             }
             int Update(float){return AudioPlaybackUpdateStep(*this);}
         } event{this};
@@ -145,9 +152,9 @@ struct FrontendMusic::Implementation
             if(audio){SDL_QuitSubSystem(SDL_INIT_AUDIO);audio=false;}
         }
         void Begin(resources::AudioStreamBank::Handle b,resources::AudioCalculationInitial::Handle c,
-                   std::unique_ptr<nlFile> f,Selection s)
+                   std::unique_ptr<nlFile> f,Selection s,AudioCategoryVolumes::Handle v)
         {
-            bank=std::move(b);calculation=std::move(c);file=std::move(f);selection=s;
+            bank=std::move(b);calculation=std::move(c);file=std::move(f);selection=s;volumes=std::move(v);
             // Original sound event preparation waits for both real stream
             // channel blocks; actual Play happens only after preparation.
             AudioPlaybackPrepareStep(event);
@@ -178,8 +185,8 @@ struct FrontendMusic::Implementation
             std::vector<float> mixed; mixed.reserve(pcm.stereo.size());
             for(std::size_t i=0;i<pcm.stereo.size();i+=2)
             {
-                const float l=float(pcm.stereo[i])/32768.0f*selection.input_gain;
-                const float r=float(pcm.stereo[i+1])/32768.0f*selection.input_gain;
+                const float l=float(pcm.stereo[i])/32768.0f*(volumes?1.0f:selection.input_gain);
+                const float r=float(pcm.stereo[i+1])/32768.0f*(volumes?1.0f:selection.input_gain);
                 mixed.push_back(l*selection.left_gain+r*selection.right_gain);
                 mixed.push_back(r*selection.left_gain+l*selection.right_gain);
             }
@@ -207,6 +214,7 @@ struct FrontendMusic::Implementation
             const SDL_AudioSpec spec{SDL_AUDIO_F32,2,static_cast<int>(format->Channels()[0].rate)};
             output=SDL_OpenAudioDeviceStream(device?device:SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,&spec,nullptr,nullptr);
             if(!output)throw AudioError("Music stream creation failed");
+            if(volumes)event.UpdatePlaybackParameters(true);
             Queue();prepared=true;m_Unknown10=3;event.Update(0);return true;
         }
         void Query()
@@ -259,6 +267,7 @@ struct FrontendMusic::Implementation
         :calculation(std::move(calc)),options(o)
     {
         Mutable();Require(catalog&&calculation&&catalog->names.size()>26&&catalog->slots.size()>22,"Music requires retained catalog/calculation");
+        if(options.category_volumes)options.category_volumes->RequireCompatible(calculation);
         const auto& name=catalog->names[26].name;
         Require(name=="FE_GEN_Music"&&catalog->slots[22].streaming,"Music requires original FE_GEN_Music name26/stream slot22");
         base="audio/"+name;
@@ -303,8 +312,8 @@ struct FrontendMusic::Implementation
             {
                 if(!read.Ready())return;
                 auto bank=resources::ReadAudioStreamBank(read.Bytes(),nlFileSize(wave.get(),nullptr));
-                const auto selection=Select(bank,calculation,pending_hash,pending_seed);
-                auto next=std::make_unique<Stream>();next->Begin(bank,calculation,std::move(wave),selection);
+                const auto selection=Select(bank,calculation,pending_hash,pending_seed,options.category_volumes);
+                auto next=std::make_unique<Stream>();next->Begin(bank,calculation,std::move(wave),selection,options.category_volumes);
                 read.Drain();metadata.reset();pending=std::move(next);return;
             }
             if(!pending->PreparePoll(options.device_id))return;
@@ -354,6 +363,7 @@ FrontendMusicStatus FrontendMusic::Status()const
         result.source_state=c.m_Unknown10;result.event_state=c.event.state;result.maximum_cycles=c.m_PlayCount;
         result.decoded_frames=c.decoded;result.submitted_frames=c.submitted;result.completed_cycles=c.cycles;
         result.queued_input_bytes=c.queued;result.available_output_bytes=c.available;result.paused=c.paused;
+        result.volume_db=c.selection.prepared_db;result.input_gain=c.volumes?c.selection.input_gain:1.0f;
     }
     return result;
 }

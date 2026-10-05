@@ -1,0 +1,18 @@
+include_guard(GLOBAL)
+include(cmake/FrontendMainMenu.cmake)
+include(cmake/FrontendNavigation.cmake)
+include(cmake/FrontendMenuTransition.cmake)
+add_library(charged_frontend_menu_departure STATIC src/runtime/frontend_menu_departure.cpp)
+add_dependencies(charged_frontend_menu_departure verify_prepared)
+target_link_libraries(charged_frontend_menu_departure PUBLIC charged_frontend_main_menu charged_frontend_navigation charged_frontend_menu_transition)
+target_compile_features(charged_frontend_menu_departure PUBLIC cxx_std_20)
+if(BUILD_TESTING)
+    add_executable(frontend_menu_departure_tests tests/frontend_menu_departure.cpp)
+    target_link_libraries(frontend_menu_departure_tests PRIVATE charged_frontend_menu_departure charged_audio_bank_load aurora::dvd aurora::core)
+    if(NOT MSCHARGED_BUILD_SCENE_PREVIEW)
+        add_test(NAME frontend_menu_departure COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_frontend_menu_departure.py" "$<TARGET_FILE:frontend_menu_departure_tests>")
+        set_tests_properties(frontend_menu_departure PROPERTIES TIMEOUT 120
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIODRIVER=dummy")
+    endif()
+endif()

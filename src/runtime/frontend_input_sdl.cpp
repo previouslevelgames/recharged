@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <limits>
 
 namespace mscharged
 {
@@ -67,12 +68,14 @@ std::array<FrontendPadSample, 4> FrontendInputMap::Sample(const FrontendInputDev
     result[0].suppressed_buttons |= keyboard.suppressed_buttons;
     return result;
 }
-void FrontendInputMap::Update(FrontendInput& input, const FrontendInputDevices& devices,
+std::array<FrontendPadSample, 4> FrontendInputMap::Update(FrontendInput& input, const FrontendInputDevices& devices,
     FrontendInputCapture capture, float delta)
 {
     auto next = *this;
-    input.Update(next.Sample(devices, capture), delta);
+    const auto sample = next.Sample(devices, capture);
+    input.Update(sample, delta);
     *this = next;
+    return sample;
 }
 FrontendInputSDL::~FrontendInputSDL()
 {
@@ -112,9 +115,22 @@ FrontendInputDevices FrontendInputSDL::ReadDevices()
 }
 void FrontendInputSDL::Poll(FrontendInput& input, SDL_Window* window, float delta, bool keyboard, bool gamepad)
 {
-    if (!window) throw std::invalid_argument("Frontend input needs its window");
+    if (thread_ != std::this_thread::get_id()) throw std::logic_error("SDL frontend input requires its owner thread");
+    if (!window || !SDL_GetWindowID(window)) throw std::invalid_argument("Frontend input needs its live window");
     const auto flags = SDL_GetWindowFlags(window);
     const bool focused = (flags & SDL_WINDOW_INPUT_FOCUS) && !(flags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED));
-    mapping_.Update(input, ReadDevices(), {focused, keyboard, gamepad}, delta);
+    if (snapshot_.sequence == std::numeric_limits<std::uint64_t>::max())
+        throw std::logic_error("Frontend input snapshot sequence exhausted");
+    FrontendInputSnapshot next;
+    next.devices = ReadDevices(); next.capture = {focused, keyboard, gamepad};
+    next.delta = delta; next.window = SDL_GetWindowID(window); next.sequence = snapshot_.sequence + 1;
+    next.mapped = mapping_.Update(input, next.devices, next.capture, delta);
+    snapshot_ = next;
+}
+const FrontendInputSnapshot& FrontendInputSDL::LastSnapshot() const
+{
+    if (thread_ != std::this_thread::get_id() || !snapshot_.sequence)
+        throw std::logic_error("Frontend input snapshot requires its updated owner thread");
+    return snapshot_;
 }
 }

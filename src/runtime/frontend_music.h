@@ -1,6 +1,7 @@
 #pragma once
 #include "resources/audio_stream.h"
 #include "resources/audio_calculation.h"
+#include "runtime/audio_volume.h"
 #include <thread>
 
 namespace mscharged
@@ -15,8 +16,9 @@ struct FrontendMusicStatus
     std::uint64_t requested_reads=0,completed_reads=0,decoded_frames=0,submitted_frames=0,completed_cycles=0;
     int queued_input_bytes=0,available_output_bytes=0;
     bool paused=false;
+    float volume_db=0,input_gain=1;
 };
-struct FrontendMusicOptions { std::uint32_t device_id=0; };
+struct FrontendMusicOptions { std::uint32_t device_id=0; AudioCategoryVolumes::Handle category_volumes; };
 // Explicit FE_GEN_Music name26/slot22 native stream owner. Caller pumps real NL
 // services and Service/Poll on the creating thread before NL/arena/SDL teardown.
 // A failed replacement retains the current stream; failed initial load is not

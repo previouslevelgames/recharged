@@ -95,11 +95,12 @@ public:
     void QueuePop(Token);
     void Cancel(Token); // Remove an unpublished queued/loading/candidate entry.
     void Bind(Token, FrontendStackCallbacks); // Complete callbacks, once, before creation.
-    void BindVisual(Token, FrontendStackVisualFactory); // Main1/Options13 selected scope only.
+    void BindVisual(Token, FrontendStackVisualFactory); // Main1/Options13/Audio14/Visual15/Credits23 selected scope only.
     void Poll(); // Process FIFO commands, observe actual resource completion/creation.
     void Service(); // Poll, one real NL service pass, Poll.
     using PresentedInput = std::function<void(Token, const FrontendSession::Handle&)>;
-    // Selected visuals receive exactly one proven base update, their source
+    // Selected visuals first admit their source-specific pre-base gate. Admitted
+    // visuals receive exactly one proven base update, their source
     // gate, then this input window against last acknowledged geometry. Mutations
     // apply to current proven resources and remain unpresented until Publish.
     void Update(float delta, PresentedInput = {});
