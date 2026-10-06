@@ -1,0 +1,77 @@
+Subject: Temporarily supply verified Game data and native compiler declarations
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Owner authorized this temporary adaptation while Game.cpp is in progress.
+The exported source declares kGameTweakZero without a definition. Retain its
+original C linkage and const float type; the owned R4QE01 revision 1 DOL maps
+.sdata2 0x806E373C to file offset 0x56A35C, containing BE 00000000 (+0.0f).
+DOL SHA256: 8f811628ee6646c60620a9c599ef08ed929d2eccc98a779c211847f1500f81fd.
+Remove the native definition once the pinned upstream supplies it. This restores
+original data, not a changed tweak default or a successful game-service stub.
+Use the authoritative audio header linkage and an explicit full-width-to-index
+compiler cast. Emit the available nlStrNCat<char> template for native linking.
+Original game/tweak/terrain/string algorithm bodies and requests stay intact.
+Full game linking, initialization and Credits presentation remain pending.
+
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -1,6 +1,9 @@
+ #include "Game/NetworkMessageRegistry.h"
+ #include "Game/DetInput.h"
+ #include "Game/AI/TeamPlayMachine.h"
++#ifdef MSCHARGED_NATIVE
++#include <cstdint>
++#endif
+ #include "Game/Game.h"
+ #include "Game/Weather.h"
+ #include "Game/Sys/debug.h"
+@@ -132,8 +135,10 @@
+ 
+ extern "C" EventDispatcher* fn_800721C4();
+ extern "C" void fn_8007214C(ShotAtGoalData* node);
++#ifndef MSCHARGED_NATIVE
+ extern "C" int GetAudioPauseDepth();
+ extern "C" void ResumeAllAudio();
++#endif
+ extern "C" void fn_800EDC2C();
+ extern "C" void fn_801E999C(BaseSceneHandler* scene);
+ extern "C" void fn_80058ABC(unsigned long param1, unsigned long param2);
+@@ -160,7 +165,13 @@
+ extern "C" float lbl_806DBA84;
+ extern "C" const float lbl_806E3798;
+ extern "C" const float lbl_806E379C;
++#ifdef MSCHARGED_NATIVE
++// Temporary missing-data export, verified in R4QE01 revision 1 retail .sdata2
++// at 0x806E373C: BE 00000000. Remove when upstream supplies its definition.
++extern "C" const float kGameTweakZero = 0.0f;
++#else
+ extern "C" const float kGameTweakZero;
++#endif
+ extern "C" const float lbl_806E374C;
+ extern "C" const float lbl_806E3740;
+ extern "C" const float lbl_806E3748;
+@@ -306,7 +317,11 @@
+     m_pPostResetClock->m_uParam1 = (unsigned long)this;
+ 
+     mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
++#ifdef MSCHARGED_NATIVE
++        Terrain(static_cast<int>(reinterpret_cast<std::uintptr_t>(param1)));
++#else
+         Terrain((int)param1);
++#endif
+ 
+     mpWeatherManager = new (nlMalloc(sizeof(WeatherManager), 8, false)) WeatherManager();
+ 
+diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
+--- a/src/NL/nlString.cpp
++++ b/src/NL/nlString.cpp
+@@ -62,3 +62,8 @@
+     }
+ #endif
+ }
++
++#ifdef MSCHARGED_NATIVE
++#include "NL/nlstring_impl.h"
++template char* nlStrNCat<char>(char*, const char*, const char*, unsigned long);
++#endif

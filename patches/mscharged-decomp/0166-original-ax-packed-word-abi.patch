@@ -1,0 +1,198 @@
+Subject: Preserve AX native packed stores and retail u16 word fields
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep all original AX voice-format decisions, synchronization flags,
+depop arithmetic and studio call/update order. Native packed records
+cannot provide aligned u32/s32 output pointers. Use byte cursors and
+memcpy-backed native metadata access, retaining the retail high/low
+u16 meanings of the PCM gain/predictor word. Console code and packed
+record footprints remain intact. This does not export DSP wire data,
+provide a DSP engine or satisfy original AX/THP audio initialization.
+
+diff --git a/libs/RVL_SDK/include/revolution/ax/AXSPB.h b/libs/RVL_SDK/include/revolution/ax/AXSPB.h
+--- a/libs/RVL_SDK/include/revolution/ax/AXSPB.h
++++ b/libs/RVL_SDK/include/revolution/ax/AXSPB.h
+@@ -70,8 +70,13 @@
+ #pragma pack(pop)
+ 
+ AXSTUDIO* __AXGetStudio(void);
++#ifdef MSCHARGED_NATIVE
++void __AXDepopFadeMain(s32* all, void* value, s16* depop) DECOMP_DONT_INLINE;
++void __AXDepopFadeRmt(s32* all, void* value, s16* depop) DECOMP_DONT_INLINE;
++#else
+ void __AXDepopFadeMain(s32* all, s32* value, s16* depop) DECOMP_DONT_INLINE;
+ void __AXDepopFadeRmt(s32* all, s32* value, s16* depop) DECOMP_DONT_INLINE;
++#endif
+ void __AXPrintStudio(void);
+ void __AXSPBInit(void);
+ void __AXDepopVoice(AXPB* pb);
+diff --git a/src/RVL_SDK/ax/AXSPB.c b/src/RVL_SDK/ax/AXSPB.c
+--- a/src/RVL_SDK/ax/AXSPB.c
++++ b/src/RVL_SDK/ax/AXSPB.c
+@@ -1,5 +1,9 @@
+ #include <revolution/ax.h>
+ #include <revolution/os.h>
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_data_abi.h"
++#endif
+ 
+ #define DEPOP_MIN (-20)
+ #define DEPOP_MAX 20
+@@ -36,7 +40,11 @@
+     return &__AXStudio;
+ }
+ 
++#ifdef MSCHARGED_NATIVE
++void __AXDepopFadeMain(s32* all, void* value, s16* depop) {
++#else
+ void __AXDepopFadeMain(s32* all, s32* value, s16* depop) {
++#endif
+     if (*all / AX_SAMPLES_PER_FRAME != 0) {
+         // Average depop across the channel?
+         s32 avg = *all / AX_SAMPLES_PER_FRAME;
+@@ -49,17 +57,29 @@
+             avg = DEPOP_MIN;
+         }
+ 
++#ifdef MSCHARGED_NATIVE
++        mscharged_ax_write_s32(value, *all);
++#else
+         *value = *all;
++#endif
+         *all -= avg * AX_SAMPLES_PER_FRAME;
+         *depop = -avg;
+     } else {
+         *all = 0;
++#ifdef MSCHARGED_NATIVE
++        mscharged_ax_write_s32(value, 0);
++#else
+         *value = 0;
++#endif
+         *depop = 0;
+     }
+ }
+ 
++#ifdef MSCHARGED_NATIVE
++void __AXDepopFadeRmt(s32* all, void* value, s16* depop) {
++#else
+ void __AXDepopFadeRmt(s32* all, s32* value, s16* depop) {
++#endif
+     if (*all / AX_SAMPLES_PER_FRAME_RMT != 0) {
+         // Average depop across the channel?
+         s32 avg = *all / AX_SAMPLES_PER_FRAME_RMT;
+@@ -72,12 +92,20 @@
+             avg = DEPOP_MIN;
+         }
+ 
++#ifdef MSCHARGED_NATIVE
++        mscharged_ax_write_s32(value, *all);
++#else
+         *value = *all;
++#endif
+         *all -= avg * AX_SAMPLES_PER_FRAME_RMT;
+         *depop = -avg;
+     } else {
+         *all = 0;
++#ifdef MSCHARGED_NATIVE
++        mscharged_ax_write_s32(value, 0);
++#else
+         *value = 0;
++#endif
+         *depop = 0;
+     }
+ }
+diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
+--- a/src/RVL_SDK/ax/AXVPB.c
++++ b/src/RVL_SDK/ax/AXVPB.c
+@@ -6,6 +6,10 @@
+ #endif
+ #include <revolution/ax.h>
+ #include <revolution/os.h>
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_data_abi.h"
++#endif
+ #include <string.h>
+ 
+ 
+@@ -578,6 +582,24 @@
+ void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
+     BOOL enabled = OSDisableInterrupts();
+ 
++#ifdef MSCHARGED_NATIVE
++    u8* dst = (u8*)&vpb->pb + offsetof(AXPB, addr);
++    const u8* src = (const u8*)addr;
++
++    mscharged_ax_write_u16_word(dst, mscharged_ax_read_u16_word(src));
++    dst += sizeof(u32);
++    src += sizeof(u32);
++
++    mscharged_ax_write_u16_word(dst, mscharged_ax_read_u16_word(src));
++    dst += sizeof(u32);
++    src += sizeof(u32);
++
++    mscharged_ax_write_u16_word(dst, mscharged_ax_read_u16_word(src));
++    dst += sizeof(u32);
++    src += sizeof(u32);
++
++    mscharged_ax_write_u16_word(dst, mscharged_ax_read_u16_word(src));
++#else
+     u32* dst = (u32*)&vpb->pb.addr;
+     const u32* src = (u32*)addr;
+ 
+@@ -595,9 +617,23 @@
+     src++;
+ 
+     *dst = *src;
++#endif
+ 
+     switch (addr->format) {
+     case AX_SAMPLE_FORMAT_PCM_S16:
++#ifdef MSCHARGED_NATIVE
++        dst += sizeof(u32);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0x08000000);
++        mscharged_ax_write_u16_word(dst, 0);
++#else
+         dst++;
+         *dst++ = 0;
+         *dst++ = 0;
+@@ -609,8 +645,22 @@
+         *dst++ = 0;
+         *dst++ = 0x08000000;
+         *dst = 0;
++#endif
+         break;
+     case AX_SAMPLE_FORMAT_PCM_S8:
++#ifdef MSCHARGED_NATIVE
++        dst += sizeof(u32);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0);
++        mscharged_ax_write_u16_word_advance(&dst, 0x01000000);
++        mscharged_ax_write_u16_word(dst, 0);
++#else
+         dst++;
+         *dst++ = 0;
+         *dst++ = 0;
+@@ -622,6 +672,7 @@
+         *dst++ = 0;
+         *dst++ = 0x01000000;
+         *dst = 0;
++#endif
+         break;
+     case AX_SAMPLE_FORMAT_DSP_ADPCM:
+     default:

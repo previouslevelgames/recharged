@@ -1,0 +1,24 @@
+Subject: Allow native THP decoding to preserve original SDK quarter-IDCT stores
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The original RVL THPDec.c quarter-IDCT paths store columns3/4 in the swapped
+order already represented by this decoder's disabled compatibility branch.
+Expose an opt-in compile definition so the game decoder preserves that retail
+quirk. Default Aurora callers retain their current policy. This establishes
+that specific store-order boundary, not universal retail video pixel parity.
+
+diff --git a/lib/dolphin/thp/THPDec.cpp b/lib/dolphin/thp/THPDec.cpp
+--- a/lib/dolphin/thp/THPDec.cpp
++++ b/lib/dolphin/thp/THPDec.cpp
+@@ -35,7 +35,11 @@
+ constexpr float kOutputBias = 128.0f * 8.0f;
+ 
+ // Whether to reproduce a bug from SDK THP that swaps columns 3 and 4 in _quarterIDCT
++#if defined(AURORA_THP_PRESERVE_QUARTER_IDCT)
++constexpr bool kBuggyQuarterIdct = AURORA_THP_PRESERVE_QUARTER_IDCT != 0;
++#else
+ constexpr bool kBuggyQuarterIdct = false;
++#endif
+ 
+ bool read_segment(aurora::ByteReader& reader, const u8*& data, size_t& size) noexcept {
+   u16 encodedSize = 0;

@@ -1,0 +1,488 @@
+Subject: Submit and complete actual GPU work at original GX finish markers
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Implement original PE completion underneath GXSetDrawDone/GXWaitDrawDone.
+Seal and submit all prior GPU work, wait on Dawn after that submit, and retain
+the same frame, attachments and rounded staging prefixes for continued draws.
+Deliver actual latched PE callbacks on the GX owner with native SDK exclusion
+and context restoration; worker/parser acknowledgement is not GPU completion.
+Native clock queries service the owner latch for original time-only source waits.
+Support valid startup GX state without inventing a recording frame.
+Queue failure, device loss and genuine completion timeout remain failures.
+The host supplies the shared OS interrupt/context provider; no game TU changes.
+
+diff --git a/include/dolphin/gx/GXManage.h b/include/dolphin/gx/GXManage.h
+--- a/include/dolphin/gx/GXManage.h
++++ b/include/dolphin/gx/GXManage.h
+@@ -14,6 +14,9 @@
+ GXDrawSyncCallback GXSetDrawSyncCallback(GXDrawSyncCallback cb);
+ GXDrawDoneCallback GXSetDrawDoneCallback(GXDrawDoneCallback cb);
+ void GXDrawDone(void);
++void GXWaitDrawDone(void);
++// Host owner SDK pump; masked/foreign threads retain the real completion latch.
++BOOL AuroraServiceGXDrawDone(void);
+ void GXSetDrawDone(void);
+ void GXFlush(void);
+ void GXPixModeSync(void);
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -259,6 +259,7 @@
+     gamepad::initialize();
+   }
+ #ifdef AURORA_ENABLE_GX
++  gx::fifo::service_draw_done();
+   gx::update();
+ #endif
+   return window::poll_events();
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -5,6 +5,7 @@
+ #include "dolphin/gd/GDGeometry.h"
+ 
+ #include <cstring>
++#include <dolphin/os.h>
+ 
+ // Global shadow register instance
+ static __GXData_struct sGXData;
+@@ -261,19 +262,30 @@
+   return &sFifoObj;
+ }
+ 
++void GXWaitDrawDone() { aurora::gx::fifo::wait_draw_done(); }
++
+ void GXDrawDone() {
++  GXSetDrawDone();
++  GXWaitDrawDone();
++}
++
++void GXSetDrawDone() {
++  const BOOL enabled = OSDisableInterrupts();
++  GX_WRITE_RAS_REG(kDrawDoneCommand);
+   GXFlush();
+-  GX_WRITE_RAS_REG(kDrawDoneCommand);
+-  aurora::gx::fifo::drain();
+-}
+-
+-void GXSetDrawDone() {
+-  GXFlush();
+-  GX_WRITE_RAS_REG(kDrawDoneCommand);
+-  aurora::gx::fifo::publish();
+-}
+-
+-GXDrawDoneCallback GXSetDrawDoneCallback(GXDrawDoneCallback cb) { return aurora::gx::fifo::set_draw_done_callback(cb); }
++  aurora::gx::fifo::reset_draw_done();
++  OSRestoreInterrupts(enabled);
++  aurora::gx::fifo::publish_draw_done();
++}
++
++BOOL AuroraServiceGXDrawDone() { return aurora::gx::fifo::service_draw_done(); }
++
++GXDrawDoneCallback GXSetDrawDoneCallback(GXDrawDoneCallback cb) {
++  const BOOL enabled = OSDisableInterrupts();
++  const auto previous = aurora::gx::fifo::set_draw_done_callback(cb);
++  OSRestoreInterrupts(enabled);
++  return previous;
++}
+ 
+ void GXFlush() {
+   if (__gx->dirtyState) {
+diff --git a/lib/dolphin/os/OSTime.cpp b/lib/dolphin/os/OSTime.cpp
+--- a/lib/dolphin/os/OSTime.cpp
++++ b/lib/dolphin/os/OSTime.cpp
+@@ -5,6 +5,9 @@
+ #include "internal.hpp"
+ #include <aurora/time.hpp>
+ #include <dolphin/os.h>
++#ifdef AURORA_ENABLE_GX
++#include <dolphin/gx/GXManage.h>
++#endif
+ 
+ namespace chrono = std::chrono;
+ using namespace std::literals::chrono_literals;
+@@ -100,6 +103,12 @@
+ OSTick OSGetTick() { return OSGetTime() & 0xFFFFFFFF; }
+ 
+ OSTime OSGetTime() {
++#ifdef AURORA_ENABLE_GX
++  // Native hardware IRQs are latched by workers and delivered on the owner.
++  // Retail callers may spin only on SDK time (glx WaitDrawDone); the clock
++  // arithmetic stays unchanged and foreign/masked callers never dispatch.
++  AuroraServiceGXDrawDone();
++#endif
+   std::call_once(s_gameEpochOnce, initialize_game_epoch);
+   return s_gameEpochOffset + duration_to_ticks(OSTimeClock::now().time_since_epoch());
+ }
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -21,6 +21,8 @@
+ #include <cstdint>
+ #include <deque>
+ #include <mutex>
++#include <memory>
++#include <cstring>
+ #include <optional>
+ #include <string>
+ #include <thread>
+@@ -710,6 +712,103 @@
+ 
+ void gpu_synchronize() { render_worker::synchronize(); }
+ 
++void submit_draw_done_and_wait() {
++  // This method is called by the FIFO worker at the exact finish opcode. Native
++  // recording stays paused until the GPU prefix and staging remap both finish.
++  const auto recorded = split_recording_for_draw_done();
++  std::optional<size_t> frameSlot;
++  if (recorded) frameSlot = recorded->frameSlot;
++  render_worker::enqueue_work([frameSlot] {
++    FramePacket* packet = frameSlot ? &g_framePackets[*frameSlot] : nullptr;
++    struct Prefix {
++      size_t logicalSize = 0;
++      std::vector<uint8_t> bytes;
++    };
++    std::array<Prefix, 5> prefixes;
++    if (packet) {
++      const std::array<ByteBuffer*, 5> buffers{
++          &packet->verts, &packet->uniforms, &packet->indices,
++          &packet->storage, &packet->textureUpload};
++      for (size_t i = 0; i < buffers.size(); ++i) {
++        prefixes[i].logicalSize = buffers[i]->size();
++        const size_t rounded = AURORA_ALIGN(buffers[i]->size(), 4);
++        if (rounded != 0) {
++          const auto* data = buffers[i]->data();
++          prefixes[i].bytes.assign(data, data + rounded);
++        }
++      }
++      g_stagingBuffers[packet->stagingBuffer].Unmap();
++      g_mappingStates[packet->stagingBuffer].store(BufferMapState::Unmapped, std::memory_order_release);
++    }
++    const wgpu::CommandEncoderDescriptor descriptor{.label = "GX finish encoder"};
++    auto encoder = packet ? std::move(packet->encoder) : g_device.CreateCommandEncoder(&descriptor);
++    if (packet) webgpu::gpu_prof::frame_end(encoder);
++    const wgpu::CommandBufferDescriptor bufferDescriptor{.label = "GX finish GPU prefix"};
++    const auto commands = encoder.Finish(&bufferDescriptor);
++    g_queue.Submit(1, &commands);
++    if (packet) {
++      webgpu::gpu_prof::after_submit();
++      auto callbacks = std::move(packet->afterSubmitCallbacks);
++      packet->afterSubmitCallbacks.clear();
++      for (auto& callback : callbacks) if (callback) callback();
++      after_submit();
++    }
++    // A parser acknowledgement or render-worker drain is never this fence.
++    // The future is registered strictly AFTER the corresponding Queue Submit.
++    struct Completion { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
++    auto completion = std::make_shared<Completion>();
++    const auto future = g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
++        [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
++    const auto waited = g_instance.WaitAny(future, 5'000'000'000);
++    AURORA_ASSERT(waited == wgpu::WaitStatus::Success,
++                  "GX submitted GPU work wait failed: {}", magic_enum::enum_name(waited));
++    AURORA_ASSERT(completion->status == wgpu::QueueWorkDoneStatus::Success,
++                  "GX submitted GPU work failed: {}", magic_enum::enum_name(completion->status));
++    // Dawn deliberately reports QueueWorkDone Success after device loss too.
++    // Its actual lost future is a separate required failure gate; queue status
++    // alone cannot establish that this physical GPU prefix executed.
++    AURORA_ASSERT(g_instance.WaitAny(g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
++                  "GX submitted work completed on a lost GPU device");
++    if (packet) {
++      // Remap the same actual staging slot only after its GPU readers finish.
++      // Restore rounded prefixes because a later unaligned CopyBufferToBuffer
++      // may start before its logical high-water mark. Keep original offsets and
++      // array cached ranges; do not begin another frame or replay old operations.
++      const size_t slot = packet->stagingBuffer;
++      const auto mapped = g_stagingBuffers[slot].MapAsync(
++          wgpu::MapMode::Write, 0, StagingBufferSize, wgpu::CallbackMode::WaitAnyOnly,
++          [](wgpu::MapAsyncStatus status, wgpu::StringView) {
++            AURORA_ASSERT(status == wgpu::MapAsyncStatus::Success,
++                          "GX continuation staging map failed: {}", magic_enum::enum_name(status));
++          });
++      AURORA_ASSERT(g_instance.WaitAny(mapped, 5'000'000'000) == wgpu::WaitStatus::Success,
++                    "GX continuation staging map wait failed");
++      g_mappingStates[slot].store(BufferMapState::Mapped, std::memory_order_release);
++      const std::array<ByteBuffer*, 5> buffers{
++          &packet->verts, &packet->uniforms, &packet->indices,
++          &packet->storage, &packet->textureUpload};
++      const std::array<uint64_t, 5> capacities{
++          VertexBufferSize, UniformBufferSize, IndexBufferSize,
++          StorageBufferSize, UseTextureBuffer ? TextureUploadSize : 0};
++      size_t offset = 0;
++      for (size_t i = 0; i < buffers.size(); ++i) {
++        if (capacities[i] == 0) continue;
++        auto* data = static_cast<uint8_t*>(g_stagingBuffers[slot].GetMappedRange(offset, capacities[i]));
++        *buffers[i] = ByteBuffer{data, static_cast<size_t>(capacities[i])};
++        if (prefixes[i].logicalSize != 0)
++          buffers[i]->append(prefixes[i].bytes.data(), prefixes[i].logicalSize);
++        if (!prefixes[i].bytes.empty())
++          std::memcpy(data, prefixes[i].bytes.data(), prefixes[i].bytes.size());
++        offset += capacities[i];
++      }
++      packet->encoder = g_device.CreateCommandEncoder(&descriptor);
++      webgpu::gpu_prof::frame_begin(packet->encoder);
++    }
++    process_events();
++  });
++  render_worker::synchronize();
++}
++
+ void synchronize() { render_worker::synchronize(); }
+ 
+ void after_present() noexcept {
+diff --git a/lib/gfx/frame.hpp b/lib/gfx/frame.hpp
+--- a/lib/gfx/frame.hpp
++++ b/lib/gfx/frame.hpp
+@@ -38,6 +38,8 @@
+ uint32_t current_frame() noexcept;
+ void after_submit() noexcept;
+ void gpu_synchronize();
++// Actual submitted GPU prefix completion, including mid-frame continuation.
++void submit_draw_done_and_wait();
+ void after_present() noexcept;
+ float calculate_fps() noexcept;
+ } // namespace aurora::gfx
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -586,6 +586,55 @@
+   push_command(CommandType::SetScissor, Command::Data{.setScissor = g_recorder.cachedScissor});
+ }
+ 
++std::optional<RecordedFrame> split_recording_for_draw_done() {
++  if (!g_recorder.active()) {
++    return std::nullopt;
++  }
++  auto& frame = g_recorder.frame();
++  if (g_recorder.currentRenderPass != UINT32_MAX) {
++    // Preserve a continuation for EFB, offscreen and public color passes. All
++    // prior writes must survive this native submission boundary, even when the
++    // final caller-requested store operation will eventually discard them.
++    auto& pass = frame.renderPasses[g_recorder.currentRenderPass];
++    RenderPass continuation = pass;
++    continuation.commands.clear();
++    continuation.paletteConvs.clear();
++    continuation.resolveTarget = {};
++    continuation.snapshotColorDst = {};
++    continuation.snapshotDepthDst = {};
++    continuation.snapshotNormalDst = {};
++    continuation.captureDepthSnapshot = false;
++    continuation.hasDraws = false;
++    continuation.discardable = false;
++    continuation.sealed = false;
++    for (uint32_t i = 0; i < pass.colorAttachmentCount; ++i) {
++      pass.colorAttachments[i].storeOp = wgpu::StoreOp::Store;
++      continuation.colorAttachments[i].loadOp = wgpu::LoadOp::Load;
++      continuation.colorAttachments[i].clear = false;
++    }
++    if (pass.hasDepth) {
++      pass.depthStoreOp = wgpu::StoreOp::Store;
++      continuation.depthLoadOp = wgpu::LoadOp::Load;
++    }
++    if (pass.hasStencil) {
++      pass.stencilStoreOp = wgpu::StoreOp::Store;
++      continuation.stencilLoadOp = wgpu::LoadOp::Load;
++    }
++    continuation.clearDepth = false;
++    frame.uniforms.append_zeroes(gx::MaxUniformSize);
++    pass.captureDepthSnapshot = !g_recorder.inOffscreen;
++    enqueue_pass(frame, g_recorder.currentRenderPass);
++    g_recorder.currentRenderPass = static_cast<uint32_t>(frame.renderPasses.size());
++    frame.renderPasses.emplace_back(std::move(continuation));
++    push_command(CommandType::SetViewport, Command::Data{.setViewport = g_recorder.cachedViewport});
++    push_command(CommandType::SetScissor, Command::Data{.setScissor = g_recorder.cachedScissor});
++  }
++  // Preserve source array ranges, all byte offsets and accumulated frame stats.
++  // FIFO processing waits for the segment before further recording, so no
++  // recorder/packet is concurrently reused while mapped storage is absent.
++  return RecordedFrame{.packet = g_recorder.packet, .frameSlot = g_recorder.frameSlot};
++}
++
+ RecordedFrame end_recording() {
+   CHECK(g_recorder.active(), "No active recording session");
+   AURORA_ASSERT(!g_recorder.inOffscreen, "end_frame called while offscreen rendering is active");
+@@ -790,7 +839,7 @@
+ }
+ 
+ Vec2<uint32_t> get_render_target_size() noexcept {
+-  if (g_recorder.currentRenderPass < current_render_passes().size()) {
++  if (g_recorder.active() && g_recorder.currentRenderPass < current_render_passes().size()) {
+     const auto& size =
+         current_render_passes()[g_recorder.currentRenderPass].colorAttachments[SceneColorAttachmentIndex].size;
+     return {size.width, size.height};
+@@ -801,14 +850,16 @@
+ 
+ void set_viewport(const Viewport& cmd) noexcept {
+   if (cmd != g_recorder.cachedViewport) {
+-    push_command(CommandType::SetViewport, Command::Data{.setViewport = cmd});
++    if (g_recorder.active())
++      push_command(CommandType::SetViewport, Command::Data{.setViewport = cmd});
+     g_recorder.cachedViewport = cmd;
+   }
+ }
+ 
+ void set_scissor(const ClipRect& cmd) noexcept {
+   if (cmd != g_recorder.cachedScissor) {
+-    push_command(CommandType::SetScissor, Command::Data{.setScissor = cmd});
++    if (g_recorder.active())
++      push_command(CommandType::SetScissor, Command::Data{.setScissor = cmd});
+     g_recorder.cachedScissor = cmd;
+   }
+ }
+diff --git a/lib/gfx/recording.hpp b/lib/gfx/recording.hpp
+--- a/lib/gfx/recording.hpp
++++ b/lib/gfx/recording.hpp
+@@ -3,6 +3,7 @@
+ #include "types.hpp"
+ 
+ #include <cstddef>
++#include <optional>
+ #include <string>
+ 
+ namespace aurora::gfx::detail {
+@@ -16,6 +17,8 @@
+ 
+ void begin_recording(FramePacket& packet, size_t frameSlot);
+ RecordedFrame end_recording();
++// Seal a GPU submission segment without ending/resetting the original frame.
++std::optional<RecordedFrame> split_recording_for_draw_done();
+ void shutdown_recording();
+ void increment_merged_draw_count() noexcept;
+ 
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -2,9 +2,14 @@
+ 
+ #include "../thread.hpp"
+ #include "command_processor.hpp"
++#include "../gfx/frame.hpp"
++#include <dolphin/os.h>
++#include <dolphin/os/OSContext.h>
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <chrono>
++#include <thread>
+ #include <cstring>
+ #include <limits>
+ #include <mutex>
+@@ -36,11 +41,13 @@
+ std::atomic<uint32_t> sWorkerWake{0};
+ thread::Thread sWorkerThread;
+ std::atomic<DrawDoneCallback> sDrawDoneCallback{nullptr};
+-
+-void dispatch_draw_done() noexcept {
+-  if (const auto callback = sDrawDoneCallback.load(std::memory_order_acquire); callback != nullptr) {
+-    callback();
+-  }
++std::atomic_bool sGpuFinishPending{false};
++bool sDrawDone = false; // Owner-thread PE flag; worker only latches real completion.
++std::thread::id sOwner;
++
++void latch_gpu_draw_done() {
++  gfx::submit_draw_done_and_wait();
++  sGpuFinishPending.store(true, std::memory_order_release);
+ }
+ 
+ void wake_worker() noexcept {
+@@ -65,7 +72,7 @@
+                   "FIFO processor made invalid progress: processed {} of {} remaining bytes", result.bytesProcessed,
+                   target - processed);
+     if (result.drawDone) {
+-      dispatch_draw_done();
++      latch_gpu_draw_done();
+     }
+     processed += result.bytesProcessed;
+     sProcessed.store(processed, order);
+@@ -130,6 +137,9 @@
+   sFrameActive = false;
+   sPendingDraws = 0;
+   sStreamBase = 0;
++  sGpuFinishPending.store(false, std::memory_order_relaxed);
++  sDrawDone = false;
++  sOwner = std::this_thread::get_id();
+   sPublished.store(0, std::memory_order_relaxed);
+   sProcessed.store(0, std::memory_order_relaxed);
+   sWorkerWake.store(0, std::memory_order_relaxed);
+@@ -137,7 +147,7 @@
+   start_worker();
+ }
+ 
+-void shutdown() { stop_worker(); }
++void shutdown() { stop_worker(); service_draw_done(); }
+ 
+ void begin_frame() noexcept { sFrameActive = true; }
+ 
+@@ -190,6 +200,57 @@
+   return sDrawDoneCallback.exchange(callback, std::memory_order_acq_rel);
+ }
+ 
++void reset_draw_done() noexcept {
++  AURORA_ASSERT(sOwner == std::this_thread::get_id(), "GXSetDrawDone requires the GX owner thread");
++  sDrawDone = false;
++}
++
++void publish_draw_done() noexcept {
++  if (detail::sInDisplayList) return;
++  const uint64_t target = sStreamBase + detail::sBufferSize;
++  sPendingDraws = 0;
++  sPublished.store(target, std::memory_order_release);
++  if (kProcessingMode == ProcessingMode::Thread) wake_worker();
++  else process_to(target, std::memory_order_relaxed);
++}
++
++bool service_draw_done() {
++  // A background SDK yield never dispatches game callbacks on that worker.
++  if (sOwner != std::this_thread::get_id()) return false;
++  const BOOL enabled = OSDisableInterrupts();
++  struct Mask { BOOL enabled; ~Mask() { OSRestoreInterrupts(enabled); } } mask{enabled};
++  if (!enabled || !sGpuFinishPending.exchange(false, std::memory_order_acq_rel)) return false;
++  sDrawDone = true;
++  if (const auto callback = sDrawDoneCallback.load(std::memory_order_acquire)) {
++    OSContext temporary{};
++    OSContext* previous = OSGetCurrentContext();
++    struct Context { OSContext* prior; OSContext* temporary;
++      ~Context() { OSClearContext(temporary); OSSetCurrentContext(prior); }
++    } context{previous, &temporary};
++    OSClearContext(&temporary);
++    OSSetCurrentContext(&temporary);
++    callback();
++  }
++  return true;
++}
++
++void wait_draw_done() {
++  AURORA_ASSERT(sOwner == std::this_thread::get_id(), "GXWaitDrawDone requires the GX owner thread");
++  const BOOL enabled = OSDisableInterrupts();
++  struct Mask { BOOL enabled; ~Mask() { OSRestoreInterrupts(enabled); } } mask{enabled};
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
++  while (!sDrawDone) {
++    // Native equivalent of source OSSleepThread: allow the genuine latched
++    // interrupt while the source owner sleeps, then reenter its critical section.
++    OSEnableInterrupts();
++    service_draw_done();
++    std::this_thread::yield();
++    OSDisableInterrupts();
++    AURORA_ASSERT(sDrawDone || std::chrono::steady_clock::now() < deadline,
++                  "GXWaitDrawDone timed out without a genuine GPU finish interrupt");
++  }
++}
++
+ void finish_draw() noexcept {
+   if (!sFrameActive || kProcessingMode == ProcessingMode::Drain || detail::sInDisplayList) {
+     return;
+diff --git a/lib/gx/fifo.hpp b/lib/gx/fifo.hpp
+--- a/lib/gx/fifo.hpp
++++ b/lib/gx/fifo.hpp
+@@ -98,6 +98,10 @@
+ 
+ using DrawDoneCallback = void (*)();
+ DrawDoneCallback set_draw_done_callback(DrawDoneCallback callback) noexcept;
++void reset_draw_done() noexcept;
++void publish_draw_done() noexcept;
++bool service_draw_done();
++void wait_draw_done();
+ 
+ // Display list recording
+ void begin_display_list(uint8_t* buf, uint32_t size);

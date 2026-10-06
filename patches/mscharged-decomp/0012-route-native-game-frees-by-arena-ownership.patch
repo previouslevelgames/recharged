@@ -1,73 +1,58 @@
-Subject: Route explicit native game allocations by owned arena
-
+Subject: Route explicit native game frees to their exact recorded allocator
 Upstream-base: 443164c91fded218656a8443432e642fdad57838
 
-Compile the original nlMalloc/nlFree layer with allocator ownership checks instead
-of console address-nibble tests. Host global new/delete remain standard so SDL,
-Aurora, and C++ startup do not recursively enter an uninitialized game heap.
-Game-specific ordinary new/class operators and popped custom allocator ownership
-are still an integration gate; only explicit game allocation is connected here.
+Replace Wii address-nibble routing with exact live native allocation ownership.
+Parent/custom heaps can overlap; their original allocator remains the owner after
+its stack entry is popped. The native records are maintained by the original
+allocator interfaces in patch0155. Host SDK/CRT global operators remain standard;
+ordinary game-TU bindings and production platform setup before game constructors
+remain separate integration gates. The source lazy nlInitMemory call is retained.
 
 diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
-index 0435be1..32fb999 100644
 --- a/src/NL/nlMemory.cpp
 +++ b/src/NL/nlMemory.cpp
-@@ -1,6 +1,16 @@
+@@ -1,6 +1,9 @@
  #include "NL/nlMemory.h"
- 
+
  #include "NL/MemAlloc.h"
 +#ifdef MSCHARGED_NATIVE
-+#include <stdint.h>
-+#include <stdexcept>
-+static bool OwnsRegion(const MemoryAllocator& allocator, const void* pointer)
-+{
-+    const uintptr_t base = (uintptr_t)allocator.m_memory;
-+    const uintptr_t address = (uintptr_t)pointer;
-+    return base != 0 && address >= base && address - base < allocator.m_memory_size;
-+}
++#include "platform/game_allocation_ownership.h"
 +#endif
- 
+
  MemoryAllocator VirtualAllocator;
  MemoryAllocator* AllocatorStack[16] = { &StandardAllocator };
-@@ -10,6 +20,16 @@ u8 gMemoryInitialized;
- 
+@@ -10,6 +13,9 @@
+
  static inline void FreeMemory(void* ptr)
  {
 +#ifdef MSCHARGED_NATIVE
-+    if (ptr == 0) return;
-+    // Ownership, not the currently selected allocator, decides where to free.
-+    if (OwnsRegion(StandardAllocator, ptr)) { StandardAllocator.Free(ptr); return; }
-+    if (OwnsRegion(VirtualAllocator, ptr)) { VirtualAllocator.Free(ptr); return; }
-+    if (CurrentAllocator && OwnsRegion(*CurrentAllocator, ptr)) { CurrentAllocator->Free(ptr); return; }
-+    for (unsigned int i = 0; i < AllocatorStackDepth && i < 16; ++i)
-+        if (AllocatorStack[i] && OwnsRegion(*AllocatorStack[i], ptr)) { AllocatorStack[i]->Free(ptr); return; }
-+    throw std::invalid_argument("nlFree pointer has no registered game allocator owner");
++    mscharged::platform::FreeGameAllocation(ptr);
 +#else
      if (CurrentAllocator != &StandardAllocator && CurrentAllocator != &VirtualAllocator)
      {
          CurrentAllocator->Free(ptr);
-@@ -25,6 +45,7 @@ static inline void FreeMemory(void* ptr)
+@@ -25,6 +31,7 @@
      {
          VirtualAllocator.Free(ptr);
      }
 +#endif
  }
- 
+
  static inline void* AllocateMemory(unsigned long size, unsigned int alignment, bool fromEnd)
-@@ -36,6 +57,9 @@ static inline void* AllocateMemory(unsigned long size, unsigned int alignment, b
+@@ -36,6 +43,9 @@
      return CurrentAllocator->Allocate(size, alignment, fromEnd);
  }
- 
+
 +// Host libraries keep standard global new/delete. Game-specific allocation
 +// remains explicit through nlMalloc and the alignment/from-end overloads.
 +#ifndef MSCHARGED_NATIVE
  void operator delete(void* ptr)
  {
      FreeMemory(ptr);
-@@ -56,6 +80,8 @@ void* operator new[](unsigned long size)
+@@ -56,6 +66,8 @@
      return AllocateMemory(size, 8, false);
  }
- 
+
 +#endif
 +
  void* nlMalloc(unsigned long size)

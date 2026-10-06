@@ -1,12 +1,22 @@
 # Legacy diagnostics use the same real core services as the original source.
 # Keep their extracted entry and setup/check helpers out of the core library.
 include_guard(GLOBAL)
+include(cmake/NativeAI.cmake)
+include(cmake/OriginalAX.cmake)
+include(cmake/OriginalAXWords.cmake)
 include(cmake/OriginalCore.cmake)
+include(cmake/NativeClock.cmake)
+include(cmake/OriginalStringStorage.cmake)
+include(cmake/OriginalAllocation.cmake)
 include(cmake/OriginalFontTextures.cmake)
+include(cmake/OriginalTextureResources.cmake)
 include(cmake/OriginalGraphics.cmake)
 include(cmake/OriginalViews.cmake)
 include(cmake/OriginalTiming.cmake)
 include(cmake/OriginalTweaks.cmake)
+include(cmake/OriginalTaskFlow.cmake)
+include(cmake/OriginalEvents.cmake)
+include(cmake/OriginalGameModule.cmake)
 add_library(charged_decomp_startup STATIC
     "${MSCHARGED_PREPARED}/src/Game/Startup.cpp"
     src/runtime/startup_animation.cpp

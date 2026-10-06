@@ -1,0 +1,8 @@
+include_guard(GLOBAL)
+if(BUILD_TESTING)
+    add_executable(original_allocation_owners_tests tests/original_allocation_owners.cpp)
+    target_compile_features(original_allocation_owners_tests PRIVATE cxx_std_20)
+    target_link_libraries(original_allocation_owners_tests PRIVATE charged_original_core)
+    add_test(NAME original_allocation_owners COMMAND original_allocation_owners_tests)
+    set_tests_properties(original_allocation_owners PROPERTIES TIMEOUT 30)
+endif()

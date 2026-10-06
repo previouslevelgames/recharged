@@ -5,6 +5,10 @@ add_library(charged_tasks STATIC
     "${MSCHARGED_PREPARED}/src/Game/Sys/movie.cpp"
     src/runtime/tasks.cpp)
 add_dependencies(charged_tasks verify_prepared)
+# Borrowed-task lifetime/exception checks and absent movie-service stops are
+# explicit legacy diagnostics, with a consistent task ABI in their consumers.
+target_compile_definitions(charged_tasks PUBLIC
+    MSCHARGED_DIAGNOSTIC_TASKS=1 MSCHARGED_DIAGNOSTIC_MOVIES=1)
 target_include_directories(charged_tasks PUBLIC src
     "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
 target_link_libraries(charged_tasks PUBLIC charged_graphics_memory)

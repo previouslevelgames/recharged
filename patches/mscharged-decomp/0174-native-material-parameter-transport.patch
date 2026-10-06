@@ -1,0 +1,793 @@
+Subject: Preserve native material parameter word and pointer transport
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Texture handles/scalars remain Wii32; actual matrix buffers carry a full native
+pointer plus a Wii32 byte count. Native typed profile metadata uses actual member
+offsets and object sizes, leaving original source decisions and console paths.
+
+diff --git a/include/NL/gl/glMaterialParameters.h b/include/NL/gl/glMaterialParameters.h
+--- a/include/NL/gl/glMaterialParameters.h
++++ b/include/NL/gl/glMaterialParameters.h
+@@ -4,6 +4,10 @@
+ #include "NL/gl/glModel.h"
+ 
+ struct GXMaterialParameter;
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++typedef uintptr_t glMaterialBufferAddress;
++#endif
+ 
+ const GXMaterialParameter* glGetMaterialParameterInfo(
+     const glModelPacket* packet, unsigned long index);
+@@ -14,7 +18,11 @@
+ void glSetMaterialTextureIndexParameter(glModelPacket* packet, unsigned long hash,
+     const unsigned long* textureIndex);
+ void glSetMaterialBufferParameter(glModelPacket* packet, unsigned long hash,
++#if defined(MSCHARGED_NATIVE)
++    glMaterialBufferAddress buffer, unsigned long size);
++#else
+     unsigned long buffer, unsigned long size);
++#endif
+ void glSetMaterialFloatParameter(glModelPacket* packet, unsigned long hash, float value);
+ void glSetMaterialUnsignedParameter(
+     glModelPacket* packet, unsigned long hash, unsigned long value);
+diff --git a/include/NL/glx/GXBlackTextureAlphaMaterialProgram.h b/include/NL/glx/GXBlackTextureAlphaMaterialProgram.h
+--- a/include/NL/glx/GXBlackTextureAlphaMaterialProgram.h
++++ b/include/NL/glx/GXBlackTextureAlphaMaterialProgram.h
+@@ -8,7 +8,11 @@
+ {
+     /* 0x00 */ glTextureBinding diffuseTexture;
+     /* 0x08 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x0C */ unsigned long skinMatricesSize;
++#endif
+ }; // size: 0x10
+ 
+ class GXBlackTextureAlphaMaterialProgram : public GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>
+diff --git a/include/NL/glx/GXCharacterDamageMaterialProgram.h b/include/NL/glx/GXCharacterDamageMaterialProgram.h
+--- a/include/NL/glx/GXCharacterDamageMaterialProgram.h
++++ b/include/NL/glx/GXCharacterDamageMaterialProgram.h
+@@ -13,7 +13,11 @@
+     /* 0x20 */ glTextureBinding damage1Texture;
+     /* 0x28 */ glTextureBinding damage2Texture;
+     /* 0x30 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x34 */ unsigned long skinMatricesSize;
++#endif
+     /* 0x38 */ float alphaValue;
+     /* 0x3C */ float specularAmount;
+     /* 0x40 */ float specularScaleX;
+@@ -21,7 +25,11 @@
+     /* 0x48 */ int fresnelRamp;
+     /* 0x4C */ float megaBlend;
+     /* 0x50 */ int unidentified50; // Retained descriptor; unused by this renderer.
++#if defined(MSCHARGED_NATIVE)
++    u32 shadowLevel;
++#else
+     /* 0x54 */ unsigned long shadowLevel;
++#endif
+     /* 0x58 */ int lightingEnabled;
+     /* 0x5C */ int blackOnly;
+     /* 0x60 */ int damage1Enabled;
+diff --git a/include/NL/glx/GXColourFresnelMaterialProgram.h b/include/NL/glx/GXColourFresnelMaterialProgram.h
+--- a/include/NL/glx/GXColourFresnelMaterialProgram.h
++++ b/include/NL/glx/GXColourFresnelMaterialProgram.h
+@@ -10,7 +10,11 @@
+     /* 0x08 */ glTextureBinding detailTexture;
+     /* 0x10 */ glTextureBinding shadowTexture;
+     /* 0x18 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x1C */ unsigned long skinMatricesSize;
++#endif
+     /* 0x20 */ float blendAmount;
+     /* 0x24 */ float alphaValue;
+     /* 0x28 */ int colourFresnelRamp;
+diff --git a/include/NL/glx/GXMegaDiffuseMaterialProgram.h b/include/NL/glx/GXMegaDiffuseMaterialProgram.h
+--- a/include/NL/glx/GXMegaDiffuseMaterialProgram.h
++++ b/include/NL/glx/GXMegaDiffuseMaterialProgram.h
+@@ -10,11 +10,19 @@
+     /* 0x08 */ glTextureBinding detailTexture;
+     /* 0x10 */ glTextureBinding megaTexture;
+     /* 0x18 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x1C */ unsigned long skinMatricesSize;
++#endif
+     /* 0x20 */ float blendAmount;
+     /* 0x24 */ float alphaValue;
+     /* 0x28 */ float megaBlend;
++#if defined(MSCHARGED_NATIVE)
++    u32 shadowLevel;
++#else
+     /* 0x2C */ unsigned long shadowLevel;
++#endif
+     /* 0x30 */ int lightingEnabled;
+ }; // size: 0x34
+ 
+diff --git a/include/NL/glx/GXMegaSpecularFresnelMaterialProgram.h b/include/NL/glx/GXMegaSpecularFresnelMaterialProgram.h
+--- a/include/NL/glx/GXMegaSpecularFresnelMaterialProgram.h
++++ b/include/NL/glx/GXMegaSpecularFresnelMaterialProgram.h
+@@ -12,7 +12,11 @@
+     /* 0x18 */ glTextureBinding specularMaskTexture;
+     /* 0x20 */ glTextureBinding megaTexture;
+     /* 0x28 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x2C */ unsigned long skinMatricesSize;
++#endif
+     /* 0x30 */ float blendAmount;
+     /* 0x34 */ float alphaValue;
+     /* 0x38 */ float specularAmount;
+@@ -20,7 +24,11 @@
+     /* 0x40 */ float specularScaleY;
+     /* 0x44 */ int fresnelRamp;
+     /* 0x48 */ float megaBlend;
++#if defined(MSCHARGED_NATIVE)
++    u32 shadowLevel;
++#else
+     /* 0x4C */ unsigned long shadowLevel;
++#endif
+     /* 0x50 */ int lightingEnabled;
+     /* 0x54 */ int blackOnly; // Retained descriptor; unused by this renderer.
+ }; // size: 0x58
+diff --git a/include/NL/glx/GXMegaSpecularMaterialProgram.h b/include/NL/glx/GXMegaSpecularMaterialProgram.h
+--- a/include/NL/glx/GXMegaSpecularMaterialProgram.h
++++ b/include/NL/glx/GXMegaSpecularMaterialProgram.h
+@@ -12,14 +12,22 @@
+     /* 0x10 */ glTextureBinding glossTexture;
+     /* 0x18 */ glTextureBinding megaTexture;
+     /* 0x20 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x24 */ unsigned long skinMatricesSize;
++#endif
+     /* 0x28 */ float blendAmount;
+     /* 0x2C */ float alphaValue;
+     /* 0x30 */ float specularLevel;
+     /* 0x34 */ float specularExponent;
+     /* 0x38 */ nlFloatColour specularColour;
+     /* 0x48 */ float megaBlend;
++#if defined(MSCHARGED_NATIVE)
++    u32 shadowLevel;
++#else
+     /* 0x4C */ unsigned long shadowLevel;
++#endif
+     /* 0x50 */ int lightingEnabled;
+ }; // size: 0x54
+ 
+diff --git a/include/NL/glx/GXSkinnedMultiLightMaterialProgram.h b/include/NL/glx/GXSkinnedMultiLightMaterialProgram.h
+--- a/include/NL/glx/GXSkinnedMultiLightMaterialProgram.h
++++ b/include/NL/glx/GXSkinnedMultiLightMaterialProgram.h
+@@ -24,7 +24,11 @@
+     /* 0x008 */ glTextureBinding detailTexture;
+     /* 0x010 */ glTextureBinding rampTexture;
+     /* 0x018 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x01C */ unsigned long skinMatricesSize;
++#endif
+     /* 0x020 */ float blendAmount;
+     /* 0x024 */ int animateNormalTexCoords;
+     /* 0x028 */ nlVector3 lightDirections[4];
+diff --git a/include/NL/glx/GXSkinnedUnlitTextureMaterialProgram.h b/include/NL/glx/GXSkinnedUnlitTextureMaterialProgram.h
+--- a/include/NL/glx/GXSkinnedUnlitTextureMaterialProgram.h
++++ b/include/NL/glx/GXSkinnedUnlitTextureMaterialProgram.h
+@@ -8,7 +8,11 @@
+ {
+     /* 0x00 */ glTextureBinding diffuseTexture;
+     /* 0x08 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatrixBytes;
++#else
+     /* 0x0C */ unsigned long skinMatrixBytes;
++#endif
+ }; // size: 0x10
+ 
+ class GXSkinnedUnlitTextureMaterialProgram : public GXMaterialProgramImpl<GXSkinnedUnlitTextureMaterialProgram>
+diff --git a/include/NL/glx/GXSpecularFresnelMaterialProgram.h b/include/NL/glx/GXSpecularFresnelMaterialProgram.h
+--- a/include/NL/glx/GXSpecularFresnelMaterialProgram.h
++++ b/include/NL/glx/GXSpecularFresnelMaterialProgram.h
+@@ -11,14 +11,22 @@
+     /* 0x10 */ glTextureBinding specularTexture;
+     /* 0x18 */ glTextureBinding specularMaskTexture;
+     /* 0x20 */ const float (*skinMatrices)[3][4];
++#if defined(MSCHARGED_NATIVE)
++    u32 skinMatricesSize;
++#else
+     /* 0x24 */ unsigned long skinMatricesSize;
++#endif
+     /* 0x28 */ float blendAmount;
+     /* 0x2C */ float alphaValue;
+     /* 0x30 */ float specularAmount;
+     /* 0x34 */ float specularScaleX;
+     /* 0x38 */ float specularScaleY;
+     /* 0x3C */ int fresnelRamp;
++#if defined(MSCHARGED_NATIVE)
++    u32 shadowLevel;
++#else
+     /* 0x40 */ unsigned long shadowLevel;
++#endif
+     /* 0x44 */ int lightingEnabled;
+ }; // size: 0x48
+ 
+diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+--- a/src/Game/GL/ShaderSkinMesh.cpp
++++ b/src/Game/GL/ShaderSkinMesh.cpp
+@@ -85,7 +85,11 @@
+         CopyMatrices(node);
+ 
+         glSetMaterialBufferParameter(pPacket, SkinMatricesHash,
++#if defined(MSCHARGED_NATIVE)
++            (glMaterialBufferAddress)node->m_pMatrices,
++#else
+             (unsigned long)node->m_pMatrices,
++#endif
+             node->m_nBones * sizeof(float[3][4]));
+         PacketSkinData* data = &packetSkinData[i];
+         if (data->numBones == 0)
+@@ -185,7 +189,11 @@
+     {
+         CopyMatrices(node);
+         glSetMaterialBufferParameter(pPacket, SkinMatricesHash,
++#if defined(MSCHARGED_NATIVE)
++            (glMaterialBufferAddress)node->m_pMatrices,
++#else
+             (unsigned long)node->m_pMatrices,
++#endif
+             node->m_nBones * sizeof(float[3][4]));
+         node = node->m_next;
+     }
+diff --git a/src/NL/gl/glMaterialParameters.cpp b/src/NL/gl/glMaterialParameters.cpp
+--- a/src/NL/gl/glMaterialParameters.cpp
++++ b/src/NL/gl/glMaterialParameters.cpp
+@@ -65,7 +65,11 @@
+ {
+     const GXMaterialParameter* parameter = FindParameter(packet, hash);
+     unsigned char* data = GetParameterData(packet, parameter);
++#if defined(MSCHARGED_NATIVE)
++    *(u32*)data = texture;
++#else
+     *(unsigned long*)data = texture;
++#endif
+     *(unsigned short*)(data + 4) = 0xFFFF;
+ }
+ 
+@@ -78,13 +82,25 @@
+ }
+ 
+ void glSetMaterialBufferParameter(glModelPacket* packet, unsigned long hash,
++#if defined(MSCHARGED_NATIVE)
++    glMaterialBufferAddress buffer, unsigned long size)
++#else
+     unsigned long buffer, unsigned long size)
++#endif
+ {
+     const GXMaterialParameter* parameter = FindParameter(packet, hash);
++#if defined(MSCHARGED_NATIVE)
++    unsigned char* data = GetParameterData(packet, parameter);
++    const void* address = (const void*)buffer;
++    u32 byteCount = size;
++    memcpy(data, &address, sizeof(address));
++    memcpy(data + sizeof(address), &byteCount, sizeof(byteCount));
++#else
+     unsigned long* data =
+         (unsigned long*)GetParameterData(packet, parameter);
+     data[0] = buffer;
+     data[1] = size;
++#endif
+ }
+ 
+ void glSetMaterialFloatParameter(
+@@ -98,7 +114,11 @@
+     glModelPacket* packet, unsigned long hash, unsigned long value)
+ {
+     const GXMaterialParameter* parameter = FindParameter(packet, hash);
++#if defined(MSCHARGED_NATIVE)
++    *(u32*)GetParameterData(packet, parameter) = value;
++#else
+     *(unsigned long*)GetParameterData(packet, parameter) = value;
++#endif
+ }
+ 
+ float glGetMaterialFloatParameter(
+@@ -112,7 +132,11 @@
+     const glModelPacket* packet, unsigned long hash)
+ {
+     const GXMaterialParameter* parameter = FindParameter(packet, hash);
++#if defined(MSCHARGED_NATIVE)
++    return *(u32*)GetParameterData(packet, parameter);
++#else
+     return *(unsigned long*)GetParameterData(packet, parameter);
++#endif
+ }
+ 
+ void* glGetMaterialParameterData(
+diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
+--- a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
++++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXBlackTextureAlphaMaterialProgram.h"
+@@ -8,16 +11,27 @@
+ GXBlackTextureAlphaMaterialProgram* GXBlackTextureAlphaMaterialProgram::Instance;
+ bool GXBlackTextureAlphaMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXBlackTextureAlphaMaterialProgram::Parameters[2] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXBlackTextureAlphaParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xFB3B01EC, 0x02030411, offsetof(GXBlackTextureAlphaParameters, skinMatrices) }, // SkinMatrices
++};
++#else
+ GXMaterialParameter GXBlackTextureAlphaMaterialProgram::Parameters[2] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xFB3B01EC, 0x02030411, 8 }, // SkinMatrices
+ };
++#endif
+ 
+ GXBlackTextureAlphaMaterialProgram::GXBlackTextureAlphaMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0xBACEA013;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXBlackTextureAlphaParameters);
++#else
+     parameterDataSize = 16;
++#endif
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp b/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
+--- a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXCharacterDamageMaterialProgram.h"
+@@ -8,6 +11,29 @@
+ GXCharacterDamageMaterialProgram* GXCharacterDamageMaterialProgram::Instance;
+ bool GXCharacterDamageMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXCharacterDamageMaterialProgram::Parameters[19] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXCharacterDamageParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0x98A598DE, 0x01010103, offsetof(GXCharacterDamageParameters, specularTexture) }, // NLG_SPECULAR
++    { 0x80968AEB, 0x01010103, offsetof(GXCharacterDamageParameters, specularMaskTexture) }, // NLG_MASK
++    { 0x7955E3EB, 0x01010103, offsetof(GXCharacterDamageParameters, megaTexture) }, // megaTexture
++    { 0x57C6B8CF, 0x01010103, offsetof(GXCharacterDamageParameters, damage1Texture) }, // damage1Texture
++    { 0x57C6B8D0, 0x01010103, offsetof(GXCharacterDamageParameters, damage2Texture) }, // damage2Texture
++    { 0xFB3B01EC, 0x02030411, offsetof(GXCharacterDamageParameters, skinMatrices) }, // SkinMatrices
++    { 0xB46C81A2, 0x01010101, offsetof(GXCharacterDamageParameters, alphaValue) }, // alphaValue
++    { 0xF01F1D00, 0x01010101, offsetof(GXCharacterDamageParameters, specularAmount) }, // specularAmount
++    { 0xA9AE313C, 0x01010101, offsetof(GXCharacterDamageParameters, specularScaleX) }, // specularScaleX
++    { 0x710D1571, 0x01010101, offsetof(GXCharacterDamageParameters, specularScaleY) }, // specularScaleY
++    { 0x15CAAD1F, 0x01010102, offsetof(GXCharacterDamageParameters, fresnelRamp) }, // fresnelRamp
++    { 0xAD07B63E, 0x01010101, offsetof(GXCharacterDamageParameters, megaBlend) }, // megaBlend
++    { 0x89DEEB79, 0x01010102, offsetof(GXCharacterDamageParameters, unidentified50) }, // Unidentified control
++    { 0x46CCF41D, 0x01010102, offsetof(GXCharacterDamageParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXCharacterDamageParameters, lightingEnabled) }, // lightingEnabled
++    { 0x8E89F7EF, 0x01010102, offsetof(GXCharacterDamageParameters, blackOnly) }, // blackOnly
++    { 0x28E823DA, 0x01010102, offsetof(GXCharacterDamageParameters, damage1Enabled) }, // damage1Enabled
++    { 0x1529F8BB, 0x01010102, offsetof(GXCharacterDamageParameters, damage2Enabled) }, // damage2Enabled
++};
++#else
+ GXMaterialParameter GXCharacterDamageMaterialProgram::Parameters[19] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0x98A598DE, 0x01010103, 8 }, // NLG_SPECULAR
+@@ -29,12 +55,17 @@
+     { 0x28E823DA, 0x01010102, 96 }, // damage1Enabled
+     { 0x1529F8BB, 0x01010102, 100 }, // damage2Enabled
+ };
++#endif
+ 
+ GXCharacterDamageMaterialProgram::GXCharacterDamageMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x1ACE1D01;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXCharacterDamageParameters);
++#else
+     parameterDataSize = 104;
++#endif
+     parameterCount = 19;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXColourFresnelMaterialProgram.cpp b/src/NL/glx/GXColourFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXColourFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXColourFresnelMaterialProgram.h"
+@@ -8,6 +11,18 @@
+ GXColourFresnelMaterialProgram* GXColourFresnelMaterialProgram::Instance;
+ bool GXColourFresnelMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXColourFresnelMaterialProgram::Parameters[8] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXColourFresnelParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXColourFresnelParameters, detailTexture) }, // NLG_DETAIL
++    { 0x0ED8A325, 0x01010103, offsetof(GXColourFresnelParameters, shadowTexture) }, // NLG_SHADOW
++    { 0xFB3B01EC, 0x02030411, offsetof(GXColourFresnelParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXColourFresnelParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXColourFresnelParameters, alphaValue) }, // alphaValue
++    { 0x64A69545, 0x01010102, offsetof(GXColourFresnelParameters, colourFresnelRamp) }, // colourFresnelRamp
++    { 0x8E10B600, 0x01010102, offsetof(GXColourFresnelParameters, lightingEnabled) }, // lightingEnabled
++};
++#else
+ GXMaterialParameter GXColourFresnelMaterialProgram::Parameters[8] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -18,12 +33,17 @@
+     { 0x64A69545, 0x01010102, 40 }, // colourFresnelRamp
+     { 0x8E10B600, 0x01010102, 44 }, // lightingEnabled
+ };
++#endif
+ 
+ GXColourFresnelMaterialProgram::GXColourFresnelMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x52A9BB54;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXColourFresnelParameters);
++#else
+     parameterDataSize = 48;
++#endif
+     parameterCount = 8;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp b/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
+--- a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
++++ b/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXMegaDiffuseMaterialProgram.h"
+@@ -8,6 +11,19 @@
+ GXMegaDiffuseMaterialProgram* GXMegaDiffuseMaterialProgram::Instance;
+ bool GXMegaDiffuseMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXMegaDiffuseMaterialProgram::Parameters[9] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXMegaDiffuseParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXMegaDiffuseParameters, detailTexture) }, // NLG_DETAIL
++    { 0x0ED8A325, 0x01010103, offsetof(GXMegaDiffuseParameters, megaTexture) }, // NLG_SHADOW (megaTexture)
++    { 0xFB3B01EC, 0x02030411, offsetof(GXMegaDiffuseParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXMegaDiffuseParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXMegaDiffuseParameters, alphaValue) }, // alphaValue
++    { 0xAD07B63E, 0x01010101, offsetof(GXMegaDiffuseParameters, megaBlend) }, // megaBlend
++    { 0x46CCF41D, 0x01010102, offsetof(GXMegaDiffuseParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXMegaDiffuseParameters, lightingEnabled) }, // lightingEnabled
++};
++#else
+ GXMaterialParameter GXMegaDiffuseMaterialProgram::Parameters[9] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -19,12 +35,17 @@
+     { 0x46CCF41D, 0x01010102, 44 }, // shadowLevel
+     { 0x8E10B600, 0x01010102, 48 }, // lightingEnabled
+ };
++#endif
+ 
+ GXMegaDiffuseMaterialProgram::GXMegaDiffuseMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x44410B9B;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXMegaDiffuseParameters);
++#else
+     parameterDataSize = 52;
++#endif
+     parameterCount = 9;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXMegaSpecularFresnelMaterialProgram.h"
+@@ -8,6 +11,26 @@
+ GXMegaSpecularFresnelMaterialProgram* GXMegaSpecularFresnelMaterialProgram::Instance;
+ bool GXMegaSpecularFresnelMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXMegaSpecularFresnelMaterialProgram::Parameters[16] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXMegaSpecularFresnelParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXMegaSpecularFresnelParameters, detailTexture) }, // NLG_DETAIL
++    { 0x98A598DE, 0x01010103, offsetof(GXMegaSpecularFresnelParameters, specularTexture) }, // NLG_SPECULAR
++    { 0x80968AEB, 0x01010103, offsetof(GXMegaSpecularFresnelParameters, specularMaskTexture) }, // NLG_MASK
++    { 0x0ED8A325, 0x01010103, offsetof(GXMegaSpecularFresnelParameters, megaTexture) }, // NLG_SHADOW (megaTexture)
++    { 0xFB3B01EC, 0x02030411, offsetof(GXMegaSpecularFresnelParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXMegaSpecularFresnelParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXMegaSpecularFresnelParameters, alphaValue) }, // alphaValue
++    { 0xF01F1D00, 0x01010101, offsetof(GXMegaSpecularFresnelParameters, specularAmount) }, // specularAmount
++    { 0xA9AE313C, 0x01010101, offsetof(GXMegaSpecularFresnelParameters, specularScaleX) }, // specularScaleX
++    { 0x710D1571, 0x01010101, offsetof(GXMegaSpecularFresnelParameters, specularScaleY) }, // specularScaleY
++    { 0x15CAAD1F, 0x01010102, offsetof(GXMegaSpecularFresnelParameters, fresnelRamp) }, // fresnelRamp
++    { 0xAD07B63E, 0x01010101, offsetof(GXMegaSpecularFresnelParameters, megaBlend) }, // megaBlend
++    { 0x46CCF41D, 0x01010102, offsetof(GXMegaSpecularFresnelParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXMegaSpecularFresnelParameters, lightingEnabled) }, // lightingEnabled
++    { 0x8E89F7EF, 0x01010102, offsetof(GXMegaSpecularFresnelParameters, blackOnly) }, // blackOnly
++};
++#else
+ GXMaterialParameter GXMegaSpecularFresnelMaterialProgram::Parameters[16] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -26,12 +49,17 @@
+     { 0x8E10B600, 0x01010102, 80 }, // lightingEnabled
+     { 0x8E89F7EF, 0x01010102, 84 }, // blackOnly
+ };
++#endif
+ 
+ GXMegaSpecularFresnelMaterialProgram::GXMegaSpecularFresnelMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x632E7422;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXMegaSpecularFresnelParameters);
++#else
+     parameterDataSize = 88;
++#endif
+     parameterCount = 16;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp b/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
+--- a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
++++ b/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXMegaSpecularMaterialProgram.h"
+@@ -8,6 +11,23 @@
+ GXMegaSpecularMaterialProgram* GXMegaSpecularMaterialProgram::Instance;
+ bool GXMegaSpecularMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXMegaSpecularMaterialProgram::Parameters[13] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXMegaSpecularParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXMegaSpecularParameters, detailTexture) }, // NLG_DETAIL
++    { 0x93014DE7, 0x01010103, offsetof(GXMegaSpecularParameters, glossTexture) }, // NLG_GLOSS
++    { 0x0ED8A325, 0x01010103, offsetof(GXMegaSpecularParameters, megaTexture) }, // NLG_SHADOW (megaTexture)
++    { 0xFB3B01EC, 0x02030411, offsetof(GXMegaSpecularParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXMegaSpecularParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXMegaSpecularParameters, alphaValue) }, // alphaValue
++    { 0x29D1D576, 0x01010101, offsetof(GXMegaSpecularParameters, specularLevel) }, // specularLevel
++    { 0xCCBCF02F, 0x01010101, offsetof(GXMegaSpecularParameters, specularExponent) }, // specularExponent
++    { 0x4FBDBBF2, 0x01040101, offsetof(GXMegaSpecularParameters, specularColour) }, // specularColour
++    { 0xAD07B63E, 0x01010101, offsetof(GXMegaSpecularParameters, megaBlend) }, // megaBlend
++    { 0x46CCF41D, 0x01010102, offsetof(GXMegaSpecularParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXMegaSpecularParameters, lightingEnabled) }, // lightingEnabled
++};
++#else
+ GXMaterialParameter GXMegaSpecularMaterialProgram::Parameters[13] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -23,12 +43,17 @@
+     { 0x46CCF41D, 0x01010102, 76 }, // shadowLevel
+     { 0x8E10B600, 0x01010102, 80 }, // lightingEnabled
+ };
++#endif
+ 
+ GXMegaSpecularMaterialProgram::GXMegaSpecularMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0xF540EBBA;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXMegaSpecularParameters);
++#else
+     parameterDataSize = 84;
++#endif
+     parameterCount = 13;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXSkinnedMultiLightMaterialProgram.h"
+@@ -8,6 +11,47 @@
+ GXSkinnedMultiLightMaterialProgram* GXSkinnedMultiLightMaterialProgram::Instance;
+ bool GXSkinnedMultiLightMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXSkinnedMultiLightMaterialProgram::Parameters[37] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXSkinnedMultiLightParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXSkinnedMultiLightParameters, detailTexture) }, // NLG_DETAIL
++    { 0x8099480F, 0x01010103, offsetof(GXSkinnedMultiLightParameters, rampTexture) }, // NLG_RAMP
++    { 0xFB3B01EC, 0x02030411, offsetof(GXSkinnedMultiLightParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXSkinnedMultiLightParameters, blendAmount) }, // blendAmount
++    { 0xE824FA5D, 0x01010184, offsetof(GXSkinnedMultiLightParameters, animateNormalTexCoords) }, // animated normal texture coordinates
++    { 0xFB281C86, 0x01030181, offsetof(GXSkinnedMultiLightParameters, lightDirections[0]) }, // lightDir0
++    { 0xFB281C87, 0x01030181, offsetof(GXSkinnedMultiLightParameters, lightDirections[1]) }, // lightDir1
++    { 0xFB281C88, 0x01030181, offsetof(GXSkinnedMultiLightParameters, lightDirections[2]) }, // lightDir2
++    { 0xFB281C89, 0x01030181, offsetof(GXSkinnedMultiLightParameters, lightDirections[3]) }, // lightDir3
++    { 0xFB2ECAB9, 0x01030181, offsetof(GXSkinnedMultiLightParameters, pointLights[0].position) }, // lightPos0
++    { 0x602BBA7B, 0x01010181, offsetof(GXSkinnedMultiLightParameters, pointLights[0].distance) }, // lightDist0
++    { 0xFB2ECABA, 0x01030181, offsetof(GXSkinnedMultiLightParameters, pointLights[1].position) }, // lightPos1
++    { 0x602BBA7C, 0x01010181, offsetof(GXSkinnedMultiLightParameters, pointLights[1].distance) }, // lightDist1
++    { 0xFB2ECABB, 0x01030181, offsetof(GXSkinnedMultiLightParameters, pointLights[2].position) }, // lightPos2
++    { 0x602BBA7D, 0x01010181, offsetof(GXSkinnedMultiLightParameters, pointLights[2].distance) }, // lightDist2
++    { 0xFB2ECABC, 0x01030181, offsetof(GXSkinnedMultiLightParameters, pointLights[3].position) }, // lightPos3
++    { 0x602BBA7E, 0x01010181, offsetof(GXSkinnedMultiLightParameters, pointLights[3].distance) }, // lightDist3
++    { 0x2B8286F5, 0x01030181, offsetof(GXSkinnedMultiLightParameters, specularLights[0].direction) }, // specular direction 0
++    { 0xBF89C2A7, 0x01010101, offsetof(GXSkinnedMultiLightParameters, specularLights[0].exponent) }, // specular exponent 0
++    { 0x2B8286F6, 0x01030181, offsetof(GXSkinnedMultiLightParameters, specularLights[1].direction) }, // specular direction 1
++    { 0xBF89C2A8, 0x01010101, offsetof(GXSkinnedMultiLightParameters, specularLights[1].exponent) }, // specular exponent 1
++    { 0x2B8286F7, 0x01030181, offsetof(GXSkinnedMultiLightParameters, specularLights[2].direction) }, // specular direction 2
++    { 0xBF89C2A9, 0x01010101, offsetof(GXSkinnedMultiLightParameters, specularLights[2].exponent) }, // specular exponent 2
++    { 0x2B8286F8, 0x01030181, offsetof(GXSkinnedMultiLightParameters, specularLights[3].direction) }, // specular direction 3
++    { 0xBF89C2AA, 0x01010101, offsetof(GXSkinnedMultiLightParameters, specularLights[3].exponent) }, // specular exponent 3
++    { 0xDA88C73B, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[0]) }, // lightColour0
++    { 0xDA88C73C, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[1]) }, // lightColour1
++    { 0xDA88C73D, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[2]) }, // lightColour2
++    { 0xDA88C73E, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[3]) }, // lightColour3
++    { 0xDA88C73F, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[4]) }, // lightColour4
++    { 0xDA88C740, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[5]) }, // lightColour5
++    { 0xDA88C741, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[6]) }, // lightColour6
++    { 0xDA88C742, 0x01040181, offsetof(GXSkinnedMultiLightParameters, lightColours[7]) }, // lightColour7
++    { 0x19BE5B9A, 0x02010184, offsetof(GXSkinnedMultiLightParameters, useDirectionalLights) }, // directional light selection
++    { 0xFFD78956, 0x01010182, offsetof(GXSkinnedMultiLightParameters, diffuseLightCount) }, // diffuse light count
++    { 0x135AB735, 0x01010182, offsetof(GXSkinnedMultiLightParameters, specularLightCount) }, // specular light count
++};
++#else
+ GXMaterialParameter GXSkinnedMultiLightMaterialProgram::Parameters[37] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -47,12 +91,17 @@
+     { 0xFFD78956, 0x01010182, 360 }, // diffuse light count
+     { 0x135AB735, 0x01010182, 364 }, // specular light count
+ };
++#endif
+ 
+ GXSkinnedMultiLightMaterialProgram::GXSkinnedMultiLightMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x4BA62CB4;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXSkinnedMultiLightParameters);
++#else
+     parameterDataSize = 368;
++#endif
+     parameterCount = 37;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
+--- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXSkinnedUnlitTextureMaterialProgram.h"
+@@ -9,16 +12,27 @@
+ GXSkinnedUnlitTextureMaterialProgram* GXSkinnedUnlitTextureMaterialProgram::Instance;
+ bool GXSkinnedUnlitTextureMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXSkinnedUnlitTextureMaterialProgram::Parameters[2] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXSkinnedUnlitTextureParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xFB3B01EC, 0x02030411, offsetof(GXSkinnedUnlitTextureParameters, skinMatrices) }, // SkinMatrices
++};
++#else
+ GXMaterialParameter GXSkinnedUnlitTextureMaterialProgram::Parameters[2] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xFB3B01EC, 0x02030411, 8 }, // SkinMatrices
+ };
++#endif
+ 
+ GXSkinnedUnlitTextureMaterialProgram::GXSkinnedUnlitTextureMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x5D6C62BA;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXSkinnedUnlitTextureParameters);
++#else
+     parameterDataSize = 16;
++#endif
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include <revolution/gx.h>
+ 
+ #include "NL/glx/GXSpecularFresnelMaterialProgram.h"
+@@ -8,6 +11,23 @@
+ GXSpecularFresnelMaterialProgram* GXSpecularFresnelMaterialProgram::Instance;
+ bool GXSpecularFresnelMaterialProgram::Initialized;
+ 
++#if defined(MSCHARGED_NATIVE)
++GXMaterialParameter GXSpecularFresnelMaterialProgram::Parameters[13] = {
++    { 0x69F44DC5, 0x01010103, offsetof(GXSpecularFresnelParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXSpecularFresnelParameters, detailTexture) }, // NLG_DETAIL
++    { 0x98A598DE, 0x01010103, offsetof(GXSpecularFresnelParameters, specularTexture) }, // NLG_SPECULAR
++    { 0x80968AEB, 0x01010103, offsetof(GXSpecularFresnelParameters, specularMaskTexture) }, // NLG_MASK
++    { 0xFB3B01EC, 0x02030411, offsetof(GXSpecularFresnelParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXSpecularFresnelParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXSpecularFresnelParameters, alphaValue) }, // alphaValue
++    { 0xF01F1D00, 0x01010101, offsetof(GXSpecularFresnelParameters, specularAmount) }, // specularAmount
++    { 0xA9AE313C, 0x01010101, offsetof(GXSpecularFresnelParameters, specularScaleX) }, // specularScaleX
++    { 0x710D1571, 0x01010101, offsetof(GXSpecularFresnelParameters, specularScaleY) }, // specularScaleY
++    { 0x15CAAD1F, 0x01010102, offsetof(GXSpecularFresnelParameters, fresnelRamp) }, // fresnelRamp
++    { 0x46CCF41D, 0x01010102, offsetof(GXSpecularFresnelParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXSpecularFresnelParameters, lightingEnabled) }, // lightingEnabled
++};
++#else
+ GXMaterialParameter GXSpecularFresnelMaterialProgram::Parameters[13] = {
+     { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+     { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+@@ -23,12 +43,17 @@
+     { 0x46CCF41D, 0x01010102, 64 }, // shadowLevel
+     { 0x8E10B600, 0x01010102, 68 }, // lightingEnabled
+ };
++#endif
+ 
+ GXSpecularFresnelMaterialProgram::GXSpecularFresnelMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x46B46F88;
++#if defined(MSCHARGED_NATIVE)
++    parameterDataSize = sizeof(GXSpecularFresnelParameters);
++#else
+     parameterDataSize = 72;
++#endif
+     parameterCount = 13;
+     glRegisterMaterialProgram(this, programHash);
+ }
+diff --git a/src/NL/glx/GXWarbleMaterialProgramRender.cpp b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
+--- a/src/NL/glx/GXWarbleMaterialProgramRender.cpp
++++ b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
+@@ -75,7 +75,11 @@
+ void GXMaterialProgramImpl<GXWarbleMaterialProgram>::Prepare(
+     glModelPacket* packet)
+ {
++#if defined(MSCHARGED_NATIVE)
++    glSetMaterialTextureAlphaState(this, packet, *(u32*)packet->materialParameters);
++#else
+     glSetMaterialTextureAlphaState(this, packet, *(unsigned long*)packet->materialParameters);
++#endif
+ }
+ 
+ template <>

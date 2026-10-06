@@ -1,0 +1,22 @@
+Subject: Retain full-width native AI DMA source addresses
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Match the existing native uintptr_t AIInitDMA source argument in the getter.
+Console declarations retain the original u32 result. Native SDK/device service
+providers can round-trip actual host DMA buffers without truncating addresses.
+
+diff --git a/include/dolphin/ai.h b/include/dolphin/ai.h
+--- a/include/dolphin/ai.h
++++ b/include/dolphin/ai.h
+@@ -26,7 +26,11 @@
+ void AIStartDMA(void);
+ void AIStopDMA(void);
+ u32 AIGetDMABytesLeft(void);
++#ifdef TARGET_PC
++uintptr_t AIGetDMAStartAddr(void);
++#else
+ u32 AIGetDMAStartAddr(void);
++#endif
+ u32 AIGetDMALength(void);
+ BOOL AICheckInit(void);
+ AISCallback AIRegisterStreamCallback(AISCallback callback);

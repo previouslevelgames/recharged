@@ -1,0 +1,478 @@
+Subject: Preserve original THPSimple with native Wii data and scalar ABI
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep original initialization, movie selection, NL requests, preload/ring order,
+component dispatch, mixing, callback chaining and retail quirks. Adapt Wii32
+long arithmetic, the original64-byte workbuffer, exact48/20/12/16-byte THP
+records, four-byte big-endian frame words and pointer-width NL callbacks.
+Native decoding calls the actual prepared Aurora SDK interface. AI DMA/address,
+original positive readiness, GPU and decoder quarter-IDCT fidelity remain
+unqualified; no successful SDK or game substitute is supplied by this patch.
+
+diff --git a/include/RVL_SDK/thp/THPSimple.h b/include/RVL_SDK/thp/THPSimple.h
+--- a/include/RVL_SDK/thp/THPSimple.h
++++ b/include/RVL_SDK/thp/THPSimple.h
+@@ -4,26 +4,34 @@
+ #include <revolution/thp/THPBuffer.h>
+ #include <revolution/thp/THPInfo.h>
+ 
++#ifdef MSCHARGED_NATIVE
++typedef s32 THPSimpleLong;
++typedef u32 THPSimpleUnsignedLong;
++#else
++typedef long THPSimpleLong;
++typedef unsigned long THPSimpleUnsignedLong;
++#endif
++
+ #ifdef __cplusplus
+ extern "C"
+ {
+ #endif
+ 
+-    int THPSimpleInit(long audioSystem);
++    int THPSimpleInit(THPSimpleLong audioSystem);
+     void fn_80372970(bool mono);
+     void THPSimpleQuit(void);
+     int THPSimpleOpen(const char* fileName);
+     int THPSimpleClose(void);
+-    unsigned long THPSimpleCalcNeedMemory(void);
++    THPSimpleUnsignedLong THPSimpleCalcNeedMemory(void);
+     int THPSimpleSetBuffer(unsigned char* buffer);
+-    int THPSimplePreLoad(long loop);
++    int THPSimplePreLoad(THPSimpleLong loop);
+     void THPSimpleAudioStart(void);
+     void THPSimpleAudioStop(void);
+     int THPSimpleLoadStop(void);
+-    long THPSimpleDecode(long audioTrack);
++    THPSimpleLong THPSimpleDecode(THPSimpleLong audioTrack);
+     int THPSimpleGetVideoInfo(THPVideoInfo* videoInfo);
+     s32 THPSimpleGetTotalFrame(void);
+-    int THPSimpleSetVolume(long vol, long time);
++    int THPSimpleSetVolume(THPSimpleLong vol, THPSimpleLong time);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
+--- a/src/RVL_SDK/thp/THPSimple.cpp
++++ b/src/RVL_SDK/thp/THPSimple.cpp
+@@ -12,12 +12,19 @@
+ #include <revolution/thp/THPFile.h>
+ #include <string.h>
+ 
++#ifdef MSCHARGED_NATIVE
++#include "platform/thp_data_abi.h"
++#include <dolphin/thp.h>
++#endif
++
++#ifndef MSCHARGED_NATIVE
+ extern "C"
+ {
+     BOOL THPInit(void);
+     s32 THPVideoDecode(void* file, void* tileY, void* tileU, void* tileV, void* work);
+     u32 THPAudioDecode(s16* buffer, u8* audioFrame, s32 flag);
+ }
++#endif
+ 
+ static void THPAudioMixCallback();
+ 
+@@ -25,17 +32,17 @@
+ {
+     /* 0x000 */ nlFile* fileInfo;
+     /* 0x004 */ char magic[4];
+-    /* 0x008 */ unsigned long version;
+-    /* 0x00C */ unsigned long bufSize;
+-    /* 0x010 */ unsigned long audioMaxSamples;
++    /* 0x008 */ THPSimpleUnsignedLong version;
++    /* 0x00C */ THPSimpleUnsignedLong bufSize;
++    /* 0x010 */ THPSimpleUnsignedLong audioMaxSamples;
+     /* 0x014 */ float frameRate;
+-    /* 0x018 */ unsigned long numFrames;
+-    /* 0x01C */ unsigned long firstFrameSize;
+-    /* 0x020 */ unsigned long movieDataSize;
+-    /* 0x024 */ unsigned long compInfoDataOffsets;
+-    /* 0x028 */ unsigned long offsetDataOffsets;
+-    /* 0x02C */ unsigned long movieDataOffsets;
+-    /* 0x030 */ unsigned long finalFrameDataOffsets;
++    /* 0x018 */ THPSimpleUnsignedLong numFrames;
++    /* 0x01C */ THPSimpleUnsignedLong firstFrameSize;
++    /* 0x020 */ THPSimpleUnsignedLong movieDataSize;
++    /* 0x024 */ THPSimpleUnsignedLong compInfoDataOffsets;
++    /* 0x028 */ THPSimpleUnsignedLong offsetDataOffsets;
++    /* 0x02C */ THPSimpleUnsignedLong movieDataOffsets;
++    /* 0x030 */ THPSimpleUnsignedLong finalFrameDataOffsets;
+     /* 0x034 */ THPFrameCompInfo compInfo;
+     /* 0x048 */ THPVideoInfo videoInfo;
+     /* 0x054 */ THPAudioInfo audioInfo;
+@@ -45,24 +52,30 @@
+     /* 0x06D */ unsigned char audioState;
+     /* 0x06E */ unsigned char loop;
+     /* 0x06F */ unsigned char audioExist;
+-    /* 0x070 */ long curOffset;
++    /* 0x070 */ THPSimpleLong curOffset;
+     /* 0x074 */ int dvdError;
+-    /* 0x078 */ unsigned long readProgress;
+-    /* 0x07C */ long nextDecodeIndex;
+-    /* 0x080 */ long readIndex;
+-    /* 0x084 */ long readSize;
+-    /* 0x088 */ long totalReadFrame;
++    /* 0x078 */ THPSimpleUnsignedLong readProgress;
++    /* 0x07C */ THPSimpleLong nextDecodeIndex;
++    /* 0x080 */ THPSimpleLong readIndex;
++    /* 0x084 */ THPSimpleLong readSize;
++    /* 0x088 */ THPSimpleLong totalReadFrame;
+     /* 0x08C */ float curVolume;
+     /* 0x090 */ float targetVolume;
+     /* 0x094 */ float deltaVolume;
+-    /* 0x098 */ long rampCount;
++    /* 0x098 */ THPSimpleLong rampCount;
+     /* 0x09C */ THPReadBuffer readBuffer[10];
+     /* 0x114 */ THPTextureSet textureSet;
+     /* 0x124 */ THPAudioBuffer audioBuffer[6];
+-    /* 0x16C */ long audioDecodeIndex;
+-    /* 0x170 */ long audioOutputIndex;
++    /* 0x16C */ THPSimpleLong audioDecodeIndex;
++    /* 0x170 */ THPSimpleLong audioOutputIndex;
+     /* 0x174 */ unsigned char mono;
+ };
++
++#ifdef MSCHARGED_NATIVE
++static_assert(offsetof(THPSimpleControlWork, compInfo) - offsetof(THPSimpleControlWork, magic) == sizeof(THPHeader));
++static_assert(sizeof(THPSimpleLong) == 4);
++static_assert(sizeof(THPSimpleUnsignedLong) == 4);
++#endif
+ 
+ static THPSimpleControlWork SimpleControl;
+ static int Initialized;
+@@ -71,7 +84,10 @@
+ static s16* LastAudioBuffer;
+ static s16* CurAudioBuffer;
+ static s32 AudioSystem;
+-static long WorkBuffer[16] ALIGN(32);
++static THPSimpleLong WorkBuffer[16] ALIGN(32);
++#ifdef MSCHARGED_NATIVE
++static_assert(sizeof(WorkBuffer) == 64);
++#endif
+ static s16 SoundBuffer[2][192] ALIGN(32);
+ 
+ static unsigned short VolumeTable[128] = {
+@@ -205,11 +221,11 @@
+     0x8000,
+ };
+ 
+-static void __THPAsyncCancelCB(nlFile*, void*, unsigned int, unsigned long, void (*)(nlFile*, void*, unsigned int, unsigned long))
+-{
+-}
+-
+-extern "C" int THPSimpleInit(long audioSystem)
++static void __THPAsyncCancelCB(nlFile*, void*, unsigned int, nlFileAsyncParam, void (*)(nlFile*, void*, unsigned int, nlFileAsyncParam))
++{
++}
++
++extern "C" int THPSimpleInit(THPSimpleLong audioSystem)
+ {
+     memset(&SimpleControl, 0, sizeof(SimpleControl));
+     LCEnable();
+@@ -261,8 +277,8 @@
+ 
+ extern "C" int THPSimpleOpen(const char* fileName)
+ {
+-    long offset;
+-    long i;
++    THPSimpleLong offset;
++    THPSimpleLong i;
+ 
+     if (!Initialized)
+     {
+@@ -284,7 +300,11 @@
+     }
+ 
+     nlRead(SimpleControl.fileInfo, WorkBuffer, sizeof(WorkBuffer), 0);
++#ifdef MSCHARGED_NATIVE
++    mscharged::platform::ExpandTHPHeader(SimpleControl.magic, WorkBuffer);
++#else
+     memcpy(SimpleControl.magic, WorkBuffer, sizeof(THPHeader));
++#endif
+ 
+     if (strcmp(SimpleControl.magic, "THP") != 0)
+     {
+@@ -303,7 +323,11 @@
+     offset = SimpleControl.compInfoDataOffsets;
+     nlSeek(SimpleControl.fileInfo, offset, 0);
+     nlRead(SimpleControl.fileInfo, WorkBuffer, 0x20, 0);
++#ifdef MSCHARGED_NATIVE
++    mscharged::platform::ExpandTHPComponents(SimpleControl.compInfo, WorkBuffer);
++#else
+     memcpy(&SimpleControl.compInfo, WorkBuffer, sizeof(THPFrameCompInfo));
++#endif
+ 
+     offset += sizeof(THPFrameCompInfo);
+     SimpleControl.audioExist = 0;
+@@ -315,13 +339,21 @@
+         case 0:
+             nlSeek(SimpleControl.fileInfo, offset, 0);
+             nlRead(SimpleControl.fileInfo, WorkBuffer, 0x20, 0);
++#ifdef MSCHARGED_NATIVE
++            mscharged::platform::ExpandTHPVideo(SimpleControl.videoInfo, WorkBuffer);
++#else
+             memcpy(&SimpleControl.videoInfo, WorkBuffer, sizeof(THPVideoInfo));
++#endif
+             offset += sizeof(THPVideoInfo);
+             break;
+         case 1:
+             nlSeek(SimpleControl.fileInfo, offset, 0);
+             nlRead(SimpleControl.fileInfo, WorkBuffer, 0x20, 0);
++#ifdef MSCHARGED_NATIVE
++            mscharged::platform::ExpandTHPAudio(SimpleControl.audioInfo, WorkBuffer);
++#else
+             memcpy(&SimpleControl.audioInfo, WorkBuffer, sizeof(THPAudioInfo));
++#endif
+             offset += sizeof(THPAudioInfo);
+             SimpleControl.audioExist = 1;
+             break;
+@@ -384,16 +416,16 @@
+     return 0;
+ }
+ 
+-extern "C" unsigned long THPSimpleCalcNeedMemory()
+-{
+-    unsigned long size;
++extern "C" THPSimpleUnsignedLong THPSimpleCalcNeedMemory()
++{
++    THPSimpleUnsignedLong size;
+     THPSimpleControlWork* ctrl = &SimpleControl;
+ 
+     if (ctrl->open)
+     {
+         size = ((ctrl->bufSize + 31) & ~31) * 10;
+ 
+-        unsigned long pixels = ctrl->videoInfo.xSize * ctrl->videoInfo.ySize;
++        THPSimpleUnsignedLong pixels = ctrl->videoInfo.xSize * ctrl->videoInfo.ySize;
+         size += (pixels + 31) & ~31;
+         size += ((pixels / 4) + 31) & ~31;
+         size += ((pixels / 4) + 31) & ~31;
+@@ -411,7 +443,7 @@
+ 
+ extern "C" int THPSimpleSetBuffer(unsigned char* buffer)
+ {
+-    unsigned long i;
++    THPSimpleUnsignedLong i;
+     unsigned char* ptr;
+     PlatTexture* tex;
+ 
+@@ -452,7 +484,7 @@
+     return 1;
+ }
+ 
+-static void __THPSimpleDVDCallback(nlFile*, void*, unsigned int, unsigned long);
++static void __THPSimpleDVDCallback(nlFile*, void*, unsigned int, nlFileAsyncParam);
+ 
+ static inline void readFrameAsync()
+ {
+@@ -475,14 +507,18 @@
+     nlReadAsync(SimpleControl.fileInfo, SimpleControl.readBuffer[SimpleControl.readIndex].ptr, SimpleControl.readSize, __THPSimpleDVDCallback, 0, 0);
+ }
+ 
+-static void __THPSimpleDVDCallback(nlFile*, void*, unsigned int, unsigned long)
++static void __THPSimpleDVDCallback(nlFile*, void*, unsigned int, nlFileAsyncParam)
+ {
+     SimpleControl.readProgress = 0;
+     SimpleControl.readBuffer[SimpleControl.readIndex].frameNumber = SimpleControl.totalReadFrame;
+     SimpleControl.totalReadFrame++;
+     SimpleControl.readBuffer[SimpleControl.readIndex].isValid = TRUE;
+     SimpleControl.curOffset += SimpleControl.readSize;
++#ifdef MSCHARGED_NATIVE
++    SimpleControl.readSize = mscharged::platform::ReadTHPSignedWord(SimpleControl.readBuffer[SimpleControl.readIndex].ptr);
++#else
+     SimpleControl.readSize = *(u32*)SimpleControl.readBuffer[SimpleControl.readIndex].ptr;
++#endif
+ 
+     SimpleControl.readIndex = (SimpleControl.readIndex + 1 >= 10) ? 0 : SimpleControl.readIndex + 1;
+ 
+@@ -491,10 +527,10 @@
+     readFrameAsync();
+ }
+ 
+-extern "C" int THPSimplePreLoad(long loop)
+-{
+-    unsigned long i;
+-    unsigned long readNum;
++extern "C" int THPSimplePreLoad(THPSimpleLong loop)
++{
++    THPSimpleUnsignedLong i;
++    THPSimpleUnsignedLong readNum;
+ 
+     if (SimpleControl.open && SimpleControl.preFetchState == 0)
+     {
+@@ -509,15 +545,19 @@
+             nlSeek(SimpleControl.fileInfo, SimpleControl.curOffset, 0);
+             nlRead(SimpleControl.fileInfo, SimpleControl.readBuffer[SimpleControl.readIndex].ptr, SimpleControl.readSize, 0);
+ 
+-            long idx = SimpleControl.readIndex;
++            THPSimpleLong idx = SimpleControl.readIndex;
+             SimpleControl.curOffset += SimpleControl.readSize;
+-            SimpleControl.readSize = *(long*)SimpleControl.readBuffer[idx].ptr;
++#ifdef MSCHARGED_NATIVE
++            SimpleControl.readSize = mscharged::platform::ReadTHPSignedWord(SimpleControl.readBuffer[idx].ptr);
++#else
++            SimpleControl.readSize = *(THPSimpleLong*)SimpleControl.readBuffer[idx].ptr;
++#endif
+             SimpleControl.readBuffer[idx].isValid = 1;
+             SimpleControl.readBuffer[SimpleControl.readIndex].frameNumber = SimpleControl.totalReadFrame;
+             SimpleControl.readIndex = (SimpleControl.readIndex + 1 >= 10) ? 0 : SimpleControl.readIndex + 1;
+             SimpleControl.totalReadFrame++;
+ 
+-            if ((unsigned long)SimpleControl.totalReadFrame > SimpleControl.numFrames - 1)
++            if ((THPSimpleUnsignedLong)SimpleControl.totalReadFrame > SimpleControl.numFrames - 1)
+             {
+                 if (SimpleControl.loop == 1)
+                 {
+@@ -548,7 +588,7 @@
+ 
+ extern "C" int THPSimpleLoadStop()
+ {
+-    long i;
++    THPSimpleLong i;
+ 
+     if (SimpleControl.open && SimpleControl.audioState == 0)
+     {
+@@ -594,7 +634,7 @@
+ 
+ static inline int VideoDecode(unsigned char* videoFrame)
+ {
+-    long ret = THPVideoDecode(videoFrame, SimpleControl.textureSet.ytexture, SimpleControl.textureSet.utexture, SimpleControl.textureSet.vtexture, SimpleControl.thpWork);
++    THPSimpleLong ret = THPVideoDecode(videoFrame, SimpleControl.textureSet.ytexture, SimpleControl.textureSet.utexture, SimpleControl.textureSet.vtexture, SimpleControl.thpWork);
+     if (ret == 0)
+     {
+         SimpleControl.textureSet.frameNumber = SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].frameNumber;
+@@ -613,25 +653,33 @@
+     OSRestoreInterrupts(old);
+ }
+ 
+-extern "C" long THPSimpleDecode(long audioTrack)
++extern "C" THPSimpleLong THPSimpleDecode(THPSimpleLong audioTrack)
+ {
+     int old;
+-    unsigned long i;
++    THPSimpleUnsignedLong i;
+     unsigned char* ptr;
+-    unsigned long* compSizePtr;
+-    unsigned long sample;
++#ifdef MSCHARGED_NATIVE
++    const u8* compSizePtr;
++#else
++    THPSimpleUnsignedLong* compSizePtr;
++#endif
++    THPSimpleUnsignedLong sample;
+ 
+     do
+     {
+         if (SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].isValid == 0)
+             break;
+ 
+-        compSizePtr = (unsigned long*)(SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].ptr + 8);
++#ifdef MSCHARGED_NATIVE
++        compSizePtr = SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].ptr + 8;
++#else
++        compSizePtr = (THPSimpleUnsignedLong*)(SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].ptr + 8);
++#endif
+         ptr = SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].ptr + SimpleControl.compInfo.numComponents * 4 + 8;
+ 
+         if (SimpleControl.audioExist != 0)
+         {
+-            if (audioTrack < 0 || (unsigned long)audioTrack >= SimpleControl.audioInfo.sndNumTracks)
++            if (audioTrack < 0 || (THPSimpleUnsignedLong)audioTrack >= SimpleControl.audioInfo.sndNumTracks)
+                 return 4;
+ 
+             if (SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].validSample == 0)
+@@ -645,7 +693,11 @@
+                             return 1;
+                         break;
+                     case 1:
++#ifdef MSCHARGED_NATIVE
++                        sample = THPAudioDecode(SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].buffer, ptr + mscharged::platform::ReadTHPWord(compSizePtr) * audioTrack, 0);
++#else
+                         sample = THPAudioDecode(SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].buffer, ptr + *compSizePtr * audioTrack, 0);
++#endif
+                         old = OSDisableInterrupts();
+                         SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].validSample = sample;
+                         SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].curPtr = SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].buffer;
+@@ -654,8 +706,13 @@
+                             SimpleControl.audioDecodeIndex = 0;
+                         break;
+                     }
++#ifdef MSCHARGED_NATIVE
++                    ptr += mscharged::platform::ReadTHPWord(compSizePtr);
++                    compSizePtr += sizeof(u32);
++#else
+                     ptr += *compSizePtr;
+                     compSizePtr++;
++#endif
+                 }
+             }
+             else
+@@ -674,8 +731,13 @@
+                         return 1;
+                     break;
+                 }
++#ifdef MSCHARGED_NATIVE
++                ptr += mscharged::platform::ReadTHPWord(compSizePtr);
++                compSizePtr += sizeof(u32);
++#else
+                 ptr += *compSizePtr;
+                 compSizePtr++;
++#endif
+             }
+         }
+ 
+@@ -689,12 +751,12 @@
+     return 2;
+ }
+ 
+-static void MixAudio(short* destination, short* source, unsigned long sample)
+-{
+-    unsigned long requestSample;
+-    unsigned long i;
++static void MixAudio(short* destination, short* source, THPSimpleUnsignedLong sample)
++{
++    THPSimpleUnsignedLong requestSample;
++    THPSimpleUnsignedLong i;
+     unsigned short vol;
+-    long mix;
++    THPSimpleLong mix;
+     short* dst;
+     short* libsrc;
+     short* thpsrc;
+@@ -729,7 +791,7 @@
+                         SimpleControl.curVolume = SimpleControl.targetVolume;
+                     }
+ 
+-                    vol = VolumeTable[(long)SimpleControl.curVolume];
++                    vol = VolumeTable[(THPSimpleLong)SimpleControl.curVolume];
+                     if (SimpleControl.mono)
+                     {
+                         mix = *libsrc++ + ((vol * *thpsrc++) >> 15);
+@@ -808,7 +870,7 @@
+                         SimpleControl.curVolume = SimpleControl.targetVolume;
+                     }
+ 
+-                    vol = VolumeTable[(long)SimpleControl.curVolume];
++                    vol = VolumeTable[(THPSimpleLong)SimpleControl.curVolume];
+                     mix = (vol * thpsrc[0]) >> 15;
+                     if (mix < -0x8000)
+                         mix = -0x8000;
+@@ -900,13 +962,13 @@
+     }
+ }
+ 
+-extern "C" int THPSimpleSetVolume(long vol, long time)
++extern "C" int THPSimpleSetVolume(THPSimpleLong vol, THPSimpleLong time)
+ {
+     THPSimpleControlWork* ctrl = &SimpleControl;
+ 
+     if (ctrl->open && ctrl->audioExist)
+     {
+         u32 rate = AIGetDSPSampleRate();
+-        long samplePerMs = 0x30;
++        THPSimpleLong samplePerMs = 0x30;
+         if (!rate)
+             samplePerMs = 0x20;

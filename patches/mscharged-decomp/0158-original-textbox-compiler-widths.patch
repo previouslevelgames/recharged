@@ -1,0 +1,47 @@
+Subject: Preserve Wii32 width arithmetic in original text layout
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Restore the original whole ProcessString through retirement of its0070 hunk.
+Keep original control flow, rows, escapes, alignment/narrowing and quirks.
+Only width accumulators and paragraph cast use the Wii32 scalar type onLP64.
+No host layout helper, capacity guard or behavior correction is introduced.
+
+diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
+--- a/src/NL/nlTextBox.cpp
++++ b/src/NL/nlTextBox.cpp
+@@ -3,16 +3,23 @@
+ #include "NL/nlTextEscape.h"
+ #include "NL/nlstring_tmpl.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++// Preserve original Wii32 width sums/casts on LP64 hosts.
++typedef u32 TextBoxWidthWord;
++#else
++typedef unsigned long TextBoxWidthWord;
++#endif
++
+ void nlTextBox::ProcessString(const FontCharString* pString, const nlFont* pFont, const nlVector2& BoxSize, unsigned long DrawOptions, const nlMatrix4* pMatrix, nlTextBox::StringDrawInfo& DrawInfo)
+ {
+-    unsigned long CurrentRowWidth;
++    TextBoxWidthWord CurrentRowWidth;
+     const unsigned short* pLastSpace;
+     const unsigned short* pLastNonEsc;
+-    unsigned long WidthAtLastSpace;
++    TextBoxWidthWord WidthAtLastSpace;
+     unsigned char FirstChar;
+     unsigned char IsNewParagraph;
+     const unsigned short* pCurrentChar;
+-    unsigned long CharWidth;
++    TextBoxWidthWord CharWidth;
+ 
+     DrawInfo.pFont = pFont;
+     pCurrentChar = DrawInfo.String = pString->m_pString;
+@@ -40,7 +47,7 @@
+             }
+             else if (esc.GetType() == ESC_PARAGRAPH)
+             {
+-                CharWidth = (unsigned long)BoxSize.x + 1;
++                CharWidth = (TextBoxWidthWord)BoxSize.x + 1;
+                 WidthAtLastSpace = CurrentRowWidth;
+                 IsNewParagraph = 1;
+                 pLastSpace = esc.m_pEnd - 1;

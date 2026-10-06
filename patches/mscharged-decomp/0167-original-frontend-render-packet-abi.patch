@@ -1,0 +1,507 @@
+Subject: Restore original frontend quad providers and native packet ABI
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Restore all reconstructed GLDraw3 methods beneath the unchanged original
+frontend decisions. Retain legacy validation only in explicitly diagnostic
+consumers. Carry original view/matrix addresses at the host pointer width;
+keep every numeric view/layer value and serialized Wii32 record unchanged.
+Write the original display-list command geometry in Wii byte order and use
+actual native stream fields. Preserve the source model field stores and exact
+four-byte material array words. Full original finalizer/material providers
+remain required; this does not establish game main, image readiness or GPU.
+
+diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
+--- a/include/Game/FE/feScene.h
++++ b/include/Game/FE/feScene.h
+@@ -5,6 +5,7 @@
+ #include "Game/FE/feSceneResource.h"
+ #include "NL/nlMath.h"
+ #include "types.h"
++#include "NL/gl/gl.h"
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <cstdint>
+@@ -38,7 +39,7 @@
+     /* 0x00 */ FEPackage* m_pFEPackage;
+     /* 0x04 */ unsigned long m_uHashID;
+     /* 0x08 */ nlMatrix4 m_matView;
+-    /* 0x48 */ unsigned long m_uRenderView;
++    /* 0x48 */ glViewHandle m_uRenderView;
+     /* 0x4C */ FE_FILE_HEADER* m_pFileHeader;
+     /* 0x50 */ FEPointerWord* m_pPointerTable;
+     /* 0x54 */ FESceneResource m_feSceneResourceHandle;
+diff --git a/include/Game/FE/feSceneManager.h b/include/Game/FE/feSceneManager.h
+--- a/include/Game/FE/feSceneManager.h
++++ b/include/Game/FE/feSceneManager.h
+@@ -2,6 +2,7 @@
+ #define GAME_FE_SCENE_MANAGER_H
+ 
+ #include "types.h"
++#include "NL/gl/gl.h"
+ 
+ #include "Game/BaseSceneHandler.h"
+ #include "NL/nlDLListContainer.h"
+@@ -44,7 +45,7 @@
+ 
+     /* 0x00 */ nlDLListSlotPool<BaseSceneHandler*> m_sceneHandlerStack;
+     /* 0x1C */ BaseSceneHandler* m_topMostScene;
+-    /* 0x20 */ unsigned long m_uDefaultRenderView;
++    /* 0x20 */ glViewHandle m_uDefaultRenderView;
+ }; // size 0x24
+ 
+ #endif // GAME_FE_SCENE_MANAGER_H
+diff --git a/include/NL/gl/gl.h b/include/NL/gl/gl.h
+--- a/include/NL/gl/gl.h
++++ b/include/NL/gl/gl.h
+@@ -1,7 +1,15 @@
+ #ifndef NL_GL_GL_H
+ #define NL_GL_GL_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++typedef uintptr_t glViewHandle;
++// Original callers also transport GLView addresses through this token.
++enum eGLView : glViewHandle
++#else
++typedef unsigned long glViewHandle;
+ enum eGLView
++#endif
+ {
+     GLV_ShadowTexture = 0,
+     GLV_GrabTexture = 1,
+diff --git a/src/Game/Drawable/DrawableBirdoEgg.cpp b/src/Game/Drawable/DrawableBirdoEgg.cpp
+--- a/src/Game/Drawable/DrawableBirdoEgg.cpp
++++ b/src/Game/Drawable/DrawableBirdoEgg.cpp
+@@ -114,7 +114,7 @@
+     glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+-    quad.Attach((eGLView)(u32)GetUnshadowedView(), 0);
++    quad.Attach((eGLView)(glViewHandle)GetUnshadowedView(), 0);
+ }
+ 
+ DrawableBirdoEgg::DrawableBirdoEgg()
+diff --git a/src/Game/Drawable/DrawableBulletBill.cpp b/src/Game/Drawable/DrawableBulletBill.cpp
+--- a/src/Game/Drawable/DrawableBulletBill.cpp
++++ b/src/Game/Drawable/DrawableBulletBill.cpp
+@@ -99,7 +99,7 @@
+     glSetCurrentTexture(glGetTexture("global/bulletbillshadow"), GLTT_Diffuse);
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+-    quad.Attach((eGLView)(u32)GetUnshadowedView(), 0);
++    quad.Attach((eGLView)(glViewHandle)GetUnshadowedView(), 0);
+ }
+ 
+ DrawableBulletBill::DrawableBulletBill()
+diff --git a/src/Game/Drawable/DrawableFlyingCamera.cpp b/src/Game/Drawable/DrawableFlyingCamera.cpp
+--- a/src/Game/Drawable/DrawableFlyingCamera.cpp
++++ b/src/Game/Drawable/DrawableFlyingCamera.cpp
+@@ -97,7 +97,7 @@
+     glSetCurrentTexture(glGetTexture("global/camera_shadow"), GLTT_Diffuse);
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+-    quad.Attach((eGLView)(u32)GetUnshadowedView(), 0);
++    quad.Attach((eGLView)(glViewHandle)GetUnshadowedView(), 0);
+ }
+ 
+ DrawableFlyingCamera::DrawableFlyingCamera()
+diff --git a/src/Game/Drawable/DrawableKoopaShell.cpp b/src/Game/Drawable/DrawableKoopaShell.cpp
+--- a/src/Game/Drawable/DrawableKoopaShell.cpp
++++ b/src/Game/Drawable/DrawableKoopaShell.cpp
+@@ -116,7 +116,7 @@
+     glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+-    quad.Attach((eGLView)(u32)GetUnshadowedView(), 0);
++    quad.Attach((eGLView)(glViewHandle)GetUnshadowedView(), 0);
+ }
+ 
+ DrawableKoopaShell::DrawableKoopaShell()
+diff --git a/src/Game/Drawable/DrawablePowerup.cpp b/src/Game/Drawable/DrawablePowerup.cpp
+--- a/src/Game/Drawable/DrawablePowerup.cpp
++++ b/src/Game/Drawable/DrawablePowerup.cpp
+@@ -135,7 +135,7 @@
+     glSetTextureState((eGLTextureState)0, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
+-    quad.Attach((eGLView)(u32)GetUnshadowedView(), 0);
++    quad.Attach((eGLView)(glViewHandle)GetUnshadowedView(), 0);
+ }
+ 
+ void DrawablePowerup::Grab(int idx)
+diff --git a/src/Game/Drawable/DrawableThwomp.cpp b/src/Game/Drawable/DrawableThwomp.cpp
+--- a/src/Game/Drawable/DrawableThwomp.cpp
++++ b/src/Game/Drawable/DrawableThwomp.cpp
+@@ -110,7 +110,7 @@
+     {
+         view = GetUnshadowedView();
+     }
+-    quad.Attach((eGLView)(u32)view, 0);
++    quad.Attach((eGLView)(glViewHandle)view, 0);
+ }
+ 
+ DrawableThwomp::DrawableThwomp()
+diff --git a/src/Game/Drawable/DrawableYoshiEgg.cpp b/src/Game/Drawable/DrawableYoshiEgg.cpp
+--- a/src/Game/Drawable/DrawableYoshiEgg.cpp
++++ b/src/Game/Drawable/DrawableYoshiEgg.cpp
+@@ -117,7 +117,7 @@
+     glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+-    quad.Attach((eGLView)(u32)GetUnshadowedView(), 0);
++    quad.Attach((eGLView)(glViewHandle)GetUnshadowedView(), 0);
+ }
+ 
+ DrawableYoshiEgg::DrawableYoshiEgg()
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -280,8 +280,8 @@
+     matTM.m41 += view.m41;
+     matTM.m42 += view.m42;
+     matTM.m43 += view.m43;
+-    unsigned long matrixHandle = glAllocMatrix();
+-    if (matrixHandle != 0xFFFFFFFF)
++    glMatrixHandle matrixHandle = glAllocMatrix();
++    if (matrixHandle != GL_INVALID_MATRIX)
+     {
+         glSetMatrix(matrixHandle, matTM);
+     }
+diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
+--- a/src/Game/GL/glModelBuilder.cpp
++++ b/src/Game/GL/glModelBuilder.cpp
+@@ -21,7 +21,7 @@
+ void glCreateModel(glModel* pModel, int numVerts, int prim,
+     void* pResource, int numStreams, unsigned long programHash)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MODELS)
+     if (!pModel || numVerts <= 0 || numVerts > 65535 || prim < 0 || prim >= 6
+         || numStreams <= 0 || numStreams > 255 || !glGetMaterialProgram(programHash))
+         throw std::invalid_argument("Invalid native procedural model description");
+@@ -39,7 +39,12 @@
+     }
+ 
+ #if defined(MSCHARGED_NATIVE)
++    #if defined(MSCHARGED_DIAGNOSTIC_MODELS)
+     new (pPacket) glModelPacket{};
++#else
++    // Establish only the native object lifetime; retain original field stores.
++    new (pPacket) glModelPacket;
++#endif
+ #endif
+     pModel->id = 0;
+     pModel->numPackets = 1;
+@@ -69,7 +74,12 @@
+             numStreams * sizeof(glModelStream), GLM_Header);
+     }
+ #if defined(MSCHARGED_NATIVE)
+-    for (int i = 0; i < numStreams; ++i) new (pPktStreams + i) glModelStream{};
++    for (int i = 0; i < numStreams; ++i)
++#if defined(MSCHARGED_DIAGNOSTIC_MODELS)
++        new (pPktStreams + i) glModelStream{};
++#else
++        new (pPktStreams + i) glModelStream;
++#endif
+ #endif
+     pPacket->streams = pPktStreams;
+ 
+@@ -94,7 +104,7 @@
+     {
+         data = glFrameAlloc(dataSize, GLM_Header);
+     }
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MODELS)
+     if (data) std::memset(data, 0, dataSize);
+ #endif
+     pPacket->materialParameters = data;
+diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
+--- a/src/Game/Render/ChainChomp.cpp
++++ b/src/Game/Render/ChainChomp.cpp
+@@ -855,7 +855,7 @@
+         {
+             view = gpChainChompShadowView;
+         }
+-        quad.Attach((eGLView)(u32)view, 0);
++        quad.Attach((eGLView)(glViewHandle)view, 0);
+         break;
+     }
+     case CHAIN_STATE_HIDDEN:
+diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScoreMeter.cpp
+--- a/src/Game/Render/ShootToScoreMeter.cpp
++++ b/src/Game/Render/ShootToScoreMeter.cpp
+@@ -264,7 +264,7 @@
+         barQuad.m_colour[3] = barQuad.m_colour[2];
+ 
+         glAttachQuad3(
+-            (eGLView)(u32)GetLayerView(eCLV_UnsortedSquareOrtho), 1,
++            (eGLView)(glViewHandle)GetLayerView(eCLV_UnsortedSquareOrtho), 1,
+             &barQuad);
+     }
+ }
+@@ -308,7 +308,7 @@
+     barQuad.SetupRotatedRectangle(scaledWhiteBarWidth,
+         scaledWhiteBarHeight, barMatrix, false, false);
+     barQuad.SetColour(colour);
+-    glAttachQuad3((eGLView)(u32)GetLayerView(eCLV_UnsortedSquareOrtho), 1,
++    glAttachQuad3((eGLView)(glViewHandle)GetLayerView(eCLV_UnsortedSquareOrtho), 1,
+         &barQuad);
+ }
+ 
+@@ -390,7 +390,7 @@
+     glQuad3 quad;
+     quad.SetupRotatedRectangle(
+         scaledMeterWidth, scaledMeterWidth, matrix, true, false);
+-    glAttachQuad3((eGLView)(u32)GetLayerView(eCLV_UnsortedSquareOrtho), 1,
++    glAttachQuad3((eGLView)(glViewHandle)GetLayerView(eCLV_UnsortedSquareOrtho), 1,
+         &quad);
+ 
+     nlColour green = sGreenRegionColour;
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -617,7 +617,7 @@
+     InitMaxProjectedShadows();
+     SetCharacterShadowView(GetLayerView(eCLV_Characters));
+     FESceneManager::s_pInstance->m_uDefaultRenderView =
+-        (unsigned long)GetLayerView(eCLV_Anark);
++        (glViewHandle)GetLayerView(eCLV_Anark);
+     NisPlayer::Instance();
+     ReplayManager::Instance();
+     Wiper::Instance().Initialize();
+diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
+--- a/src/NL/gl/glDraw3.cpp
++++ b/src/NL/gl/glDraw3.cpp
+@@ -1,5 +1,5 @@
+ #include "NL/gl/glDraw3.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_QUADS)
+ #include <stdexcept>
+ #endif
+ #include "NL/gl/glTexture.h"
+@@ -12,7 +12,7 @@
+ #include "Game/UnidentifiedStaticStorage.h"
+ 
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_DIAGNOSTIC_QUADS)
+ bool glAttachQuad3(eGLView view, unsigned long count, glQuad3* quads)
+ {
+     int i = 0;
+@@ -43,7 +43,7 @@
+     glModel* newModel = 0;
+     GLTexturedColourMeshWriter writer;
+     unsigned long texconfig = gl_GetCurrentStateBundle()->texconfig;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_QUADS)
+     if (!glIsFrameActive() || glNativeViewDispatchActive() || texconfig != 1)
+         throw std::logic_error("Native glQuad3 requires a collecting frame and an ordinary texture");
+ #endif
+@@ -79,7 +79,7 @@
+         }
+     }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_DIAGNOSTIC_QUADS)
+     if (texconfig == 0)
+     {
+         glTextureBinding* state =
+@@ -127,7 +127,7 @@
+     return newModel;
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_DIAGNOSTIC_QUADS)
+ bool glQuad3::Attach(eGLView view, int stream)
+ {
+     ((GLView*)view)->AttachModel(GetModel(), stream);
+diff --git a/src/NL/gl/glMaterialParameters.cpp b/src/NL/gl/glMaterialParameters.cpp
+--- a/src/NL/gl/glMaterialParameters.cpp
++++ b/src/NL/gl/glMaterialParameters.cpp
+@@ -7,6 +7,12 @@
+ #include "NL/gl/glTexture.h"
+ 
+ #include <string.h>
++
++#if defined(MSCHARGED_NATIVE)
++typedef u32 MaterialArrayWord;
++#else
++typedef unsigned long MaterialArrayWord;
++#endif
+ 
+ namespace
+ {
+@@ -51,7 +57,7 @@
+ {
+     const GXMaterialParameter* parameter = FindParameter(packet, hash);
+     memcpy(GetParameterData(packet, parameter), value,
+-        count * sizeof(unsigned long));
++        count * sizeof(MaterialArrayWord));
+ }
+ 
+ void glSetMaterialTextureParameter(
+diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
+--- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
++++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
+@@ -121,17 +121,22 @@
+ 
+ void GXFloatTexturedColourMaterialProgram::DrawDirect(const glModelPacket* packet)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    throw std::logic_error("Native effects materials require retained indexed geometry");
+-#else
+     GXBegin(glxGetPrimitiveType((unsigned char)packet->primType), GX_VTXFMT0, packet->numUniqueVertices);
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXColor1x16(i);
++        GXTexCoord1x16(i);
++#else
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
++#endif
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
+ #endif
+ }
+ 
+diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
+--- a/src/NL/glx/glxDisplayList.cpp
++++ b/src/NL/glx/glxDisplayList.cpp
+@@ -1,5 +1,9 @@
++#if defined(MSCHARGED_NATIVE)
++#include <atomic>
++#else
+ #include <revolution/os/OSCache.h>
+ #include <revolution/base/PPCArch.h>
++#endif
+ 
+ #include "NL/glx/glxDisplayList.h"
+ #include "NL/glx/glxSkinMatrix.h"
+@@ -10,6 +14,17 @@
+ #include "NL/nlString.h"
+ 
+ #define DISPLAY_LIST_HEADER 0xBA7EF00D
++
++static inline void StoreDisplayListU16(unsigned char* destination, unsigned short value)
++{
++#if defined(MSCHARGED_NATIVE)
++    // GX command bytes remain big-endian, including the unaligned p+1 field.
++    destination[0] = (unsigned char)(value >> 8);
++    destination[1] = (unsigned char)value;
++#else
++    *(unsigned short*)destination = value;
++#endif
++}
+ 
+ static unsigned char opcodes[6] = {
+     0x90,
+@@ -46,7 +61,11 @@
+         ++streamIndex, i += sizeof(glModelStream))
+     {
+         unsigned char* stream = (unsigned char*)packet->streams + i;
++        #if defined(MSCHARGED_NATIVE)
++        int streamID = packet->streams[streamIndex].id;
++#else
+         int streamID = stream[6];
++#endif
+         if ((unsigned long)(streamID - 1) <= 3)
+         {
+             ++numStreams;
+@@ -54,7 +73,11 @@
+         else if (streamID == 7)
+         {
+             bStitch = 1;
++            #if defined(MSCHARGED_NATIVE)
++            stitchIndices = (unsigned char*)packet->streams[streamIndex].address;
++#else
+             stitchIndices = *(unsigned char**)stream;
++#endif
+         }
+     }
+ 
+@@ -81,7 +104,7 @@
+     nlZeroMemory(p + actualSize, size - actualSize);
+ 
+     p[0] = opcodes[(unsigned char)packet->primType];
+-    *(unsigned short*)(p + 1) = packet->numVertices;
++    StoreDisplayListU16(p + 1, (unsigned short)packet->numVertices);
+ 
+     unsigned char* p8 = p + 3;
+     unsigned char hasColor = bStitch;
+@@ -97,7 +120,7 @@
+ 
+             for (unsigned long j = 0; j < numStreams; ++j)
+             {
+-                *(unsigned short*)p8 = *pInd;
++                StoreDisplayListU16(p8, *pInd);
+                 p8 += 2;
+             }
+ 
+@@ -112,7 +135,7 @@
+         {
+             for (unsigned long j = 0; j < numStreams; ++j)
+             {
+-                *(unsigned short*)p8 = *pInd;
++                StoreDisplayListU16(p8, *pInd);
+                 p8 += 2;
+             }
+ 
+@@ -138,8 +161,13 @@
+     pList->numStreams = (unsigned short)numStreams;
+     pList->hasColorStream = bStitch;
+ 
++#if defined(MSCHARGED_NATIVE)
++    // Host command storage is coherent; publish its writes before SDK transport.
++    std::atomic_thread_fence(std::memory_order_seq_cst);
++#else
+     DCFlushRangeNoSync(p, size);
+     PPCSync();
++#endif
+ 
+     return pList;
+ }
+diff --git a/src/NL/glx/glxGX.cpp b/src/NL/glx/glxGX.cpp
+--- a/src/NL/glx/glxGX.cpp
++++ b/src/NL/glx/glxGX.cpp
+@@ -6,6 +6,8 @@
+ // points are declared here rather than through <revolution/gx.h> because that
+ // header's <revolution/types.h> and the game's own "types.h" spell the
+ // fixed-width typedefs differently.
++
++#if !defined(MSCHARGED_NATIVE)
+ struct GXColor
+ {
+     u8 r;
+@@ -13,6 +15,7 @@
+     u8 b;
+     u8 a;
+ };
++#endif
+ 
+ extern "C"
+ {
+@@ -46,6 +49,8 @@
+ 
+ }
+ 
++
++#if !defined(MSCHARGED_NATIVE)
+ enum
+ {
+     GX_CULL_BACK = 2,
+@@ -86,6 +91,10 @@
+ 
+     GX_MAX_TEVSTAGE = 16
+ };
++#else
++// The native SDK provides the same GX scalar values and colour ABI.
++enum { GX_TEVOP_ADD = GX_TEV_ADD };
++#endif
+ 
+ s32 gx_colourArg[GX_MAX_TEVSTAGE][4];
+ s32 gx_alphaArg[GX_MAX_TEVSTAGE][4];

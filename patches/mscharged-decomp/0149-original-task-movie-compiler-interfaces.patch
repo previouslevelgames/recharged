@@ -1,0 +1,180 @@
+Subject: Restore original task and movie compilation with native ABI interfaces
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Original tasks, frontend provider, movie/handler and THPSimple bodies compile
+as complete units. Legacy borrowed-task checks, absent-service stops and movie
+observers stay diagnostics. Guard Wii object-size assertions, retain the actual
+cSAnim::Destroy declaration, use the canonical u64/strstr/SDK declarations and
+full-width event owner pointers. Preserve movie material Instance/lifetime and
+original texture APIs outside explicit diagnostics. This compiler/source gate
+is not a full game link, THPSimple data ABI/audio qualification or scene render.
+GXWaitDrawDone remains a real native provider to implement, not a success stub.
+
+diff --git a/include/Game/BasicStadium.h b/include/Game/BasicStadium.h
+--- a/include/Game/BasicStadium.h
++++ b/include/Game/BasicStadium.h
+@@ -28,7 +28,9 @@
+     /* 0xA8 */ HighRangeTweaks* m_pMegastrikeHighRangeTweaks;
+ };
+ 
++#ifndef MSCHARGED_NATIVE
+ typedef char BasicStadium_size_check[sizeof(BasicStadium) == 0xAC ? 1 : -1];
++#endif
+ 
+ bool SetWorldAnimation(const char* objectName, const char* animationName,
+     ePlayMode playMode);
+diff --git a/include/Game/World.h b/include/Game/World.h
+--- a/include/Game/World.h
++++ b/include/Game/World.h
+@@ -68,6 +68,8 @@
+     /* 0x78 */ WorldVisibilityNode* m_pVisibilityTree;
+ };
+ 
++#ifndef MSCHARGED_NATIVE
+ typedef char World_size_check[sizeof(World) == 0x7C ? 1 : -1];
++#endif
+ 
+ #endif // GAME_WORLD_H
+diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
+--- a/include/Game/World/worldanim.h
++++ b/include/Game/World/worldanim.h
+@@ -134,10 +134,16 @@
+     /* 0x24 */ float m_fTime;
+ };
+ 
++#ifndef MSCHARGED_NATIVE
+ typedef char AnimationSet_size_check[sizeof(AnimationSet) == 0x20 ? 1 : -1];
++#endif
++#ifndef MSCHARGED_NATIVE
+ typedef char WorldAnimController_size_check[
+     sizeof(WorldAnimController) == 0x54 ? 1 : -1];
++#endif
++#ifndef MSCHARGED_NATIVE
+ typedef char WorldAnimManager_size_check[
+     sizeof(WorldAnimManager) == 0x28 ? 1 : -1];
++#endif
+ 
+ #endif // GAME_WORLD_WORLDANIM_H
+diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
+--- a/include/Game/GameInfo.h
++++ b/include/Game/GameInfo.h
+@@ -8,7 +8,11 @@
+ #include "NL/nlSingleton.h"
+ #include "types.h"
+ 
++#ifdef MSCHARGED_NATIVE
++#include <revolution/types.h>
++#else
+ typedef unsigned long long u64;
++#endif
+ 
+ typedef CupSidekicks GameRules;
+ 
+diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
+--- a/include/Game/SAnim.h
++++ b/include/Game/SAnim.h
+@@ -71,11 +71,7 @@
+         return (id & 0x80FFFFFF) == 0x80017000;
+     }
+ 
+-#ifdef MSCHARGED_NATIVE
+-    void Destroy() = delete;
+-#else
+     void Destroy();
+-#endif
+ #ifdef MSCHARGED_NATIVE
+     void fn_80308610(nlChunk* nodeChunk, int nodeIndex) = delete;
+ #else
+diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+--- a/src/Game/SH/SHMoviePlayer.cpp
++++ b/src/Game/SH/SHMoviePlayer.cpp
+@@ -21,7 +21,9 @@
+ 
+ extern "C" unsigned char SCGetSoundMode();
+ extern "C" void THPSimpleSetVolume(int, int);
++#ifndef MSCHARGED_NATIVE
+ extern "C" char* strstr(const char*, const char*);
++#endif
+ 
+ Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
+ 
+@@ -45,7 +47,7 @@
+     {
+         mGameSceneManager = g_pOverlayManager;
+     }
+-    UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (unsigned int)&mHBMHideConnection, -1);
++    UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
+ }
+ 
+ MoviePlayerScene::~MoviePlayerScene()
+diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+--- a/src/Game/Sys/movie.cpp
++++ b/src/Game/Sys/movie.cpp
+@@ -17,9 +17,15 @@
+ #include "NL/nlPrint.h"
+ #include "NL/nlString.h"
+ 
++#ifdef MSCHARGED_NATIVE
++#include <dolphin/gx.h>
++#include <dolphin/os/OSThread.h>
++extern "C" void GXWaitDrawDone(); // Wii interface; native provider must link.
++#else
+ #include <revolution/gx/GXMisc.h>
+ #include <revolution/gx/GXTexture.h>
+ #include <revolution/os/OSThread.h>
++#endif
+ 
+ #include <string.h>
+ #include "NL/nlstring_tmpl.h"
+diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialProgram.cpp
+--- a/src/NL/glx/GXMovieMaterialProgram.cpp
++++ b/src/NL/glx/GXMovieMaterialProgram.cpp
+@@ -19,16 +19,21 @@
+ 
+ GXMovieMaterialProgram::GXMovieMaterialProgram()
+ {
++#ifndef MSCHARGED_DIAGNOSTIC_MOVIES
++    Instance = this;
++#endif
+     programHash = 0xEC35CAAB;
+     parameterDataSize = 24;
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
++#ifdef MSCHARGED_DIAGNOSTIC_MOVIES
+     Instance = this;
++#endif
+ }
+ 
+ GXMovieMaterialProgram::~GXMovieMaterialProgram()
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_MOVIES
+     if (Instance == this) Instance = 0;
+     Initialized = false;
+ #endif
+diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+--- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+@@ -1,9 +1,11 @@
+ #ifdef MSCHARGED_NATIVE
+ #include <dolphin/gx.h>
++#ifdef MSCHARGED_DIAGNOSTIC_MOVIES
+ #include "runtime/movie_draw_observer.h"
+ #define glTextureLoad mscharged::detail::LoadMovieTexture
+ #define glTextureGetWidth mscharged::detail::MovieTextureWidth
+ #define glTextureGetHeight mscharged::detail::MovieTextureHeight
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+diff --git a/include/NL/gl/glPlat.h b/include/NL/gl/glPlat.h
+--- a/include/NL/gl/glPlat.h
++++ b/include/NL/gl/glPlat.h
+@@ -3,6 +3,6 @@
+ 
+ #include "NL/gl/glStruct.h"
+ 
+-#if defined(MSCHARGED_NATIVE) && defined(AURORA)
++#if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx/GXStruct.h>
+ #endif

@@ -1,0 +1,120 @@
+Subject: Transport Wii32 RLG records beneath the complete original loader
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Decode raw model12/stream8/packet48 bytes into the actual native declared
+records. Retain all source scalar/unknown words and encoded offsets/hash IDs.
+Grow only original GLM_Header record allocation footprints, retaining the
+original calls, resource pool, label order and per-method remainder copying.
+Map raw stream-table byte offsets to actual native record width and use
+native pointer carriers beneath unchanged source Fixup loops. Guard the
+existing native matrix pointer cast so the whole console source is pristine.
+
+This is permanent serialized/native ABI adaptation, not an unfinished-source
+workaround or behavior fix. Entire Read/traversal/registration/finalization
+decisions remain original. Full raw chunk/parameter/index/matrix endian and
+suballocation/frame/pop ownership still need qualification before actual
+Read, array registration or rendering. No readiness or alternate loader.
+
+diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+--- a/src/NL/gl/glLoadModel.cpp
++++ b/src/NL/gl/glLoadModel.cpp
+@@ -11,6 +11,10 @@
+ #include "NL/nlMemory.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/rlg_record_abi.h"
++#include <stdint.h>
++#endif
+ 
+ 
+ static bool glIgnoreDuplicateModels;
+@@ -58,24 +62,47 @@
+ void RLGReader::LoadStreams(void* data, unsigned long size)
+ {
+     m_numStreamEntries = size >> 3;
++#if defined(MSCHARGED_NATIVE)
++    m_pStreamData = glResourceAlloc(mscharged::platform::RLGNativeRecordBytes(
++        size, mscharged::platform::RLGStreamBytes, sizeof(glModelStream)), GLM_Header, m_pResource);
++    mscharged::platform::DecodeRLGStreams(static_cast<glModelStream*>(m_pStreamData),
++        data, m_numStreamEntries);
++#else
+     m_pStreamData = glResourceAlloc(size, GLM_Header, m_pResource);
+     memcpy(m_pStreamData, data, m_numStreamEntries << 3);
++#endif
+ }
+ 
+ void RLGReader::LoadPackets(void* data, unsigned long size)
+ {
++#if defined(MSCHARGED_NATIVE)
++    m_numPacketEntries = size / mscharged::platform::RLGPacketBytes;
++    m_pPackets = glResourceAlloc(mscharged::platform::RLGNativeRecordBytes(
++        size, mscharged::platform::RLGPacketBytes, sizeof(glModelPacket)), GLM_Header, m_pResource);
++    mscharged::platform::DecodeRLGPackets(static_cast<glModelPacket*>(m_pPackets), data, size);
++#else
+     m_numPacketEntries = size / sizeof(glModelPacket);
+     m_pPackets = glResourceAlloc(size, GLM_Header, m_pResource);
+     memcpy(m_pPackets, data, size);
++#endif
+ }
+ 
+ void RLGReader::LoadModels(void* data, unsigned long size)
+ {
++#if defined(MSCHARGED_NATIVE)
++    m_nModels = size / mscharged::platform::RLGModelBytes;
++    glBeginResource(mscharged::platform::ReadRLGWord(data));
++    m_pModels = (glModel*)glResourceAlloc(mscharged::platform::RLGNativeRecordBytes(
++        size, mscharged::platform::RLGModelBytes, sizeof(glModel)), GLM_Header, m_pResource);
++    glEndResource();
++    mscharged::platform::DecodeRLGModels(m_pModels, data, m_nModels);
++#else
+     m_nModels = size / sizeof(glModel);
+     glBeginResource(*(unsigned long*)data);
+     m_pModels = (glModel*)glResourceAlloc(size, GLM_Header, m_pResource);
+     glEndResource();
+     memcpy(m_pModels, data, m_nModels * sizeof(glModel));
++#endif
+ }
+ 
+ void RLGReader::LoadMatrices(void* data, unsigned long size)
+@@ -119,21 +146,40 @@
+             ++packetIndex)
+         {
+             glModelPacket* packet = &model->packets[packetIndex];
++#if defined(MSCHARGED_NATIVE)
++            packet->materialParameters = (unsigned char*)reader->m_pParameterData
++                              + (uintptr_t)packet->materialParameters;
++            packet->streams = (glModelStream*)(mscharged::platform::RLGNativeStreamOffset(packet->streams)
++                                               + (uintptr_t)pStreamData);
++            packet->indexBuffer = (unsigned short*)((uintptr_t)packet->indexBuffer
++                                                    + (uintptr_t)reader->m_pIndexData);
++#else
+             packet->materialParameters = (unsigned char*)reader->m_pParameterData
+                               + (unsigned long)packet->materialParameters;
+             packet->streams = (glModelStream*)((unsigned long)packet->streams
+                                                + (unsigned long)pStreamData);
+             packet->indexBuffer = (unsigned short*)((unsigned long)packet->indexBuffer
+                                                     + (unsigned long)reader->m_pIndexData);
++#endif
++#if defined(MSCHARGED_NATIVE)
+             packet->matrix = (glMatrixHandle)reader->m_pMatrices
+                            + packet->matrix * 64;
++#else
++            packet->matrix = (unsigned long)reader->m_pMatrices
++                           + packet->matrix * 64;
++#endif
+ 
+             for (int streamIndex = 0; streamIndex < packet->numStreams;
+                 ++streamIndex)
+             {
+                 glModelStream* stream = &packet->streams[streamIndex];
++#if defined(MSCHARGED_NATIVE)
++                stream->address = (unsigned char*)((uintptr_t)stream->address
++                                + (uintptr_t)reader->m_pVertexData);
++#else
+                 stream->address = (unsigned char*)((unsigned long)stream->address
+                                 + (unsigned long)reader->m_pVertexData);
++#endif
+             }
+         }
+     }

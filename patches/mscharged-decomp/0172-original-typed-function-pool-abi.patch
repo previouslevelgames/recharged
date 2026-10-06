@@ -1,0 +1,134 @@
+Subject: Preserve original typed function-pool categories with native slot storage
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+The original four typed FunctorImpl hooks retain their reviewed Wii capture
+field footprint for allocation, Clone and virtual deletion. Native physical
+strides differ from source categories; counts64/512/64, delta0, threshold,
+constructor, Push/Free/Pop and callable algorithms remain unchanged. Unknown
+capture layouts and unsupported native footprints fail compilation explicitly.
+The explicit original-function-pool profile is mandatory for the future
+isolated original game module, and excludes legacy diagnostic event routing.
+This patch does not add an event/game manager or establish full game startup.
+
+diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
+--- a/include/NL/nlFunction.h
++++ b/include/NL/nlFunction.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/nlFunctionCommon.h"
+ #include "NL/nlFunctionMemory.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++#include "platform/function_pool_abi.h"
++#endif
+ 
+ template <typename ReturnType>
+ class Function0
+@@ -30,6 +33,18 @@
+         Callable mFunctor;
+ 
+     public:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++        static void* operator new(std::size_t)
++        {
++            return mscharged::function_abi::Allocate<Callable, FunctorImpl>();
++        }
++
++        static void operator delete(void* pointer, std::size_t)
++        {
++            mscharged::function_abi::Free<Callable, FunctorImpl>(pointer);
++        }
++#endif
++
+         FunctorImpl(const Callable& callable);
+ 
+         virtual ReturnType operator()();
+@@ -214,6 +229,18 @@
+         Callable mFunctor;
+ 
+     public:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++        static void* operator new(std::size_t)
++        {
++            return mscharged::function_abi::Allocate<Callable, FunctorImpl>();
++        }
++
++        static void operator delete(void* pointer, std::size_t)
++        {
++            mscharged::function_abi::Free<Callable, FunctorImpl>(pointer);
++        }
++#endif
++
+         FunctorImpl(const Callable& callable);
+ 
+         virtual ReturnType operator()(P1 p0);
+@@ -582,6 +609,18 @@
+         Callable mFunctor;
+ 
+     public:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++        static void* operator new(std::size_t)
++        {
++            return mscharged::function_abi::Allocate<Callable, FunctorImpl>();
++        }
++
++        static void operator delete(void* pointer, std::size_t)
++        {
++            mscharged::function_abi::Free<Callable, FunctorImpl>(pointer);
++        }
++#endif
++
+         FunctorImpl(const Callable& callable)
+             : mFunctor(callable)
+         {
+diff --git a/include/NL/nlFunction2.h b/include/NL/nlFunction2.h
+--- a/include/NL/nlFunction2.h
++++ b/include/NL/nlFunction2.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/nlFunctionCommon.h"
+ #include "NL/nlFunctionMemory.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++#include "platform/function_pool_abi.h"
++#endif
+ 
+ template <typename ReturnType, typename P1, typename P2>
+ class Function2
+@@ -28,6 +31,18 @@
+         Callable mFunctor;
+ 
+     public:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++        static void* operator new(std::size_t)
++        {
++            return mscharged::function_abi::Allocate<Callable, FunctorImpl>();
++        }
++
++        static void operator delete(void* pointer, std::size_t)
++        {
++            mscharged::function_abi::Free<Callable, FunctorImpl>(pointer);
++        }
++#endif
++
+         FunctorImpl(const Callable& callable);
+ 
+         virtual ReturnType operator()(P1 p1, P2 p2);
+diff --git a/src/NL/nlFunctionMemory.cpp b/src/NL/nlFunctionMemory.cpp
+--- a/src/NL/nlFunctionMemory.cpp
++++ b/src/NL/nlFunctionMemory.cpp
+@@ -1,9 +1,16 @@
+ #include "NL/nlFunctionMemory.h"
+ 
+ #include "NL/nlSmallBlockAllocator.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++#include "platform/function_pool_abi.h"
++#endif
+ 
+ template <int BlockSize>
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
++class UnidentifiedFunctionMemoryPool : public SlotPoolFixedState<mscharged::function_abi::NativeStride<BlockSize>::value>
++#else
+ class UnidentifiedFunctionMemoryPool : public SlotPoolFixedState<BlockSize>
++#endif
+ {
+ public:
+     UnidentifiedFunctionMemoryPool(const int initial, const int delta)

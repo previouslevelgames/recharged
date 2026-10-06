@@ -5,6 +5,8 @@ add_library(charged_frontend_packets STATIC
     src/runtime/frontend_packets.cpp
     "${MSCHARGED_PREPARED}/src/NL/gl/glDraw3.cpp")
 add_dependencies(charged_frontend_packets verify_prepared)
+# Legacy packet diagnostics keep their collecting-frame restrictions.
+target_compile_definitions(charged_frontend_packets PRIVATE MSCHARGED_DIAGNOSTIC_QUADS=1)
 target_link_libraries(charged_frontend_packets PUBLIC charged_frontend_session charged_frontend_font_registry
     charged_frontend_movie_binding charged_frontend_movie_render)
 target_compile_features(charged_frontend_packets PUBLIC cxx_std_20)

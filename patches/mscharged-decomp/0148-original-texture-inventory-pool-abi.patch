@@ -1,0 +1,591 @@
+Subject: Preserve original inventory, texture animation, manager and resource-pool source
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Restore original game-side resource timing, selection, registration, allocation
+and release decisions; adapt Wii36-byte animation headers/8-byte frames,
+pointer-width pool addresses and matching native owning-arena frees. Keep
+prior static resource replicas and validation policies explicitly diagnostic.
+The whole original provider scan is not a game link/readiness claim.
+
+diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
+--- a/include/Game/GL/GLInventory.h
++++ b/include/Game/GL/GLInventory.h
+@@ -164,8 +164,6 @@
+     Tree* m_pItems;
+ };
+ 
+-// Native file/model/texture and both animation resource owners are selected.
+-// Skin/chunk loading and aggregate vertex-animation update remain unselected.
+ class GLInventory
+ {
+ public:
+diff --git a/include/Game/GL/GLTextureAnim.h b/include/Game/GL/GLTextureAnim.h
+--- a/include/Game/GL/GLTextureAnim.h
++++ b/include/Game/GL/GLTextureAnim.h
+@@ -2,7 +2,7 @@
+ #define GAME_GL_GLTEXTUREANIM_H
+ 
+ #include "types.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+ #include <stdexcept>
+ #endif
+ 
+@@ -27,7 +27,7 @@
+ public:
+     void SetTexture(int index, const GLAnimTex& animTex)
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+         if (!m_pAnimTex || index < 0 || m_nNumTextures <= 0
+             || static_cast<u32>(m_nNumTextures) != m_NativeFrameCount || index >= m_nNumTextures)
+             throw std::out_of_range("Texture animation frame exceeds native storage");
+@@ -50,7 +50,7 @@
+     /* 0x18 */ u32 m_textureIndex;
+     /* 0x1C */ f32 m_fTime;
+     /* 0x20 */ GLAnimTex* m_pAnimTex;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     u32 m_NativeFrameCount; // Allocation extent; not part of the 36-byte Wii header.
+ #endif
+ };
+diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
+--- a/include/NL/gl/glTextureManager.h
++++ b/include/NL/gl/glTextureManager.h
+@@ -2,7 +2,7 @@
+ #define NL_GL_GL_TEXTURE_MANAGER_H
+ 
+ #include "types.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+ #include <stdexcept>
+ #endif
+ 
+@@ -14,7 +14,7 @@
+ {
+     glTextureIndexQueue(u16* data, unsigned long capacity)
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+         if (!data || !capacity || capacity > 0xFFFF)
+             throw std::invalid_argument("Invalid GL texture queue capacity");
+ #endif
+@@ -26,7 +26,7 @@
+ 
+     void AddEnd(const u16& value)
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+         if (mCount >= mCapacity) throw std::length_error("GL texture index queue is full");
+ #endif
+         u16* entry;
+@@ -44,7 +44,7 @@
+ 
+     u16 RemoveStart()
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+         if (!mCount) throw std::length_error("GL texture index queue is empty");
+ #endif
+         u16* entry;
+@@ -75,7 +75,7 @@
+ {
+ public:
+     explicit glTextureManager(unsigned long count);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     ~glTextureManager();
+     void ValidateTextureAnim(GLTextureAnim* anim) const;
+ #endif
+@@ -91,7 +91,7 @@
+     /* 0x04 */ PlatTexture** mTextures;
+     /* 0x08 */ glTextureIndexQueue* mFreeIndices;
+     /* 0x0C */ u16* mIndexBuffer;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     GLTextureAnim** mNativeAnims; // Alias ownership, distinct from the current frame pointer.
+ #endif
+ }; // size: 0x10
+diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
+--- a/src/Game/GL/GLInventory.cpp
++++ b/src/Game/GL/GLInventory.cpp
+@@ -98,7 +98,11 @@
+ {
+     while (current != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlFree(current->entry);
++#else
+         operator delete(current->entry);
++#endif
+         current = current->next;
+     }
+ }
+@@ -130,12 +134,36 @@
+     for (int i = 0; i < 16; i++)
+     {
+         ReleaseLevel(i);
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pFileData[i]);
++#else
+         delete m_pFileData[i];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pSkinData[i]);
++#else
+         delete m_pSkinData[i];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pTextureAnims[i]);
++#else
+         delete m_pTextureAnims[i];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pVertexAnims[i]);
++#else
+         delete m_pVertexAnims[i];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pModels[i]);
++#else
+         delete m_pModels[i];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        nlDeleteGameObject(m_pTextures[i]);
++#else
+         delete m_pTextures[i];
++#endif
+     }
+ }
+ 
+diff --git a/src/Game/GL/GLInventoryStatic.cpp b/src/Game/GL/GLInventoryStatic.cpp
+--- a/src/Game/GL/GLInventoryStatic.cpp
++++ b/src/Game/GL/GLInventoryStatic.cpp
+@@ -1,3 +1,7 @@
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
++#error Native static inventory/texture providers are diagnostics; select the whole original TUs for the game
++#endif
++
+ // Selected native inventory with original texture-animation traversal.
+ // Skin and unadapted chunk loaders remain unselected.
+ // Vertex animation Add/Get/ownership is selected; its aggregate update is not.
+diff --git a/src/Game/GL/GLTextureAnim.cpp b/src/Game/GL/GLTextureAnim.cpp
+--- a/src/Game/GL/GLTextureAnim.cpp
++++ b/src/Game/GL/GLTextureAnim.cpp
+@@ -6,20 +6,32 @@
+ #include "NL/glx/glxTexture.h"
+ 
+ #include <string.h>
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+ #include <cmath>
+ #include <stdexcept>
+ #endif
+ 
+-// Native loaders convert bounded big-endian records before construction.
+-#if !defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE)
++#include "platform/texture_animation_abi.h"
++#endif
++
+ bool glIsTextureAnim(const void* data, unsigned long size)
+ {
+-    if (size < sizeof(GLTextureAnim))
++    if (size <
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::WiiTextureAnimHeaderSize
++#else
++        sizeof(GLTextureAnim)
++#endif
++        )
+     {
+         return false;
+     }
++#if defined(MSCHARGED_NATIVE)
++    return mscharged::platform::ReadTextureAnimWord(data) == 0x5F6C6669;
++#else
+     return *(const u32*)data == 0x5F6C6669;
++#endif
+ }
+ 
+ void glAddTextureAnim(void* data, unsigned long size,
+@@ -28,19 +40,33 @@
+     int offset;
+     GLTextureAnim* anim = (GLTextureAnim*)resource->Allocate(
+         sizeof(GLTextureAnim), GLM_Header);
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::ExpandTextureAnimHeader(*anim, data);
++#else
+     memcpy(anim, data, sizeof(GLTextureAnim));
++#endif
+ 
+     anim->m_pAnimTex = (GLAnimTex*)resource->Allocate(
+         anim->m_nNumTextures * sizeof(GLAnimTex), GLM_Header);
+ 
++#if defined(MSCHARGED_NATIVE)
++    const u8* source = (const u8*)data
++        + mscharged::platform::WiiTextureAnimHeaderSize;
++#else
+     const GLAnimTex* source = (const GLAnimTex*)((u8*)data
+                                                  + sizeof(GLTextureAnim));
++#endif
+     int i;
+     for (i = 0; i < anim->m_nNumTextures; ++i)
+     {
+         GLAnimTex animTex;
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::ExpandTextureAnimFrame(animTex,
++            source + i * mscharged::platform::WiiTextureAnimFrameSize);
++#else
+         animTex.m_TexHandle = source[i].m_TexHandle;
+         animTex.m_fTime = source[i].m_fTime;
++#endif
+         anim->SetTexture(i, animTex);
+     }
+ 
+@@ -57,12 +83,10 @@
+     glGetTextureManager()->RegisterTextureAnim(anim);
+ }
+ 
+-#endif
+-
+ void glReleaseTextureAnim(GLTextureAnim* anim)
+ {
+     glTextureManager* manager = glGetTextureManager();
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     if (!manager || !anim || anim->m_textureIndex >= manager->mCapacity
+         || manager->mNativeAnims[anim->m_textureIndex] != anim)
+         throw std::invalid_argument("Texture animation is not registered with this manager");
+@@ -71,7 +95,7 @@
+     manager->mFreeIndices->AddEnd((u16)textureHandle);
+ 
+     manager->mTextures[textureHandle] = 0;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     manager->mNativeAnims[textureHandle] = 0;
+ #endif
+     anim->m_textureIndex = 0xFFFF;
+@@ -84,7 +108,7 @@
+     {
+         index = m_nFrame;
+     }
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     if (!textureArray || index < 0 || m_nNumTextures <= 0
+         || static_cast<u32>(m_nNumTextures) != m_NativeFrameCount || index >= m_nNumTextures)
+         throw std::out_of_range("Texture animation frame exceeds native storage");
+@@ -94,7 +118,7 @@
+ 
+ void GLTextureAnim::Update(float dt)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+     if (!std::isfinite(dt) || dt < 0 || !std::isfinite(m_fTime + dt))
+         throw std::invalid_argument("Invalid texture animation delta time");
+     if (!glGetTextureManager()) throw std::logic_error("Texture animation manager is not initialized");
+diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
+--- a/src/NL/gl/glMemory.cpp
++++ b/src/NL/gl/glMemory.cpp
+@@ -4,7 +4,7 @@
+ #include "NL/nlDLRing.h"
+ #include "NL/nlMemory.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+ #include <stdexcept>
+ 
+ static bool IsLinkedPool(GLResourcePool* resource)
+@@ -26,7 +26,7 @@
+ 
+ void glInitResourcePools()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (sResourcePoolList) throw std::logic_error("Destroy GL resource pools before reinitialization");
+ #endif
+     sCurrentResourcePool = 0;
+@@ -37,7 +37,7 @@
+ {
+     m_level = 0;
+     m_inventory = new (8, false) GLInventory;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     try { m_inventory->Create(); }
+     catch (...) { nlDeleteGameObject(m_inventory); m_inventory = 0; throw; }
+ #else
+@@ -68,7 +68,7 @@
+ GLResourcePool* glCreateResourcePool(
+     const GLMemoryRequirement* requirements, int count, const char* name)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (count <= 0) throw std::invalid_argument("Invalid GL resource requirement count");
+ #endif
+     GLResourcePool* resource
+@@ -81,7 +81,7 @@
+ 
+ void glDestroyResourcePool(GLResourcePool* resource)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!resource || !IsLinkedPool(resource)) throw std::invalid_argument("GL resource pool is not linked");
+ #endif
+     nlDLRingRemove(&sResourcePoolList, resource);
+@@ -94,7 +94,7 @@
+ 
+ void glSetCurrentResourcePool(GLResourcePool* resource)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (resource && !IsLinkedPool(resource)) throw std::invalid_argument("GL resource pool is not linked");
+ #endif
+     sCurrentResourcePool = resource;
+@@ -113,7 +113,7 @@
+ void* glResourceAlloc(
+     unsigned long size, eGLMemory memType, void* resource)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     GLResourcePool* pool = resource ? static_cast<GLResourcePool*>(resource) : sCurrentResourcePool;
+     if (!pool || !IsLinkedPool(pool)) throw std::invalid_argument("GL allocation requires a linked resource pool");
+ #endif
+diff --git a/src/NL/gl/glTextureManagerStatic.cpp b/src/NL/gl/glTextureManagerStatic.cpp
+--- a/src/NL/gl/glTextureManagerStatic.cpp
++++ b/src/NL/gl/glTextureManagerStatic.cpp
+@@ -1,3 +1,7 @@
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
++#error Native static inventory/texture providers are diagnostics; select the whole original TUs for the game
++#endif
++
+ // Native texture lookup/registration, including owned animation alias indices.
+ #include "NL/gl/glTextureManager.h"
+ #include "NL/gl/glTexture.h"
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -1,13 +1,15 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include "runtime/graphics_memory.h"
++#include <dolphin/gx.h>
++#include <dolphin/os.h>
+ #include <cstdint>
+ #include <cstring>
+ #include <stdexcept>
+ #else
+ #include <revolution/gx.h>
++#include <revolution/os.h>
++#endif
+ #include "Game/Sys/debug.h"
+-#include <revolution/os.h>
+-#endif
+ 
+ #include "NL/glx/glxMemory.h"
+ 
+@@ -50,7 +52,7 @@
+ 
+     char mName[32];
+     GLResourceMark mPoolMemory[2];
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     GLResourceMark mMarks[16] = {};
+ #endif
+     unsigned long mPoolSizes[2];
+@@ -96,7 +98,7 @@
+     case GLM_TextureData:
+         return 1;
+     default:
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+         throw std::invalid_argument("Unknown GL memory type");
+ #else
+         nlBreak();
+@@ -105,7 +107,7 @@
+     }
+ }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+ // Console budgets remain bounded; addresses and marker handles are pointer-sized.
+ static unsigned long AlignedOffset(unsigned long used, unsigned long size, unsigned long capacity)
+ {
+@@ -124,6 +126,9 @@
+     return (size + 31UL) & ~31UL;
+ }
+ 
++#endif
++
++#if defined(MSCHARGED_NATIVE)
+ void glxShutdownMemory()
+ {
+     ++sNativeFrameGeneration;
+@@ -140,7 +145,7 @@
+ bool glxInitMemory(
+     unsigned long frameMemSize1, unsigned long frameMemSize2)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (sFrameMemoryInitialized) throw std::logic_error("GL frame memory is already initialized");
+     unsigned long stride[2] = { FrameStride(frameMemSize1), FrameStride(frameMemSize2) };
+     void* blocks[2] = { 0, 0 };
+@@ -163,7 +168,7 @@
+ #else
+     MemoryAllocator* allocator = CurrentAllocator;
+     CurrentAllocator = &StandardAllocator;
+-    unsigned long pMem = (unsigned long)nlMalloc(
++    GLResourceMark pMem = (GLResourceMark)nlMalloc(
+         frameMemSize1 * 2, 32, false);
+     if (pMem == 0)
+     {
+@@ -174,7 +179,7 @@
+     p_frame[1][0] = pMem + frameMemSize1;
+ 
+     CurrentAllocator = &VirtualAllocator;
+-    pMem = (unsigned long)nlMalloc(frameMemSize2 * 2, 32, false);
++    pMem = (GLResourceMark)nlMalloc(frameMemSize2 * 2, 32, false);
+     if (pMem == 0)
+     {
+         return false;
+@@ -198,7 +203,7 @@
+ 
+ void glplatFrameAllocNextFrame()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
+     mscharged::InvalidateGraphicsCaches();
+     ++sNativeFrameGeneration;
+@@ -228,7 +233,7 @@
+     GLXResourcePool(
+         unsigned long sizes[2], const char* name)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     strncpy(mName, name ? name : "", sizeof(mName) - 1);
+     mName[sizeof(mName) - 1] = 0;
+     mPoolMemory[0] = mPoolMemory[1] = 0;
+@@ -250,9 +255,9 @@
+ 
+     MemoryAllocator* allocator = CurrentAllocator;
+     CurrentAllocator = &StandardAllocator;
+-    mPoolMemory[0] = (unsigned long)nlMalloc(sizes[0], 32, false);
++    mPoolMemory[0] = (GLResourceMark)nlMalloc(sizes[0], 32, false);
+     CurrentAllocator = &VirtualAllocator;
+-    mPoolMemory[1] = (unsigned long)nlMalloc(sizes[1], 32, false);
++    mPoolMemory[1] = (GLResourceMark)nlMalloc(sizes[1], 32, false);
+     CurrentAllocator = allocator;
+ 
+     mPoolSizes[0] = sizes[0];
+@@ -267,7 +272,7 @@
+ GLXResourcePool::
+     ~GLXResourcePool()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     // Inventory callbacks must run while pool-backed object headers still exist.
+     m_inventory->Delete();
+     for (int pool = 0; pool < 2; ++pool)
+@@ -278,7 +283,11 @@
+ #else
+     for (int i = 0; i < 2; ++i)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlFree((void*)mPoolMemory[i]);
++#else
+         operator delete((void*)mPoolMemory[i]);
++#endif
+         mUsedMemory[i] = 0;
+         mPoolSizes[i] = 0;
+     }
+@@ -288,7 +297,7 @@
+ void* GLXResourcePool::Allocate(
+     unsigned long allocationSize, eGLMemory memType)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     int pool = RealOrVirtual(memType);
+     unsigned long offset = AlignedOffset(mUsedMemory[pool], allocationSize, mPoolSizes[pool]);
+     if (!mPoolMemory[pool]) throw std::bad_alloc();
+@@ -297,7 +306,7 @@
+     return reinterpret_cast<void*>(mPoolMemory[pool] + offset);
+ #else
+     int pool = RealOrVirtual(memType);
+-    unsigned long aligned = (mPoolMemory[pool] + mUsedMemory[pool] + 31) & ~31u;
++    GLResourceMark aligned = (mPoolMemory[pool] + mUsedMemory[pool] + 31) & ~GLResourceMark(31);
+     mUsedMemory[pool] = allocationSize + (aligned - mPoolMemory[pool]);
+     mPeakMemory[pool] = mUsedMemory[pool] > mPeakMemory[pool]
+         ? mUsedMemory[pool]
+@@ -316,7 +325,7 @@
+ 
+ GLResourceMark GLXResourcePool::MarkResource()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (m_level >= 15 || m_inventory->m_nLevel != m_level)
+         throw std::length_error("GL resource marker depth is invalid or exhausted");
+     unsigned long used[2] = { mUsedMemory[0], mUsedMemory[1] };
+@@ -338,14 +347,14 @@
+     marker->mResource = this;
+     m_inventory->ResourceMark();
+     m_level++;
+-    return (unsigned long)marker;
++    return (GLResourceMark)marker;
+ #endif
+ }
+ 
+ void GLXResourcePool::ReleaseResource(
+     GLResourceMark value)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     int level = 0;
+     while (level < m_level && mMarks[level] != value) ++level;
+     if (!value || level == m_level) throw std::invalid_argument("Foreign or inactive GL resource marker");
+@@ -408,7 +417,7 @@
+     const GLMemoryRequirement* requirements,
+     unsigned long count, const char* name)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!requirements || !count || count > GLM_Num)
+         throw std::invalid_argument("Invalid GL resource requirements");
+     unsigned long sizes[2] = { 0, 0 };
+@@ -436,7 +445,7 @@
+ void* glplatResourceAlloc(
+     unsigned long size, eGLMemory memType, void* resource)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     GLResourcePool* pool = static_cast<GLResourcePool*>(resource);
+     if (!pool) pool = glGetCurrentResourcePool();
+     if (!pool) throw std::logic_error("No current GL resource pool");
+@@ -449,7 +458,7 @@
+ 
+ void* glplatFrameAlloc(unsigned long size, eGLMemory memType)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
+     int pool = RealOrVirtual(memType);
+     unsigned long offset = AlignedOffset(n_frame[i_frame][pool], size, FrameMemSizes[pool]);
+@@ -457,9 +466,9 @@
+     return reinterpret_cast<void*>(p_frame[i_frame][pool] + offset);
+ #else
+     unsigned long isLow = RealOrVirtual(memType);
+-    unsigned long newTop
++    GLResourceMark newTop
+         = (p_frame[i_frame][isLow] + n_frame[i_frame][isLow] + 31)
+-        & ~31u;
++        & ~GLResourceMark(31);
+     unsigned long newSize = size + (newTop - p_frame[i_frame][isLow]);
+     if (newSize > FrameMemSizes[isLow])
+     {
+@@ -474,7 +483,7 @@
+ 
+ unsigned long glx_GetFreeMemory()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!glGetCurrentResourcePool()) throw std::logic_error("No current GL resource pool");
+     return glGetCurrentResourcePool()->GetFreeMemory();
+ #else

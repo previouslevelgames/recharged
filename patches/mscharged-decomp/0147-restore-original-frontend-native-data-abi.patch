@@ -1,0 +1,1429 @@
+Subject: [PATCH] restore original frontend flow and native serialized data ABI
+
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Restore reconstructed frontend methods and inline game decisions verbatim.
+Adapt only raw Wii FEN data to the native pointer/record ABI beneath the original
+FEScene allocation, relocation, resource queue and scene-creation requests.
+Retain native animation vtables, original arena backing/free endpoints, full-width
+Bundle callback contexts and all authored playmode bits with their original switch.
+Historical standalone helper files remain available to diagnostics only.
+
+diff --git a/include/Game/BaseSceneHandler.h b/include/Game/BaseSceneHandler.h
+--- a/include/Game/BaseSceneHandler.h
++++ b/include/Game/BaseSceneHandler.h
+@@ -3,7 +3,6 @@
+ 
+ #include "types.h"
+ #include "Game/FE/feScene.h"
+-#include "Game/FE/FrontendSubhandlerSteps.h"
+ 
+ class FEPresentation;
+ class FEScene;
+@@ -37,7 +36,7 @@
+ 
+     virtual ~BaseSceneHandler() { }
+     virtual void Update(float dt);
+-    virtual void InitializeSubHandlers() { FrontendBaseHandlerInitializeSubHandlers(); }
++    virtual void InitializeSubHandlers() { }
+     virtual void AddScreenHandler(BaseScreenHandler* handler);
+     virtual void RemoveScreenHandler(BaseScreenHandler* handler);
+     virtual void SetPresentation(FEPresentation* presentation) { mPresentation = presentation; }
+diff --git a/include/Game/FE/feOptionsSubMenus.h b/include/Game/FE/feOptionsSubMenus.h
+--- a/include/Game/FE/feOptionsSubMenus.h
++++ b/include/Game/FE/feOptionsSubMenus.h
+@@ -2,7 +2,6 @@
+ #define _FEOPTIONSSUBMENUS_H_
+ 
+ #include "Game/BaseSceneHandler.h"
+-#include "Game/FE/FrontendAudioOptionsSteps.h"
+ #include "Game/FE/fePointerButton.h"
+ #include "Game/FE/feBackButton.h"
+ 
+@@ -49,8 +48,33 @@
+ 
+     bool IsVolumeButtonEnabled(unsigned int item) const
+     {
+-        return FrontendAudioOptionsEnabled(*this,item);
+-}
++        bool enabled;
++        switch (item)
++        {
++        case 0:
++            enabled = mSettings[0] > 0;
++            break;
++        case 1:
++            enabled = mSettings[0] < 10;
++            break;
++        case 2:
++            enabled = mSettings[1] > 0;
++            break;
++        case 3:
++            enabled = mSettings[1] < 10;
++            break;
++        case 4:
++            enabled = mSettings[2] > 0;
++            break;
++        case 5:
++            enabled = mSettings[2] < 10;
++            break;
++        default:
++            enabled = false;
++            break;
++        }
++        return enabled;
++    }
+ 
+     /* 0x028 */ int mOverlayMode;
+     /* 0x02C */ FEBackButton mNavigation;
+diff --git a/include/Game/FE/fePointer.inl b/include/Game/FE/fePointer.inl
+--- a/include/Game/FE/fePointer.inl
++++ b/include/Game/FE/fePointer.inl
+@@ -2,11 +2,13 @@
+ #define GAME_FE_FEPOINTER_INL
+ 
+ #include "Game/FE/fePointer.h"
+-#include "Game/FE/FrontendPointerSteps.h"
+ 
+ inline void FEPointerListener::Disable()
+ {
+-    FrontendPointerDisable<FEPointerListener, FEPointerEvent>(*this);
++    mDisabled = true;
++    FEPointerEvent event;
++    for (int i = 0; i < 4; ++i)
++        mPreviousEvents[i] = event;
+ }
+ 
+ #endif // GAME_FE_FEPOINTER_INL
+diff --git a/include/Game/FE/feResourceManager.h b/include/Game/FE/feResourceManager.h
+--- a/include/Game/FE/feResourceManager.h
++++ b/include/Game/FE/feResourceManager.h
+@@ -87,7 +87,7 @@
+     FEMiniBundle* LoadMiniBundle(const char* szBundleFileName);
+     bool UnloadMiniBundle(FEMiniBundle* miniBundle);
+ 
+-    static void TextureResourceLoadComplete(void* buffer, unsigned long uReadSize, unsigned long uParam);
++    static void TextureResourceLoadComplete(void* buffer, unsigned long uReadSize, BundleAsyncParam uParam);
+ 
+ private:
+     ResourceResult IssueResourceLoadRequest(PendingResourceLoad pendingResource);
+@@ -97,9 +97,9 @@
+     FEResourceHandle* FindExistingResourceInResourceList(FEResourceHandle* pFEResourceHandle);
+     void RemoveResourceFromResourceList(FEResourceHandle* pFEResourceHandle);
+     void AddResourceToResourceList(FEResourceHandle* pFEResourceHandle);
+-    static void PermanentBundleOpenComplete(void* buffer, unsigned long uReadSize, unsigned long uParam);
++    static void PermanentBundleOpenComplete(void* buffer, unsigned long uReadSize, BundleAsyncParam uParam);
+     static int LoadNextPermanentTexture(PermanentBundleLoadState* state);
+-    static void PermanentTextureLoadComplete(void* buffer, unsigned long uReadSize, unsigned long uParam);
++    static void PermanentTextureLoadComplete(void* buffer, unsigned long uReadSize, BundleAsyncParam uParam);
+ 
+ public:
+     /* 0x1D */ char m_szPermanentBundleFileName[32];
+diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
+--- a/include/Game/FE/feScene.h
++++ b/include/Game/FE/feScene.h
+@@ -5,6 +5,13 @@
+ #include "Game/FE/feSceneResource.h"
+ #include "NL/nlMath.h"
+ #include "types.h"
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++using FEPointerWord = std::uintptr_t;
++#else
++using FEPointerWord = unsigned long;
++#endif
+ 
+ class FEPackage;
+ class MemoryAllocator;
+@@ -33,7 +40,7 @@
+     /* 0x08 */ nlMatrix4 m_matView;
+     /* 0x48 */ unsigned long m_uRenderView;
+     /* 0x4C */ FE_FILE_HEADER* m_pFileHeader;
+-    /* 0x50 */ unsigned long* m_pPointerTable;
++    /* 0x50 */ FEPointerWord* m_pPointerTable;
+     /* 0x54 */ FESceneResource m_feSceneResourceHandle;
+     /* 0x74 */ int mState;
+     /* 0x78 */ FEResourceHandle* m_pResourceHandles;
+diff --git a/include/Game/FE/tlImageInstance.h b/include/Game/FE/tlImageInstance.h
+--- a/include/Game/FE/tlImageInstance.h
++++ b/include/Game/FE/tlImageInstance.h
+@@ -2,7 +2,6 @@
+ #define GAME_FE_TL_IMAGE_INSTANCE_H
+ 
+ #include "Game/FE/tlInstance.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ class FETextureResource;
+ 
+@@ -19,7 +18,8 @@
+     FETextureResource*& GetTextureResource() { return m_pTextureResource; }
+     void SetTextureResource(FETextureResource* resource)
+     {
+-        FrontendSetImageResource(m_pTextureResource, resource);
++        if (resource != 0)
++            m_pTextureResource = resource;
+     }
+ 
+     /* 0x90 */ FETextureResource* m_pTextureResource;
+diff --git a/include/Game/FE/tlInstance.inl b/include/Game/FE/tlInstance.inl
+--- a/include/Game/FE/tlInstance.inl
++++ b/include/Game/FE/tlInstance.inl
+@@ -2,11 +2,10 @@
+ #define GAME_FE_TLINSTANCE_INL
+ 
+ #include "Game/FE/tlInstance.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ inline void TLInstance::SetVisible(bool visible)
+ {
+-    FrontendSetVisible(m_bVisible, visible);
++    m_bVisible = visible;
+ }
+ 
+ inline eTimeLineAssetType TLInstance::GetType() const
+diff --git a/include/Game/FE/tlSlide.h b/include/Game/FE/tlSlide.h
+--- a/include/Game/FE/tlSlide.h
++++ b/include/Game/FE/tlSlide.h
+@@ -7,6 +7,9 @@
+ #include "Game/FE/tlInstance.h"
+ 
+ enum eTimeLinePlayMode
++#if defined(MSCHARGED_NATIVE)
++    : u32
++#endif
+ {
+     TLPM_STOP_AT_END = 0,
+     TLPM_LOOPING = 1,
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -143,7 +143,113 @@
+ }
+ 
+ SceneEntry SceneEntryTable[] = {
+-#include "Game/FE/FrontendSceneEntries.inc"
++    { SCENE_TITLE, "art/fe/sms2_start.fen" },
++    { SCENE_MAIN_MENU, "art/fe/main_menu_v3.fen" },
++    { SCENE_CHOOSE_CAPTAINS_DOMINATION, "art/fe/choose_captains_domination.fen" },
++    { SCENE_CHOOSE_SIDEKICKS_DOMINATION, "art/fe/choose_sidekicks_domination.fen" },
++    { (SceneList)4, "art/fe/domination_choose_sides.fen" },
++    { (SceneList)5, "art/fe/choose_stadiums_domination.fen" },
++    { SCENE_CHOOSE_CAPTAINS_STRIKER_CUP, "art/fe/choose_captains_domination.fen" },
++    { SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP, "art/fe/choose_sidekicks_domination.fen" },
++    { (SceneList)8, "art/fe/domination_choose_sides.fen" },
++    { (SceneList)9, "art/fe/cup_cheater.fen" },
++    { SCENE_POPUP_MENU, "art/fe/popup_menu.fen" },
++    { (SceneList)11, "art/fe/spoils_menu_v2.fen" },
++    { (SceneList)12, "art/fe/custom_tournament_options_v2.fen" },
++    { (SceneList)13, "art/fe/options_main_menu.fen" },
++    { (SceneList)14, "art/fe/options_audio_options.fen" },
++    { (SceneList)15, "art/fe/options_visual_options.fen" },
++    { (SceneList)16, "art/fe/englegal.fen" },
++    { SCENE_SUPER_LOADING, "art/fe/loadingscreen.fen" },
++    { SCENE_BOOT_LOADING, "art/fe/boot_loading.fen" },
++    { SCENE_BOOT_LOADING_JPN, "art/fe/boot_loading_jpn.fen" },
++    { (SceneList)20, "art/fe/movieplayer.fen" },
++    { (SceneList)21, "art/fe/movieplayer.fen" },
++    { SCENE_INTRO_MOVIE, "art/fe/movieplayer.fen" },
++    { (SceneList)23, "art/fe/credits.fen" },
++    { (SceneList)24, "art/fe/sms2_network_start.fen" },
++    { SCENE_ASYNC_LOADING, "art/fe/asyncloading.fen" },
++    { SCENE_WIDESCREEN_LOADING, "art/fe/WIDESCREEN_LOADING_SCREEN.fen" },
++    { SCENE_GAMEPLAY_OPTIONS, "art/fe/options.fen" },
++    { SCENE_OPTIONS_CHEATS_LIST, "art/fe/options_cheats_list.fen" },
++    { (SceneList)29, "art/fe/fe_overlay.fen" },
++    { (SceneList)30, "art/fe/wiicursor.fen" },
++    { (SceneList)31, "art/fe/roadtostrikerscup_hub.fen" },
++    { (SceneList)32, "art/fe/cup_schedule.fen" },
++    { (SceneList)33, "art/fe/striker_times_2.fen" },
++    { (SceneList)34, "art/fe/cup_knockout.fen" },
++    { (SceneList)35, "art/fe/cup_final_rounds.fen" },
++    { (SceneList)36, "art/fe/striker_cup_standings.fen" },
++    { (SceneList)37, "art/fe/striker_cup_awards_golden_boot.fen" },
++    { (SceneList)38, "art/fe/striker_cup_awards_brick_wall.fen" },
++    { (SceneList)39, "art/fe/striker_times_2.fen" },
++    { SCENE_ONLINE_MENU, "art/fe/online_menu.fen" },
++    { (SceneList)41, "art/fe/online_ranked_menu.fen" },
++    { (SceneList)42, "art/fe/online_unranked_menu.fen" },
++    { SCENE_ONLINE_GUEST_CONTROLLER_SELECT, "art/fe/online_active_controllers.fen" },
++    { (SceneList)44, "art/fe/online_invite_players.fen" },
++    { SCENE_ONLINE_INVITE_PREVIEW, "art/fe/online_preview.fen" },
++    { SCENE_ONLINE_RANKING, "art/fe/leaderboard_rankings.fen" },
++    { (SceneList)47, "art/fe/online_friends_list.fen" },
++    { SCENE_ONLINE_FRIEND_CODE_ENTRY, "art/fe/online_friends_code_enter.fen" },
++    { (SceneList)49, "art/fe/online_draft_screen.fen" },
++    { (SceneList)50, "art/fe/online_draft_screen.fen" },
++    { SCENE_ONLINE_LOGIN, "art/fe/online_login.fen" },
++    { SCENE_ONLINE_INVITE_RESPONSE, "art/fe/online_invitation.fen" },
++    { SCENE_ONLINE_INVITE_STATUS, "art/fe/online_login.fen" },
++    { SCENE_ONLINE_MII_SELECT, "art/fe/online_mii_select.fen" },
++    { SCENE_ONLINE_MII_SELECT_OVERLAY, "art/fe/online_mii_select_overlay.fen" },
++    { (SceneList)56, "art/fe/online_friends_choose_sides.fen" },
++    { (SceneList)57, "art/fe/online_connection_quality.fen" },
++    { (SceneList)58, "art/fe/hof_profile.fen" },
++    { (SceneList)59, "art/fe/hof_game_summary.fen" },
++    { (SceneList)60, "art/fe/hof_game_summary.fen" },
++    { (SceneList)61, "art/fe/hof_game_summary.fen" },
++    { (SceneList)62, "art/fe/hof_fire_cup.fen" },
++    { (SceneList)63, "art/fe/hof_striker_cup.fen" },
++    { (SceneList)64, "art/fe/hof_crystal_cup.fen" },
++    { (SceneList)65, "art/fe/hof_player_cards.fen" },
++    { (SceneList)66, "art/fe/hof_cup_history.fen" },
++    { (SceneList)67, "art/fe/hof_award_history.fen" },
++    { (SceneList)68, "art/fe/hof_award_history.fen" },
++    { (SceneList)69, "art/fe/hof_cup_history.fen" },
++    { (SceneList)70, "art/fe/hof_award_history.fen" },
++    { (SceneList)71, "art/fe/hof_award_history.fen" },
++    { (SceneList)72, "art/fe/hof_cup_history.fen" },
++    { (SceneList)73, "art/fe/hof_award_history.fen" },
++    { (SceneList)74, "art/fe/hof_award_history.fen" },
++    { (SceneList)75, "art/fe/striker_challenge_hub.fen" },
++    { (SceneList)76, "art/fe/striker_challenge_hub.fen" },
++    { (SceneList)77, "art/fe/striker_times_2.fen" },
++    { (SceneList)78, "art/fe/domination_choose_sides.fen" },
++    { (SceneList)79, "art/fe/e3howtoholdcontroller.fen" },
++    { (SceneList)80, "art/fe/pausemenu_v3.fen" },
++    { (SceneList)81, "art/fe/ingame_choose_sides.fen" },
++    { (SceneList)82, "art/fe/options_audio_options.fen" },
++    { (SceneList)83, "art/fe/options_visual_options.fen" },
++    { (SceneList)84, "art/fe/pausemenu101_v3.fen" },
++    { (SceneList)85, "art/fe/lesson.fen" },
++    { (SceneList)86, "art/fe/strikers_101_lessons_v3.fen" },
++    { (SceneList)87, "art/fe/lessonmovieplayer.fen" },
++    { (SceneList)88, 0 },
++    { OVERLAY_HUD, "art/fe/hud_2.fen" },
++    { (SceneList)90, "art/fe/ingame_text.fen" },
++    { (SceneList)91, "art/fe/striker_times_2.fen" },
++    { (SceneList)92, "art/fe/striker_times_2.fen" },
++    { (SceneList)93, "art/fe/online_ranking.fen" },
++    { (SceneList)94, "art/fe/striker_times_2.fen" },
++    { (SceneList)95, "art/fe/goal_overlay.fen" },
++    { (SceneList)96, "art/fe/demo_overlay.fen" },
++    { (SceneList)97, "art/fe/igticker.fen" },
++    { (SceneList)98, "art/fe/x2_sts.fen" },
++    { (SceneList)99, "art/fe/loading_screen.fen" },
++    { (SceneList)100, "art/fe/megastrike_metre.fen" },
++    { (SceneList)101, "art/fe/pip.fen" },
++    { (SceneList)102, "art/fe/SUPER_ABILITY_PRESENTATION.fen" },
++    { (SceneList)103, "art/fe/challenge_preview.fen" },
++    { (SceneList)104, "art/fe/controller_config.fen" },
++    { (SceneList)105, "art/fe/defensive_play.fen" },
++    { (SceneList)106, 0 },
+ };
+ 
+ BaseGameSceneManager::BaseGameSceneManager()
+diff --git a/src/Game/FE/BaseSceneHandler.cpp b/src/Game/FE/BaseSceneHandler.cpp
+--- a/src/Game/FE/BaseSceneHandler.cpp
++++ b/src/Game/FE/BaseSceneHandler.cpp
+@@ -3,24 +3,26 @@
+ #include "Game/FE/feScene.h"
+ 
+ #include "NL/nlDLRing.h"
+-#include "Game/FE/FrontendHandlerSteps.h"
+ 
+ void BaseSceneHandler::Update(float dt)
+ {
+-    FrontendBaseHandlerUpdate(*this, dt);
++    mFEScene->Update(dt);
+ }
+ 
+ void BaseSceneHandler::AddScreenHandler(BaseScreenHandler* handler)
+ {
+-    FrontendBaseHandlerAdd(*this, handler);
++    handler->mFEScene = mFEScene;
++    nlDLRingAddEnd(&mScreenHandlerList, handler);
+ }
+ 
+-void BaseSceneHandler::RemoveScreenHandler(BaseScreenHandler* handler)
++void BaseSceneHandler::RemoveScreenHandler(BaseScreenHandler*)
+ {
+-    FrontendBaseHandlerRemove(handler);
+ }
+ 
+ void BaseSceneHandler::OnActivate()
+ {
+-    FrontendBaseHandlerActivate(*this);
++    if (mActiveScreenHandler != 0)
++    {
++        mActiveScreenHandler->OnActivate();
++    }
+ }
+diff --git a/src/Game/FE/feAnimation.cpp b/src/Game/FE/feAnimation.cpp
+--- a/src/Game/FE/feAnimation.cpp
++++ b/src/Game/FE/feAnimation.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/feAnimation.h"
+-#include "Game/FE/FrontendAnimationSteps.h"
+ 
+ #include "Game/FE/tlInstance.h"
+ #include "NL/nlDLRing.h"
+@@ -7,9 +6,45 @@
+ 
+ void FEAnimation::AnimateTargetAtTimeWithFloat(float fCurrentTime)
+ {
++    fAnimationKeyframe* currentFrame;
+     float fAnimatedResult;
+-    if (FrontendSampleFloat((fAnimationKeyframe*)GetKeyframeHead(), fCurrentTime, fAnimatedResult))
++    float fMu;
++
++    currentFrame = nlDLRingGetStart<fAnimationKeyframe>((fAnimationKeyframe*)GetKeyframeHead());
++    if (currentFrame != currentFrame->m_next)
+     {
++        if (fCurrentTime >= currentFrame->pKeyFrameData.GetTime())
++        {
++            while (fCurrentTime > currentFrame->pKeyFrameData.GetTime())
++            {
++                currentFrame = currentFrame->m_next;
++                if (nlDLRingIsEnd<fAnimationKeyframe>((fAnimationKeyframe*)GetKeyframeHead(), currentFrame))
++                {
++                    break;
++                }
++            }
++
++            if (fCurrentTime == currentFrame->pKeyFrameData.GetTime())
++            {
++                fAnimatedResult = currentFrame->pKeyFrameData.GetPoint();
++            }
++            else if (!(fCurrentTime > currentFrame->pKeyFrameData.GetTime())
++                     || currentFrame->pKeyFrameData.GetControl1() != -1.0f)
++            {
++                float fPrevTime = currentFrame->m_prev->pKeyFrameData.GetTime();
++                fMu = (fCurrentTime - fPrevTime) / (currentFrame->pKeyFrameData.GetTime() - fPrevTime);
++                float controlPoints[4];
++                controlPoints[0] = currentFrame->m_prev->pKeyFrameData.GetPoint();
++                controlPoints[1] = currentFrame->m_prev->pKeyFrameData.GetControl1();
++                controlPoints[2] = currentFrame->m_prev->pKeyFrameData.GetControl2();
++                controlPoints[3] = currentFrame->pKeyFrameData.GetPoint();
++                fAnimatedResult = nlBezier(controlPoints, 3, fMu);
++            }
++            else
++            {
++                fAnimatedResult = currentFrame->pKeyFrameData.GetPoint();
++            }
++
+             if (fAnimatedResult != -1.0f && m_type == eAnimOpacity)
+             {
+                 nlColour newColour = m_pTLInstanceTarget->GetAssetColour();
+@@ -34,13 +69,75 @@
+                     break;
+                 }
+             }
++        }
+     }
+ }
+ 
+ void FEAnimation::AnimateTargetAtTimeWithVector3(float fCurrentTime)
+ {
++    v3AnimationKeyframe* currentFrame;
+     float result[3];
+-    FrontendSampleVector3((v3AnimationKeyframe*)GetKeyframeHead(), m_type, fCurrentTime, result);
++    float fMu;
++
++    v3AnimationKeyframe* head = (v3AnimationKeyframe*)GetKeyframeHead();
++    currentFrame = nlDLRingGetStart<v3AnimationKeyframe>(head);
++    if (fCurrentTime < currentFrame->pKeyFrameDataX.GetTime())
++    {
++        fCurrentTime = currentFrame->pKeyFrameDataX.GetTime();
++    }
++
++    while (fCurrentTime > currentFrame->pKeyFrameDataX.GetTime()
++           && (m_type != eAnimRotation || -1.0f != currentFrame->pKeyFrameDataX.GetControl1()
++               || -1.0f != currentFrame->pKeyFrameDataX.GetControl2()))
++    {
++        currentFrame = currentFrame->m_next;
++        if (nlDLRingIsEnd<v3AnimationKeyframe>(head, currentFrame))
++        {
++            break;
++        }
++    }
++
++    if (fCurrentTime == currentFrame->pKeyFrameDataX.GetTime())
++    {
++        result[0] = currentFrame->pKeyFrameDataX.GetPoint();
++        result[1] = currentFrame->pKeyFrameDataY.GetPoint();
++        result[2] = currentFrame->pKeyFrameDataZ.GetPoint();
++    }
++    else if (!(fCurrentTime > currentFrame->pKeyFrameDataX.GetTime())
++             || currentFrame->pKeyFrameDataX.GetControl1() != -1.0f)
++    {
++        float prevTime = currentFrame->m_prev->pKeyFrameDataX.GetTime();
++        fMu = (fCurrentTime - prevTime) / (currentFrame->pKeyFrameDataX.GetTime() - prevTime);
++
++        float controlPointsX[4];
++        controlPointsX[0] = currentFrame->m_prev->pKeyFrameDataX.GetPoint();
++        controlPointsX[1] = currentFrame->m_prev->pKeyFrameDataX.GetControl1();
++        controlPointsX[2] = currentFrame->m_prev->pKeyFrameDataX.GetControl2();
++        controlPointsX[3] = currentFrame->pKeyFrameDataX.GetPoint();
++
++        float controlPointsY[4];
++        controlPointsY[0] = currentFrame->m_prev->pKeyFrameDataY.GetPoint();
++        controlPointsY[1] = currentFrame->m_prev->pKeyFrameDataY.GetControl1();
++        controlPointsY[2] = currentFrame->m_prev->pKeyFrameDataY.GetControl2();
++        controlPointsY[3] = currentFrame->pKeyFrameDataY.GetPoint();
++
++        float controlPointsZ[4];
++        controlPointsZ[0] = currentFrame->m_prev->pKeyFrameDataZ.GetPoint();
++        controlPointsZ[1] = currentFrame->m_prev->pKeyFrameDataZ.GetControl1();
++        controlPointsZ[2] = currentFrame->m_prev->pKeyFrameDataZ.GetControl2();
++        controlPointsZ[3] = currentFrame->pKeyFrameDataZ.GetPoint();
++
++        result[0] = nlBezier(controlPointsX, 3, fMu);
++        result[1] = nlBezier(controlPointsY, 3, fMu);
++        result[2] = nlBezier(controlPointsZ, 3, fMu);
++    }
++    else
++    {
++        result[0] = currentFrame->pKeyFrameDataX.GetPoint();
++        result[1] = currentFrame->pKeyFrameDataY.GetPoint();
++        result[2] = currentFrame->pKeyFrameDataZ.GetPoint();
++    }
++
+     switch (m_type)
+     {
+     case eAnimPosition:
+diff --git a/src/Game/FE/feFinder.cpp b/src/Game/FE/feFinder.cpp
+--- a/src/Game/FE/feFinder.cpp
++++ b/src/Game/FE/feFinder.cpp
+@@ -1,50 +1,54 @@
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/tlComponent.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+-
+-struct FrontendOriginalFinder
+-{
+-    struct Node
+-    {
+-        void* pointer;
+-        bool slide;
+-        Node(void* value = 0, bool isSlide = false) : pointer(value), slide(isSlide) {}
+-        operator bool() const { return pointer != 0; }
+-    };
+-    FEPresentation* presentation;
+-    FrontendOriginalFinder(FEPresentation* p = 0) : presentation(p) {}
+-    Node Child(Node n, unsigned long hash) const
+-    {
+-        TLInstance* children = n.slide ? ((TLSlide*)n.pointer)->pChildren : ((TLInstance*)n.pointer)->pChildren;
+-        return Node(FindItemByHashID(children, hash));
+-    }
+-    bool IsComponent(Node n) const { return ((TLInstance*)n.pointer)->m_type == TLAT_COMPONENT; }
+-    Node ComponentSlide(Node n, unsigned long hash) const
+-    { return Node(FindItemByHashID(((TLComponent*)((TLInstance*)n.pointer)->m_component)->pChildren, hash), true); }
+-    Node ActiveComponentSlide(Node n) const
+-    { return Node(((TLComponentInstance*)n.pointer)->GetActiveSlide(), true); }
+-    Node PresentationSlide(unsigned long hash) const
+-    { return Node(FindItemByHashID(presentation->m_slides, hash), true); }
+-    Node ActivePresentationSlide() const { return Node(presentation->m_currentSlide, true); }
+-};
+ 
+ void* FEFindInstance(FEPresentation* pPresentation, unsigned long Level1, unsigned long Level2,
+     unsigned long Level3, unsigned long Level4, unsigned long Level5, unsigned long Level6)
+ {
+-    if (pPresentation == 0) return 0;
+-    const unsigned long levels[] = { Level1, Level2, Level3, Level4, Level5, Level6, 0 };
+-    FrontendOriginalFinder access(pPresentation);
+-    return FrontendFindPresentation(access, levels).pointer;
++    if (pPresentation == 0)
++        return 0;
++
++    TLSlide* pChild = FindItemByHashID(pPresentation->m_slides, Level1);
++    if (pChild == 0)
++        return FEFinder<void, TLAT_UNKNOWN>::_Find(pPresentation->m_currentSlide,
++            Level1, Level2, Level3, Level4, Level5, Level6);
++    if (Level2 == 0)
++        return pChild;
++    return FEFinder<void, TLAT_UNKNOWN>::_Find(pChild,
++        Level2, Level3, Level4, Level5, Level6, 0);
+ }
++
+ void* FEFindInstance(TLInstance* pInstance, unsigned long Level1, unsigned long Level2,
+     unsigned long Level3, unsigned long Level4, unsigned long Level5, unsigned long Level6)
+ {
+     return FEFindInstanceRecursive(pInstance, Level1, Level2, Level3, Level4, Level5, Level6);
+ }
++
+ void* FEFindInstanceRecursive(TLInstance* pInstance, unsigned long Level1, unsigned long Level2,
+     unsigned long Level3, unsigned long Level4, unsigned long Level5, unsigned long Level6)
+ {
+-    const unsigned long levels[] = { Level1, Level2, Level3, Level4, Level5, Level6, 0 };
+-    FrontendOriginalFinder access;
+-    return FrontendFindRecursive(access, FrontendOriginalFinder::Node(pInstance), levels).pointer;
++    if (pInstance == 0)
++        return 0;
++
++    eTimeLineAssetType type = pInstance->m_type;
++    void* pChild;
++    if (type == TLAT_COMPONENT)
++    {
++        TLComponent* pComponent = (TLComponent*)pInstance->m_component;
++        pChild = FindItemByHashID(pComponent->pChildren, Level1);
++        if (pChild == 0)
++            return FEFinder<void, TLAT_UNKNOWN>::_Find(
++                ((TLComponentInstance*)pInstance)->GetActiveSlide(),
++                Level1, Level2, Level3, Level4, Level5, Level6);
++    }
++    else
++    {
++        pChild = FindItemByHashID(pInstance->pChildren, Level1);
++    }
++
++    if (pChild == 0 || Level2 == 0)
++        return pChild;
++    if (type == TLAT_COMPONENT)
++        return FEFinder<void, TLAT_UNKNOWN>::_Find((TLSlide*)pChild,
++            Level2, Level3, Level4, Level5, Level6, 0);
++    return FEFindInstanceRecursive((TLInstance*)pChild, Level2, Level3, Level4, Level5, Level6, 0);
+ }
+diff --git a/src/Game/FE/fePresentation.cpp b/src/Game/FE/fePresentation.cpp
+--- a/src/Game/FE/fePresentation.cpp
++++ b/src/Game/FE/fePresentation.cpp
+@@ -1,6 +1,4 @@
+ #include "Game/FE/fePresentation.h"
+-#include "Game/FE/FrontendSelectionSteps.h"
+-#include "Game/FE/FrontendAnimationSteps.h"
+ 
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/tlSlide.h"
+@@ -9,7 +7,10 @@
+ void FEPresentation::SetActiveSlide(unsigned long hash, bool resetTime)
+ {
+     TLSlide* slide = FindItemByHashID<TLSlide>(m_slides, hash);
+-    FrontendSelectPresentationTime(m_fadeDuration, resetTime, m_currentSlide != slide);
++    if (resetTime || m_currentSlide != slide)
++    {
++        m_fadeDuration = 0.0f;
++    }
+     m_currentSlide = slide;
+ }
+ 
+@@ -23,8 +24,23 @@
+ {
+     if (m_currentSlide != 0)
+     {
+-        FrontendAdvanceSlideTime(m_fadeDuration, deltaTime, m_currentSlide->GetStartTime(),
+-            m_currentSlide->GetDuration(), m_currentSlide->m_uPlayMode, false);
++        m_fadeDuration += deltaTime;
++        f32 end = m_currentSlide->GetStartTime() + m_currentSlide->GetDuration();
++        if (m_fadeDuration > end)
++        {
++            switch (m_currentSlide->m_uPlayMode)
++            {
++            case TLPM_LOOPING:
++                m_fadeDuration = m_fadeDuration - end;
++                break;
++            case TLPM_STOP_AT_END:
++                m_fadeDuration = end;
++                break;
++            case 2:
++            default:
++                break;
++            }
++        }
+         m_currentSlide->m_time = m_fadeDuration;
+         m_currentSlide->Update(deltaTime);
+     }
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -1,7 +1,4 @@
+ #include "Game/FE/feRender.h"
+-#include "Game/FE/FrontendImageSteps.h"
+-#include "Game/FE/FrontendImageState.h"
+-#include "Game/FE/FrontendLayoutSteps.h"
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/FE/fePackage.h"
+@@ -21,6 +18,12 @@
+ #include "NL/platvmath.h"
+ 
+ static nlFloatColour s_currentAssetColour;
++static const nlVector3 s_quadPositions[4] = {
++    { -50.0f, 50.0f, 0.0f },
++    { -50.0f, -50.0f, 0.0f },
++    { 50.0f, -50.0f, 0.0f },
++    { 50.0f, 50.0f, 0.0f },
++};
+ FEScene* FERender::m_pRenderScene;
+ 
+ RenderImageCallback g_pfnRenderImage;
+@@ -41,7 +44,69 @@
+ 
+ void FERender::PushTransformMatrix(const TLInstance* instance, const nlMatrix4& parentMatrix, nlMatrix4& combinedMatrix)
+ {
+-    FrontendPushTransform(instance, parentMatrix, combinedMatrix);
++    const feVector3& tlPosition = instance->GetPosition();
++    const feVector3& tlPivot = instance->GetPivot();
++    const feVector3& tlRotation = instance->GetRotation();
++    const feVector3& tlScale = instance->GetScale();
++    unsigned long flags = 0;
++
++    if (tlPosition.f.x == 0.0f && tlPosition.f.y == 0.0f && tlPosition.f.z == 0.0f)
++    {
++        flags |= 2;
++    }
++    if (tlPivot.f.x == 0.0f && tlPivot.f.y == 0.0f && tlPivot.f.z == 0.0f)
++    {
++        flags |= 1;
++    }
++    if (tlRotation.f.x == 0.0f && tlRotation.f.y == 0.0f && tlRotation.f.z == 0.0f)
++    {
++        flags |= 4;
++    }
++    if (tlScale.f.x == 1.0f && tlScale.f.y == 1.0f && tlScale.f.z == 1.0f)
++    {
++        flags |= 8;
++    }
++
++    if ((flags & 0xF) == 0xF)
++    {
++        combinedMatrix = parentMatrix;
++        return;
++    }
++
++    nlMatrix4 scalePivotMatrix;
++    nlMatrix4 localMatrix;
++    if ((flags & 1) == 0 || (flags & 8) == 0)
++    {
++        nlMatrix4 scaleMatrix;
++        nlMatrix4 pivotMatrix;
++        nlMakeScaleMatrix(scaleMatrix, tlScale.f.x, tlScale.f.y, tlScale.f.z);
++        nlMakeTranslationMatrix(pivotMatrix, -tlPivot.f.x, -tlPivot.f.y, -tlPivot.f.z);
++        nlMultMatrices(scalePivotMatrix, pivotMatrix, scaleMatrix);
++    }
++    else
++    {
++        scalePivotMatrix.SetIdentity();
++    }
++
++    if ((flags & 4) == 0)
++    {
++        nlMatrix4 rotationMatrix;
++        nlMakeRotationMatrixEulerAngles(rotationMatrix, tlRotation.f.x, tlRotation.f.y, tlRotation.f.z);
++        nlMultMatrices(localMatrix, scalePivotMatrix, rotationMatrix);
++    }
++    else
++    {
++        localMatrix = scalePivotMatrix;
++    }
++
++    if ((flags & 2) == 0)
++    {
++        localMatrix.m41 += tlPosition.f.x;
++        localMatrix.m42 += tlPosition.f.y;
++        localMatrix.m43 += tlPosition.f.z;
++    }
++    localMatrix.m43 *= -1.0f;
++    nlMultMatrices(combinedMatrix, localMatrix, parentMatrix);
+ }
+ 
+ void FERender::RenderSlide(const TLSlide* slide, const nlMatrix4& matrix)
+@@ -191,17 +256,32 @@
+     }
+ 
+     unsigned long textureHandle = pTexRes->GetTextureHandle();
+-    nlVector2 uv[4];
+-    FrontendImageUV(pTLImageInstance, pTexRes->m_uWidth, pTexRes->m_uHeight, uv);
+-    FrontendImageRasterState(textureHandle != grabTex && textureHandle != movieTex, pTLImageInstance->field_0x94);
++    float halfPixelU = 0.5f / (float)(s32)pTexRes->m_uWidth;
++    float halfPixelV = 0.5f / (float)(s32)pTexRes->m_uHeight;
++    float left = pTLImageInstance->GetUVX();
++    float uvY = pTLImageInstance->GetUVY();
++    float uvH = pTLImageInstance->GetUVHeight();
++    float bottom = 1.0f - (uvH + uvY);
++    float right = left + pTLImageInstance->GetUVWidth();
++    float top = 1.0f - pTLImageInstance->GetUVY();
++
++    glSetDefaultState(false);
++    glSetRasterState(GLS_Culling, 0);
++    if (textureHandle != grabTex && textureHandle != movieTex)
++    {
++        glSetRasterState(GLS_AlphaBlend, pTLImageInstance->field_0x94);
++        glSetRasterState(GLS_AlphaTest, 1);
++        glSetRasterState(GLS_AlphaTestRef, 0);
++    }
++    glSetCurrentRasterState(glHandleizeRasterState());
+ 
+     nlMatrix4 matTM = matrix;
+     const nlMatrix4& view = m_pRenderScene->m_matView;
+     matTM.m41 += view.m41;
+     matTM.m42 += view.m42;
+     matTM.m43 += view.m43;
+-    glMatrixHandle matrixHandle = glAllocMatrix();
+-    if (matrixHandle != GL_INVALID_MATRIX)
++    unsigned long matrixHandle = glAllocMatrix();
++    if (matrixHandle != 0xFFFFFFFF)
+     {
+         glSetMatrix(matrixHandle, matTM);
+     }
+@@ -209,8 +289,18 @@
+ 
+     if (textureHandle == movieTex && g_pfnRenderImage != 0)
+     {
++        nlVector2 uv[4];
+         nlVector2 pos[4];
+-        const nlVector3* pSrc = FrontendImageQuadPositions;
++        uv[0].x = left + halfPixelU;
++        uv[0].y = bottom + halfPixelV;
++        uv[1].x = left + halfPixelU;
++        uv[1].y = top - halfPixelV;
++        uv[2].x = right - halfPixelU;
++        uv[2].y = top - halfPixelV;
++        uv[3].x = right - halfPixelU;
++        uv[3].y = bottom + halfPixelV;
++
++        const nlVector3* pSrc = s_quadPositions;
+         nlVector2* pDst = pos;
+         unsigned int count = 4;
+         while (count--)
+@@ -225,14 +315,18 @@
+     {
+         glSetCurrentTexture(textureHandle, GLTT_Diffuse);
+         glQuad3 quad;
+-        quad.m_pos[0] = FrontendImageQuadPositions[0];
+-        quad.m_pos[1] = FrontendImageQuadPositions[1];
+-        quad.m_pos[2] = FrontendImageQuadPositions[2];
+-        quad.m_pos[3] = FrontendImageQuadPositions[3];
+-        quad.m_uv[0] = uv[0];
+-        quad.m_uv[1] = uv[1];
+-        quad.m_uv[2] = uv[2];
+-        quad.m_uv[3] = uv[3];
++        quad.m_pos[0] = s_quadPositions[0];
++        quad.m_pos[1] = s_quadPositions[1];
++        quad.m_pos[2] = s_quadPositions[2];
++        quad.m_pos[3] = s_quadPositions[3];
++        quad.m_uv[0].x = left + halfPixelU;
++        quad.m_uv[0].y = bottom + halfPixelV;
++        quad.m_uv[1].x = left + halfPixelU;
++        quad.m_uv[1].y = top - halfPixelV;
++        quad.m_uv[2].x = right - halfPixelU;
++        quad.m_uv[2].y = top - halfPixelV;
++        quad.m_uv[3].x = right - halfPixelU;
++        quad.m_uv[3].y = bottom + halfPixelV;
+         quad.SetColour(colour);
+         glAttachQuad3((eGLView)m_pRenderScene->m_uRenderView, 0, 1, &quad);
+     }
+diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.cpp
+--- a/src/Game/FE/feResourceManager.cpp
++++ b/src/Game/FE/feResourceManager.cpp
+@@ -1,7 +1,4 @@
+ #include "Game/FE/feResourceManager.h"
+-#if defined(MSCHARGED_NATIVE)
+-#include "Game/FE/FrontendResourceSteps.h"
+-#endif
+ 
+ #include <stddef.h>
+ 
+@@ -100,7 +97,7 @@
+     return *pPreExistingResourceHandle;
+ }
+ 
+-void FEResourceManager::PermanentBundleOpenComplete(void*, unsigned long, unsigned long uParam)
++void FEResourceManager::PermanentBundleOpenComplete(void*, unsigned long, BundleAsyncParam uParam)
+ {
+     LoadNextPermanentTexture((PermanentBundleLoadState*)uParam);
+ }
+@@ -128,7 +125,7 @@
+         state->uFileHashID = fileDirectoryEntry.m_hash;
+         unsigned char* buffer = (unsigned char*)nlMalloc(fileDirectoryEntry.m_length, 0x20, true);
+         unsigned long fileIndex = state->uFileIndex++;
+-        state->pBundle->ReadFileAsyncByIndex(fileIndex, buffer, fileDirectoryEntry.m_length, PermanentTextureLoadComplete, (unsigned long)state);
++        state->pBundle->ReadFileAsyncByIndex(fileIndex, buffer, fileDirectoryEntry.m_length, PermanentTextureLoadComplete, (BundleAsyncParam)state);
+         return true;
+     }
+ 
+@@ -144,13 +141,13 @@
+     return false;
+ }
+ 
+-void FEResourceManager::PermanentTextureLoadComplete(void* buffer, unsigned long uReadSize, unsigned long uParam)
++void FEResourceManager::PermanentTextureLoadComplete(void* buffer, unsigned long uReadSize, BundleAsyncParam uParam)
+ {
+     PermanentBundleLoadState* state = (PermanentBundleLoadState*)uParam;
+     FETextureResource* pTextureResource = new (8, false) FETextureResource();
+     pTextureResource->m_hashID = state->uFileHashID;
+     s_pResourceLoadBuffer = (unsigned char*)buffer;
+-    TextureResourceLoadComplete(NULL, uReadSize, (unsigned long)pTextureResource);
++    TextureResourceLoadComplete(NULL, uReadSize, (BundleAsyncParam)pTextureResource);
+     LoadNextPermanentTexture(state);
+ }
+ 
+@@ -227,7 +224,7 @@
+     s_permanentBundleLoadState.bComplete = false;
+     s_permanentBundleLoadState.callback = callback;
+     s_permanentBundleLoadState.pBundle = s_pPermanentBundle;
+-    s_pPermanentBundle->OpenAsync(szBundleFileName, PermanentBundleOpenComplete, (unsigned long)&s_permanentBundleLoadState, false);
++    s_pPermanentBundle->OpenAsync(szBundleFileName, PermanentBundleOpenComplete, (BundleAsyncParam)&s_permanentBundleLoadState, false);
+ }
+ 
+ void FEResourceManager::LoadPermanentTextures()
+@@ -263,7 +260,7 @@
+ 
+                 s_pResourceLoadBuffer = (unsigned char*)nlMalloc(uFileLength, 0x20, true);
+                 s_pPermanentBundle->ReadFileByIndex(i, s_pResourceLoadBuffer, uFileLength);
+-                TextureResourceLoadComplete(NULL, uFileLength, (unsigned long)pTextureResource);
++                TextureResourceLoadComplete(NULL, uFileLength, (BundleAsyncParam)pTextureResource);
+                 delete[] s_pResourceLoadBuffer;
+                 s_pResourceLoadBuffer = 0;
+                 pTextureResource->m_bValid = true;
+@@ -392,7 +389,7 @@
+     return FERR_AlreadyLoaded;
+ }
+ 
+-void FEResourceManager::TextureResourceLoadComplete(void*, unsigned long uReadSize, unsigned long uParam)
++void FEResourceManager::TextureResourceLoadComplete(void*, unsigned long uReadSize, BundleAsyncParam uParam)
+ {
+     FETextureResource* pHandle = (FETextureResource*)uParam;
+     GLResourcePool* resourcePool = s_pResourcePool;
+@@ -433,7 +430,7 @@
+             pResourceLoadBuffer,
+             fileDirectoryEntry.m_length,
+             FEResourceManager::TextureResourceLoadComplete,
+-            (unsigned long)pFeTextureResource);
++            (BundleAsyncParam)pFeTextureResource);
+         if (pAllocator != 0)
+         {
+             PopAllocator();
+@@ -444,17 +441,6 @@
+ 
+ ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    struct ContextServices
+-    {
+-        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
+-        FESceneResource* PermanentContext() { return s_pPermanentBundleSceneResource; }
+-        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
+-        unsigned long MarkResource(FESceneResource*) { return s_pResourcePool->MarkResource(); }
+-    } services;
+-    FrontendIssueResourceContext(services, pFeSceneResource);
+-    return FERR_WaitingForResource;
+-#else
+     if (s_pCurrentFESceneResourceContext != 0
+         && s_pCurrentFESceneResourceContext != pFeSceneResource
+         && s_pPermanentBundleSceneResource != s_pCurrentFESceneResourceContext)
+@@ -467,7 +453,6 @@
+     pFeSceneResource->m_bValid = true;
+     s_pCurrentFESceneResourceContext = pFeSceneResource;
+     return FERR_WaitingForResource;
+-#endif
+ }
+ 
+ ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad pendingResource)
+@@ -495,23 +480,6 @@
+ 
+ void FEResourceManager::Update(float dt)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    struct QueueServices
+-    {
+-        FEResourceManager& manager;
+-        FEResourceHandle*& CurrentResource() { return s_pCurrentResourceBeingLoaded; }
+-        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
+-        bool Empty() const { return pendingResourceQueue.m_Head == 0; }
+-        void RemoveFirst() { pendingResourceQueue.RemoveStart(0); }
+-        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
+-        bool IssueFirstAlreadyLoaded()
+-        {
+-            return manager.IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry)
+-                == FERR_AlreadyLoaded;
+-        }
+-    } services = {*this};
+-    FrontendResourceQueueUpdate(services);
+-#else
+     ResourceResult result;
+     bool bQueueNextResource = true;
+     while (bQueueNextResource)
+@@ -541,7 +509,6 @@
+         result = IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry);
+         bQueueNextResource = result == FERR_AlreadyLoaded;
+     }
+-#endif
+ }
+ 
+ GLResourcePool* FEResourceManager::GetResourcePool()
+diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
+--- a/src/Game/FE/feScene.cpp
++++ b/src/Game/FE/feScene.cpp
+@@ -1,7 +1,4 @@
+ #include "Game/FE/feScene.h"
+-#if defined(MSCHARGED_NATIVE)
+-#include "Game/FE/FrontendResourceSteps.h"
+-#endif
+ 
+ #include "Game/FE/fePackage.h"
+ #include "Game/FE/feSceneManager.h"
+@@ -12,6 +9,9 @@
+ #include "NL/nlRing.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/frontend_package.h"
++#endif
+ 
+ struct FE_FILE_HEADER
+ {
+@@ -65,16 +65,16 @@
+     CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+ }
+ 
+-static inline void RelocatePointer(unsigned long* pPointer, void* pData)
+-{
+-    unsigned long value = *pPointer;
++static inline void RelocatePointer(FEPointerWord* pPointer, void* pData)
++{
++    FEPointerWord value = *pPointer;
+     if (value == 0xFFFFFFFF)
+     {
+         value = 0;
+     }
+     else
+     {
+-        value += (unsigned long)pData;
++        value += (FEPointerWord)pData;
+     }
+     *pPointer = value;
+ }
+@@ -101,11 +101,19 @@
+ 
+ FEScene::~FEScene()
+ {
++#if defined(MSCHARGED_NATIVE)
++    nlFree(m_pFileHeader);
++#else
+     ::operator delete(m_pFileHeader);
++#endif
+ 
+     if (m_pFEPackage != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        nlFree(m_pFEPackage);
++#else
+         ::operator delete[](m_pFEPackage);
++#endif
+         m_pFEPackage = 0;
+         m_uHashID = 0;
+     }
+@@ -121,7 +129,11 @@
+ {
+     FEScene* pFEScene = (FEScene*)pUserData;
+     pFEScene->LoadPackage(pData, uSize);
++#if defined(MSCHARGED_NATIVE)
++    nlFree(pData);
++#else
+     ::operator delete[](pData);
++#endif
+ }
+ 
+ inline void FEScene::LoadPackageResources(FEPackage* pFEPackage)
+@@ -139,12 +151,17 @@
+         pFEPackage->m_pResourceList, &cb, &QueueResourceLoadCallback::Callback);
+ }
+ 
+-void FEScene::LoadPackage(void* pData, unsigned long)
+-{
++void FEScene::LoadPackage(void* pData, unsigned long uSize)
++{
++#if defined(MSCHARGED_NATIVE)
++    auto nativePackage = mscharged::platform::PrepareFrontendPackage(pData, uSize);
++    pData = nativePackage.Data();
++#endif
++
+     unsigned char* pFileData;
+-    unsigned long* pCurrentPointer;
+-    unsigned long* pLastPointer;
+-    unsigned long* pPointer;
++    FEPointerWord* pCurrentPointer;
++    FEPointerWord* pLastPointer;
++    FEPointerWord* pPointer;
+     void* pPackageData;
+ 
+     if (m_pAllocator != 0)
+@@ -158,34 +175,31 @@
+     pFileData = (unsigned char*)pData + sizeof(FE_FILE_HEADER);
+     memcpy(m_pFEPackage, pFileData, m_pFileHeader->DataLength);
+ 
+-    m_pPointerTable = (unsigned long*)nlMalloc(m_pFileHeader->PointerTableLength, 0x20, true);
++    m_pPointerTable = (FEPointerWord*)nlMalloc(m_pFileHeader->PointerTableLength, 0x20, true);
+     memcpy(
+         m_pPointerTable,
+         pFileData + m_pFileHeader->DataLength,
+         m_pFileHeader->PointerTableLength);
+ 
+     pCurrentPointer = m_pPointerTable;
+-    pLastPointer = (unsigned long*)((unsigned char*)pCurrentPointer + (m_pFileHeader->PointerTableLength & ~3));
++    pLastPointer = (FEPointerWord*)((unsigned char*)pCurrentPointer + (m_pFileHeader->PointerTableLength & ~3));
+     pPackageData = m_pFEPackage;
+     for (; pCurrentPointer < pLastPointer; ++pCurrentPointer)
+     {
+-        pPointer = (unsigned long*)((unsigned char*)pPackageData + *pCurrentPointer);
++        pPointer = (FEPointerWord*)((unsigned char*)pPackageData + *pCurrentPointer);
+         RelocatePointer(pPointer, pPackageData);
+     }
+ 
+     nlFree(m_pPointerTable);
+     m_pPointerTable = 0;
+ #if defined(MSCHARGED_NATIVE)
+-    FrontendScenePackageResources(*this,
+-        [this] { LoadPackageResources(m_pFEPackage); },
+-        [this] { FESceneManager::Instance()->InitializeScene(this); });
+-#else
++    nativePackage.StartObjectLifetimes(m_pFEPackage);
++#endif
+     mState = 5;
+ 
+     LoadPackageResources(m_pFEPackage);
+ 
+     FESceneManager::Instance()->InitializeScene(this);
+-#endif
+ 
+     if (m_pAllocator != 0)
+     {
+@@ -216,9 +230,6 @@
+ 
+ void FEScene::AllResourcesLoadedCallback()
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    FrontendSceneResourcesLoadedCallback();
+-#endif
+ }
+ 
+ void FEScene::ReleaseResourceHandles()
+diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
+--- a/src/Game/FE/feSceneManager.cpp
++++ b/src/Game/FE/feSceneManager.cpp
+@@ -1,8 +1,6 @@
+ #include "Game/FE/feSceneManager.h"
+-#include "Game/FE/FrontendStackSteps.h"
+ 
+ #include "Game/FE/feInput.h"
+-#include "Game/FE/FrontendHandlerSteps.h"
+ #include "Game/FE/feRender.h"
+ #include "Game/FE/fePackage.h"
+ #include "Game/FE/feScene.h"
+@@ -38,7 +36,7 @@
+ 
+     while (currentEntry != 0)
+     {
+-        if (!FrontendOriginalSceneReady(currentEntry->entry->mFEScene->mState))
++        if (currentEntry->entry->mFEScene->mState != 6)
+         {
+             return false;
+         }
+@@ -138,7 +136,7 @@
+ 
+         if (pPackagePushPopMessage->m_bPush != false)
+         {
+-            FrontendPushScene(pSceneManager->m_sceneHandlerStack, pPackagePushPopMessage->m_pSceneHandler);
++            pSceneManager->m_sceneHandlerStack.AddStart(pPackagePushPopMessage->m_pSceneHandler);
+ 
+             LoadScene(
+                 pPackagePushPopMessage->m_szFilename,
+@@ -161,7 +159,8 @@
+                 sceneIterator.Step();
+             }
+ 
+-            FrontendUnloadScene(*pPackagePushPopMessage->m_pSceneHandler->mFEScene);
++            pPackagePushPopMessage->m_pSceneHandler->mFEScene->ReleaseResourceHandles();
++            pPackagePushPopMessage->m_pSceneHandler->mFEScene->UnloadPackage();
+ 
+             FEScene* pFEScene = pPackagePushPopMessage->m_pSceneHandler->mFEScene;
+             delete pPackagePushPopMessage->m_pSceneHandler;
+@@ -187,7 +186,7 @@
+     msg->m_pSceneHandler->mHashID = nlStringLowerHash(szFilename);
+     msg->m_pAllocator = pAllocator != 0 ? pAllocator : CurrentAllocator;
+ 
+-    FrontendQueueScene(m_pushPopMessageQueue, msg);
++    m_pushPopMessageQueue.AddEnd(msg);
+ }
+ 
+ void FESceneManager::QueueScenePop()
+@@ -216,7 +215,7 @@
+         sceneIterator.Step();
+     }
+ 
+-    FrontendQueueScene(m_pushPopMessageQueue, msg);
++    m_pushPopMessageQueue.AddEnd(msg);
+ }
+ 
+ void FESceneManager::RenderActiveScenes()
+@@ -228,7 +227,7 @@
+         if (!IsObjectQueuedForPop(m_topMostScene))
+         {
+             FEScene* scene = m_topMostScene->mFEScene;
+-            if (FrontendSceneVisible(FrontendOriginalSceneReady(scene->mState), m_topMostScene->mVisible))
++            if (scene->mState == 6 && m_topMostScene->mVisible)
+             {
+                 FERender::RenderScene(scene);
+             }
+@@ -247,7 +246,7 @@
+             if (!IsObjectQueuedForPop(pSceneHandler))
+             {
+                 FEScene* scene = pSceneHandler->mFEScene;
+-                if (FrontendSceneVisible(FrontendOriginalSceneReady(scene->mState), pSceneHandler->mVisible))
++                if (scene->mState == 6 && pSceneHandler->mVisible)
+                 {
+                     FERender::RenderScene(scene);
+                 }
+@@ -261,7 +260,9 @@
+ void FESceneManager::InitializeScene(FEScene* pFEScene)
+ {
+     BaseSceneHandler* pSceneHandler = GetSceneHandler(pFEScene->m_uHashID);
+-    FrontendInitializeScene(*pSceneHandler, pFEScene->m_pFEPackage->GetPresentation());
++    pSceneHandler->SetPresentation(pFEScene->m_pFEPackage->GetPresentation());
++    pSceneHandler->SceneCreated();
++    pSceneHandler->InitializeSubHandlers();
+ }
+ 
+ void FESceneManager::Update(float dt)
+@@ -283,9 +284,10 @@
+ 
+     while (currentEntry != 0)
+     {
+-        if (FrontendOriginalSceneReady(((FEScene*)currentEntry->entry->mFEScene)->mState))
+-        {
+-            FrontendFocusedHandlerUpdate(g_pFEInput, currentEntry->entry, dt);
++        if (((FEScene*)currentEntry->entry->mFEScene)->mState == 6)
++        {
++            g_pFEInput->EnableInputIfSceneHasFocus(currentEntry->entry);
++            currentEntry->entry->Update(dt);
+         }
+ 
+         if (nlDLRingIsEnd(headEntry, currentEntry) || currentEntry == 0)
+diff --git a/src/Game/FE/tlComponent.cpp b/src/Game/FE/tlComponent.cpp
+--- a/src/Game/FE/tlComponent.cpp
++++ b/src/Game/FE/tlComponent.cpp
+@@ -1,6 +1,4 @@
+ #include "Game/FE/tlComponent.h"
+-#include "Game/FE/FrontendSelectionSteps.h"
+-#include "Game/FE/FrontendMainMenuSteps.h"
+ 
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/tlSlide.h"
+@@ -19,14 +17,16 @@
+ 
+ void TLComponent::SetActiveSlide(unsigned long hash, bool arg2, bool arg3)
+ {
+-    FrontendMainComponentSelect<TLSlide>(*this, hash, arg2, arg3, FindItemByHashID<TLSlide>);
+-}
+-
+-void TLComponent::SetActiveSlide(TLSlide* slide, bool arg2, bool arg3)
+-{
++    TLSlide* slide = FindItemByHashID<TLSlide>(pChildren, hash);
+     if (slide != 0)
+     {
+-        FrontendSelectComponentTime(slide->m_time, arg2, slide != m_pActiveSlide, arg3);
++        if (arg2 || slide != m_pActiveSlide)
++        {
++            if (!arg3)
++            {
++                slide->m_time = 0.0f;
++            }
++        }
+     }
+ 
+     m_pActiveSlide = slide;
+@@ -35,3 +35,23 @@
+         slide->Update(0.0f);
+     }
+ }
++
++void TLComponent::SetActiveSlide(TLSlide* slide, bool arg2, bool arg3)
++{
++    if (slide != 0)
++    {
++        if (arg2 || slide != m_pActiveSlide)
++        {
++            if (!arg3)
++            {
++                slide->m_time = 0.0f;
++            }
++        }
++    }
++
++    m_pActiveSlide = slide;
++    if (slide != 0)
++    {
++        slide->Update(0.0f);
++    }
++}
+diff --git a/src/Game/FE/tlInstance.cpp b/src/Game/FE/tlInstance.cpp
+--- a/src/Game/FE/tlInstance.cpp
++++ b/src/Game/FE/tlInstance.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/tlInstance.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ #include "NL/nlMath.h"
+ #include "NL/nlString.h"
+@@ -134,52 +133,72 @@
+ 
+ void TLInstance::SetAssetPosition(float x, float y, float z)
+ {
+-    FrontendSetAssetPosition(*this, x, y, z);
++    m_overloadFlags |= 0x1;
++    m_overloadedAttributes.v3Position.f.x = x;
++    m_overloadedAttributes.v3Position.f.y = y;
++    m_overloadedAttributes.v3Position.f.z = z;
+ }
+ 
+ void TLInstance::SetAssetRotation(float x, float y, float z)
+ {
+-    FrontendSetAssetRotation(*this, x, y, z);
++    m_overloadFlags |= 0x2;
++    m_overloadedAttributes.v3Rotation.f.x = x;
++    m_overloadedAttributes.v3Rotation.f.y = y;
++    m_overloadedAttributes.v3Rotation.f.z = z;
+ }
+ 
+ void TLInstance::SetAssetScale(float x, float y, float z)
+ {
+-    FrontendSetAssetScale(*this, x, y, z);
++    m_overloadFlags |= 0x4;
++    m_overloadedAttributes.v3Scale.f.x = x;
++    m_overloadedAttributes.v3Scale.f.y = y;
++    m_overloadedAttributes.v3Scale.f.z = z;
+ }
+ 
+ void TLInstance::SetAssetColour(const nlColour& color)
+ {
+-    FrontendSetAssetColour(*this, color);
++    m_overloadFlags |= 0x10;
++    m_overloadedAttributes.colour = color;
+ }
+ 
+ void TLInstance::SetAssetPivot(float x, float y, float z)
+ {
+-    FrontendSetAssetPivot(*this, x, y, z);
++    m_overloadFlags |= 0x8;
++    m_overloadedAttributes.v3Pivot.f.x = x;
++    m_overloadedAttributes.v3Pivot.f.y = y;
++    m_overloadedAttributes.v3Pivot.f.z = z;
+ }
+ 
+ void TLInstance::SetAssetUVX(float value)
+ {
+-    FrontendSetAssetUVX(*this, value);
++    m_overloadFlags |= 0x40;
++    m_overloadedAttributes.fUVX = value;
+ }
+ 
+ void TLInstance::SetAssetUVY(float value)
+ {
+-    FrontendSetAssetUVY(*this, value);
++    m_overloadFlags |= 0x80;
++    m_overloadedAttributes.fUVY = value;
+ }
+ 
+ void TLInstance::SetAssetUVWidth(float value)
+ {
+-    FrontendSetAssetUVWidth(*this, value);
++    m_overloadFlags |= 0x100;
++    m_overloadedAttributes.fUVWidth = value;
+ }
+ 
+ void TLInstance::SetAssetUVHeight(float value)
+ {
+-    FrontendSetAssetUVHeight(*this, value);
++    m_overloadFlags |= 0x200;
++    m_overloadedAttributes.fUVHeight = value;
+ }
+ 
+ void TLInstance::SetAssetVisible(bool visible)
+ {
+-    FrontendSetAssetVisible(*this, visible);
++    nlColour color = m_overloadedAttributes.colour;
++    color.c[3] = visible ? 0xFF : 0;
++    m_overloadFlags |= 0x10;
++    m_overloadedAttributes.colour = color;
+ }
+ 
+ inline void TLInstance::SetName(const char* name)
+diff --git a/src/Game/FE/tlSlide.cpp b/src/Game/FE/tlSlide.cpp
+--- a/src/Game/FE/tlSlide.cpp
++++ b/src/Game/FE/tlSlide.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/tlSlide.h"
+-#include "Game/FE/FrontendAnimationSteps.h"
+ #include "Game/FE/tlComponentInstance.h"
+ #include "Game/FE/tlInstance.inl"
+ 
+@@ -38,7 +37,28 @@
+  */
+ void TLSlide::Update(float time)
+ {
+-    time = FrontendAdvanceSlideTime(m_time, time, GetStartTime(), GetDuration(), m_uPlayMode, field_0x44);
++    if (field_0x44)
++    {
++        time = 0.0f;
++    }
++
++    m_time += time;
++    float end = GetStartTime() + GetDuration();
++    if (m_time > end)
++    {
++        switch (m_uPlayMode)
++        {
++        case TLPM_LOOPING:
++            m_time = m_time - end;
++            break;
++        case TLPM_STOP_AT_END:
++            m_time = end;
++            break;
++        case 2:
++        default:
++            break;
++        }
++    }
+ 
+     FEAnimation* anim = nlDLRingGetStart<FEAnimation>(m_animations);
+     for (;;)
+diff --git a/src/Game/FE/tlTextInstance.cpp b/src/Game/FE/tlTextInstance.cpp
+--- a/src/Game/FE/tlTextInstance.cpp
++++ b/src/Game/FE/tlTextInstance.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/tlTextInstance.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
+@@ -11,5 +10,5 @@
+         id += 4;
+     }
+     m_LocStrId = nlStringLowerHash(id);
+-    FrontendSetStringIdFlags(m_OverloadFlags);
++    m_OverloadFlags |= 0x8u;
+ }
+diff --git a/src/Game/FE/tlTextInstance_runtime.cpp b/src/Game/FE/tlTextInstance_runtime.cpp
+--- a/src/Game/FE/tlTextInstance_runtime.cpp
++++ b/src/Game/FE/tlTextInstance_runtime.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/tlTextInstance.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+ 
+ #include "Game/FE/feText.h"
+ #include "NL/nlAlgorithm.h"
+@@ -167,7 +166,7 @@
+ {
+     m_wcUserString = utf16;
+     m_pFontString = 0;
+-    FrontendSetUserStringFlags(m_OverloadFlags);
++    m_OverloadFlags &= 0xFFFFFFF7;
+ }
+ 
+ void TLTextInstance::SetScissorBox(u16 left, u16 top, u16 width, u16 height)
+diff --git a/src/NL/utility.cpp b/src/NL/utility.cpp
+--- a/src/NL/utility.cpp
++++ b/src/NL/utility.cpp
+@@ -122,7 +122,6 @@
+     return t;
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
+ float nlBezier(float* fControlPoints, int nNumPoints, float fMu)
+ {
+     int nFactorial;
+@@ -173,4 +172,3 @@
+ 
+     return result;
+ }
+-#endif

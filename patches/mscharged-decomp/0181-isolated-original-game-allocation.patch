@@ -1,0 +1,72 @@
+Subject: Restore ordinary game allocation in an isolated original source module
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Enable original ordinary new/delete only in the explicit original game module.
+Host/SDK libraries retain their own operators. Preserve the source lazy memory
+initialization and CurrentAllocator selection; transport the native compiler
+size_t entry and required max_align_t ordinary alignment. Explicit nlMalloc
+and original alignment/from-end requests retain their literal source values.
+The module compile profile preserves allocator scopes against modern allocation
+optimizations and never imports diagnostic game managers/algorithm profiles.
+Console source/operator bodies remain unchanged. Compilation is not a full
+original game link, static lifetime or startup qualification.
+
+diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
+--- a/src/NL/nlMemory.cpp
++++ b/src/NL/nlMemory.cpp
+@@ -1,5 +1,8 @@
+ #include "NL/nlMemory.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/MemAlloc.h"
+ #ifdef MSCHARGED_NATIVE
+ #include "platform/game_allocation_ownership.h"
+@@ -42,11 +45,11 @@
+     }
+     return CurrentAllocator->Allocate(size, alignment, fromEnd);
+ }
+ 
+-// Host libraries keep standard global new/delete. Game-specific allocation
+-// remains explicit through nlMalloc and the alignment/from-end overloads.
+-#ifndef MSCHARGED_NATIVE
++// Host libraries keep standard global new/delete. Only the isolated original
++// game module restores the source operators and CurrentAllocator requests.
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ void operator delete(void* ptr)
+ {
+     FreeMemory(ptr);
+ }
+@@ -55,17 +58,31 @@
+ {
+     FreeMemory(ptr);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void* operator new(std::size_t size)
++{
++    return AllocateMemory(size, alignof(std::max_align_t), false);
++}
++#else
+ void* operator new(unsigned long size)
+ {
+     return AllocateMemory(size, 8, false);
+ }
++#endif
+ 
++#if defined(MSCHARGED_NATIVE)
++void* operator new[](std::size_t size)
++{
++    return AllocateMemory(size, alignof(std::max_align_t), false);
++}
++#else
+ void* operator new[](unsigned long size)
+ {
+     return AllocateMemory(size, 8, false);
+ }
++#endif
+ 
+ #endif
+ 
+ void* nlMalloc(unsigned long size)

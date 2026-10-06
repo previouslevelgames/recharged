@@ -12,8 +12,9 @@ add_dependencies(charged_original_graphics verify_prepared)
 target_include_directories(charged_original_graphics PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${MSCHARGED_PREPARED}/include"
-    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-target_compile_definitions(charged_original_graphics PRIVATE MSCHARGED_NATIVE=1)
+    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include"
+    "${MSCHARGED_AURORA_PREPARED}/include")
+target_compile_definitions(charged_original_graphics PRIVATE MSCHARGED_NATIVE=1 TARGET_PC=1)
 target_compile_features(charged_original_graphics PRIVATE cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_original_graphics PRIVATE
@@ -32,8 +33,9 @@ add_dependencies(charged_original_polygons verify_prepared)
 target_include_directories(charged_original_polygons PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${MSCHARGED_PREPARED}/include"
-    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-target_compile_definitions(charged_original_polygons PRIVATE MSCHARGED_NATIVE=1)
+    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include"
+    "${MSCHARGED_AURORA_PREPARED}/include")
+target_compile_definitions(charged_original_polygons PRIVATE MSCHARGED_NATIVE=1 TARGET_PC=1)
 target_compile_features(charged_original_polygons PRIVATE cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_original_polygons PRIVATE

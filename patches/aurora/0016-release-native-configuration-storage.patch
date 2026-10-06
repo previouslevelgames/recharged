@@ -1,0 +1,90 @@
+Subject: Own configuration strings and release them after host shutdown
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Retain session copies of explicit/default path text with matched SDL ownership.
+SDL_GetPrefPath returns an owned allocation; SDL_GetBasePath is borrowed and
+expires on SDL_Quit. Release configuration storage only after actual host
+consumers stop, including GPU workers, controllers, window and OS memory.
+AuroraInfo path pointers remain valid until shutdown. No game code changes.
+
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include <SDL3/SDL_filesystem.h>
+ #include <magic_enum.hpp>
++#include <memory>
+ #include <mutex>
+ 
+ #include "system_info.hpp"
+@@ -41,6 +42,20 @@
+ 
+ namespace {
+ constexpr Module Log{"aurora"};
++
++// Own configuration text for the complete host session. SDL_GetPrefPath
++// transfers storage; SDL_GetBasePath is borrowed from SDL until SDL_Quit.
++struct ConfigStringDeleter {
++  void operator()(char* value) const noexcept { SDL_free(value); }
++};
++using ConfigString = std::unique_ptr<char, ConfigStringDeleter>;
++struct ConfigStrings {
++  ConfigString appName;
++  ConfigString userPath;
++  ConfigString cachePath;
++  ConfigString resourcesPath;
++};
++ConfigStrings g_configStrings;
+ 
+ #ifdef AURORA_ENABLE_GX
+ // GPU
+@@ -119,26 +134,17 @@
+ #endif
+   Log.info("Aurora initializing");
+   log_system_information();
+-  if (g_config.appName == nullptr) {
+-    g_config.appName = "Aurora";
+-  } else {
+-    g_config.appName = strdup(g_config.appName);
+-  }
+-  if (g_config.userPath == nullptr) {
+-    g_config.userPath = SDL_GetPrefPath(nullptr, g_config.appName);
+-  } else {
+-    g_config.userPath = strdup(g_config.userPath);
+-  }
+-  if (g_config.cachePath == nullptr) {
+-    g_config.cachePath = SDL_GetPrefPath(nullptr, g_config.appName);
+-  } else {
+-    g_config.cachePath = strdup(g_config.cachePath);
+-  }
+-  if (g_config.resourcesPath == nullptr) {
+-    g_config.resourcesPath = SDL_GetBasePath();
+-  } else {
+-    g_config.resourcesPath = strdup(g_config.resourcesPath);
+-  }
++  g_configStrings.appName.reset(SDL_strdup(g_config.appName == nullptr ? "Aurora" : g_config.appName));
++  g_config.appName = g_configStrings.appName.get();
++  g_configStrings.userPath.reset(g_config.userPath == nullptr ? SDL_GetPrefPath(nullptr, g_config.appName)
++                                                             : SDL_strdup(g_config.userPath));
++  g_config.userPath = g_configStrings.userPath.get();
++  g_configStrings.cachePath.reset(g_config.cachePath == nullptr ? SDL_GetPrefPath(nullptr, g_config.appName)
++                                                               : SDL_strdup(g_config.cachePath));
++  g_config.cachePath = g_configStrings.cachePath.get();
++  const char* resourcesPath = g_config.resourcesPath == nullptr ? SDL_GetBasePath() : g_config.resourcesPath;
++  g_configStrings.resourcesPath.reset(resourcesPath == nullptr ? nullptr : SDL_strdup(resourcesPath));
++  g_config.resourcesPath = g_configStrings.resourcesPath.get();
+   if (g_config.msaa == 0) {
+     g_config.msaa = 1;
+   }
+@@ -240,6 +246,10 @@
+   gamepad::shutdown();
+   window::shutdown();
+   AuroraOSShutdown();
++  // All path consumers have stopped. The returned AuroraInfo paths also
++  // expire here; never retain borrowed SDL storage or allocations on restart.
++  g_config.appName = g_config.userPath = g_config.cachePath = g_config.resourcesPath = nullptr;
++  g_configStrings = {};
+ }
+ 
+ const AuroraEvent* update() noexcept {

@@ -1,0 +1,85 @@
+Subject: Record native allocation ownership beneath the original free-list allocator
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Retain the original allocation/free ring, payload and ordering decisions. Host
+ownership records distinguish overlapping parent/custom heaps and retain the
+actual allocator after its source stack entry is popped. Reserve host metadata
+before original ring mutation; record successful start/end allocations, validate
+exact native frees and retire metadata after genuine free/reset/backing release.
+No game managers, source readiness, ordinary global operators or shutdown flow
+are replaced. Native metadata locks do not qualify concurrent mutation of the
+original allocator or CurrentAllocator/AllocatorStack.
+
+diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
+--- a/src/NL/MemAlloc.cpp
++++ b/src/NL/MemAlloc.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/MemAlloc.h"
++#ifdef MSCHARGED_NATIVE
++#include "platform/game_allocation_ownership.h"
++#endif
+ #include "NL/nlMath.h"
+ #include "NL/nlDebug.h"
+ #include "NL/nlDebugFile.h"
+@@ -180,6 +183,7 @@
+     if (alignment < kBlockAlignment) alignment = kBlockAlignment;
+     if (size < sizeof(FreeBlockList)) size = sizeof(FreeBlockList);
+     if (m_free_block_list == 0) throw std::bad_alloc();
++    mscharged::platform::GameAllocationReservation ownership(*this, size);
+ #endif
+     FreeBlockList* start = nlDLRingGetStart(m_free_block_list);
+     FreeBlockList* cur = start;
+@@ -266,6 +270,9 @@
+
+     void* result = InitializeAllocation(cur, size, prefix, cur->m_size - usedSize);
+     m_allocation_count++;
++#ifdef MSCHARGED_NATIVE
++    ownership.Commit(result);
++#endif
+     return result;
+ }
+
+@@ -293,6 +300,7 @@
+     if (alignment < kBlockAlignment) alignment = kBlockAlignment;
+     if (size < sizeof(FreeBlockList)) size = sizeof(FreeBlockList);
+     if (m_free_block_list == 0) throw std::bad_alloc();
++    mscharged::platform::GameAllocationReservation ownership(*this, size);
+ #endif
+     FreeBlockList* end = nlDLRingGetEnd(m_free_block_list);
+     u32 alignedSize = (size + kBlockAlignment - 1) & ~(kBlockAlignment - 1);
+@@ -326,6 +334,9 @@
+
+     void* result = AllocateFromBlockEnd(&m_free_block_list, cur, size, offset, requestSize);
+     m_allocation_count++;
++#ifdef MSCHARGED_NATIVE
++    ownership.Commit(result);
++#endif
+     return result;
+ }
+
+@@ -337,6 +348,7 @@
+     }
+
+ #ifdef MSCHARGED_NATIVE
++    mscharged::platform::ValidateGameAllocationFree(*this, p);
+     const uintptr_t address = (uintptr_t)p;
+     const uintptr_t base = (uintptr_t)m_memory;
+     const uintptr_t limit = base + m_memory_size;
+@@ -393,6 +405,9 @@
+         size += offset;
+     }
+     AddBlock(block, size);
++#ifdef MSCHARGED_NATIVE
++    mscharged::platform::FinishGameAllocationFree(p);
++#endif
+ }
+
+ void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool fromEnd)
+@@ -422,6 +437,7 @@
+         || size < sizeof(FreeBlockList) || (size & (kBlockAlignment - 1)) != 0
+         || size > 0x3FFFFFFFu)
+         throw std::invalid_argument("Invalid native game allocator arena");
++    mscharged::platform::DiscardGameAllocatorRecords(*this);
+ #endif
+     m_free_block_list = 0;
+     AddBlock(memory, size);

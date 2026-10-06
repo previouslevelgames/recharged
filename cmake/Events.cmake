@@ -5,6 +5,8 @@ add_library(charged_events STATIC
     "${MSCHARGED_PREPARED}/src/Game/Task/DispatchEventsTask.cpp"
     src/runtime/events.cpp src/runtime/event_queue.cpp src/runtime/event_task.cpp)
 add_dependencies(charged_events verify_prepared)
+# Original event replicas belong only to the retained diagnostic executable graph.
+target_compile_definitions(charged_events PUBLIC MSCHARGED_DIAGNOSTIC_EVENTS=1)
 target_include_directories(charged_events PUBLIC src
     "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
 target_link_libraries(charged_events PUBLIC charged_tasks)

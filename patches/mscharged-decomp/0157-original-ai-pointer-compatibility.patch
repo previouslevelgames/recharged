@@ -1,0 +1,55 @@
+Subject: Preserve original AI clients with canonical native DMA addresses
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep whole original THPSimple initialization, callbacks, mixing, requests and
+state unchanged. Native RVL AI declarations forward to the canonical SDK
+interface, whose DMA source carries the complete host pointer. Replace only
+the two PPC physical-to-cached expressions below original callback chaining.
+Native AI/DMA/device and shared critical-section providers live beneath these
+interfaces. MovieInit(1) still requires its genuine original AX predecessor;
+no initialized-state, previous-callback or hardware readiness substitute.
+
+diff --git a/libs/RVL_SDK/include/revolution/ai.h b/libs/RVL_SDK/include/revolution/ai.h
+--- a/libs/RVL_SDK/include/revolution/ai.h
++++ b/libs/RVL_SDK/include/revolution/ai.h
+@@ -1,5 +1,9 @@
+ #ifndef REVOLUTION_AI_H
+ #define REVOLUTION_AI_H
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ai_compat.h"
++#else
+ 
+ #include <revolution/types.h>
+ 
+@@ -50,4 +54,6 @@
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif  // REVOLUTION_AI_H
+diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
+--- a/src/RVL_SDK/thp/THPSimple.cpp
++++ b/src/RVL_SDK/thp/THPSimple.cpp
+@@ -943,12 +943,20 @@
+             if (LastAudioBuffer != NULL)
+                 CurAudioBuffer = LastAudioBuffer;
+             OldAIDCallback();
++#ifdef MSCHARGED_NATIVE
++            LastAudioBuffer = (s16*)AIGetDMAStartAddr();
++#else
+             LastAudioBuffer = (s16*)(AIGetDMAStartAddr() + 0x80000000);
++#endif
+         }
+         else
+         {
+             OldAIDCallback();
++#ifdef MSCHARGED_NATIVE
++            CurAudioBuffer = (s16*)AIGetDMAStartAddr();
++#else
+             CurAudioBuffer = (s16*)(AIGetDMAStartAddr() + 0x80000000);
++#endif
+         }
+ 
+         SoundBufferIndex ^= 1;

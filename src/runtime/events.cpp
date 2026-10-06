@@ -27,12 +27,12 @@ std::string VerifyStartupEvents()
             });
             event.Add(callback, reinterpret_cast<EventOwnerHandle>(&owner), 1);
             if (callback || !owner.mConnection)
-                throw std::runtime_error("Original event callback transfer failed");
+                throw std::runtime_error("Diagnostic event callback transfer failed");
             int value = 7;
             event.Deliver(&value);
             event.Deliver(&value);
             if (received != value || owner.mConnection)
-                throw std::runtime_error("Original event delivery/disconnection failed");
+                throw std::runtime_error("Diagnostic event delivery/disconnection failed");
         }
         PopEventConnectionState();
         statePushed = false;
@@ -46,7 +46,7 @@ std::string VerifyStartupEvents()
         throw;
     }
     if (StandardAllocator.TotalFreeMemory() != standard || VirtualAllocator.TotalFreeMemory() != external)
-        throw std::runtime_error("Original events did not recover their game allocations");
-    return "Original event registry, callback transfer, delivery, self-disconnect and state cleanup verified; both arenas recovered.";
+        throw std::runtime_error("Diagnostic events did not recover their game allocations");
+    return "Diagnostic event registry, callback transfer, delivery, self-disconnect and state cleanup verified; both arenas recovered.";
 }
 }

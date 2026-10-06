@@ -1,6 +1,7 @@
 #include "runtime/startup.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
+#include "platform/game_allocation_ownership.h"
 #include <dolphin/os.h>
 
 namespace mscharged
@@ -11,6 +12,8 @@ void ResetStartupMemory()
 {
     // The prototype owns no surviving game objects; clear pointers before Aurora
     // frees their arenas. Full game shutdown must destroy those objects first.
+    platform::DiscardGameAllocatorRecords(StandardAllocator);
+    platform::DiscardGameAllocatorRecords(VirtualAllocator);
     StandardAllocator = {};
     VirtualAllocator = {};
     CurrentAllocator = &StandardAllocator;

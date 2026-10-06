@@ -1,0 +1,97 @@
+Subject: Supply opt-in Wii hardware clock units and continuous OS time
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Wii source reads a243MHz bus,729MHz core and bus/4 hardware time base.
+Keep all SDK producers/conversion callers consistent when explicitly opted in.
+OS hardware time follows the native monotonic clock through presentation pause
+and timescale changes; original game timing/clock decisions remain unchanged.
+Aurora default clock policy remains unchanged. No emulated CPU or game loop.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,6 +13,10 @@
+ option(AURORA_ENABLE_THP "Enable THP decoder" ON)
+ option(AURORA_ENABLE_RMLUI "Enable HTML/CSS Based UI Library for use in end-user UI development." OFF)
+ option(AURORA_CACHE_USE_ZSTD "Compress WebGPU cache entries with zstd" ON)
++option(AURORA_WII_CLOCK "Use Wii hardware clock units and an unpaused OS time base" OFF)
++if(AURORA_WII_CLOCK)
++    add_compile_definitions(AURORA_WII_CLOCK=1)
++endif()
+ 
+ include(CMakeDependentOption)
+ cmake_dependent_option(AURORA_ENABLE_EXAMPLES "Enable examples" ON "CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR" OFF)
+diff --git a/cmake/aurora_os.cmake b/cmake/aurora_os.cmake
+--- a/cmake/aurora_os.cmake
++++ b/cmake/aurora_os.cmake
+@@ -14,3 +14,8 @@
+ 
+ target_include_directories(aurora_os PUBLIC include)
+ target_link_libraries(aurora_os PRIVATE aurora::core)
++if(AURORA_WII_CLOCK)
++    # Keep SDK producers and native callers in the same hardware tick units.
++    target_compile_definitions(aurora_os PUBLIC AURORA_WII_CLOCK=1)
++    target_compile_definitions(aurora_core PUBLIC AURORA_WII_CLOCK=1)
++endif()
+diff --git a/include/dolphin/os.h b/include/dolphin/os.h
+--- a/include/dolphin/os.h
++++ b/include/dolphin/os.h
+@@ -97,8 +97,13 @@
+ #endif
+ 
+ #define OS_TIMER_CLOCK_DIVIDER 4
++#if defined(AURORA_WII_CLOCK) && AURORA_WII_CLOCK
++#define OS_BUS_CLOCK   243000000
++#define OS_CORE_CLOCK  729000000
++#else
+ #define OS_BUS_CLOCK   162000000
+ #define OS_CORE_CLOCK  162000000
++#endif
+ #define OS_TIMER_CLOCK (OS_BUS_CLOCK/OS_TIMER_CLOCK_DIVIDER)
+ 
+ #define OSTicksToSeconds(ticks)      ((ticks)   / (OS_TIMER_CLOCK))
+diff --git a/lib/dolphin/os/OSTime.cpp b/lib/dolphin/os/OSTime.cpp
+--- a/lib/dolphin/os/OSTime.cpp
++++ b/lib/dolphin/os/OSTime.cpp
+@@ -12,6 +12,13 @@
+ using SystemDuration = chrono::system_clock::duration;
+ using SystemTime = chrono::time_point<chrono::system_clock>;
+ using LocalTime = chrono::local_time<SystemDuration>;
++
++#if defined(AURORA_WII_CLOCK) && AURORA_WII_CLOCK
++// Hardware time keeps advancing while presentation/game time is paused.
++using OSTimeClock = aurora::time::native_clock;
++#else
++using OSTimeClock = aurora::time::game_clock;
++#endif
+ 
+ namespace {
+ // GCN epoch: 2000-01-01 00:00:00 UTC = 946684800 seconds after Unix epoch
+@@ -86,7 +93,7 @@
+ }
+ 
+ void initialize_game_epoch() {
+-  s_gameEpochOffset = OSGetSystemTime() - duration_to_ticks(aurora::time::game_clock::now().time_since_epoch());
++  s_gameEpochOffset = OSGetSystemTime() - duration_to_ticks(OSTimeClock::now().time_since_epoch());
+ }
+ } // namespace
+ 
+@@ -94,7 +101,7 @@
+ 
+ OSTime OSGetTime() {
+   std::call_once(s_gameEpochOnce, initialize_game_epoch);
+-  return s_gameEpochOffset + duration_to_ticks(aurora::time::game_clock::now().time_since_epoch());
++  return s_gameEpochOffset + duration_to_ticks(OSTimeClock::now().time_since_epoch());
+ }
+ 
+ OSTime OSGetNativeTime() { return duration_to_ticks(aurora::time::native_clock::now().time_since_epoch()); }
+@@ -106,6 +113,9 @@
+   }
+ 
+   __OSBusClock = OS_TIMER_CLOCK * OS_TIMER_CLOCK_DIVIDER;
++#if defined(AURORA_WII_CLOCK) && AURORA_WII_CLOCK
++  __OSCoreClock = OS_CORE_CLOCK;
++#endif
+ }
+ 
+ void OSTicksToCalendarTime(OSTime ticks, OSCalendarTime* td) {

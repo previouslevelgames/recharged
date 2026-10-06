@@ -337,7 +337,7 @@ int main()
         }
         gMemoryInitialized=0; CurrentAllocator=nullptr; StandardAllocator={};VirtualAllocator={};
         std::cout << "Queued events: batching, exact disposal, both destruction orders, failure/cancel/reentrancy,\n"
-                     "4096 callback capacity, dispatch budget, original task/reset and three complete teardowns passed\n";
+                     "4096 callback capacity, dispatch budget, diagnostic task/reset and three complete teardowns passed\n";
         return 0;
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

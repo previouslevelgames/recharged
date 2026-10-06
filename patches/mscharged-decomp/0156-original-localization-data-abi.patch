@@ -1,0 +1,107 @@
+Subject: Preserve original localization with native Wii32 and UTF16 storage
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Keep original Load language/filename/allocator requests, callback validation,
+lookup/fallback and backing lifetime. Use fixed Wii20/8-byte scalar geometry
+and an explicit in-place platform endian boundary; no alternate localization
+manager or game readiness. Native callback matches the actual LoadAsyncCallback
+API. Preserve the original retained-file and empty-search quirks. The console
+branch remains original.
+
+diff --git a/include/NL/nlLocalization.h b/include/NL/nlLocalization.h
+--- a/include/NL/nlLocalization.h
++++ b/include/NL/nlLocalization.h
+@@ -3,13 +3,19 @@
+ 
+ #include "types.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++typedef u32 LocalizationSerializedWord;
++#else
++typedef unsigned long LocalizationSerializedWord;
++#endif
++
+ struct LOCHeader
+ {
+     char Thumbprint[4];
+-    unsigned long Version;
+-    unsigned long Language;
+-    unsigned long StringCount;
+-    unsigned long Flags;
++    LocalizationSerializedWord Version;
++    LocalizationSerializedWord Language;
++    LocalizationSerializedWord StringCount;
++    LocalizationSerializedWord Flags;
+ };
+ 
+ class nlLocalization
+@@ -17,8 +23,8 @@
+ public:
+     struct StringLookup
+     {
+-        unsigned long hash;
+-        unsigned long StringOffset;
++        LocalizationSerializedWord hash;
++        LocalizationSerializedWord StringOffset;
+ 
+         operator unsigned long() const { return hash; }
+         bool operator==(const unsigned long& key) const { return hash == key; }
+diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
+--- a/src/NL/nlLocalization.cpp
++++ b/src/NL/nlLocalization.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlLocalization.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/localization_data.h"
++#endif
+ 
+ #include <string.h>
+ 
+@@ -6,8 +9,17 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlPrint.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++extern const unsigned short LocalizationTableNotFound[] = {
++    'L', 'o', 'c', 'a', 'l', 'i', 'z', 'a', 't', 'i', 'o', 'n', ' ', 'T', 'a', 'b', 'l', 'e', ' ', 'N', 'o', 't', ' ', 'F', 'o', 'u', 'n', 'd', 0
++};
++extern const unsigned short MissingLocString[] = {
++    'm', 'i', 's', 's', 'i', 'n', 'g', ' ', 'l', 'o', 'c', ' ', 's', 't', 'r', 'i', 'n', 'g', 0
++};
++#else
+ extern const unsigned short LocalizationTableNotFound[] = L"Localization Table Not Found";
+ extern const unsigned short MissingLocString[] = L"missing loc string";
++#endif
+ 
+ const unsigned long nlLocalization::LanguageId[] = {
+     0x7A947B29,
+@@ -47,8 +59,18 @@
+ // in read-only small data rather than the predecessor's char[4] initialiser.
+ 
+ 
+-static void OnTableLoaded(LOCHeader* pFile, unsigned long, nlLocalization* pLocalization)
++#if defined(MSCHARGED_NATIVE)
++static void OnTableLoaded(void* buffer, unsigned long uReadSize, void* context)
+ {
++    LOCHeader* pFile = (LOCHeader*)buffer;
++    nlLocalization* pLocalization = (nlLocalization*)context;
++#else
++static void OnTableLoaded(LOCHeader* pFile, unsigned long uReadSize, nlLocalization* pLocalization)
++{
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::PrepareWiiLocalizationHeader(pFile, uReadSize);
++#endif
+     pLocalization->m_pFile = pFile;
+ 
+     if (memcmp(pFile, nlLocalization::Thumbprint, 4) != 0 || pFile->Version != 1
+@@ -61,6 +83,9 @@
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    mscharged::PrepareWiiLocalizationTable(pFile, uReadSize, pFile->StringCount);
++#endif
+     pLocalization->m_LookupTable = (nlLocalization::StringLookup*)(pFile + 1);
+     pLocalization->m_FirstString =
+         (unsigned short*)(&pLocalization->m_LookupTable[pLocalization->m_pFile->StringCount]);

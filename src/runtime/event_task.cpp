@@ -48,13 +48,13 @@ std::string VerifyStartupQueuedEvents()
             queue(7);
             gDispatchEventsTask->Run(0.02f);
             queue(100);
-            fn_80115FB4(); // Original unload/reset: dispose without delivering.
+            fn_80115FB4(); // Diagnostic unload/reset: dispose without delivering.
             queue(3);
             gDispatchEventsTask->Run(0.02f);
             queue(100); // Event destruction cancels this payload immediately.
         }
         if (received != 10 || disposed != 4)
-            throw std::runtime_error("Original queued delivery/reset/disposal failed");
+            throw std::runtime_error("Diagnostic queued delivery/reset/disposal failed");
         ShutdownNativeDispatchTask();
         ShutdownNativeEventRegistry();
     }
@@ -69,6 +69,6 @@ std::string VerifyStartupQueuedEvents()
     }
     if (StandardAllocator.TotalFreeMemory() != standard || VirtualAllocator.TotalFreeMemory() != external)
         throw std::runtime_error("Queued event teardown did not recover game allocations");
-    return "Original DispatchEventsTask delivery, reset and queued payload cleanup verified; both arenas recovered.";
+    return "Diagnostic DispatchEventsTask delivery, reset and queued payload cleanup verified; both arenas recovered.";
 }
 }

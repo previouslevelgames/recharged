@@ -1,0 +1,19 @@
+Subject: Build the original placeholder provider with native compilers
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+The Matching original NL/nlBind.cpp owns the actual placeholder0 definition.
+Retain its declaration and initializer. The native compiler does not support
+MWCC's small-data section attribute; keep that attribute for the Wii build.
+No binding, callback, pool or game control flow changes.
+
+diff --git a/src/NL/nlBind.cpp b/src/NL/nlBind.cpp
+--- a/src/NL/nlBind.cpp
++++ b/src/NL/nlBind.cpp
+@@ -1,3 +1,6 @@
+ #include "NL/nlBind.h"
+ 
+-__declspec(section ".sdata2") Placeholder<0> placeholder0 = { };
++#ifndef MSCHARGED_NATIVE
++__declspec(section ".sdata2")
++#endif
++Placeholder<0> placeholder0 = { };

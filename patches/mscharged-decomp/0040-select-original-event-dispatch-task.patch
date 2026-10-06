@@ -41,19 +41,6 @@ index 20fe287..38eea4f 100644
  }
  
  void DispatchEventsTask::Run(float)
-diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
-index 92747cc..a396957 100644
---- a/src/Game/Team.cpp
-+++ b/src/Game/Team.cpp
-@@ -1764,6 +1764,8 @@ void cTeam::fn_800A8DE8(RunningChecksum* runningChecksum)
-     }
- }
- 
-+#ifndef MSCHARGED_NATIVE
- void nlTask::StateTransition(unsigned int, unsigned int)
- {
- }
-+#endif
 diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
 new file mode 100644
 index 0000000..09263a2

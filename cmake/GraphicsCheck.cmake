@@ -12,10 +12,19 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_prepare_sqlite.py")
 endif()
 if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
+    add_executable(gx_completion_tests tests/gx_completion.cpp)
+    target_include_directories(gx_completion_tests PRIVATE src "${MSCHARGED_AURORA_PREPARED}")
+    target_compile_features(gx_completion_tests PRIVATE cxx_std_20)
+    target_link_libraries(gx_completion_tests PRIVATE aurora::gx aurora::mtx
+        aurora::os aurora::vi aurora::core charged_native_interrupts)
+    add_test(NAME gx_completion COMMAND gx_completion_tests)
+    add_test(NAME gx_completion_device_loss COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gx_completion_device_loss.py"
+        "$<TARGET_FILE:gx_completion_tests>")
     add_test(NAME gx_vulkan COMMAND mscharged-gx-check --frames 180 --resize-test)
     add_test(NAME gx_vulkan_optimized COMMAND mscharged-gx-check --frames 180 --optimized-device)
     # Require the installed layer even if Dawn would otherwise skip an absent one.
-    set_tests_properties(gx_vulkan gx_vulkan_optimized PROPERTIES TIMEOUT 45 LABELS "gpu;vulkan"
+    set_tests_properties(gx_vulkan gx_vulkan_optimized gx_completion gx_completion_device_loss PROPERTIES TIMEOUT 45 LABELS "gpu;vulkan"
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
         RESOURCE_LOCK gx_check
         FAIL_REGULAR_EXPRESSION "VUID-|Error:|Validation Error|GX check failed")

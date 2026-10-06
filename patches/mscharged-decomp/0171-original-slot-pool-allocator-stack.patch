@@ -1,0 +1,53 @@
+Subject: Restore original SlotPool allocator-stack callbacks
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+Restore the exact original default allocator/free callback bodies for native
+source too. The callbacks select MEM2, push/pop the actual source stack and
+restore selection from that stack. Native owning-allocation transport stays
+beneath nlMalloc/nlFree; a host scoped selection must not replace game state.
+Retain other inherited slot-width/validation hunks for separate review.
+
+--- a/src/NL/nlSlotPool.cpp
++++ b/src/NL/nlSlotPool.cpp
+@@ -5,7 +5,6 @@
+ #include "NL/nlList.h"
+ #include "NL/nlMemory.h"
+ #if defined(MSCHARGED_NATIVE)
+-#include "runtime/graphics_memory.h"
+ #include <limits>
+ #include <stdexcept>
+ #endif
+@@ -14,10 +13,6 @@
+ 
+ static void* DefaultSlotPoolAllocator(unsigned long size)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    mscharged::ScopedGameAllocator arena(VirtualAllocator);
+-    return nlMalloc(size, 8, false);
+-#else
+     CurrentAllocator = &VirtualAllocator;
+     AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
+ 
+@@ -27,14 +22,10 @@
+     AllocatorStack[AllocatorStackDepth] = 0;
+     CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+     return result;
+-#endif
+ }
+ 
+ static void DefaultSlotPoolFree(void* data)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    nlFree(data); // Native game frees are routed by arena ownership.
+-#else
+     CurrentAllocator = &VirtualAllocator;
+     AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
+ 
+@@ -43,7 +34,6 @@
+     --AllocatorStackDepth;
+     AllocatorStack[AllocatorStackDepth] = 0;
+     CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+-#endif
+ }
+ 
+ SlotPoolBase::SlotPoolBase()

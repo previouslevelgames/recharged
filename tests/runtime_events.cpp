@@ -269,8 +269,20 @@ void AllocationFailures()
     Function<int*> second(Increment);
     const auto free = VirtualAllocator.LargestFreeBlock();
     auto* block = VirtualAllocator.Allocate(free - alignof(FreeBlockList), 8, false);
+    const auto stack_depth = AllocatorStackDepth;
+    auto* selected = CurrentAllocator;
     Reject<std::bad_alloc>([&] { dynamic.Add(second, Handle(owner), 21); });
     Require(second && !owner.mConnection, "Failed listener pool allocation consumed callback");
+    // Original SlotPool callbacks perform literal push/call/pop operations.
+    // The native diagnostic allocation exception interrupts the call before
+    // its pop; retail reports/breaks instead of this resumable exception. Only
+    // this fixture restores the interrupted selection to continue its checks.
+    Require(AllocatorStackDepth == stack_depth + 1 && CurrentAllocator == &VirtualAllocator
+                && AllocatorStack[stack_depth] == &VirtualAllocator,
+            "Interrupted original SlotPool allocation did not retain its actual stack frame");
+    AllocatorStack[stack_depth] = nullptr;
+    AllocatorStackDepth = stack_depth;
+    CurrentAllocator = selected;
     VirtualAllocator.Free(block);
     dynamic.Add(second, Handle(owner), 21);
     dynamic.RemoveAll();
@@ -328,7 +340,7 @@ int main()
         }
         gMemoryInitialized = 0;
         StandardAllocator = {}; VirtualAllocator = {}; CurrentAllocator = nullptr;
-        std::cout << "Native events: owners above 4 GiB, immediate/static/no-data/three-argument delivery, mutation,\n"
+        std::cout << "Diagnostic events: owners above 4 GiB, immediate/static/no-data/three-argument delivery, mutation,\n"
                      "exceptions, allocation failures, nested states and 4096 grouped listeners passed; three clean teardowns\n";
         return 0;
     }

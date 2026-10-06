@@ -1,0 +1,392 @@
+Subject: Select canonical SDK declarations for original GX material providers
+Upstream-base: 443164c91fded218656a8443432e642fdad57838
+
+The ten paired programs retain every original method, initialization request,
+loop, material state/scroller branch and array operand. Select canonical native
+GX/MTX declarations without changing the console source. Use native matrix
+handle types for two pointer-valued caches, preserving their original -1
+sentinel assignments, comparisons and updates. Guard four previously adapted
+local declarations so the complete console projections equal upstream.
+
+This compiler/handle ABI patch does not supply unknown-size arrays. Original
+GXSetArray calls retain their Wii operands until the genuine native RLG loader
+proves live extent/stride/byte domain. No draw, source lifetime or GPU success
+is implied by compiling the complete original render units.
+
+diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
+--- a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
++++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXBlackTextureAlphaMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
+--- a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
++++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ 
+ #include "Game/GameObjectLighting.h"
+diff --git a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp b/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
+--- a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXCharacterDamageMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -1,8 +1,16 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "NL/gl/glMaterialParameters.h"
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/mtx.h>
++#else
+ #include <revolution/mtx.h>
++#endif
+ #include "NL/glx/GXCharacterDamageMaterialProgram.h"
+ 
+ #include "NL/gl/glMatrix.h"
+@@ -236,7 +244,11 @@
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
++#if defined(MSCHARGED_NATIVE)
+     glMatrixHandle modelMatrix = packet->matrix;
++#else
++    unsigned long modelMatrix = packet->matrix;
++#endif
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sCharacterDamageViewMatrix);
+     if (sCharacterDamageShadowLightingEnabled)
+diff --git a/src/NL/glx/GXColourFresnelMaterialProgram.cpp b/src/NL/glx/GXColourFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXColourFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXColourFresnelMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+--- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+@@ -1,8 +1,16 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "NL/gl/glMaterialParameters.h"
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/mtx.h>
++#else
+ #include <revolution/mtx.h>
++#endif
+ 
+ #include "NL/gl/glMatrix.h"
+ #include "NL/gl/glState.h"
+@@ -216,7 +224,11 @@
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
++#if defined(MSCHARGED_NATIVE)
+     glMatrixHandle modelMatrix = packet->matrix;
++#else
++    unsigned long modelMatrix = packet->matrix;
++#endif
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sColourFresnelViewMatrix);
+ 
+diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp b/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
+--- a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
++++ b/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXMegaDiffuseMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
+--- a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+ 
+diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXMegaSpecularFresnelMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+@@ -1,8 +1,16 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "NL/gl/glMaterialParameters.h"
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/mtx.h>
++#else
+ #include <revolution/mtx.h>
++#endif
+ 
+ #include "NL/gl/glMatrix.h"
+ #include "NL/gl/glState.h"
+@@ -32,7 +40,11 @@
+ };
+ static unsigned long sMegaSpecularFresnelTextureIndices[5];
+ 
++#if defined(MSCHARGED_NATIVE)
++static glMatrixHandle sMegaSpecularFresnelModelMatrix;
++#else
+ static unsigned long sMegaSpecularFresnelModelMatrix;
++#endif
+ static float sMegaSpecularLookupScale[2];
+ static int sMegaSpecularFresnelLightCount;
+ static bool sMegaSpecularFresnelLightingEnabled;
+@@ -184,7 +196,11 @@
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
++#if defined(MSCHARGED_NATIVE)
+     glMatrixHandle modelMatrix = packet->matrix;
++#else
++    unsigned long modelMatrix = packet->matrix;
++#endif
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sMegaSpecularFresnelViewMatrix);
+     SetGameObjectShadowModelMatrix(modelMatrix);
+diff --git a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp b/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
+--- a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
++++ b/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXMegaSpecularMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
+--- a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+ 
+diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXSkinnedMultiLightMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+@@ -1,6 +1,14 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/mtx.h>
++#else
+ #include <revolution/mtx.h>
++#endif
+ 
+ #include "NL/gl/gl.h"
+ #include "NL/gl/glMatrix.h"
+diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
+--- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXSkinnedUnlitTextureMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+--- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ 
+ #include "NL/gl/glMatrix.h"
+diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
+@@ -1,7 +1,11 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #endif
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXSpecularFresnelMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+@@ -1,8 +1,16 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "Game/GameObjectLighting.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "NL/gl/glMaterialParameters.h"
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/mtx.h>
++#else
+ #include <revolution/mtx.h>
++#endif
+ 
+ #include <string.h>
+ 
+@@ -43,7 +51,11 @@
+ };
+ static unsigned long sSpecularFresnelTextureIndices[5];
+ 
++#if defined(MSCHARGED_NATIVE)
++static glMatrixHandle sSpecularFresnelModelMatrix;
++#else
+ static unsigned long sSpecularFresnelModelMatrix;
++#endif
+ static float sSpecularLookupScale[2];
+ static int sSpecularFresnelLightCount;
+ static bool sSpecularFresnelLightingEnabled;
+@@ -190,7 +202,11 @@
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
++#if defined(MSCHARGED_NATIVE)
+     glMatrixHandle modelMatrix = packet->matrix;
++#else
++    unsigned long modelMatrix = packet->matrix;
++#endif
+     glGetMatrix(modelMatrix, model);
+     nlMultMatrices(modelview, model, sSpecularFresnelViewMatrix);
+     SetGameObjectShadowModelMatrix(modelMatrix);
+diff --git a/src/NL/glx/GXWarbleMaterialProgram.cpp b/src/NL/glx/GXWarbleMaterialProgram.cpp
+--- a/src/NL/glx/GXWarbleMaterialProgram.cpp
++++ b/src/NL/glx/GXWarbleMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramInternal.h"
+diff --git a/src/NL/glx/GXWarbleMaterialProgramRender.cpp b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
+--- a/src/NL/glx/GXWarbleMaterialProgramRender.cpp
++++ b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ 
+ #include "NL/gl/glState.h"
