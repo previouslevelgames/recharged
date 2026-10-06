@@ -27,14 +27,28 @@ With the Linux/Vulkan prerequisites below:
 
 ```sh
 cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC=ON
+cmake --build --preset graphics --target mscharged-original-main-credits-check -j 3
+./build/graphics/mscharged-original-main-credits-check --disc ./game/R4QE01.rvz --window
+```
+
+This temporary test enters original `main`, then loads and renders Credits with
+the original fonts, frontend code, scrolling and THP movie with native audio.
+It skips blocked startup steps; full startup, game input and full game audio
+remain pending. Playback timing is still experimental. Close the window to exit. Omit
+`--window` to save a capture and exit. The test uses original frame submission
+and VI framebuffer presentation. The game image keeps its original aspect and
+positioning when the window is resized. Add `--size 1280x720` to choose an initial
+window size; unused space is filled with bars.
+
+The separate `mscharged-original-credits-check` target tests Credits directly,
+including the original THP movie and native audio:
+
+```sh
 cmake --build --preset graphics --target mscharged-original-credits-check -j 3
 ./build/graphics/mscharged-original-credits-check --disc ./game/R4QE01.rvz --window
 ```
 
-This temporary test loads and renders the original Credits handler, assets,
-fonts and frontend code. It currently displays retained scene packets after
-original updates; full startup, live scrolling, movie/audio and game input are
-pending. Close the window to exit. Omit `--window` to save a capture and exit.
+Audio can repeat during host scheduling delays. Full game audio remains pending.
 
 ## Original movie audio test
 

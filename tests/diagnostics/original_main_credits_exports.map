@@ -1,0 +1,1 @@
+{ global: charged_original_entry; charged_original_scene_frame; charged_original_scene_native_frame; charged_original_scene_stop_movie; local: *; };

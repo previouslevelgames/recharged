@@ -12,6 +12,9 @@ struct NativeSystemSettings
     std::uint8_t progressive_mode;
     std::uint8_t eurgb60_mode;
     std::uint8_t aspect_ratio;
+    // Wii SC_SND_STEREO. Existing diagnostics explicitly default to stereo;
+    // original movie/audio source still chooses its behavior from SC queries.
+    std::uint8_t sound_mode = 1;
 };
 
 // Stage a validated settings snapshot on the host owner before game entry.

@@ -1,0 +1,66 @@
+Subject: [PATCH] Transport genuine original movie writer streams to native GX
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Classification: permanent host allocation/data/GX ABI adaptation
+
+Publish the actual source writer cursors into existing allocation-owned graphics
+metadata, then pass their real extent and endian domain to canonical GX arrays.
+Original allocations, slots, stride, program selection, finalization and source
+loops are unchanged. Do not infer an array extent from packet vertex counts.
+Legacy nonmodule diagnostics retain their old unqualified array route.
+
+diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.cpp
+--- a/src/Game/GL/GLMovieMeshWriter.cpp
++++ b/src/Game/GL/GLMovieMeshWriter.cpp
+@@ -8,6 +8,9 @@
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ GLMovieMeshWriter::GLMovieMeshWriter()
+     : count(0)
+@@ -94,6 +97,10 @@
+ 
+ bool GLMovieMeshWriter::End()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, position);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, texcoord);
++#endif
+     for (u32 i = 0; i < model->numPackets; ++i)
+     {
+         glplatFinalizePacket(&model->packets[i], resource != 0, resource);
+diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialProgram.cpp
+--- a/src/NL/glx/GXMovieMaterialProgram.cpp
++++ b/src/NL/glx/GXMovieMaterialProgram.cpp
+@@ -8,6 +8,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/gl/glLoadModel.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXMovieMaterialProgram* GXMovieMaterialProgram::Instance;
+ bool GXMovieMaterialProgram::Initialized;
+@@ -71,12 +74,16 @@
+ void GXMovieMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address, packet->numUniqueVertices * 12, 12, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[1].address, 8);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[1].address, packet->numUniqueVertices * 8, 8, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[1].address, 8);

@@ -194,3 +194,11 @@
 0242-native-original-stream-dsp-cached-address.patch
 0243-preserve-original-native-matrix-inverse-semantics.patch
 0231-temporary-original-credits-scene-diagnostic.patch
+0244-native-physical-header-and-source-clock-transport.patch
+0246-original-movie-procedural-stream-transport.patch
+0245-diagnostic-original-main-frontend-credits.patch
+0247-original-credits-movie-video-diagnostic.patch
+0249-diagnostic-original-main-native-frame-send.patch
+0250-diagnostic-original-main-credits-movie.patch
+0251-restore-whole-original-async-loading.patch
+0248-original-main-loading-diagnostic-and-sdk-abi.patch

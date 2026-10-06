@@ -157,12 +157,14 @@ void DeviceContract(const char* pcm_path, std::uint64_t expected_hash) {
     AIStartDMA();
     status = GetNativeAIStatus();
     Check(status.running, "actual DMA did not start");
-    Await([&]{ return GetNativeAIStatus().submitted_blocks > 0; }, "clocked DMA did not submit its source buffer");
+    // Hardware polling progresses the original DMA clock while delivery is
+    // masked; the speaker device starts only after transferred PCM is ready.
+    const auto disabled = OSDisableInterrupts();
+    Await([&]{ ServiceNativeAI(); return GetNativeAIStatus().submitted_blocks > 0; }, "clocked DMA did not submit its source buffer");
     Check(GetNativeAIStatus().last_input_hash == expected_hash,
           "source-selected latched DMA bytes were not submitted unchanged");
-    Await([&]{ return GetNativeAIStatus().consumed_blocks > 0; }, "dummy device did not consume real PCM");
+    Await([&]{ ServiceNativeAI(); return GetNativeAIStatus().consumed_blocks > 0; }, "dummy device did not consume real PCM");
     Check(callback_count == 0, "source callback ran before explicit game-thread service");
-    const auto disabled = OSDisableInterrupts();
     Check(!ServiceNativeAI(), "masked latched AI interrupt dispatched");
     OSRestoreInterrupts(disabled);
     Check(ServiceNativeAI() && callback_count == 1 && NativeInterruptsEnabled() &&
@@ -216,7 +218,7 @@ void DeviceContract(const char* pcm_path, std::uint64_t expected_hash) {
     Capture capture;
     Check(SDL_SetAudioPostmixCallback(status.device_id, CaptureMix, &capture), "device sample recorder installation");
     AIStartDMA();
-    Await([&]{ return capture.settled_frames >= 512; }, "device did not receive settled postmix PCM");
+    Await([&]{ ServiceNativeAI(); return capture.settled_frames >= 512; }, "device did not receive settled postmix PCM");
     AIStopDMA();
     Check(SDL_SetAudioPostmixCallback(status.device_id, nullptr, nullptr), "device sample recorder removal");
     if(capture.incorrect) std::cerr << "postmix first=" << capture.first_left << ',' << capture.first_right << " frames=" << capture.nonzero_frames << " bad=" << capture.bad_left << ',' << capture.bad_right << " count=" << capture.bad_frames << '\n';
@@ -233,7 +235,7 @@ void DeviceContract(const char* pcm_path, std::uint64_t expected_hash) {
     AIInitDMA(reinterpret_cast<std::uintptr_t>(temporary),512);
     const auto consumed_before=GetNativeAIStatus().consumed_blocks;
     AIStartDMA();
-    Await([&]{return GetNativeAIStatus().consumed_blocks>consumed_before;},
+    Await([&]{ServiceNativeAI();return GetNativeAIStatus().consumed_blocks>consumed_before;},
           "temporary source buffer did not reach real device");
     AIStopDMA();
     delete temporary;

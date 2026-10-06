@@ -1,0 +1,201 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Deliver true native VI interrupts outside graphics output waits
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Separate true VI field clock/cause and source interrupt delivery from native
+output servicing. Keep a distinct output lifetime/nonreentry guard so actual
+owner safe points can deliver pending fields during a GPU/window wait.
+Use this IRQ-only composition at the existing completed-MCU and one-millisecond
+FIFO/render-worker safe points. Actual masks, source callbacks and latched
+cause behavior remain authoritative; no missed callback sequence is replayed.
+Source callbacks retain their own behavior. Current movie callback closure is
+qualified separately from future source loading-indicator graphics callbacks.
+No game algorithm, playback decision, decoder equation or completion changes.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -27,6 +27,10 @@
+   void (*shutdown)(void* context);
+ } AuroraVIInterruptDevice;
+ void aurora_attach_video_interrupt_device(const AuroraVIInterruptDevice* device);
++// Real field clock/cause and masked source pre/post delivery only. This does
++// not call the output service, present a window or wait for GPU completion.
++// Installed source callbacks keep their own original behavior.
++void aurora_service_video_interrupts(void);
+ void aurora_service_video_hardware(void);
+ void aurora_shutdown_video_hardware(void);
+ // Explicit native scanout endpoint. Only source VI commits select its pointer,
+diff --git a/include/aurora/hardware.h b/include/aurora/hardware.h
+--- a/include/aurora/hardware.h
++++ b/include/aurora/hardware.h
+@@ -15,6 +15,9 @@
+ // Owner endpoint only: native GPU waits must not reenter VI/output rendering.
+ // The registered endpoint retains its owner, mask and reentrancy policy.
+ void aurora_service_hardware_owner(void);
++// Registered owner endpoint plus actual VI IRQ clock/cause delivery.
++// No native output service is entered; source callbacks remain authoritative.
++void aurora_service_hardware_interrupts(void);
+ void aurora_service_hardware(void);
+ 
+ #ifdef __cplusplus
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -78,7 +78,7 @@
+   AuroraVIBootConfig config{};
+   AuroraVIInterruptDevice interrupt_device{};
+   AuroraVIOutputDevice output_device{};
+-  bool output_attached{};
++  bool output_attached{}, output_active{};
+   std::thread::id owner;
+   bool configured{}, initialized{}, active{}, interrupt{}, flush{}, change_mode{}, shadow_change_mode{};
+   bool interrupt_device_attached{}, initializing{}, callback_active{};
+@@ -230,6 +230,24 @@
+   { std::lock_guard lock(state.mutex); post = state.post; }
+   if (post) post(count);
+ }
++bool ServiceVideoInterrupts() {
++  auto& state = State();
++  AuroraVIInterruptDevice device;
++  bool pending, enabled;
++  {
++    std::lock_guard lock(state.mutex);
++    UpdateClock(state, Clock::now());
++    if (!state.initialized || state.active || state.callback_active || state.owner != std::this_thread::get_id()) return false;
++    state.active = true; device = state.interrupt_device; pending = state.interrupt;
++    enabled = state.config.interrupts_enabled();
++  }
++  struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
++  // Hardware cause latches while the CPU or source line is masked. A failed
++  // exclusion, higher-priority selection or masked line never consumes it.
++  device.set_pending(device.context, pending);
++  if (pending && enabled) device.service(device.context);
++  return true;
++}
+ } // namespace
+ 
+ extern "C" {
+@@ -262,26 +280,25 @@
+     throw std::logic_error("Native output attachment requires staged source owner hardware");
+   state.output_device = *device; state.output_attached = true;
+ }
++void aurora_service_video_interrupts() {
++  ServiceVideoInterrupts();
++}
+ void aurora_service_video_hardware() {
+-  auto& state = State();
+-  AuroraVIInterruptDevice device;
+-  bool pending, enabled, output_attached;
++  if (!ServiceVideoInterrupts()) return;
++  auto& state = State();
+   AuroraVIOutputDevice output;
+   {
+     std::lock_guard lock(state.mutex);
+-    UpdateClock(state, Clock::now());
+-    if (!state.initialized || state.active || state.callback_active || state.owner != std::this_thread::get_id()) return;
+-    state.active = true; device = state.interrupt_device; pending = state.interrupt;
+-    enabled = state.config.interrupts_enabled();
+-    output = state.output_device; output_attached = state.output_attached;
+-  }
+-  struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
+-  // Hardware cause latches while the CPU or source line is masked. A failed
+-  // exclusion, higher-priority selection or masked line never consumes it.
+-  device.set_pending(device.context, pending);
+-  if (pending && enabled) device.service(device.context);
+-  // Actual GPU/window services run after source pre/post and mask restoration.
+-  if (output_attached) output.service(output.context);
++    if (state.output_active || !state.output_attached) return;
++    state.output_active = true; output = state.output_device;
++  }
++  struct OutputActive {
++    Device& state;
++    ~OutputActive() { std::lock_guard lock(state.mutex); state.output_active = false; }
++  } active{state};
++  // Only presentation holds this separate lifetime guard. Real VI causes can
++  // still dispatch at owner safe points while the GPU/window device is busy.
++  output.service(output.context);
+ }
+ void aurora_shutdown_video_hardware() {
+   auto& state = State();
+@@ -291,7 +308,7 @@
+   {
+     std::lock_guard lock(state.mutex);
+     if (!state.configured) return;
+-    if (state.owner != std::this_thread::get_id() || state.active || state.callback_active || state.initializing)
++    if (state.owner != std::this_thread::get_id() || state.active || state.output_active || state.callback_active || state.initializing)
+       throw std::logic_error("Cannot retire foreign or active native VI callbacks");
+     device = state.interrupt_device; attached = state.interrupt_device_attached; state.active = true;
+     output = state.output_device; output_attached = state.output_attached;
+@@ -532,6 +549,7 @@
+ void aurora_attach_video_interrupt_device(const AuroraVIInterruptDevice*) {
+   throw std::logic_error("Native VI hardware is disabled in this diagnostic build");
+ }
++void aurora_service_video_interrupts() {}
+ void aurora_service_video_hardware() {}
+ void aurora_shutdown_video_hardware() {}
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState*) { return false; }
+diff --git a/lib/dolphin/os/OSTime.cpp b/lib/dolphin/os/OSTime.cpp
+--- a/lib/dolphin/os/OSTime.cpp
++++ b/lib/dolphin/os/OSTime.cpp
+@@ -121,6 +121,11 @@
+   if (const auto service = s_hardwareService.load(std::memory_order_acquire)) service();
+ }
+ 
++extern "C" void aurora_service_hardware_interrupts() {
++  aurora_service_hardware_owner();
++  aurora_service_video_interrupts();
++}
++
+ extern "C" void aurora_service_hardware() {
+   aurora_service_hardware_owner();
+   aurora_service_video_hardware();
+diff --git a/lib/dolphin/thp/THPDec.cpp b/lib/dolphin/thp/THPDec.cpp
+--- a/lib/dolphin/thp/THPDec.cpp
++++ b/lib/dolphin/thp/THPDec.cpp
+@@ -613,7 +613,7 @@
+       // A completed MCU is a stable boundary between entropy/IDCT/output work;
+       // the host endpoint preserves owner, mask and reentrancy rules. No codec
+       // state, equations, source playback decisions or callback are replaced.
+-      aurora_service_hardware_owner();
++      aurora_service_hardware_interrupts();
+ #endif
+ 
+       if (context.restartInterval != 0 && ++restartCount == context.restartInterval) {
+diff --git a/lib/gfx/render_worker.cpp b/lib/gfx/render_worker.cpp
+--- a/lib/gfx/render_worker.cpp
++++ b/lib/gfx/render_worker.cpp
+@@ -266,10 +266,11 @@
+   std::unique_lock lock{sync->mutex};
+   while (!sync->complete) {
+     if (sync->cv.wait_for(lock, IdlePumpInterval, [&] { return sync->complete; })) break;
+-    // GPU completion is still the actual worker's predicate. Native audio
+-    // IRQs can progress while the owner sleeps; never service VI/output here.
++    // GPU completion is still the actual worker's predicate. Owner hardware
++    // and real VI IRQs progress without entering the native output service.
++    // Installed source callbacks retain their original behavior.
+     lock.unlock();
+-    aurora_service_hardware_owner();
++    aurora_service_hardware_interrupts();
+     lock.lock();
+   }
+ }
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -392,11 +392,11 @@
+       if (sProcessProgress.wait_for(progress, std::chrono::milliseconds{1}, [&] {
+             return sProcessed.load(std::memory_order_acquire) >= target;
+           })) break;
+-      // Never invoke VI/GX source callbacks or rendering while this FIFO
+-      // prefix is borrowed by the worker. Only the registered owner endpoint
+-      // runs, outside both FIFO and progress locks, with its real IRQ policy.
++      // Service real owner hardware and VI causes outside both FIFO and
++      // progress locks. Native output/presentation is separate; installed
++      // source callbacks retain their own original behavior.
+       progress.unlock();
+-      aurora_service_hardware_owner();
++      aurora_service_hardware_interrupts();
+       progress.lock();
+     }
+     break;

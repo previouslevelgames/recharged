@@ -1,0 +1,198 @@
+From: Charged native preparation
+Subject: [PATCH] diagnostic: enter source frontend and Credits from original main
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+
+Owner-authorized 2026-10-06 temporary diagnostic selection. Normal main retains
+all original source tokens. Selected frontend keeps initialization positions,
+source loading/callbacks and source manager/handler/rendering behavior; script,
+task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -1,4 +1,23 @@
+ #include "Game/main.h"
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
++#include "Game/BaseGameSceneManager.h"
++#include "Game/Font/FontLoading.h"
++#include "Game/Font/fontmanager.h"
++#endif
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
++#include "Game/SH/SHCredits.h"
++#include "Game/FE/feScene.h"
++#include "NL/glx/glxMemory.h"
++#include "NL/glx/glxSend.h"
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
++#error The selected original-main scene requires the frontend font stage
++#endif
++static bool sDiagnosticPermanentComplete;
++static void DiagnosticPermanentComplete()
++{
++    sDiagnosticPermanentComplete = true;
++}
++#endif
+ #include "Game/TweakRegistry.h"
+ #include "Game/TweakConfig.h"
+ 
+@@ -486,8 +505,14 @@
+     DisplayLoadingMessageFast();
+     InitializeODEAllocators();
+     RegisterUserGeomClasses();
++#endif // physics omitted; logical pads retain their source Initialize position
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
+     InitPads();
+-
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++
++#endif // unrelated DVD/loading/physics/input boot prerequisites
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+     unsigned int stringSizes[4];
+     stringSizes[1] = 0;
+     stringSizes[3] = 0;
+@@ -496,6 +521,8 @@
+     gResetTweakValueStrings = true;
+     InitializeTweakRegistry(0, 1, stringSizes);
+     glplatInitializeMaterialPrograms();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
+     if (!glLoadTextureBundle("art/global.rlt", glGetCurrentResourcePool()))
+     {
+@@ -544,12 +571,18 @@
+     g_pGameAudio->Initialize();
+     gSwappablePadChanged.Add(Function<void(int)>(ConfigureTweakerButtons), 0, -1);
+     g_pPadManager->Update(0.0f);
++#endif // platform pads/audio omitted; FE input retains its source position
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
+     FEInput::Initialize();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     gSwappablePadChanged.Add(Function<void(int)>(OnSwappablePadChanged), 0, -1);
+     FlickDetection::Initialize();
+     networkUpdateTask.Initialize();
+     StartupAIPads();
+     gTransitionTask.Initialize();
++#endif // unrelated config/script/tasks/audio/world prerequisites
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+     nlLocalization::Initialize();
+ 
+     if (FEResourceManager::s_pInstance == 0)
+@@ -562,6 +595,8 @@
+         FESceneManager::s_pInstance = new (8, false) FESceneManager;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     int countryCode;
+     if (sCountryCode != 0)
+     {
+@@ -606,7 +641,11 @@
+     FrontEndPresentation::GetInstance();
+     ExcitementSystem::Instance();
+     AddTasks();
++#endif // unrelated country/game/save/replay/task prerequisites
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+     SetupViews();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     HideLayerView(eCLV_ScreenBlur);
+     HideLayerView(eCLV_ScreenBlur2);
+     HideLayerView(eCLV_ShadowVolume);
+@@ -625,8 +664,12 @@
+     g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
+     InitMaxProjectedShadows();
+     SetCharacterShadowView(GetLayerView(eCLV_Characters));
++#endif // unrelated world/debug/shadow view prerequisites
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+     FESceneManager::s_pInstance->m_uDefaultRenderView =
+         (glViewHandle)GetLayerView(eCLV_Anark);
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     NisPlayer::Instance();
+     ReplayManager::Instance();
+     Wiper::Instance().Initialize();
+@@ -799,8 +842,62 @@
+     Initialize();
+ 
+ #if defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++    // Owner-authorized selected frontend gate: the loading interpreter and tasks
++    // remain omitted. These are real source methods, with no FinishLoadingStep
++    // or invented interpreter state; normal main remains unchanged.
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
++    CreateLargeFEResourcePool();
++    if (FontManager::Instance() == 0)
++    {
++        nlSingleton<FontManager>::s_pInstance = new (8, false) FontManager;
++    }
++    FontManager::Instance()->SetResourcePool(GetFEResourcePool());
++    gLoadInGameFonts = false;
++    BeginFontLoading(&gLoadInGameFonts);
++    while (nlAsyncReadsPending(0))
++    {
++        nlServiceFileSystem();
++        OSYieldThread();
++    }
++    if (!UpdateFontLoading(&gLoadInGameFonts))
++        return 84;
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
++    // The original loading bytecode and GameSceneManager dispatch are omitted
++    // by this temporary diagnostic. Retain the same source-owned managers,
++    // pools, fonts and graphics established above; never initialize them twice.
++    FEResourceManager* resources = FEResourceManager::Instance();
++    resources->LoadPermanentResourceBundle("art/fe/MainUI.Dmn", DiagnosticPermanentComplete);
++    while (!sDiagnosticPermanentComplete)
++    {
++        nlServiceFileSystem();
++        OSYieldThread();
++    }
++    // Selected source camera initializer: the full GameRenderTask camera flow
++    // is still absent. Original Anark projection and visibility stay source-owned.
++    nlMatrix4 identity;
++    identity.SetIdentity();
++    fn_80273144(identity, identity, 4.0f / 3.0f, 0.4712389f, 4.0f / 3.0f, 0.4712389f);
++    CreditScene* credits = new (8, false) CreditScene;
++    FESceneManager* scenes = FESceneManager::Instance();
++    scenes->QueueScenePush(credits, "art/fe/credits.fen", CurrentAllocator);
++    scenes->ForceImmediateStackProcessing();
++    while (!scenes->AreAllScenesValid())
++    {
++        nlServiceFileSystem();
++        resources->Run(0.0f);
++        OSYieldThread();
++    }
++    // No fixture text, visibility store or pre-advanced scene update. Genuine
++    // SceneCreated/credits.txt/resource completion owns all scene readiness.
++    nlPrintf("Original main selected Credits ready: state%d, phase%d.\n", credits->mFEScene->mState, credits->mPhase);
++    return 85;
++#else
++    return 83;
++#endif
++#else
+     // Owner-authorized diagnostic checkpoint: full game startup has not run.
+     return 81;
++#endif
+ #else
+ 
+     while (nlAsyncReadsPending(0))
+@@ -817,3 +914,21 @@
+     }
+ #endif // original async/music/task loop
+ }
++
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
++extern "C" __attribute__((visibility("default"))) void charged_original_scene_frame(float delta)
++{
++    // Explicit source-frame diagnostic, with original task/VI swap/send omitted.
++    // The host supplies elapsed owner time and ends/drains the previous frame.
++    gl_ViewReset();
++    glplatFrameAllocNextFrame();
++    glBeginFrame();
++    nlServiceFileSystem();
++    FEResourceManager::Instance()->Run(delta);
++    FESceneManager::Instance()->Update(delta);
++    FESceneManager::Instance()->RenderActiveScenes();
++    glEndFrame();
++    GetLayerView(eCLV_Anark)->Iterate(glx_SendFrame_cb);
++    glx_SendEnd();
++}
++#endif

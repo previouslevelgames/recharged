@@ -1,0 +1,125 @@
+Subject: Service native owner interrupts while waiting for real graphics completion
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Native audio DMA continues independently of GX/FIFO worker completion. Expose
+only the registered owner endpoint for GPU waits: do not reenter VI/output or
+rendering while the FIFO owns a borrowed command prefix. Poll it outside locks
+at existing one-millisecond worker intervals. Preserve actual completion
+predicates, processed watermarks, queue order, memory order and worker signals;
+no timeout or hardware service claims completion. Full clock service retains
+its existing owner-then-VI order. Endpoint ownership, interrupt masks, active
+callback and source-selected PCM behavior remain the host endpoint's policy.
+
+--- a/include/aurora/hardware.h
++++ b/include/aurora/hardware.h
+@@ -12,6 +12,9 @@
+ typedef void (*AuroraHardwareService)(void);
+ bool aurora_register_hardware_service(AuroraHardwareService service);
+ bool aurora_unregister_hardware_service(AuroraHardwareService service);
++// Owner endpoint only: native GPU waits must not reenter VI/output rendering.
++// The registered endpoint retains its owner, mask and reentrancy policy.
++void aurora_service_hardware_owner(void);
+ void aurora_service_hardware(void);
+ 
+ #ifdef __cplusplus
+--- a/lib/dolphin/os/OSTime.cpp
++++ b/lib/dolphin/os/OSTime.cpp
+@@ -115,10 +115,14 @@
+   return s_hardwareService.compare_exchange_strong(service, nullptr, std::memory_order_acq_rel);
+ }
+ 
+-extern "C" void aurora_service_hardware() {
++extern "C" void aurora_service_hardware_owner() {
+   // Optional host endpoint owns thread, exclusion and borrowed-data lifetime.
+   // Worker time queries never change ordinary clock behavior or run game code.
+   if (const auto service = s_hardwareService.load(std::memory_order_acquire)) service();
++}
++
++extern "C" void aurora_service_hardware() {
++  aurora_service_hardware_owner();
+   aurora_service_video_hardware();
+ }
+ 
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -11,6 +11,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <condition_variable>
+ #include <thread>
+ #include <cstring>
+ #include <limits>
+@@ -40,6 +41,10 @@
+ uint32_t sPendingDraws = 0;
+ std::atomic<uint64_t> sPublished{0};
+ std::atomic<uint64_t> sProcessed{0};
++// Timed owner sleep uses the same genuine processed watermark. The worker
++// publishes under this exclusion to prevent a missed completion notification.
++std::mutex sProcessProgressMutex;
++std::condition_variable sProcessProgress;
+ uint64_t sStreamBase = 0;
+ std::mutex sBufferMutex;
+ std::atomic<uint32_t> sWorkerWake{0};
+@@ -92,8 +97,12 @@
+       latch_gpu_draw_done();
+     }
+     processed += result.bytesProcessed;
+-    sProcessed.store(processed, order);
++    {
++      std::lock_guard progress{sProcessProgressMutex};
++      sProcessed.store(processed, order);
++    }
+     sProcessed.notify_all();
++    sProcessProgress.notify_all();
+   }
+ }
+ 
+@@ -365,12 +374,17 @@
+     sPublished.store(target, std::memory_order_release);
+     wake_worker();
+ 
+-    uint64_t processed = sProcessed.load(std::memory_order_acquire);
+-    if (processed < target) {
+-      do {
+-        sProcessed.wait(processed, std::memory_order_acquire);
+-        processed = sProcessed.load(std::memory_order_acquire);
+-      } while (processed < target);
++    std::unique_lock progress{sProcessProgressMutex};
++    while (sProcessed.load(std::memory_order_acquire) < target) {
++      if (sProcessProgress.wait_for(progress, std::chrono::milliseconds{1}, [&] {
++            return sProcessed.load(std::memory_order_acquire) >= target;
++          })) break;
++      // Never invoke VI/GX source callbacks or rendering while this FIFO
++      // prefix is borrowed by the worker. Only the registered owner endpoint
++      // runs, outside both FIFO and progress locks, with its real IRQ policy.
++      progress.unlock();
++      aurora_service_hardware_owner();
++      progress.lock();
+     }
+     break;
+   }
+--- a/lib/gfx/render_worker.cpp
++++ b/lib/gfx/render_worker.cpp
+@@ -1,4 +1,5 @@
+ #include "render_worker.hpp"
++#include <aurora/hardware.h>
+ 
+ #include "../thread.hpp"
+ 
+@@ -263,7 +264,14 @@
+       .sync = sync,
+   });
+   std::unique_lock lock{sync->mutex};
+-  sync->cv.wait(lock, [&] { return sync->complete; });
++  while (!sync->complete) {
++    if (sync->cv.wait_for(lock, IdlePumpInterval, [&] { return sync->complete; })) break;
++    // GPU completion is still the actual worker's predicate. Native audio
++    // IRQs can progress while the owner sleeps; never service VI/output here.
++    lock.unlock();
++    aurora_service_hardware_owner();
++    lock.lock();
++  }
+ }
+ 
+ bool is_worker_thread() noexcept { return g_workerThreadId == std::this_thread::get_id(); }

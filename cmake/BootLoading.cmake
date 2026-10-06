@@ -5,7 +5,7 @@ add_library(charged_boot_loading STATIC
     src/runtime/boot_loading.cpp)
 add_dependencies(charged_boot_loading verify_prepared)
 target_include_directories(charged_boot_loading PRIVATE "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs")
-target_compile_definitions(charged_boot_loading PRIVATE MSCHARGED_NATIVE=1)
+target_compile_definitions(charged_boot_loading PRIVATE MSCHARGED_NATIVE=1 MSCHARGED_DIAGNOSTIC_ASYNC_LOADING=1)
 target_compile_features(charged_boot_loading PUBLIC cxx_std_20)
 target_link_libraries(charged_boot_loading PUBLIC charged_interpreter charged_graphics_memory)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)

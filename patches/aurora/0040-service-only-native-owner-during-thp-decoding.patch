@@ -1,0 +1,25 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Keep native CPU decoder safe points outside graphics presentation
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The actual source movie path exposed full VI output servicing inside a CPU
+MCU decode. A native render worker could then wait for a Wayland swapchain
+image while its event owner was inside the decoder. Use the existing native
+owner-only hardware endpoint at this stable CPU boundary, as GPU waits do.
+It preserves real source audio/input delivery, owner, mask and reentrancy
+rules without invoking VI output or nested presentation. Existing main/swap
+hardware boundaries still service the real VI clock and its callbacks.
+No codec equation, output bytes, source movie timing or mixing is changed.
+
+diff --git a/lib/dolphin/thp/THPDec.cpp b/lib/dolphin/thp/THPDec.cpp
+--- a/lib/dolphin/thp/THPDec.cpp
++++ b/lib/dolphin/thp/THPDec.cpp
+@@ -613,7 +613,7 @@
+       // A completed MCU is a stable boundary between entropy/IDCT/output work;
+       // the host endpoint preserves owner, mask and reentrancy rules. No codec
+       // state, equations, source playback decisions or callback are replaced.
+-      aurora_service_hardware();
++      aurora_service_hardware_owner();
+ #endif
+ 
+       if (context.restartInterval != 0 && ++restartCount == context.restartInterval) {

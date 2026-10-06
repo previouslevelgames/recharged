@@ -27,3 +27,13 @@
 0030-native-gx-misc-state-requests.patch
 0031-native-gx-blocking-pipelines.patch
 0028-native-gx-display-copy-snapshots.patch
+0032-native-vi-selected-xfb-output.patch
+0033-native-gx-original-fifo-recording.patch
+0034-native-pe-color-aperture.patch
+0036-preserve-native-fifo-draw-receipts.patch
+0035-service-native-hardware-during-thp-decoding.patch
+0037-service-native-owner-during-graphics-waits.patch
+0038-native-pe-finish-sdk-safe-point.patch
+0040-service-only-native-owner-during-thp-decoding.patch
+0039-separate-native-efb-from-window-output.patch
+0041-native-vi-interrupt-service-without-output.patch

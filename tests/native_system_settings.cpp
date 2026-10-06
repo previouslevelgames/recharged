@@ -7,6 +7,7 @@
 #include <type_traits>
 
 static_assert(std::is_same_v<decltype(&SCGetLanguage), u8(*)(void)>);
+static_assert(std::is_same_v<decltype(&SCGetSoundMode), u8(*)(void)>);
 static_assert(std::is_same_v<decltype(&SCCheckStatus), u32(*)(void)>);
 static_assert(SC_STATUS_OK==0 && SC_STATUS_BUSY==1 && SC_STATUS_FATAL==2);
 static int checks;
@@ -22,11 +23,13 @@ int main()
         Reject([]{SCGetProgressiveMode();},"unconfigured progressive mode");
         Reject([]{SCGetEuRgb60Mode();},"unconfigured EURGB60 mode");
         Reject([]{SCGetAspectRatio();},"unconfigured aspect ratio");
+        Reject([]{SCGetSoundMode();},"unconfigured sound mode");
         Reject([]{SCInit();},"unconfigured init must fail");
         Reject([]{ConfigureNativeSystemSettings({SC_LANG_MAX,0,0,0});},"invalid language");
         Reject([]{ConfigureNativeSystemSettings({SC_LANG_FR,2,0,0});},"invalid progressive");
         Reject([]{ConfigureNativeSystemSettings({SC_LANG_FR,0,2,0});},"invalid EURGB60");
         Reject([]{ConfigureNativeSystemSettings({SC_LANG_FR,0,0,2});},"invalid aspect");
+        Reject([]{ConfigureNativeSystemSettings({SC_LANG_FR,0,0,0,3});},"invalid sound mode");
         Check(SCCheckStatus()==SC_STATUS_FATAL,"rejected setup must not publish status");
         ConfigureNativeSystemSettings({SC_LANG_FR,SC_PROGRESSIVE,SC_EURGB_60_HZ,SC_ASPECT_WIDE});
         Check(SCCheckStatus()==SC_STATUS_BUSY,"staged endpoint awaits original SCInit");
@@ -34,6 +37,7 @@ int main()
         Check(SCGetProgressiveMode()==SC_PROGRESSIVE,"explicit supplied progressive record");
         Check(SCGetEuRgb60Mode()==SC_EURGB_60_HZ,"explicit supplied EURGB60 record");
         Check(SCGetAspectRatio()==SC_ASPECT_WIDE,"explicit supplied widescreen record");
+        Check(SCGetSoundMode()==SC_SND_STEREO,"existing diagnostic settings default to stereo");
         Reject([]{ConfigureNativeSystemSettings({SC_LANG_MAX,0,0,0});},"bad replacement rejected");
         Check(SCGetLanguage()==SC_LANG_FR && SCGetProgressiveMode()==SC_PROGRESSIVE,"bad replacement preserves snapshot");
         std::atomic<unsigned> foreignRejects=0;
@@ -68,6 +72,14 @@ int main()
         Check(SCGetProgressiveMode()==SC_INTERLACED && SCGetEuRgb60Mode()==SC_EURGB_50_HZ
                 && SCGetAspectRatio()==SC_ASPECT_STD,"legacy diagnostic video defaults explicit");
         ShutdownNativeSystemSettings();
+        for (u8 mode : {SC_SND_MONO, SC_SND_STEREO, SC_SND_SURROUND})
+        {
+            ConfigureNativeSystemSettings({SC_LANG_EN,SC_INTERLACED,SC_EURGB_50_HZ,SC_ASPECT_STD,mode});
+            SCInit();
+            Check(SCGetSoundMode()==mode,"original audio query reads the exact supplied Wii sound setting");
+            ShutdownNativeSystemSettings();
+        }
+        Reject([]{SCGetSoundMode();},"retired sound snapshot unavailable");
         ShutdownNativeSystemSettings();
         Check(SCCheckStatus()==SC_STATUS_FATAL,"retirement is idempotent");
         std::printf("237 native SC endpoint PASS:%d checks; explicit backing records/readiness/lifetime, no source/game/video decisions changed.\n",checks);

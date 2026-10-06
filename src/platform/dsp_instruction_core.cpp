@@ -1,5 +1,18 @@
 #include "platform/dsp_instruction_core.h"
 
+namespace {
+std::uint16_t QualifiedInstructionWords(std::uint16_t word) {
+    if(word==0x029f || (word&0xffe0)==0x0080 || word==0x00fe || word==0x00ff ||
+       (word&0xff00)==0x1600 || (word&0xffe0)==0x0060)return 2;
+    if(word==0 || (word&0xfff8)==0x1200 || (word&0xfff8)==0x1300 ||
+       (word>=0x8a00 && word<=0x8f00 && !(word&0xff)) ||
+       word==0x8100 || word==0x8900 || (word&0xfefc)==0x0218 ||
+       (word&0xfc00)==0x1c00 || (word&0xffe0)==0x0040 ||
+       (word&0xff80)==0x1b00 || (word&0xff80)==0x1900)return 1;
+    return 0;
+}
+}
+
 namespace mscharged::platform {
 DSPUnsupportedInstruction::DSPUnsupportedInstruction(std::uint16_t address,std::uint16_t word,std::uint16_t detail)
     :std::runtime_error("DSP instruction core reached an unimplemented instruction/register/interface"),
@@ -82,6 +95,39 @@ DSPInstructionRegisters DSPInstructionCore::Step() {
     bool branch=false;
     if (opcode==0x0000) {
         // Hardware NOP leaves cells/flags unchanged.
+    } else if ((opcode&0xffe0)==0x0040) {
+        const auto reg=static_cast<unsigned>(opcode&31);
+        std::uint16_t count;
+        if(reg<4)count=next.address[reg];
+        else if(reg<8)count=next.index[reg-4];
+        else if(reg<12)count=next.wrap[reg-8];
+        else if(reg==0x1e || reg==0x1f) {
+            const auto cell=next.accumulator[reg-0x1e];
+            const auto value=static_cast<std::int64_t>(cell)-
+                ((cell&0x8000000000ULL)?0x10000000000LL:0LL);
+            if((next.status&0x4000) && value>0x7fffffffLL)count=0x7fff;
+            else if((next.status&0x4000) && value<(-0x80000000LL))count=0x8000;
+            else count=static_cast<std::uint16_t>(cell>>16);
+        } else throw DSPUnsupportedInstruction(pc,opcode,static_cast<std::uint16_t>(reg));
+        const auto following=static_cast<std::uint16_t>(pc+1);
+        const auto body=InstructionWord(following);
+        const auto width=QualifiedInstructionWords(body);
+        if(!width || (count && (width!=1 || (body&0xffe0)==0x0040)))
+            // Only single-word positive LOOP bodies are qualified. Reject
+            // multiword/nested-LOOP endpoint ambiguity rather than claiming
+            // that the existing inclusive stack check establishes it.
+            throw DSPUnsupportedInstruction(pc,opcode,body);
+        if(count) {
+            if(next.loop_depth==next.loop_stack.size())
+                throw DSPUnsupportedInstruction(pc,opcode,0x0002);
+            next.loop_stack[next.loop_depth++]={next.stack[0],next.stack[2],next.stack[3]};
+            next.stack[0]=following;
+            next.stack[2]=following;
+            next.stack[3]=count;
+        } else {
+            next.pc=static_cast<std::uint16_t>(following+width);
+            branch=true;
+        }
     } else if ((opcode&0xffe0)==0x0060) {
         length=2;
         const auto reg=static_cast<std::uint16_t>(opcode&31);
@@ -102,14 +148,8 @@ DSPInstructionRegisters DSPInstructionCore::Step() {
             next.stack[3]=count;
         } else {
             const auto last=InstructionWord(endpoint);
-            std::uint16_t width;
-            if(last==0x029f || (last&0xffe0)==0x0080 ||
-               last==0x00fe || last==0x00ff || (last&0xff00)==0x1600 ||
-               (last&0xffe0)==0x0060)width=2;
-            else if(last==0 || (last&0xfff8)==0x1200 || (last&0xfff8)==0x1300 ||
-                    (last>=0x8a00 && last<=0x8f00 && !(last&0xff)) ||
-                    last==0x8100 || last==0x8900 || (last&0xfefc)==0x0218)width=1;
-            else throw DSPUnsupportedInstruction(pc,opcode,last);
+            const auto width=QualifiedInstructionWords(last);
+            if(!width)throw DSPUnsupportedInstruction(pc,opcode,last);
             // Counter0 skips the endpoint instruction, including its operand.
             // Unknown instruction sizes remain an explicit decoder gap.
             next.pc=static_cast<std::uint16_t>(endpoint+width);
@@ -129,6 +169,83 @@ DSPInstructionRegisters DSPInstructionCore::Step() {
                  ((word&0x8000)?0xff00000000ULL:0ULL);
         } else cell=(cell&0xff0000ffffULL)|(static_cast<std::uint64_t>(word)<<16);
         next.address[source]=static_cast<std::uint16_t>(next.address[source]+1);
+    } else if ((opcode&0xff80)==0x1900) {
+        const auto source=static_cast<unsigned>((opcode>>5)&3);
+        const auto destination=static_cast<unsigned>(opcode&31);
+        // The original coefficient-bank walk loads accumulator middle cells.
+        // Other destinations (including aliasing AR/WR writes) remain explicit
+        // unsupported register/address-mode boundaries, never guessed effects.
+        if(destination!=0x1e && destination!=0x1f)
+            throw DSPUnsupportedInstruction(pc,opcode,static_cast<std::uint16_t>(destination));
+        if(next.wrap[source]!=0xffff)
+            throw DSPUnsupportedInstruction(pc,opcode,next.wrap[source]);
+        const auto word=DataWord(next.address[source]);
+        auto& cell=next.accumulator[destination-0x1e];
+        if(next.status&0x4000)cell=(static_cast<std::uint64_t>(word)<<16) |
+            ((word&0x8000)?0xff00000000ULL:0ULL);
+        else cell=(cell&0xff0000ffffULL)|(static_cast<std::uint64_t>(word)<<16);
+        next.address[source]=static_cast<std::uint16_t>(next.address[source]+1);
+    } else if ((opcode&0xff80)==0x1b00) {
+        const auto destination=static_cast<unsigned>((opcode>>5)&3);
+        const auto source=static_cast<unsigned>(opcode&31);
+        const auto address=next.address[destination];
+        // The source init clear selects full16-bit linear AR0 addressing and
+        // internal DRAM only. Read-only coefficient banks, IFX and circular
+        // addressing need their own qualified device semantics.
+        if(next.wrap[destination]!=0xffff)
+            throw DSPUnsupportedInstruction(pc,opcode,next.wrap[destination]);
+        if(address>=WORDS)throw DSPUnsupportedInstruction(pc,opcode,address);
+        std::uint16_t word;
+        if(source<4)word=next.address[source];
+        else if(source<8)word=next.index[source-4];
+        else if(source<12)word=next.wrap[source-8];
+        else if(source==0x1e || source==0x1f) {
+            const auto cell=next.accumulator[source-0x1e];
+            const auto value=static_cast<std::int64_t>(cell)-
+                ((cell&0x8000000000ULL)?0x10000000000LL:0LL);
+            if((next.status&0x4000) && value>0x7fffffffLL)word=0x7fff;
+            else if((next.status&0x4000) && value<(-0x80000000LL))word=0x8000;
+            else word=static_cast<std::uint16_t>(cell>>16);
+        } else throw DSPUnsupportedInstruction(pc,opcode,static_cast<std::uint16_t>(source));
+        // Logical native cells retain the exact16-bit device word already
+        // decoded from BE bus transport. Read precedes AR increment, including
+        // source/destination aliasing; every rejection above leaves both banks
+        // and the retained source context unchanged.
+        data_[address]=word;
+        data_valid_[address]=true;
+        next.address[destination]=static_cast<std::uint16_t>(address+1);
+    } else if ((opcode&0xfc00)==0x1c00) {
+        const auto destination=static_cast<unsigned>((opcode>>5)&31);
+        const auto source=static_cast<unsigned>(opcode&31);
+        const auto supported=[](unsigned reg) {return reg<12 || reg==0x1e || reg==0x1f;};
+        // These are the address/index/wrap and accumulator-middle cells used
+        // by the source init prefix. General stack/product/AX/high/low register
+        // moves need their own qualified read/write effects, never a zero cell.
+        if(!supported(source))throw DSPUnsupportedInstruction(pc,opcode,source);
+        if(!supported(destination))throw DSPUnsupportedInstruction(pc,opcode,destination);
+        std::uint16_t word;
+        if(source<4)word=next.address[source];
+        else if(source<8)word=next.index[source-4];
+        else if(source<12)word=next.wrap[source-8];
+        else {
+            const auto cell=next.accumulator[source-0x1e];
+            const auto value=static_cast<std::int64_t>(cell)-
+                ((cell&0x8000000000ULL)?0x10000000000LL:0LL);
+            if((next.status&0x4000) && value>0x7fffffffLL)word=0x7fff;
+            else if((next.status&0x4000) && value<(-0x80000000LL))word=0x8000;
+            else word=static_cast<std::uint16_t>(cell>>16);
+        }
+        // Read before writing, including self moves. A middle-word destination
+        // performs the same hardware SXM extension as other qualified loads.
+        if(destination<4)next.address[destination]=word;
+        else if(destination<8)next.index[destination-4]=word;
+        else if(destination<12)next.wrap[destination-8]=word;
+        else {
+            auto& cell=next.accumulator[destination-0x1e];
+            if(next.status&0x4000)cell=(static_cast<std::uint64_t>(word)<<16) |
+                ((word&0x8000)?0xff00000000ULL:0ULL);
+            else cell=(cell&0xff0000ffffULL)|(static_cast<std::uint64_t>(word)<<16);
+        }
     } else if (opcode==0x029f) {
         // Unconditional immediate jump used by the original OS DSP init
         // vector. Invalid destinations remain real next-fetch failures.

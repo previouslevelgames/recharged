@@ -3,6 +3,13 @@
 #include <aurora/gfx.h>
 #include <aurora/gfx.hpp>
 #include <aurora/dvd.h>
+#include <aurora/video.h>
+#include <aurora/hardware.h>
+#include "platform/interrupt_controller.h"
+#include "platform/system.h"
+#include "platform/video_device.h"
+#include "platform/ai.h"
+#include "credits_movie_hardware.h"
 #include <dolphin/os.h>
 #include <dolphin/gx.h>
 #include <dolphin/gx/GXAurora.h>
@@ -93,8 +100,9 @@ int main(int argc,char** argv) {
                 std::puts("Usage: mscharged-original-credits-check --disc FILE [--window]\n"
                           "Render the original Credits scene from your own ISO/RVZ.\n"
                           "--window keeps the window open until you close it.\n"
-                          "Shows retained scene packets after genuine source loading and updates.\n"
-                          "Full main/task loop, movies, audio and source VI scanout are omitted.");
+                          "Runs original scene updates and frontend rendering each frame.\n"
+                          "Includes original Credits THP video/audio in named mode0 diagnostic.\n"
+                          "Full main/task loop, AX predecessor and source VI scanout are omitted.");
                 return 0;
             }
             if(argument=="--window") interactive=true;
@@ -116,32 +124,41 @@ int main(int argc,char** argv) {
         config.logLevel=LOG_INFO;config.logCallback=Log;config.mem1Size=MEM1_DEFAULT_SIZE;config.mem2Size=64*1024*1024;
         const auto info=aurora_initialize(argc,argv,&config);
         Check(info.window && info.backend==BACKEND_VULKAN,"Original scene gate requires real Vulkan");
-        OSInit();VIInit();
-        GXRenderModeObj adjusted;GXAdjustForOverscan(&GXNtsc480IntDf,&adjusted,0,16);VIConfigure(&adjusted);
+        OSInit();
+        mscharged::platform::InitializeNativeInterruptController();
+        mscharged::ConfigureNativeSystemSettings({1,0,0,0,1});
+        mscharged::platform::ConfigureNativeVideoHardware(VI_TVMODE_NTSC_INT,false);
+        mscharged::diagnostic::InitializeCreditsMovieHardware();
         Check(aurora_dvd_open(disc.c_str()),"Game data partition could not be opened");
-        alignas(32)static std::array<unsigned char,0x80000> fifo;
-        Check(GXInit(fifo.data(),fifo.size()),"Actual canonical GX state unavailable");
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
         auto* module=dlopen(modulePath.c_str(),RTLD_NOW|RTLD_LOCAL);if(!module)throw std::runtime_error(dlerror());
         auto qualify=reinterpret_cast<unsigned(*)()>(dlsym(module,"charged_font_qualify"));
-        auto draw=reinterpret_cast<void(*)()>(dlsym(module,"charged_scene_render_frame"));
-        Check(qualify && draw,"Actual original scene module exports unavailable");
+        auto draw=reinterpret_cast<void(*)(float)>(dlsym(module,"charged_scene_update_and_render_frame"));
+        auto stopMovie=reinterpret_cast<void(*)()>(dlsym(module,"charged_scene_stop_movie"));
+        Check(qualify && draw && stopMovie,"Actual original scene module exports unavailable");
         Check(qualify(),"Original Credits async loading/draw prerequisites failed");
         unsigned frames=0,draws=0,quiet=0;bool snapshot=false,encoded=false;bool exit=false;
         const auto start=std::chrono::steady_clock::now();
+        auto previousFrame=start;
         while(!exit && (interactive || !snapshot)) {
             for(const auto* e=aurora_update();e->type!=AURORA_NONE;++e)if(e->type==AURORA_EXIT)exit=true;
             if(exit)break;
             Check(interactive || std::chrono::steady_clock::now()-start<std::chrono::seconds(40),"Original Credits Vulkan pipeline timed out");
+            aurora_service_hardware();
+            mscharged::diagnostic::ServiceCreditsMovieHardware();
             if(!aurora_begin_frame()){SDL_Delay(1);continue;}
-            // Parent-authorized native window/frame fixture. Source glPlat/VI
-            // scanout is explicitly omitted; all FE geometry/font/visibility/
+            // Parent-authorized unarmed native window/frame fixture. True glPlat
+            // startup/retrace owns the movie clock; VI scanout is omitted; all FE geometry/font/visibility/
             // material/draw decisions remain actual original source packets.
             GXSetPixelFmt(GX_PF_RGB8_Z24,GX_ZC_LINEAR);GXSetCopyClear({0,0,0,255},GX_MAX_Z24);
             GXSetViewport(0,0,640,448,0,1);GXSetScissor(0,0,640,448);
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real draw receipt unavailable");
-            draw();AuroraGXEndDrawReceipt();
-            const bool sample=!snapshot && frames>=14 && quiet>=2;
+            const auto now=std::chrono::steady_clock::now();
+            const float delta=std::chrono::duration<float>(now-previousFrame).count();
+            previousFrame=now;
+            draw(delta);AuroraGXEndDrawReceipt();
+            const bool sample=!snapshot && frames>=14 && quiet>=2
+                && now-start>=std::chrono::seconds(2);
             if(sample){EndWithSnapshot(directory/"original-credits.ppm");snapshot=true;}else aurora_end_frame();
             aurora::gfx::synchronize();
             encoded=encoded || AuroraGXWasDrawEncoded(receipt);
@@ -151,7 +168,33 @@ int main(int argc,char** argv) {
         }
         Check(snapshot && encoded && draws && aurora_get_last_presentation().sequence,"Original source Credits draw/presentation incomplete");
         Check(!errors,"Actual scene/SDK reported errors");
-        std::printf("Original Credits window diagnostic: %u frames,%u actual draws,source receipt and presentation verified. Static source packet replay after120 genuine source updates; omits original main/glPlat/VI scanout/movie/audio/input/world/CRT teardown.\n",frames,draws);
+        const auto audio=mscharged::platform::GetNativeAIStatus();
+        const auto audioClock=mscharged::platform::GetNativeAIClockStatus();
+        Check(audio.initialized && audio.consumed_blocks && audio.dispatched_callbacks,
+              "Original movie audio did not reach the actual host device");
+        std::printf("Original Credits native AI: submitted%llu consumed%llu callbacks%llu, rate%d, last PCM hash%016llx; coalesced%llu, maximum DMA service gap%lluns.\n",
+                    static_cast<unsigned long long>(audio.submitted_blocks),
+                    static_cast<unsigned long long>(audio.consumed_blocks),
+                    static_cast<unsigned long long>(audio.dispatched_callbacks),audio.input_frequency,
+                    static_cast<unsigned long long>(audio.last_input_hash),
+                    static_cast<unsigned long long>(audioClock.coalesced_edges),
+                    static_cast<unsigned long long>(audioClock.maximum_service_gap_ns));
+        std::printf("Original Credits window diagnostic: %u frames,%u actual draws,source receipt and presentation verified. Live original scene-manager Update/FERender using elapsed native owner time; actual source THP movie/video and mode0 audio; omits original main/tasks/AX predecessor/VI scanout/input/world/CRT teardown.\n",frames,draws);
+        std::printf("Native audio device: rate%d, period%d frames, queued%d source bytes.\n",
+                    audio.device_frequency,audio.device_frames,audio.queued_input_bytes);
+        AuroraVIHardwareState videoClock{};
+        Check(aurora_get_video_hardware_state(&videoClock), "Original VI clock observation unavailable");
+        const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
+        std::printf("Playback observation: %.3fs, %.2f rendered frames/s; VI retraces%u, elapsed fields%llu.\n",
+                    elapsed,frames/elapsed,videoClock.retrace_count,
+                    static_cast<unsigned long long>(videoClock.elapsed_fields));
+        stopMovie();
+        mscharged::diagnostic::ShutdownCreditsMovieHardware();
+        Check(!mscharged::platform::GetNativeAIStatus().initialized,
+              "Original movie owner did not drain the actual host audio device");
+        aurora_shutdown_video_hardware();
+        mscharged::ShutdownNativeSystemSettings();
+        mscharged::platform::ShutdownNativeInterruptController();
         aurora_dvd_close();aurora_shutdown();std::fflush(nullptr);std::_Exit(0);
     } catch(const std::exception& e){std::fprintf(stderr,"Original Credits gate: %s\n",e.what());std::fflush(nullptr);std::_Exit(1);}
 }

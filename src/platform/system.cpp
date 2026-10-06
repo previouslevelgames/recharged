@@ -37,7 +37,8 @@ namespace mscharged
 void ConfigureNativeSystemSettings(const NativeSystemSettings& settings)
 {
     if (settings.language >= SC_LANG_MAX || settings.progressive_mode > SC_PROGRESSIVE
-        || settings.eurgb60_mode > SC_EURGB_60_HZ || settings.aspect_ratio > SC_ASPECT_WIDE)
+        || settings.eurgb60_mode > SC_EURGB_60_HZ || settings.aspect_ratio > SC_ASPECT_WIDE
+        || settings.sound_mode > SC_SND_SURROUND)
         throw std::invalid_argument("Native system settings contain unsupported Wii SC values");
     std::lock_guard lock(device.mutex);
     if (device.phase != Phase::Empty) RequireOwner();
@@ -91,3 +92,4 @@ extern "C" std::uint8_t SCGetLanguage() { return ReadSettings().language; }
 extern "C" std::uint8_t SCGetProgressiveMode() { return ReadSettings().progressive_mode; }
 extern "C" std::uint8_t SCGetEuRgb60Mode() { return ReadSettings().eurgb60_mode; }
 extern "C" std::uint8_t SCGetAspectRatio() { return ReadSettings().aspect_ratio; }
+extern "C" std::uint8_t SCGetSoundMode() { return ReadSettings().sound_mode; }

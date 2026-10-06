@@ -1,0 +1,37 @@
+Subject: Allow native hardware IRQ progress between completed THP video MCUs
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Original THPSimple playback invokes the native CPU video decoder synchronously.
+Wii hardware continues audio DMA during that work; the native owner needs safe
+points to deliver genuine latched interrupts. Opt in through the existing SDK
+hardware endpoint after each complete MCU, preserving the decoder parser,
+entropy/IDCT/output/restart algorithms and endpoint owner/mask/reentrancy rules.
+Default callers retain their decoder policy. This does not guarantee callback
+latency across rendering/OS preemption or provide an AX predecessor.
+
+--- a/lib/dolphin/thp/THPDec.cpp
++++ b/lib/dolphin/thp/THPDec.cpp
+@@ -1,4 +1,8 @@
+ #include "dolphin/thp.h"
++
++#if defined(AURORA_THP_HARDWARE_SAFE_POINTS) && AURORA_THP_HARDWARE_SAFE_POINTS
++#include <aurora/hardware.h>
++#endif
+ 
+ #include "../../internal.hpp"
+ 
+@@ -604,6 +608,14 @@
+         return kBadSyntax;
+       }
+ 
++#if defined(AURORA_THP_HARDWARE_SAFE_POINTS) && AURORA_THP_HARDWARE_SAFE_POINTS
++      // The native CPU codec retains the device's independent IRQ progress.
++      // A completed MCU is a stable boundary between entropy/IDCT/output work;
++      // the host endpoint preserves owner, mask and reentrancy rules. No codec
++      // state, equations, source playback decisions or callback are replaced.
++      aurora_service_hardware();
++#endif
++
+       if (context.restartInterval != 0 && ++restartCount == context.restartInterval) {
+         bits.byte_align();
+         restartCount = 0;

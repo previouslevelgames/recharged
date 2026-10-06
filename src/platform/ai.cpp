@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -32,6 +33,9 @@ struct AIState {
     bool running{};
     bool pending{};
     bool callback_active{};
+    bool output_started{};
+    std::uint64_t output_start_cells{};
+    mscharged::platform::NativeAIOutputStatus output{};
     std::uint64_t generation{};
     std::uint64_t submitted{};
     std::uint64_t consumed{};
@@ -51,6 +55,9 @@ struct AIState {
     std::uint64_t maximum_service_gap{};
     std::uint64_t last_service{};
     std::vector<u8> fifo;
+    std::atomic_bool observing{};
+    std::uint64_t observation_end_ns{};
+    mscharged::platform::NativeAIObservationStatus observations{};
     char error[256]{};
 };
 
@@ -123,6 +130,53 @@ void Queue(AIState& state, SDL_AudioStream* stream, Packet* packet) noexcept {
     }
 }
 
+void StartOutputIfReady(AIState& state, SDL_AudioStream* stream) noexcept {
+    u32 dma_frames;
+    {
+        std::lock_guard lock(state.mutex);
+        if (!state.running || state.output_started || state.owner != std::this_thread::get_id()) return;
+        dma_frames = state.active_length / 4;
+    }
+    // SDL availability is in its current destination format. In particular,
+    // a real postmix callback selects F32 even when the device reports S16.
+    // Query it rather than assuming input bytes are immediately playable.
+    SDL_AudioSpec input{}, output{}, device{};
+    int device_frames = 0;
+    const bool formats = SDL_GetAudioStreamFormat(stream, &input, &output) &&
+        SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(stream), &device, &device_frames);
+    const int available = formats ? SDL_GetAudioStreamAvailable(stream) : -1;
+    if (!formats || available < 0 || input.freq <= 0 || output.freq <= 0 ||
+        device.freq <= 0 || device_frames <= 0 || SDL_AUDIO_FRAMESIZE(output) <= 0) {
+        std::lock_guard lock(state.mutex);
+        state.running = false;
+        std::snprintf(state.error, sizeof(state.error), "AI output lead query: %s", SDL_GetError());
+        return;
+    }
+    // One actual device pull plus one source-selected completed DMA period.
+    // Ceiling conversion keeps the margin in output-frame units at either
+    // supported source rate, including a resampled physical audio device.
+    const auto dma_output_frames = (std::uint64_t(dma_frames) * output.freq + input.freq - 1) / input.freq;
+    const auto device_output_frames = (std::uint64_t(device_frames) * output.freq + device.freq - 1) / device.freq;
+    const auto required = device_output_frames + dma_output_frames;
+    const auto ready = std::uint64_t(available / SDL_AUDIO_FRAMESIZE(output));
+    {
+        std::lock_guard lock(state.mutex);
+        state.output.required_output_frames = required;
+        if (ready < required) return;
+        state.output.ready_output_frames_at_start = ready;
+        state.output.transferred_input_frames_at_start = (state.transferred_cells - state.output_start_cells) * 8;
+    }
+    if (!SDL_ResumeAudioStreamDevice(stream)) {
+        std::lock_guard lock(state.mutex);
+        state.running = false;
+        std::snprintf(state.error, sizeof(state.error), "AI output device resume: %s", SDL_GetError());
+        return;
+    }
+    std::lock_guard lock(state.mutex);
+    state.output_started = true;
+    state.output.device_start_ns = SDL_GetTicksNS();
+}
+
 void Transfer(AIState& state, SDL_AudioStream* stream) noexcept {
     // This same exclusion protects source DMA writes/stop/free. SDL workers
     // only try the lock; they never wait for source code while holding SDL's
@@ -171,9 +225,29 @@ void Transfer(AIState& state, SDL_AudioStream* stream) noexcept {
         }
     }
     for (auto* packet : packets) Queue(state, stream, packet);
+    if (source_access) StartOutputIfReady(state, stream);
 }
 
-void SDLCALL Feed(void* userdata, SDL_AudioStream* stream, int, int) noexcept {
+void SDLCALL Feed(void* userdata, SDL_AudioStream* stream, int additional, int total) noexcept {
+    auto& state = *static_cast<AIState*>(userdata);
+    if (state.observing.load(std::memory_order_relaxed)) {
+        std::lock_guard lock(state.mutex);
+        if (state.observing) {
+            auto& observed = state.observations;
+            const auto now = SDL_GetTicksNS();
+            if (observed.last_sdl_pull_ns)
+                observed.maximum_sdl_pull_gap_ns = std::max(observed.maximum_sdl_pull_gap_ns, now - observed.last_sdl_pull_ns);
+            observed.last_sdl_pull_ns = now;
+            ++observed.sdl_pull_calls;
+            // SDL reports estimates in the unconverted INPUT byte domain.
+            // Neither demand nor a short read is a source DMA completion.
+            const auto extra = static_cast<std::uint64_t>(std::max(additional, 0));
+            observed.total_additional_input_bytes_requested += extra;
+            observed.maximum_additional_input_bytes_requested = std::max(observed.maximum_additional_input_bytes_requested, extra);
+            observed.maximum_total_input_bytes_requested = std::max(observed.maximum_total_input_bytes_requested,
+                static_cast<std::uint64_t>(std::max(total, 0)));
+        }
+    }
     // Device pull granularity can exceed the source's96-frame interval. Only
     // real elapsed DMA transfers enter SDL; demand never repeats a buffer.
     Transfer(*static_cast<AIState*>(userdata), stream);
@@ -189,6 +263,7 @@ SDL_AudioStream* Stop(AIState& state) {
         std::lock_guard lock(state.mutex);
         state.running = false;
         state.pending = false;
+        state.output_started = false;
         ++state.generation;
         stream = state.stream;
     }
@@ -285,7 +360,6 @@ extern "C" u32 AIGetDMALength() {
 extern "C" void AIStartDMA() {
     NativeInterruptGuard scope;
     auto& state = State();
-    SDL_AudioStream* stream;
     {
         std::lock_guard lock(state.mutex);
         RequireInitialized(state);
@@ -293,18 +367,16 @@ extern "C" void AIStartDMA() {
         if (!state.address || !state.length) throw std::invalid_argument("AI DMA needs a source buffer and nonzero hardware length");
         Latch(state);
         state.clock_epoch = state.last_service = SDL_GetTicksNS();
+        state.output_started = false;
+        state.output = {};
+        state.output.dma_start_ns = state.clock_epoch;
+        state.output_start_cells = state.transferred_cells;
         state.epoch_cells = 0;
         state.first_edge = true;
         state.error[0] = 0;
         state.pending = false;
         ++state.generation;
         state.running = true;
-        stream = state.stream;
-    }
-    if (!SDL_ResumeAudioStreamDevice(stream)) {
-        const auto error = SDLError("AI audio DMA start failed");
-        Stop(state);
-        throw error;
     }
 }
 
@@ -389,21 +461,46 @@ bool ServiceNativeAI() {
         static void Run(void* context) {
             auto& call = *static_cast<Call*>(context);
             AIDCallback callback;
+            std::uint64_t observation_start = 0;
             {
                 std::lock_guard lock(call.state.mutex);
                 if (!call.state.running || !call.state.pending || call.state.callback_active || !call.state.callback) return;
                 callback = call.state.callback;
                 call.state.pending = false;
                 call.state.callback_active = true;
+                if (call.state.observing) {
+                    auto& observed = call.state.observations;
+                    observation_start = SDL_GetTicksNS();
+                    if (observed.last_callback_start_ns)
+                        observed.maximum_callback_start_gap_ns = std::max(observed.maximum_callback_start_gap_ns,
+                            observation_start - observed.last_callback_start_ns);
+                    if (!observed.first_callback_start_ns) observed.first_callback_start_ns = observation_start;
+                    observed.last_callback_start_ns = observation_start;
+                    ++observed.callbacks_started;
+                }
             }
             try { callback(); }
             catch (...) {
                 std::lock_guard lock(call.state.mutex);
                 call.state.callback_active = false;
+                if (observation_start) {
+                    auto& observed = call.state.observations;
+                    const auto duration = SDL_GetTicksNS() - observation_start;
+                    ++observed.callbacks_failed;
+                    observed.total_callback_duration_ns += duration;
+                    observed.maximum_callback_duration_ns = std::max(observed.maximum_callback_duration_ns, duration);
+                }
                 throw;
             }
             std::lock_guard lock(call.state.mutex);
             call.state.callback_active = false;
+            if (observation_start) {
+                auto& observed = call.state.observations;
+                const auto duration = SDL_GetTicksNS() - observation_start;
+                ++observed.callbacks_completed;
+                observed.total_callback_duration_ns += duration;
+                observed.maximum_callback_duration_ns = std::max(observed.maximum_callback_duration_ns, duration);
+            }
             ++call.state.dispatched;
             call.invoked = true;
         }
@@ -461,6 +558,49 @@ NativeAIClockStatus GetNativeAIClockStatus() {
             state.epoch_cells};
 }
 
+void BeginNativeAIObservations() {
+    NativeInterruptGuard scope;
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    RequireInitialized(state);
+    if (state.owner != std::this_thread::get_id() || state.callback_active)
+        throw std::logic_error("AI observations must start on the idle initialization/game owner");
+    state.observations = {};
+    state.observations.observation_start_ns = SDL_GetTicksNS();
+    state.observation_end_ns = 0;
+    state.observing = true;
+}
+
+void EndNativeAIObservations() {
+    NativeInterruptGuard scope;
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    RequireInitialized(state);
+    if (state.owner != std::this_thread::get_id() || state.callback_active)
+        throw std::logic_error("AI observations must end on the idle initialization/game owner");
+    if (state.observing) state.observation_end_ns = SDL_GetTicksNS();
+    state.observing = false;
+}
+
+NativeAIObservationStatus GetNativeAIObservationStatus() {
+    NativeInterruptGuard scope;
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    auto observed = state.observations;
+    if (observed.observation_start_ns) {
+        const auto end = state.observing ? SDL_GetTicksNS() : state.observation_end_ns;
+        observed.observed_elapsed_ns = end - observed.observation_start_ns;
+    }
+    return observed;
+}
+
+NativeAIOutputStatus GetNativeAIOutputStatus() {
+    NativeInterruptGuard scope;
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    return state.output;
+}
+
 void ShutdownNativeAI() {
     NativeInterruptGuard scope;
     auto& state = State();
@@ -482,6 +622,8 @@ void ShutdownNativeAI() {
         std::lock_guard lock(state.mutex);
         audio_reference = state.audio_reference;
         state.audio_reference = false;
+        if (state.observing) state.observation_end_ns = SDL_GetTicksNS();
+        state.observing = false;
         state.stream = nullptr;
         state.initialized = false;
         state.callback = nullptr;

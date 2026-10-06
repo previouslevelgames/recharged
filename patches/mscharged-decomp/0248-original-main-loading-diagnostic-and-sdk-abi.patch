@@ -1,0 +1,79 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Qualify the original loading call and its native SDK declarations
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Classification: explicit temporary original-main diagnostic gate; permanent SDK/compiler ABI.
+
+Part1 extends only the named MAIN_BOOTSTRAP diagnostic with the existing
+DisplayLoadingMessageFast call at its original Initialize position after
+glStartup. Normal main is token-identical; full tasks/reset remain omitted.
+Part2 gives whole LidOpenMessage canonical native GX/VI/SC declarations,
+including its actual32bit ARGB word and canonical enum types. Preserve the
+original numeric NONE/ONE/ZERO/SET request through explicit native casts.
+Console source, RLE bitmap, allocations, branches, passes and VI timing remain
+unchanged. Hardware must execute real stores/copy/finish before acceptance.
+CPU-written XFB coherence and full startup remain separate explicit holds.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -505,7 +505,11 @@
+         Bind<void>(MemFun<ResetTask, void>(&ResetTask::FSCheckForReset),
+             &resetTask)));
+ 
++#endif // DVD/reset registration remains outside this selected loading gate
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE)
+     DisplayLoadingMessageFast();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     InitializeODEAllocators();
+     RegisterUserGeomClasses();
+ #endif // physics omitted; logical pads retain their source Initialize position
+@@ -909,7 +913,11 @@
+ #endif
+ #else
+     // Owner-authorized diagnostic checkpoint: full game startup has not run.
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE)
++    return 86;
++#else
+     return 81;
++#endif
+ #endif
+ #else
+ 
+diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
+--- a/src/Game/FE/LidOpenMessage.cpp
++++ b/src/Game/FE/LidOpenMessage.cpp
+@@ -2022,6 +2022,12 @@
+ static bool CanGetResetPauseState = true;
+ 
+ 
++#if defined(MSCHARGED_NATIVE)
++// Real native SDK declarations retain Wii-sized words and canonical enums.
++#include <revolution/gx.h>
++#include <revolution/vi.h>
++#include <revolution/sc.h>
++#else
+ extern "C"
+ {
+     u8 SCGetLanguage();
+@@ -2036,6 +2042,7 @@
+     void VIFlush();
+     void VISetNextFrameBuffer(void*);
+ }
++#endif
+ 
+ static int fn_801BF4EC()
+ {
+@@ -2158,7 +2165,12 @@
+     UncompressLidMessage(datastart, datasize, expanded, expandedSize);
+ 
+     GXPokeColorUpdate(1);
++#if defined(MSCHARGED_NATIVE)
++    GXPokeBlendMode(static_cast<GXBlendMode>(0), static_cast<GXBlendFactor>(1),
++                   static_cast<GXBlendFactor>(0), static_cast<GXLogicOp>(0xF));
++#else
+     GXPokeBlendMode(0, 1, 0, 0xF);
++#endif
+ 
+     xStart = (0x280 - imagewidth) / 2;
+     centeredFlag = (centered == 0);

@@ -1,0 +1,465 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Present the original VI selected completed XFB through native scanout
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native VI hardware output transport.
+
+Carry actual flushed source VI register selection into the matching completed
+GXCopyDisp GPU resource. Honor black, physical field, source pan/display geometry
+and explicit virtual SC aspect records. Validate/commit outside VI locks, then
+render/present after the genuine owner interrupt returns. Require actual GPU
+completion and successful surface presentation; unsupported XFB/output fails.
+Retain original VI callback/clock/mask/register ordering and pending cause.
+No original game source, frame decisions or extra resource requests change.
+Native recorder lifetime and CPU XFB writes remain independent boundaries.
+Compose after exact SDK29 including native copy0028 and compiler0031.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -29,8 +29,38 @@
+ void aurora_attach_video_interrupt_device(const AuroraVIInterruptDevice* device);
+ void aurora_service_video_hardware(void);
+ void aurora_shutdown_video_hardware(void);
++// Explicit native scanout endpoint. Only source VI commits select its pointer,
++// black state, geometry and physical field; GPU/window work runs after the IRQ.
++typedef struct {
++  const void* framebuffer;
++  uint32_t tv_mode, xfb_mode, retrace_count, field;
++  uint16_t fb_width, xfb_height;
++  uint16_t x_origin, y_origin, vi_width, vi_height;
++  uint16_t pan_x, pan_y, pan_width, pan_height;
++  uint16_t active_width, active_height;
++  bool black;
++} AuroraVIScanout;
++typedef struct {
++  void* context;
++  bool (*prepare)(void* context, const AuroraVIScanout* scanout);
++  void (*commit)(void* context, const AuroraVIScanout* scanout);
++  void (*service)(void* context);
++  void (*shutdown)(void* context);
++} AuroraVIOutputDevice;
++void aurora_attach_video_output_device(const AuroraVIOutputDevice* device);
++// Supply the same explicit SC aspect preference to native virtual display
++// hardware before original VIInit. This does not query or initialize game SC.
++typedef struct { bool widescreen; } AuroraVIOutputConfig;
++void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config);
++typedef struct {
++  const void* framebuffer;
++  uint64_t copy_revision, presentations;
++  uint32_t retrace_count, field;
++  bool black, pending;
++} AuroraVIOutputState;
++bool aurora_get_video_output_state(AuroraVIOutputState* state);
+ // Register/clock state, independent of GX completion/surface presentation.
+-// Nonblack native XFB output remains a separate unimplemented hardware seam.
++// Output requires a separately configured, real native graphics endpoint.
+ typedef struct {
+   uint32_t hardware_tv_mode;
+   uint32_t source_tv_mode;
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -68,6 +68,8 @@
+   std::mutex mutex;
+   AuroraVIBootConfig config{};
+   AuroraVIInterruptDevice interrupt_device{};
++  AuroraVIOutputDevice output_device{};
++  bool output_attached{};
+   std::thread::id owner;
+   bool configured{}, initialized{}, active{}, interrupt{}, flush{}, change_mode{}, shadow_change_mode{};
+   bool interrupt_device_attached{}, initializing{}, callback_active{};
+@@ -113,6 +115,27 @@
+   BOOL prior = OSDisableInterrupts();
+   ~InterruptMask() { OSRestoreInterrupts(prior); }
+ };
++Registers PendingRegisters(const Device& state, bool flush) {
++  Registers regs = state.hardware;
++  if (flush) {
++    if (state.shadow_dirty & Mode) regs.mode = state.shadow.mode;
++    if (state.shadow_dirty & Pan) {
++      regs.pan_x = state.shadow.pan_x; regs.pan_y = state.shadow.pan_y;
++      regs.pan_width = state.shadow.pan_width; regs.pan_height = state.shadow.pan_height;
++    }
++    if (state.shadow_dirty & Black) regs.black = state.shadow.black;
++    if (state.shadow_dirty & Buffer) regs.framebuffer = state.shadow.framebuffer;
++  }
++  return regs;
++}
++AuroraVIScanout Scanout(const Device& state, const Registers& regs, uint32_t count) {
++  const auto timing = GetTiming(uint32_t(regs.mode.viTVmode));
++  return {regs.framebuffer, uint32_t(regs.mode.viTVmode), uint32_t(regs.mode.xFBmode),
++    count, uint32_t(!CurrentFieldFirst(state)), regs.mode.fbWidth, regs.mode.xfbHeight,
++    regs.mode.viXOrigin, regs.mode.viYOrigin, regs.mode.viWidth, regs.mode.viHeight,
++    regs.pan_x, regs.pan_y, regs.pan_width, regs.pan_height, 720,
++    uint16_t(timing.active_lines * 2), regs.black};
++}
+ void Retrace(void*) {
+   auto& state = State();
+   AuroraVIInterruptDevice device;
+@@ -141,14 +164,25 @@
+     pre = state.pre;
+   }
+   if (pre) pre(count);
++  AuroraVIOutputDevice output;
++  AuroraVIScanout scanout;
++  bool output_attached, flush;
+   {
+     std::lock_guard lock(state.mutex);
+     UpdateClock(state, Clock::now());
+-    if (state.flush && !(state.shadow_change_mode && !CurrentFieldFirst(state))) {
+-      // Blank register/clock startup is supported. Never publish nonblack
+-      // readiness until actual native GX-to-XFB output/scanout is implemented.
+-      if (!state.shadow.black)
+-        throw std::runtime_error("Native VI nonblack XFB scanout is not implemented");
++    flush = state.flush && !(state.shadow_change_mode && !CurrentFieldFirst(state));
++    const auto registers = PendingRegisters(state, flush);
++    scanout = Scanout(state, registers, count);
++    output = state.output_device; output_attached = state.output_attached;
++  }
++  // Validate the requested real resource without holding the VI lock. This
++  // does not wait for GPU work or present inside the source IRQ context.
++  if ((!scanout.black && !output_attached) ||
++      (output_attached && !output.prepare(output.context, &scanout)))
++    throw std::runtime_error("Native VI selected XFB output is not qualified");
++  {
++    std::lock_guard lock(state.mutex);
++    if (flush) {
+       if (state.shadow_dirty & Mode) {
+         const auto old_mode = uint32_t(state.hardware.mode.viTVmode);
+         const auto new_mode = uint32_t(state.shadow.mode.viTVmode);
+@@ -179,6 +213,7 @@
+       aurora::vi::configure(&state.hardware.mode);
+     }
+   }
++  if (output_attached) output.commit(output.context, &scanout);
+   // The original driver clears the temporary context between pre and post.
+   OSClearContext(OSGetCurrentContext());
+   VIRetraceCallback post;
+@@ -207,39 +242,57 @@
+     throw std::logic_error("Native VI interrupt attachment requires staged owner hardware");
+   state.interrupt_device = *device; state.interrupt_device_attached = true;
+ }
++void aurora_attach_video_output_device(const AuroraVIOutputDevice* device) {
++  if (!device || !device->prepare || !device->commit || !device->service || !device->shutdown)
++    throw std::invalid_argument("Native VI requires a complete graphics output device");
++  auto& state = State();
++  std::lock_guard lock(state.mutex);
++  if (!state.configured || state.owner != std::this_thread::get_id() || state.initialized ||
++      state.initializing || state.output_attached)
++    throw std::logic_error("Native output attachment requires staged source owner hardware");
++  state.output_device = *device; state.output_attached = true;
++}
+ void aurora_service_video_hardware() {
+   auto& state = State();
+   AuroraVIInterruptDevice device;
+-  bool pending, enabled;
++  bool pending, enabled, output_attached;
++  AuroraVIOutputDevice output;
+   {
+     std::lock_guard lock(state.mutex);
+     UpdateClock(state, Clock::now());
+     if (!state.initialized || state.active || state.callback_active || state.owner != std::this_thread::get_id()) return;
+     state.active = true; device = state.interrupt_device; pending = state.interrupt;
+     enabled = state.config.interrupts_enabled();
++    output = state.output_device; output_attached = state.output_attached;
+   }
+   struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
+   // Hardware cause latches while the CPU or source line is masked. A failed
+   // exclusion, higher-priority selection or masked line never consumes it.
+   device.set_pending(device.context, pending);
+   if (pending && enabled) device.service(device.context);
++  // Actual GPU/window services run after source pre/post and mask restoration.
++  if (output_attached) output.service(output.context);
+ }
+ void aurora_shutdown_video_hardware() {
+   auto& state = State();
+   AuroraVIInterruptDevice device;
+-  bool attached;
++  bool attached, output_attached;
++  AuroraVIOutputDevice output;
+   {
+     std::lock_guard lock(state.mutex);
+     if (!state.configured) return;
+     if (state.owner != std::this_thread::get_id() || state.active || state.callback_active || state.initializing)
+       throw std::logic_error("Cannot retire foreign or active native VI callbacks");
+     device = state.interrupt_device; attached = state.interrupt_device_attached; state.active = true;
++    output = state.output_device; output_attached = state.output_attached;
+   }
+   struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
++  if (output_attached) output.shutdown(output.context);
+   if (attached) device.shutdown(device.context);
+   std::lock_guard lock(state.mutex);
+   state.initialized = state.configured = state.interrupt = state.flush = false;
+   state.interrupt_device_attached = false; state.interrupt_device = {};
++  state.output_attached = false; state.output_device = {};
+   state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
+   state.current_buffer = state.next_buffer = nullptr;
+   aurora::vi::configure(nullptr);
+@@ -428,6 +481,10 @@
+ } // namespace aurora::vi
+ 
+ extern "C" {
++void aurora_attach_video_output_device(const AuroraVIOutputDevice*) {
++  throw std::logic_error("Native VI output requires AURORA_ENABLE_NATIVE_VIDEO");
++}
++
+ void VIInit() {}
+ void VIConfigure(const GXRenderModeObj* rm) { aurora::vi::configure(rm); }
+ void VIConfigurePan(u16 xOrg, u16 yOrg, u16 width, u16 height) {
+diff --git a/lib/gfx/scanout.hpp b/lib/gfx/scanout.hpp
+new file mode 100644
+--- /dev/null
++++ b/lib/gfx/scanout.hpp
+@@ -0,0 +1,6 @@
++#pragma once
++#include "texture.hpp"
++namespace aurora::gfx::scanout {
++// Hardware diagnostic readback only; source game never consumes this resource.
++TextureHandle rendered_signal();
++}
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+new file mode 100644
+--- /dev/null
++++ b/lib/gfx/scanout.cpp
+@@ -0,0 +1,230 @@
++#include "scanout.hpp"
++#include "xfb.hpp"
++#include "render_worker.hpp"
++#include "../window.hpp"
++#include "../webgpu/gpu.hpp"
++#include <aurora/video.h>
++#include <dolphin/vi.h>
++#include <array>
++#include <mutex>
++#include <stdexcept>
++#include <thread>
++
++namespace aurora::gfx::scanout {
++namespace {
++constexpr Module Log{"aurora::vi::scanout"};
++struct alignas(16) Uniforms {
++  std::array<uint32_t, 4> signal; // active width/height, display origin
++  std::array<uint32_t, 4> display; // display size, source pan origin
++  std::array<uint32_t, 4> sample; // source pan size, physical field, interlace
++};
++static_assert(sizeof(Uniforms) == 48);
++constexpr auto Shader = R"(
++struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, };
++@group(0) @binding(0) var xfb: texture_2d<f32>;
++@group(0) @binding(1) var<uniform> vi: Uniforms;
++@vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
++  switch index {
++    case 0u: { return vec4f(-1.0,-1.0,0.0,1.0); }
++    case 1u: { return vec4f(3.0,-1.0,0.0,1.0); }
++    default: { return vec4f(-1.0,3.0,0.0,1.0); }
++  }
++}
++@fragment fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
++  let at=vec2u(position.xy);
++  // The other physical field retains its previously scanned rows.
++  if vi.source_geometry.w!=0u && at.y%2u!=vi.source_geometry.z { discard; }
++  if any(at<vi.signal.zw) || any(at>=vi.signal.zw+vi.display.xy) {
++    return vec4f(0.0,0.0,0.0,1.0);
++  }
++  let source=(at-vi.signal.zw)*vi.source_geometry.xy/vi.display.xy+vi.display.zw;
++  let bytes=vec4i(floor(textureLoad(xfb,vec2i(i32(source.x/2u),i32(source.y)),0)*255.0+0.5));
++  let y=select(bytes.x,bytes.z,source.x%2u!=0u)-16;
++  let u=bytes.y-128; let v=bytes.w-128;
++  let rgb=vec3i(298*y+409*v,298*y-100*u-208*v,298*y+516*u);
++  return vec4f(vec3f(clamp((rgb+vec3i(128))/vec3i(256),vec3i(0),vec3i(255)))/255.0,1.0);
++}
++)";
++struct Output {
++  std::mutex mutex;
++  std::thread::id owner;
++  bool configured{}, widescreen{}, pending{}, servicing{};
++  AuroraVIScanout prepared{}, committed{};
++  std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot;
++  uint64_t presentations{};
++  TextureHandle signal;
++  wgpu::BindGroupLayout layout;
++  wgpu::RenderPipeline pipeline;
++};
++Output& State() { static Output state; return state; }
++void RequireOwner(const Output& state) {
++  if (!state.configured || state.owner != std::this_thread::get_id())
++    throw std::logic_error("Native VI output requires its configured source owner");
++}
++void complete_gpu() {
++  struct Done { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
++  auto done = std::make_shared<Done>();
++  const auto future = webgpu::g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
++      [done](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { done->status = status; });
++  AURORA_ASSERT(webgpu::g_instance.WaitAny(future, 5'000'000'000) == wgpu::WaitStatus::Success &&
++      done->status == wgpu::QueueWorkDoneStatus::Success, "Native VI signal GPU submission did not complete");
++  AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
++      "Native VI signal completed on a lost device");
++}
++TextureHandle new_signal(uint32_t width, uint32_t height) {
++  const wgpu::Extent3D size{width, height, 1};
++  const wgpu::TextureDescriptor desc{.label = "Source VI active signal",
++      .usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopySrc,
++      .dimension = wgpu::TextureDimension::e2D, .size = size, .format = wgpu::TextureFormat::RGBA8Unorm, .mipLevelCount = 1, .sampleCount = 1};
++  auto texture = webgpu::g_device.CreateTexture(&desc); auto view = texture.CreateView();
++  return std::make_shared<TextureRef>(std::move(texture), view, view, size, wgpu::TextureFormat::RGBA8Unorm, 1, GX_TF_RGBA8);
++}
++bool prepare(void*, const AuroraVIScanout* scanout) {
++  auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
++  state.prepared_snapshot.reset();
++  if (!scanout || !scanout->active_width || !scanout->active_height) return false;
++  if (!scanout->black) {
++    if (!scanout->framebuffer || (scanout->tv_mode & 3u) == VI_NON_INTERLACE ||
++        !scanout->vi_width || !scanout->vi_height || !scanout->pan_width || !scanout->pan_height ||
++        scanout->x_origin + scanout->vi_width > scanout->active_width ||
++        scanout->y_origin + scanout->vi_height > scanout->active_height || scanout->xfb_mode > 1) return false;
++    auto resource = xfb::find(scanout->framebuffer);
++    if (!resource || !resource->gpuComplete.load(std::memory_order_acquire) ||
++        resource->width != scanout->fb_width || resource->stride != ((scanout->fb_width + 15u) / 16u) * 32u ||
++        scanout->pan_x + scanout->pan_width > resource->width ||
++        scanout->pan_y + scanout->pan_height > resource->height) return false;
++    state.prepared_snapshot = std::move(resource);
++  }
++  state.prepared = *scanout; return true;
++}
++void commit(void*, const AuroraVIScanout* scanout) {
++  auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
++  AURORA_ASSERT(scanout && scanout->retrace_count == state.prepared.retrace_count &&
++      scanout->framebuffer == state.prepared.framebuffer && scanout->black == state.prepared.black,
++      "Native VI output commit does not match its actual prepared source state");
++  state.committed = *scanout; state.committed_snapshot = std::move(state.prepared_snapshot); state.pending = true;
++}
++void service(void*) {
++  auto& state = State(); AuroraVIScanout scanout;
++  std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal;
++  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline; bool widescreen;
++  {
++    std::lock_guard lock(state.mutex); RequireOwner(state);
++    if (!state.pending || state.servicing) return;
++    state.servicing = true; state.pending = false; scanout = state.committed;
++    snapshot = state.committed_snapshot; widescreen = state.widescreen;
++    layout = state.layout; pipeline = state.pipeline; signal = state.signal;
++    if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
++      state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
++  }
++  struct Active { Output& state; ~Active() { std::lock_guard lock(state.mutex); state.servicing = false; } } active{state};
++  // Owner refresh/presentation runs outside the source VI IRQ and its locks.
++  if (window::is_presentable() && !webgpu::g_surface) webgpu::refresh_surface(true);
++  const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
++      webgpu::g_graphicsConfig.surfaceConfiguration.height, widescreen ? 16u : 4u, widescreen ? 9u : 3u);
++  render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
++                              layout, pipeline, viewport] {
++    const auto encoder = webgpu::g_device.CreateCommandEncoder();
++    const wgpu::RenderPassColorAttachment color{.view = signal->attachmentTextureView,
++        .loadOp = scanout.black ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load, .storeOp = wgpu::StoreOp::Store,
++        .clearValue = {0.0, 0.0, 0.0, 1.0}};
++    const wgpu::RenderPassDescriptor passDesc{.label = "Source selected VI field",
++        .colorAttachmentCount = 1, .colorAttachments = &color};
++    const auto pass = encoder.BeginRenderPass(&passDesc); wgpu::Buffer uniform;
++    if (!scanout.black) {
++      AURORA_ASSERT(snapshot && snapshot->gpuComplete.load(std::memory_order_acquire), "VI selected a noncompleted GX XFB");
++      const Uniforms values{{scanout.active_width, scanout.active_height, scanout.x_origin, scanout.y_origin},
++          {scanout.vi_width, scanout.vi_height, scanout.pan_x, scanout.pan_y},
++          {scanout.pan_width, scanout.pan_height, scanout.field, (scanout.tv_mode & 3u) == VI_INTERLACE}};
++      const wgpu::BufferDescriptor desc{.label = "Original VI field geometry",
++          .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst, .size = sizeof(values)};
++      uniform = webgpu::g_device.CreateBuffer(&desc); webgpu::g_queue.WriteBuffer(uniform, 0, &values, sizeof(values));
++      const std::array entries{wgpu::BindGroupEntry{.binding = 0, .textureView = snapshot->packedYuyv->sampleTextureView},
++          wgpu::BindGroupEntry{.binding = 1, .buffer = uniform, .size = sizeof(values)}};
++      const wgpu::BindGroupDescriptor groupDesc{.layout = layout, .entryCount = entries.size(), .entries = entries.data()};
++      const auto group = webgpu::g_device.CreateBindGroup(&groupDesc);
++      pass.SetPipeline(pipeline); pass.SetBindGroup(0, group); pass.Draw(3);
++    }
++    pass.End(); wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
++    {
++      window::SurfaceLock lock;
++      if (window::is_presentable() && webgpu::g_surface) {
++        wgpu::SurfaceTexture current; webgpu::g_surface.GetCurrentTexture(&current); status = current.status;
++        if (status == wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal ||
++            status == wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) target = std::move(current.texture);
++      }
++    }
++    if (target) {
++      const wgpu::RenderPassColorAttachment attachment{.view = target.CreateView(), .loadOp = wgpu::LoadOp::Clear,
++          .storeOp = wgpu::StoreOp::Store, .clearValue = {0.0, 0.0, 0.0, 1.0}};
++      const wgpu::RenderPassDescriptor desc{.label = "Source VI signal surface", .colorAttachmentCount = 1,
++          .colorAttachments = &attachment};
++      const auto surfacePass = encoder.BeginRenderPass(&desc);
++      const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
++      const webgpu::TextureWithSampler source{.texture = signal->texture, .view = signal->sampleTextureView,
++          .size = signal->size, .format = wgpu::TextureFormat::RGBA8Unorm,
++          .sampler = webgpu::g_device.CreateSampler(&samplerDesc)};
++      const auto group = webgpu::create_copy_bind_group(source);
++      surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, group);
++      surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
++      surfacePass.Draw(3); surfacePass.End();
++    }
++    const auto commands = encoder.Finish(); webgpu::g_queue.Submit(1, &commands); complete_gpu();
++    if (target) {
++      window::SurfaceLock lock;
++      if (window::is_presentable() && webgpu::g_surface && webgpu::g_surface.Present()) {
++        std::lock_guard stateLock(state.mutex); ++state.presentations;
++      } else { Log.warn("Native VI surface presentation failed"); }
++    } else if (status == wgpu::SurfaceGetCurrentTextureStatus::Outdated ||
++               status == wgpu::SurfaceGetCurrentTextureStatus::Lost ||
++               status == wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) {
++      window::push_custom_event(window::CustomEvent::RefreshSurface);
++    }
++  });
++  render_worker::synchronize();
++}
++void shutdown(void*) {
++  auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
++  if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
++  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.signal = {}; state.pipeline = {}; state.layout = {};
++  state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = {}; state.presentations = 0;
++}
++void configure(const AuroraVIOutputConfig* config) {
++  if (!config || !webgpu::g_device)
++    throw std::invalid_argument("Native VI output requires explicit aspect and initialized real GX");
++  auto& state = State(); std::lock_guard lock(state.mutex);
++  if (state.configured) throw std::logic_error("Native VI output is already configured");
++  const std::array entries{wgpu::BindGroupLayoutEntry{.binding = 0, .visibility = wgpu::ShaderStage::Fragment,
++      .texture = {.sampleType = wgpu::TextureSampleType::UnfilterableFloat, .viewDimension = wgpu::TextureViewDimension::e2D}},
++      wgpu::BindGroupLayoutEntry{.binding = 1, .visibility = wgpu::ShaderStage::Fragment,
++          .buffer = {.type = wgpu::BufferBindingType::Uniform}}};
++  const wgpu::BindGroupLayoutDescriptor layoutDesc{.entryCount = entries.size(), .entries = entries.data()};
++  const auto layout = webgpu::g_device.CreateBindGroupLayout(&layoutDesc);
++  const wgpu::ShaderSourceWGSL wgsl{wgpu::ShaderSourceWGSL::Init{.code = Shader}};
++  const wgpu::ShaderModuleDescriptor moduleDesc{.nextInChain = &wgsl}; const auto module = webgpu::g_device.CreateShaderModule(&moduleDesc);
++  const wgpu::PipelineLayoutDescriptor pipelineLayoutDesc{.bindGroupLayoutCount = 1, .bindGroupLayouts = &layout};
++  const auto pipelineLayout = webgpu::g_device.CreatePipelineLayout(&pipelineLayoutDesc);
++  const wgpu::ColorTargetState color{.format = wgpu::TextureFormat::RGBA8Unorm};
++  const wgpu::FragmentState fragment{.module = module, .entryPoint = "fragment", .targetCount = 1, .targets = &color};
++  const wgpu::RenderPipelineDescriptor pipelineDesc{.label = "Original VI selected XFB field", .layout = pipelineLayout,
++      .vertex = {.module = module, .entryPoint = "vertex"},
++      .primitive = {.topology = wgpu::PrimitiveTopology::TriangleList}, .fragment = &fragment};
++  const auto pipeline = webgpu::g_device.CreateRenderPipeline(&pipelineDesc);
++  const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown};
++  aurora_attach_video_output_device(&endpoint);
++  state.layout = layout; state.pipeline = pipeline; state.configured = true; state.widescreen = config->widescreen;
++  state.owner = std::this_thread::get_id(); state.pending = false; state.presentations = 0;
++}
++} // namespace
++TextureHandle rendered_signal() { auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state); return state.signal; }
++} // namespace aurora::gfx::scanout
++extern "C" {
++void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config) { aurora::gfx::scanout::configure(config); }
++bool aurora_get_video_output_state(AuroraVIOutputState* result) {
++  if (!result) return false; auto& state = aurora::gfx::scanout::State(); std::lock_guard lock(state.mutex);
++  if (!state.configured) return false;
++  *result = {state.committed.framebuffer, state.committed_snapshot ? state.committed_snapshot->revision : 0,
++      state.presentations, state.committed.retrace_count, state.committed.field, state.committed.black, state.pending};
++  return true;
++}
++}
+diff --git a/cmake/aurora_gx.cmake b/cmake/aurora_gx.cmake
+--- a/cmake/aurora_gx.cmake
++++ b/cmake/aurora_gx.cmake
+@@ -1,6 +1,7 @@
+ add_library(aurora_gx STATIC
+         lib/gfx/clear.cpp
+         lib/gfx/xfb.cpp
++        lib/gfx/scanout.cpp
+         lib/gfx/depth_peek.cpp
+         lib/gfx/encoding.cpp
+         lib/gfx/frame.cpp

@@ -1,13 +1,5 @@
 include_guard(GLOBAL)
-# Explicit prepared Aurora decoder selection; do not change global SDK THP use.
-# Aurora's source retains its MIT terms (extern/aurora/LICENSE).
-add_library(charged_thp_decoder STATIC
-    "${MSCHARGED_AURORA_PREPARED}/lib/dolphin/thp/THPDec.cpp"
-    "${MSCHARGED_AURORA_PREPARED}/lib/dolphin/thp/THPAudio.cpp")
-add_dependencies(charged_thp_decoder verify_prepared)
-target_link_libraries(charged_thp_decoder PUBLIC aurora::core)
-target_compile_features(charged_thp_decoder PUBLIC cxx_std_20)
-target_compile_definitions(charged_thp_decoder PRIVATE AURORA_THP_PRESERVE_QUARTER_IDCT=1)
+include(cmake/NativeThpDecoder.cmake)
 add_library(charged_thp_movie STATIC src/resources/thp_movie.cpp src/runtime/thp_movie.cpp)
 add_dependencies(charged_thp_movie verify_prepared)
 target_include_directories(charged_thp_movie PUBLIC src PRIVATE "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")

@@ -19,6 +19,8 @@ add_library(charged_original_entry_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/GameInfo.cpp"
     "${MSCHARGED_PREPARED}/src/Game/DB/BasicGameInfo.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Task/FixedUpdateTask.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/AsyncLoading.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Task/LoadingTask.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/original_entry.cpp")
 add_dependencies(charged_original_entry_module_sources verify_prepared)
 set_target_properties(charged_original_entry_module_sources PROPERTIES

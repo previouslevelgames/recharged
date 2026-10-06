@@ -1,0 +1,80 @@
+From: mscharged-port source integration
+Subject: [PATCH] Select original Credits movie in original-main diagnostic
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Classification: temporary diagnostic-only selected source flow.
+Scope: named MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE, no normal game behavior change.
+Prerequisite: original-main native-frame diagnostic0249 and movie0247.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -6,6 +6,9 @@
+ #endif
+ #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
+ #include "Game/SH/SHCredits.h"
++#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++#include "Game/Sys/movie.h"
++#endif
+ #include "Game/FE/feScene.h"
+ #include "NL/glx/glxMemory.h"
+ #include "NL/glx/glxSend.h"
+@@ -562,7 +565,11 @@
+     EmissionManager::ConfigureResource(2, "StadiumEffects", 250);
+     ImpostorManager::GetInstance();
+     ClockManager::Initialize();
++#endif // unrelated manager/audio boot; retain the source callback position
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
+     InstallImageRenderCallback();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     GLResourcePool* resourcePool = glGetCurrentResourcePool();
+     resourcePool->MarkResource();
+     InitPlatPad();
+@@ -861,6 +868,12 @@
+     }
+     if (!UpdateFontLoading(&gLoadInGameFonts))
+         return 84;
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE) && defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++    // Selected actual loading endpoint: retail AsyncLoading requests MovieInit
++    // after the frontend/font/audio stage. The interpreter/AX predecessor is
++    // still omitted here; named mode0 uses genuine host AI, no ready flag.
++    MovieInit();
++#endif
+ #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
+     // The original loading bytecode and GameSceneManager dispatch are omitted
+     // by this temporary diagnostic. Retain the same source-owned managers,
+@@ -927,6 +940,11 @@
+     FEResourceManager::Instance()->Run(delta);
+     FESceneManager::Instance()->Update(delta);
+     FESceneManager::Instance()->RenderActiveScenes();
++#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++    // Actual task-manager movie endpoint, selected once per diagnostic frame.
++    // Original source vi_post_cb owns glxGetFrameCount; no host counter.
++    MoviePlay();
++#endif
+     glEndFrame();
+     GetLayerView(eCLV_Anark)->Iterate(glx_SendFrame_cb);
+     glx_SendEnd();
+@@ -944,7 +962,23 @@
+     FEResourceManager::Instance()->Run(delta);
+     FESceneManager::Instance()->Update(delta);
+     FESceneManager::Instance()->RenderActiveScenes();
++#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++    // Actual task-manager movie endpoint, selected once per diagnostic frame.
++    // Original source vi_post_cb owns glxGetFrameCount; no host counter.
++    MoviePlay();
++#endif
+     glEndFrame();
+     glSendFrame();
+ }
+ #endif
++
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE) && defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++extern "C" __attribute__((visibility("default"))) void charged_original_scene_stop_movie()
++{
++    // Explicit terminal fixture boundary before native AI/SDK storage retires.
++    // Original movie read/audio/texture release order remains authoritative;
++    // original scene/manager/CRT teardown is not qualified by this diagnostic.
++    MovieStop();
++    MovieQuit();
++}
++#endif

@@ -1,0 +1,48 @@
+From: Charged native preparation
+Subject: [PATCH] Preserve FIFO draw receipt across native source finishes
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Original source glSendFrame requests an initial draw finish before view draws.
+Native hardware packet retirement must preserve the host receipt tag until
+its explicit FIFO end opcode, while ordinary frame/shutdown cache resets still
+clear it. This changes observational metadata only; source GX/VI flow remains
+unchanged.
+
+--- a/lib/gx/command_processor.hpp
++++ b/lib/gx/command_processor.hpp
+@@ -13,6 +13,8 @@
+ 
+ // Process GX FIFO commands until the next draw done event or end of buffer
+ ProcessResult process(const uint8_t* data, uint32_t size) noexcept;
+-void clear_draw_cache() noexcept;
++// Source native GX finishes bound recorder storage, not a host receipt span.
++// Explicit receipt FIFO opcodes own the span until its zero end tag.
++void clear_draw_cache(bool resetReceipt = true) noexcept;
+ 
+ } // namespace aurora::gx::fifo
+--- a/lib/gx/command_processor.cpp
++++ b/lib/gx/command_processor.cpp
+@@ -775,8 +775,8 @@
+   }
+ }
+ 
+-void clear_draw_cache() noexcept {
+-  currentDrawReceipt = 0;
++void clear_draw_cache(bool resetReceipt) noexcept {
++  if (resetReceipt) currentDrawReceipt = 0;
+   sDrawCache.bindGeneration = 0;
+   sDrawCache.uniformRange = {};
+   sDrawCache.fogRange = {};
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -54,7 +54,9 @@
+     AURORA_ASSERT(sHardwareFrameActive, "Original GX finish has no native recording");
+     gfx::submit_hardware_frame_and_wait();
+     sHardwareFrameActive = false;
+-    clear_draw_cache();
++    // A source finish can precede its next draw within the same host receipt.
++    // Retire native cached ranges while retaining the FIFO-ordered tag.
++    clear_draw_cache(false);
+   } else {
+     gfx::submit_draw_done_and_wait();
+   }

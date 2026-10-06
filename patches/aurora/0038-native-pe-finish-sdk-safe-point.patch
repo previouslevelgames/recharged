@@ -1,0 +1,30 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Deliver pending native PE finish before the SDK reset section
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The real original loading path exposed an already-completed older finish
+latched for48ms while source aperture stores ran. The next GXSetDrawDone reset
+then owner-delivered that older cause in its wait, before its own XFB copy
+completed. A four-pass chain stayed one genuine finish behind; VI correctly
+rejected the final unfinished copy. Deliver eligible pending PE interrupts at
+the native SDK entry before the existing source critical section/reset.
+Preserve genuine GPU completion, original pending one-bit/coalescing, owner
+thread, CPU mask, temporary source context, callback, reset and wait behavior.
+Do not filter old completions by request generation, add game waits, synthesize
+copy readiness or alter the reconstructed game/VI/bitmap/source decisions.
+
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -292,6 +292,11 @@
+ }
+ 
+ void GXSetDrawDone() {
++  // Native safe point for a genuine already-latched PE finish interrupt.
++  // Hardware can deliver it before the original SDK critical section; late
++  // owner polling must not let that old cause satisfy the following reset.
++  // Existing owner/context/mask rules retain pending masked/foreign causes.
++  aurora::gx::fifo::service_draw_done();
+   const BOOL enabled = OSDisableInterrupts();
+   GX_WRITE_RAS_REG(kDrawDoneCommand);
+   GXFlush();

@@ -1,0 +1,238 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Preserve original EFB while resizing native window output
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Keep source EFB/depth/cache storage across physical surface-only resize.
+Native VIConfigure exposes its requested GX descriptor immediately, as the
+original SDK does, while physical VI register latching remains delayed.
+Retire genuine pending source FIFO/GPU work before a real EFB allocation
+change; emit no synthetic GX completion, VI retrace or source frame.
+Existing SC display aspect and original VI rectangle/positioning remain
+unchanged. Game source, camera, projection and layout are not patched.
+
+--- a/lib/window.hpp
++++ b/lib/window.hpp
+@@ -48,6 +48,8 @@
+ void set_window_position(uint32_t x, uint32_t y);
+ void center_window();
+ void request_frame_buffer_resize();
++// Owner-only application of source EFB metadata before its first FIFO packet.
++void resize_swapchain() noexcept;
+ void set_frame_buffer_scale(float scale);
+ void set_frame_buffer_aspect_fit(bool fit);
+ void set_background_input(bool value);
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -23,6 +23,7 @@
+ #include "../gfx/render_worker.hpp"
+ #include "../internal.hpp"
+ #include "../window.hpp"
++#include "../gx/fifo.hpp"
+ #include "gpu_prof.hpp"
+ 
+ #ifdef WEBGPU_DAWN
+@@ -1128,13 +1129,16 @@
+   if (!g_surface || !g_device || width == 0 || height == 0 || nativeHeight == 0 || nativeWidth == 0) {
+     return;
+   }
+-  const bool sizeChanged = g_graphicsConfig.surfaceConfiguration.width != nativeWidth ||
+-                           g_graphicsConfig.surfaceConfiguration.height != nativeHeight ||
+-                           g_frameBuffer.size.width != width || g_frameBuffer.size.height != height;
+-  if (!force && !sizeChanged) {
++  const bool surfaceChanged = g_graphicsConfig.surfaceConfiguration.width != nativeWidth ||
++                              g_graphicsConfig.surfaceConfiguration.height != nativeHeight;
++  const bool efbChanged = g_frameBuffer.size.width != width || g_frameBuffer.size.height != height;
++  if (!force && !surfaceChanged && !efbChanged) {
+     return;
+   }
+-  if (sizeChanged) {
++  // Desktop output size is independent of the original EFB. Preserve its
++  // storage, caches and active native packet across an output-only resize.
++  if (efbChanged) {
++    gx::fifo::prepare_native_efb_resize();
+     gx::clear_copy_texture_cache();
+     gfx::clear_caches();
+   }
+@@ -1146,13 +1150,15 @@
+     window::SurfaceLock surfaceLock;
+     g_surface.Configure(&surfaceConfiguration);
+   }
+-  g_frameBuffer = create_render_texture(width, height, true);
+-  g_frameBufferResolved = create_render_texture(width, height, false);
+-  g_depthBuffer = create_depth_texture(width, height);
+-  if (g_graphicsConfig.normalBuffer) {
+-    g_normalBuffer = create_normal_texture(width, height);
+-  }
+-  g_CopyBindGroup = create_copy_bind_group(present_source());
++  if (efbChanged) {
++    g_frameBuffer = create_render_texture(width, height, true);
++    g_frameBufferResolved = create_render_texture(width, height, false);
++    g_depthBuffer = create_depth_texture(width, height);
++    if (g_graphicsConfig.normalBuffer) {
++      g_normalBuffer = create_normal_texture(width, height);
++    }
++    g_CopyBindGroup = create_copy_bind_group(present_source());
++  }
+ }
+ 
+ bool refresh_surface(bool recreate) {
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -7,6 +7,9 @@
+ #include <aurora/hardware.h>
+ #include <aurora/video.h>
+ #include "../../window.hpp"
++#if defined(AURORA_ENABLE_GX)
++#include "../../gx/fifo.hpp"
++#endif
+ #include "aurora/math.hpp"
+ #include "vi_internal.hpp"
+ #include <algorithm>
+@@ -24,6 +27,12 @@
+ }
+ void configure(const GXRenderModeObj* rm) noexcept {
+   const auto oldSize = render_mode_size();
++#if defined(AURORA_ENABLE_GX)
++  const Vec2<uint32_t> nextSize = rm ? Vec2<uint32_t>{rm->fbWidth, rm->efbHeight} : Vec2<uint32_t>{640, 480};
++  // Retire old-size FIFO work before changing its address/viewport metadata.
++  if (nextSize != oldSize && gx::fifo::native_recording_configured())
++    gx::fifo::prepare_native_efb_resize();
++#endif
+   if (rm) g_renderMode = *rm;
+   else g_renderMode.reset();
+   if (render_mode_size() != oldSize) window::request_frame_buffer_resize();
+@@ -210,7 +219,8 @@
+       state.current_buffer = state.next_buffer;
+       state.shadow_dirty = 0; state.shadow_change_mode = false; state.flush = false;
+       UpdateClock(state, Clock::now());
+-      aurora::vi::configure(&state.hardware.mode);
++      // GX EFB metadata follows the original requested render descriptor.
++      // Actual VI signal registers still commit only at this genuine retrace.
+     }
+   }
+   if (output_attached) output.commit(output.context, &scanout);
+@@ -343,20 +353,30 @@
+ void VIConfigure(const GXRenderModeObj* rm) {
+   if (!rm) throw std::invalid_argument("Original VIConfigure requires a real mode");
+   auto& state = State(); InterruptMask mask;
+-  std::lock_guard lock(state.mutex); RequireOwner(state);
+   auto mode = *rm;
+-  const uint32_t boot = state.config.boot_tv_mode >> 2, requested = uint32_t(mode.viTVmode) >> 2;
+-  const bool compatible = ((boot == VI_NTSC || boot == VI_MPAL) && (requested == VI_NTSC || requested == VI_MPAL)) ||
+-    ((boot == VI_PAL || boot == VI_EURGB60) && (requested == VI_PAL || requested == VI_EURGB60));
+-  if (!compatible) throw std::runtime_error("VIConfigure requested a forbidden boot-region TV mode transition");
+-  if (requested == VI_NTSC || requested == VI_MPAL) mode.viTVmode = VITVMode(VI_TVMODE(boot, uint32_t(mode.viTVmode) & 3));
+-  GetTiming(uint32_t(mode.viTVmode));
+-  if ((uint32_t(state.requested.mode.viTVmode) & 3) != (uint32_t(mode.viTVmode) & 3)) state.change_mode = true;
+-  state.requested.mode = mode;
+-  state.requested.pan_x = state.requested.pan_y = 0;
+-  state.requested.pan_width = mode.fbWidth; state.requested.pan_height = mode.xfbHeight;
+-  state.dirty |= Mode | Pan | Black;
+-  if (state.framebuffer_set) state.dirty |= Buffer;
++  {
++    std::lock_guard lock(state.mutex); RequireOwner(state);
++    const uint32_t boot = state.config.boot_tv_mode >> 2, requested = uint32_t(mode.viTVmode) >> 2;
++    const bool compatible = ((boot == VI_NTSC || boot == VI_MPAL) && (requested == VI_NTSC || requested == VI_MPAL)) ||
++      ((boot == VI_PAL || boot == VI_EURGB60) && (requested == VI_PAL || requested == VI_EURGB60));
++    if (!compatible) throw std::runtime_error("VIConfigure requested a forbidden boot-region TV mode transition");
++    if (requested == VI_NTSC || requested == VI_MPAL) mode.viTVmode = VITVMode(VI_TVMODE(boot, uint32_t(mode.viTVmode) & 3));
++    GetTiming(uint32_t(mode.viTVmode));
++    if ((uint32_t(state.requested.mode.viTVmode) & 3) != (uint32_t(mode.viTVmode) & 3)) state.change_mode = true;
++    state.requested.mode = mode;
++    state.requested.pan_x = state.requested.pan_y = 0;
++    state.requested.pan_width = mode.fbWidth; state.requested.pan_height = mode.xfbHeight;
++    state.dirty |= Mode | Pan | Black;
++    if (state.framebuffer_set) state.dirty |= Buffer;
++  }
++  // Canonical VIConfigure updates HorVer request metadata immediately. The
++  // source's EFB dimensions must exist before its following GXInit/GXFlush;
++  // waiting for a VI signal latch incorrectly tied allocation to desktop size.
++  aurora::vi::configure(&mode);
++#if defined(AURORA_ENABLE_GX)
++  if (aurora::gx::fifo::native_recording_configured())
++    aurora::window::resize_swapchain();
++#endif
+ }
+ void VIConfigurePan(u16 xOrg, u16 yOrg, u16 width, u16 height) {
+   auto& state = State(); InterruptMask mask;
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -203,6 +203,19 @@
+ 
+ bool native_recording_configured() noexcept { return sNativeRecording.load(std::memory_order_acquire); }
+ 
++void prepare_native_efb_resize() {
++  if (!native_recording_configured()) return;
++  require_owner();
++  // drain() joins the actual FIFO watermark. The owner then has exclusive
++  // access to the paused recorder until the next source command is published.
++  drain();
++  if (sHardwareFrameActive) {
++    gfx::submit_hardware_frame_and_wait();
++    sHardwareFrameActive = false;
++    clear_draw_cache(false);
++  }
++}
++
+ void require_owner() {
+   AURORA_ASSERT(sOwner == std::this_thread::get_id() && detail::sBufferData,
+       "Native GX PE register/aperture access requires its initialized SDK owner");
+--- a/lib/gx/fifo.hpp
++++ b/lib/gx/fifo.hpp
+@@ -30,6 +30,9 @@
+ void shutdown();
+ void configure_native_recording();
+ bool native_recording_configured() noexcept;
++// Retire genuine pending source GPU work before replacing its EFB backing.
++// This emits no GX finish interrupt, VI retrace, or game frame decision.
++void prepare_native_efb_resize();
+ // SDK owner, not the worker or a game-side substitute.
+ void require_owner();
+ 
+--- a/lib/window.cpp
++++ b/lib/window.cpp
+@@ -110,7 +110,7 @@
+   return {width, std::max(1, static_cast<int>(std::lround(static_cast<float>(width) / aspect)))};
+ }
+ 
+-void resize_swapchain() noexcept {
++void resize_swapchain_internal() noexcept {
+   const auto size = get_window_size();
+   if (size == g_windowSize) {
+     return;
+@@ -208,7 +208,7 @@
+     if (!primaryWindow) {
+       break;
+     }
+-    resize_swapchain();
++    resize_swapchain_internal();
+     g_events.push_back(AuroraEvent{
+         .type = AURORA_DISPLAY_SCALE_CHANGED,
+         .windowSize = get_window_size(),
+@@ -219,7 +219,7 @@
+     if (!primaryWindow) {
+       break;
+     }
+-    resize_swapchain();
++    resize_swapchain_internal();
+     g_events.push_back(AuroraEvent{
+         .type = AURORA_WINDOW_RESIZED,
+         .windowSize = get_window_size(),
+@@ -274,7 +274,7 @@
+   default:
+     if (event.type == g_sdlCustomEventsStart + CustomEvent::FutureResize) {
+       // Future resize event
+-      resize_swapchain();
++      resize_swapchain_internal();
+       g_events.push_back(AuroraEvent{
+           .type = AURORA_WINDOW_RESIZED,
+           .windowSize = get_window_size(),
+@@ -301,6 +301,8 @@
+   });
+ }
+ } // namespace
++
++void resize_swapchain() noexcept { resize_swapchain_internal(); }
+ 
+ const AuroraEvent* poll_events() {
+   ZoneScoped;

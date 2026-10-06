@@ -1,0 +1,321 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Give original GX FIFO requests native EFB recorder ownership
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native GX command/submission hardware adaptation.
+
+Explicitly arm original native GX before reconstructed module construction.
+Consume actual FIFO requests with lazy real packets, preserving EFB Load at
+native storage boundaries. Original finish opcodes require successful GPU
+submission/device/future completion before existing owner PE delivery; actual
+GXFlush publishes the completed FIFO prefix in this armed mode. Recycle native
+packet storage without added game clears, frames, callbacks or VI presentation.
+Keep historical diagnostic binary APIs and reject mixed recording ownership.
+No Charged source or game initialization/render/swap algorithm is changed.
+Compose after native selected-XFB output0032 on exactSDK29 provider preimages.
+
+diff --git a/include/aurora/gfx.h b/include/aurora/gfx.h
+--- a/include/aurora/gfx.h
++++ b/include/aurora/gfx.h
+@@ -33,6 +33,11 @@
+ 
+ void aurora_enable_vsync(bool enabled);
+ 
++// Arm actual native GX FIFO execution before reconstructed module/statics.
++// Original GX commands own draw/copy/finish. VI owns chosen-XFB presentation;
++// callers must not mix diagnostic begin/end_frame with this hardware session.
++void aurora_configure_native_gx_hardware();
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -273,6 +273,7 @@
+ bool begin_frame() noexcept {
+   ZoneScoped;
+ #ifdef AURORA_ENABLE_GX
++  AURORA_ASSERT(!gx::fifo::native_recording_configured(), "Diagnostic begin_frame conflicts with original GX hardware");
+   {
+     if (!window::is_presentable()) {
+       webgpu::release_surface();
+@@ -301,6 +302,7 @@
+ void end_frame(bool present = true) noexcept {
+   ZoneScoped;
+ #ifdef AURORA_ENABLE_GX
++  AURORA_ASSERT(!gx::fifo::native_recording_configured(), "Diagnostic end_frame conflicts with original GX hardware");
+   gx::fifo::drain();
+   gx::fifo::end_frame();
+   gx::texture::end_frame();
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -34,6 +34,8 @@
+ constexpr uint32_t kDrawBatchSize = 1;
+ 
+ bool sFrameActive = false;
++std::atomic_bool sNativeRecording{false};
++bool sHardwareFrameActive = false; // FIFO worker; shutdown accesses after join.
+ uint32_t sPendingDraws = 0;
+ std::atomic<uint64_t> sPublished{0};
+ std::atomic<uint64_t> sProcessed{0};
+@@ -47,7 +49,14 @@
+ std::thread::id sOwner;
+ 
+ void latch_gpu_draw_done() {
+-  gfx::submit_draw_done_and_wait();
++  if (sNativeRecording.load(std::memory_order_acquire)) {
++    AURORA_ASSERT(sHardwareFrameActive, "Original GX finish has no native recording");
++    gfx::submit_hardware_frame_and_wait();
++    sHardwareFrameActive = false;
++    clear_draw_cache();
++  } else {
++    gfx::submit_draw_done_and_wait();
++  }
+   sGpuFinishPending.store(true, std::memory_order_release);
+ }
+ 
+@@ -67,6 +76,10 @@
+                     sStreamBase + detail::sBufferSize);
+       const auto start = static_cast<uint32_t>(processed - sStreamBase);
+       const auto size = static_cast<uint32_t>(target - processed);
++      if (sNativeRecording.load(std::memory_order_acquire) && !sHardwareFrameActive) {
++        AURORA_ASSERT(gfx::begin_hardware_frame(), "Original GX hardware staging/recorder failed to begin");
++        sHardwareFrameActive = true;
++      }
+       result = process(detail::sBufferData + start, size);
+     }
+     AURORA_ASSERT(result.bytesProcessed > 0 && result.bytesProcessed <= target - processed,
+@@ -136,6 +149,8 @@
+   detail::sDlWritePos = 0;
+ 
+   sFrameActive = false;
++  sNativeRecording.store(false, std::memory_order_relaxed);
++  sHardwareFrameActive = false;
+   sPendingDraws = 0;
+   sStreamBase = 0;
+   sGpuFinishPending.store(false, std::memory_order_relaxed);
+@@ -148,11 +163,38 @@
+   start_worker();
+ }
+ 
+-void shutdown() { stop_worker(); service_draw_done(); }
+-
+-void begin_frame() noexcept { sFrameActive = true; }
++void shutdown() {
++  stop_worker();
++  if (sNativeRecording.load(std::memory_order_acquire) && sHardwareFrameActive) {
++    // Drain the real recorded GPU prefix before backing/window retirement.
++    // Shutdown never invents another source PE finish interrupt.
++    gfx::submit_hardware_frame_and_wait();
++    sHardwareFrameActive = false;
++    clear_draw_cache();
++  }
++  sNativeRecording.store(false, std::memory_order_release);
++  sFrameActive = false;
++  service_draw_done();
++}
++
++void configure_native_recording() {
++  AURORA_ASSERT(sOwner == std::this_thread::get_id() && !sFrameActive &&
++      !sNativeRecording.load(std::memory_order_acquire) && detail::sBufferSize == 0 &&
++      sPublished.load(std::memory_order_acquire) == sProcessed.load(std::memory_order_acquire),
++      "Native GX hardware requires its initialized idle owner before source commands");
++  AURORA_ASSERT(gfx::current_frame() != UINT32_MAX, "Native GX hardware has no initialized graphics foundation");
++  sNativeRecording.store(true, std::memory_order_release);
++}
++
++bool native_recording_configured() noexcept { return sNativeRecording.load(std::memory_order_acquire); }
++
++void begin_frame() noexcept {
++  AURORA_ASSERT(!native_recording_configured(), "Diagnostic frame conflicts with native GX hardware ownership");
++  sFrameActive = true;
++}
+ 
+ void end_frame() noexcept {
++  AURORA_ASSERT(!native_recording_configured(), "Diagnostic frame conflicts with native GX hardware ownership");
+   sFrameActive = false;
+   clear_draw_cache(); // command_processor
+ }
+@@ -181,7 +223,7 @@
+ }
+ 
+ void publish() noexcept {
+-  if (!sFrameActive || kProcessingMode == ProcessingMode::Drain || detail::sInDisplayList) {
++  if ((!sFrameActive && !native_recording_configured()) || kProcessingMode == ProcessingMode::Drain || detail::sInDisplayList) {
+     return;
+   }
+ 
+@@ -254,7 +296,7 @@
+ }
+ 
+ void finish_draw() noexcept {
+-  if (!sFrameActive || kProcessingMode == ProcessingMode::Drain || detail::sInDisplayList) {
++  if ((!sFrameActive && !native_recording_configured()) || kProcessingMode == ProcessingMode::Drain || detail::sInDisplayList) {
+     return;
+   }
+   if (++sPendingDraws >= kDrawBatchSize) {
+@@ -345,3 +387,7 @@
+ }
+ 
+ } // namespace aurora::gx::fifo
++
++extern "C" void aurora_configure_native_gx_hardware() {
++  aurora::gx::fifo::configure_native_recording();
++}
+diff --git a/lib/gx/fifo.hpp b/lib/gx/fifo.hpp
+--- a/lib/gx/fifo.hpp
++++ b/lib/gx/fifo.hpp
+@@ -28,6 +28,8 @@
+ 
+ void init();
+ void shutdown();
++void configure_native_recording();
++bool native_recording_configured() noexcept;
+ 
+ void begin_frame() noexcept;
+ void end_frame() noexcept;
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -625,7 +625,7 @@
+   }
+ }
+ 
+-bool begin_frame() {
++static bool begin_frame_impl(bool preserveEfb) {
+   ZoneScoped;
+   // pace_frame_start();
+   const size_t frameSlot = acquire_frame_slot();
+@@ -657,7 +657,8 @@
+     mapBuffer(frame.textureUpload, TextureUploadSize);
+   }
+ 
+-  begin_recording(frame, frameSlot);
++  if (preserveEfb) begin_hardware_recording(frame, frameSlot);
++  else begin_recording(frame, frameSlot);
+   begin_pipeline_frame();
+   render_worker::enqueue_begin_frame(frame.frameId, [frameSlot] {
+     constexpr wgpu::CommandEncoderDescriptor EncoderDescriptor{.label = "Redraw encoder"};
+@@ -667,6 +668,9 @@
+   g_cpuFrameStart = PresentClock::now();
+   return true;
+ }
++
++bool begin_frame() { return begin_frame_impl(false); }
++bool begin_hardware_frame() { return begin_frame_impl(true); }
+ 
+ void end_frame(EndFrameCallback callback) {
+   ZoneScoped;
+@@ -714,6 +718,32 @@
+ void after_submit() noexcept { depth_peek::after_submit(); }
+ 
+ void gpu_synchronize() { render_worker::synchronize(); }
++
++void submit_hardware_frame_and_wait() {
++  // Actual original finish opcode retires bounded native storage. The next
++  // hardware packet Loads EFB; this boundary adds no game frame or VI present.
++  finish();
++  end_frame([](wgpu::CommandEncoder& encoder, std::vector<AfterSubmitCallback> callbacks) {
++    webgpu::gpu_prof::frame_end(encoder);
++    const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
++    const auto commands = encoder.Finish(&descriptor);
++    g_queue.Submit(1, &commands);
++    webgpu::gpu_prof::after_submit();
++    for (auto& callback : callbacks) if (callback) callback();
++    after_submit();
++    struct Completion { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
++    auto completion = std::make_shared<Completion>();
++    const auto future = g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
++        [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
++    const auto waited = g_instance.WaitAny(future, 5'000'000'000);
++    AURORA_ASSERT(waited == wgpu::WaitStatus::Success &&
++        completion->status == wgpu::QueueWorkDoneStatus::Success,
++        "Original GX native submission failed to complete on the GPU");
++    AURORA_ASSERT(g_instance.WaitAny(g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
++        "Original GX native submission completed on a lost GPU device");
++  });
++  render_worker::synchronize();
++}
+ 
+ void submit_draw_done_and_wait() {
+   // This method is called by the FIFO worker at the exact finish opcode. Native
+diff --git a/lib/gfx/frame.hpp b/lib/gfx/frame.hpp
+--- a/lib/gfx/frame.hpp
++++ b/lib/gfx/frame.hpp
+@@ -34,6 +34,9 @@
+ void initialize();
+ void shutdown();
+ bool begin_frame();
++// FIFO-owned native packets use Load and actual finish submission, no surface.
++bool begin_hardware_frame();
++void submit_hardware_frame_and_wait();
+ void end_frame(EndFrameCallback callback);
+ uint32_t current_frame() noexcept;
+ void after_submit() noexcept;
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -561,7 +561,7 @@
+ 
+ namespace detail {
+ 
+-void begin_recording(FramePacket& packet, size_t frameSlot) {
++static void begin_recording_impl(FramePacket& packet, size_t frameSlot, bool preserveEfb) {
+   CHECK(!g_recorder.active(), "A recording session is already active");
+   if (g_recorder.normalRequested && webgpu::enable_normal_buffer()) {
+     g_recorder.normalRequested = false;
+@@ -579,11 +579,28 @@
+   set_efb_targets(pass);
+   pass.colorAttachments[SceneColorAttachmentIndex].clearValue = gx::g_gxState.clearColor;
+   pass.clearDepthValue = gx::clear_depth_value();
++  if (preserveEfb) {
++    // Starting another native submission is not a Wii EFB clear request.
++    for (uint32_t i = 0; i < pass.colorAttachmentCount; ++i) {
++      pass.colorAttachments[i].clear = false;
++      pass.colorAttachments[i].loadOp = wgpu::LoadOp::Load;
++    }
++    pass.clearDepth = false;
++    if (pass.hasDepth) pass.depthLoadOp = wgpu::LoadOp::Load;
++    if (pass.hasStencil) pass.stencilLoadOp = wgpu::LoadOp::Load;
++  }
+   g_recorder.currentRenderPass = 0;
+   g_recorder.cachedViewport = gx::map_logical_viewport(gx::g_gxState.logicalViewport);
+   g_recorder.cachedScissor = gx::map_logical_scissor(gx::g_gxState.logicalScissor);
+   push_command(CommandType::SetViewport, Command::Data{.setViewport = g_recorder.cachedViewport});
+   push_command(CommandType::SetScissor, Command::Data{.setScissor = g_recorder.cachedScissor});
++}
++
++void begin_recording(FramePacket& packet, size_t frameSlot) {
++  begin_recording_impl(packet, frameSlot, false);
++}
++void begin_hardware_recording(FramePacket& packet, size_t frameSlot) {
++  begin_recording_impl(packet, frameSlot, true);
+ }
+ 
+ std::optional<RecordedFrame> split_recording_for_draw_done() {
+diff --git a/lib/gfx/recording.hpp b/lib/gfx/recording.hpp
+--- a/lib/gfx/recording.hpp
++++ b/lib/gfx/recording.hpp
+@@ -16,6 +16,8 @@
+ };
+ 
+ void begin_recording(FramePacket& packet, size_t frameSlot);
++// Native submission boundaries preserve physical EFB instead of host clears.
++void begin_hardware_recording(FramePacket& packet, size_t frameSlot);
+ RecordedFrame end_recording();
+ // Seal a GPU submission segment without ending/resetting the original frame.
+ std::optional<RecordedFrame> split_recording_for_draw_done();
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -313,6 +313,9 @@
+   if (__gx->dirtyState) {
+     __GXSetDirtyState();
+   }
++  // Continuous native hardware consumes this completed physical FIFO prefix.
++  // Historical diagnostic begin/end-frame ownership retains its old batching.
++  if (aurora::gx::fifo::native_recording_configured()) aurora::gx::fifo::publish();
+ }
+ 
+ void GXPixModeSync() {
