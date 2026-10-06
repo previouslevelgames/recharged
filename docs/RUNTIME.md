@@ -2,7 +2,7 @@
 
 The port is a work in progress alongside the decompilation. Linux diagnostics
 cover selected original initialization, Wii assets and menu previews.
-**Original game startup, Credits scene execution and matches remain in development.** These experiments
+**Full original game startup and matches remain in development.** These experiments
 currently require a USA `R4QE01` revision 1 ISO/RVZ configured in `mscharged.ini`.
 
 Start with [Building](BUILDING.md) for compiler requirements, the launcher and
@@ -20,6 +20,35 @@ This runs the available original initialization and stops explicitly with exit
 code 3 at the unfinished startup boundary. The launcher exposes **Try startup**.
 For a host check without game data, build preset `aurora` and run
 `./build/aurora/mscharged-aurora-check --window`.
+
+## Original Credits scene test
+
+With the Linux/Vulkan prerequisites below:
+
+```sh
+cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC=ON
+cmake --build --preset graphics --target mscharged-original-credits-check -j 3
+./build/graphics/mscharged-original-credits-check --disc ./game/R4QE01.rvz --window
+```
+
+This temporary test loads and renders the original Credits handler, assets,
+fonts and frontend code. It currently displays retained scene packets after
+original updates; full startup, live scrolling, movie/audio and game input are
+pending. Close the window to exit. Omit `--window` to save a capture and exit.
+
+## Original movie audio test
+
+```sh
+cmake --preset startup -DMSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC=ON
+cmake --build build/startup --target mscharged-thp-audio-check
+SDL_VIDEODRIVER=dummy ./build/startup/mscharged-thp-audio-check \
+  ./build/startup/liboriginal_movie_audio_module.so ./game/R4QE01.rvz \
+  art/movies/credits.thp 5000 ./build/startup/credits.pcm
+```
+
+This opt-in diagnostic runs the original movie decoder and mixer through the
+native audio device. It omits video and full startup; audio can repeat during
+host scheduling delays.
 
 ## Rendering and menu previews
 

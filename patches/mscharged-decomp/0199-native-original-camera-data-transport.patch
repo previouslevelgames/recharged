@@ -1,6 +1,6 @@
 Subject: Transport original camera serialized words and native placement storage
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Keep the original camera loading, owning/borrowed records, copying, list and
 callback algorithms. Before the original direct word reads, ask the native

@@ -1,0 +1,186 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Route native VI retrace through its actual shared PI_VI line
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native video interrupt hardware adaptation.
+
+Compose after native VI0023 and explicit feature guard0027. Original VIInit
+registers/unmasks PI_VI; elapsed hardware causes retain one source level under
+CPU/current/user masks. Acknowledge before count/pre callbacks and preserve
+existing native driver timing/register/order/output boundaries. All device
+callbacks run outside the VI mutex; unconfigured or feature-OFF endpoints reject.
+No original Charged source or game algorithms change. GXCopyDisp/XFB scanout
+remains explicitly unavailable.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -14,6 +14,19 @@
+   bool (*dispatch_interrupt)(void (*handler)(void*), void* context);
+ } AuroraVIBootConfig;
+ void aurora_configure_video_hardware(const AuroraVIBootConfig* config);
++// The native SDK uses the same actual PI_VI line/masks as the other devices.
++// Install this host endpoint before original module/static construction;
++// original VIInit itself installs and unmasks the device's source handler.
++// All callbacks run without the VI device mutex held. Only set_pending may
++// operate independently of source IRQ exclusion; handlers run on the owner.
++typedef struct {
++  void* context;
++  void (*initialize)(void* context, void (*retrace)(void*), void* retrace_context);
++  void (*set_pending)(void* context, bool pending);
++  bool (*service)(void* context);
++  void (*shutdown)(void* context);
++} AuroraVIInterruptDevice;
++void aurora_attach_video_interrupt_device(const AuroraVIInterruptDevice* device);
+ void aurora_service_video_hardware(void);
+ void aurora_shutdown_video_hardware(void);
+ // Register/clock state, independent of GX completion/surface presentation.
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -67,8 +67,10 @@
+ struct Device {
+   std::mutex mutex;
+   AuroraVIBootConfig config{};
++  AuroraVIInterruptDevice interrupt_device{};
+   std::thread::id owner;
+   bool configured{}, initialized{}, active{}, interrupt{}, flush{}, change_mode{}, shadow_change_mode{};
++  bool interrupt_device_attached{}, initializing{}, callback_active{};
+   bool framebuffer_set{}, second_field_seed{};
+   Registers requested{}, shadow{}, hardware{};
+   unsigned dirty{}, shadow_dirty{};
+@@ -113,13 +115,28 @@
+ };
+ void Retrace(void*) {
+   auto& state = State();
++  AuroraVIInterruptDevice device;
+   VIRetraceCallback pre;
+   uint32_t count;
+   {
+     std::lock_guard lock(state.mutex);
++    RequireOwner(state);
++    if (state.callback_active) throw std::logic_error("Native VI retrace handler reentered");
+     UpdateClock(state, Clock::now());
+     if (!state.interrupt) return;
+     state.interrupt = false;
++    state.callback_active = true;
++    device = state.interrupt_device;
++  }
++  struct Callback {
++    Device& state;
++    ~Callback() { std::lock_guard lock(state.mutex); state.callback_active = false; }
++  } callback{state};
++  // Retail acknowledges the latched VI cause before advancing its source
++  // count. The shared controller keeps the level pending until this write.
++  device.set_pending(device.context, false);
++  {
++    std::lock_guard lock(state.mutex);
+     count = ++state.retraces;
+     pre = state.pre;
+   }
+@@ -180,27 +197,49 @@
+   if (state.configured) throw std::logic_error("Native VI hardware is already configured");
+   state.config = *config; state.owner = std::this_thread::get_id(); state.configured = true;
+ }
++void aurora_attach_video_interrupt_device(const AuroraVIInterruptDevice* device) {
++  if (!device || !device->initialize || !device->set_pending || !device->service || !device->shutdown)
++    throw std::invalid_argument("Native VI requires a complete PI_VI interrupt device");
++  auto& state = State();
++  std::lock_guard lock(state.mutex);
++  if (!state.configured || state.owner != std::this_thread::get_id() || state.initialized || state.initializing ||
++      state.interrupt_device_attached)
++    throw std::logic_error("Native VI interrupt attachment requires staged owner hardware");
++  state.interrupt_device = *device; state.interrupt_device_attached = true;
++}
+ void aurora_service_video_hardware() {
+   auto& state = State();
+-  bool (*dispatch)(void (*)(void*), void*);
++  AuroraVIInterruptDevice device;
++  bool pending, enabled;
+   {
+     std::lock_guard lock(state.mutex);
+     UpdateClock(state, Clock::now());
+-    if (!state.initialized || !state.interrupt || state.active ||
+-        state.owner != std::this_thread::get_id() || !state.config.interrupts_enabled()) return;
+-    state.active = true; dispatch = state.config.dispatch_interrupt;
++    if (!state.initialized || state.active || state.callback_active || state.owner != std::this_thread::get_id()) return;
++    state.active = true; device = state.interrupt_device; pending = state.interrupt;
++    enabled = state.config.interrupts_enabled();
+   }
+   struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
+-  // Failed exclusion or masked dispatch retains the native latched IRQ.
+-  dispatch(Retrace, nullptr);
++  // Hardware cause latches while the CPU or source line is masked. A failed
++  // exclusion, higher-priority selection or masked line never consumes it.
++  device.set_pending(device.context, pending);
++  if (pending && enabled) device.service(device.context);
+ }
+ void aurora_shutdown_video_hardware() {
+   auto& state = State();
++  AuroraVIInterruptDevice device;
++  bool attached;
++  {
++    std::lock_guard lock(state.mutex);
++    if (!state.configured) return;
++    if (state.owner != std::this_thread::get_id() || state.active || state.callback_active || state.initializing)
++      throw std::logic_error("Cannot retire foreign or active native VI callbacks");
++    device = state.interrupt_device; attached = state.interrupt_device_attached; state.active = true;
++  }
++  struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
++  if (attached) device.shutdown(device.context);
+   std::lock_guard lock(state.mutex);
+-  if (!state.configured) return;
+-  if (state.owner != std::this_thread::get_id() || state.active)
+-    throw std::logic_error("Cannot retire foreign or active native VI callbacks");
+   state.initialized = state.configured = state.interrupt = state.flush = false;
++  state.interrupt_device_attached = false; state.interrupt_device = {};
+   state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
+   state.current_buffer = state.next_buffer = nullptr;
+   aurora::vi::configure(nullptr);
+@@ -218,10 +257,19 @@
+ }
+ void VIInit() {
+   auto& state = State();
+-  std::lock_guard lock(state.mutex);
++  InterruptMask mask;
++  std::unique_lock lock(state.mutex);
+   if (!state.configured || state.owner != std::this_thread::get_id())
+     throw std::logic_error("Original VIInit requires pre-entry native video hardware configuration");
+   if (state.initialized) return;
++  if (!state.interrupt_device_attached || state.initializing)
++    throw std::logic_error("Original VIInit requires the actual shared PI_VI interrupt device");
++  state.initializing = true;
++  const auto device = state.interrupt_device;
++  lock.unlock();
++  try { device.initialize(device.context, Retrace, nullptr); }
++  catch (...) { std::lock_guard restore(state.mutex); state.initializing = false; throw; }
++  lock.lock();
+   state.timing = state.source_timing = GetTiming(state.config.boot_tv_mode);
+   Registers boot{};
+   boot.mode.viTVmode = VITVMode(state.config.boot_tv_mode);
+@@ -236,6 +284,7 @@
+   state.fields = state.previous_fields = state.elapsed_base = state.clocks = 0;
+   state.interrupt = state.flush = false; state.current_buffer = state.next_buffer = nullptr;
+   state.pre = state.post = nullptr; state.anchor = Clock::now(); state.initialized = true;
++  state.initializing = false;
+   aurora::vi::configure(&boot.mode);
+ }
+ void VIConfigure(const GXRenderModeObj* rm) {
+@@ -281,7 +330,7 @@
+ void VIWaitForRetrace() {
+   auto& state = State();
+   { std::lock_guard lock(state.mutex); RequireOwner(state);
+-    if (state.active) throw std::logic_error("VIWaitForRetrace cannot sleep inside a VI interrupt callback"); }
++    if (state.active || state.callback_active) throw std::logic_error("VIWaitForRetrace cannot sleep inside a VI interrupt callback"); }
+   InterruptMask mask;
+   const u32 count = VIGetRetraceCount();
+   do {
+@@ -403,6 +452,9 @@
+ void aurora_configure_video_hardware(const AuroraVIBootConfig*) {
+   throw std::logic_error("Native VI hardware is disabled in this diagnostic build");
+ }
++void aurora_attach_video_interrupt_device(const AuroraVIInterruptDevice*) {
++  throw std::logic_error("Native VI hardware is disabled in this diagnostic build");
++}
+ void aurora_service_video_hardware() {}
+ void aurora_shutdown_video_hardware() {}
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState*) { return false; }

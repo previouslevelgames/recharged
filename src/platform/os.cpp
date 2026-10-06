@@ -1,4 +1,5 @@
 #include <dolphin/os.h>
+#include <aurora/hardware.h>
 #ifdef AURORA_ENABLE_GX
 #include <dolphin/gx/GXManage.h>
 #endif
@@ -19,6 +20,7 @@ extern "C" void OSYieldThread()
     // Workers latch genuine PE completion; only the unmasked GX owner delivers.
     AuroraServiceGXDrawDone();
 #endif
+    aurora_service_hardware();
     std::this_thread::yield();
 }
 

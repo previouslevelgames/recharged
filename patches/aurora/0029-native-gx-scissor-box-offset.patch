@@ -1,0 +1,83 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Transport original GX scissor box offset requests
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native GX register and raster clipping adaptation.
+
+Original GXInit/glx_InitGX request GXSetScissorBoxOffset(0,0). Encode the real
+BP0x59 half-pixel10-bit fields with Wii unsigned32 arithmetic, apply offsets
+to all BP scissor updates, and retain the initialized zero logical offset.
+No game source, viewport requests or clipping decisions changed.
+
+diff --git a/lib/dolphin/gx/GXCull.cpp b/lib/dolphin/gx/GXCull.cpp
+--- a/lib/dolphin/gx/GXCull.cpp
++++ b/lib/dolphin/gx/GXCull.cpp
+@@ -19,7 +19,14 @@
+   __gx->bpSent = 1;
+ }
+ 
+-// TODO GXSetScissorBoxOffset
++void GXSetScissorBoxOffset(s32 x, s32 y) {
++  // Exact source request encoding: unsigned32 addition, half-pixel units and
++  // 10-bit register fields. The FIFO consumer applies the latched BP offset.
++  const u32 offsetX = ((static_cast<u32>(x) + 342u) / 2u) & 0x3FFu;
++  const u32 offsetY = ((static_cast<u32>(y) + 342u) / 2u) & 0x3FFu;
++  GX_WRITE_RAS_REG(0x59000000u | offsetX | (offsetY << 10));
++  __gx->bpSent = 1;
++}
+ 
+ void GXSetCullMode(GXCullMode mode) {
+   // Swap front/back to match hardware convention
+diff --git a/lib/gx/regs.cpp b/lib/gx/regs.cpp
+--- a/lib/gx/regs.cpp
++++ b/lib/gx/regs.cpp
+@@ -133,10 +133,13 @@
+ void bp_scissor(u8, u32) noexcept {
+   const u32 scis0 = g_gxState.bpRegCache[0x20];
+   const u32 scis1 = g_gxState.bpRegCache[0x21];
+-  const s32 tp = static_cast<s32>(reg_get(scis0, 11, 0)) - 342;
+-  const s32 lf = static_cast<s32>(reg_get(scis0, 11, 12)) - 342;
+-  const s32 bm = static_cast<s32>(reg_get(scis1, 11, 0)) - 342;
+-  const s32 rt = static_cast<s32>(reg_get(scis1, 11, 12)) - 342;
++  const u32 offset = g_gxState.bpRegCache[0x59];
++  const s32 offsetX = static_cast<s32>(reg_get(offset, 10, 0)) * 2;
++  const s32 offsetY = static_cast<s32>(reg_get(offset, 10, 10)) * 2;
++  const s32 tp = static_cast<s32>(reg_get(scis0, 11, 0)) - offsetY;
++  const s32 lf = static_cast<s32>(reg_get(scis0, 11, 12)) - offsetX;
++  const s32 bm = static_cast<s32>(reg_get(scis1, 11, 0)) - offsetY;
++  const s32 rt = static_cast<s32>(reg_get(scis1, 11, 12)) - offsetX;
+   const s32 wd = std::max(rt - lf + 1, 0);
+   const s32 ht = std::max(bm - tp + 1, 0);
+   set_logical_scissor({lf, tp, wd, ht});
+@@ -541,6 +544,7 @@
+   regs[0x50] = {bp_clear_bg};
+   regs[0x51] = {bp_clear_depth};
+   regs[0x52] = {bp_efb_copy, 0, /* alwaysHandle */ true};
++  regs[0x59] = {bp_scissor};
+   regs[0x64] = {}; // TLUT load address; bp_tlut_load reads from shadow
+   regs[0x65] = {bp_tlut_load, DirtyTextures, /* alwaysHandle */ true};
+   for (u32 base : {0x80u, 0xA0u}) {
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -418,6 +418,9 @@
+   // Shadow registers
+   std::array<u32, 0x100> bpRegCache = [] {
+     std::array<u32, 0x100> regs{};
++    // Retain the native SDK's initialized zero logical box offset even in
++    // standalone diagnostic callers. GXInit writes the actual source request.
++    regs[0x59] = (171u << 10) | 171u;
+     regs[0xFE] = 0x00FFFFFF;
+     return regs;
+   }();
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -164,7 +164,7 @@
+   GXSetCullMode(GX_CULL_BACK);
+   GXSetClipMode(GX_CLIP_ENABLE);
+   GXSetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+-  // GXSetScissorBoxOffset(0, 0);
++  GXSetScissorBoxOffset(0, 0);
+ 
+   GXSetNumChans(0);
+   GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);

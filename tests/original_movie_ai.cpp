@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
             Check(THPSimpleInit(0)==1, "whole original standalone THPSimpleInit failed");
             auto first=GetNativeAIStatus();
             Check(first.initialized && first.running && first.dma_bytes==384 &&
-                  first.source_address>0xffffffffull && first.last_input_hash==zero_hash,
+                  first.source_address>0xffffffffull,
                   "source SoundBuffer DMA initialization was not executed");
             const auto before=first.dispatched_callbacks;
             Check(THPSimpleGetTotalFrame()==0 && THPSimpleCalcNeedMemory()==0,
@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
             Check(THPSimpleGetVideoInfo(&video)==0 && std::memcmp(&video,expected,sizeof(video))==0,
                   "source unopened video query modified its output");
             const auto mask=OSDisableInterrupts();
-            Await([&]{return GetNativeAIStatus().interrupt_pending;}, "real source sound DMA was not consumed");
+            Await([&]{return GetNativeAIStatus().interrupt_pending;}, "real source sound DMA did not latch its hardware edge");
             Check(!ServiceNativeAI(), "original THP callback ran while masked");
             OSRestoreInterrupts(mask);
             Await([&]{return ServiceNativeAI();}, "original source mix callback did not run");

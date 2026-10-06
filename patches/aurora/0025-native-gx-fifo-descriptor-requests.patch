@@ -1,0 +1,123 @@
+Subject: [PATCH] retain native GX FIFO descriptor requests
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Implement original FIFO descriptor initialization, pointer and watermark
+requests beneath game code with actual host address carriers. The exact source
+limits/defaults and modulo32 count transport are retained. Opaque storage uses
+memcpy for its byte alignment. This does not qualify native GPU CP interrupts,
+software-queue occupancy, FIFO save, hardware overflow or status stubs.
+
+--- a/lib/dolphin/gx/GXFifo.cpp
++++ b/lib/dolphin/gx/GXFifo.cpp
+@@ -1,4 +1,35 @@
+-#include "gx.hpp"
++#include <dolphin/gx/GXFifo.h>
++#include <dolphin/os.h>
++
++#include <cstdint>
++#include <cstring>
++
++namespace {
++// Host address carriers fit the public opaque128-byte object. FIFO descriptor
++// requests do not certify CP overflow or native software-queue completion.
++struct NativeFifo {
++  void* base;
++  void* top;
++  u32 size;
++  u32 hiWatermark;
++  u32 loWatermark;
++  void* read;
++  void* write;
++  s32 count;
++  u8 wrap;
++  u8 bindCpu;
++  u8 bindGp;
++};
++static_assert(sizeof(NativeFifo) <= sizeof(GXFifoObj));
++NativeFifo Load(const GXFifoObj* fifo) {
++  NativeFifo value;
++  std::memcpy(&value, fifo, sizeof(value));
++  return value;
++}
++void Store(GXFifoObj* fifo, const NativeFifo& value) {
++  std::memcpy(fifo, &value, sizeof(value));
++}
++} // namespace
+ 
+ extern "C" {
+ 
+@@ -13,26 +44,56 @@
+ // TODO GXGetFifoStatus
+ 
+ void GXGetFifoPtrs(GXFifoObj* fifo, void** readPtr, void** writePtr) {
+-  *readPtr = NULL;
+-  *writePtr = NULL;
++  const auto value = Load(fifo);
++  *readPtr = value.read;
++  *writePtr = value.write;
+ }
+ 
+ GXFifoObj* GXGetCPUFifo() { return CPUFifo; }
+ 
+ GXFifoObj* GXGetGPFifo() { return GPFifo; }
+ 
+-// TODO GXGetFifoBase
+-// TODO GXGetFifoSize
+-// TODO GXGetFifoLimits
++void* GXGetFifoBase(const GXFifoObj* fifo) { return Load(fifo).base; }
++u32 GXGetFifoSize(const GXFifoObj* fifo) { return Load(fifo).size; }
++
++void GXGetFifoLimits(const GXFifoObj* fifo, u32* hi, u32* lo) {
++  const auto value = Load(fifo);
++  *hi = value.hiWatermark;
++  *lo = value.loWatermark;
++}
+ // TODO GXSetBreakPtCallback
+ // TODO GXEnableBreakPt
+ // TODO GXDisableBreakPt
+ 
+-void GXInitFifoBase(GXFifoObj* fifo, void* base, u32 size) {}
++void GXInitFifoBase(GXFifoObj* fifo, void* base, u32 size) {
++  auto value = Load(fifo);
++  value.base = base;
++  value.top = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(base) + size - 4);
++  value.size = size;
++  value.count = 0;
++  Store(fifo, value);
++  GXInitFifoLimits(fifo, size - 16 * 1024, (size / 2) & ~u32{31});
++  GXInitFifoPtrs(fifo, base, base);
++}
+ 
+-void GXInitFifoPtrs(GXFifoObj* fifo, void* readPtr, void* writePtr) {}
++void GXInitFifoPtrs(GXFifoObj* fifo, void* readPtr, void* writePtr) {
++  const auto enabled = OSDisableInterrupts();
++  auto value = Load(fifo);
++  value.read = readPtr;
++  value.write = writePtr;
++  value.count = static_cast<s32>(reinterpret_cast<std::uintptr_t>(writePtr) -
++                                 reinterpret_cast<std::uintptr_t>(readPtr));
++  if (value.count < 0) value.count += value.size;
++  Store(fifo, value);
++  OSRestoreInterrupts(enabled);
++}
+ 
+-// TODO GXInitFifoLimits
++void GXInitFifoLimits(GXFifoObj* fifo, u32 hiWatermark, u32 loWatermark) {
++  auto value = Load(fifo);
++  value.hiWatermark = hiWatermark;
++  value.loWatermark = loWatermark;
++  Store(fifo, value);
++}
+ 
+ void GXSetCPUFifo(GXFifoObj* fifo) { CPUFifo = fifo; }
+ 
+--- a/include/dolphin/gx/GXFifo.h
++++ b/include/dolphin/gx/GXFifo.h
+@@ -29,6 +29,7 @@
+ void GXInitFifoLimits(GXFifoObj* fifo, u32 hiWaterMark, u32 loWaterMark);
+ void* GXGetFifoBase(const GXFifoObj* fifo);
+ u32 GXGetFifoSize(const GXFifoObj* fifo);
++void GXGetFifoLimits(const GXFifoObj* fifo, u32* hiWatermark, u32* loWatermark);
+ 
+ #ifdef __cplusplus
+ }

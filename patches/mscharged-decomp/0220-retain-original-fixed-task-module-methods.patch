@@ -1,0 +1,62 @@
+Subject: [PATCH] retain original fixed task source methods in native modules
+
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+
+Retain both actual source empty ABI helpers in the original module. Their
+unchanged retail bodies are not a fabricated successful provider. Keep the
+whole source task and all constructor, data and update decisions. Expose the
+actual runtime helper declarations without MWCC asm syntax on native compilers;
+this does not supply any missing helper implementation.
+
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -47,7 +47,7 @@
+ static u16 sSimulationTimeType = 0xFFFF;
+ static u16 sTimeScaleType = 0xFFFF;
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ void fn_80111654(int)
+ {
+ }
+@@ -57,7 +57,7 @@
+ {
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ void fn_8011165C(int)
+ {
+ }
+--- a/libs/Runtime/include/runtime.h
++++ b/libs/Runtime/include/runtime.h
+@@ -45,14 +45,21 @@
+ #undef DECLARE_REGISTER_HELPERS
+ 
+ unsigned long __cvt_fp2unsigned(double);
+-asm void __div2u(void);
+-asm void __div2i(void);
+-asm void __mod2u(void);
+-asm void __mod2i(void);
+-asm void __shl2i(void);
+-asm void __cvt_ull_dbl(void);
+-asm void __cvt_ull_flt(void);
+-asm void __cvt_dbl_ull(void);
++#if defined(MSCHARGED_NATIVE)
++#define MSCHARGED_RUNTIME_ASM
++#else
++#define MSCHARGED_RUNTIME_ASM asm
++#endif
++MSCHARGED_RUNTIME_ASM void __div2u(void);
++MSCHARGED_RUNTIME_ASM void __div2i(void);
++MSCHARGED_RUNTIME_ASM void __mod2u(void);
++MSCHARGED_RUNTIME_ASM void __mod2i(void);
++MSCHARGED_RUNTIME_ASM void __shl2i(void);
++MSCHARGED_RUNTIME_ASM void __cvt_ull_dbl(void);
++MSCHARGED_RUNTIME_ASM void __cvt_ull_flt(void);
++MSCHARGED_RUNTIME_ASM void __cvt_dbl_ull(void);
++
++#undef MSCHARGED_RUNTIME_ASM
+ 
+ #ifdef __cplusplus
+ }

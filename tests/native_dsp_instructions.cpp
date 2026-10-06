@@ -44,7 +44,8 @@ struct ModuleLease {
 };
 void Equal(const DSPInstructionRegisters& actual,const DSPInstructionRegisters& expected) {
     Check(actual.pc==expected.pc && actual.status==expected.status && actual.control==expected.control
-          && actual.accumulator==expected.accumulator && actual.instructions==expected.instructions,
+          && actual.accumulator==expected.accumulator && actual.instructions==expected.instructions
+          && actual.address==expected.address && actual.index==expected.index && actual.wrap==expected.wrap,
           "actual firmware instruction differs from independent register-cell trace");
 }
 
@@ -172,9 +173,9 @@ void Run(int argc,char** argv) {
     bytes[0]=0x8e;bytes[1]=0x01;
     core.LoadInstructionMemory(memory,physical,2,0x100);core.BeginExecution({0x100,0xffff,0,{0,0},0});
     auto rejected=core.Registers();Throws([&]{core.Step();},"unsupported extended write was silently skipped");Equal(core.Registers(),rejected);
-    bytes[0]=0x00;bytes[1]=0x80;bytes[2]=0x12;bytes[3]=0x34;
+    bytes[0]=0x00;bytes[1]=0x8c;bytes[2]=0x12;bytes[3]=0x34;
     core.LoadInstructionMemory(memory,physical,4,0x100);core.BeginExecution({0x100,0,0,{0,0},0});
-    rejected=core.Registers();Throws([&]{core.Step();},"unsupported address register acquired invented semantics");Equal(core.Registers(),rejected);
+    rejected=core.Registers();Throws([&]{core.Step();},"unsupported stack register acquired invented semantics");Equal(core.Registers(),rejected);
     bytes[0]=0x00;bytes[1]=0x9e;bytes[2]=0x80;bytes[3]=0x00;
     core.LoadInstructionMemory(memory,physical,4,0x100);core.BeginExecution({0x100,0x4000,0,{0,0},0});
     rejected=core.Registers();Throws([&]{core.Step();},"unimplemented SET40 saturation/sign-extension silently ran");Equal(core.Registers(),rejected);

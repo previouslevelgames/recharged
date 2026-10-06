@@ -9,8 +9,15 @@ target_compile_definitions(charged_original_function_pool_abi INTERFACE
 target_include_directories(charged_original_function_pool_abi INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${MSCHARGED_PREPARED}/include"
-    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include"
+    "${MSCHARGED_PREPARED}/libs/Runtime/include")
 target_compile_features(charged_original_function_pool_abi INTERFACE cxx_std_17)
+# Match the original MWCC -RTTI off compiler profile across every original TU.
+# Retain virtual methods/vtables; host-side exception reporting remains enabled.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+    target_compile_options(charged_original_function_pool_abi INTERFACE
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>")
+endif()
 
 # Declared callable fields and independently authored Wii/native footprints.
 # Unused original virtual bodies are collected solely in this layout qualifier;

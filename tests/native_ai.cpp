@@ -156,19 +156,21 @@ void DeviceContract(const char* pcm_path, std::uint64_t expected_hash) {
           AIGetDMALength() == sizeof(first), "native pointer/32-byte hardware stride");
     AIStartDMA();
     status = GetNativeAIStatus();
-    Check(status.running && status.submitted_blocks && status.last_input_hash == expected_hash,
-          "source-selected DMA bytes were not submitted unchanged");
+    Check(status.running, "actual DMA did not start");
+    Await([&]{ return GetNativeAIStatus().submitted_blocks > 0; }, "clocked DMA did not submit its source buffer");
+    Check(GetNativeAIStatus().last_input_hash == expected_hash,
+          "source-selected latched DMA bytes were not submitted unchanged");
     Await([&]{ return GetNativeAIStatus().consumed_blocks > 0; }, "dummy device did not consume real PCM");
     Check(callback_count == 0, "source callback ran before explicit game-thread service");
     const auto disabled = OSDisableInterrupts();
     Check(!ServiceNativeAI(), "masked latched AI interrupt dispatched");
     OSRestoreInterrupts(disabled);
     Check(ServiceNativeAI() && callback_count == 1 && NativeInterruptsEnabled() &&
-          OSGetCurrentContext() == owner_context, "latched completion source/context restoration");
+          OSGetCurrentContext() == owner_context, "latched hardware edge source/context restoration");
 
     predecessor = AIRegisterDMACallback(ChainedCallback);
     Check(predecessor == BufferCallback, "previous source callback chaining");
-    Await([&]{ return ServiceNativeAI(); }, "chained callback did not receive consumed DMA interrupt");
+    Await([&]{ return ServiceNativeAI(); }, "chained callback did not receive clocked DMA latch interrupt");
     Check(predecessor_count == 1 && callback_count == 2, "previous callback was not executed exactly once");
     std::atomic<bool> rejected{};
     std::thread foreign([&]{ try { ServiceNativeAI(); } catch(const std::logic_error&) { rejected=true; } });

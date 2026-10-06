@@ -1,3 +1,4 @@
+include(cmake/NativeSystemSettings.cmake)
 # Original source and native platform services. This library deliberately has
 # no extracted game entry, game globals or startup diagnostic owners.
 include_guard(GLOBAL)
@@ -40,7 +41,6 @@ add_library(charged_original_core STATIC
     src/runtime/function_memory.cpp
     src/runtime/whole_file.cpp
     src/platform/os.cpp
-    src/platform/system.cpp
     src/platform/tweak_storage.cpp
 )
 add_dependencies(charged_original_core verify_prepared)
@@ -58,3 +58,5 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
         target_compile_options(${target} PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
     endforeach()
 endif()
+
+target_link_libraries(charged_original_core PUBLIC charged_native_system_settings)

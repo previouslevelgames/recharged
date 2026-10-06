@@ -1,0 +1,60 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Honor original GX miscellaneous state requests
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native hardware state adaptation with explicit unsupported abort hold.
+
+Original GXSetMisc XF flush and display-list context requests update the actual
+native SDK shadow state and existing consumers. Preserve the u16 count and
+unknown/null no-op quirk; recognize abort-wait-copyout and reject it until an
+actual native abort/copyout wait service exists. No game flow changes.
+
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -5,6 +5,7 @@
+ #include "dolphin/gd/GDGeometry.h"
+ 
+ #include <cstring>
++#include <stdexcept>
+ #include <dolphin/os.h>
+ 
+ // Global shadow register instance
+@@ -14,6 +15,27 @@
+ constexpr u32 kDrawDoneCommand = static_cast<u32>(GX_BP_REG_DRAWDONE) << 24 | 2;
+ 
+ extern "C" {
++void GXSetMisc(GXMiscToken token, u32 val) {
++  switch (token) {
++  case GX_MT_XF_FLUSH:
++    __gx->vNum = static_cast<u16>(val);
++    // Source bpSentNot/lastWriteWasXF=true; native BP-pending has inverse meaning.
++    // Native SDK derives whether flush vertices exist from vNum; no inverse vNumNot is stored.
++    __gx->bpSent = 0;
++    if (__gx->vNum != 0) __gx->dirtyState |= 8;
++    break;
++  case GX_MT_DL_SAVE_CONTEXT:
++    __gx->dlSaveContext = static_cast<u8>(val != 0);
++    break;
++  case GX_MT_ABORT_WAIT_COPYOUT:
++    throw std::runtime_error("Native GX abort-wait-copyout requires an implemented abort/copyout wait service");
++  case GX_MT_NULL:
++  default:
++    // Retail SDK deliberately ignores null and unrecognized token values.
++    break;
++  }
++}
++
+ GXFifoObj* GXInit(void* base, u32 size) {
+   GXRenderModeObj* rmode;
+   f32 identity_mtx[3][4];
+diff --git a/include/dolphin/gx/GXEnum.h b/include/dolphin/gx/GXEnum.h
+--- a/include/dolphin/gx/GXEnum.h
++++ b/include/dolphin/gx/GXEnum.h
+@@ -884,6 +884,7 @@
+ typedef enum {
+   GX_MT_XF_FLUSH = 1,
+   GX_MT_DL_SAVE_CONTEXT = 2,
++  GX_MT_ABORT_WAIT_COPYOUT = 3,
+   GX_MT_NULL = 0,
+ } GXMiscToken;
+ 

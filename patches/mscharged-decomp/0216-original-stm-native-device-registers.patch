@@ -1,6 +1,6 @@
 Subject: [PATCH] transport original STM hardware register requests
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Retain whole original Wii STM registration/callback/reset-pulse logic. Replace
 only MMIO reset input and VI output-disable requests at native hardware seams.

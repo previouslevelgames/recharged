@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original clipped text polygons and GX scissor material
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Connect the existing float-UV writer, glAttachPoly2 scissorbox overload and
 original GXScissoredVertexColourTextureMaterialProgram. Preserve the original

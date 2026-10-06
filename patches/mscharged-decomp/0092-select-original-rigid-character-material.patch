@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original rigid character material and fixed-font fallback
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Preserve original CharacterSkinCustom TEV/light/raster order and skin matrix
 composition. Native packets emit original PNMTXIDX/position/normal/two-UV index

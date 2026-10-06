@@ -20,6 +20,7 @@ volatile OSTime __OSLastInterruptTime{};
 
 namespace {
 using mscharged::platform::NativeInterruptGuard;
+using mscharged::platform::NativeDSPMaskObserver;
 
 struct Controller {
     std::mutex mutex;
@@ -32,6 +33,8 @@ struct Controller {
     unsigned depth{};
     std::uint64_t generation{};
     std::uint64_t dispatched{};
+    NativeDSPMaskObserver dsp_mask_observer{};
+    void* dsp_mask_context{};
 };
 
 Controller& State() { static Controller controller; return controller; }
@@ -102,20 +105,42 @@ extern "C" __OSInterruptHandler __OSGetInterruptHandler(__OSInterrupt interrupt)
 extern "C" OSInterruptMask __OSMaskInterrupts(OSInterruptMask mask) {
     NativeInterruptGuard exclusion;
     auto& state = State();
-    std::lock_guard lock(state.mutex);
-    RequireOwner(state);
-    const auto previous = state.user_mask;
-    state.user_mask |= mask;
+    OSInterruptMask previous, effective;
+    NativeDSPMaskObserver observer{};
+    void* context{};
+    {
+        std::lock_guard lock(state.mutex);
+        RequireOwner(state);
+        previous = state.user_mask;
+        // Same work selection as original __OSMaskInterrupts. SetInterruptMask
+        // rewrites all three DSP mask fields when any DSP group bit is selected.
+        const auto work = mask & ~(previous | state.current_mask);
+        state.user_mask |= mask;
+        effective = state.user_mask | state.current_mask;
+        constexpr u32 dsp_group = 0x07000000;
+        if (work & dsp_group) {observer=state.dsp_mask_observer;context=state.dsp_mask_context;}
+    }
+    if (observer) observer(effective,context);
     return previous;
 }
 
 extern "C" OSInterruptMask __OSUnmaskInterrupts(OSInterruptMask mask) {
     NativeInterruptGuard exclusion;
     auto& state = State();
-    std::lock_guard lock(state.mutex);
-    RequireOwner(state);
-    const auto previous = state.user_mask;
-    state.user_mask &= ~mask;
+    OSInterruptMask previous, effective;
+    NativeDSPMaskObserver observer{};
+    void* context{};
+    {
+        std::lock_guard lock(state.mutex);
+        RequireOwner(state);
+        previous = state.user_mask;
+        const auto work = mask & (previous | state.current_mask);
+        state.user_mask &= ~mask;
+        effective = state.user_mask | state.current_mask;
+        constexpr u32 dsp_group = 0x07000000;
+        if (work & dsp_group) {observer=state.dsp_mask_observer;context=state.dsp_mask_context;}
+    }
+    if (observer) observer(effective,context);
     return previous;
 }
 
@@ -130,14 +155,43 @@ extern "C" OSInterruptMask OSGetInterruptMask() {
 extern "C" OSInterruptMask OSSetInterruptMask(OSInterruptMask mask) {
     NativeInterruptGuard exclusion;
     auto& state = State();
-    std::lock_guard lock(state.mutex);
-    RequireOwner(state);
-    const auto previous = state.current_mask;
-    state.current_mask = mask;
+    OSInterruptMask previous, effective;
+    NativeDSPMaskObserver observer{};
+    void* context{};
+    {
+        std::lock_guard lock(state.mutex);
+        RequireOwner(state);
+        previous = state.current_mask;
+        state.current_mask = mask;
+        effective = state.user_mask | state.current_mask;
+        constexpr u32 dsp_group = 0x07000000;
+        if ((previous ^ mask) & dsp_group) {observer=state.dsp_mask_observer;context=state.dsp_mask_context;}
+    }
+    if (observer) observer(effective,context);
     return previous;
 }
 
 namespace mscharged::platform {
+void AttachNativeDSPMaskObserver(NativeDSPMaskObserver observer,void* context) {
+    if (!observer) throw std::invalid_argument("native DSP mask observer is null");
+    NativeInterruptGuard exclusion;auto& state=State();u32 effective;
+    {
+        std::lock_guard lock(state.mutex);RequireOwner(state);
+        if (state.dsp_mask_observer) throw std::logic_error("native DSP hardware mask sink already attached");
+        state.dsp_mask_observer=observer;state.dsp_mask_context=context;
+        effective=state.user_mask|state.current_mask;
+    }
+    try {observer(effective,context);}
+    catch (...) {
+        std::lock_guard lock(state.mutex);state.dsp_mask_observer=nullptr;state.dsp_mask_context=nullptr;throw;
+    }
+}
+void DetachNativeDSPMaskObserver(NativeDSPMaskObserver observer,void* context) {
+    NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    if (state.dsp_mask_observer!=observer || state.dsp_mask_context!=context)
+        throw std::logic_error("native DSP hardware mask sink ownership differs");
+    state.dsp_mask_observer=nullptr;state.dsp_mask_context=nullptr;
+}
 void InitializeNativeInterruptController() {
     NativeInterruptGuard exclusion;
     auto& state = State();
@@ -154,6 +208,7 @@ void InitializeNativeInterruptController() {
     state.current_mask = 0;
     state.pending = 0;
     state.depth = 0;
+    state.dsp_mask_observer=nullptr;state.dsp_mask_context=nullptr;
     ++state.generation;
     state.dispatched = 0;
     __OSLastInterrupt = 0;
@@ -169,6 +224,7 @@ void ShutdownNativeInterruptController() {
     if (!state.initialized) return;
     RequireOwner(state);
     if (state.depth) throw std::logic_error("cannot shut down an active native interrupt handler");
+    if (state.dsp_mask_observer) throw std::logic_error("native DSP hardware must detach before controller shutdown");
     state.initialized = false;
     state.handlers.fill(nullptr);
     state.pending = 0;

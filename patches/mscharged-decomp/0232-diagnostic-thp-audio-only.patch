@@ -1,0 +1,61 @@
+Native compiler declaration compatibility and owner-authorized audio-only THP diagnostic.
+
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+The normal native and console profiles retain every original video request.
+MSCHARGED_DIAGNOSTIC_THP_AUDIO_ONLY omits only the named texture lookups and
+VideoDecode requests for supported standalone mode0 diagnostics. Remove that
+gate when genuine original MovieInit(1)/AX and movie textures are ready.
+The critical-section declarations expose existing genuine native SDK providers.
+
+diff --git a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
+--- a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
++++ b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
+@@ -47,6 +47,10 @@
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++BOOL OSDisableInterrupts(void);
++BOOL OSEnableInterrupts(void);
++BOOL OSRestoreInterrupts(BOOL level);
++
+ void __OSInterruptInit(void);
+ void __OSDispatchInterrupt(u8 interrupt, OSContext* context);
+ void __RAS_OSDisableInterrupts_begin(void);
+diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
+--- a/src/RVL_SDK/thp/THPSimple.cpp
++++ b/src/RVL_SDK/thp/THPSimple.cpp
+@@ -455,10 +455,12 @@
+         }
+ 
+         ptr = buffer;
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_THP_AUDIO_ONLY)
+         SimpleControl.textureSet.ytexture = (u8*)glx_GetTex(glGetTexture("movie"))->m_SwizzledData;
+         SimpleControl.textureSet.utexture = (u8*)glx_GetTex(glGetTexture("movie_u"))->m_SwizzledData;
+         tex = glx_GetTex(glGetTexture("movie_v"));
+         SimpleControl.textureSet.vtexture = (u8*)tex->m_SwizzledData;
++#endif
+ 
+         for (i = 0; i < 10; i++)
+         {
+@@ -689,8 +691,10 @@
+                     switch (SimpleControl.compInfo.frameComp[i])
+                     {
+                     case 0:
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_THP_AUDIO_ONLY)
+                         if (!VideoDecode(ptr))
+                             return 1;
++#endif
+                         break;
+                     case 1:
+ #ifdef MSCHARGED_NATIVE
+@@ -727,8 +731,10 @@
+                 switch (SimpleControl.compInfo.frameComp[i])
+                 {
+                 case 0:
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_THP_AUDIO_ONLY)
+                     if (!VideoDecode(ptr))
+                         return 1;
++#endif
+                     break;
+                 }
+ #ifdef MSCHARGED_NATIVE

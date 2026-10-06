@@ -1,6 +1,6 @@
 Subject: Select original retarget signature lookup on retained native records
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Exclude the in-place Wii pointer loader from native selection. Preserve both
 original signature lookup overloads and first-match ordering unchanged. Native

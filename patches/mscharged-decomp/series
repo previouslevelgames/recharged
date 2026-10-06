@@ -180,3 +180,17 @@
 0217-original-impostor-native-pointer-abi.patch
 0213-track-original-procedural-graphics-storage-and-arrays.patch
 0221-adapt-original-glplat-canonical-sdk-compiler-abi.patch
+0224-original-pose-borrowed-callback-abi.patch
+0225-restore-original-renderer-state-and-matrix-decisions.patch
+0220-retain-original-fixed-task-module-methods.patch
+0223-native-dsp-csr-hardware-transport.patch
+0229-canonical-native-os-header-and-heap-address-abi.patch
+0235-restore-original-target-source-decisions.patch
+0234-temporary-original-main-bootstrap-diagnostic.patch
+0236-native-sdk-standard-library-includes.patch
+0232-diagnostic-thp-audio-only.patch
+0237-restore-original-font-startup-and-native-address-abi.patch
+0238-native-resource-header-quota-and-storage.patch
+0242-native-original-stream-dsp-cached-address.patch
+0243-preserve-original-native-matrix-inverse-semantics.patch
+0231-temporary-original-credits-scene-diagnostic.patch

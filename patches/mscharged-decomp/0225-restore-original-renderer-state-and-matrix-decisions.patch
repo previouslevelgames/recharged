@@ -1,0 +1,484 @@
+Subject: Restore original renderer state and matrix decisions outside diagnostics
+
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+
+Retire invented GL readiness/reset/live-matrix rejection from the original
+source path; keep legacy diagnostics explicit. Restore original memory startup
+order and matrix Get/Set bodies. Pointer handles/Wii bitfields remain transported.
+Canonical GX/MTX headers preserve the complete original frame packet sender.
+No renderer startup, resource readiness, GPU or full original-main claim.
+
+diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
+--- a/src/NL/gl/glState.cpp
++++ b/src/NL/gl/glState.cpp
+@@ -158,7 +158,7 @@
+     }
+ }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+ static bool sStateInitialized;
+ static void RequireState()
+ {
+@@ -194,7 +194,7 @@
+ 
+ void gl_StateStartup()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     if (sStateInitialized) throw std::logic_error("GL state is already initialized");
+     gl_StateShutdown();
+     sStateInitialized = true;
+@@ -247,7 +247,7 @@
+ 
+ glStateBundle* gl_GetCurrentStateBundle()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     return &_bundle;
+@@ -255,7 +255,7 @@
+ 
+ void glStateSave(glStateBundle& state)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     memcpy(&state, &_bundle, sizeof(glStateBundle));
+@@ -263,10 +263,10 @@
+ 
+ void glStateRestore(const glStateBundle& state)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    RequireState();
+-#endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
++    RequireState();
++#endif
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     if (state.matrix != GL_INVALID_MATRIX) glplatValidateMatrix(state.matrix);
+ #endif
+     memcpy(&_bundle, &state, sizeof(glStateBundle));
+@@ -274,7 +274,7 @@
+ 
+ u32 glGetCurrentTexture(eGLTextureType type)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireTextureType(type);
+ #endif
+     return _bundle.texture[type];
+@@ -282,7 +282,7 @@
+ 
+ u32 glSetCurrentTexture(unsigned long texture, eGLTextureType type)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireTextureType(type);
+ #endif
+     unsigned long prev = _bundle.texture[type];
+@@ -303,7 +303,7 @@
+ 
+ u32 glGetCurrentRasterState()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     return _bundle.raster;
+@@ -311,7 +311,7 @@
+ 
+ u32 glSetCurrentRasterState(unsigned long raster)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     unsigned long prev = _bundle.raster;
+@@ -321,7 +321,7 @@
+ 
+ unsigned long long glGetCurrentTextureState()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     return _bundle.texturestate;
+@@ -329,7 +329,7 @@
+ 
+ unsigned long long glSetCurrentTextureState(unsigned long long state)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     unsigned long long prev = _bundle.texturestate;
+@@ -339,7 +339,7 @@
+ 
+ glMatrixHandle glGetCurrentMatrix()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     return _bundle.matrix;
+@@ -347,10 +347,10 @@
+ 
+ glMatrixHandle glSetCurrentMatrix(glMatrixHandle matrix)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    RequireState();
+-#endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
++    RequireState();
++#endif
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     if (matrix != GL_INVALID_MATRIX) glplatValidateMatrix(matrix);
+ #endif
+     glMatrixHandle prev = _bundle.matrix;
+@@ -370,7 +370,7 @@
+ 
+ u32 glGetRasterState(unsigned long raster, eGLState state)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireRaster(state);
+ #endif
+     gl_StateBitfield* p = &packed_raster[state];
+@@ -390,7 +390,7 @@
+ 
+ u32 glSetRasterState(eGLState state, unsigned long value)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireRaster(state);
+ #endif
+     gl_StateBitfield* p = &packed_raster[state];
+@@ -423,7 +423,7 @@
+ 
+ u32 glSetRasterState(u32& raster, eGLState state, unsigned long value)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireRaster(state);
+ #endif
+     gl_StateBitfield* p = &packed_raster[state];
+@@ -432,7 +432,7 @@
+ 
+ u32 glGetTextureState(eGLTextureState texturestate)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireTexture(texturestate);
+ #endif
+     unsigned long long texture = _textureState.m_State;
+@@ -441,7 +441,7 @@
+ 
+ u32 glGetTextureState(unsigned long long texture, eGLTextureState texturestate)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireTexture(texturestate);
+ #endif
+     return GetTextureStateImpl(&texture, texturestate);
+@@ -450,7 +450,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ u32 glSetTextureState(eGLTextureState state, unsigned long value)
+ {
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireTexture(state);
++#endif
+     u32 previous = glGetTextureState(state);
+     const gl_StateBitfield& field = packed_texture[state];
+     for (int bit = 0; bit < field.numBits; ++bit)
+@@ -571,7 +573,7 @@
+ 
+ void glSetRasterStateDefaults()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     _state.m_State = defaultRasterState;
+@@ -579,7 +581,7 @@
+ 
+ void glSetTextureStateDefaults()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     _textureState.m_State = defaultTextureState;
+@@ -587,7 +589,7 @@
+ 
+ unsigned long glHandleizeRasterState()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     return _state.m_State;
+@@ -595,7 +597,7 @@
+ 
+ unsigned long long glHandleizeTextureState()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     RequireState();
+ #endif
+     return _textureState.m_State;
+@@ -603,10 +605,10 @@
+ 
+ void glSetDefaultState(bool setRasterDefaults)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    RequireState();
+-#endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
++    RequireState();
++#endif
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+     glplatValidateMatrix(glGetIdentityMatrix());
+ #endif
+     _state.m_State = defaultRasterState;
+diff --git a/src/NL/gl/glMatrix.cpp b/src/NL/gl/glMatrix.cpp
+--- a/src/NL/gl/glMatrix.cpp
++++ b/src/NL/gl/glMatrix.cpp
+@@ -5,7 +5,7 @@
+ #include "NL/glx/glxMemory.h"
+ 
+ #include <string.h>
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ #include <stdexcept>
+ #endif
+ 
+@@ -23,19 +23,18 @@
+ 
+ void gl_MatrixStartup()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     if (gl_IdentityMatrix != GL_INVALID_MATRIX)
+         throw std::logic_error("GL matrices are already initialized");
+ #endif
+     nlMatrix4 m;
+     m.SetIdentity();
+-    glMatrixHandle identity = (glMatrixHandle)glResourceAlloc(
++    gl_IdentityMatrix = (glMatrixHandle)glResourceAlloc(
+         sizeof(nlMatrix4), GLM_Matrix, glGetCurrentResourcePool());
+-    glplatSetMatrix(identity, m);
+-    gl_IdentityMatrix = identity;
++    glplatSetMatrix(gl_IdentityMatrix, m);
+ }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ void gl_MatrixShutdown()
+ {
+     gl_IdentityMatrix = GL_INVALID_MATRIX;
+diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+--- a/src/NL/gl/glMemoryInit.cpp
++++ b/src/NL/gl/glMemoryInit.cpp
+@@ -2,7 +2,7 @@
+ 
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glTexture.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GRAPHICS_MEMORY)
+ #include "runtime/graphics_memory.h"
+ #include "NL/gl/glTextureManager.h"
+ #include "NL/gl/glMatrix.h"
+@@ -23,7 +23,7 @@
+ 
+ bool glInitMemory(const GLMemoryConfig* config)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GRAPHICS_MEMORY)
+     if (!config || !config->mResourceRequirements || config->mNumResourceRequirements <= 0
+         || !config->mMaxTextures || config->mMaxTextures > 0xFFFF)
+         throw std::invalid_argument("Invalid GL memory configuration");
+diff --git a/src/NL/gl/glModelMatrix.cpp b/src/NL/gl/glModelMatrix.cpp
+--- a/src/NL/gl/glModelMatrix.cpp
++++ b/src/NL/gl/glModelMatrix.cpp
+@@ -1,13 +1,13 @@
+ #include "NL/gl/glModel.h"
+ #include "NL/gl/glMatrix.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ #include <stdexcept>
+ #include "NL/glx/glxMemory.h"
+ #endif
+ 
+ void glModelSetMatrix(glModel* model, const nlMatrix4& value)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     if (!model || !model->numPackets || !model->packets)
+         throw std::invalid_argument("Model matrix requires native packets");
+ #endif
+@@ -28,7 +28,7 @@
+ 
+ void glModelSetMatrix(glModel* model, glMatrixHandle matrix)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     if (!model || !model->numPackets || !model->packets)
+         throw std::invalid_argument("Model state requires native packets");
+     if (matrix != GL_INVALID_MATRIX) glplatValidateMatrix(matrix);
+@@ -48,7 +48,7 @@
+ 
+ void glModelSetRasterState(glModel* model, unsigned long rasterState)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     if (!model || !model->numPackets || !model->packets)
+         throw std::invalid_argument("Model state requires native packets");
+ #endif
+@@ -67,7 +67,7 @@
+ 
+ void glModelGetMatrix(const glModel* model, nlMatrix4& matrix)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     if (!model || !model->numPackets || !model->packets)
+         throw std::invalid_argument("Model matrix requires native packets");
+ #endif
+diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
+--- a/src/NL/glx/glxModel.cpp
++++ b/src/NL/glx/glxModel.cpp
+@@ -5,7 +5,22 @@
+ #include "NL/gl/glPlat.h"
+ #include "NL/glx/glxDisplayList.h"
+ 
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ #include "glxModelMatrix.cpp"
++#else
++void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m)
++{
++    GLMatrix* matrixPtr = (GLMatrix*)matrix;
++    matrixPtr->Get(m);
++}
++
++void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m)
++{
++    GLMatrix* matrixPtr = (GLMatrix*)matrix;
++    matrixPtr->Set(m);
++}
++
++#endif
+ 
+ void glplatFinalizePacket(
+     glModelPacket* packet, bool permanent, void* allocator)
+@@ -20,4 +35,10 @@
+     packet->skinnedVertices = 0;
+ }
+ 
++#if defined(MSCHARGED_DIAGNOSTIC_MODELS)
+ #include "glxModelClone.cpp"
++#else
++void glplatOnPacketCloned(glModelPacket*, void*)
++{
++}
++#endif
+diff --git a/src/NL/glx/glxModelMatrix.cpp b/src/NL/glx/glxModelMatrix.cpp
+--- a/src/NL/glx/glxModelMatrix.cpp
++++ b/src/NL/glx/glxModelMatrix.cpp
+@@ -3,7 +3,7 @@
+ 
+ void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     glplatValidateMatrix(matrix);
+ #endif
+     GLMatrix* matrixPtr = (GLMatrix*)matrix;
+@@ -12,7 +12,7 @@
+ 
+ void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     glplatValidateMatrix(matrix);
+ #endif
+     GLMatrix* matrixPtr = (GLMatrix*)matrix;
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -521,7 +521,7 @@
+ #endif
+ }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ void glplatValidateMatrix(glMatrixHandle matrix)
+ {
+     if (!matrix || matrix == GL_INVALID_MATRIX || (matrix & 31))
+diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
+--- a/src/NL/glx/glxSend.cpp
++++ b/src/NL/glx/glxSend.cpp
+@@ -1,5 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <dolphin/mtx.h>
++#else
+ #include <revolution/gx.h>
+ #include <revolution/mtx.h>
++#endif
+ 
+ #include "NL/gl/glMatrix.h"
+ #include "NL/gl/glState.h"
+diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
+--- a/include/NL/gl/glState.h
++++ b/include/NL/gl/glState.h
+@@ -62,7 +62,7 @@
+ };
+ 
+ void gl_StateStartup();
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GL_STATE)
+ void gl_StateShutdown();
+ #endif
+ glStateBundle* gl_GetCurrentStateBundle();
+diff --git a/include/NL/gl/glMatrix.h b/include/NL/gl/glMatrix.h
+--- a/include/NL/gl/glMatrix.h
++++ b/include/NL/gl/glMatrix.h
+@@ -13,7 +13,7 @@
+ glMatrixHandle glAllocMatrix();
+ glMatrixHandle glGetIdentityMatrix();
+ void gl_MatrixStartup();
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ void gl_MatrixShutdown();
+ #endif
+ 
+diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
+--- a/include/NL/glx/glxMemory.h
++++ b/include/NL/glx/glxMemory.h
+@@ -8,7 +8,9 @@
+ typedef uintptr_t GLResourceMark;
+ void glxShutdownMemory();
+ uint64_t glNativeFrameGeneration();
++#if defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+ void glplatValidateMatrix(glMatrixHandle matrix);
++#endif
+ #else
+ typedef unsigned long GLResourceMark;
+ #endif
+diff --git a/include/NL/gl/glMemoryInit.h b/include/NL/gl/glMemoryInit.h
+--- a/include/NL/gl/glMemoryInit.h
++++ b/include/NL/gl/glMemoryInit.h
+@@ -13,7 +13,7 @@
+ }; // size 0x14
+ 
+ bool glInitMemory(const GLMemoryConfig* config);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_GRAPHICS_MEMORY)
+ void glShutdownMemory();
+ #endif
+ 

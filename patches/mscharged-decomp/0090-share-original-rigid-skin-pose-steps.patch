@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original rigid skin preparation and pose matrix steps
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Share the original largest-weight-first swap, inverse bind, bind-times-pose
 matrix loop and GX3x4 copy with checked retained native skin owners. Preserve

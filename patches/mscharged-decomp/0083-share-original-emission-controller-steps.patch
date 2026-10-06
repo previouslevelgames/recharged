@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original bounded controller time, completion and identity steps
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Retain original console effects/system/manager services. Native port adapters
 reuse only these state equations while qualifying retained emitter-only groups.

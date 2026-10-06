@@ -1,0 +1,22 @@
+Subject: [PATCH] Preserve original native matrix inverse destination semantics
+
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Prepared-preimage: strict-complete-candidate after reviewed 192-patch series
+
+Confine the inherited singular-matrix exception and temporary destination to
+explicit DIAGNOSTIC_MATRICES. The normal original whole platvmath TU retains
+its direct C_MTX44Inverse call, ignored return result, partial destination
+writes and alias behavior. No extraction or game-side algorithm change.
+
+diff --git a/src/NL/plat/platvmath.cpp b/src/NL/plat/platvmath.cpp
+--- a/src/NL/plat/platvmath.cpp
++++ b/src/NL/plat/platvmath.cpp
+@@ -29,7 +29,7 @@
+ 
+ nlMatrix4& nlInvertMatrix(nlMatrix4& out, const nlMatrix4& in)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MATRICES)
+     nlMatrix4 inverse;
+     if (!C_MTX44Inverse(in.e2, inverse.e2))
+         throw std::invalid_argument("Cannot invert a singular matrix");

@@ -25,6 +25,11 @@ struct NativeInterruptControllerStatus {
 
 // Host SDK setup precedes original module/static construction. Shutdown follows
 // device-worker drain; old device handles are rejected after restart.
+// Pure host DSP hardware sink, called on the owner after controller unlock.
+// It mirrors original OSInterrupt CSR mask writes; it executes no source handler.
+using NativeDSPMaskObserver = void (*)(u32 effective_mask, void* context);
+void AttachNativeDSPMaskObserver(NativeDSPMaskObserver observer, void* context);
+void DetachNativeDSPMaskObserver(NativeDSPMaskObserver observer, void* context);
 void InitializeNativeInterruptController();
 void ShutdownNativeInterruptController();
 NativeInterruptSource GetNativeInterruptSource(__OSInterrupt interrupt);

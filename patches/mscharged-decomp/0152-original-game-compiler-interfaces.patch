@@ -1,16 +1,16 @@
 Subject: Preserve native compiler interfaces for the original Game source
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Use authoritative audio header linkage, an explicit full-width encoded Terrain
 index cast, and emit available original nlStrNCat<char> for native linking.
 Original game/tweak/terrain/string algorithm bodies and requests stay intact.
-Upstream now defines accurate kGameTweakZero +0f data; the old temporary native
-export is retired. Complete original game linking/startup remain separate gates.
+Upstream now uses matched float and string literals directly; no temporary native
+data provider is added. Complete original game linking/startup remain separate gates.
 
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
-@@ -1,7 +1,10 @@
+@@ -1,6 +1,9 @@
  #include "Game/NetworkMessageRegistry.h"
  #include "Game/DetInput.h"
  #include "Game/AI/TeamPlayMachine.h"
@@ -18,11 +18,9 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
 +#include <cstdint>
 +#endif
  #include "Game/Game.h"
+ #include "Game/MathHelpers.h"
  #include "Game/Weather.h"
- #include "Game/Sys/debug.h"
- #include "Game/NetworkDiagnostics.h"
-@@ -118,10 +121,12 @@
- extern "C" void fn_8007214C(ShotAtGoalData* node);
+@@ -121,8 +124,10 @@
  extern "C" void fn_80072164(UnidentifiedRegistrationNode* node);
  extern "C" void fn_8007217C(UnidentifiedRegistrationNode* node);
  extern "C" void fn_80072194(PlayerAttackData* node);
@@ -33,9 +31,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  extern "C" void fn_800EDC2C();
  extern "C" void fn_801E999C(BaseSceneHandler* scene);
  extern "C" void fn_80058ABC(unsigned long param1, unsigned long param2);
- extern void PlaySuddenDeathMusic();
-@@ -345,9 +350,13 @@
-         Clock(kGameTweakZero, lbl_806E3744, lbl_806E3748, 2, fn_80058ABC);
+@@ -488,7 +493,11 @@
      m_pPostResetClock->m_uParam1 = (unsigned long)this;
  
      mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
@@ -47,8 +43,6 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  
      mpWeatherManager = new (nlMalloc(sizeof(WeatherManager), 8, false)) WeatherManager();
  
-     mpWeatherManager->Initialize(param2);
-
 diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
 --- a/src/NL/nlString.cpp
 +++ b/src/NL/nlString.cpp

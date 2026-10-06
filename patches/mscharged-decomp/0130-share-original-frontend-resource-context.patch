@@ -1,5 +1,5 @@
 Subject: [PATCH] share original frontend resource context completion
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Share original package state5/queue/creation order, resource context switches,
 resource Update removal/completion scheduling and the actual empty completion

@@ -1,0 +1,40 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Wait for native GX and clear pipelines before hardware work
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native compiler/hardware execution adaptation.
+
+Actual GX/Clear requests must execute at their FIFO positions. Use Aurora's
+existing Blocking compiler queue and reject an absent compiled main pipeline;
+otherwise the unchanged consumers can silently omit the draw/clear while a
+Normal-priority native pipeline is still compiling. Preserve queue/cache keys,
+worker creation, remembered configurations, layouts and background warming.
+No original game source, behavior, ABI or resource request is changed.
+
+diff --git a/lib/gfx/pipeline_cache.cpp b/lib/gfx/pipeline_cache.cpp
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -1089,12 +1089,22 @@
+ 
+ PipelineRef find_pipeline(const clear::PipelineConfig& config, const RenderTargetLayout& layout) {
+   remember_pipeline_config(ShaderType::Clear, config, current_frame(), true);
+-  return resolve_pipeline(ShaderType::Clear, config, layout, PipelinePriority::Normal);
++  // A hardware draw/clear must execute at this FIFO position. An unfinished
++  // native pipeline is a compilation wait, never permission to drop the draw.
++  const auto ref = resolve_pipeline(ShaderType::Clear, config, layout, PipelinePriority::Blocking);
++  CompiledPipeline compiled;
++  AURORA_ASSERT(get_pipeline(ref, compiled), "Native Clear pipeline did not compile");
++  return ref;
+ }
+ 
+ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLayout& layout) {
+   remember_pipeline_config(ShaderType::GX, config, current_frame(), true);
+-  return resolve_pipeline(ShaderType::GX, config, layout, PipelinePriority::Normal);
++  // A hardware draw/clear must execute at this FIFO position. An unfinished
++  // native pipeline is a compilation wait, never permission to drop the draw.
++  const auto ref = resolve_pipeline(ShaderType::GX, config, layout, PipelinePriority::Blocking);
++  CompiledPipeline compiled;
++  AURORA_ASSERT(get_pipeline(ref, compiled), "Native GX pipeline did not compile");
++  return ref;
+ }
+ 
+ #ifdef AURORA_ENABLE_RMLUI

@@ -1,0 +1,895 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Original display-copy transport into owned GPU XFB snapshots
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native GX hardware/serialized-word transport.
+
+Restore the pinned original display-copy producers, source field/stride/scale
+quirks and BP ordering using canonical physical addresses. Capture original
+copy/filter/format/clear requests at their FIFO position into destination-owned
+GPU YUYV resources; completion requires the actual successful GPU submission.
+Keep source buffer selection, request ordering and existing texture-copy paths.
+Unsupported scaling/AA/gamma/field modes fail explicitly, never become ready.
+Compose after SDK0029/0030 and independent native pipeline compiler SDK0031.
+Original game code is untouched. CPU XFB coherence and VI presentation remain
+separate boundaries; this patch does not enable nonblack scanout.
+
+diff --git a/include/dolphin/gx/GXEnum.h b/include/dolphin/gx/GXEnum.h
+--- a/include/dolphin/gx/GXEnum.h
++++ b/include/dolphin/gx/GXEnum.h
+@@ -825,6 +825,12 @@
+ } GXFBClamp;
+ 
+ typedef enum {
++  GX_COPY_PROGRESSIVE = 0,
++  GX_COPY_INTLC_EVEN = 2,
++  GX_COPY_INTLC_ODD = 3,
++} GXCopyMode;
++
++typedef enum {
+   GX_TLUT0 = 0,
+   GX_TLUT1 = 1,
+   GX_TLUT2 = 2,
+diff --git a/include/dolphin/gx/GXFrameBuffer.h b/include/dolphin/gx/GXFrameBuffer.h
+--- a/include/dolphin/gx/GXFrameBuffer.h
++++ b/include/dolphin/gx/GXFrameBuffer.h
+@@ -45,8 +45,9 @@
+ void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht);
+ void GXSetDispCopyDst(u16 wd, u16 ht);
+ void GXSetCopyClamp(GXFBClamp clamp);
++void GXSetDispCopyFrame2Field(GXCopyMode mode);
+ u32 GXSetDispCopyYScale(f32 vscale);
+-void GXSetCopyFilter(GXBool aa, u8 sample_pattern[12][2], GXBool vf, u8 vfilter[7]);
++void GXSetCopyFilter(GXBool aa, const u8 sample_pattern[12][2], GXBool vf, const u8 vfilter[7]);
+ void GXSetPixelFmt(GXPixelFmt pix_fmt, GXZFmt16 z_fmt);
+ void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht);
+ void GXSetTexCopyDst(u16 wd, u16 ht, GXTexFmt fmt, GXBool mipmap);
+diff --git a/lib/dolphin/gx/__gx.h b/lib/dolphin/gx/__gx.h
+--- a/lib/dolphin/gx/__gx.h
++++ b/lib/dolphin/gx/__gx.h
+@@ -160,6 +160,13 @@
+                     // bit 2: gen mode
+                     // bit 3: VCD
+                     // bit 4: VAT
++
++  // Native shadow words for the original GX display-copy producers. Append
++  // them so all existing provider offsets remain unchanged.
++  u32 cpDispSrc;
++  u32 cpDispSize;
++  u32 cpDispStride;
++  u32 cpDisp;
+ };
+ 
+ extern __GXData_struct* __gx;
+diff --git a/lib/dolphin/gx/GXFrameBuffer.cpp b/lib/dolphin/gx/GXFrameBuffer.cpp
+--- a/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -1,5 +1,6 @@
+ #include "gx.hpp"
+ #include "__gx.h"
++#include <dolphin/os.h>
+ 
+ #include "../../gfx/tex_copy_conv.hpp"
+ #include "../../gfx/texture.hpp"
+@@ -11,8 +12,13 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <stdexcept>
+ 
+ namespace {
++void set_display_copy_field(u32& word, u32 bits, u32 shift, u32 value) {
++  const u32 mask = (1u << bits) - 1u;
++  word = (word & ~(mask << shift)) | ((value & mask) << shift);
++}
+ aurora::Vec2<uint32_t> scale_copy_dst(u32 logicalWidth, u32 logicalHeight) {
+   if (g_gxState.viewportPolicy == AURORA_VIEWPORT_NATIVE) {
+     return {logicalWidth, logicalHeight};
+@@ -172,7 +178,18 @@
+   rmout->viYOrigin = in.viYOrigin + ver;
+ }
+ 
+-void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht) {}
++void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht)
++{
++    __gx->cpDispSrc = 0;
++    set_display_copy_field(__gx->cpDispSrc, 10, 0, left);
++    set_display_copy_field(__gx->cpDispSrc, 10, 10, top);
++    set_display_copy_field(__gx->cpDispSrc, 8, 24, 0x49);
++
++    __gx->cpDispSize = 0;
++    set_display_copy_field(__gx->cpDispSize, 10, 0, wd - 1);
++    set_display_copy_field(__gx->cpDispSize, 10, 10, ht - 1);
++    set_display_copy_field(__gx->cpDispSize, 8, 24, 0x4A);
++}
+ 
+ void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
+   GX_WRITE_AURORA(GX_AURORA_LOAD_COPY_SRC);
+@@ -182,7 +199,15 @@
+   GX_WRITE_U32(ht);
+ }
+ 
+-void GXSetDispCopyDst(u16 wd, u16 ht) {}
++void GXSetDispCopyDst(u16 wd, u16 ht)
++{
++    u16 stride;
++
++    stride = (int)wd * 2;
++    __gx->cpDispStride = 0;
++    set_display_copy_field(__gx->cpDispStride, 10, 0, (stride >> 5));
++    set_display_copy_field(__gx->cpDispStride, 8, 24, 0x4D);
++}
+ 
+ void GXSetTexCopyDst(u16 wd, u16 ht, GXTexFmt fmt, GXBool mipmap) {
+   GX_WRITE_AURORA(GX_AURORA_LOAD_COPY_DST);
+@@ -192,10 +217,78 @@
+   GX_WRITE_U8(mipmap != GX_FALSE);
+ }
+ 
+-// TODO GXSetDispCopyFrame2Field
+-// TODO GXSetCopyClamp
+-
+-u32 GXSetDispCopyYScale(f32 vscale) { return 0; }
++void GXSetDispCopyFrame2Field(GXCopyMode mode)
++{
++    set_display_copy_field(__gx->cpDisp, 2, 12, mode);
++    set_display_copy_field(__gx->cpTex, 2, 12, 0);
++}
++
++void GXSetCopyClamp(GXFBClamp clamp)
++{
++    u8 clmpT = (clamp & GX_CLAMP_TOP) == 1;
++    u8 clmpB = (clamp & GX_CLAMP_BOTTOM) == 2;
++
++    set_display_copy_field(__gx->cpDisp, 1, 0, clmpT);
++    set_display_copy_field(__gx->cpDisp, 1, 1, clmpB);
++
++    set_display_copy_field(__gx->cpTex, 1, 0, clmpT);
++    set_display_copy_field(__gx->cpTex, 1, 1, clmpB);
++}
++
++static u32 __GXGetNumXfbLines(u32 efbHt, u32 iScale)
++{
++    u32 count;
++    u32 realHt;
++    u32 iScaleD;
++
++    count = (efbHt - 1) * 0x100;
++    realHt = (count / iScale) + 1;
++
++    iScaleD = iScale;
++
++    if (iScaleD > 0x80 && iScaleD < 0x100)
++    {
++        while (iScaleD % 2 == 0)
++        {
++            iScaleD /= 2;
++        }
++
++        if (efbHt % iScaleD == 0)
++        {
++            realHt++;
++        }
++    }
++
++    if (realHt > 0x400)
++    {
++        realHt = 0x400;
++    }
++
++    return realHt;
++}
++
++u32 GXSetDispCopyYScale(f32 vscale)
++{
++    u8 enable;
++    u32 iScale;
++    u32 ht;
++    u32 reg;
++
++    if (!std::isfinite(vscale) || vscale <= 0.f || 256.f / vscale >= 4294967296.f)
++        Log.fatal("GX display-copy scale has no native hardware word");
++    iScale = (u32)(256.0f / vscale) & 0x1FF;
++    if (iScale == 0) Log.fatal("GX display-copy scale has a zero hardware divisor");
++    enable = (iScale != 256);
++
++    reg = 0;
++    set_display_copy_field(reg, 9, 0, iScale);
++    set_display_copy_field(reg, 8, 24, 0x4E);
++    GX_WRITE_RAS_REG(reg);
++    __gx->bpSent = 1;
++    set_display_copy_field(__gx->cpDisp, 1, 10, enable);
++    ht = (u32)GET_REG_FIELD(__gx->cpDispSize, 10, 10) + 1;
++    return __GXGetNumXfbLines(ht, iScale);
++}
+ 
+ void GXSetCopyClear(GXColor color, u32 depth) {
+   // BP 0x4F: clear color R + A
+@@ -220,11 +313,161 @@
+   __gx->bpSent = 1;
+ }
+ 
+-void GXSetCopyFilter(GXBool aa, u8 sample_pattern[12][2], GXBool vf, u8 vfilter[7]) {}
+-
+-void GXSetDispCopyGamma(GXGamma gamma) {}
+-
+-void GXCopyDisp(void* dest, GXBool clear) {}
++void GXSetCopyFilter(GXBool aa, const u8 sample_pattern[12][2], GXBool vf, const u8 vfilter[7])
++{
++    u32 msLoc[4];
++    u32 coeff0;
++    u32 coeff1;
++
++    if (aa != 0)
++    {
++        msLoc[0] = 0;
++        set_display_copy_field(msLoc[0], 4, 0, sample_pattern[0][0]);
++        set_display_copy_field(msLoc[0], 4, 4, sample_pattern[0][1]);
++        set_display_copy_field(msLoc[0], 4, 8, sample_pattern[1][0]);
++        set_display_copy_field(msLoc[0], 4, 12, sample_pattern[1][1]);
++        set_display_copy_field(msLoc[0], 4, 16, sample_pattern[2][0]);
++        set_display_copy_field(msLoc[0], 4, 20, sample_pattern[2][1]);
++        set_display_copy_field(msLoc[0], 8, 24, 1);
++
++        msLoc[1] = 0;
++        set_display_copy_field(msLoc[1], 4, 0, sample_pattern[3][0]);
++        set_display_copy_field(msLoc[1], 4, 4, sample_pattern[3][1]);
++        set_display_copy_field(msLoc[1], 4, 8, sample_pattern[4][0]);
++        set_display_copy_field(msLoc[1], 4, 12, sample_pattern[4][1]);
++        set_display_copy_field(msLoc[1], 4, 16, sample_pattern[5][0]);
++        set_display_copy_field(msLoc[1], 4, 20, sample_pattern[5][1]);
++        set_display_copy_field(msLoc[1], 8, 24, 2);
++
++        msLoc[2] = 0;
++        set_display_copy_field(msLoc[2], 4, 0, sample_pattern[6][0]);
++        set_display_copy_field(msLoc[2], 4, 4, sample_pattern[6][1]);
++        set_display_copy_field(msLoc[2], 4, 8, sample_pattern[7][0]);
++        set_display_copy_field(msLoc[2], 4, 12, sample_pattern[7][1]);
++        set_display_copy_field(msLoc[2], 4, 16, sample_pattern[8][0]);
++        set_display_copy_field(msLoc[2], 4, 20, sample_pattern[8][1]);
++        set_display_copy_field(msLoc[2], 8, 24, 3);
++
++        msLoc[3] = 0;
++        set_display_copy_field(msLoc[3], 4, 0, sample_pattern[9][0]);
++        set_display_copy_field(msLoc[3], 4, 4, sample_pattern[9][1]);
++        set_display_copy_field(msLoc[3], 4, 8, sample_pattern[10][0]);
++        set_display_copy_field(msLoc[3], 4, 12, sample_pattern[10][1]);
++        set_display_copy_field(msLoc[3], 4, 16, sample_pattern[11][0]);
++        set_display_copy_field(msLoc[3], 4, 20, sample_pattern[11][1]);
++        set_display_copy_field(msLoc[3], 8, 24, 4);
++    }
++    else
++    {
++        msLoc[0] = 0x01666666;
++        msLoc[1] = 0x02666666;
++        msLoc[2] = 0x03666666;
++        msLoc[3] = 0x04666666;
++    }
++
++    GX_WRITE_RAS_REG(msLoc[0]);
++    GX_WRITE_RAS_REG(msLoc[1]);
++    GX_WRITE_RAS_REG(msLoc[2]);
++    GX_WRITE_RAS_REG(msLoc[3]);
++
++    coeff0 = 0;
++    set_display_copy_field(coeff0, 8, 24, 0x53);
++    coeff1 = 0;
++    set_display_copy_field(coeff1, 8, 24, 0x54);
++
++    if (vf != 0)
++    {
++        set_display_copy_field(coeff0, 6, 0, vfilter[0]);
++        set_display_copy_field(coeff0, 6, 6, vfilter[1]);
++        set_display_copy_field(coeff0, 6, 12, vfilter[2]);
++        set_display_copy_field(coeff0, 6, 18, vfilter[3]);
++        set_display_copy_field(coeff1, 6, 0, vfilter[4]);
++        set_display_copy_field(coeff1, 6, 6, vfilter[5]);
++        set_display_copy_field(coeff1, 6, 12, vfilter[6]);
++    }
++    else
++    {
++        set_display_copy_field(coeff0, 6, 0, 0);
++        set_display_copy_field(coeff0, 6, 6, 0);
++        set_display_copy_field(coeff0, 6, 12, 21);
++        set_display_copy_field(coeff0, 6, 18, 22);
++        set_display_copy_field(coeff1, 6, 0, 21);
++        set_display_copy_field(coeff1, 6, 6, 0);
++        set_display_copy_field(coeff1, 6, 12, 0);
++    }
++
++    GX_WRITE_RAS_REG(coeff0);
++    GX_WRITE_RAS_REG(coeff1);
++
++    __gx->bpSent = 1;
++}
++
++void GXSetDispCopyGamma(GXGamma gamma)
++{
++    set_display_copy_field(__gx->cpDisp, 2, 7, gamma);
++}
++
++void GXCopyDisp(void* dest, GXBool clear)
++{
++    u32 reg;
++    u32 tempPeCtrl;
++    u32 phyAddr;
++    u8 changePeCtrl;
++
++    if (clear)
++    {
++        reg = __gx->zmode;
++        set_display_copy_field(reg, 1, 0, 1);
++        set_display_copy_field(reg, 3, 1, 7);
++        GX_WRITE_RAS_REG(reg);
++
++        reg = __gx->cmode0;
++        set_display_copy_field(reg, 1, 0, 0);
++        set_display_copy_field(reg, 1, 1, 0);
++        GX_WRITE_RAS_REG(reg);
++    }
++
++    changePeCtrl = FALSE;
++
++    if ((clear || (u32)GET_REG_FIELD(__gx->peCtrl, 3, 0) == 3) && (u32)GET_REG_FIELD(__gx->peCtrl, 1, 6) == 1)
++    {
++        changePeCtrl = TRUE;
++        tempPeCtrl = __gx->peCtrl;
++        set_display_copy_field(tempPeCtrl, 1, 6, 0);
++        GX_WRITE_RAS_REG(tempPeCtrl);
++    }
++
++    GX_WRITE_RAS_REG(__gx->cpDispSrc);
++    GX_WRITE_RAS_REG(__gx->cpDispSize);
++    GX_WRITE_RAS_REG(__gx->cpDispStride);
++
++    // Carry the original BP physical word through the canonical live native
++    // MEM1/MEM2/static mapping. The consumer validates its full write span.
++    phyAddr = OSCachedToPhysical(dest);
++    if ((phyAddr & 31u) != 0) throw std::invalid_argument("GX display-copy destination is not 32-byte aligned");
++    reg = 0;
++    set_display_copy_field(reg, 24, 0, phyAddr >> 5);
++    set_display_copy_field(reg, 8, 24, 0x4B);
++    GX_WRITE_RAS_REG(reg);
++
++    set_display_copy_field(__gx->cpDisp, 1, 11, clear);
++    set_display_copy_field(__gx->cpDisp, 1, 14, 1);
++    set_display_copy_field(__gx->cpDisp, 8, 24, 0x52);
++    GX_WRITE_RAS_REG(__gx->cpDisp);
++
++    if (clear)
++    {
++        GX_WRITE_RAS_REG(__gx->zmode);
++        GX_WRITE_RAS_REG(__gx->cmode0);
++    }
++
++    if (changePeCtrl)
++    {
++        GX_WRITE_RAS_REG(__gx->peCtrl);
++    }
++
++    __gx->bpSent = 1;
++}
+ 
+ void GXCopyTex(void* dest, GXBool clear) {
+   GX_WRITE_AURORA(GX_AURORA_LOAD_COPY_DEST);
+@@ -237,8 +480,45 @@
+   aurora::gx::fifo::publish();
+ }
+ 
+-// TODO GXGetYScaleFactor
+-// TODO GXGetNumXfbLines
++f32 GXGetYScaleFactor(u16 efbHeight, u16 xfbHeight)
++{
++    f32 fScale, yScale;
++    u32 iScale;
++    u32 tgtHt, realHt;
++
++    tgtHt = xfbHeight;
++    yScale = (f32)xfbHeight / (f32)efbHeight;
++    iScale = (u32)(256.0f / yScale) & 0x1FF;
++    realHt = __GXGetNumXfbLines(efbHeight, iScale);
++
++    while (realHt > xfbHeight)
++    {
++        tgtHt--;
++        yScale = (f32)tgtHt / (f32)efbHeight;
++        iScale = (u32)(256.0f / yScale) & 0x1FF;
++        realHt = __GXGetNumXfbLines(efbHeight, iScale);
++    }
++
++    fScale = yScale;
++    while (realHt < xfbHeight)
++    {
++        fScale = yScale;
++        tgtHt++;
++        yScale = (f32)tgtHt / (f32)efbHeight;
++        iScale = (u32)(256.0f / yScale) & 0x1FF;
++        realHt = __GXGetNumXfbLines(efbHeight, iScale);
++    }
++
++    return fScale;
++}
++
++u16 GXGetNumXfbLines(u16 efbHeight, f32 yScale) {
++  if (!std::isfinite(yScale) || yScale <= 0.f || 256.f / yScale >= 4294967296.f)
++    Log.fatal("GX XFB line scale has no native hardware word");
++  const u32 scale = static_cast<u32>(256.f / yScale) & 0x1ffu;
++  if (scale == 0) Log.fatal("GX XFB line scale has a zero hardware divisor");
++  return static_cast<u16>(__GXGetNumXfbLines(efbHeight, scale));
++}
+ // TODO GXClearBoundingBox
+ // TODO GXReadBoundingBox
+ }
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -266,10 +266,10 @@
+   GXSetDispCopySrc(0, 0, rmode->fbWidth, rmode->efbHeight);
+   GXSetDispCopyDst(rmode->fbWidth, rmode->efbHeight);
+   GXSetDispCopyYScale(static_cast<f32>(rmode->xfbHeight) / static_cast<f32>(rmode->efbHeight));
+-  // GXSetCopyClamp(static_cast<GXFBClamp>(GX_CLAMP_TOP | GX_CLAMP_BOTTOM));
++  GXSetCopyClamp(static_cast<GXFBClamp>(GX_CLAMP_TOP | GX_CLAMP_BOTTOM));
+   GXSetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
+   GXSetDispCopyGamma(GX_GM_1_0);
+-  // GXSetDispCopyFrame2Field(GX_COPY_PROGRESSIVE);
++  GXSetDispCopyFrame2Field(GX_COPY_PROGRESSIVE);
+   // GXClearBoundingBox();
+ 
+   // GXPokeColorUpdate(GX_TRUE);
+diff --git a/lib/gx/regs.cpp b/lib/gx/regs.cpp
+--- a/lib/gx/regs.cpp
++++ b/lib/gx/regs.cpp
+@@ -1,4 +1,5 @@
+ #include "regs.hpp"
++#include "../gfx/xfb.hpp"
+ 
+ #include "gx_fmt.hpp"
+ #include "texture.hpp"
+@@ -275,7 +276,7 @@
+ void bp_efb_copy(u8, u32 value) noexcept {
+   const bool clear = reg_get(value, 1, 11) != 0;
+   if (reg_get(value, 1, 14) != 0) {
+-    Log.warn("STUB: display copy is not implemented");
++    gfx::xfb::copy_from_bp(value);
+   } else {
+     copy_tex(g_gxState.texCopyDest, clear);
+   }
+diff --git a/lib/gfx/recording.hpp b/lib/gfx/recording.hpp
+--- a/lib/gfx/recording.hpp
++++ b/lib/gfx/recording.hpp
+@@ -104,6 +104,11 @@
+ void resolve_pass_into(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
+                        Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat,
+                        GXPixelFmt sourceFormat);
++// FIFO-ordered display copies capture their own uniform words and completion.
++void resolve_pass_into_with_uniforms(TextureHandle texture, ClipRect rect,
++    bool clearColor, bool clearAlpha, bool clearDepth, Vec4<float> clearColorValue,
++    float clearDepthValue, GXTexFmt resolveFormat, GXPixelFmt sourceFormat,
++    const void* uniforms, size_t uniformBytes, AfterSubmitCallback afterSubmit);
+ uint32_t align_uniform(uint32_t value);
+ Vec2<uint32_t> get_render_target_size() noexcept;
+ void set_viewport(const Viewport& viewport) noexcept;
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -877,6 +877,15 @@
+ void resolve_pass_into(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
+                        Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat,
+                        GXPixelFmt sourceFormat) {
++  resolve_pass_into_with_uniforms(std::move(texture), rect, clearColor, clearAlpha,
++      clearDepth, clearColorValue, clearDepthValue, resolveFormat, sourceFormat,
++      nullptr, 0, {});
++}
++
++void resolve_pass_into_with_uniforms(TextureHandle texture, ClipRect rect,
++    bool clearColor, bool clearAlpha, bool clearDepth, Vec4<float> clearColorValue,
++    float clearDepthValue, GXTexFmt resolveFormat, GXPixelFmt sourceFormat,
++    const void* overrideUniforms, size_t uniformBytes, AfterSubmitCallback afterSubmit) {
+   // Resolve current render pass
+   auto& prevPass = current_render_passes()[g_recorder.currentRenderPass];
+   prevPass.resolveTarget = std::move(texture);
+@@ -890,7 +899,10 @@
+       .scale = {static_cast<float>(rect.width) / srcW, static_cast<float>(rect.height) / srcH},
+       .opaqueAlpha = !gx::efb_has_alpha(sourceFormat),
+   };
+-  prevPass.resolveUniformRange = push_uniform(uniforms);
++  prevPass.resolveUniformRange = overrideUniforms
++      ? push_uniform(static_cast<const uint8_t*>(overrideUniforms), uniformBytes)
++      : push_uniform(uniforms);
++  if (afterSubmit) current_frame_packet().afterSubmitCallbacks.emplace_back(std::move(afterSubmit));
+   enqueue_pass(current_frame_packet(), g_recorder.currentRenderPass);
+ 
+   // Populate new render pass from previous
+diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
+--- a/lib/gfx/encoding.cpp
++++ b/lib/gfx/encoding.cpp
+@@ -1,4 +1,5 @@
+ #include "encoding.hpp"
++#include "xfb.hpp"
+ 
+ #include "frame.hpp"
+ 
+@@ -274,7 +275,9 @@
+     const bool needsOpaqueAlpha = !isDepth && !gx::efb_has_alpha(convReq.srcFmt);
+     const bool sameFormat =
+         passInfo.resolveTarget->format == passInfo.colorAttachments[SceneColorAttachmentIndex].format;
+-    if (needsConversion) {
++    if (passInfo.resolveFormat == xfb::ResolveFormat) {
++      xfb::encode(cmd, passInfo.copySourceView, passInfo.resolveUniformRange, passInfo.resolveTarget);
++    } else if (needsConversion) {
+       tex_copy_conv::run(cmd, convReq);
+     } else if (needsScaling || needsOpaqueAlpha || !sameFormat) {
+       tex_copy_conv::blit(cmd, convReq);
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -1,4 +1,5 @@
+ #include "frame.hpp"
++#include "xfb.hpp"
+ 
+ #include "depth_peek.hpp"
+ #include "pipeline_cache.hpp"
+@@ -403,6 +404,7 @@
+   // });
+   depth_peek::initialize();
+   tex_copy_conv::initialize();
++  xfb::initialize();
+   tex_palette_conv::initialize();
+ 
+   // For uniform & storage buffer offset alignments
+@@ -543,6 +545,7 @@
+   shutdown_pipeline_cache();
+   depth_peek::shutdown();
+   tex_copy_conv::shutdown();
++  xfb::shutdown();
+   tex_palette_conv::shutdown();
+   texture_replacement::shutdown();
+   gx::shutdown();
+diff --git a/cmake/aurora_gx.cmake b/cmake/aurora_gx.cmake
+--- a/cmake/aurora_gx.cmake
++++ b/cmake/aurora_gx.cmake
+@@ -1,5 +1,6 @@
+ add_library(aurora_gx STATIC
+         lib/gfx/clear.cpp
++        lib/gfx/xfb.cpp
+         lib/gfx/depth_peek.cpp
+         lib/gfx/encoding.cpp
+         lib/gfx/frame.cpp
+diff --git a/lib/gfx/xfb.hpp b/lib/gfx/xfb.hpp
+new file mode 100644
+--- /dev/null
++++ b/lib/gfx/xfb.hpp
+@@ -0,0 +1,35 @@
++#pragma once
++
++#include "texture.hpp"
++
++#include <atomic>
++#include <memory>
++
++namespace aurora::gfx::xfb {
++// Private renderer tag; it is never a GX register or a game texture format.
++inline constexpr GXTexFmt ResolveFormat = static_cast<GXTexFmt>(0x100);
++
++struct Snapshot {
++  TextureHandle packedYuyv;
++  uint32_t physical = 0;
++  uint32_t width = 0;
++  uint32_t height = 0;
++  uint32_t stride = 0;
++  uint32_t bytes = 0;
++  uint64_t revision = 0;
++  uint64_t backingPin = 0;
++  std::atomic_bool gpuComplete = false;
++
++  ~Snapshot();
++};
++
++void initialize();
++void shutdown();
++// Called on the FIFO consumer at the original BP display-copy trigger.
++void copy_from_bp(uint32_t flags);
++void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
++            Range uniforms, const TextureHandle& destination);
++// The result describes the requested destination, never the latest EFB.
++// Callers must release references before graphics/OS shutdown.
++std::shared_ptr<const Snapshot> find(const void* originalDestination);
++} // namespace aurora::gfx::xfb
+diff --git a/lib/gfx/xfb.cpp b/lib/gfx/xfb.cpp
+new file mode 100644
+--- /dev/null
++++ b/lib/gfx/xfb.cpp
+@@ -0,0 +1,294 @@
++#include "xfb.hpp"
++
++#include "recording.hpp"
++#include "resources.hpp"
++#include "../gx/gx.hpp"
++#include "../webgpu/gpu.hpp"
++
++#include <dolphin/os.h>
++#include <dolphin/os/OSNativeMemory.h>
++
++#include <array>
++#include <mutex>
++#include <unordered_map>
++
++namespace aurora::gfx::xfb {
++namespace {
++constexpr Module Log{"aurora::gx::xfb"};
++wgpu::BindGroupLayout g_layout;
++wgpu::RenderPipeline g_pipeline;
++std::mutex g_mutex;
++std::unordered_map<uint32_t, std::shared_ptr<Snapshot>> g_snapshots;
++uint64_t g_revision = 0;
++
++struct alignas(16) CopyUniforms {
++  // Native EFB origin and size of one original logical EFB pixel.
++  std::array<float, 4> source;
++  std::array<uint32_t, 4> geometry; // width, height, top clamp, bottom clamp
++  std::array<uint32_t, 4> filter;   // preceding/current/following row, EFB format
++};
++static_assert(sizeof(CopyUniforms) == 48);
++
++// Independent WGSL implementation of the display-copy hardware arithmetic.
++// The captured BP fields remain authoritative. This initial seam supports
++// progressive copies with unity Y scale, ordinary sample positions and gamma
++// 1.0; other modes fail explicitly before creating a resource.
++constexpr auto Shader = R"(
++struct CopyUniforms {
++  source: vec4f,
++  geometry: vec4u,
++  weights: vec4u,
++};
++@group(0) @binding(0) var efb: texture_2d<f32>;
++@group(0) @binding(1) var<uniform> copy: CopyUniforms;
++
++@vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
++  switch index {
++    case 0u: { return vec4f(-1.0, -1.0, 0.0, 1.0); }
++    case 1u: { return vec4f(3.0, -1.0, 0.0, 1.0); }
++    default: { return vec4f(-1.0, 3.0, 0.0, 1.0); }
++  }
++}
++
++fn read_row(x: i32, requested_y: i32) -> vec3u {
++  var y = requested_y;
++  if copy.geometry.z != 0u { y = max(y, 0); }
++  if copy.geometry.w != 0u { y = min(y, i32(copy.geometry.y) - 1); }
++  let pixel = vec2i(floor(copy.source.xy +
++      (vec2f(f32(x), f32(y)) + vec2f(0.5)) * copy.source.zw));
++  let bounded = clamp(pixel, vec2i(0), vec2i(textureDimensions(efb)) - vec2i(1));
++  let rgb = textureLoad(efb, bounded, 0).rgb;
++  let value = vec3u(floor(clamp(rgb, vec3f(0.0), vec3f(1.0)) * 255.0 + 0.5));
++  switch copy.weights.w {
++    case 1u: { return (value / vec3u(4u)) * vec3u(4u) + value / vec3u(64u); }
++    case 2u: {
++      return (value / vec3u(8u, 4u, 8u)) * vec3u(8u, 4u, 8u) +
++          value / vec3u(32u, 64u, 32u);
++    }
++    default: { return value; }
++  }
++}
++
++fn filtered(x: i32, y: i32) -> vec3i {
++  let total = read_row(x, y - 1) * copy.weights.x +
++      read_row(x, y) * copy.weights.y + read_row(x, y + 1) * copy.weights.z;
++  // The hardware accumulator divides by 64 and keeps a nine-bit result
++  // before saturating it to the eight-bit color written to XFB.
++  return vec3i(min((total / vec3u(64u)) % vec3u(512u), vec3u(255u)));
++}
++
++fn luma(rgb: vec3i) -> i32 {
++  return (66 * rgb.r + 129 * rgb.g + 25 * rgb.b + 4096 + 128) / 256;
++}
++
++@fragment fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
++  let pair = i32(position.x);
++  let row = i32(position.y);
++  let a = filtered(pair * 2, row);
++  let b = filtered(pair * 2 + 1, row);
++  let sum = a + b;
++  let u = (-38 * sum.r - 74 * sum.g + 112 * sum.b + 65536 + 256) / 512;
++  let v = (112 * sum.r - 94 * sum.g - 18 * sum.b + 65536 + 256) / 512;
++  return vec4f(f32(luma(a)), f32(u), f32(luma(b)), f32(v)) / 255.0;
++}
++)";
++
++uint32_t field(uint32_t word, uint32_t shift, uint32_t bits) {
++  return (word >> shift) & ((1u << bits) - 1u);
++}
++
++TextureHandle new_packed_texture(uint32_t pairs, uint32_t height) {
++  const wgpu::Extent3D size{pairs, height, 1};
++  const wgpu::TextureDescriptor descriptor{
++      .label = "Original GX display-copy YUYV snapshot",
++      .usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding |
++          wgpu::TextureUsage::CopySrc,
++      .dimension = wgpu::TextureDimension::e2D,
++      .size = size,
++      .format = wgpu::TextureFormat::RGBA8Unorm,
++      .mipLevelCount = 1,
++      .sampleCount = 1,
++  };
++  auto texture = webgpu::g_device.CreateTexture(&descriptor);
++  auto view = texture.CreateView();
++  return std::make_shared<TextureRef>(std::move(texture), view, view, size,
++      wgpu::TextureFormat::RGBA8Unorm, 1, ResolveFormat);
++}
++
++void complete(const std::shared_ptr<Snapshot>& snapshot) {
++  // This runs strictly after the submission containing the captured copy.
++  struct Completion { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
++  auto completion = std::make_shared<Completion>();
++  const auto future = webgpu::g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
++      [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
++  const auto waited = webgpu::g_instance.WaitAny(future, 5'000'000'000);
++  AURORA_ASSERT(waited == wgpu::WaitStatus::Success &&
++      completion->status == wgpu::QueueWorkDoneStatus::Success,
++      "Original GX XFB GPU copy did not complete");
++  AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
++      "Original GX XFB completed on a lost device");
++  snapshot->gpuComplete.store(true, std::memory_order_release);
++}
++} // namespace
++
++Snapshot::~Snapshot() {
++  if (backingPin != 0) OSNativeUnpinAddress(backingPin);
++}
++
++void initialize() {
++  const std::array entries{
++      wgpu::BindGroupLayoutEntry{
++          .binding = 0,
++          .visibility = wgpu::ShaderStage::Fragment,
++          .texture = wgpu::TextureBindingLayout{
++              .sampleType = wgpu::TextureSampleType::UnfilterableFloat,
++              .viewDimension = wgpu::TextureViewDimension::e2D,
++          },
++      },
++      wgpu::BindGroupLayoutEntry{
++          .binding = 1,
++          .visibility = wgpu::ShaderStage::Fragment,
++          .buffer = wgpu::BufferBindingLayout{.type = wgpu::BufferBindingType::Uniform},
++      },
++  };
++  const wgpu::BindGroupLayoutDescriptor layoutDescriptor{
++      .label = "Original GX display-copy layout",
++      .entryCount = entries.size(),
++      .entries = entries.data(),
++  };
++  g_layout = webgpu::g_device.CreateBindGroupLayout(&layoutDescriptor);
++  const wgpu::ShaderSourceWGSL wgsl{wgpu::ShaderSourceWGSL::Init{.code = Shader}};
++  const wgpu::ShaderModuleDescriptor shaderDescriptor{
++      .nextInChain = &wgsl,
++      .label = "Original GX display-copy hardware",
++  };
++  const auto module = webgpu::g_device.CreateShaderModule(&shaderDescriptor);
++  const wgpu::PipelineLayoutDescriptor pipelineLayoutDescriptor{
++      .bindGroupLayoutCount = 1,
++      .bindGroupLayouts = &g_layout,
++  };
++  const auto pipelineLayout = webgpu::g_device.CreatePipelineLayout(&pipelineLayoutDescriptor);
++  const wgpu::ColorTargetState color{.format = wgpu::TextureFormat::RGBA8Unorm};
++  const wgpu::FragmentState fragment{
++      .module = module,
++      .entryPoint = "fragment",
++      .targetCount = 1,
++      .targets = &color,
++  };
++  const wgpu::RenderPipelineDescriptor pipelineDescriptor{
++      .label = "Original GX display-copy YUYV",
++      .layout = pipelineLayout,
++      .vertex = wgpu::VertexState{.module = module, .entryPoint = "vertex"},
++      .primitive = wgpu::PrimitiveState{.topology = wgpu::PrimitiveTopology::TriangleList},
++      .fragment = &fragment,
++  };
++  g_pipeline = webgpu::g_device.CreateRenderPipeline(&pipelineDescriptor);
++}
++
++void shutdown() {
++  std::lock_guard lock{g_mutex};
++  for (const auto& [physical, snapshot] : g_snapshots) {
++    AURORA_ASSERT(snapshot.use_count() == 1, "XFB {} still retained during graphics shutdown", physical);
++  }
++  g_snapshots.clear();
++  g_revision = 0;
++  g_pipeline = {};
++  g_layout = {};
++}
++
++void copy_from_bp(uint32_t flags) {
++  const auto& state = gx::g_gxState;
++  const auto& registers = state.bpRegCache;
++  const uint32_t width = field(registers[0x4a], 0, 10) + 1;
++  const uint32_t height = field(registers[0x4a], 10, 10) + 1;
++  const uint32_t stride = field(registers[0x4d], 0, 10) * 32;
++  const uint32_t physical = field(registers[0x4b], 0, 24) << 5;
++  const uint32_t scale = field(registers[0x4e], 0, 9);
++  AURORA_ASSERT(scale == 256 && field(flags, 10, 1) == 0,
++      "Native XFB Y scaling remains unqualified");
++  AURORA_ASSERT(field(flags, 12, 2) == 0, "Native field-separated GX copies remain unqualified");
++  AURORA_ASSERT(field(flags, 7, 2) == 0, "Native XFB gamma other than 1.0 remains unqualified");
++  for (uint32_t reg = 1; reg <= 4; ++reg) {
++    AURORA_ASSERT(field(registers[reg], 0, 24) == 0x666666, "Native AA display-copy sample positions remain unqualified");
++  }
++  AURORA_ASSERT(width % 2 == 0 && stride >= width * 2,
++      "Native XFB odd/overlapping destination rows remain unqualified");
++  AURORA_ASSERT(state.pixelFmt == GX_PF_RGB8_Z24 || state.pixelFmt == GX_PF_RGBA6_Z24 ||
++      state.pixelFmt == GX_PF_RGB565_Z16, "Native XFB source pixel format remains unqualified");
++  const ClipRect logical{
++      .x = static_cast<int32_t>(field(registers[0x49], 0, 10)),
++      .y = static_cast<int32_t>(field(registers[0x49], 10, 10)),
++      .width = static_cast<int32_t>(width),
++      .height = static_cast<int32_t>(height),
++  };
++  const auto [fbWidth, fbHeight] = gx::logical_fb_size();
++  AURORA_ASSERT(logical.x + width <= fbWidth && logical.y + height <= fbHeight,
++      "GX display-copy source extends outside the original EFB");
++  const auto rect = gx::map_logical_scissor(logical);
++  auto snapshot = std::make_shared<Snapshot>();
++  snapshot->physical = physical;
++  snapshot->width = width;
++  snapshot->height = height;
++  snapshot->stride = stride;
++  snapshot->bytes = stride * (height - 1) + width * 2;
++  uint32_t checkedPhysical = 0;
++  snapshot->backingPin = OSNativePinAddress(OSPhysicalToCached(physical), snapshot->bytes, TRUE, &checkedPhysical);
++  AURORA_ASSERT(checkedPhysical == physical, "GX XFB physical span changed during native pinning");
++  snapshot->packedYuyv = new_packed_texture(width / 2, height);
++  const auto coeff = [&](uint32_t index) {
++    return field(registers[index < 4 ? 0x53 : 0x54], (index < 4 ? index : index - 4) * 6, 6);
++  };
++  const CopyUniforms uniforms{
++      .source = {static_cast<float>(rect.x), static_cast<float>(rect.y),
++          static_cast<float>(rect.width) / width, static_cast<float>(rect.height) / height},
++      .geometry = {width, height, field(flags, 0, 1), field(flags, 1, 1)},
++      .filter = {coeff(0) + coeff(1), coeff(2) + coeff(3) + coeff(4), coeff(5) + coeff(6),
++          static_cast<uint32_t>(state.pixelFmt)},
++  };
++  {
++    std::lock_guard lock{g_mutex};
++    snapshot->revision = ++g_revision;
++    g_snapshots.insert_or_assign(physical, snapshot);
++  }
++  const bool clear = field(flags, 11, 1) != 0;
++  resolve_pass_into_with_uniforms(snapshot->packedYuyv, rect,
++      clear && state.colorUpdate, clear && state.alphaUpdate && gx::efb_has_alpha(state.pixelFmt),
++      clear && state.depthUpdate, state.clearColor, gx::clear_depth_value(), ResolveFormat,
++      state.pixelFmt, &uniforms, sizeof(uniforms), [snapshot] { complete(snapshot); });
++}
++
++void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
++            Range uniforms, const TextureHandle& destination) {
++  const std::array entries{
++      wgpu::BindGroupEntry{.binding = 0, .textureView = std::move(source)},
++      wgpu::BindGroupEntry{.binding = 1, .buffer = detail::resources().uniformBuffer,
++          .offset = uniforms.offset, .size = uniforms.size},
++  };
++  const wgpu::BindGroupDescriptor groupDescriptor{
++      .layout = g_layout, .entryCount = entries.size(), .entries = entries.data(),
++  };
++  const auto group = webgpu::g_device.CreateBindGroup(&groupDescriptor);
++  const wgpu::RenderPassColorAttachment color{
++      .view = destination->attachmentTextureView,
++      .loadOp = wgpu::LoadOp::Clear,
++      .storeOp = wgpu::StoreOp::Store,
++  };
++  const wgpu::RenderPassDescriptor passDescriptor{
++      .label = "Original GX XFB snapshot",
++      .colorAttachmentCount = 1,
++      .colorAttachments = &color,
++  };
++  const auto pass = encoder.BeginRenderPass(&passDescriptor);
++  pass.SetPipeline(g_pipeline);
++  pass.SetBindGroup(0, group);
++  pass.Draw(3);
++  pass.End();
++}
++
++std::shared_ptr<const Snapshot> find(const void* originalDestination) {
++  const uint32_t physical = OSCachedToPhysical(const_cast<void*>(originalDestination));
++  std::lock_guard lock{g_mutex};
++  const auto it = g_snapshots.find(physical);
++  return it == g_snapshots.end() ? nullptr : it->second;
++}
++} // namespace aurora::gfx::xfb

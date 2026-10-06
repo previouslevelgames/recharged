@@ -1,5 +1,5 @@
 Subject: Restore original frontend input, pointer and audio-status source
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Retain whole reconstructed source decisions, pointer callbacks/bounds and audio
 state policy. Remove replacement helper calls and the native exclusion of actual
@@ -130,30 +130,6 @@ diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
  
          first = first->m_next;
      } while (first != end);
-diff --git a/src/Game/FE/FEAudio.cpp b/src/Game/FE/FEAudio.cpp
---- a/src/Game/FE/FEAudio.cpp
-+++ b/src/Game/FE/FEAudio.cpp
-@@ -1,4 +1,3 @@
--#include "Game/Audio/AudioCuePlaybackSteps.h"
- #include "Game/FE/FEAudio.h"
- 
- #include "Game/Audio/RegistryPools.h"
-@@ -85,5 +84,14 @@
-         return true;
-     }
- 
--    return AudioFrontendFinishedStep(handle->m_State);
-+    switch (handle->m_State)
-+    {
-+    case 2:
-+    case 3:
-+    case 4:
-+    case 5:
-+        return false;
-+    default:
-+        return true;
-+    }
- }
 diff --git a/src/Game/FE/feInput.cpp b/src/Game/FE/feInput.cpp
 --- a/src/Game/FE/feInput.cpp
 +++ b/src/Game/FE/feInput.cpp

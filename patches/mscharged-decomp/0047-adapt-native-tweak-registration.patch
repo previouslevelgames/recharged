@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -813,7 +813,7 @@ diff --git a/src/Game/TweakConfig.cpp b/src/Game/TweakConfig.cpp
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
-@@ -1718,10 +1718,13 @@
+@@ -2770,10 +2770,13 @@
  
  #include "NL/nlBind_impl.h"
  
@@ -828,7 +828,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  void TweakValueInt::CopyValueFrom(
      TweakValueBase* other)
  {
-@@ -1735,34 +1738,50 @@
+@@ -2787,34 +2790,50 @@
          break;
      }
  }
@@ -886,9 +886,9 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  void TweakValueInt::UnidentifiedVirtual14(
      float* minimum, float* maximum, float* increment)
  {
-@@ -1770,7 +1789,10 @@
-     *maximum = kGameTweakZero;
-     *increment = kGameTweakZero;
+@@ -2822,7 +2841,10 @@
+     *maximum = 0.0f;
+     *increment = 0.0f;
  }
 -
 +#endif

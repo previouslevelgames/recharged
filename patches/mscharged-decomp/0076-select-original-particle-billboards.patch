@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original particle raster/quad writing and select native procedural streams
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Share the original renderer's raster and per-quad stream order. Select the original
 textured-colour mesh writer with native width, bounds, frame-lifetime and coherent

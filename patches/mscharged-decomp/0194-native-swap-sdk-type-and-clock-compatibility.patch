@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Reuse native SDK colour/compare types and forward the hardware clock
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 The canonical native GX header already supplies the original four-byte colour
 and compare value. Keep the console declarations, and use those SDK identities

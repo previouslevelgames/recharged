@@ -1,0 +1,271 @@
+Subject: [PATCH] restore original pose methods and native borrowed callback ABI
+
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+
+Original modules retain source constructor/array ownership/copy/Pose/Replay
+and callback methods. Preserve first callback word borrowed native addresses;
+keep the second numeric word unchanged. Diagnostic guards do not enter original
+execution. Scalar PPC/compiler adaptations remain explicit and separate.
+
+--- a/include/Game/Player.h
++++ b/include/Game/Player.h
+@@ -2,6 +2,7 @@
+ #define GAME_PLAYER_H
+ 
+ #include "Game/Character.h"
++#include "Game/PoseCallbackAddress.h"
+ #include "NL/nlTimer.h"
+ #include "Game/DetInput.h"
+ 
+@@ -179,7 +180,7 @@
+     bool fn_800976C4() const;
+     void SetPowerupAnimState(int nodeIndex, int animID, float blendTime);
+     void SetPowerupAnimState(int animID);
+-    static void PlayerHeadTrackCallback(unsigned int nSelf, unsigned int nParam2,
++    static void PlayerHeadTrackCallback(PoseCallbackAddressWord nSelf, unsigned int nParam2,
+         cPoseAccumulator* pPoseAccumulator, unsigned int nJointIndex, int nParentIndex);
+     bool IsCharacterInAir(float fParam) const;
+     cPN_SingleAxisBlender* CreateSingleAxisBlender(
+--- a/include/Game/PoseAccumulator.h
++++ b/include/Game/PoseAccumulator.h
+@@ -5,13 +5,14 @@
+ #include "Game/Replay.h"
+ #include "Game/SHierarchy.h"
+ #include "types.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class cSHierarchy;
+ class cPoseNode;
+ class cPoseAccumulator;
+ class nlMatrix4;
+ class nlQuaternion;
+-typedef void (*BuildNodeMatrixFn)(unsigned int, unsigned int,
++typedef void (*BuildNodeMatrixFn)(PoseCallbackAddressWord, unsigned int,
+     cPoseAccumulator*, unsigned int, int);
+ 
+ class cBuildNodeMatrixCallbackInfo
+@@ -23,7 +24,7 @@
+     }
+ 
+     BuildNodeMatrixFn funcCallback;
+-    unsigned int nParam1;
++    PoseCallbackAddressWord nParam1;
+     unsigned int nParam2;
+ };
+ 
+@@ -64,13 +65,13 @@
+ {
+ public:
+     cPoseAccumulator(cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     cPoseAccumulator(const cPoseAccumulator&) = delete;
+ #else
+     cPoseAccumulator(const cPoseAccumulator& other);
+ #endif
+     ~cPoseAccumulator();
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     cPoseAccumulator& operator=(const cPoseAccumulator&) = delete;
+ #else
+     cPoseAccumulator& operator=(const cPoseAccumulator& other);
+@@ -106,11 +107,11 @@
+     }
+     nlMatrix4& GetNodeMatrixByHashID(unsigned int nHashID) const;
+     s32 GetNumNodes() const;
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+     void Pose(const cPoseNode& pPoseTree, const nlMatrix4& pWorldMatrix);
+     void Pose(const cPoseNode* pPoseTree, const nlMatrix4* pWorldMatrix);
+     void SetBuildNodeMatrixCallback(int nNode,
+-        BuildNodeMatrixFn funcCallback, unsigned int nParam1,
++        BuildNodeMatrixFn funcCallback, PoseCallbackAddressWord nParam1,
+         unsigned int nParam2);
+ #endif
+ 
+@@ -129,7 +130,7 @@
+     u8 m_Padding[3];
+ };
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ template <typename T>
+ inline void cPoseAccumulator::Replay(T& frame)
+ {
+--- /dev/null
++++ b/include/Game/PoseCallbackAddress.h
+@@ -0,0 +1,9 @@
++#ifndef GAME_POSE_CALLBACK_ADDRESS_H
++#define GAME_POSE_CALLBACK_ADDRESS_H
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++typedef uintptr_t PoseCallbackAddressWord;
++#else
++typedef unsigned int PoseCallbackAddressWord;
++#endif
++#endif
+--- a/src/Game/Drawable/DrawableCharacter.cpp
++++ b/src/Game/Drawable/DrawableCharacter.cpp
+@@ -253,7 +253,7 @@
+     effectsTexturing = tex;
+ }
+ 
+-static void DrawableCharacterHeadTrackCallback(unsigned int ctx, unsigned int, cPoseAccumulator* poseAccumulator, unsigned int currentNodeIndex, int)
++static void DrawableCharacterHeadTrackCallback(PoseCallbackAddressWord ctx, unsigned int, cPoseAccumulator* poseAccumulator, unsigned int currentNodeIndex, int)
+ {
+     DrawableCharacter* drawableChar = (DrawableCharacter*)ctx;
+     CalcHeadTrackMatrix(drawableChar->headSpin, drawableChar->headTilt, poseAccumulator, currentNodeIndex);
+@@ -268,7 +268,11 @@
+ 
+     if (character != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        accumulator->SetBuildNodeMatrixCallback(character->m_nHeadJointIndex, DrawableCharacterHeadTrackCallback, reinterpret_cast<PoseCallbackAddressWord>(this), 0);
++#else
+         accumulator->SetBuildNodeMatrixCallback(character->m_nHeadJointIndex, DrawableCharacterHeadTrackCallback, (unsigned int)this, 0);
++#endif
+     }
+ 
+     accumulator->BuildNodeMatrices(worldMatrix);
+--- a/src/Game/Player.cpp
++++ b/src/Game/Player.cpp
+@@ -1048,7 +1048,7 @@
+     return pSAB;
+ }
+ 
+-void cPlayer::PlayerHeadTrackCallback(unsigned int nSelf, unsigned int nParam2,
++void cPlayer::PlayerHeadTrackCallback(PoseCallbackAddressWord nSelf, unsigned int nParam2,
+     cPoseAccumulator* pPoseAccumulator, unsigned int nJointIndex, int nParentIndex)
+ {
+     cPlayer& self = *(cPlayer*)nSelf;
+@@ -1120,7 +1120,11 @@
+ void cPlayer::Unknown7(float)
+ {
+     m_pPoseAccumulator->SetBuildNodeMatrixCallback(
++#if defined(MSCHARGED_NATIVE)
++        m_nHeadJointIndex, PlayerHeadTrackCallback, reinterpret_cast<PoseCallbackAddressWord>(this), 0);
++#else
+         m_nHeadJointIndex, PlayerHeadTrackCallback, (unsigned int)this, 0);
++#endif
+     if (m_pBall != NULL)
+     {
+         m_pBall->m_pPhysicsBall->EnableCollisions();
+--- a/src/Game/PoseAccumulator.cpp
++++ b/src/Game/PoseAccumulator.cpp
+@@ -7,7 +7,7 @@
+ #include <math.h>
+ #include <string.h>
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+ #include <memory>
+ #include <stdexcept>
+ #include <type_traits>
+@@ -56,7 +56,7 @@
+ cPoseAccumulator::cPoseAccumulator(
+     cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!pSHierarchy || pSHierarchy->m_nNumNodes <= 0 || pSHierarchy->m_nNumNodes > 4096)
+         throw std::invalid_argument("Invalid native pose hierarchy");
+     m_PrevNodeMatrices = m_NodeMatrices = nullptr;
+@@ -72,7 +72,7 @@
+ 
+     if (bStorePrevNodeMatrices)
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         m_PrevNodeMatrices = PoseAccumulatorArray<nlMatrix4>(m_nNumNodes + 1);
+ #else
+         m_PrevNodeMatrices = new (8, false) nlMatrix4[m_nNumNodes + 1];
+@@ -83,32 +83,32 @@
+         m_PrevNodeMatrices = NULL;
+     }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     m_NodeMatrices = PoseAccumulatorArray<nlMatrix4>(m_nNumNodes + 1);
+ #else
+     m_NodeMatrices = new (8, false) nlMatrix4[m_nNumNodes + 1];
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     m_pQuaternions = PoseAccumulatorArray<nlQuaternion>(m_nNumNodes + 1);
+ #else
+     m_pQuaternions = new (8, false) nlQuaternion[m_nNumNodes + 1];
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     m_rot = PoseAccumulatorArray<RotAccum>(m_nNumNodes);
+ #else
+     m_rot = new (8, false) RotAccum[m_nNumNodes];
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     m_scale = PoseAccumulatorArray<ScaleAccum>(m_nNumNodes);
+ #else
+     m_scale = new (8, false) ScaleAccum[m_nNumNodes];
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     m_trans = PoseAccumulatorArray<TransAccum>(m_nNumNodes);
+ #else
+     m_trans = new (8, false) TransAccum[m_nNumNodes];
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     m_cb = PoseAccumulatorArray<cBuildNodeMatrixCallbackInfo>(m_nNumNodes);
+ #else
+     m_cb = new (8, false) cBuildNodeMatrixCallbackInfo[m_nNumNodes];
+@@ -134,7 +134,7 @@
+             m_trans[i].bIdentity = false;
+         }
+     }
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         // Original i+1 scratch slots also have defined native object storage.
+         m_NodeMatrices[m_nNumNodes].SetIdentity();
+         if (m_PrevNodeMatrices) m_PrevNodeMatrices[m_nNumNodes].SetIdentity();
+@@ -144,7 +144,7 @@
+ #endif
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ /**
+  * Offset/Address/Size: 0x228 | 0x8030ABF8 | size: 0x11C
+  */
+@@ -208,7 +208,7 @@
+  */
+ cPoseAccumulator::~cPoseAccumulator()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     PoseAccumulatorFreeArrays(this);
+ #else
+     if (m_PrevNodeMatrices != NULL)
+@@ -224,7 +224,7 @@
+ #endif
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ static inline void PoseAccumulatorInitNodeAccumulators(cPoseAccumulator* pose)
+ {
+     for (int i = 0; i < pose->m_BaseSHierarchy->m_nNumNodes; ++i)
+@@ -937,12 +937,12 @@
+     return m_BaseSHierarchy->m_nNumNodes;
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ /**
+  * Offset/Address/Size: 0x19B0 | 0x8030C380 | size: 0x28
+  */
+ void cPoseAccumulator::SetBuildNodeMatrixCallback(int nNode,
+-    BuildNodeMatrixFn funcCallback, unsigned int nParam1,
++    BuildNodeMatrixFn funcCallback, PoseCallbackAddressWord nParam1,
+     unsigned int nParam2)
+ {
+     m_cb[nNode].funcCallback = funcCallback;

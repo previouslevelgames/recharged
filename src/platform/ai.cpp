@@ -39,7 +39,18 @@ struct AIState {
     std::uint64_t dispatched{};
     std::uint64_t retained{};
     std::uint64_t last_hash{};
-    std::vector<u8> cache;
+    std::uintptr_t active_address{};
+    u32 active_length{};
+    u32 active_offset{};
+    bool first_edge{};
+    std::uint64_t clock_epoch{};
+    std::uint64_t epoch_cells{};
+    std::uint64_t transferred_cells{};
+    std::uint64_t latch_edges{};
+    std::uint64_t coalesced_edges{};
+    std::uint64_t maximum_service_gap{};
+    std::uint64_t last_service{};
+    std::vector<u8> fifo;
     char error[256]{};
 };
 
@@ -74,7 +85,7 @@ void SDLCALL Completed(void* userdata, const void*, int) noexcept {
         // not consumed DMA blocks and cannot generate source interrupts.
         if (packet->generation == state.generation && state.running) {
             ++state.consumed;
-            state.pending = true;
+
         } else {
             ++state.cancelled;
         }
@@ -82,64 +93,90 @@ void SDLCALL Completed(void* userdata, const void*, int) noexcept {
     std::free(packet);
 }
 
-// Called only by SDL while its stream lock is held. It never executes game
-// callbacks or waits for a game critical section. A cached FIFO copy supplies
-// the previous DMA block while the source handler is writing its next buffer.
-int QueueBlock(AIState& state, SDL_AudioStream* stream) noexcept {
-    Packet* packet = nullptr;
-    {
-        NativeInterruptRead source_access;
-        std::lock_guard lock(state.mutex);
-        if (!state.initialized || !state.running || !state.address || !state.length) return false;
-        try {
-            if (source_access) {
-                state.cache.resize(state.length);
-                std::memcpy(state.cache.data(), reinterpret_cast<const void*>(state.address), state.length);
-            }
-        } catch (...) {
-            std::snprintf(state.error, sizeof(state.error), "AI DMA FIFO allocation failed");
-            state.running = false;
-            return false;
-        }
-        if (state.cache.empty()) return false;
-        packet = static_cast<Packet*>(std::malloc(sizeof(Packet) + state.cache.size()));
-        if (!packet) {
-            std::snprintf(state.error, sizeof(state.error), "AI DMA packet allocation failed");
-            state.running = false;
-            return false;
-        }
-        packet->state = &state;
-        packet->generation = state.generation;
-        packet->size = static_cast<int>(state.cache.size());
-        std::memcpy(packet->Data(), state.cache.data(), state.cache.size());
-        state.last_hash = Hash(packet->Data(), state.cache.size());
-        ++state.retained;
-        ++state.submitted;
-    }
-    const int size = packet->size;
-    if (!SDL_PutAudioStreamDataNoCopy(stream, packet->Data(), size, Completed, packet)) {
+// AI DMA has its own nominal sample clock. SDL's device pull size does not
+// select a source buffer, create a hardware interrupt or repeat source PCM.
+// One hardware cell is32 bytes/eight stereo S16 frames. The source-selected
+// current transfer is latched independently from AIInitDMA's next registers.
+void Latch(AIState& state) {
+    if (!state.address || !state.length)
+        throw std::invalid_argument("AI next DMA transfer has no source buffer/count");
+    state.active_address = state.address;
+    state.active_length = state.length;
+    state.active_offset = 0;
+    state.fifo.resize(state.active_length);
+}
+
+void Edge(AIState& state) {
+    ++state.latch_edges;
+    if (state.pending) ++state.coalesced_edges;
+    state.pending = true; // AID is a latched hardware cause, not a callback queue.
+}
+
+void Queue(AIState& state, SDL_AudioStream* stream, Packet* packet) noexcept {
+    if (!SDL_PutAudioStreamDataNoCopy(stream, packet->Data(), packet->size, Completed, packet)) {
         std::lock_guard lock(state.mutex);
         --state.retained;
         --state.submitted;
         state.running = false;
         std::snprintf(state.error, sizeof(state.error), "AI DMA queue: %s", SDL_GetError());
         std::free(packet);
-        return false;
     }
-    return size;
 }
 
-void SDLCALL Feed(void* userdata, SDL_AudioStream* stream, int additional, int) noexcept {
-    auto& state = *static_cast<AIState*>(userdata);
-    while (additional > 0) {
-        {
-            std::lock_guard lock(state.mutex);
-            if (!state.running) return;
+void Transfer(AIState& state, SDL_AudioStream* stream) noexcept {
+    // This same exclusion protects source DMA writes/stop/free. SDL workers
+    // only try the lock; they never wait for source code while holding SDL's
+    // stream lock. A source critical section defers this native safe point.
+    NativeInterruptRead source_access;
+    const auto now = SDL_GetTicksNS();
+    std::vector<Packet*> packets;
+    {
+        std::lock_guard lock(state.mutex);
+        if (!state.initialized || !state.running || state.callback_active) return;
+        const auto elapsed = now - state.clock_epoch;
+        const auto frames = (elapsed / 1000000000ull) * Frequency(state.rate) +
+                            (elapsed % 1000000000ull) * Frequency(state.rate) / 1000000000ull;
+        const auto due = frames / 8;
+        // Latching the initial device cause does not read game memory and is
+        // independent of the CPU mask. Source delivery remains masked below.
+        if (state.first_edge && due) { Edge(state); state.first_edge = false; }
+        if (!source_access) return;
+        state.maximum_service_gap = std::max(state.maximum_service_gap, now - state.last_service);
+        state.last_service = now;
+        try {
+            while (state.running && state.epoch_cells < due) {
+                std::memcpy(state.fifo.data() + state.active_offset,
+                            reinterpret_cast<const void*>(state.active_address + state.active_offset), 32);
+                state.active_offset += 32;
+                ++state.epoch_cells;
+                ++state.transferred_cells;
+                if (state.active_offset != state.active_length) continue;
+                auto* packet = static_cast<Packet*>(std::malloc(sizeof(Packet) + state.fifo.size()));
+                if (!packet) throw std::bad_alloc();
+                packet->state = &state;
+                packet->generation = state.generation;
+                packet->size = static_cast<int>(state.fifo.size());
+                std::memcpy(packet->Data(), state.fifo.data(), state.fifo.size());
+                try { packets.push_back(packet); }
+                catch (...) { std::free(packet); throw; }
+                state.last_hash = Hash(packet->Data(), state.fifo.size());
+                ++state.retained;
+                ++state.submitted;
+                Latch(state);
+                Edge(state);
+            }
+        } catch (const std::exception& error) {
+            state.running = false;
+            std::snprintf(state.error, sizeof(state.error), "AI hardware FIFO: %s", error.what());
         }
-        const int size = QueueBlock(state, stream);
-        if (!size) return;
-        additional -= size;
     }
+    for (auto* packet : packets) Queue(state, stream, packet);
+}
+
+void SDLCALL Feed(void* userdata, SDL_AudioStream* stream, int, int) noexcept {
+    // Device pull granularity can exceed the source's96-frame interval. Only
+    // real elapsed DMA transfers enter SDL; demand never repeats a buffer.
+    Transfer(*static_cast<AIState*>(userdata), stream);
 }
 
 void RequireInitialized(AIState& state) {
@@ -254,15 +291,17 @@ extern "C" void AIStartDMA() {
         RequireInitialized(state);
         if (state.running) return;
         if (!state.address || !state.length) throw std::invalid_argument("AI DMA needs a source buffer and nonzero hardware length");
-        state.cache.resize(state.length);
-        std::memcpy(state.cache.data(), reinterpret_cast<const void*>(state.address), state.length);
+        Latch(state);
+        state.clock_epoch = state.last_service = SDL_GetTicksNS();
+        state.epoch_cells = 0;
+        state.first_edge = true;
         state.error[0] = 0;
         state.pending = false;
         ++state.generation;
         state.running = true;
         stream = state.stream;
     }
-    if (!QueueBlock(state, stream) || !SDL_ResumeAudioStreamDevice(stream)) {
+    if (!SDL_ResumeAudioStreamDevice(stream)) {
         const auto error = SDLError("AI audio DMA start failed");
         Stop(state);
         throw error;
@@ -284,22 +323,12 @@ extern "C" BOOL AIGetDMAEnableFlag() {
 extern "C" u32 AIGetDMABytesLeft() {
     NativeInterruptGuard scope;
     auto& state = State();
-    SDL_AudioStream* stream;
-    u32 length;
-    bool running;
-    {
-        std::lock_guard lock(state.mutex);
-        stream = state.stream;
-        length = state.length;
-        running = state.running;
-    }
-    if (!stream || !running || !length) return 0;
-    const int queued = SDL_GetAudioStreamQueued(stream);
-    if (queued < 0) throw SDLError("AI DMA queue counter failed");
-    // SDL consumes whole device pulls. This is the actual remaining input
-    // queue's current DMA-block phase, expressed in hardware32-byte units.
-    const u32 phase = static_cast<u32>(queued) % length;
-    return (phase ? phase : (queued ? length : 0)) & ~u32(31);
+    std::lock_guard lock(state.mutex);
+    if (!state.running || !state.active_length) return 0;
+    // The DSP exposes the zero-based remaining32-byte cell counter. This is
+    // independent of SDL's conversion/queued-output latency.
+    const u32 cells = (state.active_length - state.active_offset) / 32;
+    return cells ? (cells - 1) * 32 : 0;
 }
 
 extern "C" u32 AIGetDSPSampleRate() {
@@ -320,11 +349,14 @@ extern "C" void AISetDSPSampleRate(u32 rate) {
         stream = state.stream;
     }
     if (stream) {
+        Transfer(state, stream);
         const SDL_AudioSpec input{SDL_AUDIO_S16, 2, Frequency(selected)};
         if (!SDL_SetAudioStreamFormat(stream, &input, nullptr)) throw SDLError("AI DSP rate selection failed");
     }
     std::lock_guard lock(state.mutex);
     state.rate = selected;
+    state.clock_epoch = state.last_service = SDL_GetTicksNS();
+    state.epoch_cells = 0;
 }
 
 extern "C" void AIReset() { mscharged::platform::ShutdownNativeAI(); }
@@ -332,6 +364,15 @@ extern "C" void AIReset() { mscharged::platform::ShutdownNativeAI(); }
 namespace mscharged::platform {
 bool ServiceNativeAI() {
     auto& state = State();
+    SDL_AudioStream* stream;
+    {
+        std::lock_guard lock(state.mutex);
+        if (!state.initialized) return false;
+        if (state.owner != std::this_thread::get_id())
+            throw std::logic_error("AI interrupts must be serviced on the initialization/game thread");
+        stream = state.stream;
+    }
+    Transfer(state, stream);
     {
         std::lock_guard lock(state.mutex);
         if (!state.initialized) return false;
@@ -410,6 +451,16 @@ NativeAIStatus GetNativeAIStatus() {
     return status;
 }
 
+NativeAIClockStatus GetNativeAIClockStatus() {
+    NativeInterruptGuard scope;
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    return {state.active_address, state.active_length, state.active_offset,
+            state.transferred_cells, state.latch_edges, state.coalesced_edges,
+            state.maximum_service_gap, state.last_service - state.clock_epoch,
+            state.epoch_cells};
+}
+
 void ShutdownNativeAI() {
     NativeInterruptGuard scope;
     auto& state = State();
@@ -437,7 +488,10 @@ void ShutdownNativeAI() {
         state.address = 0;
         state.length = 0;
         state.rate = AI_SAMPLERATE_32KHZ;
-        state.cache.clear();
+        state.fifo.clear();
+        state.active_address = 0;
+        state.active_length = state.active_offset = 0;
+        state.first_edge = false;
         state.error[0] = 0;
     }
     if (audio_reference) SDL_QuitSubSystem(SDL_INIT_AUDIO);

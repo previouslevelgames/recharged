@@ -1,6 +1,6 @@
 Subject: Share Aurora DVD declarations with the original NL file layer
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Use the actual native DVD API and its field names while retaining the console
 header branch. Canonical fixed-width 64-bit types permit both SDK headers on

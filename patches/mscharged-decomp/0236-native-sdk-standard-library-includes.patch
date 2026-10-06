@@ -1,0 +1,39 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Use standard native SDK size and memory declarations
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Classification: permanent modern compiler and native allocation ABI adaptation.
+
+MWCC supplies size_t.h and mem.h; host compilers use stddef.h and string.h.
+Retain original hooks/heap declarations and console includes. No HBM/audio
+initialization, allocation requests or game behavior changes.
+
+diff --git a/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h b/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h
+--- a/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h
++++ b/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h
+@@ -1,7 +1,11 @@
+ #ifndef RVL_SDK_AXFX_HOOKS_H
+ #define RVL_SDK_AXFX_HOOKS_H
+ #include <revolution/types.h>
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#else
+ #include <size_t.h>
++#endif
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+diff --git a/libs/RVL_SDK/include/revolution/mem/heapCommon.h b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
+--- a/libs/RVL_SDK/include/revolution/mem/heapCommon.h
++++ b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
+@@ -1,7 +1,11 @@
+ #ifndef REVOLUTION_MEM_HEAP_COMMON_H
+ #define REVOLUTION_MEM_HEAP_COMMON_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <string.h>
++#else
+ #include <mem.h>
++#endif
+ #include <revolution/mem/list.h>
+ #include <revolution/os/OSMutex.h>
+ #include <revolution/types.h>

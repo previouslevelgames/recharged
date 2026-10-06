@@ -1,6 +1,6 @@
 Subject: Select original graphics frame state and lifecycle
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Add separately selected diagnostic copies of the begin/end/send/discard/finish
 entry points and frame state. Leave the complete original gl.cpp state and

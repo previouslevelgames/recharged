@@ -1,0 +1,90 @@
+Subject: [PATCH] transport original DSP CSR hardware requests natively
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+
+Replace only native 16-bit MMIO CSR loads/stores with real host hardware APIs.
+Original masks, order, requests, task/control/callback decisions and console
+bodies remain unchanged. Reset/ROM bootstrap remains an explicit unsupported
+hardware boundary; no init flag, handler callback or completion is fabricated.
+
+diff --git a/src/RVL_SDK/dsp/dsp.c b/src/RVL_SDK/dsp/dsp.c
+--- a/src/RVL_SDK/dsp/dsp.c
++++ b/src/RVL_SDK/dsp/dsp.c
+@@ -2,6 +2,7 @@
+ #include <revolution/os.h>
+ #ifdef MSCHARGED_NATIVE
+ #include "platform/dsp_mailbox_abi.h"
++#include "platform/dsp_control_abi.h"
+ #endif
+ 
+ const char* __DSPVersion =
+@@ -54,10 +55,17 @@
+ 
+     enabled = OSDisableInterrupts();
+ 
++#ifdef MSCHARGED_NATIVE
++    ChargedDSPControlWrite(
++        (ChargedDSPControlRead() &
++         ~(DSP_CSR_AIDINT | DSP_CSR_ARINT | DSP_CSR_DSPINT)) |
++        DSP_CSR_PIINT);
++#else
+     DSP_HW_REGS[DSP_CSR] =
+         (DSP_HW_REGS[DSP_CSR] &
+          ~(DSP_CSR_AIDINT | DSP_CSR_ARINT | DSP_CSR_DSPINT)) |
+         DSP_CSR_PIINT;
++#endif
+ 
+     OSRestoreInterrupts(enabled);
+ }
+@@ -79,13 +87,25 @@
+     __OSSetInterruptHandler(OS_INTR_DSP_DSP, __DSPHandler);
+     __OSUnmaskInterrupts(OS_INTR_MASK(OS_INTR_DSP_DSP));
+ 
++#ifdef MSCHARGED_NATIVE
++    ChargedDSPControlWrite(
++        (ChargedDSPControlRead() &
++         ~(DSP_CSR_AIDINT | DSP_CSR_ARINT | DSP_CSR_DSPINT)) |
++        DSP_CSR_RES);
++#else
+     DSP_HW_REGS[DSP_CSR] =
+         (DSP_HW_REGS[DSP_CSR] &
+          ~(DSP_CSR_AIDINT | DSP_CSR_ARINT | DSP_CSR_DSPINT)) |
+         DSP_CSR_RES;
++#endif
+ 
++#ifdef MSCHARGED_NATIVE
++    ChargedDSPControlWrite(ChargedDSPControlRead() &
++        ~(DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT | DSP_CSR_DSPINT));
++#else
+     DSP_HW_REGS[DSP_CSR] &=
+         ~(DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT | DSP_CSR_DSPINT);
++#endif
+ 
+     __DSP_tmp_task = NULL;
+     __DSP_curr_task = NULL;
+diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
+--- a/src/RVL_SDK/dsp/dsp_task.c
++++ b/src/RVL_SDK/dsp/dsp_task.c
+@@ -2,6 +2,7 @@
+ #include <revolution/os.h>
+ #ifdef MSCHARGED_NATIVE
+ #include "platform/dsp_memory_abi.h"
++#include "platform/dsp_control_abi.h"
+ #endif
+ 
+ /**
+@@ -49,9 +50,15 @@
+     OSContext tmpCtx;
+     u32 ucode;
+ 
++#ifdef MSCHARGED_NATIVE
++    ChargedDSPControlWrite(
++        (ChargedDSPControlRead() & ~(DSP_CSR_AIDINT | DSP_CSR_ARINT)) |
++        DSP_CSR_DSPINT);
++#else
+     DSP_HW_REGS[DSP_CSR] =
+         (DSP_HW_REGS[DSP_CSR] & ~(DSP_CSR_AIDINT | DSP_CSR_ARINT)) |
+         DSP_CSR_DSPINT;
++#endif
+ 
+     OSClearContext(&tmpCtx);
+     OSSetCurrentContext(&tmpCtx);

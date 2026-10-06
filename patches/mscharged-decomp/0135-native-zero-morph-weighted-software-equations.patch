@@ -1,5 +1,5 @@
 Subject: Select scalar original zero-morph weighted software equations
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Preserve paired-single mul/madd/add grouping and bone-outer accumulation.
 Native helpers use explicit fused single-precision multiply-add and retain

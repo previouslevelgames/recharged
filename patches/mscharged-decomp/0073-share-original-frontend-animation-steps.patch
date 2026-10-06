@@ -1,6 +1,6 @@
 Subject: Share original frontend animation sampling and timeline advance
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Select original Bezier and share FE key/ring/time equations with a checked native
 owner. Preserve scalar/vector sentinel and singleton differences, presentation

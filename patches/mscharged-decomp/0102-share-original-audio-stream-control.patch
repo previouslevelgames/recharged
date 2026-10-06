@@ -1,10 +1,11 @@
-From: mscharged-port
-Subject: Share original audio stream control states through typed platform operations
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Subject: Retain legacy diagnostic audio helpers without rewriting original source
 
-Keep present original Play/Stop/Pause/Resume branches shared with the native
-bounded stereo stream owner. Console AX/interrupt/cancellation work remains
-in delegates. Missing Prepare/Update bodies are not replaced or stubbed.
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+
+The existing diagnostic helper snapshots remain for explicitly selected preview
+consumers. Complete original game/SDK methods, headers, enum definitions and
+retail state transitions are no longer delegated to these copies. No AX/DSP
+readiness, native game audio manager or new source behavior is provided.
 
 diff --git a/include/Game/Audio/AudioStreamControlSteps.h b/include/Game/Audio/AudioStreamControlSteps.h
 new file mode 100644
@@ -74,119 +75,3 @@ new file mode 100644
 +    return true;
 +}
 +#endif
-diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
---- a/src/Game/Audio/AudioSource.cpp
-+++ b/src/Game/Audio/AudioSource.cpp
-@@ -1,5 +1,6 @@
- #include "Game/Audio/AudioResidentSteps.h"
- #include "Game/Audio/AudioSource.h"
-+#include "Game/Audio/AudioStreamControlSteps.h"
- #include "Game/Audio/AudioVoiceSteps.h"
- #include "Game/Audio/AudioResourcePlatform.h"
- 
-@@ -386,34 +387,16 @@
- 
- bool AudioReadState::Play(unsigned int value)
- {
--    m_PlayCount = value;
--    switch (m_Unknown10)
--    {
--    case 1:
--        Prepare();
--    case 2:
--        m_Unknown28 = 5;
--        break;
--    case 3:
--    {
-+    return AudioStreamPlaySteps(*this, value, [&] { Prepare(); }, [&] {
-         AudioStreamChannel* channel = GetChannelIterator();
-         while ((channel = GetNextChannel(channel)) != 0)
-             AXSetVoiceState(channel->m_Voice, AX_VOICE_RUN);
--        m_Unknown10 = 4;
--        break;
--    }
--    default:
--        return false;
--    }
--    return true;
-+    });
- }
- 
- void AudioReadState::Stop()
- {
--    switch (m_Unknown10)
--    {
--    case 4:
--    {
-+    AudioStreamStopSteps(*this, [&] {
-         bool enabled;
-         AudioStreamChannel* channel = GetChannelIterator();
-         while ((channel = GetNextChannel(channel)) != 0)
-@@ -423,48 +406,33 @@
-                 AXSetVoiceState(channel->m_Voice, AX_VOICE_STOP);
-             OSRestoreInterrupts(enabled);
-         }
--    }
--    case 2:
--        m_Unknown28 = 6;
--        if (m_Unknown20_00 != 0)
--            g_pAudioBackend->QueueReadCancellation(this);
--        m_Unknown10 = 6;
--        break;
--    case 3:
--    case 7:
--        m_Unknown10 = 6;
--        break;
--    case 5:
--        break;
--    }
-+    }, [&] { return m_Unknown20_00 != 0; }, [&] {
-+        g_pAudioBackend->QueueReadCancellation(this);
-+    });
- }
- 
- bool AudioReadState::Pause()
- {
--    if (m_Unknown10 != 4)
--        return false;
--    AudioStreamChannel* channel = GetChannelIterator();
--    while ((channel = GetNextChannel(channel)) != 0)
--    {
--        channel->m_Unknown0C = (channel->m_Voice->pb.addr.currentAddressHi << 16) | channel->m_Voice->pb.addr.currentAddressLo;
--        AXSetVoiceState(channel->m_Voice, AX_VOICE_STOP);
--    }
--    m_Unknown10 = 7;
--    return true;
-+    return AudioStreamPauseSteps(*this, [&] {
-+        AudioStreamChannel* channel = GetChannelIterator();
-+        while ((channel = GetNextChannel(channel)) != 0)
-+        {
-+            channel->m_Unknown0C = (channel->m_Voice->pb.addr.currentAddressHi << 16) | channel->m_Voice->pb.addr.currentAddressLo;
-+            AXSetVoiceState(channel->m_Voice, AX_VOICE_STOP);
-+        }
-+    });
- }
- 
- bool AudioReadState::Resume()
- {
--    if (m_Unknown10 != 7)
--        return false;
--    AudioStreamChannel* channel = GetChannelIterator();
--    while ((channel = GetNextChannel(channel)) != 0)
--    {
--        AXSetVoiceCurrentAddr(channel->m_Voice, channel->m_Unknown0C);
--        AXSetVoiceState(channel->m_Voice, AX_VOICE_RUN);
--    }
--    m_Unknown10 = 4;
--    return true;
-+    return AudioStreamResumeSteps(*this, [&] {
-+        AudioStreamChannel* channel = GetChannelIterator();
-+        while ((channel = GetNextChannel(channel)) != 0)
-+        {
-+            AXSetVoiceCurrentAddr(channel->m_Voice, channel->m_Unknown0C);
-+            AXSetVoiceState(channel->m_Voice, AX_VOICE_RUN);
-+        }
-+    });
- }
- 
- void TrackAudioRead(AudioReadState* state, AsyncEntry* request)

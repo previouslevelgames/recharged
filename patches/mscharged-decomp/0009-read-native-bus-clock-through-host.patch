@@ -1,6 +1,6 @@
 Subject: Read the host OS bus clock instead of defining console low-memory globals
 
-Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
 
 Each original time unit maps __OSBusClock to the same console address.
 Native builds must not create duplicate uninitialized globals. Read the

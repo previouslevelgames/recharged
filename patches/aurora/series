@@ -18,3 +18,12 @@
 0018-align-native-mem1-backing-for-device-addresses.patch
 0019-owned-native-static-and-mem2-physical-backing.patch
 0022-original-wii-sdk-render-mode-tables.patch
+0020-service-native-owner-hardware.patch
+0025-native-gx-fifo-descriptor-requests.patch
+0023-native-vi-clock-and-retrace.patch
+0027-scope-native-video-to-explicit-source-integration.patch
+0026-native-vi-shared-interrupt-line.patch
+0029-native-gx-scissor-box-offset.patch
+0030-native-gx-misc-state-requests.patch
+0031-native-gx-blocking-pipelines.patch
+0028-native-gx-display-copy-snapshots.patch

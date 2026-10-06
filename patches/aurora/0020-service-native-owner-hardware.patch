@@ -1,0 +1,123 @@
+Subject: Service optional native hardware from genuine SDK owner boundaries
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Register a bounded host hardware endpoint underneath original source execution.
+Clock, window owner and GX owner waits service latched native input without
+changing clock arithmetic, source tasks or game decisions. The endpoint retains
+foreign/masked/reentrant input and explicitly retires its borrowed callbacks.
+No event, controller readiness, retrace timing or game shutdown is invented.
+
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -1,4 +1,5 @@
+ #include <aurora/aurora.h>
++#include <aurora/hardware.h>
+ #include <aurora/time.hpp>
+ 
+ #ifdef AURORA_ENABLE_GX
+@@ -262,6 +263,7 @@
+   gx::fifo::service_draw_done();
+   gx::update();
+ #endif
++  aurora_service_hardware();
+   return window::poll_events();
+ }
+ 
+diff --git a/lib/dolphin/os/OSTime.cpp b/lib/dolphin/os/OSTime.cpp
+--- a/lib/dolphin/os/OSTime.cpp
++++ b/lib/dolphin/os/OSTime.cpp
+@@ -1,9 +1,11 @@
++#include <atomic>
+ #include <chrono>
+ #include <ctime>
+ #include <mutex>
+ 
+ #include "internal.hpp"
+ #include <aurora/time.hpp>
++#include <aurora/hardware.h>
+ #include <dolphin/os.h>
+ #ifdef AURORA_ENABLE_GX
+ #include <dolphin/gx/GXManage.h>
+@@ -28,6 +30,7 @@
+ constexpr SystemTime kGcnEpochUnix{946684800s};
+ std::once_flag s_gameEpochOnce;
+ OSTime s_gameEpochOffset;
++std::atomic<AuroraHardwareService> s_hardwareService{nullptr};
+ 
+ LocalTime system_time_to_local_time(SystemTime time) {
+ #if defined(__cpp_lib_chrono) && __cpp_lib_chrono >= 201907L
+@@ -100,6 +103,23 @@
+ }
+ } // namespace
+ 
++extern "C" bool aurora_register_hardware_service(AuroraHardwareService service) {
++  if (!service) return false;
++  AuroraHardwareService expected = nullptr;
++  return s_hardwareService.compare_exchange_strong(expected, service, std::memory_order_acq_rel);
++}
++
++extern "C" bool aurora_unregister_hardware_service(AuroraHardwareService service) {
++  if (!service) return false;
++  return s_hardwareService.compare_exchange_strong(service, nullptr, std::memory_order_acq_rel);
++}
++
++extern "C" void aurora_service_hardware() {
++  // Optional host endpoint owns thread, exclusion and borrowed-data lifetime.
++  // Worker time queries never change ordinary clock behavior or run game code.
++  if (const auto service = s_hardwareService.load(std::memory_order_acquire)) service();
++}
++
+ OSTick OSGetTick() { return OSGetTime() & 0xFFFFFFFF; }
+ 
+ OSTime OSGetTime() {
+@@ -109,6 +129,7 @@
+   // arithmetic stays unchanged and foreign/masked callers never dispatch.
+   AuroraServiceGXDrawDone();
+ #endif
++  aurora_service_hardware();
+   std::call_once(s_gameEpochOnce, initialize_game_epoch);
+   return s_gameEpochOffset + duration_to_ticks(OSTimeClock::now().time_since_epoch());
+ }
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -1,4 +1,5 @@
+ #include "fifo.hpp"
++#include <aurora/hardware.h>
+ 
+ #include "../thread.hpp"
+ #include "command_processor.hpp"
+@@ -243,6 +244,7 @@
+     // Native equivalent of source OSSleepThread: allow the genuine latched
+     // interrupt while the source owner sleeps, then reenter its critical section.
+     OSEnableInterrupts();
++    aurora_service_hardware();
+     service_draw_done();
+     std::this_thread::yield();
+     OSDisableInterrupts();
+diff --git a/include/aurora/hardware.h b/include/aurora/hardware.h
+new file mode 100644
+--- /dev/null
++++ b/include/aurora/hardware.h
+@@ -0,0 +1,20 @@
++#ifndef AURORA_HARDWARE_H
++#define AURORA_HARDWARE_H
++
++#include <stdbool.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Optional native host hardware service. Register before original source
++// construction; unregister the exact endpoint before retiring borrowed storage.
++// The endpoint enforces owner/exclusion and retains masked or foreign input.
++typedef void (*AuroraHardwareService)(void);
++bool aurora_register_hardware_service(AuroraHardwareService service);
++bool aurora_unregister_hardware_service(AuroraHardwareService service);
++void aurora_service_hardware(void);
++
++#ifdef __cplusplus
++}
++#endif
++#endif

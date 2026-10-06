@@ -1,0 +1,196 @@
+Subject: [PATCH] Restore whole original font startup and native texture address ABI
+
+Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Prepared-preimage: reviewed strict185 source
+
+Default original-module glFont owns its original globals, glyph method and
+startup placement loop. Standalone extraction remains explicit legacy
+DIAGNOSTIC_FONT_ATLAS only. Native compiled glyph row masks preserve Wii bit
+order. The sole platform font texture address producer/header/caller uses
+uintptr_t on native hosts, preserving all pointer bits on LP64 and LLP64.
+No game font/resource request, budget, ordering or glyph loop changes.
+
+diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
+--- a/src/NL/gl/glFont.cpp
++++ b/src/NL/gl/glFont.cpp
+@@ -15,9 +15,17 @@
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
+ #include "NL/gl/GLFontAtlas.h"
+-#if !defined(MSCHARGED_NATIVE)
+-#include "GLFontAtlas.cpp"
++#else
++enum eGLFont
++{
++    GLFONT_Small,
++    GLFONT_Medium,
++    GLFONT_Large,
++    GLFONT_Count,
++};
++
+ #endif
+ 
+ char sLargeFontName[] __attribute__((aligned(4))) = "font/fixedWidthLarge";
+@@ -30,6 +38,19 @@
+ 
+ 
+ 
++
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
++#include "NL/gl/font_data.h"
++
++int sFontCharacterWidth[3] = { 8, 9, 11 };
++int sFontCharacterHeight[3] = { 12, 15, 18 };
++int sFontCellWidth[3] = { 9, 10, 12 };
++int sFontCellHeight[3] = { 13, 16, 20 };
++int sFontTextureWidth[3] = { 128, 128, 128 };
++int sFontTextureHeight[3] = { 256, 256, 256 };
++int sFontCharactersPerRow[4] = { 14, 12, 10, 0 };
++
++#endif
+ 
+ const char* sFontTextureNames[4] = { sSmallFontTextureName, sMediumFontTextureName, sLargeFontTextureName };
+ glPoly2 sFontPolys[128];
+@@ -49,6 +70,62 @@
+ bool sFontVirtualCoords;
+ 
+ 
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
++void glFontBlitCharacter(int x, int y, char character, unsigned short* image, int imageWidth, int font)
++{
++    unsigned short* characterData;
++
++    switch (font)
++    {
++    case 0:
++        characterData = (unsigned short*)((unsigned char*)sSmallFontData + (character - 0x20) * 0x18);
++        break;
++    case 1:
++        characterData = (unsigned short*)((unsigned char*)sMediumFontData + (character - 0x20) * 0x1E);
++        break;
++    case 2:
++        characterData = (unsigned short*)((unsigned char*)sLargeFontData + (character - 0x20) * 0x24);
++        break;
++    default:
++        characterData = 0;
++        break;
++    }
++
++    const int endX = x + sFontCharacterWidth[font];
++    const int endY = y + sFontCharacterHeight[font];
++
++    for (int imageY = y; imageY < endY; ++imageY)
++    {
++#if defined(MSCHARGED_NATIVE)
++        const unsigned short bits = characterData[imageY - y];
++        const unsigned char row[2] = { (unsigned char)(bits >> 8), (unsigned char)bits };
++#else
++        unsigned char* row = (unsigned char*)(characterData + (imageY - y));
++#endif
++
++        for (int imageX = x; imageX < endX; ++imageX)
++        {
++            const int bit = imageX - x;
++            bool set;
++            if (bit < 8)
++            {
++                set = ((row[0] << bit) >> 7) & 1;
++            }
++            else
++            {
++                set = ((row[1] << (bit - 8)) >> 7) & 1;
++            }
++
++            if (set)
++            {
++                image[imageY * imageWidth + imageX] = 0xFFFF;
++            }
++        }
++    }
++}
++
++#endif
++
+ void gl_FontStartup()
+ {
+     glBeginResource(sFontResourceName);
+@@ -62,9 +139,29 @@
+         unsigned short* image = (unsigned short*)nlMalloc(imageSize, 8, false);
+         nlZeroMemory(image, imageSize);
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
+         glBuildFixedFontImage(font, image);
+-
+-        unsigned long platformTexture = glplatCreateFont(width, height, image,
++#else
++        int x = 0;
++        int y = 0;
++        for (int character = 0; character < 0x5E; ++character)
++        {
++            glFontBlitCharacter(x, y, character + 0x20, image, width, font);
++            x += sFontCellWidth[font];
++            if (x + sFontCellWidth[font] >= width)
++            {
++                x = 0;
++                y += sFontCellHeight[font];
++            }
++        }
++#endif
++
++#if defined(MSCHARGED_NATIVE)
++        uintptr_t platformTexture = glplatCreateFont
++#else
++        unsigned long platformTexture = glplatCreateFont
++#endif
++            (width, height, image,
+             texture, (MemoryAllocator*)glGetCurrentResourcePool());
+         glRegisterTexture(texture, (PlatTexture*)platformTexture,
+             (MemoryAllocator*)glGetCurrentResourcePool());
+diff --git a/include/NL/glx/glxFont.h b/include/NL/glx/glxFont.h
+--- a/include/NL/glx/glxFont.h
++++ b/include/NL/glx/glxFont.h
+@@ -2,10 +2,17 @@
+ #define NL_GLX_GLXFONT_H
+ 
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#endif
+ 
+ class MemoryAllocator;
+ 
++#if defined(MSCHARGED_NATIVE)
++uintptr_t glplatCreateFont(
++#else
+ u32 glplatCreateFont(
++#endif
+     unsigned long width, unsigned long height, const unsigned short* data,
+     unsigned long handle, MemoryAllocator* allocator);
+ 
+diff --git a/src/NL/glx/glxFont.cpp b/src/NL/glx/glxFont.cpp
+--- a/src/NL/glx/glxFont.cpp
++++ b/src/NL/glx/glxFont.cpp
+@@ -3,7 +3,11 @@
+ 
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++uintptr_t glplatCreateFont(
++#else
+ u32 glplatCreateFont(
++#endif
+     unsigned long width, unsigned long height, const unsigned short* data,
+     unsigned long handle, MemoryAllocator* allocator)
+ {
+@@ -12,5 +16,9 @@
+     memcpy(pTex->m_LinearData, data, height * (width * 2));
+     pTex->Swizzle(true);
+     pTex->Prepare();
++#if defined(MSCHARGED_NATIVE)
++    return (uintptr_t)pTex;
++#else
+     return (u32)pTex;
++#endif
+ }
