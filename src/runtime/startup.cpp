@@ -7,7 +7,7 @@
 #include "runtime/tasks.h"
 #include "runtime/game_config.h"
 #include "runtime/tweaks.h"
-#include "bootstrap/config.h"
+#include "bootstrap/launch_options.h"
 #include "platform/disc.h"
 #include "platform/path.h"
 #include "mscharged/build_version.h"
@@ -42,6 +42,12 @@ namespace mscharged
 {
 int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_path)
 {
+    try { return RunGameStartup(argc, argv, ResolveLaunch(LoadConfig(config_path), {})); }
+    catch (const std::exception& error) { std::cerr << "[startup] FAILED: " << error.what() << '\n'; return 1; }
+}
+
+int RunGameStartup(int argc, char** argv, const ResolvedLaunch& launch)
+{
     std::ofstream logfile;
     auto log = [&](const std::string& message) {
         std::cerr << "[startup] " << message << '\n';
@@ -51,16 +57,18 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
     Session session;
     try
     {
-        const auto file = LoadConfig(config_path);
-        const auto disc_path = ResolveDiscPath(file.settings, file.path);
+        const auto& settings = launch.settings;
+        const auto& disc_path = launch.disc_path;
+        if (disc_path.empty()) throw std::runtime_error("Choose a disc image or supply --disc FILE");
+        log(DescribeLaunch(launch));
         const auto disc = InspectDisc(disc_path);
         if (disc.game_id != "R4QE01" || disc.revision != 1)
             throw std::runtime_error("The startup prototype currently supports R4QE01 revision 1 only.");
-        if (file.settings.language != "auto" && file.settings.language != "english"
-            && file.settings.language != "french" && file.settings.language != "spanish")
+        if (settings.language != "auto" && settings.language != "english"
+            && settings.language != "french" && settings.language != "spanish")
             throw std::runtime_error("The selected text language is not supported by this USA disc.");
-        SetStartupSystemLanguage(file.settings.language == "french" ? 3 : file.settings.language == "spanish" ? 4 : 1);
-        if (file.settings.language == "auto")
+        SetStartupSystemLanguage(settings.language == "french" ? 3 : settings.language == "spanish" ? 4 : 1);
+        if (settings.language == "auto")
             log("Automatic language currently uses the USA English fallback; host-locale mapping is pending.");
 
         const char* base = SDL_GetBasePath();
@@ -79,8 +87,8 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
         aurora.cachePath = data_path.c_str();
         aurora.resourcesPath = base;
         aurora.desiredBackend = BACKEND_NULL; // No GX renderer is connected in this prototype.
-        aurora.windowWidth = 800;
-        aurora.windowHeight = 600;
+        aurora.windowWidth = settings.width;
+        aurora.windowHeight = settings.height;
         aurora.windowPosX = aurora.windowPosY = -1;
         aurora.logLevel = LOG_WARNING;
         aurora.mem1Size = MEM1_DEFAULT_SIZE;
@@ -91,6 +99,8 @@ int RunGameStartup(int argc, char** argv, const std::filesystem::path& config_pa
         session.initialized = true;
         if (!info.window || info.backend != BACKEND_NULL)
             throw std::runtime_error("Aurora did not initialize the requested core-only configuration.");
+        if (!SDL_SetWindowFullscreen(info.window, settings.fullscreen))
+            throw std::runtime_error(std::string("Cannot apply launch window mode: ") + SDL_GetError());
         for (const auto* event = aurora_update(); event->type != AURORA_NONE; ++event)
             if (event->type == AURORA_EXIT) throw std::runtime_error("Startup cancelled.");
         InitializeStartupOS();

@@ -1,6 +1,6 @@
 Subject: [PATCH] add explicit temporary original-main bootstrap diagnostic
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Owner-authorization: 2026-10-06 temporary flow gates for scene/audio diagnosis
 
 Only MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP omits the documented source statics,
@@ -10,9 +10,10 @@ full glStartup(PreInitFS); completion returns explicit incomplete code81.
 Normal production/default source retains every original statement/static.
 Remove when original mandatory construction and startup permit the same run.
 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -156,6 +156,7 @@
+@@ -157,6 +157,7 @@
  
  FrameCounter g_FrameCounter("frame", "send");
  
@@ -20,7 +21,7 @@ Remove when original mandatory construction and startup permit the same run.
  static TweakBoolBinding sDisableWriteOutTweak(
      "g_bDisableWriteOut", "/General", &g_bDisableWriteOut, true);
  static TweakBoolBinding sMemoryLowWaterMarkCheckingTweak(
-@@ -185,18 +186,25 @@
+@@ -186,18 +187,25 @@
  static FEDPDTask feDPDTask;
  static FlashMemoryTask flashMemoryTask;
  
@@ -46,7 +47,7 @@ Remove when original mandatory construction and startup permit the same run.
  
  static void PreInitFS();
  static void Initialize();
-@@ -467,6 +475,7 @@
+@@ -468,6 +476,7 @@
          nlBreak();
      }
  
@@ -54,7 +55,7 @@ Remove when original mandatory construction and startup permit the same run.
      nlRegHandleDVDMessageCB(Function<void(int)>(DisplayDVDMessageSebring));
      nlRegHandleDVDRetryingCB(Function<void(int)>(DisplayDVDMessageSebring));
      nlRegHandleDVDAllClearCB(Function<void(int)>(DVDAllClearSebring));
-@@ -627,8 +636,12 @@
+@@ -628,8 +637,12 @@
      BeginFrameTask::s_ReplaySkin = eModelSkin_Blend;
      InitializeParticleUpdateCallbacks();
      Detail::sTempStringAllocatorPool.allocator.pool.PushState();
@@ -69,7 +70,7 @@ Remove when original mandatory construction and startup permit the same run.
  static void AddTasks()
  {
      nlTaskManager::AddTask(&resetTask, 0, (u32)-1);
-@@ -778,9 +791,17 @@
+@@ -779,9 +792,17 @@
      }
  }
  
@@ -87,7 +88,7 @@ Remove when original mandatory construction and startup permit the same run.
  
      while (nlAsyncReadsPending(0))
      {
-@@ -794,4 +815,5 @@
+@@ -795,4 +816,5 @@
      {
          nlTaskManager::RunAllTasks();
      }

@@ -1,14 +1,15 @@
 Subject: [PATCH] retain original impostor providers with native pointer ABI
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep all original methods and static construction. Size the original model
 pointer array using its actual native element width and transport the existing
 GLView pointer through the original enum carrier without truncation.
 
+diff --git a/src/Game/Render/ImpostorCharacter.cpp b/src/Game/Render/ImpostorCharacter.cpp
 --- a/src/Game/Render/ImpostorCharacter.cpp
 +++ b/src/Game/Render/ImpostorCharacter.cpp
-@@ -302,7 +302,11 @@
+@@ -303,7 +303,11 @@
      : ImpostorCharacter(name, budget, numAngles, numTextures, params)
  {
      mNumModels = numTextures;
@@ -20,16 +21,17 @@ GLView pointer through the original enum carrier without truncation.
      mModels[0] = model;
      for (int i = 1; i < numTextures; ++i)
      {
+diff --git a/src/Game/Render/ImpostorCluster.cpp b/src/Game/Render/ImpostorCluster.cpp
 --- a/src/Game/Render/ImpostorCluster.cpp
 +++ b/src/Game/Render/ImpostorCluster.cpp
-@@ -91,7 +91,11 @@
-         quad.m_colour[i].c[2] = (unsigned char)siBackgroundBlue.value;
+@@ -92,7 +92,11 @@
+         quad.m_colour[i].c[2] = (unsigned char)siBackgroundBlue.mValue;
          quad.m_colour[i].c[3] = 0xFF;
      }
 +#if defined(MSCHARGED_NATIVE)
-+    quad.Attach(static_cast<eGLView>(reinterpret_cast<glViewHandle>(target)), siBackgroundQuadLayer.value);
++    quad.Attach(static_cast<eGLView>(reinterpret_cast<glViewHandle>(target)), siBackgroundQuadLayer.mValue);
 +#else
-     quad.Attach((eGLView)target, siBackgroundQuadLayer.value);
+     quad.Attach((eGLView)target, siBackgroundQuadLayer.mValue);
 +#endif
  }
  

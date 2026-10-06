@@ -1,5 +1,5 @@
 Subject: Adapt original GL views, frame sorters and slot pools for native rendering
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Original native GLView retains immediate sorter allocation, parent/child
 ownership, reset/compact, traversal and packet callbacks. Preview lazy storage,
@@ -9,7 +9,6 @@ The depth intrinsic, slot-pool changes and extracted projection/count helpers
 remain separately scoped adaptations; this patch is not blanket source approval.
 
 diff --git a/include/NL/gl/glRenderList.h b/include/NL/gl/glRenderList.h
-index 20df07e..665f70d 100644
 --- a/include/NL/gl/glRenderList.h
 +++ b/include/NL/gl/glRenderList.h
 @@ -9,7 +9,11 @@
@@ -24,7 +23,7 @@ index 20df07e..665f70d 100644
      {
          return glFrameAlloc(size, GLM_Header);
      }
-@@ -19,7 +23,20 @@ public:
+@@ -19,7 +23,20 @@
      virtual void AttachPacket(GLView*, const glModelPacket*) = 0;
  };
  
@@ -46,10 +45,9 @@ index 20df07e..665f70d 100644
  
  template <typename T>
 diff --git a/include/NL/gl/glView.h b/include/NL/gl/glView.h
-index 33c4e3c..ceea685 100644
 --- a/include/NL/gl/glView.h
 +++ b/include/NL/gl/glView.h
-@@ -63,7 +63,22 @@ enum GLViewTargetMode
+@@ -63,7 +63,22 @@
  class GLView
  {
  public:
@@ -72,7 +70,7 @@ index 33c4e3c..ceea685 100644
      GLView(GLViewInterface*, const GLRenderPair&, GLViewSortMode);
      virtual ~GLView();
  
-@@ -79,14 +92,21 @@ public:
+@@ -79,14 +94,21 @@
          return m_Children.m_Head != 0;
      }
  
@@ -94,7 +92,7 @@ index 33c4e3c..ceea685 100644
          parent->AddChild(this);
      }
  
-@@ -172,5 +192,10 @@ void glViewProjectPointToViewport(GLView* view, const nlVector3* world, nlVector
+@@ -172,5 +194,10 @@
  void glViewProjectPointBetweenViews(GLView* source, GLView* destination, const nlVector3* world, nlVector3* projected);
  void gl_ViewReset();
  void gl_ViewStartup();
@@ -106,7 +104,6 @@ index 33c4e3c..ceea685 100644
  
  #endif // NL_GL_GLVIEW_H
 diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
-index e8f69eb..d3684dd 100644
 --- a/include/NL/glx/glxMemory.h
 +++ b/include/NL/glx/glxMemory.h
 @@ -7,6 +7,7 @@
@@ -118,10 +115,9 @@ index e8f69eb..d3684dd 100644
  #else
  typedef unsigned long GLResourceMark;
 diff --git a/include/NL/nlAVLTree.h b/include/NL/nlAVLTree.h
-index b6407b5..3187591 100644
 --- a/include/NL/nlAVLTree.h
 +++ b/include/NL/nlAVLTree.h
-@@ -281,6 +281,9 @@ public:
+@@ -281,6 +281,9 @@
      virtual AVLTreeNode* AllocateEntry(void* key, void* value)
      {
          void* storage = m_Allocator.Allocate();
@@ -132,7 +128,6 @@ index b6407b5..3187591 100644
          newNode->node.left = 0;
          newNode->node.right = 0;
 diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
-index 6801388..05e5c74 100644
 --- a/src/NL/gl/glMemoryInit.cpp
 +++ b/src/NL/gl/glMemoryInit.cpp
 @@ -11,6 +11,7 @@
@@ -144,7 +139,6 @@ index 6801388..05e5c74 100644
      gl_MatrixShutdown();
      while (glGetResourcePools()) glDestroyResourcePool(glGetResourcePools());
 diff --git a/src/NL/gl/glRenderList.cpp b/src/NL/gl/glRenderList.cpp
-index 15a6449..e028ca9 100644
 --- a/src/NL/gl/glRenderList.cpp
 +++ b/src/NL/gl/glRenderList.cpp
 @@ -6,6 +6,18 @@
@@ -166,7 +160,7 @@ index 15a6449..e028ca9 100644
  
  unsigned long GLTexturePacketSorter::GetSortKey(
      GLView*, const glModelPacket* pPacket)
-@@ -23,7 +35,11 @@ unsigned long GLTransformedDepthPacketSorter::GetSortKey(
+@@ -23,7 +35,11 @@
      nlMultPosVectorMatrix(pos, *view->m_Interface->GetViewMatrix());
      pos.z = nlMinEquals(0.0f, pos.z);
  
@@ -178,7 +172,7 @@ index 15a6449..e028ca9 100644
  }
  
  unsigned long GLTransformedMatrixDepthPacketSorter::GetSortKey(
-@@ -34,8 +50,12 @@ unsigned long GLTransformedMatrixDepthPacketSorter::GetSortKey(
+@@ -34,8 +50,12 @@
      glGetMatrix(pPacket->matrix, packetMatrix);
      nlMultPosVectorMatrix(out, *(nlVector3*)&packetMatrix.e2[3][0],
          *view->m_Interface->GetViewMatrix());
@@ -191,7 +185,7 @@ index 15a6449..e028ca9 100644
  }
  
  const glModelPacket* GLTreePacketSorter::First()
-@@ -58,9 +78,13 @@ const glModelPacket* GLTreePacketSorter::Next()
+@@ -58,9 +78,13 @@
  void GLTreePacketSorter::AttachPacket(
      GLView* view, const glModelPacket* pPacket)
  {
@@ -206,7 +200,6 @@ index 15a6449..e028ca9 100644
  }
  
 diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
-index c474d6e..f3763f2 100644
 --- a/src/NL/gl/glView.cpp
 +++ b/src/NL/gl/glView.cpp
 @@ -10,6 +10,10 @@
@@ -220,7 +213,7 @@ index c474d6e..f3763f2 100644
  
  const nlMatrix4 gGLViewIdentityMatrix = {
      { { { 1.0f, 0.0f, 0.0f, 0.0f },
-@@ -59,10 +63,22 @@ class GLPacketSorterTree
+@@ -59,10 +63,22 @@
            DefaultKeyCompare<long> >
  {
  public:
@@ -243,7 +236,7 @@ index c474d6e..f3763f2 100644
  
      GLPacketSorterTree(int initial, int delta)
          : nlAVLTreeSlotPool<long, GLPacketSorter*,
-@@ -158,13 +167,21 @@ void gl_ViewReset()
+@@ -158,13 +174,21 @@
      while (!iterator.IsDone())
      {
          GLView* view = iterator.Current();
@@ -265,7 +258,7 @@ index c474d6e..f3763f2 100644
  }
  
  class GLPacketSorterIterator
-@@ -257,6 +274,10 @@ GLView::GLView(GLViewInterface* interface, const GLRenderPair& renderPair,
+@@ -257,6 +281,10 @@
      m_Name = s_UninitializedViewName;
      m_Unknown48 = 0;
      m_TriangleCount = 0;
@@ -276,7 +269,7 @@ index c474d6e..f3763f2 100644
      m_Interface = interface;
      m_Parent = 0;
  
-@@ -282,7 +303,11 @@ GLView::GLView(GLViewInterface* interface, const GLRenderPair& renderPair,
+@@ -282,7 +310,11 @@
      }
  
      m_CreateSorter = createSorter;
@@ -288,7 +281,7 @@ index c474d6e..f3763f2 100644
      m_Viewport.x = 0;
      m_Viewport.y = 0;
      m_Viewport.width = glGetScreenWidth();
-@@ -295,7 +320,10 @@ GLView::GLView(GLViewInterface* interface, const GLRenderPair& renderPair,
+@@ -295,7 +327,10 @@
      m_Visible = true;
  }
  
@@ -300,7 +293,7 @@ index c474d6e..f3763f2 100644
      : m_RenderPair(0, 0)
  {
      m_Unknown38 = 0;
-@@ -306,7 +334,11 @@ inline GLView::GLView()
+@@ -306,7 +341,11 @@
      m_Interface = &gDefaultViewInterface;
      m_Parent = 0;
      m_CreateSorter = CreateTexturePacketSorter;
@@ -312,7 +305,7 @@ index c474d6e..f3763f2 100644
      m_Viewport.x = 0;
      m_Viewport.y = 0;
      m_Viewport.width = glGetScreenWidth();
-@@ -321,6 +353,12 @@ inline GLView::GLView()
+@@ -321,6 +360,12 @@
  
  inline GLPacketSorter* GLView::GetSorter(long layer)
  {
@@ -325,7 +318,7 @@ index c474d6e..f3763f2 100644
      GLPacketSorter* sorter;
      GLPacketSorter** foundSorter;
      AVLTreeNode* existingNode;
-@@ -338,10 +376,16 @@ inline GLPacketSorter* GLView::GetSorter(long layer)
+@@ -338,10 +383,16 @@
  
  GLView::~GLView()
  {
@@ -342,7 +335,7 @@ index c474d6e..f3763f2 100644
          delete child;
      }
      delete m_Sorters;
-@@ -349,11 +393,23 @@ GLView::~GLView()
+@@ -349,11 +400,23 @@
  
  void GLView::AttachPacket(const glModelPacket* packet, unsigned long layer)
  {
@@ -366,7 +359,7 @@ index c474d6e..f3763f2 100644
      GLPacketSorter& sorter = *GetSorter(layer);
      unsigned long packetOffset;
      unsigned long index;
-@@ -367,6 +423,13 @@ void GLView::AttachModel(const glModel* model, unsigned long layer)
+@@ -367,6 +430,13 @@
  
  void GLView::Iterate(GLViewPacketCallback callback)
  {
@@ -380,7 +373,7 @@ index c474d6e..f3763f2 100644
      m_TriangleCount = 0;
      if (!m_Visible)
          return;
-@@ -375,7 +438,11 @@ void GLView::Iterate(GLViewPacketCallback callback)
+@@ -375,7 +445,11 @@
  
      PacketCallbackManager callbackManager(this, callback);
      GLPacketSorterIterator iterator;
@@ -392,7 +385,7 @@ index c474d6e..f3763f2 100644
  
      if (iterator.IsValid())
          callback(this, 1, 0);
-@@ -401,7 +468,14 @@ void GLView::Iterate(GLViewPacketCallback callback)
+@@ -401,7 +475,14 @@
  
  void GLView::RemoveChild(GLView* child)
  {
@@ -407,7 +400,7 @@ index c474d6e..f3763f2 100644
  }
  
  GLRenderPair GLView::GetRenderPair() const
-@@ -421,6 +495,9 @@ GLViewIterator::GLViewIterator(GLView* root)
+@@ -421,6 +502,9 @@
  
  void GLViewIterator::Push(GLViewIteratorEntry entry)
  {
@@ -417,7 +410,7 @@ index c474d6e..f3763f2 100644
      GLViewIteratorEntry* stackEntry = &m_Stack[++m_Depth];
      *stackEntry = entry;
  
-@@ -470,10 +547,57 @@ void glViewCompact()
+@@ -470,10 +554,57 @@
      while (!iterator.IsDone())
      {
          GLView* view = iterator.Current();
@@ -477,7 +470,6 @@ index c474d6e..f3763f2 100644
 +#endif
 diff --git a/src/NL/gl/glViewMath.cpp b/src/NL/gl/glViewMath.cpp
 new file mode 100644
-index 0000000..3a0fcd8
 --- /dev/null
 +++ b/src/NL/gl/glViewMath.cpp
 @@ -0,0 +1,45 @@
@@ -527,10 +519,9 @@ index 0000000..3a0fcd8
 +    v3NDC.z *= wc;
 +}
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
-index c8e805d..caaff44 100644
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
-@@ -74,6 +74,10 @@ static unsigned char glx_MemoryDump;
+@@ -74,6 +74,10 @@
  static unsigned long FrameMemSizes[2];
  static int i_frame;
  static bool sFrameMemoryInitialized;
@@ -541,7 +532,7 @@ index c8e805d..caaff44 100644
  static GLInventory::ModelReleaseCallback sModelReleaseCallback;
  
  static GLResourceMark p_frame[2][2];
-@@ -122,6 +126,7 @@ static unsigned long FrameStride(unsigned long size)
+@@ -122,6 +126,7 @@
  
  void glxShutdownMemory()
  {
@@ -549,7 +540,7 @@ index c8e805d..caaff44 100644
      nlFree(reinterpret_cast<void*>(p_frame[0][0]));
      nlFree(reinterpret_cast<void*>(p_frame[0][1]));
      memset(p_frame, 0, sizeof(p_frame));
-@@ -196,6 +201,7 @@ void glplatFrameAllocNextFrame()
+@@ -196,6 +201,7 @@
  #if defined(MSCHARGED_NATIVE)
      if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
      mscharged::InvalidateGraphicsCaches();
@@ -558,7 +549,6 @@ index c8e805d..caaff44 100644
      n_frame[i_frame][0] = n_frame[i_frame][1] = 0;
  #else
 diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
-index 16474fb..4fc62fa 100644
 --- a/src/NL/nlSlotPool.cpp
 +++ b/src/NL/nlSlotPool.cpp
 @@ -4,11 +4,20 @@
@@ -582,7 +572,7 @@ index 16474fb..4fc62fa 100644
      CurrentAllocator = &VirtualAllocator;
      AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
  
-@@ -18,10 +27,14 @@ static void* DefaultSlotPoolAllocator(unsigned long size)
+@@ -18,10 +27,14 @@
      AllocatorStack[AllocatorStackDepth] = 0;
      CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
      return result;
@@ -597,7 +587,7 @@ index 16474fb..4fc62fa 100644
      CurrentAllocator = &VirtualAllocator;
      AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
  
-@@ -30,6 +43,7 @@ static void DefaultSlotPoolFree(void* data)
+@@ -30,6 +43,7 @@
      --AllocatorStackDepth;
      AllocatorStack[AllocatorStackDepth] = 0;
      CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
@@ -605,7 +595,7 @@ index 16474fb..4fc62fa 100644
  }
  
  SlotPoolBase::SlotPoolBase()
-@@ -54,16 +68,16 @@ void SlotPoolBase::BaseFreeBlocks(SlotPoolBase* slotPool, unsigned int slotSize)
+@@ -54,16 +68,16 @@
  {
      SlotPoolBlock* nextBlock;
      SlotPoolBlock* currentBlock;
@@ -625,7 +615,7 @@ index 16474fb..4fc62fa 100644
          }
          slotPool->m_FreeFn((unsigned char*)currentBlock - blockOffset);
          currentBlock = nextBlock;
-@@ -89,11 +103,20 @@ void SlotPoolBase::BaseAddNewBlock(SlotPoolBase* slotPool, unsigned int slotSize
+@@ -89,11 +103,20 @@
              numSlots = slotPool->m_Initial;
          }
  

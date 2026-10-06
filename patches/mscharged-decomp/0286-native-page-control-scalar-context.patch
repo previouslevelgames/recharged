@@ -1,0 +1,79 @@
+Subject: Adapt original page-control scalar callback contexts for native compilers
+
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+The original producer encodes only button index zero or one in void*.
+Native pointer-width casts carry that scalar value without changing unsigned
+source indices, handlers, branch order, allocation or ownership. Wii source
+projection is identical. No callback or control behavior is replaced.
+
+diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
+--- a/src/Game/FE/fePageControls.cpp
++++ b/src/Game/FE/fePageControls.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ #include "Game/FE/fePageControls.h"
+ #include "NL/nlFunction.inl"
+ #include "NL/nlPrint.h"
+@@ -196,7 +199,11 @@
+         mButtons[i].SetPointerEnterCallback(callback0);
+         mButtons[i].SetPointerLeaveCallback(callback1);
+         mButtons[i].SetPointerPressCallback(callback2);
++#if defined(MSCHARGED_NATIVE)
++        mButtons[i].mContext = reinterpret_cast<void*>(static_cast<std::uintptr_t>(i));
++#else
+         mButtons[i].mContext = (void*)i;
++#endif
+         mButtons[i].SetMaxY(20.0f + mButtons[i].GetMaxY());
+         mButtons[i].SetMinY(mButtons[i].GetMinY() - 20.0f);
+         if (i == 0)
+@@ -211,7 +218,11 @@
+  */
+ void FEPageControls::OnPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned int which = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     unsigned int which = (unsigned int)context;
++#endif
+     if (!mButtons[which].HasOtherPointerState(1, index))
+     {
+         if (mPointerHeld && (unsigned int)mHeldButton == which)
+@@ -229,7 +240,11 @@
+  */
+ void FEPageControls::OnPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned int which = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     unsigned int which = (unsigned int)context;
++#endif
+     if (!mButtons[which].HasOtherPointerState(1, index))
+     {
+         int button = 49;
+@@ -254,7 +269,11 @@
+  */
+ void FEPageControls::OnPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned int which = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     unsigned int which = (unsigned int)context;
++#endif
+     mHeldButton = which;
+     mPointerHeld = true;
+     mRepeatTime = 0.0f;
+@@ -269,7 +288,11 @@
+  */
+ void FEPageControls::OnPadPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned int which = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     unsigned int which = (unsigned int)context;
++#endif
+     mPadHeld[which] = true;
+     mRepeatTime = 0.0f;
+     mButtonInstances[which]->SetActiveSlide("down", true, false);

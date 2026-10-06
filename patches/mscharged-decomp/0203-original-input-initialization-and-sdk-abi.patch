@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original input initialization and canonical IRQ declarations
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep original pad constructors, declarations, manager initialization and action
 table outside explicit diagnostics. Restore the original cPlatPad declaration.
@@ -169,7 +169,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h b/libs/RVL_SDK/inc
 diff --git a/src/Game/PadActions.cpp b/src/Game/PadActions.cpp
 --- a/src/Game/PadActions.cpp
 +++ b/src/Game/PadActions.cpp
-@@ -18,9 +18,9 @@
+@@ -20,9 +20,9 @@
  
  bool g_bEnableGamecubePadMonkey;
  

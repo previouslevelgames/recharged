@@ -1,6 +1,6 @@
 Subject: Transport original camera serialized words and native placement storage
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep the original camera loading, owning/borrowed records, copying, list and
 callback algorithms. Before the original direct word reads, ask the native
@@ -19,7 +19,7 @@ This does not establish original file request, camera runtime or scene startup.
 diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
 --- a/src/Game/Camera/animcam.cpp
 +++ b/src/Game/Camera/animcam.cpp
-@@ -13,6 +13,9 @@
+@@ -14,6 +14,9 @@
  #include "NL/platqmath.h"
  #include "NL/platvmath.h"
  #include "NL/nlstring_tmpl.h"
@@ -29,7 +29,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  
  static float dofBehindTarget = 2.0f;
  static float dofReferenceFOV = 45.0f;
-@@ -88,6 +91,9 @@
+@@ -89,6 +92,9 @@
  
  bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
  {
@@ -42,7 +42,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
 diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
 --- a/src/Game/Camera/CameraMan.cpp
 +++ b/src/Game/Camera/CameraMan.cpp
-@@ -149,7 +149,11 @@
+@@ -150,7 +150,11 @@
  
      if (frontEnd)
      {
@@ -54,7 +54,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
      }
      else
      {
-@@ -241,7 +245,11 @@
+@@ -242,7 +246,11 @@
   */
  void AsyncStartCameraLoadingForStadiumViewer()
  {
@@ -66,7 +66,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  
      cRumbleFilter* pRumbleFilter = new (8, false) cRumbleFilter();
      g_pRumbleFilter = pRumbleFilter;
-@@ -454,7 +462,11 @@
+@@ -455,7 +463,11 @@
          {
          case eCameraType_Debug:
          {

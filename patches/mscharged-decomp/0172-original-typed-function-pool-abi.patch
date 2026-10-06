@@ -1,5 +1,5 @@
 Subject: Preserve original typed function-pool categories with native slot storage
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The original four typed FunctorImpl hooks retain their reviewed Wii capture
 field footprint for allocation, Clone and virtual deletion. Native physical
@@ -23,7 +23,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
  
  template <typename ReturnType>
  class Function0
-@@ -30,6 +33,18 @@
+@@ -31,6 +34,18 @@
          Callable mFunctor;
  
      public:
@@ -42,7 +42,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
          FunctorImpl(const Callable& callable);
  
          virtual ReturnType operator()();
-@@ -214,6 +229,18 @@
+@@ -216,6 +231,18 @@
          Callable mFunctor;
  
      public:
@@ -61,7 +61,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
          FunctorImpl(const Callable& callable);
  
          virtual ReturnType operator()(P1 p0);
-@@ -582,6 +609,18 @@
+@@ -550,6 +577,18 @@
          Callable mFunctor;
  
      public:

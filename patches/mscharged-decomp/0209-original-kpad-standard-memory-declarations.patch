@@ -1,6 +1,6 @@
 Subject: [PATCH] supply native standard memory declarations to original KPAD
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Whole Matching KPAD source remains authoritative for filtering, sampling,
 repeat, acceleration and IR decisions. Modern C99 compilers require the actual
@@ -11,7 +11,7 @@ this SDK code by a separate bounded native provider.
 diff --git a/src/RVL_SDK/kpad/KPAD.c b/src/RVL_SDK/kpad/KPAD.c
 --- a/src/RVL_SDK/kpad/KPAD.c
 +++ b/src/RVL_SDK/kpad/KPAD.c
-@@ -1,3 +1,7 @@
+@@ -1,4 +1,8 @@
  #include <revolution/kpad.h>
 +
 +#if defined(MSCHARGED_NATIVE)
@@ -19,3 +19,4 @@ diff --git a/src/RVL_SDK/kpad/KPAD.c b/src/RVL_SDK/kpad/KPAD.c
 +#endif
  
  double sqrt(double x);
+ 

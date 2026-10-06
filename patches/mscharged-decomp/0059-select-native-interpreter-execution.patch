@@ -1,6 +1,6 @@
 Subject: Select checked original interpreter execution for native bytecode
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Extract the original execution methods, retaining their instruction dispatch,
 control flow and numeric equations. Native owner hooks validate each access and

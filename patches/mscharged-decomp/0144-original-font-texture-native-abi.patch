@@ -1,5 +1,5 @@
 Subject: Adapt original FontManager callbacks and Wii texture data to native SDK ABI
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Preserve original font requests, registration/fallback/completion decisions and
 platform texture algorithms. Adapt real callback pointers and game ownership,
@@ -188,7 +188,7 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
 diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
 --- a/src/Game/Font/fontmanager.cpp
 +++ b/src/Game/Font/fontmanager.cpp
-@@ -37,41 +37,41 @@
+@@ -38,41 +38,41 @@
      struct PendingTexture
      {
          void* pBuffer;
@@ -242,7 +242,7 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
  {
      FontLoadState* state = (FontLoadState*)uParam;
      char* fontData = (char*)buffer;
-@@ -80,11 +80,15 @@
+@@ -81,11 +81,15 @@
      nlFont* pNewFont = new (8, false) nlFont();
      pNewFont->Load(state->szFileName, fontData, nlStringHash(state->szFontName));
      FontManager::Instance()->m_fonts.AddEnd(pNewFont);
@@ -262,7 +262,7 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
          state->pBundle->GetFileInfo(uTextureHashID, &entry, true);
          LoadFontTexture(state, uTextureHashID);
  
-@@ -99,7 +103,7 @@
+@@ -100,7 +104,7 @@
      state->uNumTexturesLoaded = 0;
  }
  
@@ -271,7 +271,7 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
  {
      FontLoadState* state = (FontLoadState*)uParam;
      char* textureData = (char*)buffer;
-@@ -116,7 +120,11 @@
+@@ -117,7 +121,11 @@
          }
      }
  
@@ -283,7 +283,7 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
  
      if (state->uNumTexturesLoaded == state->uNumTextures)
      {
-@@ -224,7 +232,7 @@
+@@ -225,7 +233,7 @@
      nlToLower(state->szFontName);
      state->uNumTextures = 0;
      state->uNumTexturesLoaded = 0;

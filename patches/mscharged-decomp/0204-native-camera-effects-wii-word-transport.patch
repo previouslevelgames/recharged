@@ -1,6 +1,6 @@
 Subject: Preserve copied Wii32 camera event words and compiler fabs type
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The original thwomp event producer copies one Wii32 word from source offset0;
 retail lwz/stw transfers it into the event's second field. The original camera
@@ -34,7 +34,7 @@ diff --git a/include/Game/EventDataTypes.h b/include/Game/EventDataTypes.h
 diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEventQueue.cpp
 --- a/src/Game/Physics/PhysicsEventQueue.cpp
 +++ b/src/Game/Physics/PhysicsEventQueue.cpp
-@@ -40,6 +40,9 @@
+@@ -41,6 +41,9 @@
  #include "Game/UnidentifiedStaticStorage.h"
  #include "Game/Physics/PhysicsEventQueue.inl"
  #include "NL/nlFunction.inl"
@@ -44,7 +44,7 @@ diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEv
  
  class PhysicsEventQueue
  {
-@@ -939,7 +942,11 @@
+@@ -940,7 +943,11 @@
      CollisionThwompPlayerData* data = 0;
      g_CollisionThwompPlayerDataPool.Allocate(data);
      data->source = source;
@@ -59,7 +59,7 @@ diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEv
 diff --git a/src/Game/Camera/tu_800F9460.cpp b/src/Game/Camera/tu_800F9460.cpp
 --- a/src/Game/Camera/tu_800F9460.cpp
 +++ b/src/Game/Camera/tu_800F9460.cpp
-@@ -411,7 +411,11 @@
+@@ -412,7 +412,11 @@
  
      mTransitionBlend
          = nlMinEquals(nlMaxEquals(mTransitionBlend, 0.0f), 1.0f);

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend pointer bounds and listener steps
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share original listener event order, disable history reset, rotated hit testing,
 instance bounds and child extent equations with checked native retained owners.
@@ -8,16 +8,16 @@ Console methods delegate with original inputs. Global pointer-manager
 registration, Wii DPD, controller speaker and hover rumble remain unselected.
 
 diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
-index c3c6fd6..1b46666 100644
 --- a/src/Game/FE/fePointer.cpp
 +++ b/src/Game/FE/fePointer.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/fePointer.h"
 +#include "Game/FE/FrontendPointerSteps.h"
  
  #include "Game/FE/feInput.h"
  #include "Game/FE/feText.h"
-@@ -32,42 +33,7 @@ FEPointerListener::~FEPointerListener()
+@@ -33,42 +34,7 @@
  
  void FEPointerListener::ProcessPointerEvent(const FEPointerEvent* event)
  {
@@ -61,7 +61,7 @@ index c3c6fd6..1b46666 100644
  }
  
  void FEPointerListener::SetPointerEnterCallback(Function2<void, int, void*>& callback)
-@@ -169,49 +135,14 @@ static inline nlVector2 MeasurePointerBoundsSize(TLInstance* instance)
+@@ -170,49 +136,14 @@
  void FEPointerRegion::SetInstanceBounds(TLInstance* instance, bool useRotation, float offsetX, float offsetY, float scaleX, float scaleY)
  {
      nlVector2 measuredSize = MeasurePointerBoundsSize(instance);
@@ -115,7 +115,7 @@ index c3c6fd6..1b46666 100644
  }
  
  nlVector2 MeasurePointerText(TLTextInstance* text)
-@@ -295,15 +226,7 @@ nlVector2 MeasurePointerInstanceList(TLInstance* first)
+@@ -296,15 +227,7 @@
          nlVector2 size = MeasurePointerInstance(first);
  
          feVector3 position = first->GetAssetPosition();
@@ -133,7 +133,6 @@ index c3c6fd6..1b46666 100644
          first = first->m_next;
      } while (first != end);
 diff --git a/include/Game/FE/fePointer.inl b/include/Game/FE/fePointer.inl
-index d378f91..0a2f141 100644
 --- a/include/Game/FE/fePointer.inl
 +++ b/include/Game/FE/fePointer.inl
 @@ -2,13 +2,11 @@
@@ -154,7 +153,6 @@ index d378f91..0a2f141 100644
  #endif // GAME_FE_FEPOINTER_INL
 diff --git a/include/Game/FE/FrontendPointerSteps.h b/include/Game/FE/FrontendPointerSteps.h
 new file mode 100644
-index 0000000..dc36dec
 --- /dev/null
 +++ b/include/Game/FE/FrontendPointerSteps.h
 @@ -0,0 +1,124 @@

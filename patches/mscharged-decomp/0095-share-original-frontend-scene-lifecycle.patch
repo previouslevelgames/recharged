@@ -1,5 +1,5 @@
 Subject: Share original frontend scene catalog and lifecycle ordering
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain all107 original scene IDs and filenames in a shared initializer; extract
 unchanged scene enums/record and original enqueue, stack insertion, initialize,
@@ -120,7 +120,7 @@ new file mode 100644
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -143,113 +143,7 @@
+@@ -145,113 +145,7 @@
  }
  
  SceneEntry SceneEntryTable[] = {
@@ -379,13 +379,14 @@ new file mode 100644
 diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
 --- a/src/Game/FE/feSceneManager.cpp
 +++ b/src/Game/FE/feSceneManager.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feSceneManager.h"
 +#include "Game/FE/FrontendStackSteps.h"
  
  #include "Game/FE/feInput.h"
  #include "Game/FE/FrontendHandlerSteps.h"
-@@ -36,7 +37,7 @@
+@@ -38,7 +39,7 @@
  
      while (currentEntry != 0)
      {
@@ -394,7 +395,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
          {
              return false;
          }
-@@ -134,7 +135,7 @@
+@@ -138,7 +139,7 @@
  
          if (pPackagePushPopMessage->m_bPush != false)
          {
@@ -403,7 +404,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  
              LoadScene(
                  pPackagePushPopMessage->m_szFilename,
-@@ -156,8 +157,7 @@
+@@ -161,8 +162,7 @@
                  sceneIterator.Step();
              }
  
@@ -413,7 +414,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  
              FEScene* pFEScene = pPackagePushPopMessage->m_pSceneHandler->mFEScene;
              delete pPackagePushPopMessage->m_pSceneHandler;
-@@ -183,7 +183,7 @@
+@@ -188,7 +188,7 @@
      msg->m_pSceneHandler->mHashID = nlStringLowerHash(szFilename);
      msg->m_pAllocator = pAllocator != 0 ? pAllocator : CurrentAllocator;
  
@@ -422,7 +423,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  }
  
  void FESceneManager::QueueScenePop()
-@@ -211,7 +211,7 @@
+@@ -217,7 +217,7 @@
          sceneIterator.Step();
      }
  
@@ -431,7 +432,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  }
  
  void FESceneManager::RenderActiveScenes()
-@@ -223,7 +223,7 @@
+@@ -229,7 +229,7 @@
          if (!IsObjectQueuedForPop(m_topMostScene))
          {
              FEScene* scene = m_topMostScene->mFEScene;
@@ -440,7 +441,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
              {
                  FERender::RenderScene(scene);
              }
-@@ -241,7 +241,7 @@
+@@ -248,7 +248,7 @@
              if (!IsObjectQueuedForPop(pSceneHandler))
              {
                  FEScene* scene = pSceneHandler->mFEScene;
@@ -449,7 +450,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
                  {
                      FERender::RenderScene(scene);
                  }
-@@ -255,9 +255,7 @@
+@@ -262,9 +262,7 @@
  void FESceneManager::InitializeScene(FEScene* pFEScene)
  {
      BaseSceneHandler* pSceneHandler = GetSceneHandler(pFEScene->m_uHashID);
@@ -460,7 +461,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  }
  
  void FESceneManager::Update(float dt)
-@@ -278,7 +276,7 @@
+@@ -286,7 +284,7 @@
  
      while (currentEntry != 0)
      {

@@ -1,5 +1,5 @@
 Subject: Restore the original fixed temporary-string manager outside diagnostics
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select the literal original TempStringAllocator New/Alloc/Free for genuine
 native source. Preserve its fixed64 StringBlock manager, ignored request sizes,

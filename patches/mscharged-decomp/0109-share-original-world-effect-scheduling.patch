@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original world-effect trigger and scheduling equations
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain initialization, reset, timing, RNG ordering and emission counters in
 shared source helpers. Native callers supply actual retained effect records
@@ -8,13 +8,14 @@ and explicit emission services; no full World/EmissionManager is selected.
 diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
 --- a/src/Game/World/WorldEffect.cpp
 +++ b/src/Game/World/WorldEffect.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/World/WorldEffect.h"
 +#include "Game/World/WorldEffectSteps.h"
  
  #include "Game/Debug/ShapeRender.h"
  #include "Game/Effects/EmissionController.h"
-@@ -14,18 +15,7 @@
+@@ -15,18 +16,7 @@
  
  void WorldEffect::Initialize(WorldObjectLoadContext* pContext)
  {
@@ -34,7 +35,7 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
      pContext->m_pWorld->AddEffect(this);
  }
  
-@@ -56,44 +46,9 @@
+@@ -57,44 +47,9 @@
  
  void WorldEffect::Update(float fDeltaT)
  {
@@ -81,7 +82,7 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
      }
  }
  
-@@ -143,13 +98,7 @@
+@@ -144,13 +99,7 @@
          m_nEmissionID = -1;
      }
  
@@ -99,7 +100,7 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
 diff --git a/src/Game/world.cpp b/src/Game/world.cpp
 --- a/src/Game/world.cpp
 +++ b/src/Game/world.cpp
-@@ -2,6 +2,7 @@
+@@ -3,6 +3,7 @@
  #include "NL/gl/gl.h"
  #include "Game/World.h"
  #include "Game/World/WorldEffect.h"
@@ -107,7 +108,7 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
  
  #include "Game/Drawable/DrawableObj.h"
  #include "Game/Effects/EmissionManager.h"
-@@ -470,15 +471,7 @@
+@@ -471,15 +472,7 @@
      while (iterator.IsValid())
      {
          WorldEffect* pEffect = iterator.Current();
@@ -124,7 +125,7 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
          iterator.Next();
      }
  }
-@@ -490,13 +483,7 @@
+@@ -491,13 +484,7 @@
      while (iterator.IsValid())
      {
          WorldEffect* pEffect = iterator.Current();
@@ -218,7 +219,7 @@ new file mode 100644
 diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
-@@ -130,7 +130,6 @@
+@@ -131,7 +131,6 @@
  {
  }
  
@@ -226,7 +227,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
  float EffectsTemplate::GetBoundingRadius()
  {
      float duration;
-@@ -157,4 +156,3 @@
+@@ -158,4 +157,3 @@
      return result;
  }
  

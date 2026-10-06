@@ -1,0 +1,155 @@
+From: mscharged-port contributors
+Subject: [PATCH] Present complete selected XFB separately from native VI fields
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Keep physical field history, source VI geometry/causes and completed selected XFB.
+Reconstruct an independent full RGB desktop signal from the same immutable XFB,
+then preserve the existing linear aspect-fit presentation. No bob interpolation
+or source game/timing changes.
+
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -52,7 +52,7 @@
+   AuroraVIScanout prepared{}, committed{}, presented{};
+   std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot, presented_snapshot;
+   uint64_t presentations{};
+-  TextureHandle signal;
++  TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout;
+   wgpu::RenderPipeline pipeline;
+ };
+@@ -78,6 +78,31 @@
+       .dimension = wgpu::TextureDimension::e2D, .size = size, .format = wgpu::TextureFormat::RGBA8Unorm, .mipLevelCount = 1, .sampleCount = 1};
+   auto texture = webgpu::g_device.CreateTexture(&desc); auto view = texture.CreateView();
+   return std::make_shared<TextureRef>(std::move(texture), view, view, size, wgpu::TextureFormat::RGBA8Unorm, 1, GX_TF_RGBA8);
++}
++void encode_signal(const wgpu::CommandEncoder& encoder, const TextureHandle& destination,
++    const AuroraVIScanout& scanout, const std::shared_ptr<const xfb::Snapshot>& snapshot,
++    const wgpu::BindGroupLayout& layout, const wgpu::RenderPipeline& pipeline, bool physicalField) {
++    const wgpu::RenderPassColorAttachment color{.view = destination->attachmentTextureView,
++        .loadOp = scanout.black || !physicalField ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load, .storeOp = wgpu::StoreOp::Store,
++        .clearValue = {0.0, 0.0, 0.0, 1.0}};
++    const wgpu::RenderPassDescriptor passDesc{.label = "Source selected VI field",
++        .colorAttachmentCount = 1, .colorAttachments = &color};
++    const auto pass = encoder.BeginRenderPass(&passDesc); wgpu::Buffer uniform;
++    if (!scanout.black) {
++      AURORA_ASSERT(snapshot && snapshot->gpuComplete.load(std::memory_order_acquire), "VI selected a noncompleted GX XFB");
++      const Uniforms values{{scanout.active_width, scanout.active_height, scanout.x_origin, scanout.y_origin},
++          {scanout.vi_width, scanout.vi_height, scanout.pan_x, scanout.pan_y},
++          {scanout.pan_width, scanout.pan_height, scanout.field, physicalField && (scanout.tv_mode & 3u) == VI_INTERLACE}};
++      const wgpu::BufferDescriptor desc{.label = "Original VI field geometry",
++          .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst, .size = sizeof(values)};
++      uniform = webgpu::g_device.CreateBuffer(&desc); webgpu::g_queue.WriteBuffer(uniform, 0, &values, sizeof(values));
++      const std::array entries{wgpu::BindGroupEntry{.binding = 0, .textureView = snapshot->packedYuyv->sampleTextureView},
++          wgpu::BindGroupEntry{.binding = 1, .buffer = uniform, .size = sizeof(values)}};
++      const wgpu::BindGroupDescriptor groupDesc{.layout = layout, .entryCount = entries.size(), .entries = entries.data()};
++      const auto group = webgpu::g_device.CreateBindGroup(&groupDesc);
++      pass.SetPipeline(pipeline); pass.SetBindGroup(0, group); pass.Draw(3);
++    }
++    pass.End();
+ }
+ bool prepare(void*, const AuroraVIScanout* scanout) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+@@ -106,7 +131,7 @@
+ }
+ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+-  std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal;
++  std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline; bool widescreen;
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+@@ -116,6 +141,14 @@
+     layout = state.layout; pipeline = state.pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
++    if ((scanout.tv_mode & 3u) == VI_INTERLACE) {
++      if (!state.desktop || state.desktop == signal || state.desktop->size.width != scanout.active_width ||
++          state.desktop->size.height != scanout.active_height)
++        state.desktop = new_signal(scanout.active_width, scanout.active_height);
++    } else {
++      state.desktop = signal;
++    }
++    desktop = state.desktop;
+   }
+   struct Active { Output& state; ~Active() { std::lock_guard lock(state.mutex); state.servicing = false; } } active{state};
+   // Owner refresh/presentation runs outside the source VI IRQ and its locks.
+@@ -123,29 +156,13 @@
+   const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
+       webgpu::g_graphicsConfig.surfaceConfiguration.height, widescreen ? 16u : 4u, widescreen ? 9u : 3u);
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+-                              layout, pipeline, viewport] {
++                              layout, pipeline, viewport, desktop = std::move(desktop)] {
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+-    const wgpu::RenderPassColorAttachment color{.view = signal->attachmentTextureView,
+-        .loadOp = scanout.black ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load, .storeOp = wgpu::StoreOp::Store,
+-        .clearValue = {0.0, 0.0, 0.0, 1.0}};
+-    const wgpu::RenderPassDescriptor passDesc{.label = "Source selected VI field",
+-        .colorAttachmentCount = 1, .colorAttachments = &color};
+-    const auto pass = encoder.BeginRenderPass(&passDesc); wgpu::Buffer uniform;
+-    if (!scanout.black) {
+-      AURORA_ASSERT(snapshot && snapshot->gpuComplete.load(std::memory_order_acquire), "VI selected a noncompleted GX XFB");
+-      const Uniforms values{{scanout.active_width, scanout.active_height, scanout.x_origin, scanout.y_origin},
+-          {scanout.vi_width, scanout.vi_height, scanout.pan_x, scanout.pan_y},
+-          {scanout.pan_width, scanout.pan_height, scanout.field, (scanout.tv_mode & 3u) == VI_INTERLACE}};
+-      const wgpu::BufferDescriptor desc{.label = "Original VI field geometry",
+-          .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst, .size = sizeof(values)};
+-      uniform = webgpu::g_device.CreateBuffer(&desc); webgpu::g_queue.WriteBuffer(uniform, 0, &values, sizeof(values));
+-      const std::array entries{wgpu::BindGroupEntry{.binding = 0, .textureView = snapshot->packedYuyv->sampleTextureView},
+-          wgpu::BindGroupEntry{.binding = 1, .buffer = uniform, .size = sizeof(values)}};
+-      const wgpu::BindGroupDescriptor groupDesc{.layout = layout, .entryCount = entries.size(), .entries = entries.data()};
+-      const auto group = webgpu::g_device.CreateBindGroup(&groupDesc);
+-      pass.SetPipeline(pipeline); pass.SetBindGroup(0, group); pass.Draw(3);
+-    }
+-    pass.End(); wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
++    // Preserve the exact physical field history independently from desktop output.
++    encode_signal(encoder, signal, scanout, snapshot, layout, pipeline, true);
++    if (desktop != signal)
++      encode_signal(encoder, desktop, scanout, snapshot, layout, pipeline, false);
++    wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+       if (window::is_presentable() && webgpu::g_surface) {
+@@ -161,8 +178,8 @@
+           .colorAttachments = &attachment};
+       const auto surfacePass = encoder.BeginRenderPass(&desc);
+       const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
+-      const webgpu::TextureWithSampler source{.texture = signal->texture, .view = signal->sampleTextureView,
+-          .size = signal->size, .format = wgpu::TextureFormat::RGBA8Unorm,
++      const webgpu::TextureWithSampler source{.texture = desktop->texture, .view = desktop->sampleTextureView,
++          .size = desktop->size, .format = wgpu::TextureFormat::RGBA8Unorm,
+           .sampler = webgpu::g_device.CreateSampler(&samplerDesc)};
+       const auto group = webgpu::create_copy_bind_group(source);
+       surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, group);
+@@ -191,7 +208,7 @@
+ void shutdown(void*) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+-  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.pipeline = {}; state.layout = {};
++  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+ }
+ void configure(const AuroraVIOutputConfig* config) {
+@@ -228,6 +245,10 @@
+   return state.presented_snapshot;
+ }
+ TextureHandle rendered_signal() { auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state); return state.signal; }
++TextureHandle rendered_desktop_signal() {
++  auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
++  return state.desktop;
++}
+ } // namespace aurora::gfx::scanout
+ extern "C" {
+ bool aurora_get_presented_video_output_state(AuroraVIPresentedState* result) {
+--- a/lib/gfx/scanout.hpp
++++ b/lib/gfx/scanout.hpp
+@@ -5,6 +5,9 @@
+ namespace aurora::gfx::scanout {
+ // Hardware diagnostic readback only; source game never consumes this resource.
+ TextureHandle rendered_signal();
++// Complete selected GX XFB reconstructed for progressive desktop presentation.
++// Physical VI field history remains available independently above.
++TextureHandle rendered_desktop_signal();
+ // Pins the exact successful-Present XFB, including when a newer source copy
+ // replaces the registry entry at the same Wii framebuffer address. A retired
+ // presentation yields no snapshot; metadata and ownership are read atomically.

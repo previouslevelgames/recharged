@@ -1,5 +1,5 @@
 Subject: Share original Main menu visual and pointer callback bodies
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain source lookup, optional empty component selection, bounds offsets,
 Open/Close, Select dispatch and other-pointer state equations in console delegates
@@ -8,7 +8,6 @@ ApplyItem service is supplied by this patch. Required visual assets remain error
 
 diff --git a/include/Game/FE/FrontendMainMenuSteps.h b/include/Game/FE/FrontendMainMenuSteps.h
 new file mode 100644
-index 0000000..8025309
 --- /dev/null
 +++ b/include/Game/FE/FrontendMainMenuSteps.h
 @@ -0,0 +1,186 @@
@@ -199,7 +198,6 @@ index 0000000..8025309
 +}
 +#endif
 diff --git a/src/Game/FE/fePointerButton.cpp b/src/Game/FE/fePointerButton.cpp
-index 3e1d050..81f0949 100644
 --- a/src/Game/FE/fePointerButton.cpp
 +++ b/src/Game/FE/fePointerButton.cpp
 @@ -1,4 +1,5 @@
@@ -208,7 +206,7 @@ index 3e1d050..81f0949 100644
  
  #include "Game/Audio/AudioGlobals.h"
  #include "Game/FE/feInput.h"
-@@ -29,14 +30,7 @@ FEPointerButton::FEPointerButton(void* context)
+@@ -29,14 +30,7 @@
  
  bool FEPointerButton::HasOtherPointerState(int value, unsigned int which) const
  {
@@ -225,7 +223,6 @@ index 3e1d050..81f0949 100644
  
  void FEPointerButton::OnPointerUpdate(int index, void* context)
 diff --git a/src/Game/FE/tlComponent.cpp b/src/Game/FE/tlComponent.cpp
-index 964bddd..e84ed3b 100644
 --- a/src/Game/FE/tlComponent.cpp
 +++ b/src/Game/FE/tlComponent.cpp
 @@ -1,5 +1,6 @@
@@ -235,7 +232,7 @@ index 964bddd..e84ed3b 100644
  
  #include "Game/FE/feFinder.h"
  #include "Game/FE/tlSlide.h"
-@@ -18,17 +19,7 @@ void TLComponent::SetActiveSlide(const char* name, bool arg2, bool arg3)
+@@ -18,17 +19,7 @@
  
  void TLComponent::SetActiveSlide(unsigned long hash, bool arg2, bool arg3)
  {
@@ -255,7 +252,6 @@ index 964bddd..e84ed3b 100644
  
  void TLComponent::SetActiveSlide(TLSlide* slide, bool arg2, bool arg3)
 diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
-index 44eef24..1f299b7 100644
 --- a/src/Game/SH/SHMainMenu.cpp
 +++ b/src/Game/SH/SHMainMenu.cpp
 @@ -1,6 +1,7 @@
@@ -266,7 +262,7 @@ index 44eef24..1f299b7 100644
  
  #include "Game/GameInfo.h"
  #include "Game/GameSceneManager.h"
-@@ -76,53 +77,9 @@ void UnidentifiedMainMenuEarlyUser(SHMainMenu* menu)
+@@ -76,53 +77,9 @@
   */
  void SHMainMenu::SceneCreated()
  {
@@ -299,9 +295,7 @@ index 44eef24..1f299b7 100644
 -    mMenuHighlights[6] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[6]->GetActiveSlide(), "HOF");
 -    mMenuHighlights[4] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[4]->GetActiveSlide(), "HOF");
 -    mMenuHighlights[5] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[5]->GetActiveSlide(), "HOF");
-+    FrontendMainMenuVisualCreated<TLComponentInstance, TLInstance, TLImageInstance,
-+        TLTextInstance, FEFinder>(*this, g_pLocalization->GetCurrentLanguage() == nlLocalization::LangJapanese);
- 
+-
 -    mMenuGroups[0] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[0], "off", "group");
 -    mMenuGroups[1] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[1], "off", "group");
 -    mMenuGroups[2] = FEFinder<TLInstance, 5>::Find<>(mMenuHighlights[2], "off", "group");
@@ -319,10 +313,13 @@ index 44eef24..1f299b7 100644
 -    mMenuHitImages[5] = FEFinder<TLImageInstance, 2>::FindOrDefault(mMenuGroups[5], "btn_main_HOF");
 -
 -    mItemDescription = FEFinder<TLTextInstance, 3>::FindOrDefault(GetPresentation()->GetActiveSlide(), "Layer", "Text");
++    FrontendMainMenuVisualCreated<TLComponentInstance, TLInstance, TLImageInstance,
++        TLTextInstance, FEFinder>(*this, g_pLocalization->GetCurrentLanguage() == nlLocalization::LangJapanese);
++
      SHNavigation* scene = GetNavigationScene();
      TLComponentInstance* backButton = 0;
      if (scene != 0)
-@@ -131,10 +88,7 @@ void SHMainMenu::SceneCreated()
+@@ -131,10 +88,7 @@
          backButton = scene->GetButton(4);
      }
  
@@ -334,7 +331,7 @@ index 44eef24..1f299b7 100644
      if (g_pNetworkSessionBase->GetSessionMode() != 0)
      {
          g_pNetworkSessionBase->Shutdown();
-@@ -243,17 +197,8 @@ void SHMainMenu::Update(float fDeltaT)
+@@ -243,17 +197,8 @@
              {
                  mMenuItems[i].HandlePointerEvent(&event);
              }
@@ -354,7 +351,7 @@ index 44eef24..1f299b7 100644
          }
      }
  }
-@@ -272,11 +217,7 @@ void SHMainMenu::InitializeMenuItems()
+@@ -272,11 +217,7 @@
  
      for (int i = 0; i < NUM_ITEMS; ++i)
      {
@@ -367,7 +364,7 @@ index 44eef24..1f299b7 100644
          mMenuItems[i].SetPointerEnterCallback(openFunc);
          mMenuItems[i].SetPointerLeaveCallback(closeFunc);
          mMenuItems[i].SetPointerPressCallback(applyFunc);
-@@ -288,14 +229,7 @@ void SHMainMenu::InitializeMenuItems()
+@@ -288,14 +229,7 @@
   */
  void SHMainMenu::CloseItem(unsigned int index, void* context)
  {
@@ -383,11 +380,19 @@ index 44eef24..1f299b7 100644
  }
  
  /**
-@@ -312,15 +246,7 @@ void SHMainMenu::ReturnToWiiMenu()
+@@ -312,32 +246,19 @@
   */
  void SHMainMenu::OpenItem(unsigned int index, void* context)
  {
--    unsigned int item = (unsigned int)context;
++    FrontendMainMenuOpen(*this, index, (unsigned int)context, FEAudio::PlayAnimAudioEvent);
++}
++
++/**
++ * Offset/Address/Size: 0x1EF4 | 0x80220FE8 | size: 0x2D0
++ */
++void SHMainMenu::SelectItem(unsigned int index, void* context)
++{
+     unsigned int item = (unsigned int)context;
 -    ++mHighlightedItemCounts[index];
 -    if (!mMenuItems[item].HasOtherPointerState(1, index))
 -    {
@@ -396,14 +401,14 @@ index 44eef24..1f299b7 100644
 -        mMenuItems[item].SetPointerState(1, index);
 -        FEAudio::PlayAnimAudioEvent(0x6B0689D4, 0, 0, true);
 -    }
-+    FrontendMainMenuOpen(*this, index, (unsigned int)context, FEAudio::PlayAnimAudioEvent);
- }
- 
- /**
-@@ -329,15 +255,10 @@ void SHMainMenu::OpenItem(unsigned int index, void* context)
- void SHMainMenu::SelectItem(unsigned int index, void* context)
- {
-     unsigned int item = (unsigned int)context;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x1EF4 | 0x80220FE8 | size: 0x2D0
+- */
+-void SHMainMenu::SelectItem(unsigned int index, void* context)
+-{
+-    unsigned int item = (unsigned int)context;
 -    if (GetTweakBool("/user/media_build", false) && (item == 3 || item == 5 || item == 6))
 -    {
 -        FEAudio::PlayAnimAudioEvent(0x7326DD54, 0, 0, true);
@@ -420,7 +425,7 @@ index 44eef24..1f299b7 100644
          if (!SaveEnabled)
          {
              FEPopupMenu* popup = (FEPopupMenu*)GameSceneManager::Instance()->Push((SceneList)10, SCREEN_NOTHING, false);
-@@ -358,11 +279,8 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
+@@ -358,11 +279,8 @@
              SaveLoad::StartLoad(true);
              mWaitingForLoad = true;
          }

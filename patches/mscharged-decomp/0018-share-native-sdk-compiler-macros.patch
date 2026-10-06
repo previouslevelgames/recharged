@@ -1,6 +1,6 @@
 Subject: Share native compiler macros across Wii, Aurora, and host headers
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Preserve the host concatenation macro when present, use the native weak
 declaration spelling, and keep address/alignment macro definitions compatible
@@ -8,6 +8,7 @@ with Aurora's SDK headers. This allows both real DVD and Wii/NL headers in
 one translation unit without conflicting compiler attribute definitions.
 Console attribute branches stay unchanged.
 
+diff --git a/include/decomp.h b/include/decomp.h
 --- a/include/decomp.h
 +++ b/include/decomp.h
 @@ -16,7 +16,9 @@
@@ -51,6 +52,7 @@ Console attribute branches stay unchanged.
  #define AT_ADDRESS(address) : (address)
  #else
  #define AT_ADDRESS(address)
+diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
 --- a/libs/RVL_SDK/include/revolution/types.h
 +++ b/libs/RVL_SDK/include/revolution/types.h
 @@ -72,7 +72,13 @@

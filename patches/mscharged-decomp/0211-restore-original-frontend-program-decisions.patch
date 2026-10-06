@@ -1,11 +1,12 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Restore original frontend material program decisions
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Classification: R02 source-fidelity correction; retire prior native game-side behavior changes.
 Preserve original registry Add behavior, constructor order, empty destructors
 and fixed signed16 / 1024 VertexColourTexture UV format. Canonical GX/FIFO
 hardware transport remains; existing unproven array extents remain explicit HOLD.
 
+diff --git a/src/NL/gl/glMaterialProgram.cpp b/src/NL/gl/glMaterialProgram.cpp
 --- a/src/NL/gl/glMaterialProgram.cpp
 +++ b/src/NL/gl/glMaterialProgram.cpp
 @@ -1,7 +1,4 @@
@@ -27,6 +28,7 @@ hardware transport remains; existing unproven array extents remain explicit HOLD
      sMaterialPrograms.Add(hash, program);
  }
  
+diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
 --- a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
 @@ -19,19 +19,15 @@
@@ -50,6 +52,7 @@ hardware transport remains; existing unproven array extents remain explicit HOLD
  }
  
  void GXUnlitTextureMaterialProgram::Initialize()
+diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 --- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 @@ -19,19 +19,15 @@
@@ -98,6 +101,7 @@ hardware transport remains; existing unproven array extents remain explicit HOLD
  #if defined(MSCHARGED_NATIVE)
      GXSetArray(GX_VA_POS, streams[0].address,
          packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 @@ -20,24 +20,15 @@
@@ -125,6 +129,7 @@ hardware transport remains; existing unproven array extents remain explicit HOLD
  }
  
  void GXFloatTexturedColourMaterialProgram::Initialize()
+diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
 --- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
 @@ -20,24 +20,15 @@

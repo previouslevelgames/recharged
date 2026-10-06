@@ -74,8 +74,8 @@ Settings Decode(const Values& values)
     if (s.disc.find_first_of("\r\n") != std::string::npos || s.disc.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the disc path contains a line break or NUL");
     choice("game.language", s.language, {"auto", "english", "french", "spanish", "german", "italian", "japanese"});
-    number("display.width", s.width, 640, 7680);
-    number("display.height", s.height, 480, 4320);
+    number("display.width", s.width, 1, 16384);
+    number("display.height", s.height, 1, 16384);
     boolean("display.fullscreen", s.fullscreen);
     boolean("display.vsync", s.vsync);
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
@@ -169,7 +169,9 @@ ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing)
     file.exists = std::filesystem::exists(file.path);
     if (allow_missing && !file.exists) return file;
     file.contents = Read(file.path);
-    file.settings = Decode(Parse(file.contents));
+    const auto values = Parse(file.contents);
+    file.settings = Decode(values);
+    for (const auto& [key, value] : values) file.configured_keys.insert(key);
     return file;
 }
 
@@ -207,6 +209,8 @@ void SaveConfig(ConfigFile& file, const Settings& settings)
     }
     file.contents = contents;
     file.settings = settings;
+    file.configured_keys.clear();
+    for (const auto& [key, value] : Parse(contents)) file.configured_keys.insert(key);
     file.exists = true;
 }
 

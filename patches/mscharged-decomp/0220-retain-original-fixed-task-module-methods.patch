@@ -1,6 +1,6 @@
 Subject: [PATCH] retain original fixed task source methods in native modules
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain both actual source empty ABI helpers in the original module. Their
 unchanged retail bodies are not a fabricated successful provider. Keep the
@@ -8,9 +8,10 @@ whole source task and all constructor, data and update decisions. Expose the
 actual runtime helper declarations without MWCC asm syntax on native compilers;
 this does not supply any missing helper implementation.
 
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
 --- a/src/Game/Task/FixedUpdateTask.cpp
 +++ b/src/Game/Task/FixedUpdateTask.cpp
-@@ -47,7 +47,7 @@
+@@ -48,7 +48,7 @@
  static u16 sSimulationTimeType = 0xFFFF;
  static u16 sTimeScaleType = 0xFFFF;
  
@@ -19,7 +20,7 @@ this does not supply any missing helper implementation.
  void fn_80111654(int)
  {
  }
-@@ -57,7 +57,7 @@
+@@ -58,7 +58,7 @@
  {
  }
  
@@ -28,6 +29,7 @@ this does not supply any missing helper implementation.
  void fn_8011165C(int)
  {
  }
+diff --git a/libs/Runtime/include/runtime.h b/libs/Runtime/include/runtime.h
 --- a/libs/Runtime/include/runtime.h
 +++ b/libs/Runtime/include/runtime.h
 @@ -45,14 +45,21 @@

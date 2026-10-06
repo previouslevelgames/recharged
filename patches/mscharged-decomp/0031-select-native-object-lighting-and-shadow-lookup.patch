@@ -1,5 +1,5 @@
 Subject: Select original object lights and projected-shadow lookup with bounded native inputs
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select the original diffuse-light, ambient-channel, static shadow projection
 and LightingLookup calculations independently of the stadium/camera/effect
@@ -131,7 +131,7 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
 diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
 --- a/src/Game/GameObjectLighting.cpp
 +++ b/src/Game/GameObjectLighting.cpp
-@@ -38,6 +38,7 @@
+@@ -40,6 +40,7 @@
  // it reads the byte as a bool.
  extern bool g_bRenderWorldEffects;
  
@@ -139,7 +139,7 @@ diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
  struct StadiumLightingParams
  {
      /* 0x00 */ u32 lightRamp;
-@@ -73,6 +74,7 @@
+@@ -75,6 +76,7 @@
      /* 0x1C */ nlColour colour;
      /* 0x20 */ f32 radius;
  }; // total size: 0x24

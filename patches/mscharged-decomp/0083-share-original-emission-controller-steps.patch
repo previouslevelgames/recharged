@@ -1,12 +1,11 @@
 Subject: [PATCH] Share original bounded controller time, completion and identity steps
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain original console effects/system/manager services. Native port adapters
 reuse only these state equations while qualifying retained emitter-only groups.
 
 diff --git a/include/Game/Effects/EmissionControllerSteps.h b/include/Game/Effects/EmissionControllerSteps.h
 new file mode 100644
-index 0000000..5b12bd2
 --- /dev/null
 +++ b/include/Game/Effects/EmissionControllerSteps.h
 @@ -0,0 +1,74 @@
@@ -85,15 +84,15 @@ index 0000000..5b12bd2
 +}
 +#endif
 diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
-index 9fa00b8..9914ba2 100644
 --- a/src/Game/Effects/EmissionController.cpp
 +++ b/src/Game/Effects/EmissionController.cpp
-@@ -1,3 +1,4 @@
+@@ -1,4 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
 +#include "Game/Effects/EmissionControllerSteps.h"
  #include "Game/Effects/EmissionController.h"
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Effects/ParticleSystem.h"
-@@ -195,12 +196,7 @@ void EmissionController::SetAnimController(
+@@ -196,12 +197,7 @@
  
  void EmissionController::Die()
  {
@@ -107,7 +106,7 @@ index 9fa00b8..9914ba2 100644
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -399,50 +395,10 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
+@@ -400,50 +396,10 @@
  
  bool EmissionController::Update(float dt)
  {
@@ -161,7 +160,7 @@ index 9fa00b8..9914ba2 100644
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -461,11 +417,7 @@ bool EmissionController::Update(float dt)
+@@ -462,11 +418,7 @@
          }
      }
  
@@ -175,15 +174,15 @@ index 9fa00b8..9914ba2 100644
      if (m_nUserEffects > 0)
      {
 diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
-index 183a8c2..a16892d 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
-@@ -1,3 +1,4 @@
+@@ -1,4 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
 +#include "Game/Effects/EmissionControllerSteps.h"
  #include "Game/Effects/EmissionManager.h"
  
  #include "Game/Effects/EmissionController.h"
-@@ -765,14 +766,7 @@ EmissionController* EmissionManager::Create(EffectsGroup* pEffectsGroup, int vie
+@@ -766,14 +767,7 @@
      AllocatorStack[AllocatorStackDepth++] = allocator;
      CurrentAllocator = allocator;
  

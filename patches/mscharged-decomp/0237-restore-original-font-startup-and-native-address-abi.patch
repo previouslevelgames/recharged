@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original font startup and native texture address ABI
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Prepared-preimage: reviewed strict185 source
 
 Default original-module glFont owns its original globals, glyph method and

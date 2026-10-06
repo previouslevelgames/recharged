@@ -1,6 +1,6 @@
 Subject: Check native graphics pools and frame lifecycle
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Check native graphics pools and frame lifecycle
 Preserve pointer-width addresses and resource marks, align both halves of the
@@ -16,10 +16,9 @@ Keep console paths and original memory labels unchanged. This is a memory/static
 inventory subset, not glStartup or a complete native graphics implementation.
 
 diff --git a/include/NL/gl/glMemory.h b/include/NL/gl/glMemory.h
-index 5dedc2f..363de7a 100644
 --- a/include/NL/gl/glMemory.h
 +++ b/include/NL/gl/glMemory.h
-@@ -12,8 +12,8 @@ public:
+@@ -12,8 +12,8 @@
      GLResourcePool();
  
      virtual void* Allocate(unsigned long size, eGLMemory memType) = 0;
@@ -31,10 +30,9 @@ index 5dedc2f..363de7a 100644
      virtual unsigned long GetTotalMemory() = 0;
      virtual unsigned long GetPeakMemoryUsage();
 diff --git a/include/NL/gl/glMemoryInit.h b/include/NL/gl/glMemoryInit.h
-index ecab61c..66f7c5d 100644
 --- a/include/NL/gl/glMemoryInit.h
 +++ b/include/NL/gl/glMemoryInit.h
-@@ -13,5 +13,8 @@ struct GLMemoryConfig
+@@ -13,5 +13,8 @@
  }; // size 0x14
  
  bool glInitMemory(const GLMemoryConfig* config);
@@ -44,7 +42,6 @@ index ecab61c..66f7c5d 100644
  
  #endif // NL_GL_GLMEMORYINIT_H
 diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
-index 782d1d1..b7d881b 100644
 --- a/include/NL/glx/glxMemory.h
 +++ b/include/NL/glx/glxMemory.h
 @@ -2,6 +2,13 @@
@@ -62,7 +59,6 @@ index 782d1d1..b7d881b 100644
  enum eGLMemory
  {
 diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
-index 512b7fd..1c21e0f 100644
 --- a/src/NL/gl/glMemory.cpp
 +++ b/src/NL/gl/glMemory.cpp
 @@ -4,6 +4,18 @@
@@ -84,7 +80,7 @@ index 512b7fd..1c21e0f 100644
  
  static GLResourcePool* sCurrentResourcePool;
  static GLResourcePool* sResourcePoolList;
-@@ -14,6 +26,9 @@ void glResourceAllocationFailed()
+@@ -14,6 +26,9 @@
  
  void glInitResourcePools()
  {
@@ -94,7 +90,7 @@ index 512b7fd..1c21e0f 100644
      sCurrentResourcePool = 0;
      sResourcePoolList = 0;
  }
-@@ -22,7 +37,12 @@ GLResourcePool::GLResourcePool()
+@@ -22,7 +37,12 @@
  {
      m_level = 0;
      m_inventory = new (8, false) GLInventory;
@@ -107,7 +103,7 @@ index 512b7fd..1c21e0f 100644
      m_prev = 0;
      m_next = 0;
  }
-@@ -31,7 +51,11 @@ GLResourcePool::~GLResourcePool()
+@@ -31,7 +51,11 @@
  {
      if (m_inventory != 0)
      {
@@ -119,7 +115,7 @@ index 512b7fd..1c21e0f 100644
          m_inventory = 0;
      }
  
-@@ -44,6 +68,9 @@ GLResourcePool::~GLResourcePool()
+@@ -44,6 +68,9 @@
  GLResourcePool* glCreateResourcePool(
      const GLMemoryRequirement* requirements, int count, const char* name)
  {
@@ -129,7 +125,7 @@ index 512b7fd..1c21e0f 100644
      GLResourcePool* resource
          = glplatCreateResourcePool(
              requirements,
-@@ -54,12 +81,22 @@ GLResourcePool* glCreateResourcePool(
+@@ -54,12 +81,22 @@
  
  void glDestroyResourcePool(GLResourcePool* resource)
  {
@@ -152,7 +148,7 @@ index 512b7fd..1c21e0f 100644
      sCurrentResourcePool = resource;
  }
  
-@@ -76,6 +113,10 @@ GLResourcePool* glGetResourcePools()
+@@ -76,6 +113,10 @@
  void* glResourceAlloc(
      unsigned long size, eGLMemory memType, void* resource)
  {
@@ -213,7 +209,6 @@ diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
  }
 diff --git a/src/NL/gl/glMemoryNames.cpp b/src/NL/gl/glMemoryNames.cpp
 new file mode 100644
-index 0000000..351804f
 --- /dev/null
 +++ b/src/NL/gl/glMemoryNames.cpp
 @@ -0,0 +1,3 @@
@@ -221,7 +216,6 @@ index 0000000..351804f
 +
 +const char* szMemoryNames[6] = { "header", "matrix", "index", "vertex", "texture", "target" };
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
-index 7a1ca71..bbccac7 100644
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
 @@ -1,6 +1,13 @@
@@ -238,7 +232,7 @@ index 7a1ca71..bbccac7 100644
  
  #include "NL/glx/glxMemory.h"
  
-@@ -32,8 +39,8 @@ public:
+@@ -32,8 +39,8 @@
          unsigned long sizes[2], const char* name);
  
      virtual void* Allocate(unsigned long size, eGLMemory memType);
@@ -249,7 +243,7 @@ index 7a1ca71..bbccac7 100644
      virtual unsigned long GetFreeMemory();
      virtual unsigned long GetTotalMemory();
      virtual unsigned long GetPeakMemoryUsage();
-@@ -42,7 +49,10 @@ public:
+@@ -42,7 +49,10 @@
      virtual ~GLXResourcePool();
  
      char mName[32];
@@ -261,7 +255,7 @@ index 7a1ca71..bbccac7 100644
      unsigned long mPoolSizes[2];
      unsigned long mUsedMemory[2];
      unsigned long mPeakMemory[2];
-@@ -66,7 +76,7 @@ static int i_frame;
+@@ -66,7 +76,7 @@
  static bool sFrameMemoryInitialized;
  static GLInventory::ModelReleaseCallback sModelReleaseCallback;
  
@@ -270,7 +264,7 @@ index 7a1ca71..bbccac7 100644
  static unsigned long n_frame[2][2];
  
  static inline int RealOrVirtual(eGLMemory memType)
-@@ -82,14 +92,70 @@ static inline int RealOrVirtual(eGLMemory memType)
+@@ -82,14 +92,70 @@
      case GLM_TextureData:
          return 1;
      default:
@@ -279,10 +273,12 @@ index 7a1ca71..bbccac7 100644
 +#else
          nlBreak();
          return -1;
+-    }
+-}
 +#endif
-     }
- }
- 
++    }
++}
++
 +#if defined(MSCHARGED_NATIVE)
 +// Console budgets remain bounded; addresses and marker handles are pointer-sized.
 +static unsigned long AlignedOffset(unsigned long used, unsigned long size, unsigned long capacity)
@@ -313,7 +309,7 @@ index 7a1ca71..bbccac7 100644
 +    i_frame = 0;
 +}
 +#endif
-+
+ 
  bool glxInitMemory(
      unsigned long frameMemSize1, unsigned long frameMemSize2)
  {
@@ -341,7 +337,7 @@ index 7a1ca71..bbccac7 100644
      MemoryAllocator* allocator = CurrentAllocator;
      CurrentAllocator = &StandardAllocator;
      unsigned long pMem = (unsigned long)nlMalloc(
-@@ -122,10 +188,17 @@ bool glxInitMemory(
+@@ -122,10 +188,17 @@
      FrameMemSizes[1] = frameMemSize2;
      sFrameMemoryInitialized = true;
      return true;
@@ -359,7 +355,7 @@ index 7a1ca71..bbccac7 100644
      if (glx_MemoryDump)
      {
          tDebugPrintManager::Print(DC_GLPLAT, sFrameMemoryUsedFormat,
-@@ -142,12 +215,29 @@ void glplatFrameAllocNextFrame()
+@@ -142,12 +215,29 @@
      n_frame[newFrame][1] = 0;
      GXInvalidateVtxCache();
      GXInvalidateTexAll();
@@ -389,7 +385,7 @@ index 7a1ca71..bbccac7 100644
      nlStrNCpy(mName, name, 32);
  
      m_inventory->SetModelReleaseCallback(sModelReleaseCallback);
-@@ -165,22 +255,41 @@ GLXResourcePool::
+@@ -165,22 +255,41 @@
      mPoolSizes[1] = sizes[1];
      mUsedMemory[1] = 0;
      mPeakMemory[1] = 0;
@@ -431,16 +427,19 @@ index 7a1ca71..bbccac7 100644
      int pool = RealOrVirtual(memType);
      unsigned long aligned = (mPoolMemory[pool] + mUsedMemory[pool] + 31) & ~31u;
      mUsedMemory[pool] = allocationSize + (aligned - mPoolMemory[pool]);
-@@ -196,10 +305,22 @@ void* GLXResourcePool::Allocate(
+@@ -196,10 +305,22 @@
          nlBreak();
      }
      return (void*)aligned;
-+#endif
- }
- 
+-}
+-
 -unsigned long GLXResourcePool::MarkResource()
+-{
++#endif
++}
++
 +GLResourceMark GLXResourcePool::MarkResource()
- {
++{
 +#if defined(MSCHARGED_NATIVE)
 +    if (m_level >= 15 || m_inventory->m_nLevel != m_level)
 +        throw std::length_error("GL resource marker depth is invalid or exhausted");
@@ -455,7 +454,7 @@ index 7a1ca71..bbccac7 100644
      unsigned long value0 = mUsedMemory[0];
      unsigned long value1 = mUsedMemory[1];
      GLXResourceMarker* marker
-@@ -212,11 +333,25 @@ unsigned long GLXResourcePool::MarkResource()
+@@ -212,11 +333,25 @@
      m_inventory->ResourceMark();
      m_level++;
      return (unsigned long)marker;
@@ -464,8 +463,9 @@ index 7a1ca71..bbccac7 100644
  
  void GLXResourcePool::ReleaseResource(
 -    unsigned long value)
+-{
 +    GLResourceMark value)
- {
++{
 +#if defined(MSCHARGED_NATIVE)
 +    int level = 0;
 +    while (level < m_level && mMarks[level] != value) ++level;
@@ -482,7 +482,7 @@ index 7a1ca71..bbccac7 100644
      GLXResourceMarker* marker
          = (GLXResourceMarker*)value;
      int level = marker->mLevel;
-@@ -224,6 +359,7 @@ void GLXResourcePool::ReleaseResource(
+@@ -224,6 +359,7 @@
      mUsedMemory[0] = marker->mUsedMemory[0];
      mUsedMemory[1] = marker->mUsedMemory[1];
      m_level = level;
@@ -490,27 +490,29 @@ index 7a1ca71..bbccac7 100644
  }
  
  unsigned long GLXResourcePool::GetFreeMemory()
-@@ -266,6 +402,19 @@ GLResourcePool* glplatCreateResourcePool(
+@@ -266,26 +402,54 @@
      const GLMemoryRequirement* requirements,
      unsigned long count, const char* name)
  {
 +#if defined(MSCHARGED_NATIVE)
 +    if (!requirements || !count || count > GLM_Num)
 +        throw std::invalid_argument("Invalid GL resource requirements");
-+    unsigned long sizes[2] = { 0, 0 };
-+    for (unsigned long i = 0; i < count; ++i)
-+    {
-+        int pool = RealOrVirtual(requirements[i].mType);
+     unsigned long sizes[2] = { 0, 0 };
+     for (unsigned long i = 0; i < count; ++i)
+     {
+         int pool = RealOrVirtual(requirements[i].mType);
 +        if (requirements[i].mSize > UINT32_MAX - sizes[0] - sizes[1])
 +            throw std::length_error("GL resource requirements exceed the console budget range");
 +        sizes[pool] += requirements[i].mSize;
 +    }
 +    return new (8, false) GLXResourcePool(sizes, name);
 +#else
-     unsigned long sizes[2] = { 0, 0 };
-     for (unsigned long i = 0; i < count; ++i)
-     {
-@@ -275,17 +424,32 @@ GLResourcePool* glplatCreateResourcePool(
++    unsigned long sizes[2] = { 0, 0 };
++    for (unsigned long i = 0; i < count; ++i)
++    {
++        int pool = RealOrVirtual(requirements[i].mType);
+         sizes[pool] += requirements[i].mSize;
+     }
  
      return new (8, false)
          GLXResourcePool(sizes, name);
@@ -543,7 +545,7 @@ index 7a1ca71..bbccac7 100644
      unsigned long isLow = RealOrVirtual(memType);
      unsigned long newTop
          = (p_frame[i_frame][isLow] + n_frame[i_frame][isLow] + 31)
-@@ -299,9 +463,15 @@ void* glplatFrameAlloc(unsigned long size, eGLMemory memType)
+@@ -299,9 +463,15 @@
      }
      n_frame[i_frame][isLow] = newSize;
      return (void*)newTop;
@@ -554,8 +556,9 @@ index 7a1ca71..bbccac7 100644
  {
 +#if defined(MSCHARGED_NATIVE)
 +    if (!glGetCurrentResourcePool()) throw std::logic_error("No current GL resource pool");
-+    return glGetCurrentResourcePool()->GetFreeMemory();
-+#else
      return glGetCurrentResourcePool()->GetFreeMemory();
+-}
++#else
++    return glGetCurrentResourcePool()->GetFreeMemory();
 +#endif
- }
++}

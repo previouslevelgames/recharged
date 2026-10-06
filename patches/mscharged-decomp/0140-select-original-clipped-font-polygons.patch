@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original clipped text polygons and GX scissor material
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Connect the existing float-UV writer, glAttachPoly2 scissorbox overload and
 original GXScissoredVertexColourTextureMaterialProgram. Preserve the original
@@ -128,7 +128,7 @@ diff --git a/include/Game/GL/GLFloatTexturedColourMeshWriter.h b/include/Game/GL
      }
  
      void Texcoord(const nlVector2& uv)
-@@ -30,23 +44,53 @@
+@@ -30,23 +46,53 @@
  
      void Texcoord(float u, float v)
      {

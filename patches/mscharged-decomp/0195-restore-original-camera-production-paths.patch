@@ -1,6 +1,6 @@
 Subject: Restore whole original camera source for native production
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore CameraMan, DebugCam and animcam directly from the pinned reconstructed
 source, including ordinary camera allocations, source callbacks/factories,
@@ -143,7 +143,8 @@ diff --git a/src/Game/Camera/CameraData.cpp b/src/Game/Camera/CameraData.cpp
 diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
 --- a/src/Game/Camera/CameraMan.cpp
 +++ b/src/Game/Camera/CameraMan.cpp
-@@ -1,8 +1,4 @@
+@@ -1,9 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Camera/CameraMan.h"
 -#include "Game/Camera/FrontendCameraCatalog.h"
 -#ifdef MSCHARGED_NATIVE
@@ -152,7 +153,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  #include "Game/UnidentifiedStaticStorage.h"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/AI/AiUtil.h"
-@@ -31,7 +27,6 @@
+@@ -32,7 +28,6 @@
  #include "NL/nlPrint.h"
  #include "Game/Task/FixedUpdateTask.h"
  
@@ -160,7 +161,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  eCameraType g_eCurrentCameraType;
  
  cBaseCamera* cCameraManager::m_cameraStack;
-@@ -73,20 +68,14 @@
+@@ -74,20 +69,14 @@
  };
  nlVector3 g_CameraWorldUpVector = { 0.0f, 0.0f, 1.0f };
  
@@ -187,7 +188,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  static void ApplyCameraFilters(nlMatrix4& matView)
  {
      nlMatrix4 filteredView;
-@@ -100,9 +89,7 @@
+@@ -101,9 +90,7 @@
          }
      }
  }
@@ -198,7 +199,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  static void ResetCameraFilters()
  {
      for (int i = 0; i < 2; i++)
-@@ -114,31 +101,25 @@
+@@ -115,31 +102,25 @@
          }
      }
  }
@@ -231,7 +232,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void FireCameraNoiseFilter(nlVector3& amplitude, float frequency, float duration)
  {
      cNoiseFilter* pFilter = static_cast<cNoiseFilter*>(cCameraManager::PeekCamera()->m_pFilter[1]);
-@@ -147,7 +128,6 @@
+@@ -148,7 +129,6 @@
          pFilter->Start(amplitude, frequency, duration);
      }
  }
@@ -239,7 +240,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  
  /**
   * Offset/Address/Size: 0x9C | 0x800F02DC | size: 0x30
-@@ -169,11 +149,11 @@
+@@ -170,11 +150,11 @@
  
      if (frontEnd)
      {
@@ -253,7 +254,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
      }
  
      cRumbleFilter* pRumbleFilter = new (8, false) cRumbleFilter();
-@@ -209,7 +189,43 @@
+@@ -210,7 +190,43 @@
      else
      {
          CameraAnimationLoadInfo frontEndCameraAnimations[] = {
@@ -298,7 +299,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
          };
  
          for (int animationIndex = 0; animationIndex < 37; animationIndex++)
-@@ -225,7 +241,7 @@
+@@ -226,7 +242,7 @@
   */
  void AsyncStartCameraLoadingForStadiumViewer()
  {
@@ -307,7 +308,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  
      cRumbleFilter* pRumbleFilter = new (8, false) cRumbleFilter();
      g_pRumbleFilter = pRumbleFilter;
-@@ -277,7 +293,6 @@
+@@ -278,7 +294,6 @@
  /**
   * Offset/Address/Size: 0x750 | 0x800F0990 | size: 0x3EC
   */
@@ -315,7 +316,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void UpdateCameraTransition(float fDeltaT)
  {
      nlQuaternion qPrev;
-@@ -336,7 +351,6 @@
+@@ -337,7 +352,6 @@
          }
      }
  }
@@ -323,7 +324,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  
  /**
   * Offset/Address/Size: 0xB3C | 0x800F0D7C | size: 0x4DC
-@@ -352,9 +366,6 @@
+@@ -353,9 +367,6 @@
  
      UpdateGameCameraType();
  
@@ -333,7 +334,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
      cBaseCamera* pCamera = nlDLRingGetStart<cBaseCamera>(m_cameraStack);
      if (pCamera->GetType() == eCameraType_Gameplay)
      {
-@@ -407,7 +418,6 @@
+@@ -408,7 +419,6 @@
      m_aJoystickRemap = (u16)(int)(nlATan2f(viewZAxis.y, viewZAxis.x) * 10430.378f);
      m_aJoystickRemap += 0x8000;
  
@@ -341,7 +342,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
      eCameraType cameraType = PeekCamera()->GetType();
      if (cameraType != g_LastCameraType)
      {
-@@ -444,71 +454,71 @@
+@@ -445,71 +455,71 @@
          {
          case eCameraType_Debug:
          {
@@ -426,7 +427,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
              break;
          }
          }
-@@ -520,17 +530,14 @@
+@@ -521,17 +531,14 @@
  /**
   * Offset/Address/Size: 0x13F0 | 0x800F1630 | size: 0x40
   */
@@ -444,7 +445,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void cCameraManager::PushCamera(cBaseCamera* pCamera)
  {
      if (m_transition != eCT_NONE)
-@@ -557,12 +564,10 @@
+@@ -558,12 +565,10 @@
  
      nlDLRingAddStart<cBaseCamera>(&m_cameraStack, pCamera);
  }
@@ -457,7 +458,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void cCameraManager::Remove(const cBaseCamera& camera)
  {
      bool actuallyRemoved = true;
-@@ -582,12 +587,10 @@
+@@ -583,12 +588,10 @@
          }
      }
  }
@@ -470,7 +471,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void cCameraManager::Remove(eCameraType type, bool bDeleteAfterRemoving)
  {
      cBaseCamera* pCamera = m_cameraStack;
-@@ -610,12 +613,10 @@
+@@ -611,12 +614,10 @@
          } while (pCameraNext != m_cameraStack);
      }
  }
@@ -483,7 +484,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  cBaseCamera* cCameraManager::PopCamera()
  {
      if (cCameraManager::m_transition != eCT_NONE)
-@@ -631,12 +632,10 @@
+@@ -632,12 +633,10 @@
      ResetCameraFilters();
      return pCamera;
  }
@@ -496,7 +497,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  cBaseCamera* GetNextCamera()
  {
      cBaseCamera* pCamera = cCameraManager::PeekCamera();
-@@ -644,12 +643,10 @@
+@@ -645,12 +644,10 @@
          return pCamera->m_next;
      return 0;
  }
@@ -509,7 +510,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void cCameraManager::PushCameraWithTransition(cBaseCamera* pCamera, float fDuration, eCameraTransition transition, void (*pCallback)(eCameraMessage), bool bDeleteCurrentCamera)
  {
      if (m_transition != eCT_NONE)
-@@ -691,12 +688,10 @@
+@@ -692,12 +689,10 @@
  
      nlDLRingAddStart<cBaseCamera>(&m_cameraStack, pCamera);
  }
@@ -522,7 +523,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  cBaseCamera* cCameraManager::PopCameraWithTransition(float fDuration, eCameraTransition transition, void (*pCallback)(eCameraMessage))
  {
      if (m_transition != eCT_NONE)
-@@ -723,12 +718,10 @@
+@@ -724,12 +719,10 @@
      ResetCameraFilters();
      return pCamera;
  }
@@ -535,7 +536,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  float cCameraManager::GetDistanceFromCameraToObject(const nlVector3& objectPosition)
  {
      nlVector3 diff;
-@@ -738,12 +731,10 @@
+@@ -739,12 +732,10 @@
  
      return nlSqrt(((diff.x) * (diff.x)) + ((diff.y) * (diff.y)) + ((diff.z) * (diff.z)), 1);
  }
@@ -548,7 +549,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void cCameraManager::GetViewVector(nlVector3& viewVector)
  {
      nlVec3Set(viewVector,
-@@ -751,12 +742,10 @@
+@@ -752,12 +743,10 @@
          -m_matView.m23,
          -m_matView.m33);
  }
@@ -561,7 +562,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  void cCameraManager::GetUpVector(nlVector3& upVector)
  {
      nlVec3Set(upVector,
-@@ -764,7 +753,6 @@
+@@ -765,7 +754,6 @@
          m_matView.m22,
          m_matView.m32);
  }
@@ -569,7 +570,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  
  /**
   * Offset/Address/Size: 0x21A8 | 0x800F23E8 | size: 0xC
-@@ -777,27 +765,22 @@
+@@ -778,27 +766,22 @@
  /**
   * Offset/Address/Size: 0x21B4 | 0x800F23F4 | size: 0x10
   */
@@ -597,7 +598,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  float AdjustFOVForWidescreen(float fFOV)
  {
      float fTan = nlTan((u16)(((int)(65536.0f * (0.5f * fFOV))) / 360));
-@@ -806,4 +789,3 @@
+@@ -807,4 +790,3 @@
      float halfFovRadians = nlATan((fTan * standardAspect) / widescreenAspect);
      return 2.0f * ((180.0f * halfFovRadians) / 3.1415927f);
  }
@@ -621,10 +622,10 @@ diff --git a/src/Game/Camera/DebugCam.cpp b/src/Game/Camera/DebugCam.cpp
 +++ b/src/Game/Camera/DebugCam.cpp
 @@ -1,4 +1,3 @@
 -#ifndef MSCHARGED_NATIVE
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
  #include "NL/plat/PlatPadManager.h"
- #include "NL/plat/WiiPad.h"
- #include "Game/Camera/DebugCam.h"
-@@ -397,4 +396,3 @@
+@@ -399,4 +398,3 @@
  
      glMatrixLookAt(m_matView, m_vecCamera, m_vecTarget, vecUp);
  }
@@ -646,7 +647,7 @@ diff --git a/src/Game/Camera/DebugCameraNative.cpp b/src/Game/Camera/DebugCamera
 diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
 --- a/src/Game/Camera/animcam.cpp
 +++ b/src/Game/Camera/animcam.cpp
-@@ -60,7 +60,6 @@
+@@ -61,7 +61,6 @@
      return name;
  }
  
@@ -654,7 +655,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  cCameraData::cCameraData()
  {
      next = NULL;
-@@ -86,8 +85,6 @@
+@@ -87,8 +86,6 @@
          delete[] m_szName;
      }
  }
@@ -663,7 +664,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  
  bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
  {
-@@ -255,7 +252,6 @@
+@@ -256,7 +253,6 @@
      m_cameraDataList = NULL;
  }
  
@@ -671,7 +672,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  cAnimCamera::cAnimCamera()
  {
      m_bUseSimulationTime = false;
-@@ -274,15 +270,11 @@
+@@ -275,15 +271,11 @@
      m_bCyclic = true;
      m_matView.SetIdentity();
  }
@@ -689,7 +690,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
  {
      m_fAnimationTime = fTime;
-@@ -291,18 +283,14 @@
+@@ -292,18 +284,14 @@
          BuildAnimViewMatrix(m_matView);
      }
  }
@@ -710,7 +711,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
  {
      float fRealIndex = m_fAnimationTime * (float)(m_pActiveCameraData->m_uKeyCount - 1);
-@@ -410,7 +398,6 @@
+@@ -411,7 +399,6 @@
      m_FocalLength = dofBehindTarget * fScale + focalLength;
      DepthOfFieldManager::instance.m_fDistanceFromCamera = m_FocalLength;
  }
@@ -718,7 +719,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  
  void cAnimCamera::UnselectCameraAnimation()
  {
-@@ -437,7 +424,6 @@
+@@ -438,7 +425,6 @@
      BuildAnimViewMatrix(m_matView);
  }
  
@@ -726,7 +727,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  void cAnimCamera::Update(float dt)
  {
      if (!m_LetManagerDoUpdate)
-@@ -446,9 +432,7 @@
+@@ -447,9 +433,7 @@
      }
      ManualUpdate(dt);
  }
@@ -737,7 +738,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  float cAnimCamera::ManualUpdate(float dt)
  {
      float overrun = 0.0f;
-@@ -495,4 +479,3 @@
+@@ -496,4 +480,3 @@
      BuildAnimViewMatrix(m_matView);
      return overrun;
  }

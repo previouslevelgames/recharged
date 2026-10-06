@@ -1,0 +1,29 @@
+Subject: [PATCH] restore the complete original animation controller provider
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Retire0088 helper include and Evaluate substitution from the original controller.
+The successor is byte-identical to the committed Matching upstream TU. Legacy
+SAnimPoseSteps diagnostics remain unchanged outside the original source graph.
+No compiler, ABI, selection, timing, callback or game algorithm change is added.
+
+diff --git a/src/Game/SAnim/pnSAnimController.cpp b/src/Game/SAnim/pnSAnimController.cpp
+--- a/src/Game/SAnim/pnSAnimController.cpp
++++ b/src/Game/SAnim/pnSAnimController.cpp
+@@ -1,4 +1,3 @@
+-#include "Game/SAnimPoseSteps.h"
+ #include "Game/SAnim/pnSAnimController.h"
+ #include "Game/SHierarchy.h"
+ 
+@@ -280,7 +279,11 @@
+         return;
+     }
+ 
+-    accumulator->m_trans[nodeIndex].t = SAnimPoseUnmapped(nodeIndex, weight, accumulator);
++    nlVector3& translationOffset
++        = accumulator->m_BaseSHierarchy->GetTranslationOffset(nodeIndex);
++    accumulator->BlendRotIdentity(nodeIndex, weight);
++    accumulator->BlendScaleIdentity(nodeIndex, weight);
++    accumulator->m_trans[nodeIndex].t = translationOffset;
+ }
+ 
+ void cPN_SAnimController::Evaluate(

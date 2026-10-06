@@ -1,13 +1,12 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original retail boot loading setup and phase steps
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain original setup, input order, clocks, strap fade and service boundaries
 with typed retained-scene adapters and console forwarding to the same bodies.
 
 diff --git a/include/Game/FE/FrontendBootLoadingSteps.h b/include/Game/FE/FrontendBootLoadingSteps.h
 new file mode 100644
-index 0000000..68400ae
 --- /dev/null
 +++ b/include/Game/FE/FrontendBootLoadingSteps.h
 @@ -0,0 +1,258 @@
@@ -270,10 +269,9 @@ index 0000000..68400ae
 +}
 +#endif
 diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
-index 96459df..1d407d2 100644
 --- a/src/Game/SH/SHBootLoading.cpp
 +++ b/src/Game/SH/SHBootLoading.cpp
-@@ -3,6 +3,7 @@
+@@ -5,6 +5,7 @@
  #include "Game/Audio/RegistryPools.h"
  
  #include "Game/SH/SHBootLoading.h"
@@ -281,7 +279,7 @@ index 96459df..1d407d2 100644
  #include "Game/BaseSceneHandler.inl"
  #include "Game/Render/RLViewLayers.h"
  #include "Game/FE/FEAudio.h"
-@@ -25,6 +26,50 @@
+@@ -27,6 +28,50 @@
  #include "Game/Render/RLViewLayers.h"
  #include "Game/FE/tlDefault.h"
  
@@ -332,7 +330,7 @@ index 96459df..1d407d2 100644
  BootLoadingScene::BootLoadingScene()
      : mElapsedTime(0.0f)
      , mStrapAlpha(255.0f)
-@@ -42,253 +87,21 @@ BootLoadingScene::~BootLoadingScene()
+@@ -44,253 +89,21 @@
  
  void BootLoadingScene::SceneCreated()
  {

@@ -1,15 +1,16 @@
 From: mscharged-port maintainers
 Subject: [PATCH] Preserve original stream cached words through native DSP memory
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Original stream state keeps a Wii32 cached address used by unchanged AX nibble
 arithmetic. Translate actual native backing through the checked SDK physical
 mapping, then use the original cached-region prefix. Keep a null pointer's word
 zero and preserve the console assignment. No audio initialization is replaced.
 
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
 --- a/src/Game/Audio/AudioSource.cpp
 +++ b/src/Game/Audio/AudioSource.cpp
-@@ -554,7 +554,12 @@
+@@ -556,7 +556,12 @@
              DumpAudioMemory();
          channel->m_Voice = AXAcquireVoice(31, AudioStreamChannel::OnVoiceDropped, (unsigned long)channel);
          MIXInitChannel(channel->m_Voice, 0, 0, -960, -960, -960, 64, 127, 0);

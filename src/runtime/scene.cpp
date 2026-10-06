@@ -52,7 +52,7 @@
 #include "runtime/material_environment.h"
 #include "resources/static_model.h"
 #include "resources/texture_bundle.h"
-#include "bootstrap/config.h"
+#include "bootstrap/launch_options.h"
 #include "platform/disc.h"
 #include "platform/path.h"
 #include "mscharged/build_version.h"
@@ -376,7 +376,7 @@ nlVector3 SubmitModel(glModel& model, GLView& submitted, ViewMatrices& matrices,
 }
 
 int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_path, const SceneOptions& requested,
-    const ScenePreviewHooks* hooks)
+    const ScenePreviewHooks* hooks, const ResolvedLaunch* supplied_launch)
 {
     std::ofstream logfile;
     auto log = [&](const std::string& message) {
@@ -446,15 +446,18 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
                 throw std::invalid_argument("Frontend world selection cannot be combined with explicit world/model/shadow IDs");
             if (!options.camera && !options.debug_camera && !options.nis_primary) options.camera = "/Art/fe/environments/cameras/start_idle.cam";
         }
-        const auto file = LoadConfig(config_path);
-        const auto disc_path = ResolveDiscPath(file.settings, file.path);
+        const auto launch = supplied_launch ? *supplied_launch : ResolveLaunch(LoadConfig(config_path), {});
+        const auto& settings = launch.settings;
+        const auto& disc_path = launch.disc_path;
+        if (disc_path.empty()) throw std::runtime_error("Choose a disc image or supply --disc FILE");
+        log(DescribeLaunch(launch));
         const auto disc = InspectDisc(disc_path);
         if (disc.game_id != "R4QE01" || disc.revision != 1)
             throw std::runtime_error("The static preview currently supports R4QE01 revision 1 only");
-        if (file.settings.language != "auto" && file.settings.language != "english"
-            && file.settings.language != "french" && file.settings.language != "spanish")
+        if (settings.language != "auto" && settings.language != "english"
+            && settings.language != "french" && settings.language != "spanish")
             throw std::runtime_error("Unsupported text language for this USA disc");
-        SetStartupSystemLanguage(file.settings.language == "french" ? 3 : file.settings.language == "spanish" ? 4 : 1);
+        SetStartupSystemLanguage(settings.language == "french" ? 3 : settings.language == "spanish" ? 4 : 1);
         const char* base = SDL_GetBasePath();
         if (!base) throw std::runtime_error("Cannot locate the executable directory");
         const auto directory = PathFromUtf8(base) / "scene-data";
@@ -480,13 +483,15 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             : options.frontend_main ? "Mario Strikers Charged | Main Menu" : "Mario Strikers Charged | Static asset preview";
         config.userPath = config.cachePath = data_path.c_str(); config.resourcesPath = base;
         config.desiredBackend = BACKEND_VULKAN; config.enableBackendValidation = true;
-        config.windowWidth = 960; config.windowHeight = 720; config.windowPosX = config.windowPosY = -1;
+        config.windowWidth = settings.width; config.windowHeight = settings.height; config.windowPosX = config.windowPosY = -1;
         config.vsync = true; config.logLevel = LOG_WARNING; config.logCallback = BackendLog;
         config.mem1Size = MEM1_DEFAULT_SIZE; config.mem2Size = 64 * 1024 * 1024;
         backend_errors = 0;
         Session session;
         const auto info = aurora_initialize(argc, argv, &config); session.live = true;
         if (!info.window || info.backend != BACKEND_VULKAN) throw std::runtime_error("Static preview requires the actual Vulkan backend");
+        if (!SDL_SetWindowFullscreen(info.window, settings.fullscreen))
+            throw std::runtime_error(std::string("Cannot apply launch window mode: ") + SDL_GetError());
         ImGui::GetIO().IniFilename = nullptr; ImGui::GetIO().LogFilename = nullptr;
         InitializeStartupOS();
         if (!aurora_dvd_open(PathUtf8(disc_path).c_str())) throw std::runtime_error("Cannot mount the Wii data partition");
@@ -572,8 +577,8 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             log("Original particle group e6650c7c loaded through four NL reads: 2 controllers, "
                 + std::to_string(systems) + " emitters; full effects-manager startup remains pending.");
         }
-        const auto frontend_language = file.settings.language == "french" ? FrontendLanguage::NAFrench
-            : file.settings.language == "spanish" ? FrontendLanguage::NASpanish : FrontendLanguage::English;
+        const auto frontend_language = settings.language == "french" ? FrontendLanguage::NAFrench
+            : settings.language == "spanish" ? FrontendLanguage::NASpanish : FrontendLanguage::English;
         if (options.frontend_frame)
         {
             if (options.frontend_boot || menu_preview)
@@ -747,7 +752,7 @@ int RunScenePreview(int argc, char** argv, const std::filesystem::path& config_p
             inspector_fonts.assign(fonts.begin(), fonts.end());
             log("Frontend layout decoded: " + std::to_string(graph.slides.size()) + " slides, "
                 + std::to_string(graph.instances.size()) + " instances; " + std::to_string(frontend_text->entries.size())
-                + " stored text components. Font/localization language: " + file.settings.language + ".");
+                + " stored text components. Font/localization language: " + settings.language + ".");
             for (const auto& [reason, count] : frontend_text->unavailable)
                 log("Unavailable text components (" + std::to_string(count) + "): " + reason);
             log("Text inspection uses original font pages/metrics and original FE input; authored layout, timelines and menu handlers remain pending.");

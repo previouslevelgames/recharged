@@ -1,0 +1,836 @@
+Subject: Restore whole original boot, title and presentation source
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Retire production0087/0101/0113/0127 method substitutions. Original
+source decisions remain; only address-bearing32-bit VM words use the
+reviewed253 native SDK cached-address transport. Compiler/provider
+inventory only; no boot, scene readiness or normal AX runtime claim.
+
+diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
+--- a/src/Game/SH/SHBootLoading.cpp
++++ b/src/Game/SH/SHBootLoading.cpp
+@@ -5,7 +5,6 @@
+ #include "Game/Audio/RegistryPools.h"
+ 
+ #include "Game/SH/SHBootLoading.h"
+-#include "Game/FE/FrontendBootLoadingSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/FEAudio.h"
+@@ -28,50 +27,6 @@
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/tlDefault.h"
+ 
+-
+-namespace
+-{
+-struct BootWide { bool operator()() const { return IsWidescreen(); } };
+-struct BootSystemLanguage { int operator()() const { return SCGetLanguage(); } };
+-struct BootRegion { int operator()() const { return GetRegion(); } };
+-struct BootPhase
+-{
+-    BootLoadingScene* scene;
+-    void operator()() const { scene->SetPhaseSlide(); }
+-};
+-struct BootBaseUpdate
+-{
+-    BootLoadingScene* scene;
+-    void operator()(float delta) const { scene->BaseSceneHandler::Update(delta); }
+-};
+-struct BootPressed
+-{
+-    bool operator()(int pad, int action, bool remap, eFEINPUT_PAD* found) const
+-    { return g_pFEInput->JustPressed((eFEINPUT_PAD)pad, action, remap, found); }
+-};
+-struct BootUnload
+-{
+-    void operator()(int bank) const { g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(bank); }
+-};
+-struct BootPlay
+-{
+-    void operator()(int bank, unsigned long cue, const void* name, void* context) const
+-    { FEAudio::PlaySound(bank, cue, name, context); }
+-};
+-struct BootImageFinder
+-{
+-    TLImageInstance* operator()(FEPresentation* p, bool useDefault, const char* slide, const char* layer, const char* name) const
+-    { return useDefault ? FEFinder<TLImageInstance, 2>::FindOrDefault(p, slide, layer, name) : FEFinder<TLImageInstance, 2>::Find(p, slide, layer, name); }
+-};
+-struct BootComponentFinder
+-{
+-    TLComponentInstance* operator()(FEPresentation* p, const char* slide, const char* layer, const char* name) const
+-    { return FEFinder<TLComponentInstance, 4>::FindOrDefault(p, slide, layer, name); }
+-    TLComponentInstance* operator()(TLSlide* slide, const char* layer, const char* name, int = 0, int = 0, int = 0, int = 0) const
+-    { return FEFinder<TLComponentInstance, 4>::FindOrDefault(slide, nlStringLowerHash(layer), nlStringLowerHash(name), 0, 0, 0, 0); }
+-};
+-}
+-
+ BootLoadingScene::BootLoadingScene()
+     : mElapsedTime(0.0f)
+     , mStrapAlpha(255.0f)
+@@ -89,21 +44,253 @@
+ 
+ void BootLoadingScene::SceneCreated()
+ {
+-    BootPhase phase = { this };
+-    FrontendBootCreated<TLImageInstance, TLComponentInstance, FEPresentation>(*this, g_pLocalization->m_CurrentLanguage,
+-        g_Language, BootWide(), BootSystemLanguage(), BootImageFinder(), BootComponentFinder(), phase);
++    FEPresentation* presentation = mPresentation;
++    if (g_pLocalization->m_CurrentLanguage == nlLocalization::LangJapanese)
++    {
++        if (IsWidescreen())
++        {
++            mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_jp"));
++            TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
++                InlineHasher("Layer"), InlineHasher("strap_jp"));
++            image->SetVisible(false);
++            mWidescreen = true;
++        }
++        else
++        {
++            mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
++                InlineHasher("Layer"), InlineHasher("strap_jp"));
++            TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_jp"));
++            image->SetVisible(false);
++        }
++    }
++    else if (IsWidescreen())
++    {
++        mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
++            InlineHasher("Layer"), InlineHasher("strap_16_9_us"));
++        TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
++            InlineHasher("Layer"), InlineHasher("strap_us"));
++        image->SetVisible(false);
++        mWidescreen = true;
++    }
++    else
++    {
++        mStrapImage = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("strap"),
++            InlineHasher("Layer"), InlineHasher("strap_us"));
++        TLImageInstance* image = FEFinder<TLImageInstance, 2>::FindOrDefault(presentation, InlineHasher("strap"),
++            InlineHasher("Layer"), InlineHasher("strap_16_9_us"));
++        image->SetVisible(false);
++    }
++    TLImageInstance* image = 0;
++    switch (g_Language)
++    {
++    case nlLocalization::LangFrench:
++    case nlLocalization::LangNAFrench:
++        if (IsWidescreen())
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_French"));
++        else
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_French"));
++        break;
++    case nlLocalization::LangGerman:
++        if (IsWidescreen())
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_German"));
++        else
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_German"));
++        break;
++    case nlLocalization::LangSpanish:
++    case nlLocalization::LangNASpanish:
++        if (IsWidescreen())
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_Spanish"));
++        else
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_Spanish"));
++        break;
++    case nlLocalization::LangItalian:
++        if (IsWidescreen())
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_Italian"));
++        else
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_Italian"));
++        break;
++    }
++    if (SCGetLanguage() == 6)
++    {
++        if (IsWidescreen())
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_16_9_Dutch"));
++        else
++            image = FEFinder<TLImageInstance, 2>::Find(presentation, InlineHasher("art"),
++                InlineHasher("Layer"), InlineHasher("strap_Dutch"));
++    }
++    if (image != 0)
++        mStrapImage->SetTextureResource(image->GetTextureResource());
++    SetPhaseSlide();
++    mHomeButtonWarning = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation->m_currentSlide,
++        nlStringLowerHash("Layer"), nlStringLowerHash("no home"), 0, 0, 0, 0);
++    mHomeButtonWarning->SetVisible(false);
++    TLComponentInstance* component;
++    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("Slide1"),
++        InlineHasher("Layer"), InlineHasher("no home"));
++    component->SetVisible(false);
++    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("ESRB"),
++        InlineHasher("Layer"), InlineHasher("no home"));
++    component->SetVisible(false);
++    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("strap"),
++        InlineHasher("Layer"), InlineHasher("no home"));
++    component->SetVisible(false);
++    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("nunchuk"),
++        InlineHasher("Layer"), InlineHasher("no home"));
++    component->SetVisible(false);
++    component = FEFinder<TLComponentInstance, 4>::FindOrDefault(presentation, InlineHasher("NLG"),
++        InlineHasher("Layer"), InlineHasher("no home"));
++    component->SetVisible(false);
++    if (mWidescreen)
++        mHomeButtonWarning->SetActiveSlide("widescreen", true, false);
++    else
++        mHomeButtonWarning->SetActiveSlide("Slide1", true, false);
+ }
+ 
+ void BootLoadingScene::Update(float fDeltaT)
+ {
+-    BootBaseUpdate update = { this };
+-    BootPhase phase = { this };
+-    FrontendBootUpdate<nlColour, TLSlide>(*this, fDeltaT, update, BootRegion(), BootPressed(), phase, BootUnload());
++    BaseSceneHandler::Update(fDeltaT);
++    if (mPhase == 0)
++    {
++        TLSlide* slide = mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            mPhase = 3;
++            mElapsedTime = 0.0f;
++            SetPhaseSlide();
++        }
++    }
++    else if (mPhase == 1)
++    {
++        if (mStrapDismissed)
++        {
++            int fadeRate = 2 * 255;
++            mStrapAlpha -= fadeRate * fDeltaT;
++            if (mStrapAlpha <= 0.0f)
++                mStrapAlpha = 0.0f;
++            nlColour colour = { 255, 255, 255, 0 };
++            colour.c[3] = (unsigned char)mStrapAlpha;
++            mStrapImage->SetAssetColour(colour);
++            if (mStrapAlpha <= 0.0f)
++            {
++                mElapsedTime = 0.0f;
++                mPhase = 2;
++                SetPhaseSlide();
++            }
++        }
++        else
++        {
++            mElapsedTime += fDeltaT;
++            if (mElapsedTime >= 1.5f)
++            {
++                if (g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x20, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x08, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x1E, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x1F, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x2A, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x2B, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x28, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x29, true, 0))
++                    mStrapDismissed = true;
++                if (mElapsedTime >= 15.5f)
++                    mStrapDismissed = true;
++            }
++        }
++    }
++    else if (mPhase == 2)
++    {
++        TLSlide* slide = mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            mElapsedTime = 0.0f;
++            if (GetRegion() == 0)
++                mPhase = 0;
++            else
++                mPhase = 3;
++            SetPhaseSlide();
++        }
++    }
++    else if (mPhase == 3)
++    {
++        TLSlide* slide = mPresentation->m_currentSlide;
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            mPhase = 4;
++            mElapsedTime = 0.0f;
++            g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
++        }
++    }
++    else if (mPhase == 4)
++    {
++        if (mElapsedTime >= 0.0f)
++        {
++            mElapsedTime += fDeltaT;
++            if (mElapsedTime >= 0.5f)
++            {
++                SetPhaseSlide();
++                mElapsedTime = -1.0f;
++            }
++        }
++    }
++    if (mHomeButtonWarningActive)
++    {
++        TLSlide* slide = mHomeButtonWarning->GetActiveSlide();
++        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
++        {
++            mHomeButtonWarning->m_bVisible = false;
++            mHomeButtonWarningActive = false;
++        }
++    }
+ }
+ 
+ void BootLoadingScene::SetPhaseSlide()
+ {
+-    FrontendBootSetPhase<TLSlide>(*this, BootPlay(), BootComponentFinder());
++    switch (mPhase)
++    {
++    case 0:
++        mPresentation->SetActiveSlide("ESRB", true);
++        break;
++    case 1:
++        mPresentation->SetActiveSlide("strap", true);
++        break;
++    case 2:
++        mPresentation->SetActiveSlide("nunchuk", true);
++        break;
++    case 4:
++        mPresentation->SetActiveSlide("Slide1", true);
++        break;
++    case 3:
++        mPresentation->SetActiveSlide("NLG", true);
++        FEAudio::PlaySound(0x17, 0xDE83984E, 0, 0);
++        break;
++    }
++    if (mHomeButtonWarning != 0)
++    {
++        float time = mHomeButtonWarning->GetActiveSlide()->m_time;
++        mHomeButtonWarning = FEFinder<TLComponentInstance, 4>::FindOrDefault(
++            mPresentation->GetActiveSlide(), "Layer", "no home");
++        if (mWidescreen)
++            mHomeButtonWarning->SetActiveSlide("widescreen", true, false);
++        else
++            mHomeButtonWarning->SetActiveSlide("Slide1", true, false);
++        if (mHomeButtonWarningActive)
++        {
++            TLSlide* slide = mHomeButtonWarning->GetActiveSlide();
++            if (time < slide->GetStartTime() + slide->GetDuration())
++                mHomeButtonWarning->m_bVisible = true;
++        }
++        mHomeButtonWarning->Update(time);
++    }
+ }
+ 
+ void BootLoadingScene::ShowHomeButtonWarning()
+diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
+--- a/src/Game/SH/SHTitleScreen.cpp
++++ b/src/Game/SH/SHTitleScreen.cpp
+@@ -5,7 +5,6 @@
+ #include "NL/nlFunction.inl"
+ #include "Game/GameSceneManager.h"
+ #include "Game/SH/SHTitleScreen.h"
+-#include "Game/FE/FrontendTitleSteps.h"
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/FEAudio.h"
+ 
+@@ -41,12 +40,17 @@
+ static bool setDimmingTime;
+ 
+ extern const int sControllerDefaults[10] = {
+-#include "Game/FE/FrontendTitleDefaults.inc"
++    13, 14, 13, 14, 11, 12, 0, 1, 2, 0,
+ };
+ 
+ void StartMovieCB()
+ {
+-    FrontendTitleStartMovie([](int i,const char* slide){GetPointerInstance(i)->SetActiveSlide(slide,true,false);},[]{FrontEndPresentation::GetInstance()->Call("TransitionTitleScreenToMainMenu");},[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
++    for (int i = 0; i < 4; ++i)
++    {
++        GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
++    }
++    FrontEndPresentation::GetInstance()->Call("TransitionTitleScreenToMainMenu");
++    FEAudio::PlayAnimAudioEvent(0x80060B2D, 0, 0, 1);
+ }
+ 
+ TitleScene::TitleScene(ScreenMovement movement)
+@@ -79,7 +83,41 @@
+ 
+ void TitleScene::SceneCreated()
+ {
+-    FrontendTitleCreated<TLComponentInstance,FEFinder,TLSlide>(*this,[]{return IsWidescreen();},[](int i,const char* slide){GetPointerInstance(i)->SetActiveSlide(slide,true,false);},[](int i){FEMusic::StartStreamIfDifferent(i);},[](bool value){SetPointerEnabled(value);},[]{SHNavigation* nav=GetNavigationScene();if(nav)nav->SetButtons(0,true);},[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
++    if (IsWidescreen())
++    {
++        mPresentation->SetActiveSlide("widescreen", true);
++    }
++    else
++    {
++        mPresentation->SetActiveSlide("regular", true);
++    }
++
++    for (int i = 0; i < 4; ++i)
++    {
++        GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
++    }
++
++    mTextPressStart = FEFinder<TLComponentInstance, 2>::Find<TLSlide>(
++        mPresentation->m_currentSlide,
++        nlStringLowerHash("Layer2"),
++        nlStringLowerHash("Component2"),
++        0,
++        0,
++        0,
++        0);
++
++    FEMusic::StartStreamIfDifferent(0);
++    SetPointerEnabled(0);
++    SHNavigation* object = GetNavigationScene();
++    if (object != 0)
++    {
++        object->SetButtons(0, true);
++    }
++
++    if (mMovement != SCREEN_BACK)
++    {
++        FEAudio::PlayAnimAudioEvent(0x26894C84, 0, 0, 1);
++    }
+ }
+ 
+ inline void TitleScene::InitializePointerButtons()
+@@ -94,7 +132,7 @@
+     FEPointerListener::Callback select(
+         PointerBinding(MemFun(&TitleScene::OnControllerPointerPress), this, Placeholder<0>(), Placeholder<1>()));
+ 
+-    FrontendTitleBind(*this);
++    mControllerComponent.SetInstanceBounds(mTextPressStart, true, 0.0f, 0.0f, 1.0f, 1.0f);
+     mControllerComponent.SetPointerEnterCallback(enter);
+     mControllerComponent.SetPointerLeaveCallback(leave);
+     mControllerComponent.SetPointerPressCallback(select);
+@@ -102,7 +140,24 @@
+ 
+ void TitleScene::Update(float dt)
+ {
+-    if(!FrontendTitleBeginUpdate(*this,dt,[&](float value){BaseSceneHandler::Update(value);},[&]{InitializePointerButtons();},[](int i,const char* slide){GetPointerInstance(i)->SetActiveSlide(slide,true,false);}))return;
++    BaseSceneHandler::Update(dt);
++    m_fTimeElapsed += dt;
++    if (m_fTimeElapsed < 1.5f)
++        return;
++
++    if (!mInitialized)
++    {
++        InitializePointerButtons();
++
++        for (int i = 0; i < 4; ++i)
++        {
++            GetPointerInstance(i)->SetActiveSlide("cursor", true, false);
++        }
++        mInitialized = true;
++    }
++
++    if (mStartedDemo)
++        return;
+ 
+     float demoTimeout = GetConfigFloat(Config::Global(), "fe_demo_mode_time_out", 60.0f);
+     if (GetTweakBool("/user/dosoak", false))
+@@ -135,9 +190,86 @@
+             continue;
+         }
+ 
+-        if(FrontendTitleIdle(*this,[]{FEMusic::StopStream();},[](bool v){SetPointerEnabled(v);},[]{IntroMovieScene* scene=static_cast<IntroMovieScene*>(GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE,SCREEN_NOTHING,true));if(scene)scene->ResetMoviePlayer();}))return;
+-
+-        bool sequenceReady=FrontendTitlePadInput(*this,pad,[&]{pointer->SetActiveSlide("A",true,false);},[](int p,int action,bool remap,eFEINPUT_PAD* found){return g_pFEInput->JustPressed((eFEINPUT_PAD)p,action,remap,found);},[&](int p){OnControllerPointerPress(p,0);});
++        if (m_fTimeElapsed > 160.0f)
++        {
++            FEMusic::StopStream();
++            SetPointerEnabled(false);
++            IntroMovieScene* scene = static_cast<IntroMovieScene*>(
++                GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, true));
++            if (scene != 0)
++            {
++                scene->ResetMoviePlayer();
++            }
++            mStartedDemo = true;
++            m_fTimeElapsed = 0.0f;
++            return;
++        }
++
++        pointer->SetActiveSlide("A", true, false);
++        if (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0))
++        {
++            OnControllerPointerPress(pad, 0);
++        }
++
++        bool acceptedInput = false;
++        for (int input = 0; input < 6; ++input)
++        {
++            if (!mControllerReady[input])
++            {
++                if (g_pFEInput->JustPressed(
++                        (eFEINPUT_PAD)pad, mControllerDefaults[input], true, 0))
++                {
++                    mControllerReady[input] = true;
++                    acceptedInput = true;
++                    break;
++                }
++                else if (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1F, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x29, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x28, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2D, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2C, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x30, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x31, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0C, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0B, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0D, true, 0)
++                    || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0E, true, 0))
++                {
++                    for (int reset = 0; reset < 6; ++reset)
++                    {
++                        mControllerReady[reset] = false;
++                    }
++                }
++            }
++        }
++
++        if (!acceptedInput
++            && (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1F, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x29, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x28, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2D, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x2C, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x30, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x31, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0C, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0B, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0D, true, 0)
++                || g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x0E, true, 0)))
++        {
++            for (int reset = 0; reset < 6; ++reset)
++            {
++                mControllerReady[reset] = false;
++            }
++        }
++
++        bool sequenceReady = true;
++        for (int input = 0; input < 6; ++input)
++        {
++            sequenceReady = sequenceReady && mControllerReady[input];
++        }
++
+         if (sequenceReady && g_pPlatPadManager->type[pad] == 2)
+         {
+             WiiFreestylePadStatus status = *g_pPlatPadManager->GetFreestyleStatus(pad);
+@@ -248,7 +380,15 @@
+ 
+ void TitleScene::OnControllerPointerPress(int index, void*)
+ {
+-    FrontendTitlePressPrefix(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);},[](bool v){SetPointerEnabled(v);},[]{GameSceneManager::Instance()->Pop();},[]{GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();},[]{GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();},[](int v){VISetTimeToDimming(v);setDimmingTime=false;});
++    mTextPressStart->SetActiveSlide("down", true, false);
++    mControllerComponent.SetPointerState(2, index);
++    FEAudio::PlayAnimAudioEvent(0x55C84A9D, 0, 0, 1);
++    SetPointerEnabled(1);
++    GameSceneManager::Instance()->Pop();
++    GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();
++    GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();
++    VISetTimeToDimming(0);
++    setDimmingTime = false;
+ 
+     WPADInfo info;
+     if (WPADGetInfo(index, &info) == WPAD_ERR_OK && info.battery <= 1)
+@@ -265,12 +405,17 @@
+ 
+ void TitleScene::OnControllerPointerEnter(int index, void*)
+ {
+-    FrontendTitleEnter(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
++    mTextPressStart->SetActiveSlide("over", true, false);
++    mControllerComponent.SetPointerState(1, index);
++    FEAudio::PlayAnimAudioEvent(0xAA73EF32, 0, 0, 1);
++    mUnidentifiedDF = true;
+ }
+ 
+ void TitleScene::OnControllerPointerLeave(int index, void*)
+ {
+-    FrontendTitleLeave(*this,index);
++    mTextPressStart->SetActiveSlide("off", true, false);
++    mControllerComponent.SetPointerState(0, index);
++    mUnidentifiedDF = false;
+ }
+ 
+ HealthWarningSceneV2::HealthWarningSceneV2()
+diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
+--- a/src/Game/Render/FrontEndPresentation.cpp
++++ b/src/Game/Render/FrontEndPresentation.cpp
+@@ -1,6 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Render/FrontEndPresentation.h"
+-#include "Game/FE/FrontendTransitionSteps.h"
+ 
+ #include "Game/GameSceneManager.h"
+ #include "Game/DB/GameProgress.h"
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -1,4 +1,13 @@
+-#include "Game/DB/SaveStateSteps.h"
++// Only original address-bearing VM words use cached SDK transport; numeric
++// hash/enum/float words and all original source stack/control decisions stay32.
++#if defined(MSCHARGED_NATIVE)
++#include "platform/vm_address_abi.h"
++#define MSCHARGED_FE_VM_STRING(word) static_cast<const char*>(mscharged::platform::DecodeVMAddress(word))
++#define MSCHARGED_FE_VM_ADDRESS(pointer) mscharged::platform::EncodeVMAddress(pointer)
++#else
++#define MSCHARGED_FE_VM_STRING(word) (const char*)word
++#define MSCHARGED_FE_VM_ADDRESS(pointer) (unsigned int)pointer
++#endif
+ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+ {
+     switch (function)
+@@ -24,7 +33,7 @@
+             alternate = CaptainsNeedAlternateColour(captain, opponent);
+             side = captain;
+         }
+-        FEModelManager::Instance()->CreateModel(FE_MODEL_IMPOSTOR, (const char*)name, side, value, 0, 0, alternate);
++        FEModelManager::Instance()->CreateModel(FE_MODEL_IMPOSTOR, MSCHARGED_FE_VM_STRING(name), side, value, 0, 0, alternate);
+         break;
+     }
+     case 2:
+@@ -50,7 +59,7 @@
+     case 6:
+     {
+         unsigned int value = m_SP[-1];
+-        m_SP[-1] = nlStringHash((const char*)value);
++        m_SP[-1] = nlStringHash(MSCHARGED_FE_VM_STRING(value));
+         if (m_RunState == 3)
+         {
+             m_SP[-1] = value;
+@@ -72,8 +81,8 @@
+         const char* animationName;
+         FEModelHandle* object;
+         const char* objectName;
+-        objectName = (const char*)m_SP[-2];
+-        animationName = (const char*)m_SP[-1];
++        objectName = MSCHARGED_FE_VM_STRING(m_SP[-2]);
++        animationName = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         object = FEModelManager::Instance()->GetModel(objectName);
+         unsigned int isPlaying;
+@@ -89,7 +98,7 @@
+         m_SP[-1] = isPlaying;
+         if (m_RunState == 3)
+         {
+-            m_SP[-1] = (unsigned int)objectName;
++            m_SP[-1] = MSCHARGED_FE_VM_ADDRESS(objectName);
+         }
+         break;
+     }
+@@ -99,7 +108,7 @@
+         break;
+     case 12:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         DestroyFrontEndPresentationEmission(name);
+         break;
+@@ -109,14 +118,14 @@
+         break;
+     case 14:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         DisableFrontEndPresentationEmission(name);
+         break;
+     }
+     case 15:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         cAnimCamera* camera = GetCurrentAnimatedCamera();
+         camera->SelectCameraAnimation(name);
+@@ -127,8 +136,8 @@
+     case 16:
+     {
+         ePlayMode playMode = (ePlayMode)m_SP[-1];
+-        const char* animationName = (const char*)m_SP[-2];
+-        const char* objectName = (const char*)m_SP[-3];
++        const char* animationName = MSCHARGED_FE_VM_STRING(m_SP[-2]);
++        const char* objectName = MSCHARGED_FE_VM_STRING(m_SP[-3]);
+         m_SP -= 3;
+         SetWorldAnimation(objectName, animationName, playMode);
+         break;
+@@ -137,8 +146,8 @@
+     {
+         float value = *(float*)&m_SP[-1];
+         unsigned int argument1 = m_SP[-2];
+-        const char* argument0 = (const char*)m_SP[-3];
+-        const char* objectName = (const char*)m_SP[-4];
++        const char* argument0 = MSCHARGED_FE_VM_STRING(m_SP[-3]);
++        const char* objectName = MSCHARGED_FE_VM_STRING(m_SP[-4]);
+         m_SP -= 4;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(objectName);
+         if (object != 0)
+@@ -150,8 +159,8 @@
+     case 18:
+     {
+         unsigned int argument1 = m_SP[-1];
+-        const char* argument0 = (const char*)m_SP[-2];
+-        const char* objectName = (const char*)m_SP[-3];
++        const char* argument0 = MSCHARGED_FE_VM_STRING(m_SP[-2]);
++        const char* objectName = MSCHARGED_FE_VM_STRING(m_SP[-3]);
+         m_SP -= 3;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(objectName);
+         if (object != 0)
+@@ -183,7 +192,7 @@
+         unsigned int childName = m_SP[-1];
+         unsigned int objectName = m_SP[-2];
+         m_SP -= 2;
+-        FEModelHandle* object = FEModelManager::Instance()->GetModel((const char*)objectName);
++        FEModelHandle* object = FEModelManager::Instance()->GetModel(MSCHARGED_FE_VM_STRING(objectName));
+         if (object != 0)
+         {
+             StadiumFEModelMarker* child = FEModelManager::Instance()->GetObject(childName);
+@@ -198,7 +207,7 @@
+     {
+         bool value = m_SP[-1] != 0;
+         float duration = *(float*)&m_SP[-2];
+-        const char* name = (const char*)m_SP[-3];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-3]);
+         m_SP -= 3;
+         PushPresentationCamera(name, OnCameraTransitionFinished, duration, value);
+         cAnimCamera* camera = GetCurrentAnimatedCamera();
+@@ -212,7 +221,7 @@
+     {
+         bool value = m_SP[-1] != 0;
+         float duration = *(float*)&m_SP[-2];
+-        const char* baseName = (const char*)m_SP[-3];
++        const char* baseName = MSCHARGED_FE_VM_STRING(m_SP[-3]);
+         m_SP -= 3;
+         char name[64];
+         int mode = g_pCupManager->GetCurrentMode();
+@@ -243,7 +252,7 @@
+         break;
+     case 27:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0)
+@@ -269,19 +278,19 @@
+     case 30:
+     {
+         unsigned int value = m_SP[-1];
+-        const char* name = (const char*)m_SP[-2];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-2]);
+         m_SP -= 2;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0)
+         {
+-            object->SetDefaultAnimation((const char*)value);
++            object->SetDefaultAnimation(MSCHARGED_FE_VM_STRING(value));
+         }
+         break;
+     }
+     case 31:
+     {
+         unsigned int childName = m_SP[-1];
+-        const char* name = (const char*)m_SP[-2];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-2]);
+         m_SP -= 2;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0)
+@@ -304,7 +313,7 @@
+     case 33:
+     {
+         bool value = m_SP[-1] != 0;
+-        const char* name = (const char*)m_SP[-2];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-2]);
+         m_SP -= 2;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0)
+@@ -315,7 +324,7 @@
+     }
+     case 34:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0)
+@@ -361,18 +370,20 @@
+         break;
+     case 43:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         EnableFrontEndPresentationEmission(name);
+         break;
+     }
+     case 44:
+-        if (FrontendPresentationWaitCamera(mCameraFinished))
+-            StopWithUndo();
++        if (!mCameraFinished)
++            StopWithUndo();
++        else
++            mCameraFinished = false;
+         break;
+     case 45:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0 && !object->IsAnimationFinished())
+@@ -388,18 +399,21 @@
+             mCameraTransitionFinished = false;
+         break;
+     case 47:
+-        if (SaveStateDepartureBlocked(SaveEnabled, InOperation))
++        if (SaveEnabled && InOperation)
+         {
+             StopWithUndo();
+         }
+         break;
+     case 48:
+-        if (FrontendPresentationWaitTime(mWaitTime, mDeltaTime))
+-            StopWithUndo();
++        mWaitTime -= mDeltaTime;
++        if (mWaitTime > 0.0f)
++            StopWithUndo();
++        else
++            mWaitTime = 0.0f;
+         break;
+     case 49:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         if (FEModelManager::Instance()->GetModel(name) == 0)
+         {
+@@ -409,7 +423,7 @@
+     }
+     case 50:
+     {
+-        const char* name = (const char*)m_SP[-1];
++        const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+         --m_SP;
+         FEModelHandle* object = FEModelManager::Instance()->GetModel(name);
+         if (object != 0)
+@@ -437,3 +451,6 @@
+     }
+ }
+ 
++
++#undef MSCHARGED_FE_VM_STRING
++#undef MSCHARGED_FE_VM_ADDRESS

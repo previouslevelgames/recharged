@@ -1,12 +1,13 @@
 Subject: [PATCH] preserve original emission source and native borrowed address words
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore literal controller/manager decisions, preserve retail numeric word
 overflow, and transport genuine native pointer/callback bits without truncation.
 Native replay uses the native process POD ABI; persisted/Wii replay relocation
 remains unqualified. No extra game ownership, requests or readiness is introduced.
 
+diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
 --- a/include/Game/Effects/EffectsBundleData.h
 +++ b/include/Game/Effects/EffectsBundleData.h
 @@ -14,7 +14,7 @@
@@ -18,6 +19,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      static EffectsBundleData* Initialize(nlChunk* bundle) = delete;
  #else
      static EffectsBundleData* Initialize(nlChunk* bundle);
+diff --git a/include/Game/Effects/EmissionController.h b/include/Game/Effects/EmissionController.h
 --- a/include/Game/Effects/EmissionController.h
 +++ b/include/Game/Effects/EmissionController.h
 @@ -5,6 +5,12 @@
@@ -46,6 +48,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      /* 0x78 */ u32 m_uJointIDOverride;
      /* 0x7C */ int m_nUserEffects;
      /* 0x80 */ UserEffectSpec** m_pUserEffects;
+diff --git a/include/Game/Effects/EmissionControllerSteps.h b/include/Game/Effects/EmissionControllerSteps.h
 --- a/include/Game/Effects/EmissionControllerSteps.h
 +++ b/include/Game/Effects/EmissionControllerSteps.h
 @@ -1,5 +1,8 @@
@@ -57,6 +60,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  #include "NL/nlMath.h"
  
  // Original controller update prefix. False preserves the original early return
+diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
 @@ -50,11 +50,11 @@
@@ -91,9 +95,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          = delete
  #endif
          ;
+diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
-@@ -622,7 +622,11 @@
+@@ -623,7 +623,11 @@
      {
          EmissionController* controller = EmissionManager::Instance()->Create(
              group, 3, true, 0);
@@ -105,7 +110,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          controller->SetPosition(
              self->m_pFielder->mUnidentified024.m_v3Position);
          controller->SetVelocity(
-@@ -1566,7 +1570,11 @@
+@@ -1567,7 +1571,11 @@
                      if (group != 0)
                      {
                          EmissionController* emitter = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -117,9 +122,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
                          emitter->SetPosition(m_pFielder->mUnidentified024.m_v3Position);
                          emitter->SetVelocity(m_pFielder->mUnidentified024.m_v3Velocity);
                          emitter->SetUpdateCallback(UpdateEmitterFromCharacterBackward);
+diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
 --- a/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
-@@ -1635,7 +1635,11 @@
+@@ -1637,7 +1637,11 @@
          nlSNPrintf(effectName, sizeof(effectName), "%s_mega_bg", mpShooter->mUnidentified11C->mName);
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(effectName);
          EmissionController* effect = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -131,9 +137,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          nlVector3 position;
          nlVec3Set(position, 0.0f, 0.0f, lbl_806DBC38);
          nlVector3 velocity = { 0.0f, 0.0f, 1.0f };
+diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
-@@ -1719,7 +1719,11 @@
+@@ -1720,7 +1720,11 @@
  
              EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 3, true, 0);
              pController->SetPosition(pObj->m_v3Position);
@@ -145,7 +152,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
              Function1<void, EmissionController&> callback(fn_8009F1B8);
              pController->SetUpdateCallback(callback);
          }
-@@ -3038,7 +3042,11 @@
+@@ -3039,7 +3043,11 @@
      nlVector3 pos = m_pPhysicsObject->GetPosition();
      pos.z += ((PhysicsSphere*)m_pPhysicsObject)->GetRadius();
      pController->SetPosition(pos);
@@ -157,9 +164,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      pController->SetUpdateCallback(
          Function1<void, EmissionController&>(fn_8009F1B8));
  
+diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -1774,6 +1774,9 @@
+@@ -1706,6 +1706,9 @@
          }
          break;
      case 6:
@@ -169,7 +177,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          UpdateBallShotClock(pBall);
          cPlayer* pPrevOwner = pBall->m_pPrevOwner;
          if (pPrevOwner != NULL
-@@ -1787,6 +1790,9 @@
+@@ -1719,6 +1722,9 @@
                      (float)tweaks->fShooting);
          }
          break;
@@ -179,7 +187,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      case 7:
          UpdateBallShotClock(pBall);
          break;
-@@ -3620,7 +3626,11 @@
+@@ -3542,7 +3548,11 @@
      EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 0, true, 0);
      pController->m_fGround = 0.02f;
      pController->SetPosition(pBallTrail->position);
@@ -191,9 +199,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      pController->SetUpdateCallback(
          Function1<void, EmissionController&>(UpdateEmitterFromBallTrail));
  
+diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -434,7 +434,11 @@
+@@ -435,7 +435,11 @@
  
  void cCharacter::AttachEffect(EmissionController* pEmissionController)
  {
@@ -205,9 +214,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      pEmissionController->SetPoseAccumulator(*m_pPoseAccumulator);
      pEmissionController->SetAnimController(*m_pCurrentAnimController);
      pEmissionController->m_aFacing = mUnidentified024.m_aActualFacingDirection;
+diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
-@@ -106,7 +106,11 @@
+@@ -107,7 +107,11 @@
      EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uEffectHash);
      EmissionController* pControl
          = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -219,7 +229,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  
      nlVector3 v3Direction = sBallEffectVelocity;
      pControl->SetVelocity(v3Direction);
-@@ -1171,7 +1175,11 @@
+@@ -1172,7 +1176,11 @@
              = fxGetGroup(EmissionManager::Instance(), uHash);
          EmissionController* pController
              = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -231,7 +241,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          nlVector3 vel = sBallEffectVelocity;
          pController->SetVelocity(vel);
          pController->m_fGround = 0.02f;
-@@ -1193,7 +1201,11 @@
+@@ -1194,7 +1202,11 @@
      pBall = g_pBall;
      pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
      pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -243,7 +253,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -1212,7 +1224,11 @@
+@@ -1213,7 +1225,11 @@
      EmissionController* pController = EmissionManager::Instance()->Create(
          fxGetGroup(EmissionManager::Instance(), nlStringLowerHash(szName)),
          3, true, 0);
@@ -255,7 +265,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -1977,7 +1993,11 @@
+@@ -1978,7 +1994,11 @@
      unsigned long uHash = nlStringLowerHash(szEffectName);
      EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
      EmissionController* pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -267,7 +277,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -2001,7 +2021,11 @@
+@@ -2002,7 +2022,11 @@
      pBall = g_pBall;
      pGroup = fxGetGroup(EmissionManager::Instance(), sHashWeatherLightningBall);
      pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -279,6 +289,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
+diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
 --- a/src/Game/CrowdRiot.cpp
 +++ b/src/Game/CrowdRiot.cpp
 @@ -271,7 +271,11 @@
@@ -293,15 +304,17 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          PlaySound(13, 0x198B7ED3, "CrowdRiot", this);
      }
  }
+diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
 --- a/src/Game/Effects/EmissionController.cpp
 +++ b/src/Game/Effects/EmissionController.cpp
-@@ -1,5 +1,3 @@
+@@ -1,6 +1,4 @@
+ #include "NL/nlDLListContainer.inl"
 -#include "Game/Effects/ParticleModelSteps.h"
 -#include "Game/Effects/EmissionControllerSteps.h"
  #include "Game/Effects/EmissionController.h"
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Effects/ParticleSystem.h"
-@@ -197,7 +195,12 @@
+@@ -198,7 +196,12 @@
  
  void EmissionController::Die()
  {
@@ -315,7 +328,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -316,10 +319,11 @@
+@@ -317,10 +320,11 @@
          }
      }
  
@@ -331,7 +344,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  }
  
  bool fxUpdateParticleSystem(
-@@ -356,6 +360,29 @@
+@@ -357,6 +361,29 @@
          return;
      }
  
@@ -361,7 +374,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      u32 jointID = pSpec->m_uJointID;
      if (m_pAnimController != 0 && m_pAnimController->m_bMirror)
      {
-@@ -366,15 +393,56 @@
+@@ -367,15 +394,56 @@
  
      const nlMatrix4& mat = m_pPose->GetNodeMatrixByHashID(
          m_uJointIDOverride == 0 ? jointID : m_uJointIDOverride);
@@ -422,7 +435,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -393,7 +461,11 @@
+@@ -394,7 +462,11 @@
          }
      }
  
@@ -435,9 +448,11 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  
      if (m_nUserEffects > 0)
      {
+diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
-@@ -1,4 +1,6 @@
+@@ -1,5 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
 -#include "Game/Effects/EmissionControllerSteps.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/replay_address_abi.h"
@@ -445,7 +460,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  #include "Game/Effects/EmissionManager.h"
  
  #include "Game/Effects/EmissionController.h"
-@@ -766,7 +768,14 @@
+@@ -767,7 +769,14 @@
      AllocatorStack[AllocatorStackDepth++] = allocator;
      CurrentAllocator = allocator;
  
@@ -461,7 +476,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  
      EmissionController* controller = new (nlMalloc(sizeof(EmissionController), 8, false))
          EmissionController(pEffectsGroup, this, id, mContext, view);
-@@ -1152,8 +1161,16 @@
+@@ -1153,8 +1162,16 @@
  // Controller state read by the manager's replay path.
  inline void EmissionController::Replay(LoadFrame& frame)
  {
@@ -478,7 +493,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      frame.Replayable<0>(m_uUserData);
      ::Replayable<0>(frame, m_fGround);
      ::Replayable<0>(frame, m_aFacing);
-@@ -1183,7 +1200,7 @@
+@@ -1184,7 +1201,7 @@
          Die();
      }
  
@@ -487,7 +502,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      frame.Replayable<0>(updateCallback);
      mUpdateCallback.Clear();
      if (updateCallback != 0)
-@@ -1193,7 +1210,7 @@
+@@ -1194,7 +1211,7 @@
  
      // Retail clears the position callback while restoring the finished one,
      // and the finished callback while restoring the position one.
@@ -496,7 +511,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      frame.Replayable<0>(finishedCallback);
      mPositionCallback.Clear();
      if (finishedCallback != 0)
-@@ -1202,8 +1219,8 @@
+@@ -1203,8 +1220,8 @@
              = (void (*)(EmissionController&, int))finishedCallback;
      }
  
@@ -507,7 +522,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      frame.Replayable<0>(positionCallback);
      mFinishedCallback.Clear();
      if (positionCallback != 0)
-@@ -1215,8 +1232,16 @@
+@@ -1216,8 +1233,16 @@
  
  inline void EmissionController::Replay(SaveFrame& frame)
  {
@@ -524,7 +539,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      frame.Replayable<0>(m_uUserData);
      ::Replayable<0>(frame, m_fGround);
      ::Replayable<0>(frame, m_aFacing);
-@@ -1236,15 +1261,15 @@
+@@ -1237,15 +1262,15 @@
      ::Replayable<0>(frame, m_Age);
      ::Replayable<0>(frame, m_bDying);
  
@@ -545,7 +560,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      ::Replayable<0>(frame, positionCallback);
  }
  
-@@ -1280,7 +1305,11 @@
+@@ -1281,7 +1306,11 @@
          EffectsGroup* group = 0;
          frame.Replayable<0>(id);
          Replayable<0>(frame, view);
@@ -557,7 +572,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
  
          bool found = false;
          nlDLListIterator<EmissionController*> iterator;
-@@ -1409,7 +1438,7 @@
+@@ -1410,7 +1439,7 @@
      {
          EmissionController* controller = *iterator;
          unsigned short id = controller->m_Id;
@@ -566,7 +581,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          Replayable<0>(frame, id);
          Replayable<0>(frame, controller->m_View);
          Replayable<0>(frame, group);
-@@ -1458,7 +1487,11 @@
+@@ -1459,7 +1488,11 @@
          {
              EmissionController* current = *iterator;
              if ((!lingeringOnly || current->IsLingering())
@@ -578,9 +593,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
              {
                  if (bestAge < current->m_Age
                      && (prevBestAge == currentBestAge
+diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.cpp
 --- a/src/Game/Physics/PhysicsPatch.cpp
 +++ b/src/Game/Physics/PhysicsPatch.cpp
-@@ -151,7 +151,11 @@
+@@ -152,7 +152,11 @@
              }
              EmissionController* controller = EmissionManager::Instance()->Create(effects, view, true, 0);
              controller->SetPosition(GetPosition());
@@ -592,9 +608,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
              controller->SetUpdateCallback(
                  Function1<void, EmissionController&>(UpdatePatchEffect));
              controller->m_fGround = 0.02f;
+diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsWaluigiWall.cpp
 --- a/src/Game/Physics/PhysicsWaluigiWall.cpp
 +++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
-@@ -449,7 +449,11 @@
+@@ -450,7 +450,11 @@
                      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
                      controller->SetPosition(owner->mUnidentified024.m_v3Position);
                      controller->SetVelocity(owner->mUnidentified024.m_v3Velocity);
@@ -606,9 +623,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
                      controller->SetUpdateCallback(Function1<void, EmissionController&>(UpdateWaluigiWallEmitter));
                      controller->SetFinishedCallback(Function2<void, EmissionController&, int>(OnWaluigiWallEffectFinished));
                      wall->mEmitter = controller;
+diff --git a/src/Game/Render/BirdoEgg.cpp b/src/Game/Render/BirdoEgg.cpp
 --- a/src/Game/Render/BirdoEgg.cpp
 +++ b/src/Game/Render/BirdoEgg.cpp
-@@ -178,7 +178,11 @@
+@@ -179,7 +179,11 @@
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
      controller->SetPosition(mPosition);
@@ -620,9 +638,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      controller->SetUpdateCallback(Function<EmissionController&>(UpdateBirdoEggEmitter));
  
      EmitBirdoEggShow(shooter);
+diff --git a/src/Game/Render/BulletBill.cpp b/src/Game/Render/BulletBill.cpp
 --- a/src/Game/Render/BulletBill.cpp
 +++ b/src/Game/Render/BulletBill.cpp
-@@ -151,7 +151,11 @@
+@@ -152,7 +152,11 @@
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("bulletbill_trail");
      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
      controller->SetPosition(position);
@@ -634,9 +653,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      controller->SetUpdateCallback(Function<EmissionController&>(UpdateBulletBillEmitter));
  
      EmitShyGuyBulletStart(fielder);
+diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
-@@ -491,7 +491,11 @@
+@@ -492,7 +492,11 @@
  
      EmissionController* pControl = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
      pControl->SetPosition(mv3Position);
@@ -648,9 +668,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      pControl->SetUpdateCallback(Function<EmissionController&>(UpdateChainEmitter));
  }
  
+diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -403,7 +403,11 @@
+@@ -404,7 +404,11 @@
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("electric_fence_character");
          controller = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -662,7 +683,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          controller->SetPosition(pos);
  
          float dirX = dir.x;
-@@ -571,7 +575,11 @@
+@@ -572,7 +576,11 @@
  
  void UpdateElectricFence(float fDeltaT)
  {
@@ -674,9 +695,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      static float timeSinceLastEffect;
  
      if (nlTaskManager::m_pInstance->mCurrentState == 1
+diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellObject.cpp
 --- a/src/Game/Render/KoopaShellObject.cpp
 +++ b/src/Game/Render/KoopaShellObject.cpp
-@@ -206,7 +206,11 @@
+@@ -207,7 +207,11 @@
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(sKoopaShellTrail);
      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
      controller->SetPosition(mPosition);
@@ -688,9 +710,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      controller->SetUpdateCallback(
          Function1<void, EmissionController&>(UpdateTrailEffect));
  
+diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
 --- a/src/Game/Render/Nis.cpp
 +++ b/src/Game/Render/Nis.cpp
-@@ -536,7 +536,11 @@
+@@ -537,7 +537,11 @@
          EmissionController* ctrl = EmissionManager::Instance()->Create(name, 0, true, 0);
          if (ctrl != 0)
          {
@@ -702,7 +725,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
              Function1<void, EmissionController&> update(UpdateEmitterFromBall);
              ctrl->SetUpdateCallback(update);
          }
-@@ -591,7 +595,11 @@
+@@ -592,7 +596,11 @@
          if (ctrl == 0)
              return;
          ctrl->SetAnimController(*nis.mCharacterControllers[charIdx]);
@@ -714,7 +737,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          Function<void(EmissionController&)> callback(
              Bind<void>(UpdateEmitterFromCharacterWithoutAnimController, placeholder0, context));
          ctrl->SetUpdateCallback(callback);
-@@ -608,7 +616,11 @@
+@@ -609,7 +617,11 @@
                  if (ctrl == 0)
                      return;
                  ctrl->SetAnimController(*nis.mImpostors[i]->mAnimController);
@@ -726,9 +749,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
                  {
                      Function<void(EmissionController&)> callback(
                          Bind<void>(UpdateEmitterFromImpostorModel, placeholder0, (void*)nis.mImpostors[i]));
+diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject.cpp
 --- a/src/Game/Render/YoshiEggObject.cpp
 +++ b/src/Game/Render/YoshiEggObject.cpp
-@@ -80,7 +80,11 @@
+@@ -81,7 +81,11 @@
              EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
              EmissionController* controller = EmissionManager::Instance()->Create(group, 0, true, 0);
              controller->SetPosition(mPosition);
@@ -740,7 +764,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
              controller->SetUpdateCallback(UpdateTrailEffect);
              mPhysics->EnableCollisions();
          }
-@@ -164,7 +168,11 @@
+@@ -165,7 +169,11 @@
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
      EmissionController* controller = EmissionManager::Instance()->Create(group, 0, true, 0);
      controller->SetPosition(mPosition);
@@ -752,9 +776,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
      controller->SetUpdateCallback(UpdateTrailEffect);
      if (fielder->m_pBall != 0)
      {
+diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
 --- a/src/Game/World/WorldEffect.cpp
 +++ b/src/Game/World/WorldEffect.cpp
-@@ -28,7 +28,11 @@
+@@ -29,7 +29,11 @@
      while (pCurrent != 0)
      {
          EmissionController* pController = pCurrent->entry;
@@ -766,7 +791,7 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          {
              pController->ClearParticles();
              pController->mUpdateCallback.Clear();
-@@ -82,14 +86,22 @@
+@@ -83,14 +87,22 @@
              pController->SetUpdateCallback(
                  Function1<void, EmissionController&>(
                      UpdateAnimatedWorldEffectController));
@@ -789,9 +814,10 @@ remains unqualified. No extra game ownership, requests or readiness is introduce
          }
          m_nEmissionID = pController->m_Id;
      }
+diff --git a/src/Game/WorldTriggers.cpp b/src/Game/WorldTriggers.cpp
 --- a/src/Game/WorldTriggers.cpp
 +++ b/src/Game/WorldTriggers.cpp
-@@ -49,6 +49,10 @@
+@@ -50,6 +50,10 @@
      {
          controller->SetUpdateCallback(
              Function1<void, EmissionController&>(UpdateCameraFlash));

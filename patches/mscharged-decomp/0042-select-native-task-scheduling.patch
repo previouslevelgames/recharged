@@ -1,6 +1,6 @@
 Subject: Select original task scheduling and explicit movie service boundary
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore the complete original task algorithm for production. Borrowed-task
 registration, constructor zeroing, extra scheduler checks and absent-service
@@ -8,10 +8,9 @@ movie boundaries remain explicitly selected diagnostics. The original movie
 implementation compiles under native platform interfaces separately.
 
 diff --git a/include/NL/nlTask.h b/include/NL/nlTask.h
-index d4e99f6..dd8258c 100644
 --- a/include/NL/nlTask.h
 +++ b/include/NL/nlTask.h
-@@ -7,10 +7,21 @@ class nlTask
+@@ -7,10 +7,21 @@
  {
  public:
      nlTask()
@@ -34,7 +33,6 @@ index d4e99f6..dd8258c 100644
      virtual const char* GetName() = 0;
      // Spelled out so the mangled name stays ...FUiUi even in translation
 diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
-index e8730cc..7bb21c1 100644
 --- a/src/Game/Sys/movie.cpp
 +++ b/src/Game/Sys/movie.cpp
 @@ -1,4 +1,7 @@
@@ -45,16 +43,16 @@ index e8730cc..7bb21c1 100644
  #include "Game/Sys/debug.h"
  
  #include "RVL_SDK/thp/THPSimple.h"
-@@ -25,6 +28,8 @@
+@@ -24,6 +27,8 @@
+ 
  static THPVideoInfo videoInfo;
  static PlatTexture* pTex[4];
- 
-+#endif
 +
++#endif
+ 
  static unsigned int g_uLastDecodeRenderTick = -1;
  static bool g_bSyncedDecode = true;
- 
-@@ -45,6 +50,10 @@ static unsigned int g_uLastPlayFrame;
+@@ -45,6 +50,10 @@
  
  bool MovieInit()
  {
@@ -65,7 +63,7 @@ index e8730cc..7bb21c1 100644
      if (g_bTHPInitialized)
      {
          return true;
-@@ -53,13 +62,19 @@ bool MovieInit()
+@@ -53,13 +62,19 @@
      THPSimpleInit(1);
      g_bTHPInitialized = true;
      return true;
@@ -85,7 +83,7 @@ index e8730cc..7bb21c1 100644
  }
  
  void SetSyncedDecode(bool value)
-@@ -70,6 +85,10 @@ void SetSyncedDecode(bool value)
+@@ -70,6 +85,10 @@
  bool MovieStart(
      const char* szFilename, bool bSound, bool bLoopMovie, bool bMono)
  {
@@ -96,7 +94,7 @@ index e8730cc..7bb21c1 100644
      if (g_bActive)
      {
          return false;
-@@ -146,6 +165,7 @@ bool MovieStart(
+@@ -146,6 +165,7 @@
      g_bActive = true;
      g_uCurrentFrame = 0;
      return true;
@@ -104,7 +102,7 @@ index e8730cc..7bb21c1 100644
  }
  
  bool MovieStop()
-@@ -154,7 +174,10 @@ bool MovieStop()
+@@ -154,7 +174,10 @@
      {
          return false;
      }
@@ -116,7 +114,7 @@ index e8730cc..7bb21c1 100644
      g_bActive = false;
      lbl_806E2419 = false;
  
-@@ -182,6 +205,7 @@ bool MovieStop()
+@@ -182,6 +205,7 @@
  
      glGetCurrentResourcePool()->ReleaseResource(resourceMarker);
      return true;
@@ -124,7 +122,7 @@ index e8730cc..7bb21c1 100644
  }
  
  void MovieRenderTick()
-@@ -195,7 +219,10 @@ bool MoviePlay()
+@@ -195,7 +219,10 @@
      {
          return false;
      }
@@ -136,7 +134,7 @@ index e8730cc..7bb21c1 100644
      if (g_bMovieMustStop)
      {
          g_bFinished = true;
-@@ -266,6 +293,7 @@ bool MoviePlay()
+@@ -266,6 +293,7 @@
      }
  
      return true;
@@ -145,7 +143,6 @@ index e8730cc..7bb21c1 100644
  
  bool IsMovieActive()
 diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
-index 09263a2..a5560e7 100644
 --- a/src/NL/TaskBase.cpp
 +++ b/src/NL/TaskBase.cpp
 @@ -4,3 +4,8 @@
@@ -158,7 +155,6 @@ index 09263a2..a5560e7 100644
 +nlTask::~nlTask() { mscharged::DestroyNativeTask(this); }
 +#endif
 diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
-index 1d918f0..bb80fa6 100644
 --- a/src/NL/nlTask.cpp
 +++ b/src/NL/nlTask.cpp
 @@ -1,4 +1,7 @@
@@ -169,7 +165,7 @@ index 1d918f0..bb80fa6 100644
  
  #include "NL/nlDLRing.h"
  #include "NL/nlMemory.h"
-@@ -13,7 +16,14 @@ float g_fTaskTimeLowerBound;
+@@ -13,7 +16,14 @@
  
  void nlTaskManager::Startup(u32 initialState)
  {
@@ -184,7 +180,7 @@ index 1d918f0..bb80fa6 100644
      m_pInstance->mPreviousState = initialState;
      m_pInstance->mCurrentState = initialState;
      m_pInstance->mPendingState = initialState;
-@@ -24,9 +34,16 @@ void nlTaskManager::Startup(u32 initialState)
+@@ -24,9 +34,16 @@
  
  void nlTaskManager::AddTask(nlTask* task, u32 priority, u32 activeStates)
  {
@@ -201,7 +197,7 @@ index 1d918f0..bb80fa6 100644
  
      if (m_pInstance->mTaskList == 0)
      {
-@@ -57,6 +74,9 @@ void nlTaskManager::AddTask(nlTask* task, u32 priority, u32 activeStates)
+@@ -57,6 +74,9 @@
  
  void nlTaskManager::RunAllTasks()
  {
@@ -211,7 +207,7 @@ index 1d918f0..bb80fa6 100644
      nlTask* currentTask = nlDLRingGetStart<nlTask>(m_pInstance->mTaskList);
      if (currentTask != 0)
      {
-@@ -110,10 +130,16 @@ void nlTaskManager::RunAllTasks()
+@@ -110,10 +130,16 @@
  
  void nlTaskManager::SetNextState(unsigned int nextState)
  {

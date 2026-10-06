@@ -1,0 +1,100 @@
+From: mscharged-port
+Subject: Restore complete original loading scene handlers
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Retire the 0077/0086 game-side helper substitutions. The complete restored
+Matching translation unit is byte-identical to the pinned source.
+No algorithms, resource requests, timing, readiness or visibility changes.
+
+diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
+--- a/src/Game/SH/SHLoading.cpp
++++ b/src/Game/SH/SHLoading.cpp
+@@ -1,8 +1,6 @@
+ #include "Game/HBMManager.h"
+ 
+ #include "Game/SH/SHLoading.h"
+-#include "Game/FE/FrontendHandlerSteps.h"
+-#include "Game/FE/FrontendInstanceSteps.h"
+ #include "Game/BaseSceneHandler.inl"
+ 
+ #include "Game/BaseGameSceneManager.h"
+@@ -90,20 +88,6 @@
+ void BaseLoadingScene::Update(float dt)
+ {
+     BaseSceneHandler::Update(dt);
+-    FrontendLoadingNotificationStep<TLComponentInstance, TLSlide>(mTransitionActive, mTransitionComponent);
+-}
+-
+-MatchLoadingScene::MatchLoadingScene()
+-{
+-}
+-
+-MatchLoadingScene::~MatchLoadingScene()
+-{
+-}
+-
+-void MatchLoadingScene::Update(float dt)
+-{
+-    BaseSceneHandler::Update(dt);
+ 
+     if (mTransitionActive)
+     {
+@@ -119,6 +103,32 @@
+     }
+ }
+ 
++MatchLoadingScene::MatchLoadingScene()
++{
++}
++
++MatchLoadingScene::~MatchLoadingScene()
++{
++}
++
++void MatchLoadingScene::Update(float dt)
++{
++    BaseSceneHandler::Update(dt);
++
++    if (mTransitionActive)
++    {
++        TLSlide* slide = mTransitionComponent->GetActiveSlide();
++        float duration = slide->m_duration;
++        float start = slide->m_start;
++        float time = slide->m_time;
++        if (time >= start + duration)
++        {
++            mTransitionComponent->m_bVisible = false;
++            mTransitionActive = false;
++        }
++    }
++}
++
+ bool UnidentifiedLoadingHasPresentation(BaseLoadingScene* scene)
+ {
+     return scene->GetPresentation() != 0;
+@@ -163,17 +173,16 @@
+     }
+ }
+ 
+-struct LoadingSceneTransitionFinder
+-{
+-    TLComponentInstance* operator()(TLSlide* slide, const char* layer, const char* component) const
+-    {
+-        return FEFinder<TLComponentInstance, TLAT_COMPONENT>::FindOrDefault(slide, layer, component);
+-    }
+-};
+-
+ void BaseLoadingScene::SceneCreated()
+ {
+-    FrontendLoadingSceneSetupPrefix(*this, &IsWidescreen, LoadingSceneTransitionFinder());
++    mTransitionComponent = FEFinder<TLComponentInstance, TLAT_COMPONENT>::FindOrDefault(mPresentation->m_currentSlide, "Layer", "no home");
++    mTransitionComponent->m_bVisible = false;
++
++    if (IsWidescreen())
++    {
++        mWidescreen = true;
++        mTransitionComponent->SetActiveSlide("widescreen", true, false);
++    }
+ 
+     gpHBMManager->SetBlocked(false);
+ }

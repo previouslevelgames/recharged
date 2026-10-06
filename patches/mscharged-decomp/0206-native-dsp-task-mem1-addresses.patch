@@ -1,12 +1,13 @@
 From: mscharged-port native compatibility
 Subject: [PATCH] explicit live MEM1 DSP task address words
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Encode only the original four native pointer mail positions through a live
 MEM1 extent and canonical physical address. Preserve all lengths, mailbox
 commands, waits, task selection, callbacks and console branches. Module static
 DSP data and MEM2 remain explicit unsupported address domains, not tokens.
 
+diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
 --- a/src/RVL_SDK/dsp/dsp_task.c
 +++ b/src/RVL_SDK/dsp/dsp_task.c
 @@ -1,5 +1,8 @@

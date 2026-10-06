@@ -1,5 +1,5 @@
 Subject: Preserve native four-byte temporary-string size prefixes
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The original prefix geometry and retail memcpy/lwz transport are four bytes.
 Use a native fixed-width word for New and the ReadSize compiler scratch value,
@@ -21,7 +21,7 @@ diff --git a/include/NL/nlString.h b/include/NL/nlString.h
          memcpy(ptr, &size, sizeof(size));
          return (T*)((char*)ptr + 4);
      }
-@@ -184,9 +188,16 @@
+@@ -184,10 +188,17 @@
  private:
      static unsigned long ReadSize(const void* ptr)
      {
@@ -38,3 +38,4 @@ diff --git a/include/NL/nlString.h b/include/NL/nlString.h
 +#endif
      }
  };
+ 

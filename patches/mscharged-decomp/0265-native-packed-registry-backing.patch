@@ -1,0 +1,45 @@
+From: mscharged-port
+Subject: [PATCH] transport packed Wii registries into native owned backing
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Preserve original Load/Relocate/Get and owner decisions. Decode only raw data
+width/endian/alignment into a backing twin tied to actual allocation lifetime.
+
+--- a/include/NL/nlRegistry.h
++++ b/include/NL/nlRegistry.h
+@@ -72,8 +72,15 @@
+ inline const PackedRegistryEntry* RegistryNamedEntries(
+     const u32* words, u32 namedCount, u32 unnamedCount)
+ {
++#ifdef MSCHARGED_NATIVE
++    const uintptr_t address = (uintptr_t)(words
++        + RegistryTypeWords(namedCount) + RegistryTypeWords(unnamedCount));
++    const uintptr_t alignment = alignof(PackedRegistryEntry);
++    return (const PackedRegistryEntry*)((address + alignment - 1) & ~(alignment - 1));
++#else
+     return (const PackedRegistryEntry*)(words
+         + RegistryTypeWords(namedCount) + RegistryTypeWords(unnamedCount));
++#endif
+ }
+ 
+ // Circular sibling link; it precedes the node's virtual table.
+--- a/src/NL/nlRegistryOwner.cpp
++++ b/src/NL/nlRegistryOwner.cpp
+@@ -1,6 +1,7 @@
+ #include "NL/nlRegistry.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/native_registry_word.h"
++#include "platform/native_packed_registry.h"
+ #endif
+ 
+ RegistryOwner::~RegistryOwner()
+@@ -25,6 +26,9 @@
+ 
+ bool RegistryOwner::Load(void* data, unsigned int size, bool loadFlag)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    data = mscharged::platform::PrepareNativePackedRegistryImage(data, size);
++#endif
+     PackedRegistryImage* image
+         = (PackedRegistryImage*)data;
+     mLoadFlag = loadFlag;

@@ -1,11 +1,12 @@
 Subject: [PATCH] adapt original NL whole-file pointer handles and native owner cleanup
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep source requests/callbacks/cancellation decisions. Represent actual raw
 entry addresses across the u32 public API without pointer truncation; wire
 actual source owner cleanup to native raw failure and shutdown hooks.
 
+diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
 --- a/src/NL/nlFile.cpp
 +++ b/src/NL/nlFile.cpp
 @@ -5,9 +5,13 @@
@@ -175,6 +176,7 @@ actual source owner cleanup to native raw failure and shutdown hooks.
  
      unsigned int payloadSize = compressedSize - 4;
      state->fullChunkCount = payloadSize / chunkSize;
+diff --git a/include/NL/nlFileGC.h b/include/NL/nlFileGC.h
 --- a/include/NL/nlFileGC.h
 +++ b/include/NL/nlFileGC.h
 @@ -10,7 +10,7 @@

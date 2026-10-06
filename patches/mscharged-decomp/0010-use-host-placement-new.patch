@@ -1,6 +1,6 @@
 Subject: Use standard placement new and native allocation signatures
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The host C++ library supplies placement new. Do not redefine it in the
 shared game header; native allocation operators take size_t. This does not
@@ -19,7 +19,7 @@ diff --git a/include/NL/nlMemory.h b/include/NL/nlMemory.h
  
  class MemoryAllocator;
  
-@@ -18,36 +20,21 @@
+@@ -21,36 +23,21 @@
  extern MemoryAllocator* AllocatorStack[16];
  extern unsigned int AllocatorStackDepth;
  

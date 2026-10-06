@@ -1,5 +1,5 @@
 Subject: Preserve Wii32 width arithmetic in original text layout
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore the original whole ProcessString through retirement of its0070 hunk.
 Keep original control flow, rows, escapes, alignment/narrowing and quirks.

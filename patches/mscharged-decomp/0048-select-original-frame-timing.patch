@@ -1,6 +1,6 @@
 Subject: Add separately selected frame timing diagnostics
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Add timing/history diagnostic copies selected separately from the complete
 original FrameCounter, Histogram and TimeRegions sources. Preserve all original
@@ -235,7 +235,7 @@ new file mode 100644
 diff --git a/src/Game/Debug/Histogram.cpp b/src/Game/Debug/Histogram.cpp
 --- a/src/Game/Debug/Histogram.cpp
 +++ b/src/Game/Debug/Histogram.cpp
-@@ -27,7 +27,11 @@ Histogram::Histogram(
+@@ -26,7 +26,11 @@
  
  Histogram::~Histogram()
  {

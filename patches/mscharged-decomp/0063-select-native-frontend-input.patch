@@ -1,5 +1,5 @@
 Subject: Select original frontend input with an explicit native pad backend
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Make the native pad base abstract where console method bodies are unavailable;
 a real desktop backend supplies every query. Native owners supply bounded pad
@@ -8,6 +8,7 @@ Initialize polar state, define signed angle wrapping, and share the original
 51-action table. Original FE repeat, edge and focus logic remains unchanged.
 Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
 
+diff --git a/include/NL/platpad.h b/include/NL/platpad.h
 --- a/include/NL/platpad.h
 +++ b/include/NL/platpad.h
 @@ -19,11 +19,36 @@
@@ -68,6 +69,7 @@ Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
      {
          return gPlatPadAllocator.Allocate();
      }
+diff --git a/src/NL/plat/PadBackend.cpp b/src/NL/plat/PadBackend.cpp
 --- a/src/NL/plat/PadBackend.cpp
 +++ b/src/NL/plat/PadBackend.cpp
 @@ -1,4 +1,7 @@
@@ -113,6 +115,7 @@ Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
      return 1 << buttonIndex;
 +#endif
  }
+diff --git a/src/NL/plat/globalpad.cpp b/src/NL/plat/globalpad.cpp
 --- a/src/NL/plat/globalpad.cpp
 +++ b/src/NL/plat/globalpad.cpp
 @@ -7,6 +7,7 @@
@@ -132,6 +135,7 @@ Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
  
  void PadManager::Update(float deltaTime)
  {
+diff --git a/src/Game/FE/feInput.cpp b/src/Game/FE/feInput.cpp
 --- a/src/Game/FE/feInput.cpp
 +++ b/src/Game/FE/feInput.cpp
 @@ -19,10 +19,13 @@
@@ -148,9 +152,10 @@ Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
  
  void FEInput::Reset(bool arg0)
  {
+diff --git a/src/Game/PadActions.cpp b/src/Game/PadActions.cpp
 --- a/src/Game/PadActions.cpp
 +++ b/src/Game/PadActions.cpp
-@@ -19,9 +19,9 @@
+@@ -20,9 +20,9 @@
  
  bool g_bEnableGamecubePadMonkey;
  
@@ -163,6 +168,8 @@ Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
  
  static int sWiiRemoteButtonRemap[51] = {
      0x00000000, 0x00000000, 0x00000100, 0x00000200, 0x00000010, 0x00000000, 0x00000000, 0x00000800, 0x00001000, 0x00000200, 0x00000100, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000800, 0x00000400, 0x00000200, 0x00000100, 0x00000010, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000800, 0x00000800, 0x00000400, 0x00000000, 0x00000800, 0x00000400, 0x00000010, 0x00000100, 0x00000100, 0x00000100, 0x00000400, 0x00000200, 0x00002000, 0x00004000, 0x00000200, 0x00000100, 0x00004000, 0x00002000, 0x00002000, 0x00004000, 0x00008000, 0x00000200, 0x00000010, 0x00001000, 0x00000010
+diff --git a/include/Game/PadActionMap.inc b/include/Game/PadActionMap.inc
+new file mode 100644
 --- /dev/null
 +++ b/include/Game/PadActionMap.inc
 @@ -0,0 +1,3 @@

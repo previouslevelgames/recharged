@@ -1,6 +1,6 @@
 Subject: Select original dispatch task and base transition hook
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Extract the existing default nlTask::StateTransition from Team.cpp for independent
 source selection and retain the original DispatchEventsTask::Run(true) path.
@@ -10,10 +10,9 @@ original persistent task; the port supplies explicit final task destruction.
 The broader task manager, MoviePlay and original main loop remain unselected.
 
 diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEventsTask.cpp
-index 20fe287..38eea4f 100644
 --- a/src/Game/Task/DispatchEventsTask.cpp
 +++ b/src/Game/Task/DispatchEventsTask.cpp
-@@ -7,15 +7,27 @@ DispatchEventsTask* gDispatchEventsTask;
+@@ -8,15 +8,27 @@
  
  void fn_80115F10()
  {
@@ -43,7 +42,6 @@ index 20fe287..38eea4f 100644
  void DispatchEventsTask::Run(float)
 diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
 new file mode 100644
-index 0000000..09263a2
 --- /dev/null
 +++ b/src/NL/TaskBase.cpp
 @@ -0,0 +1,6 @@

@@ -1,13 +1,12 @@
 Subject: Validate native startup arena allocation and reserved SDK heap
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep original MEM1/MEM2 allocation order and reserve sizes. Validate capacities,
 allocation pointers, and SDK heap setup before memset or allocator initialization
 so a native failure is visible without corrupting memory or reporting success.
 
 diff --git a/src/NL/plat/nlMemory.cpp b/src/NL/plat/nlMemory.cpp
-index 0736957..a1bd363 100644
 --- a/src/NL/plat/nlMemory.cpp
 +++ b/src/NL/plat/nlMemory.cpp
 @@ -10,6 +10,9 @@
@@ -20,7 +19,7 @@ index 0736957..a1bd363 100644
  
  MemoryAllocator StandardAllocator;
  
-@@ -35,12 +38,30 @@ void nlInitMemory()
+@@ -35,12 +38,30 @@
              void* arenaLo = i != 0 ? OSGetMEM1ArenaLo() : OSGetMEM2ArenaLo();
              void* arenaHi = i != 0 ? OSGetMEM1ArenaHi() : OSGetMEM2ArenaHi();
  

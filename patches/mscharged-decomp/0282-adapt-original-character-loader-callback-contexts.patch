@@ -1,0 +1,139 @@
+From: mscharged-port
+Subject: Preserve original CharacterLoader scalar callback contexts
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Use pointer-width compiler casts only for the existing integer model-index
+and audio-count callback contexts. Preserve all source decisions/requests.
+Restore whole original AnimRetargeter declarations and implementation after
+the historical 0069 native exclusions; packed retarget ABI runtime remains held.
+
+diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+--- a/src/Game/CharacterLoader.cpp
++++ b/src/Game/CharacterLoader.cpp
+@@ -1,4 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ #include "Game/AI/Fielder.h"
+ #include "Game/Player.h"
+ #include "Game/FE/feHelpFuncs_decl.h"
+@@ -467,8 +471,13 @@
+ 
+ static void ModelLoaded_cb(void* data, unsigned long size, void* param)
+ {
++#if defined(MSCHARGED_NATIVE)
++    CharacterLoader::sInstance.mModelData[static_cast<int>(reinterpret_cast<std::intptr_t>(param))] = data;
++    CharacterLoader::sInstance.mModelSize[static_cast<int>(reinterpret_cast<std::intptr_t>(param))] = size;
++#else
+     CharacterLoader::sInstance.mModelData[(int)param] = data;
+     CharacterLoader::sInstance.mModelSize[(int)param] = size;
++#endif
+ }
+ 
+ void CharacterLoader::StartLoadingCharacterModel(int nModel)
+@@ -493,7 +502,11 @@
+     }
+     if (szFilename != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        glBeginLoadModel(szFilename, ModelLoaded_cb, reinterpret_cast<void*>(static_cast<std::intptr_t>(nModel)), glGetCurrentResourcePool());
++#else
+         glBeginLoadModel(szFilename, ModelLoaded_cb, (void*)nModel, glGetCurrentResourcePool());
++#endif
+     }
+ }
+ 
+@@ -1112,14 +1125,22 @@
+ 
+ static void AudioBankLoaded_cb(AudioResourceLoadOwner* handle, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    CharacterLoader::sInstance.mAudioCompletedCount = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
+     CharacterLoader::sInstance.mAudioCompletedCount = (int)context;
++#endif
+ }
+ 
+ void CharacterLoader::StartLoadingAudioBank0()
+ {
+     mAudioRequestCount += gAudioEnabled;
+     LoadSoundBank((GameAudio*)g_pAudioSystem, 0, 0, AudioBankLoaded_cb,
++#if defined(MSCHARGED_NATIVE)
++        reinterpret_cast<void*>(static_cast<std::intptr_t>(mAudioRequestCount)));
++#else
+         (void*)mAudioRequestCount);
++#endif
+ }
+ 
+ bool CharacterLoader::NeedsCaptainAudio()
+@@ -1132,7 +1153,11 @@
+     int nBank = GetCharacterInfo(mCurrent->cc).mSoundBankId;
+     mAudioRequestCount += gAudioEnabled;
+     LoadSoundBank((GameAudio*)g_pAudioSystem, nBank,
++#if defined(MSCHARGED_NATIVE)
++        (mCurrent->nTeamID == 0) ? 1 : 5, AudioBankLoaded_cb, reinterpret_cast<void*>(static_cast<std::intptr_t>(mAudioRequestCount)));
++#else
+         (mCurrent->nTeamID == 0) ? 1 : 5, AudioBankLoaded_cb, (void*)mAudioRequestCount);
++#endif
+ }
+ 
+ bool CharacterLoader::NeedsSidekickAudio()
+@@ -1148,14 +1173,22 @@
+     int nSlot = (pEntry->nTeamID == 0) ? 1 : 5;
+     nSlot += pEntry->nPlayerID;
+     LoadSoundBank((GameAudio*)g_pAudioSystem, nBank, nSlot, AudioBankLoaded_cb,
++#if defined(MSCHARGED_NATIVE)
++        reinterpret_cast<void*>(static_cast<std::intptr_t>(mAudioRequestCount)));
++#else
+         (void*)mAudioRequestCount);
++#endif
+ }
+ 
+ void CharacterLoader::StartLoadingAudioBank13()
+ {
+     mAudioRequestCount += gAudioEnabled;
+     LoadSoundBank((GameAudio*)g_pAudioSystem, 13, 9, AudioBankLoaded_cb,
++#if defined(MSCHARGED_NATIVE)
++        reinterpret_cast<void*>(static_cast<std::intptr_t>(mAudioRequestCount)));
++#else
+         (void*)mAudioRequestCount);
++#endif
+ }
+ 
+ bool CharacterLoader::FinalizeAudio()
+diff --git a/include/Game/SAnim/AnimRetargeter.h b/include/Game/SAnim/AnimRetargeter.h
+--- a/include/Game/SAnim/AnimRetargeter.h
++++ b/include/Game/SAnim/AnimRetargeter.h
+@@ -17,11 +17,7 @@
+ public:
+     typedef char* MemType;
+ 
+-#if defined(MSCHARGED_NATIVE)
+-    static AnimRetargetList* Initialize(nlChunk* chunkData) = delete;
+-#else
+     static AnimRetargetList* Initialize(nlChunk* chunkData);
+-#endif
+     static bool IsValidChunkID(u32 id)
+     {
+         return (id & 0x80FFFFFF) == 0x80017104;
+diff --git a/src/Game/SAnim/AnimRetargeter.cpp b/src/Game/SAnim/AnimRetargeter.cpp
+--- a/src/Game/SAnim/AnimRetargeter.cpp
++++ b/src/Game/SAnim/AnimRetargeter.cpp
+@@ -1,6 +1,5 @@
+ #include "Game/SAnim/AnimRetargeter.h"
+ 
+-#if !defined(MSCHARGED_NATIVE)
+ AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
+ {
+     nlChunk* chunk = chunkData->GetFirstChunk();
+@@ -19,8 +18,6 @@
+ 
+     return data;
+ }
+-
+-#endif
+ 
+ AnimRetarget* AnimRetargetList::GetAnimRetargetWithSignature(
+     const cSAnim* anim)

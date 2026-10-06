@@ -1,6 +1,6 @@
 From: mscharged-port native compatibility
 Subject: [PATCH] native two-way DSP mailbox hardware transport
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Replace only the four native hardware mailbox accesses with explicit high/low
 register transport, preserving word/status bits and low-read acknowledgement.
@@ -8,6 +8,7 @@ Reject unrepresentable host pointers instead of inventing DSP bus addresses.
 The original initialization, task, boot waits and console branches are unchanged;
 this does not execute DSP firmware or synthesize successful readiness.
 
+diff --git a/src/RVL_SDK/dsp/dsp.c b/src/RVL_SDK/dsp/dsp.c
 --- a/src/RVL_SDK/dsp/dsp.c
 +++ b/src/RVL_SDK/dsp/dsp.c
 @@ -1,5 +1,8 @@

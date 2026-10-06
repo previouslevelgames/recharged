@@ -1,6 +1,6 @@
 Subject: Share original Main Options departure service order
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Extract only ApplyItem case6 for the native Main/Options path. Real scene Pop,
 NAV hide, resident audio and frontend bytecode services remain caller-owned.
@@ -8,7 +8,6 @@ Complete game save and other Main actions are outside this selected branch.
 
 diff --git a/include/Game/FE/FrontendMainDepartureSteps.h b/include/Game/FE/FrontendMainDepartureSteps.h
 new file mode 100644
-index 0000000..6d24302
 --- /dev/null
 +++ b/include/Game/FE/FrontendMainDepartureSteps.h
 @@ -0,0 +1,14 @@
@@ -27,7 +26,6 @@ index 0000000..6d24302
 +}
 +#endif
 diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
-index 1f299b7..cf305b1 100644
 --- a/src/Game/SH/SHMainMenu.cpp
 +++ b/src/Game/SH/SHMainMenu.cpp
 @@ -2,6 +2,7 @@
@@ -38,7 +36,7 @@ index 1f299b7..cf305b1 100644
  
  #include "Game/GameInfo.h"
  #include "Game/GameSceneManager.h"
-@@ -392,15 +393,12 @@ void SHMainMenu::ApplyItem(unsigned int item)
+@@ -392,16 +393,13 @@
      }
      case 6:
      {
@@ -51,12 +49,17 @@ index 1f299b7..cf305b1 100644
 -        FEAudio::PlayAnimAudioEvent(0xB19DBC20, 0, 0, true);
 -        gNextFETransition = "TransitionMainMenuToOptions";
 -        FrontEndPresentation::GetInstance()->Call("TransitionFromMainMenu");
+-        break;
+-    }
+-    }
+-}
 +        FrontendMainApplyOptions(
 +            []() { GameSceneManager::Instance()->Pop(); },
 +            []() { SHNavigation* scene = GetNavigationScene(); if (scene != 0) scene->HideButtons(); },
 +            [](unsigned long cue, const void* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); },
 +            [](const char* next) { gNextFETransition = next; },
 +            [](const char* function) { FrontEndPresentation::GetInstance()->Call(function); });
-         break;
-     }
-     }
++        break;
++    }
++    }
++}

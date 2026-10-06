@@ -1,0 +1,82 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Use the actual live registry interface for native audio values
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+The audio configuration view addresses the live RegistryContainer returned
+by the original registry owner. Preserve its real native pointer/type layout
+and virtual return ABI, exposing the original audio payload field names.
+Console declarations, source lookups/selection and packed-image declarations
+remain unchanged. Packed input expansion and full original audio startup
+are separate qualification boundaries.
+
+diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
+--- a/include/NL/nlRegistry.h
++++ b/include/NL/nlRegistry.h
+@@ -6,6 +6,9 @@
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ class RegistryContainer;
+ class RegistryIteratorBase;
+@@ -27,8 +30,21 @@
+     {
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The original audio configuration interface views the same live registry
++    // value. Keep the actual native pointer/type and its return ABI; aliases
++    // expose the original payload names without narrowing a live container.
++    union
++    {
++        struct { void* mData; int mType; };
++        struct { std::uintptr_t m_Value; int m_Type; } m_Words;
++        unsigned long long m_Raw;
++        float m_Float;
++    };
++#else
+     /* 0x00 */ void* mData;
+     /* 0x04 */ int mType;
++#endif
+ };
+ 
+ // Number of packed type words for a list: two bits per entry, padded to whole
+diff --git a/include/Game/Audio/AudioConfig.h b/include/Game/Audio/AudioConfig.h
+--- a/include/Game/Audio/AudioConfig.h
++++ b/include/Game/Audio/AudioConfig.h
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/Audio/AudioResourceRuntime.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++using AudioConfigValue = RegistryValue;
++#else
+ union AudioConfigValue
+ {
+     unsigned long long m_Raw;
+@@ -20,6 +23,7 @@
+     virtual bool Has(const unsigned int& key) const;
+     virtual AudioConfigValue Get(const unsigned int& key) const;
+ };
++#endif
+ 
+ inline AudioConfigNode* ConfigFindDefinition(
+     unsigned int definition)
+diff --git a/include/Game/Audio/AudioResourceRuntime.h b/include/Game/Audio/AudioResourceRuntime.h
+--- a/include/Game/Audio/AudioResourceRuntime.h
++++ b/include/Game/Audio/AudioResourceRuntime.h
+@@ -4,7 +4,11 @@
+ #include "types.h"
+ #include "Game/Audio/AudioRegistryOwner.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++using AudioConfigNode = RegistryContainer;
++#else
+ class AudioConfigNode;
++#endif
+ class AudioBundleManager;
+ class AudioEffectFactory;
+ class AudioScriptRuntime;

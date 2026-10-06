@@ -1,5 +1,5 @@
 Subject: Select original shadow layers, volume blend and projection scheduling
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Extract original cameras, eleven atlas partitions, update scheduling and shadow
 projection setup while leaving full game scene and character drawing unlinked.
@@ -7,7 +7,6 @@ Select four original layer descriptions with explicit native ownership and
 rollback. Use active EFB dimensions for the original volume target/blend pass.
 
 diff --git a/include/Game/Render/RLViewLayers.h b/include/Game/Render/RLViewLayers.h
-index 63826b9..42087de 100644
 --- a/include/Game/Render/RLViewLayers.h
 +++ b/include/Game/Render/RLViewLayers.h
 @@ -2,7 +2,12 @@
@@ -23,7 +22,7 @@ index 63826b9..42087de 100644
  #include "NL/gl/glTarget.h"
  #include "NL/gl/glView.h"
  #include "NL/nlMath.h"
-@@ -43,12 +47,12 @@ public:
+@@ -43,12 +48,12 @@
  class RLViewOrthoCamera : public GLViewInterface
  {
  public:
@@ -44,7 +43,6 @@ index 63826b9..42087de 100644
  }; // total size: 0x44
 diff --git a/src/Game/Render/RenderShadowNative.cpp b/src/Game/Render/RenderShadowNative.cpp
 new file mode 100644
-index 0000000..96095b3
 --- /dev/null
 +++ b/src/Game/Render/RenderShadowNative.cpp
 @@ -0,0 +1,90 @@
@@ -140,7 +138,6 @@ index 0000000..96095b3
 +}
 diff --git a/src/Game/Render/ShadowLayersNative.cpp b/src/Game/Render/ShadowLayersNative.cpp
 new file mode 100644
-index 0000000..3ec105a
 --- /dev/null
 +++ b/src/Game/Render/ShadowLayersNative.cpp
 @@ -0,0 +1,276 @@
@@ -421,7 +418,6 @@ index 0000000..3ec105a
 +    catch (...) { ShutdownNativeShadowLayers(); throw; }
 +}
 diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
-index 848f20f..8d4e376 100644
 --- a/src/Game/Render/ShadowVolume.cpp
 +++ b/src/Game/Render/ShadowVolume.cpp
 @@ -4,11 +4,19 @@
@@ -444,7 +440,7 @@ index 848f20f..8d4e376 100644
  
  static char sShadowVolumeTargetName[] = "shadowvolume";
  static char sShadowVolumeTextureName[] = "target/shadowvolume";
-@@ -16,10 +24,19 @@ static GLRenderPair sShadowVolumeTarget;
+@@ -16,10 +24,19 @@
  
  void CreateShadowVolumeTarget()
  {
@@ -464,7 +460,7 @@ index 848f20f..8d4e376 100644
      info.format = GLTargetFormat_A8;
      info.clearFlags = 0;
      sShadowVolumeTarget = glCreateTarget(sShadowVolumeTargetName, &info);
-@@ -27,6 +44,10 @@ void CreateShadowVolumeTarget()
+@@ -27,6 +44,10 @@
  
  void SetShadowVolumeTarget(GLView* view, GLView*)
  {
@@ -475,7 +471,7 @@ index 848f20f..8d4e376 100644
      view->SetRenderPair(sShadowVolumeTarget);
      view->m_Target = GLViewTarget_Mode8;
  }
-@@ -34,6 +55,10 @@ void SetShadowVolumeTarget(GLView* view, GLView*)
+@@ -34,6 +55,10 @@
  void AttachShadowVolumeModels(
      glModel* firstModel, glModel* secondModel, GLView* view, GLView*)
  {
@@ -486,7 +482,7 @@ index 848f20f..8d4e376 100644
      glSetDefaultState(false);
      glSetRasterState(GLS_Culling, 1);
      glSetRasterState(GLS_DepthTest, 1);
-@@ -56,6 +81,11 @@ void AttachShadowVolumeModels(
+@@ -56,6 +81,11 @@
  
  void RenderShadowVolumeBlend(GLView* view)
  {
@@ -498,7 +494,7 @@ index 848f20f..8d4e376 100644
      static u32 shadowVolumeTexture = glGetTexture(sShadowVolumeTextureName);
  
      GLShadowBlendMeshWriter writer;
-@@ -69,8 +99,13 @@ void RenderShadowVolumeBlend(GLView* view)
+@@ -69,8 +99,13 @@
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
  
@@ -512,7 +508,7 @@ index 848f20f..8d4e376 100644
      if (writer.Begin(4, GLP_TriStrip, 0))
      {
          static_cast<GXShadowVolumeParameters*>(writer.GetModel()
-@@ -110,3 +145,10 @@ void RenderShadowVolumeBlend(GLView* view)
+@@ -110,3 +145,10 @@
          }
      }
  }

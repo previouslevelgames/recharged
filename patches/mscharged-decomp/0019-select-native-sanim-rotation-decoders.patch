@@ -1,6 +1,6 @@
 Subject: Select register-independent native animation rotation decoders
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep the console GQR setup and paired-single assembly in the console branch.
 On native builds the port supplies scalar rotation decoding with the same
@@ -10,7 +10,6 @@ Document the packed-byte versus host-order structure contract explicitly;
 this does not convert animation chunks, relocate pointers, or blend poses.
 
 diff --git a/include/Game/SAnimDecode.h b/include/Game/SAnimDecode.h
-index 7df4c80..0361edb 100644
 --- a/include/Game/SAnimDecode.h
 +++ b/include/Game/SAnimDecode.h
 @@ -5,6 +5,14 @@
@@ -29,7 +28,6 @@ index 7df4c80..0361edb 100644
  extern "C" void SAnimDecodeRot16(nlQuaternion* result, const void* packed);
  extern "C" void SAnimDecodeRot12(nlQuaternion* result, const void* packed);
 diff --git a/src/Game/SAnimDecode.cpp b/src/Game/SAnimDecode.cpp
-index a08e6ef..242f928 100644
 --- a/src/Game/SAnimDecode.cpp
 +++ b/src/Game/SAnimDecode.cpp
 @@ -2,6 +2,8 @@
@@ -41,7 +39,7 @@ index a08e6ef..242f928 100644
  // clang-format off
  void SAnimInitGQR()
  {
-@@ -64,6 +66,7 @@ extern "C" void SAnimDecodeRot8(register nlQuaternion* result, register const vo
+@@ -64,6 +66,7 @@
      }
  }
  // clang-format on

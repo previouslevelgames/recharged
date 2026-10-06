@@ -1,0 +1,83 @@
+From: mscharged-port source integration
+Subject: [PATCH] Admit original Credits COPYRIGHTS in the named scene diagnostic
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
+Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
+
+--- a/src/Game/SH/SHCredits.cpp
++++ b/src/Game/SH/SHCredits.cpp
+@@ -109,12 +109,16 @@
+     mTimeElapsed = 0.0f;
+ 
+ #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+-    if (mPhase != 2)
++    if (mPhase != 2
++#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
++        && mPhase != 3
++#endif
++       )
+         throw std::logic_error("Credits diagnostic reached an excluded phase transition");
+-    SetupForCredits();
+-#else
++#endif
+     switch (mPhase)
+     {
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+     case 1:
+         if (IsWidescreen())
+         {
+@@ -143,15 +147,23 @@
+         FEAudio::PlayAnimAudioEvent(0xF394C076, 0, 0, 1);
+         BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
+         break;
++#endif
+     case 2:
+         SetupForCredits();
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+         BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
+-        break;
++#endif
++        break;
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
+     case 3:
+         mPresentation->SetActiveSlide("COPYRIGHTS", true);
+         mPresentation->m_currentSlide->Update(0.0f);
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+         BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
+-        break;
++#endif
++        break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+     case 4:
+         FEAudio::PlayAnimAudioEvent(0xBB142B94, 0, 0, 1);
+         GameSceneManager::Instance()->Push(mNextScene, SCREEN_NOTHING, true);
+@@ -175,8 +187,8 @@
+             pStadium->m_bRenderingEnabled = true;
+         }
+         break;
+-    }
+-#endif
++#endif
++    }
+ }
+ 
+ void CreditScene::MoviePlayerVirtual3C()
+@@ -377,7 +389,7 @@
+                 quitcredits = true;
+             }
+         }
+-#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
+         else if (g_pFEInput->JustPressed(FE_ALL_PADS, 0x20, true, 0)
+                  || g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0))
+         {
+@@ -403,7 +415,7 @@
+         }
+         ++mPhase;
+         SetupForPhase();
+-#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
+         MovieStop();
+ #endif
+     }

@@ -71,6 +71,28 @@ private:
 };
 std::uint32_t ReadGameChunkWord(const void* header, unsigned word);
 
+// Expanded native data is attached to the exact completed serialized source
+// range/allocation incarnation. Original owner decisions and destructors do not
+// change. Real source free, arena retirement or overlapping producer writes
+// release the CRT-owned twin; no game readiness is represented here.
+struct GameNativeBackingSpan {
+    void* data;
+    std::size_t bytes;
+    GameAllocationSpan allocation;
+};
+bool FindGameNativeBacking(const void* source, std::size_t sourceBytes, GameNativeBackingSpan& result);
+class GameNativeBackingReservation {
+public:
+    GameNativeBackingReservation(const void* source, std::size_t sourceBytes, std::size_t nativeBytes);
+    ~GameNativeBackingReservation();
+    GameNativeBackingReservation(const GameNativeBackingReservation&)=delete;
+    GameNativeBackingReservation& operator=(const GameNativeBackingReservation&)=delete;
+    void* Data() const noexcept;
+    void Commit();
+private:
+    void* pending_;
+};
+
 // Exact source GL suballocations are storage facts inside an existing actual
 // allocation. They do not invent MemoryAllocator owners or imply written bytes.
 class GameGraphicsStorageReservation

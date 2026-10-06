@@ -1,5 +1,5 @@
 Subject: Restore original SlotPool allocator-stack callbacks
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore the exact original default allocator/free callback bodies for native
 source too. The callbacks select MEM2, push/pop the actual source stack and
@@ -7,6 +7,7 @@ restore selection from that stack. Native owning-allocation transport stays
 beneath nlMalloc/nlFree; a host scoped selection must not replace game state.
 Retain other inherited slot-width/validation hunks for separate review.
 
+diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
 --- a/src/NL/nlSlotPool.cpp
 +++ b/src/NL/nlSlotPool.cpp
 @@ -5,7 +5,6 @@

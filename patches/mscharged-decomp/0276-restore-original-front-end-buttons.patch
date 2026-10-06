@@ -1,0 +1,177 @@
+Subject: Restore original frontend pointer/back buttons and native event-owner width
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Classification: original whole-source restoration; native event owner pointer ABI only.
+
+diff --git a/src/Game/FE/fePointerButton.cpp b/src/Game/FE/fePointerButton.cpp
+--- a/src/Game/FE/fePointerButton.cpp
++++ b/src/Game/FE/fePointerButton.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/fePointerButton.h"
+-#include "Game/FE/FrontendMainMenuSteps.h"
+ 
+ #include "Game/Audio/AudioGlobals.h"
+ #include "Game/FE/feInput.h"
+@@ -30,7 +29,14 @@
+ 
+ bool FEPointerButton::HasOtherPointerState(int value, unsigned int which) const
+ {
+-    return FrontendPointerHasOtherState(mPointerStates, value, which);
++    for (unsigned int i = 0; i < 4; i++)
++    {
++        if (i != which && value == mPointerStates[i])
++        {
++            return true;
++        }
++    }
++    return false;
+ }
+ 
+ void FEPointerButton::OnPointerUpdate(int index, void* context)
+diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
+--- a/src/Game/FE/feBackButton.cpp
++++ b/src/Game/FE/feBackButton.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/FE/feBackButton.h"
+-#include "Game/FE/FrontendNavigationSteps.h"
+ #include "NL/nlFunction.inl"
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/FE/tlImageInstance.h"
+@@ -52,7 +51,17 @@
+  */
+ void FEBackButton::SetButtonInstance(TLComponentInstance* instance)
+ {
+-    FrontendBackSetInstance<TLComponentInstance,TLSlide,FEFinder>(*this,instance,[] { return IsWidescreen(); });
++    if (IsWidescreen())
++    {
++        instance->SetActiveSlide("16:9", true, false);
++    }
++    else
++    {
++        instance->SetActiveSlide("4:3", true, false);
++    }
++
++    mButtonPosition = instance->GetAssetPosition();
++    mButtonInstance = FEFinder<TLComponentInstance, 2>::Find<TLSlide>(instance->GetActiveSlide(), "back");
+ }
+ 
+ static void InitializePointerButton(FEBackButton* button)
+@@ -65,7 +74,11 @@
+     FEPointerListener::Callback callback(PointerBinding(
+         MemFun(&FEBackButton::OnPointerInside), button, Placeholder<0>(), Placeholder<1>()));
+     button->SetPointerInsideCallback(callback);
+-    FrontendBackBounds<TLImageInstance,feVector3,FEFinder>(button);
++
++    TLImageInstance* over = FEFinder<TLImageInstance, TLAT_IMAGE>::FindOrDefault(
++        button->mButtonInstance, "over", "list_high_250x60");
++    feVector3 position = button->mButtonInstance->GetAssetPosition();
++    button->SetInstanceBounds(over, true, position.f.x, position.f.y, 1.0f, 1.0f);
+ }
+ 
+ /**
+@@ -91,7 +104,28 @@
+     {
+         manager = g_pOverlayManager;
+     }
+-    return FrontendBackFinish<SCENE_INVALID>(*this,[manager](int scene) { manager->Push((SceneList)scene,SCREEN_BACK,true); },[manager] { manager->Pop(); });
++
++    if (mPressed && mPushBackScene)
++    {
++        if (mBackScene != SCENE_INVALID)
++        {
++            manager->Push((SceneList)mBackScene, SCREEN_BACK, true);
++        }
++        mPressed = false;
++        return true;
++    }
++
++    if (mPressed && !mPushBackScene)
++    {
++        if (mPopScene)
++        {
++            manager->Pop();
++        }
++        mPressed = false;
++        return true;
++    }
++
++    return false;
+ }
+ 
+ /**
+@@ -99,7 +133,13 @@
+  */
+ void FEBackButton::OnPointerEnter(int index, void* context)
+ {
+-    FrontendBackEnter(*this,index,context,[](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },[this](int index,void* context) { FEPointerButton::OnPointerEnter(index,context); });
++    if (!HasOtherPointerState(1, index))
++    {
++        mButtonInstance->SetActiveSlide("over", true, false);
++        FEAudio::PlayAnimAudioEvent(0xACCDCA48, 0, 0, 1);
++    }
++    SetPointerState(1, index);
++    FEPointerButton::OnPointerEnter(index, context);
+ }
+ 
+ /**
+@@ -107,7 +147,7 @@
+  */
+ void FEBackButton::OnPointerInside(int index, void*)
+ {
+-    FrontendBackInside(*this,index);
++    mPointerInside[index] = true;
+ }
+ 
+ /**
+@@ -115,7 +155,9 @@
+  */
+ void FEBackButton::OnPointerPress(int index, void* context)
+ {
+-    FrontendBackPress(*this,index,context,[](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },[this](int index,void* context) { FEPointerButton::OnPointerPress(index,context); });
++    FEPointerButton::OnPointerPress(index, context);
++    FEAudio::PlayAnimAudioEvent(0x6F6A3A07, 0, 0, 1);
++    mPressed = true;
+ }
+ 
+ /**
+@@ -123,7 +165,8 @@
+  */
+ void FEBackButton::OnPointerRelease(int index, void* context)
+ {
+-    FrontendBackRelease(*this,index,context,[this](int index,void* context) { FEPointerButton::OnPointerRelease(index,context); });
++    FEPointerButton::OnPointerRelease(index, context);
++    mPressed = false;
+ }
+ 
+ /**
+@@ -131,5 +174,12 @@
+  */
+ void FEBackButton::OnPointerLeave(int index, void* context)
+ {
+-    FrontendBackLeave(*this,index,context,[this](int index,void* context) { FEPointerButton::OnPointerLeave(index,context); });
++    if (!HasOtherPointerState(1, index))
++    {
++        mUnidentifiedB8 = 0.0f;
++        mButtonInstance->SetActiveSlide("off", true, false);
++        mUnidentifiedCE = false;
++    }
++    SetPointerState(0, index);
++    FEPointerButton::OnPointerLeave(index, context);
+ }
+diff --git a/src/Game/SH/SHStadiumSelect.cpp b/src/Game/SH/SHStadiumSelect.cpp
+--- a/src/Game/SH/SHStadiumSelect.cpp
++++ b/src/Game/SH/SHStadiumSelect.cpp
+@@ -82,7 +82,13 @@
+         mBackButton.SetBackScene(4);
+     }
+     SortStadiums();
+-    UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindMember(this, &StadiumSelectScene::OnHBMHide)), (unsigned int)&mHBMHideConnection, -1);
++    UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindMember(this, &StadiumSelectScene::OnHBMHide)),
++#if defined(MSCHARGED_NATIVE)
++        (EventOwnerHandle)&mHBMHideConnection
++#else
++        (unsigned int)&mHBMHideConnection
++#endif
++        , -1);
+ }
+ 
+ StadiumSelectScene::~StadiumSelectScene()

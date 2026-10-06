@@ -2,9 +2,13 @@ include_guard(GLOBAL)
 # Inventory teardown owns GLVertexAnim even in graphics-memory-only builds.
 target_sources(charged_graphics_memory PRIVATE
     "${MSCHARGED_PREPARED}/src/Game/GL/GLVertexAnim.cpp")
+# Historical frame-binding diagnostics consume host-format headers and the
+# extracted provider below; whole original modules never define this scope.
+target_compile_definitions(charged_graphics_memory PRIVATE MSCHARGED_DIAGNOSTIC_VERTEX_ANIMATION=1)
 if(MSCHARGED_BUILD_SCENE_PREVIEW)
     add_library(charged_effects_vertex STATIC src/runtime/effects_vertex.cpp
         "${MSCHARGED_PREPARED}/src/Game/GL/GLVertexAnimModel.cpp")
+    target_compile_definitions(charged_effects_vertex PRIVATE MSCHARGED_DIAGNOSTIC_VERTEX_ANIMATION=1)
     add_dependencies(charged_effects_vertex verify_prepared)
     target_compile_features(charged_effects_vertex PUBLIC cxx_std_20)
     target_include_directories(charged_effects_vertex PUBLIC src

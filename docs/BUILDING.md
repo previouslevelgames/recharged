@@ -58,6 +58,20 @@ resolve from the INI's directory. To use another configuration:
 ./build/release/mscharged --config /path/to/mscharged.ini
 ```
 
+## Run-only launch settings
+
+`--disc FILE` (or `--disk FILE`), `--window`, `--fullscreen`, and
+`--size WIDTHxHEIGHT` override the loaded INI for the current run. They do not
+save settings. Command-line disc paths use the working directory; INI disc
+paths use the INI directory. Later options win.
+
+```sh
+./build/release/mscharged --disc ./game/R4QE01.rvz --window --size 1280x720
+```
+
+This still opens the launcher. Select an experimental mode explicitly; these
+settings do not select or complete game startup.
+
 ## Experimental builds
 
 See [runtime status and commands](RUNTIME.md) for original startup checks and

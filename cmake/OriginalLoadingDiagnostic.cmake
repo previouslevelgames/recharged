@@ -29,7 +29,7 @@ get_target_property(_charged_loading_definitions mscharged_original_main_credits
 get_target_property(_charged_loading_libraries mscharged_original_main_credits_module LINK_LIBRARIES)
 get_target_property(_charged_loading_link_options mscharged_original_main_credits_module LINK_OPTIONS)
 list(FILTER _charged_loading_definitions EXCLUDE REGEX
-    "^MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND(_SCENE)?=|^MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE=")
+    "^MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND(_SCENE)?=|^MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE=|^MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS=|^MSCHARGED_DIAGNOSTIC_MAIN_INPUT=")
 target_include_directories(mscharged_original_loading_module PRIVATE ${_charged_loading_includes})
 target_compile_options(mscharged_original_loading_module PRIVATE ${_charged_loading_options})
 target_compile_definitions(mscharged_original_loading_module PRIVATE

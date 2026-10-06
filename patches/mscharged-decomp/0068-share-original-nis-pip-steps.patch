@@ -1,6 +1,6 @@
 Subject: Share original NIS picture-in-picture rectangles, timing and target settings
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share the original fixed/expanding rectangles, strict expansion completion and
 camera-swap decisions without selecting Holotron or full NisPlayer dependencies.
@@ -121,7 +121,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  
      nlColour colour;
      nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
-@@ -271,14 +268,7 @@
+@@ -271,80 +268,73 @@
   */
  int NisPlayerPIPExpandOverlay::Update(float dt)
  {
@@ -132,11 +132,135 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 -    }
 -
 -    mPlayer->SwapCameras();
--    return 0;
 +    return AdvanceNisPipExpansion(mPlayer, mTime, mDuration, dt);
++}
++
++/**
++ * Offset/Address/Size: 0x874 | 0x80284880 | size: 0x8
++ */
++int NisPlayerPIPExpandOverlay::GetOverlayType()
++{
++    return 1;
++}
++
++/**
++ * Offset/Address/Size: 0x87C | 0x80284888 | size: 0x8
++ */
++int NisPlayerCameraSwapOverlay::GetOverlayType()
++{
++    return 1;
++}
++
++/**
++ * Offset/Address/Size: 0x884 | 0x80284890 | size: 0x8
++ */
++int NisPlayerHolotronOverlay::GetOverlayType()
++{
++    return 4;
++}
++
++/**
++ * Offset/Address/Size: 0x88C | 0x80284898 | size: 0x8
++ */
++int NisPlayerHolotronOverlay::Update(float dt)
++{
++    return 4;
++}
++
++/**
++ * Offset/Address/Size: 0x894 | 0x802848A0 | size: 0x8
++ */
++int NisPlayerPIPOverlay::GetOverlayType()
++{
++    return 1;
++}
++
++/**
++ * Offset/Address/Size: 0x89C | 0x802848A8 | size: 0x8
++ */
++int NisPlayerPIPOverlay::Update(float dt)
++{
++    return 1;
++}
++
++/**
++ * Offset/Address/Size: 0x8A4 | 0x802848B0 | size: 0x8
++ */
++int NisPlayerNoOverlay::GetOverlayType()
++{
+     return 0;
  }
  
  /**
+- * Offset/Address/Size: 0x874 | 0x80284880 | size: 0x8
+- */
+-int NisPlayerPIPExpandOverlay::GetOverlayType()
+-{
+-    return 1;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x87C | 0x80284888 | size: 0x8
+- */
+-int NisPlayerCameraSwapOverlay::GetOverlayType()
+-{
+-    return 1;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x884 | 0x80284890 | size: 0x8
+- */
+-int NisPlayerHolotronOverlay::GetOverlayType()
+-{
+-    return 4;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x88C | 0x80284898 | size: 0x8
+- */
+-int NisPlayerHolotronOverlay::Update(float dt)
+-{
+-    return 4;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x894 | 0x802848A0 | size: 0x8
+- */
+-int NisPlayerPIPOverlay::GetOverlayType()
+-{
+-    return 1;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x89C | 0x802848A8 | size: 0x8
+- */
+-int NisPlayerPIPOverlay::Update(float dt)
+-{
+-    return 1;
+-}
+-
+-/**
+- * Offset/Address/Size: 0x8A4 | 0x802848B0 | size: 0x8
+- */
+-int NisPlayerNoOverlay::GetOverlayType()
++ * Offset/Address/Size: 0x8AC | 0x802848B8 | size: 0x8
++ */
++int NisPlayerNoOverlay::Update(float dt)
+ {
+     return 0;
+ }
+ 
+-/**
+- * Offset/Address/Size: 0x8AC | 0x802848B8 | size: 0x8
+- */
+-int NisPlayerNoOverlay::Update(float dt)
+-{
+-    return 0;
+-}
+-
+ NisPlayerNoOverlay::~NisPlayerNoOverlay()
+ {
+ }
 diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
 --- a/src/Game/Render/RLViewLayers.cpp
 +++ b/src/Game/Render/RLViewLayers.cpp

@@ -1,6 +1,6 @@
 Subject: Expose the original initialization prefix for incremental native startup
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain the entire original main.cpp initialization, task priorities and game
 loop. Only native builds omit MWCC PowerPC GQR assembly; native animation
@@ -109,7 +109,7 @@ The diagnostic prefix and full entry must not be linked together.
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -399,6 +399,7 @@
+@@ -400,6 +400,7 @@
  
  static void Initialize()
  {
@@ -117,7 +117,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      // GQR setup follows the platform OSInitFastCast implementation.
      // clang-format off
      asm {
-@@ -416,6 +417,7 @@
+@@ -417,6 +418,7 @@
          mtspr 0x395, r3
      }
      // clang-format on

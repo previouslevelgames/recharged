@@ -1,5 +1,5 @@
 Subject: [PATCH] Enable named original Credits movie/video diagnostic
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Classification: temporary owner-authorized diagnostic flow scope only
 
 The selected scene diagnostic retains actual phase2 parent MoviePlayer Update,
@@ -12,7 +12,7 @@ No extra assets, fabricated readiness, clock or game algorithm is supplied.
 diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 --- a/src/Game/SH/SHCredits.cpp
 +++ b/src/Game/SH/SHCredits.cpp
-@@ -277,7 +277,7 @@
+@@ -278,7 +278,7 @@
  
  void CreditScene::UpdateForCredits(float fDeltaT)
  {
@@ -24,7 +24,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -28,7 +28,7 @@
+@@ -29,7 +29,7 @@
  extern "C" char* strstr(const char*, const char*);
  #endif
  
@@ -33,7 +33,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
  #endif
  
-@@ -87,15 +87,17 @@
+@@ -88,15 +88,17 @@
  
  void MoviePlayerScene::Update(float fDeltaT)
  {
@@ -52,7 +52,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (!mMovieStarted)
      {
          mMovieStarted = MovieStart(mMovieFilename, false, mLoopMovie, SCGetSoundMode() == 0);
-@@ -117,10 +119,12 @@
+@@ -118,10 +120,12 @@
          int fadeIn = GetConfigInt(gMovieConfig, var_68, 500);
          THPSimpleSetVolume(0, 0);
          THPSimpleSetVolume((int)(127.0f * volume), fadeIn);
@@ -65,7 +65,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      }
      if (!mMovieStarted || CheckMoviePlayerAbort())
      {
-@@ -149,7 +153,7 @@
+@@ -150,7 +154,7 @@
  
  bool MoviePlayerScene::CheckMoviePlayerAbort()
  {

@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend navigation and canonical Mii GX declaration
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore whole original SHNavigation.cpp exactly, preserving original UI, pointer
 and transition decisions. Retained extracted helper headers cannot enter the
@@ -25,14 +25,16 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h b/libs/RVL_SDK/in
 diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 --- a/src/Game/SH/SHNavigation.cpp
 +++ b/src/Game/SH/SHNavigation.cpp
-@@ -1,6 +1,4 @@
+@@ -1,8 +1,6 @@
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
  #include "NL/plat/PlatPadManager.h"
 -#include "Game/FE/FrontendNavigationSteps.h"
 -#include "Game/FE/FrontendNavigationTransitionSteps.h"
  #include "NL/plat/PlatPadStatus.h"
  #include "Game/SH/SHNavigation.h"
  #include "Game/BaseGameSceneManager.h"
-@@ -65,10 +63,48 @@
+@@ -67,10 +65,48 @@
  
  void SHNavigation::SceneCreated()
  {
@@ -85,7 +87,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
      mPageControls.SetMinusButton(mMinusButton);
      mPageControls.SetPlusButton(mPlusButton);
  
-@@ -98,20 +134,31 @@
+@@ -100,20 +136,31 @@
          u16 angle;
          u8 valid = true;
          nlVector2 position = GetPointerPosition(index, &angle, &valid);
@@ -121,7 +123,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
      }
  
      if (mHomeWarningPlaying)
-@@ -169,27 +216,87 @@
+@@ -171,27 +218,87 @@
  
  void SHNavigation::SetButtonVisibility(int mask, bool visible)
  {
@@ -214,7 +216,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
  }
  
  TLComponentInstance* SHNavigation::GetButton(int value)
-@@ -232,22 +339,133 @@
+@@ -234,22 +341,133 @@
  
  void SHNavigation::SetPlayButtonText(int value)
  {

@@ -1,0 +1,115 @@
+From: mscharged-port native adaptation
+Subject: [PATCH] Transport original vertex-animation words and retain whole source
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Keep original GLVertexAnim/GetModel/Update algorithms and source requests.
+Adapt only authored Wii24-byte header,4-byte signed IDs and raw vertex copy
+ownership/domain. The historical extracted binding remains explicit legacy
+vertex diagnostics; whole native original modules retain GetModel.
+
+--- a/src/Game/GL/GLVertexAnim.cpp
++++ b/src/Game/GL/GLVertexAnim.cpp
+@@ -8,6 +8,7 @@
+ #include "NL/gl/glMemory.h"
+ #include <stdexcept>
+ #include <cmath>
++#include "platform/rlg_record_abi.h"
+ #endif
+ 
+ struct UnidentifiedGLVertexAnimHeader_802D3D48
+@@ -22,8 +23,14 @@
+ 
+ GLVertexAnim::GLVertexAnim(const void* data, const void* extraData)
+ {
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_VERTEX_ANIMATION)
++    UnidentifiedGLVertexAnimHeader_802D3D48 nativeHeader;
++    mscharged::platform::DecodeRLGVertexAnimWords(&nativeHeader, data, 6);
++    const UnidentifiedGLVertexAnimHeader_802D3D48* header = &nativeHeader;
++#else
+     const UnidentifiedGLVertexAnimHeader_802D3D48* header =
+         (const UnidentifiedGLVertexAnimHeader_802D3D48*)data;
++#endif
+     m_uHashID = header->m_00;
+     m_nNumFrames = header->m_04;
+     m_nNumVertices = header->m_08;
+@@ -40,7 +47,11 @@
+     m_pModel = 0;
+ 
+     m_pAnimatedStreamIDs = (s32*)nlMalloc(m_nNumAnimatedStreams * sizeof(s32), 8, false);
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_VERTEX_ANIMATION)
++    mscharged::platform::DecodeRLGVertexAnimWords(m_pAnimatedStreamIDs, extraData, m_nNumAnimatedStreams);
++#else
+     memcpy(m_pAnimatedStreamIDs, extraData, m_nNumAnimatedStreams * sizeof(s32));
++#endif
+ }
+ 
+ GLVertexAnim::~GLVertexAnim()
+@@ -52,7 +63,7 @@
+ #endif
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_VERTEX_ANIMATION)
+ glModel* GLVertexAnim::GetModel(int frame)
+ {
+     int actualFrame = (frame < 0) ? (int)m_fFrame : frame;
+--- a/src/NL/gl/glLoadModel.cpp
++++ b/src/NL/gl/glLoadModel.cpp
+@@ -13,6 +13,7 @@
+ #include <string.h>
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/rlg_record_abi.h"
++#include "platform/game_allocation_ownership.h"
+ #include <stdint.h>
+ #endif
+ 
+@@ -36,21 +37,49 @@
+ void RLGReader::LoadVertexAnimData(nlChunk* chunk)
+ {
+     unsigned char* data = (unsigned char*)chunk->GetData();
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::ValidateRLGVertexAnimData(data, chunk->GetDataSize());
++    u32* extraData = (u32*)((unsigned char*)chunk->GetData() + 0x18);
++    unsigned char* vertexData = (unsigned char*)(extraData + mscharged::platform::ReadRLGWord(data + 0x14));
++#else
+     unsigned long* extraData = (unsigned long*)((unsigned char*)chunk->GetData() + 0x18);
+     unsigned char* vertexData = (unsigned char*)(extraData + *(unsigned long*)(data + 0x14));
++#endif
+ 
+     GLVertexAnim* model = new (nlMalloc(sizeof(GLVertexAnim), 8, false))
+         GLVertexAnim(data, extraData);
+ 
++#if defined(MSCHARGED_NATIVE)
++    unsigned long vertexDataSize = mscharged::platform::ReadRLGWord(data + 4)
++                                 * mscharged::platform::ReadRLGWord(data + 8)
++                                 * mscharged::platform::ReadRLGWord(data + 0x0C);
++#else
+     unsigned long vertexDataSize = *(unsigned long*)(data + 4)
+                                  * *(unsigned long*)(data + 8) * *(unsigned long*)(data + 0x0C);
++#endif
+     u8* vertices = (u8*)glResourceAlloc(vertexDataSize, GLM_VertexData, m_pResource);
++#if defined(MSCHARGED_NATIVE)
++    if (vertexDataSize)
++    {
++        mscharged::platform::GameByteWriteReservation vertexCopy(vertices, vertexDataSize);
++        memcpy(vertices, vertexData, vertexDataSize);
++        vertexCopy.Complete(mscharged::platform::GameByteDomain::WiiSerialized);
++    }
++#else
+     memcpy(vertices, vertexData, vertexDataSize);
++#endif
+     model->m_pVertices = vertices;
++#if defined(MSCHARGED_NATIVE)
++    model->m_pModel = m_pResource->m_inventory->GetModel(
++        mscharged::platform::ReadRLGWord(data));
++    m_pResource->m_inventory->AddVertexAnim(
++        mscharged::platform::ReadRLGWord(data), model);
++#else
+     model->m_pModel = m_pResource->m_inventory->GetModel(
+         *(unsigned long*)data);
+     m_pResource->m_inventory->AddVertexAnim(
+         *(unsigned long*)data, model);
++#endif
+ }
+ 
+ void RLGReader::LoadPacketData(void* data, unsigned long size)

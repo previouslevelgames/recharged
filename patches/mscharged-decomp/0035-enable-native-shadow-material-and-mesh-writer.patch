@@ -1,5 +1,5 @@
 Subject: Select original shadow material and checked native frame mesh writing
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Preserve shadow TEV recipes and stream layout through typed Aurora calls.
 Supply shadow colour explicitly until the tweak registry is linked. Replace
@@ -7,7 +7,6 @@ the Wii material-field offset with its typed native member; bound procedural
 mesh counts and frame lifetimes, and omit console-only cache maintenance.
 
 diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShadowBlendMeshWriter.h
-index 9b5e026..7e2d238 100644
 --- a/include/Game/GL/GLShadowBlendMeshWriter.h
 +++ b/include/Game/GL/GLShadowBlendMeshWriter.h
 @@ -5,6 +5,12 @@
@@ -23,7 +22,7 @@ index 9b5e026..7e2d238 100644
  
  class GLShadowBlendMeshWriter
  {
-@@ -17,27 +23,59 @@ public:
+@@ -17,27 +23,59 @@
  
      glModel* GetModel() const
      {
@@ -84,22 +83,20 @@ index 9b5e026..7e2d238 100644
      glModel* model;
      void* resource;
 diff --git a/include/NL/glx/GXShadowVolumeMaterialProgram.h b/include/NL/glx/GXShadowVolumeMaterialProgram.h
-index 0cc6f50..d5b339e 100644
 --- a/include/NL/glx/GXShadowVolumeMaterialProgram.h
 +++ b/include/NL/glx/GXShadowVolumeMaterialProgram.h
-@@ -4,6 +4,10 @@
+@@ -3,6 +3,10 @@
+ 
  #include "NL/gl/glModel.h"
  #include "NL/glx/GXMaterialProgramBase.h"
- 
++
 +#if defined(MSCHARGED_NATIVE)
 +void ResetNativeShadowVolumeMaterial();
 +#endif
-+
+ 
  struct GXShadowVolumeParameters
  {
-     /* 0x00 */ glTextureBinding diffuseTexture;
 diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlendMeshWriter.cpp
-index 7cccfbd..b611b2a 100644
 --- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
 +++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
 @@ -1,9 +1,15 @@
@@ -118,7 +115,7 @@ index 7cccfbd..b611b2a 100644
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
  #include "Game/UnidentifiedStaticStorage.h"
-@@ -25,6 +31,18 @@ GLShadowBlendMeshWriter::~GLShadowBlendMeshWriter()
+@@ -25,6 +31,18 @@
  bool GLShadowBlendMeshWriter::Begin(
      int vertexCount, int primitive, void* allocator)
  {
@@ -137,7 +134,7 @@ index 7cccfbd..b611b2a 100644
      glModel* newModel;
      resource = allocator;
      count = vertexCount;
-@@ -41,6 +59,9 @@ bool GLShadowBlendMeshWriter::Begin(
+@@ -41,6 +59,9 @@
  
      glCreateModel(
          model, vertexCount, primitive, allocator, 3, 0x386ECBDD);
@@ -147,7 +144,7 @@ index 7cccfbd..b611b2a 100644
  
      glModelStream* streams = model->packets->streams;
      int positionCount = vertexCount * 3;
-@@ -112,16 +133,26 @@ bool GLShadowBlendMeshWriter::Begin(
+@@ -112,16 +133,26 @@
          sizeof(float) * 2, 4);
  
      return true;
@@ -174,7 +171,7 @@ index 7cccfbd..b611b2a 100644
      for (int i = 0; i < model->packets->numStreams; ++i)
      {
          glModelStream* stream = &model->packets->streams[i];
-@@ -130,5 +161,9 @@ bool GLShadowBlendMeshWriter::End()
+@@ -130,5 +161,9 @@
      }
  
      PPCSync();
@@ -185,23 +182,22 @@ index 7cccfbd..b611b2a 100644
      return true;
  }
 diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
-index 81715d9..23cf56f 100644
 --- a/src/Game/GL/glModelBuilder.cpp
 +++ b/src/Game/GL/glModelBuilder.cpp
-@@ -6,6 +6,12 @@
+@@ -5,6 +5,12 @@
+ #include "NL/gl/glState.h"
  #include "NL/glx/glxLoadModel.h"
  #include "NL/gl/glLoadModel.h"
- 
++
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstring>
 +#include <new>
 +#include <stdexcept>
 +#endif
-+
+ 
  struct UnidentifiedMaterialProgram_802D38A4
  {
-     unsigned char unknown00[8];
-@@ -15,6 +21,11 @@ struct UnidentifiedMaterialProgram_802D38A4
+@@ -15,6 +21,11 @@
  void glCreateModel(glModel* pModel, int numVerts, int prim,
      void* pResource, int numStreams, unsigned long programHash)
  {
@@ -213,7 +209,7 @@ index 81715d9..23cf56f 100644
      glModelPacket* pPacket;
      if (pResource != 0)
      {
-@@ -27,6 +38,9 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
+@@ -27,6 +38,9 @@
              sizeof(glModelPacket), GLM_Header);
      }
  
@@ -223,7 +219,7 @@ index 81715d9..23cf56f 100644
      pModel->id = 0;
      pModel->numPackets = 1;
      pModel->packets = pPacket;
-@@ -54,12 +68,19 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
+@@ -54,12 +68,19 @@
          pPktStreams = (glModelStream*)glFrameAlloc(
              numStreams * sizeof(glModelStream), GLM_Header);
      }
@@ -243,7 +239,7 @@ index 81715d9..23cf56f 100644
      void* data;
      if (dataSize == 0)
      {
-@@ -73,6 +94,9 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
+@@ -73,6 +94,9 @@
      {
          data = glFrameAlloc(dataSize, GLM_Header);
      }
@@ -254,7 +250,6 @@ index 81715d9..23cf56f 100644
  }
  
 diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
-index 182aa82..55282f2 100644
 --- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -266,7 +261,7 @@ index 182aa82..55282f2 100644
  
  #include "NL/glx/GXShadowVolumeMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -25,6 +29,11 @@ GXShadowVolumeMaterialProgram::GXShadowVolumeMaterialProgram()
+@@ -25,6 +29,11 @@
  
  GXShadowVolumeMaterialProgram::~GXShadowVolumeMaterialProgram()
  {
@@ -278,7 +273,7 @@ index 182aa82..55282f2 100644
  }
  
  void GXShadowVolumeMaterialProgram::Initialize()
-@@ -62,9 +71,24 @@ void GXShadowVolumeMaterialProgram::ConfigureVertexFormat(bool indexed)
+@@ -62,9 +71,24 @@
  void GXShadowVolumeMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -303,7 +298,7 @@ index 182aa82..55282f2 100644
  }
  
  void GXShadowVolumeMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -75,11 +99,20 @@ void GXShadowVolumeMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -75,11 +99,20 @@
  
      while (index < end)
      {
@@ -324,7 +319,7 @@ index 182aa82..55282f2 100644
  }
  
  void GXShadowVolumeMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -88,10 +121,19 @@ void GXShadowVolumeMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -88,10 +121,19 @@
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
@@ -345,7 +340,6 @@ index 182aa82..55282f2 100644
  
  void GXShadowVolumeMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
-index f0187ff..1c77e7c 100644
 --- a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 @@ -1,10 +1,17 @@
@@ -366,7 +360,7 @@ index f0187ff..1c77e7c 100644
  #include "NL/glx/glxDisplayList.h"
  #include "NL/nlMemory.h"
  #include "Game/UnidentifiedStaticStorage.h"
-@@ -17,6 +24,16 @@ enum ShadowVolumeMode
+@@ -17,6 +24,16 @@
  };
  
  static int sShadowVolumeMode;
@@ -383,7 +377,7 @@ index f0187ff..1c77e7c 100644
  
  static void SetShadowVolumeMode(int mode)
  {
-@@ -51,19 +68,30 @@ static void SetShadowVolumeMode(int mode)
+@@ -51,19 +68,30 @@
  
  void CopyShadowVolumeColour(const GXColor* colour)
  {
@@ -392,10 +386,10 @@ index f0187ff..1c77e7c 100644
 +    sNativeShadowColour = *colour;
 +    sNativeShadowColourSet = true;
 +#else
-     sShadowVolumeRed.value = colour->r;
-     sShadowVolumeGreen.value = colour->g;
-     sShadowVolumeBlue.value = colour->b;
-     sShadowVolumeAlpha.value = colour->a;
+     sShadowVolumeRed.mValue = colour->r;
+     sShadowVolumeGreen.mValue = colour->g;
+     sShadowVolumeBlue.mValue = colour->b;
+     sShadowVolumeAlpha.mValue = colour->a;
 +#endif
  }
  
@@ -406,15 +400,15 @@ index f0187ff..1c77e7c 100644
 +    if (!sNativeShadowColourSet) throw std::logic_error("Shadow volume colour requires layer setup");
 +    colour = sNativeShadowColour;
 +#else
-     colour.r = sShadowVolumeRed.value;
-     colour.g = sShadowVolumeGreen.value;
-     colour.b = sShadowVolumeBlue.value;
-     colour.a = sShadowVolumeAlpha.value;
+     colour.r = sShadowVolumeRed.mValue;
+     colour.g = sShadowVolumeGreen.mValue;
+     colour.b = sShadowVolumeBlue.mValue;
+     colour.a = sShadowVolumeAlpha.mValue;
 +#endif
      GXSetTevColor(GX_TEVREG0, colour);
  }
  
-@@ -120,6 +148,7 @@ void GXMaterialProgramImpl<GXShadowVolumeMaterialProgram>::Draw(
+@@ -120,6 +148,7 @@
          static_cast<GXShadowVolumeMaterialProgram*>(this)->DrawDirect(packet);
  }
  
@@ -422,7 +416,7 @@ index f0187ff..1c77e7c 100644
  TweakValueInt sShadowVolumeRed(
      "Red", "/Rendering/ShadowVolume");
  TweakValueInt sShadowVolumeGreen(
-@@ -128,3 +157,5 @@ TweakValueInt sShadowVolumeBlue(
+@@ -128,3 +157,5 @@
      "Blue", "/Rendering/ShadowVolume");
  TweakValueInt sShadowVolumeAlpha(
      "Alpha", "/Rendering/ShadowVolume");

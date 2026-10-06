@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original async-loading source ownership
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Prepared-preimage: exact reviewed strict-source199
 
 Restore the complete matching AsyncLoading TU and original stage/sequence
@@ -17,7 +17,7 @@ runtime prerequisites; whole-source compilation is not original boot.
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -131,9 +131,13 @@
+@@ -133,9 +133,13 @@
  #include <revolution/os/OSThread.h>
  #include <revolution/os/OSTime_fwd.h>
  
@@ -31,7 +31,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
  bool IsNetworkOrRecordedGame();
  
-@@ -148,10 +152,8 @@
+@@ -150,10 +154,8 @@
  
  bool g_VerboseAudio;
  bool g_bDumpMemoryStatsOnLoad;
@@ -42,7 +42,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
  static const char* lbl_806E103C;
  static BaseSceneHandler* lbl_806E1040;
-@@ -191,7 +193,12 @@
+@@ -193,7 +195,12 @@
      }
  }
  
@@ -56,7 +56,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
  static inline bool IsTeamInCurrentGame(int team)
  {
-@@ -221,15 +228,24 @@
+@@ -223,15 +230,24 @@
  
  static inline void FinishLoadingStep(AsyncLoadingManager* manager)
  {
@@ -85,7 +85,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  }
  
  extern "C" void fn_80116988(AudioResourceLoadOwner*, void* context)
-@@ -1158,7 +1174,117 @@
+@@ -1160,7 +1176,117 @@
      manager->SetLoadingComment("No Loading Comment");
  
      bool completed = false;
@@ -204,7 +204,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
      if (result == ASYNC_LOADING_NO_TRANSITION)
      {
-@@ -1620,7 +1746,11 @@
+@@ -1622,7 +1748,11 @@
      fn_8001FE80();
      fn_80018A00();
      UnidentifiedCameraEffects::Instance()->RegisterEventListeners();
@@ -216,7 +216,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      GLResourcePool* pool = glGetCurrentResourcePool();
      Jumbotron::instance.Initialize(pool);
      CrowdManager::instance.Initialize(pool);
-@@ -2132,8 +2262,6 @@
+@@ -2134,8 +2264,6 @@
      }
  }
  
@@ -259,7 +259,7 @@ diff --git a/include/Game/Audio/AudioResourceRuntime.h b/include/Game/Audio/Audi
 diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResourceRuntime.cpp
 --- a/src/Game/Audio/AudioResourceRuntime.cpp
 +++ b/src/Game/Audio/AudioResourceRuntime.cpp
-@@ -188,7 +188,11 @@
+@@ -189,7 +189,11 @@
  /**
   * Address/Size: 0x802F49C0 | size: 0x4C4
   */

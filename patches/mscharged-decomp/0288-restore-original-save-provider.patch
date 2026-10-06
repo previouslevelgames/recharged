@@ -1,0 +1,86 @@
+Subject: Restore complete original Matching save provider
+
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Retire historical0113 save-state extraction substitutions in the production
+Matching SaveLoad TU. Every source byte returns to its committed original.
+Retain original source initialization, decisions, callbacks, requests, icon
+assets and lifetime; no NAND, banner, TPL or save readiness is invented.
+
+diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
+--- a/src/Game/DB/SaveLoad.cpp
++++ b/src/Game/DB/SaveLoad.cpp
+@@ -1,6 +1,5 @@
+ #include "NL/nlSingleton.inl"
+ #include "Game/DB/SaveLoad.h"
+-#include "Game/DB/SaveStateSteps.h"
+ #include "Game/TweakRegistry.h"
+ 
+ #include "Game/GameSceneManager.h"
+@@ -77,7 +76,7 @@
+ static const char* SaveFileName = "Strikers2";
+ static const char* OnlineSaveFileName = "Online";
+ static const char* BannerFileName = "banner.bin";
+-bool SaveEnabled = SaveStateInitiallyEnabled;
++bool SaveEnabled = true;
+ static bool RetryEnabled = true;
+ 
+ static TPLPalette* IconTPLs[4];
+@@ -216,7 +215,9 @@
+ 
+ void SaveLoad::CancelSave()
+ {
+-    SaveStateCancel(ResetTask::s_resetPaused, SaveEnabled, InOperation);
++    ResetTask::s_resetPaused = false;
++    SaveEnabled = false;
++    InOperation = false;
+ }
+ 
+ void SaveLoad::ContinueWithoutSaving()
+@@ -477,7 +478,8 @@
+ {
+     if (result == 0)
+     {
+-        SaveStateDirectory(1, BannerOpenMode, InOperation);
++        BannerOpenMode = 1;
++        InOperation = true;
+         HandleNANDResult(nlFlashOpen(BannerFileName, 1, BannerLengthCallback));
+     }
+     else
+@@ -490,7 +492,8 @@
+ {
+     if (result == 0)
+     {
+-        SaveStateDirectory(0, BannerOpenMode, InOperation);
++        BannerOpenMode = 0;
++        InOperation = true;
+         HandleNANDResult(nlFlashOpen(BannerFileName, 1, BannerLengthCallback));
+     }
+     else
+@@ -554,7 +557,7 @@
+ 
+     OnlineMode = online;
+     SaveSceneManager = GameSceneManager::Instance() != 0 ? GameSceneManager::Instance() : g_pOverlayManager;
+-    if (SaveStateCanStart(SaveEnabled, nlFlashCallbackPending))
++    if (SaveEnabled && !nlFlashCallbackPending())
+     {
+         BannerFileExists = false;
+         HandleNANDResult(nlFlashChangeDirectory(0, StartSaveDirectoryCallback));
+@@ -572,7 +575,7 @@
+     OnlineMode = online;
+     bool loaded = online ? OnlineSaveLoaded : NormalSaveLoaded;
+     SaveSceneManager = GameSceneManager::Instance() != 0 ? GameSceneManager::Instance() : g_pOverlayManager;
+-    if (SaveStateCanLoad(SaveEnabled, loaded, nlFlashCallbackPending))
++    if (SaveEnabled && !loaded && !nlFlashCallbackPending())
+     {
+         BannerFileExists = false;
+         RetryEnabled = true;
+@@ -901,7 +904,7 @@
+ 
+ void SaveLoad::FinishOperation(s32)
+ {
+-    SaveStateFinish(InOperation);
++    InOperation = false;
+ }
+ 
+ void SaveLoad::BannerCloseCallback(s32 result)

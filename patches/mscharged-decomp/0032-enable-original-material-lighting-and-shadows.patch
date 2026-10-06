@@ -1,5 +1,5 @@
 Subject: Enable original material light modes and projected-shadow stages through Aurora
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The selected ScrollingDiffuse and MaskedSpecularFresnel programs can now use the
 original vertex, doubled, ramp and projected-shadow branches with validated
@@ -8,7 +8,6 @@ Load a native light-ramp binding only when that mode requests it. View/time inpu
 remain explicitly scoped until the original GLView and stadium graph is linked.
 
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
-index c74b867..44e40cc 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 @@ -4,9 +4,7 @@
@@ -21,7 +20,7 @@ index c74b867..44e40cc 100644
  #include "NL/gl/glMaterialParameters.h"
  
  #if defined(MSCHARGED_NATIVE)
-@@ -66,20 +64,17 @@ unsigned long sMaskedSpecularFresnelBoundTexture;
+@@ -66,20 +64,17 @@
  extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
  {
  #if defined(MSCHARGED_NATIVE)
@@ -43,7 +42,7 @@ index c74b867..44e40cc 100644
      if (mode == LIGHTING_VERTEX_DOUBLE)
      {
          gxSetNumTexGens(4);
-@@ -104,7 +99,6 @@ extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
+@@ -104,7 +99,6 @@
          gxSetTevAlphaIn(GX_TEVSTAGE4, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
      }
      else if (mode == LIGHTING_NONE || mode == LIGHTING_VERTEX)
@@ -51,7 +50,7 @@ index c74b867..44e40cc 100644
      {
          gxSetNumTexGens(4);
          gxSetNumTevStages(4);
-@@ -122,7 +116,6 @@ extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
+@@ -122,7 +116,6 @@
          gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
          gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
      }
@@ -59,7 +58,7 @@ index c74b867..44e40cc 100644
      else if (mode == LIGHTING_TEXTURE)
      {
          GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
-@@ -152,7 +145,6 @@ extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
+@@ -152,7 +145,6 @@
          gxSetTevAlphaIn(GX_TEVSTAGE4, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
          gxSetTevAlphaIn(GX_TEVSTAGE5, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
      }
@@ -67,7 +66,7 @@ index c74b867..44e40cc 100644
  
  }
  
-@@ -170,10 +162,13 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Activate(GLV
+@@ -170,10 +162,13 @@
      sMaskedSpecularLookupScale.x = -1.0f;
      sMaskedSpecularLookupScale.y = -1.0f;
      sMaskedSpecularFresnelBoundTexture = -1;
@@ -82,7 +81,7 @@ index c74b867..44e40cc 100644
      glTextureBinding texture(GetGameObjectLightTexture());
      texture.textureIndex = 0xFFFF;
      texture.flags = 0;
-@@ -181,6 +176,8 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Activate(GLV
+@@ -181,6 +176,8 @@
      texture.SetWrapT(true);
      texture.unknown07 = 0;
      glx_BindTexture(4, &texture);
@@ -91,7 +90,7 @@ index c74b867..44e40cc 100644
  #endif
      GXLoadTexMtxImm(sMaskedSpecularFresnelLookupMatrix, GX_PTTEXMTX1, GX_MTX3x4);
  }
-@@ -188,16 +185,12 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Activate(GLV
+@@ -188,16 +185,12 @@
  template <>
  void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Deactivate()
  {
@@ -108,7 +107,7 @@ index c74b867..44e40cc 100644
      gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, GX_IDENTITY);
      gxSetTexCoordGen(GX_TEXCOORD3, GX_TG_MTX2x4, GX_TG_TEX3, GX_IDENTITY);
  
-@@ -214,9 +207,7 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Deactivate()
+@@ -214,9 +207,7 @@
          gxSetTevColourOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
      }
  
@@ -118,7 +117,7 @@ index c74b867..44e40cc 100644
  }
  
  template <>
-@@ -267,10 +258,6 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
+@@ -267,10 +258,6 @@
          sMaskedSpecularLookupScale.y = specularScaleY;
      }
  
@@ -129,7 +128,7 @@ index c74b867..44e40cc 100644
      int mode;
      if (static_cast<const GXMaskedSpecularFresnelParameters*>(packet->materialParameters)->lightingEnabled == 0 || IsGameObjectLightingEnabled() == 0)
      {
-@@ -287,7 +274,7 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
+@@ -287,7 +274,7 @@
          if (doubleLighting != 0)
              mode = LIGHTING_VERTEX_DOUBLE;
      }
@@ -138,7 +137,7 @@ index c74b867..44e40cc 100644
      if (mode != sMaskedSpecularFresnelLightingMode)
      {
          Deactivate();
-@@ -337,7 +324,6 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
+@@ -337,7 +324,6 @@
          GXLoadTexMtxImm(normalMatrix, GX_TEXMTX0, GX_MTX3x4);
      }
  
@@ -146,7 +145,7 @@ index c74b867..44e40cc 100644
      SetGameObjectShadowModelMatrix(packet->matrix);
  
      bool enableShadows = false;
-@@ -357,7 +343,6 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
+@@ -357,7 +343,6 @@
          RestoreGameObjectShadowLighting();
          sMaskedSpecularFresnelShadowsActive = false;
      }
@@ -155,7 +154,6 @@ index c74b867..44e40cc 100644
          GXCallDisplayList(packet->displayList->list, packet->displayList->size);
      else if (packet->indexBuffer != 0)
 diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
-index ebea637..5bc8ad3 100644
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 @@ -5,9 +5,7 @@
@@ -168,7 +166,7 @@ index ebea637..5bc8ad3 100644
  #include "NL/gl/glMaterialParameters.h"
  
  #include "NL/gl/glState.h"
-@@ -42,18 +40,15 @@ float sScrollingDiffuseActivationValues[2];
+@@ -42,18 +40,15 @@
  extern "C" void glxConfigureScrollingDiffuseLighting(int mode)
  {
  #if defined(MSCHARGED_NATIVE)
@@ -188,13 +186,14 @@ index ebea637..5bc8ad3 100644
      if (mode == LIGHTING_TEXTURE)
      {
          gxSetNumTexGens(2);
-@@ -70,16 +65,13 @@ extern "C" void glxConfigureScrollingDiffuseLighting(int mode)
+@@ -70,16 +65,13 @@
          gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
      }
      else
 -#endif
-     {
+-    {
 -#if !defined(MSCHARGED_NATIVE)
++    {
          if (mode != LIGHTING_NONE)
          {
              SetGameObjectAmbientLightingEnabled(1);
@@ -205,7 +204,7 @@ index ebea637..5bc8ad3 100644
          gxSetNumTexGens(1);
          gxSetNumTevStages(1);
          gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-@@ -100,23 +92,19 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Activate(GLView*
+@@ -100,23 +92,19 @@
  #else
      view->m_Interface->GetViewMatrix(sScrollingDiffuseViewMatrix);
  #endif
@@ -229,7 +228,7 @@ index ebea637..5bc8ad3 100644
      gxSetNumTexGens(1);
      gxSetNumTevStages(1);
      gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
-@@ -128,16 +116,12 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Deactivate()
+@@ -128,16 +116,12 @@
      }
      else if (sScrollingDiffuseLightingMode != LIGHTING_NONE)
      {
@@ -246,7 +245,7 @@ index ebea637..5bc8ad3 100644
  }
  
  template <>
-@@ -172,10 +156,6 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
+@@ -172,10 +156,6 @@
  
      program->BindParameters(packet);
  
@@ -257,7 +256,7 @@ index ebea637..5bc8ad3 100644
      int mode;
      if (static_cast<const GXScrollingDiffuseParameters*>(packet->materialParameters)->lightingEnabled == 0 || IsGameObjectLightingEnabled() == 0)
      {
-@@ -192,14 +172,13 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
+@@ -192,14 +172,13 @@
          if (doubleLighting != 0)
              mode = LIGHTING_VERTEX_DOUBLE;
      }
@@ -273,7 +272,7 @@ index ebea637..5bc8ad3 100644
      SetGameObjectShadowModelMatrix(packet->matrix);
  
      bool enableShadows = false;
-@@ -234,7 +213,6 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
+@@ -234,7 +213,6 @@
          texture.unknown07 = 0;
          glx_BindTexture(1, &texture);
      }

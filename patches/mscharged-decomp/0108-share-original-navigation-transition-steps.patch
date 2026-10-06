@@ -1,6 +1,6 @@
 Subject: Share original eight-door frontend NAV transition steps
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Preserve reset order, once-only pending call before inclusive0.6s hide, and
 pointer flag restoration. Native caller supplies the real script service.
@@ -8,14 +8,15 @@ pointer flag restoration. Native caller supplies the real script service.
 diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 --- a/src/Game/SH/SHNavigation.cpp
 +++ b/src/Game/SH/SHNavigation.cpp
-@@ -1,5 +1,6 @@
+@@ -2,6 +2,7 @@
+ #include "NL/nlDLListContainer.inl"
  #include "NL/plat/PlatPadManager.h"
  #include "Game/FE/FrontendNavigationSteps.h"
 +#include "Game/FE/FrontendNavigationTransitionSteps.h"
  #include "NL/plat/PlatPadStatus.h"
  #include "Game/SH/SHNavigation.h"
  #include "Game/BaseGameSceneManager.h"
-@@ -105,18 +106,12 @@
+@@ -107,18 +108,12 @@
      {
          if (mTransitionPending)
          {
@@ -36,7 +37,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
      }
  
      if (mHomeWarningPlaying)
-@@ -252,42 +247,7 @@
+@@ -254,42 +249,7 @@
  
  void SHNavigation::StartTransition()
  {

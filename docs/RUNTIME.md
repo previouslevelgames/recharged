@@ -26,19 +26,31 @@ For a host check without game data, build preset `aurora` and run
 With the Linux/Vulkan prerequisites below:
 
 ```sh
-cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC=ON
-cmake --build --preset graphics --target mscharged-original-main-credits-check -j 3
-./build/graphics/mscharged-original-main-credits-check --disc ./game/R4QE01.rvz --window
+cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC=ON -DMSCHARGED_BUILD_LAUNCHER=ON
+cmake --build --preset graphics --target mscharged -j 3
+./build/graphics/mscharged --experimental-credits --disk ./game/R4QE01.rvz --window
 ```
+
+The launcher also offers **Try Credits**. The separate
+`mscharged-original-main-credits-check` target uses the same original-main driver.
+The test also accepts `--config FILE`, `--disc FILE` (`--disk`), `--window`,
+`--fullscreen`, `--size WIDTHxHEIGHT`, and `--aspect auto|4:3|16:9`; command-line values override the INI
+for this run without saving. `--window` or `--fullscreen` keeps it open.
 
 This temporary test enters original `main`, then loads and renders Credits with
 the original fonts, frontend code, scrolling and THP movie with native audio.
-It skips blocked startup steps; full startup, game input and full game audio
+Desktop keys/controllers feed the original frontend input: Enter/Space is A,
+Escape/Backspace is B, arrows are D-pad, and Z/X are 1/2. A advances to the original
+COPYRIGHTS screen; the following menu transition is still blocked.
+It skips blocked startup steps; full startup, gameplay input and full game audio
 remain pending. Playback timing is still experimental. Close the window to exit. Omit
-`--window` to save a capture and exit. The test uses original frame submission
+both `--window` and `--fullscreen` to save a capture and exit. The test uses original frame submission
 and VI framebuffer presentation. The game image keeps its original aspect and
 positioning when the window is resized. Add `--size 1280x720` to choose an initial
-window size; unused space is filled with bars.
+window size; unused space is filled with bars. `[display] aspect` selects the
+original Wii 4:3 or 16:9 layout, including text placement. Use `--aspect 16:9`
+to override it for one run. `auto` chooses once from the initial window size;
+resizing preserves that layout.
 
 The separate `mscharged-original-credits-check` target tests Credits directly,
 including the original THP movie and native audio:

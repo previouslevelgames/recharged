@@ -1,6 +1,6 @@
 Subject: Share original graphics startup stages and task priorities
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Provide selected-source diagnostic copies of the original resource callback,
 state/default/matrix and target/view stages without refactoring glStartup.
@@ -56,7 +56,7 @@ new file mode 100644
 diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
 --- a/src/NL/gl/gl.cpp
 +++ b/src/NL/gl/gl.cpp
-@@ -44,7 +44,7 @@
+@@ -36,7 +36,7 @@
      gl_StatStartup();
      gl_StateStartup();
      for (int i = 0; i < GLTT_Num; ++i)

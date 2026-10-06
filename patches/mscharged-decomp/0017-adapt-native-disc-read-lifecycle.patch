@@ -1,6 +1,6 @@
 Subject: Make original disc reads and asynchronous lifecycle safe on hosts
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain the console branches and original NL API while adapting native reads to
 Aurora's threaded DVD service. Keep callback state pointer-sized, reserve both
@@ -11,6 +11,7 @@ Synchronous whole-file loading retains original allocator selection with scoped
 restoration and cleanup. Custom-heap ownership and host-file loading fail
 explicitly; advanced whole-file async and decompression are not in this subset.
 
+diff --git a/include/NL/nlFile.h b/include/NL/nlFile.h
 --- a/include/NL/nlFile.h
 +++ b/include/NL/nlFile.h
 @@ -7,7 +7,14 @@
@@ -38,9 +39,10 @@ explicitly; advanced whole-file async and decompression are not in this subset.
  
  unsigned int nlFileSize(nlFile* file, unsigned int* size);
  void nlRead(nlFile* file, void* buffer, unsigned int size, unsigned long bufferSize);
+diff --git a/include/NL/nlFileGC.h b/include/NL/nlFileGC.h
 --- a/include/NL/nlFileGC.h
 +++ b/include/NL/nlFileGC.h
-@@ -6,7 +6,11 @@
+@@ -7,7 +7,11 @@
  struct AsyncEntry;
  
  void nlInitFileSystem(void);
@@ -53,7 +55,7 @@ explicitly; advanced whole-file async and decompression are not in this subset.
  bool nlAsyncReadsPending(nlFile* file);
  void nlSeek(nlFile* file, unsigned int offset, unsigned long origin);
  void* nlLoadEntireHostFile(const char* fileName, unsigned long* outSize,
-@@ -17,11 +21,11 @@
+@@ -18,7 +22,7 @@
  
  bool nlAsyncReadBusy(AsyncEntry* entry);
  bool nlCancelAsyncRead(AsyncEntry* entry,
@@ -62,10 +64,7 @@ explicitly; advanced whole-file async and decompression are not in this subset.
  
  void nlRegHandleDVDMessageCB(const Function<void(int)>& cb);
  void nlRegHandleDVDAllClearCB(const Function<void(int)>& cb);
- void nlRegHandleDVDRetryingCB(const Function<void(int)>& cb);
- void nlRegCheckForResetFromFSCB(const Function<FnVoidVoid>& cb);
- 
- #endif // NL_FILE_GC_H
+diff --git a/include/NL/nlArrayAllocator.h b/include/NL/nlArrayAllocator.h
 --- a/include/NL/nlArrayAllocator.h
 +++ b/include/NL/nlArrayAllocator.h
 @@ -84,6 +84,9 @@
@@ -78,6 +77,7 @@ explicitly; advanced whole-file async and decompression are not in this subset.
      unsigned char m_Memory[sizeof(T) * N];
  };
  
+diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
 --- a/src/NL/nlFileGC.cpp
 +++ b/src/NL/nlFileGC.cpp
 @@ -10,6 +10,12 @@
@@ -599,6 +599,7 @@ explicitly; advanced whole-file async and decompression are not in this subset.
  }
  
  static unsigned char CheckDVDStatus()
+diff --git a/src/NL/nlFileBasic.cpp b/src/NL/nlFileBasic.cpp
 --- a/src/NL/nlFileBasic.cpp
 +++ b/src/NL/nlFileBasic.cpp
 @@ -2,6 +2,10 @@

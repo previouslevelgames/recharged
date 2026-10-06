@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend flow and native serialized data ABI
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore reconstructed frontend methods and inline game decisions verbatim.
 Adapt only raw Wii FEN data to the native pointer/record ABI beneath the original
@@ -198,7 +198,7 @@ diff --git a/include/Game/FE/tlSlide.h b/include/Game/FE/tlSlide.h
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -143,7 +143,113 @@
+@@ -145,7 +145,113 @@
  }
  
  SceneEntry SceneEntryTable[] = {
@@ -805,7 +805,8 @@ diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
 diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.cpp
 --- a/src/Game/FE/feResourceManager.cpp
 +++ b/src/Game/FE/feResourceManager.cpp
-@@ -1,7 +1,4 @@
+@@ -1,8 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feResourceManager.h"
 -#if defined(MSCHARGED_NATIVE)
 -#include "Game/FE/FrontendResourceSteps.h"
@@ -813,7 +814,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  
  #include <stddef.h>
  
-@@ -100,7 +97,7 @@
+@@ -101,7 +98,7 @@
      return *pPreExistingResourceHandle;
  }
  
@@ -822,7 +823,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  {
      LoadNextPermanentTexture((PermanentBundleLoadState*)uParam);
  }
-@@ -128,7 +125,7 @@
+@@ -129,7 +126,7 @@
          state->uFileHashID = fileDirectoryEntry.m_hash;
          unsigned char* buffer = (unsigned char*)nlMalloc(fileDirectoryEntry.m_length, 0x20, true);
          unsigned long fileIndex = state->uFileIndex++;
@@ -831,7 +832,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
          return true;
      }
  
-@@ -144,13 +141,13 @@
+@@ -145,13 +142,13 @@
      return false;
  }
  
@@ -847,7 +848,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
      LoadNextPermanentTexture(state);
  }
  
-@@ -227,7 +224,7 @@
+@@ -228,7 +225,7 @@
      s_permanentBundleLoadState.bComplete = false;
      s_permanentBundleLoadState.callback = callback;
      s_permanentBundleLoadState.pBundle = s_pPermanentBundle;
@@ -856,7 +857,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  }
  
  void FEResourceManager::LoadPermanentTextures()
-@@ -263,7 +260,7 @@
+@@ -264,7 +261,7 @@
  
                  s_pResourceLoadBuffer = (unsigned char*)nlMalloc(uFileLength, 0x20, true);
                  s_pPermanentBundle->ReadFileByIndex(i, s_pResourceLoadBuffer, uFileLength);
@@ -865,7 +866,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
                  delete[] s_pResourceLoadBuffer;
                  s_pResourceLoadBuffer = 0;
                  pTextureResource->m_bValid = true;
-@@ -392,7 +389,7 @@
+@@ -393,7 +390,7 @@
      return FERR_AlreadyLoaded;
  }
  
@@ -874,7 +875,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  {
      FETextureResource* pHandle = (FETextureResource*)uParam;
      GLResourcePool* resourcePool = s_pResourcePool;
-@@ -433,7 +430,7 @@
+@@ -434,7 +431,7 @@
              pResourceLoadBuffer,
              fileDirectoryEntry.m_length,
              FEResourceManager::TextureResourceLoadComplete,
@@ -883,7 +884,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
          if (pAllocator != 0)
          {
              PopAllocator();
-@@ -444,17 +441,6 @@
+@@ -445,17 +442,6 @@
  
  ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)
  {
@@ -901,7 +902,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
      if (s_pCurrentFESceneResourceContext != 0
          && s_pCurrentFESceneResourceContext != pFeSceneResource
          && s_pPermanentBundleSceneResource != s_pCurrentFESceneResourceContext)
-@@ -467,7 +453,6 @@
+@@ -468,7 +454,6 @@
      pFeSceneResource->m_bValid = true;
      s_pCurrentFESceneResourceContext = pFeSceneResource;
      return FERR_WaitingForResource;
@@ -909,7 +910,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  }
  
  ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad pendingResource)
-@@ -495,23 +480,6 @@
+@@ -496,23 +481,6 @@
  
  void FEResourceManager::Update(float dt)
  {
@@ -933,7 +934,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
      ResourceResult result;
      bool bQueueNextResource = true;
      while (bQueueNextResource)
-@@ -541,7 +509,6 @@
+@@ -542,7 +510,6 @@
          result = IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry);
          bQueueNextResource = result == FERR_AlreadyLoaded;
      }
@@ -944,7 +945,8 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
 diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
 --- a/src/Game/FE/feScene.cpp
 +++ b/src/Game/FE/feScene.cpp
-@@ -1,7 +1,4 @@
+@@ -1,8 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feScene.h"
 -#if defined(MSCHARGED_NATIVE)
 -#include "Game/FE/FrontendResourceSteps.h"
@@ -952,7 +954,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  
  #include "Game/FE/fePackage.h"
  #include "Game/FE/feSceneManager.h"
-@@ -12,6 +9,9 @@
+@@ -13,6 +10,9 @@
  #include "NL/nlRing.h"
  
  #include <string.h>
@@ -962,7 +964,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  
  struct FE_FILE_HEADER
  {
-@@ -65,16 +65,16 @@
+@@ -66,16 +66,16 @@
      CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
  }
  
@@ -983,7 +985,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
      }
      *pPointer = value;
  }
-@@ -101,11 +101,19 @@
+@@ -102,11 +102,19 @@
  
  FEScene::~FEScene()
  {
@@ -1003,7 +1005,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
          m_pFEPackage = 0;
          m_uHashID = 0;
      }
-@@ -121,7 +129,11 @@
+@@ -122,7 +130,11 @@
  {
      FEScene* pFEScene = (FEScene*)pUserData;
      pFEScene->LoadPackage(pData, uSize);
@@ -1015,7 +1017,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  }
  
  inline void FEScene::LoadPackageResources(FEPackage* pFEPackage)
-@@ -139,12 +151,17 @@
+@@ -140,12 +152,17 @@
          pFEPackage->m_pResourceList, &cb, &QueueResourceLoadCallback::Callback);
  }
  
@@ -1038,7 +1040,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
      void* pPackageData;
  
      if (m_pAllocator != 0)
-@@ -158,34 +175,31 @@
+@@ -159,34 +176,31 @@
      pFileData = (unsigned char*)pData + sizeof(FE_FILE_HEADER);
      memcpy(m_pFEPackage, pFileData, m_pFileHeader->DataLength);
  
@@ -1078,7 +1080,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  
      if (m_pAllocator != 0)
      {
-@@ -216,9 +230,6 @@
+@@ -217,9 +231,6 @@
  
  void FEScene::AllResourcesLoadedCallback()
  {
@@ -1091,7 +1093,8 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
 diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
 --- a/src/Game/FE/feSceneManager.cpp
 +++ b/src/Game/FE/feSceneManager.cpp
-@@ -1,8 +1,6 @@
+@@ -1,9 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feSceneManager.h"
 -#include "Game/FE/FrontendStackSteps.h"
  
@@ -1100,7 +1103,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  #include "Game/FE/feRender.h"
  #include "Game/FE/fePackage.h"
  #include "Game/FE/feScene.h"
-@@ -38,7 +36,7 @@
+@@ -39,7 +37,7 @@
  
      while (currentEntry != 0)
      {
@@ -1109,7 +1112,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
          {
              return false;
          }
-@@ -138,7 +136,7 @@
+@@ -139,7 +137,7 @@
  
          if (pPackagePushPopMessage->m_bPush != false)
          {
@@ -1118,7 +1121,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  
              LoadScene(
                  pPackagePushPopMessage->m_szFilename,
-@@ -161,7 +159,8 @@
+@@ -162,7 +160,8 @@
                  sceneIterator.Step();
              }
  
@@ -1128,7 +1131,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  
              FEScene* pFEScene = pPackagePushPopMessage->m_pSceneHandler->mFEScene;
              delete pPackagePushPopMessage->m_pSceneHandler;
-@@ -187,7 +186,7 @@
+@@ -188,7 +187,7 @@
      msg->m_pSceneHandler->mHashID = nlStringLowerHash(szFilename);
      msg->m_pAllocator = pAllocator != 0 ? pAllocator : CurrentAllocator;
  
@@ -1137,7 +1140,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  }
  
  void FESceneManager::QueueScenePop()
-@@ -216,7 +215,7 @@
+@@ -217,7 +216,7 @@
          sceneIterator.Step();
      }
  
@@ -1146,7 +1149,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  }
  
  void FESceneManager::RenderActiveScenes()
-@@ -228,7 +227,7 @@
+@@ -229,7 +228,7 @@
          if (!IsObjectQueuedForPop(m_topMostScene))
          {
              FEScene* scene = m_topMostScene->mFEScene;
@@ -1155,7 +1158,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
              {
                  FERender::RenderScene(scene);
              }
-@@ -247,7 +246,7 @@
+@@ -248,7 +247,7 @@
              if (!IsObjectQueuedForPop(pSceneHandler))
              {
                  FEScene* scene = pSceneHandler->mFEScene;
@@ -1164,7 +1167,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
                  {
                      FERender::RenderScene(scene);
                  }
-@@ -261,7 +260,9 @@
+@@ -262,7 +261,9 @@
  void FESceneManager::InitializeScene(FEScene* pFEScene)
  {
      BaseSceneHandler* pSceneHandler = GetSceneHandler(pFEScene->m_uHashID);
@@ -1175,7 +1178,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  }
  
  void FESceneManager::Update(float dt)
-@@ -283,9 +284,10 @@
+@@ -284,9 +285,10 @@
  
      while (currentEntry != 0)
      {

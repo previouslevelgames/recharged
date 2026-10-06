@@ -1,10 +1,10 @@
 Subject: Share selected original Title visual, input and departure fragments
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 --- a/src/Game/SH/SHTitleScreen.cpp
 +++ b/src/Game/SH/SHTitleScreen.cpp
-@@ -3,6 +3,7 @@
+@@ -5,6 +5,7 @@
  #include "NL/nlFunction.inl"
  #include "Game/GameSceneManager.h"
  #include "Game/SH/SHTitleScreen.h"
@@ -12,7 +12,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  #include "Game/Render/RLViewLayers.h"
  #include "Game/FE/FEAudio.h"
  
-@@ -38,17 +39,12 @@
+@@ -40,17 +41,12 @@
  static bool setDimmingTime;
  
  extern const int sControllerDefaults[10] = {
@@ -32,7 +32,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  }
  
  TitleScene::TitleScene(ScreenMovement movement)
-@@ -81,41 +77,7 @@
+@@ -83,41 +79,7 @@
  
  void TitleScene::SceneCreated()
  {
@@ -75,7 +75,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  }
  
  inline void TitleScene::InitializePointerButtons()
-@@ -130,7 +92,7 @@
+@@ -132,7 +94,7 @@
      FEPointerListener::Callback select(
          PointerBinding(MemFun(&TitleScene::OnControllerPointerPress), this, Placeholder<0>(), Placeholder<1>()));
  
@@ -84,7 +84,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
      mControllerComponent.SetPointerEnterCallback(enter);
      mControllerComponent.SetPointerLeaveCallback(leave);
      mControllerComponent.SetPointerPressCallback(select);
-@@ -138,24 +100,7 @@
+@@ -140,24 +102,7 @@
  
  void TitleScene::Update(float dt)
  {
@@ -110,7 +110,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  
      float demoTimeout = GetConfigFloat(Config::Global(), "fe_demo_mode_time_out", 60.0f);
      if (GetTweakBool("/user/dosoak", false))
-@@ -188,86 +133,9 @@
+@@ -190,86 +135,9 @@
              continue;
          }
  
@@ -200,7 +200,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
          if (sequenceReady && g_pPlatPadManager->type[pad] == 2)
          {
              WiiFreestylePadStatus status = *g_pPlatPadManager->GetFreestyleStatus(pad);
-@@ -378,15 +246,7 @@
+@@ -380,15 +248,7 @@
  
  void TitleScene::OnControllerPointerPress(int index, void*)
  {
@@ -217,7 +217,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  
      WPADInfo info;
      if (WPADGetInfo(index, &info) == WPAD_ERR_OK && info.battery <= 1)
-@@ -403,17 +263,12 @@
+@@ -405,17 +265,12 @@
  
  void TitleScene::OnControllerPointerEnter(int index, void*)
  {
@@ -240,7 +240,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 --- a/src/Game/DB/UserOptions.cpp
 +++ b/src/Game/DB/UserOptions.cpp
-@@ -3,6 +3,7 @@
+@@ -4,6 +4,7 @@
  
  #include "Game/Audio/AudioSystem.h"
  #include "Game/Audio/RegistryPools.h"
@@ -248,7 +248,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  #include "Game/DB/SaveStateSteps.h"
  
  #include <string.h>
-@@ -95,6 +96,7 @@
+@@ -96,6 +97,7 @@
  
  void GameplaySettings::OnSettingsUpdated() const
  {
@@ -256,7 +256,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  }
  
  CheatSettings::CheatSettings()
-@@ -114,6 +116,7 @@
+@@ -115,6 +117,7 @@
  
  void CheatSettings::OnSettingsUpdated() const
  {

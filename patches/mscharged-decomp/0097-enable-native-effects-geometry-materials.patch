@@ -1,6 +1,6 @@
 Subject: Connect original effects geometry materials to native GX
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain the original FloatTexturedColour and ConstantColour TEV/alpha recipes.
 Use typed Aurora state, bounded host vertex arrays, indexed FIFO writes and
@@ -8,6 +8,7 @@ GXEnd. The checked decoder expands ConstantColour's signed 12-fraction UVs
 into floats; console vertex formats remain unchanged. Native direct/display
 list packets stay unsupported. Reset native singleton state at teardown.
 
+diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 @@ -1,4 +1,9 @@
@@ -106,6 +107,7 @@ list packets stay unsupported. Reset native singleton state at teardown.
  }
  
  void GXFloatTexturedColourMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@
@@ -118,6 +120,7 @@ list packets stay unsupported. Reset native singleton state at teardown.
  #include "NL/gl/glMaterialParameters.h"
  
  #include "NL/glx/GXFloatTexturedColourMaterialProgram.h"
+diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConstantColourMaterialProgram.cpp
 --- a/src/NL/glx/GXConstantColourMaterialProgram.cpp
 +++ b/src/NL/glx/GXConstantColourMaterialProgram.cpp
 @@ -1,4 +1,9 @@
@@ -220,6 +223,7 @@ list packets stay unsupported. Reset native singleton state at teardown.
  }
  
  void GXConstantColourMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
 --- a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@

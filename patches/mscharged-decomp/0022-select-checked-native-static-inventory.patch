@@ -1,6 +1,6 @@
 Subject: Select checked native static inventory
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select checked native static inventory
 Select original model/texture insertion, layered lookup and resource-level
@@ -14,10 +14,9 @@ container pointers remain null; this is not the full game inventory. Build
 GLInventoryStatic.cpp alone for this subset, never alongside GLInventory.cpp.
 
 diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
-index 5235c40..3563080 100644
 --- a/include/Game/GL/GLInventory.h
 +++ b/include/Game/GL/GLInventory.h
-@@ -164,6 +164,9 @@ public:
+@@ -164,6 +164,9 @@
      Tree* m_pItems;
  };
  

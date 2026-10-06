@@ -1,6 +1,6 @@
 Subject: Share the original frontend camera animation catalog with native loading
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Move the unchanged 37 filename/alias entries into one shared initializer and
 share their original record type. The console factory retains its existing
@@ -11,13 +11,14 @@ The complete factory, filters, gameplay camera and global registry stay unselect
 diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
 --- a/src/Game/Camera/CameraMan.cpp
 +++ b/src/Game/Camera/CameraMan.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Camera/CameraMan.h"
 +#include "Game/Camera/FrontendCameraCatalog.h"
  #ifdef MSCHARGED_NATIVE
  #include "runtime/cameras.h"
  #endif
-@@ -85,12 +86,6 @@
+@@ -86,12 +87,6 @@
  
  static char sTeamCameraAnimationNames[12][100];
  
@@ -30,7 +31,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
  #ifndef MSCHARGED_NATIVE
  static void ApplyCameraFilters(nlMatrix4& matView)
  {
-@@ -214,43 +209,7 @@
+@@ -215,43 +210,7 @@
      else
      {
          CameraAnimationLoadInfo frontEndCameraAnimations[] = {

@@ -1,12 +1,13 @@
 Subject: [PATCH] restore original pose methods and native borrowed callback ABI
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Original modules retain source constructor/array ownership/copy/Pose/Replay
 and callback methods. Preserve first callback word borrowed native addresses;
 keep the second numeric word unchanged. Diagnostic guards do not enter original
 execution. Scalar PPC/compiler adaptations remain explicit and separate.
 
+diff --git a/include/Game/Player.h b/include/Game/Player.h
 --- a/include/Game/Player.h
 +++ b/include/Game/Player.h
 @@ -2,6 +2,7 @@
@@ -26,6 +27,7 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
          cPoseAccumulator* pPoseAccumulator, unsigned int nJointIndex, int nParentIndex);
      bool IsCharacterInAir(float fParam) const;
      cPN_SingleAxisBlender* CreateSingleAxisBlender(
+diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
 --- a/include/Game/PoseAccumulator.h
 +++ b/include/Game/PoseAccumulator.h
 @@ -5,13 +5,14 @@
@@ -92,6 +94,8 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
  template <typename T>
  inline void cPoseAccumulator::Replay(T& frame)
  {
+diff --git a/include/Game/PoseCallbackAddress.h b/include/Game/PoseCallbackAddress.h
+new file mode 100644
 --- /dev/null
 +++ b/include/Game/PoseCallbackAddress.h
 @@ -0,0 +1,9 @@
@@ -104,9 +108,10 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
 +typedef unsigned int PoseCallbackAddressWord;
 +#endif
 +#endif
+diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
 --- a/src/Game/Drawable/DrawableCharacter.cpp
 +++ b/src/Game/Drawable/DrawableCharacter.cpp
-@@ -253,7 +253,7 @@
+@@ -254,7 +254,7 @@
      effectsTexturing = tex;
  }
  
@@ -115,7 +120,7 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
  {
      DrawableCharacter* drawableChar = (DrawableCharacter*)ctx;
      CalcHeadTrackMatrix(drawableChar->headSpin, drawableChar->headTilt, poseAccumulator, currentNodeIndex);
-@@ -268,7 +268,11 @@
+@@ -269,7 +269,11 @@
  
      if (character != 0)
      {
@@ -127,9 +132,10 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
      }
  
      accumulator->BuildNodeMatrices(worldMatrix);
+diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
 --- a/src/Game/Player.cpp
 +++ b/src/Game/Player.cpp
-@@ -1048,7 +1048,7 @@
+@@ -1049,7 +1049,7 @@
      return pSAB;
  }
  
@@ -138,7 +144,7 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
      cPoseAccumulator* pPoseAccumulator, unsigned int nJointIndex, int nParentIndex)
  {
      cPlayer& self = *(cPlayer*)nSelf;
-@@ -1120,7 +1120,11 @@
+@@ -1121,7 +1121,11 @@
  void cPlayer::Unknown7(float)
  {
      m_pPoseAccumulator->SetBuildNodeMatrixCallback(
@@ -150,6 +156,7 @@ execution. Scalar PPC/compiler adaptations remain explicit and separate.
      if (m_pBall != NULL)
      {
          m_pBall->m_pPhysicsBall->EnableCollisions();
+diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
 --- a/src/Game/PoseAccumulator.cpp
 +++ b/src/Game/PoseAccumulator.cpp
 @@ -7,7 +7,7 @@

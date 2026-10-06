@@ -1,6 +1,6 @@
 Subject: Select original animated camera playback with bounded native services
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Compile original interpolation/cuts, transforms, timing and FOV independently
 of the full camera factory. Native owners retain decoded data and provide
@@ -11,7 +11,7 @@ Raw registry/loading and gameplay service singletons remain unselected.
 diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
 --- a/src/Game/Camera/animcam.cpp
 +++ b/src/Game/Camera/animcam.cpp
-@@ -255,6 +255,7 @@
+@@ -256,6 +256,7 @@
      m_cameraDataList = NULL;
  }
  
@@ -19,7 +19,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  cAnimCamera::cAnimCamera()
  {
      m_bUseSimulationTime = false;
-@@ -273,11 +274,15 @@
+@@ -274,11 +275,15 @@
      m_bCyclic = true;
      m_matView.SetIdentity();
  }
@@ -37,7 +37,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
  {
      m_fAnimationTime = fTime;
-@@ -286,14 +291,18 @@
+@@ -287,14 +292,18 @@
          BuildAnimViewMatrix(m_matView);
      }
  }
@@ -58,7 +58,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
  {
      float fRealIndex = m_fAnimationTime * (float)(m_pActiveCameraData->m_uKeyCount - 1);
-@@ -401,6 +410,7 @@
+@@ -402,6 +411,7 @@
      m_FocalLength = dofBehindTarget * fScale + focalLength;
      DepthOfFieldManager::instance.m_fDistanceFromCamera = m_FocalLength;
  }
@@ -66,7 +66,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  
  void cAnimCamera::UnselectCameraAnimation()
  {
-@@ -427,6 +437,7 @@
+@@ -428,6 +438,7 @@
      BuildAnimViewMatrix(m_matView);
  }
  
@@ -74,7 +74,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  void cAnimCamera::Update(float dt)
  {
      if (!m_LetManagerDoUpdate)
-@@ -435,7 +446,9 @@
+@@ -436,7 +447,9 @@
      }
      ManualUpdate(dt);
  }
@@ -85,7 +85,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  float cAnimCamera::ManualUpdate(float dt)
  {
      float overrun = 0.0f;
-@@ -482,3 +495,4 @@
+@@ -483,3 +496,4 @@
      BuildAnimViewMatrix(m_matView);
      return overrun;
  }

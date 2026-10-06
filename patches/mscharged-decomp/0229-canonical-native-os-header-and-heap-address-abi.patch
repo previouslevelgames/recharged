@@ -1,12 +1,13 @@
 Subject: [PATCH] share canonical native OS types and heap address width
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Native compilation uses the actual SDK context/alarm/thread/mutex ABI. Preserve
 console declarations and missing Wii services as explicit imports. Heap pointer
 arithmetic retains native addresses while original32-bit offsets remain fixed.
 No HBM source behavior or successful platform provider is added.
 
+diff --git a/libs/RVL_SDK/include/revolution/mem/heapCommon.h b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
 --- a/libs/RVL_SDK/include/revolution/mem/heapCommon.h
 +++ b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
 @@ -33,7 +33,12 @@
@@ -22,6 +23,7 @@ No HBM source behavior or successful platform provider is added.
  
  static inline UIntPtr GetUIntPtr(const void* ptr) {
      return (UIntPtr)ptr;
+diff --git a/libs/RVL_SDK/include/revolution/os/OSAlarm.h b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 --- a/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 @@ -1,5 +1,21 @@
@@ -53,6 +55,7 @@ No HBM source behavior or successful platform provider is added.
 +#endif // native SDK / original console declarations
 +
  #endif  // REVOLUTION_OS_ALARM_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSContext.h b/libs/RVL_SDK/include/revolution/os/OSContext.h
 --- a/libs/RVL_SDK/include/revolution/os/OSContext.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSContext.h
 @@ -7,7 +7,7 @@
@@ -64,6 +67,7 @@ No HBM source behavior or successful platform provider is added.
  void __OSContextInit(void);
  #ifdef __cplusplus
  }
+diff --git a/libs/RVL_SDK/include/revolution/os/OSMutex.h b/libs/RVL_SDK/include/revolution/os/OSMutex.h
 --- a/libs/RVL_SDK/include/revolution/os/OSMutex.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSMutex.h
 @@ -1,5 +1,9 @@
@@ -83,6 +87,7 @@ No HBM source behavior or successful platform provider is added.
 +#endif // native SDK / original console declarations
 +
  #endif  // REVOLUTION_OS_MUTEX_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
 @@ -1,5 +1,9 @@
@@ -102,6 +107,7 @@ No HBM source behavior or successful platform provider is added.
 +#endif // native SDK / original console declarations
 +
  #endif  // REVOLUTION_OS_THREAD_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
 --- a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
 @@ -1,5 +1,9 @@

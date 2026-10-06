@@ -1,6 +1,6 @@
 Subject: Share original frontend instance setters and loading-scene setup prefix
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share actual attribute/visibility/string/resource setter effects with checked
 native snapshots. Share BaseLoadingScene's authored component setup while keeping

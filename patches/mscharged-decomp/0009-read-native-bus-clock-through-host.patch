@@ -1,6 +1,6 @@
 Subject: Read the host OS bus clock instead of defining console low-memory globals
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Each original time unit maps __OSBusClock to the same console address.
 Native builds must not create duplicate uninitialized globals. Read the
@@ -8,7 +8,6 @@ initialized Aurora clock through a typed host bridge, preserving tick conversion
 math. Full Wii clock/simulation parity remains separate validation work.
 
 diff --git a/src/NL/nlTicker.cpp b/src/NL/nlTicker.cpp
-index b871818..ae2c298 100644
 --- a/src/NL/nlTicker.cpp
 +++ b/src/NL/nlTicker.cpp
 @@ -4,7 +4,12 @@
@@ -25,7 +24,6 @@ index b871818..ae2c298 100644
  void nlInitTicker()
  {
 diff --git a/src/NL/nlTime.cpp b/src/NL/nlTime.cpp
-index 71db3c0..76d1c3a 100644
 --- a/src/NL/nlTime.cpp
 +++ b/src/NL/nlTime.cpp
 @@ -4,7 +4,12 @@

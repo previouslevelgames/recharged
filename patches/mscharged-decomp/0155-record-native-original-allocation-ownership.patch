@@ -1,5 +1,5 @@
 Subject: Record native allocation ownership beneath the original free-list allocator
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain the original allocation/free ring, payload and ordering decisions. Host
 ownership records distinguish overlapping parent/custom heaps and retain the
@@ -30,7 +30,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      FreeBlockList* start = nlDLRingGetStart(m_free_block_list);
      FreeBlockList* cur = start;
 @@ -266,6 +270,9 @@
-
+ 
      void* result = InitializeAllocation(cur, size, prefix, cur->m_size - usedSize);
      m_allocation_count++;
 +#ifdef MSCHARGED_NATIVE
@@ -38,7 +38,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
 +#endif
      return result;
  }
-
+ 
 @@ -293,6 +300,7 @@
      if (alignment < kBlockAlignment) alignment = kBlockAlignment;
      if (size < sizeof(FreeBlockList)) size = sizeof(FreeBlockList);
@@ -48,7 +48,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      FreeBlockList* end = nlDLRingGetEnd(m_free_block_list);
      u32 alignedSize = (size + kBlockAlignment - 1) & ~(kBlockAlignment - 1);
 @@ -326,6 +334,9 @@
-
+ 
      void* result = AllocateFromBlockEnd(&m_free_block_list, cur, size, offset, requestSize);
      m_allocation_count++;
 +#ifdef MSCHARGED_NATIVE
@@ -56,10 +56,10 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
 +#endif
      return result;
  }
-
+ 
 @@ -337,6 +348,7 @@
      }
-
+ 
  #ifdef MSCHARGED_NATIVE
 +    mscharged::platform::ValidateGameAllocationFree(*this, p);
      const uintptr_t address = (uintptr_t)p;
@@ -73,7 +73,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
 +    mscharged::platform::FinishGameAllocationFree(p);
 +#endif
  }
-
+ 
  void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool fromEnd)
 @@ -422,6 +437,7 @@
          || size < sizeof(FreeBlockList) || (size & (kBlockAlignment - 1)) != 0

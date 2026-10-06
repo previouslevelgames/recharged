@@ -1,6 +1,6 @@
 Subject: Share original submenu Done pointer bounds and hover callbacks
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Preserve exact authored absolute bounds and common Audio/Visual hover bodies.
 Press still executes its selected source callback; native host preferences are
@@ -68,13 +68,14 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
 --- a/src/Game/FE/feHelpFuncs.cpp
 +++ b/src/Game/FE/feHelpFuncs.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
 +#include "Game/FE/FrontendDoneButtonSteps.h"
  
  #include <cmath>
  #include <stdio.h>
-@@ -52,8 +53,6 @@
+@@ -53,8 +54,6 @@
      "TOURNAMENT",
  };
  
@@ -83,7 +84,7 @@ diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
  
  // Retail's .sdata2 pool for this unit opens with 0.0f, ahead of the constants
  // EnableAutoPressed creates, although no surviving function generated before
-@@ -351,16 +350,7 @@
+@@ -352,16 +351,7 @@
  void SetDoneButtonBounds(
      FEPointerButton* component, TLComponentInstance*, int value)
  {

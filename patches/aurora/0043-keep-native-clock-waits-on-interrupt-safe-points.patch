@@ -1,0 +1,58 @@
+Subject: Keep native clock and device waits on interrupt safe points
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native host scheduling; original clock and wait predicates unchanged.
+
+diff --git a/lib/dolphin/os/OSTime.cpp b/lib/dolphin/os/OSTime.cpp
+--- a/lib/dolphin/os/OSTime.cpp
++++ b/lib/dolphin/os/OSTime.cpp
+@@ -140,7 +140,10 @@
+   // arithmetic stays unchanged and foreign/masked callers never dispatch.
+   AuroraServiceGXDrawDone();
+ #endif
+-  aurora_service_hardware();
++  // A retail clock query is an interrupt safe point, not a desktop Present.
++  // The owner update/actual VI wait boundary services pending scanout; VI/AI
++  // causes and GX completion still progress here without blocking on a surface.
++  aurora_service_hardware_interrupts();
+   std::call_once(s_gameEpochOnce, initialize_game_epoch);
+   return s_gameEpochOffset + duration_to_ticks(OSTimeClock::now().time_since_epoch());
+ }
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -319,7 +319,8 @@
+     // Native equivalent of source OSSleepThread: allow the genuine latched
+     // interrupt while the source owner sleeps, then reenter its critical section.
+     OSEnableInterrupts();
+-    aurora_service_hardware();
++    // Sleep on the genuine finish IRQ; native desktop presentation is separate.
++    aurora_service_hardware_interrupts();
+     service_draw_done();
+     std::this_thread::yield();
+     OSDisableInterrupts();
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -424,16 +424,20 @@
+   InterruptMask mask;
+   const u32 count = VIGetRetraceCount();
+   do {
+-    OSEnableInterrupts(); aurora_service_hardware();
++    OSEnableInterrupts(); aurora_service_hardware_interrupts();
+     if (count == VIGetRetraceCount()) {
+       Clock::time_point deadline;
+       { std::lock_guard lock(state.mutex); UpdateClock(state, Clock::now());
+         deadline = state.anchor + FieldOffset(state.fields + 1, state.timing); }
+       std::this_thread::sleep_until(std::min(deadline, Clock::now() + std::chrono::milliseconds{1}));
+-      aurora_service_hardware();
++      aurora_service_hardware_interrupts();
+     }
+     OSDisableInterrupts();
+   } while (count == VIGetRetraceCount());
++  // Pre-loop/loading callers need real output too. Present at most once at
++  // this completed native wait boundary, after the genuine source retrace.
++  // Preserve the caller's original saved interrupt state through the mask.
++  OSEnableInterrupts(); aurora_service_hardware(); OSDisableInterrupts();
+ }
+ u32 VIGetRetraceCount() { auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state); return state.retraces; }
+ u32 VIGetNextField() {

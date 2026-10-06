@@ -1,0 +1,178 @@
+Subject: Native compressed-file header and actual inflater byte ownership
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Classification: native serialized byte transport and real file-load ownership.
+
+diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
+--- a/src/NL/nlFile.cpp
++++ b/src/NL/nlFile.cpp
+@@ -7,7 +7,9 @@
+ #include "NL/nlMemory.h"
+ #ifdef MSCHARGED_NATIVE
+ #include "platform/file_handle_abi.h"
++#include "platform/game_allocation_ownership.h"
+ #include <new>
++#include <stdexcept>
+ #endif
+ 
+ 
+@@ -256,8 +258,48 @@
+     int fullChunkCount;
+     int finalChunkSize;
+     InflateStream inflateState;
++#ifdef MSCHARGED_NATIVE
++    // The original inflater is the producer. Reserve output metadata before
++    // it writes; publish only genuinely completed original serialized bytes.
++    mscharged::platform::GameByteWriteReservation nativeOutputWrite;
++#endif
+ };
+ 
++#ifdef MSCHARGED_NATIVE
++static void nlReleaseCompressedFileState(CompressedFileLoad* state)
++{
++    // Closing the original file joins/cancels every actual raw worker before
++    // its source read buffers and context can return to the original arena.
++    delete state->file;
++    if (state->ownsReadBuffers) nlFree(state->readBuffers[0]);
++    delete state;
++}
++
++static void nlAbortCompressedFileLoad(void* context)
++{
++    CompressedFileLoad* state = (CompressedFileLoad*)context;
++    state->nativeOutputWrite.Reset();
++    state->inflateState.Finish();
++    nlFree(state->output);
++    nlReleaseCompressedFileState(state);
++}
++
++static void nlDecodeCompressedFileSize(CompressedFileLoad* state)
++{
++    using namespace mscharged::platform;
++    GameCompletedSpan span{};
++    if (!FindGameCompletedSpan(&state->uncompressedSize, 4, span)
++        || FindGameByteDomain(&state->uncompressedSize, 4) != GameByteDomain::WiiSerialized)
++        throw std::runtime_error("Original compressed header has no completed Wii bytes");
++    GameByteWriteReservation nativeHeader(&state->uncompressedSize, 4);
++    const unsigned char* bytes = (const unsigned char*)&state->uncompressedSize;
++    unsigned int size = (unsigned int)bytes[0] << 24 | (unsigned int)bytes[1] << 16
++        | (unsigned int)bytes[2] << 8 | (unsigned int)bytes[3];
++    state->uncompressedSize = size;
++    nativeHeader.Complete(GameByteDomain::NativeHeader);
++}
++#endif
++
+ void* AllocateInflateMemory(void*, unsigned int count, unsigned int size)
+ {
+     return nlMalloc(count * size, 8, false);
+@@ -271,6 +313,11 @@
+ void OnCompressedFileHeaderRead(nlFile*, void*, unsigned int, nlFileAsyncParam userParam)
+ {
+     CompressedFileLoad* state = (CompressedFileLoad*)userParam;
++#ifdef MSCHARGED_NATIVE
++    try
++    {
++    nlDecodeCompressedFileSize(state);
++#endif
+     MemoryAllocator* allocator = state->allocator;
+ 
+     AllocatorStack[AllocatorStackDepth++] = allocator;
+@@ -299,11 +346,24 @@
+     unsigned int uncompressedSize = state->uncompressedSize;
+     state->inflateState.output = state->output;
+     state->inflateState.outputSize = uncompressedSize;
++#ifdef MSCHARGED_NATIVE
++    state->nativeOutputWrite = mscharged::platform::GameByteWriteReservation(state->output, uncompressedSize);
++    }
++    catch (...)
++    {
++        mscharged::platform::AbortFileLoad(state);
++        throw;
++    }
++#endif
+ }
+ 
+ void OnCompressedFileDataRead(nlFile* file, void* buffer, unsigned int size, nlFileAsyncParam userParam)
+ {
+     CompressedFileLoad* state = (CompressedFileLoad*)userParam;
++#ifdef MSCHARGED_NATIVE
++    try
++    {
++#endif
+ 
+     ++state->completedReads;
+     state->inflateState.Process(buffer, size);
+@@ -312,7 +372,29 @@
+     if (state->completedReads == state->readCount)
+     {
+         state->inflateState.Finish();
++#ifdef MSCHARGED_NATIVE
++        // Do not infer completion from the file header or completed raw reads.
++        // An incomplete original stream has no publishable serialized output.
++        if (!state->inflateState.complete
++            || state->inflateState.state.total_out != state->uncompressedSize)
++            throw std::runtime_error("Original compressed output remains incomplete");
++        state->nativeOutputWrite.Complete(mscharged::platform::GameByteDomain::WiiSerialized);
++        mscharged::platform::FinishFileLoad(state);
++        try
++        {
++#endif
+         state->callback(state->output, state->uncompressedSize, state->userData);
++#ifdef MSCHARGED_NATIVE
++        }
++        catch (...)
++        {
++            // Completion already transferred the original output to the source
++            // callback. Retire only the file/read-buffer/context owner.
++            nlReleaseCompressedFileState(state);
++            state = 0;
++            throw;
++        }
++#endif
+         delete state->file;
+ 
+         if (state != 0)
+@@ -324,6 +406,14 @@
+             delete state;
+         }
+     }
++#ifdef MSCHARGED_NATIVE
++    }
++    catch (...)
++    {
++        if (state != 0) mscharged::platform::AbortFileLoad(state);
++        throw;
++    }
++#endif
+ }
+ 
+ bool nlLoadCompressedFileAsync(const char* path, LoadAsyncCallback callback,
+@@ -357,6 +447,13 @@
+         CompressedFileLoad(file, param, compressedSize, callback, userData,
+             allocator, allocType, chunkSize, readBuffer0, readBuffer1);
+ 
++#ifdef MSCHARGED_NATIVE
++    bool nativeOwnerRegistered = false;
++    try
++    {
++        mscharged::platform::ReserveFileLoad(state, file, nlAbortCompressedFileLoad);
++        nativeOwnerRegistered = true;
++#endif
+     nlReadAsync(file, state, 4, OnCompressedFileHeaderRead, (nlFileAsyncParam)state, 0);
+ 
+     unsigned int payloadSize = compressedSize - 4;
+@@ -370,6 +467,15 @@
+ 
+     state->QueueNextRead(file);
+     state->QueueNextRead(file);
++#ifdef MSCHARGED_NATIVE
++    }
++    catch (...)
++    {
++        if (nativeOwnerRegistered) mscharged::platform::AbortFileLoad(state);
++        else nlAbortCompressedFileLoad(state);
++        throw;
++    }
++#endif
+ 
+     return true;
+ }

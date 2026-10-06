@@ -10,6 +10,7 @@ struct SDL_Window;
 
 namespace mscharged
 {
+struct ResolvedLaunch;
 class FrontendMenuScenes;
 struct FrontendPointerViewport;
 // Optional embedding/diagnostic callbacks. Input remains inside the original
@@ -52,5 +53,5 @@ struct SceneOptions
     std::optional<unsigned> frame_timeout; // Explicit wall-clock bound for long diagnostics; defaults30s.
 };
 int RunScenePreview(int argc, char** argv, const std::filesystem::path& config, const SceneOptions& options,
-    const ScenePreviewHooks* hooks = nullptr);
+    const ScenePreviewHooks* hooks = nullptr, const ResolvedLaunch* launch = nullptr);
 }

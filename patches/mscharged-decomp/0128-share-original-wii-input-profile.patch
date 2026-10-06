@@ -1,9 +1,8 @@
 Subject: Share original pure Wii input device policies
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 diff --git a/include/NL/plat/WiiPadSteps.h b/include/NL/plat/WiiPadSteps.h
 new file mode 100644
-index 0000000..72acf59
 --- /dev/null
 +++ b/include/NL/plat/WiiPadSteps.h
 @@ -0,0 +1,135 @@
@@ -143,17 +142,17 @@ index 0000000..72acf59
 +}
 +#endif
 diff --git a/src/NL/plat/WiiClassicPad.cpp b/src/NL/plat/WiiClassicPad.cpp
-index 2470197..730f31c 100644
 --- a/src/NL/plat/WiiClassicPad.cpp
 +++ b/src/NL/plat/WiiClassicPad.cpp
-@@ -1,5 +1,6 @@
+@@ -2,6 +2,7 @@
+ #include "NL/nlDLListContainer.inl"
  #include "NL/plat/WiiClassicPad.h"
  #include "NL/plat/WiiPad.h"
 +#include "NL/plat/WiiPadSteps.h"
  #include "NL/plat/PlatPadManager.h"
  #include "NL/plat/SwappablePad.h"
  
-@@ -48,13 +49,13 @@ void WiiClassicPad::UpdateState(float dt)
+@@ -50,13 +51,13 @@
  {
      mDPDData.Update(&mCurrentStatus->kpad);
      WPADCLStatus* status = &mCurrentStatus->wpad;
@@ -172,7 +171,7 @@ index 2470197..730f31c 100644
      }
  
      int changed = mCurrentStatus->wpad.clButton ^ mPreviousStatus->wpad.clButton;
-@@ -109,116 +110,12 @@ int WiiClassicPad::GetButtonIndex(int button, bool remap)
+@@ -111,116 +112,12 @@
  {
      if (remap)
          button = gWiiClassicButtonRemap[button];
@@ -292,17 +291,17 @@ index 2470197..730f31c 100644
  
  float WiiClassicPad::GetButtonStateTime(int button, bool remap)
 diff --git a/src/NL/plat/WiiFreestylePad.cpp b/src/NL/plat/WiiFreestylePad.cpp
-index 5af1a64..7a0e5c3 100644
 --- a/src/NL/plat/WiiFreestylePad.cpp
 +++ b/src/NL/plat/WiiFreestylePad.cpp
-@@ -1,5 +1,6 @@
+@@ -2,6 +2,7 @@
+ #include "NL/nlDLListContainer.inl"
  #include "NL/plat/WiiFreestylePad.h"
  #include "NL/plat/WiiPad.h"
 +#include "NL/plat/WiiPadSteps.h"
  #include "NL/plat/PlatPadManager.h"
  #include "NL/plat/SwappablePad.h"
  
-@@ -16,11 +17,11 @@ inline void WiiFreestylePad::UpdateState(float dt)
+@@ -18,11 +19,11 @@
      mDPDData.Update(&mCurrentStatus->kpad);
  
      status = &mCurrentStatus->wpad;

@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original checked model-particle and attachment equations
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Extract original coordinates, matrix/frame, colour/raster and joint/ground math
 for the retained native model-particle owner. Caller service validation stays
@@ -8,7 +8,6 @@ unselected boundary; owned DOL confirms its discarded return value.
 
 diff --git a/include/Game/Effects/ParticleModelSteps.h b/include/Game/Effects/ParticleModelSteps.h
 new file mode 100644
-index 0000000..7f7f35c
 --- /dev/null
 +++ b/include/Game/Effects/ParticleModelSteps.h
 @@ -0,0 +1,139 @@
@@ -152,15 +151,15 @@ index 0000000..7f7f35c
 +}
 +#endif
 diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
-index 9914ba2..dac159e 100644
 --- a/src/Game/Effects/EmissionController.cpp
 +++ b/src/Game/Effects/EmissionController.cpp
-@@ -1,3 +1,4 @@
+@@ -1,4 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
 +#include "Game/Effects/ParticleModelSteps.h"
  #include "Game/Effects/EmissionControllerSteps.h"
  #include "Game/Effects/EmissionController.h"
  #include "Game/Effects/EmissionManager.h"
-@@ -315,11 +316,10 @@ void EmissionController::ComputePositionAndVelocity(EffectsSpec& spec, nlVector3
+@@ -316,11 +317,10 @@
          }
      }
  
@@ -176,7 +175,7 @@ index 9914ba2..dac159e 100644
  }
  
  bool fxUpdateParticleSystem(
-@@ -356,29 +356,6 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
+@@ -357,29 +357,6 @@
          return;
      }
  
@@ -206,7 +205,7 @@ index 9914ba2..dac159e 100644
      u32 jointID = pSpec->m_uJointID;
      if (m_pAnimController != 0 && m_pAnimController->m_bMirror)
      {
-@@ -389,8 +366,7 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
+@@ -390,8 +367,7 @@
  
      const nlMatrix4& mat = m_pPose->GetNodeMatrixByHashID(
          m_uJointIDOverride == 0 ? jointID : m_uJointIDOverride);
@@ -217,15 +216,15 @@ index 9914ba2..dac159e 100644
  
  bool EmissionController::Update(float dt)
 diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
-index 8fa2368..42a0a6d 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
-@@ -1,3 +1,4 @@
+@@ -1,4 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
 +#include "Game/Effects/ParticleModelSteps.h"
  #include "Game/Effects/ParticleSystem.h"
  #ifndef MSCHARGED_NATIVE
  #include "Game/Sys/debug.h"
-@@ -127,36 +128,7 @@ void ParticleSystem::UpdateCoordSys()
+@@ -128,36 +129,7 @@
  
  void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
  {
@@ -263,7 +262,7 @@ index 8fa2368..42a0a6d 100644
  }
  
  typedef void (*EmitParticlePosition)(nlVector3&, nlVector3&,
-@@ -891,13 +863,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+@@ -892,13 +864,8 @@
          eEffectsBlend blendType;
  
          nlMatrix4 m;
@@ -278,7 +277,7 @@ index 8fa2368..42a0a6d 100644
  
          switch (m_pTemplate->m_eBlend)
          {
-@@ -923,21 +890,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+@@ -924,21 +891,8 @@
                      0);
              }
              UpdateParticle(&ret, pPart, m_pTemplate, viewRight, viewUp, pCoord);
@@ -302,7 +301,7 @@ index 8fa2368..42a0a6d 100644
  
              glMatrixHandle hMatrix = glAllocSetMatrix(m);
  
-@@ -948,20 +902,14 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+@@ -949,20 +903,14 @@
                  {
                      meshRateScale = ((float)(int)pAnim->m_nNumFrames
                          / pAnim->m_fFrameRate) / pPart->lifeSpan;
@@ -327,7 +326,7 @@ index 8fa2368..42a0a6d 100644
                  }
              }
  
-@@ -973,21 +921,12 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+@@ -974,21 +922,12 @@
                  if (glHasMaterialParameter(pPacket, constantColourHash))
                  {
                      nlVector4 colour;

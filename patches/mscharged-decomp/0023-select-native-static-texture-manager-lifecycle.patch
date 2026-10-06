@@ -1,6 +1,6 @@
 Subject: Select native static texture manager lifecycle
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select native static texture manager lifecycle
 Select original static texture lookup, binding resolution, registration and
@@ -12,10 +12,9 @@ Select glTextureManagerStatic.cpp alone for this native subset. Texture GPU
 objects are not reinterpreted as Aurora objects; native GX upload is external.
 
 diff --git a/include/NL/gl/glTexture.h b/include/NL/gl/glTexture.h
-index 225d1bd..158dc7f 100644
 --- a/include/NL/gl/glTexture.h
 +++ b/include/NL/gl/glTexture.h
-@@ -17,6 +17,9 @@ bool glEndLoadTextureBundle(
+@@ -17,6 +17,9 @@
  unsigned long glGetTextureIndex(unsigned long texture);
  
  void glInitTextureManager(unsigned long count);

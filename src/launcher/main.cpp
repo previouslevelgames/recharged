@@ -6,7 +6,7 @@
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_stdlib.h"
 
-#include "bootstrap/config.h"
+#include "bootstrap/launch_options.h"
 #include "mscharged/build_version.h"
 #include "platform/disc.h"
 #include "platform/path.h"
@@ -14,6 +14,9 @@
 #include "runtime/startup.h"
 #endif
 #include "runtime/scene.h"
+#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
+#include "runtime/original_main_credits.h"
+#endif
 #include <charconv>
 #include <cmath>
 
@@ -27,6 +30,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace mscharged;
@@ -44,10 +48,13 @@ const ImVec4 bad{1.0f, 0.43f, 0.44f, 1.0f};
 struct Options
 {
     fs::path config;
+    LaunchOptions launch;
     fs::path screenshot;
     bool smoke_test = false;
     bool experimental_startup = false;
     bool experimental_scene = false;
+    bool experimental_credits = false;
+    bool credits_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
     bool page_selected = false;
@@ -62,13 +69,7 @@ void Require(bool ok, const char* context)
 
 fs::path DefaultConfig(const fs::path& executable_directory)
 {
-    if (fs::exists("mscharged.ini")) return fs::absolute("mscharged.ini");
-    for (auto directory = executable_directory; !directory.empty(); directory = directory.parent_path())
-    {
-        if (fs::exists(directory / "mscharged.ini.example")) return directory / "mscharged.ini";
-        if (directory == directory.parent_path()) break;
-    }
-    return executable_directory / "mscharged.ini";
+    return DefaultConfigPath(executable_directory);
 }
 
 struct DialogResult
@@ -124,7 +125,11 @@ void Paragraph(const char* text, ImVec4 color = muted)
 class Launcher
 {
 public:
-    const fs::path& StartupConfig() const { return startup_config_; }
+    const std::optional<ResolvedLaunch>& StartupLaunch() const { return startup_launch_; }
+    const std::optional<ResolvedLaunch>& CreditsLaunch() const { return credits_launch_; }
+
+    ResolvedLaunch EffectiveLaunch() const { return ResolveLaunch(file_, options_.launch, &draft_); }
+    std::string DiscSelection() const { return PathUtf8(EffectiveLaunch().disc_path); }
 
     ~Launcher()
     {
@@ -198,7 +203,7 @@ public:
         renderer_ui_ready_ = true;
         RefreshGamepad();
         if (!capture) SDL_ShowWindow(window_);
-        if (!draft_.disc.empty() && !options_.smoke_test && config_ok_) CheckDisc();
+        if (config_ok_ && !EffectiveLaunch().disc_path.empty() && !options_.smoke_test) CheckDisc();
 
         bool quit = false;
         unsigned frame = 0;
@@ -326,6 +331,7 @@ private:
 
     void SelectDisc(const std::string& path)
     {
+        if (options_.launch.disc) { notice_ = "The command-line disc is selected for this run."; notice_error_ = false; return; }
         std::error_code error;
         const auto absolute = fs::absolute(PathFromUtf8(path));
         auto relative = fs::relative(absolute, file_.path.parent_path(), error);
@@ -339,8 +345,10 @@ private:
     {
         try
         {
-            const auto path = ResolveDiscPath(draft_, file_.path);
-            const auto selection = draft_.disc;
+            const auto launch = EffectiveLaunch();
+            const auto path = launch.disc_path;
+            if (path.empty()) throw std::runtime_error("Choose a disc image or supply --disc FILE");
+            const auto selection = PathUtf8(path);
             pending_ = true;
             check_ = {};
             future_ = std::async(std::launch::async, [path, selection] {
@@ -379,7 +387,7 @@ private:
         {
             auto result = future_.get();
             pending_ = false;
-            if (result.selection == draft_.disc) check_ = std::move(result);
+            if (result.selection == DiscSelection()) check_ = std::move(result);
         }
     }
 
@@ -442,16 +450,23 @@ private:
     void GamePage()
     {
         PageTitle("Your game", "Open your ISO or RVZ directly. No extraction needed.");
+        if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
+        { Paragraph(DescribeLaunch(EffectiveLaunch()).c_str()); Paragraph("Command-line overrides apply for this run; Save settings changes only the INI."); }
         ImGui::TextUnformatted("Disc image");
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 98);
-        if (ImGui::InputText("##disc", &draft_.disc)) { dirty_ = true; check_ = {}; }
+        if (options_.launch.disc)
+        {
+            auto selected = DiscSelection();
+            ImGui::BeginDisabled(); ImGui::InputText("##disc", &selected); ImGui::EndDisabled();
+        }
+        else if (ImGui::InputText("##disc", &draft_.disc)) { dirty_ = true; check_ = {}; }
         ImGui::SameLine();
         bool browsing;
         { std::lock_guard<std::mutex> lock(dialog_->mutex); browsing = dialog_->active; }
-        ImGui::BeginDisabled(browsing || !config_ok_);
+        ImGui::BeginDisabled(browsing || !config_ok_ || options_.launch.disc.has_value());
         if (ImGui::Button("Browse...", {90, 0})) Browse();
         ImGui::EndDisabled();
-        ImGui::BeginDisabled(pending_ || draft_.disc.empty() || !config_ok_);
+        ImGui::BeginDisabled(pending_ || !config_ok_ || (config_ok_ && DiscSelection().empty()));
         if (ImGui::Button(pending_ ? "Checking..." : "Check disc", {110, 0})) CheckDisc();
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -477,6 +492,14 @@ private:
     void DisplayPage()
     {
         PageTitle("Display", "Game display preferences. These take effect when gameplay is available.");
+        if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
+        {
+            const auto settings = EffectiveLaunch().settings;
+            const auto text = "For this run: " + std::to_string(settings.width) + " x " + std::to_string(settings.height)
+                + ", " + settings.aspect
+                + (settings.fullscreen ? ", fullscreen." : ", windowed.") + " Command-line overrides are not saved.";
+            Paragraph(text.c_str());
+        }
         const std::string resolution = std::to_string(draft_.width) + " x " + std::to_string(draft_.height);
         ImGui::SetNextItemWidth(260);
         if (ImGui::BeginCombo("Resolution", resolution.c_str()))
@@ -568,6 +591,8 @@ private:
         Paragraph("This build includes the launcher, settings, controller detection, and ISO/RVZ disc checks. The game is not playable yet.");
 #ifdef MSCHARGED_HAS_GAME_STARTUP
         Paragraph("Try startup enters the available original initialization code and reports its first missing service. This prototype cannot run a match yet.");
+#elif defined(MSCHARGED_HAS_ORIGINAL_CREDITS)
+        Paragraph("Try Credits enters original main and runs the original scrolling Credits scene, movie and native audio with temporary startup omissions. Full game startup is still in development.");
 #else
         Paragraph("The decompilation is still incomplete. Game startup, Aurora rendering, audio, and Wii input adaptation are the next integration steps.");
 #endif
@@ -626,13 +651,22 @@ private:
         ImGui::SetCursorPos({16, size.y - 44});
 #ifdef MSCHARGED_HAS_GAME_STARTUP
         const bool startup_ready = config_ok_ && !pending_ && check_.info
-            && check_.selection == draft_.disc && check_.info->game_id == "R4QE01" && check_.info->revision == 1;
+            && check_.selection == DiscSelection() && check_.info->game_id == "R4QE01" && check_.info->revision == 1;
         ImGui::BeginDisabled(!startup_ready);
-        if (ImGui::Button("Try startup", {104, 32}) && ((!dirty_ && file_.exists) || Save()))
-        { startup_config_ = file_.path; quit = true; }
+        if (ImGui::Button("Try startup", {104, 32}))
+        { startup_launch_ = EffectiveLaunch(); quit = true; }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Experimental startup for USA revision 1. Saves settings, closes the launcher, and reports the first missing game service in the terminal and startup log.");
+            ImGui::SetTooltip("Experimental startup for USA revision 1. Uses run settings without saving, closes the launcher, and reports the first missing game service in the terminal and startup log.");
+#elif defined(MSCHARGED_HAS_ORIGINAL_CREDITS)
+        const bool credits_ready = config_ok_ && !pending_ && check_.info
+            && check_.selection == DiscSelection() && check_.info->game_id == "R4QE01" && check_.info->revision == 1;
+        ImGui::BeginDisabled(!credits_ready);
+        if (ImGui::Button("Try Credits", {104, 32}))
+        { credits_launch_ = EffectiveLaunch(); quit = true; }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Original-main Credits test for USA revision 1. Uses run settings without saving and closes the launcher before the game window opens. Full startup and gameplay remain pending.");
 #else
         ImGui::BeginDisabled();
         ImGui::Button("Play game", {104, 32});
@@ -675,7 +709,8 @@ private:
     }
 
     Options options_;
-    fs::path startup_config_;
+    std::optional<ResolvedLaunch> startup_launch_;
+    std::optional<ResolvedLaunch> credits_launch_;
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_ = nullptr;
@@ -706,16 +741,22 @@ private:
 int main(int argc, char** argv)
 {
     Options options;
+    try
+    {
     for (int i = 1; i < argc; ++i)
     {
+        if (ParseLaunchOption(argc, argv, i, options.launch)) continue;
         const std::string arg = argv[i];
         if (arg == "--version") { std::cout << "mscharged " << mscharged::build::version << " (" << MSCHARGED_BUILD_CONFIG << "; launcher)\n"; return 0; }
         if (arg == "--help")
         {
-            std::cout << "Usage: mscharged [--config FILE] [--version]\n"
+            std::cout << "Usage: mscharged [launch settings] [--version]\n" << LaunchOptionsHelp <<
                          "Development checks: --smoke-test | --screenshot FILE [--page game|display|audio|controls|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
+#endif
+#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
+            std::cout << "Original-main Credits test: --experimental-credits [--disk FILE] [--window] (temporary startup omissions)\n";
 #endif
 #ifdef MSCHARGED_HAS_SCENE_PREVIEW
             std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N [--frame-timeout SECONDS]]\n"
@@ -745,6 +786,8 @@ int main(int argc, char** argv)
         if (arg == "--smoke-test") options.smoke_test = true;
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
+        else if (arg == "--experimental-credits") options.experimental_credits = true;
+        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.credits_arguments = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
         else if (arg == "--frontend-boot") { options.scene_arguments = true; options.scene.frontend_boot = true; }
@@ -811,11 +854,10 @@ int main(int argc, char** argv)
                 else options.scene.model_id = number;
             }
         }
-        else if ((arg == "--config" || arg == "--screenshot" || arg == "--page") && i + 1 < argc)
+        else if ((arg == "--screenshot" || arg == "--page") && i + 1 < argc)
         {
             const std::string value = argv[++i];
-            if (arg == "--config") options.config = PathFromUtf8(value);
-            else if (arg == "--screenshot") options.screenshot = PathFromUtf8(value);
+            if (arg == "--screenshot") options.screenshot = PathFromUtf8(value);
             else
             {
                 const auto it = std::find(std::begin(page_ids), std::end(page_ids), value);
@@ -826,10 +868,15 @@ int main(int argc, char** argv)
         }
         else { std::cerr << "Unknown or incomplete argument: " << arg << ". Use --help.\n"; return 2; }
     }
-    if ((options.experimental_startup || options.experimental_scene)
-        && (options.smoke_test || !options.screenshot.empty() || options.page_selected
-            || (options.experimental_startup && options.experimental_scene)))
+    } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 2; }
+    options.config = options.launch.config;
+    const unsigned runtime_modes = unsigned(options.experimental_startup)
+        + unsigned(options.experimental_scene) + unsigned(options.experimental_credits);
+    if (runtime_modes && (runtime_modes > 1 || options.smoke_test
+        || !options.screenshot.empty() || options.page_selected))
     { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
+    if (options.credits_arguments && !options.experimental_credits)
+    { std::cerr << "Credits frame/resize options require --experimental-credits.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
     if (options.scene.frame_timeout && !options.scene.frames)
@@ -898,6 +945,21 @@ int main(int argc, char** argv)
     { std::cerr << "Select --world or separate --model/--textures assets.\n"; return 2; }
     try
     {
+        if (options.experimental_credits)
+        {
+#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
+            // Preserve all shared launch options and diagnostic frame arguments;
+            // remove only the launcher mode selector before the shared driver.
+            std::vector<char*> arguments;
+            for (int i = 0; i < argc; ++i)
+                if (std::string_view(argv[i]) != "--experimental-credits") arguments.push_back(argv[i]);
+            arguments.push_back(nullptr);
+            return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data());
+#else
+            std::cerr << "Original-main Credits is not in this build. Enable MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC and MSCHARGED_BUILD_LAUNCHER.\n";
+            return 2;
+#endif
+        }
         if (options.experimental_scene)
         {
 #ifdef MSCHARGED_HAS_SCENE_PREVIEW
@@ -907,7 +969,9 @@ int main(int argc, char** argv)
                 Require(base != nullptr, "Cannot locate the executable");
                 options.config = DefaultConfig(PathFromUtf8(base));
             }
-            return RunScenePreview(argc, argv, options.config, options.scene);
+            options.launch.config = options.config;
+            const auto launch = LoadLaunch(options.launch, options.config.parent_path());
+            return RunScenePreview(argc, argv, options.config, options.scene, nullptr, &launch);
 #else
             std::cerr << "Static asset preview is not in this build. Use cmake --workflow --preset scene.\n";
             return 2;
@@ -922,21 +986,26 @@ int main(int argc, char** argv)
                 Require(base != nullptr, "Cannot locate the executable");
                 options.config = DefaultConfig(PathFromUtf8(base));
             }
-            return RunGameStartup(argc, argv, options.config);
+            options.launch.config = options.config;
+            return RunGameStartup(argc, argv, LoadLaunch(options.launch, options.config.parent_path()));
 #else
             std::cerr << "Experimental startup is not in this build. Use cmake --workflow --preset startup.\n";
             return 2;
 #endif
         }
-        fs::path startup_config;
+        std::optional<ResolvedLaunch> startup_launch, credits_launch;
         int result;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
-            startup_config = launcher.StartupConfig();
+            startup_launch = launcher.StartupLaunch();
+            credits_launch = launcher.CreditsLaunch();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
+#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
+        if (credits_launch) return RunOriginalMainCredits(argc, argv, &*credits_launch, true);
+#endif
 #ifdef MSCHARGED_HAS_GAME_STARTUP
-        if (!startup_config.empty()) return RunGameStartup(argc, argv, startup_config);
+        if (startup_launch) return RunGameStartup(argc, argv, *startup_launch);
 #endif
         return result;
     }

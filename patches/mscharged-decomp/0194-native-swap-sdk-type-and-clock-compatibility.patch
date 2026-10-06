@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Reuse native SDK colour/compare types and forward the hardware clock
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The canonical native GX header already supplies the original four-byte colour
 and compare value. Keep the console declarations, and use those SDK identities
@@ -9,6 +9,7 @@ original swap timing arithmetic rather than dereferencing a console address.
 No source function body, callback selection, frame counter or swap decision
 changes. Native runtime swap/screenshot/VI/GX execution remains unqualified.
 
+diff --git a/src/NL/glx/glxSwap.cpp b/src/NL/glx/glxSwap.cpp
 --- a/src/NL/glx/glxSwap.cpp
 +++ b/src/NL/glx/glxSwap.cpp
 @@ -47,6 +47,7 @@
@@ -27,7 +28,7 @@ changes. Native runtime swap/screenshot/VI/GX execution remains unqualified.
  
  extern "C" void GXSetCopyClear(GXColor clear_clr, u32 clear_z);
  
-@@ -61,11 +63,18 @@
+@@ -61,12 +63,19 @@
  // the nlConfig translation unit and called from here as well.
  void* ConfigParserAllocate(unsigned long size, unsigned int alignment, bool fromEnd);
  
@@ -47,3 +48,4 @@ changes. Native runtime swap/screenshot/VI/GX execution remains unqualified.
 +#endif
  #define OS_TIMER_CLOCK               (OS_BUS_CLOCK / 4)
  #define OSTicksToMicroseconds(ticks) (((ticks) * 8) / (OS_TIMER_CLOCK / 125000))
+ 

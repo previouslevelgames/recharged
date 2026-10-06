@@ -36,8 +36,9 @@ endif()
 if(MSCHARGED_BUILD_GAME_STARTUP)
         message(FATAL_ERROR "Use separate graphics and startup builds until the game's GX adapter is implemented")
     endif()
-    if(MSCHARGED_BUILD_LAUNCHER AND NOT MSCHARGED_BUILD_SCENE_PREVIEW)
-        message(FATAL_ERROR "Use the graphics preset without the launcher, or the scene preset for shared GX/launcher providers")
+    if(MSCHARGED_BUILD_LAUNCHER AND NOT MSCHARGED_BUILD_SCENE_PREVIEW
+            AND NOT MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
+        message(FATAL_ERROR "Enable the scene preview or original Credits diagnostic for shared GX/launcher providers; otherwise disable the launcher")
     endif()
     set(MSCHARGED_BUILD_AURORA_HOST ON)
 endif()
@@ -125,6 +126,7 @@ endif()
 
 add_library(charged_host STATIC
     src/bootstrap/config.cpp
+    src/bootstrap/launch_options.cpp
     src/platform/disc.cpp
 )
 target_include_directories(charged_host PUBLIC src)
@@ -200,6 +202,9 @@ if(BUILD_TESTING)
     add_executable(config_tests tests/config.cpp)
     target_link_libraries(config_tests PRIVATE charged_host)
     add_test(NAME configuration COMMAND config_tests)
+    add_executable(launch_options_tests tests/launch_options.cpp)
+    target_link_libraries(launch_options_tests PRIVATE charged_host)
+    add_test(NAME launch_options COMMAND launch_options_tests)
 endif()
 
 message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}, independent GX check: ${MSCHARGED_BUILD_GX_CHECK}, static asset preview: ${MSCHARGED_BUILD_SCENE_PREVIEW}); playable game remains pending")

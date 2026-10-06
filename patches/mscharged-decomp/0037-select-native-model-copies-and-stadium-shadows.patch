@@ -1,5 +1,5 @@
 Subject: Select native model duplication and stadium shadow submission
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select original no-stream model duplication with typed material sizes and input
 bounds. Preserve independent packets/parameters and shared geometry. Extract the
@@ -7,10 +7,9 @@ original empty clone hook and StadiumShadowVolumeDrawable's model initialization
 and draw body with explicit model/pool inputs; full world loading stays unlinked.
 
 diff --git a/src/Game/Render/ShadowLayersNative.cpp b/src/Game/Render/ShadowLayersNative.cpp
-index 3ec105a..7bfed12 100644
 --- a/src/Game/Render/ShadowLayersNative.cpp
 +++ b/src/Game/Render/ShadowLayersNative.cpp
-@@ -274,3 +274,12 @@ void SetupNativeShadowLayers(GLViewInterface* sceneCamera)
+@@ -274,3 +274,12 @@
      }
      catch (...) { ShutdownNativeShadowLayers(); throw; }
  }
@@ -25,7 +24,6 @@ index 3ec105a..7bfed12 100644
 +}
 diff --git a/src/Game/Render/StadiumShadowNative.cpp b/src/Game/Render/StadiumShadowNative.cpp
 new file mode 100644
-index 0000000..9efa833
 --- /dev/null
 +++ b/src/Game/Render/StadiumShadowNative.cpp
 @@ -0,0 +1,23 @@
@@ -53,7 +51,6 @@ index 0000000..9efa833
 +    ShowLayerView(eCLV_ShadowVolumeBlend);
 +}
 diff --git a/src/NL/gl/glModel.cpp b/src/NL/gl/glModel.cpp
-index b0b2b10..cdbedb2 100644
 --- a/src/NL/gl/glModel.cpp
 +++ b/src/NL/gl/glModel.cpp
 @@ -6,108 +6,6 @@
@@ -168,7 +165,6 @@ index b0b2b10..cdbedb2 100644
 +#include "glModelCopies.cpp"
 diff --git a/src/NL/gl/glModelCopies.cpp b/src/NL/gl/glModelCopies.cpp
 new file mode 100644
-index 0000000..7a1cc71
 --- /dev/null
 +++ b/src/NL/gl/glModelCopies.cpp
 @@ -0,0 +1,148 @@
@@ -321,10 +317,9 @@ index 0000000..7a1cc71
 +    return glModelDupArrayNoStreams(pModel, 1, bPermanent, pAllocator);
 +}
 diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
-index b3afe63..3cd54c0 100644
 --- a/src/NL/glx/glxModel.cpp
 +++ b/src/NL/glx/glxModel.cpp
-@@ -20,6 +20,4 @@ void glplatFinalizePacket(
+@@ -20,6 +20,4 @@
      packet->skinnedVertices = 0;
  }
  
@@ -334,7 +329,6 @@ index b3afe63..3cd54c0 100644
 +#include "glxModelClone.cpp"
 diff --git a/src/NL/glx/glxModelClone.cpp b/src/NL/glx/glxModelClone.cpp
 new file mode 100644
-index 0000000..0010a8e
 --- /dev/null
 +++ b/src/NL/glx/glxModelClone.cpp
 @@ -0,0 +1,5 @@

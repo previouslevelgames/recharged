@@ -1,6 +1,6 @@
 Subject: Share original save-state and option-default steps
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Native preferences reuse scoped state fragments without defining global game save
 readiness. NAND, normal save data, error UI and banner operations stay unselected.
@@ -8,7 +8,7 @@ readiness. NAND, normal save data, error UI and banner operations stay unselecte
 diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 --- a/src/Game/DB/UserOptions.cpp
 +++ b/src/Game/DB/UserOptions.cpp
-@@ -2,6 +2,7 @@
+@@ -4,6 +4,7 @@
  
  #include "Game/Audio/AudioSystem.h"
  #include "Game/Audio/RegistryPools.h"
@@ -16,7 +16,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  
  #include <string.h>
  
-@@ -40,12 +41,7 @@
+@@ -29,12 +30,7 @@
  AudioSettings::AudioSettings()
  {
      memset(this, 0, sizeof(AudioSettings));
@@ -30,15 +30,14 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  }
  
  void AudioSettings::ApplySettings()
-@@ -215,6 +211,5 @@
+@@ -124,6 +120,5 @@
  VisualSettings::VisualSettings()
  {
      memset(this, 0, sizeof(VisualSettings));
 -    mIsAutoZoomCamera = true;
 -    mCameraZoomLevel = 0.5f;
--}
 +    SaveVisualDefaults(*this);
-+}
+ }
 diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
 --- a/src/Game/DB/SaveLoad.cpp
 +++ b/src/Game/DB/SaveLoad.cpp
@@ -124,7 +123,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
  void FrontEndPresentation::DoFunctionCall(unsigned int function)
  {
      switch (function)
-@@ -389,7 +390,7 @@
+@@ -387,7 +388,7 @@
              mCameraTransitionFinished = false;
          break;
      case 47:

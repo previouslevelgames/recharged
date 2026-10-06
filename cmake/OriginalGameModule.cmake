@@ -88,8 +88,22 @@ include(cmake/OriginalPlatformGraphics.cmake)
 
 include(cmake/OriginalPoseModule.cmake)
 
+include(cmake/OriginalAnimationControllers.cmake)
+
 include(cmake/OriginalEntryModule.cmake)
 
 include(cmake/OriginalAudioSource.cmake)
 
+include(cmake/OriginalRegistry.cmake)
+
 include(cmake/OriginalViewLayers.cmake)
+
+include(cmake/OriginalInterpreter.cmake)
+
+include(cmake/OriginalBootSceneSources.cmake)
+
+include(cmake/OriginalCharacterLoading.cmake)
+
+include(cmake/OriginalSaveSources.cmake)
+
+include(cmake/OriginalUserOptions.cmake)

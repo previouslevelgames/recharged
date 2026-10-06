@@ -1,0 +1,50 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Decode original registry scalar key carriers at native width
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+The original audio transition reads EffectSet and binding keys from
+pointer-shaped RegistryValue cells. These are Wii32 numeric/hash payloads,
+not live pointers or DSP addresses. Use checked native scalar-word transport
+for those reads; retain source requests, branches, types and selection order.
+Console source remains byte-identical. Live registry ABI and packed-file
+conversion remain separate qualification boundaries.
+
+diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResourceRuntime.cpp
+--- a/src/Game/Audio/AudioResourceRuntime.cpp
++++ b/src/Game/Audio/AudioResourceRuntime.cpp
+@@ -1,6 +1,9 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "NL/nlFunction.inl"
+ #include "Game/Audio/AudioResourceRuntime.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_registry_word.h"
++#endif
+ 
+ #include "Game/Audio/AudioConfig.h"
+ #include "Game/Audio/AudioEffects.h"
+@@ -315,8 +318,13 @@
+     {
+         RegistryValue entryValue = GetRegistryIteratorValue(entries);
+         RegistryContainer* entry = (RegistryContainer*)entryValue.mData;
++#if defined(MSCHARGED_NATIVE)
++        u32 effectSet = mscharged::platform::ReadWii32RegistryWord(
++            entry->Get(nlStringLowerHash("EffectSet")).mData);
++#else
+         u32 effectSet
+             = (u32)entry->Get(nlStringLowerHash("EffectSet")).mData;
++#endif
+         bool inverted
+             = invert ^ (entry->Get(nlStringLowerHash("Invert")).mData != 0);
+ 
+@@ -328,7 +336,11 @@
+         for (; !binding->IsDone(); binding->Next())
+         {
+             RegistryValue bindingValue = GetRegistryIteratorValue(binding);
++#if defined(MSCHARGED_NATIVE)
++            u32 bindingKey = mscharged::platform::ReadWii32RegistryWord(bindingValue.mData);
++#else
+             u32 bindingKey = (u32)bindingValue.mData;
++#endif
+             if (owner != 0)
+             {
+                 g_pAudioResourceRuntime->ApplyEffectSet(

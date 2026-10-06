@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie
@@ -88,7 +88,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -21,7 +21,9 @@
+@@ -22,7 +22,9 @@
  
  extern "C" unsigned char SCGetSoundMode();
  extern "C" void THPSimpleSetVolume(int, int);
@@ -98,7 +98,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  
  Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
  
-@@ -45,7 +47,7 @@
+@@ -46,7 +48,7 @@
      {
          mGameSceneManager = g_pOverlayManager;
      }
@@ -170,7 +170,7 @@ diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMat
 diff --git a/include/NL/gl/glPlat.h b/include/NL/gl/glPlat.h
 --- a/include/NL/gl/glPlat.h
 +++ b/include/NL/gl/glPlat.h
-@@ -3,6 +3,6 @@
+@@ -3,7 +3,7 @@
  
  #include "NL/gl/glStruct.h"
  
@@ -178,3 +178,4 @@ diff --git a/include/NL/gl/glPlat.h b/include/NL/gl/glPlat.h
 +#if defined(MSCHARGED_NATIVE)
  #include <dolphin/gx/GXStruct.h>
  #endif
+ 

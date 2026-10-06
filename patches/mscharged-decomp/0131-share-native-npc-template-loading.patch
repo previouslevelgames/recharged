@@ -1,5 +1,5 @@
 Subject: Share original NPC template resource selection and readiness
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep original ordered template selection, resource paths and completion predicate
 shared with a checked native owner. Actor constructors and console in-place
@@ -7,7 +7,6 @@ loaders remain unchanged and are not selected by this native resource profile.
 
 diff --git a/include/Game/Render/NPCLoadSteps.h b/include/Game/Render/NPCLoadSteps.h
 new file mode 100644
-index 0000000..46722e9
 --- /dev/null
 +++ b/include/Game/Render/NPCLoadSteps.h
 @@ -0,0 +1,45 @@
@@ -57,34 +56,35 @@ index 0000000..46722e9
 +}
 +#endif
 diff --git a/src/Game/Render/NPCManager.cpp b/src/Game/Render/NPCManager.cpp
-index 538fd1b..9a8dc0c 100644
 --- a/src/Game/Render/NPCManager.cpp
 +++ b/src/Game/Render/NPCManager.cpp
-@@ -1,5 +1,6 @@
+@@ -1,6 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Render/KoopaShellObject.h"
  #include "Game/Render/NPCManager.h"
 +#include "Game/Render/NPCLoadSteps.h"
  #include "Game/Render/FlyingCamera.h"
  #include "Game/Render/tu_801B43F8.h"
  #include "Game/Render/WindDebrisConfig.h"
-@@ -114,14 +115,9 @@ bool NPCManager::SelectNextNPCTemplate()
+@@ -115,14 +116,9 @@
          nlDLListIterator<NPCTemplate*> iterator;
          iterator = i == 0 ? mPersistentTemplates.Begin()
                       : mTransientTemplates.Begin();
 -        while (iterator.hasNext())
-+        if (SelectPendingNPCFromList(iterator, mPendingTemplate))
-         {
+-        {
 -            if (!(*iterator)->loaded)
 -            {
 -                mPendingTemplate = *iterator;
 -                return true;
 -            }
 -            iterator.next();
++        if (SelectPendingNPCFromList(iterator, mPendingTemplate))
++        {
 +            return true;
          }
      }
      return false;
-@@ -378,41 +374,30 @@ void NPCManager::BeginLoadNPCTemplate()
+@@ -379,41 +375,30 @@
      }
  
      char path[256];

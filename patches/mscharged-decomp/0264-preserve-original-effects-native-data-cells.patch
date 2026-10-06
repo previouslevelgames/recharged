@@ -1,0 +1,272 @@
+From: mscharged-port contributors
+Subject: [PATCH] Preserve original effects geometry with native four-byte data cells
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Endian-convert represented scalars inside actual completed NL storage and use
+real cached-address words for address-bearing cells. Original loader decisions,
+raw chunk headers, authored25colour bytes and next-header alias remain intact.
+
+--- a/include/Game/Effects/EffectsBundleData.h
++++ b/include/Game/Effects/EffectsBundleData.h
+@@ -1,8 +1,15 @@
+ #ifndef GAME_EFFECTS_EFFECTS_BUNDLE_DATA_H
+ #define GAME_EFFECTS_EFFECTS_BUNDLE_DATA_H
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++#include "platform/effects_data_abi.h"
++#endif
++
+ class EffectsGroup;
+ class EffectsTemplate;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++#include "Game/Effects/EffectsTemplate.h"
++#endif
+ class nlChunk;
+ 
+ struct EffectsBundleData
+@@ -27,9 +34,17 @@
+ 
+     /* 0x00 */ unsigned char unknown_0x00[8];
+     /* 0x08 */ unsigned int mNumTemplates;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x0C */ mscharged::platform::EffectsAddress32<mscharged::platform::EffectsAddress32<EffectsTemplate>> mTemplates;
++#else
+     /* 0x0C */ EffectsTemplate** mTemplates;
++#endif
+     /* 0x10 */ int mNumGroups;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x14 */ mscharged::platform::EffectsAddress32<mscharged::platform::EffectsAddress32<EffectsGroup>> mGroups;
++#else
+     /* 0x14 */ EffectsGroup** mGroups;
++#endif
+ }; // size: 0x18
+ 
+ #endif // GAME_EFFECTS_EFFECTS_BUNDLE_DATA_H
+--- a/include/Game/Effects/EffectsTemplate.h
++++ b/include/Game/Effects/EffectsTemplate.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_EFFECTS_EFFECTS_TEMPLATE_H
+ #define GAME_EFFECTS_EFFECTS_TEMPLATE_H
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++#include "platform/effects_data_abi.h"
++#endif
+ 
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
+@@ -8,6 +12,12 @@
+ #endif
+ 
+ class nlChunk;
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++typedef uint32_t EffectsDataWord;
++#else
++typedef unsigned long EffectsDataWord;
++#endif
+ 
+ struct fxRange
+ {
+@@ -59,11 +69,15 @@
+     float Evaluate(float value) const;
+     float GetMaximum() const;
+ 
+-    /* 0x00 */ unsigned long mUseCurve;
++    /* 0x00 */ EffectsDataWord mUseCurve;
+     /* 0x04 */ float base;
+     /* 0x08 */ float range;
+-    /* 0x0C */ unsigned long mNumKeys;
++    /* 0x0C */ EffectsDataWord mNumKeys;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x10 */ mscharged::platform::EffectsAddress32<fxCurveKey> mKeys;
++#else
+     /* 0x10 */ fxCurveKey* mKeys;
++#endif
+ }; // size: 0x14
+ 
+ class EffectsTemplate
+@@ -77,7 +91,7 @@
+     void Cleanup();
+     float GetBoundingRadius();
+ 
+-    /* 0x00 */ unsigned long m_uHashID;
++    /* 0x00 */ EffectsDataWord m_uHashID;
+     /* 0x04 */ float m_fFountainLife;
+     /* 0x08 */ fxRange m_rMass;
+     /* 0x10 */ fxRange m_rParticleLife;
+@@ -89,14 +103,18 @@
+     /* 0x35 */ unsigned char m_eBlend;
+     /* 0x36 */ unsigned char m_eBillboard;
+     /* 0x37 */ unsigned char mUnidentified037;
+-    /* 0x38 */ unsigned long m_hTexture;
++    /* 0x38 */ EffectsDataWord m_hTexture;
+     /* 0x3C */ int m_nFrames;
+-    /* 0x40 */ unsigned long mUnidentified040;
+-    /* 0x44 */ unsigned long mUnidentified044;
+-    /* 0x48 */ unsigned long mUnidentified048;
++    /* 0x40 */ EffectsDataWord mUnidentified040;
++    /* 0x44 */ EffectsDataWord mUnidentified044;
++    /* 0x48 */ EffectsDataWord mUnidentified048;
+     /* 0x4C */ fxRange m_rFPS;
+-    /* 0x54 */ unsigned long m_uModelID;
++    /* 0x54 */ EffectsDataWord m_uModelID;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x58 */ mscharged::platform::EffectsAddress32<fxAnimatedRange> mProperties[8];
++#else
+     /* 0x58 */ fxAnimatedRange* mProperties[8];
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     // Retain the authored count. Wii files may have 25 colours; native consumers
+     // must qualify their indices instead of inventing the reconstructed 26th.
+@@ -113,6 +131,13 @@
+         return mProperties[index]->Evaluate(time);
+     }
+ }; // size: 0xE0
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++typedef mscharged::platform::EffectsAddress32<EffectsTemplate> EffectsTemplateReference;
++#else
++typedef EffectsTemplate* EffectsTemplateReference;
++#endif
++typedef EffectsTemplateReference* EffectsTemplateTable;
+ 
+ inline float RandomizedValue(float base, float range)
+ {
+--- a/include/Game/Effects/EffectsGroup.h
++++ b/include/Game/Effects/EffectsGroup.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_EFFECTS_EFFECTS_GROUP_H
+ #define GAME_EFFECTS_EFFECTS_GROUP_H
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++#include "platform/effects_data_abi.h"
++#endif
+ 
+ #include "Game/Effects/EffectsTemplate.h"
+ #include "NL/nlMath.h"
+@@ -20,26 +24,30 @@
+ 
+ struct EffectsSpec
+ {
+-    /* 0x00 */ unsigned long m_uHashID;
++    /* 0x00 */ EffectsDataWord m_uHashID;
+     union
+     {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++        /* 0x04 */ mscharged::platform::EffectsAddress32<EffectsTemplate> m_pTemplate;
++#else
+         /* 0x04 */ EffectsTemplate* m_pTemplate;
+-        /* 0x04 */ unsigned long m_uTemplateIndex;
++#endif
++        /* 0x04 */ EffectsDataWord m_uTemplateIndex;
+     };
+     /* 0x08 */ eFXBinding m_eAttach;
+-    /* 0x0C */ unsigned long m_uJointID;
++    /* 0x0C */ EffectsDataWord m_uJointID;
+     /* 0x10 */ float m_fDelay;
+     /* 0x14 */ eJointBinding m_eJointBinding;
+     /* 0x18 */ float m_fJointVelocity;
+-    /* 0x1C */ unsigned long m_bInFront;
+-    /* 0x20 */ unsigned long m_bGround;
+-    /* 0x24 */ unsigned long m_bLight;
++    /* 0x1C */ EffectsDataWord m_bInFront;
++    /* 0x20 */ EffectsDataWord m_bGround;
++    /* 0x24 */ EffectsDataWord m_bLight;
+     /* 0x28 */ float m_fOffset;
+     /* 0x2C */ nlVector3 m_vLocalOffset;
+-    /* 0x38 */ unsigned long m_uTerrainID;
++    /* 0x38 */ EffectsDataWord m_uTerrainID;
+     /* 0x3C */ float m_fLingerStart;
+     /* 0x40 */ float m_fLingerEnd;
+-    /* 0x44 */ unsigned long m_uLayer;
++    /* 0x44 */ EffectsDataWord m_uLayer;
+     /* 0x48 */ int m_nForwardAxis;
+     /* 0x4C */ unsigned char mPadding04C[0x0C];
+ }; // size: 0x58
+@@ -65,8 +73,12 @@
+ 
+ struct UserEffectSource
+ {
+-    /* 0x00 */ unsigned long mSize;
++    /* 0x00 */ EffectsDataWord mSize;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x04 */ mscharged::platform::EffectsAddress32<char> mData;
++#else
+     /* 0x04 */ char* mData;
++#endif
+ };
+ 
+ class EffectsGroup
+@@ -83,15 +95,27 @@
+     void ParseUserSpecs();
+ #endif
+     void DestroyUserSpecs();
+-    void ResolveTemplates(EffectsTemplate** table);
++    void ResolveTemplates(EffectsTemplateTable table);
+ 
+-    /* 0x00 */ unsigned long m_hashID;
++    /* 0x00 */ EffectsDataWord m_hashID;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x04 */ mscharged::platform::EffectsAddress32<EffectsSpec> m_specs;
++#else
+     /* 0x04 */ EffectsSpec* m_specs;
+-    /* 0x08 */ unsigned long m_numSpecs;
+-    /* 0x0C */ unsigned long m_bIsLingering;
++#endif
++    /* 0x08 */ EffectsDataWord m_numSpecs;
++    /* 0x0C */ EffectsDataWord m_bIsLingering;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x10 */ mscharged::platform::EffectsAddress32<UserEffectSpec*> m_userSpecsPtr;
++#else
+     /* 0x10 */ UserEffectSpec** m_userSpecsPtr;
+-    /* 0x14 */ unsigned long m_userSpecs;
++#endif
++    /* 0x14 */ EffectsDataWord m_userSpecs;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    /* 0x18 */ mscharged::platform::EffectsAddress32<UserEffectSource> mUserSpecSources;
++#else
+     /* 0x18 */ UserEffectSource* mUserSpecSources;
++#endif
+ };
+ 
+ #endif // GAME_EFFECTS_EFFECTS_GROUP_H
+--- a/src/Game/Effects/EffectsBundleData.cpp
++++ b/src/Game/Effects/EffectsBundleData.cpp
+@@ -28,15 +28,26 @@
+ #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    mscharged::platform::PrepareEffectsBundle(bundle);
++#endif
+     EffectsBundleData* data;
+     nlChunk* chunk = bundle->GetFirstChunk();
+     data = (EffectsBundleData*)chunk->GetData();
+ 
+     chunk = chunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    data->mTemplates = static_cast<mscharged::platform::EffectsAddress32<EffectsTemplate>*>(chunk->GetData());
++#else
+     data->mTemplates = (EffectsTemplate**)chunk->GetData();
++#endif
+ 
+     chunk = chunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
++    data->mGroups = static_cast<mscharged::platform::EffectsAddress32<EffectsGroup>*>(chunk->GetData());
++#else
+     data->mGroups = (EffectsGroup**)chunk->GetData();
++#endif
+ 
+     unsigned long i;
+     for (i = 0; i < data->mNumTemplates; ++i)
+--- a/src/Game/Effects/EffectsGroup.cpp
++++ b/src/Game/Effects/EffectsGroup.cpp
+@@ -124,7 +124,7 @@
+     }
+ }
+ 
+-void EffectsGroup::ResolveTemplates(EffectsTemplate** table)
++void EffectsGroup::ResolveTemplates(EffectsTemplateTable table)
+ {
+     for (unsigned long i = 0; i < m_numSpecs; ++i)
+     {

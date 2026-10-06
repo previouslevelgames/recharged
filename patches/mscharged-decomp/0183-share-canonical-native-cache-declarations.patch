@@ -1,11 +1,12 @@
 Subject: [PATCH] Share canonical native cache declarations
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Permanent hardware/compiler ABI adaptation: the native C declarations come
 from Aurora's canonical cache API with Wii-width byte counts. Const source
 views forward by pointer qualification only. Original console declarations
 and all original loader/pool bodies remain unchanged.
 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h b/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h
 --- a/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h
 @@ -1,6 +1,20 @@
@@ -36,6 +37,7 @@ and all original loader/pool bodies remain unchanged.
 +#endif // MSCHARGED_NATIVE
 +
  #endif // REVOLUTION_OS_CACHE_FWD_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSCache.h b/libs/RVL_SDK/include/revolution/os/OSCache.h
 --- a/libs/RVL_SDK/include/revolution/os/OSCache.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSCache.h
 @@ -1,5 +1,14 @@

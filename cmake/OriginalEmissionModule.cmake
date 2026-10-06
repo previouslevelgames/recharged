@@ -1,8 +1,9 @@
 include_guard(GLOBAL)
 
-# Entire original emission/Ball/blur providers use the original-module ABI.
+# Entire original emission/effects/particle/Ball/blur providers use the original-module ABI.
 # This is compiler inventory; only Ball/blur/frontend static construction and
-# native POD address transport have a bounded positive source gate. Full effect
+# native POD address transport have a bounded positive source gate. Particle atlas startup/free and raw NL chunk geometry are qualified;
+# owned resident serialized records have a bounded original-loader gate. Full effect
 # resource initialization, simulation, replay persistence and main remain held.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
         OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
@@ -14,7 +15,13 @@ add_library(charged_original_emission_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/objectblur.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Effects/EmissionController.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Effects/EmissionManager.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/Effects/EmitterCallbacks.cpp")
+    "${MSCHARGED_PREPARED}/src/Game/Effects/EmitterCallbacks.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Effects/EffectsBundleData.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Effects/EffectsTemplate.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Effects/EffectsGroup.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Effects/ParticleSystem.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Task/ParticleUpdateTask.cpp"
+    "${PROJECT_SOURCE_DIR}/src/platform/effects_data_abi.cpp")
 add_dependencies(charged_original_emission_module_sources verify_prepared)
 set_target_properties(charged_original_emission_module_sources PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden

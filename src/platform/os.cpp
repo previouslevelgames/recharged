@@ -20,7 +20,10 @@ extern "C" void OSYieldThread()
     // Workers latch genuine PE completion; only the unmasked GX owner delivers.
     AuroraServiceGXDrawDone();
 #endif
-    aurora_service_hardware();
+    // A source file/thread wait must deliver real device interrupts without
+    // blocking its owner on desktop presentation for every yield. The native
+    // update/VI wait boundary services output separately.
+    aurora_service_hardware_interrupts();
     std::this_thread::yield();
 }
 

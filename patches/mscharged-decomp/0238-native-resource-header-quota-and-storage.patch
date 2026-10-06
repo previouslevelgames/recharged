@@ -1,8 +1,9 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve Wii resource header quotas with pool-owned native storage
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Classification: permanent native record ABI/storage adaptation; original quota/control flow retained.
 
+diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
 --- a/src/NL/gl/glMemory.cpp
 +++ b/src/NL/gl/glMemory.cpp
 @@ -1,3 +1,6 @@
@@ -22,6 +23,7 @@ Classification: permanent native record ABI/storage adaptation; original quota/c
  }
  
  GLResourcePool* glCreateResourcePool(
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
 @@ -1,3 +1,6 @@
@@ -55,6 +57,7 @@ Classification: permanent native record ABI/storage adaptation; original quota/c
      for (int pool = 0; pool < 2; ++pool)
          nativeRetirement[pool].Commit((void*)(mPoolMemory[pool] + mUsedMemory[pool]),
              mPoolSizes[pool] - mUsedMemory[pool]);
+diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
 --- a/src/NL/glx/glxTexture.cpp
 +++ b/src/NL/glx/glxTexture.cpp
 @@ -1,3 +1,6 @@

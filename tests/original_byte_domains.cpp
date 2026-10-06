@@ -11,11 +11,11 @@
 
 namespace {
 thread_local int metadata_budget = -1;
-unsigned metadata_live = 0, checks = 0;
+unsigned metadata_live = 0, metadata_allocations = 0, checks = 0;
 void Check(bool value, const char* message) { ++checks; if (!value) throw std::runtime_error(message); }
-template<class Error, class Action> void Reject(Action action) {
+template<class Error, class Action> void Reject(Action action, const char* message="Unsupported domain operation succeeded") {
     ++checks; try { action(); } catch (const Error&) { return; }
-    throw std::runtime_error("Unsupported domain operation succeeded");
+    throw std::runtime_error(message);
 }
 void Word(unsigned char* p, std::uint32_t value) {
     p[0]=value>>24; p[1]=value>>16; p[2]=value>>8; p[3]=value;
@@ -26,7 +26,7 @@ void Word(unsigned char* p, std::uint32_t value) {
 extern "C" void* ChargedNativeMetadataAllocate(std::size_t bytes) {
     if (metadata_budget == 0) throw std::bad_alloc();
     if (metadata_budget > 0) --metadata_budget;
-    auto* p = ::operator new(bytes); ++metadata_live; return p;
+    auto* p = ::operator new(bytes); ++metadata_live; ++metadata_allocations; return p;
 }
 extern "C" void ChargedNativeMetadataRelease(void* p) noexcept {
     if (p) { --metadata_live; ::operator delete(p); }
@@ -120,7 +120,7 @@ int main() {
         // Restore by a genuine fixture producer, then prove node reservation OOM
         // leaves existing completion metadata and original allocator unchanged.
         { GameByteWriteReservation write(raw,128); write.Complete(GameByteDomain::WiiSerialized); }
-        for (int budget : {0,1,2,3,4}) {
+        for (int budget : {0,1,2,3}) {
             const auto free=parent.TotalFreeMemory(), count=parent.m_allocation_count;
             bool oom=false;
             metadata_budget=budget;
@@ -132,6 +132,93 @@ int main() {
             Check(parent.TotalFreeMemory()==free && parent.m_allocation_count==count,
                   "Metadata reservation changed original allocation requests");
         }
+        // Four pre-write reservations suffice even when many independent leaf
+        // conversions retain the same original logical completion. Completion
+        // and unaffected-domain retention must perform no host allocation.
+        {
+            metadata_budget=4;
+            GameByteWriteReservation write(raw+8,8);
+            Check(metadata_budget==0, "Reservation did not exercise every reserved node");
+            write.Complete(GameByteDomain::NativeHeader);
+            metadata_budget=-1;
+        }
+        auto* many = static_cast<unsigned char*>(parent.Allocate(32768,32,false));
+        std::memset(many,0x6b,32768);
+        { GameByteWriteReservation write(many,32768); write.Complete(GameByteDomain::WiiSerialized); }
+        for(unsigned offset=8;offset<32768;offset+=16) {
+            const auto beforeAllocations=metadata_allocations;
+            GameByteWriteReservation write(many+offset,8);
+            Check(metadata_allocations-beforeAllocations==4,
+                  "Leaf conversion copied metadata for unrelated completed spans");
+            metadata_budget=0;
+            write.Complete(GameByteDomain::NativePayload);
+            metadata_budget=-1;
+        }
+        Check(FindGameCompletedSpan(many,32768,completed) && completed.base==many
+              && completed.bytes==32768, "Many converted leaves lost the original logical extent");
+        for(unsigned offset=0;offset<32768;offset+=16) {
+            Check(FindGameByteDomain(many+offset,8)==GameByteDomain::WiiSerialized
+                  && FindGameByteDomain(many+offset+8,8)==GameByteDomain::NativePayload,
+                  "Range-local retirement altered an unrelated leaf domain");
+        }
+        std::array<unsigned char,32768> expectedBytes{}; expectedBytes.fill(0x6b);
+        Check(std::memcmp(many,expectedBytes.data(),expectedBytes.size())==0,
+              "Metadata conversion changed source bytes");
+        // A crossing producer erases several spans and trims both edges while
+        // keeping the same source origin in its completed native publication.
+        { GameByteWriteReservation crossing(many+3,74); crossing.Complete(GameByteDomain::NativePayload); }
+        Check(FindGameByteDomain(many,3)==GameByteDomain::WiiSerialized
+              && FindGameByteDomain(many+3,74)==GameByteDomain::NativePayload
+              && FindGameByteDomain(many+77,3)==GameByteDomain::NativePayload
+              && FindGameByteDomain(many+80,8)==GameByteDomain::WiiSerialized,
+              "Multi-span retirement damaged prefix/suffix or unrelated domains");
+        Check(FindGameCompletedSpan(many,32768,completed), "Crossing write lost the shared source origin");
+        parent.Free(many);
+
+        // A native twin belongs to the actual source allocation and completed
+        // bytes. Views may overlap or nest; one producer invalidates every
+        // covering view while leaving disjoint views alive.
+        auto* packed=static_cast<unsigned char*>(parent.Allocate(256,32,false));
+        GameNativeBackingSpan twin{};
+        Reject<std::invalid_argument>([&]{GameNativeBackingReservation v(packed,256,512);});
+        { GameByteWriteReservation producer(packed,256); producer.Complete(GameByteDomain::WiiSerialized); }
+        const auto beforeTwinMetadata=metadata_live;
+        {
+            GameNativeBackingReservation abandoned(packed,8,32);
+            Check(abandoned.Data()!=packed, "Native twin aliases authored source storage");
+            Check(!FindGameNativeBacking(packed,8,twin), "Uncommitted native view became discoverable");
+        }
+        Check(metadata_live==beforeTwinMetadata, "Abandoned native reservation leaked metadata");
+        metadata_budget=0;
+        Reject<std::bad_alloc>([&]{GameNativeBackingReservation v(packed,8,32);});
+        metadata_budget=-1;
+        Check(!FindGameNativeBacking(packed,8,twin) && FindGameCompletedSpan(packed,256,completed),
+              "Native backing OOM changed actual source bytes or publication");
+        auto attach=[&](unsigned offset,unsigned bytes) {
+            GameNativeBackingReservation view(packed+offset,bytes,bytes*2);
+            std::memset(view.Data(),0x6c,bytes*2); view.Commit();
+            Check(FindGameNativeBacking(packed+offset,bytes,twin) && twin.bytes==bytes*2
+                  && twin.allocation.base==packed && twin.allocation.owner==&parent,
+                  "Published native backing lost its genuine source owner");
+        };
+        attach(0,8); attach(8,64); attach(24,16); attach(28,8); attach(128,32);
+        Reject<std::logic_error>([&]{GameNativeBackingReservation duplicate(packed,8,32);});
+        { GameByteWriteReservation crossing(packed+32,1); crossing.Complete(GameByteDomain::NativePayload); }
+        Check(!FindGameNativeBacking(packed+8,64,twin) && !FindGameNativeBacking(packed+24,16,twin)
+              && !FindGameNativeBacking(packed+28,8,twin), "Producer retained a covering native view");
+        Check(FindGameNativeBacking(packed,8,twin) && FindGameNativeBacking(packed+128,32,twin),
+              "Producer retired disjoint native views");
+        {
+            GameNativeBackingReservation staleView(packed+80,16,32);
+            // Native conversion preserves the original logical-completion tag,
+            // but the expanded pending view still requires serialized bytes.
+            GameByteWriteReservation conversion(packed+80,16);
+            conversion.Complete(GameByteDomain::NativePayload);
+            Reject<std::invalid_argument>([&]{staleView.Commit();}, "Pending backing accepted converted source bytes");
+        }
+        parent.Free(packed);
+        Check(!FindGameNativeBacking(packed,8,twin) && !FindGameNativeBacking(packed+128,32,twin),
+              "Source free retained CRT-owned native data");
         GameByteWriteReservation stale(raw,32);
         parent.Free(raw);
         auto* reused=static_cast<unsigned char*>(parent.Allocate(256,32,false));

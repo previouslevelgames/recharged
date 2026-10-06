@@ -1,0 +1,30 @@
+From: mscharged-port source integration
+Subject: [PATCH] Restore original system aspect selection in the frontend diagnostic
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Classification: temporary diagnostic source selection; ordinary native/console code unchanged.
+
+Admit the original SCGetAspectRatio/rlSetWidescreen block already present in
+Initialize. It was excluded with unrelated debug and shadow prerequisites.
+The native SC layer supplies the Wii system preference; original code still
+selects its 640/854 projection and authored Credits slide. No text positions,
+font requests, scrolling, game algorithms or source branches are changed.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -670,12 +670,16 @@
+     ModeledScreenTransition::s_3DView = GetLayerView(eCLV_Transitions3D);
+     SetDebugFontView(GetLayerView(eCLV_Debug));
+     SetDebugSquareView(GetLayerView(eCLV_DebugSquare));
++#endif // unrelated world/debug view prerequisites
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+     bool widescreen = true;
+     if (SCGetAspectRatio() != 1)
+     {
+         widescreen = false;
+     }
+     rlSetWidescreen(widescreen);
++#endif // original system aspect selects the frontend projection and slide
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     g_ShapeRenderer.Initialize(resourcePool);
+     g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
+     InitMaxProjectedShadows();

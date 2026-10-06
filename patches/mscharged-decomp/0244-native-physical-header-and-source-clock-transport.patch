@@ -1,6 +1,6 @@
 Subject: [PATCH] Keep native physical hardware declarations external and route source clock reads
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Prepared-preimage: reviewed strict192 c7b2 export; these SDK headers unchanged
 
 MWCC absolute-address declarations must not become allocated native BSS after

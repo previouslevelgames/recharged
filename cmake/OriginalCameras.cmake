@@ -9,6 +9,7 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
 endif()
 
 add_library(charged_original_cameras OBJECT EXCLUDE_FROM_ALL
+    "${MSCHARGED_PREPARED}/src/Game/AI/AiUtil.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Camera/CameraMan.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Camera/BaseCam.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Camera/DebugCam.cpp"

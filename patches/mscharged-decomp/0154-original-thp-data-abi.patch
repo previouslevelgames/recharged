@@ -1,5 +1,5 @@
 Subject: Preserve original THPSimple with native Wii data and scalar ABI
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep original initialization, movie selection, NL requests, preload/ring order,
 component dispatch, mixing, callback chaining and retail quirks. Adapt Wii32
@@ -460,7 +460,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
                      mix = (vol * thpsrc[0]) >> 15;
                      if (mix < -0x8000)
                          mix = -0x8000;
-@@ -900,13 +962,13 @@
+@@ -900,14 +962,14 @@
      }
  }
  
@@ -476,3 +476,4 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
 +        THPSimpleLong samplePerMs = 0x30;
          if (!rate)
              samplePerMs = 0x20;
+ 

@@ -1,0 +1,102 @@
+Subject: Record actual completed native VI presentation
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host output completion observation; original source decisions unchanged.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -63,6 +63,16 @@
+   bool black, pending;
+ } AuroraVIOutputState;
+ bool aurora_get_video_output_state(AuroraVIOutputState* state);
++// Successful actual surface Present only. Committed/pending requests retain
++// their existing separate semantics above; no acquisition, submission, resize,
++// black request or failed/minimized Present can advance this completion record.
++typedef struct {
++  const void* framebuffer;
++  uint64_t copy_revision, presentation_sequence;
++  uint32_t retrace_count, field;
++  bool black;
++} AuroraVIPresentedState;
++bool aurora_get_presented_video_output_state(AuroraVIPresentedState* state);
+ // Register/clock state, independent of GX completion/surface presentation.
+ // Output requires a separately configured, real native graphics endpoint.
+ typedef struct {
+diff --git a/lib/gfx/scanout.hpp b/lib/gfx/scanout.hpp
+--- a/lib/gfx/scanout.hpp
++++ b/lib/gfx/scanout.hpp
+@@ -1,6 +1,12 @@
+ #pragma once
+ #include "texture.hpp"
++#include "xfb.hpp"
++#include <aurora/video.h>
+ namespace aurora::gfx::scanout {
+ // Hardware diagnostic readback only; source game never consumes this resource.
+ TextureHandle rendered_signal();
++// Pins the exact successful-Present XFB, including when a newer source copy
++// replaces the registry entry at the same Wii framebuffer address. A retired
++// presentation yields no snapshot; metadata and ownership are read atomically.
++std::shared_ptr<const xfb::Snapshot> presented_snapshot(AuroraVIPresentedState& presented);
+ }
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -49,8 +49,8 @@
+   std::mutex mutex;
+   std::thread::id owner;
+   bool configured{}, widescreen{}, pending{}, servicing{};
+-  AuroraVIScanout prepared{}, committed{};
+-  std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot;
++  AuroraVIScanout prepared{}, committed{}, presented{};
++  std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot, presented_snapshot;
+   uint64_t presentations{};
+   TextureHandle signal;
+   wgpu::BindGroupLayout layout;
+@@ -173,7 +173,12 @@
+     if (target) {
+       window::SurfaceLock lock;
+       if (window::is_presentable() && webgpu::g_surface && webgpu::g_surface.Present()) {
+-        std::lock_guard stateLock(state.mutex); ++state.presentations;
++        std::lock_guard stateLock(state.mutex);
++        // Publish the exact work item only after GPU completion and a
++        // successful real surface Present. New committed requests can already
++        // be pending independently; they do not describe this completed field.
++        state.presented = scanout; state.presented_snapshot = snapshot;
++        ++state.presentations;
+       } else { Log.warn("Native VI surface presentation failed"); }
+     } else if (status == wgpu::SurfaceGetCurrentTextureStatus::Outdated ||
+                status == wgpu::SurfaceGetCurrentTextureStatus::Lost ||
+@@ -186,8 +191,8 @@
+ void shutdown(void*) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+-  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.signal = {}; state.pipeline = {}; state.layout = {};
+-  state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = {}; state.presentations = 0;
++  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.pipeline = {}; state.layout = {};
++  state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+ }
+ void configure(const AuroraVIOutputConfig* config) {
+   if (!config || !webgpu::g_device)
+@@ -216,9 +221,22 @@
+   state.owner = std::this_thread::get_id(); state.pending = false; state.presentations = 0;
+ }
+ } // namespace
++std::shared_ptr<const xfb::Snapshot> presented_snapshot(AuroraVIPresentedState& presented) {
++  auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
++  presented = {state.presented.framebuffer, state.presented_snapshot ? state.presented_snapshot->revision : 0,
++      state.presentations, state.presented.retrace_count, state.presented.field, state.presented.black};
++  return state.presented_snapshot;
++}
+ TextureHandle rendered_signal() { auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state); return state.signal; }
+ } // namespace aurora::gfx::scanout
+ extern "C" {
++bool aurora_get_presented_video_output_state(AuroraVIPresentedState* result) {
++  if (!result) return false; auto& state = aurora::gfx::scanout::State(); std::lock_guard lock(state.mutex);
++  if (!state.configured) return false;
++  *result = {state.presented.framebuffer, state.presented_snapshot ? state.presented_snapshot->revision : 0,
++      state.presentations, state.presented.retrace_count, state.presented.field, state.presented.black};
++  return true;
++}
+ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config) { aurora::gfx::scanout::configure(config); }
+ bool aurora_get_video_output_state(AuroraVIOutputState* result) {
+   if (!result) return false; auto& state = aurora::gfx::scanout::State(); std::lock_guard lock(state.mutex);

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend base-handler and loading notification steps
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share original base timeline, ring and activation contracts with checked native
 retained-scene ownership. Preserve the actual empty remove and SceneCreated
@@ -9,7 +9,6 @@ and its inclusive authored-clock completion predicate without selecting HOME,
 concrete screen handlers or unavailable manager/resource services.
 
 diff --git a/src/Game/FE/BaseSceneHandler.cpp b/src/Game/FE/BaseSceneHandler.cpp
-index 36bd8c3..2eb441a 100644
 --- a/src/Game/FE/BaseSceneHandler.cpp
 +++ b/src/Game/FE/BaseSceneHandler.cpp
 @@ -3,26 +3,24 @@
@@ -46,10 +45,9 @@ index 36bd8c3..2eb441a 100644
 +    FrontendBaseHandlerActivate(*this);
  }
 diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
-index 2e171e8..66d3257 100644
 --- a/src/Game/FE/feSceneManager.cpp
 +++ b/src/Game/FE/feSceneManager.cpp
-@@ -1,6 +1,7 @@
+@@ -2,6 +2,7 @@
  #include "Game/FE/feSceneManager.h"
  
  #include "Game/FE/feInput.h"
@@ -57,7 +55,7 @@ index 2e171e8..66d3257 100644
  #include "Game/FE/feRender.h"
  #include "Game/FE/fePackage.h"
  #include "Game/FE/feScene.h"
-@@ -279,8 +280,7 @@ void FESceneManager::Update(float dt)
+@@ -287,8 +288,7 @@
      {
          if (((FEScene*)currentEntry->entry->mFEScene)->mState == 6)
          {
@@ -68,7 +66,6 @@ index 2e171e8..66d3257 100644
  
          if (nlDLRingIsEnd(headEntry, currentEntry) || currentEntry == 0)
 diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
-index 82204f5..4617c05 100644
 --- a/src/Game/SH/SHOptions.cpp
 +++ b/src/Game/SH/SHOptions.cpp
 @@ -2,6 +2,7 @@
@@ -79,7 +76,7 @@ index 82204f5..4617c05 100644
  #include "Game/BaseSceneHandler.inl"
  #include "Game/FE/FEAudio.h"
  
-@@ -25,6 +26,7 @@ class SHNavigation;
+@@ -25,6 +26,7 @@
  
  void BaseSceneHandler::SceneCreated()
  {
@@ -88,7 +85,6 @@ index 82204f5..4617c05 100644
  
  OptionsScene::OptionsScene()
 diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
-index b1c4789..2259b7c 100644
 --- a/src/Game/SH/SHLoading.cpp
 +++ b/src/Game/SH/SHLoading.cpp
 @@ -1,6 +1,7 @@
@@ -99,7 +95,7 @@ index b1c4789..2259b7c 100644
  #include "Game/FE/FrontendInstanceSteps.h"
  #include "Game/BaseSceneHandler.inl"
  
-@@ -89,19 +90,7 @@ BaseLoadingScene::~BaseLoadingScene()
+@@ -89,19 +90,7 @@
  void BaseLoadingScene::Update(float dt)
  {
      BaseSceneHandler::Update(dt);
@@ -122,7 +118,6 @@ index b1c4789..2259b7c 100644
  MatchLoadingScene::MatchLoadingScene()
 diff --git a/include/Game/FE/FrontendHandlerSteps.h b/include/Game/FE/FrontendHandlerSteps.h
 new file mode 100644
-index 0000000..c1c4986
 --- /dev/null
 +++ b/include/Game/FE/FrontendHandlerSteps.h
 @@ -0,0 +1,43 @@

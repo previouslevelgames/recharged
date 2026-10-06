@@ -6,7 +6,8 @@ add_library(charged_interpreter STATIC
     src/runtime/interpreter.cpp)
 add_dependencies(charged_interpreter verify_prepared)
 target_include_directories(charged_interpreter PRIVATE "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs")
-target_compile_definitions(charged_interpreter PRIVATE MSCHARGED_NATIVE=1)
+target_compile_definitions(charged_interpreter PRIVATE MSCHARGED_NATIVE=1
+    PUBLIC MSCHARGED_DIAGNOSTIC_INTERPRETER=1)
 target_link_libraries(charged_interpreter PUBLIC charged_bytecode_reader)
 target_compile_features(charged_interpreter PUBLIC cxx_std_20)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)

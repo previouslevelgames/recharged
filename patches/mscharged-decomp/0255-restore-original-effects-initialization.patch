@@ -1,0 +1,609 @@
+From: mscharged-port contributors
+Subject: [PATCH] Restore original effects loaders and particle flow outside legacy diagnostics
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Keep matching retail methods, requests and fixed colour sampling. Confine copied
+registration/simulation representations to an explicitly named diagnostic. Native
+fabs and the real matrix carrier are compiler boundaries only; raw effects
+record endian/pointer transport remains an explicit runtime prerequisite.
+
+--- a/include/Game/Effects/EffectsBundleData.h
++++ b/include/Game/Effects/EffectsBundleData.h
+@@ -14,13 +14,14 @@
+         return (id & 0x80FFFFFF) == 0x80024000;
+     }
+ 
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     static EffectsBundleData* Initialize(nlChunk* bundle) = delete;
+ #else
+     static EffectsBundleData* Initialize(nlChunk* bundle);
+ #endif
+-    // Shared final initialization pass, after checked native storage is built.
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     void ResolveTemplates();
++#endif
+     void Destroy();
+     EffectsGroup* GetGroup(int index) const { return mGroups[index]; }
+ 
+--- a/include/Game/Effects/EffectsTemplate.h
++++ b/include/Game/Effects/EffectsTemplate.h
+@@ -3,7 +3,7 @@
+ 
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include <vector>
+ #endif
+ 
+@@ -51,7 +51,7 @@
+ class fxAnimatedRange
+ {
+ public:
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     static fxAnimatedRange* LoadFromChunk(nlChunk* chunk) = delete;
+ #else
+     static fxAnimatedRange* LoadFromChunk(nlChunk* chunk);
+@@ -69,7 +69,7 @@
+ class EffectsTemplate
+ {
+ public:
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     static EffectsTemplate* LoadFromChunk(nlChunk* chunk) = delete;
+ #else
+     static EffectsTemplate* LoadFromChunk(nlChunk* chunk);
+@@ -97,7 +97,7 @@
+     /* 0x4C */ fxRange m_rFPS;
+     /* 0x54 */ unsigned long m_uModelID;
+     /* 0x58 */ fxAnimatedRange* mProperties[8];
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     // Retain the authored count. Wii files may have 25 colours; native consumers
+     // must qualify their indices instead of inventing the reconstructed 26th.
+     std::vector<nlColour> m_cColour;
+--- a/include/Game/Effects/EffectsGroup.h
++++ b/include/Game/Effects/EffectsGroup.h
+@@ -75,7 +75,7 @@
+     bool IsPersistent() const;
+     unsigned long GetHashID() const { return m_hashID; }
+     UserEffectSpec** GetUserSpecs() const { return m_userSpecsPtr; }
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     static EffectsGroup* LoadFromChunk(nlChunk* chunk) = delete;
+     void ParseUserSpecs() = delete; // Actual user-effect factories are unselected.
+ #else
+--- a/include/Game/Effects/ParticleSystem.h
++++ b/include/Game/Effects/ParticleSystem.h
+@@ -50,11 +50,11 @@
+     ParticleSystem(EffectsTemplate* pTemplate,
+         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+         unsigned long resourceID)
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         = delete
+ #endif
+         ;
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     // Explicit CPU-only construction; m_uTextureIndex stays invalid. The full
+     // constructor still requires an actual GL inventory on console.
+     struct NativeSimulation {};
+@@ -71,7 +71,7 @@
+     void UpdateLight(EffectsLight* pLight, Particle* pPart,
+         EffectsTemplate* pTemplate, const nlVector3& viewRight,
+         const nlVector3& viewUp, const nlMatrix4* pCoordSys)
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         = delete
+ #endif
+         ;
+@@ -81,7 +81,7 @@
+         const nlVector3& viewUp, const nlMatrix4* pCoordSys);
+     void ClearParticles();
+     int RenderAllParticles(GLView* view)
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         = delete
+ #endif
+         ;
+--- a/src/Game/Effects/EffectsBundleData.cpp
++++ b/src/Game/Effects/EffectsBundleData.cpp
+@@ -2,11 +2,12 @@
+ 
+ #include "Game/Effects/EffectsGroup.h"
+ #include "Game/Effects/EffectsTemplate.h"
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "NL/nlChunk.h"
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ void EffectsBundleData::ResolveTemplates()
+ {
+     for (unsigned long i = 0; i < mNumGroups; ++i)
+@@ -14,8 +15,17 @@
+         mGroups[i]->ResolveTemplates(mTemplates);
+     }
+ }
++#else
++static void ResolveGroupTemplates(EffectsBundleData* data)
++{
++    for (unsigned long i = 0; i < data->mNumGroups; ++i)
++    {
++        data->mGroups[i]->ResolveTemplates(data->mTemplates);
++    }
++}
++#endif
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
+ {
+     EffectsBundleData* data;
+@@ -41,7 +51,7 @@
+         data->mGroups[i] = EffectsGroup::LoadFromChunk(chunk);
+     }
+ 
+-    data->ResolveTemplates();
++    ResolveGroupTemplates(data);
+     return data;
+ }
+ 
+--- a/src/Game/Effects/EffectsTemplate.cpp
++++ b/src/Game/Effects/EffectsTemplate.cpp
+@@ -1,7 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Effects/EffectsTemplate.h"
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/GL/GLInventory.h"
+ #include "Game/Effects/EmissionManager.h"
+ #include "NL/nlChunk.h"
+@@ -10,7 +10,7 @@
+ 
+ #endif
+ 
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include <cmath>
+ #include <stdexcept>
+ #endif
+@@ -21,7 +21,7 @@
+ {
+     if (mUseCurve != 0)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         if (!std::isfinite(value) || value < 0.0f || value > 1.0f
+             || mNumKeys == 0 || mKeys == 0 || mKeys[0].mTime > value)
+             throw std::domain_error("Unqualified particle curve sample");
+@@ -84,7 +84,7 @@
+     return base + 0.5f * range;
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ inline fxAnimatedRange* fxAnimatedRange::LoadFromChunk(nlChunk* chunk)
+ {
+     nlChunk* valueChunk = chunk->GetFirstChunk();
+--- a/src/Game/Effects/EffectsGroup.cpp
++++ b/src/Game/Effects/EffectsGroup.cpp
+@@ -1,9 +1,9 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Effects/EffectsGroup.h"
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include <stdexcept>
+ #endif
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/Effects/EmissionManager.h"
+ #include "Game/Sys/simpleparser.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+@@ -47,7 +47,7 @@
+     return false;
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ EffectsGroup* EffectsGroup::LoadFromChunk(nlChunk* chunk)
+ {
+     nlChunk* groupChunk = chunk->GetFirstChunk();
+@@ -109,7 +109,7 @@
+ {
+     if (m_userSpecs != 0)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         throw std::logic_error("Native user-effect destruction requires qualified factories");
+ #else
+         for (unsigned long i = 0; i < m_userSpecs; ++i)
+--- a/src/Game/Effects/ParticleSystem.cpp
++++ b/src/Game/Effects/ParticleSystem.cpp
+@@ -1,15 +1,16 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/Effects/ParticleModelSteps.h"
++#endif
+ #include "Game/Effects/ParticleSystem.h"
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/Sys/debug.h"
+ #endif
+ 
+ #include <math.h>
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/Effects/EmissionManager.h"
+-#include "Game/Effects/ParticleBillboard.h"
+ #include "Game/GL/GLInventory.h"
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+ #include "Game/GL/GLVertexAnim.h"
+@@ -22,7 +23,7 @@
+ #include "NL/gl/glMaterialParameters.h"
+ #endif
+ #include "Game/TweakValueFloat.h"
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/UnidentifiedStaticStorage.h"
+ #else
+ #include <cmath>
+@@ -65,7 +66,7 @@
+ static unsigned short hackyFacingAngle;
+ 
+ ParticleSystem::ParticleSystem(
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     NativeSimulation,
+ #endif
+     EffectsTemplate* pTemplate,
+@@ -93,7 +94,7 @@
+     m_aFacing = 0;
+     m_bAmDying = false;
+     m_bVisible = false;
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     m_uTextureIndex = 0xFFFFFFFF; // CPU simulation never owns a GL binding.
+ #else
+     m_uTextureIndex = glGetTextureIndex(m_pTemplate->m_hTexture);
+@@ -104,7 +105,7 @@
+ {
+     if (m_pTemplate->mUnidentified040 != 0)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         std::terminate();
+ #else
+         tDebugPrintManager::Print(DC_RENDER, "OnEmitterDeath: %d\n",
+@@ -127,10 +128,46 @@
+     UpdateCoordSys(m_mCoordSys);
+ }
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
+ {
+     fxParticleCoordinates(mCoordSys, m_vForward, m_vPosition);
+ }
++#else
++void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
++{
++    nlVector3 grav;
++    nlVec3Normalize(grav, m_vForward);
++
++    nlVector3 right;
++    nlVector3 ref;
++    nlVec3Set(ref, 0.0f, 0.0f, 1.0f);
++#ifdef MSCHARGED_NATIVE
++    if ((float)nlAbs(nlVec3DotProduct(ref, grav)) > 0.99f)
++#else
++    if ((float)__fabs(nlVec3DotProduct(ref, grav)) > 0.99f)
++#endif
++    {
++        nlVec3Set(ref, 0.0f, 1.0f, 0.0f);
++    }
++
++    nlVec3CrossProduct(right, grav, ref);
++    nlVec3Normalize(right, right);
++
++    nlVec3CrossProduct(ref, right, grav);
++    nlVec3Normalize(ref, ref);
++
++    nlVec3Neg(grav, grav);
++
++    mCoordSys.SetRow_(0, right);
++    mCoordSys.SetRow_(1, ref);
++    mCoordSys.SetRow_(2, grav);
++    mCoordSys.SetTranslation(m_vPosition);
++    mCoordSys.e[11] = 0.0f;
++    mCoordSys.e[7] = 0.0f;
++    mCoordSys.e[3] = 0.0f;
++}
++#endif
+ 
+ typedef void (*EmitParticlePosition)(nlVector3&, nlVector3&,
+     ParticleSystem*, EffectsSpec*, const nlMatrix4&);
+@@ -413,7 +450,7 @@
+ 
+         if (m_pTemplate->mUnidentified044 != 0)
+         {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         throw std::logic_error("Particle event diagnostics require the game debug service");
+ #else
+             tDebugPrintManager::Print(DC_RENDER, "OnParticleCreation: %d\n",
+@@ -484,7 +521,7 @@
+         {
+             if (m_pTemplate->mUnidentified048 != 0)
+             {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         throw std::logic_error("Particle event diagnostics require the game debug service");
+ #else
+                 tDebugPrintManager::Print(DC_RENDER, "OnParticleDeath: %d\n",
+@@ -503,7 +540,7 @@
+     }
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
+     EffectsTemplate* pTemplate, const nlVector3& viewRight,
+     const nlVector3& viewUp,
+@@ -581,12 +618,12 @@
+     const EffectsTemplate* pTemplate)
+ {
+     float frame = 24.0f * (pPart->timeElapsed / pPart->lifeSpan);
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     if (!std::isfinite(frame) || frame < 0.0f || frame > 24.0f)
+         throw std::domain_error("Unqualified particle colour time");
+ #endif
+     int first = (int)(float)floor(frame);
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     const unsigned required = first >= 24 ? 26 : unsigned(first + 2);
+     if (pTemplate->m_cColour.size() < required)
+         throw std::domain_error("Authored particle colour channel lacks the requested sample");
+@@ -670,7 +707,7 @@
+         return;
+     }
+ 
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     const float nativeFrame = pPart->FPS * pPart->timeElapsed + pPart->frame;
+     const float nativeAngle = 65536.0f * rot;
+     if (!std::isfinite(nativeFrame) || nativeFrame < -2147483648.0f || nativeFrame >= 2147483648.0f
+@@ -733,7 +770,7 @@
+     pReturn->position[3].z = (position.z + a.z) - b.z;
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ static void RenderLightOnField(GLView* view, const EffectsLight& light)
+ {
+     if (light.m_fRadius == 0.0f)
+@@ -781,9 +818,10 @@
+     }
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ int ParticleSystem::RenderAllParticles(GLView* view)
+ {
++    static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
+     ParticleReturn ret;
+ 
+     if (!m_bVisible)
+@@ -835,9 +873,35 @@
+         nlMultDirVectorMatrix(viewRight, rot);
+     }
+ 
+-    fxSetParticleRasterState(cullBackFaces, sDisableParticleDepthTest,
+-        m_AllowInFront && (m_pTemplate->IsInFront() || (m_pSpec != 0 && m_pSpec->m_bInFront)),
+-        sUseWhiteParticleTexture, m_pTemplate->m_eBlend);
++    glSetDefaultState(true);
++    glSetRasterState(GLS_DepthWrite, 0);
++    glSetRasterState(GLS_Culling, cullBackFaces ? 1 : 0);
++    if (sDisableParticleDepthTest)
++        glSetRasterState(GLS_DepthTest, 0);
++    if (m_AllowInFront
++        && (m_pTemplate->IsInFront()
++            || (m_pSpec != 0 && m_pSpec->m_bInFront)))
++    {
++        glSetRasterState(GLS_DepthTest, 0);
++    }
++    if (sUseWhiteParticleTexture)
++    {
++        glSetRasterState(GLS_AlphaBlend, 3);
++    }
++    else
++    {
++        switch (m_pTemplate->m_eBlend)
++        {
++        case EfBlend_Normal:
++            glSetRasterState(GLS_AlphaBlend, 1);
++            break;
++        case EfBlend_Additive:
++            glSetRasterState(GLS_AlphaBlend, 3);
++            break;
++        }
++    }
++    glSetRasterState(GLS_AlphaTest, 1);
++    glSetCurrentRasterState(glHandleizeRasterState());
+ 
+     static unsigned long WhiteTexture = glGetTexture("global/white");
+     if (m_pSpec != 0 && m_pSpec->m_bLight)
+@@ -864,8 +928,13 @@
+         eEffectsBlend blendType;
+ 
+         nlMatrix4 m;
++        nlMatrix4 mScale;
++        nlMatrix4 mRot;
+         nlMatrix4 mCoord;
+-        fxModelParticleCoordinates(mCoord, *pCoord);
++        mCoord = *pCoord;
++        mCoord.e[2] = -mCoord.e[2];
++        mCoord.e[6] = -mCoord.e[6];
++        mCoord.e[10] = -mCoord.e[10];
+ 
+         switch (m_pTemplate->m_eBlend)
+         {
+@@ -891,10 +960,27 @@
+                     0);
+             }
+             UpdateParticle(&ret, pPart, m_pTemplate, viewRight, viewUp, pCoord);
+-            fxModelParticleMatrix(m, mCoord, ret,
+-                m_pTemplate->m_eBillboard, m_aFacing);
+-
++            float rotRad = 3.1415927f * ret.position[1].y / 180.0f;
++            float size = ret.position[1].x;
++            if (m_pTemplate->m_eBillboard == EfBill_Billboard)
++            {
++                float facingRot = 0.0000958738f
++                    * (float)(unsigned short)(m_aFacing + 0x8000);
++                rotRad += facingRot;
++            }
++            nlMakeRotationMatrixZ(mRot, rotRad);
++            nlMakeScaleMatrix(mScale, size, size, size);
++            nlMultMatrices(mScale, mRot);
++            nlMultMatrices(m, mCoord, mScale);
++            m.e[12] = ret.position[0].x;
++            m.e[13] = ret.position[0].y;
++            m.e[14] = ret.position[0].z;
++
++#ifdef MSCHARGED_NATIVE
+             glMatrixHandle hMatrix = glAllocSetMatrix(m);
++#else
++            u32 hMatrix = glAllocSetMatrix(m);
++#endif
+ 
+             float meshRateScale = 1.0f;
+             if (pAnim != 0)
+@@ -903,14 +989,20 @@
+                 {
+                     meshRateScale = ((float)(int)pAnim->m_nNumFrames
+                         / pAnim->m_fFrameRate) / pPart->lifeSpan;
+-                    pModel = pAnim->GetModel(fxModelParticleLifeFrame(
+-                        pPart->timeElapsed, pPart->lifeSpan, (int)pAnim->m_nNumFrames));
++                    float frameFrac = pPart->timeElapsed / pPart->lifeSpan;
++                    float frame = frameFrac * (float)((int)pAnim->m_nNumFrames - 1);
++                    pModel = pAnim->GetModel((int)frame);
+                 }
+                 else
+                 {
+                     meshRateScale = pPart->FPS / pAnim->m_fFrameRate;
+-                    pModel = pAnim->GetModel(fxModelParticleFpsFrame(
+-                        pPart->FPS, pPart->timeElapsed, (int)pAnim->m_nNumFrames));
++                    float frame = pPart->FPS * pPart->timeElapsed;
++                    float numFrames = (float)(int)pAnim->m_nNumFrames;
++                    while (frame >= numFrames)
++                    {
++                        frame -= numFrames;
++                    }
++                    pModel = pAnim->GetModel((int)frame);
+                 }
+             }
+ 
+@@ -922,12 +1014,21 @@
+                 if (glHasMaterialParameter(pPacket, constantColourHash))
+                 {
+                     nlVector4 colour;
+-                    fxModelParticleColour(colour, ret.c);
++                    colour.x = (float)ret.c.c[0] * (1.0f / 255.0f);
++                    colour.y = (float)ret.c.c[1] * (1.0f / 255.0f);
++                    colour.z = (float)ret.c.c[2] * (1.0f / 255.0f);
++                    colour.w = (float)ret.c.c[3] * (1.0f / 255.0f);
+                     glSetMaterialParameterArray(pPacket, constantColourHash,
+                         &colour, 4);
+                 }
+-                fxModelParticleRaster(pPacket->rasterState, blendType,
+-                    m_pTemplate->mUnidentified037);
++                glSetRasterState(pPacket->rasterState, GLS_Culling, 0);
++                glSetRasterState(pPacket->rasterState, GLS_AlphaBlend,
++                    blendType);
++                glSetRasterState(pPacket->rasterState, GLS_AlphaTest, 1);
++                glSetRasterState(pPacket->rasterState, GLS_AlphaTestRef, 3);
++                if ((m_pTemplate->mUnidentified037 & 4) != 0)
++                    glSetRasterState(
++                        pPacket->rasterState, GLS_DepthWrite, 0);
+                 pPacket->matrix = hMatrix;
+                 ++pPacket;
+             }
+@@ -959,7 +1060,25 @@
+                 Particle* pPart = *iterator;
+                 UpdateParticle(&ret, pPart, m_pTemplate, viewRight,
+                     viewUp, pCoord);
+-                fxWriteParticleQuad(mesh, ret, bQuads);
++                int i;
++                if (bQuads)
++                {
++                    for (i = 0; i < 4; i++)
++                    {
++                        mesh.Texcoord(ret.texcoord[i]);
++                        mesh.Colour(ret.c);
++                        mesh.Vertex(ret.position[i]);
++                    }
++                }
++                else
++                {
++                    for (i = 0; i < 6; i++)
++                    {
++                        mesh.Texcoord(ret.texcoord[_tris[i]]);
++                        mesh.Colour(ret.c);
++                        mesh.Vertex(ret.position[_tris[i]]);
++                    }
++                }
+                 iterator.Step();
+             }
+ 
+@@ -1088,7 +1207,7 @@
+ {
+     TextureFrame* p = (TextureFrame*)nlMalloc(
+         numFrames * sizeof(TextureFrame), 8, false);
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     if (p == 0) throw std::bad_alloc();
+ #endif
+     TextureFrame* q = p;
+@@ -1111,7 +1230,7 @@
+ 
+ bool fxParticleStartup(int maxNumParticles)
+ {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     for (int i = 0; i < 36; ++i)
+         if (textureFrames[i] != 0)
+             throw std::logic_error("Particle atlas is already owned");
+@@ -1120,7 +1239,7 @@
+ #endif
+     textureFrames[0]
+         = (TextureFrame*)nlMalloc(sizeof(TextureFrame), 8, false);
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     if (textureFrames[0] == 0) throw std::bad_alloc();
+ #endif
+     textureFrames[0]->u = 0.0f;
+@@ -1134,7 +1253,7 @@
+     if (MaxNumParticles == 0)
+         MaxNumParticles = maxNumParticles;
+     return true;
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     }
+     catch (...) { fxParticleShutdown(); throw; }
+ #endif
+@@ -1146,7 +1265,7 @@
+     {
+         if (textureFrames[i] != 0)
+         {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+             nlFree(textureFrames[i]);
+ #else
+             delete[] (unsigned char*)textureFrames[i];

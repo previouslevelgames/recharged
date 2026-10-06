@@ -13,6 +13,8 @@ add_library(charged_original_file_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/NL/nlFile.cpp"
     src/platform/file_handle_abi.cpp)
 add_dependencies(charged_original_file_module_sources verify_prepared)
+include(cmake/OriginalCompressedFiles.cmake)
+mscharged_add_original_inflater(charged_original_file_module_sources)
 set_target_properties(charged_original_file_module_sources PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)

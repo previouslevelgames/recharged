@@ -1,10 +1,12 @@
 include_guard(GLOBAL)
 
-# Whole Matching AudioSource compiler inventory. This does not establish AX,
+# Whole audio source/effect compiler inventory. This does not establish AX,
 # DSP boot, stream loading or original audio initialization readiness.
 include(cmake/OriginalFunctionPools.cmake)
 add_library(charged_original_audio_source_module_sources OBJECT EXCLUDE_FROM_ALL
-    "${MSCHARGED_PREPARED}/src/Game/Audio/AudioSource.cpp")
+    "${MSCHARGED_PREPARED}/src/Game/Audio/AudioSource.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/AudioEffects.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/AudioResourceRuntime.cpp")
 add_dependencies(charged_original_audio_source_module_sources verify_prepared)
 set_target_properties(charged_original_audio_source_module_sources PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
@@ -17,7 +19,7 @@ target_link_libraries(charged_original_audio_source_module_sources PRIVATE
 target_compile_definitions(charged_original_audio_source_module_sources PRIVATE
     MSCHARGED_GAME_MODULE=1 dSINGLE=1 __alloca=__builtin_alloca)
 target_compile_options(charged_original_audio_source_module_sources PRIVATE
-    -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas -fcheck-new)
+    -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas -fcheck-new -fno-rtti)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(charged_original_audio_source_module_sources PRIVATE
         -fno-gnu-unique -fno-assume-sane-operators-new-delete)

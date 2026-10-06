@@ -1,8 +1,9 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Adapt original glPlat canonical SDK compiler ABI
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Classification: permanent host compiler/platform/data ABI adaptation.
 
+diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
 --- a/src/NL/gl/glPlat.cpp
 +++ b/src/NL/gl/glPlat.cpp
 @@ -1,5 +1,10 @@

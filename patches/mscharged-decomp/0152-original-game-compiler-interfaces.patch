@@ -1,5 +1,5 @@
 Subject: Preserve native compiler interfaces for the original Game source
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Use authoritative audio header linkage, an explicit full-width encoded Terrain
 index cast, and emit available original nlStrNCat<char> for native linking.
@@ -20,25 +20,38 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  #include "Game/Game.h"
  #include "Game/MathHelpers.h"
  #include "Game/Weather.h"
-@@ -121,8 +124,10 @@
- extern "C" void fn_80072164(UnidentifiedRegistrationNode* node);
- extern "C" void fn_8007217C(UnidentifiedRegistrationNode* node);
- extern "C" void fn_80072194(PlayerAttackData* node);
-+#ifndef MSCHARGED_NATIVE
- extern "C" int GetAudioPauseDepth();
- extern "C" void ResumeAllAudio();
+@@ -281,7 +284,11 @@
+ {
+     ++lbl_806E2130;
+ 
++#if defined(MSCHARGED_NATIVE)
++    cGame* game = new (nlMalloc(sizeof(cGame), alignof(cGame), false)) cGame(terrainIndex, weatherType, startCrowdRiot);
++#else
+     cGame* game = new (nlMalloc(0x10F4, 8, false)) cGame(terrainIndex, weatherType, startCrowdRiot);
 +#endif
- extern "C" void fn_800EDC2C();
- extern "C" void fn_801E999C(BaseSceneHandler* scene);
- extern "C" void fn_80058ABC(unsigned long param1, unsigned long param2);
-@@ -488,7 +493,11 @@
+     g_pGame = game;
+ 
+     cTeam* team = new (8, false) cTeam(0);
+@@ -314,7 +321,11 @@
+     {
+         NumberDisplay* numberDisplay
+             = static_cast<NumberDisplay*>(
++#if defined(MSCHARGED_NATIVE)
++                nlMalloc(sizeof(NumberDisplay), alignof(NumberDisplay), false));
++#else
+                 nlMalloc(0x28, 8, false));
++#endif
+         numberDisplay
+             = new (numberDisplay) NumberDisplay();
+         gpNumberDisplay = numberDisplay;
+@@ -392,7 +403,11 @@
      m_pPostResetClock->m_uParam1 = (unsigned long)this;
  
      mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
 +#ifdef MSCHARGED_NATIVE
-+        Terrain(static_cast<int>(reinterpret_cast<std::uintptr_t>(param1)));
++        Terrain(static_cast<int>(reinterpret_cast<std::uintptr_t>(terrainIndex)));
 +#else
-         Terrain((int)param1);
+         Terrain((int)terrainIndex);
 +#endif
  
      mpWeatherManager = new (nlMalloc(sizeof(WeatherManager), 8, false)) WeatherManager();

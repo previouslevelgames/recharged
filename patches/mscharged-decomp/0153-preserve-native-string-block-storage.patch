@@ -1,5 +1,5 @@
 Subject: Size the original string block storage for native pointer layout
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The original allocator retains sixty-four blocks with 0x3FC payload bytes each.
 Its fixed Wii allocation is 64 * 0x400 bytes. A native block includes a wider
@@ -11,7 +11,7 @@ and storage checks do not establish retail shutdown or native CRT teardown.
 diff --git a/include/NL/nlString.h b/include/NL/nlString.h
 --- a/include/NL/nlString.h
 +++ b/include/NL/nlString.h
-@@ -27,7 +27,11 @@
+@@ -32,7 +32,11 @@
          mAllocator = 0;
  
          StringBlockAllocator* allocator = (StringBlockAllocator*)this;

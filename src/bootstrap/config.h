@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <set>
 
 namespace mscharged
 {
@@ -30,6 +31,7 @@ struct ConfigFile
     std::string contents;
     bool exists = false;
     Settings settings;
+    std::set<std::string> configured_keys; // Parsed INI provenance; run overrides never enter this set.
 };
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);

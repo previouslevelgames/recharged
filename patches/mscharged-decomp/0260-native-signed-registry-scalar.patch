@@ -1,0 +1,34 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Preserve original signed registry scalar arguments on native hosts
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Volume consumes an original pointer-shaped numeric RegistryValue cell.
+Read the checked Wii32 word, preserving its signed32 interpretation before
+the original float conversion. Retain source type branches, selection,
+negation, flags and allocation. Console source remains unchanged.
+
+diff --git a/src/Game/Audio/AudioEffects.cpp b/src/Game/Audio/AudioEffects.cpp
+--- a/src/Game/Audio/AudioEffects.cpp
++++ b/src/Game/Audio/AudioEffects.cpp
+@@ -4,6 +4,9 @@
+ 
+ #include "Game/Audio/AudioEffects.h"
+ #include "Game/Audio/AudioConfig.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_registry_word.h"
++#endif
+ #include "Game/Audio/AudioSource.h"
+ #include "Game/Audio/XSoundCueHandle.h"
+ #include "Game/Audio/SoundInstance.h"
+@@ -164,7 +167,11 @@
+         if (type == 1)
+             value = *(const float*)&argument->mData;
+         else
++#if defined(MSCHARGED_NATIVE)
++            value = (float)(s32)mscharged::platform::ReadWii32RegistryWord(argument->mData);
++#else
+             value = (float)(int)argument->mData;
++#endif
+         parameter->m_Unknown10 = value;
+     }
+     parameter->m_Unknown10 = negate ? -parameter->m_Unknown10 : parameter->m_Unknown10;

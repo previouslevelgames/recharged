@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original bounded CPU particle simulation and own atlas allocations
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Native simulation uses an explicit constructor tag and shares the original field
 initialization, emission, RNG, update, motion and quad bodies. It never registers
@@ -12,14 +12,12 @@ frame/angle conversions before the original accesses. Native atlas allocations
 are transactional and freed through their owning game arenas.
 
 diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
-index aa948c1..41249c3 100644
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
-@@ -48,8 +48,20 @@ class ParticleSystem
- {
+@@ -49,7 +49,19 @@
  public:
      ParticleSystem(EffectsTemplate* pTemplate,
-+        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
 +        unsigned long resourceID)
 +#ifdef MSCHARGED_NATIVE
 +        = delete
@@ -30,13 +28,13 @@ index aa948c1..41249c3 100644
 +    // constructor still requires an actual GL inventory on console.
 +    struct NativeSimulation {};
 +    ParticleSystem(NativeSimulation, EffectsTemplate* pTemplate,
-         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
++        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
          unsigned long resourceID);
 +#endif
      ~ParticleSystem();
  
      void UpdateCoordSys();
-@@ -58,13 +70,21 @@ public:
+@@ -58,13 +70,21 @@
      void UpdateAllParticles(float dt, const nlMatrix4* pCoordSys);
      void UpdateLight(EffectsLight* pLight, Particle* pPart,
          EffectsTemplate* pTemplate, const nlVector3& viewRight,
@@ -61,10 +59,9 @@ index aa948c1..41249c3 100644
      bool Update(float dt);
      float GetRemainingTime() const;
 diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
-index 6777291..4fccf65 100644
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
-@@ -7,12 +7,24 @@
+@@ -8,12 +8,24 @@
  #include "NL/gl/glState.h"
  #include "Game/UnidentifiedStaticStorage.h"
  
@@ -89,7 +86,7 @@ index 6777291..4fccf65 100644
          unsigned long i = 0;
          for (; i < mNumKeys; ++i)
          {
-@@ -71,6 +83,7 @@ float fxAnimatedRange::GetMaximum() const
+@@ -72,6 +84,7 @@
      return base + 0.5f * range;
  }
  
@@ -98,10 +95,10 @@ index 6777291..4fccf65 100644
  {
      nlChunk* valueChunk = chunk->GetFirstChunk();
 diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
-index 907f90f..d3a7a94 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
-@@ -1,8 +1,11 @@
+@@ -1,9 +1,12 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Effects/ParticleSystem.h"
 +#ifndef MSCHARGED_NATIVE
  #include "Game/Sys/debug.h"
@@ -113,7 +110,7 @@ index 907f90f..d3a7a94 100644
  #include "Game/Effects/EmissionManager.h"
  #include "Game/GL/GLInventory.h"
  #include "Game/GL/GLTexturedColourMeshWriter.h"
-@@ -14,8 +17,15 @@
+@@ -15,8 +18,15 @@
  #include "NL/gl/glTexture.h"
  #include "NL/gl/glView.h"
  #include "NL/gl/glMaterialParameters.h"
@@ -129,7 +126,7 @@ index 907f90f..d3a7a94 100644
  #include "NL/nlMemory.h"
  #include "NL/nlString.h"
  #include "NL/platvmath.h"
-@@ -51,7 +61,11 @@ static int MaxNumParticles;
+@@ -52,7 +62,11 @@
  int gNumRenderedParticles;
  static unsigned short hackyFacingAngle;
  
@@ -142,7 +139,7 @@ index 907f90f..d3a7a94 100644
      nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
      unsigned long resourceID)
      : m_uResourceID(resourceID)
-@@ -76,15 +90,23 @@ ParticleSystem::ParticleSystem(EffectsTemplate* pTemplate,
+@@ -77,15 +91,23 @@
      m_aFacing = 0;
      m_bAmDying = false;
      m_bVisible = false;
@@ -166,7 +163,7 @@ index 907f90f..d3a7a94 100644
      }
  
      --m_NumInstances;
-@@ -110,7 +132,11 @@ void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
+@@ -111,7 +133,11 @@
      nlVector3 right;
      nlVector3 ref;
      nlVec3Set(ref, 0.0f, 0.0f, 1.0f);
@@ -178,7 +175,7 @@ index 907f90f..d3a7a94 100644
      {
          nlVec3Set(ref, 0.0f, 1.0f, 0.0f);
      }
-@@ -413,8 +439,12 @@ void ParticleSystem::CreateNewParticles(int numParticles)
+@@ -414,8 +440,12 @@
  
          if (m_pTemplate->mUnidentified044 != 0)
          {
@@ -191,7 +188,7 @@ index 907f90f..d3a7a94 100644
          }
  
          m_Particles.AddStart(pPart);
-@@ -480,8 +510,12 @@ void ParticleSystem::UpdateAllParticles(float dt,
+@@ -481,8 +511,12 @@
          {
              if (m_pTemplate->mUnidentified048 != 0)
              {
@@ -204,7 +201,7 @@ index 907f90f..d3a7a94 100644
              }
              m_Particles.Remove(&iterator, 0);
              --m_NumParticles;
-@@ -495,6 +529,7 @@ void ParticleSystem::UpdateAllParticles(float dt,
+@@ -496,6 +530,7 @@
      }
  }
  
@@ -212,16 +209,16 @@ index 907f90f..d3a7a94 100644
  void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
      EffectsTemplate* pTemplate, const nlVector3& viewRight,
      const nlVector3& viewUp,
-@@ -526,6 +561,8 @@ void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
+@@ -526,6 +561,8 @@
+         pLight->m_v3Position = position;
      }
  }
- 
-+#endif
 +
++#endif
+ 
  void ParticleSystem::UpdateParticleMotion(Particle* pPart,
      const nlMatrix4* pCoordSys)
- {
-@@ -570,7 +607,16 @@ static nlColour EvaluateParticleColour(Particle* pPart,
+@@ -571,7 +608,16 @@
      const EffectsTemplate* pTemplate)
  {
      float frame = 24.0f * (pPart->timeElapsed / pPart->lifeSpan);
@@ -238,7 +235,7 @@ index 907f90f..d3a7a94 100644
      int second = first + 1;
      nlColour colour;
      if (first >= 24)
-@@ -650,6 +696,16 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
+@@ -651,6 +697,16 @@
          return;
      }
  
@@ -255,7 +252,7 @@ index 907f90f..d3a7a94 100644
      unsigned int animFrame
          = (int)(pPart->FPS * pPart->timeElapsed + pPart->frame);
      animFrame %= pTemplate->m_nFrames;
-@@ -703,6 +759,7 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
+@@ -704,6 +760,7 @@
      pReturn->position[3].z = (position.z + a.z) - b.z;
  }
  
@@ -263,7 +260,7 @@ index 907f90f..d3a7a94 100644
  static void RenderLightOnField(GLView* view, const EffectsLight& light)
  {
      if (light.m_fRadius == 0.0f)
-@@ -735,6 +792,8 @@ static void RenderLightOnField(GLView* view, const EffectsLight& light)
+@@ -736,6 +793,8 @@
      view->AttachModel(q.GetModel(), 0);
  }
  
@@ -272,7 +269,7 @@ index 907f90f..d3a7a94 100644
  void ParticleSystem::ClearParticles()
  {
      nlDLListIterator<Particle*> iterator;
-@@ -748,6 +807,7 @@ void ParticleSystem::ClearParticles()
+@@ -749,6 +808,7 @@
      }
  }
  
@@ -280,7 +277,7 @@ index 907f90f..d3a7a94 100644
  int ParticleSystem::RenderAllParticles(GLView* view)
  {
      static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
-@@ -1054,6 +1114,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+@@ -1055,6 +1115,8 @@
      return numParticles;
  }
  
@@ -289,7 +286,7 @@ index 907f90f..d3a7a94 100644
  void ParticleSystem::Die()
  {
      m_fDelay = 0.0f;
-@@ -1130,6 +1192,9 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
+@@ -1131,6 +1193,9 @@
  {
      TextureFrame* p = (TextureFrame*)nlMalloc(
          numFrames * sizeof(TextureFrame), 8, false);
@@ -299,7 +296,7 @@ index 907f90f..d3a7a94 100644
      TextureFrame* q = p;
      float u = 0.0f;
      float v = 0.0f;
-@@ -1150,8 +1215,18 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
+@@ -1151,8 +1216,18 @@
  
  bool fxParticleStartup(int maxNumParticles)
  {
@@ -318,7 +315,7 @@ index 907f90f..d3a7a94 100644
      textureFrames[0]->u = 0.0f;
      textureFrames[0]->v = 0.0f;
      textureFrames[0]->increment = 1.0f;
-@@ -1163,6 +1238,10 @@ bool fxParticleStartup(int maxNumParticles)
+@@ -1164,6 +1239,10 @@
      if (MaxNumParticles == 0)
          MaxNumParticles = maxNumParticles;
      return true;
@@ -329,7 +326,7 @@ index 907f90f..d3a7a94 100644
  }
  
  bool fxParticleShutdown()
-@@ -1171,7 +1250,11 @@ bool fxParticleShutdown()
+@@ -1172,7 +1251,11 @@
      {
          if (textureFrames[i] != 0)
          {

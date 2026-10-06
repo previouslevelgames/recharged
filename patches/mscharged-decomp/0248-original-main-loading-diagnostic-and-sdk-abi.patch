@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Qualify the original loading call and its native SDK declarations
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Classification: explicit temporary original-main diagnostic gate; permanent SDK/compiler ABI.
 
 Part1 extends only the named MAIN_BOOTSTRAP diagnostic with the existing
@@ -16,7 +16,7 @@ CPU-written XFB coherence and full startup remain separate explicit holds.
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -505,7 +505,11 @@
+@@ -506,7 +506,11 @@
          Bind<void>(MemFun<ResetTask, void>(&ResetTask::FSCheckForReset),
              &resetTask)));
  
@@ -28,7 +28,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      InitializeODEAllocators();
      RegisterUserGeomClasses();
  #endif // physics omitted; logical pads retain their source Initialize position
-@@ -909,7 +913,11 @@
+@@ -910,7 +914,11 @@
  #endif
  #else
      // Owner-authorized diagnostic checkpoint: full game startup has not run.
@@ -43,7 +43,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
 --- a/src/Game/FE/LidOpenMessage.cpp
 +++ b/src/Game/FE/LidOpenMessage.cpp
-@@ -2022,6 +2022,12 @@
+@@ -2023,6 +2023,12 @@
  static bool CanGetResetPauseState = true;
  
  
@@ -56,7 +56,7 @@ diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
  extern "C"
  {
      u8 SCGetLanguage();
-@@ -2036,6 +2042,7 @@
+@@ -2037,6 +2043,7 @@
      void VIFlush();
      void VISetNextFrameBuffer(void*);
  }
@@ -64,7 +64,7 @@ diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
  
  static int fn_801BF4EC()
  {
-@@ -2158,7 +2165,12 @@
+@@ -2159,7 +2166,12 @@
      UncompressLidMessage(datastart, datasize, expanded, expandedSize);
  
      GXPokeColorUpdate(1);

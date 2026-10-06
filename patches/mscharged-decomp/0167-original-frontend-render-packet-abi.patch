@@ -1,5 +1,5 @@
 Subject: Restore original frontend quad providers and native packet ABI
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Restore all reconstructed GLDraw3 methods beneath the unchanged original
 frontend decisions. Retain legacy validation only in explicitly diagnostic
@@ -72,7 +72,7 @@ diff --git a/include/NL/gl/gl.h b/include/NL/gl/gl.h
 diff --git a/src/Game/Drawable/DrawableBirdoEgg.cpp b/src/Game/Drawable/DrawableBirdoEgg.cpp
 --- a/src/Game/Drawable/DrawableBirdoEgg.cpp
 +++ b/src/Game/Drawable/DrawableBirdoEgg.cpp
-@@ -114,7 +114,7 @@
+@@ -115,7 +115,7 @@
      glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -84,7 +84,7 @@ diff --git a/src/Game/Drawable/DrawableBirdoEgg.cpp b/src/Game/Drawable/Drawable
 diff --git a/src/Game/Drawable/DrawableBulletBill.cpp b/src/Game/Drawable/DrawableBulletBill.cpp
 --- a/src/Game/Drawable/DrawableBulletBill.cpp
 +++ b/src/Game/Drawable/DrawableBulletBill.cpp
-@@ -99,7 +99,7 @@
+@@ -100,7 +100,7 @@
      glSetCurrentTexture(glGetTexture("global/bulletbillshadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -96,7 +96,7 @@ diff --git a/src/Game/Drawable/DrawableBulletBill.cpp b/src/Game/Drawable/Drawab
 diff --git a/src/Game/Drawable/DrawableFlyingCamera.cpp b/src/Game/Drawable/DrawableFlyingCamera.cpp
 --- a/src/Game/Drawable/DrawableFlyingCamera.cpp
 +++ b/src/Game/Drawable/DrawableFlyingCamera.cpp
-@@ -97,7 +97,7 @@
+@@ -98,7 +98,7 @@
      glSetCurrentTexture(glGetTexture("global/camera_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -108,7 +108,7 @@ diff --git a/src/Game/Drawable/DrawableFlyingCamera.cpp b/src/Game/Drawable/Draw
 diff --git a/src/Game/Drawable/DrawableKoopaShell.cpp b/src/Game/Drawable/DrawableKoopaShell.cpp
 --- a/src/Game/Drawable/DrawableKoopaShell.cpp
 +++ b/src/Game/Drawable/DrawableKoopaShell.cpp
-@@ -116,7 +116,7 @@
+@@ -117,7 +117,7 @@
      glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -120,7 +120,7 @@ diff --git a/src/Game/Drawable/DrawableKoopaShell.cpp b/src/Game/Drawable/Drawab
 diff --git a/src/Game/Drawable/DrawablePowerup.cpp b/src/Game/Drawable/DrawablePowerup.cpp
 --- a/src/Game/Drawable/DrawablePowerup.cpp
 +++ b/src/Game/Drawable/DrawablePowerup.cpp
-@@ -135,7 +135,7 @@
+@@ -136,7 +136,7 @@
      glSetTextureState((eGLTextureState)0, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
  
@@ -132,7 +132,7 @@ diff --git a/src/Game/Drawable/DrawablePowerup.cpp b/src/Game/Drawable/DrawableP
 diff --git a/src/Game/Drawable/DrawableThwomp.cpp b/src/Game/Drawable/DrawableThwomp.cpp
 --- a/src/Game/Drawable/DrawableThwomp.cpp
 +++ b/src/Game/Drawable/DrawableThwomp.cpp
-@@ -110,7 +110,7 @@
+@@ -111,7 +111,7 @@
      {
          view = GetUnshadowedView();
      }
@@ -144,7 +144,7 @@ diff --git a/src/Game/Drawable/DrawableThwomp.cpp b/src/Game/Drawable/DrawableTh
 diff --git a/src/Game/Drawable/DrawableYoshiEgg.cpp b/src/Game/Drawable/DrawableYoshiEgg.cpp
 --- a/src/Game/Drawable/DrawableYoshiEgg.cpp
 +++ b/src/Game/Drawable/DrawableYoshiEgg.cpp
-@@ -117,7 +117,7 @@
+@@ -118,7 +118,7 @@
      glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -218,7 +218,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
-@@ -855,7 +855,7 @@
+@@ -857,7 +857,7 @@
          {
              view = gpChainChompShadowView;
          }
@@ -230,7 +230,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
 diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScoreMeter.cpp
 --- a/src/Game/Render/ShootToScoreMeter.cpp
 +++ b/src/Game/Render/ShootToScoreMeter.cpp
-@@ -264,7 +264,7 @@
+@@ -265,7 +265,7 @@
          barQuad.m_colour[3] = barQuad.m_colour[2];
  
          glAttachQuad3(
@@ -239,7 +239,7 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
              &barQuad);
      }
  }
-@@ -308,7 +308,7 @@
+@@ -309,7 +309,7 @@
      barQuad.SetupRotatedRectangle(scaledWhiteBarWidth,
          scaledWhiteBarHeight, barMatrix, false, false);
      barQuad.SetColour(colour);
@@ -248,7 +248,7 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
          &barQuad);
  }
  
-@@ -390,7 +390,7 @@
+@@ -391,7 +391,7 @@
      glQuad3 quad;
      quad.SetupRotatedRectangle(
          scaledMeterWidth, scaledMeterWidth, matrix, true, false);
@@ -260,7 +260,7 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -617,7 +617,7 @@
+@@ -618,7 +618,7 @@
      InitMaxProjectedShadows();
      SetCharacterShadowView(GetLayerView(eCLV_Characters));
      FESceneManager::s_pInstance->m_uDefaultRenderView =

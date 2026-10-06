@@ -1,6 +1,6 @@
 Subject: Select original effects template resolution on retained native records
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share EffectsBundleData's final template-resolution loop with the original
 initializer. Native storage is decoded and retained separately; prohibit the
@@ -140,14 +140,15 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
 diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
-@@ -1,5 +1,6 @@
+@@ -1,6 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Effects/EffectsTemplate.h"
  
 +#ifndef MSCHARGED_NATIVE
  #include "Game/GL/GLInventory.h"
  #include "Game/Effects/EmissionManager.h"
  #include "NL/nlChunk.h"
-@@ -110,10 +111,13 @@
+@@ -111,10 +112,13 @@
      return result;
  }
  
@@ -161,7 +162,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
  float EffectsTemplate::GetBoundingRadius()
  {
      float duration;
-@@ -139,3 +143,5 @@
+@@ -140,3 +144,5 @@
      }
      return result;
  }
@@ -170,7 +171,8 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
 diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
 --- a/src/Game/Effects/EffectsGroup.cpp
 +++ b/src/Game/Effects/EffectsGroup.cpp
-@@ -1,4 +1,8 @@
+@@ -1,5 +1,9 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Effects/EffectsGroup.h"
 +#ifdef MSCHARGED_NATIVE
 +#include <stdexcept>
@@ -179,7 +181,7 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Sys/simpleparser.h"
  #include "Game/UnidentifiedStaticStorage.h"
-@@ -17,6 +21,8 @@
+@@ -18,6 +22,8 @@
  
  static UserEffectFactory* gUserEffectTypes[3];
  static int gnUserEffectTypes;
@@ -188,7 +190,7 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
  
  bool EffectsGroup::IsPersistent() const
  {
-@@ -40,6 +46,7 @@
+@@ -41,6 +47,7 @@
      return false;
  }
  
@@ -196,7 +198,7 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
  EffectsGroup* EffectsGroup::LoadFromChunk(nlChunk* chunk)
  {
      nlChunk* groupChunk = chunk->GetFirstChunk();
-@@ -95,10 +102,15 @@
+@@ -96,10 +103,15 @@
      }
  }
  
@@ -212,10 +214,11 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
          for (unsigned long i = 0; i < m_userSpecs; ++i)
          {
              if (m_userSpecsPtr[i] != 0)
-@@ -107,5 +119,6 @@
+@@ -108,6 +120,7 @@
              }
          }
          delete[] m_userSpecsPtr;
 +#endif
      }
  }
+ 

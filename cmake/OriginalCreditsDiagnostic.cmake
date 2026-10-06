@@ -152,6 +152,8 @@ add_library(mscharged_original_credits_module MODULE
     src/platform/game_allocation_ownership.cpp
     src/platform/game_module_allocations.cpp
     src/platform/rlg_record_abi.cpp
+    src/platform/rlg_vertex_animation_abi.cpp
+    src/platform/rlg_geometry_bytes.cpp
     src/platform/tweak_storage.cpp
     src/platform/file_handle_abi.cpp
     src/platform/localization_data.cpp
@@ -161,6 +163,8 @@ add_library(mscharged_original_credits_module MODULE
 )
 set_source_files_properties("${MSCHARGED_PREPARED}/src/RVL_SDK/mtx/mtx44.c" PROPERTIES LANGUAGE CXX)
 add_dependencies(mscharged_original_credits_module verify_prepared)
+include(cmake/OriginalCompressedFiles.cmake)
+mscharged_add_original_inflater(mscharged_original_credits_module)
 set_target_properties(mscharged_original_credits_module PROPERTIES
     PREFIX "" POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
@@ -172,7 +176,7 @@ target_include_directories(mscharged_original_credits_module PRIVATE
     "${MSCHARGED_PREPARED}/src/NL/gl"
     "${MSCHARGED_PREPARED}/src/NL/glx")
 target_compile_definitions(mscharged_original_credits_module PRIVATE
-    MSCHARGED_DIAGNOSTIC_CREDITS_SCENE=1 MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE=1
+    MSCHARGED_DIAGNOSTIC_CREDITS_SCENE=1 MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE=1 MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS=1
     MSCHARGED_GAME_MODULE=1
     AURORA_WII_CLOCK=1 dSINGLE=1 __alloca=__builtin_alloca
     C_MTXFrustum=Charged_C_MTXFrustum C_MTXOrtho=Charged_C_MTXOrtho)

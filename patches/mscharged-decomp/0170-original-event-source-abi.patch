@@ -1,5 +1,5 @@
 Subject: Restore whole original events with native metadata ABI
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Isolate previous registry/listener/queue/task behavior under an explicit
 diagnostic event profile. Genuine source retains original lazy registry
@@ -14,13 +14,14 @@ or native capture category/stride in the eager function-memory pools.
 diff --git a/include/Game/Event.h b/include/Game/Event.h
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
-@@ -4,10 +4,13 @@
+@@ -4,10 +4,14 @@
  #include "NL/nlArrayAllocator.h"
  #include "NL/nlBind.h"
  #include "NL/nlDLListContainer.h"
 -#ifdef MSCHARGED_NATIVE
 +#ifdef MSCHARGED_DIAGNOSTIC_EVENTS
  #include "runtime/event_support.h"
++#include "platform/event_abi.h"
 +#elif defined(MSCHARGED_NATIVE)
 +#include "platform/event_abi.h"
  #else
@@ -29,7 +30,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  #endif
  
  unsigned int HashEventName(const char* name, int length);
-@@ -27,14 +30,14 @@
+@@ -27,14 +31,14 @@
      EventBase(const char* name, int length)
          : mHash(HashEventName(name, length))
      {
@@ -46,7 +47,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      EventBase(const EventBase&) = delete;
      EventBase& operator=(const EventBase&) = delete;
      bool NativeDelivering() const { return mNativeDelivering; }
-@@ -60,7 +63,7 @@
+@@ -60,7 +64,7 @@
  protected:
      unsigned int mHash;
      void* mCurrentConnection;
@@ -55,7 +56,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      bool mNativeDelivering;
  #endif
  };
-@@ -73,7 +76,7 @@
+@@ -73,7 +77,7 @@
          : mOwner(0)
          , mEvent(0)
      {
@@ -64,7 +65,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          mFlags = 0xC0000000u;
          mNativeEntry = 0;
          mNativeStateDepth = 0;
-@@ -88,7 +91,7 @@
+@@ -88,7 +92,7 @@
      // The owner's first word holds the live connection pointer.
      void* mOwner;
      void* mEvent;
@@ -73,7 +74,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      u32 mFlags;
      void* mNativeEntry;
      u32 mNativeStateDepth;
-@@ -96,6 +99,19 @@
+@@ -96,6 +100,19 @@
      union
      {
          unsigned int mFlags;
@@ -93,7 +94,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          struct
          {
              unsigned int : 2;
-@@ -107,6 +123,7 @@
+@@ -107,6 +124,7 @@
              unsigned short mUnidentified08;
              unsigned short mGroupCount : 16;
          };
@@ -101,16 +102,21 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      };
  #endif
  };
-@@ -162,7 +179,7 @@
+@@ -184,17 +202,17 @@
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
 -#ifdef MSCHARGED_NATIVE
+-        sType = NativeType();
+-#else
+-        sType = *(void**)this;
 +#ifdef MSCHARGED_DIAGNOSTIC_EVENTS
-         sType = NativeType();
- #else
-         sType = *(void**)this;
-@@ -172,7 +189,7 @@
++        this->sType = NativeType();
++#else
++        this->sType = *(void**)this;
+ #endif
+     }
+ 
      virtual void Disconnect(void* owner) = 0;
      virtual void Add(const Callback&, EventOwnerHandle, int) = 0;
  
@@ -118,8 +124,68 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 +#ifdef MSCHARGED_DIAGNOSTIC_EVENTS
      static void* NativeType() { static unsigned char token; return &token; }
  #endif
- protected:
-@@ -205,7 +222,7 @@
+ };
+@@ -209,12 +227,12 @@
+         : EventBase(name, length)
+     {
+         this->mCurrentConnection = 0;
+-        sType = *(void**)this;
++        this->sType = *(void**)this;
+     }
+ 
+     virtual inline ~UnidentifiedTypedEvent0();
+     virtual void Disconnect(void* owner) = 0;
+-    virtual void Add(const Callback&, unsigned int, int) = 0;
++    virtual void Add(const Callback&, EventOwnerHandle, int) = 0;
+ 
+ };
+ 
+@@ -259,7 +277,7 @@
+         }
+     }
+ 
+-    virtual void Add(const Callback& callback, unsigned int value, int flags)
++    virtual void Add(const Callback& callback, EventOwnerHandle value, int flags)
+     {
+         UnidentifiedAddListener(callback, value, flags);
+     }
+@@ -287,7 +305,7 @@
+             {
+                 nlDLListIterator<Listener> position;
+                 position = mListeners.Begin(
+-                    (ListenerEntry*)((char*)listener - 8));
++                    (ListenerEntry*)((char*)listener - MSCHARGED_EVENT_ENTRY_OFFSET(ListenerEntry)));
+                 ListenerEntry* entry = position.CurrentEntry();
+                 nlDLRingRemove(&mListeners.m_Head, entry);
+                 mListeners.DeleteEntry(entry);
+@@ -300,7 +318,7 @@
+     // Add hands the listener its callback by reference: retail's copies
+     // clear the caller's Function instead of cloning it.
+     void UnidentifiedAddListener(
+-        const Callback& callback, unsigned int value, int flags)
++        const Callback& callback, EventOwnerHandle value, int flags)
+     {
+         Listener* listener = mListeners.AllocateAtEnd(0);
+ 
+@@ -356,7 +374,7 @@
+ DLListEntry<UnidentifiedListener<ReturnType()> >*
+ UnidentifiedEvent0<ReturnType>::GetEntry(Listener* listener)
+ {
+-    return mListeners.Begin((ListenerEntry*)((char*)listener - 8)).CurrentEntry();
++    return mListeners.Begin((ListenerEntry*)((char*)listener - MSCHARGED_EVENT_ENTRY_OFFSET(ListenerEntry))).CurrentEntry();
+ }
+ 
+ template <typename ReturnType>
+@@ -390,7 +408,7 @@
+     typedef typename UnidentifiedEvent0<ReturnType>::Callback Callback;
+ 
+     virtual void Add(const typename UnidentifiedEvent0<ReturnType>::Callback& callback,
+-        unsigned int value, int flags)
++        EventOwnerHandle value, int flags)
+     {
+         this->UnidentifiedAddListener(callback, value, flags);
+     }
+@@ -432,7 +450,7 @@
  
      void RemoveAll()
      {
@@ -128,7 +194,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
              mscharged::RemoveAllEventListeners(*this, mListeners);
  #else
          while (mListeners.m_Head != 0)
-@@ -224,7 +241,7 @@
+@@ -451,7 +469,7 @@
  
      void Deliver(T* data)
      {
@@ -137,7 +203,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
              mscharged::DeliverEvent(*this, mListeners, [data](auto& callback) { callback(data); });
  #else
          nlDLListIterator<Listener> iterator;
-@@ -246,7 +263,7 @@
+@@ -473,7 +491,7 @@
              {
                  nlDLListIterator<Listener> position;
                  position = mListeners.Begin(
@@ -146,7 +212,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
                  ListenerEntry* entry = position.CurrentEntry();
                  nlDLRingRemove(&mListeners.m_Head, entry);
                  mListeners.DeleteEntry(entry);
-@@ -258,7 +275,7 @@
+@@ -485,7 +503,7 @@
  
      void Deliver()
      {
@@ -155,7 +221,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
              mscharged::DeliverEvent(*this, mListeners, [](auto& callback) { callback(); });
  #else
          nlDLListIterator<Listener> iterator;
-@@ -280,7 +297,7 @@
+@@ -507,7 +525,7 @@
              {
                  nlDLListIterator<Listener> position;
                  position = mListeners.Begin(
@@ -164,7 +230,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
                  ListenerEntry* entry = position.CurrentEntry();
                  nlDLRingRemove(&mListeners.m_Head, entry);
                  mListeners.DeleteEntry(entry);
-@@ -296,7 +313,7 @@
+@@ -523,7 +541,7 @@
      void UnidentifiedAddListener(
          const Callback& callback, EventOwnerHandle value, int flags)
      {
@@ -173,7 +239,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
              mscharged::AddEventListener(*this, mListeners, callback, value, flags);
  #else
          Listener* listener = mListeners.AllocateAtEnd(0);
-@@ -322,7 +339,7 @@
+@@ -549,7 +567,7 @@
  template <typename T>
  UnidentifiedEvent<T>::~UnidentifiedEvent()
  {
@@ -182,7 +248,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      this->NativeCheckDestruction();
  #endif
      RemoveAll();
-@@ -343,7 +360,7 @@
+@@ -570,7 +588,7 @@
  template <typename T>
  void UnidentifiedEvent<T>::Remove(Listener* listener)
  {
@@ -191,7 +257,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      mscharged::RemoveEventListener(*this, mListeners, listener);
  #else
      UnregisterEventConnection(this, listener);
-@@ -361,10 +378,10 @@
+@@ -588,10 +606,10 @@
  DLListEntry<UnidentifiedListener<T> >*
  UnidentifiedEvent<T>::GetEntry(Listener* listener)
  {
@@ -204,7 +270,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  #endif
  }
  
-@@ -405,7 +422,7 @@
+@@ -646,7 +664,7 @@
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
@@ -213,7 +279,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          sType = NativeType();
  #else
          sType = *(void**)this;
-@@ -416,7 +433,7 @@
+@@ -657,7 +675,7 @@
      virtual void Disconnect(void* owner) = 0;
      virtual void Add(Callback, EventOwnerHandle, int) = 0;
  
@@ -222,7 +288,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      static void* NativeType() { static unsigned char token; return &token; }
  #endif
  protected:
-@@ -437,7 +454,7 @@
+@@ -679,7 +697,7 @@
          EventDispatcher* dispatcher, const char* name, int length)
          : UnidentifiedEvent<T>(name, length)
          , mDispatcher(dispatcher)
@@ -231,7 +297,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          , mNativeQueue(mscharged::CreateQueuedEventLifetime(dispatcher, this))
  #endif
      {
-@@ -445,12 +462,12 @@
+@@ -687,12 +705,12 @@
  
      virtual ~UnidentifiedQueuedEventBase()
      {
@@ -246,7 +312,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      void CancelPending() { mscharged::CancelQueuedEvent(mNativeQueue, false); }
  #endif
  
-@@ -464,7 +481,7 @@
+@@ -706,7 +724,7 @@
  
      void Dispatch(T* data, Function<T*> disposer, unsigned char deliver)
      {
@@ -255,7 +321,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
              mscharged::InvokeQueuedPayload([&] { if (deliver) this->Deliver(data); },
                  [&] { if (disposer) disposer(data); });
  #else
-@@ -482,7 +499,7 @@
+@@ -724,7 +742,7 @@
  
      void Dispatch(Callback disposer, unsigned char deliver)
      {
@@ -264,7 +330,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
              mscharged::InvokeQueuedPayload([&] { if (deliver) this->Deliver(); },
                  [&] { if (disposer) disposer(); });
  #else
-@@ -500,7 +517,7 @@
+@@ -742,7 +760,7 @@
  
  protected:
      EventDispatcher* mDispatcher;
@@ -273,7 +339,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      std::shared_ptr<mscharged::QueuedEventLifetime> mNativeQueue;
  #endif
  };
-@@ -526,7 +543,7 @@
+@@ -768,7 +786,7 @@
  template <typename T>
  void UnidentifiedQueuedEvent<T>::Queue(T* data, const Function<T*>& disposer)
  {
@@ -282,7 +348,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      mscharged::QueueNativeEvent(this->mNativeQueue, this->mDispatcher,
          [data](void* target) { static_cast<UnidentifiedQueuedEventBase<T>*>(target)->Deliver(data); },
          [data, disposer] { if (disposer) disposer(data); });
-@@ -543,7 +560,7 @@
+@@ -785,7 +803,7 @@
  template <typename T>
  void UnidentifiedQueuedEvent<T>::Queue(const Callback& disposer)
  {
@@ -291,6 +357,42 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      mscharged::QueueNativeEvent(this->mNativeQueue, this->mDispatcher,
          [](void* target) { static_cast<UnidentifiedQueuedEventBase<T>*>(target)->Deliver(); },
          [disposer] { if (disposer) disposer(); });
+@@ -825,7 +843,7 @@
+         }
+     }
+ 
+-    virtual void Add(const Callback& callback, unsigned int value, int flags)
++    virtual void Add(const Callback& callback, EventOwnerHandle value, int flags)
+     {
+         UnidentifiedAddListener(callback, value, flags);
+     }
+@@ -853,7 +871,7 @@
+             {
+                 nlDLListIterator<Listener> position;
+                 position = mListeners.Begin(
+-                    (ListenerEntry*)((char*)listener - 8));
++                    (ListenerEntry*)((char*)listener - MSCHARGED_EVENT_ENTRY_OFFSET(ListenerEntry)));
+                 ListenerEntry* entry = position.CurrentEntry();
+                 nlDLRingRemove(&mListeners.m_Head, entry);
+                 entry->~ListenerEntry();
+@@ -868,7 +886,7 @@
+     // Add hands the listener its callback by reference: retail's copies
+     // clear the caller's Function instead of cloning it.
+     void UnidentifiedAddListener(
+-        const Callback& callback, unsigned int value, int flags)
++        const Callback& callback, EventOwnerHandle value, int flags)
+     {
+         Listener* listener = mListeners.AllocateAtEnd(0);
+ 
+@@ -924,7 +942,7 @@
+ DLListEntry<UnidentifiedListener<void(P1, P2)> >*
+ UnidentifiedEvent2<P1, P2>::GetEntry(Listener* listener)
+ {
+-    return mListeners.Begin((ListenerEntry*)((char*)listener - 8)).CurrentEntry();
++    return mListeners.Begin((ListenerEntry*)((char*)listener - MSCHARGED_EVENT_ENTRY_OFFSET(ListenerEntry))).CurrentEntry();
+ }
+ 
+ template <typename P1, typename P2>
 diff --git a/include/Game/EventConnection.h b/include/Game/EventConnection.h
 --- a/include/Game/EventConnection.h
 +++ b/include/Game/EventConnection.h
@@ -363,7 +465,7 @@ diff --git a/include/Game/EventRegistry.h b/include/Game/EventRegistry.h
 +++ b/include/Game/EventRegistry.h
 @@ -20,13 +20,13 @@
  template <typename T>
- inline UnidentifiedTypedEvent<T>* UnidentifiedFindEvent(const char* name, int length)
+ inline typename UnidentifiedEventInterface<T>::Type* UnidentifiedFindEvent(const char* name, int length)
  {
 -#ifdef MSCHARGED_NATIVE
 +#ifdef MSCHARGED_DIAGNOSTIC_EVENTS
@@ -376,7 +478,7 @@ diff --git a/include/Game/EventRegistry.h b/include/Game/EventRegistry.h
 +#ifdef MSCHARGED_DIAGNOSTIC_EVENTS
      if (value && value->type != UnidentifiedTypedEvent<T>::NativeType()) return 0;
  #endif
-     return value != 0 ? (UnidentifiedTypedEvent<T>*)value->event : 0;
+     return value != 0 ? (typename UnidentifiedEventInterface<T>::Type*)value->event : 0;
 diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/DispatchEventsTask.h
 --- a/include/Game/Task/DispatchEventsTask.h
 +++ b/include/Game/Task/DispatchEventsTask.h
@@ -459,7 +561,7 @@ diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/Dispatch
 diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedStaticEvent.h
 --- a/include/Game/UnidentifiedStaticEvent.h
 +++ b/include/Game/UnidentifiedStaticEvent.h
-@@ -27,7 +27,7 @@
+@@ -26,7 +26,7 @@
  
      void RemoveAll()
      {
@@ -468,7 +570,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
              mscharged::RemoveAllEventListeners(*this, mListeners);
  #else
          while (mListeners.m_Head != 0)
-@@ -42,7 +42,7 @@
+@@ -41,7 +41,7 @@
  
      void Deliver(typename UnidentifiedEventCallback<T>::Parameter data)
      {
@@ -477,7 +579,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
              mscharged::DeliverEvent(*this, mListeners, [data](auto& callback) { callback(data); });
  #else
          nlDLListIterator<Listener> iterator;
-@@ -64,7 +64,7 @@
+@@ -63,7 +63,7 @@
              {
                  nlDLListIterator<Listener> position;
                  position = mListeners.Begin(
@@ -486,7 +588,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
                  ListenerEntry* entry = position.CurrentEntry();
                  nlDLRingRemove(&mListeners.m_Head, entry);
                  mListeners.DeleteEntry(entry);
-@@ -76,7 +76,7 @@
+@@ -75,7 +75,7 @@
  
      void Deliver()
      {
@@ -495,7 +597,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
              mscharged::DeliverEvent(*this, mListeners, [](auto& callback) { callback(); });
  #else
          nlDLListIterator<Listener> iterator;
-@@ -98,7 +98,7 @@
+@@ -97,7 +97,7 @@
              {
                  nlDLListIterator<Listener> position;
                  position = mListeners.Begin(
@@ -504,7 +606,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
                  ListenerEntry* entry = position.CurrentEntry();
                  nlDLRingRemove(&mListeners.m_Head, entry);
                  mListeners.DeleteEntry(entry);
-@@ -118,7 +118,7 @@
+@@ -116,7 +116,7 @@
  
      void Remove(Listener* listener)
      {
@@ -513,7 +615,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
              mscharged::RemoveEventListener(*this, mListeners, listener);
  #else
          UnregisterEventConnection(this, listener);
-@@ -133,11 +133,11 @@
+@@ -131,11 +131,11 @@
  
      ListenerEntry* GetEntry(Listener* listener)
      {
@@ -527,7 +629,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
  #endif
      }
  
-@@ -154,7 +154,7 @@
+@@ -152,7 +152,7 @@
  template <typename T, int Count>
  UnidentifiedStaticEvent<T, Count>::~UnidentifiedStaticEvent()
  {
@@ -536,7 +638,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
      this->NativeCheckDestruction();
  #endif
      RemoveAll();
-@@ -172,7 +172,7 @@
+@@ -170,7 +170,7 @@
  void UnidentifiedStaticEvent<T, Count>::Add(
      const Callback& callback, EventOwnerHandle value, int flags)
  {
@@ -623,7 +725,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent3.h b/include/Game/Unidentified
 diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
 --- a/include/NL/nlFunction.h
 +++ b/include/NL/nlFunction.h
-@@ -112,7 +112,7 @@
+@@ -113,7 +113,7 @@
      // holds by const reference while handing over ownership.
      void UnidentifiedTransfer(const Function0& other)
      {
@@ -632,7 +734,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
              if (this == &other) return;
              Clear();
              if (other.mTag == FUNCTION_FREE) mFreeFunction = other.mFreeFunction;
-@@ -296,7 +296,7 @@
+@@ -298,7 +298,7 @@
      // holds by const reference while handing over ownership.
      void UnidentifiedTransfer(const Function1& other)
      {
@@ -641,7 +743,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
              if (this == &other) return;
              Clear();
              if (other.mTag == FUNCTION_FREE) mFreeFunction = other.mFreeFunction;
-@@ -673,7 +673,7 @@
+@@ -641,7 +641,7 @@
  
      void UnidentifiedTransfer(Function3& other)
      {
@@ -803,7 +905,7 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEventsTask.cpp
 --- a/src/Game/Task/DispatchEventsTask.cpp
 +++ b/src/Game/Task/DispatchEventsTask.cpp
-@@ -7,7 +7,7 @@
+@@ -8,7 +8,7 @@
  
  void fn_80115F10()
  {
@@ -812,7 +914,7 @@ diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEvents
      CheckNativeEventThread();
      if (gDispatchEventsTask) throw std::logic_error("Dispatch task is already initialized");
      gDispatchEventsTask = new (8, false) DispatchEventsTask;
-@@ -19,7 +19,7 @@
+@@ -20,7 +20,7 @@
  
  void fn_80115FB4()
  {
@@ -824,7 +926,7 @@ diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEvents
 diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
 --- a/src/NL/nlEvent.cpp
 +++ b/src/NL/nlEvent.cpp
-@@ -8,7 +8,7 @@
+@@ -9,7 +9,7 @@
  #include "NL/nlMemory.h"
  #include "NL/nlSmallBlockAllocator.h"
  #include "NL/nlString.h"
@@ -833,7 +935,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  #include <thread>
  #include "runtime/event_queue.h"
  #endif
-@@ -16,7 +16,7 @@
+@@ -17,7 +17,7 @@
  typedef EventConnection* ConnectionKey;
  typedef unsigned int ConnectionValue;
  typedef AVLTreeEntry<ConnectionKey, ConnectionValue> ConnectionTreeEntry;
@@ -842,7 +944,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  typedef NewAdapter<ConnectionTreeEntry> ConnectionTreePool;
  #else
  typedef nlSlotPoolFixed<sizeof(ConnectionTreeEntry)> ConnectionTreePool;
-@@ -27,7 +27,7 @@
+@@ -28,7 +28,7 @@
  
  typedef ConnectionTree* ConnectionTreePtr;
  typedef AVLTreeEntry<unsigned int, ConnectionTreePtr> ConnectionGroupEntry;
@@ -851,7 +953,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  typedef NewAdapter<ConnectionGroupEntry> ConnectionGroupPool;
  #else
  typedef nlSlotPoolFixed<sizeof(ConnectionGroupEntry)> ConnectionGroupPool;
-@@ -38,7 +38,7 @@
+@@ -39,7 +39,7 @@
  
  static ConnectionGroupTree sConnectionGroups;
  EventRegistry* g_pEventRegistry = 0;
@@ -860,7 +962,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  static unsigned int sStateDepth;
  static unsigned int sConnections[6];
  static std::thread::id sEventThread;
-@@ -126,7 +126,7 @@
+@@ -127,7 +127,7 @@
  
  static EventRegistry* GetEventRegistry()
  {
@@ -869,7 +971,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckNativeEventThread();
      return g_pEventRegistry;
  #else
-@@ -140,7 +140,7 @@
+@@ -141,7 +141,7 @@
  #endif
  }
  
@@ -878,7 +980,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  class ConnectionPoolStateCallback
  {
  public:
-@@ -178,7 +178,7 @@
+@@ -179,7 +179,7 @@
  
  void PushEventConnectionState()
  {
@@ -887,7 +989,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckEventStateBoundary();
      if (sStateDepth == 5) throw std::length_error("Event state stack overflow");
      ++sStateDepth;
-@@ -190,7 +190,7 @@
+@@ -191,7 +191,7 @@
  
  void PopEventConnectionState()
  {
@@ -896,7 +998,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckEventStateBoundary();
      if (!sStateDepth) throw std::logic_error("Event state stack underflow");
      if (sConnections[sStateDepth])
-@@ -204,7 +204,7 @@
+@@ -205,7 +205,7 @@
  
  unsigned int HashEventName(const char* name, int length)
  {
@@ -905,7 +1007,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      if (!name) throw std::invalid_argument("Null event name");
  #endif
      unsigned int value = (unsigned int)length;
-@@ -219,7 +219,7 @@
+@@ -220,7 +220,7 @@
  
  void* FindEventConnection(void* event, void* owner)
  {
@@ -914,7 +1016,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckNativeEventThread();
      if (!owner) return 0;
      EventConnection* connection = *(EventConnection**)owner;
-@@ -231,7 +231,7 @@
+@@ -232,7 +232,7 @@
  
  EventConnection::~EventConnection()
  {
@@ -923,7 +1025,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      if (mEvent) UnregisterEventConnection(mEvent, this);
  #else
      if (mOwner != 0)
-@@ -249,7 +249,7 @@
+@@ -250,7 +250,7 @@
      value.type = eventType;
      unsigned int key = event->mHash;
  
@@ -932,7 +1034,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckNativeEventThread();
      EventRegistryValue* existing = 0;
      if (g_pEventRegistry->FindGet(key, &existing))
-@@ -262,7 +262,7 @@
+@@ -263,7 +263,7 @@
  {
      EventBase* event = (EventBase*)eventPtr;
      unsigned int key = event->mHash;
@@ -941,7 +1043,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckNativeEventThread();
      EventRegistryValue* existing = 0;
      if (!g_pEventRegistry->FindGet(key, &existing) || existing->event != event)
-@@ -283,7 +283,7 @@
+@@ -284,7 +284,7 @@
          {
              return;
          }
@@ -950,7 +1052,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
          try { sConnectionGroups.Add(key, tree); }
          catch (...) { tree->~ConnectionTree(); nlFree(tree); throw; }
  #else
-@@ -297,7 +297,7 @@
+@@ -298,7 +298,7 @@
  
      if (tree->Add(connection, 0) == 0)
      {
@@ -959,7 +1061,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
          ++connection->mFlags; // Low 16 bits hold the count; each new listener starts at zero.
  #else
          connection->mGroupCount++;
-@@ -318,7 +318,7 @@
+@@ -319,7 +319,7 @@
  void RegisterEventConnection(void* event, void* connectionPtr,
      EventOwnerHandle owner, int group)
  {
@@ -968,7 +1070,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      ValidateNativeEventConnection(event, owner);
      EventConnection* connection = (EventConnection*)connectionPtr;
      if (!connection || connection->mEvent)
-@@ -348,7 +348,7 @@
+@@ -349,7 +349,7 @@
  
  void UnregisterEventConnection(void* event, void* connectionPtr)
  {
@@ -977,7 +1079,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckNativeEventThread();
      EventConnection* connection = (EventConnection*)connectionPtr;
      if (!connection || !connection->mEvent) return;
-@@ -411,7 +411,7 @@
+@@ -412,7 +412,7 @@
  
  void DisconnectEventOwner(void* owner)
  {
@@ -986,7 +1088,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      CheckNativeEventThread();
      if (!owner) return;
  #endif
-@@ -422,7 +422,7 @@
+@@ -423,7 +423,7 @@
      }
  }
  

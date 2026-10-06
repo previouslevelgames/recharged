@@ -7,6 +7,9 @@ add_library(charged_effects_registry STATIC src/runtime/effects_registry.cpp
     "${MSCHARGED_PREPARED}/src/Game/Effects/EffectsTemplate.cpp")
 target_link_libraries(charged_effects_registry PUBLIC charged_effects_resources charged_particle_files)
 add_dependencies(charged_effects_registry verify_prepared)
+# Copied effects registration is a legacy diagnostic; whole original modules
+# compile the retail loaders and fixed records without this definition.
+target_compile_definitions(charged_effects_registry PUBLIC MSCHARGED_DIAGNOSTIC_EFFECTS=1)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(charged_effects_registry PRIVATE -ffp-contract=off)
 endif()

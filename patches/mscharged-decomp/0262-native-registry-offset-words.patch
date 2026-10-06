@@ -1,0 +1,72 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Preserve original packed registry offset words at native width
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+RegistryOwner::Relocate reads original Wii32 offsets from pointer-shaped
+value cells. Use the existing checked scalar-word transport for those
+reads; preserve named/unnamed null differences, marker and vptr order,
+recursion, and the source Load return decisions. Console stays unchanged.
+This enables whole owner compilation, not native packed-image readiness.
+
+diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
+--- a/src/NL/nlRegistryOwner.cpp
++++ b/src/NL/nlRegistryOwner.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlRegistry.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_registry_word.h"
++#endif
+ 
+ RegistryOwner::~RegistryOwner()
+ {
+@@ -58,15 +61,25 @@
+         if (value.mType == 2)
+         {
+             RegistryValue pointer = GetRegistryIteratorValue(packed);
++#if defined(MSCHARGED_NATIVE)
++            *GetRegistryIteratorValueSlot(packed)
++                = pointer.mData ? (u8*)mRelocationBase + mscharged::platform::ReadWii32RegistryWord(pointer.mData) : 0;
++#else
+             *GetRegistryIteratorValueSlot(packed)
+                 = pointer.mData ? (u8*)mRelocationBase + (u32)pointer.mData : 0;
++#endif
+         }
+         RegistryValue childValue = iterator.GetValue();
+         if (childValue.mType == 3)
+         {
+             RegistryValue offset = iterator.GetValue();
++#if defined(MSCHARGED_NATIVE)
++            RegistryContainer* child = (RegistryContainer*)((u8*)container
++                + mscharged::platform::ReadWii32RegistryWord(offset.mData));
++#else
+             RegistryContainer* child = (RegistryContainer*)((u8*)container
+                 + (u32)offset.mData);
++#endif
+             *GetRegistryIteratorValueSlot(packed) = child;
+             if (*(u32*)child != 0xDA07AB1E)
+             {
+@@ -90,15 +103,24 @@
+         if (value.mType == 2)
+         {
+             RegistryValue pointer = GetRegistryIteratorValue(unnamedPacked);
++#if defined(MSCHARGED_NATIVE)
++            u8* relocated = (u8*)mRelocationBase + mscharged::platform::ReadWii32RegistryWord(pointer.mData);
++#else
+             u8* relocated = (u8*)mRelocationBase + (u32)pointer.mData;
++#endif
+             *GetRegistryIteratorValueSlot(unnamedPacked) = relocated;
+         }
+         RegistryValue childValue = unnamedIterator.GetValue();
+         if (childValue.mType == 3)
+         {
+             RegistryValue offset = unnamedIterator.GetValue();
++#if defined(MSCHARGED_NATIVE)
++            RegistryContainer* child = (RegistryContainer*)((u8*)container
++                + mscharged::platform::ReadWii32RegistryWord(offset.mData));
++#else
+             RegistryContainer* child = (RegistryContainer*)((u8*)container
+                 + (u32)offset.mData);
++#endif
+             *GetRegistryIteratorValueSlot(unnamedPacked) = child;
+             if (*(u32*)child != 0xDA07AB1E)
+             {

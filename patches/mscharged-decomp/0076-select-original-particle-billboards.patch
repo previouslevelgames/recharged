@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original particle raster/quad writing and select native procedural streams
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share the original renderer's raster and per-quad stream order. Select the original
 textured-colour mesh writer with native width, bounds, frame-lifetime and coherent
@@ -9,9 +9,10 @@ vertex-colour material's direct draw branch. Static asset float UV streams remai
 supported through their actual stride. This does not select full particle manager,
 model/light/user callbacks, or synthetic texture handles.
 
+diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
-@@ -7,6 +7,7 @@
+@@ -8,6 +8,7 @@
  
  #ifndef MSCHARGED_NATIVE
  #include "Game/Effects/EmissionManager.h"
@@ -19,7 +20,7 @@ model/light/user callbacks, or synthetic texture handles.
  #include "Game/GL/GLInventory.h"
  #include "Game/GL/GLTexturedColourMeshWriter.h"
  #include "Game/GL/GLVertexAnim.h"
-@@ -808,7 +809,6 @@
+@@ -811,7 +812,6 @@
  #ifndef MSCHARGED_NATIVE
  int ParticleSystem::RenderAllParticles(GLView* view)
  {
@@ -27,7 +28,7 @@ model/light/user callbacks, or synthetic texture handles.
      ParticleReturn ret;
  
      if (!m_bVisible)
-@@ -860,35 +860,9 @@
+@@ -863,35 +863,9 @@
          nlMultDirVectorMatrix(viewRight, rot);
      }
  
@@ -66,7 +67,7 @@ model/light/user callbacks, or synthetic texture handles.
  
      static unsigned long WhiteTexture = glGetTexture("global/white");
      if (m_pSpec != 0 && m_pSpec->m_bLight)
-@@ -1040,25 +1014,7 @@
+@@ -1046,25 +1020,7 @@
                  Particle* pPart = *iterator;
                  UpdateParticle(&ret, pPart, m_pTemplate, viewRight,
                      viewUp, pCoord);
@@ -93,6 +94,8 @@ model/light/user callbacks, or synthetic texture handles.
                  iterator.Step();
              }
  
+diff --git a/include/Game/Effects/ParticleBillboard.h b/include/Game/Effects/ParticleBillboard.h
+new file mode 100644
 --- /dev/null
 +++ b/include/Game/Effects/ParticleBillboard.h
 @@ -0,0 +1,66 @@
@@ -162,6 +165,7 @@ model/light/user callbacks, or synthetic texture handles.
 +    }
 +}
 +#endif
+diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTexturedColourMeshWriter.h
 --- a/include/Game/GL/GLTexturedColourMeshWriter.h
 +++ b/include/Game/GL/GLTexturedColourMeshWriter.h
 @@ -4,6 +4,12 @@
@@ -218,7 +222,7 @@ model/light/user callbacks, or synthetic texture handles.
          short u = (short)(uv.x * 1024.0f);
          short v = (short)(uv.y * 1024.0f);
          *texcoord++ = u;
-@@ -39,12 +62,20 @@
+@@ -39,12 +64,20 @@
  
      void Texcoord(int u, int v)
      {
@@ -239,7 +243,7 @@ model/light/user callbacks, or synthetic texture handles.
          *texcoord++ = 0;
          *texcoord++ = 0;
      }
-@@ -56,11 +87,32 @@
+@@ -56,11 +89,32 @@
  
      void Vertex(float x, float y, float z)
      {
@@ -272,6 +276,7 @@ model/light/user callbacks, or synthetic texture handles.
      int count;
      glModel* model;
      void* resource;
+diff --git a/src/Game/GL/GLTexturedColourMeshWriter.cpp b/src/Game/GL/GLTexturedColourMeshWriter.cpp
 --- a/src/Game/GL/GLTexturedColourMeshWriter.cpp
 +++ b/src/Game/GL/GLTexturedColourMeshWriter.cpp
 @@ -1,5 +1,7 @@
@@ -337,6 +342,7 @@ model/light/user callbacks, or synthetic texture handles.
 +#endif
      return true;
  }
+diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 --- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 @@ -74,6 +74,12 @@

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original frontend image packets and share image raster state
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select original textured glQuad3 packet construction and colour assignment.
 Native callers retain checked real texture ownership and submit through GLView

@@ -1,5 +1,5 @@
 Subject: Route explicit native game frees to their exact recorded allocator
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Replace Wii address-nibble routing with exact live native allocation ownership.
 Parent/custom heaps can overlap; their original allocator remains the owner after
@@ -13,16 +13,16 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
 +++ b/src/NL/nlMemory.cpp
 @@ -1,6 +1,9 @@
  #include "NL/nlMemory.h"
-
+ 
  #include "NL/MemAlloc.h"
 +#ifdef MSCHARGED_NATIVE
 +#include "platform/game_allocation_ownership.h"
 +#endif
-
+ 
  MemoryAllocator VirtualAllocator;
  MemoryAllocator* AllocatorStack[16] = { &StandardAllocator };
 @@ -10,6 +13,9 @@
-
+ 
  static inline void FreeMemory(void* ptr)
  {
 +#ifdef MSCHARGED_NATIVE
@@ -37,12 +37,12 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
      }
 +#endif
  }
-
+ 
  static inline void* AllocateMemory(unsigned long size, unsigned int alignment, bool fromEnd)
 @@ -36,6 +43,9 @@
      return CurrentAllocator->Allocate(size, alignment, fromEnd);
  }
-
+ 
 +// Host libraries keep standard global new/delete. Game-specific allocation
 +// remains explicit through nlMalloc and the alignment/from-end overloads.
 +#ifndef MSCHARGED_NATIVE
@@ -52,7 +52,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
 @@ -56,6 +66,8 @@
      return AllocateMemory(size, 8, false);
  }
-
+ 
 +#endif
 +
  void* nlMalloc(unsigned long size)

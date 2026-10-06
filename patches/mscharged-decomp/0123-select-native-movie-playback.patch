@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Share original movie cadence, sample gain and quad kernels; select native GX movie transport
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain original console equations. Native GX uses checked host array extents and
 FIFO commands; movie ownership, scheduling admission and completion stay in the
@@ -8,7 +8,6 @@ port. No VI/AI/HOME service is fabricated.
 
 diff --git a/include/Game/GL/MovieQuadSteps.h b/include/Game/GL/MovieQuadSteps.h
 new file mode 100644
-index 0000000..c48953d
 --- /dev/null
 +++ b/include/Game/GL/MovieQuadSteps.h
 @@ -0,0 +1,64 @@
@@ -78,7 +77,6 @@ index 0000000..c48953d
 +#endif
 diff --git a/include/Game/Sys/MovieClockSteps.h b/include/Game/Sys/MovieClockSteps.h
 new file mode 100644
-index 0000000..63c9ce8
 --- /dev/null
 +++ b/include/Game/Sys/MovieClockSteps.h
 @@ -0,0 +1,5 @@
@@ -89,7 +87,6 @@ index 0000000..63c9ce8
 +#endif
 diff --git a/include/RVL_SDK/thp/THPMovieSteps.h b/include/RVL_SDK/thp/THPMovieSteps.h
 new file mode 100644
-index 0000000..fa1da38
 --- /dev/null
 +++ b/include/RVL_SDK/thp/THPMovieSteps.h
 @@ -0,0 +1,59 @@
@@ -154,7 +151,6 @@ index 0000000..fa1da38
 +#endif
 diff --git a/include/RVL_SDK/thp/THPVolumeTable.inc b/include/RVL_SDK/thp/THPVolumeTable.inc
 new file mode 100644
-index 0000000..70e14e3
 --- /dev/null
 +++ b/include/RVL_SDK/thp/THPVolumeTable.inc
 @@ -0,0 +1,128 @@
@@ -287,7 +283,6 @@ index 0000000..70e14e3
 +    0x7DFE,
 +    0x8000,
 diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.cpp
-index 2101f83..53d91d7 100644
 --- a/src/Game/GL/GLMovieMeshWriter.cpp
 +++ b/src/Game/GL/GLMovieMeshWriter.cpp
 @@ -1,5 +1,7 @@
@@ -298,7 +293,7 @@ index 2101f83..53d91d7 100644
  
  #include "Game/GL/GLMovieMeshWriter.h"
  #include "Game/GL/glModelBuilder.h"
-@@ -97,6 +99,8 @@ bool GLMovieMeshWriter::End()
+@@ -97,6 +99,8 @@
          glplatFinalizePacket(&model->packets[i], resource != 0, resource);
      }
  
@@ -307,7 +302,7 @@ index 2101f83..53d91d7 100644
      for (int i = 0; i < model->packets->numStreams; ++i)
      {
          glModelStream* stream = &model->packets->streams[i];
-@@ -104,5 +108,8 @@ bool GLMovieMeshWriter::End()
+@@ -104,5 +108,8 @@
      }
  
      PPCSync();
@@ -317,7 +312,6 @@ index 2101f83..53d91d7 100644
      return true;
  }
 diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialProgram.cpp
-index fbb66ed..a6dd614 100644
 --- a/src/NL/glx/GXMovieMaterialProgram.cpp
 +++ b/src/NL/glx/GXMovieMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -329,7 +323,7 @@ index fbb66ed..a6dd614 100644
  
  #include "NL/glx/GXMovieMaterialProgram.h"
  #include "NL/glx/GXMaterialProgramInternal.h"
-@@ -15,15 +19,19 @@ GXMaterialParameter GXMovieMaterialProgram::Parameters[2] = {
+@@ -15,15 +19,19 @@
  
  GXMovieMaterialProgram::GXMovieMaterialProgram()
  {
@@ -350,7 +344,7 @@ index fbb66ed..a6dd614 100644
  }
  
  void GXMovieMaterialProgram::Initialize()
-@@ -58,8 +66,16 @@ void GXMovieMaterialProgram::ConfigureVertexFormat(bool indexed)
+@@ -58,8 +66,16 @@
  void GXMovieMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -367,7 +361,7 @@ index fbb66ed..a6dd614 100644
  }
  
  void GXMovieMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -70,10 +86,18 @@ void GXMovieMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -70,10 +86,18 @@
  
      while (idxPtr < end)
      {
@@ -386,7 +380,7 @@ index fbb66ed..a6dd614 100644
  }
  
  void GXMovieMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -82,9 +106,17 @@ void GXMovieMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -82,9 +106,17 @@
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
@@ -405,7 +399,6 @@ index fbb66ed..a6dd614 100644
  
  const GXMaterialParameter* GXMovieMaterialProgram::GetParameters()
 diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMaterialProgramRender.cpp
-index 5405af4..ea2bb5e 100644
 --- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
 @@ -1,4 +1,12 @@

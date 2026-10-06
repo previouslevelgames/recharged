@@ -1,6 +1,6 @@
 Subject: Select original debug-camera desktop controls with explicit native inputs
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Select matching orbit/pan/radius/height, input-toggle and view math independently
 of global pad/task/tweak initialization. The port owner supplies checked desktop
@@ -16,10 +16,10 @@ diff --git a/src/Game/Camera/DebugCam.cpp b/src/Game/Camera/DebugCam.cpp
 +++ b/src/Game/Camera/DebugCam.cpp
 @@ -1,3 +1,4 @@
 +#ifndef MSCHARGED_NATIVE
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
  #include "NL/plat/PlatPadManager.h"
- #include "NL/plat/WiiPad.h"
- #include "Game/Camera/DebugCam.h"
-@@ -394,3 +395,4 @@
+@@ -398,3 +399,4 @@
  
      glMatrixLookAt(m_matView, m_vecCamera, m_vecTarget, vecUp);
  }

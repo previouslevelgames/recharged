@@ -4,6 +4,7 @@ include(cmake/Tweaks.cmake)
 add_library(charged_particle_simulation STATIC src/runtime/particle_simulation.cpp
     "${MSCHARGED_PREPARED}/src/Game/Effects/ParticleSystem.cpp")
 add_dependencies(charged_particle_simulation verify_prepared)
+target_compile_definitions(charged_particle_simulation PUBLIC MSCHARGED_DIAGNOSTIC_EFFECTS=1)
 target_link_libraries(charged_particle_simulation PUBLIC charged_effects_registry charged_graphics_memory charged_tweaks)
 target_compile_features(charged_particle_simulation PUBLIC cxx_std_20)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -1,0 +1,44 @@
+From: mscharged-port native adaptation
+Subject: [PATCH] Preserve original RLG wire vertices and numeric CPU indices
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+
+Keep original source allocation, copy size, cache flush and geometry loading
+order. Native transport publishes unchanged Wii vertex wire and decodes each
+authored u16 index at the original CPU copy boundary.
+
+--- a/src/NL/glx/glxLoadModel.cpp
++++ b/src/NL/glx/glxLoadModel.cpp
+@@ -19,6 +19,9 @@
+ #include "NL/platvmath.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/rlg_geometry_bytes.h"
++#endif
+ 
+ 
+ class GLXRLGReader : public RLGReader
+@@ -35,15 +38,23 @@
+ void GLXRLGReader::LoadVertices(void* data, unsigned long size)
+ {
+     m_pVertexData = glResourceAlloc(size, GLM_VertexData, m_pResource);
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::CopyRLGWireVertices(m_pVertexData, data, size);
++#else
+     memcpy(m_pVertexData, data, size);
++#endif
+     DCFlushRange(m_pVertexData, size);
+ }
+ 
+ void GLXRLGReader::LoadIndices(void* data, unsigned long size)
+ {
+     m_pIndexData = glResourceAlloc(size, GLM_IndexData, m_pResource);
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::CopyRLGNativeIndices(m_pIndexData, data, size);
++#else
+     memcpy(m_pIndexData, data, size);
++#endif
+     DCFlushRange(m_pIndexData, size);
+ }
+ 
+ void GLXRLGReader::LoadVertexAnim(nlChunk* chunk)

@@ -1,6 +1,6 @@
 Subject: Share original audio options visual and volume target kernels
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Original source methods delegate to the same visual, listener, category clamp
 and target equations as checked native owners. Global GameInfo, SaveLoad, NAV
@@ -9,13 +9,14 @@ and complete SceneCreated readiness are not supplied by these selected kernels.
 diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 --- a/src/Game/DB/UserOptions.cpp
 +++ b/src/Game/DB/UserOptions.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/DB/UserOptions.h"
 +#include "Game/Audio/AudioOptionsVolumeSteps.h"
  
  #include "Game/Audio/AudioSystem.h"
  #include "Game/Audio/RegistryPools.h"
-@@ -23,19 +24,6 @@
+@@ -24,19 +25,6 @@
      UnidentifiedAudioCategoryLookup(0xAB29FE50, 0), // "global"
  };
  
@@ -35,7 +36,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  
  AudioSettings::AudioSettings()
  {
-@@ -50,122 +38,42 @@
+@@ -51,122 +39,42 @@
  
  void AudioSettings::ApplySettings()
  {

@@ -1,5 +1,5 @@
 Subject: Restore ordinary game allocation in an isolated original source module
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Enable original ordinary new/delete only in the explicit original game module.
 Host/SDK libraries retain their own operators. Preserve the source lazy memory
@@ -14,7 +14,7 @@ original game link, static lifetime or startup qualification.
 diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
 --- a/src/NL/nlMemory.cpp
 +++ b/src/NL/nlMemory.cpp
-@@ -1,5 +1,8 @@
+@@ -1,4 +1,7 @@
  #include "NL/nlMemory.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include <cstddef>
@@ -22,9 +22,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
  
  #include "NL/MemAlloc.h"
  #ifdef MSCHARGED_NATIVE
- #include "platform/game_allocation_ownership.h"
-@@ -42,11 +45,11 @@
-     }
+@@ -43,9 +46,9 @@
      return CurrentAllocator->Allocate(size, alignment, fromEnd);
  }
  
@@ -37,9 +35,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
  void operator delete(void* ptr)
  {
      FreeMemory(ptr);
- }
-@@ -55,17 +58,31 @@
- {
+@@ -56,15 +59,29 @@
      FreeMemory(ptr);
  }
  
@@ -69,4 +65,3 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
  
  #endif
  
- void* nlMalloc(unsigned long size)

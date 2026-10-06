@@ -2,7 +2,11 @@ include_guard(GLOBAL)
 
 # Fixed Wii record fields beneath the complete original loader. This library
 # supplies data/ABI transport only and has no source/game resource ownership.
-add_library(charged_rlg_record_abi STATIC src/platform/rlg_record_abi.cpp)
+# Keep field-only record conversion independent from the allocation-owned
+# vertex decoder. Standalone record tools need no game-memory provider.
+add_library(charged_rlg_record_abi STATIC
+    src/platform/rlg_record_abi.cpp src/platform/rlg_vertex_animation_abi.cpp
+    src/platform/rlg_geometry_bytes.cpp)
 add_dependencies(charged_rlg_record_abi verify_prepared)
 target_compile_features(charged_rlg_record_abi PUBLIC cxx_std_20)
 target_include_directories(charged_rlg_record_abi PUBLIC

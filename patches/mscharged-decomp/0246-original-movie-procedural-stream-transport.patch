@@ -1,5 +1,5 @@
 Subject: [PATCH] Transport genuine original movie writer streams to native GX
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 Classification: permanent host allocation/data/GX ABI adaptation
 
 Publish the actual source writer cursors into existing allocation-owned graphics

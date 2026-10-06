@@ -1,5 +1,5 @@
 Subject: [PATCH] share original frontend resource context completion
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share original package state5/queue/creation order, resource context switches,
 resource Update removal/completion scheduling and the actual empty completion
@@ -11,7 +11,8 @@ frontend managers or manufacture full concrete SceneCreated readiness.
 diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
 --- a/src/Game/FE/feScene.cpp
 +++ b/src/Game/FE/feScene.cpp
-@@ -1,4 +1,7 @@
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feScene.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "Game/FE/FrontendResourceSteps.h"
@@ -19,7 +20,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  
  #include "Game/FE/fePackage.h"
  #include "Game/FE/feSceneManager.h"
-@@ -172,11 +175,17 @@
+@@ -173,11 +176,17 @@
  
      nlFree(m_pPointerTable);
      m_pPointerTable = 0;
@@ -37,7 +38,7 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  
      if (m_pAllocator != 0)
      {
-@@ -207,6 +216,9 @@
+@@ -208,6 +217,9 @@
  
  void FEScene::AllResourcesLoadedCallback()
  {
@@ -50,7 +51,8 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
 diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.cpp
 --- a/src/Game/FE/feResourceManager.cpp
 +++ b/src/Game/FE/feResourceManager.cpp
-@@ -1,4 +1,7 @@
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feResourceManager.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "Game/FE/FrontendResourceSteps.h"
@@ -58,7 +60,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  
  #include <stddef.h>
  
-@@ -440,6 +443,17 @@
+@@ -442,6 +445,17 @@
  
  ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)
  {
@@ -76,7 +78,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
      if (s_pCurrentFESceneResourceContext != 0
          && s_pCurrentFESceneResourceContext != pFeSceneResource
          && s_pPermanentBundleSceneResource != s_pCurrentFESceneResourceContext)
-@@ -452,6 +466,7 @@
+@@ -454,6 +468,7 @@
      pFeSceneResource->m_bValid = true;
      s_pCurrentFESceneResourceContext = pFeSceneResource;
      return FERR_WaitingForResource;
@@ -84,7 +86,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
  }
  
  ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad pendingResource)
-@@ -479,6 +494,23 @@
+@@ -481,6 +496,23 @@
  
  void FEResourceManager::Update(float dt)
  {
@@ -108,7 +110,7 @@ diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.c
      ResourceResult result;
      bool bQueueNextResource = true;
      while (bQueueNextResource)
-@@ -508,6 +540,7 @@
+@@ -510,6 +542,7 @@
          result = IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry);
          bQueueNextResource = result == FERR_AlreadyLoaded;
      }

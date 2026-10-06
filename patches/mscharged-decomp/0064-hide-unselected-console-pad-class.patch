@@ -1,6 +1,6 @@
 Subject: Hide unselected console pad implementation from native devirtualization
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep the console cPlatPad definition out of native source selection, retaining
 its forward declaration. GCC Release speculative devirtualization of the real
@@ -9,6 +9,7 @@ and references gPlatPadAllocator, although no console pad is constructed.
 The native menu owner supplies DesktopPad and ordinary owning deletion. No
 console allocator provider or compiler optimization workaround is introduced.
 
+diff --git a/include/NL/platpad.h b/include/NL/platpad.h
 --- a/include/NL/platpad.h
 +++ b/include/NL/platpad.h
 @@ -90,6 +90,7 @@

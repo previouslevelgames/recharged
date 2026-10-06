@@ -1,6 +1,6 @@
 Subject: Retain legacy diagnostic audio helpers without rewriting original source
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The existing diagnostic helper snapshots remain for explicitly selected preview
 consumers. Complete original game/SDK methods, headers, enum definitions and
@@ -9,7 +9,6 @@ readiness, native game audio manager or new source behavior is provided.
 
 diff --git a/include/Game/Audio/AudioCalculationSteps.h b/include/Game/Audio/AudioCalculationSteps.h
 new file mode 100644
-index 0000000..c41cb9a
 --- /dev/null
 +++ b/include/Game/Audio/AudioCalculationSteps.h
 @@ -0,0 +1,20 @@
@@ -35,7 +34,6 @@ index 0000000..c41cb9a
 +#endif
 diff --git a/include/Game/Audio/AudioResidentSteps.h b/include/Game/Audio/AudioResidentSteps.h
 new file mode 100644
-index 0000000..ecc1841
 --- /dev/null
 +++ b/include/Game/Audio/AudioResidentSteps.h
 @@ -0,0 +1,29 @@
@@ -70,7 +68,6 @@ index 0000000..ecc1841
 +#endif
 diff --git a/libs/RVL_SDK/include/revolution/mix/MIXPanTable.inc b/libs/RVL_SDK/include/revolution/mix/MIXPanTable.inc
 new file mode 100644
-index 0000000..354cd68
 --- /dev/null
 +++ b/libs/RVL_SDK/include/revolution/mix/MIXPanTable.inc
 @@ -0,0 +1,128 @@
@@ -204,7 +201,6 @@ index 0000000..354cd68
 +    0xFFFFFC78
 diff --git a/libs/RVL_SDK/include/revolution/mix/MIXTableSteps.h b/libs/RVL_SDK/include/revolution/mix/MIXTableSteps.h
 new file mode 100644
-index 0000000..8c003a4
 --- /dev/null
 +++ b/libs/RVL_SDK/include/revolution/mix/MIXTableSteps.h
 @@ -0,0 +1,19 @@
@@ -229,7 +225,6 @@ index 0000000..8c003a4
 +#endif
 diff --git a/libs/RVL_SDK/include/revolution/mix/MIXVolumeTable.inc b/libs/RVL_SDK/include/revolution/mix/MIXVolumeTable.inc
 new file mode 100644
-index 0000000..ee14f01
 --- /dev/null
 +++ b/libs/RVL_SDK/include/revolution/mix/MIXVolumeTable.inc
 @@ -0,0 +1 @@

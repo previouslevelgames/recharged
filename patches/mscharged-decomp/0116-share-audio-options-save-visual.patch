@@ -1,6 +1,6 @@
 Subject: Share original Audio options save visual ordering
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Keep original SaveLoad::StartSave(false) outside the shared visual prefix.
 Native preferences are a separately named real host service, not original
@@ -9,7 +9,7 @@ GameInfo/save readiness. Original navigation, slide and cue order is retained.
 diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.cpp
 --- a/src/Game/FE/feOptionsSubMenus.cpp
 +++ b/src/Game/FE/feOptionsSubMenus.cpp
-@@ -217,17 +217,8 @@
+@@ -218,17 +218,8 @@
  
  void OptionsAudioMenuV2::OnSaveButtonPointerPress(int, void*)
  {

@@ -1,15 +1,17 @@
 From: Charged native preparation
 Subject: [PATCH] diagnostic: enter source frontend and Credits from original main
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Owner-authorized 2026-10-06 temporary diagnostic selection. Normal main retains
 all original source tokens. Selected frontend keeps initialization positions,
 source loading/callbacks and source manager/handler/rendering behavior; script,
 task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -1,4 +1,23 @@
+@@ -1,5 +1,24 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/main.h"
 +#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
 +#include "Game/BaseGameSceneManager.h"
@@ -33,7 +35,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
  #include "Game/TweakRegistry.h"
  #include "Game/TweakConfig.h"
  
-@@ -486,8 +505,14 @@
+@@ -487,8 +506,14 @@
      DisplayLoadingMessageFast();
      InitializeODEAllocators();
      RegisterUserGeomClasses();
@@ -49,7 +51,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
      unsigned int stringSizes[4];
      stringSizes[1] = 0;
      stringSizes[3] = 0;
-@@ -496,6 +521,8 @@
+@@ -497,6 +522,8 @@
      gResetTweakValueStrings = true;
      InitializeTweakRegistry(0, 1, stringSizes);
      glplatInitializeMaterialPrograms();
@@ -58,7 +60,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
      nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
      if (!glLoadTextureBundle("art/global.rlt", glGetCurrentResourcePool()))
      {
-@@ -544,12 +571,18 @@
+@@ -545,12 +572,18 @@
      g_pGameAudio->Initialize();
      gSwappablePadChanged.Add(Function<void(int)>(ConfigureTweakerButtons), 0, -1);
      g_pPadManager->Update(0.0f);
@@ -77,7 +79,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
      nlLocalization::Initialize();
  
      if (FEResourceManager::s_pInstance == 0)
-@@ -562,6 +595,8 @@
+@@ -563,6 +596,8 @@
          FESceneManager::s_pInstance = new (8, false) FESceneManager;
      }
  
@@ -86,7 +88,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
      int countryCode;
      if (sCountryCode != 0)
      {
-@@ -606,7 +641,11 @@
+@@ -607,7 +642,11 @@
      FrontEndPresentation::GetInstance();
      ExcitementSystem::Instance();
      AddTasks();
@@ -98,7 +100,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
      HideLayerView(eCLV_ScreenBlur);
      HideLayerView(eCLV_ScreenBlur2);
      HideLayerView(eCLV_ShadowVolume);
-@@ -625,8 +664,12 @@
+@@ -626,8 +665,12 @@
      g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
      InitMaxProjectedShadows();
      SetCharacterShadowView(GetLayerView(eCLV_Characters));
@@ -111,7 +113,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
      NisPlayer::Instance();
      ReplayManager::Instance();
      Wiper::Instance().Initialize();
-@@ -799,8 +842,62 @@
+@@ -800,8 +843,62 @@
      Initialize();
  
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
@@ -174,7 +176,7 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
  #else
  
      while (nlAsyncReadsPending(0))
-@@ -817,3 +914,21 @@
+@@ -818,3 +915,21 @@
      }
  #endif // original async/music/task loop
  }

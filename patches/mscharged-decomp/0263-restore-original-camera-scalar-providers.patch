@@ -1,0 +1,62 @@
+Subject: [PATCH] Restore original camera scalar providers and modern compiler intrinsics
+
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Prepared-preimage: strict204
+
+Original Interpolate/GetLocalPoint/GetWorldPoint bodies remain unchanged.
+Admit them to the normal native graph instead of requiring diagnostic
+camera copies. Preserve explicit legacy diagnostic selection. Native
+MSL abs declaration and MWCC fabs intrinsic use the host compiler.
+No camera callback, timing, selection or game algorithm changes.
+
+diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
+--- a/src/Game/AI/AiUtil.cpp
++++ b/src/Game/AI/AiUtil.cpp
+@@ -1,6 +1,12 @@
+ #include "Game/AI/AiUtil.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <cstdlib>
++#include <cmath>
++#define __fabs(value) std::fabs(value)
++#else
+ #include <arith.h>
++#endif
+ #include "math.h"
+ 
+ unsigned int nlRandom(unsigned int range);
+@@ -308,7 +314,7 @@
+     return nlVec3DotProduct(delta, vel1) - nlVec3DotProduct(delta, vel2);
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CAMERAS)
+ void GetLocalPoint(nlVector3& v3LocalPointOut, const nlVector3& v3WorldPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
+ {
+     float fSin; // r1+0xC
+@@ -324,7 +330,7 @@
+ }
+ #endif
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CAMERAS)
+ void GetWorldPoint(nlVector3& v3WorldPointOut, const nlVector3& v3LocalPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
+ {
+     f32 fSin;
+@@ -357,7 +363,7 @@
+ }
+ 
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CAMERAS)
+ float Interpolate(float fMin, float fMax, float fPercent)
+ {
+     return (fPercent * (fMax - fMin)) + fMin;
+@@ -762,3 +768,7 @@
+     direction.z = 0.0f;
+     nlVec3Scale(direction, length);
+ }
++
++#if defined(MSCHARGED_NATIVE)
++#undef __fabs
++#endif

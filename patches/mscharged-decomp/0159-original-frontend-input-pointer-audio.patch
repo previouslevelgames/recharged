@@ -1,5 +1,5 @@
 Subject: Restore original frontend input, pointer and audio-status source
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Retain whole reconstructed source decisions, pointer callbacks/bounds and audio
 state policy. Remove replacement helper calls and the native exclusion of actual
@@ -9,13 +9,14 @@ introduced. Native platform services must satisfy the original interfaces.
 diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
 --- a/src/Game/FE/fePointer.cpp
 +++ b/src/Game/FE/fePointer.cpp
-@@ -1,5 +1,4 @@
+@@ -1,6 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/FE/fePointer.h"
 -#include "Game/FE/FrontendPointerSteps.h"
  
  #include "Game/FE/feInput.h"
  #include "Game/FE/feText.h"
-@@ -33,7 +32,42 @@
+@@ -34,7 +33,42 @@
  
  void FEPointerListener::ProcessPointerEvent(const FEPointerEvent* event)
  {
@@ -59,7 +60,7 @@ diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
  }
  
  void FEPointerListener::SetPointerEnterCallback(Function2<void, int, void*>& callback)
-@@ -135,14 +169,49 @@
+@@ -136,14 +170,49 @@
  void FEPointerRegion::SetInstanceBounds(TLInstance* instance, bool useRotation, float offsetX, float offsetY, float scaleX, float scaleY)
  {
      nlVector2 measuredSize = MeasurePointerBoundsSize(instance);
@@ -113,7 +114,7 @@ diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
  }
  
  nlVector2 MeasurePointerText(TLTextInstance* text)
-@@ -226,7 +295,15 @@
+@@ -227,7 +296,15 @@
          nlVector2 size = MeasurePointerInstance(first);
  
          feVector3 position = first->GetAssetPosition();

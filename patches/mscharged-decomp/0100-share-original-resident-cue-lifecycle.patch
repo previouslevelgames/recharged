@@ -1,6 +1,6 @@
 Subject: Retain legacy diagnostic audio helpers without rewriting original source
 
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 The existing diagnostic helper snapshots remain for explicitly selected preview
 consumers. Complete original game/SDK methods, headers, enum definitions and
@@ -9,7 +9,6 @@ readiness, native game audio manager or new source behavior is provided.
 
 diff --git a/include/Game/Audio/AudioCuePlaybackSteps.h b/include/Game/Audio/AudioCuePlaybackSteps.h
 new file mode 100644
-index 0000000..e64040d
 --- /dev/null
 +++ b/include/Game/Audio/AudioCuePlaybackSteps.h
 @@ -0,0 +1,299 @@

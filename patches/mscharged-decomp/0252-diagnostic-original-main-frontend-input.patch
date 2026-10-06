@@ -1,0 +1,64 @@
+From: mscharged-port source integration
+Subject: [PATCH] Select original platform and frontend input in main diagnostic
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
+Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -577,7 +577,11 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     GLResourcePool* resourcePool = glGetCurrentResourcePool();
+     resourcePool->MarkResource();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
+     InitPlatPad();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     g_pGameAudio = new (nlMalloc(sizeof(GameAudio), 8, false))
+         GameAudio;
+     g_pGameAudio->Initialize();
+@@ -885,6 +889,14 @@
+     // pools, fonts and graphics established above; never initialize them twice.
+     FEResourceManager* resources = FEResourceManager::Instance();
+     resources->LoadPermanentResourceBundle("art/fe/MainUI.Dmn", DiagnosticPermanentComplete);
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
++    // Selected original frontend loading endpoints (AsyncLoading), without
++    // inventing interpreter/task state. InitPlatPad and FEInput retain their
++    // original Initialize positions. Automatic task-state hot-swap/repeat
++    // reset remains omitted with the complete original task loop.
++    CreatePadBackends();
++    EnableAutoPressed();
++#endif
+     while (!sDiagnosticPermanentComplete)
+     {
+         nlServiceFileSystem();
+@@ -946,6 +958,14 @@
+     glplatFrameAllocNextFrame();
+     glBeginFrame();
+     nlServiceFileSystem();
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
++    // Whole original UI-pad/FE methods selected from FixedUpdateTask and
++    // FrontEndTask. Full task scheduling/simulation/FlickDetection is omitted.
++    g_pPadManager->SetActivePadSet(0);
++    UpdatePlatPad(g_pPlatPadManager);
++    g_pPadManager->Update(delta);
++    g_pFEInput->Update(delta);
++#endif
+     FEResourceManager::Instance()->Run(delta);
+     FESceneManager::Instance()->Update(delta);
+     FESceneManager::Instance()->RenderActiveScenes();
+@@ -968,6 +988,13 @@
+     // The complete original task manager remains omitted by the main gate.
+     glBeginFrame();
+     nlServiceFileSystem();
++#if defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
++    // Same original source UI input endpoints as the unarmed comparison.
++    g_pPadManager->SetActivePadSet(0);
++    UpdatePlatPad(g_pPlatPadManager);
++    g_pPadManager->Update(delta);
++    g_pFEInput->Update(delta);
++#endif
+     FEResourceManager::Instance()->Run(delta);
+     FESceneManager::Instance()->Update(delta);
+     FESceneManager::Instance()->RenderActiveScenes();

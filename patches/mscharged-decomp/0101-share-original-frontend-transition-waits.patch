@@ -1,5 +1,5 @@
 Subject: Share original frontend presentation camera and time waits
-Upstream-base: c7b2e663f878d38dc429ab12ee7db451daf0c217
+Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
 
 Share exact callback-consumption and single-float wait subtraction from original
 presentation services44/48. The console dispatcher retains StopWithUndo; the
@@ -9,7 +9,8 @@ Concrete title/main handlers, movies, audio and boot readiness remain separate.
 diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
 --- a/src/Game/Render/FrontEndPresentation.cpp
 +++ b/src/Game/Render/FrontEndPresentation.cpp
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
  #include "Game/Render/FrontEndPresentation.h"
 +#include "Game/FE/FrontendTransitionSteps.h"
  
