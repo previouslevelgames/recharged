@@ -1,0 +1,134 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Adapt original glPlat canonical SDK compiler ABI
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Classification: permanent host compiler/platform/data ABI adaptation.
+
+--- a/src/NL/gl/glPlat.cpp
++++ b/src/NL/gl/glPlat.cpp
+@@ -1,5 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <dolphin/vi.h>
++#else
+ #include <revolution/gx/GXPixel.h>
+ #include <revolution/gx/GXTransform.h>
++#endif
+ 
+ #include "Game/TweakQuery.h"
+ #include "NL/nlDebug.h"
+@@ -23,6 +28,7 @@
+ extern "C"
+ {
+     void DCFlushRange(void* address, u32 length);
++#if !defined(MSCHARGED_NATIVE)
+     void GXSetMisc(s32 token, s32 value);
+     void GXSetCopyFilter(u8 aa, const u8 samplePattern[12][2], u8 vf, const u8 vfilter[7]);
+     void GXFlush();
+@@ -35,12 +41,14 @@
+     u32 VIGetDTVStatus();
+     void VISetNextFrameBuffer(void* framebuffer);
+ 
++#endif
+     void SCInit();
+     u32 SCCheckStatus();
+     u8 SCGetProgressiveMode();
+     u8 SCGetEuRgb60Mode();
+     void OSReport(const char* format, ...);
+ 
++#if !defined(MSCHARGED_NATIVE)
+     void GXAdjustForOverscan(const GXRenderModeObj* source, GXRenderModeObj* destination, u16 horizontal, u16 vertical);
+     f32 GXGetYScaleFactor(u16 efbHeight, u16 xfbHeight);
+     void GXSetDispCopySrc(u16 left, u16 top, u16 width, u16 height);
+@@ -49,6 +57,8 @@
+     void GXSetDispCopyGamma(s32 gamma);
+     void GXInitFifoLimits(void* fifo, u32 highWatermark, u32 lowWatermark);
+ 
++
++#endif
+     extern GXRenderModeObj GXNtsc480IntDf;
+     extern GXRenderModeObj GXNtsc480Prog;
+     extern GXRenderModeObj GXNtsc480ProgSoft;
+@@ -59,7 +69,11 @@
+ }
+ 
+ static GXRenderModeObj glPal480IntDf = {
++#if defined(MSCHARGED_NATIVE)
++    static_cast<VITVMode>(4),
++#else
+     4,
++#endif
+     640,
+     480,
+     542,
+@@ -67,7 +81,11 @@
+     16,
+     640,
+     542,
++#if defined(MSCHARGED_NATIVE)
++    static_cast<VIXFBMode>(1),
++#else
+     1,
++#endif
+     0,
+     0,
+     { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 },
+@@ -115,7 +133,11 @@
+ {
+     for (int i = 0; i < glx_FBSize; i += 4)
+     {
++#if defined(MSCHARGED_NATIVE)
++        *(u32*)((uintptr_t)xfb + i) = glx_ClearPixel;
++#else
+         *(u32*)((u32)xfb + i) = glx_ClearPixel;
++#endif
+     }
+     DCFlushRange(xfb, glx_FBSize);
+ }
+@@ -123,7 +145,11 @@
+ static void glx_InitGX()
+ {
+     gxInit();
++#if defined(MSCHARGED_NATIVE)
++    GXSetMisc(static_cast<GXMiscToken>(1), 8);
++#else
+     GXSetMisc(1, 8);
++#endif
+     GXRenderModeObj& mode = glx_rmode;
+     GXSetViewport(0.0f, 0.0f, (f32)mode.fbWidth, (f32)mode.efbHeight, 0.0f, 1.0f);
+     GXSetScissor(0, 0, mode.fbWidth, mode.efbHeight);
+@@ -135,7 +161,11 @@
+     gxSetDither(true);
+     gxSetColourUpdate(true);
+     gxSetAlphaUpdate(true);
++#if defined(MSCHARGED_NATIVE)
++    GXSetDispCopyGamma(static_cast<GXGamma>(0));
++#else
+     GXSetDispCopyGamma(0);
++#endif
+ 
+     for (int stage = 0; stage < 16; stage++)
+     {
+@@ -253,7 +283,11 @@
+         return false;
+     }
+     glx_FIFO = GXInit(glx_FIFOMem, glx_FIFOSize);
++#if defined(MSCHARGED_NATIVE)
++    GXInitFifoLimits(static_cast<GXFifoObj*>(glx_FIFO), glx_FIFOSize - 0x10000, glx_FIFOSize - 0x40000);
++#else
+     GXInitFifoLimits(glx_FIFO, glx_FIFOSize - 0x10000, glx_FIFOSize - 0x40000);
++#endif
+ 
+     u32 fbSize = ((glx_rmode.fbWidth + 15) & 0xFFF0) * glx_rmode.xfbHeight * 2;
+     if (fbSize < 0x9F600)
+@@ -274,7 +308,11 @@
+     glxSwapSetBlack(true);
+     VIFlush();
+     VIWaitForRetrace();
++#if defined(MSCHARGED_NATIVE)
++    if ((glx_rmode.viTVmode & 1) != 0)
++#else
+     if ((glx_rmode.tvInfo & 1) != 0)
++#endif
+     {
+         VIWaitForRetrace();
+     }

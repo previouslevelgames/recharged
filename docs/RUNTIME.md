@@ -1,8 +1,8 @@
 # Experimental runtime
 
-The port is a work in progress alongside the decompilation. Selected original
-initialization, Wii assets, and Title/Main/Options/Audio/Visual/Credits menus run on Linux.
-**Full game startup and matches remain in development.** These experiments
+The port is a work in progress alongside the decompilation. Linux diagnostics
+cover selected original initialization, Wii assets and menu previews.
+**Original game startup, Credits scene execution and matches remain in development.** These experiments
 currently require a USA `R4QE01` revision 1 ISO/RVZ configured in `mscharged.ini`.
 
 Start with [Building](BUILDING.md) for compiler requirements, the launcher and
@@ -21,7 +21,7 @@ code 3 at the unfinished startup boundary. The launcher exposes **Try startup**.
 For a host check without game data, build preset `aurora` and run
 `./build/aurora/mscharged-aurora-check --window`.
 
-## Rendering and menus
+## Rendering and menu previews
 
 Graphics presets currently require Linux, a desktop, Vulkan GPU/driver,
 validation layers, GNU Make, and Tcl 8.6+. Initialize these additional sources:
@@ -40,9 +40,9 @@ CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
 ```
 
 Arrows, D-pad or the left stick move the pointer; Enter/A selects and Escape/B
-goes Back. Options includes Audio and Visual controls with separate native
-preferences, plus Credits with movie playback and scrolling text. Title's idle
-intro, other menu actions and original game saves remain in development.
+goes Back. Options includes Audio, Visual and the earlier Credits preview.
+These previews use transitional adapters and do not validate execution of the
+full original game or the refactored original Credits scene.
 
 Use `--frontend-main` or `--frontend-options` to start there directly, or omit
 the menu selection for the static ball preview. Additional inspectors include `--particles`,

@@ -1,0 +1,63 @@
+Subject: Preserve native compiler interfaces for the original Game source
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Use authoritative audio header linkage, an explicit full-width encoded Terrain
+index cast, and emit available original nlStrNCat<char> for native linking.
+Original game/tweak/terrain/string algorithm bodies and requests stay intact.
+Upstream now defines accurate kGameTweakZero +0f data; the old temporary native
+export is retired. Complete original game linking/startup remain separate gates.
+
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -1,7 +1,10 @@
+ #include "Game/NetworkMessageRegistry.h"
+ #include "Game/DetInput.h"
+ #include "Game/AI/TeamPlayMachine.h"
++#ifdef MSCHARGED_NATIVE
++#include <cstdint>
++#endif
+ #include "Game/Game.h"
+ #include "Game/Weather.h"
+ #include "Game/Sys/debug.h"
+ #include "Game/NetworkDiagnostics.h"
+@@ -118,10 +121,12 @@
+ extern "C" void fn_8007214C(ShotAtGoalData* node);
+ extern "C" void fn_80072164(UnidentifiedRegistrationNode* node);
+ extern "C" void fn_8007217C(UnidentifiedRegistrationNode* node);
+ extern "C" void fn_80072194(PlayerAttackData* node);
++#ifndef MSCHARGED_NATIVE
+ extern "C" int GetAudioPauseDepth();
+ extern "C" void ResumeAllAudio();
++#endif
+ extern "C" void fn_800EDC2C();
+ extern "C" void fn_801E999C(BaseSceneHandler* scene);
+ extern "C" void fn_80058ABC(unsigned long param1, unsigned long param2);
+ extern void PlaySuddenDeathMusic();
+@@ -345,9 +350,13 @@
+         Clock(kGameTweakZero, lbl_806E3744, lbl_806E3748, 2, fn_80058ABC);
+     m_pPostResetClock->m_uParam1 = (unsigned long)this;
+ 
+     mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
++#ifdef MSCHARGED_NATIVE
++        Terrain(static_cast<int>(reinterpret_cast<std::uintptr_t>(param1)));
++#else
+         Terrain((int)param1);
++#endif
+ 
+     mpWeatherManager = new (nlMalloc(sizeof(WeatherManager), 8, false)) WeatherManager();
+ 
+     mpWeatherManager->Initialize(param2);
+
+diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
+--- a/src/NL/nlString.cpp
++++ b/src/NL/nlString.cpp
+@@ -62,3 +62,8 @@
+     }
+ #endif
+ }
++
++#ifdef MSCHARGED_NATIVE
++#include "NL/nlstring_impl.h"
++template char* nlStrNCat<char>(char*, const char*, const char*, unsigned long);
++#endif

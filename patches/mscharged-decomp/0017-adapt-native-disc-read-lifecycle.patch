@@ -1,6 +1,6 @@
 Subject: Make original disc reads and asynchronous lifecycle safe on hosts
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Retain the console branches and original NL API while adapting native reads to
 Aurora's threaded DVD service. Keep callback state pointer-sized, reserve both

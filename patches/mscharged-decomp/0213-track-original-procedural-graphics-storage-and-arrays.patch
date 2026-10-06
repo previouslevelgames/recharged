@@ -1,0 +1,323 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Track original procedural graphics storage and arrays
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Classification: permanent host compiler/platform/data ABI adaptation.
+
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -23,6 +23,9 @@
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ class GLXResourcePool;
+ 
+@@ -203,6 +206,9 @@
+ 
+ void glplatFrameAllocNextFrame()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::GameGraphicsRetirementReservation nativeRetirement[2];
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
+     mscharged::InvalidateGraphicsCaches();
+@@ -224,6 +230,10 @@
+     i_frame = newFrame;
+     n_frame[newFrame][0] = 0;
+     n_frame[newFrame][1] = 0;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    for (int pool = 0; pool < 2; ++pool)
++        nativeRetirement[pool].Commit((void*)p_frame[newFrame][pool], FrameMemSizes[pool]);
++#endif
+     GXInvalidateVtxCache();
+     GXInvalidateTexAll();
+ #endif
+@@ -297,6 +307,9 @@
+ void* GLXResourcePool::Allocate(
+     unsigned long allocationSize, eGLMemory memType)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::GameGraphicsStorageReservation nativeStorage(allocationSize);
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     int pool = RealOrVirtual(memType);
+     unsigned long offset = AlignedOffset(mUsedMemory[pool], allocationSize, mPoolSizes[pool]);
+@@ -319,6 +332,9 @@
+         glDumpResources(sOutOfMemoryName, this);
+         nlBreak();
+     }
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    nativeStorage.Commit((void*)aligned);
++#endif
+     return (void*)aligned;
+ #endif
+ }
+@@ -354,6 +370,9 @@
+ void GLXResourcePool::ReleaseResource(
+     GLResourceMark value)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::GameGraphicsRetirementReservation nativeRetirement[2];
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     int level = 0;
+     while (level < m_level && mMarks[level] != value) ++level;
+@@ -374,6 +393,11 @@
+     mUsedMemory[0] = marker->mUsedMemory[0];
+     mUsedMemory[1] = marker->mUsedMemory[1];
+     m_level = level;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    for (int pool = 0; pool < 2; ++pool)
++        nativeRetirement[pool].Commit((void*)(mPoolMemory[pool] + mUsedMemory[pool]),
++            mPoolSizes[pool] - mUsedMemory[pool]);
++#endif
+ #endif
+ }
+ 
+@@ -458,6 +482,9 @@
+ 
+ void* glplatFrameAlloc(unsigned long size, eGLMemory memType)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::GameGraphicsStorageReservation nativeStorage(size);
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
+     if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
+     int pool = RealOrVirtual(memType);
+@@ -477,6 +504,9 @@
+         return 0;
+     }
+     n_frame[i_frame][isLow] = newSize;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    nativeStorage.Commit((void*)newTop);
++#endif
+     return (void*)newTop;
+ #endif
+ }
+--- a/src/Game/GL/GLTexturedColourMeshWriter.cpp
++++ b/src/Game/GL/GLTexturedColourMeshWriter.cpp
+@@ -10,6 +10,9 @@
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ GLTexturedColourMeshWriter::GLTexturedColourMeshWriter()
+ {
+@@ -128,6 +131,11 @@
+ 
+ bool GLTexturedColourMeshWriter::End()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, position);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, texcoord);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[2].address, colour);
++#endif
+ #ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
+     NativeCheckLive();
+     if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
+--- a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp
++++ b/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp
+@@ -9,6 +9,9 @@
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ GLFloatTexturedColourMeshWriter::GLFloatTexturedColourMeshWriter()
+     : count(0)
+@@ -134,6 +137,11 @@
+ 
+ bool GLFloatTexturedColourMeshWriter::End()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, position);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, texcoord);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[2].address, colour);
++#endif
+ #ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
+     NativeCheckLive();
+     if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
+--- a/include/Game/GL/GLTexturedColourMeshWriter.h
++++ b/include/Game/GL/GLTexturedColourMeshWriter.h
+@@ -45,7 +45,17 @@
+ #ifdef MSCHARGED_DIAGNOSTIC_MESH_WRITERS
+         NativeCheckWrite(writtenColour);
+ #endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        // This source argument is a numeric Wii RGBA word, whose four bytes
++        // must retain the original big-endian channel order on the host.
++        const u32 word = static_cast<u32>(nColourPlat);
++        const unsigned char rgba[4] = { static_cast<unsigned char>(word >> 24),
++            static_cast<unsigned char>(word >> 16), static_cast<unsigned char>(word >> 8),
++            static_cast<unsigned char>(word) };
++        std::memcpy(colour++, rgba, sizeof(rgba));
++#else
+         *colour++ = nColourPlat;
++#endif
+     }
+ 
+     void Texcoord(const nlVector2& uv)
+--- a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
+@@ -9,6 +9,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/gl/glLoadModel.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXUnlitTextureMaterialProgram* GXUnlitTextureMaterialProgram::Instance;
+ bool GXUnlitTextureMaterialProgram::Initialized;
+@@ -62,13 +65,17 @@
+ void GXUnlitTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[1].address, 8);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+--- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
+@@ -9,6 +9,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/gl/glLoadModel.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXVertexColourTextureMaterialProgram* GXVertexColourTextureMaterialProgram::Instance;
+ bool GXVertexColourTextureMaterialProgram::Initialized;
+@@ -65,19 +68,25 @@
+ void GXVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[1].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+--- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
++++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
+@@ -10,6 +10,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/gl/glLoadModel.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXFloatTexturedColourMaterialProgram* GXFloatTexturedColourMaterialProgram::Instance;
+ bool GXFloatTexturedColourMaterialProgram::Initialized;
+@@ -66,19 +69,25 @@
+ void GXFloatTexturedColourMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[1].address, 8);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+--- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
+@@ -9,6 +9,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/gl/glLoadModel.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXScissoredVertexColourTextureMaterialProgram* GXScissoredVertexColourTextureMaterialProgram::Instance;
+ bool GXScissoredVertexColourTextureMaterialProgram::Initialized;
+@@ -66,19 +69,25 @@
+ void GXScissoredVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[1].address, 8);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else

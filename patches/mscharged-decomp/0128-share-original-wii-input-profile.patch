@@ -1,5 +1,5 @@
 Subject: Share original pure Wii input device policies
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 diff --git a/include/NL/plat/WiiPadSteps.h b/include/NL/plat/WiiPadSteps.h
 new file mode 100644

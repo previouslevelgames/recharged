@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -216,20 +216,6 @@ index 2dd0fe5..850fd6e 100644
              break;
          }
      }
-@@ -234,7 +247,12 @@ public:
-     {
-         mName = name;
-     }
--    static void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
-+    #ifdef MSCHARGED_NATIVE
-+static void* operator new(size_t size) { return mscharged::OwnTweakAllocation(nlMalloc(size, 8, false)); }
-+    static void operator delete(void* ptr) { nlFree(ptr); }
-+#else
-+static void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
-+#endif
-     virtual ~TweakValueName() { }
-     virtual int GetValueType() { return 1; }
-     virtual int GetStorageKind() { return 3; }
 @@ -281,3 +299,10 @@ T* TweakNodeListRemove(T** head, T* node, T** tail)
  }
  
@@ -244,8 +230,9 @@ index 2dd0fe5..850fd6e 100644
 diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
 --- a/src/Game/TweakNode.cpp
 +++ b/src/Game/TweakNode.cpp
-@@ -1,4 +1,7 @@
+@@ -1,5 +1,8 @@
  #include "Game/TweakRegistry.h"
+ #include "Game/TweakValueName.h"
 +#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
 +#include "runtime/game_config.h"
 +#endif
@@ -275,8 +262,8 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
      m_Next = 0;
      m_Parent = 0;
      m_Depth = 0;
-@@ -37,6 +48,14 @@
-     }
+@@ -47,6 +58,14 @@
+     return &nlStrCmp<char>;
  }
  
 +#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
@@ -1060,3 +1047,37 @@ diff --git a/include/Game/TweakIntBinding.inl b/include/Game/TweakIntBinding.inl
  }
  
  int TweakIntBinding::IsBound()
+
+diff --git a/include/Game/TweakValueName.h b/include/Game/TweakValueName.h
+--- a/include/Game/TweakValueName.h
++++ b/include/Game/TweakValueName.h
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/TweakValueBase.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++#include "runtime/tweaks.h"
++#endif
+ 
+ // Name-only value attached to folder entries.
+ // The overrides are declared in reverse of their emission order in TweakNode.
+@@ -13,7 +16,19 @@
+     {
+         mName = name;
+     }
++#ifdef MSCHARGED_NATIVE
++    static void* operator new(size_t size)
++    {
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++        return mscharged::OwnTweakAllocation(nlMalloc(size, 8, false));
++#else
++        return nlMalloc(size, 8, false);
++#endif
++    }
++    static void operator delete(void* pointer) { nlFree(pointer); }
++#else
+     static void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#endif
+     virtual int GetValueType() { return 1; }
+     virtual int UnidentifiedVirtual30() { return 1; }
+     virtual int UnidentifiedVirtual34() { return 0; }

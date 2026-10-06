@@ -2,7 +2,7 @@
 
 #include "runtime/event_support.h"
 #include "NL/nlMemory.h"
-#include "NL/nlFunction.h"
+#include "NL/nlFunction.inl"
 #include <exception>
 #include <limits>
 #include <memory>

@@ -25,6 +25,7 @@ add_library(charged_original_frontend_render OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/NL/glx/glxDisplayList.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxSkinMatrix.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxGX.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/glx/glxSwap.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp"

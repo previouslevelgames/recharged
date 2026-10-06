@@ -1,0 +1,68 @@
+From: mscharged-port native compatibility
+Subject: [PATCH] explicit live MEM1 DSP task address words
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Encode only the original four native pointer mail positions through a live
+MEM1 extent and canonical physical address. Preserve all lengths, mailbox
+commands, waits, task selection, callbacks and console branches. Module static
+DSP data and MEM2 remain explicit unsupported address domains, not tokens.
+
+--- a/src/RVL_SDK/dsp/dsp_task.c
++++ b/src/RVL_SDK/dsp/dsp_task.c
+@@ -1,5 +1,8 @@
+ #include <revolution/dsp.h>
+ #include <revolution/os.h>
++#ifdef MSCHARGED_NATIVE
++#include "platform/dsp_memory_abi.h"
++#endif
+ 
+ /**
+  * Commands to the DSP sent via the mailbox.
+@@ -192,7 +195,11 @@
+ 
+ void __DSP_exec_task(DSPTask* task1, DSPTask* task2) {
+     if (task1 != NULL) {
++#ifdef MSCHARGED_NATIVE
++        DSP_SEND_MAIL_SYNC(ChargedDSPTaskMemoryWord(task1->dramMmemAddr, task1->dramMmemLen, 1));
++#else
+         DSP_SEND_MAIL_SYNC(task1->dramMmemAddr);
++#endif
+         DSP_SEND_MAIL_SYNC(task1->dramMmemLen);
+         DSP_SEND_MAIL_SYNC(task1->dramDspAddr);
+     } else {
+@@ -201,7 +208,11 @@
+         DSP_SEND_MAIL_SYNC(0);
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    DSP_SEND_MAIL_SYNC(ChargedDSPTaskMemoryWord(task2->iramMmemAddr, task2->iramMmemLen, 0));
++#else
+     DSP_SEND_MAIL_SYNC(task2->iramMmemAddr);
++#endif
+     DSP_SEND_MAIL_SYNC(task2->iramMmemLen);
+     DSP_SEND_MAIL_SYNC(task2->iramDspAddr);
+ 
+@@ -212,7 +223,11 @@
+         DSP_SEND_MAIL_SYNC(0);
+     } else {
+         DSP_SEND_MAIL_SYNC(task2->resumeVector);
++#ifdef MSCHARGED_NATIVE
++        DSP_SEND_MAIL_SYNC(ChargedDSPTaskMemoryWord(task2->dramMmemAddr, task2->dramMmemLen, 0));
++#else
+         DSP_SEND_MAIL_SYNC(task2->dramMmemAddr);
++#endif
+         DSP_SEND_MAIL_SYNC(task2->dramMmemLen);
+         DSP_SEND_MAIL_SYNC(task2->dramDspAddr);
+     }
+@@ -229,7 +244,11 @@
+ 
+     // Send IRAM MMEM address
+     DSP_SEND_MAIL_SYNC(MAIL_SET_IRAM_MMEM_ADDR);
++#ifdef MSCHARGED_NATIVE
++    DSP_SEND_MAIL_SYNC(ChargedDSPTaskMemoryWord(task->iramMmemAddr, task->iramMmemLen, 0));
++#else
+     DSP_SEND_MAIL_SYNC(task->iramMmemAddr);
++#endif
+ 
+     // Send IRAM DSP address
+     DSP_SEND_MAIL_SYNC(MAIL_SET_IRAM_DSP_ADDR);

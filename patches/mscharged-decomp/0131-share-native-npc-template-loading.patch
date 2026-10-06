@@ -1,5 +1,5 @@
 Subject: Share original NPC template resource selection and readiness
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Keep original ordered template selection, resource paths and completion predicate
 shared with a checked native owner. Actor constructors and console in-place

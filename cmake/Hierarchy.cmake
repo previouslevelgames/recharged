@@ -6,6 +6,7 @@ add_library(charged_hierarchy_assets STATIC
     "${MSCHARGED_PREPARED}/src/Game/SHierarchy.cpp"
     src/runtime/hierarchy_assets.cpp)
 add_dependencies(charged_hierarchy_assets verify_prepared)
+target_compile_definitions(charged_hierarchy_assets PRIVATE MSCHARGED_DIAGNOSTIC_SKELETON=1)
 target_include_directories(charged_hierarchy_assets PUBLIC
     "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
 target_compile_definitions(charged_hierarchy_assets PUBLIC MSCHARGED_NATIVE=1)

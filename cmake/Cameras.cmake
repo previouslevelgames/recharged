@@ -9,6 +9,8 @@ add_library(charged_cameras STATIC
     "${MSCHARGED_PREPARED}/src/Game/Camera/noisefilter.cpp"
     src/runtime/cameras.cpp)
 add_dependencies(charged_cameras verify_prepared)
+# Retained prototype ownership, filters and pose logic are explicit diagnostics.
+target_compile_definitions(charged_cameras PUBLIC MSCHARGED_DIAGNOSTIC_CAMERAS=1)
 target_link_libraries(charged_cameras PUBLIC charged_tasks charged_game_print)
 target_compile_features(charged_cameras PUBLIC cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)

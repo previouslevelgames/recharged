@@ -1,0 +1,192 @@
+Subject: [PATCH] restore original frontend pointer task and native static providers
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Restore literal feDPD source and isolate pointer/timing extracts from the original
+module. Use one native SDK GX/VI/DVD declaration ABI, retain genuine Wii
+power/reset requests, and declare unavailable IPC MMIO instead of allocating
+fake registers. Keep Wii class-size assertions on the console ABI and transport
+the original BeginFrameTask view pointer through its existing native enum carrier.
+No task/game decisions, initialization requests, visibility or behavior changes.
+
+--- a/src/Game/FE/feDPD.cpp
++++ b/src/Game/FE/feDPD.cpp
+@@ -4,7 +4,6 @@
+ #include "NL/plat/WiiFreestylePad.h"
+ 
+ #include "Game/FE/feDPD.h"
+-#include "Game/FE/FrontendPointerHostSteps.h"
+ 
+ #include "Game/FE/feInput.h"
+ #include "Game/PadActions.h"
+@@ -27,7 +26,20 @@
+ 
+ static inline void ClampPointerPosition(int pad, nlVector2 position, int width, int height)
+ {
+-    gFEPointerPositions[pad] = FrontendClampPointerPosition(position, width, height);
++    int maxX = width / 2 - 20;
++    int minX = -width / 2 + 20;
++    int maxY = height / 2 - 5;
++    int minY = -height / 2 + 5;
++
++    if (position.x <= maxX && position.x >= minX)
++        gFEPointerPositions[pad].x = position.x;
++    else
++        gFEPointerPositions[pad].x = (float)(position.x > maxX ? maxX : minX);
++
++    if (position.y <= maxY && position.y >= minY)
++        gFEPointerPositions[pad].y = position.y;
++    else
++        gFEPointerPositions[pad].y = (float)(position.y > maxY ? maxY : minY);
+ }
+ 
+ FEDPDTask::FEDPDTask()
+@@ -108,7 +120,8 @@
+         if (data->mValidFlag > 0)
+         {
+             data->GetPosition(&position, angle);
+-            FrontendDPDToAssetPosition(position, width, height);
++            position.x = -1.0f * (position.x * (float)width / 2.0f);
++            position.y = position.y * (float)height / 2.0f;
+             *valid = true;
+ 
+             ClampPointerPosition(pad, position, width, height);
+--- a/include/Game/FE/FrontendPointerHostSteps.h
++++ b/include/Game/FE/FrontendPointerHostSteps.h
+@@ -1,5 +1,8 @@
+ #ifndef FRONTEND_POINTER_HOST_STEPS_H
+ #define FRONTEND_POINTER_HOST_STEPS_H
++#if defined(MSCHARGED_GAME_MODULE)
++#error "Original modules must execute the source frontend pointer methods"
++#endif
+ #include "NL/nlMath.h"
+ 
+ // Original feDPD arithmetic. The desktop adapter supplies an explicit absolute
+--- a/src/Game/Debug/FrameTiming.cpp
++++ b/src/Game/Debug/FrameTiming.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_GAME_MODULE)
++#error "Original modules must compile the complete source FrameCounter.cpp"
++#endif
++
+ // Original timing/history and histogram bodies selected without debug drawing.
+ #include "Game/Debug/FrameCounter.h"
+ #include "Game/Debug/TimeRegions.h"
+--- a/libs/RVL_SDK/include/revolution/gx.h
++++ b/libs/RVL_SDK/include/revolution/gx.h
+@@ -4,6 +4,9 @@
+ 
+ #ifndef RVL_SDK_PUBLIC_GX_H
+ #define RVL_SDK_PUBLIC_GX_H
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -34,4 +37,5 @@
+ #ifdef __cplusplus
+ }
+ #endif
++#endif // MSCHARGED_NATIVE
+ #endif
+--- a/libs/RVL_SDK/include/revolution/vi.h
++++ b/libs/RVL_SDK/include/revolution/vi.h
+@@ -1,5 +1,8 @@
+ #ifndef REVOLUTION_VI_H
+ #define REVOLUTION_VI_H
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/vi.h>
++#else
+ 
+ #include <revolution/gx.h>
+ #include <revolution/types.h>
+@@ -65,4 +68,5 @@
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
+ #endif // REVOLUTION_VI_H
+--- a/libs/RVL_SDK/include/revolution/dvd.h
++++ b/libs/RVL_SDK/include/revolution/dvd.h
+@@ -4,6 +4,9 @@
+ 
+ #ifndef RVL_SDK_PUBLIC_DVD_H
+ #define RVL_SDK_PUBLIC_DVD_H
++#if defined(MSCHARGED_NATIVE)
++#include <revolution/dvd/dvd.h>
++#else
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -19,4 +22,5 @@
+ #ifdef __cplusplus
+ }
+ #endif
++#endif // MSCHARGED_NATIVE
+ #endif
+--- a/libs/RVL_SDK/include/revolution/ipc.h
++++ b/libs/RVL_SDK/include/revolution/ipc.h
+@@ -9,8 +9,14 @@
+ {
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++    // Retain declarations only: native execution cannot use Wii MMIO arrays.
++    extern volatile u32 IPC_HW_REGS_PPC[];
++    extern volatile u32 IPC_HW_REGS[];
++#else
+     volatile u32 IPC_HW_REGS_PPC[] AT_ADDRESS(0xCD000000);
+     volatile u32 IPC_HW_REGS[] AT_ADDRESS(0xCD800000);
++#endif
+ 
+     typedef enum IPCHwReg
+     {
+--- a/libs/RVL_SDK/include/revolution/os.h
++++ b/libs/RVL_SDK/include/revolution/os.h
+@@ -4,6 +4,17 @@
+ #ifdef MSCHARGED_NATIVE
+ #include <stdarg.h>
+ #include <dolphin/os.h>
++// These Wii requests are absent from the GameCube SDK header facade.
++// Declarations preserve source calls; genuine native providers are required.
++#include <revolution/os/OSReset.h>
++#include <revolution/os/OSStateTM.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++void OSSleepTicks(OSTime ticks);
++#ifdef __cplusplus
++}
++#endif
+ #define OS_BUS_CLOCK_SPEED __OSBusClock
+ #else
+ 
+--- a/include/Game/World/WorldAnimObjects.h
++++ b/include/Game/World/WorldAnimObjects.h
+@@ -73,9 +73,11 @@
+ void InitializeWorldPhysicsDrawable(WorldPhysicsDrawable* pDrawable,
+     WorldObjectLoadContext* pContext);
+ 
++#if !defined(MSCHARGED_NATIVE)
+ typedef char WorldDrawable_size_check[
+     sizeof(WorldDrawable) == 0x70 ? 1 : -1];
+ typedef char WorldPhysicsDrawable_size_check[
+     sizeof(WorldPhysicsDrawable) == 0x90 ? 1 : -1];
++#endif
+ 
+ #endif // GAME_WORLD_WORLD_ANIM_OBJECTS_H
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -242,7 +242,11 @@
+     q.m_uv[3].y = 0.0f;
+ 
+     q.SetColour(0xFF, 0xFF, 0xFF, 0xFF);
++#if defined(MSCHARGED_NATIVE)
++    q.Attach(static_cast<eGLView>(reinterpret_cast<glViewHandle>(GetLayerView(eCLV_CoPlanar))), 0);
++#else
+     q.Attach((eGLView)GetLayerView(eCLV_CoPlanar), 0);
++#endif
+ }
+ 
+ static inline void SetTextureBinding(glTextureBinding* binding, u32 texture)

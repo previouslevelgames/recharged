@@ -1,5 +1,5 @@
 Subject: Share original frontend pointer conversion and options event production
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Share exact feDPD normalized-coordinate conversion, integer viewport margins,
 and OptionsScene position-before-action30 event construction. Console callers

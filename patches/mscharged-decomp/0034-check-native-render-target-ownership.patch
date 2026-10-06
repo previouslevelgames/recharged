@@ -1,5 +1,5 @@
 Subject: Preserve original target registry with native lifetime and failure checks
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Keep original target naming, lookup and registration. Native platform targets
 own independent resource pools and Aurora copy-texture lifetimes. Use fixed-width

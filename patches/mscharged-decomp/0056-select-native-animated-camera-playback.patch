@@ -1,6 +1,6 @@
 Subject: Select original animated camera playback with bounded native services
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Compile original interpolation/cuts, transforms, timing and FOV independently
 of the full camera factory. Native owners retain decoded data and provide

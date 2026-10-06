@@ -1,6 +1,6 @@
 Subject: Select bounded original animation channel sampling on retained native records
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Exclude Wii in-place pointer reconstruction, original pose dependencies and
 callback-pool ownership from this native profile. Keep original root, weight

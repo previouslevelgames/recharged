@@ -1,6 +1,7 @@
 #include "runtime/events.h"
 #include "Game/EventConnection.h"
 #include "Game/EventRegistry.h"
+#include "NL/nlFunction.inl"
 #include "NL/nlMemory.h"
 #include "NL/MemAlloc.h"
 #include <stdexcept>

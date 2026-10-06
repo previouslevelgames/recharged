@@ -1,0 +1,72 @@
+Subject: [PATCH] transport original STM hardware register requests
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Retain whole original Wii STM registration/callback/reset-pulse logic. Replace
+only MMIO reset input and VI output-disable requests at native hardware seams.
+Native IOS device services provide actual owner-delivered platform events.
+
+diff --git a/src/RVL_SDK/os/OSStateTM.c b/src/RVL_SDK/os/OSStateTM.c
+--- a/src/RVL_SDK/os/OSStateTM.c
++++ b/src/RVL_SDK/os/OSStateTM.c
+@@ -1,6 +1,9 @@
+ #include <revolution/ipc.h>
+ #include <revolution/os.h>
+ #include <revolution/vi.h>
++#ifdef MSCHARGED_NATIVE
++#include "platform/stm_hardware_abi.h"
++#endif
+ 
+ typedef enum OSStateTMIoctl
+ {
+@@ -154,7 +157,11 @@
+ {
+ #define in_args ((u32*)StmImInBuf)
+ 
++#ifdef MSCHARGED_NATIVE
++    mscharged_stm_disable_video_output();
++#else
+     VI_HW_REGS[VI_DCR] = 0;
++#endif
+ 
+     OSAssert("OSStateTM.c", 276, StmReady, "Error: The firmware doesn't support shutdown feature.\n");
+ 
+@@ -167,7 +174,11 @@
+ 
+ void __OSHotReset(void)
+ {
++#ifdef MSCHARGED_NATIVE
++    mscharged_stm_disable_video_output();
++#else
+     VI_HW_REGS[VI_DCR] = 0;
++#endif
+ 
+     OSAssert("OSStateTM.c", 340, StmReady, "Error: The firmware doesn't support reboot feature.\n");
+ 
+@@ -177,7 +188,11 @@
+ 
+ static inline bool __OSGetResetButtonStateRaw(void)
+ {
++#ifdef MSCHARGED_NATIVE
++    return mscharged_stm_reset_button_pressed();
++#else
+     return (!(PI_HW_REGS[PI_INTSR] & PI_INTSR_RSWST)) ? true : false;
++#endif
+ }
+ 
+ s32 __OSSetVIForceDimming(u32 enabled, u32 yShift, u32 xShift)
+diff --git a/libs/RVL_SDK/include/revolution/ipc.h b/libs/RVL_SDK/include/revolution/ipc.h
+--- a/libs/RVL_SDK/include/revolution/ipc.h
++++ b/libs/RVL_SDK/include/revolution/ipc.h
+@@ -1,7 +1,11 @@
+ #ifndef REVOLUTION_IPC_H
+ #define REVOLUTION_IPC_H
+ 
++#ifdef MSCHARGED_NATIVE
++#include <dolphin/os/OSThread.h>
++#else
+ #include <revolution/os/OSThread.h>
++#endif
+ #include <revolution/types.h>
+ 
+ #ifdef __cplusplus

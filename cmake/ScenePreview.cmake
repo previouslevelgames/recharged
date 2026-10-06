@@ -1,4 +1,5 @@
 include(cmake/NativeRuntime.cmake)
+include(cmake/OriginalByteDomains.cmake)
 include(cmake/GamePrint.cmake)
 include(cmake/OriginalBundles.cmake)
 include(cmake/OriginalFonts.cmake)

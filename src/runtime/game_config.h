@@ -1,5 +1,9 @@
 #pragma once
+#if !defined(MSCHARGED_DIAGNOSTIC_CONFIG) || defined(MSCHARGED_GAME_MODULE)
+#error Configuration owners and validation helpers belong only to explicit diagnostics
+#endif
 #include "NL/nlConfig.h"
+#include "NL/nlFunction.inl"
 #include <memory>
 #include <string>
 #include <exception>

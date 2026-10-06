@@ -1,0 +1,65 @@
+From: mscharged-port native compatibility
+Subject: [PATCH] native two-way DSP mailbox hardware transport
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Replace only the four native hardware mailbox accesses with explicit high/low
+register transport, preserving word/status bits and low-read acknowledgement.
+Reject unrepresentable host pointers instead of inventing DSP bus addresses.
+The original initialization, task, boot waits and console branches are unchanged;
+this does not execute DSP firmware or synthesize successful readiness.
+
+--- a/src/RVL_SDK/dsp/dsp.c
++++ b/src/RVL_SDK/dsp/dsp.c
+@@ -1,5 +1,8 @@
+ #include <revolution/dsp.h>
+ #include <revolution/os.h>
++#ifdef MSCHARGED_NATIVE
++#include "platform/dsp_mailbox_abi.h"
++#endif
+ 
+ const char* __DSPVersion =
+     "<< RVL_SDK - DSP \trelease build: Nov 30 2006 03:26:46 (0x4199_60831) >>";
+@@ -7,21 +10,43 @@
+ static BOOL __DSP_init_flag = FALSE;
+ 
+ BOOL DSPCheckMailToDSP(void) {
++#ifdef MSCHARGED_NATIVE
++    return (ChargedDSPMailToHigh() & DSP_DSPMBOX_H_STATUS) != 0;
++#else
+     return (DSP_HW_REGS[DSP_DSPMBOX_H] & DSP_DSPMBOX_H_STATUS) != 0;
++#endif
+ }
+ 
+ BOOL DSPCheckMailFromDSP(void) {
++#ifdef MSCHARGED_NATIVE
++    return (ChargedDSPMailFromHigh() & DSP_CPUMBOX_H_STATUS) != 0;
++#else
+     return (DSP_HW_REGS[DSP_CPUMBOX_H] & DSP_CPUMBOX_H_STATUS) != 0;
++#endif
+ }
+ 
+ DSPMail DSPReadMailFromDSP(void) {
++#ifdef MSCHARGED_NATIVE
++    // Retail reads high before the acknowledging low register. Native calls
++    // express that hardware access order explicitly and retain its status bit.
++    u16 high = ChargedDSPMailFromHigh();
++    u16 low = ChargedDSPMailFromLow();
++    return (DSPMail)(uintptr_t)((u32)high << 16 | low);
++#else
+     return (DSPMail)(DSP_HW_REGS[DSP_CPUMBOX_H] << 16 |
+                      DSP_HW_REGS[DSP_CPUMBOX_L]);
++#endif
+ }
+ 
+ void DSPSendMailToDSP(DSPMail mail) {
++#ifdef MSCHARGED_NATIVE
++    u32 word = ChargedDSPRequireMailWord((uintptr_t)mail);
++    ChargedDSPMailToWriteHigh(word >> 16 & 0xFFFF);
++    ChargedDSPMailToWriteLow(word & 0xFFFF);
++#else
+     DSP_HW_REGS[DSP_DSPMBOX_H] = ((u32)mail) >> 16 & 0xFFFF;
+     DSP_HW_REGS[DSP_DSPMBOX_L] = ((u32)mail) & 0xFFFF;
++#endif
+ }
+ 
+ void DSPAssertInt(void) {

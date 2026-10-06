@@ -1,5 +1,5 @@
 Subject: Restore whole original events with native metadata ABI
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Isolate previous registry/listener/queue/task behavior under an explicit
 diagnostic event profile. Genuine source retains original lazy registry
@@ -503,7 +503,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
 +                    (ListenerEntry*)((char*)listener - MSCHARGED_EVENT_ENTRY_OFFSET(ListenerEntry)));
                  ListenerEntry* entry = position.CurrentEntry();
                  nlDLRingRemove(&mListeners.m_Head, entry);
-                 entry->~ListenerEntry();
+                 mListeners.DeleteEntry(entry);
 @@ -118,7 +118,7 @@
  
      void Remove(Listener* listener)

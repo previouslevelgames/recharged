@@ -1,3 +1,7 @@
+#if defined(MSCHARGED_GAME_MODULE)
+#error "The original game module must compile the complete original NL/nlFile.cpp"
+#endif
+
 #include "NL/nlFile.h"
 #include "NL/nlFileGC.h"
 #include "NL/MemAlloc.h"

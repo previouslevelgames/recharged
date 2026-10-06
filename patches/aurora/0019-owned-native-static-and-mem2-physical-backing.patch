@@ -1,0 +1,368 @@
+Subject: [PATCH] Native owned static reservations and MEM2 physical backing
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Reserve real SDK physical backing before game arena capture, retain original
+module byte storage with exact inverse lookup, and pin static owners while DMA
+accesses are live. Keep MEM2 physical base 0x10000000 and actual DMA alignment.
+This is hardware transport; no firmware execution or game readiness.
+
+--- a/lib/dolphin/os/OSAddress.cpp
++++ b/lib/dolphin/os/OSAddress.cpp
+@@ -1,7 +1,13 @@
+ #include "internal.hpp"
+ #include <dolphin/os.h>
+-
+-#include <cassert>
++#include <dolphin/os/OSNativeMemory.h>
++#include <cstring>
++#include <limits>
++#include <map>
++#include <mutex>
++#include <stdexcept>
++#include <string>
++#include <thread>
+ 
+ #if NDEBUG
+ #undef OSPhysicalToCached
+@@ -12,30 +18,233 @@
+ #undef OSUncachedToCached
+ #endif
+ 
+-void* OSPhysicalToCached(u32 paddr) {
+-  assert (paddr <= aurora::g_config.mem1Size);
+-  return POINTER_ADD(MEM1Start, paddr);
+-}
+-
+-void* OSPhysicalToUncached(u32 paddr) {
+-  return OSPhysicalToCached(paddr);
+-}
+-
+-u32 OSCachedToPhysical(void* caddr) {
+-  assert (caddr >= MEM1Start && caddr <= MEM1End);
+-
+-  return (reinterpret_cast<uintptr_t>(caddr) - reinterpret_cast<uintptr_t>(MEM1Start));
+-}
+-
+-u32 OSUncachedToPhysical(void* ucaddr) {
+-  return OSCachedToPhysical(ucaddr);
+-}
+-
+-void* OSCachedToUncached(void* caddr) {
+-  return caddr;
+-}
+-
+-void* OSUncachedToCached(void* ucaddr) {
+-  return ucaddr;
+-}
+-
++namespace {
++constexpr u32 MEM2_PHYSICAL_BASE = 0x10000000;
++struct StaticRegion {
++    std::string module, resource;
++    uintptr_t address{};
++    u32 bytes{}, reserved{};
++    u64 identity{}, pins{};
++    BOOL writable{};
++    void* context{};
++    void (*release)(void*){};
++    bool active{};
++};
++struct AddressState {
++    std::mutex mutex;
++    std::thread::id owner;
++    std::map<u32, StaticRegion> regions;
++    u64 next_identity{};
++};
++AddressState& Addresses() { static AddressState state; return state; }
++uintptr_t Value(const void* p) { return reinterpret_cast<uintptr_t>(p); }
++u32 BankSize(void* start, void* end) {
++    const auto begin = Value(start), finish = Value(end);
++    if (!begin || finish < begin || finish - begin > std::numeric_limits<u32>::max())
++        throw std::logic_error("Native physical bank has no live bounded SDK backing");
++    return static_cast<u32>(finish - begin);
++}
++bool InBank(const void* p, void* start, void* end) {
++    return start && Value(p) >= Value(start) && Value(p) <= Value(end);
++}
++bool OverlapsBank(uintptr_t address, u32 bytes, void* start, void* end) {
++    return start && address < Value(end) && Value(start) < address + bytes;
++}
++void RequireOwner(AddressState& state) {
++    if (state.owner != std::thread::id{} && state.owner != std::this_thread::get_id())
++        throw std::logic_error("Native static memory registration requires its owner thread");
++}
++auto RegionAt(AddressState& state, u32 physical) {
++    auto it = state.regions.upper_bound(physical);
++    if (it != state.regions.begin()) {
++        --it;
++        if (static_cast<u64>(physical) - it->first < it->second.reserved) return it;
++    }
++    return state.regions.end();
++}
++void* ResolvePhysical(AddressState& state, u32 physical) {
++    auto it = RegionAt(state, physical);
++    if (it != state.regions.end()) {
++        const auto offset = physical - it->first;
++        if (!it->second.active || offset >= it->second.bytes)
++            throw std::out_of_range("Native physical reservation has no live backing at this offset");
++        return reinterpret_cast<void*>(it->second.address + offset);
++    }
++    if (MEM1Start && physical <= BankSize(MEM1Start, MEM1End))
++        return reinterpret_cast<void*>(Value(MEM1Start) + physical);
++    if (MEM2Start && physical >= MEM2_PHYSICAL_BASE &&
++        physical - MEM2_PHYSICAL_BASE <= BankSize(MEM2Start, MEM2End))
++        return reinterpret_cast<void*>(Value(MEM2Start) + physical - MEM2_PHYSICAL_BASE);
++    throw std::out_of_range("Native physical address is outside the live SDK banks/reservations");
++}
++u32 ResolvePointer(AddressState& state, const void* address, u32 bytes, BOOL writing, StaticRegion** region) {
++    const auto value = Value(address);
++    if (!address || bytes > std::numeric_limits<uintptr_t>::max() - value)
++        throw std::out_of_range("Native pointer extent is null or wraps");
++    for (auto& [physical, entry] : state.regions) {
++        if (entry.active && value >= entry.address && value - entry.address < entry.bytes) {
++            const auto offset = value - entry.address;
++            if (bytes > entry.bytes - offset)
++                throw std::out_of_range("Native extent crosses its retained static backing");
++            if (writing && !entry.writable)
++                throw std::invalid_argument("Device writes read-only native static backing");
++            if (region) *region = &entry;
++            return physical + static_cast<u32>(offset);
++        }
++    }
++    if (InBank(address, MEM1Start, MEM1End)) {
++        const auto offset = value - Value(MEM1Start);
++        if (bytes > BankSize(MEM1Start, MEM1End) - offset)
++            throw std::out_of_range("Native extent crosses SDK MEM1");
++        // The arena reservation is exclusively backed by the retained static.
++        // Its SDK storage must never create a second pointer alias to that bus word.
++        const auto end = offset + bytes;
++        for (const auto& [physical, entry] : state.regions)
++            if (offset < static_cast<u64>(physical) + entry.reserved &&
++                (bytes ? end > physical : offset >= physical))
++                throw std::out_of_range("Native MEM1 pointer aliases reserved static physical backing");
++        if (region) *region = nullptr;
++        return static_cast<u32>(offset);
++    }
++    if (InBank(address, MEM2Start, MEM2End)) {
++        const auto offset = value - Value(MEM2Start);
++        if (bytes > BankSize(MEM2Start, MEM2End) - offset ||
++            offset > std::numeric_limits<u32>::max() - MEM2_PHYSICAL_BASE)
++            throw std::out_of_range("Native extent crosses SDK MEM2 physical backing");
++        if (region) *region = nullptr;
++        return MEM2_PHYSICAL_BASE + static_cast<u32>(offset);
++    }
++    throw std::out_of_range("Native pointer has no live SDK bank or retained static owner");
++}
++}
++
++void* OSPhysicalToCached(u32 physical) {
++    auto& state = Addresses(); std::lock_guard lock(state.mutex);
++    return ResolvePhysical(state, physical);
++}
++void* OSPhysicalToUncached(u32 physical) { return OSPhysicalToCached(physical); }
++u32 OSCachedToPhysical(void* address) {
++    auto& state = Addresses(); std::lock_guard lock(state.mutex);
++    return ResolvePointer(state, address, 0, FALSE, nullptr);
++}
++u32 OSUncachedToPhysical(void* address) { return OSCachedToPhysical(address); }
++void* OSCachedToUncached(void* address) { return address; }
++void* OSUncachedToCached(void* address) { return address; }
++
++OSNativeStaticMemory OSNativeRegisterStaticMemory(const OSNativeStaticMemoryOwner* owner) {
++    if (!owner || !owner->module_identity || !*owner->module_identity ||
++        !owner->resource_identity || !*owner->resource_identity || !owner->address ||
++        !owner->bytes || !owner->context || !owner->retain || !owner->release ||
++        (owner->writable != FALSE && owner->writable != TRUE))
++        throw std::invalid_argument("Native static memory requires its real owner, identity and extent");
++    if (owner->bytes > std::numeric_limits<uintptr_t>::max() - Value(owner->address))
++        throw std::invalid_argument("Native static memory backing is not bounded");
++    StaticRegion entry;
++    entry.module = owner->module_identity; entry.resource = owner->resource_identity;
++    entry.address = Value(owner->address); entry.bytes = owner->bytes;
++    entry.writable = owner->writable; entry.context = owner->context; entry.release = owner->release;
++    auto& state = Addresses(); std::unique_lock lock(state.mutex); RequireOwner(state);
++    BankSize(MEM1Start, MEM1End);
++    if (OverlapsBank(entry.address, entry.bytes, MEM1Start, MEM1End) ||
++        OverlapsBank(entry.address, entry.bytes, MEM2Start, MEM2End))
++        throw std::invalid_argument("SDK bank spans already have physical ownership");
++    auto existing = state.regions.end();
++    for (auto it = state.regions.begin(); it != state.regions.end(); ++it) {
++        const auto& old = it->second;
++        if (old.module == entry.module && old.resource == entry.resource) {
++            if (old.active || old.bytes != entry.bytes || old.writable != entry.writable)
++                throw std::invalid_argument("Native static identity is active or changed its backing contract");
++            existing = it;
++        }
++        if (old.active && entry.address < old.address + old.bytes && old.address < entry.address + entry.bytes)
++            throw std::invalid_argument("Native static backings overlap");
++    }
++    const bool reuse = existing != state.regions.end();
++    const u64 previous_identity = reuse ? existing->second.identity : 0;
++    const auto bank_start = MEM1Start;
++    u32 physical{}, reserved{};
++    uintptr_t old_high{};
++    if (!reuse) {
++        // The game's allocator snapshots all remaining backing. A late arena-high
++        // bump would overlap that captured storage even if SDK pointers looked valid.
++        if (Value(OSGetArenaLo()) != Value(MEM1Start) + ARENA_START_OFFSET || __OSCurrHeap != -1)
++            throw std::logic_error("Native static reservation must precede original game arena capture");
++        const u64 rounded = (static_cast<u64>(entry.bytes) + 31) & ~u64(31);
++        old_high = Value(OSGetArenaHi());
++        const auto low = Value(OSGetArenaLo());
++        if (rounded > std::numeric_limits<u32>::max() || old_high > Value(MEM1End) || old_high < low || rounded > old_high - low)
++            throw std::bad_alloc();
++        const auto start = (old_high - rounded) & ~uintptr_t(31);
++        if (start < low || start < Value(MEM1Start) || start - Value(MEM1Start) > std::numeric_limits<u32>::max())
++            throw std::bad_alloc();
++        physical = static_cast<u32>(start - Value(MEM1Start)); reserved = static_cast<u32>(old_high - start);
++    } else {
++        physical = existing->first; reserved = existing->second.reserved;
++    }
++    // The callback retains an actual module/resource. Do not hold the address
++    // mutex across loader work; owner-thread contract excludes concurrent mutation.
++    lock.unlock();
++    if (!owner->retain(owner->context)) throw std::runtime_error("Native backing owner could not be retained");
++    lock.lock();
++    try {
++        RequireOwner(state);
++        if (MEM1Start != bank_start) throw std::logic_error("SDK bank owner changed during native retain");
++        if (!reuse &&
++            (Value(OSGetArenaHi()) != old_high || Value(OSGetArenaLo()) != Value(MEM1Start) + ARENA_START_OFFSET || __OSCurrHeap != -1))
++            throw std::logic_error("SDK arena changed while retaining the native static owner");
++        existing = state.regions.find(physical);
++        if (reuse && (existing == state.regions.end() || existing->second.active ||
++            existing->second.identity != previous_identity))
++            throw std::logic_error("Native static reservation changed during owner retain");
++        entry.reserved = reserved; entry.identity = ++state.next_identity; entry.active = true;
++        const auto identity = entry.identity;
++        if (!reuse) {
++            // Allocate all metadata before committing the real SDK reservation.
++            auto [it, inserted] = state.regions.emplace(physical, std::move(entry));
++            if (!inserted) throw std::logic_error("Native physical reservation collision");
++            if (Value(OSAllocFromArenaHi(reserved, 32)) != Value(MEM1Start) + physical) {
++                it->second.active = false;
++                throw std::logic_error("SDK physical reservation differs from its arena allocation");
++            }
++        } else existing->second = std::move(entry);
++        state.owner = std::this_thread::get_id();
++        return {identity, physical, owner->bytes};
++    } catch (...) {
++        lock.unlock(); owner->release(owner->context); throw;
++    }
++}
++void OSNativeReleaseStaticMemory(OSNativeStaticMemory memory) {
++    auto& state = Addresses(); std::unique_lock lock(state.mutex); RequireOwner(state);
++    auto it = state.regions.find(memory.physical_address);
++    if (it == state.regions.end() || !it->second.active || it->second.identity != memory.identity || it->second.bytes != memory.bytes)
++        throw std::invalid_argument("Native static owner handle is stale");
++    auto& entry = it->second;
++    if (entry.pins) throw std::logic_error("Native static backing still has live device owners");
++    auto release = entry.release; auto* context = entry.context;
++    entry.active = false; entry.address = 0; entry.context = nullptr; entry.release = nullptr;
++    lock.unlock(); release(context);
++    // Keep the physical reservation excluded until SDK reset. A reloaded exact
++    // module/resource contract can reuse it; a different identity cannot alias it.
++}
++u64 OSNativePinAddress(const void* address, u32 bytes, BOOL writable, u32* physical) {
++    if (!bytes || !physical || (writable != FALSE && writable != TRUE))
++        throw std::invalid_argument("Native device pin requires a positive extent/direction/output");
++    auto& state = Addresses(); std::lock_guard lock(state.mutex);
++    StaticRegion* region = nullptr;
++    *physical = ResolvePointer(state, address, bytes, writable, &region);
++    if (!region) return 0;
++    ++region->pins; return region->identity;
++}
++void OSNativeUnpinAddress(u64 identity) {
++    if (!identity) throw std::invalid_argument("Native static pin has no identity");
++    auto& state = Addresses(); std::lock_guard lock(state.mutex);
++    for (auto& [physical, entry] : state.regions)
++        if (entry.active && entry.identity == identity && entry.pins) { --entry.pins; return; }
++    throw std::invalid_argument("Native static pin is stale/already released");
++}
++void AuroraResetNativeAddresses() {
++    auto& state = Addresses(); std::lock_guard lock(state.mutex);
++    for (const auto& [physical, entry] : state.regions)
++        if (entry.active || entry.pins) throw std::logic_error("SDK memory reset requires drained native static owners");
++    state.regions.clear(); state.owner = {};
++}
+--- a/lib/dolphin/os/OSMemory.cpp
++++ b/lib/dolphin/os/OSMemory.cpp
+@@ -33,6 +33,7 @@
+ static void* AllocMEM1(u32 size);
+ 
+ void AuroraOSInitMemory() {
++  AuroraResetNativeAddresses();
+   GuardGCMemory();
+ 
+   if (aurora::g_config.mem1Size > 0) {
+@@ -42,7 +43,8 @@
+     OSBaseAddress = reinterpret_cast<uintptr_t>(MEM1Start);
+   }
+   if (aurora::g_config.mem2Size > 0) {
+-    MEM2Start = std::calloc(1, aurora::g_config.mem2Size);
++    MEM2Start = SDL_aligned_alloc(32, aurora::g_config.mem2Size);
++    if (MEM2Start != nullptr) std::memset(MEM2Start, 0, aurora::g_config.mem2Size);
+     if (MEM2Start == nullptr) Log.fatal("Failed to allocate MEM2");
+     MEM2End = static_cast<u8*>(MEM2Start) + aurora::g_config.mem2Size;
+   }
+@@ -53,13 +55,14 @@
+ }
+ 
+ void AuroraOSShutdownMemory() {
++  AuroraResetNativeAddresses();
+ #if _WIN64 && !NDEBUG
+   if (MEM1Reservation != nullptr) VirtualFree(MEM1Reservation, 0, MEM_RELEASE);
+   MEM1Reservation = nullptr;
+ #else
+   SDL_aligned_free(MEM1Start);
+ #endif
+-  std::free(MEM2Start);
++  SDL_aligned_free(MEM2Start);
+   MEM1Start = MEM1End = MEM2Start = MEM2End = nullptr;
+   OSBaseAddress = 0;
+ }
+--- a/lib/dolphin/os/internal.hpp
++++ b/lib/dolphin/os/internal.hpp
+@@ -21,3 +21,5 @@
+ void AuroraFillBootInfo();
+ void AuroraInitClock();
+ void AuroraInitArena();
++
++void AuroraResetNativeAddresses();
+--- /dev/null
++++ b/include/dolphin/os/OSNativeMemory.h
+@@ -0,0 +1,34 @@
++#pragma once
++#include <dolphin/types.h>
++#include <stddef.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++// The owner is a retained native module/resource, not an address token. Its
++// callbacks must retain/release the actual backing and must not throw. Strings
++// are copied. The caller must register before source arena capture, and drain
++// CPU/device accesses before release; this API does not schedule game code.
++typedef struct OSNativeStaticMemoryOwner {
++    const char* module_identity;
++    const char* resource_identity;
++    const void* address;
++    u32 bytes;
++    BOOL writable;
++    void* context;
++    BOOL (*retain)(void* context);
++    void (*release)(void* context);
++} OSNativeStaticMemoryOwner;
++typedef struct OSNativeStaticMemory {
++    u64 identity;
++    u32 physical_address;
++    u32 bytes;
++} OSNativeStaticMemory;
++OSNativeStaticMemory OSNativeRegisterStaticMemory(const OSNativeStaticMemoryOwner* owner);
++void OSNativeReleaseStaticMemory(OSNativeStaticMemory memory);
++// Validate the exact bank/registered extent and retain a static mapping during
++// device ownership. Zero is returned only for real SDK MEM1/MEM2 bank backing.
++u64 OSNativePinAddress(const void* address, u32 bytes, BOOL writable, u32* physical_address);
++void OSNativeUnpinAddress(u64 identity);
++#ifdef __cplusplus
++}
++#endif

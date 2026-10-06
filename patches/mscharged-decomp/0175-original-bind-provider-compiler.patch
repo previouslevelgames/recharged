@@ -1,5 +1,5 @@
 Subject: Build the original placeholder provider with native compilers
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 The Matching original NL/nlBind.cpp owns the actual placeholder0 definition.
 Retain its declaration and initializer. The native compiler does not support

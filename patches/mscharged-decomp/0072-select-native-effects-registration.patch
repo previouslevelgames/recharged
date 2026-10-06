@@ -1,6 +1,6 @@
 Subject: Select original effects template resolution on retained native records
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Share EffectsBundleData's final template-resolution loop with the original
 initializer. Native storage is decoded and retained separately; prohibit the

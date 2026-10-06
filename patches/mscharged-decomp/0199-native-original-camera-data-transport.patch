@@ -1,0 +1,80 @@
+Subject: Transport original camera serialized words and native placement storage
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Keep the original camera loading, owning/borrowed records, copying, list and
+callback algorithms. Before the original direct word reads, ask the native
+platform to convert completed Wii chunk headers and the consumed camera word
+channels in place, retaining the original allocation and surrounding bytes.
+NIS's original borrowed LoadAnimCameraData call uses the same representation.
+
+The three original debug-camera placement requests retain alignment, direction,
+constructor arguments and branch order; native backing uses sizeof(cDebugCamera)
+because its LP64 footprint exceeds the retail 0xA0 physical storage request.
+
+No original initialization, catalog, camera selection or playback is changed.
+Platform byte domains require the reviewed allocation/completion metadata.
+This does not establish original file request, camera runtime or scene startup.
+
+diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+--- a/src/Game/Camera/animcam.cpp
++++ b/src/Game/Camera/animcam.cpp
+@@ -13,6 +13,9 @@
+ #include "NL/platqmath.h"
+ #include "NL/platvmath.h"
+ #include "NL/nlstring_tmpl.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/camera_data_transport.h"
++#endif
+ 
+ static float dofBehindTarget = 2.0f;
+ static float dofReferenceFOV = 45.0f;
+@@ -88,6 +91,9 @@
+ 
+ bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PrepareCameraChunkRange(outerChunk, outerEnd);
++#endif
+     pAnimCameraData->ownsKeyData = ownsKeyData;
+     while (outerChunk < outerEnd)
+     {
+diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
+--- a/src/Game/Camera/CameraMan.cpp
++++ b/src/Game/Camera/CameraMan.cpp
+@@ -149,7 +149,11 @@
+ 
+     if (frontEnd)
+     {
++#ifdef MSCHARGED_NATIVE
++        pBaseCamera = new ((cDebugCamera*)nlMalloc(sizeof(cDebugCamera), 8, false)) cDebugCamera(false);
++#else
+         pBaseCamera = new ((cDebugCamera*)nlMalloc(0xA0, 8, false)) cDebugCamera(false);
++#endif
+     }
+     else
+     {
+@@ -241,7 +245,11 @@
+  */
+ void AsyncStartCameraLoadingForStadiumViewer()
+ {
++#ifdef MSCHARGED_NATIVE
++    cBaseCamera* pBaseCamera = new ((cDebugCamera*)nlMalloc(sizeof(cDebugCamera), 8, false)) cDebugCamera(false);
++#else
+     cBaseCamera* pBaseCamera = new ((cDebugCamera*)nlMalloc(0xA0, 8, false)) cDebugCamera(false);
++#endif
+ 
+     cRumbleFilter* pRumbleFilter = new (8, false) cRumbleFilter();
+     g_pRumbleFilter = pRumbleFilter;
+@@ -454,7 +462,11 @@
+         {
+         case eCameraType_Debug:
+         {
++#ifdef MSCHARGED_NATIVE
++            pBaseCamera = new ((cDebugCamera*)nlMalloc(sizeof(cDebugCamera), 8, false)) cDebugCamera(true);
++#else
+             pBaseCamera = new ((cDebugCamera*)nlMalloc(0xA0, 8, false)) cDebugCamera(true);
++#endif
+             break;
+         }
+         case eCameraType_Replay:

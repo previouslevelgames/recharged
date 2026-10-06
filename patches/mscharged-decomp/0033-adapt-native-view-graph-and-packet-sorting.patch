@@ -1,5 +1,5 @@
 Subject: Adapt original GL views, frame sorters and slot pools for native rendering
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Original native GLView retains immediate sorter allocation, parent/child
 ownership, reset/compact, traversal and packet callbacks. Preview lazy storage,

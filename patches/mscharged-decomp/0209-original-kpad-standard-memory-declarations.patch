@@ -1,0 +1,21 @@
+Subject: [PATCH] supply native standard memory declarations to original KPAD
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Whole Matching KPAD source remains authoritative for filtering, sampling,
+repeat, acceleration and IR decisions. Modern C99 compilers require the actual
+memcpy/memset declarations. Add only the native standard header; console source
+and every original method body remain unchanged. WPAD hardware is supplied below
+this SDK code by a separate bounded native provider.
+
+diff --git a/src/RVL_SDK/kpad/KPAD.c b/src/RVL_SDK/kpad/KPAD.c
+--- a/src/RVL_SDK/kpad/KPAD.c
++++ b/src/RVL_SDK/kpad/KPAD.c
+@@ -1,3 +1,7 @@
+ #include <revolution/kpad.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include <string.h>
++#endif
+ 
+ double sqrt(double x);

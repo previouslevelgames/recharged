@@ -1,5 +1,5 @@
 Subject: Preserve original localization with native Wii32 and UTF16 storage
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Keep original Load language/filename/allocator requests, callback validation,
 lookup/fallback and backing lifetime. Use fixed Wii20/8-byte scalar geometry

@@ -1,5 +1,5 @@
 Subject: Compile original NL bundle flow with native Wii words and callback ownership
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Preserve original bundle selection, search order, seeks, read counts and callback
 sequence. Adapt exact Wii16-byte header/12-byte entries at the data boundary,

@@ -1,4 +1,5 @@
 include(cmake/NativeRuntime.cmake)
+include(cmake/OriginalByteDomains.cmake)
 include(cmake/Events.cmake)
 include(cmake/GameConfig.cmake)
 include(cmake/Tweaks.cmake)

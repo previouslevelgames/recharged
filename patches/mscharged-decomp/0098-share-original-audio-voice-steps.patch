@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original audio source state and lifetime steps
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Share original resident source prepare/play/update/stop/public-state transitions
 and backend initialize/publish/remove/destroy ordering through typed adapters.

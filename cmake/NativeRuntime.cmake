@@ -2,6 +2,11 @@
 # Keep their extracted entry and setup/check helpers out of the core library.
 include_guard(GLOBAL)
 include(cmake/NativeAI.cmake)
+include(cmake/NativeSTM.cmake)
+include(cmake/NativeDSPMailbox.cmake)
+include(cmake/NativeDSPMemory.cmake)
+include(cmake/NativeDSPBacking.cmake)
+include(cmake/NativeDSPInstructions.cmake)
 include(cmake/OriginalAX.cmake)
 include(cmake/OriginalAXWords.cmake)
 include(cmake/OriginalCore.cmake)

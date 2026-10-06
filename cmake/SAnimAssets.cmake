@@ -5,6 +5,7 @@ target_compile_features(charged_sanim_reader PUBLIC cxx_std_20)
 add_library(charged_sanim_assets STATIC
     "${MSCHARGED_PREPARED}/src/Game/SAnim.cpp" src/runtime/sanim_assets.cpp)
 add_dependencies(charged_sanim_assets verify_prepared)
+target_compile_definitions(charged_sanim_assets PRIVATE MSCHARGED_DIAGNOSTIC_SKELETON=1)
 target_link_libraries(charged_sanim_assets PUBLIC charged_sanim_reader charged_sanim_decode charged_graphics_memory)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_sanim_assets PRIVATE -ffp-contract=off)

@@ -1,0 +1,72 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Provide original Wii SDK progressive and EURGB60 modes
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent host graphics SDK compatibility.
+
+Restore absent mode data from Charged GXFrameBuf.c at bab83befb5d6a2fdff0b30d2ec4b59f7251a108d.
+The game retains its original mode selection and overscan requests. Correct the
+existing host MPAL mode identifier to the actual MPAL value8. No mode aliases.
+
+--- a/include/dolphin/gx/GXStruct.h
++++ b/include/dolphin/gx/GXStruct.h
+@@ -29,6 +29,7 @@
+   VI_TVMODE_PAL_DS = VI_TVMODE(VI_PAL, VI_NON_INTERLACE),
+   VI_TVMODE_EURGB60_INT = VI_TVMODE(VI_EURGB60, VI_INTERLACE),
+   VI_TVMODE_EURGB60_DS = VI_TVMODE(VI_EURGB60, VI_NON_INTERLACE),
++  VI_TVMODE_EURGB60_PROG = VI_TVMODE(VI_EURGB60, VI_PROGRESSIVE),
+   VI_TVMODE_MPAL_INT = VI_TVMODE(VI_MPAL, VI_INTERLACE),
+   VI_TVMODE_MPAL_DS = VI_TVMODE(VI_MPAL, VI_NON_INTERLACE),
+   VI_TVMODE_DEBUG_INT = VI_TVMODE(VI_DEBUG, VI_INTERLACE),
+--- a/include/dolphin/gx/GXFrameBuffer.h
++++ b/include/dolphin/gx/GXFrameBuffer.h
+@@ -18,7 +18,11 @@
+ extern GXRenderModeObj GXNtsc480Int;
+ extern GXRenderModeObj GXNtsc480IntAa;
+ extern GXRenderModeObj GXNtsc480Prog;
++extern GXRenderModeObj GXNtsc480ProgSoft;
+ extern GXRenderModeObj GXNtsc480ProgAa;
++extern GXRenderModeObj GXEurgb60Hz480IntDf;
++extern GXRenderModeObj GXEurgb60Hz480Prog;
++extern GXRenderModeObj GXEurgb60Hz480ProgSoft;
+ extern GXRenderModeObj GXMpal240Ds;
+ extern GXRenderModeObj GXMpal240DsAa;
+ extern GXRenderModeObj GXMpal240Int;
+--- a/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -114,7 +114,7 @@
+     {8, 8, 10, 12, 10, 8, 8},
+ };
+ GXRenderModeObj GXMpal480IntDf = {
+-    VI_TVMODE_PAL_INT,
++    VI_TVMODE_MPAL_INT,
+     640,
+     480,
+     480,
+@@ -127,6 +127,27 @@
+     0,
+     {6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6},
+     {8, 8, 10, 12, 10, 8, 8},
++};
++
++// Wii SDK mode tables required by Charged (pinned GXFrameBuf.c).
++GXRenderModeObj GXNtsc480Prog = {
++    VI_TVMODE_NTSC_PROG, 640, 480, 480, 40, 0, 640, 480, VI_XFBMODE_SF, 0, 0, { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }, { 0, 0, 21, 22, 21, 0, 0 }
++};
++
++GXRenderModeObj GXNtsc480ProgSoft = {
++    VI_TVMODE_NTSC_PROG, 640, 480, 480, 40, 0, 640, 480, VI_XFBMODE_SF, 0, 0, { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }, { 8, 8, 10, 12, 10, 8, 8 }
++};
++
++GXRenderModeObj GXEurgb60Hz480IntDf = {
++    VI_TVMODE_EURGB60_INT, 640, 480, 480, 40, 0, 640, 480, VI_XFBMODE_DF, 0, 0, { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }, { 8, 8, 10, 12, 10, 8, 8 }
++};
++
++GXRenderModeObj GXEurgb60Hz480Prog = {
++    VI_TVMODE_EURGB60_PROG, 640, 480, 480, 40, 0, 640, 480, VI_XFBMODE_SF, 0, 0, { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }, { 0, 0, 21, 22, 21, 0, 0 }
++};
++
++GXRenderModeObj GXEurgb60Hz480ProgSoft = {
++    VI_TVMODE_EURGB60_PROG, 640, 480, 480, 40, 0, 640, 480, VI_XFBMODE_SF, 0, 0, { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }, { 8, 8, 10, 12, 10, 8, 8 }
+ };
+ 
+ void GXAdjustForOverscan(GXRenderModeObj* rmin, GXRenderModeObj* rmout, u16 hor, u16 ver) {

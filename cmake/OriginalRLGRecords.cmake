@@ -51,3 +51,16 @@ if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8
     set_tests_properties(original_rlg_records PROPERTIES TIMEOUT 30
         PASS_REGULAR_EXPRESSION "original RLG record transport checks=")
 endif()
+
+
+# Native cache declarations share the actual SDK C ABI. This object is only a
+# compiler inventory; it supplies no cache/GX implementation or runtime gate.
+add_library(charged_original_cache_abi OBJECT EXCLUDE_FROM_ALL
+    tests/original_cache_abi.cpp)
+add_dependencies(charged_original_cache_abi verify_prepared)
+target_compile_features(charged_original_cache_abi PRIVATE cxx_std_17)
+target_include_directories(charged_original_cache_abi PRIVATE
+    "${MSCHARGED_PREPARED}/libs/RVL_SDK/include" "${MSCHARGED_AURORA_PREPARED}/include")
+target_compile_definitions(charged_original_cache_abi PRIVATE
+    MSCHARGED_NATIVE=1 TARGET_PC=1)
+add_dependencies(charged_rlg_loader_scan charged_original_cache_abi)

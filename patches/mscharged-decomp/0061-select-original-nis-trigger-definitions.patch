@@ -1,6 +1,6 @@
 Subject: Select original NIS trigger-definition services for native collection
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Extract the original NisPlayer interpreter service bodies, replacing console
 stack/string reads with checked typed arguments and AddTrigger publication with

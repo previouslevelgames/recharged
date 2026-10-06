@@ -1,5 +1,5 @@
 Subject: Preserve original typed function-pool categories with native slot storage
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 The original four typed FunctorImpl hooks retain their reviewed Wii capture
 field footprint for allocation, Clone and virtual deletion. Native physical

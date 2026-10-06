@@ -1,6 +1,6 @@
 Subject: Adapt original event ownership, delivery and registry lifetime
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Keep original event hashing, AVL registration, listener ordering and callback
 transfer. Native owners retain full addresses; flags/counts use explicit masks
@@ -345,9 +345,9 @@ index bc6fba4..908eef0 100644
 +#endif
      }
  
-     virtual void Disconnect(void* owner);
 -    virtual void Add(const Callback& callback, unsigned int value, int flags);
 +    virtual void Add(const Callback& callback, EventOwnerHandle value, int flags);
+     virtual void Disconnect(void* owner);
  
      void Deliver(typename UnidentifiedEventCallback<T>::Parameter data)
      {

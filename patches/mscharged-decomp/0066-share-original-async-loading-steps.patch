@@ -1,6 +1,6 @@
 Subject: Share original async loading sequence, stage readiness and persistent pool inputs
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Keep the original sequence switch and readiness/yield equations shared with a
 bounded native boot owner. Select source-defined pool requirements and original

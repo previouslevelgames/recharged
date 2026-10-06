@@ -1,0 +1,215 @@
+Subject: [PATCH] restore original input initialization and canonical IRQ declarations
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Keep original pad constructors, declarations, manager initialization and action
+table outside explicit diagnostics. Restore the original cPlatPad declaration.
+Native SDK interrupt/context declarations come from the canonical host header; Wii
+source numeric IDs and console declarations remain. Whole original input units
+compile; real controller/KPAD/backend and complete game startup remain pending.
+
+diff --git a/include/Game/PadActionMap.inc b/include/Game/PadActionMap.inc
+--- a/include/Game/PadActionMap.inc
++++ b/include/Game/PadActionMap.inc
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_GAME_MODULE)
++#error Extracted action table belongs only to retained input diagnostics
++#endif
+ int g_pPadRemapArray[51] = {
+     0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
+ };
+diff --git a/include/NL/platpad.h b/include/NL/platpad.h
+--- a/include/NL/platpad.h
++++ b/include/NL/platpad.h
+@@ -1,5 +1,9 @@
+ #ifndef NL_PLATPAD_H
+ #define NL_PLATPAD_H
++
++#if defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_INPUT)
++#error Diagnostic input owners must not enter the original game module
++#endif
+ 
+ #include "NL/nlMath.h"
+ #include "NL/nlArrayAllocator.h"
+@@ -19,7 +23,7 @@
+ public:
+     PadBackend(int padIndex)
+         : m_padIndex(padIndex)
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_INPUT
+         , m_polarAnalogLeft()
+         , m_polarAnalogRight()
+ #endif
+@@ -28,7 +32,7 @@
+     }
+ 
+     virtual ~PadBackend() { }
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_INPUT
+     virtual bool IsConnected() = 0;
+     virtual bool IsPressed(int button, bool remap) = 0;
+     virtual float GetPressure(int button, bool remap) = 0;
+@@ -90,7 +94,7 @@
+ extern nlArrayAllocator<cPlatPad> gPlatPadAllocator;
+ extern int gPlatPadClassID;
+ 
+-#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_INPUT
+ class cPlatPad : public PadBackend
+ {
+ public:
+@@ -133,6 +137,6 @@
+         gPlatPadAllocator.DeleteEntry(static_cast<cPlatPad*>(ptr));
+     }
+ }; // size 0x1C
+-#endif // !MSCHARGED_NATIVE
++#endif // !MSCHARGED_DIAGNOSTIC_INPUT
+ 
+ #endif // NL_PLATPAD_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSContext.h b/libs/RVL_SDK/include/revolution/os/OSContext.h
+--- a/libs/RVL_SDK/include/revolution/os/OSContext.h
++++ b/libs/RVL_SDK/include/revolution/os/OSContext.h
+@@ -1,6 +1,18 @@
+ #ifndef REVOLUTION_OS_CONTEXT_H
+ #define REVOLUTION_OS_CONTEXT_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSContext.h>
++#define OS_CONTEXT_STATE_FP_SAVED OS_CONTEXT_STATE_FPSAVED
++#ifdef __cplusplus
++extern "C" {
++#endif
++void OSSwitchFiberEx(u32 r3, u32 r4, u32 r5, u32 r6, void* function, void* stack);
++void __OSContextInit(void);
++#ifdef __cplusplus
++}
++#endif
++#else
+ #include <revolution/types.h>
+ 
+ #ifdef __cplusplus
+@@ -44,4 +56,6 @@
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif  // REVOLUTION_OS_CONTEXT_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
+--- a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
++++ b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
+@@ -1,6 +1,60 @@
+ #ifndef REVOLUTION_OS_INTERRUPT_H
+ #define REVOLUTION_OS_INTERRUPT_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSInterrupt.h>
++
++// Wii source names retain their numeric IDs; the host SDK owns the callable ABI.
++typedef enum OSInterruptType {
++    OS_INTR_MEM_0,
++    OS_INTR_MEM_1,
++    OS_INTR_MEM_2,
++    OS_INTR_MEM_3,
++    OS_INTR_MEM_ADDRESS,
++    OS_INTR_DSP_AI,
++    OS_INTR_DSP_ARAM,
++    OS_INTR_DSP_DSP,
++    OS_INTR_AI_AI,
++    OS_INTR_EXI_0_EXI,
++    OS_INTR_EXI_0_TC,
++    OS_INTR_EXI_0_EXT,
++    OS_INTR_EXI_1_EXI,
++    OS_INTR_EXI_1_TC,
++    OS_INTR_EXI_1_EXT,
++    OS_INTR_EXI_2_EXI,
++    OS_INTR_EXI_2_TC,
++    OS_INTR_PI_CP,
++    OS_INTR_PI_PE_TOKEN,
++    OS_INTR_PI_PE_FINISH,
++    OS_INTR_PI_SI,
++    OS_INTR_PI_DI,
++    OS_INTR_PI_RSW,
++    OS_INTR_PI_ERROR,
++    OS_INTR_PI_VI,
++    OS_INTR_PI_DEBUG,
++    OS_INTR_PI_HSP,
++    OS_INTR_PI_ACR,
++    OS_INTR_28,
++    OS_INTR_29,
++    OS_INTR_30,
++    OS_INTR_31,
++    OS_INTR_MAX
++} OSInterruptType;
++
++typedef __OSInterruptHandler OSInterruptHandler;
++#define OS_INTR_MASK(interrupt) OS_INTERRUPTMASK(interrupt)
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++void __OSInterruptInit(void);
++void __OSDispatchInterrupt(u8 interrupt, OSContext* context);
++void __RAS_OSDisableInterrupts_begin(void);
++void __RAS_OSDisableInterrupts_end(void);
++#ifdef __cplusplus
++}
++#endif
++#else
+ #include <revolution/types.h>
+ 
+ typedef struct OSContext OSContext;
+@@ -75,4 +129,6 @@
+ }
+ #endif
+ 
++#endif
++
+ #endif  // REVOLUTION_OS_INTERRUPT_H
+diff --git a/src/Game/PadActions.cpp b/src/Game/PadActions.cpp
+--- a/src/Game/PadActions.cpp
++++ b/src/Game/PadActions.cpp
+@@ -18,9 +18,9 @@
+ 
+ bool g_bEnableGamecubePadMonkey;
+ 
+-#ifndef MSCHARGED_NATIVE
+-#include "Game/PadActionMap.inc"
+-#endif
++int g_pPadRemapArray[51] = {
++    0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
++};
+ 
+ static int sWiiRemoteButtonRemap[51] = {
+     0x00000000, 0x00000000, 0x00000100, 0x00000200, 0x00000010, 0x00000000, 0x00000000, 0x00000800, 0x00001000, 0x00000200, 0x00000100, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000800, 0x00000400, 0x00000200, 0x00000100, 0x00000010, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000800, 0x00000800, 0x00000400, 0x00000000, 0x00000800, 0x00000400, 0x00000010, 0x00000100, 0x00000100, 0x00000100, 0x00000400, 0x00000200, 0x00002000, 0x00004000, 0x00000200, 0x00000100, 0x00004000, 0x00002000, 0x00002000, 0x00004000, 0x00008000, 0x00000200, 0x00000010, 0x00001000, 0x00000010
+diff --git a/src/NL/plat/PadBackend.cpp b/src/NL/plat/PadBackend.cpp
+--- a/src/NL/plat/PadBackend.cpp
++++ b/src/NL/plat/PadBackend.cpp
+@@ -1,5 +1,5 @@
+ #include "NL/platpad.h"
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_INPUT
+ #include <stdexcept>
+ #endif
+ 
+@@ -111,7 +111,7 @@
+ 
+ int GetPadButtonMask(int buttonIndex)
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_INPUT
+     if (buttonIndex < 0 || buttonIndex > 31) throw std::out_of_range("Pad button index");
+     return (int)(1u << buttonIndex);
+ #else
+diff --git a/src/NL/plat/globalpad.cpp b/src/NL/plat/globalpad.cpp
+--- a/src/NL/plat/globalpad.cpp
++++ b/src/NL/plat/globalpad.cpp
+@@ -7,7 +7,7 @@
+ {
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_INPUT
+ void PadManager::Initialize(int padCount, int padSetCount)
+ {
+     mPadCount = padCount;

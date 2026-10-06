@@ -1,0 +1,152 @@
+# Native allocation-owned Wii byte domains and original NL completion.
+# Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+# Permanent host serialized/ownership ABI adaptation.
+
+--- a/include/NL/nlChunk.h
++++ b/include/NL/nlChunk.h
+@@ -4,6 +4,9 @@
+ #include "NL/nlMath.h"
+ #include "types.h"
+ #include <stdint.h>
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ class nlChunk
+ {
+@@ -74,32 +77,52 @@
+ 
+ inline unsigned int nlChunk::GetChunkAlignment()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    unsigned int alignmentBits = mscharged::platform::ReadGameChunkWord(this, 0) & 0x0F000000;
++#else
+     unsigned int alignmentBits = m_ID & 0x0F000000;
++#endif
+     return alignmentBits != 0 ? 1u << (alignmentBits >> 24) : 0;
+ }
+ 
+ inline bool nlChunk::IsAlignedChunk()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    unsigned int alignmentBits = mscharged::platform::ReadGameChunkWord(this, 0);
++#else
+     unsigned int alignmentBits = m_ID;
++#endif
+     alignmentBits &= 0x0F000000;
+     return alignmentBits != 0;
+ }
+ 
+ inline unsigned int nlChunk::GetSize()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    return mscharged::platform::ReadGameChunkWord(this, 1);
++#else
+     return m_Size;
++#endif
+ }
+ 
+ inline unsigned long nlChunk::GetDataSize()
+ {
+     unsigned long size = (u8*)GetAlignedData() - (u8*)GetUnalignedData();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    size = mscharged::platform::ReadGameChunkWord(this, 1) - size;
++#else
+     size = m_Size - size;
++#endif
+     return size;
+ }
+ 
+ inline unsigned long nlChunk::GetID()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    return mscharged::platform::ReadGameChunkWord(this, 0) & 0x80FFFFFF;
++#else
+     return m_ID & 0x80FFFFFF;
++#endif
+ }
+ 
+ #endif // NL_CHUNK_H
+--- a/src/NL/nlFileGC.cpp
++++ b/src/NL/nlFileGC.cpp
+@@ -15,6 +15,8 @@
+ #include <initializer_list>
+ #include <limits>
+ #include <stdexcept>
++#include <utility>
++#include "platform/game_allocation_ownership.h"
+ #endif
+ 
+ static s32 FileCommandStatus(const DVDFileInfo& info)
+@@ -125,6 +127,9 @@
+     /* 0x54 */ void* mTailBuffer;
+     /* 0x58 */ ReadAsyncCallback m_pFunc;
+     /* 0x5C */ nlFileAsyncParam m_uParam;
++#ifdef MSCHARGED_NATIVE
++    mscharged::platform::GameByteWriteReservation mNativeByteWrite;
++#endif
+ };
+ 
+ class AsyncManager
+@@ -186,6 +191,7 @@
+ 
+ void AsyncManager::ReleaseNative(AsyncEntry* entry)
+ {
++    entry->mNativeByteWrite.Reset();
+     entry->m_pFile = 0;
+     nlDLRingAddEnd(&m_freeEntryList, entry);
+ }
+@@ -201,6 +207,9 @@
+     // can release it. The head and tail are one logical request.
+     DVDClose(&entry->mFileInfo);
+     if (tail) DVDClose(&tail->mFileInfo);
++    // Real workers are joined before retiring a pending byte write. Reentrant
++    // cancellation callbacks can then reuse the actual destination safely.
++    entry->mNativeByteWrite.Reset();
+     auto* file = entry->m_pFile;
+     const unsigned int size = entry->m_uSize + (tail ? tail->m_uSize : 0);
+     --file->PendingAsync;
+@@ -510,6 +519,21 @@
+         }
+         else if (entry->Phase == READ_TAIL_ONLY)
+             memcpy(entry->m_pBuffer, entry->mTailBuffer, entry->m_uSize);
++        try
++        {
++            if (entry->mNativeByteWrite.Tracked())
++            {
++                entry->mNativeByteWrite.Complete(mscharged::platform::GameByteDomain::WiiSerialized);
++                entry->mNativeByteWrite.Reset();
++            }
++        }
++        catch (...)
++        {
++            auto* failedFile = entry->m_pFile;
++            CancelNative(entry, 0);
++            nlAbortEntireFileLoad(failedFile);
++            throw;
++        }
+         --entry->m_pFile->PendingAsync;
+         nlDLRingRemove(&m_activeEntryList, entry);
+         auto* previous = mCurrent;
+@@ -699,6 +723,13 @@
+     position = ((DolphinFile*)file)->m_Position;
+     AsyncEntry* firstEntry = 0;
+ #ifdef MSCHARGED_NATIVE
++    // Preserve original padded callback counts and cursor advance. Domain
++    // publication records the true caller-requested logical bytes separately.
++    mscharged::platform::GameByteWriteReservation nativeWrite;
++    mscharged::platform::GameAllocationSpan nativeSpan;
++    const unsigned long physicalBytes = bufferSize > size ? AlignUp32(size) : size;
++    if (mscharged::platform::FindGameAllocationSpan(buffer, physicalBytes, nativeSpan))
++        nativeWrite = mscharged::platform::GameByteWriteReservation(buffer, size, physicalBytes);
+     try
+     {
+ #endif
+@@ -718,6 +749,7 @@
+ #ifdef MSCHARGED_NATIVE
+     }
+     catch (...) { if (firstEntry) s_pAsyncManager->CancelNative(firstEntry, 0); throw; }
++    firstEntry->mNativeByteWrite = std::move(nativeWrite);
+ #endif
+     ((DolphinFile*)file)->m_Position += size;
+     return firstEntry;

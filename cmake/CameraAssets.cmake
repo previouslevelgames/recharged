@@ -6,6 +6,8 @@ add_library(charged_camera_assets STATIC
     "${MSCHARGED_PREPARED}/src/Game/Camera/CameraData.cpp"
     src/runtime/camera_assets.cpp)
 add_dependencies(charged_camera_assets verify_prepared)
+# The retained CameraData/catalog extraction is not the original game loader.
+target_compile_definitions(charged_camera_assets PUBLIC MSCHARGED_DIAGNOSTIC_CAMERAS=1)
 target_link_libraries(charged_camera_assets PUBLIC charged_camera_reader charged_graphics_memory)
 if(BUILD_TESTING)
     add_executable(camera_assets_tests tests/camera_assets.cpp)

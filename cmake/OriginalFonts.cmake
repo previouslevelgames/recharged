@@ -164,3 +164,4 @@ if(BUILD_TESTING AND TARGET aurora::gx
 endif()
 
 include(cmake/OriginalStringPrefix.cmake)
+include(cmake/OriginalTempStrings.cmake)

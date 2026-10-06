@@ -22,6 +22,7 @@ add_library(charged_original_game_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/NL/nlPrint.cpp"
     "${MSCHARGED_PREPARED}/src/NL/nlInit.cpp"
     "${MSCHARGED_PREPARED}/src/Game/main.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Game.cpp"
     "${MSCHARGED_PREPARED}/src/NL/nlAVLTree.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Task/DispatchEventsTask.cpp"
     src/platform/game_allocation_ownership.cpp
@@ -61,3 +62,26 @@ add_custom_target(charged_original_module_scan
     DEPENDS charged_original_game_module_sources
     COMMENT "Compile original module entry/core; full link, lifetime and startup pending"
     VERBATIM)
+
+include(cmake/OriginalCameras.cmake)
+include(cmake/OriginalConfig.cmake)
+
+include(cmake/OriginalCredits.cmake)
+
+include(cmake/OriginalInput.cmake)
+
+include(cmake/OriginalFiles.cmake)
+
+include(cmake/OriginalFontResources.cmake)
+
+include(cmake/OriginalSkeleton.cmake)
+
+include(cmake/OriginalStaticTasks.cmake)
+
+include(cmake/OriginalEmissionModule.cmake)
+
+include(cmake/OriginalImpostorModule.cmake)
+
+include(cmake/OriginalFrontendModule.cmake)
+
+include(cmake/OriginalPlatformGraphics.cmake)

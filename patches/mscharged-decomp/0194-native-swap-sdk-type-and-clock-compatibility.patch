@@ -1,0 +1,49 @@
+From: mscharged native port
+Subject: [PATCH] Reuse native SDK colour/compare types and forward the hardware clock
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+The canonical native GX header already supplies the original four-byte colour
+and compare value. Keep the console declarations, and use those SDK identities
+on native builds. Read the actual Wii-configured native bus clock beneath the
+original swap timing arithmetic rather than dereferencing a console address.
+No source function body, callback selection, frame counter or swap decision
+changes. Native runtime swap/screenshot/VI/GX execution remains unqualified.
+
+--- a/src/NL/glx/glxSwap.cpp
++++ b/src/NL/glx/glxSwap.cpp
+@@ -47,6 +47,7 @@
+     int fclose(FILE* file);
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ struct GXColor
+ {
+     u8 r;
+@@ -54,6 +55,7 @@
+     u8 b;
+     u8 a;
+ };
++#endif
+ 
+ extern "C" void GXSetCopyClear(GXColor clear_clr, u32 clear_z);
+ 
+@@ -61,11 +63,18 @@
+ // the nlConfig translation unit and called from here as well.
+ void* ConfigParserAllocate(unsigned long size, unsigned int alignment, bool fromEnd);
+ 
++#ifndef MSCHARGED_NATIVE
+ enum
+ {
+     GX_LEQUAL = 3
+ };
+-
++#endif
++
++#ifdef MSCHARGED_NATIVE
++extern "C" u32 ChargedGetBusClock();
++#define OS_BUS_CLOCK                 ChargedGetBusClock()
++#else
+ #define OS_BUS_CLOCK                 (*(u32*)0x800000F8)
++#endif
+ #define OS_TIMER_CLOCK               (OS_BUS_CLOCK / 4)
+ #define OSTicksToMicroseconds(ticks) (((ticks) * 8) / (OS_TIMER_CLOCK / 125000))

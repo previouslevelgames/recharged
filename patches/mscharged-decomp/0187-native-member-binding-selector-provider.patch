@@ -1,0 +1,28 @@
+Subject: Provide the original empty member-binding selector for native debug emission
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+The upstream BindMember primary template passes its declared empty const
+BindMemberNoArg selector by reference, which MWCC's inlining removes. Native
+O0 and no-inline builds retain a real data relocation. Define that actual
+upstream type/symbol exactly once in original nlBind.cpp for native builds.
+Do not change Function/BindMember primary templates or their .inl split,
+callable selection, argument references, stored capture types, callback
+algorithms or logical/physical pool storage. The tag is never a capture field.
+Console preprocessing remains unchanged. This is a permanent compiler/link
+compatibility provider, not a game behavior workaround or runtime readiness.
+
+diff --git a/src/NL/nlBind.cpp b/src/NL/nlBind.cpp
+--- a/src/NL/nlBind.cpp
++++ b/src/NL/nlBind.cpp
+@@ -1,4 +1,11 @@
+ #include "NL/nlBind.h"
++#ifdef MSCHARGED_NATIVE
++#include "NL/nlBindMember.h"
++
++// MWCC removes the unused selector reference while inlining. Native Debug
++// and no-inline builds retain it; supply its actual declared empty type once.
++const BindMemberNoArg bindMemberNoArg = {};
++#endif
+ 
+ #ifndef MSCHARGED_NATIVE
+ __declspec(section ".sdata2")

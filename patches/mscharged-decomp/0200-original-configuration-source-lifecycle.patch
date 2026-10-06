@@ -1,0 +1,376 @@
+Subject: Restore original configuration startup and parser behavior
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Keep the matched original Config constructor, global lifetime, load callbacks,
+parser, hash probes and string-capacity behavior outside explicit diagnostics.
+Native array elements preserve the original sixteen-byte MWCC array prefix:
+GCC/Clang placement arrays with this trivial destructor supply no cookie.
+This is compiler/storage adaptation; original source requests remain intact.
+Invalid floating-to-integer input and complete file/main/CRT lifetime are not
+qualified by this source correction.
+
+diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
+--- a/include/NL/nlConfig.h
++++ b/include/NL/nlConfig.h
+@@ -7,7 +7,15 @@
+ #include "NL/nlLexicalCast.h"
+ #include "types.h"
+ 
++#if defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_CONFIG)
++#error Original game modules must not consume diagnostic configuration behavior
++#endif
+ #ifdef MSCHARGED_NATIVE
++#include <cstdlib>
++#include <cstring>
++#endif
++
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ #include <cstdlib>
+ #include <cstring>
+ #include <cmath>
+@@ -17,7 +25,7 @@
+         throw std::out_of_range("Configuration integer conversion is outside the Wii range");
+     return static_cast<int>(value);
+ }
+-#else
++#elif !defined(MSCHARGED_NATIVE)
+ extern "C" double atof(const char* string);
+ extern "C" int strcmp(const char* first, const char* second);
+ #endif
+@@ -33,7 +41,7 @@
+ template <>
+ struct LexicalCastImpl<int, const char*>
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     static int Do(const char* s) { return NativeConfigInteger(atof(s)); }
+ #else
+     static int Do(const char* s) { return (int)atof(s); }
+@@ -91,7 +99,7 @@
+     return t;
+ }
+ 
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ template <>
+ inline int LexicalCastImpl<int, float>::Do(float value) { return NativeConfigInteger(value); }
+ #endif
+@@ -105,7 +113,7 @@
+ template <>
+ inline const char* LexicalCastImpl<const char*, int>::Do(int)
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     throw std::invalid_argument("Numeric configuration value requested as a string");
+ #else
+     nlBreak();
+@@ -116,7 +124,7 @@
+ template <>
+ inline const char* LexicalCastImpl<const char*, float>::Do(float)
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     throw std::invalid_argument("Numeric configuration value requested as a string");
+ #else
+     nlBreak();
+@@ -174,7 +182,7 @@
+ 
+     Config(AllocateWhere where, unsigned int stringCapacity, unsigned int slotCount);
+     ~Config();
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     Config(const Config&) = delete;
+     Config& operator=(const Config&) = delete;
+     // Original tag/section parser; failed parsing leaves mLoaded false.
+diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
+--- a/src/NL/nlConfig.cpp
++++ b/src/NL/nlConfig.cpp
+@@ -1,5 +1,5 @@
+ #include "NL/nlConfig.h"
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ #include "runtime/game_config.h"
+ #include <cmath>
+ #include <limits>
+@@ -95,12 +95,12 @@
+     }
+     table = config->mTvpHash;
+     index = hash % config->mTvpCapacity;
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     unsigned int probes = 0;
+ #endif
+     while (true)
+     {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+         if (probes++ == config->mTvpCapacity)
+             throw std::length_error("Configuration hash table is full");
+ #endif
+@@ -154,12 +154,12 @@
+     }
+     table = config->mTvpHash;
+     index = hash % config->mTvpCapacity;
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     unsigned int probes = 0;
+ #endif
+     while (true)
+     {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+         if (probes++ == config->mTvpCapacity)
+             throw std::length_error("Configuration hash table is full");
+ #endif
+@@ -194,7 +194,7 @@
+     return pair;
+ }
+ 
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ Config::Config(AllocateWhere where, unsigned int stringCapacity, unsigned int slotCount)
+     : mTvpHash(nullptr), mStringMemory(nullptr), mStringEnd(nullptr),
+       mStringCapacity(stringCapacity), mTvpCapacity(slotCount), mLoaded(false)
+@@ -220,14 +220,28 @@
+ 
+     if (where == ALLOCATE_LOW)
+     {
++#ifdef MSCHARGED_NATIVE
++        // MWCC placement arrays put the original sixteen-byte prefix before elements.
++        // GCC/Clang placement arrays provide no prefix for this trivial destructor.
++        mTvpHash = new ((char*)nlMalloc(sizeof(TagValuePair) * mTvpCapacity + 0x10, 8, false) + 0x10)
++            TagValuePair[mTvpCapacity];
++#else
+         mTvpHash = new (nlMalloc(sizeof(TagValuePair) * mTvpCapacity + 0x10, 8, false))
+             TagValuePair[mTvpCapacity];
++#endif
+         mStringMemory = (char*)nlMalloc(stringCapacity, 8, false);
+     }
+     else
+     {
++#ifdef MSCHARGED_NATIVE
++        // MWCC placement arrays put the original sixteen-byte prefix before elements.
++        // GCC/Clang placement arrays provide no prefix for this trivial destructor.
++        mTvpHash = new ((char*)nlMalloc(sizeof(TagValuePair) * mTvpCapacity + 0x10, 8, true) + 0x10)
++            TagValuePair[mTvpCapacity];
++#else
+         mTvpHash = new (nlMalloc(sizeof(TagValuePair) * mTvpCapacity + 0x10, 8, true))
+             TagValuePair[mTvpCapacity];
++#endif
+         mStringMemory = (char*)nlMalloc(stringCapacity, 8, true);
+     }
+ 
+@@ -236,7 +250,7 @@
+ }
+ #endif
+ 
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ Config::~Config()
+ {
+     mscharged::CancelConfigLoad(*this);
+@@ -256,7 +270,7 @@
+ 
+ Config& Config::Global()
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     return mscharged::GlobalGameConfig();
+ #else
+     static Config global(ALLOCATE_LOW, 0x2800, 0x400);
+@@ -264,7 +278,7 @@
+ #endif
+ }
+ 
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ void Config::LoadFromFile(const char* filename)
+ {
+     mscharged::LoadGameConfig(*this, filename);
+@@ -297,7 +311,7 @@
+ 
+ static void ConfigLoadComplete(void* buffer, unsigned long size, void* userData);
+ 
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ void Config::LoadFromFileAsync(const char* filename, const Function<Config*>& callback)
+ {
+     mscharged::LoadGameConfigAsync(*this, filename, callback);
+@@ -311,7 +325,7 @@
+ }
+ #endif
+ 
+-#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_CONFIG
+ static void ConfigLoadComplete(void* buffer, unsigned long size, void* userData)
+ {
+     Config* config = ((ConfigLoadCallback*)userData)->config;
+@@ -380,12 +394,12 @@
+     TagValuePair* pair;
+     const char* storedTag;
+     unsigned int index = Hash(tag) % mTvpCapacity;
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     unsigned int probes = 0;
+ #endif
+     while (true)
+     {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+         if (probes++ == mTvpCapacity)
+             throw std::length_error("Configuration hash table is full");
+ #endif
+@@ -402,7 +416,7 @@
+ 
+ char* Config::CopyString(const char* string, bool makeUpperCase)
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     if (!string) throw std::invalid_argument("Null configuration string");
+     const auto length = strlen(string);
+     if (length >= static_cast<size_t>(mStringCapacity - (mStringEnd - mStringMemory)))
+@@ -411,7 +425,7 @@
+     char* result = mStringEnd;
+     while (*string != 0)
+     {
+-#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_CONFIG
+         if (mStringEnd + nlStrLen<char>(string) - mStringMemory >= mStringCapacity - 1)
+         {
+             return result;
+@@ -440,7 +454,7 @@
+ void Config::Set(const char* tag, int value)
+ {
+     TagValuePair* pair = FindConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+     pair->type = CONFIG_INT;
+@@ -454,7 +468,7 @@
+ void Config::Set(const char* tag, bool value)
+ {
+     TagValuePair* pair = FindConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+     pair->type = CONFIG_BOOL;
+@@ -468,7 +482,7 @@
+ void Config::Set(const char* tag, float value)
+ {
+     TagValuePair* pair = FindConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+     pair->type = CONFIG_FLOAT;
+@@ -491,7 +505,7 @@
+         }
+         current++;
+     }
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     const double parsed = atof(string);
+     if (!std::isfinite(parsed) || parsed < std::numeric_limits<int>::min() || parsed > std::numeric_limits<int>::max())
+         throw std::out_of_range("Configuration integer is outside the Wii range");
+@@ -530,7 +544,7 @@
+     if (IsIntegerValue(value, intValue))
+     {
+         pair = FindParsedConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+         pair->type = CONFIG_INT;
+@@ -543,7 +557,7 @@
+     else if (IsFloatValue(value, floatValue))
+     {
+         pair = FindParsedConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+         pair->type = CONFIG_FLOAT;
+@@ -557,7 +571,7 @@
+     {
+         const bool parsedValue = boolValue;
+         pair = FindParsedConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+         pair->type = CONFIG_BOOL;
+@@ -570,7 +584,7 @@
+     else
+     {
+         pair = FindConfigTvp(this, tag);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigMutation mutation(*this, *pair);
+ #endif
+         pair->type = CONFIG_STRING;
+@@ -591,7 +605,7 @@
+ 
+ void Config::Parse(const char* data, int size, Parser& parser)
+ {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ValidateConfigInput(data, size);
+ #endif
+     if (size == 0)
+@@ -600,7 +614,7 @@
+     }
+ 
+     char* copy = (char*)ConfigParserAllocate(size + 1, 8, false);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     mscharged::ConfigBuffer copyOwner(copy);
+ #endif
+     memcpy(copy, data, size);
+@@ -619,7 +633,7 @@
+     {
+         if (pairCount == (int)mTvpCapacity)
+         {
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+             throw std::length_error("Configuration pair limit exceeded");
+ #else
+             break;
+@@ -653,7 +667,7 @@
+         }
+ 
+         char* token = tokens.NextToken(false);
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+         if (!token) { line = lines.GetLine(); continue; }
+ #endif
+         tag.erase(tag.begin(), tag.end());
+@@ -686,7 +700,7 @@
+         line = lines.GetLine();
+     }
+ 
+-#ifndef MSCHARGED_NATIVE
++#ifndef MSCHARGED_DIAGNOSTIC_CONFIG
+     nlFree(copy);
+ #endif
+ }
+@@ -718,7 +732,7 @@
+ 
+ inline Config::TagValuePair::TagValuePair()
+     : tag(0)
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+     , type(CONFIG_INT), value{}
+ #endif
+ {
+@@ -756,7 +770,7 @@
+     return false;
+ }
+ 
+-#ifdef MSCHARGED_NATIVE
++#ifdef MSCHARGED_DIAGNOSTIC_CONFIG
+ void Config::LoadFromBuffer(const char* data, int size)
+ {
+     mLoaded = false;

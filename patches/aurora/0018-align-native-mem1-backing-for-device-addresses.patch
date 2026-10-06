@@ -1,0 +1,40 @@
+From: mscharged-port native compatibility
+Subject: [PATCH] retain native MEM1 bank alignment for physical device addresses
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Ordinary calloc may return a 16-byte native base. Arena alignment then fails to
+produce 32-byte physical offsets. Use the existing SDL aligned allocation/free
+pair for the non-VirtualAlloc MEM1 branch, preserving exact zeroing/size and
+existing SDK ownership/shutdown order. MEM2 and original game code are unchanged.
+
+--- a/lib/dolphin/os/OSMemory.cpp
++++ b/lib/dolphin/os/OSMemory.cpp
+@@ -8,6 +8,8 @@
+ 
+ #include <cassert>
+ #include <cstdlib>
++#include <cstring>
++#include <SDL3/SDL_stdinc.h>
+ 
+ #include "internal.hpp"
+ #include <dolphin/os.h>
+@@ -55,7 +57,7 @@
+   if (MEM1Reservation != nullptr) VirtualFree(MEM1Reservation, 0, MEM_RELEASE);
+   MEM1Reservation = nullptr;
+ #else
+-  std::free(MEM1Start);
++  SDL_aligned_free(MEM1Start);
+ #endif
+   std::free(MEM2Start);
+   MEM1Start = MEM1End = MEM2Start = MEM2End = nullptr;
+@@ -167,6 +169,9 @@
+ }
+ #else
+ static void* AllocMEM1(u32 size) {
+-  return calloc(1, size);
++  // DSP/GX physical offsets must share the console bank's 32-byte alignment.
++  void* result = SDL_aligned_alloc(32, size);
++  if (result != nullptr) std::memset(result, 0, size);
++  return result;
+ }
+ #endif

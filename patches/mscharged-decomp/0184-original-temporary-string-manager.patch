@@ -1,0 +1,54 @@
+Subject: Restore the original fixed temporary-string manager outside diagnostics
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Select the literal original TempStringAllocator New/Alloc/Free for genuine
+native source. Preserve its fixed64 StringBlock manager, ignored request sizes,
+null-return behavior, allocation/free order and original constructor/lifetime
+quirks. The existing native64*sizeof(StringBlock) storage adaptation stays.
+Historical count/type guards and independent nlMalloc/nlFree are restricted to
+an explicit diagnostic profile; reject that profile in the original game module.
+Original BasicString/Vector algorithms and console projection remain unchanged.
+The source module requires the existing reviewed -fcheck-new compiler profile.
+One-free-slot buffer failure and the separate null CRT destructor branch stay
+unmodified; bounded source tests do not qualify production startup/teardown.
+
+diff --git a/include/NL/nlString.h b/include/NL/nlString.h
+--- a/include/NL/nlString.h
++++ b/include/NL/nlString.h
+@@ -7,6 +7,9 @@
+ #include "types.h"
+ 
+ #include <cstring>
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_STRINGS)
++#error The original game module cannot use diagnostic temporary-string allocation
++#endif
+ #ifdef MSCHARGED_NATIVE
+ #include <limits>
+ #include <stdexcept>
+@@ -110,7 +113,7 @@
+     template <typename T>
+     static T* New(int count, const char*)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_STRINGS)
+         static_assert(std::is_trivial<T>::value, "Temporary strings require trivial elements");
+         if (count < 0 || static_cast<size_t>(count) > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(T))
+             throw std::length_error("Temporary string allocation overflow");
+@@ -126,7 +129,7 @@
+ 
+     static void* Alloc(int size)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_STRINGS)
+         if (size <= 0) throw std::length_error("Invalid temporary string size");
+         return nlMalloc(size, alignof(max_align_t), false);
+ #else
+@@ -136,7 +139,7 @@
+ 
+     static void Free(void* ptr)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_STRINGS)
+         nlFree(ptr);
+ #else
+         sStringBlockAllocator.Free(ptr);

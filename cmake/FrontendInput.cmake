@@ -6,6 +6,7 @@ add_library(charged_frontend_input STATIC
     "${MSCHARGED_PREPARED}/src/Game/FE/feInput.cpp"
     src/runtime/frontend_input.cpp src/runtime/frontend_input_sdl.cpp)
 add_dependencies(charged_frontend_input verify_prepared)
+target_compile_definitions(charged_frontend_input PUBLIC MSCHARGED_DIAGNOSTIC_INPUT=1)
 target_compile_definitions(charged_frontend_input PRIVATE MSCHARGED_NATIVE=1)
 target_compile_features(charged_frontend_input PUBLIC cxx_std_20)
 target_link_libraries(charged_frontend_input PUBLIC charged_graphics_memory SDL3::SDL3-static)

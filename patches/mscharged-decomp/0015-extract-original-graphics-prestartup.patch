@@ -1,6 +1,6 @@
 Subject: Build the unchanged original graphics pre-startup helper
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 The selected helper returns true and performs no graphics initialization.
 Extract it unchanged so the native startup can pass this genuine no-op without

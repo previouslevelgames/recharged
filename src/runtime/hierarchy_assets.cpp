@@ -1,3 +1,7 @@
+#if !defined(MSCHARGED_DIAGNOSTIC_SKELETON) || defined(MSCHARGED_GAME_MODULE)
+#error Retained decoded skeleton owners belong only to explicit diagnostics
+#endif
+
 #include "runtime/hierarchy_assets.h"
 #include "resources/hierarchy.h"
 #include "Game/SHierarchy.h"

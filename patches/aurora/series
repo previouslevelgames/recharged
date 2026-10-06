@@ -15,3 +15,6 @@
 0015-supply-native-wii-hardware-clocks.patch
 0016-release-native-configuration-storage.patch
 0017-genuine-gpu-draw-done-completion.patch
+0018-align-native-mem1-backing-for-device-addresses.patch
+0019-owned-native-static-and-mem2-physical-backing.patch
+0022-original-wii-sdk-render-mode-tables.patch

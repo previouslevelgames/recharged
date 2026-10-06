@@ -3,6 +3,7 @@ add_library(charged_wii_input_profile STATIC
     "${MSCHARGED_PREPARED}/src/NL/plat/WiiPad.cpp"
     src/runtime/wii_input_profile.cpp)
 add_dependencies(charged_wii_input_profile verify_prepared)
+target_compile_definitions(charged_wii_input_profile PUBLIC MSCHARGED_DIAGNOSTIC_INPUT=1)
 target_compile_definitions(charged_wii_input_profile PRIVATE MSCHARGED_NATIVE=1)
 target_compile_features(charged_wii_input_profile PUBLIC cxx_std_20)
 target_link_libraries(charged_wii_input_profile PUBLIC charged_graphics_memory)

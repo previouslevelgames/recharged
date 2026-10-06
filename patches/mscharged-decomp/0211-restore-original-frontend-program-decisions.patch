@@ -1,0 +1,154 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Restore original frontend material program decisions
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+Classification: R02 source-fidelity correction; retire prior native game-side behavior changes.
+Preserve original registry Add behavior, constructor order, empty destructors
+and fixed signed16 / 1024 VertexColourTexture UV format. Canonical GX/FIFO
+hardware transport remains; existing unproven array extents remain explicit HOLD.
+
+--- a/src/NL/gl/glMaterialProgram.cpp
++++ b/src/NL/gl/glMaterialProgram.cpp
+@@ -1,7 +1,4 @@
+ #include "NL/gl/glMaterialProgram.h"
+-#if defined(MSCHARGED_NATIVE)
+-#include <stdexcept>
+-#endif
+ #define NL_AVL_TREE_DEFER_DELETE_ENTRY
+ #include "NL/nlAVLTree.h"
+ #undef NL_AVL_TREE_DEFER_DELETE_ENTRY
+@@ -20,10 +17,6 @@
+ 
+ void glRegisterMaterialProgram(void* program, unsigned long hash)
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    if (!program || !hash || hash > 0xffffffffUL || glGetMaterialProgram(hash))
+-        throw std::invalid_argument("Invalid or duplicate material program registration");
+-#endif
+     sMaterialPrograms.Add(hash, program);
+ }
+ 
+--- a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
+@@ -19,19 +19,15 @@
+ 
+ GXUnlitTextureMaterialProgram::GXUnlitTextureMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x21DB4385;
+     parameterDataSize = 8;
+     parameterCount = 1;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXUnlitTextureMaterialProgram::~GXUnlitTextureMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    Instance = nullptr;
+-    Initialized = false;
+-#endif
+ }
+ 
+ void GXUnlitTextureMaterialProgram::Initialize()
+--- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
+@@ -19,19 +19,15 @@
+ 
+ GXVertexColourTextureMaterialProgram::GXVertexColourTextureMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0xD3E572DA;
+     parameterDataSize = 8;
+     parameterCount = 1;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXVertexColourTextureMaterialProgram::~GXVertexColourTextureMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    Instance = nullptr;
+-    Initialized = false;
+-#endif
+ }
+ 
+ void GXVertexColourTextureMaterialProgram::Initialize()
+@@ -50,11 +46,7 @@
+     GXClearVtxDesc();
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+-#if defined(MSCHARGED_NATIVE)
+-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+-#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 10);
+-#endif
+ 
+     if (indexed)
+     {
+@@ -73,12 +65,6 @@
+ void GXVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
+-    // Static asset adapters retain float UVs; the original procedural mesh
+-    // writer retains the Wii signed16 / 1024 stream. Select its actual format.
+-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST,
+-        streams[1].stride == 4 ? GX_S16 : GX_F32, streams[1].stride == 4 ? 10 : 0);
+-#endif
+ #if defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+--- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
++++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
+@@ -20,24 +20,15 @@
+ 
+ GXFloatTexturedColourMaterialProgram::GXFloatTexturedColourMaterialProgram()
+ {
+-#if !defined(MSCHARGED_NATIVE)
+     Instance = this;
+-#endif
+     programHash = 0x19065BF6;
+     parameterDataSize = 8;
+     parameterCount = 1;
+     glRegisterMaterialProgram(this, programHash);
+-#if defined(MSCHARGED_NATIVE)
+-    Instance = this;
+-#endif
+ }
+ 
+ GXFloatTexturedColourMaterialProgram::~GXFloatTexturedColourMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    Instance = 0;
+-    Initialized = false;
+-#endif
+ }
+ 
+ void GXFloatTexturedColourMaterialProgram::Initialize()
+--- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
+@@ -20,24 +20,15 @@
+ 
+ GXScissoredVertexColourTextureMaterialProgram::GXScissoredVertexColourTextureMaterialProgram()
+ {
+-#if !defined(MSCHARGED_NATIVE)
+     Instance = this;
+-#endif
+     programHash = 0x0027BCF6;
+     parameterDataSize = sizeof(GXScissoredTextureParameters);
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
+-#if defined(MSCHARGED_NATIVE)
+-    Instance = this;
+-#endif
+ }
+ 
+ GXScissoredVertexColourTextureMaterialProgram::~GXScissoredVertexColourTextureMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
+-    Instance = 0;
+-    Initialized = false;
+-#endif
+ }
+ 
+ void GXScissoredVertexColourTextureMaterialProgram::Initialize()

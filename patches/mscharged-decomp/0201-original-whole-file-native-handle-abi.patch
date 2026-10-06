@@ -1,0 +1,188 @@
+Subject: [PATCH] adapt original NL whole-file pointer handles and native owner cleanup
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Keep source requests/callbacks/cancellation decisions. Represent actual raw
+entry addresses across the u32 public API without pointer truncation; wire
+actual source owner cleanup to native raw failure and shutdown hooks.
+
+--- a/src/NL/nlFile.cpp
++++ b/src/NL/nlFile.cpp
+@@ -5,9 +5,13 @@
+ #include "NL/nlCompressedFile.h"
+ #include "NL/nlFileGC.h"
+ #include "NL/nlMemory.h"
+-
+-
+-void nlCancelEntireFileLoadCallback(nlFile*, void*, unsigned int, unsigned long, ReadAsyncCallback);
++#ifdef MSCHARGED_NATIVE
++#include "platform/file_handle_abi.h"
++#include <new>
++#endif
++
++
++void nlCancelEntireFileLoadCallback(nlFile*, void*, unsigned int, nlFileAsyncParam, ReadAsyncCallback);
+ void (*sCancelFileLoadCallback)(void*, unsigned long, void*, LoadAsyncCallback);
+ 
+ struct AsyncFileLoadData
+@@ -30,9 +34,34 @@
+ 
+ #include "nlFileBasic.cpp"
+ 
+-static void nlLoadEntireFileAsyncCallback(nlFile*, void*, unsigned int, unsigned long userParam)
++#ifdef MSCHARGED_NATIVE
++// Real raw failure/shutdown releases the original owner without calling its
++// success callback. Closing the actual file joins workers before freeing data.
++static void nlAbortEntireFileLoadData(void* context)
++{
++    AsyncFileLoadData* data = (AsyncFileLoadData*)context;
++    delete data->file;
++    nlFree(data->alloc_data);
++    delete data;
++}
++
++void nlAbortEntireFileLoad(nlFile* file)
++{
++    mscharged::platform::AbortFileLoadsForFile(file);
++}
++
++void nlShutdownEntireFileLoads()
++{
++    mscharged::platform::ShutdownFileLoads();
++}
++#endif
++
++static void nlLoadEntireFileAsyncCallback(nlFile*, void*, unsigned int, nlFileAsyncParam userParam)
+ {
+     AsyncFileLoadData* data = (AsyncFileLoadData*)userParam;
++#ifdef MSCHARGED_NATIVE
++    mscharged::platform::FinishFileLoad(data);
++#endif
+     data->callback(data->alloc_data, data->datasize, data->user_data);
+     delete data->file;
+     delete data;
+@@ -87,7 +116,29 @@
+         CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+ 
+         asyncData = new (nlMalloc(sizeof(AsyncFileLoadData), 8, true)) AsyncFileLoadData(file, alloc_data, datasize, callback, user_data);
+-        result = (unsigned int)nlReadAsync(file, alloc_data, datasize, nlLoadEntireFileAsyncCallback, (unsigned long)asyncData, filesize);
++#ifdef MSCHARGED_NATIVE
++        if (asyncData == 0)
++        {
++            delete file;
++            nlFree(alloc_data);
++            throw std::bad_alloc();
++        }
++        mscharged::platform::FileLoadLease* lease = 0;
++        try
++        {
++            lease = mscharged::platform::ReserveFileLoad(asyncData, file, nlAbortEntireFileLoadData);
++            AsyncEntry* read = nlReadAsync(file, alloc_data, datasize, nlLoadEntireFileAsyncCallback, (nlFileAsyncParam)asyncData, filesize);
++            result = mscharged::platform::BindFileLoad(lease, read);
++        }
++        catch (...)
++        {
++            if (lease != 0) mscharged::platform::AbortFileLoad(asyncData);
++            else nlAbortEntireFileLoadData(asyncData);
++            throw;
++        }
++#else
++        result = (unsigned int)nlReadAsync(file, alloc_data, datasize, nlLoadEntireFileAsyncCallback, (nlFileAsyncParam)asyncData, filesize);
++#endif
+     }
+     else
+     {
+@@ -99,18 +150,26 @@
+ 
+ bool nlCancelEntireFileLoad(unsigned int handle, void (*callback)(void*, unsigned long, void*, LoadAsyncCallback))
+ {
+-    if (nlAsyncReadBusy((AsyncEntry*)handle))
++#ifdef MSCHARGED_NATIVE
++    AsyncEntry* read = (AsyncEntry*)mscharged::platform::ResolveFileReadHandle(handle);
++#else
++    AsyncEntry* read = (AsyncEntry*)handle;
++#endif
++    if (nlAsyncReadBusy(read))
+         return false;
+ 
+     sCancelFileLoadCallback = callback;
+-    nlCancelAsyncRead((AsyncEntry*)handle, nlCancelEntireFileLoadCallback);
++    nlCancelAsyncRead(read, nlCancelEntireFileLoadCallback);
+     sCancelFileLoadCallback = 0;
+     return true;
+ }
+ 
+-void nlCancelEntireFileLoadCallback(nlFile*, void* pBuffer, unsigned int, unsigned long uParam, ReadAsyncCallback)
++void nlCancelEntireFileLoadCallback(nlFile*, void* pBuffer, unsigned int, nlFileAsyncParam uParam, ReadAsyncCallback)
+ {
+     AsyncFileLoadData* p = (AsyncFileLoadData*)uParam;
++#ifdef MSCHARGED_NATIVE
++    mscharged::platform::FinishFileLoad(p);
++#endif
+     if (sCancelFileLoadCallback != 0)
+         sCancelFileLoadCallback(p->alloc_data, p->datasize, p->user_data, p->callback);
+ 
+@@ -119,7 +178,7 @@
+     delete p;
+ }
+ 
+-void OnCompressedFileDataRead(nlFile*, void*, unsigned int, unsigned long);
++void OnCompressedFileDataRead(nlFile*, void*, unsigned int, nlFileAsyncParam);
+ 
+ unsigned int gCompressedFileReadBufferIndex;
+ 
+@@ -165,14 +224,14 @@
+         if (nextRead < fullChunkCount)
+         {
+             nlReadAsync(file, readBuffers[gCompressedFileReadBufferIndex], chunkSize,
+-                OnCompressedFileDataRead, (unsigned long)this, 0);
++                OnCompressedFileDataRead, (nlFileAsyncParam)this, 0);
+             gCompressedFileReadBufferIndex = 1 - gCompressedFileReadBufferIndex;
+             ++nextRead;
+         }
+         else if (nextRead < readCount)
+         {
+             nlReadAsync(file, readBuffers[gCompressedFileReadBufferIndex], finalChunkSize,
+-                OnCompressedFileDataRead, (unsigned long)this, 0);
++                OnCompressedFileDataRead, (nlFileAsyncParam)this, 0);
+             gCompressedFileReadBufferIndex = 1 - gCompressedFileReadBufferIndex;
+             ++nextRead;
+         }
+@@ -209,7 +268,7 @@
+     nlFree(memory);
+ }
+ 
+-void OnCompressedFileHeaderRead(nlFile*, void*, unsigned int, unsigned long userParam)
++void OnCompressedFileHeaderRead(nlFile*, void*, unsigned int, nlFileAsyncParam userParam)
+ {
+     CompressedFileLoad* state = (CompressedFileLoad*)userParam;
+     MemoryAllocator* allocator = state->allocator;
+@@ -242,7 +301,7 @@
+     state->inflateState.outputSize = uncompressedSize;
+ }
+ 
+-void OnCompressedFileDataRead(nlFile* file, void* buffer, unsigned int size, unsigned long userParam)
++void OnCompressedFileDataRead(nlFile* file, void* buffer, unsigned int size, nlFileAsyncParam userParam)
+ {
+     CompressedFileLoad* state = (CompressedFileLoad*)userParam;
+ 
+@@ -298,7 +357,7 @@
+         CompressedFileLoad(file, param, compressedSize, callback, userData,
+             allocator, allocType, chunkSize, readBuffer0, readBuffer1);
+ 
+-    nlReadAsync(file, state, 4, OnCompressedFileHeaderRead, (unsigned long)state, 0);
++    nlReadAsync(file, state, 4, OnCompressedFileHeaderRead, (nlFileAsyncParam)state, 0);
+ 
+     unsigned int payloadSize = compressedSize - 4;
+     state->fullChunkCount = payloadSize / chunkSize;
+--- a/include/NL/nlFileGC.h
++++ b/include/NL/nlFileGC.h
+@@ -10,7 +10,7 @@
+ #ifdef MSCHARGED_NATIVE
+ void nlShutdownFileSystem();
+ bool nlFileSystemReady();
+-// Internal native whole-file lifecycle hooks, implemented by the port adapter.
++// Internal native lifecycle hooks, implemented by original nlFile.cpp owners.
+ void nlAbortEntireFileLoad(nlFile* file);
+ void nlShutdownEntireFileLoads();
+ #endif

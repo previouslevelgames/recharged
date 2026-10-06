@@ -1,4 +1,7 @@
 #pragma once
+#if !defined(MSCHARGED_DIAGNOSTIC_INPUT) || defined(MSCHARGED_GAME_MODULE)
+#error Retained frontend input owners belong only to explicit diagnostics
+#endif
 #include <array>
 #include <cstdint>
 #include <memory>

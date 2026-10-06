@@ -1,5 +1,5 @@
 Subject: Share original per-bone weighted skin pair gathering
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Preserve bone/vertex/lane order, first-zero termination, exact authored weights
 and original rigidSkin updates. Native callers validate scratch capacity and

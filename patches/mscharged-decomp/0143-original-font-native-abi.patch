@@ -1,5 +1,5 @@
 Subject: Restore whole original NL font and escape flow with native word/ownership ABI
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Historical body extractions are retired separately. Keep the complete original
 control flow, glyph layout, metrics, kerning, passes and requests. Adapt Wii32

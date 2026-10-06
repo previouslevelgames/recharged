@@ -1,6 +1,6 @@
 Subject: Make tweak registry pool destruction visible in optimized native builds
 
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Native exception cleanup for InitializeTweakRegistry instantiates the fixed
 slot-pool destructors in this translation unit. Include their existing original

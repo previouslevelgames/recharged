@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Share original movie cadence, sample gain and quad kernels; select native GX movie transport
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Retain original console equations. Native GX uses checked host array extents and
 FIFO commands; movie ownership, scheduling admission and completion stay in the

@@ -1,0 +1,804 @@
+Subject: [PATCH] preserve original emission source and native borrowed address words
+
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
+
+Restore literal controller/manager decisions, preserve retail numeric word
+overflow, and transport genuine native pointer/callback bits without truncation.
+Native replay uses the native process POD ABI; persisted/Wii replay relocation
+remains unqualified. No extra game ownership, requests or readiness is introduced.
+
+--- a/include/Game/Effects/EffectsBundleData.h
++++ b/include/Game/Effects/EffectsBundleData.h
+@@ -14,7 +14,7 @@
+         return (id & 0x80FFFFFF) == 0x80024000;
+     }
+ 
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     static EffectsBundleData* Initialize(nlChunk* bundle) = delete;
+ #else
+     static EffectsBundleData* Initialize(nlChunk* bundle);
+--- a/include/Game/Effects/EmissionController.h
++++ b/include/Game/Effects/EmissionController.h
+@@ -5,6 +5,12 @@
+ #include "NL/nlFunction.h"
+ #include "NL/nlMath.h"
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++typedef uintptr_t EmissionAddressWord;
++#else
++typedef u32 EmissionAddressWord;
++#endif
+ 
+ class cPN_SAnimController;
+ class cPoseAccumulator;
+@@ -85,7 +91,12 @@
+     /* 0x6C */ const cPN_SAnimController* m_pAnimController;
+     /* 0x70 */ u16 m_Id;
+     /* 0x72 */ u8 unknown_0x72[0x02];
++#if defined(MSCHARGED_NATIVE)
++    // Borrowed address or original numeric word; this adds no game ownership.
++    /* native ABI */ EmissionAddressWord m_uUserData;
++#else
+     /* 0x74 */ u32 m_uUserData;
++#endif
+     /* 0x78 */ u32 m_uJointIDOverride;
+     /* 0x7C */ int m_nUserEffects;
+     /* 0x80 */ UserEffectSpec** m_pUserEffects;
+--- a/include/Game/Effects/EmissionControllerSteps.h
++++ b/include/Game/Effects/EmissionControllerSteps.h
+@@ -1,5 +1,8 @@
+ #ifndef GAME_EFFECTS_EMISSION_CONTROLLER_STEPS_H
+ #define GAME_EFFECTS_EMISSION_CONTROLLER_STEPS_H
++#if defined(MSCHARGED_GAME_MODULE)
++#error "Original modules must execute source EmissionController and EmissionManager methods"
++#endif
+ #include "NL/nlMath.h"
+ 
+ // Original controller update prefix. False preserves the original early return
+--- a/include/Game/Effects/ParticleSystem.h
++++ b/include/Game/Effects/ParticleSystem.h
+@@ -50,11 +50,11 @@
+     ParticleSystem(EffectsTemplate* pTemplate,
+         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+         unsigned long resourceID)
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         = delete
+ #endif
+         ;
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     // Explicit CPU-only construction; m_uTextureIndex stays invalid. The full
+     // constructor still requires an actual GL inventory on console.
+     struct NativeSimulation {};
+@@ -71,7 +71,7 @@
+     void UpdateLight(EffectsLight* pLight, Particle* pPart,
+         EffectsTemplate* pTemplate, const nlVector3& viewRight,
+         const nlVector3& viewUp, const nlMatrix4* pCoordSys)
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         = delete
+ #endif
+         ;
+@@ -81,7 +81,7 @@
+         const nlVector3& viewUp, const nlMatrix4* pCoordSys);
+     void ClearParticles();
+     int RenderAllParticles(GLView* view)
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         = delete
+ #endif
+         ;
+--- a/src/Game/AI/DesireSuperPower.cpp
++++ b/src/Game/AI/DesireSuperPower.cpp
+@@ -622,7 +622,11 @@
+     {
+         EmissionController* controller = EmissionManager::Instance()->Create(
+             group, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++        controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(self->m_pFielder);
++#else
+         controller->m_uUserData = (u32)self->m_pFielder;
++#endif
+         controller->SetPosition(
+             self->m_pFielder->mUnidentified024.m_v3Position);
+         controller->SetVelocity(
+@@ -1566,7 +1570,11 @@
+                     if (group != 0)
+                     {
+                         EmissionController* emitter = EmissionManager::Instance()->Create(group, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++                        emitter->m_uUserData = reinterpret_cast<EmissionAddressWord>(m_pFielder);
++#else
+                         emitter->m_uUserData = (unsigned int)m_pFielder;
++#endif
+                         emitter->SetPosition(m_pFielder->mUnidentified024.m_v3Position);
+                         emitter->SetVelocity(m_pFielder->mUnidentified024.m_v3Velocity);
+                         emitter->SetUpdateCallback(UpdateEmitterFromCharacterBackward);
+--- a/src/Game/AI/GoalieActions.cpp
++++ b/src/Game/AI/GoalieActions.cpp
+@@ -1635,7 +1635,11 @@
+         nlSNPrintf(effectName, sizeof(effectName), "%s_mega_bg", mpShooter->mUnidentified11C->mName);
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(effectName);
+         EmissionController* effect = EmissionManager::Instance()->Create(group, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++        effect->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+         effect->m_uUserData = (u32)this;
++#endif
+         nlVector3 position;
+         nlVec3Set(position, 0.0f, 0.0f, lbl_806DBC38);
+         nlVector3 velocity = { 0.0f, 0.0f, 1.0f };
+--- a/src/Game/AI/Powerups.cpp
++++ b/src/Game/AI/Powerups.cpp
+@@ -1719,7 +1719,11 @@
+ 
+             EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 3, true, 0);
+             pController->SetPosition(pObj->m_v3Position);
++#if defined(MSCHARGED_NATIVE)
++            pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pObj);
++#else
+             pController->m_uUserData = (u32)pObj;
++#endif
+             Function1<void, EmissionController&> callback(fn_8009F1B8);
+             pController->SetUpdateCallback(callback);
+         }
+@@ -3038,7 +3042,11 @@
+     nlVector3 pos = m_pPhysicsObject->GetPosition();
+     pos.z += ((PhysicsSphere*)m_pPhysicsObject)->GetRadius();
+     pController->SetPosition(pos);
++#if defined(MSCHARGED_NATIVE)
++    pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     pController->m_uUserData = (u32)this;
++#endif
+     pController->SetUpdateCallback(
+         Function1<void, EmissionController&>(fn_8009F1B8));
+ 
+--- a/src/Game/Ball.cpp
++++ b/src/Game/Ball.cpp
+@@ -1774,6 +1774,9 @@
+         }
+         break;
+     case 6:
++#if defined(MSCHARGED_NATIVE)
++    {
++#endif
+         UpdateBallShotClock(pBall);
+         cPlayer* pPrevOwner = pBall->m_pPrevOwner;
+         if (pPrevOwner != NULL
+@@ -1787,6 +1790,9 @@
+                     (float)tweaks->fShooting);
+         }
+         break;
++#if defined(MSCHARGED_NATIVE)
++    }
++#endif
+     case 7:
+         UpdateBallShotClock(pBall);
+         break;
+@@ -3620,7 +3626,11 @@
+     EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 0, true, 0);
+     pController->m_fGround = 0.02f;
+     pController->SetPosition(pBallTrail->position);
++#if defined(MSCHARGED_NATIVE)
++    pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBallTrail);
++#else
+     pController->m_uUserData = (u32)pBallTrail;
++#endif
+     pController->SetUpdateCallback(
+         Function1<void, EmissionController&>(UpdateEmitterFromBallTrail));
+ 
+--- a/src/Game/Character.cpp
++++ b/src/Game/Character.cpp
+@@ -434,7 +434,11 @@
+ 
+ void cCharacter::AttachEffect(EmissionController* pEmissionController)
+ {
++#if defined(MSCHARGED_NATIVE)
++    pEmissionController->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     pEmissionController->m_uUserData = (u32)this;
++#endif
+     pEmissionController->SetPoseAccumulator(*m_pPoseAccumulator);
+     pEmissionController->SetAnimController(*m_pCurrentAnimController);
+     pEmissionController->m_aFacing = mUnidentified024.m_aActualFacingDirection;
+--- a/src/Game/CharacterTriggers.cpp
++++ b/src/Game/CharacterTriggers.cpp
+@@ -106,7 +106,11 @@
+     EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uEffectHash);
+     EmissionController* pControl
+         = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++    pControl->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBall);
++#else
+     pControl->m_uUserData = (unsigned long)pBall;
++#endif
+ 
+     nlVector3 v3Direction = sBallEffectVelocity;
+     pControl->SetVelocity(v3Direction);
+@@ -1171,7 +1175,11 @@
+             = fxGetGroup(EmissionManager::Instance(), uHash);
+         EmissionController* pController
+             = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++        pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBall);
++#else
+         pController->m_uUserData = (unsigned long)pBall;
++#endif
+         nlVector3 vel = sBallEffectVelocity;
+         pController->SetVelocity(vel);
+         pController->m_fGround = 0.02f;
+@@ -1193,7 +1201,11 @@
+     pBall = g_pBall;
+     pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
+     pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++    pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBall);
++#else
+     pController->m_uUserData = (unsigned long)pBall;
++#endif
+     nlVector3 vel = sBallEffectVelocity;
+     pController->SetVelocity(vel);
+     pController->m_fGround = 0.02f;
+@@ -1212,7 +1224,11 @@
+     EmissionController* pController = EmissionManager::Instance()->Create(
+         fxGetGroup(EmissionManager::Instance(), nlStringLowerHash(szName)),
+         3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++    pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBall);
++#else
+     pController->m_uUserData = (unsigned long)pBall;
++#endif
+     nlVector3 vel = sBallEffectVelocity;
+     pController->SetVelocity(vel);
+     pController->m_fGround = 0.02f;
+@@ -1977,7 +1993,11 @@
+     unsigned long uHash = nlStringLowerHash(szEffectName);
+     EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
+     EmissionController* pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++    pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBall);
++#else
+     pController->m_uUserData = (unsigned long)pBall;
++#endif
+     nlVector3 vel = sBallEffectVelocity;
+     pController->SetVelocity(vel);
+     pController->m_fGround = 0.02f;
+@@ -2001,7 +2021,11 @@
+     pBall = g_pBall;
+     pGroup = fxGetGroup(EmissionManager::Instance(), sHashWeatherLightningBall);
+     pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++    pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(pBall);
++#else
+     pController->m_uUserData = (unsigned long)pBall;
++#endif
+     nlVector3 vel = sBallEffectVelocity;
+     pController->SetVelocity(vel);
+     pController->m_fGround = 0.02f;
+--- a/src/Game/CrowdRiot.cpp
++++ b/src/Game/CrowdRiot.cpp
+@@ -271,7 +271,11 @@
+                     placeholder0));
+             controller->SetUpdateCallback(callback);
+         }
++#if defined(MSCHARGED_NATIVE)
++        controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+         controller->m_uUserData = (u32)this;
++#endif
+         PlaySound(13, 0x198B7ED3, "CrowdRiot", this);
+     }
+ }
+--- a/src/Game/Effects/EmissionController.cpp
++++ b/src/Game/Effects/EmissionController.cpp
+@@ -1,5 +1,3 @@
+-#include "Game/Effects/ParticleModelSteps.h"
+-#include "Game/Effects/EmissionControllerSteps.h"
+ #include "Game/Effects/EmissionController.h"
+ #include "Game/Effects/EmissionManager.h"
+ #include "Game/Effects/ParticleSystem.h"
+@@ -197,7 +195,12 @@
+ 
+ void EmissionController::Die()
+ {
+-    if (!fxBeginControllerDie(m_bDying)) return;
++    if (m_bDying)
++    {
++        return;
++    }
++
++    m_bDying = true;
+ 
+     nlDLListIterator<ParticleSystem*> iterator;
+     iterator = m_Systems.Begin();
+@@ -316,10 +319,11 @@
+         }
+     }
+ 
+-    fxParticleGroundPosition(pos, m_pManager->mSnapToGround != 0,
+-        spec.m_bGround != 0, m_fGround,
+-        m_pManager->mSnapToGround && spec.m_bGround ? m_pManager->GetShadowHeight() : 0.0f,
+-        spec.m_fOffset);
++    if (m_pManager->mSnapToGround && spec.m_bGround)
++    {
++        pos.z = m_fGround + m_pManager->GetShadowHeight();
++    }
++    pos.z += spec.m_fOffset;
+ }
+ 
+ bool fxUpdateParticleSystem(
+@@ -356,6 +360,29 @@
+         return;
+     }
+ 
++    nlVector4 dir;
++    switch (pSpec->m_nForwardAxis)
++    {
++    case 1:
++        nlVec4Set(dir, 1.0f, 0.0f, 0.0f, 0.0f);
++        break;
++    case 2:
++        nlVec4Set(dir, 0.0f, 1.0f, 0.0f, 0.0f);
++        break;
++    case 3:
++        nlVec4Set(dir, 0.0f, 0.0f, 1.0f, 0.0f);
++        break;
++    case 4:
++        nlVec4Set(dir, -1.0f, 0.0f, 0.0f, 0.0f);
++        break;
++    case 5:
++        nlVec4Set(dir, 0.0f, -1.0f, 0.0f, 0.0f);
++        break;
++    case 6:
++        nlVec4Set(dir, 0.0f, 0.0f, -1.0f, 0.0f);
++        break;
++    }
++
+     u32 jointID = pSpec->m_uJointID;
+     if (m_pAnimController != 0 && m_pAnimController->m_bMirror)
+     {
+@@ -366,15 +393,56 @@
+ 
+     const nlMatrix4& mat = m_pPose->GetNodeMatrixByHashID(
+         m_uJointIDOverride == 0 ? jointID : m_uJointIDOverride);
+-    fxParticleJointDirection(pSys->m_vForward, mat, pSpec->m_nForwardAxis);
++    nlMultVectorMatrix(dir, mat);
++    pSys->m_vForward = *(nlVector3*)&dir;
+ }
+ 
+ bool EmissionController::Update(float dt)
+ {
+-    if (!fxBeginControllerUpdate(*this, dt)) return true;
+-    int numSys = 0;
+-    int numDel = 0;
++    if (m_bDisabled)
++    {
++        return true;
++    }
++
++    dt *= m_TimeScale;
++
++    int numDel;
++    int numSys;
+     UserEffectInfo info;
++    numSys = 0;
++    numDel = 0;
++
++    if (m_Replaying)
++    {
++        dt = m_ReplayDeltaTime;
++    }
++    else
++    {
++        m_Age += dt;
++    }
++
++    bool positionChanged = false;
++    if (mUpdateCallback)
++    {
++        nlVector3 oldPosition = m_vPosition;
++        mUpdateCallback(*this);
++        if (!nlNear(m_vPosition, oldPosition))
++        {
++            positionChanged = true;
++        }
++    }
++
++    if (dt <= 0.0f)
++    {
++        if (positionChanged)
++        {
++            dt = 0.0f;
++        }
++        else
++        {
++            return true;
++        }
++    }
+ 
+     nlDLListIterator<ParticleSystem*> iterator;
+     iterator = m_Systems.Begin();
+@@ -393,7 +461,11 @@
+         }
+     }
+ 
+-    bool isFinished = fxControllerSystemsFinished(*this, numSys, numDel);
++    bool isFinished = numSys == numDel;
++    if (isFinished && mFinishedCallback)
++    {
++        mFinishedCallback(*this, 1);
++    }
+ 
+     if (m_nUserEffects > 0)
+     {
+--- a/src/Game/Effects/EmissionManager.cpp
++++ b/src/Game/Effects/EmissionManager.cpp
+@@ -1,4 +1,6 @@
+-#include "Game/Effects/EmissionControllerSteps.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/replay_address_abi.h"
++#endif
+ #include "Game/Effects/EmissionManager.h"
+ 
+ #include "Game/Effects/EmissionController.h"
+@@ -766,7 +768,14 @@
+     AllocatorStack[AllocatorStackDepth++] = allocator;
+     CurrentAllocator = allocator;
+ 
+-    id = fxNextControllerId(mNextControllerId, id);
++    if (id == 0)
++    {
++        id = mNextControllerId++;
++    }
++    if (mNextControllerId > 0x7E16)
++    {
++        mNextControllerId = 1;
++    }
+ 
+     EmissionController* controller = new (nlMalloc(sizeof(EmissionController), 8, false))
+         EmissionController(pEffectsGroup, this, id, mContext, view);
+@@ -1152,8 +1161,16 @@
+ // Controller state read by the manager's replay path.
+ inline void EmissionController::Replay(LoadFrame& frame)
+ {
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::ReplayNativeAddress<0>(frame, m_pPose);
++#else
+     frame.Replayable<0>((unsigned int&)m_pPose);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::ReplayNativeAddress<0>(frame, m_pAnimController);
++#else
+     frame.Replayable<0>((unsigned int&)m_pAnimController);
++#endif
+     frame.Replayable<0>(m_uUserData);
+     ::Replayable<0>(frame, m_fGround);
+     ::Replayable<0>(frame, m_aFacing);
+@@ -1183,7 +1200,7 @@
+         Die();
+     }
+ 
+-    unsigned int updateCallback = 0;
++    EmissionAddressWord updateCallback = 0;
+     frame.Replayable<0>(updateCallback);
+     mUpdateCallback.Clear();
+     if (updateCallback != 0)
+@@ -1193,7 +1210,7 @@
+ 
+     // Retail clears the position callback while restoring the finished one,
+     // and the finished callback while restoring the position one.
+-    unsigned int finishedCallback = 0;
++    EmissionAddressWord finishedCallback = 0;
+     frame.Replayable<0>(finishedCallback);
+     mPositionCallback.Clear();
+     if (finishedCallback != 0)
+@@ -1202,8 +1219,8 @@
+             = (void (*)(EmissionController&, int))finishedCallback;
+     }
+ 
+-    unsigned int positionCallback
+-        = (unsigned int)mPositionCallback.GetFreeFunction();
++    EmissionAddressWord positionCallback
++        = (EmissionAddressWord)mPositionCallback.GetFreeFunction();
+     frame.Replayable<0>(positionCallback);
+     mFinishedCallback.Clear();
+     if (positionCallback != 0)
+@@ -1215,8 +1232,16 @@
+ 
+ inline void EmissionController::Replay(SaveFrame& frame)
+ {
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::ReplayNativeAddress<0>(frame, m_pPose);
++#else
+     ::Replayable<0>(frame, (unsigned int&)m_pPose);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::ReplayNativeAddress<0>(frame, m_pAnimController);
++#else
+     ::Replayable<0>(frame, (unsigned int&)m_pAnimController);
++#endif
+     frame.Replayable<0>(m_uUserData);
+     ::Replayable<0>(frame, m_fGround);
+     ::Replayable<0>(frame, m_aFacing);
+@@ -1236,15 +1261,15 @@
+     ::Replayable<0>(frame, m_Age);
+     ::Replayable<0>(frame, m_bDying);
+ 
+-    unsigned int updateCallback = (unsigned int)mUpdateCallback.GetFreeFunction();
++    EmissionAddressWord updateCallback = (EmissionAddressWord)mUpdateCallback.GetFreeFunction();
+     ::Replayable<0>(frame, updateCallback);
+ 
+-    unsigned int finishedCallback
+-        = (unsigned int)mFinishedCallback.GetFreeFunction();
++    EmissionAddressWord finishedCallback
++        = (EmissionAddressWord)mFinishedCallback.GetFreeFunction();
+     ::Replayable<0>(frame, finishedCallback);
+ 
+-    unsigned int positionCallback
+-        = (unsigned int)mPositionCallback.GetFreeFunction();
++    EmissionAddressWord positionCallback
++        = (EmissionAddressWord)mPositionCallback.GetFreeFunction();
+     ::Replayable<0>(frame, positionCallback);
+ }
+ 
+@@ -1280,7 +1305,11 @@
+         EffectsGroup* group = 0;
+         frame.Replayable<0>(id);
+         Replayable<0>(frame, view);
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::ReplayNativeAddress<0>(frame, group);
++#else
+         Replayable<0>(frame, (unsigned int&)group);
++#endif
+ 
+         bool found = false;
+         nlDLListIterator<EmissionController*> iterator;
+@@ -1409,7 +1438,7 @@
+     {
+         EmissionController* controller = *iterator;
+         unsigned short id = controller->m_Id;
+-        unsigned int group = (unsigned int)controller->m_pGroup;
++        EmissionAddressWord group = (EmissionAddressWord)controller->m_pGroup;
+         Replayable<0>(frame, id);
+         Replayable<0>(frame, controller->m_View);
+         Replayable<0>(frame, group);
+@@ -1458,7 +1487,11 @@
+         {
+             EmissionController* current = *iterator;
+             if ((!lingeringOnly || current->IsLingering())
++#if defined(MSCHARGED_NATIVE)
++                && (static_cast<u32>(current->m_uUserData) + u32(0x21530000) != u32(0x0000BEEF)))
++#else
+                 && (current->m_uUserData + 0x21530000 != 0x0000BEEF))
++#endif
+             {
+                 if (bestAge < current->m_Age
+                     && (prevBestAge == currentBestAge
+--- a/src/Game/Physics/PhysicsPatch.cpp
++++ b/src/Game/Physics/PhysicsPatch.cpp
+@@ -151,7 +151,11 @@
+             }
+             EmissionController* controller = EmissionManager::Instance()->Create(effects, view, true, 0);
+             controller->SetPosition(GetPosition());
++#if defined(MSCHARGED_NATIVE)
++            controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+             controller->m_uUserData = (unsigned long)this;
++#endif
+             controller->SetUpdateCallback(
+                 Function1<void, EmissionController&>(UpdatePatchEffect));
+             controller->m_fGround = 0.02f;
+--- a/src/Game/Physics/PhysicsWaluigiWall.cpp
++++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
+@@ -449,7 +449,11 @@
+                     EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
+                     controller->SetPosition(owner->mUnidentified024.m_v3Position);
+                     controller->SetVelocity(owner->mUnidentified024.m_v3Velocity);
++#if defined(MSCHARGED_NATIVE)
++                    controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(wall);
++#else
+                     controller->m_uUserData = (unsigned long)wall;
++#endif
+                     controller->SetUpdateCallback(Function1<void, EmissionController&>(UpdateWaluigiWallEmitter));
+                     controller->SetFinishedCallback(Function2<void, EmissionController&, int>(OnWaluigiWallEffectFinished));
+                     wall->mEmitter = controller;
+--- a/src/Game/Render/BirdoEgg.cpp
++++ b/src/Game/Render/BirdoEgg.cpp
+@@ -178,7 +178,11 @@
+     EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
+     EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
+     controller->SetPosition(mPosition);
++#if defined(MSCHARGED_NATIVE)
++    controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     controller->m_uUserData = (unsigned long)this;
++#endif
+     controller->SetUpdateCallback(Function<EmissionController&>(UpdateBirdoEggEmitter));
+ 
+     EmitBirdoEggShow(shooter);
+--- a/src/Game/Render/BulletBill.cpp
++++ b/src/Game/Render/BulletBill.cpp
+@@ -151,7 +151,11 @@
+     EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("bulletbill_trail");
+     EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
+     controller->SetPosition(position);
++#if defined(MSCHARGED_NATIVE)
++    controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     controller->m_uUserData = (unsigned long)this;
++#endif
+     controller->SetUpdateCallback(Function<EmissionController&>(UpdateBulletBillEmitter));
+ 
+     EmitShyGuyBulletStart(fielder);
+--- a/src/Game/Render/ChainChomp.cpp
++++ b/src/Game/Render/ChainChomp.cpp
+@@ -491,7 +491,11 @@
+ 
+     EmissionController* pControl = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
+     pControl->SetPosition(mv3Position);
++#if defined(MSCHARGED_NATIVE)
++    pControl->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     pControl->m_uUserData = (u32)this;
++#endif
+     pControl->SetUpdateCallback(Function<EmissionController&>(UpdateChainEmitter));
+ }
+ 
+--- a/src/Game/Render/ElectricFence.cpp
++++ b/src/Game/Render/ElectricFence.cpp
+@@ -403,7 +403,11 @@
+     {
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("electric_fence_character");
+         controller = EmissionManager::Instance()->Create(group, 3, true, 0);
++#if defined(MSCHARGED_NATIVE)
++        controller->m_uUserData = static_cast<u32>(emitterID);
++#else
+         controller->m_uUserData = emitterID;
++#endif
+         controller->SetPosition(pos);
+ 
+         float dirX = dir.x;
+@@ -571,7 +575,11 @@
+ 
+ void UpdateElectricFence(float fDeltaT)
+ {
++#if defined(MSCHARGED_NATIVE)
++    static u32 counter = 1;
++#else
+     static unsigned long counter = 1;
++#endif
+     static float timeSinceLastEffect;
+ 
+     if (nlTaskManager::m_pInstance->mCurrentState == 1
+--- a/src/Game/Render/KoopaShellObject.cpp
++++ b/src/Game/Render/KoopaShellObject.cpp
+@@ -206,7 +206,11 @@
+     EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(sKoopaShellTrail);
+     EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
+     controller->SetPosition(mPosition);
++#if defined(MSCHARGED_NATIVE)
++    controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     controller->m_uUserData = (u32)this;
++#endif
+     controller->SetUpdateCallback(
+         Function1<void, EmissionController&>(UpdateTrailEffect));
+ 
+--- a/src/Game/Render/Nis.cpp
++++ b/src/Game/Render/Nis.cpp
+@@ -536,7 +536,11 @@
+         EmissionController* ctrl = EmissionManager::Instance()->Create(name, 0, true, 0);
+         if (ctrl != 0)
+         {
++#if defined(MSCHARGED_NATIVE)
++            ctrl->m_uUserData = reinterpret_cast<EmissionAddressWord>(player);
++#else
+             ctrl->m_uUserData = (u32)player;
++#endif
+             Function1<void, EmissionController&> update(UpdateEmitterFromBall);
+             ctrl->SetUpdateCallback(update);
+         }
+@@ -591,7 +595,11 @@
+         if (ctrl == 0)
+             return;
+         ctrl->SetAnimController(*nis.mCharacterControllers[charIdx]);
++#if defined(MSCHARGED_NATIVE)
++        ctrl->m_uUserData = reinterpret_cast<EmissionAddressWord>(player);
++#else
+         ctrl->m_uUserData = (u32)player;
++#endif
+         Function<void(EmissionController&)> callback(
+             Bind<void>(UpdateEmitterFromCharacterWithoutAnimController, placeholder0, context));
+         ctrl->SetUpdateCallback(callback);
+@@ -608,7 +616,11 @@
+                 if (ctrl == 0)
+                     return;
+                 ctrl->SetAnimController(*nis.mImpostors[i]->mAnimController);
++#if defined(MSCHARGED_NATIVE)
++                ctrl->m_uUserData = reinterpret_cast<EmissionAddressWord>(player);
++#else
+                 ctrl->m_uUserData = (u32)player;
++#endif
+                 {
+                     Function<void(EmissionController&)> callback(
+                         Bind<void>(UpdateEmitterFromImpostorModel, placeholder0, (void*)nis.mImpostors[i]));
+--- a/src/Game/Render/YoshiEggObject.cpp
++++ b/src/Game/Render/YoshiEggObject.cpp
+@@ -80,7 +80,11 @@
+             EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+             EmissionController* controller = EmissionManager::Instance()->Create(group, 0, true, 0);
+             controller->SetPosition(mPosition);
++#if defined(MSCHARGED_NATIVE)
++            controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+             controller->m_uUserData = (unsigned long)this;
++#endif
+             controller->SetUpdateCallback(UpdateTrailEffect);
+             mPhysics->EnableCollisions();
+         }
+@@ -164,7 +168,11 @@
+     EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+     EmissionController* controller = EmissionManager::Instance()->Create(group, 0, true, 0);
+     controller->SetPosition(mPosition);
++#if defined(MSCHARGED_NATIVE)
++    controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+     controller->m_uUserData = (unsigned long)this;
++#endif
+     controller->SetUpdateCallback(UpdateTrailEffect);
+     if (fielder->m_pBall != 0)
+     {
+--- a/src/Game/World/WorldEffect.cpp
++++ b/src/Game/World/WorldEffect.cpp
+@@ -28,7 +28,11 @@
+     while (pCurrent != 0)
+     {
+         EmissionController* pController = pCurrent->entry;
++#if defined(MSCHARGED_NATIVE)
++        if (pController->m_uUserData == reinterpret_cast<EmissionAddressWord>(this))
++#else
+         if (pController->m_uUserData == (u32)this)
++#endif
+         {
+             pController->ClearParticles();
+             pController->mUpdateCallback.Clear();
+@@ -82,14 +86,22 @@
+             pController->SetUpdateCallback(
+                 Function1<void, EmissionController&>(
+                     UpdateAnimatedWorldEffectController));
++#if defined(MSCHARGED_NATIVE)
++            pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+             pController->m_uUserData = (u32)this;
++#endif
+         }
+         else
+         {
+             pController->SetUpdateCallback(
+                 Function1<void, EmissionController&>(
+                     UpdateWorldEffectControllerVisibility));
++#if defined(MSCHARGED_NATIVE)
++            pController->m_uUserData = reinterpret_cast<EmissionAddressWord>(this);
++#else
+             pController->m_uUserData = (u32)this;
++#endif
+         }
+         m_nEmissionID = pController->m_Id;
+     }
+--- a/src/Game/WorldTriggers.cpp
++++ b/src/Game/WorldTriggers.cpp
+@@ -49,6 +49,10 @@
+     {
+         controller->SetUpdateCallback(
+             Function1<void, EmissionController&>(UpdateCameraFlash));
++#if defined(MSCHARGED_NATIVE)
++        controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(flyingCamera);
++#else
+         controller->m_uUserData = (u32)flyingCamera;
++#endif
+     }
+ }

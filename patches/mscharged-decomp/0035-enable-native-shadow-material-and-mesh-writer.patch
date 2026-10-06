@@ -1,5 +1,5 @@
 Subject: Select original shadow material and checked native frame mesh writing
-Upstream-base: 443164c91fded218656a8443432e642fdad57838
+Upstream-base: bab83befb5d6a2fdff0b30d2ec4b59f7251a108d
 
 Preserve shadow TEV recipes and stream layout through typed Aurora calls.
 Supply shadow colour explicitly until the tweak registry is linked. Replace
