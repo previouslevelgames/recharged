@@ -1,6 +1,6 @@
 From: mscharged-port native integration
 Subject: [PATCH] Preserve original lower camera-owner native addresses and compiler declarations
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Permanent native compiler/address ABI only. Whole source owners retain
 their original methods, source globals, allocation requests and algorithms.

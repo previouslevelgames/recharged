@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original world-effect trigger and scheduling equations
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Retain initialization, reset, timing, RNG ordering and emission counters in
 shared source helpers. Native callers supply actual retained effect records
@@ -226,7 +226,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
 -#ifndef MSCHARGED_NATIVE
  float EffectsTemplate::GetBoundingRadius()
  {
-     float duration;
+     float maximumParticleLife;
 @@ -158,4 +157,3 @@
      return result;
  }

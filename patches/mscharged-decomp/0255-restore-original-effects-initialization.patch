@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Restore original effects loaders and particle flow outside legacy diagnostics
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Keep matching retail methods, requests and fixed colour sampling. Confine copied
 registration/simulation representations to an explicitly named diagnostic. Native
@@ -274,7 +274,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
      m_uTextureIndex = glGetTextureIndex(m_pTemplate->m_hTexture);
 @@ -104,7 +105,7 @@
  {
-     if (m_pTemplate->mUnidentified040 != 0)
+     if (m_pTemplate->m_uEmitterDeathCode != 0)
      {
 -#ifdef MSCHARGED_NATIVE
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
@@ -330,7 +330,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
      ParticleSystem*, EffectsSpec*, const nlMatrix4&);
 @@ -413,7 +450,7 @@
  
-         if (m_pTemplate->mUnidentified044 != 0)
+         if (m_pTemplate->m_uParticleCreationCode != 0)
          {
 -#ifdef MSCHARGED_NATIVE
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
@@ -339,7 +339,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
              tDebugPrintManager::Print(DC_RENDER, "OnParticleCreation: %d\n",
 @@ -484,7 +521,7 @@
          {
-             if (m_pTemplate->mUnidentified048 != 0)
+             if (m_pTemplate->m_uParticleDeathCode != 0)
              {
 -#ifdef MSCHARGED_NATIVE
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
@@ -523,13 +523,13 @@ record endian/pointer transport remains an explicit runtime prerequisite.
                          &colour, 4);
                  }
 -                fxModelParticleRaster(pPacket->rasterState, blendType,
--                    m_pTemplate->mUnidentified037);
+-                    m_pTemplate->m_uFlags);
 +                glSetRasterState(pPacket->rasterState, GLS_Culling, 0);
 +                glSetRasterState(pPacket->rasterState, GLS_AlphaBlend,
 +                    blendType);
 +                glSetRasterState(pPacket->rasterState, GLS_AlphaTest, 1);
 +                glSetRasterState(pPacket->rasterState, GLS_AlphaTestRef, 3);
-+                if ((m_pTemplate->mUnidentified037 & 4) != 0)
++                if (m_pTemplate->DisablesDepthWrite())
 +                    glSetRasterState(
 +                        pPacket->rasterState, GLS_DepthWrite, 0);
                  pPacket->matrix = hMatrix;

@@ -19,11 +19,11 @@ struct NativeTemplate
         value.m_uHashID = source.hash; value.m_fFountainLife = source.fountain_life;
         value.m_rMass = Range(source.mass); value.m_rParticleLife = Range(source.particle_life);
         value.m_rInheritVelocity = Range(source.inherit_velocity); value.m_rAcceleration = Range(source.acceleration);
-        value.m_rRotation = Range(source.rotation); value.mUnidentified030 = source.unidentified_030;
+        value.m_rRotation = Range(source.rotation); value.m_fTexcoordFlipPercentage = source.unidentified_030;
         value.m_eEmitter = source.emitter; value.m_eBlend = source.blend; value.m_eBillboard = source.billboard;
-        value.mUnidentified037 = source.flags; value.m_hTexture = source.texture; value.m_nFrames = source.frames;
-        value.mUnidentified040 = source.unidentified_040[0]; value.mUnidentified044 = source.unidentified_040[1];
-        value.mUnidentified048 = source.unidentified_040[2]; value.m_rFPS = Range(source.fps); value.m_uModelID = source.model;
+        value.m_uFlags = source.flags; value.m_hTexture = source.texture; value.m_nFrames = source.frames;
+        value.m_uEmitterDeathCode = source.unidentified_040[0]; value.m_uParticleCreationCode = source.unidentified_040[1];
+        value.m_uParticleDeathCode = source.unidentified_040[2]; value.m_rFPS = Range(source.fps); value.m_uModelID = source.model;
         for (unsigned i = 0; i < properties.size(); ++i)
         {
             const auto& p = source.properties[i]; auto& native = properties[i]; auto& retained = keys[i];

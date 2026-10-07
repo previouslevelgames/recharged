@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original audio pool native teardown strides
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Use each actual native source type's physical slot size in the original pool
 free calls. Preserve original call order, logical capacities/growth, pool state,
@@ -18,10 +18,10 @@ diff --git a/src/Game/Audio/AudioBundleManagerPlatform.cpp b/src/Game/Audio/Audi
 +#include "Game/Audio/SoundInstance.h"
 +#endif
  
- bool UnidentifiedAudioBundleManager_802ECD34::Initialize()
+ bool AudioRpcBundleManager::Initialize()
  {
 @@ -22,16 +25,36 @@
- void UnidentifiedAudioBundleManager_802ECD34::Shutdown()
+ void AudioRpcBundleManager::Shutdown()
  {
      fn_802B467C(&sSoundCueHandlePool);
 +#if defined(MSCHARGED_NATIVE)

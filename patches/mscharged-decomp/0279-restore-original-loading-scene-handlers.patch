@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Restore complete original loading scene handlers
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Retire the 0077/0086 game-side helper substitutions. The complete restored
 Matching translation unit is byte-identical to the pinned source.
@@ -69,7 +69,7 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 +    }
 +}
 +
- bool UnidentifiedLoadingHasPresentation(BaseLoadingScene* scene)
+ bool LoadingSceneHasPresentation(BaseLoadingScene* scene)
  {
      return scene->GetPresentation() != 0;
 @@ -163,17 +173,16 @@

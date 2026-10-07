@@ -43,7 +43,7 @@ void ProduceAux(void* samples, void*) {
 }
 void Check(bool value, const char* text) {
     ++checks;
-    if (!value) throw std::runtime_error(text);
+    if (!value) {std::cerr<<text<<std::endl;throw std::runtime_error(text);}
 }
 template<class F> void Throws(F operation, const char* text) {
     bool failed{};
@@ -191,12 +191,17 @@ void Run(int argc, char** argv) {
     auto sp_get=Load<decltype(&SPGetSoundEntry)>(image,"SPGetSoundEntry");
     auto sp_prepare=Load<decltype(&SPPrepareSound)>(image,"SPPrepareSound");
     auto set_lpf=Load<decltype(&AXSetVoiceLpf)>(image,"AXSetVoiceLpf");
+    auto set_lpf_coefs=Load<decltype(&AXSetVoiceLpfCoefs)>(image,"AXSetVoiceLpfCoefs");
+    auto get_lpf_coefs=Load<decltype(&AXGetLpfCoefs)>(image,"AXGetLpfCoefs");
     auto set_remote=Load<decltype(&AXSetVoiceRmtOn)>(image,"AXSetVoiceRmtOn");
     auto set_loop=Load<decltype(&AXSetVoiceLoop)>(image,"AXSetVoiceLoop");
     auto set_end=Load<decltype(&AXSetVoiceEndAddr)>(image,"AXSetVoiceEndAddr");
     auto set_current=Load<decltype(&AXSetVoiceCurrentAddr)>(image,"AXSetVoiceCurrentAddr");
     mix_init();
     const auto oracle=File(argv[3]), drom_bytes=File(argv[4]), mix_oracle=File(argv[5]);
+    const auto lpf_oracle=File((std::filesystem::path(argv[5]).parent_path()/"lpf-oracle.bin").string().c_str());
+    Check(lpf_oracle.size()==12+15*(202+12*388)&&std::memcmp(lpf_oracle.data(),"AXLPF373",8)==0,
+          "owned LPF opcode oracle extent differs");
     Check(oracle.size()>12 && std::memcmp(oracle.data(),"AXSRC001",8)==0 && drom_bytes.size()==4096,
           "synthetic fixture format differs");
     Check(LE32(oracle.data()+8)==15,"selected source FIR cases differ");
@@ -265,7 +270,7 @@ void Run(int argc, char** argv) {
             std::array<unsigned char,320> untouched{};DSPBackendReadMemory(memory,address,untouched.data(),untouched.size());
             Check(untouched==before,"missing coefficient failure changed source PB");
         }
-        const auto prepared=PrepareNativeAXADPCMVoiceFrame(memory,address,coefficients);
+        auto prepared=PrepareNativeAXADPCMVoiceFrame(memory,address,coefficients);
         const auto* expected=c+16+768;
         for(unsigned i=0;i<96;++i)
             Check(prepared.resampled[i]==Signed(LE16(expected+i*2)),"native4tap differs from actual selected owned instructions");
@@ -294,6 +299,29 @@ void Run(int argc, char** argv) {
               "prepared source transaction has no original preimage");
         std::array<unsigned char,320> staged{};DSPBackendReadMemory(memory,address,staged.data(),staged.size());
         Check(staged==before,"preparation wrote source PB before whole-frame admission");
+        // The actual source full/coeff-only synchronization controls the filter.
+        const auto* filter=lpf_oracle.data()+12+index*(202+12*388);
+        AXPBLPF lpf{LE16(filter),LE16(filter+2),LE16(filter+4),LE16(filter+6)};
+        set_lpf(voice,&lpf);sync(0);
+        const auto filtered=PrepareNativeAXADPCMVoiceFrame(memory,address,coefficients);
+        for(unsigned i=0;i<96;++i)
+            Check(filtered.filtered[i]==Signed(LE16(filter+8+i*2))&&filtered.enveloped[i]==prepared.enveloped[i],
+                  "LPF differs from owned06AB words or changed its source VE input");
+        Check(BE16(filtered.parameters_after.data()+0xbc)==LE16(filter+200),
+              "LPF final signed16 history differs from original firmware store");
+        for(unsigned bus=0;bus<12;++bus) {
+            const auto* channel=filter+202+bus*388;
+            for(unsigned i=0;i<96;++i) {
+                const auto bits=LE32(channel+i*4);s32 value;std::memcpy(&value,&bits,4);
+                Check(filtered.buses[bus][i]==value,"actual mixer did not consume filtered source samples");
+            }
+            Check(BE16(filtered.parameters_after.data()+0x14+bus*4)==LE16(channel+384)&&
+                  BE16(filtered.parameters_after.data()+0x52+depop_index[bus]*2)==LE16(channel+386),
+                  "LPF mix volume/depop differs from original device stores");
+        }
+        DSPBackendReadMemory(memory,address,staged.data(),staged.size());
+        Check(staged==filtered.parameters_before,"LPF preparation changed real PB before admission");
+        prepared=filtered;
         ValidateNativeAXVoiceCommit(memory,prepared);CommitNativeAXVoiceFrame(memory,prepared);
         Check(voice->pb.state==AX_VOICE_RUN,"native hardware directly changed source CPU voice state");
         service_vpb(voice);
@@ -303,6 +331,21 @@ void Run(int argc, char** argv) {
                   BE32(prepared.parameters_after.data()+0x7a),
               "actual source synchronization failed device state/current address/volume receipt");
         Check(prepared.was_running,"active voice contribution omitted a true source voice");
+        DSPBackendReadMemory(memory,address,staged.data(),staged.size());
+        Check(BE16(staged.data()+0xbc)==LE16(filter+200)&&voice->pb.lpf.yn1==lpf.yn1&&voice->pb.lpf.on==lpf.on,
+              "source/device LPF history ownership changed");
+        u16 a0{},b0{};get_lpf_coefs(2000,&a0,&b0);
+        Check(u32(a0)+b0==32767&&a0&&b0,"actual coefficient producer omitted original cutoff request");
+        const auto old_history=BE16(staged.data()+0xbc);
+        set_lpf_coefs(voice,a0,b0);sync(0);
+        DSPBackendReadMemory(memory,address,staged.data(),staged.size());
+        Check(BE16(staged.data()+0xbc)==old_history&&BE16(staged.data()+0xbe)==a0&&BE16(staged.data()+0xc0)==b0,
+              "source coefficient-only update discarded original recursive history");
+        lpf.on=0;set_lpf(voice,&lpf);sync(0);
+        const auto unfiltered=PrepareNativeAXADPCMVoiceFrame(memory,address,coefficients);
+        Check(unfiltered.filtered==unfiltered.enveloped&&
+                  BE16(unfiltered.parameters_after.data()+0xbc)==lpf.yn1,
+              "disabled LPF changed source samples or stored filter history");
         // Stale source setters are not overwritten by an old prepared job.
         if(index==0) {
             auto changed=voice->pb.src;changed.currentAddressFrac=0x1234;set_src(voice,&changed);service_vpb(voice);
@@ -365,9 +408,7 @@ void Run(int argc, char** argv) {
     // Unqualified true source requests remain explicit failures before stores.
     auto* held=acquire(15,nullptr,0);sp_prepare(sp_get(table,0),held,32000);set_state(held,AX_VOICE_RUN);sync(0);
     const auto held_address=pb_bus+held->index*320;
-    AXPBLPF lpf{};lpf.on=1;set_lpf(held,&lpf);service_vpb(held);
-    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"sourceLPF silently bypassed");
-    lpf.on=0;set_lpf(held,&lpf);set_remote(held,TRUE);service_vpb(held);
+    set_remote(held,TRUE);service_vpb(held);
     Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source remote bus silently bypassed");
     set_remote(held,FALSE);set_src_type(held,AX_SRC_TYPE_LINEAR);service_vpb(held);
     Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source linear selection was forciblyfour-tap");

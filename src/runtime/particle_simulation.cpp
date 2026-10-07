@@ -25,8 +25,8 @@ void Qualify(const EffectsSpec& spec, const EffectsTemplate& value)
         || spec.m_bGround || spec.m_bLight || spec.m_uTerrainID || spec.m_nForwardAxis != 0)
         throw std::invalid_argument("Particle spec requires an unavailable attachment, terrain or light service");
     if (value.m_uModelID != 0xffffffff || value.m_eBillboard != EfBill_Billboard
-        || value.IsLit() || (value.mUnidentified037 & ~3) || value.m_eEmitter > Emitter_Disc
-        || value.m_eBlend > EfBlend_Additive || value.mUnidentified040 || value.mUnidentified044 || value.mUnidentified048)
+        || value.DisablesDepthWrite() || (value.m_uFlags & ~3) || value.m_eEmitter > Emitter_Disc
+        || value.m_eBlend > EfBlend_Additive || value.m_uEmitterDeathCode || value.m_uParticleCreationCode || value.m_uParticleDeathCode)
         throw std::invalid_argument("Particle template requires an unqualified model, billboard, flag or event service");
     if (value.m_nFrames != 1 && value.m_nFrames != 4 && value.m_nFrames != 9
         && value.m_nFrames != 16 && value.m_nFrames != 25 && value.m_nFrames != 36)
@@ -39,7 +39,7 @@ void Qualify(const EffectsSpec& spec, const EffectsTemplate& value)
     if (value.m_rParticleLife.base - .5f * std::abs(value.m_rParticleLife.range) < .000001f
         || value.m_rParticleLife.base + .5f * std::abs(value.m_rParticleLife.range) > 1000.f)
         throw std::invalid_argument("Particle lifetime range is outside the qualified positive interval");
-    Bound(value.mUnidentified030, 10000, "UV flip threshold");
+    Bound(value.m_fTexcoordFlipPercentage, 10000, "UV flip threshold");
     for (const auto* property : value.mProperties)
     {
         if (!property) throw std::invalid_argument("Missing particle property");
@@ -71,7 +71,7 @@ ParticleSimulationContext::ParticleSimulationContext(ParticleSimulationOptions o
     {
         const std::lock_guard lock(ownership);
         if (owner || !gMemoryInitialized) throw std::logic_error("Particle simulation requires initialized, unowned game memory");
-        owner = this; live = true; saved_seed = uSeed;
+        owner = this; live = true; saved_seed = gEffectsRandomSeed;
     }
     try
     {
@@ -82,14 +82,14 @@ ParticleSimulationContext::ParticleSimulationContext(ParticleSimulationOptions o
         if (!particles) throw std::bad_alloc();
         std::uninitialized_value_construct_n(particles, capacity);
         for (unsigned i = 0; i < capacity; ++i) free.AddStart(particles + i);
-        uSeed = options.seed;
+        gEffectsRandomSeed = options.seed;
     }
     catch (...)
     {
         free.Clear(); free.m_Allocator.FreeBlocks();
         if (particles) { std::destroy_n(particles, capacity); nlFree(particles); particles = nullptr; }
         if (atlas) fxParticleShutdown();
-        uSeed = saved_seed;
+        gEffectsRandomSeed = saved_seed;
         const std::lock_guard lock(ownership); owner = nullptr; live = false;
         throw;
     }
@@ -107,7 +107,7 @@ ParticleSimulationContext::~ParticleSimulationContext()
         Check(); free.Clear(); free.m_Allocator.FreeBlocks();
         std::destroy_n(particles, capacity); nlFree(particles);
         if (atlas) fxParticleShutdown();
-        uSeed = saved_seed;
+        gEffectsRandomSeed = saved_seed;
         const std::lock_guard lock(ownership); owner = nullptr; live = false;
     }
     catch (...) { std::terminate(); }
@@ -137,7 +137,7 @@ struct ParticleSimulation::Implementation
         texture = registry->FindTexture(spec.m_pTemplate->m_hTexture);
         if (!texture) throw std::invalid_argument("Particle template has no retained authored texture");
         context->Check(); live = true;
-        try { ScopedGameAllocator arena(VirtualAllocator); Construct(uSeed); }
+        try { ScopedGameAllocator arena(VirtualAllocator); Construct(gEffectsRandomSeed); }
         catch (...) { Cleanup(); throw; }
     }
     void Check(bool allow_failed = false) const
@@ -157,7 +157,7 @@ struct ParticleSimulation::Implementation
         nlVec3Set(system->m_vForward, 0, 0, 1);
         nlVec3Set(system->m_vPosition, 0, 0, spec.m_fOffset);
         system->UpdateCoordSys();
-        uSeed = initial_seed; seed = initial_seed; failed = false;
+        gEffectsRandomSeed = initial_seed; seed = initial_seed; failed = false;
     }
     void Cleanup()
     {
@@ -210,7 +210,7 @@ bool ParticleSimulation::Advance(float dt)
     try
     {
         const bool alive = impl_->system->Update(dt);
-        impl_->seed = uSeed;
+        impl_->seed = gEffectsRandomSeed;
         // The qualified coefficient/lifetime bounds prevent original overflow;
         // also check published state before clients can consume it.
         for (const auto& p : Snapshot())
@@ -218,7 +218,7 @@ bool ParticleSimulation::Advance(float dt)
                 if (!std::isfinite(v)) throw std::domain_error("Original particle simulation produced nonfinite state");
         return alive;
     }
-    catch (...) { impl_->seed = uSeed; impl_->failed = true; throw; }
+    catch (...) { impl_->seed = gEffectsRandomSeed; impl_->failed = true; throw; }
 }
 void ParticleSimulation::Die() { impl_->Check(); impl_->system->Die(); }
 void ParticleSimulation::Reset(std::uint32_t seed)

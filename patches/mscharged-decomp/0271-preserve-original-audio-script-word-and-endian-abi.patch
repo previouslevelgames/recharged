@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original audio script serialized words and callback byte order
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Native module data/ABI compatibility only. Original script selection, VM conditions,
 bindings, update and source-owned cleanup remain unchanged. This does not establish

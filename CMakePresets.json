@@ -62,6 +62,32 @@
       }
     },
     {
+      "name": "frontend",
+      "inherits": "graphics",
+      "displayName": "Original frontend Boot test (Release, incomplete startup)",
+      "binaryDir": "${sourceDir}/build/graphics",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_LAUNCHER": true,
+        "MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC": true,
+        "MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC": true,
+        "MSCHARGED_BUILD_ORIGINAL_LOADING_DIAGNOSTIC": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_TITLE": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_SAVE_OWNERS": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_HBM": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_SH_MENUS": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_AUDIO": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE": false,
+        "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_OWNER": true,
+        "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_INITIALIZE": true,
+        "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK": true
+      }
+    },
+    {
       "name": "scene",
       "inherits": "graphics",
       "displayName": "Experimental static Wii asset preview (Release, not playable)",
@@ -72,6 +98,11 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "frontend",
+      "configurePreset": "frontend",
+      "targets": ["mscharged"]
+    },
     {
       "name": "debug",
       "configurePreset": "debug"
@@ -160,6 +191,19 @@
     }
   ],
   "workflowPresets": [
+    {
+      "name": "frontend",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "frontend"
+        },
+        {
+          "type": "build",
+          "name": "frontend"
+        }
+      ]
+    },
     {
       "name": "debug",
       "steps": [

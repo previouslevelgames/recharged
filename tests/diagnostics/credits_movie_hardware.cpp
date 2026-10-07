@@ -15,6 +15,8 @@ struct Owner {
     std::thread::id thread;
     bool registered{}, ready{}, active{};
     void (*service_input)(){};
+    void (*service_device)(void*){};
+    void* device_context{};
 };
 Owner& State() { static Owner owner; return owner; }
 }
@@ -22,6 +24,9 @@ Owner& State() { static Owner owner; return owner; }
 namespace mscharged::diagnostic {
 void ServiceCreditsMovieHardware() {
     auto& owner = State();
+    void (*service_device)(void*){};
+    void* device_context{};
+    void (*service_input)(){};
     {
         std::lock_guard lock(owner.mutex);
         // Real SDK time/VI services are also called by workers, interrupt
@@ -30,20 +35,27 @@ void ServiceCreditsMovieHardware() {
         if (!owner.ready || owner.thread != std::this_thread::get_id() ||
                 owner.active || !platform::NativeInterruptsEnabled()) return;
         owner.active = true;
+        service_device = owner.service_device;
+        device_context = owner.device_context;
+        service_input = owner.service_input;
     }
     struct Finish {
         Owner& owner;
         ~Finish() { std::lock_guard lock(owner.mutex); owner.active = false; }
     } finish{owner};
+    // Progress acknowledged DSP work before AI and the real requests issued
+    // by its source callback afterwards. This delivers actual pending causes;
+    // it never calls an AX/THP source callback or modifies source flags.
+    if (service_device) service_device(device_context);
     platform::ServiceNativeAI();
+    if (service_device) service_device(device_context);
     // One exact owner, never a replacement SDK registration. VI remains
     // serviced by the SDK after this endpoint returns.
-    if (owner.service_input) owner.service_input();
+    if (service_input) service_input();
 }
 
-void InitializeCreditsMovieHardware() { InitializeCreditsMovieHardware(nullptr); }
-
-void InitializeCreditsMovieHardware(void (*service_input)()) {
+namespace {
+void InitializeOwner(void (*service_input)(), bool initialize_ai) {
     auto& owner = State();
     {
         std::lock_guard lock(owner.mutex);
@@ -63,7 +75,8 @@ void InitializeCreditsMovieHardware(void (*service_input)()) {
     try {
         if (AICheckInit())
             throw std::logic_error("Credits movie hardware requires an unclaimed host AI device");
-        AIInit(nullptr); // Real SDL device; no THPSimple/AX callback is installed.
+        if (initialize_ai)
+            AIInit(nullptr); // Credits only; original Backend owns AIInit in the audio-init mode.
     } catch (...) {
         std::lock_guard lock(owner.mutex);
         aurora_unregister_hardware_service(ServiceCreditsMovieHardware);
@@ -73,7 +86,32 @@ void InitializeCreditsMovieHardware(void (*service_input)()) {
         throw;
     }
     std::lock_guard lock(owner.mutex);
-    owner.ready = true;
+    owner.ready = true; // Native SDK endpoint registration, not source/AI readiness.
+}
+} // namespace
+
+void InitializeCreditsMovieHardware() { InitializeCreditsMovieHardware(nullptr); }
+void InitializeCreditsMovieHardware(void (*service_input)()) { InitializeOwner(service_input, true); }
+void InitializeOriginalGameAudioHardware(void (*service_input)()) { InitializeOwner(service_input, false); }
+
+void BindCreditsMovieDeviceService(void (*service_device)(void*), void* context) {
+    auto& owner = State();
+    std::lock_guard lock(owner.mutex);
+    if (!owner.registered || !owner.ready || owner.thread != std::this_thread::get_id() ||
+            owner.active || owner.service_device || !service_device || !context)
+        throw std::logic_error("Native audio device needs an idle unique hardware owner binding");
+    owner.service_device = service_device;
+    owner.device_context = context;
+}
+
+void UnbindCreditsMovieDeviceService(void* context) {
+    auto& owner = State();
+    std::lock_guard lock(owner.mutex);
+    if (!owner.registered || !owner.ready || owner.thread != std::this_thread::get_id() ||
+            owner.active || !owner.service_device || owner.device_context != context)
+        throw std::logic_error("Native audio device must unbind its actual idle borrowed owner");
+    owner.service_device = nullptr;
+    owner.device_context = nullptr;
 }
 
 void ShutdownCreditsMovieHardware() {
@@ -85,6 +123,8 @@ void ShutdownCreditsMovieHardware() {
             throw std::logic_error("Credits movie hardware must retire on its owner thread");
         if (owner.active)
             throw std::logic_error("Cannot retire an active source audio callback");
+        if (owner.service_device)
+            throw std::logic_error("Borrowed native audio device must unbind before hardware retirement");
         if (!aurora_unregister_hardware_service(ServiceCreditsMovieHardware))
             throw std::logic_error("Credits movie hardware endpoint identity changed");
         owner.ready = false;

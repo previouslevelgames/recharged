@@ -1,0 +1,22 @@
+From: mscharged-port
+Subject: [PATCH] native MWCC WENC int absolute-value intrinsic
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Map the original signed32 MWCC __abs intrinsic to its native compiler
+operation. Original WENC loops, clamps, predictor/history and requests remain
+unchanged. The console projection stays byte-exact.
+
+diff --git a/src/RVL_SDK/wenc/wenc.c b/src/RVL_SDK/wenc/wenc.c
+--- a/src/RVL_SDK/wenc/wenc.c
++++ b/src/RVL_SDK/wenc/wenc.c
+@@ -1,5 +1,10 @@
+ #include <revolution/wenc.h>
+ #include <string.h>
++
++#if defined(MSCHARGED_NATIVE)
++// MWCC int intrinsic; the original encoder retains its signed 32-bit operation.
++#define __abs(value) __builtin_abs(value)
++#endif
+ 
+ typedef struct {
+     s32 nXN;

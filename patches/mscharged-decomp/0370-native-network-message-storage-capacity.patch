@@ -1,0 +1,76 @@
+From: mscharged-port native ABI review
+Subject: [PATCH] Match native message pool storage to actual registered payloads
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Keep original15/0 slot count and class allocation/free behavior. Native vtables
+expand NetMessageAllInputsBundle from Wii1976 to2064 bytes beyond the source
+2048-byte physical slot. A compile-time witness covers all35 actual registered
+message types and preserves the source minimum. No message instances, wire
+algorithms, registry state or source initialization are added.
+
+--- a/src/NL/plat/TransportMessage.cpp
++++ b/src/NL/plat/TransportMessage.cpp
+@@ -8,9 +8,63 @@
+ #include "NL/plat/TransportPacket.h"
+ #include "NL/plat/TransportMessage.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "Game/NetworkInputMessages.h"
++#include "Game/LANMessages.h"
++
++// This is a size/alignment witness only; no message or factory is constructed.
++// These are the actual payload types registered by InputManager,
++// LANMessageRegistry and NetworkMessages. The source minimum remains0x800.
++union NativeNetworkMessageStorage
++{
++    u8 sourceMinimum[0x800];
++    NetMessageInput type0;
++    NetMessageInputBundle type1;
++    NetMessageAllInputs type2;
++    NetMessageAllInputsBundle type3;
++    NetMessageFindGame type4;
++    NetMessageFoundGame type5;
++    NetMessageJoinRequest type6;
++    NetMessageJoinResponse type7;
++    NetMessageTransportType6 type8;
++    NetMessageGamePeerAdded type9;
++    NetMessageReadyToLaunchRequest type10;
++    NetMessageReadyToLaunchConfirm type11;
++    NetMessageClientConfirmedJoin type12;
++    NetMessageGameStart type13;
++    NetMessageLoadedGame type14;
++    NetworkMessageType16 type15;
++    NetworkMessageType17 type16;
++    NetMessageLoadedGameClient type17;
++    NetMessageLoadedGameEveryone type18;
++    NetMessageTournamentStart type19;
++    NetMessagePauseRequest type20;
++    NetMessagePauseResponse type21;
++    NetMessageSkipNis type22;
++    NetMessageSkipNisClient type23;
++    NetMessageTournamentGameUpdate type24;
++    NetMessageTournamentLoadingState type25;
++    NetMessageDraft type26;
++    NetMessageDraftMachineInfo type27;
++    NetMessageDraftPickedCaptain type28;
++    NetMessageDraftPickedSidekicks type29;
++    NetMessageSidesChanged type30;
++    NetMessageCheckConnection type31;
++    NetMessageConnectionDecision type32;
++    NetMessageMegaBallPointer type33;
++    NetMessageMegaStrikeMeter type34;
++};
++static_assert(alignof(NativeNetworkMessageStorage) <= alignof(SlotPoolEntry),
++    "Native message storage needs stronger pool alignment");
++#endif
++
+ struct NetworkMessageStorage
+ {
++#if defined(MSCHARGED_NATIVE)
++    u8 mStorage[sizeof(NativeNetworkMessageStorage)];
++#else
+     u8 mStorage[0x800];
++#endif
+ };
+ 
+ SlotPool<NetworkMessageStorage> gNetworkMessagePool(15, 0);

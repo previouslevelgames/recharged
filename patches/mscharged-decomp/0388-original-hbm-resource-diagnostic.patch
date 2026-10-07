@@ -1,0 +1,71 @@
+Subject: [PATCH] admit original HBM resources in named frontend diagnostic
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore exactly original AsyncLoading services26/27 under an explicit native
+diagnostic. Original creation, requests, callback and finalizer bodies are
+unchanged; normal, console and existing other diagnostic projections remain
+identical. No main construction, HBM library/display or menu readiness is added.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 21e04d3c9e97999600b93b9fe7b06e47fabaa9ce..680b74b126b56d2f6492a8d1299391f346649b78 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -278,7 +278,8 @@
+ 
+ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+ {
+-#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
++#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS) \
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM))
+     (void)functionIndex;
+     throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
+ #else
+@@ -476,10 +477,12 @@
+             fn_80116988, (void*)"MUSICSTREAMS");
+         break;
+ #endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 19:
+         SetLoadingComment("AsyncFinalizeCameraLoading");
+         FinishLoadingStepOrUndo(this, AsyncFinalizeCameraLoading());
+         break;
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 20:
+         SetLoadingComment("AsyncFinalizeGameWorldLoading");
+@@ -521,6 +524,9 @@
+         BeginFontLoading(&gLoadInGameFonts);
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM))
+     case 26:
+         SetLoadingComment("AsyncHBMFinalize");
+         FinishLoadingStepOrUndo(this, gpHBMManager->mReady);
+@@ -533,6 +539,8 @@
+         }
+         gpHBMManager->LoadResources();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 28:
+         SetLoadingComment("AsyncInitializeEmissionManager");
+         if (ParticleUpdateTask::sInstance->FinishLoading(sPersistentResourcePool))
+@@ -574,6 +582,7 @@
+         FinishLoadingStepOrUndo(this, MiiManager::s_pInstance->mResourcesLoaded);
+         break;
+ #endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 36:
+     {
+         bool frontEnd = m_SP[-1] != 0;
+@@ -587,6 +596,7 @@
+         SetLoadingComment("AsyncStartCameraLoadingForStadiumViewer");
+         AsyncStartCameraLoadingForStadiumViewer();
+         break;
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 38:
+         fn_8011A2E8(this);

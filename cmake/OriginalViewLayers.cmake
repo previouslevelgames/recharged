@@ -5,6 +5,9 @@ include_guard(GLOBAL)
 include(cmake/OriginalFunctionPools.cmake)
 add_library(charged_original_view_layers_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/Render/RLViewLayers.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Render/RLView.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Render/HighRange.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Render/ShadowVolume.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxFog.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxTarget.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXMaterialProgramRegistry.cpp")

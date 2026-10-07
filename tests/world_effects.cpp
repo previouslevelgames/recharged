@@ -101,7 +101,7 @@ EffectsRegistry::Handle Registry(const std::filesystem::path& folder,bool owned)
 }
 void Real(resources::WorldEffectData::Handle data,EffectsRegistry::Handle registry,bool owned)
 {
-    const auto before1=StandardAllocator.TotalFreeMemory(),before2=VirtualAllocator.TotalFreeMemory();const auto effects_seed=uSeed;
+    const auto before1=StandardAllocator.TotalFreeMemory(),before2=VirtualAllocator.TotalFreeMemory();const auto effects_seed=gEffectsRandomSeed;
     auto controllers=std::make_shared<ParticleControllers>(ParticleControllersOptions{256,32,0x9184eb0c});
     auto service=std::make_shared<WorldBillboardEffects>(registry,controllers);
     WorldEffects world(data,service);const auto global=nlDefaultSeed;
@@ -126,7 +126,7 @@ void Real(resources::WorldEffectData::Handle data,EffectsRegistry::Handle regist
         Reject([&]{controllers->Advance(0);});Check(controllers->Failed(),"Controlled update did not poison controller owner");
     }
     world.Release();if(!owned)controllers->Reset(123);Check(controllers->Snapshot().empty(),"World release retained controller callbacks/particles");service.reset();controllers->Release();controllers.reset();
-    Check(StandardAllocator.TotalFreeMemory()==before1&&VirtualAllocator.TotalFreeMemory()==before2&&uSeed==effects_seed,"World effects leaked original pools/RNG");
+    Check(StandardAllocator.TotalFreeMemory()==before1&&VirtualAllocator.TotalFreeMemory()==before2&&gEffectsRandomSeed==effects_seed,"World effects leaked original pools/RNG");
     std::cout<<(owned?"Owned":"Generated")<<" world effect39: "<<samples<<" live-particle samples, peak "<<peak<<"; actual world trigger95 has zero matches\n";
 }
 }

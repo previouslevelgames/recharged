@@ -1,98 +1,14 @@
 # Experimental runtime
 
-The port is a work in progress alongside the decompilation. Linux diagnostics
-cover selected original initialization, Wii assets and menu previews.
-**Full original game startup and matches remain in development.** These experiments
-currently require a USA `R4QE01` revision 1 ISO/RVZ configured in `mscharged.ini`.
+The port is a work in progress alongside the decompilation. Selected tests run
+original game code on Linux/Vulkan; **full startup and matches are unfinished**.
+These tests currently require a USA `R4QE01` revision 1 ISO/RVZ. See
+[Building](BUILDING.md) for the default launcher build and disc configuration.
 
-Start with [Building](BUILDING.md) for compiler requirements, the launcher and
-disc configuration. Host input and focus behavior are still being validated.
+## Graphics prerequisites
 
-## Experimental original startup
-
-```sh
-git submodule update --init --checkout extern/aurora extern/abseil-cpp extern/fmt extern/xxhash extern/tracy extern/zlib-ng
-cmake --workflow --preset startup
-./build/startup/mscharged --experimental-startup --config ./mscharged.ini
-```
-
-This runs the available original initialization and stops explicitly with exit
-code 3 at the unfinished startup boundary. The launcher exposes **Try startup**.
-For a host check without game data, build preset `aurora` and run
-`./build/aurora/mscharged-aurora-check --window`.
-
-## Original Credits scene test
-
-With the Linux/Vulkan prerequisites below:
-
-```sh
-cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC=ON -DMSCHARGED_BUILD_LAUNCHER=ON
-cmake --build --preset graphics --target mscharged -j 3
-./build/graphics/mscharged --experimental-credits --disk ./game/R4QE01.rvz --window
-```
-
-The launcher also offers **Try Credits**. The separate
-`mscharged-original-main-credits-check` target uses the same original-main driver.
-The test also accepts `--config FILE`, `--disc FILE` (`--disk`), `--window`,
-`--fullscreen`, `--size WIDTHxHEIGHT`, and `--aspect auto|4:3|16:9`; command-line values override the INI
-for this run without saving. `--window` or `--fullscreen` keeps it open.
-
-This temporary test enters original `main`, then loads and renders Credits with
-the original fonts, frontend code, scrolling and THP movie with native audio.
-Desktop keys feed the original frontend input: Enter/Space is A,
-Escape/Backspace is B, arrows are D-pad, and Z/X are 1/2. A advances to the original
-COPYRIGHTS screen; the following menu transition is still blocked.
-It skips blocked startup steps; full startup, gameplay input and full game audio
-remain pending. Playback timing is still experimental. Close the window to exit. Omit
-both `--window` and `--fullscreen` to save a capture and exit. The test uses original frame submission
-and VI framebuffer presentation. The game image keeps its original aspect and
-positioning when the window is resized. Add `--size 1280x720` to choose an initial
-window size; unused space is filled with bars. `[display] aspect` selects the
-original Wii 4:3 or 16:9 layout, including text placement. Use `--aspect 16:9`
-to override it for one run. `auto` chooses once from the initial window size;
-resizing preserves that layout.
-
-The separate `mscharged-original-credits-check` target tests Credits directly,
-including the original THP movie and native audio:
-
-```sh
-cmake --build --preset graphics --target mscharged-original-credits-check -j 3
-./build/graphics/mscharged-original-credits-check --disc ./game/R4QE01.rvz --window
-```
-
-Audio can repeat during host scheduling delays. Full game audio remains pending.
-
-## Original Boot and Intro test
-
-```sh
-cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC=ON -DMSCHARGED_BUILD_LAUNCHER=ON
-cmake --build --preset graphics --target mscharged -j 3
-./build/graphics/mscharged --experimental-frontend --disk ./game/R4QE01.rvz --window --aspect 16:9
-```
-
-The launcher also offers **Try boot sequence**. This temporary test runs the
-original loading and frontend tasks through Boot and Intro. Keyboard input uses
-the original Wii/frontend path. Later menus, game sound effects (including the
-static Next Level logo), saves and full startup remain incomplete.
-
-## Original movie audio test
-
-```sh
-cmake --preset startup -DMSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC=ON
-cmake --build build/startup --target mscharged-thp-audio-check
-SDL_VIDEODRIVER=dummy ./build/startup/mscharged-thp-audio-check \
-  ./build/startup/liboriginal_movie_audio_module.so ./game/R4QE01.rvz \
-  art/movies/credits.thp 5000 ./build/startup/credits.pcm
-```
-
-This opt-in diagnostic runs the original movie decoder and mixer through the
-native audio device. It omits video and full startup; audio can repeat during
-host scheduling delays.
-
-## Rendering and menu previews
-
-Graphics presets currently require Linux, a desktop, Vulkan GPU/driver,
-validation layers, GNU Make, and Tcl 8.6+. Initialize these additional sources:
+Use a Vulkan GPU/driver, a desktop, validation layers, GNU Make and Tcl 8.6+.
+Initialize the additional pinned sources:
 
 ```sh
 git -c submodule.recurse=false submodule update --init --checkout \
@@ -103,24 +19,59 @@ git -C extern/dawn -c submodule.recurse=false submodule update --init --checkout
   third_party/spirv-headers/src third_party/spirv-tools/src \
   third_party/vulkan-headers/src third_party/vulkan-utility-libraries/src
 git -C extern/freetype -c submodule.recurse=false submodule update --init --checkout --depth 1 -- subprojects/dlg
-CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --workflow --preset scene
-./build/scene/mscharged --experimental-scene --frontend-title --config ./mscharged.ini
 ```
 
-Arrows, D-pad or the left stick move the pointer; Enter/A selects and Escape/B
-goes Back. Options includes Audio, Visual and the earlier Credits preview.
-These previews use transitional adapters and do not validate execution of the
-full original game or the refactored original Credits scene.
+The first graphics build is large. Adjust the build parallelism for available
+memory. Windows, macOS, other disc regions and Wii peripherals remain unverified.
 
-Use `--frontend-main` or `--frontend-options` to start there directly, or omit
-the menu selection for the static ball preview. Additional inspectors include `--particles`,
-`--debug-camera`, and `--frontend-boot`; use `--help` for their options.
-Add `--frames 180` for a bounded run. Run without arguments to open the launcher.
+## Original Boot scene
 
-For a rendering check without game data, build preset `graphics` and run
-`./build/graphics/mscharged-gx-check --window`. The first graphics build is large;
-adjust `CMAKE_BUILD_PARALLEL_LEVEL` for available memory. Vulkan tests are opt-in
-with `-DMSCHARGED_TEST_VULKAN=ON` when configuring.
+```sh
+CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset frontend
+./build/graphics/mscharged --experimental-frontend --disc ./game/R4QE01.rvz --window
+```
 
-Full Wii peripheral support, other disc regions, Windows and macOS remain
-unverified. These selected runtime paths do not complete the original game loop.
+The `frontend` preset reuses `build/graphics`. It runs original `main`, loading
+and frontend tasks through the authored Boot script, including the static Next
+Level logo and its original sound request. Earlier startup steps are still
+omitted; Intro movie initialization and progression to later menus remain in
+development. Audio quality and performance are still being validated.
+
+The launcher offers **Try boot sequence**. Close the window to exit, or omit
+`--window` for a bounded run. A build with the authored Boot script enabled does
+not support the separate `--experimental-options` shortcut.
+
+## Original Credits scene
+
+After building the `frontend` preset:
+
+```sh
+./build/graphics/mscharged --experimental-credits --disc ./game/R4QE01.rvz --window
+```
+
+This selected test runs original Credits loading, text, scrolling and THP video
+with native audio. It skips unfinished startup steps. Movie audio can still
+repeat during host scheduling delays. Enter/Space is A, Escape/Backspace is B,
+arrows are D-pad, and Z/X are 1/2. A advances to COPYRIGHTS; the following menu
+transition is unfinished. Host focus and menu input remain under validation.
+
+## Run options
+
+Both tests accept `--config FILE`, `--disc FILE` (also `--disk`), `--window`,
+`--fullscreen`, `--size WIDTHxHEIGHT` and `--aspect auto|4:3|16:9`. These override
+INI settings for this run without saving. The default layout is 16:9; resizing
+preserves the selected layout and fills unused space with bars.
+
+## Other checks
+
+For the original initialization boundary without graphics:
+
+```sh
+git submodule update --init --checkout extern/aurora extern/abseil-cpp extern/fmt extern/xxhash extern/tracy extern/zlib-ng
+cmake --workflow --preset startup
+./build/startup/mscharged --experimental-startup --config ./mscharged.ini
+```
+
+This stops explicitly at the unfinished startup boundary with exit code 3.
+For rendering without game data, build preset `graphics` and run
+`./build/graphics/mscharged-gx-check --window`.

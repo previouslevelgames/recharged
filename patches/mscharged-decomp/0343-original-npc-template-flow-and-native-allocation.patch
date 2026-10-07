@@ -1,5 +1,5 @@
 Subject: Restore original NPC loading flow and native actor allocation extent
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Retire the historical0131 helper substitutions from the original source TU.
 Selection order, resource paths, wait conditions and all callbacks are again the

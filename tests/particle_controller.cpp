@@ -32,7 +32,7 @@ std::uint32_t Random(std::uint32_t seed,unsigned count)
 {for(unsigned i=0;i<count;++i){const auto a=seed^0x1d872b41U;const auto b=a^(a>>5);seed=b^a^(b<<27);}return seed;}
 void Basic(const std::filesystem::path& folder)
 {
- auto registry=Load(folder,"multi");auto before1=StandardAllocator.TotalFreeMemory(),before2=VirtualAllocator.TotalFreeMemory();const auto saved=uSeed;
+ auto registry=Load(folder,"multi");auto before1=StandardAllocator.TotalFreeMemory(),before2=VirtualAllocator.TotalFreeMemory();const auto saved=gEffectsRandomSeed;
  {
   ParticleControllers c({32,8,123});auto a=c.Start(registry,0x81f2a311);auto b=c.Start(registry,0x81f2a311,{false,71});
   auto initial=c.Snapshot();Check(initial.size()==2&&initial[0].token==b&&initial[0].id==71&&initial[1].id==1,"Original prepend/ID order differs");
@@ -64,7 +64,7 @@ void Basic(const std::filesystem::path& folder)
   c.Reset(321);auto fresh=c.Start(registry,0x81f2a311);Check(fresh!=a&&fresh!=b&&c.Snapshot()[0].id==1,"Reset reused token or retained ID sequence");c.Advance(.25f);Check(c.Seed()==Random(321,104),"Reset seed differs");
   c.Destroy(fresh);Check(c.Snapshot().empty(),"Destroy did not remove controller");c.Release();c.Release();Check(!c.Active(),"Release stayed active");
  }
- Check(uSeed==saved&&ParticleSystem::m_NumInstances==0,"Shared atlas/RNG ownership leaked");
+ Check(gEffectsRandomSeed==saved&&ParticleSystem::m_NumInstances==0,"Shared atlas/RNG ownership leaked");
  Check(StandardAllocator.TotalFreeMemory()==before1&&VirtualAllocator.TotalFreeMemory()==before2,"Controller pools leaked arenas");
  {
   ParticleControllers c({3,4,19});auto first=c.Start(registry,0x81f2a311);auto second=c.Start(registry,0x81f2a311,{false,0});c.Advance(.25f);

@@ -8,6 +8,7 @@
 
 namespace mscharged::platform {
 class DSPInstructionCore;
+class NativeAXFunctionalDevice;
 // Explicit native hardware processor only: callback returns after genuine
 // checked command/PB/output stores. It never invokes source callbacks or mails.
 struct NativeAXDeviceFrameResult {
@@ -18,7 +19,24 @@ struct NativeAXFrameProcessor {
     void* context{};
     NativeAXDeviceFrameResult (*process)(void*,NativeDSPMemoryEndpoint,std::uint32_t,std::size_t){};
 };
-enum class NativeAXBootstrapPhase { Cold, LoaderReady, Loading, InitPrefixCompleted, Faulted, Retired };
+// Sealed typed native processor. Only the actual functional device can create
+// this lifetime contract; arbitrary ready/frame callbacks cannot select it.
+class NativeAXFunctionalProcessor {
+private:
+    void* context_;
+    void (*initialize_)(void*,NativeDSPMemoryEndpoint);
+    void (*reset_)(void*);
+    NativeAXDeviceFrameResult (*process_)(void*,NativeDSPMemoryEndpoint,std::uint32_t,std::size_t);
+    NativeAXFunctionalProcessor(void* context,decltype(initialize_) initialize,
+        decltype(reset_) reset,decltype(process_) process)
+        :context_(context),initialize_(initialize),reset_(reset),process_(process) {}
+    friend class NativeAXFunctionalDevice;
+    friend class NativeAXBootstrapDevice;
+};
+// NativeKernelInitialized is a distinct functional platform state: never ISA
+// prefix completion or ROM/conformance readiness.
+enum class NativeAXBootstrapPhase { Cold, LoaderReady, Loading, InitPrefixCompleted, Faulted, Retired,
+                                    NativeKernelInitialized };
 struct NativeAXBootstrapStatus {
     NativeAXBootstrapPhase phase;
     std::uint16_t loader_words;
@@ -65,6 +83,14 @@ public:
                             NativeDSPControlEndpoint control,
                             std::uint32_t firmware_address,
                             NativeAXFrameMode frame_mode,DSPInstructionCore& retained_chip);
+    // Explicit ROM-free functional hardware selection. Actual initialization
+    // resources and supported work are provided by a sealed native device;
+    // this never creates a core or marks InitPrefixCompleted.
+    NativeAXBootstrapDevice(NativeDSPMemoryEndpoint memory,
+                            NativeDSPMailboxEndpoint mailboxes,
+                            NativeDSPControlEndpoint control,
+                            std::uint32_t firmware_address,
+                            const NativeAXFunctionalProcessor& processor);
     ~NativeAXBootstrapDevice();
     NativeAXBootstrapDevice(const NativeAXBootstrapDevice&)=delete;
     NativeAXBootstrapDevice& operator=(const NativeAXBootstrapDevice&)=delete;

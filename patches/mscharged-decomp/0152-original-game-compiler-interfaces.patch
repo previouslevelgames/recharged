@@ -1,5 +1,5 @@
 Subject: Preserve native compiler interfaces for the original Game source
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Use authoritative audio header linkage, an explicit full-width encoded Terrain
 index cast, and emit available original nlStrNCat<char> for native linking.

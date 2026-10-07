@@ -1,5 +1,5 @@
 Subject: Preserve original localization with native Wii32 and UTF16 storage
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Keep original Load language/filename/allocator requests, callback validation,
 lookup/fallback and backing lifetime. Use fixed Wii20/8-byte scalar geometry
@@ -75,9 +75,9 @@ diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
  
  const unsigned long nlLocalization::LanguageId[] = {
      0x7A947B29,
-@@ -47,8 +59,18 @@
- // in read-only small data rather than the predecessor's char[4] initialiser.
+@@ -42,8 +54,18 @@
  
+ nlLocalization* g_pLocalization;
  
 -static void OnTableLoaded(LOCHeader* pFile, unsigned long, nlLocalization* pLocalization)
 +#if defined(MSCHARGED_NATIVE)
@@ -95,7 +95,7 @@ diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
      pLocalization->m_pFile = pFile;
  
      if (memcmp(pFile, nlLocalization::Thumbprint, 4) != 0 || pFile->Version != 1
-@@ -61,6 +83,9 @@
+@@ -56,6 +78,9 @@
          return;
      }
  

@@ -1,0 +1,108 @@
+From: mscharged-port
+Subject: [PATCH] Admit original authored Boot script0 services and logo cue in a named diagnostic
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore unchanged original services2/11/33/15/16 alongside qualified412
+services12/13, plus the genuine Boot handler cue/unload, only under an
+explicit native BOOT_SCRIPT diagnostic. The original bytecode owns the
+service order, waits and callbacks. No IP, stack, readiness or resource
+selection is rewritten. Default, console and earlier selectors are intact.
+Normal BootLoadingToFE/script6 and CleanBootShutdown/script13/7 remain
+separate prerequisites; this is selected function0 integration only.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -280,7 +280,8 @@
+ {
+ #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS) \
+     && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM)) \
+-    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_AUDIO))
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_AUDIO)) \
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+     (void)functionIndex;
+     throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
+ #else
+@@ -306,9 +307,14 @@
+         gNPCManager->CreateNPCTemplate(name, persistent);
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+     case 2:
+         CreateLargeFEResourcePool();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 3:
+         CreateFEResourcePool();
+         break;
+@@ -378,6 +384,9 @@
+         FEAudio::SetSoundCategory(0x15);
+         FEMusic::SetInGame(false);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+     case 11:
+         SetLoadingComment("AsyncFELocalizationBegin");
+         if (FontManager::Instance() == 0)
+@@ -440,6 +449,9 @@
+         StopSound(0x6AF33AC2, this);
+         g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+     case 15:
+         fn_8011B178(this);
+         break;
+@@ -468,6 +480,8 @@
+         }
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 17:
+         lbl_806E1058 += gAudioEnabled ? 1 : 0;
+         lbl_806E1048 = nlGetTicker();
+@@ -571,10 +585,15 @@
+     case 32:
+         CharacterLoader::sInstance.StartLoadingSidekickAudio();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+     case 33:
+         SetLoadingComment("AsyncFELocalizationFinalize");
+         FinishLoadingStepOrUndo(this, UpdateFontLoading(&gLoadInGameFonts));
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 34:
+         SetLoadingComment("AsyncMiiLoadingBegin");
+         if (MiiManager::s_pInstance == 0)
+diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
+--- a/src/Game/SH/SHBootLoading.cpp
++++ b/src/Game/SH/SHBootLoading.cpp
+@@ -225,7 +225,8 @@
+         {
+             mPhase = PhaseFinished;
+             mElapsedTime = 0.0f;
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+             g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
+ #endif // normal AX NLG sound bank is omitted in this diagnostic
+         }
+@@ -271,7 +272,8 @@
+         break;
+     case PhaseDeveloperLogo:
+         mPresentation->SetActiveSlide("NLG", true);
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+         FEAudio::PlaySound(0x17, 0xDE83984E, 0, 0);
+ #endif // normal AX NLG sound cue is omitted in this diagnostic
+         break;

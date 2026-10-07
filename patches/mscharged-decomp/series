@@ -1,4 +1,3 @@
-# Apply in this order to the exact commit in base.
 0001-use-standard-fabs-in-nlMath-header.patch
 0002-keep-mt-seed-state-32-bit.patch
 0003-fix-native-rvl-scalar-types.patch
@@ -280,3 +279,30 @@
 0368-original-frontend-flash-admission.patch
 0363-native-slot-pool-physical-stride.patch
 0372-original-frontend-save-owner-admission.patch
+0369-native-original-save-data.patch
+0371-native-original-world-animation-parent-abi.patch
+0375-original-specular-game-module-flow.patch
+0370-native-network-message-storage-capacity.patch
+0381-original-game-material-vertex-formats.patch
+0376-native-nand-banner-write-bytes.patch
+0384-original-material-construction-and-lifetime.patch
+0374-native-original-material-array-and-fifo-transport.patch
+0383-original-module-owned-material-array-bindings.patch
+0386-native-rlg-matrix-bytes.patch
+0390-original-frontend-material-flow.patch
+0392-original-camera-and-material-render-flow.patch
+0393-original-frontend-material-registry.patch
+0388-original-hbm-resource-diagnostic.patch
+0396-original-shadow-layer-owners.patch
+0404-original-main-game-audio-owner-diagnostic.patch
+0401-original-sh-menu-diagnostic-factories.patch
+0402-native-wenc-int-intrinsic.patch
+0405-original-nis-source-and-address-compatibility.patch
+0410-original-main-audio-initialize-diagnostic.patch
+0411-admit-original-frontend-audio-task.patch
+0412-original-async-audio-diagnostic.patch
+0413-admit-original-nis-constructor-diagnostic.patch
+0414-original-boot-script-diagnostic.patch
+0415-original-main-boot-script-diagnostic.patch
+0416-restore-original-shadow-mesh-writer.patch
+0417-original-prior-boot-source-diagnostic.patch

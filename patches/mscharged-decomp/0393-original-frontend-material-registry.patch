@@ -1,0 +1,214 @@
+Subject: [PATCH] Admit complete original frontend material registry
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore all original placement-new requests in the named frontend material
+diagnostic. Original startup owns their order and later Initialize traversal.
+Keep normal source and the existing standalone Credits diagnostic unchanged.
+
+--- a/src/NL/glx/GXMaterialProgramRegistry.cpp
++++ b/src/NL/glx/GXMaterialProgramRegistry.cpp
+@@ -7,165 +7,165 @@
+ {
+     new (nlMalloc(sizeof(GXUnlitTextureMaterialProgram), 8, false))
+         GXUnlitTextureMaterialProgram;
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXConstantColourMaterialProgram), 8, false))
+         GXConstantColourMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXTextureColourAddMaterialProgram), 8, false))
+         GXTextureColourAddMaterialProgram;
+ #endif
+     new (nlMalloc(sizeof(GXVertexColourTextureMaterialProgram), 8, false))
+         GXVertexColourTextureMaterialProgram;
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXCompactColourMaterialProgram), 8, false))
+         GXCompactColourMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXVertexColourMaterialProgram), 8, false))
+         GXVertexColourMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXSkinnedUnlitTextureMaterialProgram), 8, false))
+         GXSkinnedUnlitTextureMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXTextureBlendMaterialProgram), 8, false))
+         GXTextureBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXVertexColourDetailBlendMaterialProgram), 8, false))
+         GXVertexColourDetailBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXThreeLightDiffuseMaterialProgram), 8, false))
+         GXThreeLightDiffuseMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXFixedLightMaterialProgram), 8, false))
+         GXFixedLightMaterialProgram;
+ #endif
+     new (nlMalloc(sizeof(GXFloatTexturedColourMaterialProgram), 8, false))
+         GXFloatTexturedColourMaterialProgram;
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXRedColourMaterialProgram), 8, false))
+         GXRedColourMaterialProgram;
+ #endif
+     new (nlMalloc(sizeof(GXScissoredVertexColourTextureMaterialProgram), 8, false))
+         GXScissoredVertexColourTextureMaterialProgram;
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXShadowVolumeMaterialProgram), 8, false))
+         GXShadowVolumeMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXSkinnedMultiLightMaterialProgram), 8, false))
+         GXSkinnedMultiLightMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXCharacterSkinCustomMaterialProgram), 8, false))
+         GXCharacterSkinCustomMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXSpecularMaterialProgram), 8, false))
+         GXSpecularMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXColourFresnelMaterialProgram), 8, false))
+         GXColourFresnelMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXSpecularFresnelMaterialProgram), 8, false))
+         GXSpecularFresnelMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXScrollingDiffuseMaterialProgram), 8, false))
+         GXScrollingDiffuseMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXSpecularLookupMaterialProgram), 8, false))
+         GXSpecularLookupMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
+     new (nlMalloc(sizeof(GXMovieMaterialProgram), 8, false))
+         GXMovieMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXMaskedDetailBlendMaterialProgram), 8, false))
+         GXMaskedDetailBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXMaskedSpecularFresnelMaterialProgram), 8, false))
+         GXMaskedSpecularFresnelMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXScrollingSpecularMaterialProgram), 8, false))
+         GXScrollingSpecularMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXDetailModulateMaterialProgram), 8, false))
+         GXDetailModulateMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXShadowedDetailBlendMaterialProgram), 8, false))
+         GXShadowedDetailBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXSpecularDetailBlendMaterialProgram), 8, false))
+         GXSpecularDetailBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXScrollingMaskedDetailBlendMaterialProgram), 8, false))
+         GXScrollingMaskedDetailBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXScrollingShadowedDetailBlendMaterialProgram), 8, false))
+         GXScrollingShadowedDetailBlendMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXBlackTextureAlphaMaterialProgram), 8, false))
+         GXBlackTextureAlphaMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXMegaDiffuseMaterialProgram), 8, false))
+         GXMegaDiffuseMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXMegaSpecularFresnelMaterialProgram), 8, false))
+         GXMegaSpecularFresnelMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXCharacterDamageMaterialProgram), 8, false))
+         GXCharacterDamageMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXMegaSpecularMaterialProgram), 8, false))
+         GXMegaSpecularMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXFourTextureAddMaterialProgram), 8, false))
+         GXFourTextureAddMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXShadowedDiffuseMaterialProgram), 8, false))
+         GXShadowedDiffuseMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXCameraScrolledOverlayMaterialProgram), 8, false))
+         GXCameraScrolledOverlayMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXScrollingCameraOverlayMaterialProgram), 8, false))
+         GXScrollingCameraOverlayMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXCrystalMaterialProgram), 8, false))
+         GXCrystalMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXWarbleMaterialProgram), 8, false))
+         GXWarbleMaterialProgram;
+ #endif
+-#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATERIALS)
+     new (nlMalloc(sizeof(GXMaskedDiffuseBlendMaterialProgram), 8, false))
+         GXMaskedDiffuseBlendMaterialProgram;
+ #endif

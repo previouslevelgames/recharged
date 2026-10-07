@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original bounded CPU particle simulation and own atlas allocations
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Native simulation uses an explicit constructor tag and shares the original field
 initialization, emission, RNG, update, motion and quad bodies. It never registers
@@ -72,7 +72,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
 +#include <stdexcept>
 +#endif
 +
- unsigned int uSeed = 0x9184EB0C;
+ unsigned int gEffectsRandomSeed = 0x9184EB0C;
  
  float fxAnimatedRange::Evaluate(float value) const
  {
@@ -152,13 +152,13 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
  ParticleSystem::~ParticleSystem()
  {
-     if (m_pTemplate->mUnidentified040 != 0)
+     if (m_pTemplate->m_uEmitterDeathCode != 0)
      {
 +#ifdef MSCHARGED_NATIVE
 +        std::terminate();
 +#else
          tDebugPrintManager::Print(DC_RENDER, "OnEmitterDeath: %d\n",
-             m_pTemplate->mUnidentified040);
+             m_pTemplate->m_uEmitterDeathCode);
 +#endif
      }
  
@@ -177,26 +177,26 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      }
 @@ -414,8 +440,12 @@
  
-         if (m_pTemplate->mUnidentified044 != 0)
+         if (m_pTemplate->m_uParticleCreationCode != 0)
          {
 +#ifdef MSCHARGED_NATIVE
 +        throw std::logic_error("Particle event diagnostics require the game debug service");
 +#else
              tDebugPrintManager::Print(DC_RENDER, "OnParticleCreation: %d\n",
-                 m_pTemplate->mUnidentified044);
+                 m_pTemplate->m_uParticleCreationCode);
 +#endif
          }
  
          m_Particles.AddStart(pPart);
 @@ -481,8 +511,12 @@
          {
-             if (m_pTemplate->mUnidentified048 != 0)
+             if (m_pTemplate->m_uParticleDeathCode != 0)
              {
 +#ifdef MSCHARGED_NATIVE
 +        throw std::logic_error("Particle event diagnostics require the game debug service");
 +#else
                  tDebugPrintManager::Print(DC_RENDER, "OnParticleDeath: %d\n",
-                     m_pTemplate->mUnidentified048);
+                     m_pTemplate->m_uParticleDeathCode);
 +#endif
              }
              m_Particles.Remove(&iterator, 0);

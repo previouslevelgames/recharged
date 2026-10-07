@@ -1,0 +1,1 @@
+{ global: charged_thp_mode1_open; charged_thp_mode1_decode; charged_thp_mode1_close; local: *; };

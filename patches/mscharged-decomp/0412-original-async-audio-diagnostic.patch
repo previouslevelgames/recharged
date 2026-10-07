@@ -1,0 +1,41 @@
+From: mscharged-port
+Subject: [PATCH] Admit original Async Splash-bank source requests in explicit audio diagnostic
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore only unchanged original service12 bank request and service13 wait under
+a named native AUDIO diagnostic. Original branches, callback, ownership and
+completion remain literal; no bank preloading, readiness or sample selection.
+Default/console and all existing selector projections remain unchanged.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -279,7 +279,8 @@
+ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+ {
+ #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS) \
+-    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM))
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM)) \
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_AUDIO))
+     (void)functionIndex;
+     throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
+ #else
+@@ -388,6 +389,9 @@
+         BeginFontLoading(&gLoadInGameFonts);
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_AUDIO))
+     case 12:
+         if (!lbl_806E1044)
+         {
+@@ -430,6 +434,8 @@
+             StopWithUndo();
+         }
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 14:
+         StopSound(0x6AF33AC2, this);
+         g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);

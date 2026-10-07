@@ -1,0 +1,145 @@
+From: mscharged-port contributors
+Subject: [PATCH] Filter independent desktop VI signal at source pixel centers
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Preserve the physical field shader/history and original selected XFB/VI geometry.
+Decode RGB pixels before continuous desktop-only reconstruction, avoiding the
+intermediate nearest-neighbor640-to680 expansion. Final aspect-fit copy remains
+linear, and source/internal GX resolution is unchanged.
+
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -47,6 +47,49 @@
+   return vec4f(vec3f(clamp((rgb+vec3i(128))/vec3i(256),vec3i(0),vec3i(255)))/255.0,1.0);
+ }
+ )";
++constexpr auto DesktopShader = R"(
++struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, };
++@group(0) @binding(0) var xfb: texture_2d<f32>;
++@group(0) @binding(1) var<uniform> vi: Uniforms;
++@vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
++  switch index {
++    case 0u: { return vec4f(-1.0,-1.0,0.0,1.0); }
++    case 1u: { return vec4f(3.0,-1.0,0.0,1.0); }
++    default: { return vec4f(-1.0,3.0,0.0,1.0); }
++  }
++}
++
++// The desktop signal is independent of the exact physical field history.
++// Decode individual YUYV pixels before interpolating; packed Y/U/Y/V channels
++// cannot themselves be sampled as an ordinary RGB texture.
++fn desktop_rgb(source: vec2i) -> vec3f {
++  let bytes=vec4i(floor(textureLoad(xfb,vec2i(source.x/2,source.y),0)*255.0+0.5));
++  let y=select(bytes.x,bytes.z,source.x%2!=0)-16;
++  let u=bytes.y-128; let v=bytes.w-128;
++  let rgb=vec3i(298*y+409*v,298*y-100*u-208*v,298*y+516*u);
++  return vec3f(clamp((rgb+vec3i(128))/vec3i(256),vec3i(0),vec3i(255)))/255.0;
++}
++@fragment fn fragment_desktop(@builtin(position) position: vec4f) -> @location(0) vec4f {
++  let at=vec2u(position.xy);
++  if any(at<vi.signal.zw) || any(at>=vi.signal.zw+vi.display.xy) {
++    return vec4f(0.0,0.0,0.0,1.0);
++  }
++  // position contains the destination pixel center. Subtract half a source
++  // pixel after mapping to its center-based texel coordinates.
++  let source=(position.xy-vec2f(vi.signal.zw))*vec2f(vi.source_geometry.xy)/
++      vec2f(vi.display.xy)+vec2f(vi.display.zw)-vec2f(0.5);
++  let first=vec2i(floor(source));
++  let last=first+vec2i(1);
++  let minimum=vec2i(vi.display.zw);
++  let maximum=minimum+vec2i(vi.source_geometry.xy)-vec2i(1);
++  let weight=fract(source);
++  let upper=mix(desktop_rgb(clamp(first,minimum,maximum)),
++      desktop_rgb(clamp(vec2i(last.x,first.y),minimum,maximum)),weight.x);
++  let lower=mix(desktop_rgb(clamp(vec2i(first.x,last.y),minimum,maximum)),
++      desktop_rgb(clamp(last,minimum,maximum)),weight.x);
++  return vec4f(mix(upper,lower,weight.y),1.0);
++}
++)";
+ struct Output {
+   std::mutex mutex;
+   std::thread::id owner;
+@@ -57,7 +100,7 @@
+   AuroraVIPresentedGeometry presented_geometry{};
+   TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout;
+-  wgpu::RenderPipeline pipeline;
++  wgpu::RenderPipeline pipeline, desktop_pipeline;
+ };
+ Output& State() { static Output state; return state; }
+ void RequireOwner(const Output& state) {
+@@ -135,22 +178,19 @@
+ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+   std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop;
+-  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline; bool widescreen;
++  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline; bool widescreen;
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+     if (!state.pending || state.servicing) return;
+     state.servicing = true; state.pending = false; scanout = state.committed;
+     snapshot = state.committed_snapshot; widescreen = state.widescreen;
+-    layout = state.layout; pipeline = state.pipeline; signal = state.signal;
++    layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
+-    if ((scanout.tv_mode & 3u) == VI_INTERLACE) {
+-      if (!state.desktop || state.desktop == signal || state.desktop->size.width != scanout.active_width ||
+-          state.desktop->size.height != scanout.active_height)
+-        state.desktop = new_signal(scanout.active_width, scanout.active_height);
+-    } else {
+-      state.desktop = signal;
+-    }
++    // Keep physical sampling untouched in both interlaced and progressive modes.
++    if (!state.desktop || state.desktop == signal || state.desktop->size.width != scanout.active_width ||
++        state.desktop->size.height != scanout.active_height)
++      state.desktop = new_signal(scanout.active_width, scanout.active_height);
+     desktop = state.desktop;
+   }
+   struct Active { Output& state; ~Active() { std::lock_guard lock(state.mutex); state.servicing = false; } } active{state};
+@@ -164,13 +204,12 @@
+   const auto windowId = SDL_GetWindowID(window::get_sdl_window());
+   const auto windowIncarnation = window::get_window_incarnation();
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+-                              layout, pipeline, viewport, windowSize, windowId, windowIncarnation,
++                              layout, pipeline, desktopPipeline, viewport, windowSize, windowId, windowIncarnation,
+                               desktop = std::move(desktop)] {
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+     encode_signal(encoder, signal, scanout, snapshot, layout, pipeline, true);
+-    if (desktop != signal)
+-      encode_signal(encoder, desktop, scanout, snapshot, layout, pipeline, false);
++    encode_signal(encoder, desktop, scanout, snapshot, layout, desktopPipeline, false);
+     wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+@@ -222,7 +261,7 @@
+ void shutdown(void*) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+-  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.layout = {};
++  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+   state.presented_geometry = {};
+ }
+@@ -247,9 +286,19 @@
+       .vertex = {.module = module, .entryPoint = "vertex"},
+       .primitive = {.topology = wgpu::PrimitiveTopology::TriangleList}, .fragment = &fragment};
+   const auto pipeline = webgpu::g_device.CreateRenderPipeline(&pipelineDesc);
++  const wgpu::ShaderSourceWGSL desktopWgsl{wgpu::ShaderSourceWGSL::Init{.code = DesktopShader}};
++  const wgpu::ShaderModuleDescriptor desktopModuleDesc{.nextInChain = &desktopWgsl};
++  const auto desktopModule = webgpu::g_device.CreateShaderModule(&desktopModuleDesc);
++  auto desktopFragment = fragment;
++  desktopFragment.module = desktopModule; desktopFragment.entryPoint = "fragment_desktop";
++  auto desktopPipelineDesc = pipelineDesc;
++  desktopPipelineDesc.vertex.module = desktopModule;
++  desktopPipelineDesc.label = "Pixel-center filtered VI desktop signal";
++  desktopPipelineDesc.fragment = &desktopFragment;
++  const auto desktopPipeline = webgpu::g_device.CreateRenderPipeline(&desktopPipelineDesc);
+   const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown};
+   aurora_attach_video_output_device(&endpoint);
+-  state.layout = layout; state.pipeline = pipeline; state.configured = true; state.widescreen = config->widescreen;
++  state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline; state.configured = true; state.widescreen = config->widescreen;
+   state.owner = std::this_thread::get_id(); state.pending = false; state.presentations = 0;
+   state.presented_geometry = {};
+ }

@@ -50,7 +50,7 @@ std::uint32_t Random(std::uint32_t seed, unsigned count)
 void Basic(const std::filesystem::path& folder)
 {
     const auto before1=StandardAllocator.TotalFreeMemory(), before2=VirtualAllocator.TotalFreeMemory();
-    auto registry=Load(folder,"basic"); const auto saved=uSeed;
+    auto registry=Load(folder,"basic"); const auto saved=gEffectsRandomSeed;
     {
         ParticleSimulation simulation(registry,0x81f2a311,0,{32,123});
         registry.reset(); Check(simulation.Texture()!=nullptr,"Simulation did not retain its texture");
@@ -83,7 +83,7 @@ void Basic(const std::filesystem::path& folder)
         { simulation.Reset(123); simulation.Advance(.25f); Check(simulation.Snapshot().size()==2 && simulation.Seed()==Random(123,52),"Reset changed source state"); }
         simulation.Release(); simulation.Release(); Check(!simulation.Active(),"Released simulation stayed active"); Reject([&]{simulation.Advance(0);});
     }
-    Check(uSeed==saved&&ParticleSystem::m_NumInstances==0,"Particle globals leaked across session");
+    Check(gEffectsRandomSeed==saved&&ParticleSystem::m_NumInstances==0,"Particle globals leaked across session");
     Check(before1==StandardAllocator.TotalFreeMemory()&&before2==VirtualAllocator.TotalFreeMemory(),"Particle lists or atlas leaked arena memory");
 }
 void Profiles(const std::filesystem::path& folder)

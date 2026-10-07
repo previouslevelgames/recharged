@@ -1,6 +1,6 @@
 Subject: Share selected original Options visual and callback steps
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Retain console delegates for authored lookup, pointer callbacks and in/out
 state timing. Native callers own retained resources and report unsupported
@@ -166,7 +166,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  {
      BaseSceneHandler::Update(fDeltaT);
  
--    if (mState == 0 || mState == 2 || mState == 3)
+-    if (mScenePhase == PHASE_ENTERING || mScenePhase == PHASE_EXITING_TO_OPTION || mScenePhase == PHASE_EXITING_TO_MAIN_MENU)
 -    {
 -        TLSlide* slide = mPresentation->m_currentSlide;
 -        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
@@ -178,21 +178,21 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 -            return;
 -        }
 -
--        if (mState == 0)
+-        if (mScenePhase == PHASE_ENTERING)
 -        {
 -            SHNavigation* object = GetNavigationScene();
 -            if (object != 0)
 -            {
 -                object->SetButtons(4, true);
 -            }
--            mState = 1;
+-            mScenePhase = PHASE_CHOOSING;
 -        }
--        else if (mState == 2)
+-        else if (mScenePhase == PHASE_EXITING_TO_OPTION)
 -        {
 -            GameSceneManager::Instance()->Push(mNextScene, SCREEN_NOTHING, true);
 -            return;
 -        }
--        else if (mState == 3)
+-        else if (mScenePhase == PHASE_EXITING_TO_MAIN_MENU)
 -        {
 -            FEAudio::PlayAnimAudioEvent(0x4430B152, 0, 0, 1);
 -            FrontEndPresentation::GetInstance()->Call("TransitionOptionsToMainMenu");
@@ -208,14 +208,14 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 +        [](unsigned long cue, const char* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); },
 +        []() { FrontEndPresentation::GetInstance()->Call("TransitionOptionsToMainMenu"); },
 +        []() { GameSceneManager::Instance()->Pop(); })) return;
-     if (!mInitialized)
+     if (!mPointerButtonsInitialized)
      {
          InitializePointerButtons();
 @@ -149,14 +116,7 @@
  
          if (mBackButton.UpdateBackButton(event, fDeltaT))
          {
--            mState = 3;
+-            mScenePhase = PHASE_EXITING_TO_MAIN_MENU;
 -            SHNavigation* object = GetNavigationScene();
 -            if (object != 0)
 -            {
@@ -247,18 +247,18 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 -    {
 -    case 1:
 -        FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
--        mNextScene = (SceneList)14;
+-        mNextScene = SCENE_AUDIO_OPTIONS;
 -        break;
 -    case 0:
 -        FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
--        mNextScene = (SceneList)15;
+-        mNextScene = SCENE_VISUAL_OPTIONS;
 -        break;
 -    case 2:
--        mNextScene = (SceneList)23;
+-        mNextScene = SCENE_CREDITS;
 -        break;
 -    }
 -
--    mState = 2;
+-    mScenePhase = PHASE_EXITING_TO_OPTION;
 -
 -    SHNavigation* object = GetNavigationScene();
 -    if (object != 0)

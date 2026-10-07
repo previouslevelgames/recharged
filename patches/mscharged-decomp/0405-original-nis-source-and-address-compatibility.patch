@@ -1,0 +1,205 @@
+Subject: Restore original NIS source flow and retail-compatible native address/stores
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore original timing and overlay bodies. Native-only address casts and exact
+whole-header byte stores preserve the retail overlapping dictionary writes.
+No count, loop, member capacity, request or source selection changes.
+
+diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
+--- a/src/Game/NisPlayer.cpp
++++ b/src/Game/NisPlayer.cpp
+@@ -1,6 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/NisPlayer.h"
+-#include "Game/NisPlaybackTiming.h"
+ #include "Game/Blinker.h"
+ #include "NL/nlBasicString.h"
+ #include "Game/Render/StadiumLoading.h"
+@@ -24,6 +23,10 @@
+ 
+ #include <string.h>
+ #include <stdio.h>
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#include <stddef.h>
++#endif
+ 
+ #include "Game/AI/Fielder.h"
+ #include "Game/Goalie.h"
+@@ -268,7 +271,17 @@
+                 if (parsedValueCount != 3)
+                     break;
+                 SkipLine(dictionaryCursor);
++#if defined(MSCHARGED_NATIVE)
++                // Retail stores past the four-position member into later header
++                // bytes. Preserve those writes without native array-index UB.
++                static_assert(offsetof(NisHeader, beginPositions) == 0x74);
++                static_assert(sizeof(nlVector3) == 12);
++                memcpy(reinterpret_cast<unsigned char*>(&header)
++                        + offsetof(NisHeader, beginPositions) + i * sizeof(nlVector3),
++                    &beginPos, sizeof(beginPos));
++#else
+                 header.beginPositions[i] = beginPos;
++#endif
+             }
+             sscanf(dictionaryCursor, "\tnum_anim_proxies %d", &header.numAnimProxies);
+             SkipLine(dictionaryCursor);
+@@ -394,7 +407,11 @@
+                 int memoryOffset = mLoadingFromBack ? mUsedFromBack : mUsedFromFront;
+ 
+                 char* loadAt = mMemory + memoryOffset;
++#if defined(MSCHARGED_NATIVE)
++                loadAt = loadAt + (0x20 - (reinterpret_cast<uintptr_t>(loadAt) & 0x1F));
++#else
+                 loadAt = loadAt + (0x20 - ((unsigned int)loadAt & 0x1F));
++#endif
+                 if (!mLoadingFromBack)
+                 {
+                     mUsedFromFront += mLoadQueue[i]->size;
+@@ -428,7 +445,13 @@
+ {
+     float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
+     float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
+-    deltaT = NisPlaybackTiming::FrameDelta(realTimeDelta, timeDilation, mCameraOverrun);
++    deltaT = realTimeDelta * timeDilation;
++    if (deltaT > 0.5f)
++    {
++        deltaT = 0.5f;
++    }
++    deltaT += mCameraOverrun;
++    mCameraOverrun = 0.0f;
+     HandleAsyncs();
+ 
+     for (int i = 0; i < 8; i++)
+@@ -451,9 +474,9 @@
+             if (mCamera[i].m_pActiveCameraData != 0)
+             {
+                 float overrun = mCamera[i].ManualUpdate(deltaT);
+-                if (i == 0)
++                if (i == 0 && overrun > 0.0f)
+                 {
+-                    NisPlaybackTiming::KeepPrimaryOverrun(overrun, mCameraOverrun);
++                    mCameraOverrun = overrun;
+                 }
+             }
+         }
+diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
+--- a/src/Game/Render/Nis.cpp
++++ b/src/Game/Render/Nis.cpp
+@@ -1,6 +1,5 @@
+ #include "Game/Render/Nis.h"
+ #include "NL/nlDLListContainer.inl"
+-#include "Game/NisPlaybackTiming.h"
+ 
+ #include "Game/AI/AIPad.h"
+ #include "Game/AnimInventory.h"
+@@ -326,7 +325,8 @@
+     {
+         for (int i = 0; i < mNumTriggers; ++i)
+         {
+-            if (NisPlaybackTiming::Crossed(oldTime, newTime, duration, mTriggers[i].frameNumber))
++            float triggerFrame = (mTriggers[i].frameNumber / 30.0f) / duration;
++            if ((oldTime <= triggerFrame) && (newTime > triggerFrame))
+             {
+                 mTriggers[i].Fire(*this);
+             }
+diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOverlay.cpp
+--- a/src/Game/Render/NisPlayerOverlay.cpp
++++ b/src/Game/Render/NisPlayerOverlay.cpp
+@@ -1,5 +1,4 @@
+ #include "Game/Render/NisPlayerOverlay.h"
+-#include "Game/Render/NisPipSteps.h"
+ 
+ #include "Game/NisPlayer.h"
+ #include "Game/Camera/CameraMan.h"
+@@ -85,8 +84,7 @@
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
+     glPoly2 poly;
+-    const NisPipRectData rectangle = NisPipFixedRectangle();
+-    poly.SetupRectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 0.0f);
++    poly.SetupRectangle(360.0f, 270.0f, 240.0f, 150.0f, 0.0f);
+ 
+     nlColour colour;
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
+@@ -174,10 +172,18 @@
+     {
+         quad.SetColour(sHolotronRed, sHolotronGreen, sHolotronBlue, 0x80);
+     }
++#if defined(MSCHARGED_NATIVE)
++    glAttachQuad3(static_cast<eGLView>(reinterpret_cast<glViewHandle>(GetLayerView(eCLV_Particles))), 1, &quad);
++#else
+     glAttachQuad3((eGLView)GetLayerView(eCLV_Particles), 1, &quad);
++#endif
+     if (g_HolotronDoubleDraw)
+     {
++#if defined(MSCHARGED_NATIVE)
++        glAttachQuad3(static_cast<eGLView>(reinterpret_cast<glViewHandle>(GetLayerView(eCLV_Particles))), 1, &quad);
++#else
+         glAttachQuad3((eGLView)GetLayerView(eCLV_Particles), 1, &quad);
++#endif
+     }
+     glSetDefaultState(false);
+ }
+@@ -220,7 +226,8 @@
+  */
+ int NisPlayerCameraSwapOverlay::Update(float dt)
+ {
+-    return AdvanceNisPipSwap(mPlayer);
++    mPlayer->SwapCameras();
++    return 1;
+ }
+ 
+ /**
+@@ -253,9 +260,13 @@
+     glSetCurrentRasterState(glHandleizeRasterState());
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
+-    const NisPipRectData rectangle = NisPipExpandedRectangle(mTime, mDuration);
++    float u;
++    float t = mTime / mDuration;
++    u = 1.0f - t;
++
+     glPoly2 poly;
+-    poly.SetupRectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 0.0f);
++    poly.SetupRectangle(360.0f * u, 270.0f * u, 640.0f * t + 240.0f * u,
++        480.0f * t + 150.0f * u, 0.0f);
+ 
+     nlColour colour;
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
+@@ -268,7 +279,14 @@
+  */
+ int NisPlayerPIPExpandOverlay::Update(float dt)
+ {
+-    return AdvanceNisPipExpansion(mPlayer, mTime, mDuration, dt);
++    mTime += dt;
++    if (mTime <= mDuration)
++    {
++        return 3;
++    }
++
++    mPlayer->SwapCameras();
++    return 0;
+ }
+ 
+ /**
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -69,14 +69,14 @@
+ static TweakValueBool g_bDisplayFrameTicker(
+     "g_bDisplayFrameTicker", gLastTweakCategory, false);
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ float GetStandardAspectRatio()
+ {
+     return 1.25f;
+ }
+ #endif
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ float GetWidescreenAspectRatio()
+ {
+     return 1.666f;

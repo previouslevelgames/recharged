@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Use the actual live registry interface for native audio values
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 The audio configuration view addresses the live RegistryContainer returned
 by the original registry owner. Preserve its real native pointer/type layout

@@ -75,7 +75,7 @@ void Numerics(const std::vector<ParticleSnapshot>& particles,const std::vector<M
 void Generated(const std::filesystem::path& folder,GLView& view,OriginalFrames& frames)
 {
     auto geometry=std::make_shared<EffectsVertexResources>(f::Geometry(),resources::ReadTextureBundle(f::Read(folder/"textures.rlt")),Drain);
-    ModelParticleInputs inputs;inputs.pose=f::Pose();const auto saved=uSeed;
+    ModelParticleInputs inputs;inputs.pose=f::Pose();const auto saved=gEffectsRandomSeed;
     // Prime the original view's persistent sorter block before measuring each
     // particle lifetime; the containing view session verifies its final release.
     Begin(frames);view.AttachModel(geometry->Model(0x10203040,0),1);frames.Cancel();geometry->FinishFrame();
@@ -117,7 +117,7 @@ void Generated(const std::filesystem::path& folder,GLView& view,OriginalFrames& 
         value.Die();Check(!value.Advance(1)&&value.Sample().empty(),"Model particles did not drain after Die");
         for(unsigned repeat=0;repeat<3;++repeat){value.Reset(123);value.Advance(.125f);Check(value.Seed()==Random(123,27),"Model Reset changed RNG state");}
         value.Release();active=nullptr;Reject([&]{value.Advance(0);});
-        Check(StandardAllocator.TotalFreeMemory()==a&&VirtualAllocator.TotalFreeMemory()==b&&uSeed==saved,"Model particles leaked pools, arena or RNG ownership");
+        Check(StandardAllocator.TotalFreeMemory()==a&&VirtualAllocator.TotalFreeMemory()==b&&gEffectsRandomSeed==saved,"Model particles leaked pools, arena or RNG ownership");
     }
     {
         auto ground=inputs;ground.ground=ModelParticleGround{true,2,.5};ModelParticles value(f::Registry(folder,"ground"),geometry,0x81f2a311,0,ground);
@@ -133,7 +133,7 @@ void Generated(const std::filesystem::path& folder,GLView& view,OriginalFrames& 
         try{Reject([&]{ModelParticles value(f::Registry(folder,"basic"),geometry,0x81f2a311,0,inputs,{4096,0});});}
         catch(...){VirtualAllocator=old;throw;}
         const bool recovered=VirtualAllocator.TotalFreeMemory()==tiny.TotalFreeMemory();VirtualAllocator=old;
-        Check(recovered&&uSeed==saved&&ParticleSystem::m_NumInstances==0,"Model construction rollback lost native ownership");
+        Check(recovered&&gEffectsRandomSeed==saved&&ParticleSystem::m_NumInstances==0,"Model construction rollback lost native ownership");
     }
     {
         ModelParticles value(f::Registry(folder,"basic"),geometry,0x81f2a311,0,inputs,{32,123});value.Advance(.125f);

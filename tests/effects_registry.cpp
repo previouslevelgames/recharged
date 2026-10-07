@@ -40,13 +40,13 @@ void Inspect(const EffectsRegistry::Handle& registry)
                 {value->m_rInheritVelocity, source.inherit_velocity}, {value->m_rAcceleration, source.acceleration},
                 {value->m_rRotation, source.rotation}, {value->m_rFPS, source.fps}}})
                 Check(Bits(native.base, authored.base) && Bits(native.range, authored.range), "Native range bits differ");
-            Check(Bits(value->mUnidentified030, source.unidentified_030) && value->m_eEmitter == source.emitter
+            Check(Bits(value->m_fTexcoordFlipPercentage, source.unidentified_030) && value->m_eEmitter == source.emitter
                 && value->m_eBlend == source.blend && value->m_eBillboard == source.billboard
-                && value->mUnidentified037 == source.flags, "Native template fields differ");
+                && value->m_uFlags == source.flags, "Native template fields differ");
             Check(value->m_hTexture == source.texture && value->m_uModelID == source.model && value->m_nFrames == source.frames,
                 "Unqualified resource ID was silently rebound");
-            Check(value->mUnidentified040 == source.unidentified_040[0] && value->mUnidentified044 == source.unidentified_040[1]
-                && value->mUnidentified048 == source.unidentified_040[2], "Unknown authored words were changed");
+            Check(value->m_uEmitterDeathCode == source.unidentified_040[0] && value->m_uParticleCreationCode == source.unidentified_040[1]
+                && value->m_uParticleDeathCode == source.unidentified_040[2], "Unknown authored words were changed");
             Check(value->m_cColour.size() == source.colours.size(), "Native colour count was fabricated");
             for (std::size_t c = 0; c < source.colours.size(); ++c)
                 Check(registry->Colour(e, i, c) == source.colours[c], "Native colour bytes differ");

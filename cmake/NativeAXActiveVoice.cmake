@@ -38,13 +38,20 @@ if(BUILD_TESTING AND TARGET native_ax_init_source_fixture)
     set(ax_voice_oracles "${CMAKE_CURRENT_BINARY_DIR}/native-ax-voice-oracles")
     add_custom_command(OUTPUT "${ax_voice_oracles}/oracle.bin"
             "${ax_voice_oracles}/mix-oracle.bin" "${ax_voice_oracles}/synthetic-drom.bin"
+            "${ax_voice_oracles}/lpf-oracle.bin"
         COMMAND "${Python3_EXECUTABLE}" -B
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_voice_oracle.py"
             "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c" "${ax_voice_oracles}"
+        COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_lpf_oracle.py"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c"
+            "${ax_voice_oracles}/mix-oracle.bin" "${ax_voice_oracles}/lpf-oracle.bin"
         DEPENDS verify_prepared "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_voice_oracle.py" VERBATIM)
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_voice_oracle.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_lpf_oracle.py" VERBATIM)
     add_custom_target(native_ax_voice_oracles DEPENDS "${ax_voice_oracles}/oracle.bin"
-        "${ax_voice_oracles}/mix-oracle.bin" "${ax_voice_oracles}/synthetic-drom.bin")
+        "${ax_voice_oracles}/mix-oracle.bin" "${ax_voice_oracles}/synthetic-drom.bin"
+        "${ax_voice_oracles}/lpf-oracle.bin")
     add_executable(native_ax_active_tests tests/native_ax_active.cpp
         src/platform/os.cpp src/platform/os_version.cpp)
     add_dependencies(native_ax_active_tests verify_prepared native_ax_active_source_fixture native_ax_voice_oracles)

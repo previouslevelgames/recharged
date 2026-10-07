@@ -1,5 +1,5 @@
 Subject: Compile the complete original lighting providers with native data ABI
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Restore original GameObjectLight declarations, its three-flag constructor and
 the original LightingLookup class in the non-diagnostic native source graph.

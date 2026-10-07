@@ -1,0 +1,117 @@
+From: mscharged native port
+Subject: Scope shadow preview behavior outside the original game module
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore original shadow target methods and source-owned colour tweaks in the
+original game module; retain existing standalone diagnostic behavior.
+
+--- a/src/Game/Render/ShadowVolume.cpp
++++ b/src/Game/Render/ShadowVolume.cpp
+@@ -24,13 +24,13 @@
+ 
+ void CreateShadowVolumeTarget()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (sShadowVolumeTarget || glx_GetTex(glGetTexture(sShadowVolumeTextureName)))
+         throw std::logic_error("Shadow volume target already exists");
+ #endif
+     GLTargetInfo info;
+     nlZeroMemory(&info, sizeof(info));
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     info.width = glGetScreenWidth();
+     info.height = glGetScreenHeight();
+ #else
+@@ -44,7 +44,7 @@
+ 
+ void SetShadowVolumeTarget(GLView* view, GLView*)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!view) throw std::invalid_argument("Missing volume view");
+     glValidateTarget(sShadowVolumeTarget);
+ #endif
+@@ -55,7 +55,7 @@
+ void AttachShadowVolumeModels(
+     glModel* firstModel, glModel* secondModel, GLView* view, GLView*)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!firstModel || !secondModel || firstModel == secondModel || !view)
+         throw std::invalid_argument("Shadow volume needs two independent model packets");
+ #endif
+@@ -81,7 +81,7 @@
+ 
+ void RenderShadowVolumeBlend(GLView* view)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!view) throw std::invalid_argument("Missing volume blend view");
+     glValidateTarget(sShadowVolumeTarget);
+     glSetCurrentMatrix(glGetIdentityMatrix());
+@@ -99,7 +99,7 @@
+     glSetTextureState(GLTS_DiffuseWrap, 3);
+     glSetCurrentTextureState(glHandleizeTextureState());
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     float width = float(glGetScreenWidth());
+     float height = float(glGetScreenHeight());
+ #else
+@@ -146,7 +146,7 @@
+     }
+ }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+ void DestroyNativeShadowVolumeTarget()
+ {
+     if (sShadowVolumeTarget) glDestroyTarget(&sShadowVolumeTarget);
+--- a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
++++ b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
+@@ -9,7 +9,7 @@
+ #include "NL/glx/GXShadowVolumeMaterialProgram.h"
+ #include "NL/gl/glMaterialParameters.h"
+ #include "NL/glx/glxGX.h"
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ #include "NL/glx/GXMaterialShadowTweaks.h"
+ #endif
+ #include "NL/glx/glxDisplayList.h"
+@@ -24,7 +24,7 @@
+ };
+ 
+ static int sShadowVolumeMode;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+ // Supplied explicitly by the selected original layer setup; tweak registry is not linked.
+ static GXColor sNativeShadowColour;
+ static bool sNativeShadowColourSet;
+@@ -68,7 +68,7 @@
+ 
+ void CopyShadowVolumeColour(const GXColor* colour)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!colour) throw std::invalid_argument("Missing shadow volume colour");
+     sNativeShadowColour = *colour;
+     sNativeShadowColourSet = true;
+@@ -83,7 +83,7 @@
+ static inline void SetShadowVolumeColour()
+ {
+     GXColor colour;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!sNativeShadowColourSet) throw std::logic_error("Shadow volume colour requires layer setup");
+     colour = sNativeShadowColour;
+ #else
+@@ -148,7 +148,7 @@
+         static_cast<GXShadowVolumeMaterialProgram*>(this)->DrawDirect(packet);
+ }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ TweakValueInt sShadowVolumeRed(
+     "Red", "/Rendering/ShadowVolume");
+ TweakValueInt sShadowVolumeGreen(

@@ -1,0 +1,59 @@
+Subject: [PATCH] Preserve original ordinary-save Wii byte records on native hosts
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Scope: Serialized-data transport only; original save requests, callbacks, CRC and readiness decisions remain.
+
+diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
+--- a/src/Game/DB/SaveLoad.cpp
++++ b/src/Game/DB/SaveLoad.cpp
+@@ -5,6 +5,9 @@
+ #include "Game/DB/SaveLoad.h"
+ #include <revolution/tpl_fwd.h>
+ #include <revolution/nand/NANDBanner.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/save_data.h"
++#endif
+ #include "Game/TweakRegistry.h"
+ 
+ #include "Game/GameSceneManager.h"
+@@ -590,9 +593,17 @@
+         GameInfoManager::GetInstance()->SerializeSettings((u8*)SaveBuffer + sizeof(SaveFileHeader));
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::EncodeOriginalSavePayload((u8*)SaveBuffer + sizeof(SaveFileHeader),
++        dataSize - sizeof(SaveFileHeader), OnlineMode);
++#endif
+     SaveFileHeader* header = (SaveFileHeader*)SaveBuffer;
+     header->Size = dataSize;
+     header->CRC = nlChecksum32((u8*)SaveBuffer + sizeof(SaveFileHeader), alignedSize - sizeof(SaveFileHeader));
++#if defined(MSCHARGED_NATIVE)
++    header->Size = mscharged::platform::OriginalSaveWord(header->Size);
++    header->CRC = mscharged::platform::OriginalSaveWord(header->CRC);
++#endif
+     HandleNANDResult(nlFlashWrite(SaveBuffer, alignedSize, WriteSaveFileCallback));
+ }
+ 
+@@ -600,7 +611,11 @@
+ {
+     SaveFileHeader* header = (SaveFileHeader*)SaveBuffer;
+     u32 checksum = nlChecksum32((u8*)SaveBuffer + sizeof(SaveFileHeader), size - sizeof(SaveFileHeader));
++#if defined(MSCHARGED_NATIVE)
++    if (mscharged::platform::OriginalSaveWord(header->CRC) != checksum)
++#else
+     if (header->CRC != checksum)
++#endif
+     {
+         nlPrintf("SAVE FILE IS CORRUPT: The checksum is incorrect.\n");
+         nlFree(SaveBuffer);
+@@ -611,6 +626,10 @@
+         return false;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::DecodeOriginalSavePayload((u8*)SaveBuffer + sizeof(SaveFileHeader),
++        size - sizeof(SaveFileHeader), OnlineMode);
++#endif
+     void* allocation = SaveBuffer;
+     void* data = (u8*)SaveBuffer + sizeof(SaveFileHeader);
+     SaveBuffer = data;

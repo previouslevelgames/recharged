@@ -2,7 +2,8 @@ include_guard(GLOBAL)
 
 # Whole original offline-initializer compiler inventory. This does not link or
 # execute NetworkUpdateTask::Initialize; original source/global closure remains
-# incomplete, and online wire/factory/native pool storage is unqualified.
+# incomplete, and online wire/manager execution is unqualified. The message storage
+# compiler cohort retains all original pool and serializer providers.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
         OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
     return()
@@ -12,7 +13,9 @@ add_library(charged_original_network_producer_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/Task/NetworkUpdateTask.cpp"
     "${MSCHARGED_PREPARED}/src/NL/plat/SocketNetwork.cpp"
     "${MSCHARGED_PREPARED}/src/Game/InputRouter.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/NetworkInput.cpp")
+    "${MSCHARGED_PREPARED}/src/Game/NetworkInput.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/plat/TransportMessage.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/NetworkMessageSerializer.cpp")
 add_dependencies(charged_original_network_producer_sources verify_prepared)
 set_target_properties(charged_original_network_producer_sources PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden

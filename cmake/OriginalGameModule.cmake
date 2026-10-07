@@ -98,6 +98,8 @@ include(cmake/OriginalRegistry.cmake)
 
 include(cmake/OriginalViewLayers.cmake)
 
+include(cmake/OriginalNisSources.cmake)
+
 include(cmake/OriginalInterpreter.cmake)
 
 include(cmake/OriginalBootSceneSources.cmake)
@@ -105,6 +107,8 @@ include(cmake/OriginalBootSceneSources.cmake)
 include(cmake/OriginalCharacterLoading.cmake)
 
 include(cmake/OriginalNPC.cmake)
+include(cmake/OriginalWorldAnimations.cmake)
+include(cmake/OriginalSpecularModule.cmake)
 
 include(cmake/OriginalSaveSources.cmake)
 
@@ -123,3 +127,5 @@ include(cmake/OriginalAudioSampleMetadata.cmake)
 include(cmake/OriginalWarbleModule.cmake)
 
 include(cmake/OriginalNetworkProducer.cmake)
+
+include(cmake/OriginalMaterialModule.cmake)

@@ -1,5 +1,5 @@
 Subject: Use the host standard absolute-value overload in nlMath
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Clang cannot compile nlRandom.cpp because the shared math header uses the
 CodeWarrior __fabs intrinsic without a host declaration. Use the float

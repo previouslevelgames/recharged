@@ -108,6 +108,8 @@ add_library(charged_shadows STATIC
 add_dependencies(charged_shadows verify_prepared)
 # Retain legacy model validation only in the diagnostic shadow graph.
 target_compile_definitions(charged_shadows PRIVATE MSCHARGED_DIAGNOSTIC_MODELS=1)
+# Keep legacy writer checks/layout consistent only in the preview graph.
+target_compile_definitions(charged_shadows PUBLIC MSCHARGED_DIAGNOSTIC_MESH_WRITERS=1)
 target_include_directories(charged_shadows PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
 target_link_libraries(charged_shadows PUBLIC charged_views PRIVATE aurora::gx)
 target_compile_features(charged_shadows PUBLIC cxx_std_20)

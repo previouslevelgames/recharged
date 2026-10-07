@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Preserve the Wii32 frontend result-stream cue case on LP64
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 The original int cast becomes unsigned long modulo 32 bits on Wii.
 Convert that authored hash through unsigned int on the native target before

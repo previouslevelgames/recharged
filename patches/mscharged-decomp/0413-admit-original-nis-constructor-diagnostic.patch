@@ -1,0 +1,25 @@
+From: mscharged native port
+Subject: Admit original NIS constructor in named frontend diagnostic
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Classification: owner-authorized temporary diagnostic source admission.
+Default original game and existing Credits selection remain unchanged.
+The named frontend gate restores only the literal NisPlayer::Instance
+statement at its original Initialize position; original requests/callbacks
+and state remain authoritative. Playback, secondary FOV/SetupMatrices and
+other owners remain outside this admission. Retire when full startup links.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -743,8 +743,10 @@
+     FESceneManager::s_pInstance->m_uDefaultRenderView =
+         (glViewHandle)GetLayerView(eCLV_Anark);
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER)
+     NisPlayer::Instance();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     ReplayManager::Instance();
+     Wiper::Instance().Initialize();
+     DepthOfFieldManager::instance.Initialize();

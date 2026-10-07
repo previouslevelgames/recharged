@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original signed registry scalar arguments on native hosts
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Volume consumes an original pointer-shaped numeric RegistryValue cell.
 Read the checked Wii32 word, preserving its signed32 interpretation before
@@ -10,8 +10,8 @@ negation, flags and allocation. Console source remains unchanged.
 diff --git a/src/Game/Audio/AudioEffects.cpp b/src/Game/Audio/AudioEffects.cpp
 --- a/src/Game/Audio/AudioEffects.cpp
 +++ b/src/Game/Audio/AudioEffects.cpp
-@@ -4,6 +4,9 @@
- 
+@@ -9,6 +9,9 @@
+ #include "Game/Audio/Reverb.h"
  #include "Game/Audio/AudioEffects.h"
  #include "Game/Audio/AudioConfig.h"
 +#if defined(MSCHARGED_NATIVE)
@@ -20,7 +20,7 @@ diff --git a/src/Game/Audio/AudioEffects.cpp b/src/Game/Audio/AudioEffects.cpp
  #include "Game/Audio/AudioSource.h"
  #include "Game/Audio/XSoundCueHandle.h"
  #include "Game/Audio/SoundInstance.h"
-@@ -164,7 +167,11 @@
+@@ -208,7 +211,11 @@
          if (type == 1)
              value = *(const float*)&argument->mData;
          else
@@ -29,6 +29,6 @@ diff --git a/src/Game/Audio/AudioEffects.cpp b/src/Game/Audio/AudioEffects.cpp
 +#else
              value = (float)(int)argument->mData;
 +#endif
-         parameter->m_Unknown10 = value;
+         parameter->m_VolumeOffset = value;
      }
-     parameter->m_Unknown10 = negate ? -parameter->m_Unknown10 : parameter->m_Unknown10;
+     parameter->m_VolumeOffset = negate ? -parameter->m_VolumeOffset : parameter->m_VolumeOffset;

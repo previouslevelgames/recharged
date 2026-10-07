@@ -1,5 +1,5 @@
 Subject: Restore original frontend quad providers and native packet ABI
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Restore all reconstructed GLDraw3 methods beneath the unchanged original
 frontend decisions. Retain legacy validation only in explicitly diagnostic

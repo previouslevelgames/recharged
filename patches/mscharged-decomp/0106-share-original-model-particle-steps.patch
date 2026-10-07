@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original checked model-particle and attachment equations
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Extract original coordinates, matrix/frame, colour/raster and joint/ground math
 for the retained native model-particle owner. Caller service validation stays
@@ -343,11 +343,11 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
 -                    blendType);
 -                glSetRasterState(pPacket->rasterState, GLS_AlphaTest, 1);
 -                glSetRasterState(pPacket->rasterState, GLS_AlphaTestRef, 3);
--                if ((m_pTemplate->mUnidentified037 & 4) != 0)
+-                if (m_pTemplate->DisablesDepthWrite())
 -                    glSetRasterState(
 -                        pPacket->rasterState, GLS_DepthWrite, 0);
 +                fxModelParticleRaster(pPacket->rasterState, blendType,
-+                    m_pTemplate->mUnidentified037);
++                    m_pTemplate->m_uFlags);
                  pPacket->matrix = hMatrix;
                  ++pPacket;
              }

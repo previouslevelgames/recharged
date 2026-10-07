@@ -1,0 +1,71 @@
+Subject: [PATCH] Preserve native world animation numeric fields and parent arrays
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Retain the Wii numeric/common prefix widths. Original Initialize still requests
+its parent twice and computes native array addresses with its original types.
+Completed raw parent records retain their original cursor/stride; native BE
+array backing attaches to the actual source allocation incarnation. No object,
+controller, vtable, world factory or readiness is supplied by this patch.
+
+--- a/include/Game/World/worldanim.h
++++ b/include/Game/World/worldanim.h
+@@ -21,7 +21,11 @@
+     virtual void SetWorldMatrix(const nlMatrix4& transform);
+     virtual void Initialize(WorldObjectLoadContext* context);
+ 
++#if defined(MSCHARGED_NATIVE)
++    /* 0x04 */ u32 m_uHashID;
++#else
+     /* 0x04 */ unsigned long m_uHashID;
++#endif
+     /* 0x08 */ u8 m_pad08[0x08];
+     /* 0x10 */ World* m_pWorld;
+     /* 0x14 */ int m_nAnimNode;
+@@ -29,7 +33,11 @@
+     /* 0x1C */ u8 m_pad1C[0x04];
+     /* 0x20 */ nlMatrix4 mWorldMatrix;
+     /* 0x60 */ int m_nBindings;
++#if defined(MSCHARGED_NATIVE)
++    /* 0x64 */ u32 m_uHierarchyHash;
++#else
+     /* 0x64 */ unsigned long m_uHierarchyHash;
++#endif
+     /* 0x68 */ WorldAnimBinding* m_pBindings;
+     /* 0x6C */ u8 m_pad6C[0x04];
+     /* 0x70 */ int m_nAnimations;
+--- a/src/Game/World/worldanimobjects.cpp
++++ b/src/Game/World/worldanimobjects.cpp
+@@ -23,6 +23,9 @@
+ #include "NL/nlString.h"
+ 
+ #include <math.h>
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/world_animation_data_transport.h"
++#endif
+ 
+ void WorldAnimObject::Initialize(WorldObjectLoadContext* pContext)
+ {
+@@ -31,6 +34,10 @@
+     m_pAnimController = pManager->GetOrCreateController(m_uHashID);
+ 
+     u8* pData = pContext->GetParentData();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pData = (u8*)mscharged::platform::PrepareNativeWorldAnimParent(
++        pData, m_nBindings, m_nAnimations).data;
++#endif
+     m_pAnimationHashes = (unsigned long*)(pData
+         + m_nBindings * sizeof(WorldAnimBinding));
+     m_pAnimController->m_pWorldAnimObject = this;
+@@ -59,7 +66,12 @@
+ 
+     m_pAnimController->SetAnimationSpeed(m_fAnimationSpeed);
+     m_pAnimController->SetAnimationTime(m_fAnimationTime);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    m_pBindings = (WorldAnimBinding*)mscharged::platform::PrepareNativeWorldAnimParent(
++        pContext->GetParentData(), m_nBindings, m_nAnimations).data;
++#else
+     m_pBindings = (WorldAnimBinding*)pContext->GetParentData();
++#endif
+ }
+ 
+ void BindWorldAnimObjectDrawables(WorldAnimObject* pAnimObject)

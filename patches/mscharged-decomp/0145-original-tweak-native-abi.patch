@@ -1,6 +1,6 @@
 Subject: Adapt original tweak pending storage and current-thread stack
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Keep the original registry/constructor decisions and allocator. A pending
 record is sizeof its native layout, including full-width string defaults;
@@ -14,8 +14,7 @@ inclusive range test; path algorithms stay original outside diagnostics.
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
 --- a/include/Game/TweakValue.h
 +++ b/include/Game/TweakValue.h
-@@ -3,7 +3,10 @@
- 
+@@ -4,6 +4,9 @@
  #include "Game/TweakValueBase.h"
  #include "Game/TweakRegistration.h"
  #include "NL/nlMemory.h"
@@ -25,7 +24,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
  #include "runtime/tweaks.h"
  #else
-@@ -181,6 +184,8 @@
+@@ -170,6 +173,8 @@
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();
@@ -34,7 +33,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #else
              void* entry = nlMalloc(0x18, 8, true);
  #endif
-@@ -335,6 +340,8 @@
+@@ -324,6 +329,8 @@
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();
@@ -104,7 +103,7 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
 diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
 --- a/include/Game/TweakRegistry.h
 +++ b/include/Game/TweakRegistry.h
-@@ -160,7 +160,14 @@
+@@ -156,7 +156,14 @@
          u8 m_Default8;
          int m_Default32;
          float m_DefaultFloat;

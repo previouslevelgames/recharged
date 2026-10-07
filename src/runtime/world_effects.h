@@ -41,7 +41,7 @@ struct WorldEffectSnapshot
 // AddStart order. Triggering an absent type genuinely changes nothing. Update
 // requires a real emitter; this owner does not imply full World/manager readiness.
 // Consumes the game-wide nlDefaultSeed in source order without resetting it;
-// the exclusive effects uSeed domain remains a distinct RNG.
+// the exclusive effects gEffectsRandomSeed domain remains a distinct RNG.
 class WorldEffects
 {
     struct Implementation;std::shared_ptr<Implementation> impl_;

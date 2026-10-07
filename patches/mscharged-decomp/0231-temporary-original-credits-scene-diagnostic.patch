@@ -1,6 +1,6 @@
 Subject: [PATCH] Scope temporary original Credits scene integration
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE explicitly omits unrelated views, material
 programs, world/input/movie initialization and later phases in a scene test.
@@ -166,7 +166,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 +#endif
  }
  
- void CreditScene::MoviePlayerVirtual3C()
+ void CreditScene::OnMoviePlaybackEnded()
 @@ -257,7 +278,9 @@
  
  void CreditScene::UpdateForCredits(float fDeltaT)
@@ -201,11 +201,11 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
      }
  }
  
+
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -1,7 +1,10 @@
- #include <revolution/sc_fwd.h>
+@@ -2,6 +2,9 @@
  #include <revolution/thp_fwd.h>
  #include "string.h"
  #include "NL/nlDLListContainer.inl"
@@ -215,7 +215,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  #include "Game/SH/SHMoviePlayer.h"
  #include "NL/nlFunction.inl"
  #include "Game/BasicStadium.h"
-@@ -26,7 +29,9 @@
+@@ -23,7 +26,9 @@
  #include "Game/Task/GameRenderTask.h"
  #include "Game/main.h"
  
@@ -225,7 +225,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  
  MoviePlayerScene::MoviePlayerScene()
      : mNextScene(SCENE_INVALID)
-@@ -40,6 +45,7 @@
+@@ -37,6 +42,7 @@
      typedef Detail::MemFunImpl<void, void (MoviePlayerScene::*)()> MemFunImpl_MoviePlayerScene_v;
      typedef BindExp1<void, MemFunImpl_MoviePlayerScene_v, MoviePlayerScene*> BindExp1_MoviePlayerScene_v;
      mMovieFilename[0] = 0;
@@ -233,7 +233,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (GameSceneManager::s_pInstance)
      {
          mGameSceneManager = GameSceneManager::s_pInstance;
-@@ -49,10 +55,12 @@
+@@ -46,10 +52,12 @@
          mGameSceneManager = g_pOverlayManager;
      }
      UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
@@ -246,7 +246,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (GameInfoManager::Instance()->mIsInStrikers101Mode)
      {
          g_bRenderWorld = true;
-@@ -61,6 +69,7 @@
+@@ -58,6 +66,7 @@
      {
          g_pFEInput->PopExclusiveInputLock(this);
      }
@@ -254,7 +254,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  }
  
  void MoviePlayerScene::SceneCreated()
-@@ -79,6 +88,9 @@
+@@ -76,6 +85,9 @@
  
  void MoviePlayerScene::Update(float fDeltaT)
  {
@@ -264,9 +264,9 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      BaseSceneHandler::Update(fDeltaT);
      if (g_e3_Build)
      {
-@@ -133,15 +145,23 @@
+@@ -130,15 +142,23 @@
          MovieStop();
-         MoviePlayerVirtual3C();
+         OnMoviePlaybackEnded();
      }
 +#endif
  }
@@ -280,7 +280,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 +#endif
  }
  
- void MoviePlayerScene::MoviePlayerVirtual3C()
+ void MoviePlayerScene::OnMoviePlaybackEnded()
  {
 +#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +    throw std::logic_error("Credits diagnostic attempted excluded movie/transition flow");
@@ -288,7 +288,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (mPushWithPop)
      {
          mGameSceneManager->Push(mNextScene, SCREEN_NOTHING, true);
-@@ -152,6 +172,7 @@
+@@ -149,6 +169,7 @@
          mGameSceneManager->Pop();
          PlayScreenBackSFX();
      }
@@ -296,6 +296,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  }
  
  void MoviePlayerScene::PlayScreenForwardSFX()
+
 diff --git a/src/NL/glx/GXMaterialProgramRegistry.cpp b/src/NL/glx/GXMaterialProgramRegistry.cpp
 --- a/src/NL/glx/GXMaterialProgramRegistry.cpp
 +++ b/src/NL/glx/GXMaterialProgramRegistry.cpp

@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend pointer task and native static providers
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Restore literal feDPD source and isolate pointer/timing extracts from the original
 module. Use one native SDK GX/VI/DVD declaration ABI, retain genuine Wii
@@ -8,6 +8,9 @@ power/reset requests, and declare unavailable IPC MMIO instead of allocating
 fake registers. Keep Wii class-size assertions on the console ABI and transport
 the original BeginFrameTask view pointer through its existing native enum carrier.
 No task/game decisions, initialization requests, visibility or behavior changes.
+
+The new owning vi_fwd.h uses the same canonical native VI service as vi.h.
+Original console enum prototypes remain literal; no Title method or SDK body changes.
 
 diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
 --- a/src/Game/FE/feDPD.cpp
@@ -200,3 +203,60 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
  }
  
  static inline void SetTextureBinding(glTextureBinding* binding, u32 texture)
+diff --git a/libs/RVL_SDK/include/revolution/vi_fwd.h b/libs/RVL_SDK/include/revolution/vi_fwd.h
+--- a/libs/RVL_SDK/include/revolution/vi_fwd.h
++++ b/libs/RVL_SDK/include/revolution/vi_fwd.h
+@@ -1,6 +1,9 @@
+ #ifndef REVOLUTION_VI_FWD_H
+ #define REVOLUTION_VI_FWD_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/vi.h>
++#else
+ #include <revolution/vi/vitypes.h>
+ 
+ #ifdef __cplusplus
+@@ -13,4 +16,6 @@
+ }
+ #endif
+ 
++#endif
++
+ #endif // REVOLUTION_VI_FWD_H
+diff --git a/libs/RVL_SDK/include/revolution/gx/GXTypes.h b/libs/RVL_SDK/include/revolution/gx/GXTypes.h
+--- a/libs/RVL_SDK/include/revolution/gx/GXTypes.h
++++ b/libs/RVL_SDK/include/revolution/gx/GXTypes.h
+@@ -1,5 +1,10 @@
+ #ifndef RVL_SDK_GX_TYPES_H
+ #define RVL_SDK_GX_TYPES_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx/GXEnum.h>
++#include <dolphin/gx/GXStruct.h>
++#else
+ #include <revolution/types.h>
+ #include <revolution/gx/GXTextureTypes.h>
+ #ifdef __cplusplus
+@@ -1040,3 +1045,4 @@
+ }
+ #endif
+ #endif
++#endif
+diff --git a/libs/RVL_SDK/include/revolution/vi/vi.h b/libs/RVL_SDK/include/revolution/vi/vi.h
+--- a/libs/RVL_SDK/include/revolution/vi/vi.h
++++ b/libs/RVL_SDK/include/revolution/vi/vi.h
+@@ -1,5 +1,9 @@
+ #ifndef _RVL_SDK_VI_H
+ #define _RVL_SDK_VI_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/vi.h>
++#else
+ 
+ #include <revolution/gx/GXFrameBuf.h>
+ #include <revolution/types.h>
+@@ -41,3 +45,4 @@
+ #endif
+ 
+ #endif
++#endif

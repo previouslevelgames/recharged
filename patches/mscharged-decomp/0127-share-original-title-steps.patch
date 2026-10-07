@@ -1,10 +1,10 @@
 Subject: Share selected original Title visual, input and departure fragments
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 --- a/src/Game/SH/SHTitleScreen.cpp
 +++ b/src/Game/SH/SHTitleScreen.cpp
-@@ -5,6 +5,7 @@
+@@ -6,6 +6,7 @@
  #include "NL/nlFunction.inl"
  #include "Game/GameSceneManager.h"
  #include "Game/SH/SHTitleScreen.h"
@@ -12,15 +12,15 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  #include "Game/Render/RLViewLayers.h"
  #include "Game/FE/FEAudio.h"
  
-@@ -40,17 +41,12 @@
- static bool setDimmingTime;
+@@ -35,17 +36,12 @@
+ static bool sTitleDimmingTimeSet;
  
- extern const int sControllerDefaults[10] = {
+ extern const int gTitleUnlockInputSequence[10] = {
 -    13, 14, 13, 14, 11, 12, 0, 1, 2, 0,
 +#include "Game/FE/FrontendTitleDefaults.inc"
  };
  
- void StartMovieCB()
+ void StartTitleToMainMenuTransition()
  {
 -    for (int i = 0; i < 4; ++i)
 -    {
@@ -32,7 +32,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  }
  
  TitleScene::TitleScene(ScreenMovement movement)
-@@ -83,41 +79,7 @@
+@@ -78,41 +74,7 @@
  
  void TitleScene::SceneCreated()
  {
@@ -75,7 +75,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  }
  
  inline void TitleScene::InitializePointerButtons()
-@@ -132,7 +94,7 @@
+@@ -127,7 +89,7 @@
      FEPointerListener::Callback select(
          PointerBinding(MemFun(&TitleScene::OnControllerPointerPress), this, Placeholder<0>(), Placeholder<1>()));
  
@@ -84,7 +84,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
      mControllerComponent.SetPointerEnterCallback(enter);
      mControllerComponent.SetPointerLeaveCallback(leave);
      mControllerComponent.SetPointerPressCallback(select);
-@@ -140,24 +102,7 @@
+@@ -135,24 +97,7 @@
  
  void TitleScene::Update(float dt)
  {
@@ -110,7 +110,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  
      float demoTimeout = GetConfigFloat(Config::Global(), "fe_demo_mode_time_out", 60.0f);
      if (GetTweakBool("/user/dosoak", false))
-@@ -190,86 +135,9 @@
+@@ -185,86 +130,9 @@
              continue;
          }
  
@@ -138,12 +138,12 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 -        bool acceptedInput = false;
 -        for (int input = 0; input < 6; ++input)
 -        {
--            if (!mControllerReady[input])
+-            if (!mUnlockInputEntered[input])
 -            {
 -                if (g_pFEInput->JustPressed(
--                        (eFEINPUT_PAD)pad, mControllerDefaults[input], true, 0))
+-                        (eFEINPUT_PAD)pad, mUnlockInputSequence[input], true, 0))
 -                {
--                    mControllerReady[input] = true;
+-                    mUnlockInputEntered[input] = true;
 -                    acceptedInput = true;
 -                    break;
 -                }
@@ -162,7 +162,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 -                {
 -                    for (int reset = 0; reset < 6; ++reset)
 -                    {
--                        mControllerReady[reset] = false;
+-                        mUnlockInputEntered[reset] = false;
 -                    }
 -                }
 -            }
@@ -184,14 +184,14 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 -        {
 -            for (int reset = 0; reset < 6; ++reset)
 -            {
--                mControllerReady[reset] = false;
+-                mUnlockInputEntered[reset] = false;
 -            }
 -        }
 -
 -        bool sequenceReady = true;
 -        for (int input = 0; input < 6; ++input)
 -        {
--            sequenceReady = sequenceReady && mControllerReady[input];
+-            sequenceReady = sequenceReady && mUnlockInputEntered[input];
 -        }
 -
 +        if(FrontendTitleIdle(*this,[]{FEMusic::StopStream();},[](bool v){SetPointerEnabled(v);},[]{IntroMovieScene* scene=static_cast<IntroMovieScene*>(GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE,SCREEN_NOTHING,true));if(scene)scene->ResetMoviePlayer();}))return;
@@ -200,7 +200,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
          if (sequenceReady && g_pPlatPadManager->type[pad] == 2)
          {
              WiiFreestylePadStatus status = *g_pPlatPadManager->GetFreestyleStatus(pad);
-@@ -380,15 +248,7 @@
+@@ -375,15 +243,7 @@
  
  void TitleScene::OnControllerPointerPress(int index, void*)
  {
@@ -211,20 +211,20 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 -    GameSceneManager::Instance()->Pop();
 -    GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();
 -    GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();
--    VISetTimeToDimming(0);
--    setDimmingTime = false;
-+    FrontendTitlePressPrefix(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);},[](bool v){SetPointerEnabled(v);},[]{GameSceneManager::Instance()->Pop();},[]{GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();},[]{GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();},[](int v){VISetTimeToDimming(v);setDimmingTime=false;});
+-    VISetTimeToDimming(VI_DM_DEFAULT);
+-    sTitleDimmingTimeSet = false;
++    FrontendTitlePressPrefix(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);},[](bool v){SetPointerEnabled(v);},[]{GameSceneManager::Instance()->Pop();},[]{GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();},[]{GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();},[](int v){VISetTimeToDimming(v);sTitleDimmingTimeSet=false;});
  
      WPADInfo info;
      if (WPADGetInfo(index, &info) == WPAD_ERR_OK && info.battery <= 1)
-@@ -405,17 +265,12 @@
+@@ -400,17 +260,12 @@
  
  void TitleScene::OnControllerPointerEnter(int index, void*)
  {
 -    mTextPressStart->SetActiveSlide("over", true, false);
 -    mControllerComponent.SetPointerState(1, index);
 -    FEAudio::PlayAnimAudioEvent(0xAA73EF32, 0, 0, 1);
--    mUnidentifiedDF = true;
+-    mPointerOverStartButton = true;
 +    FrontendTitleEnter(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
  }
  
@@ -232,23 +232,24 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  {
 -    mTextPressStart->SetActiveSlide("off", true, false);
 -    mControllerComponent.SetPointerState(0, index);
--    mUnidentifiedDF = false;
+-    mPointerOverStartButton = false;
 +    FrontendTitleLeave(*this,index);
  }
  
  HealthWarningSceneV2::HealthWarningSceneV2()
+
 diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 --- a/src/Game/DB/UserOptions.cpp
 +++ b/src/Game/DB/UserOptions.cpp
-@@ -4,6 +4,7 @@
- 
+@@ -5,6 +5,7 @@
  #include "Game/Audio/AudioSystem.h"
+ #include "Game/Audio/AudioCalculation.h"
  #include "Game/Audio/RegistryPools.h"
 +#include "Game/FE/FrontendTitleSteps.h"
  #include "Game/DB/SaveStateSteps.h"
  
  #include <string.h>
-@@ -96,6 +97,7 @@
+@@ -103,6 +104,7 @@
  
  void GameplaySettings::OnSettingsUpdated() const
  {
@@ -256,7 +257,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  }
  
  CheatSettings::CheatSettings()
-@@ -115,6 +117,7 @@
+@@ -122,6 +124,7 @@
  
  void CheatSettings::OnSettingsUpdated() const
  {
@@ -264,6 +265,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  }
  
  VisualSettings::VisualSettings()
+
 diff --git a/include/Game/FE/FrontendTitleSteps.h b/include/Game/FE/FrontendTitleSteps.h
 new file mode 100644
 --- /dev/null

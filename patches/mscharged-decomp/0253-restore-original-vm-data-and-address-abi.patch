@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original VM and Wii32 data/address ABI
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 Prepared-preimage: reviewed complete dc238202203 source prefix
 
 Default whole InterpreterCore/Operations retain all original algorithms and

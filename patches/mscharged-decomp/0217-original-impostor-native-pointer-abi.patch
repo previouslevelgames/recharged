@@ -1,6 +1,6 @@
 Subject: [PATCH] retain original impostor providers with native pointer ABI
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Keep all original methods and static construction. Size the original model
 pointer array using its actual native element width and transport the existing

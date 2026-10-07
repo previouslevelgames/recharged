@@ -1,0 +1,187 @@
+Subject: [PATCH] Restore original material registration order and destructor flow
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Restore eight constructors exactly to pinned source assignment/registration order.
+Original game-module destructors retain the source empty bodies. Prior native
+preview global/cache resets remain scoped to standalone diagnostics. No resource
+selection, parameters, shader decisions or successful readiness are introduced.
+
+--- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
++++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
+@@ -27,16 +27,16 @@
+ 
+ GXCameraScrolledOverlayMaterialProgram::GXCameraScrolledOverlayMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x32BC21E8;
+     parameterDataSize = 48;
+     parameterCount = 9;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXCameraScrolledOverlayMaterialProgram::~GXCameraScrolledOverlayMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+@@ -24,16 +24,16 @@
+ 
+ GXMaskedDetailBlendMaterialProgram::GXMaskedDetailBlendMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x09609A35;
+     parameterDataSize = 36;
+     parameterCount = 6;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXMaskedDetailBlendMaterialProgram::~GXMaskedDetailBlendMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+@@ -27,16 +27,16 @@
+ 
+ GXMaskedSpecularFresnelMaterialProgram::GXMaskedSpecularFresnelMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x32475C7D;
+     parameterDataSize = 48;
+     parameterCount = 9;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXMaskedSpecularFresnelMaterialProgram::~GXMaskedSpecularFresnelMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+@@ -30,16 +30,16 @@
+ 
+ GXScrollingCameraOverlayMaterialProgram::GXScrollingCameraOverlayMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x845CAD59;
+     parameterDataSize = 60;
+     parameterCount = 12;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXScrollingCameraOverlayMaterialProgram::~GXScrollingCameraOverlayMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+@@ -26,16 +26,16 @@
+ 
+ GXScrollingDiffuseMaterialProgram::GXScrollingDiffuseMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x2169DB5C;
+     parameterDataSize = 36;
+     parameterCount = 8;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXScrollingDiffuseMaterialProgram::~GXScrollingDiffuseMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+@@ -30,16 +30,16 @@
+ 
+ GXScrollingMaskedDetailBlendMaterialProgram::GXScrollingMaskedDetailBlendMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0xF2D57AC6;
+     parameterDataSize = 60;
+     parameterCount = 12;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXScrollingMaskedDetailBlendMaterialProgram::~GXScrollingMaskedDetailBlendMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+@@ -28,16 +28,16 @@
+ 
+ GXScrollingSpecularMaterialProgram::GXScrollingSpecularMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x3ECCD955;
+     parameterDataSize = 60;
+     parameterCount = 10;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXScrollingSpecularMaterialProgram::~GXScrollingSpecularMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif
+--- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
++++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+@@ -29,7 +29,7 @@
+ 
+ GXShadowVolumeMaterialProgram::~GXShadowVolumeMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     ResetNativeShadowVolumeMaterial();
+     Instance = nullptr;
+     Initialized = false;
+--- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+@@ -28,16 +28,16 @@
+ 
+ GXSpecularDetailBlendMaterialProgram::GXSpecularDetailBlendMaterialProgram()
+ {
++    Instance = this;
+     programHash = 0x112AB470;
+     parameterDataSize = 68;
+     parameterCount = 10;
+     glRegisterMaterialProgram(this, programHash);
+-    Instance = this;
+ }
+ 
+ GXSpecularDetailBlendMaterialProgram::~GXSpecularDetailBlendMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     Instance = nullptr;
+     Initialized = false;
+ #endif

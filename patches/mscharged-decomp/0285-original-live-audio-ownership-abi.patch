@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original live audio ownership on native ABI
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Adapt live sound-handle notification/tree keys without widening any authored
 hash, serialized field or script word. Use authoritative native owning fields
@@ -178,7 +178,7 @@ diff --git a/src/Game/Audio/AudioEffectBinding.cpp b/src/Game/Audio/AudioEffectB
 +bool NotifyEffectSoundStopped(const u32&, AudioEffectBase**, AudioInstanceKey);
 +bool ApplyEffectToSound(const AudioInstanceKey&, bool*, AudioEffectBase*);
  
- void AudioEffectBinding::Unidentified8418(u32 key)
+ void AudioEffectBinding::OnBindingCreated(u32 key)
  {
  }
  
@@ -316,50 +316,3 @@ diff --git a/src/Game/Audio/AudioRpc.cpp b/src/Game/Audio/AudioRpc.cpp
  }
  
  static inline float EvaluateAudioRpcCurve(
-diff --git a/src/Game/Audio/AudioSlider.cpp b/src/Game/Audio/AudioSlider.cpp
---- a/src/Game/Audio/AudioSlider.cpp
-+++ b/src/Game/Audio/AudioSlider.cpp
-@@ -8,6 +8,10 @@
- #include "platform/native_audio_controls.h"
- #endif
- 
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+#include "Game/Audio/XSoundCueHandle.h"
-+typedef XSoundCueHandle SliderOwner_802EE964;
-+#else
- struct SliderOwnerValue_802EE964
- {
-     u8 pad_00[0x1C];
-@@ -21,6 +25,7 @@
-     u8 pad_24[8];
-     SliderOwnerValue_802EE964* valueSource;
- };
-+#endif
- 
- AudioSliderTable* ParseAudioSliderTable(nlChunk* outer)
- {
-@@ -61,8 +66,12 @@
-     AudioSliderDefinition* definition = table->globalDefinitions + table->localToGlobal[index];
-     if (definition->kind == 2)
-         return table->globalSliders + definition->index;
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    return owner->m_LocalSliders->sliders + definition->index;
-+#else
-     return ((SliderOwner_802EE964*)owner)->localSet->sliders
-          + definition->index;
-+#endif
- }
- 
- extern "C" AudioSliderSet* fn_802EED88(AudioSliderTable* table, SliderOwner_802EE964* owner)
-@@ -88,7 +97,11 @@
-     AudioSliderDefinition* definition = table->globalDefinitions + table->localToGlobal[0];
-     AudioSlider* slider = set->sliders + definition->index;
-     tDebugPrintManager::Print(DC_SOUND, "Slider name: %s\n", nlLookupDebugString(g_pDebugStringTable, (unsigned long)slider->definition->name));
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    slider->SetTarget((float)owner->definition->activeCount, 0.0f);
-+#else
-     slider->SetTarget((float)owner->valueSource->value, 0.0f);
-+#endif
-     slider->Update(0.0f, 1.0f);
-     return set;
- }

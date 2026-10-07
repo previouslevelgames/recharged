@@ -1,6 +1,6 @@
 From: mscharged-port source integration
 Subject: [PATCH] Admit original Credits COPYRIGHTS in the named scene diagnostic
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
 Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
 
@@ -62,7 +62,7 @@ Preserve original source decisions, callback/parser/input/movie ordering and rec
 +    }
  }
  
- void CreditScene::MoviePlayerVirtual3C()
+ void CreditScene::OnMoviePlaybackEnded()
 @@ -377,7 +389,7 @@
                  quitcredits = true;
              }

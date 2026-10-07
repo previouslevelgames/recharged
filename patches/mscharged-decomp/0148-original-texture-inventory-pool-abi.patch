@@ -1,5 +1,5 @@
 Subject: Preserve original inventory, texture animation, manager and resource-pool source
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Restore original game-side resource timing, selection, registration, allocation
 and release decisions; adapt Wii36-byte animation headers/8-byte frames,

@@ -106,7 +106,7 @@ bool ParticleControllers::Active() const
     return impl_->live;
 }
 bool ParticleControllers::Failed() const { impl_->Check(true); return impl_->failed; }
-std::uint32_t ParticleControllers::Seed() const { impl_->Check(true); return uSeed; }
+std::uint32_t ParticleControllers::Seed() const { impl_->Check(true); return gEffectsRandomSeed; }
 ParticleControllers::Token ParticleControllers::Start(EffectsRegistry::Handle registry, std::uint32_t hash, ParticleControllerOptions options)
 {
     impl_->Unbound(); impl_->Check();
@@ -202,7 +202,7 @@ void ParticleControllers::Destroy(Token token)
 void ParticleControllers::Reset(std::uint32_t seed)
 {
     impl_->Unbound();std::exception_ptr error;try{impl_->Clean();}catch(...){error=std::current_exception();}
-    uSeed=seed;impl_->next_id=1;impl_->failed=false;
+    gEffectsRandomSeed=seed;impl_->next_id=1;impl_->failed=false;
     if(error)std::rethrow_exception(error);
 }
 void ParticleControllers::Release()

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original font fallback and bounded text escape parsing
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Extract the original first-match/first-registered font fallback for native
 lookup without modifying the Matching fontmanager.cpp translation unit.

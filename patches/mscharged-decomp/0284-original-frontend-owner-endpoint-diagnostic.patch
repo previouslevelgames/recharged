@@ -1,5 +1,5 @@
 Subject: Select temporary original Boot/Nav/Intro diagnostic endpoints
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Named diagnostic-only omissions retain default native and console game flow.
 Full Async/camera/world/AX services remain unqualified.
@@ -131,7 +131,7 @@ index 2547076..ab04fe1 100644
  #include "NL/nlDLListContainer.inl"
  #include "Game/SH/SHOnlineMiiSelectOverlay.h"
  #include "Game/BaseGameSceneManager.h"
-@@ -301,6 +304,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -301,6 +304,7 @@
  
      switch (newscene)
      {
@@ -139,7 +139,7 @@ index 2547076..ab04fe1 100644
      case SCENE_TITLE:
          newHandler = new (nlMalloc(sizeof(TitleScene), 8, false)) TitleScene(movement);
          break;
-@@ -349,21 +353,25 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -349,21 +353,25 @@
      case SCENE_SUPER_LOADING:
          newHandler = new (nlMalloc(sizeof(SuperLoadingScene), 8, false)) SuperLoadingScene();
          break;
@@ -162,10 +162,10 @@ index 2547076..ab04fe1 100644
          newHandler = new (nlMalloc(sizeof(IntroMovieScene), 8, false)) IntroMovieScene();
          break;
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)23:
+     case SCENE_CREDITS:
          newHandler = new (nlMalloc(sizeof(CreditScene), 8, false)) CreditScene();
          break;
-@@ -382,9 +390,11 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -382,9 +390,11 @@
      case SCENE_OPTIONS_CHEATS_LIST:
          newHandler = new (nlMalloc(sizeof(SHOptionsCheatsList), 8, false)) SHOptionsCheatsList();
          break;
@@ -177,7 +177,7 @@ index 2547076..ab04fe1 100644
      case (SceneList)30:
          newHandler = new (nlMalloc(sizeof(SHNavigation), 8, false)) SHNavigation();
          break;
-@@ -598,6 +608,11 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -598,6 +608,11 @@
      case (SceneList)105:
          newHandler = new (nlMalloc(sizeof(DefensivePlayOverlay), 8, false)) DefensivePlayOverlay();
          break;
@@ -189,6 +189,7 @@ index 2547076..ab04fe1 100644
      }
  
      FESceneManager::Instance()->QueueScenePush(newHandler, filename, &VirtualAllocator);
+
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
 index 996e48b..2e14d2a 100644
 --- a/src/Game/GameInfo.cpp
@@ -584,19 +585,19 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
 index 1ea9073..144309d 100644
 --- a/src/Game/SH/SHBootLoading.cpp
 +++ b/src/Game/SH/SHBootLoading.cpp
-@@ -227,7 +227,9 @@ void BootLoadingScene::Update(float fDeltaT)
+@@ -225,7 +225,9 @@
          {
-             mPhase = 4;
+             mPhase = PhaseFinished;
              mElapsedTime = 0.0f;
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
              g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
 +#endif // normal AX NLG sound bank is omitted in this diagnostic
          }
      }
-     else if (mPhase == 4)
-@@ -271,7 +273,9 @@ void BootLoadingScene::SetPhaseSlide()
+     else if (mPhase == PhaseFinished)
+@@ -269,7 +271,9 @@
          break;
-     case 3:
+     case PhaseDeveloperLogo:
          mPresentation->SetActiveSlide("NLG", true);
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
          FEAudio::PlaySound(0x17, 0xDE83984E, 0, 0);
@@ -604,29 +605,38 @@ index 1ea9073..144309d 100644
          break;
      }
      if (mHomeButtonWarning != 0)
+
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 index b1acf74..f54fb70 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -42,7 +42,7 @@ MoviePlayerScene::MoviePlayerScene()
+@@ -42,15 +42,17 @@
      typedef Detail::MemFunImpl<void, void (MoviePlayerScene::*)()> MemFunImpl_MoviePlayerScene_v;
      typedef BindExp1<void, MemFunImpl_MoviePlayerScene_v, MoviePlayerScene*> BindExp1_MoviePlayerScene_v;
      mMovieFilename[0] = 0;
--#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     if (GameSceneManager::s_pInstance)
-     {
-         mGameSceneManager = GameSceneManager::s_pInstance;
-@@ -51,6 +51,8 @@ MoviePlayerScene::MoviePlayerScene()
-     {
-         mGameSceneManager = g_pOverlayManager;
-     }
++    if (GameSceneManager::s_pInstance)
++    {
++        mGameSceneManager = GameSceneManager::s_pInstance;
++    }
++    else
++    {
++        mGameSceneManager = g_pOverlayManager;
++    }
 +#endif // actual scene-manager selection is retained
-+#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+ #if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
+-    if (GameSceneManager::s_pInstance)
+-    {
+-        mGameSceneManager = GameSceneManager::s_pInstance;
+-    }
+-    else
+-    {
+-        mGameSceneManager = g_pOverlayManager;
+-    }
      UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
  #endif
  }
-@@ -252,8 +254,10 @@ void IntroMovieScene::ResetMoviePlayer()
+@@ -252,8 +254,10 @@
          MovieStop();
          mMovieStarted = false;
      }
@@ -637,8 +647,8 @@ index b1acf74..f54fb70 100644
      mUnidentifiedB4 = 0.0f;
      mMovieFinished = false;
      mTransitionPending = false;
-@@ -262,8 +266,10 @@ void IntroMovieScene::ResetMoviePlayer()
- void IntroMovieScene::MoviePlayerVirtual3C()
+@@ -262,8 +266,10 @@
+ void IntroMovieScene::OnMoviePlaybackEnded()
  {
      GameSceneManager::s_pInstance->Push(mNextScene, SCREEN_NOTHING, true);
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
@@ -648,7 +658,7 @@ index b1acf74..f54fb70 100644
      SetSyncedDecode(false);
  }
  
-@@ -288,7 +294,9 @@ void IntroMovieScene::Update(float fDeltaT)
+@@ -288,7 +294,9 @@
                  mMovieFinished = true;
                  FrontEndPresentation::GetInstance()->Call("TransitionFromMovieToTitleScreen");
                  mTransitionPending = true;
@@ -658,6 +668,7 @@ index b1acf74..f54fb70 100644
                  SetSyncedDecode(false);
              }
          }
+
 diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 index bec562e..d071960 100644
 --- a/src/Game/SH/SHNavigation.cpp

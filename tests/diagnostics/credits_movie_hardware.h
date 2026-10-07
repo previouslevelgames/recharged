@@ -10,6 +10,13 @@ void InitializeCreditsMovieHardware();
 // existing AI endpoint remains the sole SDK registration and services AI first.
 // Caller must retire this SDK owner before freeing/retiring borrowed input.
 void InitializeCreditsMovieHardware(void (*service_input)());
+// Register the same genuine SDK owner without AIInit; original Backend
+// issues the first AI/AX/MIX initialization. No initialized source flag follows.
+void InitializeOriginalGameAudioHardware(void (*service_input)());
+// Borrow one live native processor into the existing owner. Bind/unbind only
+// on the owner outside a service callback; unbind before device/owner retirement.
+void BindCreditsMovieDeviceService(void (*service_device)(void*), void* context);
+void UnbindCreditsMovieDeviceService(void* context);
 void ServiceCreditsMovieHardware();
 void ShutdownCreditsMovieHardware();
 

@@ -49,9 +49,15 @@ std::array<std::int16_t, 4> NativeAXSuppliedCoefficientROM::Row(
     const auto at = std::size_t(bank) * 512 + std::size_t(fraction >> 9) * 4;
     return {words_[at], words_[at + 1], words_[at + 2], words_[at + 3]};
 }
+NativeAXCoefficientView NativeAXSuppliedCoefficientROM::View() const noexcept {
+    return {NativeAXCoefficientPolicy::SuppliedBank,this,
+        [](const void* context,std::uint16_t bank,std::uint16_t fraction) {
+            return static_cast<const NativeAXSuppliedCoefficientROM*>(context)->Row(bank,fraction);
+        }};
+}
 NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
     NativeDSPMemoryEndpoint endpoint, std::uint32_t address,
-    const NativeAXSuppliedCoefficientROM& coefficients) {
+    const NativeAXCoefficientView& coefficients) {
     NativeAXPreparedVoiceFrame result; result.parameter_address = address;
     DSPBackendReadMemory(endpoint, address, result.parameters_before.data(), result.parameters_before.size());
     if (Word(result.parameters_before.data() + 4) != address)
@@ -76,8 +82,8 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
         Fail(NativeAXVoiceFailure::UnsupportedGain, "AX ADPCM nonzero accelerator gain is outside the owned sample proof");
     const auto* before = result.parameters_before.data();
     if (Half(before + 0x44)) Fail(NativeAXVoiceFailure::UnsupportedITD, "AX active ITD/history processing is unqualified");
-    if (Half(before + 0xba) || Half(before + 0xc2))
-        Fail(NativeAXVoiceFailure::UnsupportedFilter, "AX active LPF/biquad processing is unqualified");
+    if (Half(before + 0xc2))
+        Fail(NativeAXVoiceFailure::UnsupportedFilter, "AX active biquad processing is unqualified");
     if (Half(before + 0xd6)) Fail(NativeAXVoiceFailure::UnsupportedRemote, "AX active remote resampling/mixing is unqualified");
     const auto mixer = Word(before + 0x0c);
     if (mixer & ~std::uint32_t(0x7fff001f))
@@ -136,6 +142,23 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
         envelope = static_cast<std::uint16_t>(envelope + delta);
     }
     PutHalf(after + 0x6a, envelope);
+    result.filtered = result.enveloped;
+    if (Half(before + 0xba)) {
+        auto history = Signed(Half(before + 0xbc));
+        const auto a0 = Signed(Half(before + 0xbe));
+        const auto b0 = Signed(Half(before + 0xc0));
+        for (std::size_t i = 0; i < 96; ++i) {
+            // Owned06AB..06C2: signed fractional MULX + MADDX, then
+            // saturated40-bit accumulator-middle feedback/output. The two
+            // products are added before dropping15 fractional bits; there
+            // is no added rounding. The LPF follows VE and precedes mixing.
+            const auto product = std::int64_t(result.enveloped[i]) * a0 +
+                                 std::int64_t(history) * b0;
+            history = Saturate(Floor(product, 32768));
+            result.filtered[i] = history;
+        }
+        PutHalf(after + 0xbc, static_cast<std::uint16_t>(history));
+    }
     for (std::size_t bus = 0; bus < MixBuses.size(); ++bus) {
         const auto& selected = MixBuses[bus];
         if (!(mixer & (std::uint32_t(1) << selected.enabled))) continue;
@@ -143,7 +166,7 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
         const auto volume_delta = Signed(Half(before + 0x16 + bus * 4));
         const bool ramp = (mixer & (std::uint32_t(1) << selected.ramp)) != 0;
         for (std::size_t i = 0; i < 96; ++i) {
-            result.buses[bus][i] = static_cast<std::int32_t>(Floor(std::int64_t(result.enveloped[i]) * volume, 32768));
+            result.buses[bus][i] = static_cast<std::int32_t>(Floor(std::int64_t(result.filtered[i]) * volume, 32768));
             if (ramp) volume = static_cast<std::uint16_t>(volume + volume_delta);
         }
         if (ramp) PutHalf(after + 0x14 + bus * 4, volume);
@@ -153,6 +176,11 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
                 static_cast<std::uint16_t>(Saturate(result.buses[bus].back())));
     }
     return result;
+}
+NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
+    NativeDSPMemoryEndpoint endpoint,std::uint32_t address,
+    const NativeAXSuppliedCoefficientROM& coefficients) {
+    return PrepareNativeAXADPCMVoiceFrame(endpoint,address,coefficients.View());
 }
 void ValidateNativeAXVoiceCommit(NativeDSPMemoryEndpoint endpoint,
                                 const NativeAXPreparedVoiceFrame& frame) {

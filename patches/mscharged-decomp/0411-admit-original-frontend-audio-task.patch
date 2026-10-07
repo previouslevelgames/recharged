@@ -1,0 +1,30 @@
+From: mscharged native integration
+Subject: [PATCH] admit original audio task in explicit initialized frontend scope
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Retain the original AudioUpdateTask static and priority15/all-state AddTask
+statement only in the named default-OFF audio task diagnostic. Its literal
+GameAudio::Update body and normal source are unchanged. Requires actual loaded
+source owner plus native device/AI lifecycle; no host tick or cue selection.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -220,7 +220,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+ static BeginFrameTask beginFrameTask;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK)
+ static AudioUpdateTask audioUpdateTask;
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+@@ -788,7 +788,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     nlTaskManager::AddTask(&particleUpdateTask, 12, 0x0002001F);
+ #endif // unqualified unrelated task registration remains omitted
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK)
+     nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+     nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);

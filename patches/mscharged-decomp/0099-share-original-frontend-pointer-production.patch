@@ -1,5 +1,5 @@
 Subject: Share original frontend pointer conversion and options event production
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Share exact feDPD normalized-coordinate conversion, integer viewport margins,
 and OptionsScene position-before-action30 event construction. Console callers
@@ -53,15 +53,20 @@ diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
 diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 --- a/src/Game/SH/SHOptions.cpp
 +++ b/src/Game/SH/SHOptions.cpp
-@@ -18,6 +18,7 @@
+@@ -18,6 +18,12 @@
  #include "NL/nlBind.h"
  #include "NL/nlString.h"
  #include "Game/FE/feDPD.h"
 +#include "Game/FE/FrontendPointerHostSteps.h"
- #include "Game/FE/FEAudio.h"
- #include "Game/SH/SHNavigation.h"
++#include "Game/FE/FEAudio.h"
++#include "Game/SH/SHNavigation.h"
++
++class SHNavigation;
++
  
-@@ -72,6 +73,20 @@
+ void BaseSceneHandler::SceneCreated()
+ {
+@@ -67,6 +73,20 @@
      FEMusic::StartStreamIfDifferent(1);
  }
  
@@ -82,7 +87,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  void OptionsScene::Update(float fDeltaT)
  {
      BaseSceneHandler::Update(fDeltaT);
-@@ -128,11 +143,9 @@
+@@ -123,11 +143,9 @@
  
          pointer->SetActiveSlide("cursor", true, false);
  
@@ -96,6 +101,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  
          if (mBackButton.UpdateBackButton(event, fDeltaT))
          {
+
 diff --git a/include/Game/FE/FrontendPointerHostSteps.h b/include/Game/FE/FrontendPointerHostSteps.h
 new file mode 100644
 --- /dev/null

@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -12,8 +12,7 @@ only; production requires their whole original Game/AIPad providers.
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
 --- a/include/Game/TweakValue.h
 +++ b/include/Game/TweakValue.h
-@@ -3,7 +3,12 @@
- 
+@@ -4,6 +4,11 @@
  #include "Game/TweakValueBase.h"
  #include "Game/TweakRegistration.h"
  #include "NL/nlMemory.h"
@@ -25,9 +24,9 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #include "NL/nlPrint.h"
  #include "NL/nlSmallBlockAllocator.h"
  #include "NL/nlString.h"
-@@ -25,8 +30,13 @@
- 
- extern const char* gLastTweakCategory;
+@@ -14,8 +19,13 @@
+ class InterpreterCore;
+ class TweakIntBinding;
  
 +#ifdef MSCHARGED_NATIVE
 +typedef nlSmallBlockAllocator<4*sizeof(void*), 8*sizeof(void*), 16*sizeof(void*), 1> TweakValueAllocator3;
@@ -39,7 +38,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  extern TweakValueAllocator3* gTweakValueAllocator;
  extern TweakValueAllocator2* gTweakBindingAllocator;
  
-@@ -54,7 +64,11 @@
+@@ -43,7 +53,11 @@
  
  inline void* AllocateTweakValue(unsigned long size)
  {
@@ -51,7 +50,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  }
  
  inline bool TweakValueStringEquals(const char* value, const char* expected)
-@@ -91,7 +105,11 @@
+@@ -80,7 +94,11 @@
  }
  inline void ParseTweakBindingValue(float*& result, const char* value)
  {
@@ -63,7 +62,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  }
  
  template <typename T>
-@@ -161,7 +179,11 @@
+@@ -150,7 +168,11 @@
  
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -75,7 +74,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
              if (entry != 0)
              {
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
-@@ -311,7 +333,11 @@
+@@ -300,7 +322,11 @@
          mFormatName = formatName;
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -143,7 +142,7 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
 diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
 --- a/include/Game/TweakRegistry.h
 +++ b/include/Game/TweakRegistry.h
-@@ -22,9 +22,18 @@
+@@ -23,9 +23,18 @@
  struct TweakPendingValue;
  struct TweakRecycledName;
  
@@ -162,7 +161,7 @@ diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
  
  extern TweakValueAllocator3* gTweakValueAllocator;
  extern TweakValueAllocator2* gTweakBindingAllocator;
-@@ -216,7 +225,11 @@
+@@ -212,7 +221,11 @@
              m_Value = ((TweakValueString*)other)->m_Value;
              break;
          case 2:
@@ -174,7 +173,7 @@ diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
              break;
          }
      }
-@@ -261,3 +274,10 @@
+@@ -257,3 +270,10 @@
  }
  
  #endif // GAME_TWEAK_REGISTRY_H
@@ -437,7 +436,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      return seenPeriod;
  }
  
-@@ -379,7 +430,7 @@
+@@ -378,7 +429,7 @@
  static T* CreateRegisteredTweakValue(TweakEntry* entry, const char* name, V value)
  {
      const char* interned = InternTweakString(name, kTweakStringCurrent);
@@ -446,7 +445,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      AddTweakValue(entry, created);
      return created;
  }
-@@ -511,6 +562,9 @@
+@@ -510,6 +561,9 @@
  
  int NeedsTweakNameFormatting(const char* name, int* outLength)
  {
@@ -456,7 +455,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int found = 0;
      unsigned int i;
  
-@@ -557,6 +611,9 @@
+@@ -556,6 +610,9 @@
  
  const char* FormatTweakName(const char* name, int kind)
  {
@@ -466,7 +465,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int prefix = 0;
      NeedsTweakNameFormatting(name, &prefix);
  
-@@ -589,6 +646,10 @@
+@@ -588,6 +645,10 @@
  
  void UnregisterTweakValue(TweakValueBase* value)
  {
@@ -477,7 +476,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      RemoveTweakValue(&sTweakRootEntry, value);
  }
  
-@@ -599,6 +660,9 @@
+@@ -598,6 +659,9 @@
      {
          return defaultValue;
      }
@@ -487,7 +486,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == 1)
      {
-@@ -606,7 +670,11 @@
+@@ -605,7 +669,11 @@
      }
      if (kind == 2)
      {
@@ -499,7 +498,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -618,6 +686,9 @@
+@@ -617,6 +685,9 @@
      {
          return defaultValue;
      }
@@ -509,7 +508,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == 1)
      {
-@@ -625,7 +696,11 @@
+@@ -624,7 +695,11 @@
      }
      if (kind == 2)
      {
@@ -521,7 +520,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -637,6 +712,9 @@
+@@ -636,6 +711,9 @@
      {
          return defaultValue;
      }
@@ -531,7 +530,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == 1)
      {
-@@ -644,7 +722,11 @@
+@@ -643,7 +721,11 @@
      }
      if (kind == 2)
      {
@@ -543,7 +542,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -656,6 +738,9 @@
+@@ -655,6 +737,9 @@
      {
          return defaultValue;
      }
@@ -553,7 +552,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == 1)
      {
-@@ -663,7 +748,11 @@
+@@ -662,7 +747,11 @@
      }
      if (kind == 2)
      {
@@ -565,7 +564,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -675,6 +764,10 @@
+@@ -674,6 +763,10 @@
  
  void QueueTweakValue(TweakPendingValue* pending, TweakValueBase* value, const char* category)
  {
@@ -576,7 +575,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      pending->m_Value = value;
      pending->m_Category = category;
      pending->m_Unk8 = 0;
-@@ -690,6 +783,9 @@
+@@ -689,6 +782,9 @@
          gPendingTweakTail->m_Next = pending;
          gPendingTweakTail = pending;
      }
@@ -586,7 +585,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
  }
  
  int TweakNode::IsEntry()
-@@ -710,4 +806,3 @@
+@@ -709,4 +805,3 @@
  static TweakIntBinding sDynamicStringCount("Num dynamic strings", gLastTweakCategory, &gTweakStringCounts[kTweakStringDynamic]);
  static TweakIntBinding sValueStringCount("Num value strings", gLastTweakCategory, &gTweakStringCounts[kTweakStringValue]);
  static TweakIntBinding sFolderNameCount("Num folder names", gLastTweakCategory, &gTweakStringCounts[kTweakStringFolder]);
@@ -821,7 +820,7 @@ diff --git a/src/Game/GameTweaks.cpp b/src/Game/GameTweaks.cpp
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -3297,7 +3297,9 @@
+@@ -3281,7 +3281,9 @@
  }
  
  static unsigned short lbl_806DB5C0 = 0xFFFF;

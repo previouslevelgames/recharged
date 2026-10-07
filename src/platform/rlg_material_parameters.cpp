@@ -5,6 +5,10 @@
 #include "NL/gl/glMaterialProgram.h"
 #include "NL/glx/GXConstantColourMaterialProgram.h"
 #include "NL/glx/GXFloatTexturedColourMaterialProgram.h"
+#include "NL/glx/GXMaskedSpecularFresnelMaterialProgram.h"
+#include "NL/glx/GXScrollingDiffuseMaterialProgram.h"
+#include "NL/glx/GXMovieMaterialProgram.h"
+#include "NL/glx/GXScrollingSpecularMaterialProgram.h"
 
 #include <array>
 #include <cstdint>
@@ -62,10 +66,27 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
     static_assert(sizeof(GXFloatTexturedColourParameters) == 8);
     static_assert(sizeof(GXConstantColourParameters) == 24);
     static_assert(offsetof(GXConstantColourParameters, constantColour) == 8);
+    static_assert(sizeof(GXMaskedSpecularFresnelParameters) == 48);
+    static_assert(offsetof(GXMaskedSpecularFresnelParameters, specularTexture) == 8);
+    static_assert(offsetof(GXMaskedSpecularFresnelParameters, specularMaskTexture) == 16);
+    static_assert(offsetof(GXMaskedSpecularFresnelParameters, specularAmount) == 24);
+    static_assert(offsetof(GXMaskedSpecularFresnelParameters, lightingEnabled) == 40);
+    static_assert(sizeof(GXScrollingDiffuseParameters) == 36);
+    static_assert(offsetof(GXScrollingDiffuseParameters, scrollSpeedX) == 8);
+    static_assert(offsetof(GXScrollingDiffuseParameters, shadowEnabled) == 16);
+    static_assert(sizeof(GXMovieParameters) == 24);
+    static_assert(offsetof(GXMovieParameters, tint) == 8);
+    static_assert(sizeof(GXScrollingSpecularParameters) == 60);
+    static_assert(offsetof(GXScrollingSpecularParameters, specularTexture) == 8);
+    static_assert(offsetof(GXScrollingSpecularParameters, specularLevel) == 16);
+    static_assert(offsetof(GXScrollingSpecularParameters, specularColour) == 24);
+    static_assert(offsetof(GXScrollingSpecularParameters, scrollSpeedX) == 40);
+    static_assert(offsetof(GXScrollingSpecularParameters, scrollSpecularTexture) == 48);
     auto* program = static_cast<GLMaterialProgram*>(packet->materialProgram);
     if (!program)
         throw std::invalid_argument("Original RLG material lookup has no genuine source provider");
     std::size_t bytes;
+    std::size_t bindings = 1;
     switch (program->programHash)
     {
     case 0x19065BF6:
@@ -78,6 +99,28 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
         if (program->parameterDataSize != bytes || program->parameterCount != 2)
             throw std::invalid_argument("ConstantColour source layout differs from authored ABI");
         break;
+    case 0x32475C7D:
+        bytes = sizeof(GXMaskedSpecularFresnelParameters);
+        bindings = 3;
+        if (program->parameterDataSize != bytes || program->parameterCount != 9)
+            throw std::invalid_argument("MaskedSpecularFresnel source layout differs from authored ABI");
+        break;
+    case 0x2169DB5C:
+        bytes = sizeof(GXScrollingDiffuseParameters);
+        if (program->parameterDataSize != bytes || program->parameterCount != 8)
+            throw std::invalid_argument("ScrollingDiffuse source layout differs from authored ABI");
+        break;
+    case 0xEC35CAAB:
+        bytes = sizeof(GXMovieParameters);
+        if (program->parameterDataSize != bytes || program->parameterCount != 2)
+            throw std::invalid_argument("Movie source layout differs from authored ABI");
+        break;
+    case 0x3ECCD955:
+        bytes = sizeof(GXScrollingSpecularParameters);
+        bindings = 2;
+        if (program->parameterDataSize != bytes || program->parameterCount != 10)
+            throw std::invalid_argument("ScrollingSpecular source layout differs from authored ABI");
+        break;
     default:
         throw std::invalid_argument("Authored RLG material parameter layout is not yet qualified natively");
     }
@@ -85,19 +128,23 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
     GameCompletedSpan span{};
     if (!FindGameCompletedSpan(data, bytes, span))
         throw std::invalid_argument("RLG material parameters leave the genuine completed logical span");
-    std::array<unsigned char, sizeof(GXConstantColourParameters)> native{};
+    std::array<unsigned char, sizeof(GXScrollingSpecularParameters)> native{};
     std::memcpy(native.data(), data, bytes);
-    const std::uint32_t texture = Word(data, 4);
-    const std::uint16_t index = static_cast<std::uint16_t>(Word(data + 4, 2));
-    std::memcpy(native.data(), &texture, 4);
-    std::memcpy(native.data() + 4, &index, 2);
-    // The two flag bytes are already scalar bytes, with no endian conversion.
-    const auto flagDomain = FindGameByteDomain(data + 6, 2);
-    if (flagDomain != GameByteDomain::WiiSerialized && flagDomain != GameByteDomain::NativeHeader)
-        throw std::invalid_argument("RLG texture flags have no authored or converted header domain");
+    for (std::size_t binding = 0; binding < bindings; ++binding)
+    {
+        const auto at = binding * sizeof(glTextureBinding);
+        const std::uint32_t texture = Word(data + at, 4);
+        const std::uint16_t index = static_cast<std::uint16_t>(Word(data + at + 4, 2));
+        std::memcpy(native.data() + at, &texture, 4);
+        std::memcpy(native.data() + at + 4, &index, 2);
+        // The two flag bytes are already scalar bytes, with no endian conversion.
+        const auto flagDomain = FindGameByteDomain(data + at + 6, 2);
+        if (flagDomain != GameByteDomain::WiiSerialized && flagDomain != GameByteDomain::NativeHeader)
+            throw std::invalid_argument("RLG texture flags have no authored or converted header domain");
+    }
     // Copy the bit patterns, rather than arithmetic on the float values. This
     // also preserves signed zero and all authored NaN payloads.
-    for (std::size_t at = 8; at < bytes; at += 4)
+    for (std::size_t at = bindings * sizeof(glTextureBinding); at < bytes; at += 4)
     {
         const std::uint32_t bits = Word(data + at, 4);
         std::memcpy(native.data() + at, &bits, 4);

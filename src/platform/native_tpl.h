@@ -1,5 +1,8 @@
 #pragma once
 
+// Retail public SDK headers may include this C++ transport inside extern "C".
+extern "C++" {
+
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -35,6 +38,8 @@ static_assert(std::is_standard_layout_v<NativeTPLAddress32<char>>);
 // the original source copies those exact GX RGB5A3 bytes into its NAND banner.
 void BindNativeTPLImage(void* palette);
 }
+
+} // C++ linkage
 
 // The original partial TPL declarations use an opaque native parameter only at
 // this library boundary. Their palette/table/header strides stay Wii-sized.

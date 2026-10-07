@@ -1,6 +1,6 @@
 Subject: Preserve copied Wii32 camera event words and compiler fabs type
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 The original thwomp event producer copies one Wii32 word from source offset0;
 retail lwz/stw transfers it into the event's second field. The original camera

@@ -1,0 +1,137 @@
+From: mscharged-port original-source fidelity
+Subject: Retire standalone Specular preview decisions from original game modules
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Original game modules use the actual source view, skinnedVertices condition,
+display lists and cached matrix wrapper. Bind the source-selected arrays with
+real owned native extent/endian, retaining every attribute/address/stride.
+Earlier software-skin/direct-draw substitutions remain isolated to transitional
+standalone asset diagnostics. Native parameter layout adaptations are retained.
+No lighting, render ordering, skin, alpha or source visibility redesign.
+
+--- a/src/NL/glx/GXSpecularMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgram.cpp
+@@ -1,6 +1,10 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if !defined(MSCHARGED_GAME_MODULE)
+ #include "runtime/specular_material.h"
++#else
++#include "platform/gx_array_transport.h"
++#endif
+ #include <stddef.h>
+ #else
+ #include <revolution/gx.h>
+@@ -102,31 +106,41 @@
+ void GXSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, mscharged::SpecularVertexArray(*packet, 0),
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, mscharged::SpecularVertexArray(*packet, 1),
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, mscharged::SpecularVertexArray(*packet, 2),
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, mscharged::SpecularVertexArray(*packet, 3),
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, mscharged::SpecularVertexArray(*packet, 4),
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+--- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+@@ -1,7 +1,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if !defined(MSCHARGED_GAME_MODULE)
+ #include "runtime/material_environment.h"
+ #include "runtime/specular_material.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -103,7 +105,7 @@
+ {
+     sSpecularExponent = 0.0f;
+     static_cast<GXSpecularMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     sSpecularViewMatrix = mscharged::MaterialPreviewView();
+ #else
+     view->m_Interface->GetViewMatrix(sSpecularViewMatrix);
+@@ -119,7 +121,7 @@
+ template <>
+ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Deactivate()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     GXSetCurrentMtx(GX_PNMTX0);
+ #else
+     gxSetCurrentMtx(0, true);
+@@ -210,7 +212,7 @@
+     nlMultMatrices(modelview, model, sSpecularViewMatrix);
+     SetGameObjectShadowModelMatrix(packet->matrix);
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     if (!mscharged::SpecularUsesSoftwareSkin(*packet))
+ #else
+     if (packet->skinnedVertices == 0)
+@@ -231,7 +233,7 @@
+         if (sSpecularDepthPrepassEnabled)
+         {
+             bool colourUpdate = gxSetColourUpdate(false);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+             try { mscharged::DrawNativeSpecularPacket(*packet); }
+             catch (...) { gxSetColourUpdate(colourUpdate); throw; }
+ #else
+@@ -246,7 +248,7 @@
+         gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+         GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+         gxSetTevAlphaIn(1, 7, 7, 7, 6);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         mscharged::DrawNativeSpecularPacket(*packet);
+ #else
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+@@ -256,7 +258,7 @@
+     }
+     else
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         mscharged::DrawNativeSpecularPacket(*packet);
+ #else
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);

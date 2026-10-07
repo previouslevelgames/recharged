@@ -1,0 +1,35 @@
+From: mscharged native integration
+Subject: [PATCH] admit original audio initialize in explicit frontend diagnostic
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Only the named default-OFF audio initialization diagnostic admits the existing
+source main call and uses THP's real AX predecessor. Normal/console main and
+movie bodies are unchanged. No bank/cue/task or successful readiness is added.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -621,8 +621,10 @@
+     g_pGameAudio = new (nlMalloc(sizeof(GameAudio), 8, false))
+         GameAudio;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_INITIALIZE)
+     g_pGameAudio->Initialize();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     gSwappablePadChanged.Add(Function<void(int)>(ConfigureTweakerButtons), 0, -1);
+     g_pPadManager->Update(0.0f);
+ #endif // platform pads/audio omitted; FE input retains its source position
+diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+--- a/src/Game/Sys/movie.cpp
++++ b/src/Game/Sys/movie.cpp
+@@ -65,7 +65,7 @@
+         return true;
+     }
+ 
+-#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE) && !defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_INITIALIZE)
+     // Named source movie diagnostic while the genuine AX predecessor is held.
+     THPSimpleInit(0);
+ #else

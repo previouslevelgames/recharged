@@ -1,6 +1,6 @@
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 # Native allocation-owned Wii byte domains and original NL completion.
-# Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+# Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 # Permanent host serialized/ownership ABI adaptation.
 
 diff --git a/include/NL/nlChunk.h b/include/NL/nlChunk.h

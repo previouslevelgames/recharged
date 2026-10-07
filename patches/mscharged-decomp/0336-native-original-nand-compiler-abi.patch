@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Compile whole original NAND with native pointer and C declarations
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Keep the original NAND request, error, permission and callback decisions.
 The ES buffer alignment test uses a native pointer. GNU noinline attaches to

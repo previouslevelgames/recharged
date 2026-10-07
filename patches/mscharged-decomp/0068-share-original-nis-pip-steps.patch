@@ -1,6 +1,6 @@
 Subject: Share original NIS picture-in-picture rectangles, timing and target settings
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Share the original fixed/expanding rectangles, strict expansion completion and
 camera-swap decisions without selecting Holotron or full NisPlayer dependencies.

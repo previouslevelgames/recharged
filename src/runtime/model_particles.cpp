@@ -33,8 +33,8 @@ void Qualify(const EffectsSpec& spec,const EffectsTemplate& value)
         ||spec.m_eJointBinding!=JB_Normal||spec.m_bLight||spec.m_uTerrainID||spec.m_nForwardAxis<0||spec.m_nForwardAxis>6)
         throw std::invalid_argument("Model-particle attachment, terrain, light or ascending-joint service is unavailable");
     if(value.m_uModelID==0xffffffff||value.m_eBillboard>EfBill_Groundboard
-        ||(value.mUnidentified037&~15)||value.m_eEmitter>Emitter_Disc||value.m_eBlend>EfBlend_Additive
-        ||value.mUnidentified040||value.mUnidentified044||value.mUnidentified048)
+        ||(value.m_uFlags&~15)||value.m_eEmitter>Emitter_Disc||value.m_eBlend>EfBlend_Additive
+        ||value.m_uEmitterDeathCode||value.m_uParticleCreationCode||value.m_uParticleDeathCode)
         throw std::invalid_argument("Unqualified model-particle template or event service");
     if(value.m_cColour.size()<25)throw std::invalid_argument("Model-particle colour channel is incomplete");
     Bound(value.m_fFountainLife,1e10f,"fountain lifetime");
@@ -44,7 +44,7 @@ void Qualify(const EffectsSpec& spec,const EffectsTemplate& value)
     const float fps_min=value.m_rFPS.base-.5f*std::abs(value.m_rFPS.range);
     if(life_min<1e-6f||life_max>1000||fps_min<0)
         throw std::invalid_argument("Model-particle lifetime/FPS is outside the qualified domain");
-    Bound(value.mUnidentified030,10000,"UV flip threshold");
+    Bound(value.m_fTexcoordFlipPercentage,10000,"UV flip threshold");
     for(const auto* property:value.mProperties)
     {
         if(!property)throw std::invalid_argument("Missing model-particle property");
@@ -167,7 +167,7 @@ struct ModelParticles::Implementation
         ScopedGameAllocator arena(VirtualAllocator);
         system=std::make_unique<ParticleSystem>(ParticleSystem::NativeSimulation{},spec.m_pTemplate,&context->free,&spec,group->m_hashID);
         system->m_Particles.m_Allocator.Initialize(context->capacity,0);
-        system->m_fDelay=spec.m_fDelay;system->m_uLayer=spec.m_uLayer;Apply();uSeed=seed;
+        system->m_fDelay=spec.m_fDelay;system->m_uLayer=spec.m_uLayer;Apply();gEffectsRandomSeed=seed;
     }
     void Clean()
     {
@@ -194,12 +194,12 @@ bool ModelParticles::Advance(float delta)
     impl_->Idle();if(!std::isfinite(delta)||delta<0||delta>1)throw std::invalid_argument("Model-particle delta must be within [0,1]");
     try
     {
-        const bool alive=impl_->system->Update(delta);impl_->seed=uSeed;
+        const bool alive=impl_->system->Update(delta);impl_->seed=gEffectsRandomSeed;
         for(const auto& p:Snapshot())for(float value:{p.elapsed,p.fraction,p.lifespan,p.rotation,p.velocity,p.position[0],p.position[1],p.position[2]})
             if(!std::isfinite(value))throw std::domain_error("Original model-particle state is nonfinite");
         return alive;
     }
-    catch(...){impl_->seed=uSeed;impl_->failed=true;throw;}
+    catch(...){impl_->seed=gEffectsRandomSeed;impl_->failed=true;throw;}
 }
 std::vector<ParticleSnapshot> ModelParticles::Snapshot()const
 {
@@ -224,9 +224,9 @@ std::vector<ModelParticleSample> ModelParticles::Sample()
             impl_->system->UpdateParticle(&returned,particle,impl_->spec.m_pTemplate,{1,0,0},{0,1,0},
                 impl_->spec.m_pTemplate->IsLocalSpace()?&impl_->system->m_mCoordSys:nullptr);
             const float raw=particle->FPS*particle->timeElapsed;
-            if(!(impl_->spec.m_pTemplate->mUnidentified037&8)&&(!std::isfinite(raw)||raw<0||double(raw)/impl_->frames>100000))
+            if(!(impl_->spec.m_pTemplate->m_uFlags&8)&&(!std::isfinite(raw)||raw<0||double(raw)/impl_->frames>100000))
                 throw std::domain_error("Model-particle frame loop exceeds its checked range");
-            const int frame=impl_->spec.m_pTemplate->mUnidentified037&8
+            const int frame=impl_->spec.m_pTemplate->m_uFlags&8
                 ?fxModelParticleLifeFrame(particle->timeElapsed,particle->lifeSpan,int(impl_->frames))
                 :fxModelParticleFpsFrame(particle->FPS,particle->timeElapsed,int(impl_->frames));
             if(frame<0||unsigned(frame)>=impl_->frames)throw std::domain_error("Original model-particle frame is out of bounds");
@@ -270,7 +270,7 @@ unsigned ModelParticles::Submit(GLView& view)
                     nlColour source;for(unsigned c=0;c<4;++c)source.c[c]=sample.colour[c];nlVector4 colour;fxModelParticleColour(colour,source);
                     std::memcpy(static_cast<unsigned char*>(packet.materialParameters)+parameter.offset,&colour,sizeof(colour));
                 }
-                fxModelParticleRaster(packet.rasterState,t.m_eBlend==EfBlend_Normal?1:3,t.mUnidentified037);
+                fxModelParticleRaster(packet.rasterState,t.m_eBlend==EfBlend_Normal?1:3,t.m_uFlags);
             }
             glModelSetMatrix(model,sample.matrix);view.AttachModel(model,impl_->spec.m_uLayer+1);
         }

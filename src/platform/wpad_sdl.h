@@ -15,6 +15,9 @@ struct WpadSDLSettings {
     // Selected host profiles may defer physical remotes while retaining their
     // existing default discovery policy for all other callers.
     bool physical_wii_remotes = true;
+    // Staged native system preference read by original Options. Keyboard and
+    // mouse profiles disable the unavailable physical motor by default.
+    bool motor_enabled = true;
 };
 void ConfigureWpadSDL(WpadSDLSettings settings);
 

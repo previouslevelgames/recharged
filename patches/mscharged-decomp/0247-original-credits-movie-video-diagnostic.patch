@@ -1,5 +1,5 @@
 Subject: [PATCH] Enable named original Credits movie/video diagnostic
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 Classification: temporary owner-authorized diagnostic flow scope only
 
 The selected scene diagnostic retains actual phase2 parent MoviePlayer Update,
@@ -21,10 +21,11 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
      MoviePlayerScene::Update(fDeltaT);
  #endif
  
+
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -29,7 +29,7 @@
+@@ -26,7 +26,7 @@
  #include "Game/Task/GameRenderTask.h"
  #include "Game/main.h"
  
@@ -33,7 +34,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
  #endif
  
-@@ -88,15 +88,17 @@
+@@ -85,15 +85,17 @@
  
  void MoviePlayerScene::Update(float fDeltaT)
  {
@@ -45,15 +46,15 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
      if (g_e3_Build)
      {
-         MoviePlayerVirtual3C();
+         OnMoviePlaybackEnded();
          return;
      }
 +#endif
      if (!mMovieStarted)
      {
          mMovieStarted = MovieStart(mMovieFilename, false, mLoopMovie, SCGetSoundMode() == 0);
-@@ -118,10 +120,12 @@
-         int fadeIn = GetConfigInt(gMovieConfig, var_68, 500);
+@@ -115,10 +117,12 @@
+         int fadeIn = GetConfigInt(gMovieConfig, configKey, 500);
          THPSimpleSetVolume(0, 0);
          THPSimpleSetVolume((int)(127.0f * volume), fadeIn);
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
@@ -65,7 +66,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      }
      if (!mMovieStarted || CheckMoviePlayerAbort())
      {
-@@ -150,7 +154,7 @@
+@@ -147,7 +151,7 @@
  
  bool MoviePlayerScene::CheckMoviePlayerAbort()
  {
@@ -74,6 +75,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      throw std::logic_error("Credits diagnostic attempted excluded input/movie flow");
  #else
      return g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0);
+
 diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
 --- a/src/Game/Sys/movie.cpp
 +++ b/src/Game/Sys/movie.cpp

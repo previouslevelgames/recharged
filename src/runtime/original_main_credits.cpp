@@ -1,5 +1,7 @@
 #include "runtime/original_main_credits.h"
+#include "runtime/original_sh_menu_diagnostic.h"
 #include <aurora/aurora.h>
+#include <aurora/hardware.h>
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include <aurora/event.h>
@@ -34,6 +36,9 @@
 #include <revolution/os/OSIpc.h>
 #include <revolution/ipc.h>
 #include "credits_movie_hardware.h"
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+#include "original_game_audio_hardware.h"
+#endif
 #include <SDL3/SDL_video.h>
 #include <dlfcn.h>
 #include <cstdio>
@@ -80,6 +85,9 @@ struct Snapshot : std::enable_shared_from_this<Snapshot> {
 // source copy output; it submits no game draw or diagnostic frame boundary.
 void ReadSelectedXFB(const AuroraVIPresentedState& presented,
     const std::shared_ptr<const aurora::gfx::xfb::Snapshot>& copy, const std::filesystem::path& output) {
+    // A diagnostic GPU readback must keep the real3ms audio/VI IRQ owner live.
+    // This service runs no game task or presentation and preserves source requests.
+    aurora_service_hardware_interrupts();
     Check(copy && copy->revision==presented.copy_revision &&
           copy->physical==OSCachedToPhysical(const_cast<void*>(presented.framebuffer)),
           "Selected XFB no longer matches the exact successful surface presentation");
@@ -107,6 +115,7 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
         });
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
     while(!result->done.load(std::memory_order_acquire) && std::chrono::steady_clock::now()<deadline) {
+        aurora_service_hardware_interrupts();
         device.Tick(); std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     Check(result->done.load(std::memory_order_acquire)==1, "Selected source XFB GPU readback failed");
@@ -114,7 +123,9 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
     std::vector<unsigned char> rgb(std::size_t(copy->width)*copy->height*3);
     auto channel=[](int value) { return static_cast<unsigned char>(std::clamp(value,0,255)); };
     unsigned lit=0;
-    for(unsigned y=0;y<copy->height;++y)for(unsigned x=0;x<copy->width;++x) {
+    for(unsigned y=0;y<copy->height;++y) {
+        if((y&15)==0)aurora_service_hardware_interrupts();
+        for(unsigned x=0;x<copy->width;++x) {
         const auto* pair=bytes+std::size_t(y)*pitch+(x/2)*4;
         const int c=int(pair[(x&1)?2:0])-16,d=int(pair[1])-128,e=int(pair[3])-128;
         auto* pixel=rgb.data()+3*(std::size_t(y)*copy->width+x);
@@ -122,11 +133,22 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
         pixel[1]=channel((298*c-100*d-208*e+128)>>8);
         pixel[2]=channel((298*c+516*d+128)>>8);
         if(pixel[0]||pixel[1]||pixel[2])++lit;
+        }
     }
+    aurora_service_hardware_interrupts();
     buffer.Unmap(); Check(lit!=0, "Source-selected native XFB is entirely black");
     auto* file=std::fopen(output.c_str(),"wb"); Check(file,"Cannot create selected XFB snapshot");
     std::fprintf(file,"P6\n%u %u\n255\n",copy->width,copy->height);
-    const auto written=std::fwrite(rgb.data(),1,rgb.size(),file); const auto closed=std::fclose(file);
+    std::size_t written=0;
+    while(written<rgb.size()) {
+        aurora_service_hardware_interrupts();
+        const auto count=std::min<std::size_t>(65536,rgb.size()-written);
+        const auto n=std::fwrite(rgb.data()+written,1,count,file);
+        written+=n;
+        if(n!=count)break;
+    }
+    const auto closed=std::fclose(file);
+    aurora_service_hardware_interrupts();
     Check(written==rgb.size() && !closed,"Selected XFB snapshot write failed");
     std::printf("Actual source-selected XFB %ux%u revision%llu, nonblack pixels%u; saved %s.\n",
         copy->width,copy->height,static_cast<unsigned long long>(copy->revision),lit,output.c_str());
@@ -157,7 +179,25 @@ void EndWithSnapshot(const std::filesystem::path& output) {
 int mscharged::RunOriginalMainCredits(int argc, char** argv,
     const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene) {
     try {
-        const bool frontend = scene == OriginalMainScene::FrontendSequence;
+        const bool frontend = scene != OriginalMainScene::Credits;
+        const bool optionsScene = scene == OriginalMainScene::FrontendOptions;
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_SCRIPT)
+        const bool sourceBoot = frontend;
+#else
+        const bool sourceBoot = false;
+#endif
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_TO_FE)
+        const bool priorBoot = frontend;
+#else
+        const bool priorBoot = false;
+#endif
+        Check(!sourceBoot || !optionsScene,
+              "Authored Boot script builds do not yet advance to Options; use FRONTEND_BOOT_SCRIPT=OFF for that diagnostic");
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        const bool sourceAudio = frontend;
+#else
+        const bool sourceAudio = false;
+#endif
         bool nativeSend=true, resizeCheck=false;
         mscharged::LaunchOptions launchOptions;
         unsigned windowWidth=800, windowHeight=600;
@@ -205,6 +245,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ with --disc FILE or [game] disc in the INI");
         Check(!resizeCheck || !launch.settings.fullscreen,"--resize-check requires a windowed launch; add --window");
+        Check(!priorBoot || !resizeCheck,
+              "The prior Boot stage retains original effects/NPC owners; resize teardown is not qualified");
         const char* moduleFilename=MSCHARGED_ORIGINAL_MAIN_CREDITS_MODULE_FILENAME;
         if(frontend) {
 #ifdef MSCHARGED_ORIGINAL_FRONTEND_MODULE_FILENAME
@@ -222,7 +264,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         std::filesystem::create_directories(dataDirectory);
         const auto dataPath = dataDirectory.string();
         AuroraConfig config{};
-        config.appName=frontend ? "Mario Strikers Charged | original Boot/Intro diagnostic" :
+        config.appName=optionsScene ? "Mario Strikers Charged | original Options diagnostic" :
+            frontend ? "Mario Strikers Charged | original Boot/Intro diagnostic" :
             "Mario Strikers Charged | original-main Credits diagnostic";
         config.userPath=config.cachePath=dataPath.c_str();
         config.desiredBackend=BACKEND_VULKAN;
@@ -280,31 +323,136 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(!__OSInitSTM())throw std::runtime_error("Actual original STM initialization failed");
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
         // and FE methods retain their original mappings and decisions.
-        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,false},
+        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,false,false},
             mscharged::platform::GetNativeSTMInput(),{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr});
-        mscharged::diagnostic::InitializeCreditsMovieHardware(
-            mscharged::platform::ServiceNativeHardwareInput);
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        if(sourceAudio)
+            mscharged::diagnostic::InitializeOriginalGameAudioHardware(
+                mscharged::platform::ServiceNativeHardwareInput);
+        else
+#endif
+            mscharged::diagnostic::InitializeCreditsMovieHardware(
+                mscharged::platform::ServiceNativeHardwareInput);
         if(!aurora_dvd_open(disc.c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
         std::unique_ptr<mscharged::platform::NativeAXModuleMemory> axModuleMemory;
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        std::unique_ptr<mscharged::diagnostic::OriginalGameAudioHardware> gameAudioHardware;
+#endif
+        // Terminal diagnostics retain live source images and hardware owners on
+        // failure. Unwinding a device with active source pins is not retirement.
+        try {
         if(frontend)
             axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath.c_str());
         auto* module=dlopen(modulePath.c_str(),RTLD_LAZY|RTLD_LOCAL);
         if(!module)throw std::runtime_error(dlerror());
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        if(sourceAudio)
+            gameAudioHardware=std::make_unique<mscharged::diagnostic::OriginalGameAudioHardware>(*axModuleMemory);
+#endif
         auto entry=reinterpret_cast<int(*)()>(dlsym(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         std::fprintf(stderr,"Entering actual source main with real Aurora Vulkan/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n");
         std::fflush(nullptr);
         const int result=entry();
         Check(result==85, "Original main selected scene did not complete checkpoint 85");
+        using ObserveAudio = unsigned(*)();
+        using AudioAction = void(*)();
+        using AudioIdle = bool(*)();
+        auto observeAudio=sourceAudio ? reinterpret_cast<ObserveAudio>(
+            dlsym(module,"charged_original_audio_observe")) : nullptr;
+        auto shutdownAudio=sourceAudio ? reinterpret_cast<AudioAction>(
+            dlsym(module,"charged_original_audio_shutdown")) : nullptr;
+        auto idleAudio=sourceAudio ? reinterpret_cast<AudioIdle>(
+            dlsym(module,"charged_original_audio_idle")) : nullptr;
+        auto unloadIdleBanks=sourceAudio ? reinterpret_cast<AudioAction>(
+            dlsym(module,"charged_original_audio_unload_idle_banks")) : nullptr;
+        auto retireAudioPin=sourceAudio ? reinterpret_cast<AudioAction>(
+            dlsym(module,"charged_original_audio_retire_silence_pin")) : nullptr;
+        if(sourceAudio) {
+            Check(observeAudio && shutdownAudio && idleAudio && unloadIdleBanks && retireAudioPin,
+                  "Original audio source observations and retirement exports unavailable");
+            // True source predicates, before the first original task/frame.
+            Check(observeAudio()==7u,
+                  "Original audio owner/initialization/configuration callback incomplete");
+            std::puts("Original main audio: source owner initialized, nlxgs configuration genuinely loaded.");
+        }
+        auto observeBootScript=sourceBoot ? reinterpret_cast<ObserveAudio>(
+            dlsym(module,"charged_original_boot_script_observe")) : nullptr;
+        auto bootInstruction=sourceBoot ? reinterpret_cast<int(*)()>(
+            dlsym(module,"charged_original_boot_script_instruction")) : nullptr;
+        auto bootPhase=sourceBoot ? reinterpret_cast<int(*)()>(
+            dlsym(module,"charged_original_boot_scene_phase")) : nullptr;
+        Check(!sourceBoot || (observeBootScript && bootInstruction && bootPhase),
+              "Original authored Boot observation exports unavailable");
+        unsigned lastBootFlags=0;
+        int lastBootInstruction=-2, lastBootPhase=-2;
+        std::chrono::steady_clock::time_point bootLogoStart{};
+        bool bootReady=!sourceBoot;
+        auto observeBoot = [&] {
+            if(!sourceBoot)return;
+            const auto flags=observeBootScript();
+            const int instruction=bootInstruction(), phase=bootPhase();
+            Check((flags & (priorBoot ? 11u : 27u))==(priorBoot ? 11u : 27u),
+                  "Original Boot bytecode callback/header or required source owner is incomplete");
+            if(phase==3 && lastBootPhase!=3)bootLogoStart=std::chrono::steady_clock::now();
+            if(flags!=lastBootFlags || instruction!=lastBootInstruction || phase!=lastBootPhase) {
+                std::printf("Original authored Boot: VM flags%u instruction%d phase%d.\n",flags,instruction,phase);
+                std::fflush(stdout);
+                lastBootFlags=flags;lastBootInstruction=instruction;lastBootPhase=phase;
+            }
+            bootReady=flags==31u && phase==4 && idleAudio();
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+            if(bootReady)bootReady=gameAudioHardware->Status().last_active_voices==0;
+#endif
+        };
         auto frame=reinterpret_cast<void(*)(float)>(dlsym(module,nativeSend?"charged_original_scene_native_frame":"charged_original_scene_frame"));
         Check(frame,"Same original-main module scene-frame export unavailable");
         auto stopMovie=reinterpret_cast<void(*)()>(dlsym(module,"charged_original_scene_stop_movie"));
         Check(stopMovie,"Original main movie-stop export unavailable");
+        using ObserveSH = std::uint32_t(*)(OriginalSHSnapshot*,std::uint32_t);
+        using RequestSH = std::uint32_t(*)();
+        auto observeSH=optionsScene ? reinterpret_cast<ObserveSH>(
+            dlsym(module,"charged_original_sh_observe")) : nullptr;
+        auto requestSH=optionsScene ? reinterpret_cast<RequestSH>(
+            dlsym(module,"charged_original_sh_request_options")) : nullptr;
+        Check(!optionsScene || (observeSH && requestSH),
+              "Original Options diagnostic requires MSCHARGED_DIAGNOSTIC_FRONTEND_SH_MENUS=ON");
+        OriginalSHSnapshot sh{};
+        unsigned lastRequest=0;
+        int lastScene=-1, lastState=-1;
+        bool optionsReady=false;
+        bool optionsBoundsReported=false;
+        auto observeOptions = [&] {
+            if(!optionsScene)return;
+            Check(observeSH(&sh,sizeof(sh)) && sh.version==1 &&
+                  sh.bytes==sizeof(sh) && sh.stack_depth<=32,
+                  "Original SH observation ABI mismatch");
+            if(!sh.stack_depth)return;
+            const auto& top=sh.stack[sh.stack_depth-1];
+            if(top.scene_id!=lastScene || top.resource_state!=lastState) {
+                std::printf("Original SH: scene%d resources%d depth%u, owners%u navigation%u pointers%u.\n",
+                    top.scene_id,top.resource_state,sh.stack_depth,sh.owners,
+                    sh.navigation_ready,sh.pointer_instances);
+                std::fflush(stdout);lastScene=top.scene_id;lastState=top.resource_state;
+            }
+            optionsReady=top.scene_id==13 && top.resource_state==6 && top.visible &&
+                sh.options_initialized && sh.options_state==1 && top.slide_time>=0.2f;
+            if(optionsReady && !optionsBoundsReported) {
+                for(unsigned i=0;i<3;++i) {
+                    const auto& b=sh.buttons[i];
+                    std::printf("Original Options button%u: %.6g..%.6g, %.6g..%.6g; slide%.6g/%.6g, input%u/%u lock%d.\n",
+                        i,b.min_x,b.max_x,b.min_y,b.max_y,top.slide_time,top.slide_duration,
+                        sh.input_allowed,sh.input_enabled,sh.input_lock_depth);
+                }
+                std::fflush(stdout);optionsBoundsReported=true;
+            }
+        };
         // Existing actual source GX/state/material/font/view initialization is
         // retained. No host GXInit, source pool restart or fixture font setup.
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
         unsigned frames=0,draws=0,quiet=0; bool snapshot=false,encoded=false,exit=false,nativePresented=false;
+        bool bootLogoCaptured=false;
         const auto start=std::chrono::steady_clock::now(); auto previous=start;
         auto stageStart=start; unsigned resizeStage=0; bool stageAnnounced=false;
         wgpu::Texture retainedEFB;
@@ -314,13 +462,20 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 if(event->type==AURORA_EXIT)exit=true;
             if(exit)break;
             mscharged::diagnostic::ServiceCreditsMovieHardware();
+            if(requestSH) {
+                const auto status=requestSH();
+                if(status!=lastRequest) {
+                    std::printf("Original Options selection status%u (7 waits for the original audio context owner).\n",status);
+                    std::fflush(stdout);lastRequest=status;
+                }
+            }
             const auto now=std::chrono::steady_clock::now();
-            Check(interactive || now-start<std::chrono::seconds(40),"Original main Credits Vulkan pipeline timed out");
+            Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {
                 const auto receipt=AuroraGXBeginDrawReceipt();
                 Check(receipt,"Native source draw receipt unavailable");
                 const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-                frame(delta); AuroraGXEndDrawReceipt();
+                frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt();
                 AuroraGXSync(); aurora::gfx::synchronize();
                 encoded=encoded || AuroraGXWasDrawEncoded(receipt);
                 draws+=aurora_get_stats()->drawCallCount; ++frames;
@@ -328,6 +483,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 const auto presentedCopy=aurora::gfx::scanout::presented_snapshot(output);
                 nativePresented=output.framebuffer && !output.black &&
                     output.copy_revision && output.presentation_sequence>=3;
+                if(sourceBoot && lastBootPhase==3 && nativePresented && encoded && !bootLogoCaptured &&
+                        now-bootLogoStart>=std::chrono::milliseconds(600)) {
+                    ReadSelectedXFB(output,presentedCopy,dataDirectory/"original-boot-logo-xfb.ppm");
+                    bootLogoCaptured=true;
+                }
                 if(!stageAnnounced && nativePresented && encoded && now-stageStart>=std::chrono::milliseconds(500)) {
                     const auto size=aurora_get_window_size();
                     const auto& efb=aurora::webgpu::g_frameBuffer;
@@ -349,7 +509,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                         viewport.left,viewport.top,viewport.width,viewport.height);
                     std::fflush(stdout); stageAnnounced=true;
                 }
-                if(now-stageStart>=std::chrono::seconds(resizeStage?8:3) && nativePresented && encoded) {
+                if(now-stageStart>=std::chrono::seconds(resizeStage?8:3) && nativePresented && encoded &&
+                   (!optionsScene || optionsReady) && bootReady) {
                     if(!snapshot) {
                         const auto filename=resizeCheck?
                             "original-main-native-xfb-stage"+std::to_string(resizeStage)+".ppm":
@@ -371,8 +532,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); AuroraGXEndDrawReceipt();
-            const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2;
+            frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt();
+            const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
+                (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-credits.ppm");snapshot=true;}
             else aurora_end_frame();
             aurora::gfx::synchronize();
@@ -386,7 +548,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
               "Original main Credits real source draw/presentation incomplete");
         if(nativeSend) {
             std::printf("Original main selected %s: %u native source-send frames, draw receipt+chosen-XFB VI presentation. Full startup/AX/world/reset/CRT remain incomplete.\n",
-                frontend ? "Boot/Intro tasks" : "Credits",frames);
+                sourceBoot ? "authored Boot script0" : optionsScene ? "Options tasks" : frontend ? "Boot/Intro tasks" : "Credits",frames);
         } else {
         std::printf("Original main→selected Credits live: %u actual source frames, %u encoded draws; one initialized game/SDK, native owner elapsed time. Actual original THP/movie/mode0 audio; digital input endpoints selected; full task/automatic swap reset/AX/motion/CRT scopes remain held.\n",frames,draws);
         }
@@ -408,15 +570,53 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         std::printf("Playback observation: %.3fs, %.2f rendered frames/s; VI retraces%u, elapsed fields%llu.\n",
                     elapsed,frames/elapsed,videoClock.retrace_count,
                     static_cast<unsigned long long>(videoClock.elapsed_fields));
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        if(sourceAudio) {
+            const auto status=gameAudioHardware->Status();
+            std::printf("Actual native AX state: initialized%u phase%u processed%llu completed%llu SYNC%llu YIELD%llu.\n",
+                status.native_initialized, static_cast<unsigned>(status.protocol.phase),
+                static_cast<unsigned long long>(status.frames.processed_frames),
+                static_cast<unsigned long long>(status.frames.completed_frames),
+                static_cast<unsigned long long>(status.frames.sync_interrupts),
+                static_cast<unsigned long long>(status.frames.yield_interrupts));
+            Check(status.native_initialized && status.frames.processed_frames &&
+                  status.frames.completed_frames && status.frames.sync_interrupts &&
+                  status.frames.yield_interrupts,
+                  "Original audio requests have no actual native AX frame completion");
+            std::printf("Original main AX: processed%llu completed%llu SYNC%llu YIELD%llu; native ROM-free coefficient policy.\n",
+                static_cast<unsigned long long>(status.frames.processed_frames),
+                static_cast<unsigned long long>(status.frames.completed_frames),
+                static_cast<unsigned long long>(status.frames.sync_interrupts),
+                static_cast<unsigned long long>(status.frames.yield_interrupts));
+        }
+#endif
         stopMovie();
+        if(sourceAudio) {
+            Check(idleAudio(),"Active original sounds must retire through original game flow before host detachment");
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+            Check(gameAudioHardware->Status().last_active_voices==0,
+                  "Original stopped voices have not completed a real native AX frame");
+#endif
+        }
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        if(sourceAudio)gameAudioHardware->UnbindOwnerService();
+#endif
         mscharged::diagnostic::ShutdownCreditsMovieHardware();
+#if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
+        if(sourceAudio) {
+            gameAudioHardware->CloseAfterAIStop(retireAudioPin,unloadIdleBanks,shutdownAudio);
+            gameAudioHardware.reset();
+            Check(observeAudio()==7u,"Original source shutdown flags unexpectedly changed");
+            std::puts("Original audio stopped: AI drained, native AX halted/closed, original idle banks/source retired before device pins; original shutdown flags preserved.");
+        }
+#endif
         mscharged::platform::ShutdownNativeHardwareInput();
         if (frontend)
             mscharged::platform::ShutdownNativeFilesystem();
         if(axModuleMemory) {
-            // Actual DSP jobs must halt/drain before this point when admitted.
-            // Current selected frontend still omits original AX initialization.
-            axModuleMemory->ReleaseAfterDeviceDrain();
+            // Actual source audio retirement already released its module pins.
+            // The constructor-only mode retains the earlier stopped device gate.
+            if(!sourceAudio)axModuleMemory->ReleaseAfterDeviceDrain();
             axModuleMemory.reset();
         }
         Check(!mscharged::platform::GetNativeAIStatus().initialized,
@@ -430,6 +630,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::platform::ShutdownNativeInterruptController();
             std::puts("Native resize qualification retired real VI/GX/window hardware.");
         }
+        if(priorBoot)
+            std::puts("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.");
         std::fflush(nullptr);std::_Exit(0);
+        } catch(const std::exception& e) {
+            std::fprintf(stderr,"Actual source diagnostic stopped with live owners: %s\n",e.what());
+            std::fflush(nullptr);std::_Exit(1);
+        }
     }catch(const std::exception& e){std::fprintf(stderr,"Actual source diagnostic stopped: %s\n",e.what());std::fflush(nullptr);std::_Exit(1);}
 }

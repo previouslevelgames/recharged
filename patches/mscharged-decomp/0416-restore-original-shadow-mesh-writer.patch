@@ -1,0 +1,131 @@
+Subject: Restore original shadow mesh writer outside explicit preview profile
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+R02 fidelity correction: retain literal original Begin/End/write decisions and
+class layout for the isolated game module and ordinary native source profile.
+Scope inherited frame-generation, finite-value, count/resource restrictions,
+material zero-initialization and extra fields to diagnostic mesh writers.
+Keep the actual native four-byte colour copy and coherent-host cache boundary.
+Console projection remains unchanged. Mixed game/diagnostic profile rejected.
+
+--- a/include/Game/GL/GLShadowBlendMeshWriter.h
++++ b/include/Game/GL/GLShadowBlendMeshWriter.h
+@@ -6,10 +6,15 @@
+ 
+ #include "types.h"
+ #if defined(MSCHARGED_NATIVE)
++#include <cstring>
++#if defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
++#error "Original game shadow writer cannot use the diagnostic mesh-writer profile"
++#endif
++#if defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+ #include "NL/glx/glxMemory.h"
+-#include <cstring>
+ #include <cmath>
+ #include <stdexcept>
++#endif
+ #endif
+ 
+ class GLShadowBlendMeshWriter
+@@ -23,7 +28,7 @@
+ 
+     glModel* GetModel() const
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+         NativeCheckLive();
+ #endif
+         return model;
+@@ -32,7 +37,9 @@
+     void Colour(const nlColour& value)
+     {
+ #if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+         NativeCheckWrite(writtenColour);
++#endif
+         std::memcpy(colour++, &value, sizeof(value));
+ #else
+         *colour++ = *(const u32*)&value;
+@@ -41,7 +48,7 @@
+ 
+     void Texcoord(float u, float v)
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+         if (!std::isfinite(u) || !std::isfinite(v)) throw std::invalid_argument("Invalid shadow UV");
+         NativeCheckWrite(writtenUV);
+ #endif
+@@ -51,7 +58,7 @@
+ 
+     void Vertex(float x, float y, float z)
+     {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+         if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) throw std::invalid_argument("Invalid shadow vertex");
+         NativeCheckWrite(writtenPosition);
+ #endif
+@@ -60,7 +67,7 @@
+         *position++ = z;
+     }
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+     void NativeCheckLive() const
+     {
+         if (!model || generation != glNativeFrameGeneration())
+--- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
++++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+@@ -6,7 +6,7 @@
+ #include "Game/GL/GLShadowBlendMeshWriter.h"
+ 
+ #include "Game/GL/glModelBuilder.h"
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+ #include "NL/glx/GXShadowVolumeMaterialProgram.h"
+ #include <new>
+ #endif
+@@ -31,7 +31,7 @@
+ bool GLShadowBlendMeshWriter::Begin(
+     int vertexCount, int primitive, void* allocator)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+     if (model && !finished && generation == glNativeFrameGeneration())
+         throw std::logic_error("Shadow mesh Begin before End");
+     if (allocator || vertexCount <= 0 || vertexCount > 65535 || primitive < 0 || primitive >= 6)
+@@ -59,7 +59,7 @@
+ 
+     glCreateModel(
+         model, vertexCount, primitive, allocator, 3, 0x386ECBDD);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+     new (model->packets->materialParameters) GXShadowVolumeParameters{};
+ #endif
+ 
+@@ -133,7 +133,7 @@
+         sizeof(float) * 2, 4);
+ 
+     return true;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+     }
+     catch (...) { model = nullptr; position = nullptr; colour = nullptr; texcoord = nullptr; throw; }
+ #endif
+@@ -141,7 +141,7 @@
+ 
+ bool GLShadowBlendMeshWriter::End()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+     NativeCheckLive();
+     if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
+         throw std::logic_error("Incomplete or already finalized shadow mesh");
+@@ -161,7 +161,7 @@
+     }
+ 
+     PPCSync();
+-#else
++#elif defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
+     // Aurora copies host arrays at submission; Wii cache writeback is unnecessary.
+     finished = true;
+ #endif

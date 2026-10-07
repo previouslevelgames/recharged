@@ -1,4 +1,5 @@
 #include "platform/ax_frame_commands.h"
+#include "platform/ax_studio_depop.h"
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -90,7 +91,7 @@ NativeAXStereo96 NativeAXPackStereo(const NativeAXChannel96& left,const NativeAX
 }
 NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     NativeDSPMemoryEndpoint memory,std::uint32_t address,std::size_t bytes,
-    const NativeAXCommandHistory& history,const NativeAXSuppliedCoefficientROM& coefficients) {
+    const NativeAXCommandHistory& history,const NativeAXCoefficientView& coefficients) {
     if(!bytes || bytes>128 || bytes%2 || address%2)
         throw NativeAXCommandError(NativeAXFailure::InvalidListExtent,0,"AX staged list must be an aligned original128-byte slot");
     NativeAXPreparedCommandFrame f;f.before=f.after=history;
@@ -107,8 +108,17 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
         ++next;return c;
     };
     const auto& setup=Take(NativeAXOpcode::Setup);
-    if(!IsZero(Capture(f,memory,Address(setup),120)))
-        Fail(NativeAXFailure::NonzeroStudio,setup,"AX Studio depop history processing is not yet qualified");
+    const auto studio=Capture(f,memory,Address(setup),120);
+    // Owned Setup initializes twelve96-frame accumulators before voices/AUX.
+    // The final eight18-frame remote histories require separate output/mixing
+    // semantics; retain that honest unsupported boundary before all stores.
+    if(std::any_of(studio.begin()+72,studio.end(),[](unsigned char x){return x!=0;}))
+        Fail(NativeAXFailure::NonzeroStudio,setup,"AX remote Studio depop output/mixing is not yet qualified");
+    std::array<NativeAXChannel96,12> buses{};
+    constexpr unsigned studio_bus[12]={0,1,8,2,3,9,4,5,10,6,7,11};
+    for(unsigned i=0;i<12;++i)
+        buses[studio_bus[i]]=NativeAXStudioDepop96(SignedWord(Word(studio.data()+i*6)),
+                                                SignedHalf(Half(studio.data()+i*6+4)));
     const auto& surround=list.commands[next<list.command_count?next:list.command_count-1];
     if(next>=list.command_count || (surround.opcode!=NativeAXOpcode::AddToLR && surround.opcode!=NativeAXOpcode::SubToLR))
         Fail(NativeAXFailure::UnsupportedSequence,surround,"AX DPL2 routing/output is not yet qualified");
@@ -116,7 +126,6 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     if(!IsZero(Capture(f,memory,Address(surround),384)))
         Fail(NativeAXFailure::NonzeroSurround,surround,"AX prior surround routing is not yet qualified");
     const auto& process=Take(NativeAXOpcode::Process);
-    std::array<NativeAXChannel96,12> buses{};
     std::array<std::uint32_t,96> seen{};auto voice_address=Address(process);
     while(voice_address) {
         if(f.voice_count==96 || std::find(seen.begin(),seen.begin()+f.voice_count,voice_address)!=seen.begin()+f.voice_count)
@@ -184,6 +193,11 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     for(unsigned i=0;i<192;++i)PutHalf(pcm.data()+i*2,std::uint16_t(packed[i]));
     Stage(f,memory,Address(output,3),std::move(pcm));
     ValidateNativeAXCommandCommit(memory,f,history);return f;
+}
+NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
+    NativeDSPMemoryEndpoint memory,std::uint32_t address,std::size_t bytes,
+    const NativeAXCommandHistory& history,const NativeAXSuppliedCoefficientROM& coefficients) {
+    return PrepareNativeAXCommandFrame(memory,address,bytes,history,coefficients.View());
 }
 void ValidateNativeAXCommandCommit(NativeDSPMemoryEndpoint memory,const NativeAXPreparedCommandFrame& f,
                                   const NativeAXCommandHistory& history) {

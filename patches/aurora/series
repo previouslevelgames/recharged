@@ -43,3 +43,4 @@
 0046-observe-successful-native-presentation-geometry.patch
 0048-native-alarm-descriptor-and-clock-types.patch
 0047-native-vi-dimming-request-service.patch
+0049-filter-desktop-vi-pixel-centers.patch

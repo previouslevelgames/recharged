@@ -77,9 +77,11 @@ struct GenericPad {
 };
 void Cycle(bool gamepads, bool physical) {
     connects = samples = 0;
-    mscharged::platform::ConfigureWpadSDL({0,3,physical});
+    mscharged::platform::ConfigureWpadSDL({0,3,physical,gamepads});
     mscharged::platform::InitializeDesktopWpad(window, {true,gamepads});
     WPADInit();
+    Check(bool(WPADIsMotorEnabled()) == gamepads,
+          "WPAD initialization lost the staged motor preference across profiles");
     for (int n = 0; n != 4; ++n) {
         WPADSetConnectCallback(n, Connect);
         WPADSetSamplingCallback(n, Sample);
@@ -98,6 +100,11 @@ void Cycle(bool gamepads, bool physical) {
         }
     }
     Check(Report().button == 0, "Initial source report manufactured a press");
+    WPADEnableMotor(FALSE);
+    WPADControlMotor(0, WPAD_MOTOR_RUMBLE);
+    Check(!WPADIsMotorEnabled() && Report().button == 0,
+          "Disabled motor request changed the source preference or raw input");
+    WPADEnableMotor(gamepads ? TRUE : FALSE);
     Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
     auto before = samples;
     auto old = OSDisableInterrupts();

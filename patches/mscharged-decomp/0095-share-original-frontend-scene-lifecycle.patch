@@ -1,5 +1,5 @@
 Subject: Share original frontend scene catalog and lifecycle ordering
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Retain all107 original scene IDs and filenames in a shared initializer; extract
 unchanged scene enums/record and original enqueue, stack insertion, initialize,
@@ -11,7 +11,7 @@ console behavior; no native success provider or factory is supplied.
 diff --git a/include/Game/BaseGameSceneManager.h b/include/Game/BaseGameSceneManager.h
 --- a/include/Game/BaseGameSceneManager.h
 +++ b/include/Game/BaseGameSceneManager.h
-@@ -3,50 +3,7 @@
+@@ -3,53 +3,7 @@
  
  #include "Game/BaseSceneHandler.h"
  
@@ -25,10 +25,13 @@ diff --git a/include/Game/BaseGameSceneManager.h b/include/Game/BaseGameSceneMan
 -    SCENE_CHOOSE_CAPTAINS_STRIKER_CUP = 6,
 -    SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP = 7,
 -    SCENE_POPUP_MENU = 10,
+-    SCENE_AUDIO_OPTIONS = 14,
+-    SCENE_VISUAL_OPTIONS = 15,
 -    SCENE_SUPER_LOADING = 17,
 -    SCENE_BOOT_LOADING = 18,
 -    SCENE_BOOT_LOADING_JPN = 19,
 -    SCENE_INTRO_MOVIE = 22,
+-    SCENE_CREDITS = 23,
 -    SCENE_ASYNC_LOADING = 25,
 -    SCENE_WIDESCREEN_LOADING = 26,
 -    SCENE_GAMEPLAY_OPTIONS = 27,
@@ -63,11 +66,12 @@ diff --git a/include/Game/BaseGameSceneManager.h b/include/Game/BaseGameSceneMan
  
  extern SceneEntry SceneEntryTable[];
  
+
 diff --git a/include/Game/FE/FrontendSceneCatalog.h b/include/Game/FE/FrontendSceneCatalog.h
 new file mode 100644
 --- /dev/null
 +++ b/include/Game/FE/FrontendSceneCatalog.h
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,52 @@
 +#ifndef FRONTEND_SCENE_CATALOG_H
 +#define FRONTEND_SCENE_CATALOG_H
 +
@@ -81,10 +85,13 @@ new file mode 100644
 +    SCENE_CHOOSE_CAPTAINS_STRIKER_CUP = 6,
 +    SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP = 7,
 +    SCENE_POPUP_MENU = 10,
++    SCENE_AUDIO_OPTIONS = 14,
++    SCENE_VISUAL_OPTIONS = 15,
 +    SCENE_SUPER_LOADING = 17,
 +    SCENE_BOOT_LOADING = 18,
 +    SCENE_BOOT_LOADING_JPN = 19,
 +    SCENE_INTRO_MOVIE = 22,
++    SCENE_CREDITS = 23,
 +    SCENE_ASYNC_LOADING = 25,
 +    SCENE_WIDESCREEN_LOADING = 26,
 +    SCENE_GAMEPLAY_OPTIONS = 27,
@@ -117,6 +124,7 @@ new file mode 100644
 +}; // size 0x8
 +
 +#endif
+
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
@@ -138,8 +146,8 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
 -    { (SceneList)11, "art/fe/spoils_menu_v2.fen" },
 -    { (SceneList)12, "art/fe/custom_tournament_options_v2.fen" },
 -    { (SceneList)13, "art/fe/options_main_menu.fen" },
--    { (SceneList)14, "art/fe/options_audio_options.fen" },
--    { (SceneList)15, "art/fe/options_visual_options.fen" },
+-    { SCENE_AUDIO_OPTIONS, "art/fe/options_audio_options.fen" },
+-    { SCENE_VISUAL_OPTIONS, "art/fe/options_visual_options.fen" },
 -    { (SceneList)16, "art/fe/englegal.fen" },
 -    { SCENE_SUPER_LOADING, "art/fe/loadingscreen.fen" },
 -    { SCENE_BOOT_LOADING, "art/fe/boot_loading.fen" },
@@ -147,7 +155,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
 -    { (SceneList)20, "art/fe/movieplayer.fen" },
 -    { (SceneList)21, "art/fe/movieplayer.fen" },
 -    { SCENE_INTRO_MOVIE, "art/fe/movieplayer.fen" },
--    { (SceneList)23, "art/fe/credits.fen" },
+-    { SCENE_CREDITS, "art/fe/credits.fen" },
 -    { (SceneList)24, "art/fe/sms2_network_start.fen" },
 -    { SCENE_ASYNC_LOADING, "art/fe/asyncloading.fen" },
 -    { SCENE_WIDESCREEN_LOADING, "art/fe/WIDESCREEN_LOADING_SCREEN.fen" },
@@ -235,6 +243,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
  };
  
  BaseGameSceneManager::BaseGameSceneManager()
+
 diff --git a/include/Game/FE/FrontendSceneEntries.inc b/include/Game/FE/FrontendSceneEntries.inc
 new file mode 100644
 --- /dev/null
@@ -254,8 +263,8 @@ new file mode 100644
 +    { (SceneList)11, "art/fe/spoils_menu_v2.fen" },
 +    { (SceneList)12, "art/fe/custom_tournament_options_v2.fen" },
 +    { (SceneList)13, "art/fe/options_main_menu.fen" },
-+    { (SceneList)14, "art/fe/options_audio_options.fen" },
-+    { (SceneList)15, "art/fe/options_visual_options.fen" },
++    { SCENE_AUDIO_OPTIONS, "art/fe/options_audio_options.fen" },
++    { SCENE_VISUAL_OPTIONS, "art/fe/options_visual_options.fen" },
 +    { (SceneList)16, "art/fe/englegal.fen" },
 +    { SCENE_SUPER_LOADING, "art/fe/loadingscreen.fen" },
 +    { SCENE_BOOT_LOADING, "art/fe/boot_loading.fen" },
@@ -263,7 +272,7 @@ new file mode 100644
 +    { (SceneList)20, "art/fe/movieplayer.fen" },
 +    { (SceneList)21, "art/fe/movieplayer.fen" },
 +    { SCENE_INTRO_MOVIE, "art/fe/movieplayer.fen" },
-+    { (SceneList)23, "art/fe/credits.fen" },
++    { SCENE_CREDITS, "art/fe/credits.fen" },
 +    { (SceneList)24, "art/fe/sms2_network_start.fen" },
 +    { SCENE_ASYNC_LOADING, "art/fe/asyncloading.fen" },
 +    { SCENE_WIDESCREEN_LOADING, "art/fe/WIDESCREEN_LOADING_SCREEN.fen" },
@@ -347,6 +356,7 @@ new file mode 100644
 +    { (SceneList)104, "art/fe/controller_config.fen" },
 +    { (SceneList)105, "art/fe/defensive_play.fen" },
 +    { (SceneList)106, 0 },
+
 diff --git a/include/Game/FE/FrontendStackSteps.h b/include/Game/FE/FrontendStackSteps.h
 new file mode 100644
 --- /dev/null

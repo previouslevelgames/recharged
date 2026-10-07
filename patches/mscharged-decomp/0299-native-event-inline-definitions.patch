@@ -1,5 +1,5 @@
 Subject: Make original event and list inline definitions visible to native consumers
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Modern C++ consumers need the original inline event destructors and list
 implementations in their translation unit. Include the existing source-owned

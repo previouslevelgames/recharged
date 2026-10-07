@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original async-loading source ownership
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 Prepared-preimage: exact reviewed strict-source199
 
 Restore the complete matching AsyncLoading TU and original stage/sequence

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original retail boot loading setup and phase steps
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Retain original setup, input order, clocks, strap fade and service boundaries
 with typed retained-scene adapters and console forwarding to the same bodies.
@@ -279,8 +279,8 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
  #include "Game/BaseSceneHandler.inl"
  #include "Game/Render/RLViewLayers.h"
  #include "Game/FE/FEAudio.h"
-@@ -27,6 +28,50 @@
- #include "Game/Render/RLViewLayers.h"
+@@ -25,6 +26,50 @@
+ #include "NL/nlString.h"
  #include "Game/FE/tlDefault.h"
  
 +
@@ -330,7 +330,7 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
  BootLoadingScene::BootLoadingScene()
      : mElapsedTime(0.0f)
      , mStrapAlpha(255.0f)
-@@ -44,253 +89,21 @@
+@@ -42,253 +87,21 @@
  
  void BootLoadingScene::SceneCreated()
  {
@@ -453,17 +453,17 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
  void BootLoadingScene::Update(float fDeltaT)
  {
 -    BaseSceneHandler::Update(fDeltaT);
--    if (mPhase == 0)
+-    if (mPhase == PhaseRatings)
 -    {
 -        TLSlide* slide = mPresentation->m_currentSlide;
 -        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
 -        {
--            mPhase = 3;
+-            mPhase = PhaseDeveloperLogo;
 -            mElapsedTime = 0.0f;
 -            SetPhaseSlide();
 -        }
 -    }
--    else if (mPhase == 1)
+-    else if (mPhase == PhaseStrap)
 -    {
 -        if (mStrapDismissed)
 -        {
@@ -477,7 +477,7 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
 -            if (mStrapAlpha <= 0.0f)
 -            {
 -                mElapsedTime = 0.0f;
--                mPhase = 2;
+-                mPhase = PhaseNunchuk;
 -                SetPhaseSlide();
 -            }
 -        }
@@ -500,30 +500,30 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
 -            }
 -        }
 -    }
--    else if (mPhase == 2)
+-    else if (mPhase == PhaseNunchuk)
 -    {
 -        TLSlide* slide = mPresentation->m_currentSlide;
 -        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
 -        {
 -            mElapsedTime = 0.0f;
 -            if (GetRegion() == 0)
--                mPhase = 0;
+-                mPhase = PhaseRatings;
 -            else
--                mPhase = 3;
+-                mPhase = PhaseDeveloperLogo;
 -            SetPhaseSlide();
 -        }
 -    }
--    else if (mPhase == 3)
+-    else if (mPhase == PhaseDeveloperLogo)
 -    {
 -        TLSlide* slide = mPresentation->m_currentSlide;
 -        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
 -        {
--            mPhase = 4;
+-            mPhase = PhaseFinished;
 -            mElapsedTime = 0.0f;
 -            g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
 -        }
 -    }
--    else if (mPhase == 4)
+-    else if (mPhase == PhaseFinished)
 -    {
 -        if (mElapsedTime >= 0.0f)
 -        {
@@ -553,19 +553,19 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
  {
 -    switch (mPhase)
 -    {
--    case 0:
+-    case PhaseRatings:
 -        mPresentation->SetActiveSlide("ESRB", true);
 -        break;
--    case 1:
+-    case PhaseStrap:
 -        mPresentation->SetActiveSlide("strap", true);
 -        break;
--    case 2:
+-    case PhaseNunchuk:
 -        mPresentation->SetActiveSlide("nunchuk", true);
 -        break;
--    case 4:
+-    case PhaseFinished:
 -        mPresentation->SetActiveSlide("Slide1", true);
 -        break;
--    case 3:
+-    case PhaseDeveloperLogo:
 -        mPresentation->SetActiveSlide("NLG", true);
 -        FEAudio::PlaySound(0x17, 0xDE83984E, 0, 0);
 -        break;

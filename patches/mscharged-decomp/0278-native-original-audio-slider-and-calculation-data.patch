@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Adapt original audio control data and saved word offsets to native ABI
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Original chunk selection, constructor requests, list order, transitions and
 numeric behavior remain authoritative. Native endian/record views are attached
@@ -9,19 +9,16 @@ word identity and32-bit wrapping without treating saved words as live addresses.
 Source updates and all original headers remain unchanged. RPC/factory/AX/full
 resource loading remains separate.
 
+diff --git a/src/Game/Audio/AudioSlider.cpp b/src/Game/Audio/AudioSlider.cpp
 --- a/src/Game/Audio/AudioSlider.cpp
 +++ b/src/Game/Audio/AudioSlider.cpp
-@@ -4,6 +4,9 @@
+@@ -5,19 +5,37 @@
  #include "NL/nlChunk.h"
  #include "NL/nlDebugString.h"
  #include "types.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/native_audio_controls.h"
 +#endif
- 
- struct SliderOwnerValue_802EE964
- {
-@@ -21,16 +24,31 @@
  
  AudioSliderTable* ParseAudioSliderTable(nlChunk* outer)
  {
@@ -53,6 +50,7 @@ resource loading remains separate.
  
      table->CreateGlobalSliders();
      table->CreateLocalSets();
+diff --git a/src/Game/Audio/AudioCalculation.cpp b/src/Game/Audio/AudioCalculation.cpp
 --- a/src/Game/Audio/AudioCalculation.cpp
 +++ b/src/Game/Audio/AudioCalculation.cpp
 @@ -1,16 +1,38 @@

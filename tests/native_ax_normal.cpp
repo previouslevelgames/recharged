@@ -292,6 +292,8 @@ void Run(int argc, char** argv) {
     auto acquire=Load<decltype(&AXAcquireVoice)>(image,"AXAcquireVoice");
     auto set_state=Load<decltype(&AXSetVoiceState)>(image,"AXSetVoiceState");
     auto set_lpf=Load<decltype(&AXSetVoiceLpf)>(image,"AXSetVoiceLpf");
+    auto get_lpf_coefs=Load<decltype(&AXGetLpfCoefs)>(image,"AXGetLpfCoefs");
+    auto set_remote=Load<decltype(&AXSetVoiceRmtOn)>(image,"AXSetVoiceRmtOn");
     auto mix_init=Load<decltype(&MIXInit)>(image,"MIXInit");
     auto mix_channel=Load<decltype(&MIXInitChannel)>(image,"MIXInitChannel");
     auto sp_init=Load<decltype(&SPInitSoundTable)>(image,"SPInitSoundTable");
@@ -316,6 +318,7 @@ void Run(int argc, char** argv) {
     const auto active_address=spans[1].mapping.physical_address+voice->index*320;
     auto set_master=Load<decltype(&AXSetMasterVolume)>(image,"AXSetMasterVolume");
     set_master(0x2000); // Actual SDK command producer, not a copied volume ramp.
+    AXPBLPF filter{};filter.on=1;get_lpf_coefs(2000,&filter.a0,&filter.b0);set_lpf(voice,&filter);
     const auto active_before=device.FrameStatus();
     for(unsigned f=0;f<4;++f) {
         source_frame();device.ServiceOwner();
@@ -326,6 +329,12 @@ void Run(int argc, char** argv) {
         const auto* pcm=static_cast<const s16*>(spans[8].storage.address);
         Check(std::any_of(pcm,pcm+576,[](s16 value){return value!=0;}),
               "normal protocol fabricated silent output for actual sample input");
+        std::array<unsigned char,320> filtered_pb{};
+        DSPBackendReadMemory(memory,active_address,filtered_pb.data(),filtered_pb.size());
+        auto half=[](const unsigned char* p){return (u16(p[0])<<8)|p[1];};
+        Check(half(filtered_pb.data()+0xba)==1&&half(filtered_pb.data()+0xbe)==filter.a0&&
+                  half(filtered_pb.data()+0xc0)==filter.b0&&half(filtered_pb.data()+0xbc)!=0,
+              "actual active command did not retain source LPF request/history");
     }
     std::array<unsigned char,320> active_pb{};
     DSPBackendReadMemory(memory,active_address,active_pb.data(),active_pb.size());
@@ -355,7 +364,7 @@ void Run(int argc, char** argv) {
     const auto csr=GetNativeDSPControlStatus().csr;
     Throws([&]{ChargedDSPControlWrite(0x0805);},"normal device reset dropped an attached native processor");
     Check(GetNativeDSPControlStatus().csr==csr,"unsupported reset mutated realCSR before failure");
-    AXPBLPF filter{};filter.on=1;set_lpf(voice,&filter);
+    set_remote(voice,TRUE);
     frames = device.FrameStatus();
     const auto irq_count = GetNativeInterruptControllerStatus().dispatched;
     for (std::size_t index : {std::size_t(8), std::size_t(10)}) {
@@ -371,7 +380,7 @@ void Run(int argc, char** argv) {
     bool correct_failure{};
     try { source_frame(); }
     catch (const NativeAXVoiceError& error) {
-        correct_failure=error.reason()==NativeAXVoiceFailure::UnsupportedFilter;
+        correct_failure=error.reason()==NativeAXVoiceFailure::UnsupportedRemote;
     }
     Check(correct_failure, "unsupported contributor did not report its genuine command failure");
     const auto failed = device.FrameStatus();

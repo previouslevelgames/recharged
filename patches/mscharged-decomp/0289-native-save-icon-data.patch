@@ -1,12 +1,16 @@
 Subject: Preserve original SaveLoad Wii16 and TPL address-cell ABI on native hosts
 
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 After the byte-exact0288 restore, TPL fields retain original four-byte record
 strides and borrow actual source-owned cached addresses beneath unchanged source
 requests/callbacks/copy/free. Only SaveLoad uses qualified short-wchar and the
 prefixed original MSL wcslen, bound after headers to avoid host cwchar pollution.
 Original algorithms/banner requests/ownership remain; no CARD success supplied.
+
+Updated original TPL/NAND declarations live in their owning SDK headers. Native
+typed cached32 cells preserve full36/12/8/12 TPL records and Wii32 banner fields.
+Canonical GX owns native enum declarations; source callbacks and pixels stay literal.
 
 diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
 --- a/src/Game/DB/SaveLoad.cpp
@@ -17,71 +21,155 @@ diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
 +#endif
  #include "NL/nlSingleton.inl"
  #include "Game/DB/SaveLoad.h"
- #include "Game/TweakRegistry.h"
-@@ -29,6 +32,11 @@
+ #include <revolution/tpl_fwd.h>
+@@ -30,6 +33,20 @@
+ #include "Game/UnidentifiedStaticStorage.h"
  #include "Game/BaseGameSceneManager.h"
  #include "NL/nlFunction.inl"
- 
++
 +#if defined(MSCHARGED_NATIVE)
 +extern "C" std::size_t ChargedWii_wcslen(const wchar_t*);
 +#define wcslen ChargedWii_wcslen
-+#endif
-+
- #define NAND_BANNER_SIZE(frames) (0x60A0 + (0x1200 * (frames)))
- #define NAND_BANNER_ICON_SIZE    0x1200
- #define NAND_BANNER_TEXTURE_SIZE 0x6000
-@@ -52,23 +60,54 @@
-     u16 height;
-     u16 width;
-     u32 format;
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::platform::NativeTPLAddress32<char> data;
-+#else
-     char* data;
-+#endif
- };
- 
- struct TPLDescriptor
- {
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::platform::NativeTPLAddress32<TPLHeader> textureHeader;
-+#else
-     TPLHeader* textureHeader;
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::platform::NativeTPLAddress32<void> CLUTHeader;
-+#else
-     void* CLUTHeader;
-+#endif
- };
- 
- struct TPLPalette
- {
-     u32 versionNumber;
-     u32 numDescriptors;
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::platform::NativeTPLAddress32<TPLDescriptor> descriptorArray;
-+#else
-     TPLDescriptor* descriptorArray;
-+#endif
- };
- 
-+#if !defined(MSCHARGED_NATIVE)
- extern "C" void TPLBind(TPLPalette* palette);
-+#endif
-+
-+#if defined(MSCHARGED_NATIVE)
 +static_assert(sizeof(wchar_t) == 2, "SaveLoad requires the isolated Wii16 MSL ABI");
 +static_assert(offsetof(NANDBanner, title) == 0x20);
 +static_assert(offsetof(NANDBanner, subtitle) == 0x60);
 +static_assert(offsetof(NANDBanner, bannerTexture) == 0xA0);
 +static_assert(offsetof(NANDBanner, iconTexture) == 0x60A0);
 +static_assert(sizeof(NANDBanner) == NAND_BANNER_SIZE(8));
-+static_assert(sizeof(TPLHeader) == 12 && offsetof(TPLHeader, data) == 8);
++static_assert(sizeof(TPLHeader) == 36 && offsetof(TPLHeader, data) == 8);
 +static_assert(sizeof(TPLDescriptor) == 8 && offsetof(TPLDescriptor, CLUTHeader) == 4);
 +static_assert(sizeof(TPLPalette) == 12 && offsetof(TPLPalette, descriptorArray) == 8);
 +#endif
+ 
+ static const char* SaveFileName = "Strikers2";
+ static const char* OnlineSaveFileName = "Online";
+diff --git a/libs/RVL_SDK/include/revolution/gx/GXTextureTypes.h b/libs/RVL_SDK/include/revolution/gx/GXTextureTypes.h
+--- a/libs/RVL_SDK/include/revolution/gx/GXTextureTypes.h
++++ b/libs/RVL_SDK/include/revolution/gx/GXTextureTypes.h
+@@ -1,6 +1,9 @@
+ #ifndef RVL_SDK_GX_TEXTURE_TYPES_H
+ #define RVL_SDK_GX_TEXTURE_TYPES_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx/GXEnum.h>
++#else
+ typedef enum _GXTexFilter {
+     GX_NEAR,
+     GX_LINEAR,
+@@ -26,4 +29,6 @@
+     GX_MAX_TLUTFMT
+ } GXTlutFmt;
+ 
++#endif
 +
+ #endif // RVL_SDK_GX_TEXTURE_TYPES_H
+diff --git a/libs/RVL_SDK/include/revolution/tpl/TPLTypes.h b/libs/RVL_SDK/include/revolution/tpl/TPLTypes.h
+--- a/libs/RVL_SDK/include/revolution/tpl/TPLTypes.h
++++ b/libs/RVL_SDK/include/revolution/tpl/TPLTypes.h
+@@ -2,12 +2,23 @@
+ #define RVL_SDK_TPL_TYPES_H
  
+ #include <revolution/gx/GXTextureTypes.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_tpl.h"
++#endif
  
+ typedef struct TPLHeader {
+     unsigned short height;            // at 0x0
+     unsigned short width;             // at 0x2
++#if defined(MSCHARGED_NATIVE)
++    std::uint32_t format;            // at 0x4
++#else
+     unsigned long format;            // at 0x4
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<char> data; // at 0x8
++#else
+     char* data;            // at 0x8
++#endif
+     GXTexWrapMode wrapS;   // at 0xC
+     GXTexWrapMode wrapT;   // at 0x10
+     GXTexFilter minFilter; // at 0x14
+@@ -24,18 +35,42 @@
+     unsigned char unpacked;      // at 0x2
+     unsigned char pad8;          // at 0x3
+     GXTlutFmt format; // at 0x4
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<char> data; // at 0x8
++#else
+     char* data;       // at 0x8
++#endif
+ } TPLClutHeader;
  
+ typedef struct TPLDescriptor {
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<TPLHeader> textureHeader; // at 0x0
++#else
+     TPLHeader* textureHeader;  // at 0x0
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<TPLClutHeader> CLUTHeader; // at 0x4
++#else
+     TPLClutHeader* CLUTHeader; // at 0x4
++#endif
+ } TPLDescriptor;
+ 
+ typedef struct TPLPalette {
++#if defined(MSCHARGED_NATIVE)
++    std::uint32_t versionNumber;              // at 0x0
++#else
+     unsigned long versionNumber;              // at 0x0
++#endif
++#if defined(MSCHARGED_NATIVE)
++    std::uint32_t numDescriptors;             // at 0x4
++#else
+     unsigned long numDescriptors;             // at 0x4
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<TPLDescriptor> descriptorArray; // at 0x8
++#else
+     TPLDescriptor* descriptorArray; // at 0x8
++#endif
+ } TPLPalette;
+ 
+ #endif // RVL_SDK_TPL_TYPES_H
+diff --git a/libs/RVL_SDK/include/revolution/tpl_fwd.h b/libs/RVL_SDK/include/revolution/tpl_fwd.h
+--- a/libs/RVL_SDK/include/revolution/tpl_fwd.h
++++ b/libs/RVL_SDK/include/revolution/tpl_fwd.h
+@@ -7,7 +7,9 @@
+ extern "C" {
+ #endif
+ 
++#if !defined(MSCHARGED_NATIVE)
+ void TPLBind(TPLPalette* pal);
++#endif
+ TPLDescriptor* TPLGet(TPLPalette* pal, unsigned long id);
+ 
+ #ifdef __cplusplus
+diff --git a/libs/RVL_SDK/include/revolution/nand/NANDBanner.h b/libs/RVL_SDK/include/revolution/nand/NANDBanner.h
+--- a/libs/RVL_SDK/include/revolution/nand/NANDBanner.h
++++ b/libs/RVL_SDK/include/revolution/nand/NANDBanner.h
+@@ -2,6 +2,9 @@
+ #define RVL_SDK_NAND_BANNER_H
+ 
+ #include <stddef.h>
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#endif
+ 
+ #define NAND_BANNER_TITLE_MAX 32
+ #define NAND_BANNER_ICON_MAX_FRAME 8
+@@ -15,8 +18,13 @@
+ 
+ typedef struct NANDBanner
+ {
++#if defined(MSCHARGED_NATIVE)
++    uint32_t magic;
++    uint32_t flags;
++#else
+     unsigned long magic;
+     unsigned long flags;
++#endif
+     unsigned short iconSpeed;
+     unsigned char reserved[0x16];
+     wchar_t title[NAND_BANNER_TITLE_MAX];

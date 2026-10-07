@@ -55,6 +55,7 @@ struct Options
     bool experimental_scene = false;
     bool experimental_credits = false;
     bool experimental_frontend = false;
+    bool experimental_options = false;
     bool credits_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
@@ -776,6 +777,9 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
             std::cout << "Original Boot/Intro test: --experimental-frontend [--disk FILE] [--window] (startup and game sound incomplete)\n";
 #endif
+#ifdef MSCHARGED_HAS_ORIGINAL_SH_MENUS
+            std::cout << "Original Options test: --experimental-options [--disk FILE] [--window] (source task diagnostic)\n";
+#endif
 #ifdef MSCHARGED_HAS_SCENE_PREVIEW
             std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N [--frame-timeout SECONDS]]\n"
                          "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n"
@@ -806,6 +810,7 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--experimental-credits") options.experimental_credits = true;
         else if (arg == "--experimental-frontend") options.experimental_frontend = true;
+        else if (arg == "--experimental-options") options.experimental_options = true;
         else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.credits_arguments = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
@@ -891,11 +896,11 @@ int main(int argc, char** argv)
     options.config = options.launch.config;
     const unsigned runtime_modes = unsigned(options.experimental_startup)
         + unsigned(options.experimental_scene) + unsigned(options.experimental_credits)
-        + unsigned(options.experimental_frontend);
+        + unsigned(options.experimental_frontend) + unsigned(options.experimental_options);
     if (runtime_modes && (runtime_modes > 1 || options.smoke_test
         || !options.screenshot.empty() || options.page_selected))
     { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
-    if (options.credits_arguments && !options.experimental_credits && !options.experimental_frontend)
+    if (options.credits_arguments && !options.experimental_credits && !options.experimental_frontend && !options.experimental_options)
     { std::cerr << "Frame/resize options require --experimental-credits or --experimental-frontend.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
@@ -965,15 +970,23 @@ int main(int argc, char** argv)
     { std::cerr << "Select --world or separate --model/--textures assets.\n"; return 2; }
     try
     {
-        if (options.experimental_frontend)
+        if (options.experimental_frontend || options.experimental_options)
         {
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+#ifndef MSCHARGED_HAS_ORIGINAL_SH_MENUS
+            if(options.experimental_options) {
+                std::cerr << "Original Options requires MSCHARGED_DIAGNOSTIC_FRONTEND_SH_MENUS=ON.\n";
+                return 2;
+            }
+#endif
             std::vector<char*> arguments;
             for (int i = 0; i < argc; ++i)
-                if (std::string_view(argv[i]) != "--experimental-frontend") arguments.push_back(argv[i]);
+                if (std::string_view(argv[i]) != "--experimental-frontend" &&
+                    std::string_view(argv[i]) != "--experimental-options") arguments.push_back(argv[i]);
             arguments.push_back(nullptr);
             return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data(),
-                nullptr, false, OriginalMainScene::FrontendSequence);
+                nullptr, false, options.experimental_options ?
+                    OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence);
 #else
             std::cerr << "Original Boot/Intro is not in this build. Enable MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC.\n";
             return 2;

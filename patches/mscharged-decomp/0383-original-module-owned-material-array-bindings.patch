@@ -1,0 +1,535 @@
+Subject: [PATCH] native: original module material array bindings use owned data
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Prepared-predecessor: exact original material format381 and constructor384 successors
+
+Select source addresses and literal strides in the original game module,
+resolving actual completed allocation extent and endian through the existing
+GX array service. Retain the standalone preview and console branches.
+No resource, constructor, format, loop, parameter or game decision changes.
+
+diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
+--- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
++++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -102,37 +105,49 @@
+ void GXCameraScrolledOverlayMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[5].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[5].address,
+         packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+--- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -99,37 +102,49 @@
+ void GXMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[5].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[5].address,
+         packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+--- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
++++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -102,37 +105,49 @@
+ void GXMaskedSpecularFresnelMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[5].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[5].address,
+         packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+--- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -105,37 +108,49 @@
+ void GXScrollingCameraOverlayMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[5].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[5].address,
+         packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+--- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -87,25 +90,33 @@
+ void GXScrollingDiffuseMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+--- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -105,37 +108,49 @@
+ void GXScrollingMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[5].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[5].address,
+         packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[5].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+--- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
++++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -96,31 +99,41 @@
+ void GXScrollingSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[4].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+--- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
++++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+@@ -1,5 +1,8 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -110,43 +113,57 @@
+ void GXSpecularDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 3);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 3);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[6].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[6].address,
+         packet->numUniqueVertices * streams[6].stride, streams[6].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[6].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX2, streams[4].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX2, streams[4].address,
+         packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX2, streams[4].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX3, streams[5].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX3, streams[5].address,
+         packet->numUniqueVertices * streams[5].stride, streams[5].stride, true);
+ #else

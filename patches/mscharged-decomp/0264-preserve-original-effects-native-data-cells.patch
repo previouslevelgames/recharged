@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve original effects geometry with native four-byte data cells
-Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
 
 Endian-convert represented scalars inside actual completed NL storage and use
 real cached-address words for address-bearing cells. Original loader decisions,
@@ -97,16 +97,16 @@ raw chunk headers, authored25colour bytes and next-header alias remain intact.
 @@ -89,14 +103,18 @@
      /* 0x35 */ unsigned char m_eBlend;
      /* 0x36 */ unsigned char m_eBillboard;
-     /* 0x37 */ unsigned char mUnidentified037;
+     /* 0x37 */ unsigned char m_uFlags;
 -    /* 0x38 */ unsigned long m_hTexture;
 +    /* 0x38 */ EffectsDataWord m_hTexture;
      /* 0x3C */ int m_nFrames;
--    /* 0x40 */ unsigned long mUnidentified040;
--    /* 0x44 */ unsigned long mUnidentified044;
--    /* 0x48 */ unsigned long mUnidentified048;
-+    /* 0x40 */ EffectsDataWord mUnidentified040;
-+    /* 0x44 */ EffectsDataWord mUnidentified044;
-+    /* 0x48 */ EffectsDataWord mUnidentified048;
+-    /* 0x40 */ unsigned long m_uEmitterDeathCode;
+-    /* 0x44 */ unsigned long m_uParticleCreationCode;
+-    /* 0x48 */ unsigned long m_uParticleDeathCode;
++    /* 0x40 */ EffectsDataWord m_uEmitterDeathCode;
++    /* 0x44 */ EffectsDataWord m_uParticleCreationCode;
++    /* 0x48 */ EffectsDataWord m_uParticleDeathCode;
      /* 0x4C */ fxRange m_rFPS;
 -    /* 0x54 */ unsigned long m_uModelID;
 +    /* 0x54 */ EffectsDataWord m_uModelID;

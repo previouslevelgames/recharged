@@ -1,0 +1,283 @@
+From: mscharged-port
+Subject: [PATCH] Admit authored original BootLoadingToFE and script6 source prerequisites
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Classification: named default-OFF selected original-source integration.
+Restore exact Async services for owned BootLoadingToFE/scripts6 and14,
+actual Particle task/Emission/cache source owners and original initial
+LoadingTask sequence dispatch. No standalone movie preload, copied game
+manager, fabricated source result, bytecode/IP/stack or ready-state write.
+Normal startup and earlier selected modes retain their original tokens.
+Later CleanBoot state remains the existing explicit cadence boundary.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -291,6 +291,9 @@
+     case 0:
+         LoadTrophyTemplates();
+         break;
++#endif // prior case0 remains outside this selected source gate
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 1:
+     {
+         bool persistent = m_SP[-1] != 0;
+@@ -318,6 +321,9 @@
+     case 3:
+         CreateFEResourcePool();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 4:
+     {
+         fn_80111654(4);
+@@ -326,6 +332,8 @@
+             requirements.entries, 2, "PersistentResourcePool");
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 5:
+         m_SP++;
+         m_SP[-1] = CharacterLoader::sInstance.ShareDuplicateAnimInventory();
+@@ -561,6 +569,9 @@
+         break;
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 28:
+         SetLoadingComment("AsyncInitializeEmissionManager");
+         if (ParticleUpdateTask::sInstance->FinishLoading(sPersistentResourcePool))
+@@ -573,6 +584,8 @@
+             StopWithUndo();
+         }
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 29:
+         CharacterLoader::sInstance.StartLoadingCaptainAudio();
+         break;
+@@ -636,11 +649,16 @@
+         LoadFuzzyByteCode(GetFuzzyAIScriptFilename(), true);
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 41:
+         SetLoadingComment("AsyncStartLoadingEmissionManager");
+         ParticleUpdateTask::sInstance->StartLoading(false, false, false, true);
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 42:
+         SetLoadingComment("AsyncStartLoadingGameFE");
+         lbl_806E1060 = 0;
+@@ -799,10 +817,15 @@
+         FinishLoadingStepOrUndo(this,
+             CharacterLoader::sInstance.FinalizeLoadingHierarchy());
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 76:
+         SetLoadingComment("FinalizeLoadingNPCTemplate");
+         FinishLoadingStepOrUndo(this, gNPCManager->FinishLoadNPCTemplate());
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 77:
+         SetLoadingComment("FinalizeLoadingSharedTextures");
+         FinishLoadingStepOrUndo(this,
+@@ -830,6 +853,9 @@
+             StopWithUndo();
+         }
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 81:
+     {
+         nlFileCache* fileCache = nlGetFileCache();
+@@ -837,6 +863,8 @@
+         MovieInit();
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 82:
+         DestroyFEResourcePool();
+         break;
+@@ -988,10 +1016,15 @@
+         m_SP++;
+         m_SP[-1] = CharacterLoader::sInstance.NeedsSharedTextures();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 108:
+         m_SP++;
+         m_SP[-1] = gNPCManager->SelectNextNPCTemplate();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 109:
+         gNPCManager->CreateDiddyBanana();
+         break;
+@@ -1022,6 +1055,9 @@
+     case 118:
+         fn_80111664();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 119:
+         m_SP++;
+         m_SP[-1] = true;
+@@ -1034,6 +1070,8 @@
+         fn_8011165C(value);
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 121:
+         ReplayManager::Instance()->ResetSnapshots();
+         break;
+@@ -1120,11 +1158,16 @@
+         CharacterLoader::sInstance.StartLoadingHierarchy();
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 138:
+         SetLoadingComment("StartLoadingNPCTemplate");
+         gNPCManager->BeginLoadNPCTemplate();
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 139:
+         SetLoadingComment("StartLoadingSharedTextures");
+         CharacterLoader::sInstance.StartLoadingSharedTextures();
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -218,6 +218,8 @@
+ static WorldUpdateTask worldUpdateTask;
+ static GameRenderTask gameRenderTask;
+ static MovieRenderTask movieRenderTask;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+ static ParticleUpdateTask particleUpdateTask;
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+@@ -602,11 +604,13 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     sLoadingTask.Start();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     GetEmissionManager();
+     EmissionManager::SetResourceBudget(1, 250);
+     EmissionManager::ConfigureResource(3, "Character", 250);
+     EmissionManager::ConfigureResource(2, "StadiumEffects", 250);
++#endif // original emission owner/configuration admitted at its source position
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     ImpostorManager::GetInstance();
+     ClockManager::Initialize();
+ #endif // unrelated manager/audio boot; retain the source callback position
+@@ -701,8 +705,10 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH)
+     nlFlashInitialize();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     nlInitFileCache();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     ReplayChoreo::Instance();
+     GetPresentation();
+ #endif // unrelated replay/presentation tasks remain omitted
+@@ -790,7 +796,7 @@
+     nlTaskManager::AddTask(&movieRenderTask, 11, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+     nlTaskManager::AddTask(&frontEndTask, 13, (u32)-1);
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     nlTaskManager::AddTask(&particleUpdateTask, 12, 0x0002001F);
+ #endif // unqualified unrelated task registration remains omitted
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK)
+@@ -808,7 +814,7 @@
+     nlTaskManager::AddTask(
+         &flashMemoryTask, 13, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     nlTaskManager::AddTask(nlGetFileCache(), 3, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+@@ -971,11 +977,13 @@
+         || loading->mSequenceState != ASYNC_LOADING_IDLE
+         || !loading->IsFinished())
+         throw std::logic_error("Authored Boot script0 requires its actual NL bytecode callback and idle source owner");
++#if !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     // The genuine idle dispatcher owns stage ticker/comment writes.
+     // It does not select or report a completed normal boot sequence.
+     if (fn_80118B7C(loading) != ASYNC_LOADING_NO_TRANSITION)
+         throw std::logic_error("Selected Boot script0 reached an unqualified normal loading sequence");
+     loading->CallFunctionAt(0);
++#endif // prior stage is selected only by the original state transition below
+     // Retain the existing selected Anark view and exact original
+     // main state request. Full camera/world bootstrap remains held.
+     nlMatrix4 identity;
+@@ -983,7 +991,11 @@
+     fn_80273144(identity, identity, 4.0f / 3.0f, 0.4712389f,
+         4.0f / 3.0f, 0.4712389f);
+     nlTaskManager::SetNextState(0x00100000);
++#if (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
++    nlPrintf("Original prior BootLoadingToFE diagnostic: actual initial state request owns the source effects/NPC/movie sequence\n");
++#else
+     nlPrintf("Original authored Boot script0 diagnostic: real bytecode loaded; source VM/font/Splash/Boot waits remain live\n");
++#endif
+     return 85;
+ #else
+     CreateLargeFEResourcePool();
+diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
+--- a/src/Game/Task/LoadingTask.cpp
++++ b/src/Game/Task/LoadingTask.cpp
+@@ -33,7 +33,8 @@
+     FlickDetection::Update();
+ #endif // motion/flick startup remains unqualified
+ 
+-#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT) \
++    && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE)
+     // Explicit selected function0, not a completed normal sequence.
+     // Original source owns the stage ticker and every VM resume/wait.
+     AsyncLoadingManager* loading = AsyncLoadingManager::Instance();
+@@ -42,7 +43,8 @@
+         throw std::logic_error("Selected Boot script0 reached an unqualified original loading owner/sequence");
+     if (!loading->IsFinished())
+         loading->Run();
+-#elif defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#elif defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) \
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     // Same qualified original loader-owned Boot flags/predicate/initialization
+     // endpoint used by284; no VM completion or replacement manager result.
+     ChargedDiagnosticAdvanceFrontendOwner();
+@@ -75,7 +77,8 @@
+     // script request is an explicit omission, not a fabricated result/state.
+     if (from != 0x00010000 || to != 0x00100000)
+         throw std::logic_error("Frontend task diagnostic reached an unqualified loading state transition");
+-#else
++#endif // retain the existing explicit later-stage diagnostic boundary
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     if (to == 0x00100000 && from == 0x00010000)
+     {
+         fn_80119054(AsyncLoadingManager::Instance());
