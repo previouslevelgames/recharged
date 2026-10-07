@@ -1,5 +1,5 @@
 Subject: Select original shadow material and checked native frame mesh writing
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Preserve shadow TEV recipes and stream layout through typed Aurora calls.
 Supply shadow colour explicitly until the tweak registry is linked. Replace
@@ -184,20 +184,16 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
 diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
 --- a/src/Game/GL/glModelBuilder.cpp
 +++ b/src/Game/GL/glModelBuilder.cpp
-@@ -5,6 +5,12 @@
- #include "NL/gl/glState.h"
+@@ -6,9 +6,20 @@
  #include "NL/glx/glxLoadModel.h"
  #include "NL/gl/glLoadModel.h"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstring>
 +#include <new>
 +#include <stdexcept>
 +#endif
- 
- struct UnidentifiedMaterialProgram_802D38A4
- {
-@@ -15,6 +21,11 @@
++
  void glCreateModel(glModel* pModel, int numVerts, int prim,
      void* pResource, int numStreams, unsigned long programHash)
  {
@@ -209,7 +205,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
      glModelPacket* pPacket;
      if (pResource != 0)
      {
-@@ -27,6 +38,9 @@
+@@ -21,6 +32,9 @@
              sizeof(glModelPacket), GLM_Header);
      }
  
@@ -219,7 +215,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
      pModel->id = 0;
      pModel->numPackets = 1;
      pModel->packets = pPacket;
-@@ -54,12 +68,19 @@
+@@ -48,6 +62,9 @@
          pPktStreams = (glModelStream*)glFrameAlloc(
              numStreams * sizeof(glModelStream), GLM_Header);
      }
@@ -229,17 +225,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
      pPacket->streams = pPktStreams;
  
      pPacket->rasterState = glGetCurrentRasterState();
- 
-+#if defined(MSCHARGED_NATIVE)
-+    unsigned long dataSize = static_cast<GLMaterialProgram*>(pPacket->materialProgram)->parameterDataSize;
-+#else
-     unsigned long dataSize =
-         ((UnidentifiedMaterialProgram_802D38A4*)pPacket->materialProgram)->dataSize;
-+#endif
-     void* data;
-     if (dataSize == 0)
-     {
-@@ -73,6 +94,9 @@
+@@ -67,6 +84,9 @@
      {
          data = glFrameAlloc(dataSize, GLM_Header);
      }

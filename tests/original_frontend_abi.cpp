@@ -174,7 +174,7 @@ public:
         {
             auto& v=*Object<TLSlide>(at);Pointer(at,v.m_next,&v.m_next);
             Pointer(at+4,Host<TLSlide*>(reinterpret_cast<const unsigned char*>(v.pad0)),v.pad0);
-            Pointer(at+8,v.pChildren,&v.pChildren);Pointer(at+12,v.m_animations,&v.m_animations);Word(at+16,v.m_start);Word(at+20,v.m_duration);Word(at+24,v.m_time);Word(at+28,v.m_uPlayMode);Bytes(at+32,v.m_szName,32);Word(at+64,v.m_hash);Bytes(at+68,&v.field_0x44,1);break;
+            Pointer(at+8,v.pChildren,&v.pChildren);Pointer(at+12,v.m_animations,&v.m_animations);Word(at+16,v.m_start);Word(at+20,v.m_duration);Word(at+24,v.m_time);Word(at+28,v.m_uPlayMode);Bytes(at+32,v.m_szName,32);Word(at+64,v.m_hash);Bytes(at+68,&v.m_bPaused,1);break;
         }
         case 5:Instance(at,*Object<TLInstance>(at));break;
         case 6:

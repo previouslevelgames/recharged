@@ -1,12 +1,13 @@
 From: mscharged-port contributors
 Subject: [PATCH] Restore original effects loaders and particle flow outside legacy diagnostics
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep matching retail methods, requests and fixed colour sampling. Confine copied
 registration/simulation representations to an explicitly named diagnostic. Native
 fabs and the real matrix carrier are compiler boundaries only; raw effects
 record endian/pointer transport remains an explicit runtime prerequisite.
 
+diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
 --- a/include/Game/Effects/EffectsBundleData.h
 +++ b/include/Game/Effects/EffectsBundleData.h
 @@ -14,13 +14,14 @@
@@ -26,6 +27,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
      void Destroy();
      EffectsGroup* GetGroup(int index) const { return mGroups[index]; }
  
+diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
 --- a/include/Game/Effects/EffectsTemplate.h
 +++ b/include/Game/Effects/EffectsTemplate.h
 @@ -3,7 +3,7 @@
@@ -64,6 +66,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
      // Retain the authored count. Wii files may have 25 colours; native consumers
      // must qualify their indices instead of inventing the reconstructed 26th.
      std::vector<nlColour> m_cColour;
+diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
 --- a/include/Game/Effects/EffectsGroup.h
 +++ b/include/Game/Effects/EffectsGroup.h
 @@ -75,7 +75,7 @@
@@ -75,6 +78,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
      static EffectsGroup* LoadFromChunk(nlChunk* chunk) = delete;
      void ParseUserSpecs() = delete; // Actual user-effect factories are unselected.
  #else
+diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
 @@ -50,11 +50,11 @@
@@ -109,6 +113,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
          = delete
  #endif
          ;
+diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBundleData.cpp
 --- a/src/Game/Effects/EffectsBundleData.cpp
 +++ b/src/Game/Effects/EffectsBundleData.cpp
 @@ -2,11 +2,12 @@
@@ -153,6 +158,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
      return data;
  }
  
+diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
 @@ -1,7 +1,7 @@
@@ -191,6 +197,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
  inline fxAnimatedRange* fxAnimatedRange::LoadFromChunk(nlChunk* chunk)
  {
      nlChunk* valueChunk = chunk->GetFirstChunk();
+diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
 --- a/src/Game/Effects/EffectsGroup.cpp
 +++ b/src/Game/Effects/EffectsGroup.cpp
 @@ -1,9 +1,9 @@
@@ -223,6 +230,7 @@ record endian/pointer transport remains an explicit runtime prerequisite.
          throw std::logic_error("Native user-effect destruction requires qualified factories");
  #else
          for (unsigned long i = 0; i < m_userSpecs; ++i)
+diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
 @@ -1,15 +1,16 @@

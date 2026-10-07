@@ -1,6 +1,6 @@
 Subject: Share original frontend animation sampling and timeline advance
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Select original Bezier and share FE key/ring/time equations with a checked native
 owner. Preserve scalar/vector sentinel and singleton differences, presentation
@@ -151,14 +151,14 @@ diff --git a/src/Game/FE/tlSlide.cpp b/src/Game/FE/tlSlide.cpp
  
 @@ -37,28 +38,7 @@
   */
- void TLSlide::Update(float time)
+ void TLSlide::Update(float deltaTime)
  {
--    if (field_0x44)
+-    if (m_bPaused)
 -    {
--        time = 0.0f;
+-        deltaTime = 0.0f;
 -    }
 -
--    m_time += time;
+-    m_time += deltaTime;
 -    float end = GetStartTime() + GetDuration();
 -    if (m_time > end)
 -    {
@@ -175,7 +175,7 @@ diff --git a/src/Game/FE/tlSlide.cpp b/src/Game/FE/tlSlide.cpp
 -            break;
 -        }
 -    }
-+    time = FrontendAdvanceSlideTime(m_time, time, GetStartTime(), GetDuration(), m_uPlayMode, field_0x44);
++    deltaTime = FrontendAdvanceSlideTime(m_time, deltaTime, GetStartTime(), GetDuration(), m_uPlayMode, m_bPaused);
  
      FEAnimation* anim = nlDLRingGetStart<FEAnimation>(m_animations);
      for (;;)

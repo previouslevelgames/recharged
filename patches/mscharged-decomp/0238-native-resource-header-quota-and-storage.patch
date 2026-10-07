@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve Wii resource header quotas with pool-owned native storage
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 Classification: permanent native record ABI/storage adaptation; original quota/control flow retained.
 
 diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
@@ -33,22 +33,22 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #if defined(MSCHARGED_NATIVE)
  #include "runtime/graphics_memory.h"
  #include <dolphin/gx.h>
-@@ -354,9 +357,14 @@
+@@ -345,9 +348,14 @@
  #else
      unsigned long value0 = mUsedMemory[0];
      unsigned long value1 = mUsedMemory[1];
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    GLXResourceMarker* marker = static_cast<GLXResourceMarker*>(
-+        mscharged::platform::AllocateGameResourceRecord(this, 0x10, sizeof(GLXResourceMarker)));
++    GLResourceMarker* marker = static_cast<GLResourceMarker*>(
++        mscharged::platform::AllocateGameResourceRecord(this, 0x10, sizeof(GLResourceMarker)));
 +#else
-     GLXResourceMarker* marker
-         = (GLXResourceMarker*)glResourceAlloc(
-             sizeof(GLXResourceMarker), GLM_Header, this);
+     GLResourceMarker* marker
+         = (GLResourceMarker*)glResourceAlloc(
+             sizeof(GLResourceMarker), GLM_Header, this);
 +#endif
      marker->mUsedMemory[0] = value0;
      marker->mUsedMemory[1] = value1;
      marker->mLevel = m_level;
-@@ -394,6 +402,8 @@
+@@ -385,6 +393,8 @@
      mUsedMemory[1] = marker->mUsedMemory[1];
      m_level = level;
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)

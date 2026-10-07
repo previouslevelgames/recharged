@@ -1,0 +1,35 @@
+# Patch: 0503-original-main-menu-presentation-services
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Admit only literal original services41/42/47 under existing native MAIN_MENU diagnostic.
+# Save wait, original Navigation transition and original music/pointer requests remain unchanged.
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -434,6 +434,9 @@
+         ShowCupGoldenBootNews();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MAIN_MENU))
+     case 41:
+         if (SHNavigation* scene = GetNavigationScene())
+         {
+@@ -445,6 +448,8 @@
+         StartFrontEndPresentationMusic();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 43:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -486,7 +491,8 @@
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MAIN_MENU))
+     case 47:
+         if (SaveEnabled && InOperation)
+         {

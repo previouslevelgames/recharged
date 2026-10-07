@@ -181,6 +181,8 @@ include(cmake/OriginalARC.cmake)
 include(cmake/OriginalRFLShape.cmake)
 include(cmake/OriginalRFLResource.cmake)
 include(cmake/OriginalRFLCharacterSources.cmake)
+include(cmake/OriginalCharacterLoading.cmake)
+include(cmake/OriginalAnimationControllers.cmake)
 mscharged_add_original_inflater(mscharged_original_main_credits_module)
 set_target_properties(mscharged_original_main_credits_module PROPERTIES
     PREFIX "" POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden

@@ -1,12 +1,13 @@
 From: mscharged-port
 Subject: [PATCH] Adapt original audio bank serialized records and rebasing to native ABI
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Original chunk traversal, list order, group assignment and load-owner creation
 remain authoritative. Native data views preserve Wii24/20/24/8-byte records
 while real C++ storage uses48/32/40/16. Saved origins are relocation words, not
 live memory or device addresses. Normal AX/effect/resource loading remains held.
 
+diff --git a/src/Game/Audio/AudioBankTable.cpp b/src/Game/Audio/AudioBankTable.cpp
 --- a/src/Game/Audio/AudioBankTable.cpp
 +++ b/src/Game/Audio/AudioBankTable.cpp
 @@ -4,32 +4,66 @@

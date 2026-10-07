@@ -1,0 +1,153 @@
+# Patch: 0506-original-offline-domination-selection
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Original factory2/3 and VM9 diagnostic admission; native original inline emission and numeric ScrollBar contexts.
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -314,13 +314,15 @@
+         newHandler = new (nlMalloc(sizeof(SHMainMenu), 8, false)) SHMainMenu();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     case SCENE_CHOOSE_CAPTAINS_DOMINATION:
+         newHandler = new (nlMalloc(sizeof(ChooseCaptainsSceneV2), 8, false)) ChooseCaptainsSceneV2(ChooseCaptainsSceneV2::ST_DOMINATION, movement);
+         break;
+     case SCENE_CHOOSE_SIDEKICKS_DOMINATION:
+         newHandler = new (nlMalloc(sizeof(ChooseSidekicksSceneV2), 8, false)) ChooseSidekicksSceneV2(ChooseCaptainsSceneV2::ST_DOMINATION, movement);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case (SceneList)4:
+         newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::FRIENDLY, movement);
+         break;
+--- a/src/Game/FE/feCharacterPDAComponent.cpp
++++ b/src/Game/FE/feCharacterPDAComponent.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include "Game/FE/tlInstance.inl"
++#endif
+ #include "Game/FE/feCharacterPDAComponent.h"
+ 
+ #include "Game/FE/tlComponentInstance.h"
+--- a/src/Game/FE/feScrollBar.cpp
++++ b/src/Game/FE/feScrollBar.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ #include "Game/FE/feScrollBar.h"
+ #include "NL/nlFunction.inl"
+ #include "NL/nlPrint.h"
+@@ -192,7 +195,11 @@
+ 
+ void FEScrollBar::OnPointerEnter(int index, void* context)
+ {
+-    int direction = (int)context;
++#if defined(MSCHARGED_NATIVE)
++    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
++    int direction = (int)context;
++#endif
+     mButtons[direction].SetPointerState(1, index);
+     int other = -1;
+     if (context == 0)
+@@ -239,7 +246,11 @@
+ 
+ void FEScrollBar::OnPointerLeave(int index, void* context)
+ {
+-    int direction = (int)context;
++#if defined(MSCHARGED_NATIVE)
++    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
++    int direction = (int)context;
++#endif
+     mButtons[direction].SetPointerState(0, index);
+     if (context == 0)
+     {
+@@ -273,7 +284,11 @@
+         if (mCurrentValue >= mMaxValue || mPointerPressed[0])
+             return;
+     }
+-    int direction = (int)context;
++#if defined(MSCHARGED_NATIVE)
++    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
++    int direction = (int)context;
++#endif
+     int other = direction == 0 ? 1 : 0;
+     mButtonInstances[direction]->SetActiveSlide("slide1", true, false);
+     mButtonInstances[other]->SetActiveSlide("off", true, false);
+@@ -292,7 +307,11 @@
+     mScrolling[1] = false;
+     mPointerPressed[1] = false;
+     mRepeatTimer = 0.0f;
+-    int direction = (int)context;
++#if defined(MSCHARGED_NATIVE)
++    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
++    int direction = (int)context;
++#endif
+     if (context == 0)
+     {
+         if (mCurrentValue <= 0)
+@@ -329,7 +348,11 @@
+         if (mCurrentValue >= mMaxValue || mPadPressed[0])
+             return;
+     }
+-    int direction = (int)context;
++#if defined(MSCHARGED_NATIVE)
++    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
++    int direction = (int)context;
++#endif
+     int other = direction == 0 ? 1 : 0;
+     mButtonInstances[direction]->SetActiveSlide("slide1", true, false);
+     mButtonInstances[other]->SetActiveSlide("off", true, false);
+@@ -348,7 +371,11 @@
+     mScrolling[1] = false;
+     mPadPressed[1] = false;
+     mRepeatTimer = 0.0f;
+-    int direction = (int)context;
++#if defined(MSCHARGED_NATIVE)
++    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
++    int direction = (int)context;
++#endif
+     int other = direction == 0 ? 1 : 0;
+     if ((context == 0 && mCurrentValue <= 0) || (context == (void*)1 && mCurrentValue >= mMaxValue))
+         mButtonInstances[direction]->SetActiveSlide("off", true, false);
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -86,11 +86,13 @@
+     case 8:
+         StopWithUndo();
+         break;
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     case 9:
+         ++m_SP;
+         m_SP[-1] = g_e3_Build;
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+ 
+     case 10:
+     {
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_NATIVE)
++#include "Game/BaseSceneHandler.inl"
++#include "Game/FE/tlInstance.inl"
++#endif
+ #include "Game/SH/SHChooseCaptains.h"
+ 
+ #include "Game/BaseGameSceneManager.h"
+--- a/src/Game/SH/SHChooseSidekicks.cpp
++++ b/src/Game/SH/SHChooseSidekicks.cpp
+@@ -1,2 +1,5 @@
++#if defined(MSCHARGED_NATIVE)
++#include "Game/FE/tlInstance.inl"
++#endif
+ #include "Game/SH/SHChooseSidekicks.h"
+ #include "Game/BaseSceneHandler.inl"

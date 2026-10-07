@@ -55,6 +55,39 @@ struct GameAllocationSpan
 };
 bool FindGameAllocationSpan(const void* pointer, std::size_t bytes, GameAllocationSpan& result);
 
+// Full-width native MEM headers are metadata, not completed payload bytes.
+// Their original logical region stays inside an exact live NL incarnation.
+// Reserve all backing and the publication node before original MEM creation;
+// lookups and Commit allocate nothing. Source owners must remain quiescent.
+struct GameHeapMetadataSpan {
+    void* data;
+    std::size_t bytes;
+    const void* source;
+    std::size_t source_bytes;
+    GameAllocationSpan allocation;
+};
+class GameHeapMetadataReservation {
+public:
+    GameHeapMetadataReservation(const void* source, std::size_t sourceBytes,
+                                std::size_t nativeBytes);
+    ~GameHeapMetadataReservation();
+    GameHeapMetadataReservation(const GameHeapMetadataReservation&)=delete;
+    GameHeapMetadataReservation& operator=(const GameHeapMetadataReservation&)=delete;
+    void* Data() const noexcept;
+    void Commit(const void* owner);
+private:
+    void* pending_;
+};
+bool FindGameHeapMetadata(const void* owner, GameHeapMetadataSpan& result);
+bool FindGameHeapMetadataNative(const void* pointer, std::size_t bytes,
+                               GameHeapMetadataSpan& result);
+bool FindGameHeapMetadataSource(const void* pointer, std::size_t bytes,
+                               GameHeapMetadataSpan& result);
+void ValidateGameHeapMetadataRetirement(const void* owner);
+void ValidateGameHeapMetadataRangeRetirement(const void* owner, const void* base,
+                                            std::size_t bytes);
+void RetireGameHeapMetadata(const void* owner);
+
 // Actual nonoverlapping MEM child storage inside an original NL allocation.
 // The opaque source heap is a storage/lifetime owner, not a replacement
 // MemoryAllocator. Requested bytes never imply completed data or graphics.
@@ -197,6 +230,11 @@ bool FindGameGraphicsStorage(const void* pointer, std::size_t bytes, GameGraphic
 // Source writer cursors supply the genuinely written range. No vertex/index
 // count, normalization or alternate game-side readiness flag is used.
 void PublishGameGraphicsNativeBytes(const void* base, const void* writtenEnd);
+// A parsed original vertex stream supplies its actual count * wire stride.
+// Bounds attach to its existing live graphics storage, never to a new owner.
+// The completed logical tag/domain qualify each bound; rewind/free retires it
+// with that storage's original incarnation. Shared aliases remain enclosing.
+void RegisterGameGraphicsArray(const void* pointer, std::size_t bytes);
 struct GameGraphicsArraySpan
 {
     const void* data;

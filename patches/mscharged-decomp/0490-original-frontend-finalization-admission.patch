@@ -1,0 +1,69 @@
+# Patch: 0490-original-frontend-finalization-admission
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Explicit diagnostic restores original service86 and its first FE initialization path.
+# Restores literal impostor/particle/music/title sequence/audio requests; no body or outcome changes.
+# Returning-to-FE branch and later task transitions retain their explicit diagnostic holds.
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -902,10 +902,13 @@
+         fn_80119454(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+     case 86:
+         fn_80119528(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 87:
+         fn_80119EC0(this);
+         break;
+@@ -1548,7 +1551,8 @@
+ 
+ extern "C" void fn_80119528(AsyncLoadingManager* manager)
+ {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+     static GLMemoryRequirement requirements[] = {
+         { GLM_Header, 0x400 },
+         { GLM_VertexData, 0x800 },
+@@ -1558,12 +1562,14 @@
+     ImpostorManager::GetInstance()->SetEnabled(true);
+ #endif // unqualified stadium/impostor initialization is omitted in this diagnostic
+     manager->SetLoadingComment("InitializeFEState2");
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+     ParticleUpdateTask* particleTask = ParticleUpdateTask::sInstance;
+     particleTask->Initialize(GetLayerView((eCLV)0x19), 0x5F6, 0x2FB);
+ #endif // unqualified effects initialization is omitted in this diagnostic
+     GameInfoManager::Instance()->ResetUnknown0xA0();
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+     FEMusic::StopStream();
+ #endif // normal AX frontend music is omitted in this diagnostic
+     BaseSceneHandler* scene = GameSceneManager::Instance()->Push((SceneList)0x1D, SCREEN_NOTHING, false);
+@@ -1573,7 +1579,8 @@
+     {
+         lbl_806E1044 = true;
+         GameSceneManager::Instance()->Push((SceneList)0x16, SCREEN_NOTHING, false);
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+         FrontEndPresentation::GetInstance()->Call("StartTitleScreenSequence");
+ #endif // unqualified3D title-camera initialization omitted; actual Intro/Title camera waits stay held
+     }
+@@ -1670,7 +1677,8 @@
+ 
+ #endif
+ }
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+     StopSound(0x7FC13AA3, manager);
+     g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
+     {

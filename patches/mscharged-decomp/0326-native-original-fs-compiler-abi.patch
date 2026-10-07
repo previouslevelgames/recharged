@@ -1,12 +1,13 @@
 From: mscharged native port
 Subject: [PATCH] Preserve original FS alignment and zero-length IPC arguments
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Retain the complete original FS request/callback flow. Native pointers use
 uintptr_t only for the original 32-byte alignment tests. Numeric IPC output
 length zero uses an integer on modern C; console expressions are unchanged.
 No filesystem or successful IOS service is supplied by this compiler patch.
 
+diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
 --- a/src/RVL_SDK/fs/fs.c
 +++ b/src/RVL_SDK/fs/fs.c
 @@ -3,6 +3,15 @@

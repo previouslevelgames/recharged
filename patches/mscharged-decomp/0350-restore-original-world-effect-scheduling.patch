@@ -1,6 +1,6 @@
 From: mscharged-port original source restoration
 Subject: [PATCH] Restore literal original world-effect scheduling
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Retire the five historical 0109 helper substitutions in the
 two original whole TUs. Preserve the previously reviewed
@@ -8,6 +8,7 @@ native EmissionAddressWord casts. The entire console token
 streams equal the pinned upstream source. This does not
 adapt serialized world records or establish world readiness.
 
+diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
 --- a/src/Game/World/WorldEffect.cpp
 +++ b/src/Game/World/WorldEffect.cpp
 @@ -1,6 +1,5 @@
@@ -100,6 +101,7 @@ adapt serialized world records or establish world readiness.
  }
  
  static const nlColour s_effectBoundsColour
+diff --git a/src/Game/world.cpp b/src/Game/world.cpp
 --- a/src/Game/world.cpp
 +++ b/src/Game/world.cpp
 @@ -3,7 +3,6 @@

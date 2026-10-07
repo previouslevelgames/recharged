@@ -1,14 +1,13 @@
 Subject: Select temporary original loading/frontend/frame tasks
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Original RunAllTasks owns cadence and MoviePlay after every task.
 Diagnostic omissions retain normal source flow; full Async/3D/AX/reset held.
 
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
-index 5afbcf2..b6201e7 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -404,6 +404,7 @@ static void DrawGrid(int spacing)
+@@ -404,6 +404,7 @@
  
  void BeginFrameTask::Run(float dt)
  {
@@ -16,7 +15,7 @@ index 5afbcf2..b6201e7 100644
      if (gpHBMManager != NULL && gpHBMManager->mActive && gpHBMManager->mReady)
      {
          static int counter;
-@@ -435,8 +436,11 @@ void BeginFrameTask::Run(float dt)
+@@ -435,8 +436,11 @@
          }
      }
  
@@ -28,7 +27,7 @@ index 5afbcf2..b6201e7 100644
      nlServiceFileSystem();
  
      g_FrameCounter.StartTimer(0);
-@@ -457,14 +461,17 @@ void BeginFrameTask::Run(float dt)
+@@ -457,14 +461,17 @@
          g_FrameCounter.DisplayFrameTicker();
      }
  
@@ -46,7 +45,7 @@ index 5afbcf2..b6201e7 100644
      for (int i = 0; i < 10; i++)
      {
          if (g_pCharacters[i] != NULL)
-@@ -485,8 +492,10 @@ void BeginFrameTask::Run(float dt)
+@@ -485,8 +492,10 @@
          = pNis->mUseViewMatrixOverride ? &pNis->mViewMatrixOverride : NULL;
  
      SetupMatrices(NisPlayer::Instance()->GetSecondaryCamera(), pOverride);
@@ -57,7 +56,7 @@ index 5afbcf2..b6201e7 100644
      if (!g_bProjectedShadows)
      {
          DrawCoPlanarReference();
-@@ -512,6 +521,7 @@ void BeginFrameTask::Run(float dt)
+@@ -512,6 +521,7 @@
          DrawGrid(g_nGridDisplaySpacing);
      }
  
@@ -66,10 +65,9 @@ index 5afbcf2..b6201e7 100644
      if (showRegion)
      {
 diff --git a/src/Game/Task/EndFrameTask.cpp b/src/Game/Task/EndFrameTask.cpp
-index 466f0fe..f268c1b 100644
 --- a/src/Game/Task/EndFrameTask.cpp
 +++ b/src/Game/Task/EndFrameTask.cpp
-@@ -14,8 +14,11 @@ unsigned char gDrawScreenBorder;
+@@ -14,8 +14,11 @@
  
  void EndFrameTask::Run(float)
  {
@@ -81,7 +79,7 @@ index 466f0fe..f268c1b 100644
          bool useWarble = gWarbleEnabled;
  
          GLView* view = GetLayerView(eCLV_PreWarble);
-@@ -41,16 +44,19 @@ void EndFrameTask::Run(float)
+@@ -41,16 +44,19 @@
              RenderWarbleQuad(&gWarbleEnabled);
          }
  
@@ -102,17 +100,17 @@ index 466f0fe..f268c1b 100644
  
          if (gDrawScreenBorder)
 diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
-index 9c8b451..5fbce97 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
-@@ -51,19 +51,25 @@ static inline bool IsHBMActive()
+@@ -51,19 +51,25 @@
  
  static void DrawFrontEndElements(float fDeltaT)
  {
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      UpdateGameObjectLighting();
+-
 +#endif // source lighting initialization remains unqualified
- 
++
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      if ((nlTaskManager::m_pInstance->mCurrentState & 0x1b)
          && !IsHBMActive())
@@ -131,7 +129,7 @@ index 9c8b451..5fbce97 100644
          {
              if (nlTaskManager::m_pInstance->mCurrentState & 0x1)
              {
-@@ -77,7 +83,9 @@ static void DrawFrontEndElements(float fDeltaT)
+@@ -77,7 +83,9 @@
              }
          }
  
@@ -141,7 +139,7 @@ index 9c8b451..5fbce97 100644
          {
              FESceneManager::Instance()->RenderActiveScenes();
          }
-@@ -88,6 +96,7 @@ static void DrawFrontEndElements(float fDeltaT)
+@@ -88,6 +96,7 @@
          }
      }
  
@@ -149,7 +147,7 @@ index 9c8b451..5fbce97 100644
      if (FEModelManager::Instance() != 0
          && !IsHBMActive())
      {
-@@ -111,6 +120,7 @@ static void DrawFrontEndElements(float fDeltaT)
+@@ -111,6 +120,7 @@
      {
          HomeButtonFade::Instance()->Render();
      }
@@ -157,19 +155,20 @@ index 9c8b451..5fbce97 100644
  }
  
  FrontEndTask::FrontEndTask()
-@@ -127,8 +137,11 @@ void FrontEndTask::Run(float dt)
+@@ -127,8 +137,11 @@
      g_fUpTime += dt;
      g_pFEInput->Update(dt);
      HandleE3IdleReset(dt);
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      HandleSoftReset(dt);
+-
 +#endif // physical PAD reset lifecycle remains unqualified
- 
++
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      if (gpHBMManager != 0 && gpHBMManager->mReady)
      {
          if (!gpHBMManager->mActive
-@@ -142,9 +155,11 @@ void FrontEndTask::Run(float dt)
+@@ -142,9 +155,11 @@
          }
      }
  
@@ -181,7 +180,7 @@ index 9c8b451..5fbce97 100644
      if (nlTaskManager::m_pInstance->mCurrentState != 4)
      {
          if (GetConfigBool(Config::Global(), "domemsnapshot", false))
-@@ -163,6 +178,7 @@ void FrontEndTask::Run(float dt)
+@@ -163,6 +178,7 @@
              UpdateHallOfFameImagePreload(dt);
          }
      }
@@ -190,7 +189,6 @@ index 9c8b451..5fbce97 100644
  
  void FrontEndTask::HandleE3IdleReset(float fDeltaT)
 diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
-index b7e1cdb..09a490d 100644
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
 @@ -1,4 +1,8 @@
@@ -212,7 +210,7 @@ index b7e1cdb..09a490d 100644
  }
  
  void LoadingTask::Run(float dt)
-@@ -22,8 +28,15 @@ void LoadingTask::Run(float dt)
+@@ -22,8 +28,15 @@
      g_pPadManager->SetActivePadSet(0);
      UpdatePlatPad(g_pPlatPadManager);
      g_pPadManager->Update(dt);
@@ -228,7 +226,7 @@ index b7e1cdb..09a490d 100644
      switch (fn_80118B7C(AsyncLoadingManager::Instance()))
      {
      case ASYNC_LOADING_FE_READY:
-@@ -42,10 +55,17 @@ void LoadingTask::Run(float dt)
+@@ -42,10 +55,17 @@
          nlTaskManager::SetNextState(0x00000004);
          break;
      }
@@ -246,7 +244,7 @@ index b7e1cdb..09a490d 100644
      if (to == 0x00100000 && from == 0x00010000)
      {
          fn_80119054(AsyncLoadingManager::Instance());
-@@ -82,6 +102,7 @@ void LoadingTask::StateTransition(unsigned int from, unsigned int to)
+@@ -82,6 +102,7 @@
      {
          fn_80119220(AsyncLoadingManager::Instance());
      }
@@ -255,7 +253,6 @@ index b7e1cdb..09a490d 100644
  
  LoadingTask sLoadingTask;
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 7d8f019..80cf54e 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,5 +1,8 @@
@@ -267,7 +264,7 @@ index 7d8f019..80cf54e 100644
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
  #include "Game/BaseGameSceneManager.h"
  #include "Game/Font/FontLoading.h"
-@@ -198,14 +201,26 @@ static ComUpdateTask comUpdateTask;
+@@ -198,14 +201,26 @@
  static PingerUpdateTask pingerUpdateTask;
  static NetworkUpdateTask networkUpdateTask;
  static PlatPadUpdateTask platPadUpdateTask;
@@ -294,7 +291,7 @@ index 7d8f019..80cf54e 100644
  static TweakerTask tweakerTask;
  static ProfilerTask profilerTask;
  static ResetTask resetTask;
-@@ -575,8 +590,10 @@ static void Initialize()
+@@ -575,8 +590,10 @@
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      nlTaskManager::Startup(0x10000);
  #endif
@@ -306,7 +303,7 @@ index 7d8f019..80cf54e 100644
      GetEmissionManager();
      EmissionManager::SetResourceBudget(1, 250);
      EmissionManager::ConfigureResource(3, "Character", 250);
-@@ -677,6 +694,8 @@ static void Initialize()
+@@ -677,6 +694,8 @@
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      ExcitementSystem::Instance();
@@ -315,7 +312,7 @@ index 7d8f019..80cf54e 100644
      AddTasks();
  #endif // unrelated country/game/save/replay/task prerequisites
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
-@@ -725,31 +744,64 @@ static void Initialize()
+@@ -725,30 +744,63 @@
  
  }
  
@@ -372,16 +369,16 @@ index 7d8f019..80cf54e 100644
 +#endif // unqualified unrelated task registration remains omitted
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      nlTaskManager::AddTask(&Wiper::Instance(), 13, (u32)-1);
+-}
 +#endif // unqualified unrelated task registration remains omitted
- }
- 
++}
++
 +#endif // selected original task registrations
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
-+
+ 
  bool RenderParticleSystem(ParticleSystem* source, GLView* view,
      nlDLListSlotPool<Particle*>* vertices, const nlVector3& viewRight,
-     const nlVector3& viewUp, const nlMatrix4* pCoordSys)
-@@ -931,6 +983,12 @@ int main()
+@@ -931,6 +983,12 @@
      identity.SetIdentity();
      fn_80273144(identity, identity, 4.0f / 3.0f, 0.4712389f,
          4.0f / 3.0f, 0.4712389f);
@@ -394,7 +391,7 @@ index 7d8f019..80cf54e 100644
      nlPrintf("Original frontend endpoint diagnostic: boot handler ready; Intro waits on original Boot predicates\n");
      return 85;
  #else
-@@ -1034,6 +1092,12 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
+@@ -1034,6 +1092,12 @@
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
  extern "C" __attribute__((visibility("default"))) void charged_original_scene_native_frame(float delta)
  {
@@ -407,7 +404,7 @@ index 7d8f019..80cf54e 100644
      // Temporary selected original FE frame endpoints. The native FIFO owns
      // submission, and original glSendFrame owns view traversal/swap/copy/VI.
      // The complete original task manager remains omitted by the main gate.
-@@ -1059,6 +1123,7 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
+@@ -1059,6 +1123,7 @@
  #endif
      glEndFrame();
      glSendFrame();

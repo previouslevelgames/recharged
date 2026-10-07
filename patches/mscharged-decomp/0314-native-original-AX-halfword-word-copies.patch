@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original AX word copies at native halfword alignment
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 The original addr/adpcm fields are at offsets 0x6e/0x7e. A native u32
 lvalue there is not aligned even though the source halfwords are aligned.
@@ -8,6 +8,7 @@ Use native byte copies with the same original unit order and field extent;
 preserve every sync condition, allocation, source method and console statement.
 This is compiler/ABI transport only, with no AX initialization or DSP readiness.
 
+diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
 --- a/src/RVL_SDK/ax/AXVPB.c
 +++ b/src/RVL_SDK/ax/AXVPB.c
 @@ -22,6 +22,23 @@

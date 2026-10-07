@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve Wii32 audio arena size declaration in native builds
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 AudioBackend.cpp already defines gAudioMemorySize as u32. Native unsigned long
 is64 bits, so use the same32-bit type at the declaration. Original requests,
@@ -10,7 +10,7 @@ construct or initialize the original backend, AX, DSP or any audio effect.
 diff --git a/include/Game/Audio/AudioGlobals.h b/include/Game/Audio/AudioGlobals.h
 --- a/include/Game/Audio/AudioGlobals.h
 +++ b/include/Game/Audio/AudioGlobals.h
-@@ -17,7 +17,11 @@
+@@ -16,7 +16,11 @@
  extern AudioSystem* g_pAudioSystem;
  extern AudioBackend* g_pAudioBackend;
  extern void* g_pAudioSilenceBuffer;
@@ -19,6 +19,6 @@ diff --git a/include/Game/Audio/AudioGlobals.h b/include/Game/Audio/AudioGlobals
 +#else
  extern unsigned long gAudioMemorySize;
 +#endif
- extern void* gExclusiveAudioContext;
- extern XSoundHandle* g_pLastAudioHandle;
  extern unsigned int gResidentVoiceDropCount;
+ extern unsigned int gStreamVoiceDropCount;
+ 

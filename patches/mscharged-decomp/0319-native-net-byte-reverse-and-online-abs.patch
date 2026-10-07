@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Native NET byte-reverse primitives and original integer abs
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Original PPC byte-reverse load/store read/write little-endian memory for the
 NET digest helpers. Encode those four bytes explicitly on the host; the
@@ -9,6 +9,7 @@ intrinsics provider is added. Native OnlineLogin uses the standard int abs
 declared by its existing stdlib include; keep the original MSL expression on
 console. Network algorithms, ranges and callbacks remain unchanged.
 
+diff --git a/libs/RVL_SDK/include/revolution/net/NETDigest.h b/libs/RVL_SDK/include/revolution/net/NETDigest.h
 --- a/libs/RVL_SDK/include/revolution/net/NETDigest.h
 +++ b/libs/RVL_SDK/include/revolution/net/NETDigest.h
 @@ -35,7 +35,15 @@
@@ -41,6 +42,7 @@ console. Network algorithms, ranges and callbacks remain unchanged.
      }
  
      typedef void (*NETHashInitFunc)(void* context);
+diff --git a/src/Game/SH/SHOnlineLogin.cpp b/src/Game/SH/SHOnlineLogin.cpp
 --- a/src/Game/SH/SHOnlineLogin.cpp
 +++ b/src/Game/SH/SHOnlineLogin.cpp
 @@ -246,7 +246,11 @@

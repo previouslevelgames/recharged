@@ -1,6 +1,6 @@
 From: mscharged-port native ABI review
 Subject: [PATCH] Match native message pool storage to actual registered payloads
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep original15/0 slot count and class allocation/free behavior. Native vtables
 expand NetMessageAllInputsBundle from Wii1976 to2064 bytes beyond the source
@@ -8,6 +8,7 @@ expand NetMessageAllInputsBundle from Wii1976 to2064 bytes beyond the source
 message types and preserves the source minimum. No message instances, wire
 algorithms, registry state or source initialization are added.
 
+diff --git a/src/NL/plat/TransportMessage.cpp b/src/NL/plat/TransportMessage.cpp
 --- a/src/NL/plat/TransportMessage.cpp
 +++ b/src/NL/plat/TransportMessage.cpp
 @@ -8,9 +8,63 @@

@@ -45,5 +45,6 @@ const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =
     "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9]\n"
     "Command-line settings override the INI for this run only; later options win.\n"
+    "Options with values accept --option VALUE or --option=VALUE, before or after the runtime mode.\n"
     "INI disc paths are relative to that INI; command-line paths are relative to the working directory.\n";
 }

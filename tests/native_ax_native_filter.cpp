@@ -475,8 +475,31 @@ void Run(int argc, char** argv) {
     const auto held_address=pb_bus+held->index*320;
     set_remote(held,TRUE);service_vpb(held);
     Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source remote bus silently bypassed");
-    set_remote(held,FALSE);set_src_type(held,AX_SRC_TYPE_LINEAR);service_vpb(held);
-    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source linear selection was forciblyfour-tap");
+    set_remote(held,FALSE);
+    AXPBSRC linear_src{};linear_src.ratioHi=1;
+    const std::array<s16,4> linear_history{{111,-222,333,-444}};
+    for(unsigned i=0;i<4;++i)linear_src.last_samples[i]=linear_history[i];
+    set_src(held,&linear_src);set_src_type(held,AX_SRC_TYPE_LINEAR);service_vpb(held);
+    const auto linear=PrepareNativeAXADPCMVoiceFrame(memory,held_address,absent);
+    Check(held->pb.srcSelect==1&&linear.decoded_samples==96&&
+              BE16(linear.parameters_after.data()+0xaa)==0,
+          "original linear selector/rate/receipt differs or required a coefficient bank");
+    for(unsigned i=0;i<96;++i) {
+        const auto expected=i<3?linear_history[i+1]:s16((int(((i-3)*7+3)%16)-8)*4096);
+        Check(linear.resampled[i]==expected,"zero-phase linear changed original ring history order");
+    }
+    set_src_type(held,AX_SRC_TYPE_NONE);service_vpb(held);
+    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,absent);},
+           "unqualified direct selector was silently processed as linear");
+    // Malformed device PB conformance case, never a source/game selection.
+    std::array<unsigned char,320> invalid_before{},invalid_after{};
+    DSPBackendReadMemory(memory,held_address,invalid_before.data(),invalid_before.size());
+    invalid_before[8]=invalid_before[9]=0xff;
+    DSPBackendWriteMemory(memory,held_address,invalid_before.data(),invalid_before.size());
+    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,absent);},
+           "unknown device selector substituted a supported resampler");
+    DSPBackendReadMemory(memory,held_address,invalid_after.data(),invalid_after.size());
+    Check(invalid_before==invalid_after,"unknown selector rejection partially stored source PB");
     set_state(held,AX_VOICE_STOP);sync(0);release(held);
     auto* expired=acquire(15,nullptr,0);sp_prepare(sp_get(table,0),expired,32000);
     set_src_type(expired,AX_SRC_TYPE_4TAP_8K);set_state(expired,AX_VOICE_RUN);sync(0);

@@ -57,6 +57,10 @@ function(mscharged_select_original_frontend_boot_to_fe target)
             list(APPEND _sources "${_path}")
         endif()
     endforeach()
+    # Inline original controller Replay methods use the same retained animation
+    # owners and typed four-byte address projections as the source inventories.
+    # This selects providers only; original callers still own initialization.
+    mscharged_add_original_animation_inventory("${target}")
     target_compile_definitions(charged_original_main_credits_host PRIVATE
         MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_TO_FE=1)
     # Literal original main owns Particle/Emission/cache initialization and

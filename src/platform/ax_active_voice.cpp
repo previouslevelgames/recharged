@@ -1,6 +1,7 @@
 #include "platform/ax_active_voice.h"
 #include <algorithm>
 #include <cstring>
+#include <string>
 
 namespace mscharged::platform {
 namespace {
@@ -73,9 +74,14 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
     result.parameters_after = result.parameters_before;
     result.was_running = state.running;
     if (!state.running) return result;
-    if (state.src_select != 0)
-        Fail(NativeAXVoiceFailure::UnsupportedSRC, "AX active slice preserves four-tap selection; linear/direct processing is unqualified");
-    coefficients.Row(state.coefficient_select, state.fraction); // Fail before any sample reads/stores.
+    if (state.src_select > 1)
+        Fail(NativeAXVoiceFailure::UnsupportedSRC,
+             ("AX active SRC selector=" + std::to_string(state.src_select) +
+              " ratio16.16=" + std::to_string(state.ratio) +
+              " fraction=" + std::to_string(state.fraction) +
+              "; direct/unknown processing is unqualified").c_str());
+    if (state.src_select == 0)
+        coefficients.Row(state.coefficient_select, state.fraction); // Fail before any sample reads/stores.
     if (state.ratio > 0x40000)
         Fail(NativeAXVoiceFailure::UnsupportedRate, "AX active slice qualifies ratios0..4 only, never clamps a source ratio");
     if (state.gain != 0)
@@ -116,12 +122,24 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
             std::rotate(history.begin(), history.begin() + 1, history.end());
             history.back() = sample;
         }
-        const auto taps = coefficients.Row(state.coefficient_select, static_cast<std::uint16_t>(fraction));
-        std::int64_t product = 0;
-        for (std::size_t t = 0; t < 4; ++t) product += std::int64_t(history[t]) * taps[t] * 2;
-        // Firmware0744..074A: four signed products, ADDP, saturated AC1.M
-        // store in40-bit mode. No added rounding or float interpolation.
-        result.resampled[i] = Saturate(Floor(product, 65536));
+        if (state.src_select == 0) {
+            const auto taps = coefficients.Row(state.coefficient_select, static_cast<std::uint16_t>(fraction));
+            std::int64_t product = 0;
+            for (std::size_t t = 0; t < 4; ++t) product += std::int64_t(history[t]) * taps[t] * 2;
+            // Firmware0744..074A: four signed products, ADDP, saturated AC1.M
+            // store in40-bit mode. No added rounding or float interpolation.
+            result.resampled[i] = Saturate(Floor(product, 65536));
+        } else {
+            // Original076D..07AE selects unsigned low multiply operands and
+            // no product shift. The circular history pointer names its first
+            // two chronological cells after the carry reads. At zero phase
+            // 0795 copies the first cell; 0799..079D adds signedPCM * unsigned
+            // (65536-phase) and signedPCM * unsigned phase before AC1.M drops
+            // the low16 bits. This path neither reads nor substitutes DROM.
+            result.resampled[i] = fraction == 0 ? history[0] :
+                Saturate(Floor(std::int64_t(history[0]) * (65536 - fraction) +
+                               std::int64_t(history[1]) * fraction, 65536));
+        }
     }
     state.fraction = static_cast<std::uint16_t>(fraction);
     state.src_history = history;

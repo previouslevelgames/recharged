@@ -1,6 +1,7 @@
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 Purpose: Native compiler declarations for original OSMutex private scheduler imports. No definitions or contended scheduling admission.
 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
 @@ -3,6 +3,16 @@
@@ -20,6 +21,7 @@ Purpose: Native compiler declarations for original OSMutex private scheduler imp
  #define OS_THREAD_DETACHED OS_THREAD_ATTR_DETACH
  #else
  
+diff --git a/libs/RVL_SDK/include/revolution/os.h b/libs/RVL_SDK/include/revolution/os.h
 --- a/libs/RVL_SDK/include/revolution/os.h
 +++ b/libs/RVL_SDK/include/revolution/os.h
 @@ -4,6 +4,7 @@

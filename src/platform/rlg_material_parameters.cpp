@@ -64,8 +64,8 @@ void DecodeSkinnedParameters(glModelPacket* packet, std::size_t wireBytes,
     std::size_t bindings, std::uint32_t parameterCount)
 {
     static_assert(std::is_trivially_copyable_v<Parameters>);
-    static_assert(sizeof(Parameters::skinMatricesSize) == 4);
-    static_assert(offsetof(Parameters, skinMatricesSize)
+    static_assert(sizeof(Parameters::skinMatrixBytes) == 4);
+    static_assert(offsetof(Parameters, skinMatrixBytes)
         == offsetof(Parameters, skinMatrices) + sizeof(Parameters::skinMatrices));
     auto* program = static_cast<GLMaterialProgram*>(packet->materialProgram);
     if (program->parameterDataSize != sizeof(Parameters)
@@ -112,7 +112,7 @@ void DecodeSkinnedParameters(glModelPacket* packet, std::size_t wireBytes,
     if (Word(raw + pointerAt, 4) != 0)
         throw std::invalid_argument("Nonzero authored skin matrix addresses remain unqualified");
     native.skinMatrices = nullptr;
-    const auto tailAt = offsetof(Parameters, skinMatricesSize);
+    const auto tailAt = offsetof(Parameters, skinMatrixBytes);
     for (std::size_t at = pointerAt + 4; at < wireBytes; at += 4)
     {
         const auto bits = Word(raw + at, 4);

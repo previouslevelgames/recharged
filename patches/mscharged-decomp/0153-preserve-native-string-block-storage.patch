@@ -1,5 +1,5 @@
 Subject: Size the original string block storage for native pointer layout
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 The original allocator retains sixty-four blocks with 0x3FC payload bytes each.
 Its fixed Wii allocation is 64 * 0x400 bytes. A native block includes a wider

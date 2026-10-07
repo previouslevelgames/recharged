@@ -1,0 +1,16 @@
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Purpose: Record original RLG stream count/stride as live native array extent metadata.
+
+--- a/src/NL/gl/glLoadModel.cpp
++++ b/src/NL/gl/glLoadModel.cpp
+@@ -219,6 +219,10 @@
+ #if defined(MSCHARGED_NATIVE)
+                 stream->address = (unsigned char*)((uintptr_t)stream->address
+                                 + (uintptr_t)reader->m_pVertexData);
++#if defined(MSCHARGED_GAME_MODULE)
++                mscharged::platform::RegisterGameGraphicsArray(stream->address,
++                    std::size_t(packet->numUniqueVertices) * stream->stride);
++#endif
+ #else
+                 stream->address = (unsigned char*)((unsigned long)stream->address
+                                 + (unsigned long)reader->m_pVertexData);

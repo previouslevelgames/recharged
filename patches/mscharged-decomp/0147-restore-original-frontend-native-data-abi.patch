@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend flow and native serialized data ABI
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Restore reconstructed frontend methods and inline game decisions verbatim.
 Adapt only raw Wii FEN data to the native pointer/record ABI beneath the original
@@ -313,7 +313,6 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
  };
  
  BaseGameSceneManager::BaseGameSceneManager()
-
 diff --git a/src/Game/FE/BaseSceneHandler.cpp b/src/Game/FE/BaseSceneHandler.cpp
 --- a/src/Game/FE/BaseSceneHandler.cpp
 +++ b/src/Game/FE/BaseSceneHandler.cpp
@@ -1353,15 +1352,15 @@ diff --git a/src/Game/FE/tlSlide.cpp b/src/Game/FE/tlSlide.cpp
  
 @@ -38,7 +37,28 @@
   */
- void TLSlide::Update(float time)
+ void TLSlide::Update(float deltaTime)
  {
--    time = FrontendAdvanceSlideTime(m_time, time, GetStartTime(), GetDuration(), m_uPlayMode, field_0x44);
-+    if (field_0x44)
+-    deltaTime = FrontendAdvanceSlideTime(m_time, deltaTime, GetStartTime(), GetDuration(), m_uPlayMode, m_bPaused);
++    if (m_bPaused)
 +    {
-+        time = 0.0f;
++        deltaTime = 0.0f;
 +    }
 +
-+    m_time += time;
++    m_time += deltaTime;
 +    float end = GetStartTime() + GetDuration();
 +    if (m_time > end)
 +    {

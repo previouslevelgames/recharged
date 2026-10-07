@@ -1,11 +1,12 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Preserve original RLG wire vertices and numeric CPU indices
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep original source allocation, copy size, cache flush and geometry loading
 order. Native transport publishes unchanged Wii vertex wire and decodes each
 authored u16 index at the original CPU copy boundary.
 
+diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
 --- a/src/NL/glx/glxLoadModel.cpp
 +++ b/src/NL/glx/glxLoadModel.cpp
 @@ -19,6 +19,9 @@
@@ -18,7 +19,7 @@ authored u16 index at the original CPU copy boundary.
  
  
  class GLXRLGReader : public RLGReader
-@@ -35,15 +38,23 @@
+@@ -35,14 +38,22 @@
  void GLXRLGReader::LoadVertices(void* data, unsigned long size)
  {
      m_pVertexData = glResourceAlloc(size, GLM_VertexData, m_pResource);
@@ -41,4 +42,3 @@ authored u16 index at the original CPU copy boundary.
      DCFlushRange(m_pIndexData, size);
  }
  
- void GLXRLGReader::LoadVertexAnim(nlChunk* chunk)

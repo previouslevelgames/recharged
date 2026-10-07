@@ -1,0 +1,32 @@
+# Patch: 0494-original-frontend-main-menu-diagnostic
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Default-off native factory admission of the literal original MainMenu case.
+# Original handlers, authored transition, save/HOF/slide/input waits and all other factory scopes are unchanged.
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -309,10 +309,12 @@
+         newHandler = new (nlMalloc(sizeof(TitleScene), 8, false)) TitleScene(movement);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MAIN_MENU)
+     case SCENE_MAIN_MENU:
+         newHandler = new (nlMalloc(sizeof(SHMainMenu), 8, false)) SHMainMenu();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case SCENE_CHOOSE_CAPTAINS_DOMINATION:
+         newHandler = new (nlMalloc(sizeof(ChooseCaptainsSceneV2), 8, false)) ChooseCaptainsSceneV2(ChooseCaptainsSceneV2::ST_DOMINATION, movement);
+         break;
+--- a/src/Game/SH/SHMainMenu.cpp
++++ b/src/Game/SH/SHMainMenu.cpp
+@@ -1,5 +1,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <cstdint>
++#include "Game/BaseSceneHandler.inl"
++#include "Game/FE/fePresentation.inl"
++#include "Game/FE/tlInstance.inl"
++#include "NL/nlLocalization.inl"
+ #endif
+ #include <RVLFaceLib/RFL_Database.h>
+ 

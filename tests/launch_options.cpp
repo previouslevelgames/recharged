@@ -63,6 +63,16 @@ int main()
         Check(resolved.settings.aspect == "16:9" && resolved.aspect_source == SettingSource::CommandLine
             && resolved.config.settings.aspect == "4:3", "Run-only aspect override altered saved settings");
         Check(parsed.explicit_config && parsed.config == "settings.ini", "Explicit configuration source lost");
+        const auto inline_options = Parse({"test", "--config=settings.ini", "--disc=CLI disc.rvz",
+            "--window", "--size=600x900", "--aspect=16:9"});
+        const auto inline_resolved = ResolveLaunch(file, inline_options, nullptr, root / "working");
+        Check(inline_options.explicit_config && inline_options.config == parsed.config
+            && inline_resolved.disc_path == resolved.disc_path
+            && inline_resolved.settings.width == resolved.settings.width
+            && inline_resolved.settings.height == resolved.settings.height
+            && inline_resolved.settings.fullscreen == resolved.settings.fullscreen
+            && inline_resolved.settings.aspect == resolved.settings.aspect,
+            "Inline launch values differ from separate arguments");
         Check(resolved.disc_source == SettingSource::CommandLine && resolved.width_source == SettingSource::CommandLine
             && resolved.height_source == SettingSource::CommandLine && resolved.fullscreen_source == SettingSource::CommandLine,
             "CLI field provenance lost");
@@ -71,6 +81,8 @@ int main()
             "Overrides modified loaded or persistable INI settings");
         const auto last = Parse({"test", "--fullscreen", "--window", "--fullscreen", "--disc", "old.iso", "--disk", "new.rvz"});
         Check(*last.fullscreen && *last.disc == "new.rvz", "Later display/disc options did not win");
+        Check(*Parse({"test", "--disc=old.iso", "--disk", "new.rvz", "--disk=disc=final.rvz"}).disc
+            == "disc=final.rvz", "Inline alias precedence or equals in a path changed");
         const auto last_aspect = Parse({"test", "--aspect", "16:9", "--aspect", "4:3"});
         Check(*last_aspect.aspect == "4:3", "Later system aspect did not win");
         Check(*Parse({"test", "--aspect", "auto"}).aspect == "auto", "Automatic initial aspect rejected");
@@ -85,12 +97,31 @@ int main()
         for (const char* bad : {"0x600", "800x0", "16385x10", "10x16385", "-1x10", "+1x10", "800X600", "800x600junk", "800x600x700"})
             Reject([&] { Parse({"test", "--size", bad}); });
         Reject([&] { Parse({"test", "--disc"}); });
+        for (const char* bad : {"--disc=", "--disk=", "--config=", "--size=", "--aspect=",
+                "--size=800x600junk", "--aspect=21:9", "--window=true"})
+            Reject([&] { Parse({"test", bad}); });
         Reject([&] { Parse({"test", "--config", ""}); });
         Reject([&] { Parse({"test", "--size", "--fullscreen"}); });
         const char* unknown[] = {"test", "--experimental-startup"}; int index = 1;
         LaunchOptions untouched;
         Check(!ParseLaunchOption(2, unknown, index, untouched) && index == 1 && !untouched.disc,
             "Shared parsing consumed an explicit runtime mode");
+        const char* mixed[] = {"test", "--disc=before.rvz", "--experimental-frontend", "--window",
+            "--disk", "after.rvz", "--size=1280x720"};
+        LaunchOptions mixed_options;
+        unsigned modes = 0;
+        for (int i = 1; i < 7; ++i)
+        {
+            if (ParseLaunchOption(7, mixed, i, mixed_options)) continue;
+            Check(std::string_view(mixed[i]) == "--experimental-frontend", "Unknown shared option in mixed order");
+            ++modes;
+        }
+        Check(modes == 1 && *mixed_options.disc == "after.rvz" && !*mixed_options.fullscreen
+            && mixed_options.size->width == 1280 && mixed_options.size->height == 720,
+            "Shared arguments depend on runtime-mode ordering");
+        const char* unknown_inline[] = {"test", "--unknown=value"}; index = 1;
+        Check(!ParseLaunchOption(2, unknown_inline, index, untouched) && index == 1 && !untouched.disc,
+            "Shared parsing consumed an unknown inline option");
         Settings draft = file.settings; draft.disc = "launcher.rvz"; draft.width = 1111; draft.aspect = "auto";
         const auto edited = ResolveLaunch(file, {}, &draft);
         Check(edited.disc_source == SettingSource::Launcher && edited.width_source == SettingSource::Launcher

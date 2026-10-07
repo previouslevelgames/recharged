@@ -15,10 +15,11 @@ are verified on Linux; Windows and macOS are intended targets.
 ## Build
 
 Requires Git, CMake 3.25+, Ninja, Python 3.10+, a C/C++20 compiler, Rust/Cargo
-1.85+, and SDL's platform development dependencies. From the repository root:
+1.85+, and SDL's platform development dependencies. Mac users should start with
+the [macOS build guide](docs/BUILDING_MACOS.md). From the repository root:
 
 ```sh
-git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
+git -c submodule.recurse=false submodule update --init --checkout -- extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
 cmake --workflow --preset release
 ./build/release/mscharged
 ```

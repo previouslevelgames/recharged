@@ -1,11 +1,12 @@
 Subject: [PATCH] Restore original game camera and material view decisions
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Use the original view and active game camera in game-module rendering. Restore
 source light-texture requests and specular cache values; restrict standalone
 preview validation/helpers to their existing diagnostics. Preserve original
 matrix, lighting, visibility and draw decisions and native SDK/ABI transport.
 
+diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
 --- a/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
 @@ -1,6 +1,8 @@
@@ -34,6 +35,7 @@ matrix, lighting, visibility and draw decisions and native SDK/ABI transport.
      // A new view may have different lights even when the exponent is zero.
      sSpecularDetailBlendSpecularExponent = -1.0f;
  #else
+diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
 @@ -1,6 +1,8 @@
@@ -72,6 +74,7 @@ matrix, lighting, visibility and draw decisions and native SDK/ABI transport.
      }
  #endif
  }
+diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
 --- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
 @@ -1,7 +1,9 @@
@@ -120,6 +123,7 @@ matrix, lighting, visibility and draw decisions and native SDK/ABI transport.
      for (const auto& row : cameraTextureMatrix)
          for (float value : row)
              if (!std::isfinite(value))
+diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgramRender.cpp b/src/NL/glx/GXCameraScrolledOverlayMaterialProgramRender.cpp
 --- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgramRender.cpp
 @@ -1,7 +1,9 @@
@@ -168,6 +172,7 @@ matrix, lighting, visibility and draw decisions and native SDK/ABI transport.
      for (const auto& row : textureMatrix)
          for (float value : row)
              if (!std::isfinite(value))
+diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
 @@ -1,6 +1,8 @@

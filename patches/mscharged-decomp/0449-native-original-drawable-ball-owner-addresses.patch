@@ -1,9 +1,10 @@
 Subject: [PATCH] Adapt original DrawableBall proxy reads to native owners
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Use the genuine typed owners only in native compilation. Original console
 source, branches, masks, draw calls and owner lifetimes stay unchanged.
 
+diff --git a/src/Game/Drawable/DrawableBall.cpp b/src/Game/Drawable/DrawableBall.cpp
 --- a/src/Game/Drawable/DrawableBall.cpp
 +++ b/src/Game/Drawable/DrawableBall.cpp
 @@ -8,6 +8,11 @@

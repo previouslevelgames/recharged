@@ -33,8 +33,8 @@ static_assert(offsetof(glTextureBinding, textureIndex) == 4);
 static_assert(sizeof(GXBlackTextureAlphaParameters) ==
     ((16 + matrix_pointer_delta + alignof(GXBlackTextureAlphaParameters) - 1)
         / alignof(GXBlackTextureAlphaParameters)) * alignof(GXBlackTextureAlphaParameters));
-static_assert(sizeof(((GXBlackTextureAlphaParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXBlackTextureAlphaParameters, skinMatricesSize) == 12 + matrix_pointer_delta);
+static_assert(sizeof(((GXBlackTextureAlphaParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXBlackTextureAlphaParameters, skinMatrixBytes) == 12 + matrix_pointer_delta);
 static_assert(offsetof(GXBlackTextureAlphaParameters, diffuseTexture) == 0);
 static_assert(offsetof(GXBlackTextureAlphaParameters, skinMatrices) == 8);
 
@@ -70,8 +70,8 @@ static_assert(offsetof(GXCharacterDamageParameters, damage2Enabled) == 100 + mat
 static_assert(sizeof(GXColourFresnelParameters) ==
     ((48 + matrix_pointer_delta + alignof(GXColourFresnelParameters) - 1)
         / alignof(GXColourFresnelParameters)) * alignof(GXColourFresnelParameters));
-static_assert(sizeof(((GXColourFresnelParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXColourFresnelParameters, skinMatricesSize) == 28 + matrix_pointer_delta);
+static_assert(sizeof(((GXColourFresnelParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXColourFresnelParameters, skinMatrixBytes) == 28 + matrix_pointer_delta);
 static_assert(offsetof(GXColourFresnelParameters, diffuseTexture) == 0);
 static_assert(offsetof(GXColourFresnelParameters, detailTexture) == 8);
 static_assert(offsetof(GXColourFresnelParameters, shadowTexture) == 16);
@@ -85,8 +85,8 @@ static_assert(offsetof(GXColourFresnelParameters, lightingEnabled) == 44 + matri
 static_assert(sizeof(GXMegaDiffuseParameters) ==
     ((52 + matrix_pointer_delta + alignof(GXMegaDiffuseParameters) - 1)
         / alignof(GXMegaDiffuseParameters)) * alignof(GXMegaDiffuseParameters));
-static_assert(sizeof(((GXMegaDiffuseParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXMegaDiffuseParameters, skinMatricesSize) == 28 + matrix_pointer_delta);
+static_assert(sizeof(((GXMegaDiffuseParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXMegaDiffuseParameters, skinMatrixBytes) == 28 + matrix_pointer_delta);
 static_assert(sizeof(((GXMegaDiffuseParameters*)0)->shadowLevel) == 4);
 static_assert(offsetof(GXMegaDiffuseParameters, shadowLevel) == 44 + matrix_pointer_delta);
 static_assert(offsetof(GXMegaDiffuseParameters, diffuseTexture) == 0);
@@ -103,8 +103,8 @@ static_assert(offsetof(GXMegaDiffuseParameters, lightingEnabled) == 48 + matrix_
 static_assert(sizeof(GXMegaSpecularFresnelParameters) ==
     ((88 + matrix_pointer_delta + alignof(GXMegaSpecularFresnelParameters) - 1)
         / alignof(GXMegaSpecularFresnelParameters)) * alignof(GXMegaSpecularFresnelParameters));
-static_assert(sizeof(((GXMegaSpecularFresnelParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXMegaSpecularFresnelParameters, skinMatricesSize) == 44 + matrix_pointer_delta);
+static_assert(sizeof(((GXMegaSpecularFresnelParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXMegaSpecularFresnelParameters, skinMatrixBytes) == 44 + matrix_pointer_delta);
 static_assert(sizeof(((GXMegaSpecularFresnelParameters*)0)->shadowLevel) == 4);
 static_assert(offsetof(GXMegaSpecularFresnelParameters, shadowLevel) == 76 + matrix_pointer_delta);
 static_assert(offsetof(GXMegaSpecularFresnelParameters, diffuseTexture) == 0);
@@ -128,8 +128,8 @@ static_assert(offsetof(GXMegaSpecularFresnelParameters, blackOnly) == 84 + matri
 static_assert(sizeof(GXMegaSpecularParameters) ==
     ((84 + matrix_pointer_delta + alignof(GXMegaSpecularParameters) - 1)
         / alignof(GXMegaSpecularParameters)) * alignof(GXMegaSpecularParameters));
-static_assert(sizeof(((GXMegaSpecularParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXMegaSpecularParameters, skinMatricesSize) == 36 + matrix_pointer_delta);
+static_assert(sizeof(((GXMegaSpecularParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXMegaSpecularParameters, skinMatrixBytes) == 36 + matrix_pointer_delta);
 static_assert(sizeof(((GXMegaSpecularParameters*)0)->shadowLevel) == 4);
 static_assert(offsetof(GXMegaSpecularParameters, shadowLevel) == 76 + matrix_pointer_delta);
 static_assert(offsetof(GXMegaSpecularParameters, diffuseTexture) == 0);
@@ -150,8 +150,8 @@ static_assert(offsetof(GXMegaSpecularParameters, lightingEnabled) == 80 + matrix
 static_assert(sizeof(GXSkinnedMultiLightParameters) ==
     ((368 + matrix_pointer_delta + alignof(GXSkinnedMultiLightParameters) - 1)
         / alignof(GXSkinnedMultiLightParameters)) * alignof(GXSkinnedMultiLightParameters));
-static_assert(sizeof(((GXSkinnedMultiLightParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXSkinnedMultiLightParameters, skinMatricesSize) == 28 + matrix_pointer_delta);
+static_assert(sizeof(((GXSkinnedMultiLightParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXSkinnedMultiLightParameters, skinMatrixBytes) == 28 + matrix_pointer_delta);
 static_assert(offsetof(GXSkinnedMultiLightParameters, diffuseTexture) == 0);
 static_assert(offsetof(GXSkinnedMultiLightParameters, detailTexture) == 8);
 static_assert(offsetof(GXSkinnedMultiLightParameters, rampTexture) == 16);
@@ -203,8 +203,8 @@ static_assert(offsetof(GXSkinnedUnlitTextureParameters, skinMatrices) == 8);
 static_assert(sizeof(GXSpecularFresnelParameters) ==
     ((72 + matrix_pointer_delta + alignof(GXSpecularFresnelParameters) - 1)
         / alignof(GXSpecularFresnelParameters)) * alignof(GXSpecularFresnelParameters));
-static_assert(sizeof(((GXSpecularFresnelParameters*)0)->skinMatricesSize) == 4);
-static_assert(offsetof(GXSpecularFresnelParameters, skinMatricesSize) == 36 + matrix_pointer_delta);
+static_assert(sizeof(((GXSpecularFresnelParameters*)0)->skinMatrixBytes) == 4);
+static_assert(offsetof(GXSpecularFresnelParameters, skinMatrixBytes) == 36 + matrix_pointer_delta);
 static_assert(sizeof(((GXSpecularFresnelParameters*)0)->shadowLevel) == 4);
 static_assert(offsetof(GXSpecularFresnelParameters, shadowLevel) == 64 + matrix_pointer_delta);
 static_assert(offsetof(GXSpecularFresnelParameters, diffuseTexture) == 0);

@@ -1,5 +1,5 @@
 Subject: Retain original vertex animation resources and frame stream descriptors
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Select original GLVertexAnim construction, update and frame binding; pair its
 stream-ID allocation with nlFree and privately copy only rebound descriptors.
@@ -81,7 +81,7 @@ diff --git a/src/Game/GL/GLVertexAnim.cpp b/src/Game/GL/GLVertexAnim.cpp
 +#include <cmath>
 +#endif
  
- struct UnidentifiedGLVertexAnimHeader_802D3D48
+ struct GLVertexAnimHeader
  {
 @@ -40,9 +45,14 @@
  

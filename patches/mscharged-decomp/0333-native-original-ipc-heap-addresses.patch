@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Keep original IPC heap alignment checks native pointer wide
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 The original IPC allocator owns live CPU chunks, not serialized device records.
 Retain its best-fit, split, alignment helper, free-list and coalescing flow.
@@ -8,6 +8,7 @@ Only three pointer casts used by its alignment arithmetic become uintptr_t;
 allocation lengths and handles remain the original 32-bit values. Console
 expressions are unchanged. No IPC arena or IOS filesystem readiness is supplied.
 
+diff --git a/src/RVL_SDK/ipc/memory.c b/src/RVL_SDK/ipc/memory.c
 --- a/src/RVL_SDK/ipc/memory.c
 +++ b/src/RVL_SDK/ipc/memory.c
 @@ -1,5 +1,12 @@

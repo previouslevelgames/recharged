@@ -1,0 +1,49 @@
+From: original source diagnostic integration
+Subject: [PATCH] Retain original end-frame warble target and clear decisions
+
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+
+The full source view creator leaves the warble target/colour clear configured
+for its later original per-frame enable/disable decisions. Admit that literal
+block alongside WORLD_DRAW. Preserve source gWarbleEnabled, grey target colour,
+all branches/stores/update calls and order. This retires a diagnostic omission;
+it does not alter the original disabled or enabled warble behavior. Retain
+the preceding literal BeginFrame gWarbleEnabled reset at its original position.
+
+diff --git a/src/Game/Task/EndFrameTask.cpp b/src/Game/Task/EndFrameTask.cpp
+--- a/src/Game/Task/EndFrameTask.cpp
++++ b/src/Game/Task/EndFrameTask.cpp
+@@ -18,7 +18,7 @@
+     if (gpHBMManager == 0 || !gpHBMManager->mActive || !gpHBMManager->mReady)
+ #endif // uninitialized HBM frame guard omitted
+     {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+         bool useWarble = gWarbleEnabled;
+ 
+         GLView* view = GetLayerView(eCLV_PreWarble);
+@@ -44,7 +44,7 @@
+             RenderWarbleQuad(&gWarbleEnabled);
+         }
+ 
+-#endif // warble/prewarble3D views and native effect startup remain unqualified
++#endif // retain original warble targets/clear/update decisions for full world views
+         glEndFrame();
+         g_FrameCounter.StartTimer(1);
+         glSendFrame();
+
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -426,7 +426,11 @@
+         return;
+     }
+ 
++#endif // uninitialized HBM owner remains omitted
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     gWarbleEnabled = false;
++#endif // original per-frame reset at its source position
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     if (lbl_806E0FDC)
+     {
+         cGlobalPad* pad = g_pPadManager->GetPad(0);

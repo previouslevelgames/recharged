@@ -1,7 +1,8 @@
 include_guard(GLOBAL)
 
-# Whole original CharacterLoader/retarget provider compiler inventory.
-# Raw retarget/animation initialization and full loading/runtime remain held.
+# Whole original CharacterLoader/animation inventory compiler inventory.
+# Serialized retarget transport shares the real source allocation registry;
+# this inventory does not admit character loading or create source owners.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
         OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
     return()
@@ -9,7 +10,11 @@ endif()
 include(cmake/OriginalFunctionPools.cmake)
 add_library(charged_original_character_loading_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/CharacterLoader.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/SAnim/AnimRetargeter.cpp")
+    "${MSCHARGED_PREPARED}/src/Game/AnimInventory.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/SAnim/AnimRetargeter.cpp"
+    src/platform/anim_retarget_transport.cpp
+    src/platform/retarget_replay_projection.cpp
+    src/platform/sanim_replay_projection.cpp)
 add_dependencies(charged_original_character_loading_sources verify_prepared)
 set_target_properties(charged_original_character_loading_sources PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
@@ -31,3 +36,26 @@ else()
     target_compile_options(charged_original_character_loading_sources PRIVATE
         -fno-assume-sane-operator-new -Wno-register)
 endif()
+
+# Call only when admitting an original source consumer in this same module.
+# This supplies the real class methods and their data boundary, not a second
+# registry, loader, source initializer, or ownership policy.
+function(mscharged_add_original_animation_inventory target)
+    get_target_property(_type "${target}" TYPE)
+    if(NOT _type STREQUAL "MODULE_LIBRARY")
+        message(FATAL_ERROR "Original animation inventory must share the source module's allocation registry")
+    endif()
+    get_target_property(_sources "${target}" SOURCES)
+    foreach(_path IN ITEMS
+            "${MSCHARGED_PREPARED}/src/Game/AnimInventory.cpp"
+            "${MSCHARGED_PREPARED}/src/Game/SAnim/AnimRetargeter.cpp"
+            "${PROJECT_SOURCE_DIR}/src/platform/anim_retarget_transport.cpp"
+            "${PROJECT_SOURCE_DIR}/src/platform/retarget_replay_projection.cpp"
+            "${PROJECT_SOURCE_DIR}/src/platform/sanim_replay_projection.cpp")
+        file(RELATIVE_PATH _relative "${PROJECT_SOURCE_DIR}" "${_path}")
+        if(NOT _path IN_LIST _sources AND NOT _relative IN_LIST _sources)
+            target_sources("${target}" PRIVATE "${_path}")
+            list(APPEND _sources "${_path}")
+        endif()
+    endforeach()
+endfunction()

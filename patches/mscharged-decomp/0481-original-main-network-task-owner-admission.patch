@@ -1,0 +1,31 @@
+# Patch: 0481-original-main-network-task-owner-admission
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Explicit native selected-source diagnostic; literal original task static and Initialize call only.
+# Qualification: Original unchanged initializer CPU source-owner leaf on captured source340/SDK48 plus0473/0476/0477.
+# Default/console flow unchanged. No Fixed/online/source-loop admission or initialized-field seeding.
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -208,7 +208,11 @@
+ 
+ static ComUpdateTask comUpdateTask;
+ static PingerUpdateTask pingerUpdateTask;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER))
+ static NetworkUpdateTask networkUpdateTask;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+ static PlatPadUpdateTask platPadUpdateTask;
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+@@ -641,7 +645,11 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     gSwappablePadChanged.Add(Function<void(int)>(OnSwappablePadChanged), 0, -1);
+     FlickDetection::Initialize();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER))
+     networkUpdateTask.Initialize();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     StartupAIPads();
+     gTransitionTask.Initialize();
+ #endif // unrelated config/script/tasks/audio/world prerequisites

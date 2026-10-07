@@ -74,11 +74,11 @@ void Session()
   Begin(frames);Reject([&]{renderer.Submit(*view,{});});auto malformed=std::make_shared<SkinPoseFrame>(*pose);malformed->packets[0].clear();Reject([&]{renderer.Submit(*view,malformed);});
   Check(renderer.Submit(*view,pose)==1,"Skin submission lost its source packet");view->Iterate(Inspect);Check(observed&&observed->numStreams==6,"Native packet stream count differs");ValidateNativeSkinPacket(*observed);
   const auto& p=*observed;const auto& material=*static_cast<const GXCharacterSkinCustomParameters*>(p.materialParameters);
-  Check(material.skinMatricesSize==96&&material.diffuseTexture.texture==0x12345678&&material.detailTexture.texture==0x12345679,"Native material offsets or binding identities differ");
+  Check(material.skinMatrixBytes==96&&material.diffuseTexture.texture==0x12345678&&material.detailTexture.texture==0x12345679,"Native material offsets or binding identities differ");
   Check(material.skinMatrices[1][0][3]==.75f,"GX matrix slot translation differs");
   const auto* uv=static_cast<const short*>(p.streams[3].address);Check(uv[0]==896&&uv[1]==128,"Signed16 fixed UVs changed");
   auto saved=*observed;auto& edit=*const_cast<glModelPacket*>(observed);edit.numStreams=5;Reject([&]{ValidateNativeSkinPacket(edit);});edit=saved;
-  auto& params=*static_cast<GXCharacterSkinCustomParameters*>(edit.materialParameters);params.skinMatricesSize=11*48;Reject([&]{ValidateNativeSkinPacket(edit);});params.skinMatricesSize=96;
+  auto& params=*static_cast<GXCharacterSkinCustomParameters*>(edit.materialParameters);params.skinMatrixBytes=11*48;Reject([&]{ValidateNativeSkinPacket(edit);});params.skinMatrixBytes=96;
   Reject([&]{renderer.Submit(*view,pose);});Reject([&]{renderer.Release();});Reject([&]{renderer.FinishFrame();});
   glEndFrame();glSendFrame();fail_drain=true;Reject([&]{renderer.FinishFrame();});fail_drain=false;Reject([&]{renderer.Release();});renderer.FinishFrame();
   Begin(frames);renderer.Submit(*view,pose);frames.Cancel();renderer.FinishFrame();

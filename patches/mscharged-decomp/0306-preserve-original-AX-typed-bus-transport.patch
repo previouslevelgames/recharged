@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Transport original AX memory through checked native DSP backing
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep original command and voice producers, list selection, arithmetic and all
 source method bodies. Native address operands use the live SDK physical
@@ -9,6 +9,7 @@ actual source static extents so the platform can retain and pin their backing
 before source arena capture. DSP byte order is handled at the device boundary;
 this patch does not initialize AX, execute DSP tasks or supply a mixer.
 
+diff --git a/src/RVL_SDK/ax/AXCL.c b/src/RVL_SDK/ax/AXCL.c
 --- a/src/RVL_SDK/ax/AXCL.c
 +++ b/src/RVL_SDK/ax/AXCL.c
 @@ -14,11 +14,24 @@
@@ -47,6 +48,7 @@ this patch does not initialize AX, execute DSP tasks or supply a mixer.
 +    return result;
 +}
 +#endif
+diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
 --- a/src/RVL_SDK/ax/AXVPB.c
 +++ b/src/RVL_SDK/ax/AXVPB.c
 @@ -37,8 +37,15 @@
@@ -78,6 +80,7 @@ this patch does not initialize AX, execute DSP tasks or supply a mixer.
 +    output[1].bytes = sizeof(__s_AXITD);
 +}
 +#endif
+diff --git a/src/RVL_SDK/ax/AXAux.c b/src/RVL_SDK/ax/AXAux.c
 --- a/src/RVL_SDK/ax/AXAux.c
 +++ b/src/RVL_SDK/ax/AXAux.c
 @@ -322,3 +322,15 @@
@@ -96,6 +99,7 @@ this patch does not initialize AX, execute DSP tasks or supply a mixer.
 +    output[2].bytes = sizeof(__AXBufferAuxC);
 +}
 +#endif
+diff --git a/src/RVL_SDK/ax/AXComp.c b/src/RVL_SDK/ax/AXComp.c
 --- a/src/RVL_SDK/ax/AXComp.c
 +++ b/src/RVL_SDK/ax/AXComp.c
 @@ -185,3 +185,11 @@

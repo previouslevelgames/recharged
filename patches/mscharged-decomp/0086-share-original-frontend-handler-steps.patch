@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend base-handler and loading notification steps
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Share original base timeline, ring and activation contracts with checked native
 retained-scene ownership. Preserve the actual empty remove and SceneCreated
@@ -84,7 +84,6 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  }
  
  OptionsScene::OptionsScene()
-
 diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 --- a/src/Game/SH/SHLoading.cpp
 +++ b/src/Game/SH/SHLoading.cpp
@@ -117,7 +116,6 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
  }
  
  MatchLoadingScene::MatchLoadingScene()
-
 diff --git a/include/Game/FE/FrontendHandlerSteps.h b/include/Game/FE/FrontendHandlerSteps.h
 new file mode 100644
 --- /dev/null

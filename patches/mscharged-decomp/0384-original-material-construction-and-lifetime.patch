@@ -1,11 +1,12 @@
 Subject: [PATCH] Restore original material registration order and destructor flow
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Restore eight constructors exactly to pinned source assignment/registration order.
 Original game-module destructors retain the source empty bodies. Prior native
 preview global/cache resets remain scoped to standalone diagnostics. No resource
 selection, parameters, shader decisions or successful readiness are introduced.
 
+diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 --- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 @@ -27,16 +27,16 @@
@@ -27,6 +28,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 @@ -24,16 +24,16 @@
@@ -48,6 +50,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 @@ -27,16 +27,16 @@
@@ -69,6 +72,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 --- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 @@ -30,16 +30,16 @@
@@ -90,6 +94,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 @@ -26,16 +26,16 @@
@@ -111,6 +116,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 @@ -30,16 +30,16 @@
@@ -132,6 +138,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 @@ -28,16 +28,16 @@
@@ -153,6 +160,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      Instance = nullptr;
      Initialized = false;
  #endif
+diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 --- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 @@ -29,7 +29,7 @@
@@ -164,6 +172,7 @@ selection, parameters, shader decisions or successful readiness are introduced.
      ResetNativeShadowVolumeMaterial();
      Instance = nullptr;
      Initialized = false;
+diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 --- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 @@ -28,16 +28,16 @@

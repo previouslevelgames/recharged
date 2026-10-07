@@ -24,22 +24,24 @@ git -C extern/freetype -c submodule.recurse=false submodule update --init --chec
 The first graphics build is large. Adjust the build parallelism for available
 memory. Windows, macOS, other disc regions and Wii peripherals remain unverified.
 
-## Original Boot scene
+## Original frontend sequence
 
 ```sh
 CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset frontend
 ./build/graphics/mscharged --experimental-frontend --disc ./game/R4QE01.rvz --window
 ```
 
-The `frontend` preset reuses `build/graphics`. It runs original `main`, loading
-and frontend tasks through the authored Boot script, including the static Next
-Level logo and its original sound request. Earlier startup steps are still
-omitted; Intro movie initialization and progression to later menus remain in
-development. Audio quality and performance are still being validated.
+The `frontend` preset reuses `build/graphics`. It runs original `main`, loading,
+frontend world setup, Boot/Intro, Title and Main Menu, including the initial save prompt.
+**Menus and gameplay are still being integrated; this test can stop at
+unfinished host services.** Audio quality and performance remain in progress.
 
-The launcher offers **Try boot sequence**. Close the window to exit, or omit
-`--window` for a bounded run. A build with the authored Boot script enabled does
-not support the separate `--experimental-options` shortcut.
+Press **Enter or Space** (Wii A) to skip the intro movie through the original
+handler. Use the mouse pointer and Enter/Space to select menu items; Escape/Backspace
+is Wii B. Keep the game window focused. The launcher also offers **Try boot
+sequence**. Close the window to exit; omitting `--window` runs a bounded test.
+The separate `--experimental-options` shortcut requires a build without the
+original Boot script.
 
 ## Original Credits scene
 

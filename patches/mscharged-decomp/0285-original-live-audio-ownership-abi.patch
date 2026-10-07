@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original live audio ownership on native ABI
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Adapt live sound-handle notification/tree keys without widening any authored
 hash, serialized field or script word. Use authoritative native owning fields

@@ -1,11 +1,12 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original audio script serialized words and callback byte order
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Native module data/ABI compatibility only. Original script selection, VM conditions,
 bindings, update and source-owned cleanup remain unchanged. This does not establish
 the effect factory, voices, normal AX initialization or complete startup.
 
+diff --git a/include/Game/Audio/AudioScriptInterpreter.inl b/include/Game/Audio/AudioScriptInterpreter.inl
 --- a/include/Game/Audio/AudioScriptInterpreter.inl
 +++ b/include/Game/Audio/AudioScriptInterpreter.inl
 @@ -6,7 +6,12 @@
@@ -21,6 +22,7 @@ the effect factory, voices, normal AX initialization or complete startup.
      if (m_RunState == 3)
          m_SP[-1] = value;
  }
+diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioScriptRuntime.h
 --- a/include/Game/Audio/AudioScriptRuntime.h
 +++ b/include/Game/Audio/AudioScriptRuntime.h
 @@ -99,7 +99,11 @@
@@ -53,6 +55,7 @@ the effect factory, voices, normal AX initialization or complete startup.
  
  struct AudioScriptSelection
  {
+diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptRuntime.cpp
 --- a/src/Game/Audio/AudioScriptRuntime.cpp
 +++ b/src/Game/Audio/AudioScriptRuntime.cpp
 @@ -1,6 +1,9 @@

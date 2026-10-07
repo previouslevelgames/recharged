@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Preserve original SDK message ring with native pointer cells
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Compile the complete Matching OSMessage TU. Native CPU messages use canonical
 pointer-width cells while msgCount/firstIndex/usedCount remain signed32. Retain
@@ -8,6 +8,7 @@ all source ring math, flags, waits/wakes, initialization and console statements.
 The direct revolution header selects the same native canonical type facade.
 No thread creation, source readiness, OSJam body or audio initializer is added.
 
+diff --git a/src/RVL_SDK/os/OSMessage.c b/src/RVL_SDK/os/OSMessage.c
 --- a/src/RVL_SDK/os/OSMessage.c
 +++ b/src/RVL_SDK/os/OSMessage.c
 @@ -24,7 +24,11 @@
@@ -34,6 +35,7 @@ No thread creation, source readiness, OSJam body or audio initializer is added.
      }
  
      queue->firstIndex = (queue->firstIndex + 1) % queue->msgCount;
+diff --git a/libs/RVL_SDK/include/revolution/os/OSMessage.h b/libs/RVL_SDK/include/revolution/os/OSMessage.h
 --- a/libs/RVL_SDK/include/revolution/os/OSMessage.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSMessage.h
 @@ -1,5 +1,11 @@

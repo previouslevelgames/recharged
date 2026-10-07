@@ -1,0 +1,45 @@
+Subject: Restore original Options Done-button bounds in whole source
+
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+
+Retire the historical template extraction at this original call. Restore
+the original two local arrays and complete matching source method; source
+bounds, branch, callers, callbacks and menu decisions are unchanged.
+
+diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
+--- a/src/Game/FE/feHelpFuncs.cpp
++++ b/src/Game/FE/feHelpFuncs.cpp
+@@ -1,6 +1,5 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/FE/feHelpFuncs_decl.h"
+-#include "Game/FE/FrontendDoneButtonSteps.h"
+ 
+ #include <cmath>
+ #include <stdio.h>
+@@ -54,6 +53,8 @@
+     "TOURNAMENT",
+ };
+ 
++static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
++static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
+ 
+ // Retail's .sdata2 pool for this unit opens with 0.0f, ahead of the constants
+ // EnableAutoPressed creates, although no surviving function generated before
+@@ -351,7 +352,16 @@
+ void SetDoneButtonBounds(
+     FEPointerButton* component, TLComponentInstance*, int value)
+ {
+-    FrontendDoneButtonBounds(component,value);
++    if (value)
++    {
++        component->SetBounds(sPlayButtonBounds[0], sPlayButtonBounds[1],
++            sPlayButtonBounds[2], sPlayButtonBounds[3]);
++    }
++    else
++    {
++        component->SetBounds(sDoneButtonBounds[0], sDoneButtonBounds[1],
++            sDoneButtonBounds[2], sDoneButtonBounds[3]);
++    }
+ }
+ 
+ // Retail leaves the result unspecified for an invalid cheat ID.

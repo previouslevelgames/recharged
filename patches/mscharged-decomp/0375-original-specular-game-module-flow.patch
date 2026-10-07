@@ -1,6 +1,6 @@
 From: mscharged-port original-source fidelity
 Subject: Retire standalone Specular preview decisions from original game modules
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Original game modules use the actual source view, skinnedVertices condition,
 display lists and cached matrix wrapper. Bind the source-selected arrays with
@@ -9,6 +9,7 @@ Earlier software-skin/direct-draw substitutions remain isolated to transitional
 standalone asset diagnostics. Native parameter layout adaptations are retained.
 No lighting, render ordering, skin, alpha or source visibility redesign.
 
+diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMaterialProgram.cpp
 --- a/src/NL/glx/GXSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularMaterialProgram.cpp
 @@ -1,6 +1,10 @@
@@ -69,6 +70,7 @@ No lighting, render ordering, skin, alpha or source visibility redesign.
      GXSetArray(GX_VA_TEX2, mscharged::SpecularVertexArray(*packet, 4),
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
+diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 --- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 @@ -1,7 +1,9 @@

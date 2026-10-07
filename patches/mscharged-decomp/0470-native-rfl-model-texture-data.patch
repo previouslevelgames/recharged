@@ -1,0 +1,57 @@
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Purpose: Original RFL InitTexRes serialized dimensions and image offset/count transport; preserve raw pixels, requests and budgets.
+
+--- a/src/RVL_SDK/rfl/RFL_Model.c
++++ b/src/RVL_SDK/rfl/RFL_Model.c
+@@ -6,6 +6,9 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/rfl_shape_transport.h"
++#include "platform/rfl_texture_transport.h"
++#define RFL_TEXTURE_HALF(texture, field) ChargedReadRFLTextureHalf(&(texture)->field)
++#define RFL_TEXTURE_COPY(destination, texture, bytes) ChargedCopyRFLTextureImage(destination, texture, bytes)
+ #define GXSetArray(attribute, data, stride) ChargedSetRFLGraphicsArray(attribute, data, stride)
+ #define RFL_SHAPE_HALF(pointer) ChargedReadRFLShapeHalf(pointer)
+ #define RFL_SHAPE_S16(value) ChargedReadRFLShapeS16(&(value))
+@@ -13,6 +16,8 @@
+ #define RFL_SHAPE_BYTES(destination, source, bytes) ChargedCopyRFLShapeBytes(destination, source, bytes)
+ #define RFL_TRANSFORM_RAW(destination, source) ChargedTransformRFLShapeCoordinate(destination, source)
+ #else
++#define RFL_TEXTURE_HALF(texture, field) texture->field
++#define RFL_TEXTURE_COPY(destination, texture, bytes) memcpy(destination, RFLiGetTexImage(texture), bytes)
+ #define RFL_SHAPE_HALF(pointer) *(u16*)pointer
+ #define RFL_SHAPE_S16(value) value
+ #define RFL_SHAPE_VECTOR(destination, source) memcpy(destination, source, sizeof(Vec))
+@@ -1046,18 +1051,18 @@
+ 
+     switch (part) {
+     case RFLiPartsShpTex_Face: {
+-        texSize = tex->height * tex->width * 2;
++        texSize = RFL_TEXTURE_HALF(tex, height) * RFL_TEXTURE_HALF(tex, width) * 2;
+         break;
+     }
+ 
+     case RFLiPartsShpTex_Cap:
+     case RFLiPartsShpTex_Noseline: {
+-        texSize = tex->height * tex->width / 2;
++        texSize = RFL_TEXTURE_HALF(tex, height) * RFL_TEXTURE_HALF(tex, width) / 2;
+         break;
+     }
+ 
+     case RFLiPartsShpTex_Glass: {
+-        texSize = tex->height * tex->width;
++        texSize = RFL_TEXTURE_HALF(tex, height) * RFL_TEXTURE_HALF(tex, width);
+         break;
+     }
+ 
+@@ -1066,8 +1071,8 @@
+     }
+     }
+ 
+-    memcpy(buffer, RFLiGetTexImage(tex), texSize);
+-    GXInitTexObj(texObj, buffer, tex->width, tex->height, tex->format,
++    RFL_TEXTURE_COPY(buffer, tex, texSize);
++    GXInitTexObj(texObj, buffer, RFL_TEXTURE_HALF(tex, width), RFL_TEXTURE_HALF(tex, height), tex->format,
+                  tex->wrapS, tex->wrapT, FALSE);
+     GXInitTexObjLOD(texObj, GX_LINEAR, GX_LINEAR, 0.0f, 0.0f, 0.0f, FALSE,
+                     FALSE, GX_ANISO_1);

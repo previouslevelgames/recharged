@@ -1,0 +1,61 @@
+Subject: [PATCH] Route original RFL PS matrix requests to the sole native SDK
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+
+--- a/libs/RVL_SDK/include/revolution/mtx/mtx.h
++++ b/libs/RVL_SDK/include/revolution/mtx/mtx.h
+@@ -34,6 +34,38 @@
+ void C_MTXLightPerspective(Mtx, f32, f32, f32, f32, f32, f32);
+ void C_MTXLightOrtho(Mtx, f32, f32, f32, f32, f32, f32, f32, f32);
+ 
++#if defined(MSCHARGED_NATIVE)
++// The sole native SDK supplies the C matrix services behind its PS aliases.
++void C_MTXIdentity(Mtx);
++void C_MTXScaleApply(const Mtx, Mtx, f32, f32, f32);
++void C_MTXRotRad(Mtx, char, f32);
++void C_MTXConcat(const Mtx, const Mtx, Mtx);
++void C_MTXTransApply(const Mtx, Mtx, f32, f32, f32);
++void C_MTXCopy(const Mtx, Mtx);
++u32 C_MTXInvXpose(const Mtx, Mtx);
++#ifndef PSMTXIdentity
++#define PSMTXIdentity C_MTXIdentity
++#endif
++#ifndef PSMTXScaleApply
++#define PSMTXScaleApply C_MTXScaleApply
++#endif
++#ifndef PSMTXRotRad
++#define PSMTXRotRad C_MTXRotRad
++#endif
++#ifndef PSMTXConcat
++#define PSMTXConcat C_MTXConcat
++#endif
++#ifndef PSMTXTransApply
++#define PSMTXTransApply C_MTXTransApply
++#endif
++#ifndef PSMTXCopy
++#define PSMTXCopy C_MTXCopy
++#endif
++#ifndef PSMTXInvXpose
++#define PSMTXInvXpose C_MTXInvXpose
++#endif
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+--- a/libs/RVL_SDK/include/revolution/mtx/mtxvec.h
++++ b/libs/RVL_SDK/include/revolution/mtx/mtxvec.h
+@@ -9,6 +9,14 @@
+ 
+ void PSMTXMultVec(const Mtx mtx, const Vec* vec, Vec* out);
+ 
++#if defined(MSCHARGED_NATIVE)
++// The sole native SDK supplies the C matrix services behind its PS aliases.
++void C_MTXMultVec(const Mtx mtx, const Vec* vec, Vec* out);
++#ifndef PSMTXMultVec
++#define PSMTXMultVec C_MTXMultVec
++#endif
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif

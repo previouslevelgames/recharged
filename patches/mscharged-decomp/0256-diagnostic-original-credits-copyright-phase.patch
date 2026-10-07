@@ -1,9 +1,10 @@
 From: mscharged-port source integration
 Subject: [PATCH] Admit original Credits COPYRIGHTS in the named scene diagnostic
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
 Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
 
+diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 --- a/src/Game/SH/SHCredits.cpp
 +++ b/src/Game/SH/SHCredits.cpp
 @@ -109,12 +109,16 @@

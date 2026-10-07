@@ -1,6 +1,6 @@
 From: mscharged-port native data ABI compatibility
 Subject: [PATCH] Align physical source slot strides for native intrusive pointers
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Round only physical slot storage to the native intrusive free-list alignment
 in both whole original block allocation and block retirement. Preserve payload
@@ -10,6 +10,7 @@ native storage is ten 40-byte slots plus the native 8-byte block footer.
 Console preprocessing is unchanged. Small payloads and unrelated caller
 payload-size mismatches retain their existing explicit holds.
 
+diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
 --- a/src/NL/nlSlotPool.cpp
 +++ b/src/NL/nlSlotPool.cpp
 @@ -7,6 +7,18 @@

@@ -1,0 +1,251 @@
+From: mscharged-port
+Subject: Preserve original MEM logical capacity with native metadata backing
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+
+diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
+--- a/src/RVL_SDK/mem/mem_expHeap.c
++++ b/src/RVL_SDK/mem/mem_expHeap.c
+@@ -2,10 +2,16 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #define __abs(value) __builtin_abs(value)
+-#define MEM_EXP_ALIGNMENT ((_Alignof(MEMiHeapHead) > _Alignof(MEMiExpHeapMBlockHead)) ? _Alignof(MEMiHeapHead) : _Alignof(MEMiExpHeapMBlockHead))
+-#else
++#include "platform/mem_logical_heap.h"
++#define MEM_EXP_BLOCK_SIZE 16
++#define MEM_EXP_HEAP_SIZE 80
++#define MEM_EXP_BLOCK_ADDRESS(block) ChargedMEMBlockAddress(block)
++#else
++#define MEM_EXP_BLOCK_SIZE sizeof(MEMiExpHeapMBlockHead)
++#define MEM_EXP_HEAP_SIZE sizeof(MEMiHeapHead) + sizeof(MEMiExpHeapHead)
++#define MEM_EXP_BLOCK_ADDRESS(block) block
++#endif
+ #define MEM_EXP_ALIGNMENT 4
+-#endif
+ 
+ #define FillFreeMemory(heap, address, size) ((void)0)
+ #define FillNoUseMemory(heap, address, size) ((void)0)
+@@ -16,7 +22,7 @@
+ } MemRegion;
+ 
+ static inline void* GetMemPtrForMBlock_(MEMiExpHeapMBlockHead* block) {
+-    return AddU32ToPtr(block, sizeof(MEMiExpHeapMBlockHead));
++    return AddU32ToPtr(MEM_EXP_BLOCK_ADDRESS(block), MEM_EXP_BLOCK_SIZE);
+ }
+ 
+ static inline void* GetMBlockEndAddr_(MEMiExpHeapMBlockHead* block) {
+@@ -28,7 +34,11 @@
+ }
+ 
+ static MEMiExpHeapMBlockHead* InitMBlock_(MemRegion* region, u16 signature) {
++#if defined(MSCHARGED_NATIVE)
++    MEMiExpHeapMBlockHead* block = (MEMiExpHeapMBlockHead*)ChargedInitMEMBlock(region->start);
++#else
+     MEMiExpHeapMBlockHead* block = (MEMiExpHeapMBlockHead*)region->start;
++#endif
+ 
+     block->signature = signature;
+     block->attribute.val = 0;
+@@ -56,7 +66,7 @@
+ }
+ 
+ static void GetRegionOfMBlock_(MemRegion* region, MEMiExpHeapMBlockHead* block) {
+-    region->start = SubU32ToPtr(block, GetAlignmentForMBlock_(block));
++    region->start = SubU32ToPtr(MEM_EXP_BLOCK_ADDRESS(block), GetAlignmentForMBlock_(block));
+     region->end = GetMBlockEndAddr_(block);
+ }
+ 
+@@ -123,10 +133,18 @@
+ }
+ 
+ static MEMiHeapHead* InitExpHeap_(void* startAddress, void* endAddress, u16 optFlag) {
++#if defined(MSCHARGED_NATIVE)
++    MEMiHeapHead* heap = (MEMiHeapHead*)ChargedCreateMEMExpHeapMetadata(startAddress, GetOffsetFromPtr(startAddress, endAddress));
++#else
+     MEMiHeapHead* heap = (MEMiHeapHead*)startAddress;
++#endif
+     MEMiExpHeapHead* expHeap = GetExpHeapHeadPtrFromHeapHead_(heap);
+ 
++#if defined(MSCHARGED_NATIVE)
++    MEMiInitHeapHead(heap, 'EXPH', AddU32ToPtr(startAddress, MEM_EXP_HEAP_SIZE), endAddress, optFlag);
++#else
+     MEMiInitHeapHead(heap, 'EXPH', AddU32ToPtr(expHeap, sizeof(MEMiExpHeapHead)), endAddress, optFlag);
++#endif
+ 
+     expHeap->groupID = 0;
+     expHeap->feature.val = 0;
+@@ -156,17 +174,17 @@
+     GetRegionOfMBlock_(&freeRgnT, pMBHeadFree);
+     freeRgnB.end = freeRgnT.end;
+     freeRgnB.start = AddU32ToPtr(mblock, size);
+-    freeRgnT.end = SubU32ToPtr(mblock, sizeof(MEMiExpHeapMBlockHead));
++    freeRgnT.end = SubU32ToPtr(mblock, MEM_EXP_BLOCK_SIZE);
+ 
+     pMBHeadFreePrev = RemoveMBlock_(&pEHHead->mbFreeList, pMBHeadFree);
+ 
+-    if (GetOffsetFromPtr(freeRgnT.start, freeRgnT.end) < sizeof(MEMiExpHeapMBlockHead) + 4) {
++    if (GetOffsetFromPtr(freeRgnT.start, freeRgnT.end) < MEM_EXP_BLOCK_SIZE + 4) {
+         freeRgnT.end = freeRgnT.start;
+     } else {
+         pMBHeadFreePrev = InsertMBlock_(&pEHHead->mbFreeList, InitFreeMBlock_(&freeRgnT), pMBHeadFreePrev);
+     }
+ 
+-    if (GetOffsetFromPtr(freeRgnB.start, freeRgnB.end) < sizeof(MEMiExpHeapMBlockHead) + 4) {
++    if (GetOffsetFromPtr(freeRgnB.start, freeRgnB.end) < MEM_EXP_BLOCK_SIZE + 4) {
+         freeRgnB.start = freeRgnB.end;
+     } else {
+         (void)InsertMBlock_(&pEHHead->mbFreeList, InitFreeMBlock_(&freeRgnB), pMBHeadFreePrev);
+@@ -178,12 +196,12 @@
+         MEMiExpHeapMBlockHead* pMBHeadNewUsed;
+         MemRegion region;
+ 
+-        region.start = SubU32ToPtr(mblock, sizeof(MEMiExpHeapMBlockHead));
++        region.start = SubU32ToPtr(mblock, MEM_EXP_BLOCK_SIZE);
+         region.end = freeRgnB.start;
+ 
+         pMBHeadNewUsed = InitMBlock_(&region, 'UD');
+         SetAllocDirForMBlock_(pMBHeadNewUsed, direction);
+-        SetAlignmentForMBlock_(pMBHeadNewUsed, (u16)GetOffsetFromPtr(freeRgnT.end, pMBHeadNewUsed));
++        SetAlignmentForMBlock_(pMBHeadNewUsed, (u16)GetOffsetFromPtr(freeRgnT.end, MEM_EXP_BLOCK_ADDRESS(pMBHeadNewUsed)));
+         SetGroupIDForMBlock_(pMBHeadNewUsed, pEHHead->groupID);
+         AppendMBlock_(&pEHHead->mbUsedList, pMBHeadNewUsed);
+     }
+@@ -261,26 +279,26 @@
+         MEMiExpHeapMBlockHead* block;
+ 
+         for (block = expHeap->mbFreeList.head; block; block = block->next) {
+-            if (block < region->start) {
++            if (MEM_EXP_BLOCK_ADDRESS(block) < region->start) {
+                 previousFreeBlock = block;
+                 continue;
+             }
+ 
+-            if (block == region->end) {
++            if (MEM_EXP_BLOCK_ADDRESS(block) == region->end) {
+                 freeRegion.end = GetMBlockEndAddr_(block);
+                 (void)RemoveMBlock_(&expHeap->mbFreeList, block);
+-                FillNoUseMemory(GetHeapHeadPtrFromExpHeapHead_(expHeap), block, sizeof(MEMiExpHeapMBlockHead));
++                FillNoUseMemory(GetHeapHeadPtrFromExpHeapHead_(expHeap), block, MEM_EXP_BLOCK_SIZE);
+             }
+             break;
+         }
+     }
+ 
+     if (previousFreeBlock && GetMBlockEndAddr_(previousFreeBlock) == region->start) {
+-        freeRegion.start = previousFreeBlock;
++        freeRegion.start = MEM_EXP_BLOCK_ADDRESS(previousFreeBlock);
+         previousFreeBlock = RemoveMBlock_(&expHeap->mbFreeList, previousFreeBlock);
+     }
+ 
+-    if (GetOffsetFromPtr(freeRegion.start, freeRegion.end) < sizeof(MEMiExpHeapMBlockHead)) {
++    if (GetOffsetFromPtr(freeRegion.start, freeRegion.end) < MEM_EXP_BLOCK_SIZE) {
+         return FALSE;
+     }
+ 
+@@ -299,7 +317,7 @@
+ 
+     if (GetUIntPtr(startAddress) > GetUIntPtr(endAddress) ||
+         GetOffsetFromPtr(startAddress, endAddress) <
+-            sizeof(MEMiHeapHead) + sizeof(MEMiExpHeapHead) + sizeof(MEMiExpHeapMBlockHead) + 4) {
++            MEM_EXP_HEAP_SIZE + MEM_EXP_BLOCK_SIZE + 4) {
+         return NULL;
+     }
+ 
+@@ -310,12 +328,24 @@
+ }
+ 
+ void* MEMDestroyExpHeap(MEMHeapHandle heap) {
++#if defined(MSCHARGED_NATIVE)
++    void* source = ChargedMEMHeapAddress(heap);
++    ChargedValidateMEMDestroy(heap);
++#endif
+     MEMiFinalizeHeap(heap);
++#if defined(MSCHARGED_NATIVE)
++    ChargedRetireMEMHeap(heap);
++    return source;
++#else
+     return (void*)heap;
++#endif
+ }
+ 
+ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, u32 size, int alignment) {
+     void* memory = NULL;
++#if defined(MSCHARGED_NATIVE)
++    ChargedValidateMEMHeap(heap);
++#endif
+ 
+     if (size == 0) {
+         size = 1;
+@@ -334,8 +364,16 @@
+     return memory;
+ }
+ 
+-static inline MEMiExpHeapMBlockHead* GetMBlockHeadPtr_(void* memBlock) {
+-    return (MEMiExpHeapMBlockHead*)SubU32ToPtr(memBlock, sizeof(MEMiExpHeapMBlockHead));
++static inline MEMiExpHeapMBlockHead* GetMBlockHeadPtr_(
++#if defined(MSCHARGED_NATIVE)
++    MEMHeapHandle heap,
++#endif
++    void* memBlock) {
++#if defined(MSCHARGED_NATIVE)
++    return (MEMiExpHeapMBlockHead*)ChargedLookupMEMBlock(heap, SubU32ToPtr(memBlock, MEM_EXP_BLOCK_SIZE));
++#else
++    return (MEMiExpHeapMBlockHead*)SubU32ToPtr(memBlock, MEM_EXP_BLOCK_SIZE);
++#endif
+ }
+ 
+ static inline MEMiExpHeapHead* GetExpHeapHeadPtrFromHandle_(MEMHeapHandle heap) {
+@@ -354,7 +392,14 @@
+ 
+     pHeapHd = heap;
+     pExpHeapHd = GetExpHeapHeadPtrFromHandle_(pHeapHd);
+-    pMBHead = GetMBlockHeadPtr_(memBlock);
++    pMBHead = GetMBlockHeadPtr_(
++#if defined(MSCHARGED_NATIVE)
++        heap,
++#endif
++        memBlock);
++#if defined(MSCHARGED_NATIVE)
++    ChargedValidateMEMFree(heap, pMBHead);
++#endif
+ 
+     LockHeap(heap);
+ 
+@@ -366,6 +411,9 @@
+ }
+ 
+ u32 MEMGetAllocatableSizeForExpHeapEx(MEMHeapHandle heap, int alignment) {
++#if defined(MSCHARGED_NATIVE)
++    ChargedValidateMEMHeap(heap);
++#endif
+     alignment = __abs(alignment);
+     LockHeap(heap);
+ 
+diff --git a/src/RVL_SDK/mem/mem_heapCommon.c b/src/RVL_SDK/mem/mem_heapCommon.c
+--- a/src/RVL_SDK/mem/mem_heapCommon.c
++++ b/src/RVL_SDK/mem/mem_heapCommon.c
+@@ -1,6 +1,9 @@
+ #include <revolution/mem/expHeap.h>
+ #include <revolution/mem/heapCommon.h>
+ #include <revolution/mem/list.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/mem_logical_heap.h"
++#endif
+ 
+ static MEMList sRootList;
+ static BOOL sRootListInitialized = FALSE;
+@@ -23,7 +26,13 @@
+ 
+ static MEMList* FindListContainHeap_(const MEMiHeapHead* heap) {
+     MEMList* list = &sRootList;
+-    MEMiHeapHead* containingHeap = FindContainHeap_(&sRootList, heap);
++    MEMiHeapHead* containingHeap = FindContainHeap_(&sRootList,
++#if defined(MSCHARGED_NATIVE)
++        ChargedMEMHeapAddress(heap)
++#else
++        heap
++#endif
++    );
+ 
+     if (containingHeap) {
+         list = &containingHeap->childList;

@@ -1,9 +1,10 @@
 Subject: [PATCH] Preserve original AX output words and retained storage
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Native-only Wii word classification and checked list address transport.
 Expose actual source array extents without initializing AX/DSP state.
 
+diff --git a/src/RVL_SDK/ax/AXOut.c b/src/RVL_SDK/ax/AXOut.c
 --- a/src/RVL_SDK/ax/AXOut.c
 +++ b/src/RVL_SDK/ax/AXOut.c
 @@ -2,6 +2,10 @@

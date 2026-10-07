@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve RFL fog arguments and MSL float constant on native compilers
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Use the canonical native GX fog argument order without changing values.
 Retain the original MSL float M_PI rather than the host double constant.

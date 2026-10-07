@@ -1,7 +1,7 @@
 From: native source fidelity
 Subject: [PATCH] restore original game-module character skin render calls
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Game-module bodies retain original lighting/marker/matrix/display-list decisions.
 The existing canonical SDK lowers original hardware operations; preview-only
@@ -87,7 +87,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
 @@ -206,11 +209,11 @@
          unsigned int numSkinMatrices;
          const GXCharacterSkinCustomParameters* parameters = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters);
-         numSkinMatrices = parameters->skinMatricesSize / sizeof(*parameters->skinMatrices);
+         numSkinMatrices = parameters->skinMatrixBytes / sizeof(*parameters->skinMatrices);
 -#if !defined(MSCHARGED_NATIVE)
 +#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
          glGetDrawSyncLog()->AddMarker("CharacterSkinCustom - RLXLoadSkinMatrices");

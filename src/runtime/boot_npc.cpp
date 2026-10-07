@@ -222,7 +222,7 @@ struct BootNpcResources::Implementation
             out.materialProgram=program;auto* material=Array<GXCharacterSkinCustomParameters>(pool,1,GLM_Header);
             // Source skin setup fills these only for an actual posed draw.
             // Null is explicit unavailable pose data, never identity success.
-            material->skinMatrices=nullptr;material->skinMatricesSize=0;material->blendAmount=in.material.blend;material->alphaValue=in.material.alpha;
+            material->skinMatrices=nullptr;material->skinMatrixBytes=0;material->blendAmount=in.material.blend;material->alphaValue=in.material.alpha;
             material->shadowLevel=in.material.shadow_level;material->lightingEnabled=in.material.lighting_enabled;
             for(unsigned i=0;i<2;++i){auto& t=i?material->detailTexture:material->diffuseTexture;t.texture=in.material.textures[i].hash;t.textureIndex=0xffff;t.flags=in.material.textures[i].flags;t.unknown07=0;}
             out.materialParameters=material;

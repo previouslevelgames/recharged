@@ -1,5 +1,5 @@
 Subject: Share original frontend scene catalog and lifecycle ordering
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Retain all107 original scene IDs and filenames in a shared initializer; extract
 unchanged scene enums/record and original enqueue, stack insertion, initialize,
@@ -66,7 +66,6 @@ diff --git a/include/Game/BaseGameSceneManager.h b/include/Game/BaseGameSceneMan
  
  extern SceneEntry SceneEntryTable[];
  
-
 diff --git a/include/Game/FE/FrontendSceneCatalog.h b/include/Game/FE/FrontendSceneCatalog.h
 new file mode 100644
 --- /dev/null
@@ -124,7 +123,6 @@ new file mode 100644
 +}; // size 0x8
 +
 +#endif
-
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
@@ -243,7 +241,6 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
  };
  
  BaseGameSceneManager::BaseGameSceneManager()
-
 diff --git a/include/Game/FE/FrontendSceneEntries.inc b/include/Game/FE/FrontendSceneEntries.inc
 new file mode 100644
 --- /dev/null
@@ -356,7 +353,6 @@ new file mode 100644
 +    { (SceneList)104, "art/fe/controller_config.fen" },
 +    { (SceneList)105, "art/fe/defensive_play.fen" },
 +    { (SceneList)106, 0 },
-
 diff --git a/include/Game/FE/FrontendStackSteps.h b/include/Game/FE/FrontendStackSteps.h
 new file mode 100644
 --- /dev/null

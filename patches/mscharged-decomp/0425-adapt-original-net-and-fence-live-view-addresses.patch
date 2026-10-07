@@ -1,11 +1,12 @@
 Subject: [PATCH] Adapt original net/fence live view addresses and compiler syntax
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Preserve original weak symbols, live view choices, quad submission and
 secondary-NIS save/restore. Use the existing pointer-width view carrier
 for native live addresses and the genuine double fabs compiler intrinsic.
 Original console declarations, expressions and bodies remain unchanged.
 
+diff --git a/include/Game/Drawable/DrawableNetMesh.h b/include/Game/Drawable/DrawableNetMesh.h
 --- a/include/Game/Drawable/DrawableNetMesh.h
 +++ b/include/Game/Drawable/DrawableNetMesh.h
 @@ -2,6 +2,9 @@
@@ -29,6 +30,7 @@ Original console declarations, expressions and bodies remain unchanged.
 +#endif
  
  #endif // _DRAWABLENETMESH_H_
+diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableNetMesh.cpp
 --- a/src/Game/Drawable/DrawableNetMesh.cpp
 +++ b/src/Game/Drawable/DrawableNetMesh.cpp
 @@ -1,4 +1,5 @@
@@ -78,6 +80,7 @@ Original console declarations, expressions and bodies remain unchanged.
  }
  
  DrawableNetMesh::~DrawableNetMesh()
+diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
 @@ -15,6 +15,10 @@
@@ -103,6 +106,7 @@ Original console declarations, expressions and bodies remain unchanged.
      glSetDefaultState(false);
  }
  
+diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
 --- a/src/Game/Task/GameRenderTask.cpp
 +++ b/src/Game/Task/GameRenderTask.cpp
 @@ -221,7 +221,11 @@

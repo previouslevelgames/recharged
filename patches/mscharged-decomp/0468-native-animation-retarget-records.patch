@@ -1,0 +1,59 @@
+Purpose: Original AnimRetargetList serialized/native record boundary and actual native animation pointer-array allocation.
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Requires: finalized0451/0461/0465 sole ownership registry and qualified original NL completed WiiSerialized bytes.
+Original console projection, algorithms, count loops, signatures, resource selection and destruction preserved.
+
+--- a/src/Game/SAnim/AnimRetargeter.cpp
++++ b/src/Game/SAnim/AnimRetargeter.cpp
+@@ -1,19 +1,37 @@
+ #include "Game/SAnim/AnimRetargeter.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/anim_retarget_transport.h"
++#endif
+ 
+ AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    auto nativeView = mscharged::platform::PrepareNativeAnimRetarget(chunkData);
++#endif
+     nlChunk* chunk = chunkData->GetFirstChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    AnimRetargetList* data = (AnimRetargetList*)mscharged::platform::NativeAnimRetargetChunkData(nativeView, chunk);
++#else
+     AnimRetargetList* data = (AnimRetargetList*)chunk->GetData();
++#endif
+ 
+     nlChunk* nextChunk = chunk->GetNextChunk();
+     nextChunk = nextChunk->GetFirstChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    data->m_pAnimRetarget = (AnimRetarget*)mscharged::platform::NativeAnimRetargetChunkData(nativeView, nextChunk);
++#else
+     data->m_pAnimRetarget = (AnimRetarget*)nextChunk->GetData();
++#endif
+ 
+     for (int i = 0; i < data->m_NumAnimRetargets; i++)
+     {
+         nextChunk = nextChunk->GetNextChunk();
+         data->m_pAnimRetarget[i].m_pMap
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            = (signed short*)mscharged::platform::NativeAnimRetargetChunkData(nativeView, nextChunk);
++#else
+             = (signed short*)nextChunk->GetData();
++#endif
+     }
+ 
+     return data;
+--- a/src/Game/AnimInventory.cpp
++++ b/src/Game/AnimInventory.cpp
+@@ -21,7 +21,11 @@
+     }
+ 
+     m_pSAnims
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        = (cSAnim**)nlMalloc((unsigned long)m_nNumProperties * sizeof(cSAnim*), 8, false);
++#else
+         = (cSAnim**)nlMalloc((unsigned long)(m_nNumProperties << 2), 8, false);
++#endif
+ }
+ 
+ cAnimInventory::~cAnimInventory()

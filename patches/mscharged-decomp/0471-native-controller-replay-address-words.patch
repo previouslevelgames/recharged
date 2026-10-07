@@ -1,0 +1,53 @@
+Purpose: Preserve the original controller Replay four-byte animation/mirror and retarget words through typed live-owner native address boundaries.
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Requires: finalized0465 and0468 typed original animation/retarget backing with sole ownership registry.
+Console projection, source order, compression, mode, mirror, null and incoming default-field behavior are preserved.
+
+--- a/include/Game/SAnim/pnSAnimController.h
++++ b/include/Game/SAnim/pnSAnimController.h
+@@ -5,6 +5,10 @@
+ #include "Game/SAnim.h"
+ #include "Game/SAnim/AnimRetargeter.h"
+ #include "NL/nlSlotPool.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/sanim_replay_projection.h"
++#include "platform/retarget_replay_projection.h"
++#endif
+ 
+ class cPN_SAnimController : public cPoseNode
+ {
+@@ -46,7 +50,11 @@
+         unsigned int animPtr = 0;
+         if (!ReplayFrameTraits<T>::IsLoadFrame)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            animPtr = mscharged::platform::EncodeSAnimReplayAddress(m_pSAnim);
++#else
+             animPtr = (unsigned int)m_pSAnim;
++#endif
+             if (m_bMirror)
+                 animPtr |= 1;
+         }
+@@ -54,9 +62,22 @@
+         if (ReplayFrameTraits<T>::IsLoadFrame)
+         {
+             m_bMirror = animPtr & 1;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            m_pSAnim = mscharged::platform::DecodeSAnimReplayAddress(animPtr & ~1u);
++#else
+             m_pSAnim = (cSAnim*)(animPtr & ~1);
++#endif
+         }
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        unsigned int retargetPtr = 0;
++        if (!ReplayFrameTraits<T>::IsLoadFrame)
++            retargetPtr = mscharged::platform::EncodeRetargetReplayAddress(m_pAnimRetarget);
++        Replayable<0>(frame, retargetPtr);
++        if (ReplayFrameTraits<T>::IsLoadFrame)
++            m_pAnimRetarget = mscharged::platform::DecodeRetargetReplayAddress(retargetPtr);
++#else
+         Replayable<0>(frame, (unsigned int&)m_pAnimRetarget);
++#endif
+     }
+ 
+     static void* operator new(unsigned long)

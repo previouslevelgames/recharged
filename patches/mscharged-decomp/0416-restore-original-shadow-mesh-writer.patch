@@ -1,5 +1,5 @@
 Subject: Restore original shadow mesh writer outside explicit preview profile
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 R02 fidelity correction: retain literal original Begin/End/write decisions and
 class layout for the isolated game module and ordinary native source profile.
@@ -8,6 +8,7 @@ material zero-initialization and extra fields to diagnostic mesh writers.
 Keep the actual native four-byte colour copy and coherent-host cache boundary.
 Console projection remains unchanged. Mixed game/diagnostic profile rejected.
 
+diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShadowBlendMeshWriter.h
 --- a/include/Game/GL/GLShadowBlendMeshWriter.h
 +++ b/include/Game/GL/GLShadowBlendMeshWriter.h
 @@ -6,10 +6,15 @@
@@ -73,6 +74,7 @@ Console projection remains unchanged. Mixed game/diagnostic profile rejected.
      void NativeCheckLive() const
      {
          if (!model || generation != glNativeFrameGeneration())
+diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlendMeshWriter.cpp
 --- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
 +++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
 @@ -6,7 +6,7 @@

@@ -1,10 +1,11 @@
 From: mscharged-port native compiler compatibility
 Subject: [PATCH] Declare the existing ODE array memory calls for native compilation
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Native declaration include only. No dArray method, record, copy size, allocation
 request, source flow or camera state is changed. Console projection is exact.
 
+diff --git a/src/ode/array.h b/src/ode/array.h
 --- a/src/ode/array.h
 +++ b/src/ode/array.h
 @@ -40,6 +40,9 @@

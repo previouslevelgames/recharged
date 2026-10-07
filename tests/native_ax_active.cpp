@@ -354,6 +354,41 @@ void Run(int argc, char** argv) {
         set_state(voice,AX_VOICE_STOP);sync(0);release(voice);++frames;
     }
     Check(at==oracle.size(),"selected oracle suffix was ignored");
+    const auto linear_oracle=File((std::filesystem::path(argv[3]).parent_path()/"linear-oracle.bin").string().c_str());
+    Check(linear_oracle.size()==12+12*988&&std::memcmp(linear_oracle.data(),"AXLIN502",8)==0&&
+              LE32(linear_oracle.data()+8)==12,"original linear opcode oracle extent differs");
+    for(unsigned index=0;index<12;++index) {
+        const auto* c=linear_oracle.data()+12+index*988;
+        auto* voice=acquire(15,nullptr,0);Check(voice,"linear source voice allocation failed");
+        sp_prepare(sp_get(table,0),voice,32000);mix_channel(voice,0,0,-960,-960,-960,64,127,0);
+        AXPBSRC src{};const auto ratio=LE32(c);src.ratioHi=ratio>>16;src.ratioLo=ratio;
+        src.currentAddressFrac=LE16(c+4);
+        for(unsigned i=0;i<4;++i)src.last_samples[i]=LE16(c+8+i*2);
+        set_src(voice,&src);set_src_type(voice,AX_SRC_TYPE_LINEAR);
+        AXPBLPF no_filter{};set_lpf(voice,&no_filter);set_state(voice,AX_VOICE_RUN);sync(0);
+        const auto address=pb_bus+voice->index*320;
+        NativeAXSuppliedCoefficientROM no_bank;
+        const auto prepared=PrepareNativeAXADPCMVoiceFrame(memory,address,no_bank);
+        const auto* expected=c+16+768;const auto* receipt=expected+192;
+        Check(voice->pb.srcSelect==1,"source linear request was replaced by four-tap");
+        for(unsigned i=0;i<96;++i)
+            Check(prepared.resampled[i]==Signed(LE16(expected+i*2)),
+                  "linear signedPCM/unsigned phase differs from owned076D instructions");
+        Check(prepared.decoded_samples==LE16(receipt+10)&&
+                  BE16(prepared.parameters_after.data()+0xaa)==LE16(receipt),
+              "linear accelerator count/fraction differs from original firmware stores");
+        for(unsigned i=0;i<4;++i)
+            Check(BE16(prepared.parameters_after.data()+0xac+i*2)==LE16(receipt+2+i*2),
+                  "linear circular history differs from original reverse writeback");
+        std::array<unsigned char,320> untouched{};
+        DSPBackendReadMemory(memory,address,untouched.data(),untouched.size());
+        Check(untouched==prepared.parameters_before,"linear preparation stored before commit admission");
+        CommitNativeAXVoiceFrame(memory,prepared);service_vpb(voice);
+        DSPBackendReadMemory(memory,address,untouched.data(),untouched.size());
+        Check(BE16(untouched.data()+0xaa)==LE16(receipt)&&voice->pb.src.currentAddressFrac==LE16(c+4),
+              "linear receipt changed original DSP/CPU fraction ownership");
+        set_state(voice,AX_VOICE_STOP);sync(0);release(voice);++frames;
+    }
     NativeDSPMemoryPin owned_pin{};
     if(argc==10) {
         const auto resource=File(argv[6]), encoded=File(argv[7]), owned_oracle=File(argv[9]);
@@ -410,8 +445,31 @@ void Run(int argc, char** argv) {
     const auto held_address=pb_bus+held->index*320;
     set_remote(held,TRUE);service_vpb(held);
     Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source remote bus silently bypassed");
-    set_remote(held,FALSE);set_src_type(held,AX_SRC_TYPE_LINEAR);service_vpb(held);
-    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source linear selection was forciblyfour-tap");
+    set_remote(held,FALSE);
+    AXPBSRC linear_src{};linear_src.ratioHi=1;
+    const std::array<s16,4> linear_history{{111,-222,333,-444}};
+    for(unsigned i=0;i<4;++i)linear_src.last_samples[i]=linear_history[i];
+    set_src(held,&linear_src);set_src_type(held,AX_SRC_TYPE_LINEAR);service_vpb(held);
+    const auto linear=PrepareNativeAXADPCMVoiceFrame(memory,held_address,absent);
+    Check(held->pb.srcSelect==1&&linear.decoded_samples==96&&
+              BE16(linear.parameters_after.data()+0xaa)==0,
+          "original linear selector/rate/receipt differs or required a coefficient bank");
+    for(unsigned i=0;i<96;++i) {
+        const auto expected=i<3?linear_history[i+1]:s16((int(((i-3)*7+3)%16)-8)*4096);
+        Check(linear.resampled[i]==expected,"zero-phase linear changed original ring history order");
+    }
+    set_src_type(held,AX_SRC_TYPE_NONE);service_vpb(held);
+    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,absent);},
+           "unqualified direct selector was silently processed as linear");
+    // Malformed device PB conformance case, never a source/game selection.
+    std::array<unsigned char,320> invalid_before{},invalid_after{};
+    DSPBackendReadMemory(memory,held_address,invalid_before.data(),invalid_before.size());
+    invalid_before[8]=invalid_before[9]=0xff;
+    DSPBackendWriteMemory(memory,held_address,invalid_before.data(),invalid_before.size());
+    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,absent);},
+           "unknown device selector substituted a supported resampler");
+    DSPBackendReadMemory(memory,held_address,invalid_after.data(),invalid_after.size());
+    Check(invalid_before==invalid_after,"unknown selector rejection partially stored source PB");
     set_state(held,AX_VOICE_STOP);sync(0);release(held);
     Check(device.FrameStatus().processed_frames==0,"PB-stage fixture claimed command/output completion");
     ChargedDSPControlWrite(ChargedDSPControlRead()|0x0004);device.Close();

@@ -20,8 +20,8 @@ void ValidateNativeSkinPacket(const glModelPacket& packet)
         ||((packet.primType==1||packet.primType==2)&&packet.numVertices<3))
         throw std::invalid_argument("Invalid native skin primitive count");
     const auto& material=*static_cast<const GXCharacterSkinCustomParameters*>(packet.materialParameters);
-    const auto bones=material.skinMatricesSize/48;
-    if(!material.skinMatrices||material.skinMatricesSize%48||!bones||bones>9
+    const auto bones=material.skinMatrixBytes/48;
+    if(!material.skinMatrices||material.skinMatrixBytes%48||!bones||bones>9
         ||material.lightingEnabled<0||material.lightingEnabled>1
         ||!std::isfinite(material.blendAmount)||material.blendAmount<0||material.blendAmount>1
         ||!std::isfinite(material.alphaValue)||material.alphaValue<0||material.alphaValue>1)

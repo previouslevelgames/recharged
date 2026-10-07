@@ -175,7 +175,7 @@ int main(int argc,char** argv)
           const auto& actual=model->packets[p];const auto& expected=retained->skin->Data().packets[p];
           Check(actual.numStreams==6&&actual.numUniqueVertices==expected.vertices.size()&&actual.numVertices==expected.indices.size(),"Native skin packet counts differ");
           const auto* material=static_cast<const GXCharacterSkinCustomParameters*>(actual.materialParameters);
-          Check(material->skinMatrices==nullptr&&material->skinMatricesSize==0,"Unposed NPC falsely published matrix readiness");
+          Check(material->skinMatrices==nullptr&&material->skinMatrixBytes==0,"Unposed NPC falsely published matrix readiness");
           for(unsigned v=0;v<actual.numUniqueVertices;++v)
           {
             const auto* position=static_cast<const unsigned char*>(actual.streams[0].address)+v*12;

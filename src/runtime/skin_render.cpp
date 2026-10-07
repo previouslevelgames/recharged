@@ -219,7 +219,7 @@ unsigned SkinRenderer::Submit(GLView& view,SkinPoseFrame::Handle frame,int layer
         auto* matrices=static_cast<float(*)[3][4]>(glFrameAlloc(impl_->retained->packets[p].size()*48,GLM_Matrix));
         for(unsigned b=0;b<impl_->retained->packets[p].size();++b)for(unsigned r=0;r<3;++r)for(unsigned c=0;c<4;++c)matrices[b][r][c]=impl_->retained->packets[p][b].values[r][c];
         auto* material=new(glFrameAlloc(sizeof(GXCharacterSkinCustomParameters),GLM_Header))GXCharacterSkinCustomParameters{};
-        material->skinMatrices=matrices;material->skinMatricesSize=impl_->retained->packets[p].size()*48;
+        material->skinMatrices=matrices;material->skinMatrixBytes=impl_->retained->packets[p].size()*48;
         material->blendAmount=in.material.blend;material->alphaValue=in.material.alpha;material->shadowLevel=in.material.shadow_level;material->lightingEnabled=in.material.lighting_enabled;
         for(unsigned slot=0;slot<2;++slot)
         {

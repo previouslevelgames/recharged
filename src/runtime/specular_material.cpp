@@ -28,7 +28,7 @@ void InstallSpecularMaterial(glModelPacket& packet,const resources::SpecularSkin
     glTextureBinding* bindings[]{&replacement.diffuseTexture,&replacement.detailTexture,&replacement.glossTexture};
     for(unsigned i=0;i<3;++i)
         *bindings[i]={source.textures[i].hash,u8(source.textures[i].flags&1),u8((source.textures[i].flags>>1)&1)};
-    replacement.skinMatrices=nullptr;replacement.skinMatricesSize=0;
+    replacement.skinMatrices=nullptr;replacement.skinMatrixBytes=0;
     replacement.blendAmount=source.blend;replacement.alphaValue=source.alpha;
     replacement.specularLevel=source.specular_level;replacement.specularExponent=source.specular_exponent;
     for(unsigned i=0;i<4;++i)replacement.specularColour.c[i]=source.specular_colour[i];
@@ -66,8 +66,8 @@ void ValidateNativeSpecularPacket(const glModelPacket& packet)
     material.blend=p.blendAmount;material.alpha=p.alphaValue;material.specular_level=p.specularLevel;
     material.specular_exponent=p.specularExponent;material.shadow_level=p.shadowLevel;material.lighting_enabled=p.lightingEnabled;
     for(unsigned i=0;i<4;++i)material.specular_colour[i]=p.specularColour.c[i];resources::ValidateSpecularSkinMaterial(material);
-    const unsigned bones=p.skinMatricesSize/sizeof(*p.skinMatrices);
-    Require(p.skinMatrices&&p.skinMatricesSize%sizeof(*p.skinMatrices)==0&&bones&&bones<=9,
+    const unsigned bones=p.skinMatrixBytes/sizeof(*p.skinMatrices);
+    Require(p.skinMatrices&&p.skinMatrixBytes%sizeof(*p.skinMatrices)==0&&bones&&bones<=9,
         "Specular draw needs genuine retained native skin matrices");
     for(unsigned b=0;b<bones;++b)for(unsigned r=0;r<3;++r)for(unsigned c=0;c<4;++c)Component(p.skinMatrices[b][r][c]);
     constexpr unsigned ids[]{1,2,4,4,4,7,5},strides[]{12,12,4,4,4,4,16};

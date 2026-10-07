@@ -1,0 +1,34 @@
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Purpose: Only original RFL InitRFLTexture BE16 dimensions/signedbias and rawimage offset; no choices/requests/pixels/budgets changed.
+
+--- a/src/RVL_SDK/rfl/RFL_MakeTex.c
++++ b/src/RVL_SDK/rfl/RFL_MakeTex.c
+@@ -1,4 +1,15 @@
+ #include <RVLFaceLib/RVLFaceLibInternal.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/rfl_texture_transport.h"
++#define RFL_FACE_TEXTURE_HALF(texture, field) ChargedReadRFLTextureHalf(&(texture)->field)
++#define RFL_FACE_TEXTURE_SIGNED_HALF(texture, field) ChargedReadRFLTextureSignedHalf(&(texture)->field)
++#define RFL_FACE_TEXTURE_IMAGE(texture) ChargedBorrowRFLTextureImage(texture)
++#else
++#define RFL_FACE_TEXTURE_HALF(texture, field) texture->field
++#define RFL_FACE_TEXTURE_SIGNED_HALF(texture, field) texture->field
++#define RFL_FACE_TEXTURE_IMAGE(texture) RFLiGetTexImage(texture)
++#endif
+ 
+ #include <math.h>
+ #if defined(MSCHARGED_NATIVE)
+@@ -473,10 +484,10 @@
+ void RFLiInitRFLTexture(RFLiTexObj* tobj) {
+     RFLiTexture* tex = tobj->texture;
+ 
+-    GXInitTexObj(&tobj->tobj, RFLiGetTexImage(tex), tex->width, tex->height,
++    GXInitTexObj(&tobj->tobj, RFL_FACE_TEXTURE_IMAGE(tex), RFL_FACE_TEXTURE_HALF(tex, width), RFL_FACE_TEXTURE_HALF(tex, height),
+                  tex->format, GX_CLAMP, GX_CLAMP, FALSE);
+     GXInitTexObjLOD(&tobj->tobj, tex->minFilt, tex->magFilt, tex->minLOD,
+-                    tex->maxLOD, tex->lodBias, tex->enableBiasClamp,
++                    tex->maxLOD, RFL_FACE_TEXTURE_SIGNED_HALF(tex, lodBias), tex->enableBiasClamp,
+                     tex->enableEdgeLOD, tex->enableMaxAniso);
+ }
+ 

@@ -1,6 +1,6 @@
 Subject: Adapt original tweak pending storage and current-thread stack
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep the original registry/constructor decisions and allocator. A pending
 record is sizeof its native layout, including full-width string defaults;
@@ -24,7 +24,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
  #include "runtime/tweaks.h"
  #else
-@@ -170,6 +173,8 @@
+@@ -171,6 +174,8 @@
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();
@@ -33,7 +33,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #else
              void* entry = nlMalloc(0x18, 8, true);
  #endif
-@@ -324,6 +329,8 @@
+@@ -325,6 +330,8 @@
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();

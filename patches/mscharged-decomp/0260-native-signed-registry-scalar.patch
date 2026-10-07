@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original signed registry scalar arguments on native hosts
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Volume consumes an original pointer-shaped numeric RegistryValue cell.
 Read the checked Wii32 word, preserving its signed32 interpretation before

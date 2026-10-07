@@ -82,7 +82,7 @@ struct Packet
   packet.matrix=glGetIdentityMatrix();packet.rasterState=glGetCurrentRasterState();
   InstallSpecularMaterial(packet,resources::ReadSpecularSkinMaterial(Record()),params);
  }
- void Pose(){params.skinMatrices=matrices;params.skinMatricesSize=sizeof(matrices);}
+ void Pose(){params.skinMatrices=matrices;params.skinMatrixBytes=sizeof(matrices);}
 };
 void Trace(const Packet& p,unsigned passes,bool lit)
 {
@@ -118,7 +118,7 @@ void Session()
  Check(sizeof(GXSpecularParameters)==80&&offsets[4]==36&&offsets[9]==68&&sizeof(GXSpecularParameters::shadowLevel)==4,"Host pointer and authored scalar widths are not independent");
  std::array<u8,64> pixels{};PlatTexture textures[4];const auto mark=pool.MarkResource();
  for(unsigned i=0;i<4;++i){textures[i].m_Width=textures[i].m_Height=4;textures[i].m_Format=GXTex_RGBA8;textures[i].m_Levels=textures[i].m_MaxLevel=1;textures[i].m_SwizzledData=pixels.data();textures[i].m_NativeDataBytes=pixels.size();glRegisterTexture(0xabc100+i,textures+i,&pool);}
- Packet p;Check(!p.params.skinMatrices&&!p.params.skinMatricesSize,"Registration manufactured a pose");for(auto* b:{&p.params.diffuseTexture,&p.params.detailTexture,&p.params.glossTexture})Check(b->textureIndex==0xffff,"Registration retained a serialized texture-slot cache");
+ Packet p;Check(!p.params.skinMatrices&&!p.params.skinMatrixBytes,"Registration manufactured a pose");for(auto* b:{&p.params.diffuseTexture,&p.params.detailTexture,&p.params.glossTexture})Check(b->textureIndex==0xffff,"Registration retained a serialized texture-slot cache");
  Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.Pose();ValidateNativeSpecularPacket(p.packet);
  nlMatrix4 view;view.SetIdentity();GameLighting light;light.enabled=true;light.light_count=1;light.ramp_texture=0xabc103;
  light.lights[0].intensity=.5f;light.lights[0].useWorldPosition=true;light.lights[0].worldPosition={1,0,0};
@@ -139,7 +139,7 @@ void Session()
   light.double_intensity=true;MaterialPreviewScope context(view,0,light);rec::Reset();DrawMaterial(p.packet);Check(Event("GXSetTevColorOp",{2,GX_TEV_ADD,GX_TB_ZERO,GX_CS_SCALE_2,1,GX_TEVREG0}),"Original double-light TEV scaling differs");light.double_intensity=false;
  }
  const auto saved=p.packet;for(unsigned s=0;s<7;++s){auto stream=p.streams[s];p.streams[s].stride=1;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.streams[s]=stream;p.streams[s].unknown07=1;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.streams[s]=stream;}
- p.packet.numStreams=6;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.packet=saved;p.indices[0]=3;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.indices[0]=2;p.params.skinMatricesSize=95;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.params.skinMatricesSize=96;
+ p.packet.numStreams=6;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.packet=saved;p.indices[0]=3;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.indices[0]=2;p.params.skinMatrixBytes=95;Reject([&]{ValidateNativeSpecularPacket(p.packet);});p.params.skinMatrixBytes=96;
  p.weight[0]={.5f,.5f,0,0};p.bone[0][1]=1;Reject([&]{ValidateNativeSpecularPacket(p.packet);});
  {
   SpecularSoftwareSkin arrays{p.position,p.normal};SpecularSoftwareSkinScope posed(p.packet,arrays);ValidateNativeSpecularPacket(p.packet);Reject([&]{SpecularSoftwareSkinScope duplicate(p.packet,arrays);});auto other=p.packet;Reject([&]{SpecularUsesSoftwareSkin(other);});

@@ -1,6 +1,6 @@
 Subject: [PATCH] Scope temporary original Credits scene integration
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE explicitly omits unrelated views, material
 programs, world/input/movie initialization and later phases in a scene test.
@@ -201,7 +201,6 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
      }
  }
  
-
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
@@ -296,7 +295,6 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  }
  
  void MoviePlayerScene::PlayScreenForwardSFX()
-
 diff --git a/src/NL/glx/GXMaterialProgramRegistry.cpp b/src/NL/glx/GXMaterialProgramRegistry.cpp
 --- a/src/NL/glx/GXMaterialProgramRegistry.cpp
 +++ b/src/NL/glx/GXMaterialProgramRegistry.cpp

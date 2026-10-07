@@ -1,5 +1,5 @@
 Subject: Preserve original typed function-pool categories with native slot storage
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 The original four typed FunctorImpl hooks retain their reviewed Wii capture
 field footprint for allocation, Clone and virtual deletion. Native physical
@@ -125,10 +125,10 @@ diff --git a/src/NL/nlFunctionMemory.cpp b/src/NL/nlFunctionMemory.cpp
  
  template <int BlockSize>
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
-+class UnidentifiedFunctionMemoryPool : public SlotPoolFixedState<mscharged::function_abi::NativeStride<BlockSize>::value>
++class FunctionMemoryPool : public SlotPoolFixedState<mscharged::function_abi::NativeStride<BlockSize>::value>
 +#else
- class UnidentifiedFunctionMemoryPool : public SlotPoolFixedState<BlockSize>
+ class FunctionMemoryPool : public SlotPoolFixedState<BlockSize>
 +#endif
  {
  public:
-     UnidentifiedFunctionMemoryPool(const int initial, const int delta)
+     FunctionMemoryPool(const int initial, const int delta)

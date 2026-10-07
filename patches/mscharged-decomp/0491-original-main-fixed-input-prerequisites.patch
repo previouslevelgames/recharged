@@ -1,0 +1,36 @@
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Purpose: Default-off native diagnostic admission of the literal original Flick initializer, StartupAIPads and Fixed task registration at their existing main positions. Requires genuine original network/presentation/pad owners; original algorithms, task priority/mask and source state decisions remain unchanged.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -651,13 +651,17 @@
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     gSwappablePadChanged.Add(Function<void(int)>(OnSwappablePadChanged), 0, -1);
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
+     FlickDetection::Initialize();
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER))
+     networkUpdateTask.Initialize();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
+     StartupAIPads();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     gTransitionTask.Initialize();
+ #endif // unrelated config/script/tasks/audio/world prerequisites
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+@@ -800,9 +804,9 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     nlTaskManager::AddTask(&platPadUpdateTask, 5, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
+     nlTaskManager::AddTask(GetFixedUpdateTask(), 8, 0xFE07FFDF);
+-#endif // unqualified unrelated task registration remains omitted
++#endif // original fixed task priority/mask; unrelated task registrations remain held
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     nlTaskManager::AddTask(&worldUpdateTask, 9, 0x0002001B);
+ #endif // unqualified unrelated task registration remains omitted

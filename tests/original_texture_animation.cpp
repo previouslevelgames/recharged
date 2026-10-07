@@ -70,7 +70,7 @@ void Record(const char* bytes_path, const char* oracle_path)
     Check(u32(anim.m_nNumTextures) == count, "Wii signed frame count changed");
     Check(u32(anim.m_ePlayMode) == Word(oracle), "Wii play mode changed");
     Check(u32(anim.m_nPlayDir) == Word(oracle), "Wii signed direction changed");
-    Check(anim.m_bPaused == Word(oracle), "authored pause byte changed");
+    Check(anim.m_bPaused == (Word(oracle) != 0), "authored pause boolean changed");
     for (const auto byte : anim.m_pad15)
         Check(byte == Word(oracle), "authored header padding changed");
     Check(anim.m_textureIndex == Word(oracle), "Wii index bits changed");

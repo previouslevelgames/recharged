@@ -1,0 +1,17 @@
+# Patch: 0488-original-frontend-mii-resource-admission
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Explicit native diagnostic admits literal original resource services34/35.
+# Original MiiManager constructor, async archive request and readiness predicate unchanged.
+# No icon rendering, replacement assets or successful readiness substitutions.
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -609,7 +609,8 @@
+         FinishLoadingStepOrUndo(this, UpdateFontLoading(&gLoadInGameFonts));
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MII_RESOURCES))
+     case 34:
+         SetLoadingComment("AsyncMiiLoadingBegin");
+         if (MiiManager::s_pInstance == 0)

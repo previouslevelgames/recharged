@@ -4,6 +4,8 @@ Linux builds are verified. Windows and macOS support is still in development.
 **The game is not playable yet**; the default build provides the launcher and
 local disc checks.
 
+On a Mac, follow the dedicated [macOS setup and build instructions](BUILDING_MACOS.md).
+
 ## Requirements
 
 - Git, CMake 3.25+, Ninja, and Python 3.10+.
@@ -20,7 +22,7 @@ default tests does not require game data.
 From the repository root:
 
 ```sh
-git submodule update --init --checkout extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
+git -c submodule.recurse=false submodule update --init --checkout -- extern/mscharged-decomp extern/nod extern/corrosion extern/sdl extern/imgui
 cmake --workflow --preset release
 ./build/release/mscharged
 ```
@@ -64,6 +66,9 @@ resolve from the INI's directory. To use another configuration:
 `--size WIDTHxHEIGHT` override the loaded INI for the current run. They do not
 save settings. Command-line disc paths use the working directory; INI disc
 paths use the INI directory. Later options win.
+Options with values also accept `--disc=FILE`, `--size=1280x720`, etc. Shared
+options can appear before or after the experimental mode flag. Quote paths
+containing spaces.
 
 ```sh
 ./build/release/mscharged --disc ./game/R4QE01.rvz --window --size 1280x720

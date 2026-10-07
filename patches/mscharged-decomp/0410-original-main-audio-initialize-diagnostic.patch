@@ -1,6 +1,6 @@
 From: mscharged native integration
 Subject: [PATCH] admit original audio initialize in explicit frontend diagnostic
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Only the named default-OFF audio initialization diagnostic admits the existing
 source main call and uses THP's real AX predecessor. Normal/console main and

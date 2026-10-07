@@ -1,10 +1,11 @@
 Subject: Read original world-stream scalar words as four-byte big endian
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Adapt only three original serialized word expressions beneath LoadObjects.
 Preserve all branches, callbacks, class selection, raw cursor increments,
 counters and native object/context members. Native placement remains held.
 
+diff --git a/src/Game/world.cpp b/src/Game/world.cpp
 --- a/src/Game/world.cpp
 +++ b/src/Game/world.cpp
 @@ -17,6 +17,9 @@

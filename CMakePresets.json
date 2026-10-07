@@ -64,7 +64,7 @@
     {
       "name": "frontend",
       "inherits": "graphics",
-      "displayName": "Original frontend Boot test (Release, incomplete startup)",
+      "displayName": "Original frontend sequence (Release, incomplete startup)",
       "binaryDir": "${sourceDir}/build/graphics",
       "cacheVariables": {
         "MSCHARGED_BUILD_LAUNCHER": true,
@@ -81,11 +81,23 @@
         "MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER": true,
         "MSCHARGED_DIAGNOSTIC_FRONTEND_AUDIO": true,
         "MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT": true,
-        "MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE": false,
-        "MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT": false,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW": true,
+        "MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER": true,
+        "MSCHARGED_DIAGNOSTIC_MAIN_PRESENTATION_OWNER": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_MII_RESOURCES": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_MENU_ENTRY": true,
         "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_OWNER": true,
         "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_INITIALIZE": true,
-        "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK": true
+        "MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_PLAT_PAD_TASK": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_MAIN_MENU": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION": true
       }
     },
     {

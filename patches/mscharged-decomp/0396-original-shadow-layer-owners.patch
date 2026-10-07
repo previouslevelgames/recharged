@@ -1,10 +1,11 @@
 From: mscharged native port
 Subject: Scope shadow preview behavior outside the original game module
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Restore original shadow target methods and source-owned colour tweaks in the
 original game module; retain existing standalone diagnostic behavior.
 
+diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
 --- a/src/Game/Render/ShadowVolume.cpp
 +++ b/src/Game/Render/ShadowVolume.cpp
 @@ -24,13 +24,13 @@
@@ -68,6 +69,7 @@ original game module; retain existing standalone diagnostic behavior.
  void DestroyNativeShadowVolumeTarget()
  {
      if (sShadowVolumeTarget) glDestroyTarget(&sShadowVolumeTarget);
+diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 --- a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 @@ -9,7 +9,7 @@

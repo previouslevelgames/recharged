@@ -1,0 +1,74 @@
+# Patch: 0486-original-frontend-primary-world-diagnostic
+# Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+# Scope: Restore original global texture request, full primary/secondary matrix
+# setup and frontend world calls in the named diagnostic. Genuine source NIS
+# initialization is required. Source predicates, fields and algorithms remain
+# unchanged; active NIS playback and other unfinished owners remain separate.
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -490,12 +490,14 @@
+         DepthOfFieldManager::instance.TurnOff();
+     }
+ 
++#endif // DOF startup remains omitted by the selected task diagnostic
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     NisPlayer* pNis = NisPlayer::Instance();
+     const nlMatrix4* pOverride
+         = pNis->mUseViewMatrixOverride ? &pNis->mViewMatrixOverride : NULL;
+ 
+     SetupMatrices(NisPlayer::Instance()->GetSecondaryCamera(), pOverride);
+-#endif // DOF/NIS matrix startup remains omitted
++#endif // full original primary and secondary setup, with the genuine NIS owner
+     SetupRenderInfo();
+ 
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -51,7 +51,7 @@
+ 
+ static void DrawFrontEndElements(float fDeltaT)
+ {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     UpdateGameObjectLighting();
+ #endif // source lighting initialization remains unqualified
+ 
+@@ -104,6 +104,9 @@
+         FEModelManager::Instance()->Render();
+     }
+ 
++#endif // FE model owners remain outside the selected world draw gate
++
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     if (nlTaskManager::m_pInstance->mCurrentState == 4 && IsStadiumWorldLoaded()
+         && !IsHBMActive())
+     {
+@@ -114,6 +117,9 @@
+         UpdateHighRange();
+     }
+ 
++#endif // original state/loaded/HBM predicate and world calls retained verbatim
++
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     HomeButtonFade::Instance()->Update(fDeltaT);
+ 
+     if (!(gpHBMManager != 0 && gpHBMManager->mActive && gpHBMManager->mReady))
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -571,11 +571,15 @@
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     if (!glLoadTextureBundle("art/global.rlt", glGetCurrentResourcePool()))
+     {
+         nlBreak();
+     }
+-
++#endif // original shared material textures; named world draw keeps this exact request
++
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     u8 temporaryState = lbl_806E1458;
+     ParticleUpdateNoOp(&temporaryState);
+ 

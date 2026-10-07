@@ -1,5 +1,5 @@
 Subject: Preserve original BundleFile placement construction on native compilers
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 The native class allocation family hides global placement new in whole
 feAsyncImage.cpp. Add the standard placement overload pair, returning the
@@ -7,6 +7,7 @@ source-allocated storage and preserving no-op placement deletion. Original
 allocation requests, constructor/callback bodies and ordinary owning delete
 remain unchanged. Console preprocessor output is identical.
 
+diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
 --- a/include/NL/nlBundleFile.h
 +++ b/include/NL/nlBundleFile.h
 @@ -57,9 +57,12 @@

@@ -1,6 +1,7 @@
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 Purpose: Native-only actual serialized RFL shape scalar reads and strict original array ownership resolution; no temporary/output publication.
 
+diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
 --- a/src/RVL_SDK/rfl/RFL_Model.c
 +++ b/src/RVL_SDK/rfl/RFL_Model.c
 @@ -3,6 +3,22 @@

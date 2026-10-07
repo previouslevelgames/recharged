@@ -1,9 +1,10 @@
 Subject: [PATCH] Admit original Options and Popup diagnostic factories
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Select the exact original constructors for the named SH menu diagnostic.
 Normal source and existing diagnostics remain unchanged.
 
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -337,6 +337,8 @@

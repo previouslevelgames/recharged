@@ -1,10 +1,11 @@
 From: mscharged-port
 Subject: [PATCH] transport packed Wii registries into native owned backing
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Preserve original Load/Relocate/Get and owner decisions. Decode only raw data
 width/endian/alignment into a backing twin tied to actual allocation lifetime.
 
+diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
 --- a/include/NL/nlRegistry.h
 +++ b/include/NL/nlRegistry.h
 @@ -72,8 +72,15 @@
@@ -23,6 +24,7 @@ width/endian/alignment into a backing twin tied to actual allocation lifetime.
  }
  
  // Circular sibling link; it precedes the node's virtual table.
+diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
 --- a/src/NL/nlRegistryOwner.cpp
 +++ b/src/NL/nlRegistryOwner.cpp
 @@ -1,6 +1,7 @@

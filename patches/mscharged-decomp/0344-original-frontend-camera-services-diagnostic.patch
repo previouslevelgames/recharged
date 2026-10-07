@@ -1,12 +1,13 @@
 From: mscharged-port native integration
 Subject: [PATCH] Admit original camera services within the named frontend diagnostic
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Temporary diagnostic selection only. Original case bodies and source
 camera update location are unchanged. Default/console and the existing
 frontend profile retain their previous conditional projections. This
 does not insert a preloader or establish full Async/main/menu readiness.
 
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -278,12 +278,13 @@
@@ -70,6 +71,7 @@ does not insert a preloader or establish full Async/main/menu readiness.
      }
  #endif
  }
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
 @@ -51,6 +51,8 @@
@@ -293,6 +295,7 @@ does not insert a preloader or establish full Async/main/menu readiness.
  
  #undef MSCHARGED_FE_VM_STRING
  #undef MSCHARGED_FE_VM_ADDRESS
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
 @@ -480,8 +480,11 @@

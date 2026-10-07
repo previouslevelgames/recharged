@@ -1,8 +1,9 @@
 Purpose: admit the literal source transition into CleanBoot and its original FE pool/bank endpoints.
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 Predecessor: exact actual prepared313, fa1e053, SDK46.
 Scope: native selected diagnostic only; world/Mii/later frontend services remain explicitly held.
 
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -380,6 +380,9 @@
@@ -30,6 +31,7 @@ Scope: native selected diagnostic only; world/Mii/later frontend services remain
      case 86:
          fn_80119528(this);
          break;
+diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
 @@ -73,9 +73,15 @@

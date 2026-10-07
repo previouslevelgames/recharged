@@ -1,5 +1,5 @@
 Subject: Restore whole original boot, title and presentation source
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Retire production0087/0101/0113/0127 method substitutions. Original
 source decisions remain; only address-bearing32-bit VM words use the
@@ -329,7 +329,6 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
  }
  
  void BootLoadingScene::ShowHomeButtonWarning()
-
 diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 --- a/src/Game/SH/SHTitleScreen.cpp
 +++ b/src/Game/SH/SHTitleScreen.cpp
@@ -566,7 +565,6 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  }
  
  HealthWarningSceneV2::HealthWarningSceneV2()
-
 diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
 --- a/src/Game/Render/FrontEndPresentation.cpp
 +++ b/src/Game/Render/FrontEndPresentation.cpp

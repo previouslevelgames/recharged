@@ -1,5 +1,5 @@
 Subject: Share original frontend pointer conversion and options event production
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Share exact feDPD normalized-coordinate conversion, integer viewport margins,
 and OptionsScene position-before-action30 event construction. Console callers
@@ -101,7 +101,6 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  
          if (mBackButton.UpdateBackButton(event, fDeltaT))
          {
-
 diff --git a/include/Game/FE/FrontendPointerHostSteps.h b/include/Game/FE/FrontendPointerHostSteps.h
 new file mode 100644
 --- /dev/null

@@ -1,6 +1,6 @@
 Subject: Check native graphics pools and frame lifecycle
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Check native graphics pools and frame lifecycle
 Preserve pointer-width addresses and resource marks, align both halves of the
@@ -232,7 +232,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  
  #include "NL/glx/glxMemory.h"
  
-@@ -32,8 +39,8 @@
+@@ -23,8 +30,8 @@
          unsigned long sizes[2], const char* name);
  
      virtual void* Allocate(unsigned long size, eGLMemory memType);
@@ -243,7 +243,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      virtual unsigned long GetFreeMemory();
      virtual unsigned long GetTotalMemory();
      virtual unsigned long GetPeakMemoryUsage();
-@@ -42,7 +49,10 @@
+@@ -33,7 +40,10 @@
      virtual ~GLXResourcePool();
  
      char mName[32];
@@ -255,7 +255,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      unsigned long mPoolSizes[2];
      unsigned long mUsedMemory[2];
      unsigned long mPeakMemory[2];
-@@ -66,7 +76,7 @@
+@@ -57,7 +67,7 @@
  static bool sFrameMemoryInitialized;
  static GLInventory::ModelReleaseCallback sModelReleaseCallback;
  
@@ -264,7 +264,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  static unsigned long n_frame[2][2];
  
  static inline int RealOrVirtual(eGLMemory memType)
-@@ -82,14 +92,70 @@
+@@ -73,14 +83,70 @@
      case GLM_TextureData:
          return 1;
      default:
@@ -337,7 +337,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      MemoryAllocator* allocator = CurrentAllocator;
      CurrentAllocator = &StandardAllocator;
      unsigned long pMem = (unsigned long)nlMalloc(
-@@ -122,10 +188,17 @@
+@@ -113,10 +179,17 @@
      FrameMemSizes[1] = frameMemSize2;
      sFrameMemoryInitialized = true;
      return true;
@@ -355,7 +355,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      if (glx_MemoryDump)
      {
          tDebugPrintManager::Print(DC_GLPLAT, sFrameMemoryUsedFormat,
-@@ -142,12 +215,29 @@
+@@ -133,12 +206,29 @@
      n_frame[newFrame][1] = 0;
      GXInvalidateVtxCache();
      GXInvalidateTexAll();
@@ -385,7 +385,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      nlStrNCpy(mName, name, 32);
  
      m_inventory->SetModelReleaseCallback(sModelReleaseCallback);
-@@ -165,22 +255,41 @@
+@@ -156,22 +246,41 @@
      mPoolSizes[1] = sizes[1];
      mUsedMemory[1] = 0;
      mPeakMemory[1] = 0;
@@ -427,7 +427,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      int pool = RealOrVirtual(memType);
      unsigned long aligned = (mPoolMemory[pool] + mUsedMemory[pool] + 31) & ~31u;
      mUsedMemory[pool] = allocationSize + (aligned - mPoolMemory[pool]);
-@@ -196,10 +305,22 @@
+@@ -187,10 +296,22 @@
          nlBreak();
      }
      return (void*)aligned;
@@ -444,17 +444,17 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 +    if (m_level >= 15 || m_inventory->m_nLevel != m_level)
 +        throw std::length_error("GL resource marker depth is invalid or exhausted");
 +    unsigned long used[2] = { mUsedMemory[0], mUsedMemory[1] };
-+    GLXResourceMarker* marker = static_cast<GLXResourceMarker*>(Allocate(sizeof(GLXResourceMarker), GLM_Header));
++    GLResourceMarker* marker = static_cast<GLResourceMarker*>(Allocate(sizeof(GLResourceMarker), GLM_Header));
 +    marker->mUsedMemory[0] = used[0]; marker->mUsedMemory[1] = used[1];
-+    marker->mLevel = m_level; marker->mResource = this;
++    marker->mLevel = m_level; marker->mPool = this;
 +    m_inventory->ResourceMark();
 +    mMarks[m_level++] = reinterpret_cast<GLResourceMark>(marker);
 +    return reinterpret_cast<GLResourceMark>(marker);
 +#else
      unsigned long value0 = mUsedMemory[0];
      unsigned long value1 = mUsedMemory[1];
-     GLXResourceMarker* marker
-@@ -212,11 +333,25 @@
+     GLResourceMarker* marker
+@@ -203,11 +324,25 @@
      m_inventory->ResourceMark();
      m_level++;
      return (unsigned long)marker;
@@ -470,8 +470,8 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 +    int level = 0;
 +    while (level < m_level && mMarks[level] != value) ++level;
 +    if (!value || level == m_level) throw std::invalid_argument("Foreign or inactive GL resource marker");
-+    GLXResourceMarker saved = *reinterpret_cast<const GLXResourceMarker*>(value);
-+    if (saved.mResource != this || saved.mLevel != level
++    GLResourceMarker saved = *reinterpret_cast<const GLResourceMarker*>(value);
++    if (saved.mPool != this || saved.mLevel != level
 +        || saved.mUsedMemory[0] > mUsedMemory[0] || saved.mUsedMemory[1] > mUsedMemory[1])
 +        throw std::invalid_argument("Corrupt GL resource marker");
 +    m_inventory->ResourceRelease(level);
@@ -479,10 +479,10 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 +    for (int i = level; i < m_level; ++i) mMarks[i] = 0;
 +    m_level = level;
 +#else
-     GLXResourceMarker* marker
-         = (GLXResourceMarker*)value;
+     GLResourceMarker* marker
+         = (GLResourceMarker*)value;
      int level = marker->mLevel;
-@@ -224,6 +359,7 @@
+@@ -215,6 +350,7 @@
      mUsedMemory[0] = marker->mUsedMemory[0];
      mUsedMemory[1] = marker->mUsedMemory[1];
      m_level = level;
@@ -490,7 +490,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  }
  
  unsigned long GLXResourcePool::GetFreeMemory()
-@@ -266,26 +402,54 @@
+@@ -257,26 +393,54 @@
      const GLMemoryRequirement* requirements,
      unsigned long count, const char* name)
  {
@@ -545,7 +545,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      unsigned long isLow = RealOrVirtual(memType);
      unsigned long newTop
          = (p_frame[i_frame][isLow] + n_frame[i_frame][isLow] + 31)
-@@ -299,9 +463,15 @@
+@@ -290,9 +454,15 @@
      }
      n_frame[i_frame][isLow] = newSize;
      return (void*)newTop;

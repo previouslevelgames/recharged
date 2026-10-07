@@ -1,5 +1,5 @@
 Subject: [PATCH] Preserve native world animation numeric fields and parent arrays
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Retain the Wii numeric/common prefix widths. Original Initialize still requests
 its parent twice and computes native array addresses with its original types.
@@ -7,6 +7,7 @@ Completed raw parent records retain their original cursor/stride; native BE
 array backing attaches to the actual source allocation incarnation. No object,
 controller, vtable, world factory or readiness is supplied by this patch.
 
+diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
 --- a/include/Game/World/worldanim.h
 +++ b/include/Game/World/worldanim.h
 @@ -21,7 +21,11 @@
@@ -33,6 +34,7 @@ controller, vtable, world factory or readiness is supplied by this patch.
      /* 0x68 */ WorldAnimBinding* m_pBindings;
      /* 0x6C */ u8 m_pad6C[0x04];
      /* 0x70 */ int m_nAnimations;
+diff --git a/src/Game/World/worldanimobjects.cpp b/src/Game/World/worldanimobjects.cpp
 --- a/src/Game/World/worldanimobjects.cpp
 +++ b/src/Game/World/worldanimobjects.cpp
 @@ -23,6 +23,9 @@

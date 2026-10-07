@@ -1,11 +1,12 @@
 Subject: [PATCH] Adapt original multi-texture and shadowed writer native streams
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Retain original layouts, allocations, source selectors and cursor algorithms.
 Transport exact four-byte colours and Wii numeric RGBA channel bytes; publish
 actual written spans through existing native ownership metadata and replace
 the console writeback/sync boundary with the coherent host fence.
 
+diff --git a/include/NL/gl/glMultiTextureModelWriter.h b/include/NL/gl/glMultiTextureModelWriter.h
 --- a/include/NL/gl/glMultiTextureModelWriter.h
 +++ b/include/NL/gl/glMultiTextureModelWriter.h
 @@ -3,6 +3,9 @@
@@ -43,6 +44,7 @@ the console writeback/sync boundary with the coherent host fence.
      }
  
      void Texcoord0(const nlVector2& value)
+diff --git a/src/NL/gl/glMultiTextureModelWriter.cpp b/src/NL/gl/glMultiTextureModelWriter.cpp
 --- a/src/NL/gl/glMultiTextureModelWriter.cpp
 +++ b/src/NL/gl/glMultiTextureModelWriter.cpp
 @@ -1,11 +1,18 @@
@@ -94,6 +96,7 @@ the console writeback/sync boundary with the coherent host fence.
 +#endif
      return true;
  }
+diff --git a/include/NL/gl/glShadowedTexturedColourModelWriter.h b/include/NL/gl/glShadowedTexturedColourModelWriter.h
 --- a/include/NL/gl/glShadowedTexturedColourModelWriter.h
 +++ b/include/NL/gl/glShadowedTexturedColourModelWriter.h
 @@ -3,6 +3,9 @@
@@ -118,6 +121,7 @@ the console writeback/sync boundary with the coherent host fence.
      }
  
      void Texcoord(const nlVector2& uv)
+diff --git a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp b/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
 --- a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
 +++ b/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
 @@ -1,11 +1,18 @@

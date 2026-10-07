@@ -241,7 +241,7 @@ Node Describe(Bytes data,std::uint32_t at,Kind kind)
         FPTR(n,TLSlide,pChildren,8,Kind::Instance);FPTR(n,TLSlide,m_animations,12,Kind::Animation);
         FWORD(n,TLSlide,m_start,16);FWORD(n,TLSlide,m_duration,20);FWORD(n,TLSlide,m_time,24);
         FWORD(n,TLSlide,m_uPlayMode,28);FBYTES(n,TLSlide,m_szName,32);FWORD(n,TLSlide,m_hash,64);
-        FBYTES(n,TLSlide,field_0x44,68);BytesField(n,69,offsetof(TLSlide,field_0x44)+1,3);
+        FBYTES(n,TLSlide,m_bPaused,68);BytesField(n,69,offsetof(TLSlide,m_bPaused)+1,3);
         break;
     case Kind::Instance:
     {

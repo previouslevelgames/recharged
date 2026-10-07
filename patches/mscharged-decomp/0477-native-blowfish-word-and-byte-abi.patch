@@ -1,0 +1,129 @@
+Subject: [PATCH] Preserve original cipher words and PowerPC byte ABI natively
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+
+--- a/include/NL/blowfish.h
++++ b/include/NL/blowfish.h
+@@ -10,7 +10,12 @@
+ #define MAXKEYBYTES 56
+ #define NPASS       16
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define DWORD uint32_t
++#else
+ #define DWORD unsigned long
++#endif
+ #define WORD  unsigned short
+ #define BYTE  unsigned char
+ 
+@@ -22,6 +27,9 @@
+     [256];
+     void Blowfish_encipher(DWORD* xl, DWORD* xr);
+     void Blowfish_decipher(DWORD* xl, DWORD* xr);
++#if defined(MSCHARGED_NATIVE)
++    void Blowfish_encipher_bytes(BYTE* xl, BYTE* xr);
++#endif
+ 
+ public:
+     CBlowFish();
+@@ -39,11 +47,25 @@
+     BYTE byte[4];
+     struct
+     {
++#if defined(MSCHARGED_NATIVE) && (defined(_WIN32) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__))
++        unsigned int byte0 : 8;
++        unsigned int byte1 : 8;
++        unsigned int byte2 : 8;
++        unsigned int byte3 : 8;
++#else
+         unsigned int byte3 : 8;
+         unsigned int byte2 : 8;
+         unsigned int byte1 : 8;
+         unsigned int byte0 : 8;
++#endif
+     } w;
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++static_assert(sizeof(DWORD) == 4 && sizeof(aword) == 4, "Original Blowfish words are four bytes");
++#if !defined(_WIN32) && !defined(__BYTE_ORDER__)
++#error Native Blowfish needs a known compiler byte order
++#endif
++#endif
++
+ #endif // NL_BLOWFISH_H
+--- a/src/NL/blowfish.cpp
++++ b/src/NL/blowfish.cpp
+@@ -98,6 +98,24 @@
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// Byte buffers retain the original PowerPC word order and need no host alignment.
++void CBlowFish::Blowfish_encipher_bytes(BYTE* xl, BYTE* xr)
++{
++    DWORD left = (DWORD(xl[0]) << 24) | (DWORD(xl[1]) << 16) | (DWORD(xl[2]) << 8) | DWORD(xl[3]);
++    DWORD right = (DWORD(xr[0]) << 24) | (DWORD(xr[1]) << 16) | (DWORD(xr[2]) << 8) | DWORD(xr[3]);
++    Blowfish_encipher(&left, &right);
++    xr[0] = static_cast<BYTE>(right >> 24);
++    xr[1] = static_cast<BYTE>(right >> 16);
++    xr[2] = static_cast<BYTE>(right >> 8);
++    xr[3] = static_cast<BYTE>(right);
++    xl[0] = static_cast<BYTE>(left >> 24);
++    xl[1] = static_cast<BYTE>(left >> 16);
++    xl[2] = static_cast<BYTE>(left >> 8);
++    xl[3] = static_cast<BYTE>(left);
++}
++#endif
++
+ DWORD CBlowFish::GetOutputLength(DWORD lInputLong)
+ {
+     DWORD lVal;
+@@ -123,7 +141,11 @@
+         {
+             if (lCount < lSize - 7)
+             {
++#if defined(MSCHARGED_NATIVE)
++                Blowfish_encipher_bytes(pInput, pInput + 4);
++#else
+                 Blowfish_encipher((DWORD*)pInput, (DWORD*)(pInput + 4));
++#endif
+             }
+             else
+             {
+@@ -131,7 +153,11 @@
+                 j = (int)(lOutSize - lSize);
+                 for (i = 0; i < j; i++)
+                     *po++ = 0;
++#if defined(MSCHARGED_NATIVE)
++                Blowfish_encipher_bytes(pInput, pInput + 4);
++#else
+                 Blowfish_encipher((DWORD*)pInput, (DWORD*)(pInput + 4));
++#endif
+             }
+             pInput += 8;
+         }
+@@ -143,7 +169,11 @@
+                 po = pOutput;
+                 for (i = 0; i < 8; i++)
+                     *po++ = *pi++;
++#if defined(MSCHARGED_NATIVE)
++                Blowfish_encipher_bytes(pOutput, pOutput + 4);
++#else
+                 Blowfish_encipher((DWORD*)pOutput, (DWORD*)(pOutput + 4));
++#endif
+             }
+             else
+             {
+@@ -153,7 +183,11 @@
+                     *po++ = *pInput++;
+                 for (j = i; j < 8; j++)
+                     *po++ = 0;
++#if defined(MSCHARGED_NATIVE)
++                Blowfish_encipher_bytes(pOutput, pOutput + 4);
++#else
+                 Blowfish_encipher((DWORD*)pOutput, (DWORD*)(pOutput + 4));
++#endif
+             }
+             pInput += 8;
+             pOutput += 8;

@@ -47,7 +47,7 @@ struct Fixture
   void* pointers[]{positions.data(),normals.data(),uv.data(),uv.data(),uv.data(),bones.data(),weights.data()};const unsigned ids[]{1,2,4,4,4,7,5},strides[]{12,12,4,4,4,4,16};
   for(unsigned s=0;s<7;++s)streams[s]={pointers[s],u8(s),u8(strides[s]),u8(ids[s]),0};packet.indexBuffer=indices.data();packet.numVertices=3;packet.numUniqueVertices=3;packet.numStreams=7;packet.streams=streams;packet.rasterState=0xc0007;
   resources::SpecularSkinMaterial material;for(unsigned i=0;i<3;++i)material.textures[i]={100+i,3};material.blend=material.alpha=1;material.specular_level=0;material.specular_exponent=64;material.specular_colour={1,1,1,1};material.shadow_level=UINT32_MAX;material.lighting_enabled=0;
-  InstallSpecularMaterial(packet,material,parameters);parameters.skinMatrices=matrices;parameters.skinMatricesSize=sizeof(matrices);
+  InstallSpecularMaterial(packet,material,parameters);parameters.skinMatrices=matrices;parameters.skinMatrixBytes=sizeof(matrices);
  }
 };
 void Pixels(Fixture& f,ViewMatrices& matrices,const GameLighting& lighting,const char* name,std::array<unsigned char,3> expected,unsigned sample=4)

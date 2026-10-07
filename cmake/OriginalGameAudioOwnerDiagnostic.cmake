@@ -65,7 +65,8 @@ function(mscharged_select_original_game_audio_owner target)
         src/platform/native_audio_bank.cpp
         src/platform/native_audio_resource.cpp
         src/platform/native_audio_rpc.cpp
-        src/platform/native_audio_memory.cpp)
+        src/platform/native_audio_memory.cpp
+        src/platform/native_audio_stream.cpp)
         if(NOT _native_source IN_LIST _existing)
             target_sources("${target}" PRIVATE "${_native_source}")
         endif()

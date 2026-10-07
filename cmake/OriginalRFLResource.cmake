@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalMEMExpHeap.cmake")
 
 # Whole original RFL system/resource code, with serialized-byte and MEM lifetime
 # transport. This compiler inventory does not admit Mii initialization, raw DB
@@ -36,6 +37,7 @@ function(mscharged_add_original_rfl_resource target)
     if(NOT _type STREQUAL "MODULE_LIBRARY")
         message(FATAL_ERROR "Original RFL resource transport must share its source module's allocation/completion registry")
     endif()
+    mscharged_add_original_mem_exp_heap("${target}")
     get_target_property(_sources "${target}" SOURCES)
     foreach(_path IN ITEMS
             "${MSCHARGED_PREPARED}/src/RVL_SDK/rfl/RFL_System.c"

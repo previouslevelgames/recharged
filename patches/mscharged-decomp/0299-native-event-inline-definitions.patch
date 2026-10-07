@@ -1,5 +1,5 @@
 Subject: Make original event and list inline definitions visible to native consumers
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Modern C++ consumers need the original inline event destructors and list
 implementations in their translation unit. Include the existing source-owned
@@ -10,7 +10,8 @@ when rebuilding complete consumers. Console includes remain unchanged.
 diff --git a/include/Game/Event.h b/include/Game/Event.h
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
-@@ -1015,3 +1015,8 @@
+@@ -1014,4 +1014,9 @@
+     this->mDispatcher->Add(callback);
  }
  
 +#ifdef MSCHARGED_NATIVE
@@ -22,11 +23,12 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 diff --git a/include/NL/nlDLListContainer.h b/include/NL/nlDLListContainer.h
 --- a/include/NL/nlDLListContainer.h
 +++ b/include/NL/nlDLListContainer.h
-@@ -201,3 +201,7 @@
+@@ -200,4 +200,8 @@
+     inline BorrowedDLListSlotPool(BasicSlotPool<DLListEntry<T> >& allocator);
  };
  
 +#ifdef MSCHARGED_NATIVE
 +#include "NL/nlDLListContainer.inl"
-+#endif
-+
  #endif
++
++#endif

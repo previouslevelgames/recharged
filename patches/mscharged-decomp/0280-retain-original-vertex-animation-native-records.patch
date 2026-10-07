@@ -1,12 +1,13 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Transport original vertex-animation words and retain whole source
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep original GLVertexAnim/GetModel/Update algorithms and source requests.
 Adapt only authored Wii24-byte header,4-byte signed IDs and raw vertex copy
 ownership/domain. The historical extracted binding remains explicit legacy
 vertex diagnostics; whole native original modules retain GetModel.
 
+diff --git a/src/Game/GL/GLVertexAnim.cpp b/src/Game/GL/GLVertexAnim.cpp
 --- a/src/Game/GL/GLVertexAnim.cpp
 +++ b/src/Game/GL/GLVertexAnim.cpp
 @@ -8,6 +8,7 @@
@@ -16,22 +17,22 @@ vertex diagnostics; whole native original modules retain GetModel.
 +#include "platform/rlg_record_abi.h"
  #endif
  
- struct UnidentifiedGLVertexAnimHeader_802D3D48
+ struct GLVertexAnimHeader
 @@ -22,8 +23,14 @@
  
  GLVertexAnim::GLVertexAnim(const void* data, const void* extraData)
  {
 +#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_VERTEX_ANIMATION)
-+    UnidentifiedGLVertexAnimHeader_802D3D48 nativeHeader;
++    GLVertexAnimHeader nativeHeader;
 +    mscharged::platform::DecodeRLGVertexAnimWords(&nativeHeader, data, 6);
-+    const UnidentifiedGLVertexAnimHeader_802D3D48* header = &nativeHeader;
++    const GLVertexAnimHeader* header = &nativeHeader;
 +#else
-     const UnidentifiedGLVertexAnimHeader_802D3D48* header =
-         (const UnidentifiedGLVertexAnimHeader_802D3D48*)data;
+     const GLVertexAnimHeader* header =
+         (const GLVertexAnimHeader*)data;
 +#endif
-     m_uHashID = header->m_00;
-     m_nNumFrames = header->m_04;
-     m_nNumVertices = header->m_08;
+     m_uHashID = header->hashID;
+     m_nNumFrames = header->numFrames;
+     m_nNumVertices = header->numVertices;
 @@ -40,7 +47,11 @@
      m_pModel = 0;
  
@@ -53,6 +54,7 @@ vertex diagnostics; whole native original modules retain GetModel.
  glModel* GLVertexAnim::GetModel(int frame)
  {
      int actualFrame = (frame < 0) ? (int)m_fFrame : frame;
+diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
 --- a/src/NL/gl/glLoadModel.cpp
 +++ b/src/NL/gl/glLoadModel.cpp
 @@ -13,6 +13,7 @@

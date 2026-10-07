@@ -31,16 +31,25 @@ void ValidateAspect(std::string_view value)
 
 bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOptions& options)
 {
-    const std::string_view argument = argv[index];
-    if (argument == "--window") { options.fullscreen = false; return true; }
-    if (argument == "--fullscreen") { options.fullscreen = true; return true; }
+    const std::string_view token = argv[index];
+    if (token == "--window") { options.fullscreen = false; return true; }
+    if (token == "--fullscreen") { options.fullscreen = true; return true; }
+    const auto equals = token.find('=');
+    const auto argument = token.substr(0, equals);
     if (argument != "--config" && argument != "--disc" && argument != "--disk"
         && argument != "--size" && argument != "--aspect")
         return false;
-    if (index + 1 >= argc || std::string_view(argv[index + 1]).empty()
-        || std::string_view(argv[index + 1]).substr(0, 2) == "--")
+    std::string_view value;
+    if (equals != std::string_view::npos)
+        value = token.substr(equals + 1);
+    else
+    {
+        if (index + 1 >= argc || std::string_view(argv[index + 1]).substr(0, 2) == "--")
+            throw std::invalid_argument(std::string(argument) + " requires a value");
+        value = argv[++index];
+    }
+    if (value.empty())
         throw std::invalid_argument(std::string(argument) + " requires a value");
-    const std::string_view value = argv[++index];
     if (argument == "--config") { options.config = PathFromUtf8(value); options.explicit_config = true; }
     else if (argument == "--disc" || argument == "--disk") options.disc = PathFromUtf8(value);
     else if (argument == "--aspect") { ValidateAspect(value); options.aspect = value; }

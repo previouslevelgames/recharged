@@ -1,9 +1,10 @@
 Subject: [PATCH] Preserve native RFL hidden-load borrowed context addresses
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Split native hidden-load pointer contexts from unchanged u32 CRC/retry callbacks.
 Console preprocessing preserves the literal original declarations and bodies.
 
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
 @@ -135,6 +135,15 @@
@@ -22,6 +23,7 @@ Console preprocessing preserves the literal original declarations and bodies.
  /**
   * Common structs
   */
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
 @@ -39,8 +39,8 @@
@@ -44,6 +46,7 @@ Console preprocessing preserves the literal original declarations and bodies.
  RFLErrcode RFLiLoadCachedHiddenData(RFLiHiddenCharData* data, u16 index);
  RFLErrcode RFLiWriteCtrlToHiddenDB(const struct RFLiCtrlBuf* buf, BOOL ch);
  s32 RFLiSearchHiddenData(const RFLCreateID* id);
+diff --git a/src/RVL_SDK/rfl/RFL_HiddenDatabase.c b/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
 --- a/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
 +++ b/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
 @@ -78,7 +78,7 @@
@@ -55,6 +58,7 @@ Console preprocessing preserves the literal original declarations and bodies.
      RFLiHDBManager* mgr;
  
      if (index >= RFLi_HDB_DATA_MAX) {
+diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
 --- a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
 +++ b/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
 @@ -104,7 +104,7 @@

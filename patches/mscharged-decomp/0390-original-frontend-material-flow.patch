@@ -1,5 +1,5 @@
 Subject: [PATCH] Restore original frontend material view, lighting and scrolling decisions
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Game modules use the original GLView interface, stadium clock, integer texture
 wrapping, light-texture request and specular cache initialization. Original
@@ -7,6 +7,7 @@ PSMTXInvXpose calls use the native SDK provider. Scope earlier preview helpers
 to standalone diagnostics; do not change source lighting or render decisions.
 Native SDK declarations, parameter layouts and GX transport remain intact.
 
+diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 @@ -1,6 +1,8 @@
@@ -63,6 +64,7 @@ Native SDK declarations, parameter layouts and GX transport remain intact.
          mscharged::MaterialNormalMatrix(modelview, normalMatrix);
  #else
          PSMTXInvXpose(modelViewMatrix, normalMatrix);
+diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 @@ -1,6 +1,8 @@
@@ -92,6 +94,7 @@ Native SDK declarations, parameter layouts and GX transport remain intact.
      sScrollingDiffuseViewMatrix = mscharged::MaterialPreviewView();
  #else
      view->m_Interface->GetViewMatrix(sScrollingDiffuseViewMatrix);
+diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
 @@ -1,6 +1,8 @@
@@ -120,6 +123,7 @@ Native SDK declarations, parameter layouts and GX transport remain intact.
      // Refresh lights for every view, including unchanged and zero exponents.
      sScrollingSpecularExponent = -1.0f;
  #else
+diff --git a/include/NL/glx/GXMaterialProgramTextureAnimation.h b/include/NL/glx/GXMaterialProgramTextureAnimation.h
 --- a/include/NL/glx/GXMaterialProgramTextureAnimation.h
 +++ b/include/NL/glx/GXMaterialProgramTextureAnimation.h
 @@ -4,7 +4,9 @@

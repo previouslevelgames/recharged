@@ -1,7 +1,8 @@
 """Independent selected-ISA oracle over the owned AX SRC instructions.
 
-This diagnostic executes original071C..0759 words with a controlled already
-decoded accelerator input. It is not a complete DSP emulator/bootstrap; its
+This diagnostic executes original071C..0759 and076D..07AE words with a
+controlled already decoded accelerator input. It is not a complete DSP
+emulator/bootstrap; its
 coefficient input is an explicitly synthetic conformance bank, never retail.
 Instruction facts are documented in the Duddie hardware manual. No emulator
 implementation, coefficient bytes or game-side source routines are imported.
@@ -14,13 +15,14 @@ def signed(x,bits):
     return (x&((1<<bits)-1))-(1<<bits) if x&(1<<(bits-1)) else x&((1<<bits)-1)
 def sat16(x):return max(-32768,min(32767,x))
 class SelectedSRC:
-    def __init__(self,words,ratio,fraction,history,raw,taps,bank):
+    def __init__(self,words,ratio,fraction,history,raw,taps,bank,linear=False):
         self.words=words;self.reg=[0]*32;self.acc=[0,0];self.product=0;self.mode40=True
         self.reg[2]=0x323;self.reg[8:12]=[0xffff]*4
         self.mem={0x323:ratio>>16,0x324:ratio&65535,0x325:fraction,0xce0:0x1000+bank*512}
         self.mem.update({0x326+i:x&65535 for i,x in enumerate(history)})
         self.mem.update({0x1000+i:x&65535 for i,x in enumerate(taps)})
-        self.raw=raw;self.consumed=0;self.loops=[];self.pc=0x71c;self.executed=0
+        self.raw=raw;self.consumed=0;self.loops=[];self.pc=0x76d if linear else 0x71c;self.executed=0
+        self.linear=linear;self.zero=False;self.product_shift=2;self.unsigned=False
     def read(self,r):
         if r in (28,29):return self.acc[r-28]&65535
         if r in (30,31):
@@ -54,18 +56,24 @@ class SelectedSRC:
             if ext==0xc3:
                 extension=(self.readmem(self.reg[0]),self.readmem(self.reg[3]))
             elif ext==0x12:extension=old[30]
+            elif self.linear and ext==0x14:extension=old[28]
+            elif self.linear and ext==0x50:extension=self.readmem(self.reg[0])
+            elif self.linear and ext==0x39:extension=old[31]
             elif ext:raise AssertionError(f'unqualified extension {pc:04x}/{w:04x}')
         if w in (0x8c00,0x8a00):pass # fractional signed product mode
         elif w==0x8f00:self.mode40=True
+        elif self.linear and w==0x8d00:self.unsigned=True
+        elif self.linear and w==0x8b00:self.product_shift=1
         elif w&0xffe0==0x80:
             self.write(w&31,self.words[pc+1]);after+=1
         elif w&0xffe0==0xc0:
             self.write(w&31,self.readmem(self.words[pc+1]));after+=1
         elif w&0xfc00==0x1c00:self.write((w>>5)&31,old[w&31])
-        elif w&0xff80 in (0x1800,0x1880,0x1900):
+        elif w&0xff80 in (0x1800,0x1880,0x1900,0x1980):
             ar=(w>>5)&3;self.write(w&31,self.readmem(self.reg[ar]))
             if w&0xff80==0x1900:self.advance(ar,1)
             elif w&0xff80==0x1880:self.advance(ar,-1)
+            elif w&0xff80==0x1980:self.advance(ar,signed(self.reg[4+ar],16))
         elif w&0xff80 in (0x1a80,0x1b00):
             ar=(w>>5)&3;self.mem[self.reg[ar]]=old[w&31]
             self.advance(ar,-1 if w&0xff80==0x1a80 else 1)
@@ -75,6 +83,16 @@ class SelectedSRC:
         elif w==0x1512:self.writeacc(1,self.acc[1]<<18)
         elif w==0x001f:self.advance(3,signed(self.reg[7],16))
         elif w==0x0004:self.advance(0,-1)
+        elif self.linear and w==0x0010:self.advance(0,signed(self.reg[4],16))
+        elif self.linear and w in (0x7c00,0x7c50):self.writeacc(0,-signed(self.acc[0],40))
+        elif self.linear and w==0xb114:self.zero=signed(self.acc[0],40)==0
+        elif self.linear and w==0x0294:
+            after=self.words[pc+1] if not self.zero else pc+2
+        elif self.linear and w==0x029f:after=self.words[pc+1]
+        elif self.linear and w in (0xb014,0xb700):
+            previous=self.product
+            self.product=signed(old[26],16)*(old[25] if self.unsigned else signed(old[25],16))*self.product_shift
+            if w==0xb700:self.writeacc(1,previous)
         elif w in (0x1160,0x0078):
             count=(w&255) if w==0x1160 else old[24];end=self.words[pc+1];after+=1
             if count:self.loops.append([after,end,count])
@@ -94,13 +112,18 @@ class SelectedSRC:
         if w&255==0xc3 and extension is not None:
             self.write(26,extension[0]);self.write(24,extension[1]);self.advance(0,1);self.advance(3,1)
         elif w&255==0x12 and extension is not None:self.write(24,extension)
+        elif self.linear and w&255==0x14 and extension is not None:self.write(25,extension)
+        elif self.linear and w&255==0x50 and extension is not None:
+            self.write(26,extension);self.advance(0,1)
+        elif self.linear and w&255==0x39 and extension is not None:
+            self.mem[self.reg[1]]=extension;self.advance(1,1)
         if self.loops and self.loops[-1][1]==pc:
             self.loops[-1][2]-=1
             if self.loops[-1][2]:after=self.loops[-1][0]
             else:self.loops.pop()
         self.pc=after
     def run(self):
-        while self.pc!=0x75a:
+        while self.pc!=(0x7af if self.linear else 0x75a):
             assert self.executed<15000,'selected source routine did not terminate'
             self.step()
         assert not self.loops
@@ -229,6 +252,10 @@ def main():
     words=[byte[i]*256+byte[i+1]for i in range(0,len(byte),2)]
     if len(words)!=4096 or words[0x744:0x74b]!=[0x4ac3,0x90c3,0x97c3,0x95c3,0x9500,0x4f00,0x1b3f]:
         raise RuntimeError("Prepared original AX firmware source layout differs")
+    if words[0x76d:0x771]!=[0x8d00,0x8b00,0x8f00,0x195b] or words[0x791:0x7a0]!=[
+        0x7c00,0xb114,0x0294,0x0799,0x191f,0x0010,0x029f,0x079e,
+        0x7c50,0xb014,0x199a,0xb700,0x4f00,0x1f25,0x4a39]:
+        raise RuntimeError("Prepared original linear opcode/layout differs")
     taps=[((bank+1)*1009+phase*173+tap*1999)%18000-9000 for bank in range(4)for phase in range(128)for tap in range(4)]
     wire=bytearray(b"AXSRC001")+struct.pack("<I",15)
     mixed=bytearray(b"AXMIX001")+struct.pack("<I",15)
@@ -247,7 +274,27 @@ def main():
                 mixed+=struct.pack("<96iHh",*pcm,volume,depop)
             evidence.append(dict(bank=bank,ratio=ratio,fraction=fraction,sourceSRCInstructions=result["instructions"],sourceVEInstructions=steps))
             index+=1
+    # Independently execute the original linear instruction words, including
+    # both phase branches, mixed-sign unsigned M0 products and circular ring.
+    linear=bytearray(b"AXLIN502")
+    linear_cases=[(65536,0),(32768,0x9100),(90316,0),(90316,0x0240),
+                  (4*65536,0xffff),(0,0),(0,0xffff),(1,0xffff),
+                  (65535,1),(2*65536,0x8000),(32768,0),(65536,0xffff)]
+    linear+=struct.pack("<I",len(linear_cases));linear_evidence=[]
+    for index,(ratio,fraction) in enumerate(linear_cases):
+        history=[1234,-2345,3456,-4567] if index%2==0 else [-32768,32767,-32768,32767]
+        raw=[(((i*7+3)%16)-8)*4096 for i in range(384)]
+        result=SelectedSRC(words,ratio,fraction,history,raw,[],0,linear=True).run()
+        linear+=struct.pack("<IHH4h384h96hH4hH",ratio,fraction,0,*history,*raw,
+            *result["pcm"],result["fraction"],*result["history"],result["consumed"])
+        linear_evidence.append(dict(ratio=ratio,fraction=fraction,
+            consumed=result["consumed"],finalFraction=result["fraction"],sourceInstructions=result["instructions"]))
     args.output.mkdir(parents=True,exist_ok=True)
+    (args.output/"linear-oracle.bin").write_bytes(linear)
+    (args.output/"linear-scope.json").write_text(json.dumps(dict(
+        firmwareSHA256=hashlib.sha256(bytes(byte)).hexdigest(),
+        actualInstructions="076D–07AE",fullFirmwareExecution=False,
+        coefficientInput=None,cases=linear_evidence),indent=2)+"\n")
     (args.output/"oracle.bin").write_bytes(wire)
     (args.output/"mix-oracle.bin").write_bytes(mixed)
     (args.output/"synthetic-drom.bin").write_bytes(struct.pack(">2048h",*taps))

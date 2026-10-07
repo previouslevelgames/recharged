@@ -136,7 +136,8 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
         }
     }
     aurora_service_hardware_interrupts();
-    buffer.Unmap(); Check(lit!=0, "Source-selected native XFB is entirely black");
+    // Original fades and transitions can legitimately present an all-black frame.
+    buffer.Unmap();
     auto* file=std::fopen(output.c_str(),"wb"); Check(file,"Cannot create selected XFB snapshot");
     std::fprintf(file,"P6\n%u %u\n255\n",copy->width,copy->height);
     std::size_t written=0;

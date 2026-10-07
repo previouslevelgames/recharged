@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -38,7 +38,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  extern TweakValueAllocator3* gTweakValueAllocator;
  extern TweakValueAllocator2* gTweakBindingAllocator;
  
-@@ -43,7 +53,11 @@
+@@ -44,7 +54,11 @@
  
  inline void* AllocateTweakValue(unsigned long size)
  {
@@ -50,7 +50,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  }
  
  inline bool TweakValueStringEquals(const char* value, const char* expected)
-@@ -80,7 +94,11 @@
+@@ -81,7 +95,11 @@
  }
  inline void ParseTweakBindingValue(float*& result, const char* value)
  {
@@ -62,7 +62,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  }
  
  template <typename T>
-@@ -150,7 +168,11 @@
+@@ -151,7 +169,11 @@
  
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -74,7 +74,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
              if (entry != 0)
              {
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
-@@ -300,7 +322,11 @@
+@@ -301,7 +323,11 @@
          mFormatName = formatName;
          if (IsTweakRegistryInitialized() == 0)
          {

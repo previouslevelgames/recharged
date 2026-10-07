@@ -1,5 +1,5 @@
 Subject: Adapt original GL views, frame sorters and slot pools for native rendering
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Original native GLView retains immediate sorter allocation, parent/child
 ownership, reset/compact, traversal and packet callbacks. Preview lazy storage,
@@ -521,7 +521,7 @@ new file mode 100644
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
-@@ -74,6 +74,10 @@
+@@ -65,6 +65,10 @@
  static unsigned long FrameMemSizes[2];
  static int i_frame;
  static bool sFrameMemoryInitialized;
@@ -532,7 +532,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  static GLInventory::ModelReleaseCallback sModelReleaseCallback;
  
  static GLResourceMark p_frame[2][2];
-@@ -122,6 +126,7 @@
+@@ -113,6 +117,7 @@
  
  void glxShutdownMemory()
  {
@@ -540,7 +540,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      nlFree(reinterpret_cast<void*>(p_frame[0][0]));
      nlFree(reinterpret_cast<void*>(p_frame[0][1]));
      memset(p_frame, 0, sizeof(p_frame));
-@@ -196,6 +201,7 @@
+@@ -187,6 +192,7 @@
  #if defined(MSCHARGED_NATIVE)
      if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
      mscharged::InvalidateGraphicsCaches();

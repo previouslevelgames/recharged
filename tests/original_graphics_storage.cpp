@@ -111,6 +111,56 @@ int main() {
         stale.Reset();std::memset(raw+256,0x19,48);newWrite.Complete(GameByteDomain::WiiSerialized);newWrite.Reset();
         Check(ResolveGameGraphicsArray(raw+256).bytes==48,"Old token cleanup invalidated the new source producer");
 
+        // Parsed RLG views share one completed source vertex chunk. Bounds
+        // preserve its owner/endian while excluding following packet streams.
+        GameGraphicsStorageReservation parsedStorage(128); parsedStorage.Commit(raw+512);
+        GameByteWriteReservation parsedWrite(raw+512,128); std::memset(raw+512,0x41,128);
+        parsedWrite.Complete(GameByteDomain::WiiSerialized); parsedWrite.Reset();
+        GameGraphicsStorageSpan parsedOwner{};
+        Check(FindGameGraphicsStorage(raw+512,128,parsedOwner),"Parsed source storage missing");
+        RegisterGameGraphicsArray(raw+512,24); RegisterGameGraphicsArray(raw+536,24);
+        Check(ResolveGameGraphicsArray(raw+512).bytes==24 && !ResolveGameGraphicsArray(raw+512).little_endian,
+              "RLG array includes following streams or changes wire domain");
+        Check(ResolveGameGraphicsArray(raw+520).bytes==16,"Interior parsed array loses original byte offset");
+        const auto beforeDuplicate=live;budget=0;RegisterGameGraphicsArray(raw+512,24);budget=-1;
+        Check(live==beforeDuplicate,"Exact shared array alias allocates metadata");
+        budget=0;Reject<std::bad_alloc>([&]{RegisterGameGraphicsArray(raw+560,24);});budget=-1;
+        Check(live==beforeDuplicate && ResolveGameGraphicsArray(raw+512).bytes==24,
+              "Array metadata OOM leaks or changes existing source extent");
+        Reject<std::invalid_argument>([&]{RegisterGameGraphicsArray(raw+632,16);});
+        RegisterGameGraphicsArray(raw+520,24); RegisterGameGraphicsArray(raw+512,32);
+        Check(ResolveGameGraphicsArray(raw+512).bytes==32 && ResolveGameGraphicsArray(raw+520).bytes==24
+              && ResolveGameGraphicsArray(raw+524).bytes==20 && ResolveGameGraphicsArray(raw+536).bytes==24,
+              "Shared/interleaved authored aliases reject or truncate valid source reads");
+        GameByteWriteReservation freshRaw(raw+512,128);
+        Reject<std::invalid_argument>([&]{ResolveGameGraphicsArray(raw+512);});
+        std::memset(raw+512,0x42,128);freshRaw.Complete(GameByteDomain::WiiSerialized);freshRaw.Reset();
+        Check(ResolveGameGraphicsArray(raw+512).bytes==128,"Old asset bounds clamp a new raw producer");
+        RegisterGameGraphicsArray(raw+512,16);
+        Check(ResolveGameGraphicsArray(raw+512).bytes==16 && ResolveGameGraphicsArray(raw+528).bytes==112,
+              "New logical tag inherits stale neighboring source bounds");
+        GameByteWriteReservation converted(raw+512,128);
+        std::memset(raw+512,0x43,128);converted.Complete(GameByteDomain::NativePayload);converted.Reset();
+        Check(ResolveGameGraphicsArray(raw+512).bytes==128 && ResolveGameGraphicsArray(raw+512).little_endian==nativeLE,
+              "Old wire-domain bound survives native conversion");
+        RegisterGameGraphicsArray(raw+512,40);
+        Check(ResolveGameGraphicsArray(raw+512).bytes==40,"Native domain cannot register its actual source view");
+        GameByteWriteReservation replacedPart(raw+528,16);
+        std::memset(raw+528,0x44,16);replacedPart.Complete(GameByteDomain::WiiSerialized);replacedPart.Reset();
+        Check(ResolveGameGraphicsArray(raw+512).bytes==16 && ResolveGameGraphicsArray(raw+528).bytes==16,
+              "Partial source rewrite crosses completed logical origins");
+        RegisterGameGraphicsArray(raw+528,8);
+        Check(ResolveGameGraphicsArray(raw+528).bytes==8,"Fresh partial source origin cannot register exact bytes");
+        GameGraphicsRetirementReservation retireParsed;retireParsed.Commit(raw+512,128);
+        Reject<std::invalid_argument>([&]{ResolveGameGraphicsArray(raw+512);});
+        GameGraphicsStorageReservation recycledParsed(128);recycledParsed.Commit(raw+512);
+        GameByteWriteReservation recycledWrite(raw+512,128);std::memset(raw+512,0x45,128);
+        recycledWrite.Complete(GameByteDomain::WiiSerialized);recycledWrite.Reset();
+        GameGraphicsStorageSpan recycledOwner{};Check(FindGameGraphicsStorage(raw+512,128,recycledOwner)
+            && recycledOwner.incarnation!=parsedOwner.incarnation && ResolveGameGraphicsArray(raw+512).bytes==128,
+            "Reused graphics storage revives old parsed-array bounds");
+        RegisterGameGraphicsArray(nullptr,0); // Original zero-size source request stays neutral.
+
         // Retirement allocates no metadata, even when it must split one raw
         // logical origin into two unaffected pieces around the source rewind.
         GameByteWriteReservation restore(raw+1024,512);std::memset(raw+1024,0xCD,512);

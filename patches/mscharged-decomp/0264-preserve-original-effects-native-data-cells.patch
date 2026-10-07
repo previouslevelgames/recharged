@@ -1,11 +1,12 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve original effects geometry with native four-byte data cells
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Endian-convert represented scalars inside actual completed NL storage and use
 real cached-address words for address-bearing cells. Original loader decisions,
 raw chunk headers, authored25colour bytes and next-header alias remain intact.
 
+diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
 --- a/include/Game/Effects/EffectsBundleData.h
 +++ b/include/Game/Effects/EffectsBundleData.h
 @@ -1,8 +1,15 @@
@@ -42,6 +43,7 @@ raw chunk headers, authored25colour bytes and next-header alias remain intact.
  }; // size: 0x18
  
  #endif // GAME_EFFECTS_EFFECTS_BUNDLE_DATA_H
+diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
 --- a/include/Game/Effects/EffectsTemplate.h
 +++ b/include/Game/Effects/EffectsTemplate.h
 @@ -1,5 +1,9 @@
@@ -132,6 +134,7 @@ raw chunk headers, authored25colour bytes and next-header alias remain intact.
  
  inline float RandomizedValue(float base, float range)
  {
+diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
 --- a/include/Game/Effects/EffectsGroup.h
 +++ b/include/Game/Effects/EffectsGroup.h
 @@ -1,5 +1,9 @@
@@ -230,6 +233,7 @@ raw chunk headers, authored25colour bytes and next-header alias remain intact.
  };
  
  #endif // GAME_EFFECTS_EFFECTS_GROUP_H
+diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBundleData.cpp
 --- a/src/Game/Effects/EffectsBundleData.cpp
 +++ b/src/Game/Effects/EffectsBundleData.cpp
 @@ -28,15 +28,26 @@
@@ -259,6 +263,7 @@ raw chunk headers, authored25colour bytes and next-header alias remain intact.
  
      unsigned long i;
      for (i = 0; i < data->mNumTemplates; ++i)
+diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
 --- a/src/Game/Effects/EffectsGroup.cpp
 +++ b/src/Game/Effects/EffectsGroup.cpp
 @@ -124,7 +124,7 @@

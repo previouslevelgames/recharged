@@ -1,0 +1,17 @@
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Purpose: Admit only the original GetPresentation request at its existing main position under a default-off selected-source diagnostic. Normal/native-default/console logic is unchanged. Depends on genuine source network/registry initialization (0481); no function/script selection, ReplayChoreo, Fixed task, readiness or game-body change.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -718,8 +718,10 @@
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     ReplayChoreo::Instance();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_PRESENTATION_OWNER))
+     GetPresentation();
+-#endif // unrelated replay/presentation tasks remain omitted
++#endif // original presentation owner at its source position; replay remains separately held
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     FrontEndPresentation::GetInstance();
+ #endif

@@ -1,6 +1,6 @@
 Subject: Restore whole original camera source for native production
 
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Restore CameraMan, DebugCam and animcam directly from the pinned reconstructed
 source, including ordinary camera allocations, source callbacks/factories,

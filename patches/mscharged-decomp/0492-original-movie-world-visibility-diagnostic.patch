@@ -1,0 +1,51 @@
+From: original source diagnostic integration
+Subject: [PATCH] Preserve original movie world visibility in the primary world diagnostic
+
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+
+Temporary WORLD_DRAW admission restores three literal original IntroMovieScene
+world hide/show writes under their existing source positions. Default console,
+original game and selected diagnostic-OFF projections remain unchanged. No null
+fallback, visibility decision, scene transition or source readiness is added.
+
+diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+--- a/src/Game/SH/SHMoviePlayer.cpp
++++ b/src/Game/SH/SHMoviePlayer.cpp
+@@ -254,10 +254,10 @@
+         MovieStop();
+         mMovieStarted = false;
+     }
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     BasicStadium* pStadium = BasicStadium::GetCurrentStadium();
+     pStadium->m_bRenderingEnabled = false;
+-#endif // the diagnostic has no stadium object to change
++#endif // literal world visibility write admitted with the real world draw owner
+     mUnidentifiedB4 = 0.0f;
+     mMovieFinished = false;
+     mTransitionPending = false;
+@@ -266,10 +266,10 @@
+ void IntroMovieScene::OnMoviePlaybackEnded()
+ {
+     GameSceneManager::s_pInstance->Push(mNextScene, SCREEN_NOTHING, true);
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     BasicStadium* pStadium = BasicStadium::GetCurrentStadium();
+     pStadium->m_bRenderingEnabled = true;
+-#endif // the diagnostic has no stadium object to change
++#endif // literal world visibility write admitted with the real world draw owner
+     SetSyncedDecode(false);
+ }
+ 
+@@ -294,9 +294,9 @@
+                 mMovieFinished = true;
+                 FrontEndPresentation::GetInstance()->Call("TransitionFromMovieToTitleScreen");
+                 mTransitionPending = true;
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+                 BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = true;
+-#endif // the diagnostic has no stadium object to change
++#endif // literal world visibility write admitted with the real world draw owner
+                 SetSyncedDecode(false);
+             }
+         }

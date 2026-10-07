@@ -1,5 +1,5 @@
 Subject: Preserve original THPSimple with native Wii data and scalar ABI
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep original initialization, movie selection, NL requests, preload/ring order,
 component dispatch, mixing, callback chaining and retail quirks. Adapt Wii32
@@ -483,11 +483,11 @@ diff --git a/libs/RVL_SDK/include/revolution/thp_fwd.h b/libs/RVL_SDK/include/re
 @@ -1,11 +1,19 @@
  #ifndef REVOLUTION_THP_FWD_H
  #define REVOLUTION_THP_FWD_H
- 
++
 +#ifdef MSCHARGED_NATIVE
 +#include <revolution/types.h>
 +#endif
-+
+ 
  #ifdef __cplusplus
  extern "C" {
  #endif

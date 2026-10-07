@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Track original procedural graphics storage and arrays
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 Classification: permanent host compiler/platform/data ABI adaptation.
 
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
@@ -14,9 +14,9 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 +#include "platform/game_allocation_ownership.h"
 +#endif
  
- class GLXResourcePool;
- 
-@@ -203,6 +206,9 @@
+ class GLXResourcePool
+     : public GLResourcePool
+@@ -194,6 +197,9 @@
  
  void glplatFrameAllocNextFrame()
  {
@@ -26,7 +26,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
      if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
      mscharged::InvalidateGraphicsCaches();
-@@ -224,6 +230,10 @@
+@@ -215,6 +221,10 @@
      i_frame = newFrame;
      n_frame[newFrame][0] = 0;
      n_frame[newFrame][1] = 0;
@@ -37,7 +37,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      GXInvalidateVtxCache();
      GXInvalidateTexAll();
  #endif
-@@ -297,6 +307,9 @@
+@@ -288,6 +298,9 @@
  void* GLXResourcePool::Allocate(
      unsigned long allocationSize, eGLMemory memType)
  {
@@ -47,7 +47,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
      int pool = RealOrVirtual(memType);
      unsigned long offset = AlignedOffset(mUsedMemory[pool], allocationSize, mPoolSizes[pool]);
-@@ -319,6 +332,9 @@
+@@ -310,6 +323,9 @@
          glDumpResources(sOutOfMemoryName, this);
          nlBreak();
      }
@@ -57,7 +57,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      return (void*)aligned;
  #endif
  }
-@@ -354,6 +370,9 @@
+@@ -345,6 +361,9 @@
  void GLXResourcePool::ReleaseResource(
      GLResourceMark value)
  {
@@ -67,7 +67,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
      int level = 0;
      while (level < m_level && mMarks[level] != value) ++level;
-@@ -374,6 +393,11 @@
+@@ -365,6 +384,11 @@
      mUsedMemory[0] = marker->mUsedMemory[0];
      mUsedMemory[1] = marker->mUsedMemory[1];
      m_level = level;
@@ -79,7 +79,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #endif
  }
  
-@@ -458,6 +482,9 @@
+@@ -449,6 +473,9 @@
  
  void* glplatFrameAlloc(unsigned long size, eGLMemory memType)
  {
@@ -89,7 +89,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
      if (!sFrameMemoryInitialized) throw std::logic_error("GL frame memory is not initialized");
      int pool = RealOrVirtual(memType);
-@@ -477,6 +504,9 @@
+@@ -468,6 +495,9 @@
          return 0;
      }
      n_frame[i_frame][isLow] = newSize;

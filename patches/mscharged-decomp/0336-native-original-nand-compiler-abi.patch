@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Compile whole original NAND with native pointer and C declarations
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep the original NAND request, error, permission and callback decisions.
 The ES buffer alignment test uses a native pointer. GNU noinline attaches to
@@ -9,6 +9,7 @@ Modern C declares the existing legacy implicit MEMCLR call; it remains an
 unresolved symbol. The unused NANDMove body is retained, not repaired or used
 as a filesystem provider. No IOS/ES service or save readiness is introduced.
 
+diff --git a/src/RVL_SDK/nand/NANDCore.c b/src/RVL_SDK/nand/NANDCore.c
 --- a/src/RVL_SDK/nand/NANDCore.c
 +++ b/src/RVL_SDK/nand/NANDCore.c
 @@ -5,6 +5,13 @@
@@ -34,6 +35,7 @@ as a filesystem provider. No IOS/ES service or save readiness is introduced.
          return -0x3F9;
      }
  
+diff --git a/src/RVL_SDK/nand/nand.c b/src/RVL_SDK/nand/nand.c
 --- a/src/RVL_SDK/nand/nand.c
 +++ b/src/RVL_SDK/nand/nand.c
 @@ -3,6 +3,17 @@

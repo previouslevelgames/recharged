@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original Specular material with typed native skin transport
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Keep the original Specular0x22cadb20 TEV/light/exponent/ramp/shadow/alpha
 decisions. Use native parameter offsets/fixed scalar widths and five bounded
@@ -17,9 +17,9 @@ diff --git a/include/NL/glx/GXSpecularMaterialProgram.h b/include/NL/glx/GXSpecu
      /* 0x10 */ glTextureBinding glossTexture;
      /* 0x18 */ const float (*skinMatrices)[3][4];
 +#if defined(MSCHARGED_NATIVE)
-+    u32 skinMatricesSize;
++    u32 skinMatrixBytes;
 +#else
-     /* 0x1C */ unsigned long skinMatricesSize;
+     /* 0x1C */ unsigned long skinMatrixBytes;
 +#endif
      /* 0x20 */ float blendAmount;
      /* 0x24 */ float alphaValue;
@@ -172,10 +172,10 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
 +#else
      if (packet->skinnedVertices == 0)
 -    {
--        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatricesSize / 48, &modelview, 0);
+-        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrixBytes / 48, &modelview, 0);
 +#endif
 +    {
-+        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatricesSize / sizeof(*static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices), &modelview, 0);
++        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrixBytes / sizeof(*static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices), &modelview, 0);
      }
      else
      {

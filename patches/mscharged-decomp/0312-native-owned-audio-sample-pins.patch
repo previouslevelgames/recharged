@@ -1,12 +1,13 @@
 From: mscharged-port
 Subject: [PATCH] Retain native raw audio pins through original allocation lifetime
-Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
 
 Original Backend allocator/silence requests remain at their source positions.
 A pre-reserved native device lease pins each fresh owned RawBytes buffer.
 Actual source free/reset/parent retirement releases pins before ring writes,
 retaining all source allocation, callback, initialization and readiness decisions.
 
+diff --git a/src/Game/Audio/AudioBackend.cpp b/src/Game/Audio/AudioBackend.cpp
 --- a/src/Game/Audio/AudioBackend.cpp
 +++ b/src/Game/Audio/AudioBackend.cpp
 @@ -1,3 +1,6 @@
@@ -50,6 +51,7 @@ retaining all source allocation, callback, initialization and readiness decision
      return pointer;
  }
  
+diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
 --- a/src/NL/MemAlloc.cpp
 +++ b/src/NL/MemAlloc.cpp
 @@ -386,6 +386,7 @@

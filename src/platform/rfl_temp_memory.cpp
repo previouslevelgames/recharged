@@ -20,7 +20,11 @@ extern "C" void ChargedFreeRFLTemp(void* heap,void* block) {
 }
 extern "C" void* ChargedDestroyRFLTempHeap(void* heap) {
     GameAllocationSpan backing;
-    if(!FindGameAllocationSpan(heap,1,backing))
+    GameHeapMetadataSpan projected;
+    if(FindGameHeapMetadata(heap,projected)) {
+        backing=projected.allocation;
+        ValidateGameHeapMetadataRetirement(heap);
+    } else if(!FindGameAllocationSpan(heap,1,backing))
         throw std::invalid_argument("RFL temp heap no longer has its actual original work backing");
     RetireGameMemoryStorageOwner(heap);
     return MEMDestroyExpHeap(static_cast<MEMHeapHandle>(heap));
