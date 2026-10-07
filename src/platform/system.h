@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 
 namespace mscharged
 {
@@ -21,6 +22,13 @@ struct NativeSystemSettings
 // Source SCInit publishes its initialized status. Queries may read the staged
 // records earlier, as original main queries SCGetLanguage before glplatStartup.
 void ConfigureNativeSystemSettings(const NativeSystemSettings& settings);
+// A separate explicit virtual-Wii IPL.SADR ID record. Its country, region and
+// city fields follow the original SC bit positions. No locale/disc inference
+// or implicit zero record is supplied; stage before original SCInit.
+// nullopt explicitly supplies an absent record. Invalid source encodings are
+// retained in the backing record; SCGetSimpleAddressID returns FFFFFFFF for
+// them according to the original SC contract, rather than choosing a country.
+void ConfigureNativeSystemSimpleAddress(std::optional<std::uint32_t> id);
 // Retire after original users have stopped; a later session configures anew.
 void ShutdownNativeSystemSettings();
 

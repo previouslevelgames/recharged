@@ -1,0 +1,169 @@
+Subject: [PATCH] Adapt original multi-texture and shadowed writer native streams
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Retain original layouts, allocations, source selectors and cursor algorithms.
+Transport exact four-byte colours and Wii numeric RGBA channel bytes; publish
+actual written spans through existing native ownership metadata and replace
+the console writeback/sync boundary with the coherent host fence.
+
+--- a/include/NL/gl/glMultiTextureModelWriter.h
++++ b/include/NL/gl/glMultiTextureModelWriter.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
++#ifdef MSCHARGED_NATIVE
++#include <cstring>
++#endif
+ #include "NL/nlMath.h"
+ 
+ class glMultiTextureModelWriter
+@@ -20,12 +23,24 @@
+ 
+     void Colour(const nlColour& colour)
+     {
++#ifdef MSCHARGED_NATIVE
++        std::memcpy(colours++, &colour, sizeof(colour));
++#else
+         ColourPlat(*(const u32*)&colour);
++#endif
+     }
+ 
+     void ColourPlat(u32 colour)
+     {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        // A numeric Wii RGBA word keeps its original channel byte order.
++        const unsigned char rgba[4] = { static_cast<unsigned char>(colour >> 24),
++            static_cast<unsigned char>(colour >> 16), static_cast<unsigned char>(colour >> 8),
++            static_cast<unsigned char>(colour) };
++        std::memcpy(colours++, rgba, sizeof(rgba));
++#else
+         *colours++ = colour;
++#endif
+     }
+ 
+     void Texcoord0(const nlVector2& value)
+--- a/src/NL/gl/glMultiTextureModelWriter.cpp
++++ b/src/NL/gl/glMultiTextureModelWriter.cpp
+@@ -1,11 +1,18 @@
++#ifndef MSCHARGED_NATIVE
+ #include <revolution/base/PPCArch.h>
+ #include <revolution/os/OSCache.h>
++#else
++#include <atomic>
++#endif
+ 
+ #include "NL/gl/glMultiTextureModelWriter.h"
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/GL/glModelBuilder.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ 
+ glMultiTextureModelWriter::glMultiTextureModelWriter()
+@@ -162,11 +169,19 @@
+ 
+ bool glMultiTextureModelWriter::End()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, positions);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, texcoords0);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[2].address, texcoords1);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[3].address, texcoords2);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[4].address, colours);
++#endif
+     for (u32 i = 0; i < model->numPackets; ++i)
+     {
+         glplatFinalizePacket(&model->packets[i], resource != 0, resource);
+     }
+ 
++#ifndef MSCHARGED_NATIVE
+     for (int i = 0; i < model->packets->numStreams; ++i)
+     {
+         glModelStream* stream = &model->packets->streams[i];
+@@ -174,5 +189,9 @@
+     }
+ 
+     PPCSync();
++#else
++    // Host arrays are coherent; publish their stores before native SDK transport.
++    std::atomic_thread_fence(std::memory_order_seq_cst);
++#endif
+     return true;
+ }
+--- a/include/NL/gl/glShadowedTexturedColourModelWriter.h
++++ b/include/NL/gl/glShadowedTexturedColourModelWriter.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
++#ifdef MSCHARGED_NATIVE
++#include <cstring>
++#endif
+ #include "NL/nlMath.h"
+ 
+ class glShadowedTexturedColourModelWriter
+@@ -20,7 +23,11 @@
+ 
+     void Colour(const nlColour& c)
+     {
++#ifdef MSCHARGED_NATIVE
++        std::memcpy(colour++, &c, sizeof(c));
++#else
+         *colour++ = *(const unsigned long*)&c;
++#endif
+     }
+ 
+     void Texcoord(const nlVector2& uv)
+--- a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
++++ b/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
+@@ -1,11 +1,18 @@
++#ifndef MSCHARGED_NATIVE
+ #include <revolution/base/PPCArch.h>
+ #include <revolution/os/OSCache.h>
++#else
++#include <atomic>
++#endif
+ 
+ #include "NL/gl/glShadowedTexturedColourModelWriter.h"
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/GL/glModelBuilder.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ 
+ glShadowedTexturedColourModelWriter::glShadowedTexturedColourModelWriter()
+@@ -116,11 +123,17 @@
+ 
+ bool glShadowedTexturedColourModelWriter::End()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, position);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, texcoord);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[2].address, colour);
++#endif
+     for (u32 i = 0; i < model->numPackets; ++i)
+     {
+         glplatFinalizePacket(&model->packets[i], resource != 0, resource);
+     }
+ 
++#ifndef MSCHARGED_NATIVE
+     for (int i = 0; i < model->packets->numStreams; ++i)
+     {
+         glModelStream* stream = &model->packets->streams[i];
+@@ -128,5 +141,9 @@
+     }
+ 
+     PPCSync();
++#else
++    // Host arrays are coherent; publish their stores before native SDK transport.
++    std::atomic_thread_fence(std::memory_order_seq_cst);
++#endif
+     return true;
+ }

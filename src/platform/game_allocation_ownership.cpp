@@ -95,6 +95,9 @@ struct DeviceLease
     }
     ~DeviceLease() { Reset(); }
 };
+struct MemoryStorage { std::size_t bytes; const void* owner; std::uint64_t incarnation; };
+using MemoryStorageSpans=std::map<std::uintptr_t,MemoryStorage,std::less<std::uintptr_t>,
+    HostMetadataAllocator<std::pair<const std::uintptr_t,MemoryStorage>>>;
 struct Allocation
 {
     MemoryAllocator* owner;
@@ -107,6 +110,7 @@ struct Allocation
     std::uint64_t next_write = 1;
     GraphicsStorageSpans graphics_storage;
     NativeBackings native_backings;
+    MemoryStorageSpans memory_storage;
     DeviceLease device;
 };
 using Records = std::map<std::uintptr_t, Allocation, std::less<std::uintptr_t>,
@@ -117,6 +121,7 @@ struct Registry
     Records records;
     std::uint64_t next_incarnation = 1;
     std::uint64_t next_graphics_incarnation = 1;
+    std::uint64_t next_memory_incarnation = 1;
 };
 Registry& State()
 {
@@ -195,6 +200,25 @@ GameAllocationSpan Describe(Records::iterator found)
     return {reinterpret_cast<void*>(found->first), found->second.bytes,
             found->second.owner, found->second.incarnation};
 }
+MemoryStorageSpans::iterator ContainingMemory(Allocation& allocation, std::uintptr_t address, std::size_t count) {
+    auto& spans=allocation.memory_storage;
+    auto candidate=spans.upper_bound(address);
+    if(candidate==spans.begin())return spans.end();
+    --candidate;
+    if(candidate->first==address && !candidate->second.bytes)
+        throw std::invalid_argument("Source zero-size MEM request grants no readable bytes");
+    if(!Contains(candidate->first,candidate->second.bytes,address,1))return spans.end();
+    if(!Contains(candidate->first,candidate->second.bytes,address,count))
+        throw std::invalid_argument("Byte span leaves its actual MEM child storage");
+    return candidate;
+}
+void ValidateMemoryExtent(Allocation& allocation,std::uintptr_t address,std::size_t count) {
+    if(!count)return;
+    if(ContainingMemory(allocation,address,count)!=allocation.memory_storage.end())return;
+    auto next=allocation.memory_storage.lower_bound(address);
+    if(next!=allocation.memory_storage.end() && next->first-address<count)
+        throw std::invalid_argument("Byte span crosses live MEM child storage; parent capacity cannot grant it");
+}
 GraphicsStorageSpans::iterator ContainingGraphics(Allocation& allocation,
                                                   std::uintptr_t address, std::size_t count)
 {
@@ -255,11 +279,17 @@ struct PendingBytes
     bool has_prior_origin;
     std::uintptr_t graphics_base = 0;
     std::uint64_t graphics_incarnation = 0;
+    std::uintptr_t memory_base = 0;
+    std::uint64_t memory_incarnation = 0;
     PendingBytes(Records::iterator owner, std::uintptr_t address,
                  std::size_t logical, std::size_t physical, std::uint64_t write)
         : allocation(owner->first), incarnation(owner->second.incarnation), tag(write),
           has_prior_origin(Completed(owner->second, address, logical, prior_origin))
     {
+        auto memory=ContainingMemory(owner->second,address,physical);
+        if(memory!=owner->second.memory_storage.end()) {
+            memory_base=memory->first;memory_incarnation=memory->second.incarnation;
+        }
         auto graphics = ContainingGraphics(owner->second, address, physical);
         if (graphics != owner->second.graphics_storage.end())
         {
@@ -353,6 +383,36 @@ void RetireNativeBackings(Allocation& owner,std::uintptr_t address,std::size_t b
         if(Overlaps(i->first,i->second.source_bytes,address,bytes))i=owner.native_backings.erase(i);
         else ++i;
     }
+}
+struct PendingMemoryStorage {
+    std::uintptr_t allocation;
+    std::uint64_t incarnation;
+    MemoryStorageSpans::node_type record;
+    ByteSpans::node_type split;
+    PendingMemoryStorage(Records::iterator parent,const void* sourceOwner,std::size_t bytes,std::uint64_t generation)
+        : allocation(parent->first),incarnation(parent->second.incarnation),split(ReservedByteNode()) {
+        MemoryStorageSpans temporary;
+        temporary.emplace(0,MemoryStorage{bytes,sourceOwner,generation});
+        record=temporary.extract(0);
+    }
+};
+void RetireMemory(Allocation& parent,MemoryStorageSpans::iterator child) {
+    const auto address=child->first,bytes=child->second.bytes;
+    // Registration clears crossing parent domains; every subsequent producer
+    // is bounded by this exact child. Retirement therefore needs no split/OOM.
+    for(const auto& [base,span]:parent.byte_spans)
+        if(Overlaps(base,span.bytes,address,bytes) && !Contains(address,bytes,base,span.bytes))
+            throw std::logic_error("MEM retirement found a crossing completed domain");
+    for(const auto& [base,span]:parent.graphics_storage)
+        if(Overlaps(base,span.bytes,address,bytes) && !Contains(address,bytes,base,span.bytes))
+            throw std::logic_error("MEM retirement cuts live graphics storage");
+    ByteSpans::node_type noSplit;
+    RetireByteRange(parent,address,bytes,noSplit);
+    RetireNativeBackings(parent,address,bytes);
+    auto first=parent.graphics_storage.lower_bound(address);
+    auto last=parent.graphics_storage.lower_bound(address+bytes);
+    parent.graphics_storage.erase(first,last);
+    parent.memory_storage.erase(child);
 }
 struct PendingGraphicsStorage
 {
@@ -477,6 +537,7 @@ bool FindGameAllocationSpan(const void* pointer, std::size_t bytes, GameAllocati
     auto& state = State(); std::lock_guard lock(state.mutex);
     auto found = Containing(state.records, reinterpret_cast<std::uintptr_t>(pointer), bytes);
     if (found == state.records.end()) return false;
+    ValidateMemoryExtent(found->second,reinterpret_cast<std::uintptr_t>(pointer),bytes);
     result = Describe(found); return true;
 }
 bool FindGameCompletedSpan(const void* pointer, std::size_t bytes, GameCompletedSpan& result)
@@ -485,6 +546,7 @@ bool FindGameCompletedSpan(const void* pointer, std::size_t bytes, GameCompleted
     auto address = reinterpret_cast<std::uintptr_t>(pointer);
     auto found = Containing(state.records, address, bytes);
     if (found == state.records.end()) return false;
+    ValidateMemoryExtent(found->second,address,bytes);
     ByteSpan origin{};
     if (!Completed(found->second, address, bytes, origin)) return false;
     result = {reinterpret_cast<const void*>(origin.logical_base), origin.logical_bytes, Describe(found)};
@@ -496,6 +558,7 @@ GameByteDomain FindGameByteDomain(const void* pointer, std::size_t bytes)
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
     auto found = Containing(state.records, address, bytes);
     if (found == state.records.end()) throw std::invalid_argument("Bytes have no actual source allocation");
+    ValidateMemoryExtent(found->second,address,bytes);
     auto span = found->second.byte_spans.upper_bound(address);
     if (span != found->second.byte_spans.begin())
     {
@@ -514,6 +577,7 @@ GameByteWriteReservation::GameByteWriteReservation(void* destination, std::size_
     const auto address = reinterpret_cast<std::uintptr_t>(destination);
     auto owner = Containing(state.records, address, physicalBytes);
     if (owner == state.records.end()) throw std::invalid_argument("Byte write has no actual source allocation");
+    ValidateMemoryExtent(owner->second,address,physicalBytes);
     ValidateGraphicsExtent(owner->second, address, physicalBytes);
     for (const auto& [base, active] : owner->second.pending_writes)
         if (Overlaps(base, active.bytes, address, physicalBytes))
@@ -581,6 +645,12 @@ void GameByteWriteReservation::Complete(GameByteDomain domain)
     if (active == owner->second.pending_writes.end() || active->second.tag != token.tag
         || Containing(state.records, address, active->second.bytes) != owner)
         throw std::invalid_argument("Byte write source ownership changed");
+    ValidateMemoryExtent(owner->second,address,active->second.bytes);
+    if(token.memory_incarnation) {
+        auto memory=owner->second.memory_storage.find(token.memory_base);
+        if(memory==owner->second.memory_storage.end() || memory->second.incarnation!=token.memory_incarnation)
+            throw std::invalid_argument("Byte producer MEM child was freed or reused");
+    }
     ValidateGraphicsExtent(owner->second, address, active->second.bytes);
     if (token.graphics_incarnation)
     {
@@ -612,6 +682,7 @@ GameNativeBackingReservation::GameNativeBackingReservation(const void* source,st
     const auto address=reinterpret_cast<std::uintptr_t>(source);
     auto owner=Containing(state.records,address,sourceBytes);
     ByteSpan origin{};
+    if(owner!=state.records.end())ValidateMemoryExtent(owner->second,address,sourceBytes);
     if(owner==state.records.end() || !Completed(owner->second,address,sourceBytes,origin))
         throw std::invalid_argument("Native backing has no completed source allocation");
     auto domain=owner->second.byte_spans.upper_bound(address);
@@ -700,6 +771,63 @@ bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
     }
     return false;
 }
+bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
+    GameNativeBackingSourceSpan& result)
+{
+    result = {};
+    if (!native || !nativeBytes) return false;
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    const auto address = reinterpret_cast<std::uintptr_t>(native);
+    GameNativeBackingSourceSpan candidate{};
+    for (auto owner = state.records.begin(); owner != state.records.end(); ++owner)
+    {
+        for (const auto& entry : owner->second.native_backings)
+        {
+            const auto& backing = entry.second;
+            if (!Contains(reinterpret_cast<std::uintptr_t>(backing.data),
+                          backing.bytes, address, nativeBytes)) continue;
+            ByteSpan origin{};
+            if (Containing(state.records, entry.first, backing.source_bytes) != owner
+                || !Completed(owner->second, entry.first, backing.source_bytes, origin)
+                || origin.logical_tag != backing.logical_tag) return false;
+            ValidateMemoryExtent(owner->second, entry.first, backing.source_bytes);
+            if (candidate.source) return false;
+            candidate = {reinterpret_cast<const void*>(entry.first), backing.source_bytes,
+                         {backing.data, backing.bytes, Describe(owner)}};
+        }
+    }
+    if (!candidate.source) return false;
+    result = candidate;
+    return true;
+}
+bool FindGameNativeBackingForSource(const void* sourceProbe, std::size_t sourceProbeBytes,
+    GameNativeBackingSourceSpan& result)
+{
+    result = {};
+    if (!sourceProbe || !sourceProbeBytes) return false;
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    const auto probe = reinterpret_cast<std::uintptr_t>(sourceProbe);
+    auto owner = Containing(state.records, probe, sourceProbeBytes);
+    if (owner == state.records.end()) return false;
+    ValidateMemoryExtent(owner->second, probe, sourceProbeBytes);
+    GameNativeBackingSourceSpan candidate{};
+    for (const auto& entry : owner->second.native_backings)
+    {
+        const auto& backing = entry.second;
+        if (!Contains(entry.first, backing.source_bytes, probe, sourceProbeBytes)) continue;
+        ByteSpan origin{};
+        if (Containing(state.records, entry.first, backing.source_bytes) != owner
+            || !Completed(owner->second, entry.first, backing.source_bytes, origin)
+            || origin.logical_tag != backing.logical_tag) return false;
+        ValidateMemoryExtent(owner->second, entry.first, backing.source_bytes);
+        if (candidate.source) return false;
+        candidate = {reinterpret_cast<const void*>(entry.first), backing.source_bytes,
+                     {backing.data, backing.bytes, Describe(owner)}};
+    }
+    if (!candidate.source) return false;
+    result = candidate;
+    return true;
+}
 std::uint32_t ReadGameChunkWord(const void* header, unsigned word)
 {
     if (word > 1) throw std::invalid_argument("Chunk header has exactly two words");
@@ -707,6 +835,7 @@ std::uint32_t ReadGameChunkWord(const void* header, unsigned word)
     const auto address = reinterpret_cast<std::uintptr_t>(header);
     auto owner = Containing(state.records, address, 8);
     if (owner == state.records.end()) throw std::invalid_argument("Chunk has no live source allocation");
+    ValidateMemoryExtent(owner->second,address,8);
     auto span = owner->second.byte_spans.upper_bound(address);
     if (span == owner->second.byte_spans.begin()) throw std::invalid_argument("Chunk header has no completed domain");
     --span;
@@ -716,6 +845,7 @@ std::uint32_t ReadGameChunkWord(const void* header, unsigned word)
     const auto id = HeaderWord(bytes, span->second.domain);
     const auto size = HeaderWord(bytes + 4, span->second.domain);
     const auto extent = std::size_t(size) + 8;
+    ValidateMemoryExtent(owner->second,address,extent);
     ByteSpan origin{};
     if (Containing(state.records, address, extent) != owner
         || !Completed(owner->second, address, extent, origin))
@@ -725,6 +855,67 @@ std::uint32_t ReadGameChunkWord(const void* header, unsigned word)
     const auto payload = (address + 8 + alignment - 1) & ~(alignment - 1);
     if (payload - address - 8 > size) throw std::invalid_argument("Chunk alignment leaves raw extent");
     return word ? size : id;
+}
+
+GameMemoryStorageReservation::GameMemoryStorageReservation(const void* sourceOwner,std::size_t bytes):pending_(nullptr) {
+    auto& state=State();std::lock_guard lock(state.mutex);
+    auto parent=Containing(state.records,reinterpret_cast<std::uintptr_t>(sourceOwner),1);
+    if(parent==state.records.end())throw std::invalid_argument("MEM heap has no live original backing allocation");
+    if(!state.next_memory_incarnation)throw std::overflow_error("MEM storage incarnation exhausted");
+    void* storage=ChargedNativeMetadataAllocate(sizeof(PendingMemoryStorage));
+    try {pending_=new(storage) PendingMemoryStorage(parent,sourceOwner,bytes,state.next_memory_incarnation++);}
+    catch(...) {ChargedNativeMetadataRelease(storage);throw;}
+}
+GameMemoryStorageReservation::~GameMemoryStorageReservation() {
+    if(!pending_)return;
+    static_cast<PendingMemoryStorage*>(pending_)->~PendingMemoryStorage();ChargedNativeMetadataRelease(pending_);
+}
+void GameMemoryStorageReservation::Commit(void* pointer) {
+    auto& token=*static_cast<PendingMemoryStorage*>(pending_);
+    if(token.record.empty())throw std::logic_error("MEM storage committed twice");
+    const auto address=reinterpret_cast<std::uintptr_t>(pointer),bytes=token.record.mapped().bytes;
+    auto& state=State();std::lock_guard lock(state.mutex);
+    auto parent=state.records.find(token.allocation);
+    if(parent==state.records.end() || parent->second.incarnation!=token.incarnation
+        || Containing(state.records,address,bytes?bytes:1)!=parent)
+        throw std::invalid_argument("MEM allocation left its genuine source heap backing");
+    for(const auto& [base,span]:parent->second.memory_storage)
+        if(base==address || Overlaps(base,span.bytes,address,bytes))
+            throw std::invalid_argument("MEM allocation overlaps another live child");
+    for(const auto& [base,span]:parent->second.graphics_storage)
+        if(Overlaps(base,span.bytes,address,bytes))throw std::invalid_argument("MEM allocation overlaps live graphics storage");
+    for(const auto& [base,span]:parent->second.pending_writes)
+        if(Overlaps(base,span.bytes,address,bytes))throw std::invalid_argument("MEM allocation overlaps unfinished producer");
+    RetireByteRange(parent->second,address,bytes,token.split);
+    RetireNativeBackings(parent->second,address,bytes);
+    token.record.key()=address;
+    auto inserted=parent->second.memory_storage.insert(std::move(token.record));
+    if(!inserted.inserted)throw std::logic_error("MEM storage address conflict");
+}
+bool FindGameMemoryStorage(const void* pointer,std::size_t bytes,GameMemoryStorageSpan& result) {
+    result={};if(!bytes)return false;
+    auto& state=State();std::lock_guard lock(state.mutex);const auto address=reinterpret_cast<std::uintptr_t>(pointer);
+    auto parent=Containing(state.records,address,bytes);if(parent==state.records.end())return false;
+    auto child=ContainingMemory(parent->second,address,bytes);if(child==parent->second.memory_storage.end())return false;
+    result={reinterpret_cast<const void*>(child->first),child->second.bytes,child->second.owner,Describe(parent),child->second.incarnation};return true;
+}
+void RetireGameMemoryStorage(const void* sourceOwner,const void* pointer) {
+    auto& state=State();std::lock_guard lock(state.mutex);const auto address=reinterpret_cast<std::uintptr_t>(pointer);
+    auto parent=Containing(state.records,address,1);
+    if(parent==state.records.end())throw std::invalid_argument("MEM free lost its actual original backing");
+    auto child=parent->second.memory_storage.find(address);
+    if(child==parent->second.memory_storage.end() || child->second.owner!=sourceOwner)
+        throw std::invalid_argument("MEM free requires its exact live source heap child");
+    RetireMemory(parent->second,child);
+}
+void RetireGameMemoryStorageOwner(const void* sourceOwner) {
+    auto& state=State();std::lock_guard lock(state.mutex);
+    for(auto& [base,parent]:state.records) {
+        for(auto child=parent.memory_storage.begin();child!=parent.memory_storage.end();) {
+            auto current=child++;
+            if(current->second.owner==sourceOwner)RetireMemory(parent,current);
+        }
+    }
 }
 
 GameGraphicsStorageReservation::GameGraphicsStorageReservation(std::size_t bytes) : pending_(nullptr)
@@ -757,6 +948,7 @@ void GameGraphicsStorageReservation::Commit(void* pointer)
     auto& state = State(); std::lock_guard lock(state.mutex);
     auto owner = Containing(state.records, address, bytes);
     if (owner == state.records.end()) throw std::invalid_argument("Graphics storage has no real allocation owner");
+    ValidateMemoryExtent(owner->second,address,bytes);
     for (const auto& [base, live] : owner->second.graphics_storage)
         if (Overlaps(base, live.bytes, address, bytes))
             throw std::invalid_argument("Graphics suballocation overlaps live source storage");
@@ -783,6 +975,7 @@ void GameGraphicsRetirementReservation::Commit(const void* pointer, std::size_t 
     auto& state = State(); std::lock_guard lock(state.mutex);
     auto owner = Containing(state.records, address, bytes);
     if (owner == state.records.end()) throw std::invalid_argument("Graphics rewind has no real allocation backing");
+    ValidateMemoryExtent(owner->second,address,bytes);
     for (const auto& [base, live] : owner->second.graphics_storage)
         if (Overlaps(base, live.bytes, address, bytes) && !Contains(address, bytes, base, live.bytes))
             throw std::invalid_argument("Graphics rewind cuts through a live source suballocation");
@@ -814,6 +1007,7 @@ void PublishGameGraphicsNativeBytes(const void* base, const void* writtenEnd)
     auto& state = State(); std::lock_guard lock(state.mutex);
     auto owner = Containing(state.records, address, count);
     if (owner == state.records.end()) throw std::invalid_argument("Native stream has no real allocation backing");
+    ValidateMemoryExtent(owner->second,address,count);
     auto graphics = owner->second.graphics_storage.find(address);
     if (graphics == owner->second.graphics_storage.end() || count > graphics->second.bytes)
         throw std::invalid_argument("Native stream exceeds its exact source suballocation");
@@ -865,6 +1059,7 @@ GameGraphicsArraySpan ResolveGameGraphicsArray(const void* pointer)
     if (logicalBytes < bytes) bytes = logicalBytes;
     if (Containing(state.records, address, bytes) != owner)
         throw std::invalid_argument("GX array crosses a live nested allocation");
+    ValidateMemoryExtent(owner->second,address,bytes);
     ByteSpan origin{};
     if (!Completed(owner->second, address, bytes, origin))
         throw std::invalid_argument("GX array exceeds actual completed logical source bytes");

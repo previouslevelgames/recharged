@@ -55,6 +55,30 @@ struct GameAllocationSpan
 };
 bool FindGameAllocationSpan(const void* pointer, std::size_t bytes, GameAllocationSpan& result);
 
+// Actual nonoverlapping MEM child storage inside an original NL allocation.
+// The opaque source heap is a storage/lifetime owner, not a replacement
+// MemoryAllocator. Requested bytes never imply completed data or graphics.
+struct GameMemoryStorageSpan {
+    const void* base;
+    std::size_t bytes;
+    const void* owner;
+    GameAllocationSpan allocation;
+    std::uint64_t incarnation;
+};
+class GameMemoryStorageReservation {
+public:
+    GameMemoryStorageReservation(const void* owner, std::size_t requestedBytes);
+    ~GameMemoryStorageReservation();
+    GameMemoryStorageReservation(const GameMemoryStorageReservation&)=delete;
+    GameMemoryStorageReservation& operator=(const GameMemoryStorageReservation&)=delete;
+    void Commit(void* pointer);
+private:
+    void* pending_;
+};
+bool FindGameMemoryStorage(const void* pointer, std::size_t bytes, GameMemoryStorageSpan& result);
+void RetireGameMemoryStorage(const void* owner, const void* pointer);
+void RetireGameMemoryStorageOwner(const void* owner);
+
 enum class GameByteDomain { WiiSerialized, NativeHeader, NativePayload };
 struct GameCompletedSpan
 {
@@ -112,6 +136,17 @@ struct GameNativeBackingSourceSpan {
 };
 bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
     const void* sourceProbe, std::size_t sourceProbeBytes,
+    GameNativeBackingSourceSpan& result);
+// Identify the unique currently live backing containing these native bytes.
+// Only registry metadata is read; neither pointer is dereferenced. A successful
+// lookup reports the actual raw source anchor and its allocation incarnation,
+// without granting a lease or validating a pointer retained after address reuse.
+// The caller must already retain the original source owner's lifetime.
+bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
+    GameNativeBackingSourceSpan& result);
+// Resolve an actual completed raw probe to its unique current native backing.
+// This reads metadata only, creates no twin/ID, and grants no lifetime lease.
+bool FindGameNativeBackingForSource(const void* sourceProbe, std::size_t sourceProbeBytes,
     GameNativeBackingSourceSpan& result);
 class GameNativeBackingReservation {
 public:

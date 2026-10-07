@@ -1,0 +1,161 @@
+From: mscharged-port
+Subject: Preserve fixed Wii16 RFL name cells without changing host wchar
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h
+@@ -22,6 +22,13 @@
+ #define RFL_NAME_LEN 10
+ #define RFL_CREATOR_LEN 10
+ #define RFL_CREATEID_LEN 8
++
++#if defined(MSCHARGED_NATIVE)
++// RFL name cells are Wii16; the host wchar_t and CRT remain unchanged.
++#define RFL_WCHAR u16
++#else
++#define RFL_WCHAR wchar_t
++#endif
+ 
+ #define RFL_DB_CHAR_MAX 100
+ #define RFL_CTRL_CHAR_MAX 10
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
+@@ -252,8 +252,8 @@
+     } body; // at 0x16
+ 
+     struct {
+-        wchar_t name[RFL_NAME_LEN + 1];       // at 0x18
+-        wchar_t creator[RFL_CREATOR_LEN + 1]; // at 0x2E
++        RFL_WCHAR name[RFL_NAME_LEN + 1];       // at 0x18
++        RFL_WCHAR creator[RFL_CREATOR_LEN + 1]; // at 0x2E
+ 
+         // at 0x44
+         u16 sex : 1;
+@@ -276,7 +276,7 @@
+     u16 favoriteColor : 4;
+     u16 favorite : 1;
+ 
+-    wchar_t name[RFL_NAME_LEN]; // at 0x2
++    RFL_WCHAR name[RFL_NAME_LEN]; // at 0x2
+     u8 height;                  // at 0x16
+     u8 build;                   // at 0x17
+     RFLCreateID createID;       // at 0x18
+@@ -349,7 +349,7 @@
+     u16 moleX : 5;
+     u16 padding8 : 1;
+ 
+-    wchar_t creatorName[RFL_CREATOR_LEN]; // at 0x36
++    RFL_WCHAR creatorName[RFL_CREATOR_LEN]; // at 0x36
+ } RFLiCharData;
+ 
+ typedef struct RFLiStoreData {
+@@ -365,7 +365,7 @@
+     u16 favoriteColor : 4;
+     u16 favorite : 1;
+ 
+-    wchar_t name[RFL_NAME_LEN]; // at 0x2
++    RFL_WCHAR name[RFL_NAME_LEN]; // at 0x2
+     u8 height;                  // at 0x16
+     u8 build;                   // at 0x17
+     RFLCreateID createID;       // at 0x18
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
+@@ -17,8 +17,8 @@
+ typedef struct RFLMiddleDB;
+ 
+ typedef struct RFLAdditionalInfo {
+-    wchar_t name[RFL_NAME_LEN + 1];       // at 0x0
+-    wchar_t creator[RFL_CREATOR_LEN + 1]; // at 0x16
++    RFL_WCHAR name[RFL_NAME_LEN + 1];       // at 0x0
++    RFL_WCHAR creator[RFL_CREATOR_LEN + 1]; // at 0x16
+     RFLCreateID createID;                 // at 0x2C
+ 
+     // at 0x34
+diff --git a/src/RVL_SDK/rfl/RFL_Database.c b/src/RVL_SDK/rfl/RFL_Database.c
+--- a/src/RVL_SDK/rfl/RFL_Database.c
++++ b/src/RVL_SDK/rfl/RFL_Database.c
+@@ -306,7 +306,7 @@
+     info->body.height = data->height;
+     info->body.build = data->build;
+ 
+-    memcpy(info->personal.name, data->name, RFL_NAME_LEN * sizeof(wchar_t));
++    memcpy(info->personal.name, data->name, RFL_NAME_LEN * sizeof(RFL_WCHAR));
+     info->personal.name[RFL_NAME_LEN] = L'\0';
+ 
+     memcpy(&info->createID, &data->createID, sizeof(RFLCreateID));
+@@ -323,14 +323,14 @@
+     convertRaw2InfoCore_(data, out);
+ 
+     memcpy(out->personal.creator, data->creatorName,
+-           RFL_CREATOR_LEN * sizeof(wchar_t));
++           RFL_CREATOR_LEN * sizeof(RFL_WCHAR));
+     out->personal.creator[RFL_CREATOR_LEN] = '\0';
+ }
+ 
+ void RFLiConvertHRaw2Info(const RFLiHiddenCharData* data, RFLiCharInfo* out) {
+     convertRaw2InfoCore_((RFLiCharData*)data, out);
+ 
+-    memset(out->personal.creator, 0, RFL_CREATOR_LEN * sizeof(wchar_t));
++    memset(out->personal.creator, 0, RFL_CREATOR_LEN * sizeof(RFL_WCHAR));
+     out->personal.creator[RFL_CREATOR_LEN] = '\0';
+ 
+     out->personal.bmonth = 0;
+@@ -388,7 +388,7 @@
+     data->height = info->body.height;
+     data->build = info->body.build;
+ 
+-    memcpy(data->name, info->personal.name, RFL_NAME_LEN * sizeof(wchar_t));
++    memcpy(data->name, info->personal.name, RFL_NAME_LEN * sizeof(RFL_WCHAR));
+     memcpy(&data->createID, &info->createID, sizeof(RFLCreateID));
+ 
+     data->sex = info->personal.sex;
+@@ -402,7 +402,7 @@
+ void RFLiConvertInfo2Raw(const RFLiCharInfo* info, RFLiCharData* out) {
+     convertInfo2RawCore_(info, out);
+     memcpy(out->creatorName, info->personal.creator,
+-           RFL_CREATOR_LEN * sizeof(wchar_t));
++           RFL_CREATOR_LEN * sizeof(RFL_WCHAR));
+ }
+ 
+ void RFLiConvertInfo2HRaw(const RFLiCharInfo* info, RFLiHiddenCharData* out) {
+@@ -413,7 +413,7 @@
+ void RFLiConvertRaw2HRaw(const RFLiCharData* data, RFLiHiddenCharData* out) {
+     memset(out, 0, sizeof(RFLiHiddenCharData));
+     // Copy everything that also exists in hidden (just no creator name)
+-    memcpy(out, data, sizeof(RFLiCharData) - RFL_CREATOR_LEN * sizeof(wchar_t));
++    memcpy(out, data, sizeof(RFLiCharData) - RFL_CREATOR_LEN * sizeof(RFL_WCHAR));
+     out->birthPadding = 0;
+ }
+ 
+diff --git a/src/RVL_SDK/rfl/RFL_DataUtility.c b/src/RVL_SDK/rfl/RFL_DataUtility.c
+--- a/src/RVL_SDK/rfl/RFL_DataUtility.c
++++ b/src/RVL_SDK/rfl/RFL_DataUtility.c
+@@ -260,11 +260,11 @@
+     u8 height;
+     u8 build;
+ 
+-    memcpy(dst->name, src->personal.name, sizeof(wchar_t) * RFL_NAME_LEN);
++    memcpy(dst->name, src->personal.name, sizeof(RFL_WCHAR) * RFL_NAME_LEN);
+     dst->name[RFL_NAME_LEN] = '\0';
+ 
+     memcpy(dst->creator, src->personal.creator,
+-           sizeof(wchar_t) * RFL_CREATOR_LEN);
++           sizeof(RFL_WCHAR) * RFL_CREATOR_LEN);
+     // @bug Copy paste error
+     dst->name[RFL_CREATOR_LEN] = '\0';
+ 
+diff --git a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+--- a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
++++ b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+@@ -290,7 +290,7 @@
+         }
+     }
+ 
+-    nlStrNCpy((wchar_t*)gNetworkMiiNameWide, mMiiInfo.name, 11);
++    nlStrNCpy((RFL_WCHAR*)gNetworkMiiNameWide, mMiiInfo.name, 11);
+     SanitizeMiiName(gNetworkMiiNameWide);
+     nlWcsToStr(gNetworkMiiNameWide, gNetworkMiiName, 11);
+ 

@@ -1,0 +1,82 @@
+From: native port preparation
+Subject: [PATCH] retain original mesh/model game flow and scope preview checks
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+--- a/include/Game/GL/GLTexturedColourMeshWriter.h
++++ b/include/Game/GL/GLTexturedColourMeshWriter.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_GL_GL_TEXTURED_COLOUR_MESH_WRITER_H
+ #define GAME_GL_GL_TEXTURED_COLOUR_MESH_WRITER_H
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
++#error "Mesh writer diagnostics cannot change the original game-module profile"
++#endif
+ 
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
+--- a/include/Game/GL/GLFloatTexturedColourMeshWriter.h
++++ b/include/Game/GL/GLFloatTexturedColourMeshWriter.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_GL_GL_FLOAT_TEXTURED_COLOUR_MESH_WRITER_H
+ #define GAME_GL_GL_FLOAT_TEXTURED_COLOUR_MESH_WRITER_H
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
++#error "Mesh writer diagnostics cannot change the original game-module profile"
++#endif
+ 
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
+--- a/include/Game/GL/glModelBuilder.h
++++ b/include/Game/GL/glModelBuilder.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_GL_MODEL_BUILDER_H
+ #define GAME_GL_MODEL_BUILDER_H
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MODELS)
++#error "Model builder diagnostics cannot change the original game-module profile"
++#endif
+ 
+ struct glModel;
+ struct glModelPacket;
+--- a/include/NL/gl/glModel.h
++++ b/include/NL/gl/glModel.h
+@@ -1,5 +1,9 @@
+ #ifndef NL_GL_MODEL_H
+ #define NL_GL_MODEL_H
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MODELS)
++#error "Model diagnostics cannot change the original game-module profile"
++#endif
+ 
+ #include "types.h"
+ #include "NL/gl/glMatrixHandle.h"
+--- a/src/NL/gl/glModelCopies.cpp
++++ b/src/NL/gl/glModelCopies.cpp
+@@ -31,7 +31,7 @@
+     unsigned long numPackets;
+     int i;
+ 
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MODELS)
+     // Validate before allocating. The caller owns the destination pool/marker;
+     // streams and indices remain borrowed from the source resource.
+     if (!pModelArray || !nModels || nModels > 4096 || (!bPermanent && pAllocator))
+@@ -61,7 +61,7 @@
+         }
+     }
+ #endif
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+     glBeginResource(pModelArray->id); // Empty original resource-label hook.
+ #endif
+ 
+@@ -135,7 +135,7 @@
+         ++i;
+     }
+ 
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+     glEndResource();
+ #endif
+     return result;

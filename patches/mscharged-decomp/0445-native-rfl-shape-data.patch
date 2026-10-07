@@ -1,0 +1,146 @@
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Purpose: Native-only actual serialized RFL shape scalar reads and strict original array ownership resolution; no temporary/output publication.
+
+--- a/src/RVL_SDK/rfl/RFL_Model.c
++++ b/src/RVL_SDK/rfl/RFL_Model.c
+@@ -3,6 +3,22 @@
+ #include <revolution/os.h>
+ 
+ #include <string.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/rfl_shape_transport.h"
++#define GXSetArray(attribute, data, stride) ChargedSetRFLGraphicsArray(attribute, data, stride)
++#define RFL_SHAPE_HALF(pointer) ChargedReadRFLShapeHalf(pointer)
++#define RFL_SHAPE_S16(value) ChargedReadRFLShapeS16(&(value))
++#define RFL_SHAPE_VECTOR(destination, source) ChargedCopyRFLShapeVector(destination, source)
++#define RFL_SHAPE_BYTES(destination, source, bytes) ChargedCopyRFLShapeBytes(destination, source, bytes)
++#define RFL_TRANSFORM_RAW(destination, source) ChargedTransformRFLShapeCoordinate(destination, source)
++#else
++#define RFL_SHAPE_HALF(pointer) *(u16*)pointer
++#define RFL_SHAPE_S16(value) value
++#define RFL_SHAPE_VECTOR(destination, source) memcpy(destination, source, sizeof(Vec))
++#define RFL_SHAPE_BYTES(destination, source, bytes) memcpy(destination, source, bytes)
++#define RFL_TRANSFORM_RAW(destination, source) RFLiTransformCoordinate(destination, source)
++#endif
+ 
+ #define NUM_VTX_POS(size) ((size) / VTX_POS_SIZE)
+ #define SIZE_VTX_POS(count) ((count) * VTX_POS_SIZE)
+@@ -855,11 +871,11 @@
+ 
+     // Faceline extra data
+     if (shape->part == RFLiPartsShp_Faceline) {
+-        memcpy(shape->noseTrans, ptr8, sizeof(Vec));
++        RFL_SHAPE_VECTOR(shape->noseTrans, ptr8);
+         ptr8 += sizeof(Vec);
+-        memcpy(shape->beardTrans, ptr8, sizeof(Vec));
++        RFL_SHAPE_VECTOR(shape->beardTrans, ptr8);
+         ptr8 += sizeof(Vec);
+-        memcpy(shape->hairTrans, ptr8, sizeof(Vec));
++        RFL_SHAPE_VECTOR(shape->hairTrans, ptr8);
+         ptr8 += sizeof(Vec);
+     }
+ 
+@@ -867,7 +883,7 @@
+      * Vertex positions
+      */
+ 
+-    if (*(u16*)ptr8 == 0) {
++    if (RFL_SHAPE_HALF(ptr8) == 0) {
+         shape->numVtxPos = 0;
+         shape->numVtxNrm = 0;
+         shape->numVtxTxc = 0;
+@@ -876,7 +892,7 @@
+         return;
+     }
+ 
+-    shape->numVtxPos = *(u16*)ptr8;
++    shape->numVtxPos = RFL_SHAPE_HALF(ptr8);
+     ptr8 += sizeof(u16);
+ 
+     {
+@@ -894,13 +910,13 @@
+                 s16 temp[3];
+ 
+                 if (shape->flipX) {
+-                    temp[0] = tx + ((-ptr16[0] * s) >> 8);
++                    temp[0] = tx + ((-RFL_SHAPE_S16(ptr16[0]) * s) >> 8);
+                 } else {
+-                    temp[0] = tx + ((ptr16[0] * s) >> 8);
++                    temp[0] = tx + ((RFL_SHAPE_S16(ptr16[0]) * s) >> 8);
+                 }
+ 
+-                temp[1] = ty + ((ptr16[1] * s) >> 8);
+-                temp[2] = tz + ((ptr16[2] * s) >> 8);
++                temp[1] = ty + ((RFL_SHAPE_S16(ptr16[1]) * s) >> 8);
++                temp[2] = tz + ((RFL_SHAPE_S16(ptr16[2]) * s) >> 8);
+ 
+                 RFLiTransformCoordinate(
+                     &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], temp);
+@@ -911,9 +927,9 @@
+             for (i = 0; i < shape->numVtxPos; i++) {
+                 s16 temp[3];
+ 
+-                temp[0] = -ptr16[0];
+-                temp[1] = ptr16[1];
+-                temp[2] = ptr16[2];
++                temp[0] = -RFL_SHAPE_S16(ptr16[0]);
++                temp[1] = RFL_SHAPE_S16(ptr16[1]);
++                temp[2] = RFL_SHAPE_S16(ptr16[2]);
+ 
+                 RFLiTransformCoordinate(
+                     &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], temp);
+@@ -921,7 +937,7 @@
+             }
+         } else {
+             for (i = 0; i < shape->numVtxPos; i++) {
+-                RFLiTransformCoordinate(
++                RFL_TRANSFORM_RAW(
+                     &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], ptr16);
+                 ptr16 += VTX_COORDS_IN_POS;
+             }
+@@ -934,7 +950,7 @@
+      * Vertex normals
+      */
+ 
+-    shape->numVtxNrm = *(u16*)ptr8;
++    shape->numVtxNrm = RFL_SHAPE_HALF(ptr8);
+     ptr8 += sizeof(u16);
+ 
+     {
+@@ -946,9 +962,9 @@
+             for (i = 0; i < shape->numVtxNrm; i++) {
+                 s16 temp[3];
+ 
+-                temp[0] = -ptr16[0];
+-                temp[1] = ptr16[1];
+-                temp[2] = ptr16[2];
++                temp[0] = -RFL_SHAPE_S16(ptr16[0]);
++                temp[1] = RFL_SHAPE_S16(ptr16[1]);
++                temp[2] = RFL_SHAPE_S16(ptr16[2]);
+ 
+                 RFLiTransformCoordinate(
+                     &shape->vtxNrmBuf[i * VTX_COORDS_IN_NRM], temp);
+@@ -957,7 +973,7 @@
+         } else {
+             int i;
+             for (i = 0; i < shape->numVtxNrm; i++) {
+-                RFLiTransformCoordinate(
++                RFL_TRANSFORM_RAW(
+                     &shape->vtxNrmBuf[i * VTX_COORDS_IN_NRM], ptr16);
+                 ptr16 += VTX_COORDS_IN_NRM;
+             }
+@@ -976,11 +992,11 @@
+         if (skipTxc) {
+             shape->numVtxTxc = 0;
+         } else {
+-            shape->numVtxTxc = *(u16*)ptr8;
++            shape->numVtxTxc = RFL_SHAPE_HALF(ptr8);
+             ptr8 += sizeof(u16);
+ 
+             byteSize = SIZE_VTX_TXC(shape->numVtxTxc);
+-            memcpy(shape->vtxTxcBuf, ptr8, byteSize);
++            RFL_SHAPE_BYTES(shape->vtxTxcBuf, ptr8, byteSize);
+             ptr8 += byteSize;
+         }
+     }

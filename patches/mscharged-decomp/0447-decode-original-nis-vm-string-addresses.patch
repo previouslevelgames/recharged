@@ -1,0 +1,68 @@
+From: native port compatibility
+Subject: [PATCH] Decode original NIS string address words on native hosts
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Retain the original VM32 stack and six original string consumers. Native calls
+resolve the existing cached Wii address words using the same transport as the
+original interpreter and frontend bindings. Numeric operands, stack movement,
+requests, dispatch order, arguments and source algorithms stay unchanged.
+Console text projections are identical; no native host dispatcher is added.
+
+diff --git a/src/Game/Render/Nis_interp.cpp b/src/Game/Render/Nis_interp.cpp
+--- a/src/Game/Render/Nis_interp.cpp
++++ b/src/Game/Render/Nis_interp.cpp
+@@ -23,8 +23,16 @@
+         bool force = m_SP[-1] != 0;
+         NisWinnerType winnerType = (NisWinnerType)m_SP[-2];
+         NisTarget target = (NisTarget)m_SP[-3];
++#if defined(MSCHARGED_NATIVE)
++        const char* proxyName = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-4]));
++#else
+         const char* proxyName = (const char*)m_SP[-4];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        const char* animName = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-5]));
++#else
+         const char* animName = (const char*)m_SP[-5];
++#endif
+         m_SP -= 5;
+         PlayAnimProxy(animName, proxyName, target, winnerType, force);
+         break;
+diff --git a/src/Game/NisPlayer_interp.cpp b/src/Game/NisPlayer_interp.cpp
+--- a/src/Game/NisPlayer_interp.cpp
++++ b/src/Game/NisPlayer_interp.cpp
+@@ -35,8 +35,16 @@
+     case 2:
+     {
+         unsigned long triggerParam1 = m_SP[-1];
++#if defined(MSCHARGED_NATIVE)
++        const char* target = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-2]));
++#else
+         const char* target = (const char*)m_SP[-2];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        const char* name = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-3]));
++#else
+         const char* name = (const char*)m_SP[-3];
++#endif
+         float frame = ((float*)m_SP)[-4];
+         m_SP -= 4;
+ 
+@@ -70,8 +78,16 @@
+     }
+     case 4:
+     {
++#if defined(MSCHARGED_NATIVE)
++        const char* target = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-1]));
++#else
+         const char* target = (const char*)m_SP[-1];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        const char* name = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-2]));
++#else
+         const char* name = (const char*)m_SP[-2];
++#endif
+         float frame = ((float*)m_SP)[-3];
+         m_SP -= 3;
+ 

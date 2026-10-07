@@ -1,0 +1,24 @@
+Subject: Preserve original BundleFile placement construction on native compilers
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+The native class allocation family hides global placement new in whole
+feAsyncImage.cpp. Add the standard placement overload pair, returning the
+source-allocated storage and preserving no-op placement deletion. Original
+allocation requests, constructor/callback bodies and ordinary owning delete
+remain unchanged. Console preprocessor output is identical.
+
+--- a/include/NL/nlBundleFile.h
++++ b/include/NL/nlBundleFile.h
+@@ -57,9 +57,12 @@
+     static void* operator new(size_t size) { return nlMalloc(size); }
+     static void* operator new(size_t size, unsigned int alignment, bool fromEnd)
+     { return nlMalloc(size, alignment, fromEnd); }
++    // Preserve original callers that already allocated this object's storage.
++    static void* operator new(size_t, void* storage) noexcept { return storage; }
+     static void operator delete(void* pointer) noexcept { nlFree(pointer); }
+     static void operator delete(void* pointer, unsigned int, bool) noexcept
+     { nlFree(pointer); }
++    static void operator delete(void*, void*) noexcept {}
+ #endif
+ 
+     bool Open(const char* filename, bool keepFilename);

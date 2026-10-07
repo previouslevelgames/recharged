@@ -9,11 +9,17 @@
 #include "NL/glx/GXScrollingDiffuseMaterialProgram.h"
 #include "NL/glx/GXMovieMaterialProgram.h"
 #include "NL/glx/GXScrollingSpecularMaterialProgram.h"
+#include "NL/glx/GXCharacterSkinCustomMaterialProgram.h"
+#include "NL/glx/GXSpecularMaterialProgram.h"
+#include "NL/glx/GXSpecularFresnelMaterialProgram.h"
+#include "NL/glx/GXMegaDiffuseMaterialProgram.h"
 
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <new>
 #include <stdexcept>
+#include <type_traits>
 
 namespace mscharged::platform
 {
@@ -40,6 +46,85 @@ std::uint32_t Word(const unsigned char* input, std::size_t bytes)
     for (std::size_t i = 0; i < bytes; ++i)
         value = (value << 8) | input[i];
     return value;
+}
+
+// This tag is native ownership metadata, outside the game parameter object.
+// Shared authored records must reuse their live view, including later writes
+// made by the original material setters, rather than decode the file again.
+struct alignas(std::max_align_t) SkinnedParameterTag
+{
+    std::uint32_t program;
+    std::uint32_t wireBytes;
+    std::uint32_t nativeBytes;
+    std::uint32_t parameters;
+};
+
+template<class Parameters>
+void DecodeSkinnedParameters(glModelPacket* packet, std::size_t wireBytes,
+    std::size_t bindings, std::uint32_t parameterCount)
+{
+    static_assert(std::is_trivially_copyable_v<Parameters>);
+    static_assert(sizeof(Parameters::skinMatricesSize) == 4);
+    static_assert(offsetof(Parameters, skinMatricesSize)
+        == offsetof(Parameters, skinMatrices) + sizeof(Parameters::skinMatrices));
+    auto* program = static_cast<GLMaterialProgram*>(packet->materialProgram);
+    if (program->parameterDataSize != sizeof(Parameters)
+        || program->parameterCount != parameterCount
+        || offsetof(Parameters, skinMatrices) != bindings * sizeof(glTextureBinding))
+        throw std::invalid_argument("Original skinned material layout differs from the qualified native ABI");
+    auto* raw = static_cast<unsigned char*>(packet->materialParameters);
+    GameCompletedSpan source{};
+    if (!FindGameCompletedSpan(raw, wireBytes, source)
+        || FindGameByteDomain(raw, wireBytes) != GameByteDomain::WiiSerialized)
+        throw std::invalid_argument("Skinned material parameters require completed owned Wii records");
+
+    const SkinnedParameterTag tag{program->programHash, static_cast<std::uint32_t>(wireBytes),
+        static_cast<std::uint32_t>(sizeof(Parameters)), parameterCount};
+    constexpr std::size_t nativeBytes = sizeof(SkinnedParameterTag) + sizeof(Parameters);
+    GameNativeBackingSpan prior{};
+    if (FindGameNativeBacking(raw, wireBytes, prior))
+    {
+        SkinnedParameterTag found{};
+        if (prior.bytes != nativeBytes)
+            throw std::invalid_argument("Skinned material view has a different native footprint");
+        std::memcpy(&found, prior.data, sizeof(found));
+        if (found.program != tag.program || found.wireBytes != tag.wireBytes
+            || found.nativeBytes != tag.nativeBytes || found.parameters != tag.parameters)
+            throw std::invalid_argument("Shared skinned material record has a different layout");
+        packet->materialParameters = static_cast<unsigned char*>(prior.data) + sizeof(found);
+        return;
+    }
+
+    Parameters native{};
+    auto* output = reinterpret_cast<unsigned char*>(&native);
+    for (std::size_t binding = 0; binding < bindings; ++binding)
+    {
+        const auto at = binding * sizeof(glTextureBinding);
+        const std::uint32_t texture = Word(raw + at, 4);
+        const std::uint16_t index = static_cast<std::uint16_t>(Word(raw + at + 4, 2));
+        std::memcpy(output + at, &texture, 4);
+        std::memcpy(output + at + 4, &index, 2);
+        std::memcpy(output + at + 6, raw + at + 6, 2);
+    }
+    const auto pointerAt = bindings * sizeof(glTextureBinding);
+    // Authored NPC records contain a null matrix pointer. A nonzero Wii address
+    // needs a real address-domain provider; it must never be cast to a host pointer.
+    if (Word(raw + pointerAt, 4) != 0)
+        throw std::invalid_argument("Nonzero authored skin matrix addresses remain unqualified");
+    native.skinMatrices = nullptr;
+    const auto tailAt = offsetof(Parameters, skinMatricesSize);
+    for (std::size_t at = pointerAt + 4; at < wireBytes; at += 4)
+    {
+        const auto bits = Word(raw + at, 4);
+        std::memcpy(output + tailAt + at - (pointerAt + 4), &bits, 4);
+    }
+
+    GameNativeBackingReservation backing(raw, wireBytes, nativeBytes);
+    auto* data = static_cast<unsigned char*>(backing.Data());
+    std::memcpy(data, &tag, sizeof(tag));
+    new (data + sizeof(tag)) Parameters(native);
+    backing.Commit();
+    packet->materialParameters = data + sizeof(tag);
 }
 }
 
@@ -85,6 +170,29 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
     auto* program = static_cast<GLMaterialProgram*>(packet->materialProgram);
     if (!program)
         throw std::invalid_argument("Original RLG material lookup has no genuine source provider");
+    switch (program->programHash)
+    {
+    case 0x041C3281:
+        static_assert(sizeof(GXCharacterSkinCustomParameters) == 48);
+        static_assert(offsetof(GXCharacterSkinCustomParameters, lightingEnabled) == 40);
+        DecodeSkinnedParameters<GXCharacterSkinCustomParameters>(packet, 40, 2, 7);
+        return;
+    case 0x22CADB20:
+        static_assert(sizeof(GXSpecularParameters) == 80);
+        static_assert(offsetof(GXSpecularParameters, lightingEnabled) == 72);
+        DecodeSkinnedParameters<GXSpecularParameters>(packet, 72, 3, 11);
+        return;
+    case 0x46B46F88:
+        static_assert(sizeof(GXSpecularFresnelParameters) == 80);
+        static_assert(offsetof(GXSpecularFresnelParameters, lightingEnabled) == 72);
+        DecodeSkinnedParameters<GXSpecularFresnelParameters>(packet, 72, 4, 13);
+        return;
+    case 0x44410B9B:
+        static_assert(sizeof(GXMegaDiffuseParameters) == 56);
+        static_assert(offsetof(GXMegaDiffuseParameters, lightingEnabled) == 52);
+        DecodeSkinnedParameters<GXMegaDiffuseParameters>(packet, 52, 3, 9);
+        return;
+    }
     std::size_t bytes;
     std::size_t bindings = 1;
     switch (program->programHash)

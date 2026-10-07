@@ -1,0 +1,31 @@
+From: mscharged-port contributors
+Subject: [PATCH] Preserve RFL fog arguments and MSL float constant on native compilers
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Use the canonical native GX fog argument order without changing values.
+Retain the original MSL float M_PI rather than the host double constant.
+The original console source expansion remains exact.
+
+diff --git a/src/RVL_SDK/rfl/RFL_MakeTex.c b/src/RVL_SDK/rfl/RFL_MakeTex.c
+--- a/src/RVL_SDK/rfl/RFL_MakeTex.c
++++ b/src/RVL_SDK/rfl/RFL_MakeTex.c
+@@ -1,10 +1,19 @@
+ #include <RVLFaceLib/RVLFaceLibInternal.h>
+ 
+ #include <math.h>
++#if defined(MSCHARGED_NATIVE)
++/* Preserve the original MSL math.h constant and its float expression type. */
++#undef M_PI
++#define M_PI 3.1415927f
++#endif
+ 
+ void RFLiSetupCopyTex(GXTexFmt fmt, u16 width, u16 height, void* buffer,
+                       GXColor clearColor) {
++#if defined(MSCHARGED_NATIVE)
++    GXSetFog(GX_FOG_NONE, 1.0f, 1.0f, 0.0f, 0.0f, (GXColor){0, 0, 0, 0});
++#else
+     GXSetFog(GX_FOG_NONE, (GXColor){0, 0, 0, 0}, 1.0f, 1.0f, 0.0f, 0.0f);
++#endif
+     GXSetColorUpdate(TRUE);
+     GXSetAlphaUpdate(TRUE);
+     GXSetDstAlpha(FALSE, 0);

@@ -1,0 +1,176 @@
+From: mscharged-port
+Subject: Read original ARC wire records under native source APIs
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
+--- a/src/RVL_SDK/arc/arc.c
++++ b/src/RVL_SDK/arc/arc.c
+@@ -3,6 +3,14 @@
+ 
+ #include <ctype.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/arc_data_transport.h"
++#define OS_ERROR(...) OSPanic(__FILE__, __LINE__, __VA_ARGS__)
++#define ARC_WORD(field) ((__typeof__(field))ChargedReadARCWord(&(field)))
++#else
++#define ARC_WORD(field) field
++#endif
++
+ #undef NULL
+ #define NULL ((void*)0)
+ 
+@@ -10,11 +18,15 @@
+ #define FALSE 0
+ 
+ #undef ADD_PTR
++#if defined(MSCHARGED_NATIVE)
++#define ADD_PTR(ptr, offset) ChargedARCByteOffset(ptr, offset)
++#else
+ #define ADD_PTR(ptr, offset) ((void*)((u32)ptr + offset))
++#endif
+ 
+ #undef IS_DIR
+ #define IS_DIR(fst, entrynum)                                                  \
+-    ((fst[entrynum].isDirAndStringOff & 0xFF000000) == 0 ? FALSE : TRUE)
++    ((ARC_WORD(fst[entrynum].isDirAndStringOff) & 0xFF000000) == 0 ? FALSE : TRUE)
+ 
+ #define ARC_FILE_MAGIC 0x55AA382D
+ 
+@@ -34,23 +46,33 @@
+ 
+ BOOL ARCInitHandle(void* arcStart, ARCHandle* handle) {
+     FSTEntry* FSTEntries;
+-    ARCHeader* arcHeader = (ARCHeader*)arcStart;
+-
+-    if (arcHeader->magic != ARC_FILE_MAGIC) {
++    ARCHeader* arcHeader =
++#if defined(MSCHARGED_NATIVE)
++        (ARCHeader*)ChargedARCHeader(arcStart, _Alignof(ARCHeader));
++#else
++        (ARCHeader*)arcStart;
++#endif
++
++    if (ARC_WORD(arcHeader->magic) != ARC_FILE_MAGIC) {
+ #line 74
+         OS_ERROR("ARCInitHandle: bad archive format");
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    ChargedValidateARCLayout(arcStart, ARC_WORD(arcHeader->fstStart),
++        ARC_WORD(arcHeader->fstSize), ARC_WORD(arcHeader->fileStart), _Alignof(FSTEntry));
++#endif
++
+     handle->archiveStartAddr = arcStart;
+ 
+-    FSTEntries = (FSTEntry*)ADD_PTR(arcStart, arcHeader->fstStart);
++    FSTEntries = (FSTEntry*)ADD_PTR(arcStart, ARC_WORD(arcHeader->fstStart));
+     handle->FSTStart = FSTEntries;
+-    handle->fileStart = ADD_PTR(arcStart, arcHeader->fileStart);
+-
+-    handle->entryNum = FSTEntries[0].nextEntryOrLength;
++    handle->fileStart = ADD_PTR(arcStart, ARC_WORD(arcHeader->fileStart));
++
++    handle->entryNum = ARC_WORD(FSTEntries[0].nextEntryOrLength);
+     handle->FSTStringStart =
+         (char*)ADD_PTR(FSTEntries, handle->entryNum * sizeof(FSTEntry));
+-    handle->FSTLength = arcHeader->fstSize;
++    handle->FSTLength = ARC_WORD(arcHeader->fstSize);
+     handle->currDir = 0;
+ 
+     return TRUE;
+@@ -77,8 +99,8 @@
+     }
+ 
+     af->handle = handle;
+-    af->startOffset = FSTEntries[entry].parentOrPosition;
+-    af->length = FSTEntries[entry].nextEntryOrLength;
++    af->startOffset = ARC_WORD(FSTEntries[entry].parentOrPosition);
++    af->length = ARC_WORD(FSTEntries[entry].nextEntryOrLength);
+ 
+     return TRUE;
+ }
+@@ -92,8 +114,8 @@
+     }
+ 
+     af->handle = handle;
+-    af->startOffset = FSTEntries[entrynum].parentOrPosition;
+-    af->length = FSTEntries[entrynum].nextEntryOrLength;
++    af->startOffset = ARC_WORD(FSTEntries[entrynum].parentOrPosition);
++    af->length = ARC_WORD(FSTEntries[entrynum].nextEntryOrLength);
+ 
+     return TRUE;
+ }
+@@ -142,12 +164,12 @@
+             if (pathPtr[1] == '.') {
+                 if (pathPtr[2] == '/') {
+                     // Restart at parent directory
+-                    dirLookAt = FSTEntries[dirLookAt].parentOrPosition;
++                    dirLookAt = ARC_WORD(FSTEntries[dirLookAt].parentOrPosition);
+                     pathPtr += 3;
+                     continue;
+                 } else if (pathPtr[2] == '\0') {
+                     // We found the parent directory (always a directory)
+-                    return FSTEntries[dirLookAt].parentOrPosition;
++                    return ARC_WORD(FSTEntries[dirLookAt].parentOrPosition);
+                 }
+             } else if (pathPtr[1] == '/') {
+                 // Restart at current directory
+@@ -176,8 +198,8 @@
+         length = ptr - pathPtr;
+         ptr = pathPtr; // Why?? There's no writes to pathPtr in the loop
+ 
+-        for (i = dirLookAt + 1; i < FSTEntries[dirLookAt].nextEntryOrLength;
+-             i = IS_DIR(FSTEntries, i) ? FSTEntries[i].nextEntryOrLength
++        for (i = dirLookAt + 1; i < ARC_WORD(FSTEntries[dirLookAt].nextEntryOrLength);
++             i = IS_DIR(FSTEntries, i) ? ARC_WORD(FSTEntries[i].nextEntryOrLength)
+                                        : i + 1) {
+             // We need a nested loop with no condition so that we can handle an
+             // edgecase. If the directory includes itself, we need to move onto
+@@ -189,7 +211,7 @@
+                 }
+ 
+                 stringPtr = handle->FSTStringStart +
+-                            (FSTEntries[i].isDirAndStringOff & 0xFFFFFF);
++                            (ARC_WORD(FSTEntries[i].isDirAndStringOff) & 0xFFFFFF);
+                 // The directory includes itself, skip it
+                 if (stringPtr[0] == '.' && stringPtr[1] == '\0') {
+                     ++i;
+@@ -250,8 +272,8 @@
+     }
+ 
+     name = handle->FSTStringStart +
+-           (FSTEntries[entry].isDirAndStringOff & 0xFFFFFF);
+-    loc = entryToPath(handle, FSTEntries[entry].parentOrPosition, path, maxlen);
++           (ARC_WORD(FSTEntries[entry].isDirAndStringOff) & 0xFFFFFF);
++    loc = entryToPath(handle, ARC_WORD(FSTEntries[entry].parentOrPosition), path, maxlen);
+     if (loc == maxlen) {
+         return loc;
+     }
+@@ -337,7 +359,7 @@
+     dir->handle = handle;
+     dir->entryNum = entry;
+     dir->location = entry + 1;
+-    dir->next = FSTEntries[entry].nextEntryOrLength;
++    dir->next = ARC_WORD(FSTEntries[entry].nextEntryOrLength);
+     return TRUE;
+ }
+ 
+@@ -358,7 +380,7 @@
+         dirent->entryNum = loc;
+         dirent->isDir = IS_DIR(FSTEntries, loc);
+         dirent->name = handle->FSTStringStart +
+-                       (FSTEntries[loc].isDirAndStringOff & 0xFFFFFF);
++                       (ARC_WORD(FSTEntries[loc].isDirAndStringOff) & 0xFFFFFF);
+         if (dirent->name[0] == '.' && dirent->name[1] == '\0') {
+             ++loc;
+             continue;
+@@ -368,7 +390,7 @@
+     }
+ 
+     dir->location =
+-        IS_DIR(FSTEntries, loc) ? FSTEntries[loc].nextEntryOrLength : loc + 1;
++        IS_DIR(FSTEntries, loc) ? ARC_WORD(FSTEntries[loc].nextEntryOrLength) : loc + 1;
+ 
+     return TRUE;
+ }

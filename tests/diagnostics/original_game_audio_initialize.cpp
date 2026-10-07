@@ -24,9 +24,31 @@ extern "C" __attribute__((visibility("default"))) bool charged_original_audio_id
     return g_pAudioSystem->IsIdle();
 }
 
+// Separate read-only terminal observation: source IsIdle covers handles/pools,
+// not the real NL resource/sample callbacks. Do not change its meaning or cancel
+// pending bank loads merely to retire the host diagnostic.
+extern "C" __attribute__((visibility("default"))) bool charged_original_audio_bank_reads_idle() {
+    if (charged_original_audio_observe() != 7u)
+        throw std::logic_error("Original bank observation requires its loaded source owner");
+    AudioBankTable* table = g_pAudioSystem->GetBundleManager()->GetSoundMap();
+    if (!table)
+        throw std::logic_error("Original initialized source lacks its sound bank table");
+    for (u32 i = 0; i < table->count_08; ++i) {
+        const auto& source = table->records_0C[i];
+        const auto* owner = source.field_10;
+        if (source.field_14 && !owner)
+            return false;
+        if (owner && owner->m_Loader && !owner->m_Completed)
+            return false;
+    }
+    return true;
+}
+
 // Called only after genuine AI/job drain and device HALT/close, while source
 // owners and their allocation endpoints remain live. No forced Stop/update loop.
 extern "C" __attribute__((visibility("default"))) void charged_original_audio_unload_idle_banks() {
+    if (!charged_original_audio_bank_reads_idle())
+        throw std::logic_error("Pending original bank callbacks must complete before host retirement");
     if (!charged_original_audio_idle())
         throw std::logic_error("Active original sounds require the original teardown flow before bank retirement");
     const auto csr = ChargedDSPControlRead();

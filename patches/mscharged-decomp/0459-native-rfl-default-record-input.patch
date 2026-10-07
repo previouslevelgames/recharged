@@ -1,0 +1,28 @@
+# Original RFL default-record byte/ABI input boundary only.
+# Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+# Requires: 0452 native RFL name cells; native record writers unchanged.
+
+diff --git a/src/RVL_SDK/rfl/RFL_DefaultDatabase.c b/src/RVL_SDK/rfl/RFL_DefaultDatabase.c
+--- a/src/RVL_SDK/rfl/RFL_DefaultDatabase.c
++++ b/src/RVL_SDK/rfl/RFL_DefaultDatabase.c
+@@ -1,4 +1,8 @@
+ #include <RVLFaceLib/RVLFaceLibInternal.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include <platform/rfl_character_transport.h>
++#endif
+ 
+ static const u8 scDefaultData[][sizeof(RFLiCharData)] = {
+     // "Guest A"
+@@ -59,5 +63,11 @@
+ }
+ 
+ void RFLiGetDefaultData(RFLiCharInfo* info, u16 index) {
++#if defined(MSCHARGED_NATIVE)
++    RFLiCharData nativeData;
++    ChargedDecodeRFLCharRecordBE(scDefaultData[index], &nativeData);
++    RFLiConvertRaw2Info(&nativeData, info);
++#else
+     RFLiConvertRaw2Info((RFLiCharData*)&scDefaultData[index], info);
++#endif
+ }

@@ -1,7 +1,8 @@
 { global: charged_original_entry; charged_original_scene_frame;
   charged_original_scene_native_frame; charged_original_scene_stop_movie;
   charged_original_sh_observe; charged_original_sh_request_options;
-  charged_original_audio_observe; charged_original_audio_shutdown; charged_original_audio_idle; charged_original_audio_unload_idle_banks;
+  charged_original_audio_observe; charged_original_audio_shutdown; charged_original_audio_idle;
+        charged_original_audio_bank_reads_idle; charged_original_audio_unload_idle_banks;
   charged_original_audio_retire_silence_pin;
   charged_original_boot_script_observe; charged_original_boot_script_instruction;
   charged_original_boot_scene_phase;

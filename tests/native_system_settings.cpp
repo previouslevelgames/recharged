@@ -13,6 +13,8 @@ static_assert(SC_STATUS_OK==0 && SC_STATUS_BUSY==1 && SC_STATUS_FATAL==2);
 static int checks;
 void Check(bool value,const char* message){if(!value)throw std::runtime_error(message);++checks;}
 template<class Fn> void Reject(Fn fn,const char* message){bool rejected=false;try{fn();}catch(const std::logic_error&){rejected=true;}Check(rejected,message);}
+static void TestSimpleAddress();
+
 int main()
 {
     using namespace mscharged;
@@ -80,9 +82,54 @@ int main()
             ShutdownNativeSystemSettings();
         }
         Reject([]{SCGetSoundMode();},"retired sound snapshot unavailable");
+        TestSimpleAddress();
         ShutdownNativeSystemSettings();
         Check(SCCheckStatus()==SC_STATUS_FATAL,"retirement is idempotent");
         std::printf("237 native SC endpoint PASS:%d checks; explicit backing records/readiness/lifetime, no source/game/video decisions changed.\n",checks);
     }
     catch(const std::exception& e){std::fprintf(stderr,"237 FAIL:%s\n",e.what());return 1;}
+}
+
+static void TestSimpleAddress()
+{
+    using namespace mscharged;
+
+ Reject([]{SCGetSimpleAddressID();},"unconfigured read");
+ Reject([]{ConfigureNativeSystemSimpleAddress(0);},"no settings owner");
+ Check(SCCheckStatus()==SC_STATUS_FATAL,"no fabricated status");
+ ConfigureNativeSystemSettings({SC_LANG_EN,SC_INTERLACED,SC_EURGB_50_HZ,SC_ASPECT_STD,SC_SND_STEREO});
+ Reject([]{SCGetSimpleAddressID();},"absent ID does not default0");
+ ConfigureNativeSystemSimpleAddress(0x41010203u);
+ Check(SCGetSimpleAddressID()==0x41010203u,"exact staged ID");
+ Check(SCGetSimpleAddressID()>>24==0x41,"country high8");
+ Check(((SCGetSimpleAddressID()>>16)&0xff)==1,"region bits");
+ Check((SCGetSimpleAddressID()&0xffff)==0x0203,"city bits");
+ std::atomic<unsigned> foreign{0};std::thread t([&]{try{ConfigureNativeSystemSimpleAddress(0x5f000001);}catch(const std::logic_error&){++foreign;}});t.join();
+ Check(foreign==1,"owner-only mutation");
+ Check(SCGetSimpleAddressID()==0x41010203u,"failed mutation retains original record");
+ SCInit();
+ Check(SCCheckStatus()==SC_STATUS_OK,"source init unchanged");
+ Reject([]{ConfigureNativeSystemSimpleAddress(0);},"initialized immutable");
+ Check(SCGetSimpleAddressID()==0x41010203u,"initialized exact ID");
+ ShutdownNativeSystemSettings();
+ Reject([]{SCGetSimpleAddressID();},"retired record");
+ struct Oracle {u32 supplied;u32 expected;};
+ const Oracle oracle[]={{0,0xffffffffu},{0xff010203u,0xffffffffu},
+  {0x41ff1234u,0xffffffffu},{0xffffffffu,0xffffffffu},
+  {0x5fabcdefu,0x5fabcdefu},{0x41000203u,0x41000203u}};
+ for(auto row:oracle){u32 id=row.supplied;
+  ConfigureNativeSystemSettings({SC_LANG_EN,0,0,0,SC_SND_MONO});
+  Reject([]{SCGetSimpleAddressID();},"new owner does not inherit record");
+  ConfigureNativeSystemSimpleAddress(id);SCInit();
+  Check(SCGetSimpleAddressID()==row.expected,"exact original SC property result");
+  Check(SCGetSoundMode()==SC_SND_MONO,"independent source sound setting unchanged");
+  ShutdownNativeSystemSettings();
+ }
+ ConfigureNativeSystemSettings({SC_LANG_EN,0,0,0});
+ ConfigureNativeSystemSimpleAddress(std::nullopt);
+ Check(SCGetSimpleAddressID()==0xffffffffu,"explicit absent record uses real source sentinel");
+ Check(SCCheckStatus()==SC_STATUS_BUSY,"absent address does not publish readiness");
+ SCInit();Check(SCGetSimpleAddressID()==0xffffffffu,"source initialization preserves explicit absent property");
+ ShutdownNativeSystemSettings();
+ Check(SCCheckStatus()==SC_STATUS_FATAL,"true retirement");
 }

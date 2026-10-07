@@ -63,6 +63,8 @@ function(mscharged_add_aurora_host)
     set(AURORA_ENABLE_THP OFF)
     # Original Wii source and SDK time conversions use the same hardware units.
     set(AURORA_WII_CLOCK ON)
+    # Match the original Wii GX specular-light position constant.
+    set(AURORA_WII_LIGHTING ON)
     set(AURORA_ENABLE_NATIVE_VIDEO ${MSCHARGED_NATIVE_VIDEO})
     set(AURORA_ENABLE_RMLUI OFF)
     set(AURORA_ENABLE_TESTS OFF)
@@ -76,6 +78,7 @@ if(TARGET aurora_gx)
     # GX and core reference one another. Declare the reverse static dependency
     # so even consumers of core alone get the required archive rescans.
     target_link_libraries(aurora_core PUBLIC aurora_gx)
+    include(cmake/NativeWiiLighting.cmake)
 endif()
 foreach(directory IN ITEMS "${MSCHARGED_FMT_PREPARED}"
         "${MSCHARGED_XXHASH_PREPARED}/cmake_unofficial" "${MSCHARGED_TRACY_PREPARED}" "${MSCHARGED_AURORA_PREPARED}")

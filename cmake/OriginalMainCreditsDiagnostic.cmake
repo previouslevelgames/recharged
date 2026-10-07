@@ -150,6 +150,7 @@ add_library(mscharged_original_main_credits_module MODULE
     src/platform/rlg_vertex_animation_abi.cpp
     src/platform/rlg_geometry_bytes.cpp
     src/platform/rlg_material_parameters.cpp
+    src/platform/world_record_wire.cpp
     "${MSCHARGED_PREPARED}/src/Game/Font/fontmanager.cpp"
     "${MSCHARGED_PREPARED}/src/NL/nlFont.cpp"
     "${MSCHARGED_PREPARED}/src/NL/nlTextEscape.cpp"
@@ -176,6 +177,10 @@ add_library(mscharged_original_main_credits_module MODULE
 set_source_files_properties("${MSCHARGED_PREPARED}/src/RVL_SDK/mtx/mtx44.c" PROPERTIES LANGUAGE CXX)
 add_dependencies(mscharged_original_main_credits_module verify_prepared)
 include(cmake/OriginalCompressedFiles.cmake)
+include(cmake/OriginalARC.cmake)
+include(cmake/OriginalRFLShape.cmake)
+include(cmake/OriginalRFLResource.cmake)
+include(cmake/OriginalRFLCharacterSources.cmake)
 mscharged_add_original_inflater(mscharged_original_main_credits_module)
 set_target_properties(mscharged_original_main_credits_module PROPERTIES
     PREFIX "" POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
@@ -299,6 +304,7 @@ function(mscharged_link_original_main_credits target)
         mscharged_original_main_credits_vi aurora::core)
     target_link_options(${target} PRIVATE
         -Wl,--gc-sections -Wl,--export-dynamic
+        -Wl,--require-defined=SCGetSimpleAddressID,--export-dynamic-symbol=SCGetSimpleAddressID
         "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
     set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")

@@ -13,6 +13,8 @@ struct SystemDevice
     std::mutex mutex;
     Phase phase = Phase::Empty;
     mscharged::NativeSystemSettings settings{};
+    bool simpleAddressSupplied = false;
+    std::optional<std::uint32_t> simpleAddressId;
     std::thread::id owner;
 };
 SystemDevice device;
@@ -49,6 +51,20 @@ void ConfigureNativeSystemSettings(const NativeSystemSettings& settings)
     device.phase = Phase::Staged;
 }
 
+void ConfigureNativeSystemSimpleAddress(std::optional<std::uint32_t> id)
+{
+    std::lock_guard lock(device.mutex);
+    if (device.phase == Phase::Empty)
+        throw std::logic_error("Stage native system settings before supplying the simple-address record");
+    RequireOwner();
+    if (device.phase != Phase::Staged)
+        throw std::logic_error("Supply the native simple-address record before original SCInit");
+    // Every bit of the source's u32 record is retained, including its explicit
+    // zero/FF country encodings. Game source interprets those encodings.
+    device.simpleAddressId = id;
+    device.simpleAddressSupplied = true;
+}
+
 void ShutdownNativeSystemSettings()
 {
     std::lock_guard lock(device.mutex);
@@ -56,6 +72,8 @@ void ShutdownNativeSystemSettings()
     RequireOwner();
     device.phase = Phase::Empty;
     device.settings = {};
+    device.simpleAddressSupplied = false;
+    device.simpleAddressId.reset();
     device.owner = {};
 }
 
@@ -93,3 +111,19 @@ extern "C" std::uint8_t SCGetProgressiveMode() { return ReadSettings().progressi
 extern "C" std::uint8_t SCGetEuRgb60Mode() { return ReadSettings().eurgb60_mode; }
 extern "C" std::uint8_t SCGetAspectRatio() { return ReadSettings().aspect_ratio; }
 extern "C" std::uint8_t SCGetSoundMode() { return ReadSettings().sound_mode; }
+
+extern "C" std::uint32_t SCGetSimpleAddressID()
+{
+    std::lock_guard lock(device.mutex);
+    if (device.phase == Phase::Empty || !device.simpleAddressSupplied)
+        throw std::logic_error("Native simple-address record was not supplied before original source query");
+    // Original scapi.c rejects absent/invalid IPL.SADR and returns FFFFFFFF.
+    // SCGetSimpleAddressData's region-zero name clearing leaves the ID intact.
+    if (!device.simpleAddressId) return 0xFFFFFFFFu;
+    const auto id = *device.simpleAddressId;
+    const auto country = id & 0xFF000000u;
+    const auto region = id & 0x00FF0000u;
+    if (id == 0xFFFFFFFFu || country == 0 || country == 0xFF000000u
+        || region == 0x00FF0000u) return 0xFFFFFFFFu;
+    return id;
+}

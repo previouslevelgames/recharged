@@ -1,0 +1,67 @@
+Subject: [PATCH] Reserve actual native backing for the original RFL middle database
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Native opaque storage follows the actual unchanged pointer-bearing SDK type.
+The original console declaration and all original SDK method bodies remain.
+
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h
+@@ -3,6 +3,9 @@
+ #include <revolution/types.h>
+ 
+ #include <RVLFaceLib/RFL_Types.h>
++#if defined(MSCHARGED_NATIVE)
++#include <RVLFaceLib/RFLi_Types.h>
++#endif
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -16,8 +19,28 @@
+     RFLMiddleDBType_Reserved1
+ } RFLMiddleDBType;
+ 
++#if defined(MSCHARGED_NATIVE)
++// The SDK accesses this opaque object through its actual pointer-bearing type.
++typedef struct RFLiMiddleDB {
++    RFLMiddleDBType type;     // at 0x0
++    RFLiCallback callback;    // at 0x4
++    RFLiHiddenCharData* data; // at 0x8
++    u16 size;                 // at 0xC
++    u16 storedSize;           // at 0xE
++    u32 userData1;            // at 0x10
++    u32 userData2;            // at 0x14
++} RFLiMiddleDB;
++#endif
++
+ typedef struct RFLMiddleDB {
++#if defined(MSCHARGED_NATIVE)
++    union {
++        RFLiMiddleDB nativeBacking;
++        u8 dummy[sizeof(RFLiMiddleDB)];
++    };
++#else
+     u8 dummy[0x18];
++#endif
+ } RFLMiddleDB;
+ 
+ u32 RFLGetMiddleDBBufferSize(u16 size);
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h
+@@ -8,6 +8,7 @@
+ extern "C" {
+ #endif
+ 
++#if !defined(MSCHARGED_NATIVE)
+ typedef struct RFLiMiddleDB {
+     RFLMiddleDBType type;     // at 0x0
+     RFLiCallback callback;    // at 0x4
+@@ -17,6 +18,7 @@
+     u32 userData1;            // at 0x10
+     u32 userData2;            // at 0x14
+ } RFLiMiddleDB;
++#endif
+ 
+ RFLErrcode RFLiUpdateMiddleDBAsync(RFLMiddleDB* db, RFLiCallback cb,
+                                    BOOL cache);

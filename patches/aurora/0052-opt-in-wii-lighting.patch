@@ -1,0 +1,40 @@
+Subject: [PATCH] opt in to the original Wii GX specular-light distance
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Preserve the default GameCube distance. The selected Wii provider uses
+the literal retained by the original Matching GXLight source and retail
+GXInitSpecularDir (R4QE01 0x803A4D24). No game lighting decisions change.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -14,6 +14,7 @@
+ option(AURORA_ENABLE_RMLUI "Enable HTML/CSS Based UI Library for use in end-user UI development." OFF)
+ option(AURORA_CACHE_USE_ZSTD "Compress WebGPU cache entries with zstd" ON)
+ option(AURORA_WII_CLOCK "Use Wii hardware clock units and an unpaused OS time base" OFF)
++option(AURORA_WII_LIGHTING "Use the original Wii GX specular-light distance" OFF)
+ if(AURORA_WII_CLOCK)
+     add_compile_definitions(AURORA_WII_CLOCK=1)
+ endif()
+--- a/cmake/aurora_gx.cmake
++++ b/cmake/aurora_gx.cmake
+@@ -55,6 +55,9 @@
+ target_link_libraries(aurora_gx PUBLIC aurora::core dawn::webgpu_dawn xxHash::xxhash)
+ target_link_libraries(aurora_gx PRIVATE absl::btree absl::flat_hash_map sqlite3 Tracy::TracyClient PNG::PNG)
+ target_compile_definitions(aurora_gx PRIVATE WEBGPU_DAWN)
++if (AURORA_WII_LIGHTING)
++    target_compile_definitions(aurora_gx PRIVATE AURORA_WII_LIGHTING=1)
++endif ()
+ 
+ if (AURORA_ENABLE_RMLUI)
+     target_sources(aurora_gx PRIVATE
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -38,7 +38,7 @@
+ };
+ static_assert(sizeof(GXLightObj_) <= sizeof(GXLightObj), "GXLightObj too small!");
+ 
+-#if GX_IS_WII
++#if GX_IS_WII || AURORA_WII_LIGHTING
+ constexpr float GX_LARGE_NUMBER = -1.0e+18f;
+ #else
+ constexpr float GX_LARGE_NUMBER = -1048576.0f;

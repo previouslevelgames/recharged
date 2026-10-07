@@ -1,0 +1,106 @@
+From: mscharged-port
+Subject: Preserve Wii32 skin records under the original native factory
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
+--- a/src/NL/glx/glxLoadModel.cpp
++++ b/src/NL/glx/glxLoadModel.cpp
+@@ -219,10 +219,19 @@
+             num = chunkSize / 0x44;
+             for (i = 0; i < num; ++i)
+             {
+-                unsigned long boneid = *(unsigned long*)pData;
++                unsigned long boneid =
++#if defined(MSCHARGED_NATIVE)
++                    mscharged::platform::ReadRLGSkinWord(pData);
++#else
++                    *(unsigned long*)pData;
++#endif
+                 nlMatrix4 m0;
+                 nlMatrix4 m1;
++#if defined(MSCHARGED_NATIVE)
++                mscharged::platform::ReadRLGSkinMatrix(m0, pData + 4);
++#else
+                 memcpy(&m0, pData + 4, sizeof(nlMatrix4));
++#endif
+                 pData += 0x44;
+                 SkinInverseBind(m1, m0);
+                 int nodeIndex = hierarchy->GetNodeIndexByID(boneid);
+@@ -246,8 +255,14 @@
+ 
+             for (i = 0; i < num; ++i)
+             {
+-                unsigned long boneid = *(unsigned long*)pData;
++                unsigned long boneid =
++#if defined(MSCHARGED_NATIVE)
++                    mscharged::platform::ReadRLGSkinWord(pData);
++                pData += sizeof(std::uint32_t);
++#else
++                    *(unsigned long*)pData;
+                 pData += sizeof(unsigned long);
++#endif
+                 node->m_pBoneIndices[i] =
+                     hierarchy->GetNodeIndexByID(boneid);
+             }
+@@ -256,19 +271,38 @@
+         }
+         case 0x1B00C:
+         {
+-            unsigned long numMorphs = *(unsigned long*)pData;
++            unsigned long numMorphs =
++#if defined(MSCHARGED_NATIVE)
++                mscharged::platform::ReadRLGSkinWord(pData);
++            pData += sizeof(std::uint32_t);
++            const std::uint32_t* morphIDs = (const std::uint32_t*)pData;
++            pData += numMorphs * sizeof(std::uint32_t);
++#else
++                *(unsigned long*)pData;
+             pData += sizeof(unsigned long);
+             unsigned long* morphIDs = (unsigned long*)pData;
+             pData += numMorphs * sizeof(unsigned long);
++#endif
+ 
+             mesh->SetNumMorphs(numMorphs);
+             for (unsigned long i = 0; i < numMorphs; ++i)
+             {
+-                mesh->SetMorphID(i, morphIDs[i]);
+-            }
+-
+-            unsigned long elementSize = *(unsigned long*)pData;
++                mesh->SetMorphID(i,
++#if defined(MSCHARGED_NATIVE)
++                    mscharged::platform::ReadRLGSkinWord(morphIDs + i));
++#else
++                    morphIDs[i]);
++#endif
++            }
++
++            unsigned long elementSize =
++#if defined(MSCHARGED_NATIVE)
++                mscharged::platform::ReadRLGSkinWord(pData);
++            unsigned long numPackets = mscharged::platform::ReadRLGSkinWord(pData + 4);
++#else
++                *(unsigned long*)pData;
+             unsigned long numPackets = *(unsigned long*)(pData + 4);
++#endif
+             pData += 8;
+             mesh->SetNumMorphs(numMorphs);
+             mesh->SetNumMorphPackets(numPackets);
+@@ -277,9 +311,16 @@
+             {
+                 for (unsigned long morph = 0; morph < numMorphs; ++morph)
+                 {
+-                    unsigned long count = *(unsigned long*)pData;
++                    unsigned long count =
++#if defined(MSCHARGED_NATIVE)
++                        mscharged::platform::ReadRLGSkinWord(pData);
++                    pData += sizeof(std::uint32_t);
++                    const MorphDelta* values = mscharged::platform::ReadRLGSkinMorphDeltas(pData, count, elementSize);
++#else
++                        *(unsigned long*)pData;
+                     pData += sizeof(unsigned long);
+                     const MorphDelta* values = (const MorphDelta*)pData;
++#endif
+                     pData += elementSize * count;
+                     mesh->SetMorphDeltas(packetIndex, morph, count, values);
+                 }

@@ -1,0 +1,28 @@
+From: mscharged-port
+Subject: [PATCH] Share canonical native Wii32 SC declarations
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Use the canonical SC owning API on native builds so SCGetSimpleAddressID
+retains its Wii32 return type on LP64. The original console declarations and
+all game queries/decisions remain unchanged.
+
+diff --git a/libs/RVL_SDK/include/revolution/sc_fwd.h b/libs/RVL_SDK/include/revolution/sc_fwd.h
+--- a/libs/RVL_SDK/include/revolution/sc_fwd.h
++++ b/libs/RVL_SDK/include/revolution/sc_fwd.h
+@@ -1,5 +1,9 @@
+ #ifndef REVOLUTION_SC_FWD_H
+ #define REVOLUTION_SC_FWD_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <revolution/sc.h>
++#else
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -14,4 +18,6 @@
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif // REVOLUTION_SC_FWD_H

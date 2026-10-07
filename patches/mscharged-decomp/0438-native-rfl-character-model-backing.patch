@@ -1,0 +1,58 @@
+Subject: [PATCH] Reserve actual native backing for the original RFL character model
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Use the actual unchanged SDK field type for native opaque extent/alignment.
+Keep original console declarations and every original method body intact.
+Mii initialization, GX arrays and serialized RFL records remain separate gates.
+
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
+@@ -25,8 +25,28 @@
+     RFLCoordinateType_RevMask = 0x10101000
+ } RFLCoordinateType;
+ 
++#if defined(MSCHARGED_NATIVE)
++// Native opaque backing follows the unchanged pointer-bearing SDK type.
++typedef struct RFLiCharModelRes RFLiCharModelRes;
++typedef struct RFLiCharModel {
++    Mtx posMtx;                       // at 0x0
++    Mtx nrmMtx;                       // at 0x30
++    RFLExpression expression;         // at 0x60
++    RFLResolution resolution;         // at 0x64
++    RFLiCharModelRes* res;            // at 0x68
++    GXTexObj* maskTexObj[RFLExp_Max]; // at 0x6C
++} RFLiCharModel;
++#endif
++
+ typedef struct RFLCharModel {
++#if defined(MSCHARGED_NATIVE)
++    union {
++        RFLiCharModel nativeBacking;
++        u8 dummy[sizeof(RFLiCharModel)];
++    };
++#else
+     u8 dummy[0x88];
++#endif
+ } RFLCharModel;
+ 
+ typedef struct RFLDrawSetting {
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h
+@@ -126,6 +126,7 @@
+     Vec* hairTrans;    // at 0x40
+ } RFLiShapeRes;
+ 
++#if !defined(MSCHARGED_NATIVE)
+ typedef struct RFLiCharModel {
+     Mtx posMtx;                       // at 0x0
+     Mtx nrmMtx;                       // at 0x30
+@@ -134,6 +135,7 @@
+     RFLiCharModelRes* res;            // at 0x68
+     GXTexObj* maskTexObj[RFLExp_Max]; // at 0x6C
+ } RFLiCharModel;
++#endif
+ 
+ extern RFLiCoordinateData coordinateData;
+ 

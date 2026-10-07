@@ -1,0 +1,52 @@
+Purpose: admit the literal source transition into CleanBoot and its original FE pool/bank endpoints.
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Predecessor: exact actual prepared313, fa1e053, SDK46.
+Scope: native selected diagnostic only; world/Mii/later frontend services remain explicitly held.
+
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -380,6 +380,9 @@
+             StopWithUndo();
+         }
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT))
+     case 10:
+         g_pAudioSystem->GetBundleManager()->GetSoundMap()->SelectGroup(1);
+         lbl_806E1058 += gAudioEnabled ? 2 : 0;
+@@ -886,9 +889,14 @@
+         }
+         mLoadingState = 1;
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT))
+     case 85:
+         fn_80119454(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 86:
+         fn_80119528(this);
+         break;
+--- a/src/Game/Task/LoadingTask.cpp
++++ b/src/Game/Task/LoadingTask.cpp
+@@ -73,9 +73,15 @@
+ void LoadingTask::StateTransition(unsigned int from, unsigned int to)
+ {
+ #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+-    // Only the exact source initial state request is admitted. Its full Async
+-    // script request is an explicit omission, not a fabricated result/state.
++    // Only source-requested initial/prior-to-CleanBoot transitions are
++    // admitted. Later original frontend/game transitions remain held.
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT)
++    if ((from != 0x00010000 || to != 0x00100000)
++        && (from != 0x00100000 || to != 0x00080000)
++        )
++#else
+     if (from != 0x00010000 || to != 0x00100000)
++#endif
+         throw std::logic_error("Frontend task diagnostic reached an unqualified loading state transition");
+ #endif // retain the existing explicit later-stage diagnostic boundary
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))

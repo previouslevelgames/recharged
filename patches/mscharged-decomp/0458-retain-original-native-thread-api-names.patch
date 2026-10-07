@@ -1,0 +1,26 @@
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Purpose: Retain original native thread entry typedef and state API names using canonical types/values; no context or scheduler implementation. Requires0455 owning declarations.
+
+--- a/libs/RVL_SDK/include/revolution/os/OSThread.h
++++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
+@@ -3,6 +3,10 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/os/OSThread.h>
++#include <revolution/os/OSThread_fwd.h>
++// Preserve the original state names using the canonical native state values.
++#define OS_THREAD_STATE_SLEEPING OS_THREAD_STATE_WAITING
++#define OS_THREAD_STATE_EXITED 0
+ // Original OSMutex private scheduler imports retain signed32 priority and
+ // the canonical native OSThread owner. Declarations grant no scheduler service.
+ #ifdef __cplusplus
+--- a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
++++ b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
+@@ -3,6 +3,7 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/os/OSThread.h>
++typedef void* (*OSThreadFunc)(void* argument);
+ #else
+ 
+ #ifdef __cplusplus

@@ -1,0 +1,42 @@
+From: mscharged-port
+Subject: [PATCH] Preserve native FlyingCamera event owner pointer width
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Classification: permanent native pointer ABI.
+Three original event registration owners are addresses of the genuine
+source connections. Carry them through the already qualified native
+EventOwnerHandle rather than narrowing to the Wii32 unsigned type.
+Original branch order, event functions, owner identities, reset and
+cleanup decisions are untouched. Console source tokens are identical.
+
+diff --git a/src/Game/Render/FlyingCamera.cpp b/src/Game/Render/FlyingCamera.cpp
+--- a/src/Game/Render/FlyingCamera.cpp
++++ b/src/Game/Render/FlyingCamera.cpp
+@@ -304,15 +304,27 @@
+     {
+         if (gPeachCameraFlashConnection.mOwner == 0)
+         {
++#if defined(MSCHARGED_NATIVE)
++            UnidentifiedFindEvent<void>(sPeachCameraFlashEventName, -1)->Add(Function<void*>(OnPeachCameraFlash), (EventOwnerHandle)&gPeachCameraFlashConnection, -1);
++#else
+             UnidentifiedFindEvent<void>(sPeachCameraFlashEventName, -1)->Add(Function<void*>(OnPeachCameraFlash), (unsigned int)&gPeachCameraFlashConnection, -1);
++#endif
+         }
+         if (gResetEffectsConnection.mOwner == 0)
+         {
++#if defined(MSCHARGED_NATIVE)
++            UnidentifiedFindEvent<void>(sResetEffectsEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (EventOwnerHandle)&gResetEffectsConnection, -1);
++#else
+             UnidentifiedFindEvent<void>(sResetEffectsEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (unsigned int)&gResetEffectsConnection, -1);
++#endif
+         }
+         if (gMegaStrikeMeterEndConnection.mOwner == 0)
+         {
++#if defined(MSCHARGED_NATIVE)
++            UnidentifiedFindEvent<void>(sMegaStrikeMeterEndEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (EventOwnerHandle)&gMegaStrikeMeterEndConnection, -1);
++#else
+             UnidentifiedFindEvent<void>(sMegaStrikeMeterEndEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (unsigned int)&gMegaStrikeMeterEndConnection, -1);
++#endif
+         }
+     }
+ }

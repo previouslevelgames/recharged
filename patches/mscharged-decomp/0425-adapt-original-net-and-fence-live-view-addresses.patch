@@ -1,0 +1,119 @@
+Subject: [PATCH] Adapt original net/fence live view addresses and compiler syntax
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Preserve original weak symbols, live view choices, quad submission and
+secondary-NIS save/restore. Use the existing pointer-width view carrier
+for native live addresses and the genuine double fabs compiler intrinsic.
+Original console declarations, expressions and bodies remain unchanged.
+
+--- a/include/Game/Drawable/DrawableNetMesh.h
++++ b/include/Game/Drawable/DrawableNetMesh.h
+@@ -2,6 +2,9 @@
+ #define _DRAWABLENETMESH_H_
+ 
+ #include "types.h"
++#ifdef MSCHARGED_NATIVE
++#include "NL/gl/gl.h"
++#endif
+ #include "NL/nlMath.h"
+ 
+ class NetMesh;
+@@ -40,6 +43,10 @@
+ class GLView;
+ 
+ extern GLView* g_pNetMeshView;
++#ifdef MSCHARGED_NATIVE
++extern glViewHandle g_NetMeshInvisiblePlaneView;
++#else
+ extern u32 g_NetMeshInvisiblePlaneView;
++#endif
+ 
+ #endif // _DRAWABLENETMESH_H_
+--- a/src/Game/Drawable/DrawableNetMesh.cpp
++++ b/src/Game/Drawable/DrawableNetMesh.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/Drawable/DrawableNetMesh.h"
++#include "decomp.h"
+ #include "Game/GL/MeshWriter.h"
+ #include "NL/glx/GXConstantColourMaterialProgram.h"
+ #include "Game/Replay.h"
+@@ -20,11 +21,11 @@
+ #include <string.h>
+ #include "Game/UnidentifiedStaticStorage.h"
+ 
+-__declspec(weak) char LightTextureName[] = "global/lightramp";
+-__declspec(weak) char BlackTextureName[] = "global/black";
+-__declspec(weak) char WhiteTextureName[] = "global/white";
+-__declspec(weak) char NetMeshTextureName[] = "global/netmesh";
+-__declspec(weak) char CheckerTextureName[] = "global/checkers";
++DECL_WEAK char LightTextureName[] = "global/lightramp";
++DECL_WEAK char BlackTextureName[] = "global/black";
++DECL_WEAK char WhiteTextureName[] = "global/white";
++DECL_WEAK char NetMeshTextureName[] = "global/netmesh";
++DECL_WEAK char CheckerTextureName[] = "global/checkers";
+ 
+ static u32 LightTexture = glGetTexture(LightTextureName);
+ static u32 BlackTexture = glGetTexture(BlackTextureName);
+@@ -38,7 +39,11 @@
+ char gNetMeshResourcePoolName[8] = "NetMesh";
+ 
+ GLView* g_pNetMeshView;
++#ifdef MSCHARGED_NATIVE
++glViewHandle g_NetMeshInvisiblePlaneView;
++#else
+ u32 g_NetMeshInvisiblePlaneView;
++#endif
+ shortVector2* spTexcoord[2];
+ u32* spColour[2];
+ u16* spTriIndices[2];
+@@ -68,7 +73,11 @@
+     , mVisible(false)
+ {
+     g_pNetMeshView = GetLayerView(eCLV_UnsortedPerspective);
++#ifdef MSCHARGED_NATIVE
++    g_NetMeshInvisiblePlaneView = reinterpret_cast<glViewHandle>(GetLayerView(eCLV_InvisiblePlane));
++#else
+     g_NetMeshInvisiblePlaneView = (u32)GetLayerView(eCLV_InvisiblePlane);
++#endif
+ }
+ 
+ DrawableNetMesh::~DrawableNetMesh()
+--- a/src/Game/Render/ElectricFence.cpp
++++ b/src/Game/Render/ElectricFence.cpp
+@@ -15,6 +15,10 @@
+ #include "NL/nlTask.h"
+ 
+ #include <math.h>
++#ifdef MSCHARGED_NATIVE
++// MWCC __fabs is the double absolute-value intrinsic used by the original MSL.
++#define __fabs __builtin_fabs
++#endif
+ 
+ class EffectsGroup;
+ 
+@@ -260,7 +264,11 @@
+     u8 lightenAmount = (u8)(255.0f * intensity);
+     quad.SetColour(
+         lightenAmount, lightenAmount, lightenAmount, 0xFF);
++#ifdef MSCHARGED_NATIVE
++    glAttachQuad3(static_cast<eGLView>(reinterpret_cast<glViewHandle>(lbl_806E1514)), 1, &quad);
++#else
+     glAttachQuad3((eGLView)lbl_806E1514, 1, &quad);
++#endif
+     glSetDefaultState(false);
+ }
+ 
+--- a/src/Game/Task/GameRenderTask.cpp
++++ b/src/Game/Task/GameRenderTask.cpp
+@@ -221,7 +221,11 @@
+         GLView* saveStadiumAlphaView;
+         GLView* saveShapeView;
+         GLView* save132C;
++#ifdef MSCHARGED_NATIVE
++        glViewHandle save1330;
++#else
+         u32 save1330;
++#endif
+         RLView* pipView;
+         RLView* pipAlphaView;
+         void* saveContext;

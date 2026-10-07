@@ -1,0 +1,17 @@
+Subject: [PATCH] Declare native standard placement new before Replay templates
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Scope: Native compiler declaration only; Replay pointer transport remains held.
+
+--- a/include/Game/Replay.h
++++ b/include/Game/Replay.h
+@@ -2,6 +2,9 @@
+ #define _REPLAY_H_
+ 
+ #include <string.h>
++#ifdef MSCHARGED_NATIVE
++#include <new>
++#endif
+ 
+ #include "types.h"
+ #include "NL/nlDebug.h"

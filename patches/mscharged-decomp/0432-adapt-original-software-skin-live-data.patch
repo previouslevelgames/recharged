@@ -1,0 +1,104 @@
+From: native port compatibility
+Subject: [PATCH] retain original software skin live pointers and numeric vertex bytes
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Native GAME_MODULE only: full-width live frame output pointers remain separate
+from the existing48-byte Wii RLG wire records. Scoped owned Float3 CPU views
+read authored IEEE words and publish real native-written frame bytes beneath
+the unchanged original loops/cache calls. Console/standalone projections are
+unchanged. No source morph/control flow restriction is added.
+
+diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
+--- a/include/NL/gl/glModel.h
++++ b/include/NL/gl/glModel.h
+@@ -64,8 +64,15 @@
+     /* 0x1C */ unsigned int rasterState;
+     /* 0x20 */ void* materialParameters;
+     /* 0x24 */ DisplayList* displayList;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    // Live software-skin outputs are native frame pointers. RLG wire records
++    // retain their separate two Wii32 cells and are decoded before finalizing.
++    uintptr_t skinnedVertices;
++    uintptr_t skinnedNormals;
++#else
+     /* 0x28 */ u32 skinnedVertices;
+     /* 0x2C */ u32 skinnedNormals;
++#endif
+ }; // size: 0x30
+ 
+ struct glModel
+diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+--- a/src/Game/GL/ShaderSkinMesh.cpp
++++ b/src/Game/GL/ShaderSkinMesh.cpp
+@@ -8,6 +8,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include "Game/GL/SkinSoftwareSteps.h"
+ #include <stdexcept>
++#if defined(MSCHARGED_GAME_MODULE)
++#include <optional>
++#endif
+ #endif
+ 
+ #include "Game/SHierarchy.h"
+@@ -311,21 +314,44 @@
+         size = numVertices * sizeof(nlVector3);
+         nlVector3* outVertices = (nlVector3*)glFrameAlloc(size, GLM_VertexData);
+         nlZeroMemory(outVertices, size);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pPacket->skinnedVertices = (uintptr_t)outVertices;
++#else
+         pPacket->skinnedVertices = (unsigned long)outVertices;
++#endif
+ 
+         nlVector3* outNormals = 0;
+         glModelStream* pStream = glFindModelStream(pPacket, 2);
+         const nlVector3* inNormals = 0;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        std::optional<mscharged::platform::NativeRLGFloat3Rows> nativeNormals;
++#endif
+         if (pStream != 0)
+         {
+             outNormals = (nlVector3*)glFrameAlloc(size, GLM_VertexData);
+             nlZeroMemory(outNormals, size);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            nativeNormals.emplace(pStream->address, numVertices, pStream->stride);
++            inNormals = nativeNormals->Data();
++#else
+             inNormals = (const nlVector3*)pStream->address;
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            pPacket->skinnedNormals = (uintptr_t)outNormals;
++#else
+             pPacket->skinnedNormals = (unsigned long)outNormals;
++#endif
+         }
+ 
+         CreateMorphBuffer(packetIndex, numVertices);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        const glModelStream* vertexStream = glFindModelStream(pPacket, 1);
++        mscharged::platform::NativeRLGFloat3Rows nativeVertices(vertexStream->address,
++            numVertices, vertexStream->stride);
++        const nlVector3* inVertices = nativeVertices.Data();
++#else
+         const nlVector3* inVertices = (const nlVector3*)glFindModelStream(pPacket, 1)->address;
++#endif
+         const float (*pMatrices)[3][4] =
+             *(const float (**)[3][4])glGetMaterialParameterData(pPacket, SkinMatricesHash);
+         nlMatrix4* pTempMatrix = tempMatrices;
+@@ -469,9 +495,15 @@
+             }
+         }
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        mscharged::platform::PublishGameGraphicsNativeBytes(outVertices, outVertices + numVertices);
++#endif
+         DCFlushRange(outVertices, size);
+         if (outNormals != 0)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            mscharged::platform::PublishGameGraphicsNativeBytes(outNormals, outNormals + numVertices);
++#endif
+             DCFlushRange(outNormals, size);
+         }
+         node = node->m_next;

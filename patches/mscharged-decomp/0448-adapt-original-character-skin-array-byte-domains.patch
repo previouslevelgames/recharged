@@ -1,0 +1,60 @@
+From: native GX array data transport
+Subject: [PATCH] preserve original character skin array bindings with owned byte domains
+
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Original game-module attributes, addresses and literal strides remain source-owned.
+The existing native hardware boundary supplies exact completed extent and endian;
+console and standalone diagnostic projections remain unchanged.
+
+diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
+--- a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
++++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
+@@ -9,6 +9,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/glx/glxTexture.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXCharacterSkinCustomMaterialProgram* GXCharacterSkinCustomMaterialProgram::Instance;
+ bool GXCharacterSkinCustomMaterialProgram::Initialized;
+@@ -74,25 +77,33 @@
+ void GXCharacterSkinCustomMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_NRM, streams[1].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_NRM, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_NRM, streams[1].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX1, streams[3].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX1, streams[3].address,
+         packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
+ #else

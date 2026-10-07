@@ -298,6 +298,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // Explicit USA diagnostic backing; independent SC and VI settings.
         const mscharged::NativeSystemSettings settings{1,0,0,std::uint8_t(widescreen),1};
         mscharged::ConfigureNativeSystemSettings(settings);
+        // No virtual Wii address record has been supplied. Original SC queries
+        // retain their unavailable-record result, without inferring a country.
+        mscharged::ConfigureNativeSystemSimpleAddress(std::nullopt);
         mscharged::platform::ConfigureNativeVideoHardware(VI_TVMODE_NTSC_INT,false);
         if(nativeSend) {
             mscharged::platform::ConfigureNativeVideoOutputHardware(settings);
@@ -365,12 +368,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             dlsym(module,"charged_original_audio_shutdown")) : nullptr;
         auto idleAudio=sourceAudio ? reinterpret_cast<AudioIdle>(
             dlsym(module,"charged_original_audio_idle")) : nullptr;
+        auto idleBankReads=sourceAudio ? reinterpret_cast<bool(*)()>(
+            dlsym(module,"charged_original_audio_bank_reads_idle")) : nullptr;
         auto unloadIdleBanks=sourceAudio ? reinterpret_cast<AudioAction>(
             dlsym(module,"charged_original_audio_unload_idle_banks")) : nullptr;
         auto retireAudioPin=sourceAudio ? reinterpret_cast<AudioAction>(
             dlsym(module,"charged_original_audio_retire_silence_pin")) : nullptr;
         if(sourceAudio) {
-            Check(observeAudio && shutdownAudio && idleAudio && unloadIdleBanks && retireAudioPin,
+            Check(observeAudio && shutdownAudio && idleAudio && idleBankReads && unloadIdleBanks && retireAudioPin,
                   "Original audio source observations and retirement exports unavailable");
             // True source predicates, before the first original task/frame.
             Check(observeAudio()==7u,
@@ -593,6 +598,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         stopMovie();
         if(sourceAudio) {
             Check(idleAudio(),"Active original sounds must retire through original game flow before host detachment");
+            Check(idleBankReads(),"Pending original bank callbacks must complete before host detachment");
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
             Check(gameAudioHardware->Status().last_active_voices==0,
                   "Original stopped voices have not completed a real native AX frame");

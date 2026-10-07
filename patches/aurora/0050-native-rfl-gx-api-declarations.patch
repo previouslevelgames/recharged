@@ -1,0 +1,58 @@
+From: mscharged-port contributors
+Subject: [PATCH] Expose original RFL GX viewport and copy declarations
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Add the source SDK six-field viewport wrapper and exact copy constants.
+Declare the real depth-scale API; this declaration supplies no implementation
+or successful rendering. The independent depth producer remains held.
+
+diff --git a/include/dolphin/gx/GXTransform.h b/include/dolphin/gx/GXTransform.h
+--- a/include/dolphin/gx/GXTransform.h
++++ b/include/dolphin/gx/GXTransform.h
+@@ -8,6 +8,14 @@
+ #endif
+ 
+ #define GX_PROJECTION_SZ 7
++
++#define GX_VIEWPORT_SZ 6
++#define GX_VIEWPORT_L 0
++#define GX_VIEWPORT_T 1
++#define GX_VIEWPORT_W 2
++#define GX_VIEWPORT_H 3
++#define GX_VIEWPORT_N 4
++#define GX_VIEWPORT_F 5
+ 
+ void GXProject(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32* pm, const f32* vp, f32* sx, f32* sy, f32* sz);
+ void GXSetProjectionv(const f32* ptr);
+@@ -25,6 +33,10 @@
+ #endif
+ void GXLoadPosMtxIndx(u16 mtxIndx, u32 id);
+ void GXSetViewport(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz);
++static inline void GXSetViewportv(const f32 view[GX_VIEWPORT_SZ]) {
++  GXSetViewport(view[0], view[1], view[2], view[3], view[4], view[5]);
++}
++void GXSetZScaleOffset(f32 scale, f32 offset);
+ void GXSetCurrentMtx(u32 id);
+ void GXSetViewportJitter(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz, u32 field);
+ void GXSetScissorBoxOffset(s32 x_off, s32 y_off);
+diff --git a/include/dolphin/gx/GXEnum.h b/include/dolphin/gx/GXEnum.h
+--- a/include/dolphin/gx/GXEnum.h
++++ b/include/dolphin/gx/GXEnum.h
+@@ -20,6 +20,8 @@
+ 
+ #define GX_ENABLE ((GXBool)1)
+ #define GX_DISABLE ((GXBool)0)
++
++#define GX_CLEAR_Z_MAX 0x00FFFFFF
+ 
+ typedef enum {
+   GX_PERSPECTIVE,
+@@ -822,6 +824,8 @@
+   GX_CLAMP_NONE = 0,
+   GX_CLAMP_TOP = 1,
+   GX_CLAMP_BOTTOM = 2,
++  GX_CLAMP_ALL = 3,
++  GX_CLAMP_BOTH = GX_CLAMP_TOP | GX_CLAMP_BOTTOM,
+ } GXFBClamp;
+ 
+ typedef enum {

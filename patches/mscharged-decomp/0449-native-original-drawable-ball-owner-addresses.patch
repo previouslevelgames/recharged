@@ -1,0 +1,64 @@
+Subject: [PATCH] Adapt original DrawableBall proxy reads to native owners
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Use the genuine typed owners only in native compilation. Original console
+source, branches, masks, draw calls and owner lifetimes stay unchanged.
+
+--- a/src/Game/Drawable/DrawableBall.cpp
++++ b/src/Game/Drawable/DrawableBall.cpp
+@@ -8,6 +8,11 @@
+ #include "Game/RenderSnapshot.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ 
++#ifdef MSCHARGED_NATIVE
++#include "Game/Character.h"
++#include "Game/Render/Presentation.h"
++#include "NL/nlTask.h"
++#else
+ struct CharacterState
+ {
+     char _000[0x24];
+@@ -28,6 +33,7 @@
+ 
+ extern TaskManager* m_pInstance__13nlTaskManager;
+ BallScaleData* GetPresentation();
++#endif
+ 
+ static float g_fBallTrailScale = 2.25f;
+ 
+@@ -97,7 +103,11 @@
+         drawable->translation = mPosition;
+         drawable->worldMatrixUpToDate = false;
+ 
++#ifdef MSCHARGED_NATIVE
++        if ((nlTaskManager::m_pInstance->mCurrentState & 0x20018) == 0)
++#else
+         if ((m_pInstance__13nlTaskManager->flags & 0x20018) == 0)
++#endif
+         {
+             if (g_pBall->m_pOwner == 0)
+             {
+@@ -120,7 +130,11 @@
+         bool useDefaultRendering = true;
+         if (IndexToPlayer(ownerIndex) != 0)
+         {
++#ifdef MSCHARGED_NATIVE
++            if (IndexToPlayer(ownerIndex)->character->mUnidentified024.m_eCharacterClass == 12)
++#else
+             if (((CharacterState*)IndexToPlayer(ownerIndex)->character)->type == 12)
++#endif
+             {
+                 useDefaultRendering = false;
+             }
+@@ -212,6 +226,9 @@
+ {
+     mPosition = character.GetBallPosition();
+     mOrientation = character.GetBallOrientation();
++#ifdef MSCHARGED_NATIVE
++    mScale = GetPresentation()->mBallGlowLevel;
++#else
+     mScale = GetPresentation()->scale;
+-}
+-
++#endif
++}

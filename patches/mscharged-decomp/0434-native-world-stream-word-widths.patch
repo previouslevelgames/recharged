@@ -1,0 +1,46 @@
+Subject: Read original world-stream scalar words as four-byte big endian
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Adapt only three original serialized word expressions beneath LoadObjects.
+Preserve all branches, callbacks, class selection, raw cursor increments,
+counters and native object/context members. Native placement remains held.
+
+--- a/src/Game/world.cpp
++++ b/src/Game/world.cpp
+@@ -17,6 +17,9 @@
+ #include "Game/Render/WorldNPC.h"
+ #include "Game/World/WorldAnimObjects.h"
+ #include "NL/nlMemory.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/world_record_wire.h"
++#endif
+ 
+ class WorldUpdateObject_80341BC8
+ {
+@@ -237,13 +240,25 @@
+     context.m_uNumObjectsLoaded = 0;
+     context.m_pParent = 0;
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    for (; i < mscharged::platform::ReadWorldRecordWireWord(pData); ++i)
++#else
+     for (; i < *(unsigned long*)pData; ++i)
+-    {
++#endif
++    {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        unsigned long uType = mscharged::platform::ReadWorldRecordWireWord(context.m_pObject + 8);
++#else
+         unsigned long uType = *(unsigned long*)(context.m_pObject + 8);
++#endif
+         if (uType == 0x10)
+         {
+             u8* pParent = context.m_pObject;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            context.m_pObject += mscharged::platform::ReadWorldRecordWireWord(context.m_pObject + 0xC);
++#else
+             context.m_pObject += *(unsigned long*)(context.m_pObject + 0xC);
++#endif
+             context.m_pParent = pParent;
+             continue;
+         }

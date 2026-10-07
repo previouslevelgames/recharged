@@ -31,6 +31,7 @@ function(mscharged_select_original_frontend_boot_to_fe target)
             src/Game/Effects/EffectsGroup.cpp
             src/Game/Effects/ParticleSystem.cpp
             src/Game/Task/ParticleUpdateTask.cpp
+            src/Game/Task/SmokeTestUpdateTask.cpp
             src/NL/plat/nlFileCache.cpp
             src/Game/Render/NPCManager.cpp
             src/Game/Task/FixedUpdateTask.cpp
@@ -48,7 +49,8 @@ function(mscharged_select_original_frontend_boot_to_fe target)
     foreach(_native IN ITEMS
             src/platform/effects_data_abi.cpp
             src/platform/hierarchy_data_transport.cpp
-            src/platform/sanim_data_transport.cpp)
+            src/platform/sanim_data_transport.cpp
+            src/platform/sanim_replay_projection.cpp)
         set(_path "${PROJECT_SOURCE_DIR}/${_native}")
         if(NOT _path IN_LIST _sources AND NOT _native IN_LIST _sources)
             target_sources("${target}" PRIVATE "${_path}")

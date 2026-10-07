@@ -1,0 +1,32 @@
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+Purpose: Native compiler declarations for original OSMutex private scheduler imports. No definitions or contended scheduling admission.
+
+--- a/libs/RVL_SDK/include/revolution/os/OSThread.h
++++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
+@@ -3,6 +3,16 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/os/OSThread.h>
++// Original OSMutex private scheduler imports retain signed32 priority and
++// the canonical native OSThread owner. Declarations grant no scheduler service.
++#ifdef __cplusplus
++extern "C" {
++#endif
++s32 __OSGetEffectivePriority(OSThread* thread);
++void __OSPromoteThread(OSThread* thread, s32 priority);
++#ifdef __cplusplus
++}
++#endif
+ #define OS_THREAD_DETACHED OS_THREAD_ATTR_DETACH
+ #else
+ 
+--- a/libs/RVL_SDK/include/revolution/os.h
++++ b/libs/RVL_SDK/include/revolution/os.h
+@@ -4,6 +4,7 @@
+ #ifdef MSCHARGED_NATIVE
+ #include <stdarg.h>
+ #include <dolphin/os.h>
++#include <revolution/os/OSThread.h>
+ // These Wii requests are absent from the GameCube SDK header facade.
+ // Declarations preserve source calls; genuine native providers are required.
+ #include <revolution/os/OSReset.h>

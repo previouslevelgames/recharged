@@ -1,0 +1,113 @@
+Subject: [PATCH] Preserve native RFL hidden-load borrowed context addresses
+Upstream-base: a8187061af65aa2022bfd8dc2e32163089ea0090
+
+Split native hidden-load pointer contexts from unchanged u32 CRC/retry callbacks.
+Console preprocessing preserves the literal original declarations and bodies.
+
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
+@@ -135,6 +135,15 @@
+ typedef void (*RFLiCallback)(void);
+ typedef void (*RFLiExCallback)(u32 arg);
+ 
++#if defined(MSCHARGED_NATIVE)
++// Hidden-load context borrows a real MiddleDB pointer; CRC/retry args stay u32.
++typedef uintptr_t RFLiHiddenLoadArg;
++typedef void (*RFLiHiddenLoadCallback)(RFLiHiddenLoadArg arg);
++#else
++#define RFLiHiddenLoadArg u32
++#define RFLiHiddenLoadCallback RFLiExCallback
++#endif
++
+ /**
+  * Common structs
+  */
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
+@@ -39,8 +39,8 @@
+     s16 formatIndex;              // at 0x1C
+     RFLiHiddenCharData* loadDst;  // at 0x20
+     void* loadTmp;                // at 0x24
+-    u32 loadArg;                  // at 0x28
+-    RFLiExCallback loadCb;        // at 0x2C
++    RFLiHiddenLoadArg loadArg;                  // at 0x28
++    RFLiHiddenLoadCallback loadCb;        // at 0x2C
+     u16 loadIndex;                // at 0x30
+     RFLiHiddenCharData* cachedDB; // at 0x34
+     BOOL cached;                  // at 0x38
+@@ -49,7 +49,7 @@
+ 
+ void RFLiInitHiddenDatabase(void);
+ RFLErrcode RFLiLoadHiddenDataAsync(RFLiHiddenCharData* data, u16 index,
+-                                   RFLiExCallback cb, u32 arg);
++                                   RFLiHiddenLoadCallback cb, RFLiHiddenLoadArg arg);
+ RFLErrcode RFLiLoadCachedHiddenData(RFLiHiddenCharData* data, u16 index);
+ RFLErrcode RFLiWriteCtrlToHiddenDB(const struct RFLiCtrlBuf* buf, BOOL ch);
+ s32 RFLiSearchHiddenData(const RFLCreateID* id);
+--- a/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
++++ b/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
+@@ -78,7 +78,7 @@
+ }
+ 
+ RFLErrcode RFLiLoadHiddenDataAsync(RFLiHiddenCharData* data, u16 index,
+-                                   RFLiExCallback cb, u32 arg) {
++                                   RFLiHiddenLoadCallback cb, RFLiHiddenLoadArg arg) {
+     RFLiHDBManager* mgr;
+ 
+     if (index >= RFLi_HDB_DATA_MAX) {
+--- a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
++++ b/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
+@@ -104,7 +104,7 @@
+     return RFLiCheckValidInfo(&info) ? TRUE : FALSE;
+ }
+ 
+-static void updateHDBcallback_(u32 arg) {
++static void updateHDBcallback_(RFLiHiddenLoadArg arg) {
+     RFLErrcode err;
+     HiddenNewOldParam* nparam;
+     RFLiMiddleDB* db;
+@@ -132,7 +132,7 @@
+ 
+             err = RFLiLoadHiddenDataAsync(&db->data[db->storedSize],
+                                           nparam->srcIdx, updateHDBcallback_,
+-                                          (u32)db);
++                                          (RFLiHiddenLoadArg)db);
+ 
+             if (err != RFLErrcode_Busy) {
+                 RFLiEndWorking(err);
+@@ -238,7 +238,7 @@
+         } else {
+             RFLErrcode err = RFLiLoadHiddenDataAsync(
+                 &db->data[nparam->dstIdx], nparam->srcIdx, updateHDBcallback_,
+-                (u32)db);
++                (RFLiHiddenLoadArg)db);
+ 
+             if (err != RFLErrcode_Busy) {
+                 RFLiEndWorking(err);
+@@ -284,7 +284,7 @@
+                                              : RFLErrcode_Success);
+ }
+ 
+-static void updateHDBRandcallback_(u32 arg) {
++static void updateHDBRandcallback_(RFLiHiddenLoadArg arg) {
+     RFLiMiddleDB* db = (RFLiMiddleDB*)arg;
+     HiddenRandomParam* hparam = (HiddenRandomParam*)&db->userData1;
+     u32* src;
+@@ -303,7 +303,7 @@
+                 u16 srcIdx = *src - 1;
+                 RFLErrcode err =
+                     RFLiLoadHiddenDataAsync(&db->data[db->storedSize], srcIdx,
+-                                            updateHDBRandcallback_, (u32)db);
++                                            updateHDBRandcallback_, (RFLiHiddenLoadArg)db);
+ 
+                 if (err != RFLErrcode_Busy) {
+                     RFLiEndWorking(err);
+@@ -409,7 +409,7 @@
+             } else {
+                 RFLErrcode err =
+                     RFLiLoadHiddenDataAsync(&db->data[hparam->dstIdx], srcIdx,
+-                                            updateHDBRandcallback_, (u32)db);
++                                            updateHDBRandcallback_, (RFLiHiddenLoadArg)db);
+ 
+                 if (err != RFLErrcode_Busy) {
+                     RFLiEndWorking(err);
