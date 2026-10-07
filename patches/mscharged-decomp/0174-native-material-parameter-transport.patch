@@ -1,5 +1,5 @@
 Subject: Preserve native material parameter word and pointer transport
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Texture handles/scalars remain Wii32; actual matrix buffers carry a full native
 pointer plus a Wii32 byte count. Native typed profile metadata uses actual member

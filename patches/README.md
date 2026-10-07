@@ -19,6 +19,12 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
+Patches `0284` and `0291` select the temporary original Boot/Intro diagnostic.
+They retain original scene owners and task scheduling while explicitly omitting
+blocked services. These gates are enabled only in the separate frontend test
+module; default game source and the Credits test retain their existing flow.
+They do not establish complete startup, game audio or menu readiness.
+
 Patch `0143-original-font-native-abi.patch` restores the complete original
 `nlFont` and text escape bodies, with Wii32 words, big endian keys, native matrix
 handles, stack allocation and owning game frees. Generated and owned font
@@ -62,16 +68,17 @@ ownership. Its external scene, navigation and Wii services require explicit
 providers; full original startup remains separate.
 
 
-The current base is `443164c91fded218656a8443432e642fdad57838`, adopted from
-published upstream main. It remains an incomplete development snapshot. The
-update source-links EmissionManager, FlyingCamera and the AI ScriptMachine
-upstream. Native source selection remains explicit.
+The current Charged base is recorded in [mscharged-decomp/base](mscharged-decomp/base)
+and pinned by the submodule gitlink. Normal builds export that revision without
+following upstream branch tips. Upstream updates are reviewed and the complete
+patch series is reapplied before advancing the pin. Matching Wii source does
+not establish full native startup, device support or gameplay.
 
-Patches 0028, 0033, 0038, 0039, 0042, 0061, 0074, 0083, 0089, 0106, 0123 and 0131
-follow upstream math declarations, container APIs and the named packet sorter,
-movie, NIS trigger and effects interfaces. All other patch bodies are unchanged for this
-update. Matching Wii source does not establish full native startup, device
-support or gameplay.
+The `f1e9646a` update supplies the original Warble owner and Matching Warble
+implementation. Patch contexts and native callers follow the canonical event,
+tweak, powerup and movie interfaces. The obsolete local `strstr` workaround was
+retired; the canonical THP forward declaration retains Wii32 parameters on native
+hosts, consistent with the original THPSimple provider.
 
 Patch 0111 shares the inherited empty `InitializeSubHandlers` stage used by
 Main and Options. Their selected native visual owners share one base handler

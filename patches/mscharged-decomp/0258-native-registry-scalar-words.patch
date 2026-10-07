@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Decode original registry scalar key carriers at native width
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 The original audio transition reads EffectSet and binding keys from
 pointer-shaped RegistryValue cells. These are Wii32 numeric/hash payloads,

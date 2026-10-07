@@ -23,6 +23,26 @@ private:
     void* pending_;
 };
 
+// Native device leases attach to a newly created original allocation, never to
+// game readiness. Reserve their host metadata before the original request;
+// Prepare checks its exact fresh incarnation, Commit adds no metadata. The
+// device callback must not reenter this allocation registry. Actual free/reset
+// retires the lease before the original free-list bytes can be overwritten.
+class GameAllocationDeviceReservation
+{
+public:
+    GameAllocationDeviceReservation(std::size_t metadataBytes, void (*release)(void*));
+    ~GameAllocationDeviceReservation();
+    GameAllocationDeviceReservation(const GameAllocationDeviceReservation&) = delete;
+    GameAllocationDeviceReservation& operator=(const GameAllocationDeviceReservation&) = delete;
+    void* Data() const noexcept;
+    void Prepare(const void* pointer, std::size_t bytes);
+    void Commit();
+private:
+    void* pending_;
+};
+void RetireGameAllocationDevicePins(const void* pointer);
+
 // Native storage facts, not game readiness or GL suballocation/frame lifetime.
 // Positive byte ranges choose the innermost actual original allocation. A
 // range crossing a child allocation is rejected, never assigned to its parent.

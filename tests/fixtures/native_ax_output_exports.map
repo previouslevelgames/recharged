@@ -1,0 +1,20 @@
+{
+global:
+    charged_ax_output_snapshot;
+    charged_ax_output_pool_owner_check;
+    ChargedAXGetCommandStorage;
+    ChargedAXGetVoiceStorage;
+    ChargedAXGetAuxStorage;
+    ChargedAXGetCompressorStorage;
+    ChargedAXGetOutputStorage;
+    ChargedAXGetTaskStorage;
+    __AXAllocInit;
+    __AXVPBInit;
+    __AXSPBInit;
+    __AXAuxInit;
+    __AXClInit;
+    __AXGetCommandListAddress;
+    __AXOutNewFrame;
+    DSPCheckInit;
+local: *;
+};

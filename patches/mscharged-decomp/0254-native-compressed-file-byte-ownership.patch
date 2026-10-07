@@ -1,5 +1,5 @@
 Subject: Native compressed-file header and actual inflater byte ownership
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 Classification: native serialized byte transport and real file-load ownership.
 
 diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp

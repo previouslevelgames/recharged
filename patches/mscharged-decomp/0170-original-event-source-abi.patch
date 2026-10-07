@@ -1,5 +1,5 @@
 Subject: Restore whole original events with native metadata ABI
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Isolate previous registry/listener/queue/task behavior under an explicit
 diagnostic event profile. Genuine source retains original lazy registry
@@ -907,7 +907,7 @@ diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEvents
 +++ b/src/Game/Task/DispatchEventsTask.cpp
 @@ -8,7 +8,7 @@
  
- void fn_80115F10()
+ void InitializeDispatchEventsTask()
  {
 -#ifdef MSCHARGED_NATIVE
 +#ifdef MSCHARGED_DIAGNOSTIC_EVENTS

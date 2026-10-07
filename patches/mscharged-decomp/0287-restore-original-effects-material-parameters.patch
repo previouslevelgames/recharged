@@ -1,0 +1,143 @@
+From: mscharged-port native adaptation
+Subject: [PATCH] Restore original ConstantColour and authored native RLG parameter fields
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Preserve original source initialization, lookup, allocation, parameter selection
+and Configure/Prepare order. Adapt only the two owned qualified scalar layouts;
+retain historical material behavior only under an explicit legacy flag.
+
+--- a/src/NL/gl/glLoadModel.cpp
++++ b/src/NL/gl/glLoadModel.cpp
+@@ -13,6 +13,7 @@
+ #include <string.h>
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/rlg_record_abi.h"
++#include "platform/rlg_material_parameters.h"
+ #include "platform/game_allocation_ownership.h"
+ #include <stdint.h>
+ #endif
+@@ -85,7 +86,11 @@
+ void RLGReader::LoadPacketData(void* data, unsigned long size)
+ {
+     m_pParameterData = glResourceAlloc(size, GLM_Header, m_pResource);
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::CopyRLGMaterialParameterBytes(m_pParameterData, data, size);
++#else
+     memcpy(m_pParameterData, data, size);
++#endif
+ }
+ 
+ void RLGReader::LoadStreams(void* data, unsigned long size)
+--- a/src/NL/glx/GXConstantColourMaterialProgram.cpp
++++ b/src/NL/glx/GXConstantColourMaterialProgram.cpp
+@@ -1,6 +1,10 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
++#if defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
+ #include <stdexcept>
++#else
++#include "platform/gx_array_transport.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #endif
+@@ -21,21 +25,21 @@
+ 
+ GXConstantColourMaterialProgram::GXConstantColourMaterialProgram()
+ {
+-#if !defined(MSCHARGED_NATIVE)
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
+     Instance = this;
+ #endif
+     programHash = 0xEE9D919D;
+     parameterDataSize = 24;
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
+     Instance = this;
+ #endif
+ }
+ 
+ GXConstantColourMaterialProgram::~GXConstantColourMaterialProgram()
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
+     Instance = 0;
+     Initialized = false;
+ #endif
+@@ -56,7 +60,7 @@
+ {
+     GXClearVtxDesc();
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+ #else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 12);
+@@ -77,13 +81,17 @@
+ void GXConstantColourMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[1].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+@@ -115,16 +123,24 @@
+ 
+ void GXConstantColourMaterialProgram::DrawDirect(const glModelPacket* packet)
+ {
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
+     throw std::logic_error("Native effects materials require retained indexed geometry");
+ #else
+     GXBegin(glxGetPrimitiveType((unsigned char)packet->primType), GX_VTXFMT0, packet->numUniqueVertices);
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXTexCoord1x16(i);
++#else
+         WGPIPE.us = i;
+         WGPIPE.us = i;
++#endif
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ #endif
+ }
+ 
+--- a/src/NL/glx/glxLoadModel.cpp
++++ b/src/NL/glx/glxLoadModel.cpp
+@@ -21,6 +21,7 @@
+ #include <string.h>
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/rlg_geometry_bytes.h"
++#include "platform/rlg_material_parameters.h"
+ #endif
+ 
+ 
+@@ -123,6 +124,9 @@
+                 MoveLargestBoneWeightFirst(packet);
+             }
+ 
++#if defined(MSCHARGED_NATIVE)
++            mscharged::platform::DecodeRLGMaterialParameters(packet);
++#endif
+             glplatFinalizePacket(packet, true, m_pResource);
+             ((GLMaterialProgram*)packet->materialProgram)->Prepare(packet);
+         }

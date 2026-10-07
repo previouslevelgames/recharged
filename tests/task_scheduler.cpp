@@ -210,7 +210,7 @@ void OwnershipAndFailure()
 
 void RealDispatch()
 {
-    InitializeNativeEventRegistry(); fn_80115F10(); nlTaskManager::Startup(1);
+    InitializeNativeEventRegistry(); InitializeDispatchEventsTask(); nlTaskManager::Startup(1);
     nlTaskManager::AddTask(gDispatchEventsTask,24,1);
     int received=0,cancelled=0;
     Function<bool> callback([&](bool deliver) {

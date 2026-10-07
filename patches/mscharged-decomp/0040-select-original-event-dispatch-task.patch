@@ -1,6 +1,6 @@
 Subject: Select original dispatch task and base transition hook
 
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Extract the existing default nlTask::StateTransition from Team.cpp for independent
 source selection and retain the original DispatchEventsTask::Run(true) path.
@@ -14,7 +14,7 @@ diff --git a/src/Game/Task/DispatchEventsTask.cpp b/src/Game/Task/DispatchEvents
 +++ b/src/Game/Task/DispatchEventsTask.cpp
 @@ -8,15 +8,27 @@
  
- void fn_80115F10()
+ void InitializeDispatchEventsTask()
  {
 +#ifdef MSCHARGED_NATIVE
 +    CheckNativeEventThread();

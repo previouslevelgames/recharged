@@ -1,6 +1,6 @@
 Subject: Adapt original tweak pending storage and current-thread stack
 
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Keep the original registry/constructor decisions and allocator. A pending
 record is sizeof its native layout, including full-width string defaults;
@@ -14,9 +14,10 @@ inclusive range test; path algorithms stay original outside diagnostics.
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
 --- a/include/Game/TweakValue.h
 +++ b/include/Game/TweakValue.h
-@@ -3,6 +3,9 @@
+@@ -3,7 +3,10 @@
  
  #include "Game/TweakValueBase.h"
+ #include "Game/TweakRegistration.h"
  #include "NL/nlMemory.h"
 +#ifdef MSCHARGED_NATIVE
 +#include "platform/tweak_storage.h"

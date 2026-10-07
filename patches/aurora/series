@@ -40,3 +40,6 @@
 0042-track-completed-native-vi-presentation.patch
 0043-keep-native-clock-waits-on-interrupt-safe-points.patch
 0044-separate-desktop-signal-from-physical-vi-fields.patch
+0046-observe-successful-native-presentation-geometry.patch
+0048-native-alarm-descriptor-and-clock-types.patch
+0047-native-vi-dimming-request-service.patch

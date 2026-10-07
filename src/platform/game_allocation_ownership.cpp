@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -65,6 +66,35 @@ struct NativeBacking {
 };
 using NativeBackings=std::map<std::uintptr_t,NativeBacking,std::less<std::uintptr_t>,
     HostMetadataAllocator<std::pair<const std::uintptr_t,NativeBacking>>>;
+struct DeviceLease
+{
+    void* data = nullptr;
+    void (*release)(void*) = nullptr;
+    DeviceLease() = default;
+    DeviceLease(std::size_t bytes, void (*callback)(void*))
+        : data(ChargedNativeMetadataAllocate(bytes)), release(callback)
+    {
+        std::memset(data, 0, bytes);
+    }
+    DeviceLease(const DeviceLease&) = delete;
+    DeviceLease& operator=(const DeviceLease&) = delete;
+    DeviceLease(DeviceLease&& other) noexcept
+        : data(std::exchange(other.data, nullptr)), release(other.release) {}
+    DeviceLease& operator=(DeviceLease&& other) noexcept
+    {
+        if (data) std::terminate(); // Commit only replaces an empty device slot.
+        data = std::exchange(other.data, nullptr); release = other.release;
+        return *this;
+    }
+    void Reset()
+    {
+        if (!data) return;
+        release(data); // Actual device transfer/pin ownership drains here.
+        ChargedNativeMetadataRelease(data);
+        data = nullptr;
+    }
+    ~DeviceLease() { Reset(); }
+};
 struct Allocation
 {
     MemoryAllocator* owner;
@@ -77,6 +107,7 @@ struct Allocation
     std::uint64_t next_write = 1;
     GraphicsStorageSpans graphics_storage;
     NativeBackings native_backings;
+    DeviceLease device;
 };
 using Records = std::map<std::uintptr_t, Allocation, std::less<std::uintptr_t>,
     HostMetadataAllocator<std::pair<const std::uintptr_t, Allocation>>>;
@@ -106,11 +137,27 @@ struct Pending
         record = temporary.extract(0);
     }
 };
+struct PendingDevice
+{
+    DeviceLease lease;
+    std::uint64_t minimum_incarnation;
+    std::uintptr_t address = 0;
+    std::uint64_t incarnation = 0;
+    PendingDevice(std::size_t bytes, void (*release)(void*), std::uint64_t minimum)
+        : lease(bytes, release), minimum_incarnation(minimum) {}
+};
+void RetireDeviceRange(Records& records, std::uintptr_t address, unsigned long bytes)
+{
+    auto first = records.lower_bound(address);
+    auto last = records.lower_bound(address + bytes);
+    for (auto it = first; it != last; ++it) it->second.device.Reset();
+}
 void EraseBackingRange(Records& records, std::uintptr_t address, unsigned long bytes)
 {
     // Child heaps can be contained in an allocation from another original heap.
     // Retiring that backing invalidates their metadata without running new game
     // destructors or altering the original bulk-discard operation.
+    RetireDeviceRange(records, address, bytes);
     auto first = records.lower_bound(address);
     auto last = records.lower_bound(address + bytes);
     records.erase(first, last);
@@ -367,6 +414,63 @@ void GameAllocationReservation::Commit(void* pointer)
         pending.record = std::move(insertion.node);
         throw std::logic_error("Original allocator returned an already live allocation");
     }
+}
+GameAllocationDeviceReservation::GameAllocationDeviceReservation(
+    std::size_t metadataBytes, void (*release)(void*)) : pending_(nullptr)
+{
+    if (!metadataBytes || !release)
+        throw std::invalid_argument("Game device lease has no metadata/release contract");
+    void* storage = ChargedNativeMetadataAllocate(sizeof(PendingDevice));
+    try
+    {
+        auto& state = State(); std::lock_guard lock(state.mutex);
+        pending_ = new(storage) PendingDevice(metadataBytes, release, state.next_incarnation);
+    }
+    catch (...) { ChargedNativeMetadataRelease(storage); throw; }
+}
+GameAllocationDeviceReservation::~GameAllocationDeviceReservation()
+{
+    static_cast<PendingDevice*>(pending_)->~PendingDevice();
+    ChargedNativeMetadataRelease(pending_);
+}
+void* GameAllocationDeviceReservation::Data() const noexcept
+{
+    return static_cast<PendingDevice*>(pending_)->lease.data;
+}
+void GameAllocationDeviceReservation::Prepare(const void* pointer, std::size_t bytes)
+{
+    auto& pending = *static_cast<PendingDevice*>(pending_);
+    if (!pending.lease.data || pending.incarnation || !pointer || !bytes)
+        throw std::invalid_argument("Game device lease preparation is not a fresh positive request");
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    auto found = state.records.find(address);
+    if (found == state.records.end() || found->second.incarnation < pending.minimum_incarnation
+        || bytes > found->second.bytes || found->second.device.data
+        || Containing(state.records, address, bytes) != found)
+        throw std::invalid_argument("Game device lease requires its exact fresh original allocation");
+    pending.address = address; pending.incarnation = found->second.incarnation;
+}
+void GameAllocationDeviceReservation::Commit()
+{
+    auto& pending = *static_cast<PendingDevice*>(pending_);
+    if (!pending.lease.data || !pending.incarnation)
+        throw std::invalid_argument("Game device lease has no prepared live source owner");
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    auto found = state.records.find(pending.address);
+    if (found == state.records.end() || found->second.incarnation != pending.incarnation
+        || found->second.device.data)
+        throw std::invalid_argument("Game device source allocation was retired/reused");
+    found->second.device = std::move(pending.lease);
+}
+void RetireGameAllocationDevicePins(const void* pointer)
+{
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    auto found = state.records.find(address);
+    if (found == state.records.end())
+        throw std::invalid_argument("Device pin retirement has no exact original allocation");
+    RetireDeviceRange(state.records, address, found->second.bytes);
 }
 bool FindGameAllocationSpan(const void* pointer, std::size_t bytes, GameAllocationSpan& result)
 {

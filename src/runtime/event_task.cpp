@@ -30,7 +30,7 @@ std::string VerifyStartupQueuedEvents()
     InitializeNativeEventRegistry();
     try
     {
-        fn_80115F10();
+        InitializeDispatchEventsTask();
         int received = 0, disposed = 0;
         {
             UnidentifiedQueuedEvent<int> event(&gDispatchEventsTask->dispatcher, "NativeQueuedStartup", -1);

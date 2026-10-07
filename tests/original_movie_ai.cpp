@@ -59,7 +59,13 @@ int main(int argc, char** argv) {
             Check(THPSimpleGetVideoInfo(&video)==0 && std::memcmp(&video,expected,sizeof(video))==0,
                   "source unopened video query modified its output");
             const auto mask=OSDisableInterrupts();
-            Await([&]{return GetNativeAIStatus().interrupt_pending;}, "real source sound DMA did not latch its hardware edge");
+            Await([&]{
+                // Advance the cooperative hardware clock while IRQ delivery
+                // is masked; SDL playback remains paused during startup lead.
+                if (ServiceNativeAI())
+                    throw std::runtime_error("original THP callback ran while masked");
+                return GetNativeAIStatus().interrupt_pending;
+            }, "real source sound DMA did not latch its hardware edge");
             Check(!ServiceNativeAI(), "original THP callback ran while masked");
             OSRestoreInterrupts(mask);
             Await([&]{return ServiceNativeAI();}, "original source mix callback did not run");

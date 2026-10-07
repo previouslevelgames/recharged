@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Use standard native SDK size and memory declarations
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 Classification: permanent modern compiler and native allocation ABI adaptation.
 
 MWCC supplies size_t.h and mem.h; host compilers use stddef.h and string.h.

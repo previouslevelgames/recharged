@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Restore the whole original UserOptions source
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Retire historical 0112/0113/0127 UserOptions helper substitutions. Restore
 all original defaults, volume methods and empty settings-update methods

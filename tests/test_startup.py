@@ -157,7 +157,7 @@ class StartupTests(unittest.TestCase):
         self.assertNotIn("Initializing Aurora", output)
 
     def test_missing_disc_and_configuration_are_errors(self):
-        self.assertIn("FAILED:", self.run_startup(self.root / "missing.ini", expected=1))
+        self.assertIn("Cannot read", self.run_startup(self.root / "missing.ini", expected=1))
         config = self.config()
         (self.root / "disc with spaces.iso").unlink()
         self.assertIn("Cannot open disc", self.run_startup(config, expected=1))

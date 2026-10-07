@@ -1,0 +1,100 @@
+From: mscharged-port
+Subject: [PATCH] Preserve original AX word copies at native halfword alignment
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+The original addr/adpcm fields are at offsets 0x6e/0x7e. A native u32
+lvalue there is not aligned even though the source halfwords are aligned.
+Use native byte copies with the same original unit order and field extent;
+preserve every sync condition, allocation, source method and console statement.
+This is compiler/ABI transport only, with no AX initialization or DSP readiness.
+
+--- a/src/RVL_SDK/ax/AXVPB.c
++++ b/src/RVL_SDK/ax/AXVPB.c
+@@ -22,6 +22,23 @@
+  *
+  * (If you compile for -O0 this will totally break functions)
+  */
++#ifdef MSCHARGED_NATIVE
++// Original word-copy order with byte-accessible native halfword fields. The
++// Wii layout puts addr/adpcm at offsets 0x6e/0x7e, not aligned u32 lvalues.
++#define FUNNY_COPY(dst, src, type, n)                                        \
++    do {                                                                    \
++        u8* __dst = (u8*)(dst);                                              \
++        const u8* __src = (const u8*)(src);                                   \
++        u16 i;                                                              \
++        for (i = 0; i < (n) / sizeof(type); i++) {                            \
++            type __value;                                                   \
++            memcpy(&__value, __src, sizeof(type));                            \
++            memcpy(__dst, &__value, sizeof(type));                            \
++            __dst += sizeof(type);                                          \
++            __src += sizeof(type);                                          \
++        }                                                                   \
++    } while (0)
++#else
+ #define FUNNY_COPY(dst, src, type, n)                                          \
+     do {                                                                       \
+                                                                                \
+@@ -36,6 +53,7 @@
+         }                                                                      \
+                                                                                \
+     } while (0)
++#endif
+ 
+ #ifdef MSCHARGED_NATIVE
+ #include "platform/dsp_memory_abi.h"
+@@ -155,19 +173,35 @@
+         }
+ 
+         if (sync & AX_PBSYNC_LOOP_ADDR) {
++#ifdef MSCHARGED_NATIVE
++            memcpy(&dst->addr.loopAddressHi, &src->addr.loopAddressHi, sizeof(u32));
++#else
+             *(u32*)&dst->addr.loopAddressHi = *(u32*)&src->addr.loopAddressHi;
++#endif
+         }
+ 
+         if (sync & AX_PBSYNC_END_ADDR) {
++#ifdef MSCHARGED_NATIVE
++            memcpy(&dst->addr.endAddressHi, &src->addr.endAddressHi, sizeof(u32));
++#else
+             *(u32*)&dst->addr.endAddressHi = *(u32*)&src->addr.endAddressHi;
++#endif
+         }
+ 
+         if (sync & AX_PBSYNC_CURR_ADDR) {
++#ifdef MSCHARGED_NATIVE
++            memcpy(&dst->addr.currentAddressHi, &src->addr.currentAddressHi, sizeof(u32));
++#else
+             *(u32*)&dst->addr.currentAddressHi =
+                 *(u32*)&src->addr.currentAddressHi;
++#endif
+         } else {
++#ifdef MSCHARGED_NATIVE
++            memcpy(&src->addr.currentAddressHi, &dst->addr.currentAddressHi, sizeof(u32));
++#else
+             *(u32*)&src->addr.currentAddressHi =
+                 *(u32*)&dst->addr.currentAddressHi;
++#endif
+         }
+     } else if (sync & AX_PBSYNC_ADDR) {
+         FUNNY_COPY(&dst->addr, &src->addr, u32, sizeof(AXPBADDR));
+@@ -734,6 +768,10 @@
+ 
+ void AXSetVoiceAdpcm(AXVPB* vpb, AXPBADPCM* adpcm) {
+     BOOL old;
++#ifdef MSCHARGED_NATIVE
++    old = OSDisableInterrupts();
++    FUNNY_COPY(&vpb->pb.adpcm, adpcm, u32, sizeof(AXPBADPCM));
++#else
+     u32* dst;
+     u32* src;
+ 
+@@ -752,6 +790,8 @@
+     *dst++ = *src++;
+     *dst++ = *src++;
+     *dst = *src;
++
++#endif
+ 
+     vpb->sync |= AX_PBSYNC_ADPCM;
+     OSRestoreInterrupts(old);

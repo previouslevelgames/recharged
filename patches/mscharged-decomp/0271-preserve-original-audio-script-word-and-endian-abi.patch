@@ -1,0 +1,104 @@
+From: mscharged-port
+Subject: [PATCH] Preserve original audio script serialized words and callback byte order
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Native module data/ABI compatibility only. Original script selection, VM conditions,
+bindings, update and source-owned cleanup remain unchanged. This does not establish
+the effect factory, voices, normal AX initialization or complete startup.
+
+--- a/include/Game/Audio/AudioScriptInterpreter.inl
++++ b/include/Game/Audio/AudioScriptInterpreter.inl
+@@ -6,7 +6,12 @@
+ inline void AudioScriptInterpreter::DoFunctionCall(unsigned int index)
+ {
+     u32 value = m_SP[-1];
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    // The source stores the last byte of the preceding big-endian Wii word.
++    m_SP[-1] = (value & 0xFFFFFF00u) | u32(value != 0);
++#else
+     ((u8*)m_SP)[-1] = value != 0;
++#endif
+     if (m_RunState == 3)
+         m_SP[-1] = value;
+ }
+--- a/include/Game/Audio/AudioScriptRuntime.h
++++ b/include/Game/Audio/AudioScriptRuntime.h
+@@ -99,7 +99,11 @@
+ struct AudioScriptEntry
+ {
+     u32 mHash;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::VMAddress32<void> mData;
++#else
+     void* mData;
++#endif
+ 
+     operator u32() const { return mHash; }
+     bool operator==(const u32& key) const { return mHash == key; }
+@@ -111,8 +115,17 @@
+ 
+     u16 mCount;
+     u16 mUnidentified02;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::VMAddress32<u32> mValues;
++#else
+     u32* mValues;
++#endif
+ };
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++static_assert(sizeof(AudioScriptEntry) == 8);
++static_assert(sizeof(AudioScriptBindingList) == 8);
++#endif
+ 
+ struct AudioScriptSelection
+ {
+--- a/src/Game/Audio/AudioScriptRuntime.cpp
++++ b/src/Game/Audio/AudioScriptRuntime.cpp
+@@ -1,6 +1,9 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioScriptRuntime.h"
+ #include "NL/nlFunction.inl"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_audio_script.h"
++#endif
+ 
+ #include "NL/nlAlgorithm.h"
+ #include "NL/nlBind.h"
+@@ -28,13 +31,24 @@
+ 
+ bool AudioScriptRuntime::LoadScriptData(void* data, unsigned int size)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PrepareNativeAudioScriptData(data, size);
++#endif
+     u32* header = (u32*)data;
+     mEntryCount = header[2];
+     mEntries = (AudioScriptEntry*)(header + 4);
+     for (u32 i = 0; i < mEntryCount; ++i)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        mEntries[i].mData = (u8*)data + mEntries[i].mData.word;
++#else
+         mEntries[i].mData = (u8*)mEntries[i].mData + (u32)data;
++#endif
+     mDefaultBindings = (AudioScriptBindingList*)(mEntries + mEntryCount);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mDefaultBindings->mValues = (u32*)((u8*)data + mDefaultBindings->mValues.word);
++#else
+     mDefaultBindings->mValues = (u32*)((u8*)mDefaultBindings->mValues + (u32)data);
++#endif
+     if (header[3] != 0)
+         mInterpreter.LoadByteCode((u8*)data + header[3]);
+     return true;
+@@ -106,7 +120,11 @@
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    AudioScriptSelection* selection = (AudioScriptSelection*)entry->mData.Get();
++#else
+     AudioScriptSelection* selection = (AudioScriptSelection*)entry->mData;
++#endif
+     for (u32 i = 0; i < selection->mCount; ++i)
+     {
+         if (!mDefaultBindings->Contains(selection->mValues[i]))

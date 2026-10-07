@@ -1,0 +1,58 @@
+From: mscharged-port
+Subject: [PATCH] Preserve original silence buffer hardware words
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Replace only native pointer submissions with the existing checked cached Wii
+word for the actual 0x500-byte source allocation, then keep original u32 times-two
+nibble arithmetic. Source state/branch/loop/selection and console code stay
+unchanged. No Backend/AX initialization or successful voice state is supplied.
+
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+--- a/src/Game/Audio/AudioSource.cpp
++++ b/src/Game/Audio/AudioSource.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_sp_table.h"
++#endif
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioSource.h"
+@@ -218,7 +221,12 @@
+                 if (!canLoop)
+                 {
+                     AXSetVoiceLoop(m_Voice, false);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                    AXSetVoiceLoopAddr(m_Voice,
++                        mscharged::platform::NativeAudioCachedWord(g_pAudioSilenceBuffer, 0x500) * 2);
++#else
+                     AXSetVoiceLoopAddr(m_Voice, (unsigned long)g_pAudioSilenceBuffer * 2);
++#endif
+                 }
+             }
+             m_LastVoiceAddress = address;
+@@ -253,7 +261,12 @@
+         if (m_Voice != 0)
+         {
+             AXSetVoiceState(m_Voice, AX_VOICE_STOP);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            AXSetVoiceLoopAddr(m_Voice,
++                mscharged::platform::NativeAudioCachedWord(g_pAudioSilenceBuffer, 0x500) * 2);
++#else
+             AXSetVoiceLoopAddr(m_Voice, (unsigned long)g_pAudioSilenceBuffer * 2);
++#endif
+         }
+         OSRestoreInterrupts(enabled);
+         break;
+@@ -744,7 +757,12 @@
+             {
+                 unsigned int end = GetStreamEndAddress(channel->m_Voice, m_StreamEndPosition);
+                 AXSetVoiceLoop(channel->m_Voice, false);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                AXSetVoiceLoopAddr(channel->m_Voice,
++                    mscharged::platform::NativeAudioCachedWord(g_pAudioSilenceBuffer, 0x500) * 2);
++#else
+                 AXSetVoiceLoopAddr(channel->m_Voice, (unsigned long)g_pAudioSilenceBuffer * 2);
++#endif
+                 AXSetVoiceEndAddr(channel->m_Voice, end);
+                 m_EndAddressSet = true;
+             }

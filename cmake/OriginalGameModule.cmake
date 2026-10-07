@@ -107,3 +107,15 @@ include(cmake/OriginalCharacterLoading.cmake)
 include(cmake/OriginalSaveSources.cmake)
 
 include(cmake/OriginalUserOptions.cmake)
+
+include(cmake/OriginalAudioScript.cmake)
+
+include(cmake/OriginalAudioBanks.cmake)
+
+include(cmake/OriginalAudioControls.cmake)
+
+include(cmake/OriginalAudioOwnership.cmake)
+include(cmake/OriginalAudioResourceMetadata.cmake)
+include(cmake/OriginalAudioSampleMetadata.cmake)
+
+include(cmake/OriginalWarbleModule.cmake)

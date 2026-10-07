@@ -1,0 +1,54 @@
+From: mscharged native port
+Subject: [PATCH] Retain numeric popup callback indices across native pointer width
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+The actual popup constructor stores numeric0/1/2 in the three pointer contexts.
+Recover the same original int through uintptr_t for modern native compilers.
+The original console expressions, consumers and all popup behavior remain.
+
+--- a/src/Game/FE/fePopupMenu.cpp
++++ b/src/Game/FE/fePopupMenu.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
++
+ #include "Game/HBMManager.h"
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/FE/fePopupMenu.h"
+@@ -814,7 +818,11 @@
+ 
+ void FEPopupMenu::OnOptionPointerEnter(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    int optionIndex = static_cast<int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     int optionIndex = (int)context;
++#endif
+     ++mPointerHoverCounts[index];
+     if (!mControllerComponents[optionIndex].HasOtherPointerState(1, index))
+     {
+@@ -828,7 +836,11 @@
+ 
+ void FEPopupMenu::OnOptionPointerLeave(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    int optionIndex = static_cast<int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     int optionIndex = (int)context;
++#endif
+     --mPointerHoverCounts[index];
+     if (!mControllerComponents[optionIndex].HasOtherPointerState(1, index))
+     {
+@@ -858,7 +870,11 @@
+     }
+ 
+     mRunCallBack = true;
++#if defined(MSCHARGED_NATIVE)
++    mHighlightedOption = static_cast<int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     mHighlightedOption = (int)context;
++#endif
+     mOptionPressed = true;
+     mHBMWasBlocked = gpHBMManager->mBlocked;
+     gpHBMManager->mBlocked = true;

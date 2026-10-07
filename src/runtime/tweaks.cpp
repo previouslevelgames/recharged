@@ -45,7 +45,7 @@ unsigned CountValues(TweakEntry* entry)
 {
     unsigned count = 0;
     for (auto* child = entry->m_ChildHead; child; child = child->m_Next)
-        count += child->UnidentifiedVirtual0C() ? CountValues(child->UnidentifiedVirtual18()) : 1;
+        count += child->IsEntry() ? CountValues(child->AsEntry()) : 1;
     return count;
 }
 void ClearPending()

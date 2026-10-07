@@ -1,0 +1,135 @@
+From: mscharged native port
+Subject: [PATCH] Preserve original FS alignment and zero-length IPC arguments
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retain the complete original FS request/callback flow. Native pointers use
+uintptr_t only for the original 32-byte alignment tests. Numeric IPC output
+length zero uses an integer on modern C; console expressions are unchanged.
+No filesystem or successful IOS service is supplied by this compiler patch.
+
+--- a/src/RVL_SDK/fs/fs.c
++++ b/src/RVL_SDK/fs/fs.c
+@@ -3,6 +3,15 @@
+ #include <revolution/os.h>
+ 
+ #include <string.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define FS_BUFFER_ADDRESS uintptr_t
++#define FS_NULL_OUTPUT_SIZE 0
++#else
++#define FS_BUFFER_ADDRESS u32
++#define FS_NULL_OUTPUT_SIZE NULL
++#endif
+ 
+ #define FS_HEAP_SIZE 0x1500
+ 
+@@ -328,7 +337,7 @@
+     block = NULL;
+ 
+     if (path == NULL || fileCountOut == NULL || __fsFd < 0 ||
+-        (u32)filesOut % 32 != 0 ||
++        (FS_BUFFER_ADDRESS)filesOut % 32 != 0 ||
+         (len = strnlen(path, FS_MAX_PATH)) == FS_MAX_PATH) {
+         ret = IPC_RESULT_INVALID;
+         goto end;
+@@ -409,7 +418,7 @@
+     block = NULL;
+ 
+     if (path == NULL || fileCountOut == NULL || __fsFd < 0 ||
+-        (u32)filesOut % 32 != 0 ||
++        (FS_BUFFER_ADDRESS)filesOut % 32 != 0 ||
+         (len = strnlen(path, FS_MAX_PATH)) == FS_MAX_PATH) {
+         return IPC_RESULT_INVALID;
+     }
+@@ -587,7 +596,7 @@
+     memcpy(block->ioctlWork, path, len + 1);
+ 
+     ret = IOS_Ioctl(__fsFd, FS_IOCTL_DELETE_PATH, block->ioctlWork, FS_MAX_PATH,
+-                    0, NULL);
++                    0, FS_NULL_OUTPUT_SIZE);
+ 
+ end:
+     if (block != NULL) {
+@@ -620,7 +629,7 @@
+     block->callbackState = CB_STATE_NONE;
+ 
+     return IOS_IoctlAsync(__fsFd, FS_IOCTL_DELETE_PATH, block->ioctlWork,
+-                          FS_MAX_PATH, 0, NULL, _isfsFuncCb, block);
++                          FS_MAX_PATH, 0, FS_NULL_OUTPUT_SIZE, _isfsFuncCb, block);
+ }
+ 
+ s32 ISFS_Rename(const char* from, const char* to) {
+@@ -648,7 +657,7 @@
+     memcpy(block->renameIoctl.to, to, lenTo + 1);
+ 
+     ret = IOS_Ioctl(__fsFd, FS_IOCTL_RENAME_PATH, &block->renameIoctl,
+-                    sizeof(FSRenameIoctl), 0, NULL);
++                    sizeof(FSRenameIoctl), 0, FS_NULL_OUTPUT_SIZE);
+ 
+ end:
+     if (block != NULL) {
+@@ -685,7 +694,7 @@
+     memcpy(block->renameIoctl.to, to, lenTo + 1);
+ 
+     return IOS_IoctlAsync(__fsFd, FS_IOCTL_RENAME_PATH, &block->renameIoctl,
+-                          sizeof(FSRenameIoctl), 0, NULL, _isfsFuncCb, block);
++                          sizeof(FSRenameIoctl), 0, FS_NULL_OUTPUT_SIZE, _isfsFuncCb, block);
+ }
+ 
+ s32 ISFS_GetUsage(const char* path, s32* blockCountOut, s32* fileCountOut) {
+@@ -941,7 +950,7 @@
+ }
+ 
+ s32 ISFS_GetFileStats(s32 fd, FSFileStats* statsOut) {
+-    if (statsOut == NULL || (u32)statsOut % 32 != 0) {
++    if (statsOut == NULL || (FS_BUFFER_ADDRESS)statsOut % 32 != 0) {
+         return IPC_RESULT_INVALID;
+     }
+ 
+@@ -953,7 +962,7 @@
+                            FSAsyncCallback callback, void* callbackArg) {
+     FSCommandBlock* block;
+ 
+-    if (statsOut == NULL || (u32)statsOut % 32 != 0) {
++    if (statsOut == NULL || (FS_BUFFER_ADDRESS)statsOut % 32 != 0) {
+         return IPC_RESULT_INVALID;
+     }
+ 
+@@ -991,7 +1000,7 @@
+ }
+ 
+ s32 ISFS_Read(s32 fd, void* dst, s32 len) {
+-    if (dst == NULL || (u32)dst % 32 != 0) {
++    if (dst == NULL || (FS_BUFFER_ADDRESS)dst % 32 != 0) {
+         return IPC_RESULT_INVALID;
+     }
+ 
+@@ -1002,7 +1011,7 @@
+                    void* callbackArg) {
+     FSCommandBlock* block;
+ 
+-    if (dst == NULL || (u32)dst % 32 != 0) {
++    if (dst == NULL || (FS_BUFFER_ADDRESS)dst % 32 != 0) {
+         return IPC_RESULT_INVALID;
+     }
+ 
+@@ -1019,7 +1028,7 @@
+ }
+ 
+ s32 ISFS_Write(s32 fd, const void* src, s32 len) {
+-    if (src == NULL || (u32)src % 32 != 0) {
++    if (src == NULL || (FS_BUFFER_ADDRESS)src % 32 != 0) {
+         return IPC_RESULT_INVALID;
+     }
+ 
+@@ -1030,7 +1039,7 @@
+                     void* callbackArg) {
+     FSCommandBlock* block;
+ 
+-    if (src == NULL || (u32)src % 32 != 0) {
++    if (src == NULL || (FS_BUFFER_ADDRESS)src % 32 != 0) {
+         return IPC_RESULT_INVALID;
+     }
+ 

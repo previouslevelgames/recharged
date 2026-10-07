@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original packed registry offset words at native width
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 RegistryOwner::Relocate reads original Wii32 offsets from pointer-shaped
 value cells. Use the existing checked scalar-word transport for those

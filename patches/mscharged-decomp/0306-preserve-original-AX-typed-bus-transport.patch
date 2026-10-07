@@ -1,0 +1,112 @@
+From: mscharged-port
+Subject: [PATCH] Transport original AX memory through checked native DSP backing
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Keep original command and voice producers, list selection, arithmetic and all
+source method bodies. Native address operands use the live SDK physical
+transport instead of truncating pointers. Small native-only descriptors expose
+actual source static extents so the platform can retain and pin their backing
+before source arena capture. DSP byte order is handled at the device boundary;
+this patch does not initialize AX, execute DSP tasks or supply a mixer.
+
+--- a/src/RVL_SDK/ax/AXCL.c
++++ b/src/RVL_SDK/ax/AXCL.c
+@@ -14,11 +14,24 @@
+         __AXWriteToCommandList((x));                                           \
+     } while (0)
+ 
++#ifdef MSCHARGED_NATIVE
++#include "platform/dsp_memory_abi.h"
++#include "platform/ax_storage_abi.h"
++// Every 32-bit operand in this original command producer is a DSP memory
++// address. Require actual pinned SDK backing rather than truncating a pointer.
++#define LIST_WRITE_32(x)                                                       \
++    do {                                                                       \
++        u32 word = ChargedDSPTaskMemoryWord((const void*)(uintptr_t)(x), 1, 0); \
++        __AXWriteToCommandList(word >> 16);                                    \
++        __AXWriteToCommandList(word);                                          \
++    } while (0)
++#else
+ #define LIST_WRITE_32(x)                                                       \
+     do {                                                                       \
+         __AXWriteToCommandList((x) >> 16);                                     \
+         __AXWriteToCommandList((x));                                           \
+     } while (0)
++#endif
+ 
+ /**
+  * Command list opcodes (from Dolphin Emulator)
+@@ -287,3 +300,10 @@
+ void AXSetAuxCReturnVolume(u16 volume) {
+     __AXAuxCVolume = volume;
+ }
++
++#ifdef MSCHARGED_NATIVE
++ChargedAXStorage ChargedAXGetCommandStorage(void) {
++    ChargedAXStorage result = {__AXCommandList, sizeof(__AXCommandList)};
++    return result;
++}
++#endif
+--- a/src/RVL_SDK/ax/AXVPB.c
++++ b/src/RVL_SDK/ax/AXVPB.c
+@@ -37,8 +37,15 @@
+                                                                                \
+     } while (0)
+ 
++#ifdef MSCHARGED_NATIVE
++#include "platform/dsp_memory_abi.h"
++#include "platform/ax_storage_abi.h"
++#define ADDRHI(x) (ChargedDSPTaskMemoryWord((const void*)(uintptr_t)(x), 1, 0) >> 16 & 0xFFFF)
++#define ADDRLO(x) (ChargedDSPTaskMemoryWord((const void*)(uintptr_t)(x), 1, 0) & 0xFFFF)
++#else
+ #define ADDRHI(x) (((uintptr_t)x) >> 16 & 0xFFFF)
+ #define ADDRLO(x) (((uintptr_t)x) & 0xFFFF)
++#endif
+ 
+ typedef struct _AXITD {
+     u8 UNK_0x0[0x40];
+@@ -922,3 +929,12 @@
+ s32 AXGetMaxVoices(void) {
+     return __AXMaxVoices;
+ }
++
++#ifdef MSCHARGED_NATIVE
++void ChargedAXGetVoiceStorage(ChargedAXStorage output[2]) {
++    output[0].address = __s_AXPB;
++    output[0].bytes = sizeof(__s_AXPB);
++    output[1].address = __s_AXITD;
++    output[1].bytes = sizeof(__s_AXITD);
++}
++#endif
+--- a/src/RVL_SDK/ax/AXAux.c
++++ b/src/RVL_SDK/ax/AXAux.c
+@@ -322,3 +322,15 @@
+     *callback = __AXCallbackAuxC;
+     *context = __AXContextAuxC;
+ }
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_storage_abi.h"
++void ChargedAXGetAuxStorage(ChargedAXStorage output[3]) {
++    output[0].address = __AXBufferAuxA;
++    output[0].bytes = sizeof(__AXBufferAuxA);
++    output[1].address = __AXBufferAuxB;
++    output[1].bytes = sizeof(__AXBufferAuxB);
++    output[2].address = __AXBufferAuxC;
++    output[2].bytes = sizeof(__AXBufferAuxC);
++}
++#endif
+--- a/src/RVL_SDK/ax/AXComp.c
++++ b/src/RVL_SDK/ax/AXComp.c
+@@ -185,3 +185,11 @@
+     21401, 21412, 21422, 21432, 21442, 21453, 21463, 21473, 21484, 21494, 21504,
+     21515, 21525, 21535, 21545, 21556, 21566, 21577, 21587, 21597, 21608, 21618,
+     21628, 21639, 21649};
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_storage_abi.h"
++ChargedAXStorage ChargedAXGetCompressorStorage(void) {
++    ChargedAXStorage result = {__AXCompressorTable, sizeof(__AXCompressorTable)};
++    return result;
++}
++#endif

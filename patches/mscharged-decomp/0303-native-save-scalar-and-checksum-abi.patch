@@ -1,0 +1,91 @@
+Subject: [PATCH] Preserve original Wii32 save scalars and checksum words on native hosts
+
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Scope: Native compiler/data ABI only; original checksum loops and save record decisions retained.
+
+diff --git a/src/NL/nlMain.cpp b/src/NL/nlMain.cpp
+--- a/src/NL/nlMain.cpp
++++ b/src/NL/nlMain.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlMain.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ // CRC-32 lookup table (256 entries)
+ unsigned int crcTable[256]
+@@ -7,9 +10,17 @@
+ void RunningChecksum::ChecksumData(const void* pData, unsigned long nDataLen)
+ {
+     const u8* pByte = (const u8*)pData;
++#if defined(MSCHARGED_NATIVE)
++    const u32* p32;
++#else
+     const unsigned long* p32;
++#endif
+ 
++#if defined(MSCHARGED_NATIVE)
++    while ((reinterpret_cast<std::uintptr_t>(pByte) & 3) && nDataLen != 0)
++#else
+     while (((u32)pByte & 3) && nDataLen != 0)
++#endif
+     {
+         u32 temp = m_nChecksum;
+         nDataLen--;
+@@ -17,7 +28,11 @@
+         m_nChecksum = (temp >> 8) ^ crcTable[b ^ (u8)temp];
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    p32 = (const u32*)pByte;
++#else
+     p32 = (const unsigned long*)pByte;
++#endif
+     if (nDataLen >= 4)
+     {
+         while (nDataLen >= 4)
+@@ -53,11 +68,19 @@
+ {
+     unsigned long index;
+     unsigned long tableIndex;
++#if defined(MSCHARGED_NATIVE)
++    u32 crc;
++#else
+     unsigned long crc;
++#endif
+     const unsigned char* p;
+ 
+     p = (const unsigned char*)data;
++#if defined(MSCHARGED_NATIVE)
++    crc = ~u32(0);
++#else
+     crc = ~0UL;
++#endif
+     index = 0;
+ 
+     while (index < size)
+diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
+--- a/include/Game/GameInfo.h
++++ b/include/Game/GameInfo.h
+@@ -30,7 +30,11 @@
+ 
+     bool IsWidescreen() const;
+ 
++#if defined(MSCHARGED_NATIVE)
++    /* 0x00 */ u32 mSaveID;
++#else
+     /* 0x00 */ unsigned long mSaveID;
++#endif
+     /* 0x04 */ AudioSettings mAudioOptions;
+     /* 0x1C */ VisualSettings mVisualOptions;
+     /* 0x24 */ GameplaySettings mGameplayOptions;
+@@ -43,6 +47,9 @@
+     /* 0x7A */ unsigned short mNumPerfectPasses;
+     /* 0x7C */ unsigned short mNumHits;
+ }; // size 0x80
++#if defined(MSCHARGED_NATIVE)
++static_assert(sizeof(UserInfo) == 0x80, "UserInfo must retain its original serialized record size");
++#endif
+ 
+ /**
+  * One saved user profile. R4QE01 stores ten of them contiguously and always

@@ -1,0 +1,57 @@
+From: mscharged native port
+Subject: [PATCH] Native NET byte-reverse primitives and original integer abs
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Original PPC byte-reverse load/store read/write little-endian memory for the
+NET digest helpers. Encode those four bytes explicitly on the host; the
+original numeric NETSwapBytes32 helper remains unchanged. No second generic
+intrinsics provider is added. Native OnlineLogin uses the standard int abs
+declared by its existing stdlib include; keep the original MSL expression on
+console. Network algorithms, ranges and callbacks remain unchanged.
+
+--- a/libs/RVL_SDK/include/revolution/net/NETDigest.h
++++ b/libs/RVL_SDK/include/revolution/net/NETDigest.h
+@@ -35,7 +35,15 @@
+ 
+     static inline void NETWriteSwappedBytes32(u32* dst, u32 val)
+     {
++#if defined(MSCHARGED_NATIVE)
++        u8* bytes = (u8*)dst;
++        bytes[0] = (u8)val;
++        bytes[1] = (u8)(val >> 8);
++        bytes[2] = (u8)(val >> 16);
++        bytes[3] = (u8)(val >> 24);
++#else
+         __stwbrx(val, dst, 0);
++#endif
+     }
+ 
+     static inline u32 NETSwapBytes32(u32 val)
+@@ -46,7 +54,13 @@
+ 
+     static inline u32 NETReadSwappedBytes32(const u32* src)
+     {
++#if defined(MSCHARGED_NATIVE)
++        const u8* bytes = (const u8*)src;
++        return (u32)bytes[0] | ((u32)bytes[1] << 8) |
++               ((u32)bytes[2] << 16) | ((u32)bytes[3] << 24);
++#else
+         return __lwbrx((void*)src, 0);
++#endif
+     }
+ 
+     typedef void (*NETHashInitFunc)(void* context);
+--- a/src/Game/SH/SHOnlineLogin.cpp
++++ b/src/Game/SH/SHOnlineLogin.cpp
+@@ -246,7 +246,11 @@
+ 
+ int GetOnlineErrorPopup(int error, bool connected, int value)
+ {
++#if defined(MSCHARGED_NATIVE)
++    error = abs(error);
++#else
+     error = _abs(error);
++#endif
+     gOnlineErrorCode = error;
+     bool found = false;
+     for (int i = 0; i < 22; ++i)

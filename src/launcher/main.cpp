@@ -54,6 +54,7 @@ struct Options
     bool experimental_startup = false;
     bool experimental_scene = false;
     bool experimental_credits = false;
+    bool experimental_frontend = false;
     bool credits_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
@@ -127,6 +128,7 @@ class Launcher
 public:
     const std::optional<ResolvedLaunch>& StartupLaunch() const { return startup_launch_; }
     const std::optional<ResolvedLaunch>& CreditsLaunch() const { return credits_launch_; }
+    const std::optional<ResolvedLaunch>& FrontendLaunch() const { return frontend_launch_; }
 
     ResolvedLaunch EffectiveLaunch() const { return ResolveLaunch(file_, options_.launch, &draft_); }
     std::string DiscSelection() const { return PathUtf8(EffectiveLaunch().disc_path); }
@@ -593,6 +595,9 @@ private:
         Paragraph("Try startup enters the available original initialization code and reports its first missing service. This prototype cannot run a match yet.");
 #elif defined(MSCHARGED_HAS_ORIGINAL_CREDITS)
         Paragraph("Try Credits enters original main and runs the original scrolling Credits scene, movie and native audio with temporary startup omissions. Full game startup is still in development.");
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        Paragraph("Try boot sequence runs the original Boot and Intro tasks. Later menus and game sound effects remain incomplete.");
+#endif
 #else
         Paragraph("The decompilation is still incomplete. Game startup, Aurora rendering, audio, and Wii input adaptation are the next integration steps.");
 #endif
@@ -667,6 +672,15 @@ private:
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Original-main Credits test for USA revision 1. Uses run settings without saving and closes the launcher before the game window opens. Full startup and gameplay remain pending.");
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!credits_ready);
+        if (ImGui::Button("Try boot sequence", {144, 32}))
+        { frontend_launch_ = EffectiveLaunch(); quit = true; }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Original Boot/Intro test. Later menus and game sound effects are incomplete. Uses run settings without saving.");
+#endif
 #else
         ImGui::BeginDisabled();
         ImGui::Button("Play game", {104, 32});
@@ -711,6 +725,7 @@ private:
     Options options_;
     std::optional<ResolvedLaunch> startup_launch_;
     std::optional<ResolvedLaunch> credits_launch_;
+    std::optional<ResolvedLaunch> frontend_launch_;
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_ = nullptr;
@@ -758,6 +773,9 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
             std::cout << "Original-main Credits test: --experimental-credits [--disk FILE] [--window] (temporary startup omissions)\n";
 #endif
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+            std::cout << "Original Boot/Intro test: --experimental-frontend [--disk FILE] [--window] (startup and game sound incomplete)\n";
+#endif
 #ifdef MSCHARGED_HAS_SCENE_PREVIEW
             std::cout << "Static Wii asset preview: --experimental-scene [--config FILE] [--frames N [--frame-timeout SECONDS]]\n"
                          "                        [--model /DISC/PATH.rlg] [--textures /DISC/PATH.rlt] [--model-id HEX]\n"
@@ -787,6 +805,7 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--experimental-credits") options.experimental_credits = true;
+        else if (arg == "--experimental-frontend") options.experimental_frontend = true;
         else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.credits_arguments = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
@@ -871,12 +890,13 @@ int main(int argc, char** argv)
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 2; }
     options.config = options.launch.config;
     const unsigned runtime_modes = unsigned(options.experimental_startup)
-        + unsigned(options.experimental_scene) + unsigned(options.experimental_credits);
+        + unsigned(options.experimental_scene) + unsigned(options.experimental_credits)
+        + unsigned(options.experimental_frontend);
     if (runtime_modes && (runtime_modes > 1 || options.smoke_test
         || !options.screenshot.empty() || options.page_selected))
     { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
-    if (options.credits_arguments && !options.experimental_credits)
-    { std::cerr << "Credits frame/resize options require --experimental-credits.\n"; return 2; }
+    if (options.credits_arguments && !options.experimental_credits && !options.experimental_frontend)
+    { std::cerr << "Frame/resize options require --experimental-credits or --experimental-frontend.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
     if (options.scene.frame_timeout && !options.scene.frames)
@@ -945,6 +965,20 @@ int main(int argc, char** argv)
     { std::cerr << "Select --world or separate --model/--textures assets.\n"; return 2; }
     try
     {
+        if (options.experimental_frontend)
+        {
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+            std::vector<char*> arguments;
+            for (int i = 0; i < argc; ++i)
+                if (std::string_view(argv[i]) != "--experimental-frontend") arguments.push_back(argv[i]);
+            arguments.push_back(nullptr);
+            return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data(),
+                nullptr, false, OriginalMainScene::FrontendSequence);
+#else
+            std::cerr << "Original Boot/Intro is not in this build. Enable MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC.\n";
+            return 2;
+#endif
+        }
         if (options.experimental_credits)
         {
 #ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
@@ -993,16 +1027,21 @@ int main(int argc, char** argv)
             return 2;
 #endif
         }
-        std::optional<ResolvedLaunch> startup_launch, credits_launch;
+        std::optional<ResolvedLaunch> startup_launch, credits_launch, frontend_launch;
         int result;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             startup_launch = launcher.StartupLaunch();
             credits_launch = launcher.CreditsLaunch();
+            frontend_launch = launcher.FrontendLaunch();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
 #ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
         if (credits_launch) return RunOriginalMainCredits(argc, argv, &*credits_launch, true);
+#endif
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        if (frontend_launch) return RunOriginalMainCredits(argc, argv, &*frontend_launch, true,
+            OriginalMainScene::FrontendSequence);
 #endif
 #ifdef MSCHARGED_HAS_GAME_STARTUP
         if (startup_launch) return RunGameStartup(argc, argv, *startup_launch);

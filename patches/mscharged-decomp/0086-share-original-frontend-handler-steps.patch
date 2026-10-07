@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend base-handler and loading notification steps
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Share original base timeline, ring and activation contracts with checked native
 retained-scene ownership. Preserve the actual empty remove and SceneCreated

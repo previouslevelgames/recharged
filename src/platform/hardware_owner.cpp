@@ -1,4 +1,5 @@
 #include "platform/hardware_owner.h"
+#include "platform/alarms.h"
 #include "platform/interrupts.h"
 #include "platform/stm_device.h"
 
@@ -53,6 +54,7 @@ void Service() {
     struct Finish { Owner& state; ~Finish() { std::lock_guard lock(state.latch); state.active = false; } } finish{state};
     mscharged::platform::NativeInterruptRead exclusion;
     if (!exclusion) return;
+    mscharged::platform::ServiceNativeAlarms();
     const auto now = std::chrono::steady_clock::now();
     if (!state.desktop_cadence || now >= state.next_input) {
         state.next_input = now + std::chrono::milliseconds(10);
@@ -85,6 +87,8 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     }
     ConfigureWpadSDL(settings);
     InitializeDesktopWpad(window, desktop);
+    try { InitializeNativeAlarms(); }
+    catch (...) { ShutdownDesktopWpad(); throw; }
     {
         std::lock_guard lock(state.latch);
         state.thread = std::this_thread::get_id();
@@ -92,12 +96,13 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
         state.stm = borrowed_stm;
         state.pending_power = 0;
         state.active = state.overflow = state.registered = false;
-        state.desktop_cadence = desktop.keyboard || desktop.gamepads;
+        state.desktop_cadence = desktop.keyboard || desktop.gamepads || desktop.mouse;
         state.next_input = {};
         state.ready = true;
     }
     if (!SDL_AddEventWatch(Watch, nullptr)) {
         { std::lock_guard lock(state.latch); state.ready = false; }
+        ShutdownNativeAlarms();
         ShutdownDesktopWpad();
         throw std::runtime_error(SDL_GetError());
     }
@@ -136,6 +141,7 @@ void ShutdownNativeHardwareInput() {
     // Remove watchers before releasing the device state they may have borrowed.
     // A previously loaded SDK function pointer sees ready=false and returns.
     SDL_RemoveEventWatch(Watch, nullptr);
+    ShutdownNativeAlarms();
     ShutdownDesktopWpad();
     WPADShutdown();
     {

@@ -1,0 +1,87 @@
+Subject: Preserve original SaveLoad Wii16 and TPL address-cell ABI on native hosts
+
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+After the byte-exact0288 restore, TPL fields retain original four-byte record
+strides and borrow actual source-owned cached addresses beneath unchanged source
+requests/callbacks/copy/free. Only SaveLoad uses qualified short-wchar and the
+prefixed original MSL wcslen, bound after headers to avoid host cwchar pollution.
+Original algorithms/banner requests/ownership remain; no CARD success supplied.
+
+diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
+--- a/src/Game/DB/SaveLoad.cpp
++++ b/src/Game/DB/SaveLoad.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_tpl.h"
++#endif
+ #include "NL/nlSingleton.inl"
+ #include "Game/DB/SaveLoad.h"
+ #include "Game/TweakRegistry.h"
+@@ -29,6 +32,11 @@
+ #include "Game/BaseGameSceneManager.h"
+ #include "NL/nlFunction.inl"
+ 
++#if defined(MSCHARGED_NATIVE)
++extern "C" std::size_t ChargedWii_wcslen(const wchar_t*);
++#define wcslen ChargedWii_wcslen
++#endif
++
+ #define NAND_BANNER_SIZE(frames) (0x60A0 + (0x1200 * (frames)))
+ #define NAND_BANNER_ICON_SIZE    0x1200
+ #define NAND_BANNER_TEXTURE_SIZE 0x6000
+@@ -52,23 +60,54 @@
+     u16 height;
+     u16 width;
+     u32 format;
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<char> data;
++#else
+     char* data;
++#endif
+ };
+ 
+ struct TPLDescriptor
+ {
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<TPLHeader> textureHeader;
++#else
+     TPLHeader* textureHeader;
++#endif
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<void> CLUTHeader;
++#else
+     void* CLUTHeader;
++#endif
+ };
+ 
+ struct TPLPalette
+ {
+     u32 versionNumber;
+     u32 numDescriptors;
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeTPLAddress32<TPLDescriptor> descriptorArray;
++#else
+     TPLDescriptor* descriptorArray;
++#endif
+ };
+ 
++#if !defined(MSCHARGED_NATIVE)
+ extern "C" void TPLBind(TPLPalette* palette);
++#endif
++
++#if defined(MSCHARGED_NATIVE)
++static_assert(sizeof(wchar_t) == 2, "SaveLoad requires the isolated Wii16 MSL ABI");
++static_assert(offsetof(NANDBanner, title) == 0x20);
++static_assert(offsetof(NANDBanner, subtitle) == 0x60);
++static_assert(offsetof(NANDBanner, bannerTexture) == 0xA0);
++static_assert(offsetof(NANDBanner, iconTexture) == 0x60A0);
++static_assert(sizeof(NANDBanner) == NAND_BANNER_SIZE(8));
++static_assert(sizeof(TPLHeader) == 12 && offsetof(TPLHeader, data) == 8);
++static_assert(sizeof(TPLDescriptor) == 8 && offsetof(TPLDescriptor, CLUTHeader) == 4);
++static_assert(sizeof(TPLPalette) == 12 && offsetof(TPLPalette, descriptorArray) == 8);
++#endif
++
+ 
+ 
+ 

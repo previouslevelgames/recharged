@@ -1,0 +1,330 @@
+From: mscharged-port
+Subject: [PATCH] Adapt original audio resource metadata to native ABI
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retain the whole Matching source parsers, chunk traversal, AVL/cue lookup,
+loops and rebasing decisions. Native allocation-owned POD views decode Wii32
+metadata without changing raw headers, source owners or DSP samples. Saved
+record origins use exact original wire strides rather than truncated pointers.
+Full sample loading/factory/SP/AX/playback remain independent predecessors.
+
+--- a/src/Game/Audio/AudioBankLoader.cpp
++++ b/src/Game/Audio/AudioBankLoader.cpp
+@@ -1,11 +1,22 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_audio_resource.h"
++#endif
+ #include "Game/Audio/AudioSource.h"
+ #include "Game/Audio/AudioBankLoader.h"
+ #include "NL/nlChunk.h"
+ #include "types.h"
+ 
+-static inline AudioSourceInfo* GetSourceInfos(nlChunk* chunk)
++static inline AudioSourceInfo* GetSourceInfos(nlChunk* chunk
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    , const mscharged::platform::NativeAudioResourceView& nativeView
++#endif
++)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    return (AudioSourceInfo*)mscharged::platform::NativeAudioResourceData(nativeView, chunk);
++#else
+     return (AudioSourceInfo*)chunk->GetData();
++#endif
+ }
+ 
+ void AudioBankLoader::ParseChunk(nlChunk* chunk)
+@@ -18,10 +29,21 @@
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeView = mscharged::platform::PrepareNativeAudioSourceChunk(chunk);
++#endif
+     nlChunk* header = chunk->GetFirstChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    m_Chunk23200 = (AudioSourceData*)mscharged::platform::NativeAudioResourceData(nativeView, header);
++#else
+     m_Chunk23200 = (AudioSourceData*)header->GetData();
++#endif
+     nlChunk* definitions = header->GetLastChunk();
+-    AudioSourceInfo* entries = GetSourceInfos(definitions);
++    AudioSourceInfo* entries = GetSourceInfos(definitions
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        , nativeView
++#endif
++    );
+     m_Chunk23200Entries = entries;
+     u32 i = 0;
+     u32 entryOffset = 0;
+--- a/src/Game/Audio/AudioResourceBundle.cpp
++++ b/src/Game/Audio/AudioResourceBundle.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_audio_resource.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioBundleManager.h"
+ #include "Game/Audio/AudioRpc.h"
+@@ -20,34 +23,98 @@
+ 
+ AudioResourceBundle* ParseAudioResourceBundle(nlChunk* outer)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeView = mscharged::platform::PrepareNativeAudioResourceChunk(outer);
++#endif
+     nlChunk* header = (nlChunk*)outer->GetData();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    AudioResourceBundle* bundle = (AudioResourceBundle*)mscharged::platform::NativeAudioResourceData(nativeView, header);
++#else
+     AudioResourceBundle* bundle = (AudioResourceBundle*)header->GetData();
+-
++#endif
++
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    auto voiceOffset = mscharged::platform::NativeAudioResourceOrigin(nativeView,
++        mscharged::platform::AudioResourceArray::Voice, bundle->voices);
++    auto sequenceOffset = mscharged::platform::NativeAudioResourceOrigin(nativeView,
++        mscharged::platform::AudioResourceArray::Sequence, bundle->sequences);
++    auto soundEventOffset = mscharged::platform::NativeAudioResourceOrigin(nativeView,
++        mscharged::platform::AudioResourceArray::Sound, bundle->soundEvents);
++    auto parameterEventOffset = mscharged::platform::NativeAudioResourceOrigin(nativeView,
++        mscharged::platform::AudioResourceArray::Parameter, bundle->parameterEvents);
++    auto hitMarkerEventOffset = mscharged::platform::NativeAudioResourceOrigin(nativeView,
++        mscharged::platform::AudioResourceArray::HitMarker, bundle->hitMarkerEvents);
++#else
+     s32 voiceOffset = (s32)bundle->voices;
+     s32 sequenceOffset = (s32)bundle->sequences;
+     s32 soundEventOffset = (s32)bundle->soundEvents;
+     s32 parameterEventOffset = (s32)bundle->parameterEvents;
+     s32 hitMarkerEventOffset = (s32)bundle->hitMarkerEvents;
++#endif
+ 
+     u32 groupIndex;
+     AudioCueDefinition* cue;
+     nlChunk* cursor = header->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    bundle->cues = (AudioCueDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+     bundle->cues = (AudioCueDefinition*)cursor->GetData();
+-    cursor = cursor->GetNextChunk();
++#endif
++    cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    bundle->voices = (AudioVoiceDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+     bundle->voices = (AudioVoiceDefinition*)cursor->GetData();
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    voiceOffset = mscharged::platform::NativeAudioResourceDelta(voiceOffset, bundle->voices);
++#else
+     voiceOffset = (s32)bundle->voices - voiceOffset;
+-    cursor = cursor->GetNextChunk();
++#endif
++    cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    bundle->sequences = (AudioSequenceDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+     bundle->sequences = (AudioSequenceDefinition*)cursor->GetData();
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    sequenceOffset = mscharged::platform::NativeAudioResourceDelta(sequenceOffset, bundle->sequences);
++#else
+     sequenceOffset = (s32)bundle->sequences - sequenceOffset;
+-    cursor = cursor->GetNextChunk();
++#endif
++    cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    bundle->soundEvents = (SoundEventDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+     bundle->soundEvents = (SoundEventDefinition*)cursor->GetData();
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    soundEventOffset = mscharged::platform::NativeAudioResourceDelta(soundEventOffset, bundle->soundEvents);
++#else
+     soundEventOffset = (s32)bundle->soundEvents - soundEventOffset;
+-    cursor = cursor->GetNextChunk();
++#endif
++    cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    bundle->hitMarkerEvents = (HitMarkerEventDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+     bundle->hitMarkerEvents = (HitMarkerEventDefinition*)cursor->GetData();
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    hitMarkerEventOffset = mscharged::platform::NativeAudioResourceDelta(hitMarkerEventOffset, bundle->hitMarkerEvents);
++#else
+     hitMarkerEventOffset = (s32)bundle->hitMarkerEvents - hitMarkerEventOffset;
+-    cursor = cursor->GetNextChunk();
++#endif
++    cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    bundle->parameterEvents = (ParameterChangeEventDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+     bundle->parameterEvents = (ParameterChangeEventDefinition*)cursor->GetData();
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    parameterEventOffset = mscharged::platform::NativeAudioResourceDelta(parameterEventOffset, bundle->parameterEvents);
++#else
+     parameterEventOffset = (s32)bundle->parameterEvents - parameterEventOffset;
++#endif
+ 
+     cue = bundle->cues;
+     for (groupIndex = 0; groupIndex < bundle->cueCount;
+@@ -55,13 +122,21 @@
+     {
+         cursor = cursor->GetNextChunk();
+         u32 entryIndex;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        AudioCueEntry* entry = (AudioCueEntry*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+         AudioCueEntry* entry = (AudioCueEntry*)cursor->GetData();
++#endif
+         cue->voices = entry;
+         for (entryIndex = 0; entryIndex < cue->voiceCount;
+             entryIndex++, entry++)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            entry->voice = (AudioVoiceDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(entry->voice, voiceOffset);
++#else
+             entry->voice = (AudioVoiceDefinition*)((u8*)entry->voice
+                                                   + voiceOffset);
++#endif
+         }
+     }
+ 
+@@ -72,15 +147,27 @@
+         cursor = cursor->GetNextChunk();
+         u32 i;
+         AudioSequenceDefinition** sequence =
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            (AudioSequenceDefinition**)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+             (AudioSequenceDefinition**)cursor->GetData();
++#endif
+         voice->sequences = sequence;
+         for (i = 0; i < voice->sequenceCount; i++, sequence++)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            *sequence = (AudioSequenceDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(*sequence, sequenceOffset);
++#else
+             *sequence = (AudioSequenceDefinition*)((u8*)*sequence
+                                                   + sequenceOffset);
+-        }
+-        cursor = cursor->GetNextChunk();
++#endif
++        }
++        cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        voice->rpcGroupIndices = (u32*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+         voice->rpcGroupIndices = (u32*)cursor->GetData();
++#endif
+     }
+ 
+     AudioSequenceDefinition* sequence = bundle->sequences;
+@@ -90,21 +177,37 @@
+         cursor = cursor->GetNextChunk();
+         u32 eventIndex;
+         AudioSequenceEventDefinition* event =
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            (AudioSequenceEventDefinition*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+             (AudioSequenceEventDefinition*)cursor->GetData();
++#endif
+         sequence->eventDefinitions = event;
+         for (eventIndex = 0;
+             eventIndex < sequence->eventCount;
+             eventIndex++, event++)
+         {
+             if (event->type == 1)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                event->sound = (SoundEventDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(event->sound, soundEventOffset);
++#else
+                 event->sound = (SoundEventDefinition*)((u8*)event->sound
+                                                        + soundEventOffset);
++#endif
+             else if (event->type == 3)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                event->hitMarker = (HitMarkerEventDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(event->hitMarker, hitMarkerEventOffset);
++#else
+                 event->hitMarker = (HitMarkerEventDefinition*)((u8*)event->hitMarker
+                                                                + hitMarkerEventOffset);
++#endif
+             else if (event->type == 2)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                event->parameter = (ParameterChangeEventDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(event->parameter, parameterEventOffset);
++#else
+                 event->parameter = (ParameterChangeEventDefinition*)((u8*)event->parameter
+                                                                      + parameterEventOffset);
++#endif
+         }
+     }
+ 
+@@ -113,7 +216,11 @@
+         groupIndex++, soundEvent++)
+     {
+         cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        soundEvent->choices = (SoundChoice*)mscharged::platform::NativeAudioResourceData(nativeView, cursor);
++#else
+         soundEvent->choices = (SoundChoice*)cursor->GetData();
++#endif
+     }
+ 
+     for (groupIndex = 0; groupIndex < bundle->voiceCount;
+@@ -172,7 +279,11 @@
+ 
+     for (u32 i = 0; i < voice->rpcGroupCount; i++)
+     {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        AudioRpcController* controller = ((UnidentifiedAudioBundleManager_802ECD34*)g_pAudioSystem->GetBundleManager())->m_RpcController;
++#else
+         AudioRpcController* controller = ((AudioBundleManagerRpcView*)g_pAudioSystem->GetBundleManager())->rpcController;
++#endif
+         AudioRpcGroup* rpcGroup = controller->groups + voice->rpcGroupIndices[i];
+         voice->modifierCount += rpcGroup->staticDefinitionCount;
+         voice->dynamicRpcCount += rpcGroup->dynamicDefinitionCount;
+@@ -186,7 +297,11 @@
+     u32 outputIndex = 0;
+     for (u32 i = 0; i < voice->rpcGroupCount; i++)
+     {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        AudioRpcController* controller = ((UnidentifiedAudioBundleManager_802ECD34*)g_pAudioSystem->GetBundleManager())->m_RpcController;
++#else
+         AudioRpcController* controller = ((AudioBundleManagerRpcView*)g_pAudioSystem->GetBundleManager())->rpcController;
++#endif
+         AudioRpcGroup* rpcGroup = controller->groups + voice->rpcGroupIndices[i];
+         for (u32 definitionIndex = 0;
+             definitionIndex < rpcGroup->staticDefinitionCount;
+--- a/src/Game/Audio/SoundMap.cpp
++++ b/src/Game/Audio/SoundMap.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_audio_resource.h"
++#endif
+ #include "NL/nlDebugString.h"
+ #include "Game/Audio/RegistryPools.h"
+ #include "Game/Audio/SoundMap.h"
+@@ -31,10 +34,21 @@
+ 
+ SoundMap* SoundMap::ParseChunk(nlChunk* chunk)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeView = mscharged::platform::PrepareNativeSoundMapChunk(chunk);
++#endif
+     nlChunk* mapChunk = chunk->GetFirstChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    SoundMap* map = (SoundMap*)mscharged::platform::NativeAudioResourceData(nativeView, mapChunk);
++#else
+     SoundMap* map = (SoundMap*)mapChunk->GetData();
++#endif
+     nlChunk* cuesChunk = mapChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    map->m_Cues = (SoundCue*)mscharged::platform::NativeAudioResourceData(nativeView, cuesChunk);
++#else
+     map->m_Cues = (SoundCue*)cuesChunk->GetData();
++#endif
+ 
+     map->m_CueTree = new (8, false) SoundCueTree;
+     for (u32 i = 0; i < map->m_CueCount; ++i)

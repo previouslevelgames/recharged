@@ -1,6 +1,6 @@
 Subject: [PATCH] preserve original emission source and native borrowed address words
 
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Restore literal controller/manager decisions, preserve retail numeric word
 overflow, and transport genuine native pointer/callback bits without truncation.
@@ -149,7 +149,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 +#else
              pController->m_uUserData = (u32)pObj;
 +#endif
-             Function1<void, EmissionController&> callback(fn_8009F1B8);
+             Function1<void, EmissionController&> callback(UpdateBobombEmitter);
              pController->SetUpdateCallback(callback);
          }
 @@ -3039,7 +3043,11 @@
@@ -162,7 +162,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
      pController->m_uUserData = (u32)this;
 +#endif
      pController->SetUpdateCallback(
-         Function1<void, EmissionController&>(fn_8009F1B8));
+         Function1<void, EmissionController&>(UpdateBobombEmitter));
  
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 --- a/src/Game/Ball.cpp

@@ -1,0 +1,68 @@
+Subject: [PATCH] Preserve original AX output words and retained storage
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Native-only Wii word classification and checked list address transport.
+Expose actual source array extents without initializing AX/DSP state.
+
+--- a/src/RVL_SDK/ax/AXOut.c
++++ b/src/RVL_SDK/ax/AXOut.c
+@@ -2,6 +2,10 @@
+ #include <revolution/ax.h>
+ #include <revolution/dsp.h>
+ #include <revolution/os.h>
++#ifdef MSCHARGED_NATIVE
++#include "platform/dsp_memory_abi.h"
++#include "platform/ax_storage_abi.h"
++#endif
+ 
+ // Output uses a ring buffer
+ #define OUT_RING_MAX 3
+@@ -10,7 +14,13 @@
+ #define RMT_FRAME_MAX 10
+ 
+ // Form DSP mail for command list size
++#ifdef MSCHARGED_NATIVE
++// Retail emits one Wii word. Keep its numeric shift unsigned before the
++// pointer-width SDK mail carrier, rather than sign-extending a native int.
++#define DSP_MAIL_CLSIZE(size) ((u32)0xBABE << 16 | (size))
++#else
+ #define DSP_MAIL_CLSIZE(size) (0xBABE << 16 | (size))
++#endif
+ // DRAM image in DSP memory
+ // TODO(kiwi) What does this represent?
+ #define DRAM_IMAGE_DSP_ADDR 0x0CD2
+@@ -84,7 +94,11 @@
+ 
+     list = __AXGetCommandListAddress();
+     DSP_SEND_MAIL_SYNC(DSP_MAIL_CLSIZE(AX_CL_SIZE));
++#ifdef MSCHARGED_NATIVE
++    DSP_SEND_MAIL_SYNC(ChargedDSPTaskMemoryWord(list, AX_CL_SIZE, 0));
++#else
+     DSP_SEND_MAIL_SYNC(list);
++#endif
+ 
+     __AXServiceCallbackStack();
+ 
+@@ -349,3 +363,22 @@
+ 
+     return actual;
+ }
++
++#ifdef MSCHARGED_NATIVE
++void ChargedAXGetOutputStorage(ChargedAXStorage output[5]) {
++    output[0].address = __AXOutBuffer;
++    output[0].bytes = sizeof(__AXOutBuffer);
++    output[1].address = __AXOutSBuffer;
++    output[1].bytes = sizeof(__AXOutSBuffer);
++    output[2].address = __AXRmtOutBuffer;
++    output[2].bytes = sizeof(__AXRmtOutBuffer);
++    output[3].address = __AXDramImage;
++    output[3].bytes = sizeof(__AXDramImage);
++    output[4].address = axDspSlave;
++    output[4].bytes = axDspSlaveLength;
++}
++ChargedAXStorage ChargedAXGetTaskStorage(void) {
++    ChargedAXStorage result = {&__AXDSPTask, sizeof(__AXDSPTask)};
++    return result;
++}
++#endif

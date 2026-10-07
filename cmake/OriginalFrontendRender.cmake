@@ -32,6 +32,8 @@ add_library(charged_original_frontend_render OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/glx/GXConstantColourMaterialProgram.cpp"
+    "${MSCHARGED_PREPARED}/src/NL/glx/GXConstantColourMaterialProgramRender.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glFont.cpp"
     "${MSCHARGED_PREPARED}/src/RVL_SDK/mtx/mtx44.c")
 add_dependencies(charged_original_frontend_render verify_prepared)

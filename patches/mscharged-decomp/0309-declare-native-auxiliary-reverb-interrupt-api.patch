@@ -1,0 +1,21 @@
+From: mscharged-port
+Subject: [PATCH] Declare native interrupt APIs in original auxiliary reverb
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Modern C requires the declarations for the original interrupt calls. Native
+mem.h no longer supplies the console's transitive OS include. Include the
+canonical SDK facade explicitly without changing any reverb method or request.
+The original console preprocessing remains unchanged.
+
+--- a/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c
++++ b/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c
+@@ -1,6 +1,9 @@
+ #include <revolution/ax.h>
+ #include <revolution/axfx.h>
+ #include <revolution/mem.h>
++#ifdef MSCHARGED_NATIVE
++#include <revolution/os.h>
++#endif
+ 
+ #include <math.h>
+ 

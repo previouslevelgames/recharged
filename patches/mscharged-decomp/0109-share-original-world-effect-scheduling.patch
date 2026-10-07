@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original world-effect trigger and scheduling equations
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Retain initialization, reset, timing, RNG ordering and emission counters in
 shared source helpers. Native callers supply actual retained effect records

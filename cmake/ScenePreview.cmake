@@ -44,7 +44,8 @@ target_compile_features(charged_materials PUBLIC cxx_std_20)
 target_compile_definitions(charged_materials PRIVATE TARGET_PC=1)
 # Only the old preview uses texture observers and movie instance lifecycle guards.
 target_compile_definitions(charged_materials PUBLIC
-    MSCHARGED_DIAGNOSTIC_MOVIES=1 MSCHARGED_DIAGNOSTIC_LIGHTING=1)
+    MSCHARGED_DIAGNOSTIC_MOVIES=1 MSCHARGED_DIAGNOSTIC_LIGHTING=1
+    MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS=1)
 target_link_libraries(charged_materials PUBLIC charged_graphics_memory charged_static_resources PRIVATE aurora::gx aurora::mtx)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_materials PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)

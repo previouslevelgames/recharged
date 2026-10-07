@@ -39,7 +39,7 @@ for this run without saving. `--window` or `--fullscreen` keeps it open.
 
 This temporary test enters original `main`, then loads and renders Credits with
 the original fonts, frontend code, scrolling and THP movie with native audio.
-Desktop keys/controllers feed the original frontend input: Enter/Space is A,
+Desktop keys feed the original frontend input: Enter/Space is A,
 Escape/Backspace is B, arrows are D-pad, and Z/X are 1/2. A advances to the original
 COPYRIGHTS screen; the following menu transition is still blocked.
 It skips blocked startup steps; full startup, gameplay input and full game audio
@@ -61,6 +61,19 @@ cmake --build --preset graphics --target mscharged-original-credits-check -j 3
 ```
 
 Audio can repeat during host scheduling delays. Full game audio remains pending.
+
+## Original Boot and Intro test
+
+```sh
+cmake --preset graphics -DMSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC=ON -DMSCHARGED_BUILD_LAUNCHER=ON
+cmake --build --preset graphics --target mscharged -j 3
+./build/graphics/mscharged --experimental-frontend --disk ./game/R4QE01.rvz --window --aspect 16:9
+```
+
+The launcher also offers **Try boot sequence**. This temporary test runs the
+original loading and frontend tasks through Boot and Intro. Keyboard input uses
+the original Wii/frontend path. Later menus, game sound effects (including the
+static Next Level logo), saves and full startup remain incomplete.
 
 ## Original movie audio test
 

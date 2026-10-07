@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie
@@ -88,16 +88,6 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -22,7 +22,9 @@
- 
- extern "C" unsigned char SCGetSoundMode();
- extern "C" void THPSimpleSetVolume(int, int);
-+#ifndef MSCHARGED_NATIVE
- extern "C" char* strstr(const char*, const char*);
-+#endif
- 
- Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
- 
 @@ -46,7 +48,7 @@
      {
          mGameSceneManager = g_pOverlayManager;

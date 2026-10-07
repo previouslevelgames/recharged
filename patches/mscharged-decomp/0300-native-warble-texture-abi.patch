@@ -1,0 +1,46 @@
+From: mscharged-port native adaptation
+Subject: [PATCH] Preserve PPC Warble texture bitfields and raw palette reads natively
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Keep the original palette bytes for GX. Adapt only the CPU BE16 scalar read
+and the MWCC/PPC two-bit packed-row field, whose native allocation order differs.
+Original texture selection, algorithms, channel bytes and ownership are retained.
+The console preprocessor projection is byte-identical to the upstream source.
+
+--- a/src/Game/Render/Warble.cpp
++++ b/src/Game/Render/Warble.cpp
+@@ -68,10 +68,20 @@
+ struct WarblePalette
+ {
+     u16* data;
++#if defined(MSCHARGED_NATIVE)
++    u16 Colour(u8 index) const
++    {
++        // The palette remains raw GX big-endian bytes for the hardware layer.
++        // Only the original CPU scalar read crosses the native endian boundary.
++        const u8* bytes = reinterpret_cast<const u8*>(data) + index * 2;
++        return static_cast<u16>((static_cast<u16>(bytes[0]) << 8) | bytes[1]);
++    }
++#else
+     u16& Colour(u8 index) const
+     {
+         return data[index];
+     }
++#endif
+ };
+ 
+ static inline WarblePalette BlobPalette(const PlatTexture* texture)
+@@ -165,7 +175,13 @@
+ {
+     IA8PackedRow row;
+     row.word = (y & ~3) << 6;
++#if defined(MSCHARGED_NATIVE)
++    // MWCC/PPC allocates this two-bit field at bits 2..3; native compiler
++    // bitfield allocation order differs. Preserve the original packed word.
++    row.word = (row.word & ~0xCu) | ((static_cast<unsigned int>(y) & 3u) << 2);
++#else
+     row.fields.pixelY = y;
++#endif
+     return row.word;
+ }
+ 

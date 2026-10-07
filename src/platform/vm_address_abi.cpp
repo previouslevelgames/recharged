@@ -148,12 +148,15 @@ Image Describe(void* input)
     for (unsigned i = 0; i != 6; ++i)
     {
         const auto word = image.Word(48 + i * 4);
-        if (!image.native || !codeWord)
+        // Original LoadByteCode tests only CodeSegment. When it is zero the
+        // source overwrites all six slots, regardless of stale authored words.
+        if (codeWord)
         {
-            if (word) throw std::invalid_argument("VM raw header has an authored pointer");
+            if (!image.native)
+                throw std::invalid_argument("VM raw header has an authored code address");
+            if (word != EncodeVMAddress(image.bytes + segments[i]))
+                throw std::invalid_argument("VM relocated header leaves its actual source image");
         }
-        else if (word != EncodeVMAddress(image.bytes + segments[i]))
-            throw std::invalid_argument("VM relocated header leaves its actual source image");
     }
     for (std::uint32_t i = 0; i < image.fields[1]; ++i)
     {

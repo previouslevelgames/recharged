@@ -1,5 +1,5 @@
 Subject: Preserve original THPSimple with native Wii data and scalar ABI
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Keep original initialization, movie selection, NL requests, preload/ring order,
 component dispatch, mixing, callback chaining and retail quirks. Adapt Wii32
@@ -477,3 +477,26 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
          if (!rate)
              samplePerMs = 0x20;
  
+diff --git a/libs/RVL_SDK/include/revolution/thp_fwd.h b/libs/RVL_SDK/include/revolution/thp_fwd.h
+--- a/libs/RVL_SDK/include/revolution/thp_fwd.h
++++ b/libs/RVL_SDK/include/revolution/thp_fwd.h
+@@ -1,11 +1,19 @@
+ #ifndef REVOLUTION_THP_FWD_H
+ #define REVOLUTION_THP_FWD_H
+ 
++#ifdef MSCHARGED_NATIVE
++#include <revolution/types.h>
++#endif
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
++#ifdef MSCHARGED_NATIVE
++int THPSimpleSetVolume(s32 volume, s32 time);
++#else
+ int THPSimpleSetVolume(long volume, long time);
++#endif
+ 
+ #ifdef __cplusplus
+ }

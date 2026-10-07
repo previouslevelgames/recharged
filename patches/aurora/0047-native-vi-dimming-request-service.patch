@@ -1,0 +1,153 @@
+From: mscharged-port native hardware adaptation
+Subject: [PATCH] implement original VI dimming request transport
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Preserve the Wii request values, prior-value return and physical-field
+threshold tables beneath the initialized native VI owner. Do not claim
+idle detection or visual OS-force dimming. No game source changes.
+
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -92,8 +92,33 @@
+   Clock::time_point anchor{};
+   uint64_t fields{}, previous_fields{}, elapsed_base{}, clocks{};
+   Timing timing{}, source_timing{};
++  int dimming_request{VI_DM_DEFAULT};
++  uint32_t pending_dimming_threshold{}, dimming_tv_format{};
+ };
+ Device& State() { static Device state; return state; }
++uint32_t DimmingThreshold(int request, uint32_t tv_format) {
++  // Pinned RVL VISetTimeToDimming: thresholds are physical VI fields, not
++  // desktop presentations. Unknown requests retain the default branch.
++  if (tv_format == VI_PAL) {
++    switch (request) {
++    case VI_DM_10M: return 30000;
++    case VI_DM_15M: return 45000;
++    default: return 15000;
++    }
++  }
++  switch (request) {
++  case VI_DM_10M: return 36000;
++  case VI_DM_15M: return 54000;
++  default: return 18000;
++  }
++}
++void UpdateDimmingRequestFormat(Device& state) {
++  const auto format = state.source_tv_mode >> 2;
++  if (format != state.dimming_tv_format) {
++    state.pending_dimming_threshold = DimmingThreshold(state.dimming_request, format);
++    state.dimming_tv_format = format;
++  }
++}
+ void RequireOwner(const Device& state) {
+   if (!state.initialized || state.owner != std::this_thread::get_id())
+     throw std::logic_error("Native VI operation requires its initialized source owner");
+@@ -223,6 +248,11 @@
+       // Actual VI signal registers still commit only at this genuine retrace.
+     }
+   }
++  {
++    // The retail retrace updates the pending threshold after a source TV
++    // format change, before its post callback; no idle completion is invented.
++    std::lock_guard lock(state.mutex); UpdateDimmingRequestFormat(state);
++  }
+   if (output_attached) output.commit(output.context, &scanout);
+   // The original driver clears the temporary context between pre and post.
+   OSClearContext(OSGetCurrentContext());
+@@ -321,6 +351,7 @@
+   state.interrupt_device_attached = false; state.interrupt_device = {};
+   state.output_attached = false; state.output_device = {};
+   state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
++  state.dimming_request = VI_DM_DEFAULT; state.pending_dimming_threshold = state.dimming_tv_format = 0;
+   state.current_buffer = state.next_buffer = nullptr;
+   aurora::vi::configure(nullptr);
+ }
+@@ -333,6 +364,14 @@
+   *result = {uint32_t(state.hardware.mode.viTVmode), state.source_tv_mode, state.retraces,
+     state.elapsed_base + state.fields, state.hardware.black, state.interrupt, state.flush,
+     state.current_buffer, state.next_buffer};
++  return true;
++}
++bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState* result) {
++  if (!result) return false;
++  auto& state = State();
++  std::lock_guard lock(state.mutex);
++  if (!state.initialized) return false;
++  *result = {state.dimming_request, state.pending_dimming_threshold, state.dimming_tv_format};
+   return true;
+ }
+ void VIInit() {
+@@ -361,6 +400,8 @@
+   state.dirty = state.shadow_dirty = 0;
+   state.change_mode = state.shadow_change_mode = state.framebuffer_set = state.second_field_seed = false;
+   state.source_tv_mode = state.config.boot_tv_mode; state.retraces = 0;
++  state.dimming_request = VI_DM_DEFAULT; state.dimming_tv_format = state.source_tv_mode >> 2;
++  state.pending_dimming_threshold = DimmingThreshold(state.dimming_request, state.dimming_tv_format);
+   state.fields = state.previous_fields = state.elapsed_base = state.clocks = 0;
+   state.interrupt = state.flush = false; state.current_buffer = state.next_buffer = nullptr;
+   state.pre = state.post = nullptr; state.anchor = Clock::now(); state.initialized = true;
+@@ -451,6 +492,14 @@
+   auto& state = State(); InterruptMask mask;
+   std::lock_guard lock(state.mutex); RequireOwner(state); return state.source_tv_mode >> 2;
+ }
++int VISetTimeToDimming(int time) {
++  auto& state = State(); InterruptMask mask;
++  std::lock_guard lock(state.mutex); RequireOwner(state);
++  const auto old = state.dimming_request;
++  state.dimming_request = time; state.dimming_tv_format = state.source_tv_mode >> 2;
++  state.pending_dimming_threshold = DimmingThreshold(time, state.dimming_tv_format);
++  return old;
++}
+ u32 VIGetDTVStatus() {
+   auto& state = State(); InterruptMask mask;
+   std::lock_guard lock(state.mutex); RequireOwner(state); return state.config.dtv_cable;
+@@ -527,6 +576,9 @@
+ }
+ 
+ void VIInit() {}
++int VISetTimeToDimming(int) {
++  throw std::logic_error("VI dimming requests require the initialized native video owner");
++}
+ void VIConfigure(const GXRenderModeObj* rm) { aurora::vi::configure(rm); }
+ void VIConfigurePan(u16 xOrg, u16 yOrg, u16 width, u16 height) {
+   (void)xOrg;
+@@ -557,5 +609,6 @@
+ void aurora_service_video_hardware() {}
+ void aurora_shutdown_video_hardware() {}
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState*) { return false; }
++bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState*) { return false; }
+ }
+ #endif
+--- a/include/dolphin/vi.h
++++ b/include/dolphin/vi.h
+@@ -20,6 +20,11 @@
+ u32 VIGetRetraceCount(void);
+ u32 VIGetNextField(void);
+ u32 VIGetDTVStatus(void);
++
++// Retail Wii request values. The SDK ABI uses a signed 32-bit word; retain
++// the original game's int declaration and its unknown-value/default branch.
++typedef enum { VI_DM_DEFAULT = 0, VI_DM_10M = 1, VI_DM_15M = 2 } VITimeToDIM;
++int VISetTimeToDimming(int time);
+ 
+ void* VIGetCurrentFrameBuffer(void);
+ void* VIGetNextFrameBuffer(void);
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -103,6 +103,16 @@
+   void* next_framebuffer;
+ } AuroraVIHardwareState;
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState* state);
++// Request metadata only, independent of idle detection or visual dimming.
++// VISetTimeToDimming selects the pending retail field threshold and returns
++// the previous request. Active idle/dimming/OS force requests are not supplied
++// by this observer and remain a separate hardware service.
++typedef struct {
++  int32_t time;
++  uint32_t pending_field_threshold;
++  uint32_t threshold_tv_format;
++} AuroraVIDimmingRequestState;
++bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState* state);
+ #ifdef __cplusplus
+ }
+ #endif

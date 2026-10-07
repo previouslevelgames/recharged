@@ -1,0 +1,52 @@
+From: mscharged-port contributors
+Subject: [PATCH] Retain native Wii alarm descriptor and unsigned hardware ticks
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Preserve original OSAlarm fields and request arithmetic at native SDK interfaces.
+No game source or timing request changes. Actual native provider lives in port.
+
+--- a/include/dolphin/os.h
++++ b/include/dolphin/os.h
+@@ -98,10 +98,10 @@
+ 
+ #define OS_TIMER_CLOCK_DIVIDER 4
+ #if defined(AURORA_WII_CLOCK) && AURORA_WII_CLOCK
+-#define OS_BUS_CLOCK   243000000
++#define OS_BUS_CLOCK   243000000u
+ #define OS_CORE_CLOCK  729000000
+ #else
+-#define OS_BUS_CLOCK   162000000
++#define OS_BUS_CLOCK   162000000u
+ #define OS_CORE_CLOCK  162000000
+ #endif
+ #define OS_TIMER_CLOCK (OS_BUS_CLOCK/OS_TIMER_CLOCK_DIVIDER)
+--- a/include/dolphin/os/OSAlarm.h
++++ b/include/dolphin/os/OSAlarm.h
+@@ -12,15 +12,17 @@
+ struct OSAlarm {
+     OSAlarmHandler handler;
+     u32 tag;
+-    OSTime fire;
++    union { OSTime fire; OSTime end; };
+     OSAlarm* prev;
+     OSAlarm* next;
+     OSTime period;
+     OSTime start;
++    void* userData;
+ };
+ 
+ BOOL OSCheckAlarmQueue(void);
+ void OSInitAlarm(void);
++void __OSInitAlarm(void);
+ void OSCreateAlarm(OSAlarm* alarm);
+ void OSSetAlarm(OSAlarm* alarm, OSTime tick, OSAlarmHandler handler);
+ void OSSetAbsAlarm(OSAlarm* alarm, OSTime time, OSAlarmHandler handler);
+@@ -28,6 +30,8 @@
+ void OSCancelAlarm(OSAlarm *alarm);
+ void OSSetAlarmTag(OSAlarm* alarm, u32 tag);
+ void OSCancelAlarms(u32 tag);
++void OSSetAlarmUserData(OSAlarm* alarm, void* userData);
++void* OSGetAlarmUserData(const OSAlarm* alarm);
+ 
+ #ifdef __cplusplus
+ }

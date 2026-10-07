@@ -284,15 +284,15 @@ void OriginalTask()
     small.Initialize(smallArena.data(), capacity);
     {
         mscharged::ScopedGameAllocator selected(small);
-        Reject<std::bad_alloc>([] { fn_80115F10(); });
+        Reject<std::bad_alloc>([] { InitializeDispatchEventsTask(); });
         Require(!gDispatchEventsTask && small.TotalFreeMemory() == capacity,
                 "Failed dispatch task construction leaked or published its object");
     }
-    fn_80115F10();
+    InitializeDispatchEventsTask();
     auto* task = gDispatchEventsTask;
     Require(std::strcmp(task->GetName(), "Dispatch Events") == 0, "Wrong original task");
     task->StateTransition(1,2); // Exact original default hook extracted from Team.cpp.
-    Reject([] { fn_80115F10(); });
+    Reject([] { InitializeDispatchEventsTask(); });
     {
         UnidentifiedQueuedEvent<Payload> event(&task->dispatcher, "TaskQueue", -1);
         int received = 0, disposed = 0;

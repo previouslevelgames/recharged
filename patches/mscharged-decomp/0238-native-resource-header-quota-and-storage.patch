@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve Wii resource header quotas with pool-owned native storage
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 Classification: permanent native record ABI/storage adaptation; original quota/control flow retained.
 
 diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp

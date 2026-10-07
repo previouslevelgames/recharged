@@ -18,7 +18,7 @@ std::string VerifyStartupTaskScheduler()
     InitializeNativeEventRegistry();
     try
     {
-        fn_80115F10();
+        InitializeDispatchEventsTask();
         nlTaskManager::Startup(0x10000);
         nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
         FrameCounter timing("tasks", "completion");

@@ -12,7 +12,16 @@ add_library(charged_original_ax OBJECT
     "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/AXProf.c"
     "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/AXSPB.c"
     "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/AXVPB.c"
-    "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c")
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/mix/mix.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/mix/remote.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXHooks.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXDelay.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXDelayExpDpl2.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXReverbHi.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXReverbHiDpl2.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXReverbHiExp.c"
+    "${MSCHARGED_PREPARED}/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c")
 add_dependencies(charged_original_ax verify_prepared)
 target_include_directories(charged_original_ax PUBLIC
     src "${MSCHARGED_PREPARED}/include"
@@ -25,11 +34,11 @@ target_link_libraries(charged_original_ax PUBLIC aurora::os)
 target_compile_features(charged_original_ax PRIVATE c_std_17)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(charged_original_ax PRIVATE
-        -ffunction-sections -fdata-sections -fno-strict-aliasing
+        -ffunction-sections -fdata-sections -fexceptions -fno-strict-aliasing
         -Wno-unknown-pragmas)
 endif()
 
-# Explicitly bounded ELF CPU qualifier. All ten source units are compiled;
+# Explicitly bounded ELF CPU qualifier. All AX/MIX/AXFX units are compiled;
 # section collection excludes original AXInit/DSP startup and hardware mixing.
 # Voice descriptors below are fixture-owned rather than a fabricated AX init.
 if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8

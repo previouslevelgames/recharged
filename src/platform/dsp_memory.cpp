@@ -17,6 +17,7 @@ struct Span {
     bool writable;
     std::uintptr_t native_address;
     std::uint64_t static_identity;
+    NativeDSPMemoryEncoding encoding;
 };
 struct AddressSpace {
     std::mutex mutex;
@@ -83,9 +84,55 @@ std::uint32_t SharedPhysical(const void* address) {
         throw std::logic_error("Canonical SDK address conversion is not coherent");
     return physical;
 }
-NativeDSPMemoryPin Pin(AddressSpace& state,const void* address,std::size_t bytes,bool writable) {
+void RequireEncoding(NativeDSPMemoryEncoding encoding,std::size_t bytes) {
+    switch (encoding) {
+    case NativeDSPMemoryEncoding::RawBytes: return;
+    case NativeDSPMemoryEncoding::NativeU16:
+        if (bytes%2==0) return;
+        break;
+    case NativeDSPMemoryEncoding::NativeU32:
+        if (bytes%4==0) return;
+        break;
+    case NativeDSPMemoryEncoding::AXParameterBlocks:
+        if (bytes%320==0) return;
+        break;
+    case NativeDSPMemoryEncoding::AXStudio:
+        if (bytes==120) return;
+        break;
+    default: throw std::invalid_argument("DSP memory encoding is unknown");
+    }
+    throw std::invalid_argument("DSP native field layout has an incomplete wire record");
+}
+bool NativeLittleEndian() {
+    const std::uint16_t one=1;
+    return *reinterpret_cast<const unsigned char*>(&one)!=0;
+}
+// Offset of a device byte in its actual native CPU field. No unaligned native
+// integer access occurs, including AXSTUDIO's packed four-byte fields.
+std::size_t NativeByteOffset(NativeDSPMemoryEncoding encoding,std::size_t wire) {
+    if (!NativeLittleEndian()) return wire;
+    switch (encoding) {
+    case NativeDSPMemoryEncoding::NativeU16: return wire^std::size_t(1);
+    case NativeDSPMemoryEncoding::NativeU32: return wire^std::size_t(3);
+    case NativeDSPMemoryEncoding::AXParameterBlocks: {
+        const auto field=wire%320;
+        if (field>=12 && field<16) return wire^std::size_t(3);
+        if (field<296) return wire^std::size_t(1);
+        return wire; // Original opaque padding bytes, not native integers.
+    }
+    case NativeDSPMemoryEncoding::AXStudio: {
+        const auto field=wire%6,record=wire-field;
+        return field<4 ? record+3-field : record+9-field;
+    }
+    case NativeDSPMemoryEncoding::RawBytes: return wire;
+    default: throw std::logic_error("Live DSP memory pin has an invalid encoding");
+    }
+}
+NativeDSPMemoryPin Pin(AddressSpace& state,const void* address,std::size_t bytes,bool writable,
+                       NativeDSPMemoryEncoding encoding=NativeDSPMemoryEncoding::RawBytes) {
     if (!bytes || bytes>std::numeric_limits<std::uint32_t>::max())
         throw std::invalid_argument("DSP source pin has no representable positive byte extent");
+    RequireEncoding(encoding,bytes);
     std::uint32_t physical{};
     const auto retained=OSNativePinAddress(address,static_cast<std::uint32_t>(bytes),writable?TRUE:FALSE,&physical);
     try {
@@ -100,7 +147,7 @@ NativeDSPMemoryPin Pin(AddressSpace& state,const void* address,std::size_t bytes
         }
         const auto identity=++state.next_identity;
         state.spans.emplace(physical,Span{identity,static_cast<std::uint32_t>(bytes),writable,
-            reinterpret_cast<std::uintptr_t>(address),retained});
+            reinterpret_cast<std::uintptr_t>(address),retained,encoding});
         return {state.generation,identity};
     } catch (...) {
         if (retained) OSNativeUnpinAddress(retained);
@@ -140,6 +187,11 @@ NativeDSPMemoryPin PinNativeDSPMemory(const void* address,std::size_t bytes,bool
     auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
     return Pin(state,address,bytes,writable);
 }
+NativeDSPMemoryPin PinNativeDSPMemory(const void* address,std::size_t bytes,bool writable,
+                                   NativeDSPMemoryEncoding encoding) {
+    auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    return Pin(state,address,bytes,writable,encoding);
+}
 void ReleaseNativeDSPMemory(NativeDSPMemoryPin pin) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
     if (pin.generation!=state.generation)
@@ -152,17 +204,39 @@ void ReleaseNativeDSPMemory(NativeDSPMemoryPin pin) {
     }
     throw std::invalid_argument("DSP source pin was already released or never existed");
 }
+void DSPBackendValidateMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,std::size_t bytes,bool writing) {
+    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    NativePointer(state,address,bytes,writing);
+}
 void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,void* destination,std::size_t bytes) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
     if (!destination && bytes) throw std::invalid_argument("DSP read destination is null");
     auto* source=NativePointer(state,address,bytes,false);
-    if (bytes) std::memcpy(destination,source,bytes);
+    const auto& span=Find(state,address,bytes,false);
+    if (span.encoding==NativeDSPMemoryEncoding::RawBytes) {
+        if (bytes) std::memcpy(destination,source,bytes);
+    } else {
+        auto it=state.spans.upper_bound(address);--it;
+        const auto offset=static_cast<std::size_t>(address-it->first);
+        const auto* base=reinterpret_cast<const unsigned char*>(span.native_address);
+        auto* output=static_cast<unsigned char*>(destination);
+        for (std::size_t i=0;i<bytes;++i) output[i]=base[NativeByteOffset(span.encoding,offset+i)];
+    }
 }
 void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,const void* source,std::size_t bytes) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
     if (!source && bytes) throw std::invalid_argument("DSP write source is null");
     auto* destination=NativePointer(state,address,bytes,true);
-    if (bytes) std::memcpy(destination,source,bytes);
+    const auto& span=Find(state,address,bytes,true);
+    if (span.encoding==NativeDSPMemoryEncoding::RawBytes) {
+        if (bytes) std::memcpy(destination,source,bytes);
+    } else {
+        auto it=state.spans.upper_bound(address);--it;
+        const auto offset=static_cast<std::size_t>(address-it->first);
+        auto* base=reinterpret_cast<unsigned char*>(span.native_address);
+        const auto* input=static_cast<const unsigned char*>(source);
+        for (std::size_t i=0;i<bytes;++i) base[NativeByteOffset(span.encoding,offset+i)]=input[i];
+    }
 }
 }
 extern "C" std::uint32_t ChargedDSPTaskMemoryWord(const void* address,std::uint32_t bytes,int writing) {

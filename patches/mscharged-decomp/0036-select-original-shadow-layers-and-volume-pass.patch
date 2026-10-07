@@ -1,5 +1,5 @@
 Subject: Select original shadow layers, volume blend and projection scheduling
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 Extract original cameras, eleven atlas partitions, update scheduling and shadow
 projection setup while leaving full game scene and character drawing unlinked.

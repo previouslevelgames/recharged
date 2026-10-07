@@ -1,5 +1,5 @@
 Subject: [PATCH] Enable named original Credits movie/video diagnostic
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 Classification: temporary owner-authorized diagnostic flow scope only
 
 The selected scene diagnostic retains actual phase2 parent MoviePlayer Update,
@@ -25,8 +25,8 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
 @@ -29,7 +29,7 @@
- extern "C" char* strstr(const char*, const char*);
- #endif
+ #include "Game/Task/GameRenderTask.h"
+ #include "Game/main.h"
  
 -#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)

@@ -1,4 +1,5 @@
 #include "platform/desktop_wpad.h"
+#include "platform/alarms.h"
 #include "platform/hardware_owner.h"
 #include "platform/ai.h"
 #include "platform/interrupts.h"
@@ -7,6 +8,8 @@
 #include <aurora/hardware.h>
 #include <dolphin/ai.h>
 #include <dolphin/os.h>
+#include <dolphin/os/OSAlarm.h>
+#include <aurora/aurora.h>
 #include <revolution/wpad/WPAD.h>
 #include <SDL3/SDL.h>
 
@@ -16,11 +19,16 @@
 #include <stdexcept>
 #include <thread>
 
+namespace aurora { extern AuroraConfig g_config; }
+void AuroraOSShutdown();
+
 namespace {
 using namespace mscharged;
-unsigned checks{}, audio_callbacks{}, connected{}, samples{};
+unsigned checks{}, audio_callbacks{}, alarm_callbacks{}, connected{}, samples{};
 std::thread::id owner;
 SDL_Window* window{};
+OSContext* interrupted{};
+OSAlarm alarm{};
 alignas(32) std::array<s16, 192> pcm{};
 void Check(bool value, const char* message) { ++checks; if (!value) throw std::runtime_error(message); }
 template<class F> void Reject(F fn, const char* message) {
@@ -49,6 +57,15 @@ void Sample(s32) {
     Check(owner==std::this_thread::get_id()&&!platform::NativeInterruptsEnabled(),
         "WPAD sampling callback crossed native owner/exclusion");
     ++samples;
+}
+void Alarm(OSAlarm* request, OSContext* context) {
+    Check(request == &alarm && context == interrupted,
+        "Shared owner lost the actual source timer or interrupted SDK context");
+    Check(owner == std::this_thread::get_id() && !platform::NativeInterruptsEnabled(),
+        "Timer callback crossed native owner/exclusion");
+    ++alarm_callbacks;
+    Check(platform::ServiceNativeAlarms() == 0,
+        "Shared hardware owner recursively delivered a timer callback");
 }
 void WindowEvent(Uint32 type) {
     SDL_Event event{};event.type=type;event.window.windowID=SDL_GetWindowID(window);
@@ -106,6 +123,11 @@ int main() {
         Check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD),"Cannot initialize actual SDL dummy devices");
         window=SDL_CreateWindow("Desktop WPAD ownership gate",640,448,SDL_WINDOW_HIDDEN);
         Check(window,"Cannot create actual SDL fixture window");
+        aurora::g_config.mem1Size=MEM1_DEFAULT_SIZE;
+        aurora::g_config.mem2Size=64u*1024u*1024u;
+        OSInit();
+        interrupted=OSGetCurrentContext();
+        Check(OSGetArenaLo() && interrupted,"Actual SDK memory/context unavailable");
         platform::InitializeNativeSTMDevice();const auto stm=platform::GetNativeSTMInput();
         Reject([&]{platform::InitializeNativeHardwareInput(window,{0,3},{0},{true,true});},
             "Borrowed input accepted unknown STM incarnation");
@@ -120,6 +142,13 @@ int main() {
             "AI/input composition silently replaced SDK owner");
         Check(!AICheckInit()&&aurora_unregister_hardware_service(Occupied),"Collision opened AI or changed owner identity");
         diagnostic::InitializeCreditsMovieHardware(platform::ServiceNativeHardwareInput);
+        OSCreateAlarm(&alarm);
+        const u32 timer_ticks=OSNanosecondsToTicks(6666667);
+        Check(timer_ticks==405000,"Original AudioBackend timer request overflowed");
+        OSSetPeriodicAlarm(&alarm,timer_ticks,timer_ticks,Alarm);
+        Until([&]{return alarm_callbacks>=3;},
+            "The actual shared SDK owner did not deliver source timer callbacks");
+        OSCancelAlarm(&alarm);
         WPADInit();for(int n=0;n<4;++n){WPADSetConnectCallback(n,Connect);WPADSetSamplingCallback(n,Sample);}
         WindowEvent(SDL_EVENT_WINDOW_FOCUS_GAINED);
         Until([&]{return connected==2&&Report(0).err==WPAD_ERR_OK&&Report(1).err==WPAD_ERR_OK;},
@@ -168,16 +197,22 @@ int main() {
         // Separate legacy stand-alone owner remains supported and owns STM itself.
         platform::InitializeNativeHardwareOwner(window,{0,3});
         WPADInit();platform::ServiceNativeHardwareInput();
+        OSCreateAlarm(&alarm);
+        OSSetAlarm(&alarm,OSSecondsToTicks(1),Alarm);
         platform::ShutdownNativeHardwareOwner();
         Check(WPADGetStatus()==WPAD_LIB_STATUS_0,"Standalone owner regression retained WPAD");
+        Check(!alarm.handler && platform::ServiceNativeAlarms()==0,
+            "Shared owner retirement retained a borrowed source timer");
         SDL_DestroyWindow(window);window=nullptr;SDL_Quit();
-        std::printf("Desktop WPAD/one-owner hardware: %u checks, %u source-shaped WPAD samples, %u real AI callbacks; genuine SDL/one prepared SDK, no original FE/game readiness claim.\n",checks,samples,audio_callbacks);
+        AuroraOSShutdown();
+        std::printf("Desktop WPAD/one-owner hardware: %u checks, %u source-shaped WPAD samples, %u real AI callbacks, %u real timer callbacks; genuine SDL/one prepared SDK, no original FE/game readiness claim.\n",checks,samples,audio_callbacks,alarm_callbacks);
         return 0;
     }catch(const std::exception& error){
         try{diagnostic::ShutdownCreditsMovieHardware();}catch(...){}
         try{platform::ShutdownNativeHardwareInput();}catch(...){}
         try{platform::ShutdownNativeSTMDevice();}catch(...){}
         if(window)SDL_DestroyWindow(window);SDL_Quit();
+        AuroraOSShutdown();
         std::fprintf(stderr,"Desktop WPAD/one-owner hardware: %s\n",error.what());return 1;
     }
 }

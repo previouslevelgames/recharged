@@ -1,0 +1,39 @@
+include_guard(GLOBAL)
+
+# A separate original-source module leaves the Credits diagnostic intact.
+# Both use the same host, with only one module selected for a given run.
+include(cmake/OriginalFrontendSequenceDiagnostic.cmake)
+include(cmake/OriginalFrontendTaskCadenceDiagnostic.cmake)
+include(cmake/OriginalFrontendTitleDiagnostic.cmake)
+
+function(mscharged_add_original_frontend_diagnostic)
+    get_target_property(_sources mscharged_original_main_credits_module SOURCES)
+    add_library(mscharged_original_frontend_module MODULE ${_sources})
+    add_dependencies(mscharged_original_frontend_module verify_prepared)
+    foreach(_property IN ITEMS
+            COMPILE_FEATURES COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES
+            LINK_LIBRARIES LINK_OPTIONS LINK_DEPENDS)
+        get_target_property(_value mscharged_original_main_credits_module ${_property})
+        if(_value)
+            set_property(TARGET mscharged_original_frontend_module PROPERTY ${_property} "${_value}")
+        endif()
+    endforeach()
+    set_target_properties(mscharged_original_frontend_module PROPERTIES
+        PREFIX "" POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON)
+    # Flow omissions are scoped to this diagnostic module only.
+    set(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE ON)
+    set(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE ON)
+    mscharged_select_original_frontend_sequence(mscharged_original_frontend_module)
+    mscharged_select_original_frontend_task_cadence(mscharged_original_frontend_module)
+    mscharged_select_original_frontend_title(mscharged_original_frontend_module)
+    add_dependencies(charged_original_main_credits_host mscharged_original_frontend_module)
+    target_compile_definitions(charged_original_main_credits_host PRIVATE
+        MSCHARGED_ORIGINAL_FRONTEND_MODULE_FILENAME="$<TARGET_FILE_NAME:mscharged_original_frontend_module>")
+    if(TARGET mscharged)
+        add_dependencies(mscharged mscharged_original_frontend_module)
+        target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_ORIGINAL_FRONTEND=1)
+    endif()
+endfunction()
+
+mscharged_add_original_frontend_diagnostic()

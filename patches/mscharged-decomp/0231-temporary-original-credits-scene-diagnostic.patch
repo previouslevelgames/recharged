@@ -1,6 +1,6 @@
 Subject: [PATCH] Scope temporary original Credits scene integration
 
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE explicitly omits unrelated views, material
 programs, world/input/movie initialization and later phases in a scene test.
@@ -204,7 +204,10 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -1,4 +1,7 @@
+@@ -1,7 +1,10 @@
+ #include <revolution/sc_fwd.h>
+ #include <revolution/thp_fwd.h>
+ #include "string.h"
  #include "NL/nlDLListContainer.inl"
 +#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +#include <stdexcept>
@@ -213,8 +216,8 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  #include "NL/nlFunction.inl"
  #include "Game/BasicStadium.h"
 @@ -26,7 +29,9 @@
- extern "C" char* strstr(const char*, const char*);
- #endif
+ #include "Game/Task/GameRenderTask.h"
+ #include "Game/main.h"
  
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
  Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);

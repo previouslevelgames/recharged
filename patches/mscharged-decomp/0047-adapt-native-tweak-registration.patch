@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: dc238202b310059d80791d0140dee37f27b9a3bf
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -12,9 +12,10 @@ only; production requires their whole original Game/AIPad providers.
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
 --- a/include/Game/TweakValue.h
 +++ b/include/Game/TweakValue.h
-@@ -3,6 +3,11 @@
+@@ -3,7 +3,12 @@
  
  #include "Game/TweakValueBase.h"
+ #include "Game/TweakRegistration.h"
  #include "NL/nlMemory.h"
 +#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
 +#include "runtime/tweaks.h"
@@ -437,7 +438,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
  }
  
 @@ -379,7 +430,7 @@
- static T* UnidentifiedCreateValue(TweakEntry* entry, const char* name, V value)
+ static T* CreateRegisteredTweakValue(TweakEntry* entry, const char* name, V value)
  {
      const char* interned = InternTweakString(name, kTweakStringCurrent);
 -    T* created = new (gTweakValueAllocator->Allocate(sizeof(T))) T(interned, value);
@@ -584,7 +585,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
 +#endif
  }
  
- int TweakNode::UnidentifiedVirtual0C()
+ int TweakNode::IsEntry()
 @@ -710,4 +806,3 @@
  static TweakIntBinding sDynamicStringCount("Num dynamic strings", gLastTweakCategory, &gTweakStringCounts[kTweakStringDynamic]);
  static TweakIntBinding sValueStringCount("Num value strings", gLastTweakCategory, &gTweakStringCounts[kTweakStringValue]);

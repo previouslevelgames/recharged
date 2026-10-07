@@ -1,5 +1,7 @@
 #pragma once
 
+#include "NL/nlDLListContainer.inl"
+
 #include <cstdint>
 #include <new>
 #include <stdexcept>

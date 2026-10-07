@@ -21,6 +21,7 @@
 #include "webgpu/gpu.hpp"
 #include "platform/stm_device.h"
 #include "platform/hardware_owner.h"
+#include "platform/desktop_presented_dpd.h"
 #include "platform/ai.h"
 #include "platform/system.h"
 #include "platform/video_device.h"
@@ -148,8 +149,9 @@ void EndWithSnapshot(const std::filesystem::path& output) {
 }
 }
 int mscharged::RunOriginalMainCredits(int argc, char** argv,
-    const ResolvedLaunch* suppliedLaunch, bool interactive) {
+    const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene) {
     try {
+        const bool frontend = scene == OriginalMainScene::FrontendSequence;
         bool nativeSend=true, resizeCheck=false;
         mscharged::LaunchOptions launchOptions;
         unsigned windowWidth=800, windowHeight=600;
@@ -164,8 +166,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 std::puts("Usage: mscharged-original-main-credits-check [launch settings] [--resize-check] [--diagnostic-frame]\n"
                           "Enter original main, then load and update the original Credits scene.\n"
                           "Original THP movie/video and mode0 audio diagnostic; USA/English.\n"
-                          "Desktop keys/controllers feed original Wii/frontend input methods.\n"
+                          "Desktop keyboard and mouse feed original Wii/frontend input methods.\n"
                           "Enter/Space=A, Escape/Backspace=B; arrows=DPad; Z/X=1/2.\n"
+                          "Mouse: pointer; left/right click=A/B.\n"
                           "A selects original COPYRIGHTS; the following menu transition remains held.\n"
                           "Full tasks, AX predecessor, motion and game shutdown are omitted.\n"
                           "--window keeps the source scene running until you close the window.\n"
@@ -196,7 +199,15 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ with --disc FILE or [game] disc in the INI");
         Check(!resizeCheck || !launch.settings.fullscreen,"--resize-check requires a windowed launch; add --window");
-        const auto modulePath=executable.parent_path()/MSCHARGED_ORIGINAL_MAIN_CREDITS_MODULE_FILENAME;
+        const char* moduleFilename=MSCHARGED_ORIGINAL_MAIN_CREDITS_MODULE_FILENAME;
+        if(frontend) {
+#ifdef MSCHARGED_ORIGINAL_FRONTEND_MODULE_FILENAME
+            moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_FILENAME;
+#else
+            throw std::runtime_error("Original frontend sequence is not in this build");
+#endif
+        }
+        const auto modulePath=executable.parent_path()/moduleFilename;
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.
@@ -205,7 +216,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         std::filesystem::create_directories(dataDirectory);
         const auto dataPath = dataDirectory.string();
         AuroraConfig config{};
-        config.appName="Mario Strikers Charged | original-main Credits diagnostic";
+        config.appName=frontend ? "Mario Strikers Charged | original Boot/Intro diagnostic" :
+            "Mario Strikers Charged | original-main Credits diagnostic";
         config.userPath=config.cachePath=dataPath.c_str();
         config.desiredBackend=BACKEND_VULKAN;
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
@@ -248,8 +260,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(!__OSInitSTM())throw std::runtime_error("Actual original STM initialization failed");
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
         // and FE methods retain their original mappings and decisions.
-        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3},
-            mscharged::platform::GetNativeSTMInput(),{true,true});
+        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,false},
+            mscharged::platform::GetNativeSTMInput(),{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr});
         mscharged::diagnostic::InitializeCreditsMovieHardware(
             mscharged::platform::ServiceNativeHardwareInput);
         if(!aurora_dvd_open(disc.c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
@@ -349,7 +361,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
               (nativeSend ? nativePresented : aurora_get_last_presentation().sequence != 0),
               "Original main Credits real source draw/presentation incomplete");
         if(nativeSend) {
-            std::printf("Original main selected Credits: %u native source-send frames, draw receipt+chosen-XFB VI presentation. Original digital input endpoints are selected; full tasks/automatic swap reset/AX predecessor/motion/CRT remain omitted.\n",frames);
+            std::printf("Original main selected %s: %u native source-send frames, draw receipt+chosen-XFB VI presentation. Full startup/AX/world/reset/CRT remain incomplete.\n",
+                frontend ? "Boot/Intro tasks" : "Credits",frames);
         } else {
         std::printf("Original main→selected Credits live: %u actual source frames, %u encoded draws; one initialized game/SDK, native owner elapsed time. Actual original THP/movie/mode0 audio; digital input endpoints selected; full task/automatic swap reset/AX/motion/CRT scopes remain held.\n",frames,draws);
         }
@@ -357,7 +370,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         const auto audioClock=mscharged::platform::GetNativeAIClockStatus();
         Check(audio.initialized && audio.consumed_blocks && audio.dispatched_callbacks,
               "Original-main movie audio did not reach the actual host device");
-        std::printf("Original-main movie native AI: submitted%llu consumed%llu callbacks%llu, rate%d; coalesced%llu, maximum DMA service gap%lluns.\n",
+        std::printf("Original-main native AI: submitted%llu consumed%llu callbacks%llu, rate%d; coalesced%llu, maximum DMA service gap%lluns.\n",
                     static_cast<unsigned long long>(audio.submitted_blocks),
                     static_cast<unsigned long long>(audio.consumed_blocks),
                     static_cast<unsigned long long>(audio.dispatched_callbacks),audio.input_frequency,

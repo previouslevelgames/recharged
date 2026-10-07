@@ -6,7 +6,15 @@ include(cmake/OriginalFunctionPools.cmake)
 add_library(charged_original_audio_source_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioSource.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioEffects.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/Audio/AudioResourceRuntime.cpp")
+    "${MSCHARGED_PREPARED}/src/Game/Audio/AudioResourceRuntime.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/AuxEffectMap.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/Delay.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/Reverb.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/LowPassFilter.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/Pitch.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/CategoryVolume.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/Plat3dSoundSrc.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/GameStreams.cpp")
 add_dependencies(charged_original_audio_source_module_sources verify_prepared)
 set_target_properties(charged_original_audio_source_module_sources PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden

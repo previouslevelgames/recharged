@@ -1,0 +1,56 @@
+From: mscharged-port
+Subject: [PATCH] Adapt original SP serialized metadata and audio address words
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retain whole Matching AudioResourcePlatform and unchanged original SP source.
+Decode allocation-owned Wii32/BE16 metadata into a native POD backing.
+Original sample callback supplies checked, genuinely pinned hardware words
+to unchanged SP address arithmetic instead of truncating host pointers.
+No callback, factory, backend, AX initialization or playback bypass.
+
+--- a/src/Game/Audio/AudioResourcePlatform.cpp
++++ b/src/Game/Audio/AudioResourcePlatform.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_sp_table.h"
++#endif
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioBackend.h"
+@@ -149,7 +152,11 @@
+     switch ((int)chunk->GetID())
+     {
+     case 0x23703:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        m_SoundTable = mscharged::platform::PrepareNativeSPSoundTable(chunk);
++#else
+         m_SoundTable = (SPSoundTable*)chunk->GetData();
++#endif
+         break;
+     default:
+         AudioBankLoader::ParseChunk(chunk);
+@@ -158,13 +165,22 @@
+ }
+ 
+ void OnAudioBankReadComplete(
+-    nlFile* file, void* data, unsigned int,
+-    unsigned long userParam)
++    nlFile* file, void* data, unsigned int
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        size
++#endif
++    , unsigned long userParam)
+ {
+     AudioMemoryLoader* loader = (AudioMemoryLoader*)userParam;
+     nlClose(file);
+     loader->m_Data = data;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    SPInitSoundTable(loader->m_SoundTable,
++        mscharged::platform::NativeAudioSampleCachedWord(data, size),
++        mscharged::platform::NativeAudioCachedWord(g_pAudioSilenceBuffer, 0x500));
++#else
+     SPInitSoundTable(loader->m_SoundTable, (u32)data, (u32)g_pAudioSilenceBuffer);
++#endif
+     loader->OnLoadComplete();
+ }
+ 

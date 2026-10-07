@@ -1,0 +1,71 @@
+From: mscharged-port
+Subject: [PATCH] Adapt original RPC serialized records for native ABI
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Keep original parser traversal, runtime node allocation and curve algorithms.
+Select allocation-owned native POD projections for the original Wii20/28/36/8
+records, leaving raw source bytes and the original console parser unchanged.
+
+diff --git a/src/Game/Audio/AudioRpc.cpp b/src/Game/Audio/AudioRpc.cpp
+--- a/src/Game/Audio/AudioRpc.cpp
++++ b/src/Game/Audio/AudioRpc.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_audio_rpc.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "NL/nlDebugString.h"
+ #include "Game/Audio/AudioBundleManager.h"
+@@ -80,7 +83,13 @@
+ extern "C" AudioRpcController* ParseAudioRpcController(nlChunk* outer)
+ {
+     nlChunk* header = (nlChunk*)outer->GetData();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto native = mscharged::platform::PrepareNativeAudioRpc(outer);
++    AudioRpcController* controller = static_cast<AudioRpcController*>(
++        mscharged::platform::NativeAudioRpcChildData(native, header));
++#else
+     AudioRpcController* controller = (AudioRpcController*)header->GetData();
++#endif
+     u32 groupOffset;
+     u32 definitionOffset;
+     u32 groupIndex;
+@@ -91,7 +100,12 @@
+     nlChunk* cursor;
+ 
+     cursor = header->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    controller->groups = static_cast<AudioRpcGroup*>(
++        mscharged::platform::NativeAudioRpcChildData(native, cursor));
++#else
+     controller->groups = (AudioRpcGroup*)cursor->GetData();
++#endif
+     groupIndex = 0;
+     groupOffset = 0;
+     while (groupIndex < controller->groupCount)
+@@ -99,7 +113,12 @@
+         group =
+             (AudioRpcGroup*)((u8*)controller->groups + groupOffset);
+         cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        definitions = static_cast<AudioRpcDefinition*>(
++            mscharged::platform::NativeAudioRpcChildData(native, cursor));
++#else
+         definitions = (AudioRpcDefinition*)cursor->GetData();
++#endif
+         group->definitions = definitions;
+         group->staticDefinitions = definitions;
+         group->dynamicDefinitions = definitions + group->staticDefinitionCount;
+@@ -112,7 +131,12 @@
+                 (AudioRpcDefinition*)((u8*)group->definitions
+                     + definitionOffset);
+             cursor = cursor->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            definition->points = static_cast<AudioRpcCurvePoint*>(
++                mscharged::platform::NativeAudioRpcChildData(native, cursor));
++#else
+             definition->points = (AudioRpcCurvePoint*)cursor->GetData();
++#endif
+             definitionOffset += sizeof(AudioRpcDefinition);
+             ++definitionIndex;
+         }
