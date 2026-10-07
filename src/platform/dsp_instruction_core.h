@@ -45,6 +45,17 @@ public:
     // bus backing. This supplies bytes, never a boot context or readiness.
     void LoadInstructionROM(NativeDSPMemoryEndpoint endpoint,std::uint32_t physical_address);
     void LoadCoefficientROM(NativeDSPMemoryEndpoint endpoint,std::uint32_t physical_address);
+    // Called only under actual CSR HALT. Keeps all memory/bank validity and
+    // register cells; it supplies no register-reset image or cleared RAM.
+    void RequireHardwareEndpoints(NativeDSPMailboxEndpoint mailboxes,NativeDSPControlEndpoint control) const;
+    void PauseHaltedExecution();
+    // Native hardware command processing uses the same initialized internal
+    // data cells. Validate the whole old context before changing any word;
+    // unknown data, stale hardware or mismatched history is not cold validity.
+    // Caller retains actual device/source exclusion across job and commit.
+    void ValidateNativeDataWords(std::uint16_t first,const std::uint16_t* expected,std::size_t count) const;
+    void CommitNativeDataWords(std::uint16_t first,const std::uint16_t* expected,
+                               const std::uint16_t* after,std::size_t count);
     void BeginExecution(const DSPInstructionRegisters& context);
     DSPInstructionRegisters Step();
     DSPInstructionRegisters Registers() const;

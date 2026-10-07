@@ -1,0 +1,20 @@
+From: mscharged-port native integration
+Subject: [PATCH] Retain the WorldEffect byte-size assertion only for the Wii ABI
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Compiler compatibility only. Native declaration layout is measured
+separately; no fields, algorithms, serialized stream strides, placement
+storage or world readiness are changed. The console assertion remains.
+
+--- a/include/Game/World/WorldEffect.h
++++ b/include/Game/World/WorldEffect.h
+@@ -38,7 +38,9 @@
+     /* 0x9C */ bool m_bAlwaysVisible;
+ };
+ 
++#if !defined(MSCHARGED_NATIVE)
+ typedef char WorldEffect_size_check[sizeof(WorldEffect) == 0xA0 ? 1 : -1];
++#endif
+ 
+ void UpdateAnimatedWorldEffectController(EmissionController& controller);
+ void UpdateWorldEffectControllerVisibility(EmissionController& controller);

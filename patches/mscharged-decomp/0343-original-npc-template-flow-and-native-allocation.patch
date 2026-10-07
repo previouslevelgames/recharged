@@ -1,0 +1,100 @@
+Subject: Restore original NPC loading flow and native actor allocation extent
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retire the historical0131 helper substitutions from the original source TU.
+Selection order, resource paths, wait conditions and all callbacks are again the
+literal original source. Keep the helper header for existing separate diagnostics.
+Use the actual native DiddyBanana extent for its source allocation; the console
+request, actor construction, resource choices and source ownership remain intact.
+This does not qualify animation/hierarchy/model loading or actor readiness.
+
+diff --git a/src/Game/Render/NPCManager.cpp b/src/Game/Render/NPCManager.cpp
+--- a/src/Game/Render/NPCManager.cpp
++++ b/src/Game/Render/NPCManager.cpp
+@@ -1,7 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Render/KoopaShellObject.h"
+ #include "Game/Render/NPCManager.h"
+-#include "Game/Render/NPCLoadSteps.h"
+ #include "Game/Render/FlyingCamera.h"
+ #include "Game/Render/tu_801B43F8.h"
+ #include "Game/Render/WindDebrisConfig.h"
+@@ -116,9 +115,14 @@
+         nlDLListIterator<NPCTemplate*> iterator;
+         iterator = i == 0 ? mPersistentTemplates.Begin()
+                      : mTransientTemplates.Begin();
+-        if (SelectPendingNPCFromList(iterator, mPendingTemplate))
+-        {
+-            return true;
++        while (iterator.hasNext())
++        {
++            if (!(*iterator)->loaded)
++            {
++                mPendingTemplate = *iterator;
++                return true;
++            }
++            iterator.next();
+         }
+     }
+     return false;
+@@ -240,7 +244,11 @@
+     NPCTemplate* pTemplate
+         = fn_801ABBDC_inline("DiddyBanana");
+     DiddyBanana* pObject
++#ifdef MSCHARGED_NATIVE
++        = (DiddyBanana*)nlMalloc(sizeof(DiddyBanana), 8, false);
++#else
+         = (DiddyBanana*)nlMalloc(0x84, 8, false);
++#endif
+     pObject = new (pObject) DiddyBanana(
+         *pTemplate->hierarchy, pTemplate->modelID, pTemplate->mInventorySAnim, pTemplate->mResourcePool);
+     mpDiddyBanana = pObject;
+@@ -375,30 +383,41 @@
+     }
+ 
+     char path[256];
+-    nlSNPrintf(path, sizeof(path), NPCAnimationPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), "art/animation/%s.sanim.zlib", mPendingTemplate->mName, mPendingTemplate->mName);
+     if (nlLoadCompressedFileAsync(path, OnNPCAnimationsLoaded, &mPendingTemplate->mInventorySAnim, 0x20, AllocateStart, 0x40000, 0, 0, 0, 0, &StandardAllocator))
+     {
+         mPendingTemplate->mAnimationLoadStarted = true;
+     }
+ 
+-    nlSNPrintf(path, sizeof(path), NPCHierarchyPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), "art/animation/%s.shier", mPendingTemplate->mName, mPendingTemplate->mName);
+     cInventory<cSHierarchy>* pInventory = mPendingTemplate->mPersistent
+                                             ? mPersistentHierarchies
+                                             : mTransientHierarchies;
+     nlLoadEntireFileAsync(path, OnNPCHierarchyLoaded, pInventory, 0x20, AllocateStart, 0, 0, &StandardAllocator);
+ 
+-    nlSNPrintf(path, sizeof(path), NPCTexturesPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), "art/characters/npcs/%s/%s.rlt", mPendingTemplate->mName, mPendingTemplate->mName);
+     glBeginLoadTextureBundle(path, OnNPCTexturesLoaded, mPendingTemplate, pContext);
+ 
+-    nlSNPrintf(path, sizeof(path), NPCModelsPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
++    nlSNPrintf(path, sizeof(path), "art/characters/npcs/%s/%s.rlg", mPendingTemplate->mName, mPendingTemplate->mName);
+     glBeginLoadModel(path, OnNPCModelLoaded, mPendingTemplate, pContext);
+ }
+ 
+ bool NPCManager::FinishLoadNPCTemplate()
+ {
+-    if (!NPCResourcesFinished(mPendingTemplate->mAnimationLoadStarted,
+-            mPendingTemplate->mAnimationsLoaded, mPendingTemplate->mHierarchyLoaded,
+-            mPendingTemplate->mTexturesLoaded, mPendingTemplate->modelID))
++    if (mPendingTemplate->mAnimationLoadStarted
++        && !mPendingTemplate->mAnimationsLoaded)
++    {
++        return false;
++    }
++    if (!mPendingTemplate->mHierarchyLoaded)
++    {
++        return false;
++    }
++    if (!mPendingTemplate->mTexturesLoaded)
++    {
++        return false;
++    }
++    if (mPendingTemplate->modelID == -1)
+     {
+         return false;
+     }

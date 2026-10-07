@@ -7,6 +7,9 @@ namespace mscharged::platform
 // Original VM words and serialized pointer slots remain exactly four bytes.
 // Numeric stack words never pass through these address-only transport calls.
 std::uint32_t EncodeVMAddress(const void* address);
+// Address-only VM producers require a live original allocation byte.
+// This does not qualify the pointed object layout or script dispatcher.
+std::uint32_t EncodeOwnedVMAddress(const void* address);
 void* DecodeVMAddress(std::uint32_t word);
 void PrepareVMBytecode(void* bytes);
 std::uint32_t ReadVMNativeWord(const void* bytes);

@@ -9,7 +9,9 @@ endif()
 
 add_library(charged_original_skeleton OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/SAnim.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/SHierarchy.cpp")
+    "${MSCHARGED_PREPARED}/src/Game/SHierarchy.cpp"
+    src/platform/hierarchy_data_transport.cpp
+    src/platform/sanim_data_transport.cpp)
 add_dependencies(charged_original_skeleton verify_prepared)
 set_target_properties(charged_original_skeleton PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden

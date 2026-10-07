@@ -1,0 +1,40 @@
+From: mscharged-port native compiler compatibility
+Subject: [PATCH] Preserve console network class assertions on native hosts
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Scope seven Wii-only native-class size checks to the console branch;
+retain field declarations, payload records, source allocations and
+all matching algorithms. The detached flag is already adapted by0335.
+No network initializer,
+wire/factory/pool storage or readiness is supplied by this patch.
+
+--- a/src/Game/InputRouter.cpp
++++ b/src/Game/InputRouter.cpp
+@@ -829,6 +829,7 @@
+     "g_nDumpSyncTextAt", "Network", &g_nDumpSyncTextAt, true);
+ 
+ typedef char VerifyDetermDataEventSize[(sizeof(DetermDataEvent) == 0x24) ? 1 : -1];
++#if !defined(MSCHARGED_NATIVE)
+ typedef char VerifyNetworkMessageType0Size[
+     (sizeof(NetMessageInput) == 0xF0) ? 1 : -1];
+ typedef char VerifyNetworkMessageType8Size[
+@@ -839,6 +840,7 @@
+     (sizeof(NetworkInputMessageQueue) == 0x3850) ? 1 : -1];
+ typedef char VerifyNetworkInputRouterSize[
+     (sizeof(NetworkInputRouter) == 0xE5C8) ? 1 : -1];
++#endif // original Wii class sizes; native vptr/pointer storage differs
+ 
+ #include "Game/InputRouter.inl"
+ #include "NL/nlBind_impl.h"
+--- a/src/Game/NetworkInput.cpp
++++ b/src/Game/NetworkInput.cpp
+@@ -390,7 +390,9 @@
+     return 0;
+ }
+ 
++#if !defined(MSCHARGED_NATIVE)
+ typedef char VerifyNetworkPeerChannelSize[
+     sizeof(NetworkPeerChannel) == 0x240 ? 1 : -1];
+ typedef char VerifyNetworkPeerSize[
+     sizeof(NetworkPeer) == 0x908 ? 1 : -1];
++#endif

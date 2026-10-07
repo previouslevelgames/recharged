@@ -16,6 +16,14 @@ std::uint32_t EncodeVMAddress(const void* address)
         throw std::out_of_range("VM address has no Wii cached-word representation");
     return physical | 0x80000000u;
 }
+std::uint32_t EncodeOwnedVMAddress(const void* address)
+{
+    if (!address) return 0;
+    GameAllocationSpan allocation{};
+    if (!FindGameAllocationSpan(address, 1, allocation))
+        throw std::invalid_argument("VM pointer has no live original allocation span");
+    return EncodeVMAddress(address);
+}
 void* DecodeVMAddress(std::uint32_t word)
 {
     if (!word) return nullptr;

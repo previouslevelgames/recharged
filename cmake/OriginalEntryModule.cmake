@@ -11,6 +11,11 @@ include(cmake/OriginalFunctionPools.cmake)
 add_library(charged_original_entry_module_sources OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/AI/Variant.cpp"
     "${MSCHARGED_PREPARED}/src/Game/AI/FuzzyVariant.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/AI/FuzzyRuntimeBase.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/NetworkInputRecording.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Physics/PhysicsPatch.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Render/NetMesh.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Render/NumberDisplay.cpp"
     "${MSCHARGED_PREPARED}/src/Game/AI/Fielder.cpp"
     "${MSCHARGED_PREPARED}/src/Game/DetInput.cpp"
     "${MSCHARGED_PREPARED}/src/Game/HBMManager.cpp"

@@ -1,0 +1,275 @@
+--- a/src/RVL_SDK/os/OSAudioSystem.c
++++ b/src/RVL_SDK/os/OSAudioSystem.c
+@@ -4,7 +4,35 @@
+ 
+ #include <string.h>
+ 
++#ifdef MSCHARGED_NATIVE
++#include "platform/os_audio_boot_abi.h"
++#include "platform/os_boot_environment_abi.h"
++#define AUDIO_OS_IN_IPL ChargedNativeOSInIPL()
++// The native SDK facade omits the original OSTime.h delta spelling.
++#define OS_TICKS_DELTA(x,y) ((s32)(x) - (s32)(y))
++#define AUDIO_DSP_READ(reg) ChargedOSAudioDSPRead(reg)
++#define AUDIO_DSP_WRITE(reg,value) ChargedOSAudioDSPWrite(reg,value)
++#define AUDIO_DSP_AND(reg,value) ChargedOSAudioDSPWrite(reg,ChargedOSAudioDSPRead(reg) & (value))
++#define AUDIO_DSP_OR(reg,value) ChargedOSAudioDSPWrite(reg,ChargedOSAudioDSPRead(reg) | (value))
++#define AUDIO_DSP_PAIR_READ(reg) ChargedOSAudioDSPReadPair(reg)
++#define AUDIO_DSP_PAIR_WRITE(reg,value) ChargedOSAudioDSPWritePair(reg,value)
++#define AUDIO_IPC_READ(reg) ChargedOSAudioIPCRead(reg)
++#define AUDIO_IPC_WRITE(reg,value) ChargedOSAudioIPCWrite(reg,value)
++#define AUDIO_IPC_AND(reg,value) ChargedOSAudioIPCWrite(reg,ChargedOSAudioIPCRead(reg) & (value))
++#define DSP_CODE_WORK_MEM ChargedOSAudioWorkMemory()
++#else
++#define AUDIO_OS_IN_IPL __OSInIPL
++#define AUDIO_DSP_READ(reg) DSP_HW_REGS[reg]
++#define AUDIO_DSP_WRITE(reg,value) (DSP_HW_REGS[reg] = (value))
++#define AUDIO_DSP_AND(reg,value) (DSP_HW_REGS[reg] &= (value))
++#define AUDIO_DSP_OR(reg,value) (DSP_HW_REGS[reg] |= (value))
++#define AUDIO_DSP_PAIR_READ(reg) ((DSP_HW_REGS[reg] << 16) | DSP_HW_REGS[(reg) + 1])
++#define AUDIO_DSP_PAIR_WRITE(reg,value) (*(u32*)&DSP_HW_REGS[reg] = (value))
++#define AUDIO_IPC_READ(reg) IPC_HW_REGS[reg]
++#define AUDIO_IPC_WRITE(reg,value) (IPC_HW_REGS[reg] = (value))
++#define AUDIO_IPC_AND(reg,value) (IPC_HW_REGS[reg] &= (value))
+ #define DSP_CODE_WORK_MEM ((void*)0x81000000)
++#endif
+ #define DSP_CODE_WORK_MEM_BACKUP ((u8*)OSGetArenaHi() - sizeof(DSPInitCode))
+ 
+ static u8 DSPInitCode[128] = {
+@@ -30,44 +58,42 @@
+ static void __AIClockInit(BOOL arg0) {
+     u32 tmp;
+ 
+-    tmp = IPC_HW_REGS[IPC_DIFLAGS];
++    tmp = AUDIO_IPC_READ(IPC_DIFLAGS);
+     tmp &= ~0x100;
+     tmp |= (arg0 << 8);
+     tmp &= ~0x80;
+-    IPC_HW_REGS[IPC_DIFLAGS] = tmp;
+-
+-    IPC_HW_REGS[IPC_GPIO2IN] &= ~0xC0000000;
++    AUDIO_IPC_WRITE(IPC_DIFLAGS, tmp);
++
++    AUDIO_IPC_AND(IPC_GPIO2IN, ~0xC0000000);
+     waitMicroSec(100);
+ 
+     if (!arg0) {
+-        tmp = IPC_HW_REGS[IPC_GPIO2DIR];
++        tmp = AUDIO_IPC_READ(IPC_GPIO2DIR);
+         tmp &= ~0x3FFC0;
+         tmp |= 0xFC0;
+         tmp &= ~0x3F;
+         tmp &= ~0x7FC0000;
+         tmp |= 0x4640000;
+-        IPC_HW_REGS[IPC_GPIO2DIR] = tmp;
++        AUDIO_IPC_WRITE(IPC_GPIO2DIR, tmp);
+     } else {
+-        tmp = IPC_HW_REGS[IPC_GPIO2DIR];
++        tmp = AUDIO_IPC_READ(IPC_GPIO2DIR);
+         tmp &= ~0x3FFC0;
+         tmp |= 0xFFC0;
+         tmp &= ~0x3F;
+         tmp |= 0xE;
+         tmp &= ~0x7FC0000;
+         tmp |= 0x4B00000;
+-        IPC_HW_REGS[IPC_GPIO2DIR] = tmp;
++        AUDIO_IPC_WRITE(IPC_GPIO2DIR, tmp);
+     }
+     waitMicroSec(100);
+ 
+-    IPC_HW_REGS[IPC_GPIO2IN] &= ~0x10000000;
++    AUDIO_IPC_AND(IPC_GPIO2IN, ~0x10000000);
+     waitMicroSec(1000);
+ 
+-    IPC_HW_REGS[IPC_GPIO2IN] =
+-        (IPC_HW_REGS[IPC_GPIO2IN] & ~0x40000000) | 0x40000000;
++    AUDIO_IPC_WRITE(IPC_GPIO2IN, (AUDIO_IPC_READ(IPC_GPIO2IN) & ~0x40000000) | 0x40000000);
+     waitMicroSec(1000);
+ 
+-    IPC_HW_REGS[IPC_GPIO2IN] =
+-        (IPC_HW_REGS[IPC_GPIO2IN] & ~0x80000000) | 0x80000000;
++    AUDIO_IPC_WRITE(IPC_GPIO2IN, (AUDIO_IPC_READ(IPC_GPIO2IN) & ~0x80000000) | 0x80000000);
+     waitMicroSec(1000);
+ }
+ 
+@@ -76,7 +102,7 @@
+     u32 start;
+     u16 ctrl;
+ 
+-    if (!__OSInIPL) {
++    if (!AUDIO_OS_IN_IPL) {
+         __AIClockInit(TRUE);
+     }
+ 
+@@ -86,72 +112,72 @@
+     memcpy(DSP_CODE_WORK_MEM, DSPInitCode, sizeof(DSPInitCode));
+     DCFlushRange(DSP_CODE_WORK_MEM, sizeof(DSPInitCode));
+ 
+-    DSP_HW_REGS[DSP_AR_SIZE] = 0x43;
+-    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
+-                           DSP_CSR_DSPINT | DSP_CSR_RES;
++    AUDIO_DSP_WRITE(DSP_AR_SIZE, 0x43);
++    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
++                           DSP_CSR_DSPINT | DSP_CSR_RES);
+ 
+     // Reset DSP
+-    DSP_HW_REGS[DSP_CSR] |= 0x1;
+-    while (DSP_HW_REGS[DSP_CSR] & 0x1) {
+-        ;
+-    }
+-
+-    DSP_HW_REGS[DSP_DSPMBOX_H] = 0;
++    AUDIO_DSP_OR(DSP_CSR, 0x1);
++    while (AUDIO_DSP_READ(DSP_CSR) & 0x1) {
++        ;
++    }
++
++    AUDIO_DSP_WRITE(DSP_DSPMBOX_H, 0);
+     // Wait for mail delivery
+-    while (((DSP_HW_REGS[DSP_CPUMBOX_H] << 16) | DSP_HW_REGS[DSP_CPUMBOX_L]) &
++    while (AUDIO_DSP_PAIR_READ(DSP_CPUMBOX_H) &
+            (DSP_CPUMBOX_H_STATUS << 16)) {
+         ;
+     }
+ 
+-    *(u32*)&DSP_HW_REGS[DSP_AR_DMA_MMADDR_H] = 0x01000000;
+-    *(u32*)&DSP_HW_REGS[DSP_AR_DMA_ARADDR_H] = 0x00000000;
+-    *(u32*)&DSP_HW_REGS[DSP_AR_DMA_CNT_H] = 32;
++    AUDIO_DSP_PAIR_WRITE(DSP_AR_DMA_MMADDR_H, 0x01000000);
++    AUDIO_DSP_PAIR_WRITE(DSP_AR_DMA_ARADDR_H, 0x00000000);
++    AUDIO_DSP_PAIR_WRITE(DSP_AR_DMA_CNT_H, 32);
+ 
+     // Wait for ARAM interrupt
+-    for (ctrl = DSP_HW_REGS[DSP_CSR]; !(ctrl & DSP_CSR_ARINT);
+-         ctrl = DSP_HW_REGS[DSP_CSR]) {
+-        ;
+-    }
+-    DSP_HW_REGS[DSP_CSR] = ctrl;
++    for (ctrl = AUDIO_DSP_READ(DSP_CSR); !(ctrl & DSP_CSR_ARINT);
++         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
++        ;
++    }
++    AUDIO_DSP_WRITE(DSP_CSR, ctrl);
+ 
+     start = OSGetTick();
+     do {
+         ;
+     } while (OS_TICKS_DELTA(OSGetTick(), start) < 2194);
+ 
+-    *(u32*)&DSP_HW_REGS[DSP_AR_DMA_MMADDR_H] = 0x01000000;
+-    *(u32*)&DSP_HW_REGS[DSP_AR_DMA_ARADDR_H] = 0x00000000;
+-    *(u32*)&DSP_HW_REGS[DSP_AR_DMA_CNT_H] = 32;
++    AUDIO_DSP_PAIR_WRITE(DSP_AR_DMA_MMADDR_H, 0x01000000);
++    AUDIO_DSP_PAIR_WRITE(DSP_AR_DMA_ARADDR_H, 0x00000000);
++    AUDIO_DSP_PAIR_WRITE(DSP_AR_DMA_CNT_H, 32);
+ 
+     // Wait for ARAM interrupt
+-    for (ctrl = DSP_HW_REGS[DSP_CSR]; !(ctrl & DSP_CSR_ARINT);
+-         ctrl = DSP_HW_REGS[DSP_CSR]) {
+-        ;
+-    }
+-    DSP_HW_REGS[DSP_CSR] = ctrl;
+-
+-    DSP_HW_REGS[DSP_CSR] &= ~DSP_CSR_RES;
+-    while (DSP_HW_REGS[DSP_CSR] & 0x400) {
+-        ;
+-    }
+-
+-    DSP_HW_REGS[DSP_CSR] &= ~DSP_CSR_HALT;
+-    for (cpuMboxHi = DSP_HW_REGS[DSP_CPUMBOX_H];
++    for (ctrl = AUDIO_DSP_READ(DSP_CSR); !(ctrl & DSP_CSR_ARINT);
++         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
++        ;
++    }
++    AUDIO_DSP_WRITE(DSP_CSR, ctrl);
++
++    AUDIO_DSP_AND(DSP_CSR, ~DSP_CSR_RES);
++    while (AUDIO_DSP_READ(DSP_CSR) & 0x400) {
++        ;
++    }
++
++    AUDIO_DSP_AND(DSP_CSR, ~DSP_CSR_HALT);
++    for (cpuMboxHi = AUDIO_DSP_READ(DSP_CPUMBOX_H);
+          !(cpuMboxHi & DSP_CPUMBOX_H_STATUS);
+-         cpuMboxHi = DSP_HW_REGS[DSP_CPUMBOX_H]) {
++         cpuMboxHi = AUDIO_DSP_READ(DSP_CPUMBOX_H)) {
+         ;
+     }
+ 
+     // ?????
+-    DSP_HW_REGS[DSP_CPUMBOX_L];
+-
+-    DSP_HW_REGS[DSP_CSR] |= DSP_CSR_HALT;
+-    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
+-                           DSP_CSR_DSPINT | DSP_CSR_RES;
++    AUDIO_DSP_READ(DSP_CPUMBOX_L);
++
++    AUDIO_DSP_OR(DSP_CSR, DSP_CSR_HALT);
++    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
++                           DSP_CSR_DSPINT | DSP_CSR_RES);
+ 
+     // Reset DSP
+-    DSP_HW_REGS[DSP_CSR] |= 0x1;
+-    while (DSP_HW_REGS[DSP_CSR] & 0x1) {
++    AUDIO_DSP_OR(DSP_CSR, 0x1);
++    while (AUDIO_DSP_READ(DSP_CSR) & 0x1) {
+         ;
+     }
+ 
+@@ -163,27 +189,27 @@
+     u32 start;
+     u16 ctrl;
+ 
+-    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_RES;
++    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_RES);
+     // Clear sample control
+-    DSP_HW_REGS[DSP_AI_DMA_CSR] &= ~DSP_AI_DMA_CSR_PLAY;
+-
+-    for (ctrl = DSP_HW_REGS[DSP_CSR]; ctrl & 0x400;
+-         ctrl = DSP_HW_REGS[DSP_CSR]) {
++    AUDIO_DSP_AND(DSP_AI_DMA_CSR, ~DSP_AI_DMA_CSR_PLAY);
++
++    for (ctrl = AUDIO_DSP_READ(DSP_CSR); ctrl & 0x400;
++         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
+         ;
+     }
+ 
+     // Wait for DMA interrupt to end
+-    for (ctrl = DSP_HW_REGS[DSP_CSR]; ctrl & DSP_CSR_DMAINT;
+-         ctrl = DSP_HW_REGS[DSP_CSR]) {
+-        ;
+-    }
+-
+-    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
+-                           DSP_CSR_DSPINT | DSP_CSR_RES;
+-
+-    DSP_HW_REGS[DSP_DSPMBOX_H] = 0;
++    for (ctrl = AUDIO_DSP_READ(DSP_CSR); ctrl & DSP_CSR_DMAINT;
++         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
++        ;
++    }
++
++    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
++                           DSP_CSR_DSPINT | DSP_CSR_RES);
++
++    AUDIO_DSP_WRITE(DSP_DSPMBOX_H, 0);
+     // Wait for mail delivery
+-    while (((DSP_HW_REGS[DSP_CPUMBOX_H] << 16) | DSP_HW_REGS[DSP_CPUMBOX_L]) &
++    while (AUDIO_DSP_PAIR_READ(DSP_CPUMBOX_H) &
+            (DSP_CPUMBOX_H_STATUS << 16)) {
+         ;
+     }
+@@ -194,8 +220,8 @@
+     } while (OS_TICKS_DELTA(OSGetTick(), start) < 44);
+ 
+     // Reset DSP
+-    DSP_HW_REGS[DSP_CSR] |= 0x1;
+-    for (ctrl = DSP_HW_REGS[DSP_CSR]; ctrl & 0x1; ctrl = DSP_HW_REGS[DSP_CSR]) {
+-        ;
+-    }
+-}
++    AUDIO_DSP_OR(DSP_CSR, 0x1);
++    for (ctrl = AUDIO_DSP_READ(DSP_CSR); ctrl & 0x1; ctrl = AUDIO_DSP_READ(DSP_CSR)) {
++        ;
++    }
++}

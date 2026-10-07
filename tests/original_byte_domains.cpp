@@ -180,6 +180,7 @@ int main() {
         // covering view while leaving disjoint views alive.
         auto* packed=static_cast<unsigned char*>(parent.Allocate(256,32,false));
         GameNativeBackingSpan twin{};
+        GameNativeBackingSourceSpan reverse{};
         Reject<std::invalid_argument>([&]{GameNativeBackingReservation v(packed,256,512);});
         { GameByteWriteReservation producer(packed,256); producer.Complete(GameByteDomain::WiiSerialized); }
         const auto beforeTwinMetadata=metadata_live;
@@ -187,6 +188,8 @@ int main() {
             GameNativeBackingReservation abandoned(packed,8,32);
             Check(abandoned.Data()!=packed, "Native twin aliases authored source storage");
             Check(!FindGameNativeBacking(packed,8,twin), "Uncommitted native view became discoverable");
+            Check(!FindGameNativeBackingSource(abandoned.Data(),1,packed,1,reverse),
+                  "Unpublished native reservation became reverse-discoverable");
         }
         Check(metadata_live==beforeTwinMetadata, "Abandoned native reservation leaked metadata");
         metadata_budget=0;
@@ -202,12 +205,53 @@ int main() {
                   "Published native backing lost its genuine source owner");
         };
         attach(0,8); attach(8,64); attach(24,16); attach(28,8); attach(128,32);
+        auto* firstNative = static_cast<unsigned char*>(twin.data);
+        const auto firstIncarnation = twin.allocation.incarnation;
+        const auto lookupMetadata = metadata_allocations;
+        metadata_budget=0;
+        Check(FindGameNativeBackingSource(firstNative+63,1,packed+129,1,reverse)
+              && reverse.source==packed+128 && reverse.source_bytes==32
+              && reverse.backing.data==firstNative && reverse.backing.bytes==64
+              && reverse.backing.allocation.base==packed
+              && reverse.backing.allocation.owner==&parent
+              && reverse.backing.allocation.incarnation==firstIncarnation,
+              "Native reverse lookup lost exact retained source range/owner/incarnation");
+        metadata_budget=-1;
+        Check(metadata_allocations==lookupMetadata,"Read-only reverse lookup allocated metadata");
+        Check(!FindGameNativeBackingSource(firstNative+63,2,packed+128,1,reverse)
+              && reverse.source==nullptr && reverse.backing.data==nullptr,
+              "Native reverse lookup crossed its true native extent or retained stale output");
+        Check(!FindGameNativeBackingSource(firstNative+64,1,packed+128,1,reverse),
+              "Native one-past-end became a live view");
+        Check(!FindGameNativeBackingSource(firstNative,1,packed,1,reverse),
+              "Foreign raw probe selected another attached native view");
+        Check(!FindGameNativeBackingSource(packed,1,packed+128,1,reverse),
+              "Raw bytes masqueraded as native backing");
+        Check(!FindGameNativeBackingSource(firstNative,0,packed+128,1,reverse)
+              && !FindGameNativeBackingSource(firstNative,1,packed+128,0,reverse),
+              "Zero-width query invented native backing evidence");
+        Check(!FindGameNativeBackingSource(reinterpret_cast<void*>(UINTPTR_MAX),2,
+                                           packed+128,1,reverse),
+              "Overflowing foreign address became native backing");
+        auto* foreignRaw = parent.Allocate(32,32,false);
+        Check(!FindGameNativeBackingSource(firstNative,1,foreignRaw,1,reverse),
+              "Another actual source owner range admitted a foreign native view");
+        parent.Free(foreignRaw);
+        Check(FindGameNativeBacking(packed+8,64,twin),"Middle source twin absent");
+        auto* middleNative=twin.data;
+        Check(FindGameNativeBackingSource(middleNative,1,packed+32,1,reverse)
+              && reverse.source==packed+8 && reverse.source_bytes==64,
+              "Overlapping source native view selected the wrong exact retained backing");
         Reject<std::logic_error>([&]{GameNativeBackingReservation duplicate(packed,8,32);});
         { GameByteWriteReservation crossing(packed+32,1); crossing.Complete(GameByteDomain::NativePayload); }
         Check(!FindGameNativeBacking(packed+8,64,twin) && !FindGameNativeBacking(packed+24,16,twin)
               && !FindGameNativeBacking(packed+28,8,twin), "Producer retained a covering native view");
         Check(FindGameNativeBacking(packed,8,twin) && FindGameNativeBacking(packed+128,32,twin),
               "Producer retired disjoint native views");
+        Check(!FindGameNativeBackingSource(middleNative,1,packed+32,1,reverse),
+              "Overlapping producer retained a stale native reverse view");
+        Check(FindGameNativeBackingSource(firstNative,1,packed+128,1,reverse),
+              "Disjoint producer retired another native reverse view");
         {
             GameNativeBackingReservation staleView(packed+80,16,32);
             // Native conversion preserves the original logical-completion tag,
@@ -219,6 +263,8 @@ int main() {
         parent.Free(packed);
         Check(!FindGameNativeBacking(packed,8,twin) && !FindGameNativeBacking(packed+128,32,twin),
               "Source free retained CRT-owned native data");
+        Check(!FindGameNativeBackingSource(firstNative,1,packed+128,1,reverse),
+              "Actual original source free retained a native reverse view");
         GameByteWriteReservation stale(raw,32);
         parent.Free(raw);
         auto* reused=static_cast<unsigned char*>(parent.Allocate(256,32,false));

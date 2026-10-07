@@ -9,6 +9,7 @@
 #include "gfx/scanout.hpp"
 #include <dolphin/gx/GXAurora.h>
 #include <atomic>
+#include <array>
 #include <algorithm>
 #include <vector>
 #include <memory>
@@ -23,10 +24,15 @@
 #include "platform/hardware_owner.h"
 #include "platform/desktop_presented_dpd.h"
 #include "platform/ai.h"
+#include "platform/native_ax_module_memory.h"
 #include "platform/system.h"
 #include "platform/video_device.h"
 #include "platform/video_output_device.h"
 #include "platform/interrupt_controller.h"
+#include "platform/filesystem_boot.h"
+#include "platform/ipc_boot_buffer.h"
+#include <revolution/os/OSIpc.h>
+#include <revolution/ipc.h>
 #include "credits_movie_hardware.h"
 #include <SDL3/SDL_video.h>
 #include <dlfcn.h>
@@ -256,6 +262,20 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             // This mode never uses diagnostic aurora_begin/end_frame.
             aurora_configure_native_gx_hardware();
         }
+        if (frontend) {
+            // Physical IPC boot metadata is part of the native OS foundation.
+            // The whole original SDK keeps its advancing IPC buffer cursor;
+            // source nlFlashInitialize/NANDInit still run at their own positions.
+            alignas(32) static std::array<unsigned char, 32768> ipcBootMemory{};
+            mscharged::platform::InstallNativeIPCBootBuffer(
+                ipcBootMemory.data(), ipcBootMemory.size());
+            __OSInitIPCBuffer();
+            IPCInit();
+            // One isolated native title profile. UID is an explicit native IOS
+            // process identity, independent of the host account/retail console.
+            mscharged::platform::InitializeNativeFilesystemForDisc(
+                {launch.disc_path, dataDirectory / "nand", 0x1001});
+        }
         mscharged::platform::InitializeNativeSTMDevice();
         if(!__OSInitSTM())throw std::runtime_error("Actual original STM initialization failed");
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
@@ -265,8 +285,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         mscharged::diagnostic::InitializeCreditsMovieHardware(
             mscharged::platform::ServiceNativeHardwareInput);
         if(!aurora_dvd_open(disc.c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
+        std::unique_ptr<mscharged::platform::NativeAXModuleMemory> axModuleMemory;
+        if(frontend)
+            axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath.c_str());
         auto* module=dlopen(modulePath.c_str(),RTLD_LAZY|RTLD_LOCAL);
         if(!module)throw std::runtime_error(dlerror());
+        if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
         auto entry=reinterpret_cast<int(*)()>(dlsym(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         std::fprintf(stderr,"Entering actual source main with real Aurora Vulkan/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n");
@@ -387,6 +411,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         stopMovie();
         mscharged::diagnostic::ShutdownCreditsMovieHardware();
         mscharged::platform::ShutdownNativeHardwareInput();
+        if (frontend)
+            mscharged::platform::ShutdownNativeFilesystem();
+        if(axModuleMemory) {
+            // Actual DSP jobs must halt/drain before this point when admitted.
+            // Current selected frontend still omits original AX initialization.
+            axModuleMemory->ReleaseAfterDeviceDrain();
+            axModuleMemory.reset();
+        }
         Check(!mscharged::platform::GetNativeAIStatus().initialized,
               "Original-main movie owner did not drain the actual host audio device");
         if(resizeCheck) {

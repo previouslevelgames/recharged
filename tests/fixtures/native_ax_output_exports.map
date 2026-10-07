@@ -2,6 +2,7 @@
 global:
     charged_ax_output_snapshot;
     charged_ax_output_pool_owner_check;
+    charged_ax_output_slot_stride_check;
     ChargedAXGetCommandStorage;
     ChargedAXGetVoiceStorage;
     ChargedAXGetAuxStorage;

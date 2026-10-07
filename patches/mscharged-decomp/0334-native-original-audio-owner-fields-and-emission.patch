@@ -1,0 +1,87 @@
+From: mscharged-port
+Subject: [PATCH] Preserve native original audio owner fields and source providers
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Use actual native AudioResourceLoadOwner/AudioBankLoader fields at the original
+SoundPlaybackEvent selection boundary instead of Wii byte offsets. Retain its
+existing selected index, source array stride and full-width receiver ownership.
+Emit the original spatial destructor and sample pool delete provider for modern
+cross-TU linkage without changing either body. Console projection is unchanged.
+No effect factory, Backend/AX readiness, source state or voice is supplied.
+
+diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoundSrc.h
+--- a/include/Game/Audio/Plat3dSoundSrc.h
++++ b/include/Game/Audio/Plat3dSoundSrc.h
+@@ -9,7 +9,11 @@
+ class Plat3dSoundSrc : public XSoundOwner
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    virtual ~Plat3dSoundSrc();
++#else
+     virtual inline ~Plat3dSoundSrc();
++#endif
+     virtual void Update(PlatAudioListener* listener, float deltaTime);
+ 
+     /* 0x20 */ float m_Pan;
+diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenceEvent.cpp
+--- a/src/Game/Audio/AudioSequenceEvent.cpp
++++ b/src/Game/Audio/AudioSequenceEvent.cpp
+@@ -13,6 +13,9 @@
+ 
+ #include "Game/Audio/SoundInstance.h"
+ #include "Game/Audio/AudioSequenceEvent.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Audio/AudioBankLoader.h"
++#endif
+ #include "Game/Audio/AudioBankSelectionSteps.h"
+ 
+ SlotPool<SoundPlaybackEvent> sSoundPlaybackEventPool(32, 16);
+@@ -136,10 +139,16 @@
+ {
+     u32 selectedIndex = AudioSelectSourceSteps(definition, AudioEventRandom());
+ 
++#if defined(MSCHARGED_NATIVE)
++    AudioBankLoader* entries
++        = ((AudioResourceLoadOwner*)owner->soundInstance->owner->m_Slot)->m_Loader;
++    return entries->GetChunk23200Entries() + selectedIndex;
++#else
+     void* entries = *(void**)((u8*)owner->soundInstance->owner->m_Slot
+                               + 0x10);
+     return (AudioSourceInfo*)((u8*)*(void**)((u8*)entries + 0x14)
+                               + selectedIndex * sizeof(AudioSourceInfo));
++#endif
+ }
+ 
+ int SoundPlaybackEvent::Update(float)
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+--- a/src/Game/Audio/AudioSource.cpp
++++ b/src/Game/Audio/AudioSource.cpp
+@@ -176,7 +176,11 @@
+     m_State = 1;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void AudioSampleSource::operator delete(void* pointer)
++#else
+ inline void AudioSampleSource::operator delete(void* pointer)
++#endif
+ {
+     gAudioSampleSourcePool.Free((AudioSampleSource*)pointer);
+ }
+diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+--- a/src/Game/Audio/AudioSystem.cpp
++++ b/src/Game/Audio/AudioSystem.cpp
+@@ -251,6 +251,10 @@
+ 
+ int XSoundHandle::IsCallbackEnabled() { return m_CallbackEnabled; }
+ 
++#if defined(MSCHARGED_NATIVE)
++Plat3dSoundSrc::~Plat3dSoundSrc()
++#else
+ inline Plat3dSoundSrc::~Plat3dSoundSrc()
+-{
+-}
++#endif
++{
++}

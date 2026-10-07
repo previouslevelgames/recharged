@@ -1,5 +1,6 @@
 #include "platform/stm_device.h"
 #include "platform/stm_hardware_abi.h"
+#include "platform/ios_device.h"
 #include "platform/interrupts.h"
 #include <revolution/ipc.h>
 
@@ -24,11 +25,36 @@ struct Device {
     bool ready{}, active{}, reset_down{};
     std::uint64_t generation{};
     s32 next_fd{1}, immediate{-1}, eventhook{-1};
+    mscharged::platform::NativeIOSDeviceLease ios{};
     Request event;
     std::array<u32, 8> events{};
     unsigned head{}, count{};
 };
 Device& State() { static Device state; return state; }
+s32 DeviceOpen(const char* path, IPCOpenMode mode);
+s32 DeviceClose(s32 fd);
+s32 DeviceIoctl(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 outSize);
+s32 DeviceIoctlAsync(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 outSize,
+    IPCAsyncCallback callback, void* context);
+bool OwnsPath(void*, const char* path) {
+    return path && (std::strcmp(path, "/dev/stm/immediate") == 0 ||
+                    std::strcmp(path, "/dev/stm/eventhook") == 0);
+}
+s32 Execute(void*, const IPCRequest& request) {
+    switch (request.type) {
+    case IPC_REQ_OPEN: return DeviceOpen(request.open.path, request.open.mode);
+    case IPC_REQ_CLOSE: return DeviceClose(request.fd);
+    case IPC_REQ_IOCTL:
+        return DeviceIoctl(request.fd, request.ioctl.type, request.ioctl.in,
+            request.ioctl.inSize, request.ioctl.out, request.ioctl.outSize);
+    default: return IPC_RESULT_INVALID;
+    }
+}
+s32 Submit(void*, const IPCRequest& request, IPCAsyncCallback callback, void* context) {
+    return DeviceIoctlAsync(request.fd, request.ioctl.type, request.ioctl.in,
+        request.ioctl.inSize, request.ioctl.out, request.ioctl.outSize, callback, context);
+}
+
 void RequireOwner(const Device& state) {
     if (!state.ready || state.owner != std::this_thread::get_id())
         throw std::logic_error("Native STM SDK operation requires initialized owner");
@@ -47,25 +73,41 @@ bool Buffers(void* in, s32 inSize, void* out, s32 outSize) {
 namespace mscharged::platform {
 void InitializeNativeSTMDevice() {
     auto& state = State();
-    std::lock_guard lock(state.mutex);
-    if (state.ready) { RequireOwner(state); return; }
-    state.owner = std::this_thread::get_id();
-    state.reset_down = false;
-    state.event = {};
-    state.head = state.count = 0;
-    state.immediate = state.eventhook = -1;
-    ++state.generation;
-    state.ready = true;
+    {
+        std::lock_guard lock(state.mutex);
+        if (state.ready) { RequireOwner(state); return; }
+        state.owner = std::this_thread::get_id();
+        state.reset_down = false;
+        state.event = {};
+        state.head = state.count = 0;
+        state.immediate = state.eventhook = -1;
+        ++state.generation;
+        state.ready = true;
+    }
+    try { state.ios = RegisterNativeIOSDevice({&state, OwnsPath, Execute, Submit}); }
+    catch (...) {
+        std::lock_guard lock(state.mutex);
+        state.ready = false;
+        state.owner = {};
+        throw;
+    }
 }
 void ShutdownNativeSTMDevice() {
     auto& state = State();
+    {
+        std::lock_guard lock(state.mutex);
+        if (!state.ready) return;
+        RequireOwner(state);
+        if (state.active) throw std::logic_error("Cannot retire active STM callback");
+    }
+    // Remove routing and reject outstanding IOS completions while the actual
+    // device still exists. Never acquire the IOS bus under the STM state latch.
+    UnregisterNativeIOSDevice(state.ios);
     std::lock_guard lock(state.mutex);
-    if (!state.ready) return;
-    RequireOwner(state);
-    if (state.active) throw std::logic_error("Cannot retire active STM callback");
     state.ready = false;
     ++state.generation;
     state.event = {};
+    state.ios = {};
     state.head = state.count = 0;
     state.immediate = state.eventhook = -1;
     state.reset_down = false;
@@ -132,7 +174,8 @@ extern "C" bool mscharged_stm_reset_button_pressed() {
     return state.reset_down;
 }
 
-extern "C" s32 IOS_Open(const char* path, IPCOpenMode mode) {
+namespace {
+s32 DeviceOpen(const char* path, IPCOpenMode mode) {
     auto& state = State();
     std::lock_guard lock(state.mutex);
     RequireOwner(state);
@@ -146,7 +189,7 @@ extern "C" s32 IOS_Open(const char* path, IPCOpenMode mode) {
     *slot = state.next_fd++;
     return *slot;
 }
-extern "C" s32 IOS_Close(s32 fd) {
+s32 DeviceClose(s32 fd) {
     auto& state = State();
     std::lock_guard lock(state.mutex);
     RequireOwner(state);
@@ -155,7 +198,7 @@ extern "C" s32 IOS_Close(s32 fd) {
     if (fd == state.immediate) { state.immediate = -1; return IPC_RESULT_OK; }
     return IPC_RESULT_INVALID;
 }
-extern "C" s32 IOS_IoctlAsync(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 outSize,
+s32 DeviceIoctlAsync(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 outSize,
                                IPCAsyncCallback callback, void* context) {
     auto& state = State();
     std::lock_guard lock(state.mutex);
@@ -166,7 +209,7 @@ extern "C" s32 IOS_IoctlAsync(s32 fd, s32 type, void* in, s32 inSize, void* out,
     state.event = {out, callback, context};
     return IPC_RESULT_OK;
 }
-extern "C" s32 IOS_Ioctl(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 outSize) {
+s32 DeviceIoctl(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 outSize) {
     auto& state = State();
     std::lock_guard lock(state.mutex);
     RequireOwner(state);
@@ -174,4 +217,5 @@ extern "C" s32 IOS_Ioctl(s32 fd, s32 type, void* in, s32 inSize, void* out, s32 
     if (type != UnregisterEvent) return IPC_RESULT_INVALID;
     state.event = {};
     return IPC_RESULT_OK;
+}
 }

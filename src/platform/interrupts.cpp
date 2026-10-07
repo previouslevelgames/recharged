@@ -15,6 +15,8 @@ std::recursive_mutex& Exclusion() {
 }
 thread_local bool enabled = true;
 thread_local bool owns_mask_lock = false;
+thread_local unsigned dispatch_depth = 0;
+thread_local unsigned guard_depth = 0;
 thread_local OSContext native_thread_context{};
 thread_local OSContext* current_context = &native_thread_context;
 }
@@ -56,11 +58,13 @@ extern "C" OSContext* OSGetCurrentContext() { return current_context; }
 extern "C" void OSSetCurrentContext(OSContext* context) { current_context = context; }
 
 namespace mscharged::platform {
-NativeInterruptGuard::NativeInterruptGuard() { Exclusion().lock(); }
-NativeInterruptGuard::~NativeInterruptGuard() { Exclusion().unlock(); }
-NativeInterruptRead::NativeInterruptRead() : acquired_(Exclusion().try_lock()) {}
-NativeInterruptRead::~NativeInterruptRead() { if (acquired_) Exclusion().unlock(); }
+NativeInterruptGuard::NativeInterruptGuard() { Exclusion().lock(); ++guard_depth; }
+NativeInterruptGuard::~NativeInterruptGuard() { --guard_depth; Exclusion().unlock(); }
+NativeInterruptRead::NativeInterruptRead() : acquired_(Exclusion().try_lock()) { if (acquired_) ++guard_depth; }
+NativeInterruptRead::~NativeInterruptRead() { if (acquired_) { --guard_depth; Exclusion().unlock(); } }
 bool NativeInterruptsEnabled() noexcept { return enabled; }
+bool NativeInterruptDispatchActive() noexcept { return dispatch_depth != 0; }
+bool NativeInterruptWaitAllowed() noexcept { return !dispatch_depth && !guard_depth; }
 
 bool DispatchNativeInterrupt(void (*callback)(void*), void* context) {
     if (!callback || !enabled) return false;
@@ -73,7 +77,9 @@ bool DispatchNativeInterrupt(void (*callback)(void*), void* context) {
     OSClearContext(&temporary);
     OSSetCurrentContext(&temporary);
     enabled = false;
+    ++dispatch_depth;
     auto restore = [&] {
+        --dispatch_depth;
         if (owns_mask_lock && !prior_mask_lock) {
             owns_mask_lock = false;
             Exclusion().unlock();

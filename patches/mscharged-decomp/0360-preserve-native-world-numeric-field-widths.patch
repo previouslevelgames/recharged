@@ -1,0 +1,44 @@
+Subject: Preserve Wii numeric world fields and shared native object prefix
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Native-only fixed-width declarations preserve the original numeric hash,
+type/layer, creation flags, effect hash and probability words. Keep full-width
+world/animation pointers and all original source bodies. This does not activate
+world record placement, ownership, callbacks, or readiness.
+
+diff --git a/include/Game/World/WorldDrawable.h b/include/Game/World/WorldDrawable.h
+--- a/include/Game/World/WorldDrawable.h
++++ b/include/Game/World/WorldDrawable.h
+@@ -32,9 +32,15 @@
+     unsigned long GetHashID() const { return m_uHashID; }
+     glModel* GetModel() const { return m_pModel; }
+ 
++#if defined(MSCHARGED_NATIVE)
++    /* 0x04 */ u32 m_uHashID;
++    /* 0x08 */ u32 m_uRenderLayer;
++    /* 0x0C */ u32 m_uObjectCreationFlags;
++#else
+     /* 0x04 */ unsigned long m_uHashID;
+     /* 0x08 */ unsigned long m_uRenderLayer;
+     /* 0x0C */ unsigned long m_uObjectCreationFlags;
++#endif
+     /* 0x10 */ World* m_pWorldContext;
+     /* 0x14 */ int m_nAnimNode;
+     /* 0x18 */ WorldAnimController* m_pAnimController;
+diff --git a/include/Game/World/WorldEffect.h b/include/Game/World/WorldEffect.h
+--- a/include/Game/World/WorldEffect.h
++++ b/include/Game/World/WorldEffect.h
+@@ -25,8 +25,13 @@
+     /* 0x64 */ float mUnidentified064;
+     /* 0x68 */ float m_fEmissionRadius;
+     /* 0x6C */ u8 m_pad6C[0x04];
++#if defined(MSCHARGED_NATIVE)
++    /* 0x70 */ u32 m_uEffectHash;
++    /* 0x74 */ u32 m_uProbability;
++#else
+     /* 0x70 */ unsigned long m_uEffectHash;
+     /* 0x74 */ unsigned long m_uProbability;
++#endif
+     /* 0x78 */ int m_nEmissionCount;
+     /* 0x7C */ int m_nTimingMode;
+     /* 0x80 */ float m_fEmissionTime;

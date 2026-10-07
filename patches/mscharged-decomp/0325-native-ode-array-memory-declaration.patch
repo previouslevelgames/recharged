@@ -1,0 +1,19 @@
+From: mscharged-port native compiler compatibility
+Subject: [PATCH] Declare the existing ODE array memory calls for native compilation
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Native declaration include only. No dArray method, record, copy size, allocation
+request, source flow or camera state is changed. Console projection is exact.
+
+--- a/src/ode/array.h
++++ b/src/ode/array.h
+@@ -40,6 +40,9 @@
+ #define _ODE_ARRAY_H_
+ 
+ #include <ode/config.h>
++#if defined(MSCHARGED_NATIVE)
++#include <string.h>
++#endif
+ 
+ 
+ // this base class has no constructors or destructor, for your convenience.

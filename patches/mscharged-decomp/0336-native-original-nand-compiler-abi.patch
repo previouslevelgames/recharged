@@ -1,0 +1,65 @@
+From: mscharged native port
+Subject: [PATCH] Compile whole original NAND with native pointer and C declarations
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Keep the original NAND request, error, permission and callback decisions.
+The ES buffer alignment test uses a native pointer. GNU noinline attaches to
+an ordinary declaration instead of MWCC's trailing function-definition syntax.
+Modern C declares the existing legacy implicit MEMCLR call; it remains an
+unresolved symbol. The unused NANDMove body is retained, not repaired or used
+as a filesystem provider. No IOS/ES service or save readiness is introduced.
+
+--- a/src/RVL_SDK/nand/NANDCore.c
++++ b/src/RVL_SDK/nand/NANDCore.c
+@@ -5,6 +5,13 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <wchar.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define NAND_BUFFER_ADDRESS uintptr_t
++#else
++#define NAND_BUFFER_ADDRESS u32
++#endif
+ 
+ #define NAND_BANNER_MAGIC 'WIBN'
+ 
+@@ -546,7 +553,7 @@
+         return -0x3F9;
+     }
+ 
+-    if ((u32)dirOut % 32 != 0) {
++    if ((NAND_BUFFER_ADDRESS)dirOut % 32 != 0) {
+         return -0x3F9;
+     }
+ 
+--- a/src/RVL_SDK/nand/nand.c
++++ b/src/RVL_SDK/nand/nand.c
+@@ -3,6 +3,17 @@
+ 
+ #include <stdio.h>
+ #include <string.h>
++
++#if defined(MSCHARGED_NATIVE)
++// Retain the legacy unresolved call in the unused NANDMove source body. This
++// declaration supplies no implementation or inferred memory-clear behavior.
++extern int MEMCLR(void* address);
++#define NAND_COMPOSE_SUFFIX
++static void nandComposePerm(u8* out, u32 ownerPerm, u32 groupPerm,
++                            u32 otherPerm) __attribute__((noinline));
++#else
++#define NAND_COMPOSE_SUFFIX DECOMP_DONT_INLINE
++#endif
+ 
+ static void nandSplitPerm(u8 perm, u32* ownerPerm, u32* groupPerm,
+                           u32* otherPerm) DECOMP_DONT_INLINE;
+@@ -391,7 +402,7 @@
+ }
+ 
+ static void nandComposePerm(u8* out, u32 ownerPerm, u32 groupPerm,
+-                            u32 otherPerm) DECOMP_DONT_INLINE {
++                            u32 otherPerm) NAND_COMPOSE_SUFFIX {
+     u32 perm = 0;
+ 
+     if (ownerPerm & NAND_ACCESS_READ) {

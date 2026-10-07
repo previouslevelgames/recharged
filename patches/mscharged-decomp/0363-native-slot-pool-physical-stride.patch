@@ -1,0 +1,54 @@
+From: mscharged-port native data ABI compatibility
+Subject: [PATCH] Align physical source slot strides for native intrusive pointers
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Round only physical slot storage to the native intrusive free-list alignment
+in both whole original block allocation and block retirement. Preserve payload
+sizes, counts, initial/delta selection, callbacks and source list order.
+The genuine 36-byte/count10 DetermDataEvent request remains literal; its
+native storage is ten 40-byte slots plus the native 8-byte block footer.
+Console preprocessing is unchanged. Small payloads and unrelated caller
+payload-size mismatches retain their existing explicit holds.
+
+--- a/src/NL/nlSlotPool.cpp
++++ b/src/NL/nlSlotPool.cpp
+@@ -7,6 +7,18 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <limits>
+ #include <stdexcept>
++
++// Payload bytes remain source-selected. Intrusive native free-list pointers
++// need an aligned physical slot even for byte-only payloads such as36-byte
++// DetermDataEvent; block allocation and retirement use the same stride.
++static unsigned int NativeSlotStorageSize(unsigned int payloadSize)
++{
++    const unsigned int alignment = alignof(SlotPoolEntry);
++    if (payloadSize < sizeof(SlotPoolEntry)
++        || payloadSize > std::numeric_limits<unsigned int>::max() - (alignment - 1))
++        throw std::length_error("Invalid or overflowing native slot storage");
++    return (payloadSize + alignment - 1) & ~(alignment - 1);
++}
+ #endif
+ 
+ 
+@@ -61,6 +73,10 @@
+     size_t blockOffset;
+ 
+     currentBlock = slotPool->m_BlockList;
++#if defined(MSCHARGED_NATIVE)
++    if (currentBlock != 0)
++        slotSize = NativeSlotStorageSize(slotSize);
++#endif
+     blockOffset = size_t(slotSize) * slotPool->m_Delta;
+     while (currentBlock != 0)
+     {
+@@ -94,7 +110,8 @@
+         }
+ 
+ #if defined(MSCHARGED_NATIVE)
+-        if (!numSlots || slotSize < sizeof(SlotPoolEntry) || slotSize % alignof(SlotPoolEntry)
++        slotSize = NativeSlotStorageSize(slotSize);
++        if (!numSlots
+             || numSlots > (std::numeric_limits<unsigned int>::max() - sizeof(SlotPoolBlock)) / slotSize)
+             throw std::length_error("Invalid or overflowing slot pool block");
+ #endif

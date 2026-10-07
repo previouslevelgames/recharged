@@ -1,0 +1,59 @@
+From: mscharged-port
+Subject: [PATCH] Preserve original audio pool native teardown strides
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Use each actual native source type's physical slot size in the original pool
+free calls. Preserve original call order, logical capacities/growth, pool state,
+owner/free/stack decisions and exact console projection. No original manager,
+effect factory, Backend/AX readiness or lifetime cleanup is supplied.
+
+diff --git a/src/Game/Audio/AudioBundleManagerPlatform.cpp b/src/Game/Audio/AudioBundleManagerPlatform.cpp
+--- a/src/Game/Audio/AudioBundleManagerPlatform.cpp
++++ b/src/Game/Audio/AudioBundleManagerPlatform.cpp
+@@ -11,6 +11,9 @@
+ #include "NL/nlChunk.h"
+ #include "NL/nlSlotPool.h"
+ #include "Game/Audio/SoundInstancePool.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Audio/SoundInstance.h"
++#endif
+ 
+ bool UnidentifiedAudioBundleManager_802ECD34::Initialize()
+ {
+@@ -22,16 +25,36 @@
+ void UnidentifiedAudioBundleManager_802ECD34::Shutdown()
+ {
+     fn_802B467C(&sSoundCueHandlePool);
++#if defined(MSCHARGED_NATIVE)
++    SlotPoolBase::BaseFreeBlocks(&sSoundCueHandlePool, sizeof(XSoundCueHandle));
++#else
+     SlotPoolBase::BaseFreeBlocks(&sSoundCueHandlePool, 0x40);
++#endif
+     fn_802B467C(&sSoundInstancePool);
++#if defined(MSCHARGED_NATIVE)
++    SlotPoolBase::BaseFreeBlocks(&sSoundInstancePool, sizeof(SoundInstance));
++#else
+     SlotPoolBase::BaseFreeBlocks(&sSoundInstancePool, 0x7C);
++#endif
+     sAudioSequenceInstancePool.FreeBlocks();
+     fn_802B467C(&sSoundPlaybackEventPool);
++#if defined(MSCHARGED_NATIVE)
++    SlotPoolBase::BaseFreeBlocks(&sSoundPlaybackEventPool, sizeof(SoundPlaybackEvent));
++#else
+     SlotPoolBase::BaseFreeBlocks(&sSoundPlaybackEventPool, 0x34);
++#endif
+     fn_802B467C(&sHitMarkerEventPool);
++#if defined(MSCHARGED_NATIVE)
++    SlotPoolBase::BaseFreeBlocks(&sHitMarkerEventPool, sizeof(HitMarkerEvent));
++#else
+     SlotPoolBase::BaseFreeBlocks(&sHitMarkerEventPool, 0x18);
++#endif
+     fn_802B467C(&sParameterChangeEventPool);
++#if defined(MSCHARGED_NATIVE)
++    SlotPoolBase::BaseFreeBlocks(&sParameterChangeEventPool, sizeof(ParameterChangeEvent));
++#else
+     SlotPoolBase::BaseFreeBlocks(&sParameterChangeEventPool, 0x18);
++#endif
+     fn_802B467C(&sAudioRpcListEntryPool);
+     SlotPoolBase::BaseFreeBlocks(
+         &sAudioRpcListEntryPool, sizeof(AudioRpcListEntry));

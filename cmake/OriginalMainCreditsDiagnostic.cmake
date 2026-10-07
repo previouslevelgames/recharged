@@ -16,6 +16,7 @@ include(cmake/NativeVideo.cmake)
 include(cmake/OriginalCreditsMovieHardware.cmake)
 include(cmake/NativeHardwareOwner.cmake)
 include(cmake/NativeVideoOutput.cmake)
+include(cmake/NativeFilesystemBoot.cmake)
 find_package(Threads REQUIRED)
 
 add_library(mscharged_original_main_credits_module MODULE
@@ -289,7 +290,8 @@ target_link_libraries(charged_original_main_credits_host PRIVATE
     aurora::core aurora::dvd charged_host charged_wii_string_format charged_native_stm
     charged_native_system_settings charged_native_video_device charged_credits_movie_hardware
     charged_native_hardware_owner
-    charged_native_video_output_device Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_video_output_device charged_native_filesystem_boot
+    charged_native_ipc_boot_buffer Threads::Threads ${CMAKE_DL_LIBS})
 
 function(mscharged_link_original_main_credits target)
     add_dependencies(${target} mscharged_original_main_credits_module)

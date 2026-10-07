@@ -1,0 +1,108 @@
+Subject: [PATCH] Preserve original OS reset source with native SDK thread registry
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+Purpose: Canonical compiler declarations and full-width native thread-list ABI; original shutdown algorithms retained.
+
+diff --git a/libs/RVL_SDK/include/revolution/os/OS.h b/libs/RVL_SDK/include/revolution/os/OS.h
+--- a/libs/RVL_SDK/include/revolution/os/OS.h
++++ b/libs/RVL_SDK/include/revolution/os/OS.h
+@@ -54,15 +54,7 @@
+     OS_EXC_MAX
+ } OSExceptionType;
+ 
+-typedef struct OSIOSRev {
+-    u8 idHi;
+-    u8 idLo;
+-    u8 verMajor;
+-    u8 verMinor;
+-    u8 buildMon;
+-    u8 buildDay;
+-    u16 buildYear;
+-} OSIOSRev;
++#include <revolution/os/OSIOSRev.h>
+ 
+ typedef void (*OSExceptionHandler)(u8 type, OSContext* context);
+ 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSIOSRev.h b/libs/RVL_SDK/include/revolution/os/OSIOSRev.h
+new file mode 100644
+--- /dev/null
++++ b/libs/RVL_SDK/include/revolution/os/OSIOSRev.h
+@@ -0,0 +1,16 @@
++#ifndef REVOLUTION_OS_IOS_REV_H
++#define REVOLUTION_OS_IOS_REV_H
++
++#include <revolution/types.h>
++
++typedef struct OSIOSRev {
++    u8 idHi;
++    u8 idLo;
++    u8 verMajor;
++    u8 verMinor;
++    u8 buildMon;
++    u8 buildDay;
++    u16 buildYear;
++} OSIOSRev;
++
++#endif // REVOLUTION_OS_IOS_REV_H
+diff --git a/src/RVL_SDK/os/OSReset.c b/src/RVL_SDK/os/OSReset.c
+--- a/src/RVL_SDK/os/OSReset.c
++++ b/src/RVL_SDK/os/OSReset.c
+@@ -1,12 +1,35 @@
+ #include <decomp.h>
+ #include <revolution/os.h>
+ #include <revolution/os/OSNandbootInfo.h>
++#if defined(MSCHARGED_NATIVE)
++#include <string.h>
++#else
+ #include <mem.h>
++#endif
++
++#if defined(MSCHARGED_NATIVE)
++#include <revolution/os/OSIOSRev.h>
++#include <revolution/os/OSStateFlags.h>
++#include <revolution/os/OSAudioSystem.h>
++#include <revolution/os/OSPlayRecord.h>
++#include <revolution/os/OSArena.h>
++#include "platform/thread_registry_abi.h"
++// Original Wii declarations hidden by the canonical native GameCube facade.
++BOOL __OSSyncSram(void);
++BOOL __OSGetRTCFlags(u32* flags);
++BOOL __OSClearRTCFlags(void);
++u8 OSGetAppType(void);
++extern volatile u32 PI_HW_REGS[];
++#endif
+ 
+ typedef struct SCIdleModeInfo {
+     u8 standby;
+     u8 wc24;
+ } SCIdleModeInfo;
++
++#if defined(MSCHARGED_NATIVE)
++void SCGetIdleMode(SCIdleModeInfo* mode);
++#endif
+ 
+ enum {
+     OS_STATE_FLAGS_SHUTDOWN_NONE = 0,
+@@ -28,7 +51,11 @@
+ #define EXEC_WORK_ARENA_LO ((void*)0x81280000)
+ #define EXEC_WORK_ARENA_HI ((void*)0x812F0000)
+ 
++#if defined(MSCHARGED_NATIVE)
++#define __OSActiveThreadQueue (*ChargedNativeActiveThreadQueue())
++#else
+ OSThreadQueue __OSActiveThreadQueue AT_ADDRESS(OS_BASE_CACHED | 0x000000DC);
++#endif
+ 
+ void __OSGetIOSRev(OSIOSRev* rev);
+ void SCInit(void);
+@@ -87,7 +114,11 @@
+     OSThread* next;
+ 
+     for (thread = __OSActiveThreadQueue.head; thread; thread = next) {
++#if defined(MSCHARGED_NATIVE)
++        next = thread->linkActive.next;
++#else
+         next = thread->nextActive;
++#endif
+ 
+         switch (thread->state) {
+         case 1:

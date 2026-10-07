@@ -1,5 +1,6 @@
 include_guard(GLOBAL)
 include(cmake/NativeInterrupts.cmake)
+include(cmake/NativeIOS.cmake)
 
 # Original Wii state manager owns callbacks and reset pulse behavior. Native IOS
 # endpoints own physical/UI event transport; full VI/shutdown providers remain
@@ -16,7 +17,7 @@ target_compile_definitions(charged_native_stm PRIVATE MSCHARGED_NATIVE=1 TARGET_
 target_compile_features(charged_native_stm PRIVATE c_std_99 cxx_std_20)
 target_compile_options(charged_native_stm PRIVATE -ffunction-sections -fdata-sections
     -Wno-unknown-pragmas)
-target_link_libraries(charged_native_stm PUBLIC charged_native_interrupts aurora::os)
+target_link_libraries(charged_native_stm PUBLIC charged_native_interrupts charged_native_ios aurora::os)
 
 if(BUILD_TESTING AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND UNIX AND NOT APPLE)
     add_executable(native_stm_device_tests tests/native_stm_device.cpp)

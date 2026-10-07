@@ -203,6 +203,12 @@ if(BUILD_TESTING)
     add_test(NAME bootstrap_cli
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                 "$<TARGET_FILE:mscharged-bootstrap>")
+    add_executable(disc_title_id_tests tests/disc_title_id.cpp)
+    target_link_libraries(disc_title_id_tests PRIVATE charged_host)
+    add_test(NAME disc_title_id
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_disc_title_id.py"
+                "$<TARGET_FILE:disc_title_id_tests>")
+    set_tests_properties(disc_title_id PROPERTIES TIMEOUT 120)
     add_executable(config_tests tests/config.cpp)
     target_link_libraries(config_tests PRIVATE charged_host)
     add_test(NAME configuration COMMAND config_tests)

@@ -2,10 +2,12 @@
 # wrapper. This compiler/provider gate does not establish full game startup.
 include_guard(GLOBAL)
 find_package(Threads REQUIRED)
-add_library(charged_platform_thread STATIC src/platform/thread.cpp)
-target_include_directories(charged_platform_thread PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_features(charged_platform_thread PUBLIC cxx_std_17)
-target_link_libraries(charged_platform_thread PUBLIC Threads::Threads)
+if(NOT TARGET charged_platform_thread)
+    add_library(charged_platform_thread STATIC src/platform/thread.cpp)
+    target_include_directories(charged_platform_thread PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_features(charged_platform_thread PUBLIC cxx_std_17)
+    target_link_libraries(charged_platform_thread PUBLIC Threads::Threads)
+endif()
 
 add_library(charged_original_tweak_value_base OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/TweakValueBase.cpp")

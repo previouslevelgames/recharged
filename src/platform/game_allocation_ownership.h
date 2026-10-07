@@ -101,6 +101,18 @@ struct GameNativeBackingSpan {
     GameAllocationSpan allocation;
 };
 bool FindGameNativeBacking(const void* source, std::size_t sourceBytes, GameNativeBackingSpan& result);
+// Resolve a live native view only within the actual owner identified by an
+// existing raw source probe. This reads metadata without dereferencing either
+// pointer or allocating. No lookup grants a lease: the caller must retain the
+// original source object/callback/job lifetime through its subsequent access.
+struct GameNativeBackingSourceSpan {
+    const void* source;
+    std::size_t source_bytes;
+    GameNativeBackingSpan backing;
+};
+bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
+    const void* sourceProbe, std::size_t sourceProbeBytes,
+    GameNativeBackingSourceSpan& result);
 class GameNativeBackingReservation {
 public:
     GameNativeBackingReservation(const void* source, std::size_t sourceBytes, std::size_t nativeBytes);

@@ -10,6 +10,8 @@ add_library(charged_original_audio_ownership_module_sources OBJECT EXCLUDE_FROM_
     "${MSCHARGED_PREPARED}/src/Game/Audio/audio.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioBackend.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioSystem.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/GameStreams.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Audio/Plat3dSoundSrc.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioBundleManager.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioBundleManagerPlatform.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Audio/AudioRpc.cpp"

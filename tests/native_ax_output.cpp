@@ -140,6 +140,9 @@ void Run(int argc, char** argv) {
           "Actual function-pool backing no longer has its original allocator selection");
     Check(Load<decltype(&charged_ax_output_pool_owner_check)>(image.initial,"charged_ax_output_pool_owner_check")() == 3,
           "Actual logical16/32/64 pools lost genuine MEM2 source ownership");
+    const auto slot_checks = Load<unsigned(*)()>(image.initial,"charged_ax_output_slot_stride_check")();
+    Check(slot_checks != 0, "Actual source slot-stride qualifier did not execute");
+    std::cout << "Original slot stride: " << slot_checks << " source/lifetime checks\n";
     const auto source_high = OSCachedToPhysical(reinterpret_cast<void*>(after.standard_address)) + after.standard_bytes;
     for (const auto& mapping : image.mappings)
         Check(source_high <= mapping.physical_address, "Source-captured MEM1 overlaps reserved AX device backing");

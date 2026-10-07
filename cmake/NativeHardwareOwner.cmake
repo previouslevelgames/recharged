@@ -5,6 +5,7 @@ endif()
 include(cmake/NativeWpad.cmake)
 include(cmake/NativeSTM.cmake)
 include(cmake/NativeAlarms.cmake)
+include(cmake/NativeThreadQueues.cmake)
 add_library(charged_native_hardware_owner STATIC
     src/platform/hardware_owner.cpp src/platform/desktop_wpad.cpp
     src/platform/desktop_dpd.cpp src/platform/desktop_dpd_projection.cpp)
@@ -14,7 +15,8 @@ target_include_directories(charged_native_hardware_owner PUBLIC src
 target_compile_definitions(charged_native_hardware_owner PRIVATE
     MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
 target_link_libraries(charged_native_hardware_owner PUBLIC
-    charged_native_wpad charged_native_stm charged_native_alarms aurora::os aurora::core)
+    charged_native_wpad charged_native_stm charged_native_alarms charged_native_thread_queues
+    aurora::os aurora::core)
 add_dependencies(charged_native_hardware_owner verify_prepared)
 
 # The successful-Present getter belongs to the real GX output provider only.

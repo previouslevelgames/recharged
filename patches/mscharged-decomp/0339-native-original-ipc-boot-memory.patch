@@ -1,0 +1,70 @@
+From: mscharged native port
+Subject: [PATCH] Supply original SDK IPC initialization with native boot memory
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Preserve the original OSIpc and IPCInit state and advancing arena cursor. Native
+bootloader metadata contains host-width pointer endpoints instead of Wii32 RAM
+cells. The native hardware adapter must install real retained aligned storage
+before source initialization. Direct Wii ARM mailbox accesses remain explicit
+unsupported hardware operations; this patch does not initialize IOS or NAND.
+The console macro expansions preserve the original expressions and flow.
+
+--- a/src/RVL_SDK/os/OSIpc.c
++++ b/src/RVL_SDK/os/OSIpc.c
+@@ -1,6 +1,15 @@
+ #include <revolution/os.h>
+ 
+ #include <private/bus.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/ipc_hardware_abi.h"
++#define IPC_BOOT_START() ChargedNativeIPCBufferStart()
++#define IPC_BOOT_END() ChargedNativeIPCBufferEnd()
++#else
++#define IPC_BOOT_START() RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_START))
++#define IPC_BOOT_END() RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_END))
++#endif
+ 
+ static void* IpcBufferHi;
+ static void* IpcBufferLo = (void*)-1;
+@@ -14,6 +23,6 @@
+ }
+ 
+ void __OSInitIPCBuffer() {
+-    IpcBufferLo = RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_START));
+-    IpcBufferHi = RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_END));
++    IpcBufferLo = IPC_BOOT_START();
++    IpcBufferHi = IPC_BOOT_END();
+ }
+--- a/src/RVL_SDK/ipc/ipcMain.c
++++ b/src/RVL_SDK/ipc/ipcMain.c
+@@ -1,5 +1,15 @@
+ #include <revolution/ipc.h>
+ #include <revolution/os.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/ipc_hardware_abi.h"
++#include <revolution/os/OSIpc.h>
++#define IPC_REGISTER_READ(index) ChargedNativeIPCReadRegister(index)
++#define IPC_REGISTER_WRITE(index, value) ChargedNativeIPCWriteRegister(index, value)
++#else
++#define IPC_REGISTER_READ(index) IPC_HW_REGS_PPC[index]
++#define IPC_REGISTER_WRITE(index, value) IPC_HW_REGS_PPC[index] = value
++#endif
+ 
+ static u8 Initialized = FALSE;
+ static void* IPCCurrentBufferLo = NULL;
+@@ -18,11 +28,11 @@
+ }
+ 
+ u32 IPCReadReg(s32 index) {
+-    return IPC_HW_REGS_PPC[index];
++    return IPC_REGISTER_READ(index);
+ }
+ 
+ void IPCWriteReg(s32 index, u32 value) {
+-    IPC_HW_REGS_PPC[index] = value;
++    IPC_REGISTER_WRITE(index, value);
+ }
+ 
+ void* IPCGetBufferHi(void) {

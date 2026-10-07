@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/NativeThreadQueues.cmake)
 
 # Complete original source compiler inventory. The object target deliberately
 # exposes unresolved genuine DSP/OS providers rather than supplying substitutes.
@@ -30,7 +31,7 @@ target_include_directories(charged_original_ax PUBLIC
 target_compile_definitions(charged_original_ax PUBLIC
     MSCHARGED_NATIVE=1 TARGET_PC=1)
 # Use the same canonical SDK policy as its native providers (including Wii clocks).
-target_link_libraries(charged_original_ax PUBLIC aurora::os)
+target_link_libraries(charged_original_ax PUBLIC aurora::os charged_native_thread_queues)
 target_compile_features(charged_original_ax PRIVATE c_std_17)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(charged_original_ax PRIVATE

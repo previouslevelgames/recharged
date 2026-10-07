@@ -2,7 +2,7 @@
 import struct
 
 
-def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity=0x200, partition_size=0x8000):
+def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity=0x200, partition_size=0x8000, tmd=None):
     """A tiny, unencrypted Wii container with synthetic files and directories."""
     if partition_size < 0x8000 or partition_size > 0x100000 or partition_size % 0x8000:
         raise ValueError("Invalid synthetic partition size")
@@ -18,6 +18,11 @@ def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity
         struct.pack_into(">II", data, 0x40020, 0x50000 >> 2, 0)
         issuer = b"Root-CA00000001-XS00000003"
         data[0x50140:0x50140 + len(issuer)] = issuer
+        if tmd is not None:
+            if len(tmd) > 0x7C00:
+                raise ValueError("Synthetic TMD exceeds partition metadata space")
+            struct.pack_into(">II", data, 0x502A4, len(tmd), 0x400 >> 2)
+            data[0x50400:0x50400 + len(tmd)] = tmd
         struct.pack_into(">II", data, 0x502B8, 0x8000 >> 2, partition_size >> 2)
         base = 0x58000
         data[base:base + 0x400] = data[:0x400]

@@ -1,0 +1,52 @@
+From: mscharged-port original-source integration
+Subject: Admit original flash initialization and task in the frontend diagnostic
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retire three named diagnostic omissions at their literal original source
+positions: the FlashMemoryTask static, nlFlashInitialize and AddTask with
+priority13/all states. Host setup supplies real FS/ES and IPC boot memory;
+whole original flash/NAND/FS owns initialization, results and callbacks.
+No save data, handler, user choice or readiness is substituted. Defaults
+and console source projections remain unchanged with this option absent.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/main.h"
++#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
++#error Original flash admission requires the native original frontend diagnostic
++#endif
+ #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
+ #error The selected source task cadence requires the native original frontend sequence module
+ #endif
+@@ -230,7 +233,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+ static FEDPDTask feDPDTask;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH)
+ static FlashMemoryTask flashMemoryTask;
+ 
+ 
+@@ -684,7 +687,11 @@
+         g_pStrikerChallenge = new (8, false) StrikerChallenge;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH)
+     nlFlashInitialize();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     nlInitFileCache();
+     ReplayChoreo::Instance();
+     GetPresentation();
+@@ -785,7 +792,7 @@
+     nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+     nlTaskManager::AddTask(&feDPDTask, 13, 5);
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH)
+     nlTaskManager::AddTask(
+         &flashMemoryTask, 13, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted

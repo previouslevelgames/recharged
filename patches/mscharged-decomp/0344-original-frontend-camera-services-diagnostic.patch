@@ -1,0 +1,319 @@
+From: mscharged-port native integration
+Subject: [PATCH] Admit original camera services within the named frontend diagnostic
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Temporary diagnostic selection only. Original case bodies and source
+camera update location are unchanged. Default/console and the existing
+frontend profile retain their previous conditional projections. This
+does not insert a preloader or establish full Async/main/menu readiness.
+
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -278,12 +278,13 @@
+ 
+ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+ {
+-#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     (void)functionIndex;
+     throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
+ #else
+     switch (functionIndex)
+     {
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 0:
+         LoadTrophyTemplates();
+         break;
+@@ -474,10 +475,12 @@
+         LoadSoundBank((GameAudio*)g_pAudioSystem, 0x31, 0x12,
+             fn_80116988, (void*)"MUSICSTREAMS");
+         break;
++#endif
+     case 19:
+         SetLoadingComment("AsyncFinalizeCameraLoading");
+         FinishLoadingStepOrUndo(this, AsyncFinalizeCameraLoading());
+         break;
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 20:
+         SetLoadingComment("AsyncFinalizeGameWorldLoading");
+         FinishLoadingStepOrUndo(this, FinishLoadStadium(false));
+@@ -570,6 +573,7 @@
+         SetLoadingComment("AsyncMiiLoadingFinalize");
+         FinishLoadingStepOrUndo(this, MiiManager::s_pInstance->mResourcesLoaded);
+         break;
++#endif
+     case 36:
+     {
+         bool frontEnd = m_SP[-1] != 0;
+@@ -583,6 +587,7 @@
+         SetLoadingComment("AsyncStartCameraLoadingForStadiumViewer");
+         AsyncStartCameraLoadingForStadiumViewer();
+         break;
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 38:
+         fn_8011A2E8(this);
+         break;
+@@ -1127,9 +1132,16 @@
+         }
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     default:
+         nlBreak();
+         break;
++#else
++    default:
++        nlPrintf("Frontend camera diagnostic unqualified Async service: %u\n", functionIndex);
++        throw std::logic_error("Frontend camera diagnostic reached an unqualified original Async service");
++#endif
+     }
+ #endif
+ }
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -51,6 +51,8 @@
+         g_pCupManager->ShowRoundNews();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 5:
+     {
+         unsigned int value = m_SP[-1];
+@@ -63,6 +65,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 6:
+     {
+         unsigned int value = m_SP[-1];
+@@ -140,6 +144,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 15:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -151,6 +157,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 16:
+     {
+         ePlayMode playMode = (ePlayMode)m_SP[-1];
+@@ -202,6 +210,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 21:
+     {
+         float duration = *(float*)&m_SP[-1];
+@@ -211,6 +221,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 22:
+     {
+         unsigned int childName = m_SP[-1];
+@@ -228,6 +240,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 23:
+     {
+         bool value = m_SP[-1] != 0;
+@@ -243,6 +257,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 24:
+     {
+         bool value = m_SP[-1] != 0;
+@@ -266,6 +282,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 25:
+     {
+         int value1 = (int)m_SP[-1];
+@@ -275,6 +293,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 26:
+         GameSceneManager::Instance()->Push((SceneList)8, SCREEN_FORWARD, false);
+         break;
+@@ -291,6 +311,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 28:
+     {
+         float time = *(float*)&m_SP[-1];
+@@ -307,6 +329,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 30:
+     {
+         unsigned int value = m_SP[-1];
+@@ -337,6 +361,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 32:
+     {
+         float time = *(float*)&m_SP[-1];
+@@ -345,6 +371,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 33:
+     {
+         bool value = m_SP[-1] != 0;
+@@ -370,6 +398,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 35:
+     {
+         bool cyclic = m_SP[-1] != 0;
+@@ -382,6 +412,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 36:
+         SetCupTrophiesVisible(true);
+         break;
+@@ -421,6 +453,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 44:
+         if (!mCameraFinished)
+             StopWithUndo();
+@@ -428,6 +462,8 @@
+             mCameraFinished = false;
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 45:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -440,6 +476,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 46:
+         if (!mCameraTransitionFinished)
+             StopWithUndo();
+@@ -447,6 +485,8 @@
+             mCameraTransitionFinished = false;
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 47:
+         if (SaveEnabled && InOperation)
+         {
+@@ -454,6 +494,8 @@
+         }
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     case 48:
+         mWaitTime -= mDeltaTime;
+         if (mWaitTime > 0.0f)
+@@ -462,6 +504,8 @@
+             mWaitTime = 0.0f;
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 49:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -498,19 +542,18 @@
+         else
+             StopWithUndo();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     default:
+         nlBreak();
+         break;
+-#endif
+-#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#else
+     default:
+         nlPrintf("Frontend sequence unqualified presentation service: %u\n", function);
+         throw std::logic_error("Frontend sequence diagnostic reached unqualified presentation/camera/effects dispatcher");
+ #endif
+-
+     }
+ }
+-
+ 
+ #undef MSCHARGED_FE_VM_STRING
+ #undef MSCHARGED_FE_VM_ADDRESS
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -480,8 +480,11 @@
+         }
+     }
+ 
++#endif // source characters remain unqualified in this diagnostic
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
+     cCameraManager::Update(dt);
+-
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     if (!(nlTaskManager::m_pInstance->mCurrentState & 0x18))
+     {
+         DepthOfFieldManager::instance.TurnOff();
+@@ -492,7 +495,7 @@
+         = pNis->mUseViewMatrixOverride ? &pNis->mViewMatrixOverride : NULL;
+ 
+     SetupMatrices(NisPlayer::Instance()->GetSecondaryCamera(), pOverride);
+-#endif // characters/camera/DOF/NIS matrix startup omitted
++#endif // DOF/NIS matrix startup remains omitted
+     SetupRenderInfo();
+ 
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)

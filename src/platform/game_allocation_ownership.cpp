@@ -673,6 +673,33 @@ bool FindGameNativeBacking(const void* source,std::size_t sourceBytes,GameNative
         || !Completed(owner->second,address,sourceBytes,origin) || origin.logical_tag!=backing->second.logical_tag)return false;
     result={backing->second.data,backing->second.bytes,Describe(owner)};return true;
 }
+bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
+    const void* sourceProbe, std::size_t sourceProbeBytes,
+    GameNativeBackingSourceSpan& result)
+{
+    result = {};
+    if (!native || !nativeBytes || !sourceProbe || !sourceProbeBytes) return false;
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    const auto probe = reinterpret_cast<std::uintptr_t>(sourceProbe);
+    auto owner = Containing(state.records, probe, sourceProbeBytes);
+    if (owner == state.records.end()) return false;
+    const auto address = reinterpret_cast<std::uintptr_t>(native);
+    for (const auto& entry : owner->second.native_backings)
+    {
+        const auto& backing = entry.second;
+        if (!Contains(entry.first, backing.source_bytes, probe, sourceProbeBytes)
+            || !Contains(reinterpret_cast<std::uintptr_t>(backing.data),
+                         backing.bytes, address, nativeBytes)) continue;
+        ByteSpan origin{};
+        if (Containing(state.records, entry.first, backing.source_bytes) != owner
+            || !Completed(owner->second, entry.first, backing.source_bytes, origin)
+            || origin.logical_tag != backing.logical_tag) return false;
+        result = {reinterpret_cast<const void*>(entry.first), backing.source_bytes,
+                  {backing.data, backing.bytes, Describe(owner)}};
+        return true;
+    }
+    return false;
+}
 std::uint32_t ReadGameChunkWord(const void* header, unsigned word)
 {
     if (word > 1) throw std::invalid_argument("Chunk header has exactly two words");

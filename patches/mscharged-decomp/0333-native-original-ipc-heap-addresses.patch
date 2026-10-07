@@ -1,0 +1,52 @@
+From: mscharged native port
+Subject: [PATCH] Keep original IPC heap alignment checks native pointer wide
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+The original IPC allocator owns live CPU chunks, not serialized device records.
+Retain its best-fit, split, alignment helper, free-list and coalescing flow.
+Only three pointer casts used by its alignment arithmetic become uintptr_t;
+allocation lengths and handles remain the original 32-bit values. Console
+expressions are unchanged. No IPC arena or IOS filesystem readiness is supplied.
+
+--- a/src/RVL_SDK/ipc/memory.c
++++ b/src/RVL_SDK/ipc/memory.c
+@@ -1,5 +1,12 @@
+ #include <revolution/ipc.h>
+ #include <revolution/os.h>
++
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define IPC_HEAP_ADDRESS uintptr_t
++#else
++#define IPC_HEAP_ADDRESS u32
++#endif
+ 
+ #define IPC_HEAP_MAX 8
+ 
+@@ -52,7 +59,7 @@
+     IPCHeapDesc* desc;
+     s32 i;
+ 
+-    if ((u32)base % 32 != 0) {
++    if ((IPC_HEAP_ADDRESS)base % 32 != 0) {
+         goto _exit;
+     }
+ 
+@@ -122,7 +129,7 @@
+     for (chunk = desc->head; chunk != NULL; chunk = chunk->next) {
+         u8* chunkMem = (u8*)chunk + sizeof(IPCHeapChunk);
+         u32 chunkUnalign =
+-            (align - 1) & (align - ((u32)chunkMem & (align - 1)));
++            (align - 1) & (align - ((IPC_HEAP_ADDRESS)chunkMem & (align - 1)));
+ 
+         if (chunk->size == size && chunkUnalign == 0) {
+             best = chunk;
+@@ -143,7 +150,7 @@
+     }
+ 
+     bestMem = (u8*)best + sizeof(IPCHeapChunk);
+-    bestUnalign = (align - 1) & (align - ((u32)bestMem & (align - 1)));
++    bestUnalign = (align - 1) & (align - ((IPC_HEAP_ADDRESS)bestMem & (align - 1)));
+ 
+     // Split off extra size that won't be used by this allocation
+     if (best->size > size + bestUnalign + sizeof(IPCHeapChunk)) {

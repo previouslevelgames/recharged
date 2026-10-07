@@ -1,4 +1,5 @@
 #include "native_ax_output_source.h"
+#include "original_slot_stride.h"
 #include "NL/nlMemory.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlFunctionMemory.h"
@@ -53,4 +54,8 @@ EXPORTED unsigned charged_ax_output_pool_owner_check() {
     }
     for (unsigned i = 0; i != 3; ++i) FreeFunctionMemory(slots[i], 16u << i);
     return 3;
+}
+
+EXPORTED unsigned charged_ax_output_slot_stride_check() {
+    return mscharged::testing::slot_stride::QualifyOriginalSlotStride();
 }

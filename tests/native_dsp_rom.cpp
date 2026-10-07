@@ -1,5 +1,6 @@
 #include "platform/dsp_instruction_core.h"
 #include "platform/dsp_control_abi.h"
+#include "platform/dsp_mailbox_abi.h"
 #include "platform/dsp_memory_abi.h"
 #include "platform/interrupt_controller.h"
 #include "platform/interrupts.h"
@@ -18,6 +19,7 @@ extern "C" {
 #include <stdexcept>
 #include <string>
 #include <initializer_list>
+#include <thread>
 
 namespace {
 using namespace mscharged::platform;
@@ -557,6 +559,111 @@ void DataReadIncrementGate(unsigned char* backing,NativeDSPMemoryEndpoint memory
     Check(!DSPCheckInit()&&!DSPCheckMailFromDSP(),"LRRI data reads fabricated original ROM/init readiness");
 }
 
+void BootInstructionGate(unsigned char* backing,NativeDSPMemoryEndpoint memory,std::uint32_t physical,
+                         NativeDSPMailboxEndpoint mailboxes,NativeDSPControlEndpoint control) {
+    const auto Program=[&](std::initializer_list<std::uint16_t> words) {
+        unsigned i=0;for(auto word:words)PutWord(backing,i++,word);
+        DSPInstructionCore core(mailboxes,control);
+        core.LoadInstructionMemory(memory,physical,i*2,0x100);return core;
+    };
+    DSPInstructionRegisters input{0x100,0xbfff,0x5a,{0x7f8000abcdULL,0x800000ffffULL},7,
+        {0x1111,0x2222,0x3333,0x4444},{0x5555,0x6666,0x7777,0x8888},
+        {0xaaaa,0xbbbb,0xcccc,0xdddd}};
+    input.stack={0xbeef,0xcafe,0x1234,0};
+    // LR's supplied data/register families are independent of both instruction
+    // memory and the saturating accumulator-read paths used by store/move.
+    for(unsigned selected=0;selected<2;++selected)for(bool extend:{false,true})
+        for(auto word:std::array<std::uint16_t,5>{0,1,0x7fff,0x8000,0xffff}) {
+            auto core=Program({static_cast<std::uint16_t>(0x00de + selected),0x200});
+            PutWord(backing,1024,word);core.LoadDataMemory(memory,physical+2048,2,0x200);
+            auto context=input;if(extend)context.status|=0x4000;else context.status&=~0x4000u;
+            core.BeginExecution(context);auto expected=context;expected.pc+=2;++expected.instructions;
+            expected.accumulator[selected]=LoadedCell(context.accumulator[selected],word,extend);
+            Same(core.Step(),expected);Check(core.DataWord(0x200)==word,"LR changed its actual source data word");
+        }
+    DSPBackendMailFromWriteHigh(mailboxes,0x6abc);DSPBackendMailFromWriteLow(mailboxes,0x7788);
+    ChargedDSPMailToWriteHigh(0x1234);ChargedDSPMailToWriteLow(0x5678);
+    const auto csr=GetNativeDSPControlStatus().csr;
+    const auto irq=GetNativeInterruptControllerStatus().dispatched;
+    // Device reads never call the CPU service sink, acknowledge mail, or
+    // substitute the opposite mailbox. Backend register reads admit workers.
+    unsigned services=0;
+    AttachNativeDSPMailboxService(mailboxes,[](void* context){++*static_cast<unsigned*>(context);},&services);
+    Check(DSPBackendMailFromHigh(mailboxes)==0xeabc && services==0,"device outgoing read entered the CPU service");
+    std::uint16_t worker_word=0;std::thread worker([&]{worker_word=DSPBackendMailFromHigh(mailboxes);});worker.join();
+    Check(worker_word==0xeabc && services==0,"worker outgoing read did not retain real device transport");
+    for(unsigned selected=0;selected<2;++selected) {
+        auto core=Program({static_cast<std::uint16_t>(0x00de + selected),0xfffc});core.BeginExecution(input);
+        auto expected=input;expected.pc+=2;++expected.instructions;
+        expected.accumulator[selected]=LoadedCell(input.accumulator[selected],0xeabc,false);
+        Same(core.Step(),expected);
+    }
+    Check(GetNativeDSPMailboxStatus().cpu_mail_full && GetNativeDSPMailboxStatus().dsp_mail_full &&
+          GetNativeDSPControlStatus().csr==csr && GetNativeInterruptControllerStatus().dispatched==irq && services==0,
+          "LR own-mail getter acknowledged a register or fabricated CPU/device service");
+    Throws([&]{DSPBackendMailFromHigh({mailboxes.generation+1});},"stale outgoing-mail device endpoint was accepted");
+    DetachNativeDSPMailboxService(mailboxes,&services);
+    Check(ChargedDSPMailFromLow()==0x7788 && DSPBackendMailToLow(mailboxes)==0x5678,
+          "real opposite low reads did not retain/acknowledge distinct mailbox payloads");
+    struct FlagCase {std::uint64_t cell;std::uint16_t mask;bool zero;};
+    constexpr std::array<FlagCase,6> flags{{
+        {0x7f8000abcdULL,0x8000,false},{0x800000ffffULL,0xffff,true},
+        {0x12ffff3456ULL,0,true},{0xff00010000ULL,0x8000,true},
+        {0x0080000000ULL,0x8000,false},{0x000001ffffULL,1,false}}};
+    for(unsigned selected=0;selected<2;++selected)for(auto test:flags)for(bool logic_zero:{false,true}) {
+        auto core=Program({static_cast<std::uint16_t>(0x02a0+selected*0x100),test.mask});
+        auto context=input;context.status|=0x4000;context.accumulator[selected]=test.cell;
+        if(logic_zero)context.status|=0x40;else context.status&=~0x40u;
+        core.BeginExecution(context);auto expected=context;expected.pc+=2;++expected.instructions;
+        if(test.zero)expected.status|=0x40;else expected.status&=~0x40u;
+        Same(core.Step(),expected);
+    }
+    for(bool logic_zero:{false,true}) {
+        auto core=Program({0x029c,0x7890});auto context=input;
+        if(logic_zero)context.status|=0x40;else context.status&=~0x40u;
+        core.BeginExecution(context);auto expected=context;expected.pc=logic_zero?0x102:0x7890;++expected.instructions;
+        Same(core.Step(),expected);
+        Throws([&]{core.Step();},"JLNZ invented an instruction at its absent real next PC");Same(core.Registers(),expected);
+    }
+    for(auto words:std::array<std::array<std::uint16_t,2>,5>{{
+        {{0x00de,0xffff}},{{0x00df,0x200}},{{0x02a0,0}},{{0x03a0,0}},{{0x029c,0x8000}}}}) {
+        auto core=Program({0x0064,0x102,words[0],words[1]});auto context=input;context.index[0]=0;
+        core.BeginExecution(context);auto expected=context;expected.pc=0x104;++expected.instructions;
+        Same(core.Step(),expected);Check(GetNativeDSPControlStatus().csr==csr,"zero-count skip executed a device request");
+    }
+    for(auto words:std::array<std::array<std::uint16_t,2>,6>{{
+        {{0x00dc,0xfffc}},{{0x00de,0xfffd}},{{0x00de,0xfffe}},{{0x00de,0x0ce4}},
+        {{0x0240,0x8000}},{{0x029d,0x100}}}}) {
+        auto core=Program({words[0],words[1]});core.BeginExecution(input);
+        Throws([&]{core.Step();},"unqualified register/IFX/ANDF-family/condition or unwritten RAM was silently accepted");
+        Same(core.Registers(),input);
+    }
+    auto missing=Program({0x00de});missing.BeginExecution(input);
+    Throws([&]{missing.Step();},"LR missing address operand invented data");Same(missing.Registers(),input);
+    auto halt=Program({0x0021});halt.BeginExecution(input);
+    ChargedDSPControlWrite(0x100);DSPBackendWriteInterruptRequest(control,1);
+    const auto before=GetNativeDSPControlStatus().csr;auto expected=input;++expected.instructions;
+    Same(halt.Step(),expected);
+    Check(GetNativeDSPControlStatus().csr==(before|4),"HALT did not preserve actual cause/mask fields");
+    Throws([&]{halt.Step();},"real hardware HALT continued processing");Same(halt.Registers(),expected);
+    Throws([&]{DSPBackendHaltExecution({control.generation+1});},"stale HALT device endpoint was accepted");
+    Check(GetNativeDSPControlStatus().csr==(before|4),"failed HALT request changed CSR");
+    ChargedDSPControlWrite(0x80); // genuine W1C before the next fixture
+    auto skip_halt=Program({0x0064,0x102,0x0021});auto zero_loop=input;zero_loop.index[0]=0;
+    skip_halt.BeginExecution(zero_loop);auto skipped=zero_loop;skipped.pc=0x103;++skipped.instructions;
+    Same(skip_halt.Step(),skipped);Check(!(GetNativeDSPControlStatus().csr&4),"zero-count HALT skip stopped hardware");
+    auto active_loop=Program({0x0021});auto context=input;context.loop_depth=1;context.stack={0x100,0,0x100,1};
+    active_loop.BeginExecution(context);Throws([&]{active_loop.Step();},"unqualified HALT/loop endpoint effect was guessed");
+    Same(active_loop.Registers(),context);Check(!(GetNativeDSPControlStatus().csr&4),"rejected HALT changed hardware");
+    PutWord(backing,0,0x0021);DSPInstructionCore unconnected(mailboxes);
+    unconnected.LoadInstructionMemory(memory,physical,2,0x100);unconnected.BeginExecution(input);
+    Throws([&]{unconnected.Step();},"unconnected HALT fabricated a hardware CSR");Same(unconnected.Registers(),input);
+    auto stopped=Program({0x00de,0xfffc});stopped.BeginExecution(input);ChargedDSPControlWrite(4);
+    Throws([&]{stopped.Step();},"hardware-halted LR read ran");Same(stopped.Registers(),input);ChargedDSPControlWrite(0);
+    Check(!DSPCheckInit() && !__DSP_curr_task && !GetNativeDSPMailboxStatus().dsp_mail_full,
+          "boot opcode conformance invented source DSP/task readiness");
+}
+
 void GeneratedSourceWalk(unsigned char* backing,NativeDSPMemoryEndpoint memory,std::uint32_t physical,
                          NativeDSPMailboxEndpoint mailboxes,NativeDSPControlEndpoint control) {
     // This generated bank is hardware test input, not Nintendo/FreeDSP ROM.
@@ -567,6 +674,18 @@ void GeneratedSourceWalk(unsigned char* backing,NativeDSPMemoryEndpoint memory,s
     for(unsigned i=0;i<2048;++i)PutWord(backing+8192,i,static_cast<std::uint16_t>(i*0x187bu+0x6341u));
     walk.LoadCoefficientROM(memory,physical+8192);
     walk.LoadInstructionMemory(memory,physical+12288,128,0);
+    DSPInstructionCore no_coefficient(mailboxes,control);
+    no_coefficient.LoadInstructionROM(memory,physical);
+    no_coefficient.LoadInstructionMemory(memory,physical+12288,128,0);
+    no_coefficient.BeginExecution({0,0xffff,0,{0,0},0});
+    for(unsigned i=0;i<12302;++i)no_coefficient.Step();
+    const auto missing= no_coefficient.Registers();
+    Check(missing.pc==0x26 && missing.instructions==12302 && no_coefficient.DataWord(0x0ce4)==0,
+          "source clear/walk order differed before the actual missing coefficient read");
+    Throws([&]{no_coefficient.Step();},"source coefficient walk replaced absent DROM with successful zeros");
+    Same(no_coefficient.Registers(),missing);
+    Check(!GetNativeDSPMailboxStatus().dsp_mail_full && !(GetNativeDSPControlStatus().csr&4) && !DSPCheckInit(),
+          "missing coefficient boot fabricated CH mail, HALT or original DSP readiness");
     walk.BeginExecution({0,0xffff,0,{0,0},0});
     for(unsigned i=0;i<9;++i)walk.Step();
     Check(walk.Registers().pc==0x1c && walk.Registers().stack[3]==4096 &&
@@ -625,10 +744,46 @@ void GeneratedSourceWalk(unsigned char* backing,NativeDSPMemoryEndpoint memory,s
     state=walk.Registers();Check(state.pc==0x28 && state.instructions==16398 && state.address[0]==0x1800 &&
           state.index[0]==0x800 && state.wrap[0]==0xffff && state.stack[3]==0 && state.loop_depth==0,
           "actual source coefficient walk failed exact2048-word completion/state");
-    const auto before=walk.Registers();bool held=false;
-    try{walk.Step();}catch(const DSPUnsupportedInstruction& gap){held=gap.pc==0x28 && gap.opcode==0x00de;}
-    Check(held && !DSPCheckInit() && !DSPCheckMailFromDSP(),"generated-bank qualifier fabricated LR/source readiness");
-    Same(walk.Registers(),before);
+    // Only these actual source stores establish valid cold DRAM zeros. In
+    // particular the later AX prefix never initializes compressor cell0CE4.
+    Check(walk.DataWord(0x0ce4)==0 && walk.DataWord(0x0ce5)==0,
+          "literal source clear did not establish cold compressor/gain data");
+    DSPBackendMailFromWriteHigh(mailboxes,0x1234);DSPBackendMailFromWriteLow(mailboxes,0x5678);
+    ChargedDSPMailToWriteHigh(0x2222);ChargedDSPMailToWriteLow(0xabcd);
+    const auto csr=GetNativeDSPControlStatus().csr;
+    const auto irq=GetNativeInterruptControllerStatus().dispatched;
+    const auto before=walk.Registers();
+    // The actual program waits on outgoing mail, leaving incoming mail alone.
+    auto expected=before;expected.pc=0x2a;++expected.instructions;
+    expected.accumulator[0]=0xff92340000ULL;Same(walk.Step(),expected);
+    expected.pc=0x2c;++expected.instructions;expected.status=0xe1a4;Same(walk.Step(),expected);
+    expected.pc=0x28;++expected.instructions;Same(walk.Step(),expected);
+    Check(GetNativeDSPMailboxStatus().dsp_mail_full && GetNativeDSPMailboxStatus().cpu_mail_full &&
+          GetNativeDSPControlStatus().csr==csr,"source outgoing-mail poll acknowledged either mail or changed CSR");
+    Check(ChargedDSPMailFromLow()==0x5678 && !GetNativeDSPMailboxStatus().dsp_mail_full,
+          "real CPU low read did not acknowledge the busy prior DSP mail");
+    expected.pc=0x2a;++expected.instructions;expected.accumulator[0]=0x0012340000ULL;Same(walk.Step(),expected);
+    expected.pc=0x2c;++expected.instructions;expected.status=0xe1e4;Same(walk.Step(),expected);
+    expected.pc=0x2e;++expected.instructions;Same(walk.Step(),expected);
+    expected.pc=0x30;++expected.instructions;Same(walk.Step(),expected);
+    Check(DSPBackendMailFromHigh(mailboxes)==0x0054 && !GetNativeDSPMailboxStatus().dsp_mail_full,
+          "source high-only boot write published before its real low register write");
+    expected.pc=0x32;++expected.instructions;Same(walk.Step(),expected);
+    Check(ChargedDSPMailFromHigh()==0x8054 && GetNativeDSPMailboxStatus().cpu_mail_full &&
+          GetNativeDSPControlStatus().csr==csr && GetNativeInterruptControllerStatus().dispatched==irq,
+          "actual source boot mail was not published literally or fabricated an IRQ/callback");
+    ++expected.instructions;Same(walk.Step(),expected);
+    Check(walk.Registers().pc==0x32 && walk.Registers().instructions==16407 &&
+          GetNativeDSPControlStatus().csr==(csr|4),"literal HALT did not stop at its genuine CSR/instruction boundary");
+    const auto stopped=walk.Registers();Throws([&]{walk.Step();},"HALT continued executing source exception words");
+    Same(walk.Registers(),stopped);
+    Check(ChargedDSPMailFromLow()==0x4348 && !GetNativeDSPMailboxStatus().dsp_mail_full &&
+          DSPBackendMailToLow(mailboxes)==0xabcd,"source boot acknowledgment changed unrelated incoming mail");
+    Check(!DSPCheckInit() && !__DSP_curr_task && GetNativeInterruptControllerStatus().dispatched==irq,
+          "generated-bank instruction completion invented original DSP task/init/IRQ readiness");
+    ChargedDSPControlWrite(0);
+    Throws([&]{walk.Step();},"CPU HALT clear manufactured a resumed register context");
+    Same(walk.Registers(),stopped);
 }
 
 void Run(int argc,char** argv) {
@@ -664,6 +819,7 @@ void Run(int argc,char** argv) {
     DSPInstructionCore empty(mailboxes,control);
     Throws([&]{empty.InstructionWord(0x8000);},"missing IROM invented reset-vector bytes");
     Throws([&]{empty.DataWord(0x1000);},"missing coefficient ROM invented data");
+    Throws([&]{empty.DataWord(0x0ce4);},"cold native memory invented a valid zero compressor counter");
     Throws([&]{empty.BeginExecution({0x8000,0,0,{0,0},0});},"absent ROM created a reset context");
     Check(empty.Registers().instructions==0 && !DSPCheckInit(),"missing ROM advanced source/device state");
     DSPInstructionCore rom(mailboxes,control);
@@ -739,9 +895,11 @@ void Run(int argc,char** argv) {
     bool missing_rom=false;try{init.Step();}catch(const std::out_of_range&) {missing_rom=true;}
     Check(missing_rom && !DSPCheckMailFromDSP(), "actual ILRRI invented absent IROM bytes");
     Same(init.Registers(),loop_hold);
+    Throws([&]{init.DataWord(0x0ce4);},"missing IROM completion seeded cold RAM before source clear");
     RegisterMoveGate(backing,memory,physical,mailboxes,control);
     StoreIncrementGate(backing,memory,physical,mailboxes,control);
     DataReadIncrementGate(backing,memory,physical,mailboxes,control);
+    BootInstructionGate(backing,memory,physical,mailboxes,control);
     GeneratedSourceWalk(backing,memory,physical,mailboxes,control);
     SingleInstructionLoopGate(backing,memory,physical,mailboxes,control);
     LoopGate(backing,memory,physical,mailboxes,control);
@@ -788,7 +946,7 @@ void Run(int argc,char** argv) {
     OSRestoreInterrupts(TRUE);
     DetachNativeDSPControl();DetachNativeDSPMailboxes();ShutdownNativeInterruptController();
     ReleaseNativeDSPMemory(pin);DetachNativeDSPMEM1();
-    std::cout<<"original_dsp_init_prefix: actual128-byte source program runs JMP +4 status clears +AR0/WR0/IX0 loads; executes actual BLOOP; absentIROM holds genuine ILRRI. Separate generated-bank walk executesMRR/LOOP/4096actualSRRIstores/2048actualLRRIreads/reachesLRIFX; ROM/reset/task boot remains unavailable\n";
+    std::cout<<"original_dsp_init_prefix: actual128-byte source program runs JMP +4 status clears +AR0/WR0/IX0 loads; executes actual BLOOP; absentIROM holds genuine ILRRI. Separate generated-bank walk executesMRR/LOOP/4096actualSRRIstores/2048actualLRRIreads/outgoing-mailLR/ANDF/JLNZ/literalCHmail/CSRHALT; generatedROMconformance-only, wholeOSreset/taskboot unavailable\n";
 }
 } // namespace
 int main(int argc,char** argv) {

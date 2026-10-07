@@ -1,0 +1,198 @@
+Subject: Transport original SAnim data into allocation-owned native backing
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retain the full original Initialize/node walk, root/weight/morph sampling,
+callback pool and Destroy/inventory lifetime. Native-only data casts view
+completed compressed NL-owned bytes with exact endian and pointer widths.
+Raw byte channels retain real neighbors; no readiness or source algorithms change.
+
+diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+--- a/src/Game/SAnim.cpp
++++ b/src/Game/SAnim.cpp
+@@ -352,49 +352,99 @@
+ #include "Game/PoseAccumulator.h"
+ #include "Game/SHierarchy.h"
+ #include "NL/nlSlotPool.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/sanim_data_transport.h"
++#endif
+ 
+ SlotPool<cSAnimCallback> lbl_805840D8(16, 16);
+ 
+ cSAnim* cSAnim::Initialize(nlChunk* pChunk)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeView = mscharged::platform::PrepareNativeSAnim(pChunk);
++#endif
+     cSAnim* pRetval;
+     nlChunk* chunkA;
+     nlChunk* end = pChunk->GetLastChunk();
+     chunkA = pChunk->GetFirstChunk();
+     nlChunk* chunkB;
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval = (cSAnim*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++#else
+     pRetval = (cSAnim*)chunkA->GetData();
++#endif
+     pRetval->m_pCallbackList = 0;
+ 
+     chunkB = chunkA->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_szName = (const char*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
++#else
+     pRetval->m_szName = (const char*)chunkB->GetData();
++#endif
+ 
+     chunkA = chunkB->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_Unknown18 = (const unsigned int*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++#else
+     pRetval->m_Unknown18 = (const unsigned int*)chunkA->GetData();
++#endif
+ 
+     chunkB = chunkA->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_Unknown1C = (const unsigned int*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
++#else
+     pRetval->m_Unknown1C = (const unsigned int*)chunkB->GetData();
++#endif
+ 
+     chunkA = chunkB->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pRotKeys = (void**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++#else
+     pRetval->m_pRotKeys = (void**)chunkA->GetData();
++#endif
+ 
+     chunkB = chunkA->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pTransKeys = (PackedTrans**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
++#else
+     pRetval->m_pTransKeys = (PackedTrans**)chunkB->GetData();
++#endif
+ 
+     chunkA = chunkB->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pScaleKeys = (PackedScale**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++#else
+     pRetval->m_pScaleKeys = (PackedScale**)chunkA->GetData();
++#endif
+ 
+     chunkB = chunkA->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_Unknown2C = (unsigned char**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
++#else
+     pRetval->m_Unknown2C = (unsigned char**)chunkB->GetData();
++#endif
+ 
+     chunkA = chunkB->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_Unknown30 = (void**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++#else
+     pRetval->m_Unknown30 = (void**)chunkA->GetData();
++#endif
+ 
+     chunkB = chunkA->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pRootRot = (unsigned short*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
++#else
+     pRetval->m_pRootRot = (unsigned short*)chunkB->GetData();
++#endif
+ 
+     chunkA = chunkB->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pRootTrans = (nlVector3*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++#else
+     pRetval->m_pRootTrans = (nlVector3*)chunkA->GetData();
++#endif
+ 
+     unsigned int nodeIndex = 0;
+     unsigned int type;
+@@ -430,23 +480,42 @@
+     }
+ 
+     pRetval->m_pNumMorphKeys
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        = (const unsigned int*)mscharged::platform::NativeSAnimChunkData(nativeView, nodeChunk);
++#else
+         = (const unsigned int*)nodeChunk->GetData();
++#endif
+ 
+     nodeChunk = nodeChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_nMorphIds = (unsigned long*)mscharged::platform::NativeSAnimChunkData(nativeView, nodeChunk);
++#else
+     pRetval->m_nMorphIds = (unsigned long*)nodeChunk->GetData();
++#endif
+ 
+     nodeChunk = nodeChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pMorphKeys = (unsigned char*)mscharged::platform::NativeSAnimChunkData(nativeView, nodeChunk);
++#else
+     pRetval->m_pMorphKeys = (unsigned char*)nodeChunk->GetData();
++#endif
+ 
+     nodeChunk = nodeChunk->GetNextChunk();
+     pRetval->m_pNodeProperties
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        = (const unsigned int*)mscharged::platform::NativeSAnimChunkData(nativeView, nodeChunk);
++#else
+         = (const unsigned int*)nodeChunk->GetData();
++#endif
+ 
+     return pRetval;
+ }
+ 
+ void cSAnim::fn_80308610(nlChunk* nodeChunk, int nodeIndex)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeView = mscharged::platform::NativeSAnimObjectView(this, nodeChunk);
++#endif
+     nlChunk* subEnd;
+     nlChunk* subChunk;
+     subEnd = nodeChunk->GetLastChunk();
+@@ -457,23 +526,43 @@
+         unsigned int type = subChunk->GetID();
+         if (type == 0x17101)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            m_pRotKeys[nodeIndex] = mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
++#else
+             m_pRotKeys[nodeIndex] = subChunk->GetData();
++#endif
+         }
+         else if (type == 0x17102)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            m_pTransKeys[nodeIndex] = (PackedTrans*)mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
++#else
+             m_pTransKeys[nodeIndex] = (PackedTrans*)subChunk->GetData();
++#endif
+         }
+         else if (type == 0x17103)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            m_pScaleKeys[nodeIndex] = (PackedScale*)mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
++#else
+             m_pScaleKeys[nodeIndex] = (PackedScale*)subChunk->GetData();
++#endif
+         }
+         else if (type == 0x17112)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            m_Unknown2C[nodeIndex] = (unsigned char*)mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
++#else
+             m_Unknown2C[nodeIndex] = (unsigned char*)subChunk->GetData();
++#endif
+         }
+         else if (type == 0x17115)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            m_Unknown30[nodeIndex] = mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
++#else
+             m_Unknown30[nodeIndex] = subChunk->GetData();
++#endif
+         }
+ 
+         subChunk = subChunk->GetNextChunk();

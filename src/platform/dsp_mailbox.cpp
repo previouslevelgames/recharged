@@ -25,6 +25,7 @@ struct Mailboxes {
     bool connected{};
     std::uint64_t generation{};
     MailCell to_dsp,from_dsp;
+    NativeDSPMailboxService service{};void* service_context{};
 };
 Mailboxes& State() { static Mailboxes state;return state; }
 void RequireCPU(const Mailboxes& state) {
@@ -37,15 +38,23 @@ void RequireBackend(const Mailboxes& state,NativeDSPMailboxEndpoint endpoint) {
         throw std::logic_error("DSP mailbox device endpoint is stale or detached");
 }
 }
+void ServiceCPU() {
+    auto& state=State();mscharged::platform::NativeDSPMailboxService service{};void* context{};
+    {std::lock_guard lock(state.mutex);RequireCPU(state);service=state.service;context=state.service_context;}
+    if(service)service(context);
+}
 extern "C" std::uint16_t ChargedDSPMailToHigh() {
+    ServiceCPU();
     NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
     RequireCPU(state);return state.to_dsp.High();
 }
 extern "C" std::uint16_t ChargedDSPMailFromHigh() {
+    ServiceCPU();
     NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
     RequireCPU(state);return state.from_dsp.High();
 }
 extern "C" std::uint16_t ChargedDSPMailFromLow() {
+    ServiceCPU();
     NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
     RequireCPU(state);return state.from_dsp.Low();
 }
@@ -54,8 +63,9 @@ extern "C" void ChargedDSPMailToWriteHigh(std::uint16_t value) {
     RequireCPU(state);state.to_dsp.WriteHigh(value);
 }
 extern "C" void ChargedDSPMailToWriteLow(std::uint16_t value) {
-    NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
-    RequireCPU(state);state.to_dsp.WriteLow(value);
+    NativeInterruptGuard exclusion;auto& state=State();
+    { std::lock_guard lock(state.mutex);RequireCPU(state);state.to_dsp.WriteLow(value); }
+    ServiceCPU();
 }
 extern "C" std::uint32_t ChargedDSPRequireMailWord(std::uintptr_t value) {
     if (value>std::numeric_limits<std::uint32_t>::max())
@@ -75,8 +85,25 @@ void DetachNativeDSPMailboxes() {
     NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
     if (!state.connected) return;
     RequireCPU(state);
+    if(state.service)throw std::logic_error("native DSP mailbox still owns a live processor");
     SetNativeInterruptPending(state.interrupt,false);
     state.connected=false;state.owner={};state.to_dsp={};state.from_dsp={};
+}
+void AttachNativeDSPMailboxService(NativeDSPMailboxEndpoint endpoint,NativeDSPMailboxService service,void* context) {
+    NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
+    RequireCPU(state);RequireBackend(state,endpoint);
+    if(!service||!context||state.service)throw std::logic_error("native DSP mailbox service needs unique actual owner");
+    state.service=service;state.service_context=context;
+}
+void DetachNativeDSPMailboxService(NativeDSPMailboxEndpoint endpoint,void* context) {
+    NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
+    RequireCPU(state);RequireBackend(state,endpoint);
+    if(state.service_context!=context)throw std::logic_error("native DSP mailbox processor identity differs");
+    state.service=nullptr;state.service_context=nullptr;
+}
+void DSPBackendResetMailboxes(NativeDSPMailboxEndpoint endpoint) {
+    auto& state=State();std::lock_guard lock(state.mutex);RequireBackend(state,endpoint);
+    state.to_dsp={};state.from_dsp={};
 }
 NativeDSPMailboxStatus GetNativeDSPMailboxStatus() {
     NativeInterruptGuard exclusion;auto& state=State();std::lock_guard lock(state.mutex);
@@ -89,6 +116,10 @@ std::uint16_t DSPBackendMailToHigh(NativeDSPMailboxEndpoint endpoint) {
 std::uint16_t DSPBackendMailToLow(NativeDSPMailboxEndpoint endpoint) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireBackend(state,endpoint);
     return state.to_dsp.Low();
+}
+std::uint16_t DSPBackendMailFromHigh(NativeDSPMailboxEndpoint endpoint) {
+    auto& state=State();std::lock_guard lock(state.mutex);RequireBackend(state,endpoint);
+    return state.from_dsp.High();
 }
 void DSPBackendMailFromWriteHigh(NativeDSPMailboxEndpoint endpoint,std::uint16_t value) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireBackend(state,endpoint);

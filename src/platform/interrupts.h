@@ -28,6 +28,11 @@ private:
 };
 
 bool NativeInterruptsEnabled() noexcept;
+// Remains true if an IRQ callback explicitly enables its interrupt mask.
+bool NativeInterruptDispatchActive() noexcept;
+// A blocked native waiter can release only the source OSDisableInterrupts lock.
+// Extra host guards or an active IRQ context cannot be descheduled this way.
+bool NativeInterruptWaitAllowed() noexcept;
 bool DispatchNativeInterrupt(void (*callback)());
 bool DispatchNativeInterrupt(void (*callback)(void*), void* context);
 

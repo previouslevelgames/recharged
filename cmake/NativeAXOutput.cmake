@@ -25,6 +25,7 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
         "${MSCHARGED_PREPARED}/src/NL/plat/nlMemory.cpp"
         "${MSCHARGED_PREPARED}/src/NL/MemAlloc.cpp"
         "${MSCHARGED_PREPARED}/src/NL/nlSlotPool.cpp"
+        "${MSCHARGED_PREPARED}/src/Game/DetermDataEvent.cpp"
         "${MSCHARGED_PREPARED}/src/NL/nlFunctionMemory.cpp"
         src/platform/game_allocation_ownership.cpp
         src/platform/game_module_allocations.cpp

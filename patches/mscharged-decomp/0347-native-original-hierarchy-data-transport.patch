@@ -1,0 +1,116 @@
+Subject: Transport original hierarchy data into allocation-owned native backing
+Upstream-base: f1e9646a7da6950143e77b1daed33a92c931a638
+
+Retain the complete original chunk walk, field assignments and BuildPushPopFlags.
+Native data casts view exact completed NL-owned Wii bytes with pointer-width and
+endian transport; source free/overwrite retires backing. No request, callback,
+readiness, node ordering, tree normalization or actor algorithm changes.
+
+diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
+--- a/src/Game/SHierarchy.cpp
++++ b/src/Game/SHierarchy.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/SHierarchy.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/hierarchy_data_transport.h"
++#endif
+ 
+ bool cSHierarchy::PreserveBoneLength(int i) const
+ {
+@@ -85,6 +88,9 @@
+ #ifndef MSCHARGED_DIAGNOSTIC_SKELETON
+ cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeHierarchy = mscharged::platform::PrepareNativeHierarchy(pChunk);
++#endif
+     nlChunk* pFirst = (nlChunk*)pChunk->GetUnalignedData();
+     if (pChunk->IsAlignedChunk())
+     {
+@@ -92,28 +98,60 @@
+     }
+ 
+     pChunk = pFirst;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    cSHierarchy* pRetval = (cSHierarchy*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     cSHierarchy* pRetval = (cSHierarchy*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_szName = (const char*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_szName = (const char*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pNodeID = (u32*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pNodeID = (u32*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pParent = (int*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pParent = (int*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pNumChildren = (int*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pNumChildren = (int*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pChildren = (int**)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pChildren = (int**)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pPushPop = (int*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pPushPop = (int*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    int* pChild = (int*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     int* pChild = (int*)pChunk->GetData();
++#endif
+ 
+     for (int i = 0; i < pRetval->m_nNumNodes; i++)
+     {
+@@ -132,13 +170,25 @@
+     pRetval->BuildPushPopFlags(0, 0, nCurrentDepth);
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pMirrorTable = (int*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pMirrorTable = (int*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pV3TranslationOffset = (nlVector3*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pV3TranslationOffset = (nlVector3*)pChunk->GetData();
++#endif
+ 
+     pChunk = pChunk->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    pRetval->m_pPreserveBoneLength = (u8*)mscharged::platform::NativeHierarchyChunkData(nativeHierarchy, pChunk);
++#else
+     pRetval->m_pPreserveBoneLength = (u8*)pChunk->GetData();
++#endif
+ 
+     return pRetval;
+ }

@@ -1,0 +1,11 @@
+include_guard(GLOBAL)
+include(cmake/OriginalOSMessages.cmake)
+# Real native SDK worker lifetimes share the existing interrupt/queue registry.
+# The fixture runs the complete original message-ring TU through those workers.
+if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    add_executable(native_thread_lifecycle_tests tests/native_thread_lifecycle.cpp)
+    target_compile_features(native_thread_lifecycle_tests PRIVATE cxx_std_17)
+    target_link_libraries(native_thread_lifecycle_tests PRIVATE charged_original_os_messages)
+    add_test(NAME native_thread_lifecycle COMMAND native_thread_lifecycle_tests)
+    set_tests_properties(native_thread_lifecycle PROPERTIES TIMEOUT 20)
+endif()

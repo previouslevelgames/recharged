@@ -2,10 +2,10 @@ include_guard(GLOBAL)
 include(cmake/NativeDSPControl.cmake)
 
 # Original128-byte static initializer only. Complete OSAudioSystem.c is
-# compiled unchanged; its unrelated raw hardware/service sections are collected.
+# compiler-selected from the prepared TU; uncalled service sections are collected.
 add_library(native_dsp_boot_data_fixture MODULE tests/dsp_boot_data.c)
 add_dependencies(native_dsp_boot_data_fixture verify_prepared)
-target_include_directories(native_dsp_boot_data_fixture PRIVATE tests
+target_include_directories(native_dsp_boot_data_fixture PRIVATE tests src
     "${MSCHARGED_PREPARED}"
     "${MSCHARGED_PREPARED}/include"
     "${MSCHARGED_PREPARED}/libs/RVL_SDK/include"

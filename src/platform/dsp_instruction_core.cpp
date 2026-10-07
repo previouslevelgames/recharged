@@ -2,9 +2,10 @@
 
 namespace {
 std::uint16_t QualifiedInstructionWords(std::uint16_t word) {
-    if(word==0x029f || (word&0xffe0)==0x0080 || word==0x00fe || word==0x00ff ||
+    if(word==0x029f || word==0x029c || (word&0xffe0)==0x0080 ||
+       word==0x00de || word==0x00df || (word&0xfeff)==0x02a0 || word==0x00fe || word==0x00ff ||
        (word&0xff00)==0x1600 || (word&0xffe0)==0x0060)return 2;
-    if(word==0 || (word&0xfff8)==0x1200 || (word&0xfff8)==0x1300 ||
+    if(word==0 || word==0x0021 || (word&0xfff8)==0x1200 || (word&0xfff8)==0x1300 ||
        (word>=0x8a00 && word<=0x8f00 && !(word&0xff)) ||
        word==0x8100 || word==0x8900 || (word&0xfefc)==0x0218 ||
        (word&0xfc00)==0x1c00 || (word&0xffe0)==0x0040 ||
@@ -75,6 +76,18 @@ std::uint16_t DSPInstructionCore::DataWord(std::uint16_t address) const {
         throw std::out_of_range("DSP data/ROM word is not supplied or written");
     return data_[address];
 }
+void DSPInstructionCore::RequireHardwareEndpoints(NativeDSPMailboxEndpoint mailboxes,NativeDSPControlEndpoint control) const {
+    const auto c=GetNativeDSPControlStatus();const auto m=GetNativeDSPMailboxStatus();
+    if(!control_ || control_->generation!=control.generation || mailboxes_.generation!=mailboxes.generation ||
+       !c.connected || c.generation!=control.generation || !m.connected || m.generation!=mailboxes.generation)
+        throw std::logic_error("native DSP core belongs to another or retired hardware lifetime");
+}
+void DSPInstructionCore::PauseHaltedExecution() {
+    if(control_)RequireHardwareEndpoints(mailboxes_,*control_);
+    if(!control_ || !(GetNativeDSPControlStatus().csr&4))
+        throw std::logic_error("native DSP execution pause requires actual connected HALT");
+    running_=false;
+}
 void DSPInstructionCore::BeginExecution(const DSPInstructionRegisters& context) {
     InstructionWord(context.pc);
     if(context.accumulator[0]>0xffffffffffULL || context.accumulator[1]>0xffffffffffULL)
@@ -95,6 +108,16 @@ DSPInstructionRegisters DSPInstructionCore::Step() {
     bool branch=false;
     if (opcode==0x0000) {
         // Hardware NOP leaves cells/flags unchanged.
+    } else if (opcode==0x0021) {
+        // The source boot program halts outside its completed loops. A HALT
+        // within an active hardware loop remains unqualified rather than
+        // inventing stack/endpoint effects. No unconnected success endpoint.
+        if(!control_ || next.loop_depth)throw DSPUnsupportedInstruction(pc,opcode,0);
+        DSPBackendHaltExecution(*control_);
+        running_=false;
+        // HALT stops at the actual instruction; source CPU clearing CSR HALT
+        // cannot manufacture another execution context or advance this PC.
+        branch=true;
     } else if ((opcode&0xffe0)==0x0040) {
         const auto reg=static_cast<unsigned>(opcode&31);
         std::uint16_t count;
@@ -246,6 +269,28 @@ DSPInstructionRegisters DSPInstructionCore::Step() {
                 ((word&0x8000)?0xff00000000ULL:0ULL);
             else cell=(cell&0xff0000ffffULL)|(static_cast<std::uint64_t>(word)<<16);
         }
+    } else if (opcode==0x00de || opcode==0x00df) {
+        length=2;
+        const auto address=InstructionWord(static_cast<std::uint16_t>(pc+1));
+        // Qualified accumulator-middle destinations only. FFFC reads the
+        // DSP's own outgoing high/status register, never CPU incoming mail.
+        const auto word=address==0xfffc?DSPBackendMailFromHigh(mailboxes_):DataWord(address);
+        auto& cell=next.accumulator[opcode-0x00de];
+        if(next.status&0x4000)cell=(static_cast<std::uint64_t>(word)<<16) |
+            ((word&0x8000)?0xff00000000ULL:0ULL);
+        else cell=(cell&0xff0000ffffULL)|(static_cast<std::uint64_t>(word)<<16);
+    } else if ((opcode&0xfeff)==0x02a0) {
+        length=2;
+        const auto immediate=InstructionWord(static_cast<std::uint16_t>(pc+1));
+        const auto word=static_cast<std::uint16_t>(next.accumulator[(opcode>>8)&1]>>16);
+        // ANDF changes only LZ. It does not write the accumulator, saturate
+        // its middle cell, or update the arithmetic/sticky/mode flags.
+        next.status=static_cast<std::uint16_t>((next.status&~0x0040u) |
+            ((word&immediate)?0u:0x0040u));
+    } else if (opcode==0x029c) {
+        length=2;
+        const auto destination=InstructionWord(static_cast<std::uint16_t>(pc+1));
+        if(!(next.status&0x0040)) {next.pc=destination;branch=true;}
     } else if (opcode==0x029f) {
         // Unconditional immediate jump used by the original OS DSP init
         // vector. Invalid destinations remain real next-fetch failures.
@@ -309,3 +354,22 @@ DSPInstructionRegisters DSPInstructionCore::Step() {
     registers_=next;return registers_;
 }
 } // namespace mscharged::platform
+
+namespace mscharged::platform {
+void DSPInstructionCore::ValidateNativeDataWords(std::uint16_t first,const std::uint16_t* expected,
+                                               std::size_t count) const {
+    if(!control_)throw std::logic_error("native DSP data context requires actual connected hardware");
+    RequireHardwareEndpoints(mailboxes_,*control_);
+    if(!expected||!count||first>=WORDS||count>WORDS-first)
+        throw std::invalid_argument("native DSP data context has an invalid extent");
+    for(std::size_t i=0;i<count;++i)
+        if(!data_valid_[first+i]||data_[first+i]!=expected[i])
+            throw std::logic_error("native DSP data context is uninitialized or changed before hardware commit");
+}
+void DSPInstructionCore::CommitNativeDataWords(std::uint16_t first,const std::uint16_t* expected,
+                                             const std::uint16_t* after,std::size_t count) {
+    if(!after)throw std::invalid_argument("native DSP data context has no actual next words");
+    ValidateNativeDataWords(first,expected,count);
+    for(std::size_t i=0;i<count;++i)data_[first+i]=after[i];
+}
+}
