@@ -35,8 +35,9 @@ deadzone = 15
 rumble = true
 
 [advanced]
-# Graphics API validation (slower; useful for bug reports) and log detail:
-# error, warning, info or debug.
+# Backend graphics debug layers (slower; useful for bug reports). WebGPU
+# validation and robust buffer access stay enabled in both modes.
+# Log detail: error, warning, info or debug.
 graphics_validation = true
 log_level = info
 

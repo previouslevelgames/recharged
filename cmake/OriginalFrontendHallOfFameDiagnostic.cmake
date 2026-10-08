@@ -1,7 +1,8 @@
 include_guard(GLOBAL)
 
-# Temporary admission of the original Cup and progress pages requested by the authored
-# MainMenu transition. Save/preload/camera/slide/input decisions stay in source.
+# Temporary admission of the original Cup, progress and player-card pages requested by
+# the authored MainMenu transition and the Cup's card buttons. Save/preload/camera/
+# slide/input decisions stay in source.
 option(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME
     "Admit original Hall of Fame Cup and progress pages after the authored MainMenu transition" OFF)
 
@@ -34,6 +35,7 @@ function(mscharged_select_original_frontend_hall_of_fame target)
     foreach(_relative IN ITEMS
             src/Game/SH/SHHallOfFameRoom.cpp
             src/Game/SH/SHHallOfFameSummary.cpp
+            src/Game/SH/SHHallOfFameHistory.cpp
             src/Game/FE/feScrollBar.cpp)
         set(_hof_source "${MSCHARGED_PREPARED}/${_relative}")
         if(NOT _hof_source IN_LIST _hof_absolute)

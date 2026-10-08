@@ -1,0 +1,28 @@
+From: mscharged-port contributors
+Subject: [PATCH] Keep device validation and robustness independent of debug layers
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native graphics device correctness policy.
+
+The backend validation preference controls optional API debug layers. It must
+not also disable Dawn command validation or robust buffer/shader accesses in
+Release. Preserve all device features, descriptors, source commands and the
+existing default with debug layers enabled.
+
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -985,12 +985,8 @@
+         "enable_immediate_error_handling",
+         "gl_allow_context_on_multi_threads",
+     };
+-#ifdef NDEBUG
+-    if (!g_config.enableBackendValidation) {
+-      enableToggles.push_back("skip_validation");
+-      enableToggles.push_back("disable_robustness");
+-    }
+-#endif
++    // Backend debug layers are independent of Dawn command validation and
++    // robust buffer/shader access, which remain enabled in every build.
+     constexpr std::array disableToggles{
+         "timestamp_quantization",
+         // Adreno strikes again!

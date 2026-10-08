@@ -1,0 +1,255 @@
+Subject: Admit the original async services of FELoadingToGame and GameLoadingToFE
+Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Classification: temporary explicit original-source diagnostic admission; depends on 0610.
+
+The authored async_loading bytecode's FELoadingToGame and GameLoadingToFE
+entries (static call graph, both scripts) reach 123 DoFunctionCall services.
+Move the 99 of them that were behind the generic frontend-sequence gate
+under the named MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING admission,
+splitting gated blocks only at case boundaries (fall-through partners stay
+together). Case bodies are unchanged; every service not reached by those two
+scripts keeps its existing gate.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -287,7 +287,7 @@
+ #else
+     switch (functionIndex)
+     {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 0:
+         LoadTrophyTemplates();
+         break;
+@@ -317,7 +317,7 @@
+         CreateLargeFEResourcePool();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 3:
+         CreateFEResourcePool();
+         break;
+@@ -333,7 +333,7 @@
+         break;
+     }
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 5:
+         m_SP++;
+         m_SP[-1] = CharacterLoader::sInstance.ShareDuplicateAnimInventory();
+@@ -502,6 +502,8 @@
+             fn_80116988, (void*)"FE_GEN_SPLASH");
+         FEAudio::SetSoundCategory(0x15);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 18:
+         lbl_806E1058 += gAudioEnabled ? 1 : 0;
+         g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
+@@ -515,15 +517,19 @@
+         FinishLoadingStepOrUndo(this, AsyncFinalizeCameraLoading());
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 20:
+         SetLoadingComment("AsyncFinalizeGameWorldLoading");
+         FinishLoadingStepOrUndo(this, FinishLoadStadium(false));
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 21:
+         SetLoadingComment("AsyncFinalizeGameWorldLoadingForStadiumViewer");
+         FinishLoadingStepOrUndo(this, FinishLoadStadium(true));
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 22:
+         SetLoadingComment("AsyncFinalizeLoadingAI");
+         FinishLoadingStepOrUndo(this, ApplyFuzzyByteCode());
+@@ -589,7 +595,7 @@
+         }
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 29:
+         CharacterLoader::sInstance.StartLoadingCaptainAudio();
+         break;
+@@ -640,15 +646,19 @@
+         AsyncStartCameraLoadingForStadiumViewer();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 38:
+         fn_8011A2E8(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 39:
+         SetLoadingComment("AsyncStartGameWorldLoadingForStadiumViewer");
+         fn_802772D0(GetStadiumName(GameInfoManager::Instance()->GetStadium()), true);
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 40:
+         SetLoadingComment("AsyncStartLoadingAI");
+         LoadFuzzyByteCode(GetFuzzyAIScriptFilename(), true);
+@@ -663,7 +673,7 @@
+         FinishLoadingStep(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 42:
+         SetLoadingComment("AsyncStartLoadingGameFE");
+         lbl_806E1060 = 0;
+@@ -690,7 +700,7 @@
+         FinishLoadingStepOrUndo(this, FinishLoadFEWorld());
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 46:
+         StopSound(0x7FC13AA3, this);
+         break;
+@@ -711,12 +721,16 @@
+         }
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 48:
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 49:
+         --m_SP;
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 50:
+         CharacterLoader::sInstance.BuildCharacterList();
+         break;
+@@ -746,18 +760,26 @@
+         FakeBallWorld::Init(g_pBall);
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 57:
+         fn_8011926C(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 58:
+         fn_80119B0C(this);
+         break;
+     case 59:
+         fn_8011A9DC(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 60:
+         fn_8011B02C(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 61:
+         --m_SP;
+         break;
+@@ -840,7 +862,7 @@
+         FinishLoadingStepOrUndo(this, gNPCManager->FinishLoadNPCTemplate());
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 77:
+         SetLoadingComment("FinalizeLoadingSharedTextures");
+         FinishLoadingStepOrUndo(this,
+@@ -914,7 +936,7 @@
+         fn_80119528(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 87:
+         fn_80119EC0(this);
+         break;
+@@ -928,6 +950,8 @@
+     case 90:
+         fn_8011A800(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 91:
+         SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
+         BeginFrameTask::s_FramerateLocked = false;
+@@ -936,6 +960,8 @@
+         mLoadingState = 1;
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 92:
+         fn_8011A570(this);
+         break;
+@@ -974,6 +1000,8 @@
+         CreatePhysicsWorld();
+         FinishLoadingStep(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 98:
+         fn_8011B6E8(this);
+         break;
+@@ -989,6 +1017,8 @@
+         FinishLoadingStep(this);
+         break;
+     }
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 100:
+         SetLoadingComment("InitializeWorldNPCTemplates");
+         lbl_806E1050->LoadTemplates("ini/WorldNPCs.ini");
+@@ -1051,6 +1081,8 @@
+     case 109:
+         gNPCManager->CreateDiddyBanana();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 110:
+         gNPCManager->CreateBirdoEgg();
+         break;
+@@ -1075,6 +1107,8 @@
+     case 117:
+         gNPCManager->CreateYoshiEgg();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 118:
+         fn_80111664();
+         break;
+@@ -1094,7 +1128,7 @@
+         break;
+     }
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 121:
+         ReplayManager::Instance()->ResetSnapshots();
+         break;
+@@ -1190,7 +1224,7 @@
+         FinishLoadingStep(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     case 139:
+         SetLoadingComment("StartLoadingSharedTextures");
+         CharacterLoader::sInstance.StartLoadingSharedTextures();

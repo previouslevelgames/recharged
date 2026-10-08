@@ -1,0 +1,28 @@
+From: mscharged-port
+Subject: Admit the original Hall of Fame player cards
+Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Classification: temporary explicit original-source diagnostic admission; depends on 0505 and 0571.
+
+E15 admission of factory case 65 (SHHallOfFamePlayerCard(13), whole Matching
+SHHallOfFameHistory.cpp) under the existing Hall of Fame diagnostic. The Cup
+scene's card buttons (items 3-6, not lock-gated) call ShowHallOfFamePlayerCard;
+the original handler selects the character, text, model and transitions. The
+trophy history cases 66-74 open only for claimed trophies and stay gated.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -524,11 +524,11 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case (SceneList)64:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(2);
+         break;
+-#endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case (SceneList)65:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(13);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case (SceneList)66:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(4);
+         break;

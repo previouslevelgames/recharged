@@ -7,11 +7,13 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <thread>
 
 namespace {
-unsigned checks{}, connects{}, samples{};
+unsigned checks{}, connects{}, samples{}, extension_count{};
+s32 extensions[4]{};
 SDL_Window* window{};
 std::thread::id owner;
 void Check(bool value, const char* message) {
@@ -27,6 +29,13 @@ void Sample(s32) {
     Check(owner == std::this_thread::get_id() && !mscharged::platform::NativeInterruptsEnabled(),
           "Sampling delivery left the owner interrupt scope");
     ++samples;
+}
+void Extension(s32 channel, s32 type) {
+    Check(owner == std::this_thread::get_id() && !mscharged::platform::NativeInterruptsEnabled(),
+          "Extension delivery left the owner interrupt scope");
+    Check(channel == 0, "Extension change reached an unused player port");
+    if (extension_count < 4) extensions[extension_count] = type;
+    ++extension_count;
 }
 void Event(Uint32 type, SDL_Scancode key = SDL_SCANCODE_UNKNOWN) {
     SDL_Event e{}; e.type = type;
@@ -44,6 +53,9 @@ void Service() {
 }
 WPADStatus Report(int port = 0) {
     WPADStatus s{}; WPADRead(port, &s); return s;
+}
+WPADFSStatus FreestyleReport() {
+    WPADFSStatus s{}; WPADRead(0, reinterpret_cast<WPADStatus*>(&s)); return s;
 }
 template<class F> void Until(F fn, const char* message) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -131,6 +143,92 @@ void Cycle(bool gamepads, bool physical) {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
+void NunchukCycle() {
+    connects = samples = extension_count = 0;
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.nunchuk = true;
+    bool rejected = false;
+    try { mscharged::platform::InitializeDesktopWpad(window, settings); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "A Nunchuk was attached without the keyboard remote");
+    settings.keyboard = true;
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) {
+        WPADSetConnectCallback(n, Connect);
+        WPADSetExtensionCallback(n, Extension);
+        WPADSetSamplingCallback(n, Sample);
+    }
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return connects == 1 && WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Virtual Nunchuk did not complete the original extension sequence");
+    Check(extension_count == 2 && extensions[0] == WPAD_DEV_INITIALIZING && extensions[1] == WPAD_DEV_FREESTYLE,
+          "Extension callbacks skipped INITIALIZING or FREESTYLE");
+    WPADAccGravityUnit unit{};
+    WPADGetAccGravityUnit(0, WPAD_ACC_GRAVITY_UNIT_FS, &unit);
+    Check(unit.x == 200 && unit.y == 200 && unit.z == 200, "Identified Nunchuk lacks its nominal calibration");
+
+    // Core formats carry no extension bytes and copy only the core layout.
+    // A, pressed with C, proves the report was latched after both presses.
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_C);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    unsigned char raw[sizeof(WPADFSStatus)];
+    Until([&] {
+        std::memset(raw, 0xA5, sizeof raw);
+        WPADRead(0, reinterpret_cast<WPADStatus*>(raw));
+        const auto* core = reinterpret_cast<WPADStatus*>(raw);
+        return core->err == WPAD_ERR_OK && core->dev == WPAD_DEV_FREESTYLE && (core->button & WPAD_BUTTON_A);
+    }, "Core-format report lost the identified device or remote A");
+    for (std::size_t n = sizeof(WPADStatus); n != sizeof raw; ++n)
+        Check(raw[n] == 0xA5, "Core-format read copied the freestyle layout");
+    Check(reinterpret_cast<WPADStatus*>(raw)->button == WPAD_BUTTON_A, "Core format reported a Nunchuk button");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_C);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+
+    Check(WPADSetDataFormat(0, WPAD_FMT_CLASSIC_BTN_ACC_DPD) == WPAD_ERR_INVALID,
+          "Classic format admitted without a classic device");
+    Check(WPADSetDataFormat(0, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    Until([&] { auto r = FreestyleReport(); return r.fsAccZ == 200; }, "Freestyle report lacks level gravity");
+    auto idle = FreestyleReport();
+    Check(idle.fsStickX == 0 && idle.fsStickY == 0 && idle.fsAccX == 0 && idle.fsAccY == 0 && idle.button == 0,
+          "Idle Nunchuk manufactured input");
+    auto stick = [&](int x, int y, const char* message) {
+        Until([&] { auto r = FreestyleReport(); return r.fsStickX == x && r.fsStickY == y; }, message);
+    };
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_W);
+    stick(0, 100, "W did not push the stick fully up");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_D);
+    stick(71, 71, "W+D left the circular gate");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_A);
+    stick(0, 100, "Opposite A+D did not cancel");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_A);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_D);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_W);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_S);
+    stick(0, -100, "S did not push the stick fully down");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_S);
+    stick(0, 0, "Released stick kept a deflection");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_C);
+    Until([&] { return FreestyleReport().button == WPAD_BUTTON_FS_C; }, "C did not press Nunchuk C");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_V);
+    Until([&] { return FreestyleReport().button == (WPAD_BUTTON_FS_C | WPAD_BUTTON_FS_Z); },
+          "V did not press Nunchuk Z");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_C);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_V);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return FreestyleReport().button == WPAD_BUTTON_A; }, "Remote A changed with the Nunchuk");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_W);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_C);
+    stick(0, 100, "Stick did not move before focus loss");
+    Event(SDL_EVENT_WINDOW_FOCUS_LOST);
+    Until([&] { auto r = FreestyleReport(); return r.fsStickY == 0 && r.button == 0 && r.fsAccZ == 200; },
+          "Focus loss retained a Nunchuk deflection or press");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
 }
 int main() {
     try {
@@ -142,10 +240,11 @@ int main() {
             GenericPad generated;
             Cycle(false,false);
             Cycle(true,true);
+            NunchukCycle();
         }
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}

@@ -1,0 +1,53 @@
+Subject: Admit original 101/Challenge briefing and tournament Choose Sides
+Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Classification: temporary explicit original-source diagnostic admission; depends on 0551 and 0572.
+
+ChallengeSelectScene::Update requests SceneList 77 (SHStrikerTimesChallenge)
+after a lesson or Challenge row is pressed. Its briefing Continue loads the
+authored challenge configuration and requests SceneList 78 (SHChooseSides2
+TOURNAMENT). Move only these two factory cases behind the new named briefing
+admission. Placement allocation and constructors stay literal; every other
+case keeps its current guard.
+
+Tournament Choose Sides Proceed calls the authored StartChallengeSequence
+before its loading request; that script's instruction 19 plays the original
+FE audio event 0xB60A9CC0. Admit only that VM case (case 20 stays gated).
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -559,13 +559,15 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(ChallengeSelectScene), 8, false)) ChallengeSelectScene(true);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BRIEFINGS))
+     case (SceneList)77:
+         newHandler = new (nlMalloc(sizeof(SHStrikerTimesChallenge), 8, false)) SHStrikerTimesChallenge();
+         break;
+     case (SceneList)78:
+         newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::TOURNAMENT, movement);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case (SceneList)79:
+         newHandler = new (nlMalloc(sizeof(HealthWarningSceneV2), 8, false)) HealthWarningSceneV2();
+         break;
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -213,11 +213,13 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BRIEFINGS)
+     case 19:
+         FEAudio::PlayAnimAudioEvent(0xB60A9CC0, 0, 0, true);
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 20:
+     {
+         unsigned int event = m_SP[-1];

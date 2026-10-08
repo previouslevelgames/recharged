@@ -13,6 +13,11 @@
 
 namespace {
 constexpr std::uint8_t DiscApplication = 0x80;
+// Original OS.c maps BootInfo, the DVD drive device code and the Hollywood
+// revision to a console type. A retail RVL console (retail drive device code
+// 0x0002, Hollywood revision 0x11) maps to 0x00000021: RVL mask, no emulator or
+// TDEV bits.
+constexpr std::uint32_t RetailConsole = 0x00000021;
 struct BootIdentity {
     std::mutex mutex;
     bool configured{};
@@ -85,6 +90,15 @@ extern "C" std::uint8_t OSGetAppType(void) {
     // native disc boot supplies that same DVD application value, not IPL or a
     // channel launch. It remains immutable for the running source instance.
     return DiscApplication;
+}
+
+extern "C" std::uint32_t OSGetConsoleType(void) {
+    auto& identity = Identity();
+    std::lock_guard lock(identity.mutex);
+    RequireOwner(identity);
+    // This native disc boot models that retail console for the running source
+    // instance; the source only tests the emulator/TDEV mask bits.
+    return RetailConsole;
 }
 
 extern "C" void __OSReboot(std::uint32_t resetCode, std::uint32_t bootDol) {

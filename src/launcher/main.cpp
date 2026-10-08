@@ -1220,7 +1220,8 @@ private:
     void ControlsPage()
     {
         PageHeader("Controls", "Play with keyboard and mouse. Keep the game window focused. Controller support is planned.");
-        BeginCard("##keys", "Keyboard & mouse", "Each key presses a Wii Remote button; the mouse is the pointer.", Icon::Keyboard);
+        BeginCard("##keys", "Keyboard & mouse",
+                  "Each key presses a Wii Remote or Nunchuk button; the mouse is the pointer.", Icon::Keyboard);
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##key_table", 2))
         {
@@ -1242,6 +1243,8 @@ private:
             KeyRow("+ (Plus)", {"Tab"});
             KeyRow("\xE2\x88\x92 (Minus)", {"-"});
             KeyRow("HOME", {"Home"});
+            KeyRow("Nunchuk stick", {"W", "A", "S", "D"});
+            KeyRow("C  /  Z", {"C", "V"}, nullptr, "Nunchuk buttons");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();

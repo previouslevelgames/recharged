@@ -272,8 +272,12 @@ void ValidateNativeAXCommandCommit(NativeDSPMemoryEndpoint memory,const NativeAX
             throw std::runtime_error("AX source command/contributor changed before whole-frame commit");
     for(const auto& voice:f.voices) {
         if(voice.was_running)ValidateNativeAXVoiceCommit(memory,voice);
-        else if(Read(memory,voice.parameter_address,voice.parameters_before.size())!=std::vector<unsigned char>(voice.parameters_before.begin(),voice.parameters_before.end()))
-            throw std::runtime_error("AX stopped source PB changed before whole-frame commit");
+        else {
+            std::array<unsigned char,320> current{};
+            DSPBackendReadMemory(memory,voice.parameter_address,current.data(),current.size());
+            if(current!=voice.parameters_before)
+                throw std::runtime_error("AX stopped source PB changed before whole-frame commit");
+        }
     }
     for(const auto& w:f.writes) {
         DSPBackendValidateMemory(memory,w.address,w.after.size(),true);

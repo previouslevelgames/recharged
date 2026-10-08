@@ -19,6 +19,16 @@
 #include "NL/glx/GXMegaSpecularFresnelMaterialProgram.h"
 #include "NL/glx/GXMegaSpecularMaterialProgram.h"
 #include "NL/glx/GXSkinnedUnlitTextureMaterialProgram.h"
+#include "NL/glx/GXMaskedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXSpecularDetailBlendMaterialProgram.h"
+#include "NL/glx/GXShadowedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXCameraScrolledOverlayMaterialProgram.h"
+#include "NL/glx/GXShadowVolumeMaterialProgram.h"
+#include "NL/glx/GXScrollingShadowedDetailBlendMaterialProgram.h"
+#include "NL/glx/GXScrollingCameraOverlayMaterialProgram.h"
+#include "NL/glx/GXDetailModulateMaterialProgram.h"
+#include "NL/glx/GXCrystalMaterialProgram.h"
+#include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
 
 #include <array>
 #include <cstdint>
@@ -254,9 +264,81 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
             offsetof(GXMegaSpecularParameters, skinMatrixBytes)>(packet, 84, 4, 13);
         return;
     }
+    // Stadium world programs: leading texture bindings, then only 32-bit
+    // float/int words (no pointers or sub-word fields), so the native layout
+    // equals the authored Wii record and the generic conversion below applies.
+    static_assert(sizeof(GXMaskedDetailBlendParameters) == 36);
+    static_assert(offsetof(GXMaskedDetailBlendParameters, blendAmount) == 24);
+    static_assert(sizeof(GXSpecularDetailBlendParameters) == 68);
+    static_assert(offsetof(GXSpecularDetailBlendParameters, blendAmount) == 32);
+    static_assert(offsetof(GXSpecularDetailBlendParameters, specularColour) == 44);
+    static_assert(offsetof(GXSpecularDetailBlendParameters, shadowEnabled) == 64);
+    static_assert(sizeof(GXShadowedDetailBlendParameters) == 52);
+    static_assert(offsetof(GXShadowedDetailBlendParameters, blendAmount) == 32);
+    static_assert(offsetof(GXShadowedDetailBlendParameters, unusedParameter) == 48);
+    static_assert(sizeof(GXCameraScrolledOverlayParameters) == 48);
+    static_assert(offsetof(GXCameraScrolledOverlayParameters, overlayScale) == 24);
+    static_assert(offsetof(GXCameraScrolledOverlayParameters, shadowEnabled) == 44);
+    static_assert(sizeof(GXShadowVolumeParameters) == 12);
+    static_assert(offsetof(GXShadowVolumeParameters, useFixedColour) == 8);
+    static_assert(sizeof(GXScrollingShadowedDetailBlendParameters) == 72);
+    static_assert(offsetof(GXScrollingShadowedDetailBlendParameters, diffuseScrollSpeedX) == 32);
+    static_assert(offsetof(GXScrollingShadowedDetailBlendParameters, shadowEnabled) == 68);
+    static_assert(sizeof(GXScrollingCameraOverlayParameters) == 60);
+    static_assert(offsetof(GXScrollingCameraOverlayParameters, overlayScale) == 24);
+    static_assert(offsetof(GXScrollingCameraOverlayParameters, shadowEnabled) == 56);
+    static_assert(sizeof(GXDetailModulateParameters) == 28);
+    static_assert(offsetof(GXDetailModulateParameters, detailStrength) == 16);
+    static_assert(sizeof(GXCrystalMaterialParameters) == 24);
+    static_assert(offsetof(GXCrystalMaterialParameters, rampTexture) == 16);
+    static_assert(sizeof(GXScrollingMaskedDetailBlendParameters) == 60);
+    static_assert(offsetof(GXScrollingMaskedDetailBlendParameters, diffuseScrollSpeedX) == 24);
+    static_assert(offsetof(GXScrollingMaskedDetailBlendParameters, shadowEnabled) == 56);
     std::size_t bytes;
     std::size_t bindings = 1;
+    std::uint32_t count;
     switch (program->programHash)
+    {
+    case 0x09609A35:
+        bytes = sizeof(GXMaskedDetailBlendParameters); bindings = 3; count = 6;
+        break;
+    case 0x112AB470:
+        bytes = sizeof(GXSpecularDetailBlendParameters); bindings = 4; count = 10;
+        break;
+    case 0x1D8CCB9B:
+        bytes = sizeof(GXShadowedDetailBlendParameters); bindings = 4; count = 9;
+        break;
+    case 0x32BC21E8:
+        bytes = sizeof(GXCameraScrolledOverlayParameters); bindings = 3; count = 9;
+        break;
+    case 0x386ECBDD:
+        bytes = sizeof(GXShadowVolumeParameters); bindings = 1; count = 2;
+        break;
+    case 0x552041EC:
+        bytes = sizeof(GXScrollingShadowedDetailBlendParameters); bindings = 4; count = 14;
+        break;
+    case 0x845CAD59:
+        bytes = sizeof(GXScrollingCameraOverlayParameters); bindings = 3; count = 12;
+        break;
+    case 0x9BE20E02:
+        bytes = sizeof(GXDetailModulateParameters); bindings = 2; count = 5;
+        break;
+    case 0xEB3E6061:
+        bytes = sizeof(GXCrystalMaterialParameters); bindings = 3; count = 3;
+        break;
+    case 0xF2D57AC6:
+        bytes = sizeof(GXScrollingMaskedDetailBlendParameters); bindings = 3; count = 12;
+        break;
+    default:
+        count = 0;
+        break;
+    }
+    if (count)
+    {
+        if (program->parameterDataSize != bytes || program->parameterCount != count)
+            throw std::invalid_argument("Stadium material source layout differs from authored ABI");
+    }
+    else switch (program->programHash)
     {
     case 0x19065BF6:
         bytes = sizeof(GXFloatTexturedColourParameters);
@@ -297,7 +379,9 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
     GameCompletedSpan span{};
     if (!FindGameCompletedSpan(data, bytes, span))
         throw std::invalid_argument("RLG material parameters leave the genuine completed logical span");
-    std::array<unsigned char, sizeof(GXScrollingSpecularParameters)> native{};
+    std::array<unsigned char, sizeof(GXScrollingShadowedDetailBlendParameters)> native{};
+    if (bytes > native.size())
+        throw std::invalid_argument("RLG material parameters exceed the qualified native record size");
     std::memcpy(native.data(), data, bytes);
     for (std::size_t binding = 0; binding < bindings; ++binding)
     {

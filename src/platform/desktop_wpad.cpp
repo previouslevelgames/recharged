@@ -1,5 +1,6 @@
 #include "platform/desktop_wpad.h"
 #include "platform/desktop_dpd.h"
+#include "platform/desktop_nunchuk.h"
 #include <revolution/wpad/WPAD.h>
 #include <SDL3/SDL.h>
 
@@ -33,6 +34,7 @@ struct Device {
     bool sensors_enabled{};
     Clock::time_point next_report{};
     mscharged::platform::NativeDpdSource dpd_source{};
+    mscharged::platform::NativeNunchukSource nunchuk_source{};
 };
 struct State {
     std::mutex mutex;
@@ -154,6 +156,8 @@ void Retire(std::unique_ptr<Device>& device) {
     // retire. Existing WPAD observes a real SDL detach at its next owner service.
     if (device->dpd_source.generation)
         mscharged::platform::DetachNativeWpadDpdSource(device->dpd_source);
+    if (device->nunchuk_source.generation)
+        mscharged::platform::DetachNativeWpadNunchukSource(device->nunchuk_source);
     const auto id = device->virtual_id;
     SDL_CloseJoystick(device->virtual_joystick);
     device->virtual_joystick = nullptr;
@@ -252,13 +256,33 @@ std::array<bool, 11> KeyboardButtons(const std::array<bool, SDL_SCANCODE_COUNT>&
         keys[SDL_SCANCODE_MINUS], keys[SDL_SCANCODE_HOME],
         keys[SDL_SCANCODE_UP], keys[SDL_SCANCODE_DOWN], keys[SDL_SCANCODE_LEFT], keys[SDL_SCANCODE_RIGHT]};
 }
+mscharged::platform::NativeNunchukObservation KeyboardNunchuk(const std::array<bool, SDL_SCANCODE_COUNT>& keys) {
+    // Full deflection of a physical stick after WPAD centre calibration is
+    // about 100 counts; diagonals stay on the same circular gate. Original
+    // ClampWiiStick and KPAD apply their own dead zones and normalisation.
+    const int x = int(keys[SDL_SCANCODE_D]) - int(keys[SDL_SCANCODE_A]);
+    const int y = int(keys[SDL_SCANCODE_W]) - int(keys[SDL_SCANCODE_S]);
+    const int reach = x && y ? 71 : 100;
+    mscharged::platform::NativeNunchukObservation result{};
+    result.stick_x = static_cast<std::int8_t>(x * reach);
+    result.stick_y = static_cast<std::int8_t>(y * reach);
+    result.c = keys[SDL_SCANCODE_C];
+    result.z = keys[SDL_SCANCODE_V];
+    result.acc_z = mscharged::platform::kNativeNunchukGravity;
+    return result;
+}
 void Report(Device& device, const std::array<bool, 11>& buttons, Clock::time_point now,
-            const mscharged::platform::NativeDpdObservation* observation = nullptr) {
+            const mscharged::platform::NativeDpdObservation* observation = nullptr,
+            const mscharged::platform::NativeNunchukObservation* nunchuk = nullptr) {
     if (now < device.next_report) return;
     device.next_report = now + ReportPeriod;
     if (device.dpd_source.generation) {
         if (!observation) throw std::logic_error("Mouse camera report lacks its raw observation");
         mscharged::platform::SubmitNativeWpadDpdObservation(device.dpd_source, *observation);
+    }
+    if (device.nunchuk_source.generation) {
+        if (!nunchuk) throw std::logic_error("Nunchuk report lacks its raw observation");
+        mscharged::platform::SubmitNativeWpadNunchukObservation(device.nunchuk_source, *nunchuk);
     }
     for (int n = 0; n < int(buttons.size()); ++n)
         Require(SDL_SetJoystickVirtualButton(device.virtual_joystick,
@@ -282,6 +306,8 @@ void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings) {
         throw std::invalid_argument("Desktop WPAD transport requires the actual host window");
     if (settings.mouse && !settings.pointer_projection)
         throw std::invalid_argument("Mouse camera requires a successful-Present content projection");
+    if (settings.nunchuk && !settings.keyboard)
+        throw std::invalid_argument("The desktop Nunchuk requires the keyboard profile");
     {
         std::lock_guard lock(state.mutex);
         if (state.ready) throw std::logic_error("Desktop WPAD transport is already initialized");
@@ -316,6 +342,9 @@ void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings) {
         if (settings.keyboard || settings.mouse) state.keyboard = MakeDevice();
         if (settings.mouse)
             state.keyboard->dpd_source = mscharged::platform::AttachNativeWpadDpdSource(state.keyboard->virtual_id);
+        if (settings.nunchuk)
+            state.keyboard->nunchuk_source =
+                mscharged::platform::AttachNativeWpadNunchukSource(state.keyboard->virtual_id);
     }
     catch (...) {
         Retire(state.keyboard);
@@ -397,7 +426,11 @@ void ServiceDesktopWpad() {
             buttons[0] = buttons[0] || (mouse_buttons & SDL_BUTTON_LMASK);
             buttons[1] = buttons[1] || (mouse_buttons & SDL_BUTTON_RMASK);
         }
-        Report(*state.keyboard, buttons, now, state.settings.mouse ? &observation : nullptr);
+        // An unfocused Nunchuk is released and level, like the buttons above.
+        mscharged::platform::NativeNunchukObservation nunchuk{};
+        nunchuk.acc_z = mscharged::platform::kNativeNunchukGravity;
+        if (focused && state.settings.keyboard) nunchuk = KeyboardNunchuk(keys);
+        Report(*state.keyboard, buttons, now, state.settings.mouse ? &observation : nullptr, &nunchuk);
     }
     for (auto& pad : state.pads) if (pad) {
         std::array<bool, 11> buttons{};

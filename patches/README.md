@@ -59,6 +59,33 @@ remain in their whole source units. Embedded resources use exact archive-file
 bounds; native metadata retires with its original allocation. This qualifies
 RFNT 1.4 data transport, not complete HOME-menu rendering.
 
+Patch 0600 admits the original Strikers 101/Challenge briefing (scene 77) and
+tournament Choose Sides (scene 78) in the frontend diagnostic, plus the
+StartChallengeSequence audio instruction its Proceed runs. The whole handlers
+load each challenge's authored configuration; the following loading request
+(scene 17) keeps its existing gate.
+
+Patches 0610–0613 and 0615–0618 admit the original offline match load under
+the explicit match-loading diagnostic. 0610 opens Stadium Select's loading
+scene, the in-game overlays the loading script pushes and the loading-to-game
+transition. 0611 and 0612 qualify the async loading services and the native
+widths of the gameplay sources they reach. 0613 transports the fuzzy AI script
+VM's address words. 0615 admits the original in-game frame updates
+(Presentation/NIS, characters, shadow views). 0616 lowers the original
+nonzero-morph software skin positions. 0617 decodes Wii data that match loading
+reads directly. 0618 keeps GL resource-pool storage valid after an original
+pool rewind until the pool reuses it, as original writers rely on.
+
+Patch 0630 admits the original Hall of Fame player cards (scene 65), opened by
+the Cup page's card buttons, under the Hall of Fame diagnostic. Profile (58),
+which no retail code pushes, and the earned trophy histories (66–74) stay gated.
+
+Patch 0640 admits the original Road to Striker Cup setup (scenes 6–8), cup news
+(39), hub (31), group schedule (32) and standings/award pages (36–38), plus the
+three FE presentation natives the cup transitions call, under the cup
+diagnostic. Cup cheat, game results, knockout/final round pages and the
+award/forfeit natives stay gated.
+
 Patch 0539 supplies compiler declarations, native pointer arithmetic and the
 MWCC absolute-value intrinsic for original HOME sound-player and heap sources.
 A GCC option scoped to the disposal manager preserves its cross-TU virtual

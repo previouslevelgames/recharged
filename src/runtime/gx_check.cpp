@@ -12,6 +12,10 @@
 #include <dolphin/vi.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#ifdef WEBGPU_DAWN
+#include <dawn/native/DawnNative.h>
+#include <webgpu/gpu.hpp>
+#endif
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -158,6 +162,16 @@ int main(int argc, char** argv)
         if (!info.window || info.backend != mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Requested ") + mscharged::platform::NativeGraphicsBackendName
                 + " is unavailable; the diagnostic cannot pass on a fallback backend");
+#ifdef WEBGPU_DAWN
+        // Exercise the actual requested device in both debug-layer modes.
+        // Disabling backend debug layers must retain WebGPU validation and
+        // robust buffer/shader access in Release as well as Debug builds.
+        for (const char* toggle : dawn::native::GetTogglesUsed(aurora::webgpu::g_device.Get())) {
+            const std::string_view name(toggle);
+            if (name == "skip_validation" || name == "disable_robustness")
+                throw std::runtime_error("Unsafe graphics device policy: " + std::string(name));
+        }
+#endif
         OSInit();
         VIInit();
         VIConfigure(&GXNtsc480IntDf);

@@ -57,3 +57,4 @@
 0061-match-native-dvd-result-numbers.patch
 0062-report-good-native-dvd-cancel-all-completion.patch
 0063-reuse-native-vi-surface-copy-resources.patch
+0064-retain-robustness-without-backend-debug-layers.patch

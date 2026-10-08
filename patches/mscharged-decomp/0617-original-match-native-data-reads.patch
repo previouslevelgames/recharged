@@ -1,0 +1,267 @@
+From: mscharged-port
+Subject: Decode native Wii data read by original match-loading consumers
+Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+
+E13 native data transport for Matching units that read big-endian Wii data
+directly during match loading. On the Wii these are plain big-endian loads; on
+the host the bytes keep their authored order, so host loads returned
+byte-swapped values. Original chunk walks, allocations, copy loops, strides,
+offsets, conversions, retail quirks and control flow are unchanged; only the
+native branches decode the data.
+
+- Game/NetMeshModelLoader.cpp, Game/NetMeshEdge.cpp (goal-net physics mesh):
+  vertex indices are read back from each packet's GX display list, which native
+  builds keep big-endian (glxDisplayList.cpp), and positions, normals and texture
+  coordinates are read from the model's GPU vertex streams, which keep their Wii
+  byte order. Swapped indices made the vertex lookups fail and the loader
+  dereferenced uninitialized vertex pointers in CreateStaticPhysicsPrimitives.
+  The native branches decode the index cells and read the numeric twin of each
+  completed stream (platform ReadRLGNumericStream). The retail stitched-stride
+  arithmetic is preserved.
+- Game/Physics/CharacterPhysicsElement.cpp: the element count and the 0xA0
+  CharacterPhysicsElement records are Wii big-endian words. The swapped count
+  produced an invalid nlMalloc request in
+  CharacterLoader::FinalizeLoadingCharacterPhysicsElements. The native branches
+  read the count and expand each record through platform
+  ReadCharacterPhysicsWord/ReadCharacterPhysicsElement (names stay byte strings).
+- Game/Drawable/DrawableCharacter.cpp, Game/Render/SkinAnimatedNPC.cpp: the
+  per-character and stadium-NPC shadowLevel colour is packed with a host-order
+  word cast; the original shadow-lighting stage (ColourFromWiiWord) reads a
+  numeric Wii RGBA word, so on little-endian hosts red collapsed to ~1/255 and
+  characters rendered teal/green in stadiums. The native branches pack with the
+  existing ColourToWiiWord, as GameObjectLighting's impostor producer does.
+
+diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
+--- a/src/Game/Drawable/DrawableCharacter.cpp
++++ b/src/Game/Drawable/DrawableCharacter.cpp
+@@ -31,6 +31,9 @@
+ #include "NL/nlTask.h"
+ #include "NL/gl/glTexture.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/gx_data_transport.h"
++#endif
+ 
+ static int g_nOnscreenUpdate[3] = { 2, 2, 2 };
+ static int g_nOffscreenUpdate[3] = { 4, 4, 4 };
+@@ -932,7 +935,12 @@
+     shadowColour.c[0] = channel;
+     shadowColour.c[1] = channel;
+     shadowColour.c[2] = channel;
++#if defined(MSCHARGED_NATIVE)
++    // The shadow-lighting stage reads a numeric Wii RGBA word.
++    unsigned long shadowColourValue = mscharged::platform::ColourToWiiWord(shadowColour);
++#else
+     unsigned long shadowColourValue = *(u32*)&shadowColour;
++#endif
+ 
+     pPacket = model->packets;
+     while (pPacket < model->packets + model->numPackets)
+diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
+--- a/src/Game/NetMeshEdge.cpp
++++ b/src/Game/NetMeshEdge.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/Physics/NetMeshEdge.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/rlg_geometry_bytes.h"
++#endif
+ 
+ static inline bool HasStream(const glModelPacket* packet, int streamID)
+ {
+@@ -21,11 +24,27 @@
+     return packet->streams;
+ }
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++// Authored GPU vertex streams keep their Wii byte order. These original CPU
++// reads use the numeric twin of the same completed stream; the original
++// offsets, strides and conversions are unchanged.
++static inline const u8* NetMeshStreamData(
++    const glModelPacket* packet, const glModelStream* layout, unsigned cellBytes)
++{
++    return (const u8*)mscharged::platform::ReadRLGNumericStream(layout->address,
++        (unsigned long)packet->numUniqueVertices * layout->stride, cellBytes);
++}
++#endif
++
+ const nlVector3* NetMeshModelLoader::NetMeshVertex::GetPosition() const
+ {
+     const glModelStream* layout = GetStream(mpPacket, 1);
+     u8 stride = layout->stride;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    s8* base = (s8*)NetMeshStreamData(mpPacket, layout, 4);
++#else
+     s8* base = (s8*)layout->address;
++#endif
+     return (const nlVector3*)(base + mIndex * stride);
+ }
+ 
+@@ -59,6 +78,12 @@
+     else if (layout->stride == 12)
+     {
+         float f = 1.0f;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        const u8* address = NetMeshStreamData(mpPacket, layout, 4);
++        normal.x = *(const float*)(address + mIndex * layout->stride) / f;
++        normal.y = *(const float*)(address + mIndex * layout->stride + 4) / f;
++        normal.z = *(const float*)(address + mIndex * layout->stride + 8) / f;
++#else
+         normal.x = *(const float*)((const u8*)layout->address
+                                    + mIndex * layout->stride)
+                  / f;
+@@ -68,6 +93,7 @@
+         normal.z = *(const float*)((const u8*)layout->address
+                                    + mIndex * layout->stride + 8)
+                  / f;
++#endif
+     }
+ }
+ 
+@@ -78,23 +104,38 @@
+ 
+     if (layout->stride == 4)
+     {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        const u8* address = NetMeshStreamData(mpPacket, layout, 2);
++        s16 texCoordX = *(const s16*)(address + mIndex * layout->stride);
++#else
+         s16 texCoordX = *(const s16*)((const u8*)layout->address
+                                       + mIndex * layout->stride);
++#endif
+         texCoord.x = (float)texCoordX;
+         texCoord.x *= 0.0009765625f;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        s16 texCoordY = *(const s16*)(address + mIndex * layout->stride + 2);
++#else
+         s16 texCoordY = *(const s16*)((const u8*)layout->address
+                                       + mIndex * layout->stride + 2);
++#endif
+         texCoord.y = (float)texCoordY;
+         texCoord.y *= 0.0009765625f;
+     }
+     else if (layout->stride == 8)
+     {
+         float f = 1.0f;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        const u8* address = NetMeshStreamData(mpPacket, layout, 4);
++        texCoord.x = *(const float*)(address + mIndex * layout->stride) / f;
++        texCoord.y = *(const float*)(address + mIndex * layout->stride + 4) / f;
++#else
+         texCoord.x = *(const float*)((const u8*)layout->address
+                                      + mIndex * layout->stride)
+                    / f;
+         texCoord.y = *(const float*)((const u8*)layout->address
+                                      + mIndex * layout->stride + 4)
+                    / f;
++#endif
+     }
+ }
+diff --git a/src/Game/NetMeshModelLoader.cpp b/src/Game/NetMeshModelLoader.cpp
+--- a/src/Game/NetMeshModelLoader.cpp
++++ b/src/Game/NetMeshModelLoader.cpp
+@@ -22,6 +22,16 @@
+     EdgeIterator;
+ 
+ 
++#if defined(MSCHARGED_NATIVE)
++// Native display lists keep the GX command bytes big-endian (glxDisplayList.cpp),
++// including these unaligned index cells. The original CPU reads decode them.
++static inline unsigned short LoadDisplayListIndex(const u16* cell)
++{
++    const u8* bytes = (const u8*)cell;
++    return (unsigned short)((bytes[0] << 8) | bytes[1]);
++}
++#endif
++
+ static int s_initialEdgeCount = 1;
+ static int s_initialVertexCount = 1;
+ static unsigned char sbPullGoalsOut;
+@@ -116,7 +126,11 @@
+             ptr = (u16*)((u8*)pList->list + 3 + i * stride);
+         }
+ 
++#if defined(MSCHARGED_NATIVE)
++        unsigned short vertexIndex = LoadDisplayListIndex(ptr);
++#else
+         unsigned short vertexIndex = *ptr;
++#endif
+         m_TriStripIndices[m_CurrentTriStripIndex] = vertexIndex + baseIndex;
+         ++m_CurrentTriStripIndex;
+         ++i;
+@@ -240,7 +254,11 @@
+                 ptr = (u16*)ptr8;
+             }
+ 
++#if defined(MSCHARGED_NATIVE)
++            *pVtx = LoadDisplayListIndex(ptr);
++#else
+             *pVtx = *ptr;
++#endif
+             if (*pVtx > maxVertex)
+                 maxVertex = *pVtx;
+             ++pVtx;
+diff --git a/src/Game/Physics/CharacterPhysicsElement.cpp b/src/Game/Physics/CharacterPhysicsElement.cpp
+--- a/src/Game/Physics/CharacterPhysicsElement.cpp
++++ b/src/Game/Physics/CharacterPhysicsElement.cpp
+@@ -2,6 +2,9 @@
+ 
+ #include "NL/nlChunk.h"
+ #include "NL/nlMemory.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/character_physics_wire.h"
++#endif
+ 
+ bool LoadCharacterPhysicsElements(void* pFileData, unsigned long nFileSize,
+     CharacterPhysicsData* pPhysicsData, bool arg3)
+@@ -24,7 +27,12 @@
+         {
+         case 0x0001D001:
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            pPhysicsData->physicsElementCount
++                = mscharged::platform::ReadCharacterPhysicsWord(outerChunk->GetData());
++#else
+             pPhysicsData->physicsElementCount = *(u32*)outerChunk->GetData();
++#endif
+             pPhysicsData->pPhysicsElements = (CharacterPhysicsElement*)nlMalloc(
+                 pPhysicsData->physicsElementCount * sizeof(CharacterPhysicsElement), 8, false);
+             break;
+@@ -34,7 +42,12 @@
+             CharacterPhysicsElement* pPhysicsElements = (CharacterPhysicsElement*)outerChunk->GetData();
+             for (i = 0; i < pPhysicsData->physicsElementCount; i++)
+             {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                mscharged::platform::ReadCharacterPhysicsElement(
++                    pPhysicsData->pPhysicsElements[i], pPhysicsElements + i);
++#else
+                 pPhysicsData->pPhysicsElements[i] = pPhysicsElements[i];
++#endif
+             }
+             break;
+         }
+diff --git a/src/Game/Render/SkinAnimatedNPC.cpp b/src/Game/Render/SkinAnimatedNPC.cpp
+--- a/src/Game/Render/SkinAnimatedNPC.cpp
++++ b/src/Game/Render/SkinAnimatedNPC.cpp
+@@ -21,6 +21,9 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/gx_data_transport.h"
++#endif
+ 
+ static char ShadowLevelName[] = "shadowLevel";
+ static char AlphaValueName[] = "alphaValue";
+@@ -146,7 +149,12 @@
+             &mWorldMatrix.GetTranslation()),
+         true);
+     glModelPacket* pPacket = pModel->packets;
++#if defined(MSCHARGED_NATIVE)
++    // The shadow-lighting stage reads a numeric Wii RGBA word.
++    u32 shadowColourValue = mscharged::platform::ColourToWiiWord(shadowColour);
++#else
+     u32 shadowColourValue = *reinterpret_cast<u32*>(&shadowColour);
++#endif
+ 
+     while (pPacket < pModel->packets + pModel->numPackets)
+     {

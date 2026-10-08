@@ -1,5 +1,5 @@
 add_executable(mscharged-gx-check src/runtime/gx_check.cpp)
-target_include_directories(mscharged-gx-check PRIVATE src)
+target_include_directories(mscharged-gx-check PRIVATE src "${MSCHARGED_AURORA_PREPARED}/lib")
 target_compile_features(mscharged-gx-check PRIVATE cxx_std_20)
 target_link_libraries(mscharged-gx-check PRIVATE aurora::gx aurora::mtx aurora::os
     aurora::vi aurora::core mscharged_build_info)

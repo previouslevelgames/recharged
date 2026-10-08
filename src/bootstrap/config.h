@@ -26,7 +26,7 @@ struct Settings
     // Host presentation and diagnostics (never game behaviour).
     bool show_fps = true;             // display.show_fps: frame rate in the game window title
     int monitor = 0;                  // display.monitor: 0 = default display, N = Nth connected display
-    bool graphics_validation = true;  // advanced.graphics_validation: graphics API validation layers
+    bool graphics_validation = true;  // advanced.graphics_validation: backend graphics debug layers
     std::string log_level = "info";   // advanced.log_level: error | warning | info | debug
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
 };

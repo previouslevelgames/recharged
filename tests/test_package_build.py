@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -21,9 +22,9 @@ class PackageBuildTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
-        self.source = self.root / "source"
-        self.build = self.root / "build"
-        self.output = self.root / "artifacts"
+        self.source = self.root / "source checkout with spaces"
+        self.build = self.root / "completed build with spaces"
+        self.output = self.root / "package artifacts with spaces"
         self.pin = "1" * 40
         self.checksum = "2" * 64
         self.write(self.build, "mscharged", b"synthetic executable", 0o755)
@@ -169,6 +170,29 @@ checksum = "{self.checksum}"
             self.package()
         self.assertFalse(self.output.exists())
 
+    def test_payload_survives_relocation_with_spaces(self):
+        archive_path = self.package()
+        extracted = self.root / "first extraction with spaces"
+        with tarfile.open(archive_path) as archive:
+            archive.extractall(extracted, filter="data")
+        package = next(extracted.iterdir())
+        relocated = self.root / "moved runtime with spaces"
+        package.rename(relocated)
+        # Retain only the synthetic distributable. This proves archive paths,
+        # bytes and modes; it does not execute or qualify a native runtime.
+        shutil.rmtree(self.build)
+        shutil.rmtree(self.source)
+        manifest = json.loads((relocated / "SOURCE-MANIFEST.json").read_text())
+        self.assertEqual(manifest["modules"], ["mscharged_original_frontend_module.so",
+                                              "mscharged_original_main_credits_module.so"])
+        self.assertFalse((relocated / "prepared").exists())
+        self.assertFalse((relocated / "mscharged_original_loading_module.so").exists())
+        for relative, recorded in manifest["files"].items():
+            path = relocated / relative
+            self.assertTrue(path.is_file() and not path.is_symlink())
+            self.assertEqual(self.hash(path.read_bytes()), recorded["sha256"])
+            self.assertEqual(path.stat().st_mode & 0o777, int(recorded["mode"], 8))
+
     def test_ambiguous_module_fails(self):
         self.write(self.build, PACKAGER.MODULES[0] + ".dylib", b"different module")
         with self.assertRaisesRegex(PACKAGER.PackageError, "found 2"):
@@ -208,6 +232,11 @@ checksum = "{self.checksum}"
             (self.build / (stem + ".so")).rename(self.build / (stem + ".dylib"))
         path = self.package()
         self.assertTrue(path.name.endswith("-macos-arm64.tar.gz"))
+        with tarfile.open(path) as archive:
+            member = next(item for item in archive if item.name.endswith("/SOURCE-MANIFEST.json"))
+            manifest = json.load(archive.extractfile(member))
+        self.assertEqual((manifest["platform"], manifest["architecture"]), ("macos", "arm64"))
+        self.assertEqual(manifest["modules"], [stem + ".dylib" for stem in PACKAGER.MODULES])
 
     def test_changed_prepared_and_cached_notices_fail(self):
         prepared = self.build / "prepared/dawn/source/LICENSE"

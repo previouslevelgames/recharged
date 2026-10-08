@@ -219,6 +219,8 @@ private:
 
 // Exact source GL suballocations are storage facts inside an existing actual
 // allocation. They do not invent MemoryAllocator owners or imply written bytes.
+// Commit evicts storage left above an original pool rewind (see CommitRewind)
+// that the new suballocation overlaps; overlap with live storage still fails.
 class GameGraphicsStorageReservation
 {
 public:
@@ -232,6 +234,11 @@ private:
 };
 // Reserve the one possible split node before the original callback/rewind. The
 // actual source result supplies the retired range; Commit allocates no metadata.
+// Commit ends the storage lifetime. CommitRewind serves an original resource
+// pool rewind: the pool memory stays valid, and retail writers may still fill
+// and draw storage they allocated before the rewind. It retires completed
+// bytes and unfinished producers like Commit but keeps each storage record
+// (same incarnation) until the pool allocates over it or the backing is freed.
 class GameGraphicsRetirementReservation
 {
 public:
@@ -240,6 +247,7 @@ public:
     GameGraphicsRetirementReservation(const GameGraphicsRetirementReservation&) = delete;
     GameGraphicsRetirementReservation& operator=(const GameGraphicsRetirementReservation&) = delete;
     void Commit(const void* pointer, std::size_t bytes);
+    void CommitRewind(const void* pointer, std::size_t bytes);
 private:
     void* pending_;
 };

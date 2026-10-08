@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise source preparation against disposable local Git repositories."""
 import difflib
+import errno
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -8,11 +10,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tracemalloc
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from format_prepared import find_clang_format
-from prepare_sources import PreparationError, prepare
+from prepare_sources import PreparationError, content_inventory, prepare
 
 
 class SourcePreparationTests(unittest.TestCase):
@@ -60,6 +64,90 @@ class SourcePreparationTests(unittest.TestCase):
 
     def run_prepare(self, **kwargs):
         return prepare(self.root, self.build, "example", **kwargs)
+
+    def test_inventory_bounds_memory_and_preserves_bytes_modes(self):
+        tree = self.workspace / "inventory"
+        tree.mkdir()
+        payload = tree / "payload.bin"
+        block = bytes(range(256)) * 16
+        expected = hashlib.sha256()
+        with payload.open("wb") as stream:
+            for _ in range(1024):
+                stream.write(block)
+                expected.update(block)
+            stream.write(b"unaligned tail\0\xff")
+            expected.update(b"unaligned tail\0\xff")
+        payload.chmod(0o755)
+        executable = bool(payload.stat().st_mode & 0o111)
+        (tree / "empty").write_bytes(b"")
+        tracemalloc.start()
+        try:
+            inventory = content_inventory(tree)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertLess(peak, 1024 * 1024, "Inventory retained a file-sized Python allocation")
+        self.assertEqual(inventory, {
+            "empty": {"sha256": hashlib.sha256(b"").hexdigest(), "executable": False},
+            "payload.bin": {"sha256": expected.hexdigest(), "executable": executable},
+        })
+
+    def test_inventory_preserves_symlinks_without_following_them(self):
+        tree = self.workspace / "inventory"
+        tree.mkdir()
+        try:
+            (tree / "outside").symlink_to(self.upstream, target_is_directory=True)
+            (tree / "broken").symlink_to("missing")
+        except OSError as error:
+            if os.name == "nt":
+                self.skipTest(f"Symlink fixture unavailable: {error}")
+            raise
+        self.assertEqual(content_inventory(tree), {
+            "outside": {"symlink": str(self.upstream)}, "broken": {"symlink": "missing"},
+        })
+
+    def test_inventory_propagates_open_read_and_final_stat_failures(self):
+        tree = self.workspace / "inventory"
+        tree.mkdir()
+        path = tree / "value.bin"
+        path.write_bytes(b"source bytes")
+        failed = OSError(errno.EIO, "injected file failure")
+        with mock.patch.object(Path, "open", side_effect=failed):
+            with self.assertRaises(OSError) as caught:
+                content_inventory(tree)
+            self.assertIs(caught.exception, failed)
+
+        class FailedReader:
+            calls = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, size=-1):
+                self.calls += 1
+                if self.calls == 1:
+                    return b"partial read"
+                raise failed
+
+        with mock.patch.object(Path, "open", return_value=FailedReader()):
+            with self.assertRaises(OSError) as caught:
+                content_inventory(tree)
+            self.assertIs(caught.exception, failed)
+
+        original_stat = Path.stat
+        def fail_final_stat(queried, *args, **kwargs):
+            if queried == path and kwargs.get("follow_symlinks", True):
+                raise failed  # The unchanged executable-mode check after hashing.
+            return original_stat(queried, *args, **kwargs)
+
+        with mock.patch.object(Path, "is_file", return_value=True), \
+                mock.patch.object(Path, "stat", fail_final_stat):
+            with self.assertRaises(OSError) as caught:
+                content_inventory(tree)
+            self.assertIs(caught.exception, failed)
 
     def test_ordered_patches_and_cache(self):
         self.patch("one.patch", "original\n", "first\n")

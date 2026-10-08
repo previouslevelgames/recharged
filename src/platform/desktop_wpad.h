@@ -19,12 +19,18 @@ struct DesktopWpadSettings {
     bool mouse = false;
     DesktopDpdProjectionQuery pointer_projection = nullptr;
     void* pointer_projection_context = nullptr;
+    // Attach a virtual Nunchuk to the keyboard remote: W/A/S/D move its stick
+    // and C/V press C/Z. Requires the keyboard profile.
+    bool nunchuk = false;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.
 // The existing native WPAD and whole original KPAD/game pads consume their raw
 // reports. This profile supplies digital buttons and neutral gravity only;
-// analog/Nunchuk/Classic/motion remain separate hardware prerequisites.
+// gamepad analog/Nunchuk, Classic and motion remain separate prerequisites.
+// The opt-in keyboard Nunchuk reports a digital stick (full deflection on a
+// circular gate), C/Z and a level Nunchuk's gravity through native WPAD's
+// extension sequence; original KPAD and game pads keep every stick decision.
 // Opt-in mouse supplies an upright virtual raw IR camera only with an actual
 // successful-Present projection. Physical remote IR is still unqualified.
 // Focus policy: buttons and camera objects are reported only while the window

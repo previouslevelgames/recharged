@@ -196,6 +196,41 @@ int main() {
         Reject<std::invalid_argument>([&]{GameGraphicsRetirementReservation partial;partial.Commit(raw+65,1);});
         Check(ResolveGameGraphicsArray(raw+64).bytes==12,"Rejected partial rewind mutated valid source storage");
 
+        // An original pool rewind only moves the pool top. DrawableNetMesh's
+        // second pass allocates writer storage, rewinds, then fills/draws it.
+        GameGraphicsStorageReservation writerStorage(48); writerStorage.Commit(raw+3200);
+        GameGraphicsStorageSpan writer{};
+        Check(FindGameGraphicsStorage(raw+3200,48,writer),"Writer storage missing");
+        GameByteWriteReservation unfinished(raw+3200,48);
+        GameGraphicsRetirementReservation poolRewind;
+        budget=0; poolRewind.CommitRewind(raw+3200,256); budget=-1;
+        GameGraphicsStorageSpan kept{};
+        Check(FindGameGraphicsStorage(raw+3200,48,kept) && kept.incarnation==writer.incarnation,
+              "Pool rewind ended storage the original writer still fills");
+        Reject<std::invalid_argument>([&]{unfinished.Complete(GameByteDomain::WiiSerialized);});
+        unfinished.Reset();
+        Reject<std::invalid_argument>([&]{ResolveGameGraphicsArray(raw+3200);});
+        std::memcpy(raw+3200,values,sizeof(values));
+        budget=0; PublishGameGraphicsNativeBytes(raw+3200,raw+3212); budget=-1;
+        Check(ResolveGameGraphicsArray(raw+3200).bytes==12
+              && ResolveGameGraphicsArray(raw+3200).storage.incarnation==writer.incarnation,
+              "Rewound writer storage could not be published and drawn");
+        // The pool's next allocation over it evicts the record and its stale bytes.
+        GameGraphicsStorageReservation reusedWriter(24); reusedWriter.Commit(raw+3200);
+        GameGraphicsStorageSpan fresh{};
+        Check(FindGameGraphicsStorage(raw+3200,24,fresh) && fresh.incarnation!=writer.incarnation
+              && !FindGameGraphicsStorage(raw+3232,4,a),
+              "Pool reuse kept the rewound storage record");
+        Reject<std::invalid_argument>([&]{ResolveGameGraphicsArray(raw+3200);});
+        Reject<std::invalid_argument>([&]{GameGraphicsStorageReservation overlap(8); overlap.Commit(raw+3216);});
+        GameGraphicsStorageReservation tail(16); tail.Commit(raw+3328);
+        GameGraphicsRetirementReservation tailRewind; tailRewind.CommitRewind(raw+3328,64);
+        GameGraphicsStorageReservation spanning(48); spanning.Commit(raw+3312);
+        Check(FindGameGraphicsStorage(raw+3312,48,a) && a.base==raw+3312,
+              "Reuse starting before rewound storage did not evict it");
+        Reject<std::invalid_argument>([&]{GameGraphicsRetirementReservation cut; cut.CommitRewind(raw+3320,8);});
+        Check(FindGameGraphicsStorage(raw+3312,48,a),"Rejected rewind mutated live storage");
+
         GameGraphicsStorageReservation nestedStorage(1024);nestedStorage.Commit(raw+2048);
         std::memset(raw+2048,0x33,1024);PublishGameGraphicsNativeBytes(raw+2048,raw+3072);
         MemoryAllocator child{};child.Initialize(raw+2304,256);auto* leaf=child.Allocate(32,8,false);

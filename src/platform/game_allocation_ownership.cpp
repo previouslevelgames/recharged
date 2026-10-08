@@ -69,6 +69,8 @@ struct GraphicsStorage
     ByteSpans::node_type native_publication;
     GraphicsArrayBounds array_bounds;
     bool array_aliases = false;
+    // Left above an original pool rewind; still backed until reallocated.
+    bool rewound = false;
 };
 using GraphicsStorageSpans = std::map<std::uintptr_t, GraphicsStorage, std::less<std::uintptr_t>,
     HostMetadataAllocator<std::pair<const std::uintptr_t, GraphicsStorage>>>;
@@ -1261,15 +1263,26 @@ void GameGraphicsStorageReservation::Commit(void* pointer)
     auto owner = Containing(state.records, address, bytes);
     if (owner == state.records.end()) throw std::invalid_argument("Graphics storage has no real allocation owner");
     ValidateMemoryExtent(owner->second,address,bytes);
-    // Every live span passed this check when inserted, so live spans never
-    // overlap: only the first span at or after the address and its
-    // predecessor can intersect it.
+    // Every span passed this check when inserted and a rewind only flags
+    // spans, so spans never overlap: the met spans are the predecessor, if it
+    // intersects, and those starting inside the new range. Only storage left
+    // above an original pool rewind may be met; the pool now reuses it.
     auto& spans = owner->second.graphics_storage;
-    const auto next = spans.lower_bound(address);
-    if ((next != spans.end() && Overlaps(next->first, next->second.bytes, address, bytes)) ||
-        (next != spans.begin() && Overlaps(std::prev(next)->first, std::prev(next)->second.bytes, address, bytes)))
-        throw std::invalid_argument("Graphics suballocation overlaps live source storage");
-    RetireByteRange(owner->second, address, bytes, pending.split);
+    auto first = spans.lower_bound(address);
+    if (first != spans.begin() && Overlaps(std::prev(first)->first, std::prev(first)->second.bytes, address, bytes))
+        --first;
+    auto last = first;
+    auto retireBase = address, retireEnd = address + bytes;
+    for (; last != spans.end() && last->first < address + bytes; ++last)
+    {
+        if (!last->second.rewound) throw std::invalid_argument("Graphics suballocation overlaps live source storage");
+        if (last->first < retireBase) retireBase = last->first;
+        if (last->first + last->second.bytes > retireEnd) retireEnd = last->first + last->second.bytes;
+    }
+    // Evicted rewound storage takes its stale completed bytes with it. The
+    // union is contiguous, so the one reserved split node still suffices.
+    RetireByteRange(owner->second, retireBase, retireEnd - retireBase, pending.split);
+    spans.erase(first, last);
     pending.record.key() = address;
     auto inserted = owner->second.graphics_storage.insert(std::move(pending.record));
     if (!inserted.inserted) throw std::logic_error("Graphics suballocation address conflict");
@@ -1285,7 +1298,9 @@ GameGraphicsRetirementReservation::~GameGraphicsRetirementReservation()
     static_cast<PendingGraphicsRetirement*>(pending_)->~PendingGraphicsRetirement();
     ChargedNativeMetadataRelease(pending_);
 }
-void GameGraphicsRetirementReservation::Commit(const void* pointer, std::size_t bytes)
+namespace
+{
+void RetireGraphicsRange(void* pending_, const void* pointer, std::size_t bytes, bool keepRewound)
 {
     if (!bytes) return;
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
@@ -1300,7 +1315,18 @@ void GameGraphicsRetirementReservation::Commit(const void* pointer, std::size_t 
     RetireByteRange(owner->second, address, bytes, pending.split);
     auto first = owner->second.graphics_storage.lower_bound(address);
     auto last = owner->second.graphics_storage.lower_bound(address + bytes);
-    owner->second.graphics_storage.erase(first, last);
+    if (!keepRewound) { owner->second.graphics_storage.erase(first, last); return; }
+    // The original pool only moves its top; memory and incarnations remain.
+    for (; first != last; ++first) first->second.rewound = true;
+}
+}
+void GameGraphicsRetirementReservation::Commit(const void* pointer, std::size_t bytes)
+{
+    RetireGraphicsRange(pending_, pointer, bytes, false);
+}
+void GameGraphicsRetirementReservation::CommitRewind(const void* pointer, std::size_t bytes)
+{
+    RetireGraphicsRange(pending_, pointer, bytes, true);
 }
 bool FindGameGraphicsStorage(const void* pointer, std::size_t bytes, GameGraphicsStorageSpan& result)
 {

@@ -1,4 +1,5 @@
 #include "platform/wpad_sdl.h"
+#include "platform/desktop_nunchuk.h"
 #include "platform/interrupts.h"
 
 #include <revolution/wpad/WPAD.h>
@@ -27,9 +28,13 @@ struct Channel {
     WPADExtensionCallback* extension = nullptr;
     WPADSamplingCallback sampling = nullptr;
     u16 buttons = 0;
-    std::array<WPADStatus, kPendingReports> pending{};
+    // Extension state of a connected remote, kept like the original parser's
+    // devType: CORE, INITIALIZING during the extension handshake, FREESTYLE.
+    u8 device = WPAD_DEV_CORE;
+    // The freestyle report layout extends the core layout.
+    std::array<WPADFSStatus, kPendingReports> pending{};
     std::size_t head = 0, count = 0;
-    WPADStatus current{};
+    WPADFSStatus current{};
     u32 dpd_command = WPAD_DPD_DISABLE;
     u32 dpd_pending_command = WPAD_DPD_DISABLE;
     bool dpd_pending = false;
@@ -43,6 +48,10 @@ struct Channel {
 struct DpdProducer {
     mscharged::platform::NativeDpdSource source{};
     mscharged::platform::NativeDpdObservation observation{};
+};
+struct NunchukProducer {
+    mscharged::platform::NativeNunchukSource source{};
+    mscharged::platform::NativeNunchukObservation observation{};
 };
 struct Hardware {
     std::mutex reports;
@@ -58,6 +67,9 @@ struct Hardware {
     std::array<DpdProducer, WPAD_MAX_CONTROLLERS> dpd_producers{};
     std::thread::id dpd_owner{};
     std::uint64_t dpd_generation = 0;
+    std::array<NunchukProducer, WPAD_MAX_CONTROLLERS> nunchuk_producers{};
+    std::thread::id nunchuk_owner{};
+    std::uint64_t nunchuk_generation = 0;
 };
 Hardware& State() {
     static Hardware hardware;
@@ -91,7 +103,7 @@ DpdProducer& RequireDpdProducer(mscharged::platform::NativeDpdSource source) {
         throw std::invalid_argument("DPD observation source is retired or foreign");
     return *producer;
 }
-void CopyDpdObservation(Channel& channel, WPADStatus& report) {
+void CopyDpdObservation(Channel& channel, WPADFSStatus& report) {
     const auto* producer = FindDpdProducer(channel.id);
     if (!producer || channel.dpd_command == WPAD_DPD_DISABLE) return;
     for (std::size_t n = 0; n < producer->observation.size(); ++n) {
@@ -99,9 +111,45 @@ void CopyDpdObservation(Channel& channel, WPADStatus& report) {
         report.obj[n] = {object.x, object.y, object.size, object.trace_id};
     }
 }
+NunchukProducer* FindNunchukProducer(SDL_JoystickID id) {
+    if (!id) return nullptr;
+    for (auto& producer : State().nunchuk_producers)
+        if (producer.source.joystick_id == id) return &producer;
+    return nullptr;
+}
+void RequireNunchukOwner() {
+    RequireOwner();
+    if (State().nunchuk_owner != std::thread::id{} && State().nunchuk_owner != std::this_thread::get_id())
+        throw std::logic_error("Nunchuk observations require their native SDL owner");
+}
+NunchukProducer& RequireNunchukProducer(mscharged::platform::NativeNunchukSource source) {
+    auto* producer = FindNunchukProducer(source.joystick_id);
+    if (!source.generation || !producer || producer->source.generation != source.generation)
+        throw std::invalid_argument("Nunchuk observation source is retired or foreign");
+    return *producer;
+}
+bool FreestyleFormat(u32 format) {
+    return format >= WPAD_FMT_FS_BTN && format <= WPAD_FMT_FS_BTN_ACC_DPD;
+}
+void CopyNunchukObservation(const Channel& channel, WPADFSStatus& report) {
+    // The remote sends extension bytes only in the freestyle report formats,
+    // and the original parser decodes them only once the extension is known.
+    if (channel.device != WPAD_DEV_FREESTYLE || !FreestyleFormat(channel.format)) return;
+    const auto* producer = FindNunchukProducer(channel.id);
+    if (!producer) return;
+    const auto& value = producer->observation;
+    report.fsStickX = value.stick_x;
+    report.fsStickY = value.stick_y;
+    report.fsAccX = value.acc_x;
+    report.fsAccY = value.acc_y;
+    report.fsAccZ = value.acc_z;
+    if (value.c) report.button |= WPAD_BUTTON_FS_C;
+    if (value.z) report.button |= WPAD_BUTTON_FS_Z;
+}
 void ClearReports(Channel& channel) {
     channel.id = 0;
     channel.buttons = 0;
+    channel.device = WPAD_DEV_CORE;
     channel.motor_running = false;
     channel.head = channel.count = 0;
     channel.dpd_command = WPAD_DPD_DISABLE;
@@ -145,11 +193,12 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
             return true;
         }
         if (event->gsensor.sensor != SDL_SENSOR_ACCEL) return true;
-        WPADStatus report{};
-        report.dev = WPAD_DEV_CORE;
+        WPADFSStatus report{};
+        report.dev = channel.device;
         report.err = WPAD_ERR_OK;
         report.button = channel.buttons;
         CopyDpdObservation(channel, report);
+        CopyNunchukObservation(channel, report);
         // Retail WPADiExcludeButton removes opposite right/down bits.
         if ((report.button & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) ==
                 (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) report.button &= ~WPAD_BUTTON_RIGHT;
@@ -197,6 +246,20 @@ bool DispatchDpdCompletion(Channel& channel, s32 index) {
         }
         if (callback) callback(value.index, result);
     }, &completion);
+}
+bool DispatchExtension(Channel& channel, s32 index, u8 device) {
+    struct Change { Channel* channel; s32 index; u8 device; } change{&channel, index, device};
+    return mscharged::platform::DispatchNativeInterrupt([](void* opaque) {
+        auto& value = *static_cast<Change*>(opaque);
+        WPADExtensionCallback* callback;
+        {
+            // The original parser stores devType before calling extensionCB.
+            std::lock_guard lock(State().reports);
+            value.channel->device = value.device;
+            callback = value.channel->extension;
+        }
+        if (callback) callback(value.index, value.device);
+    }, &change);
 }
 bool DispatchConnect(Channel& channel, s32 index, WPADResult result) {
     struct Call { WPADConnectCallback* callback; s32 channel; WPADResult result; } call{channel.connect, index, result};
@@ -256,6 +319,49 @@ void DetachNativeWpadDpdSource(NativeDpdSource source) {
     bool any = false;
     for (const auto& producer : state.dpd_producers) any |= producer.source.generation != 0;
     if (!any) state.dpd_owner = {};
+}
+NativeNunchukSource AttachNativeWpadNunchukSource(std::uint32_t joystick_id) {
+    RequireNunchukOwner();
+    if (!joystick_id || !SDL_GetJoystickFromID(joystick_id) || !SDL_IsJoystickVirtual(joystick_id))
+        throw std::invalid_argument("Nunchuk source must own an open explicit SDL virtual device");
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    if (FindNunchukProducer(joystick_id)) throw std::logic_error("Nunchuk source is already attached");
+    NunchukProducer* slot = nullptr;
+    for (auto& producer : state.nunchuk_producers) if (!producer.source.generation) { slot = &producer; break; }
+    if (!slot) throw std::length_error("Native Nunchuk source capacity is exhausted");
+    if (state.nunchuk_generation == std::numeric_limits<std::uint64_t>::max())
+        throw std::overflow_error("Nunchuk source incarnation exhausted");
+    *slot = {};
+    // A level, untouched Nunchuk until the first observation arrives.
+    slot->observation.acc_z = kNativeNunchukGravity;
+    slot->source = {joystick_id, ++state.nunchuk_generation};
+    state.nunchuk_owner = std::this_thread::get_id();
+    return slot->source;
+}
+void SubmitNativeWpadNunchukObservation(NativeNunchukSource source, const NativeNunchukObservation& observation) {
+    RequireNunchukOwner();
+    // Post-parser words: 10-bit raw acceleration minus its zero-g point.
+    for (const auto value : {observation.acc_x, observation.acc_y, observation.acc_z})
+        if (value < -512 || value > 511)
+            throw std::invalid_argument("Nunchuk acceleration exceeds its raw sensor domain");
+    // Query SDL before taking the report mutex, as for DPD observations.
+    SDL_Joystick* joystick = SDL_GetJoystickFromID(source.joystick_id);
+    if (!joystick || !SDL_JoystickConnected(joystick))
+        throw std::invalid_argument("Nunchuk source SDL device is no longer live");
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    RequireNunchukProducer(source).observation = observation;
+}
+void DetachNativeWpadNunchukSource(NativeNunchukSource source) {
+    RequireNunchukOwner();
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    // A still-connected remote reports CORE at its next owner service.
+    RequireNunchukProducer(source) = {};
+    bool any = false;
+    for (const auto& producer : state.nunchuk_producers) any |= producer.source.generation != 0;
+    if (!any) state.nunchuk_owner = {};
 }
 void ConfigureWpadSDL(WpadSDLSettings settings) {
     auto& state = State();
@@ -360,6 +466,22 @@ void ServiceWpadSDL() {
             if (!state.initialized || state.generation != generation) return;
             channel.announced = true;
         }
+        // A status report with an attached extension starts the original
+        // handshake (INITIALIZING); its configuration read then identifies the
+        // Nunchuk (FREESTYLE), and removal reports CORE. One step per service
+        // keeps the console's asynchronous handshake observable.
+        u8 device = channel.device;
+        {
+            std::lock_guard lock(state.reports);
+            const bool attached = FindNunchukProducer(channel.id) != nullptr;
+            if (attached && channel.device == WPAD_DEV_CORE) device = WPAD_DEV_INITIALIZING;
+            else if (attached && channel.device == WPAD_DEV_INITIALIZING) device = WPAD_DEV_FREESTYLE;
+            else if (!attached && channel.device != WPAD_DEV_CORE) device = WPAD_DEV_CORE;
+        }
+        if (device != channel.device) {
+            if (!DispatchExtension(channel, index, device)) return;
+            if (!state.initialized || state.generation != generation) return;
+        }
         while (channel.sampling) {
             {
                 std::lock_guard lock(state.reports);
@@ -445,7 +567,7 @@ WPADLibStatus WPADGetStatus() {
 }
 WPADResult WPADProbe(WPADChannel index, WPADDeviceType* type) {
     auto& channel = GetChannel(index);
-    if (type) *type = channel.pad ? WPAD_DEV_CORE : WPAD_DEV_NOT_FOUND;
+    if (type) *type = channel.pad ? static_cast<WPADDeviceType>(channel.device) : WPAD_DEV_NOT_FOUND;
     return channel.pad ? WPAD_ERR_OK : WPAD_ERR_NO_CONTROLLER;
 }
 // Native SDL core reports have no qualified Wii speaker HID output. Keep
@@ -531,19 +653,25 @@ u32 WPADGetDataFormat(s32 index) { return GetChannel(index).format; }
 s32 WPADSetDataFormat(s32 index, u32 format) {
     auto& channel = GetChannel(index);
     if (!channel.pad) return WPAD_ERR_NO_CONTROLLER;
-    if (format > WPAD_FMT_CORE_BTN_ACC_DPD) return WPAD_ERR_INVALID;
+    // Core and freestyle report layouts are transported; no native device
+    // supplies classic or extended reports.
+    if (format > WPAD_FMT_FS_BTN_ACC_DPD) return WPAD_ERR_INVALID;
+    std::lock_guard lock(State().reports);
     channel.format = format;
     return WPAD_ERR_OK;
 }
 void WPADRead(s32 index, WPADStatus* output) {
     auto& channel = GetChannel(index);
     if (!output) throw std::invalid_argument("WPADRead requires a report buffer");
-    if (channel.current.err == WPAD_ERR_OK || channel.current.err == WPAD_ERR_COMMUNICATION_ERROR ||
-        channel.current.err == WPAD_ERR_CORRUPTED) *output = channel.current;
+    // Retail WPADRead sizes a successful copy by the selected report format,
+    // copies only the core layout for communication/corrupted reports, and
+    // clears the selected layout on other errors before storing the error byte.
+    const std::size_t size = FreestyleFormat(channel.format) ? sizeof(WPADFSStatus) : sizeof(WPADStatus);
+    if (channel.current.err == WPAD_ERR_OK) std::memcpy(output, &channel.current, size);
+    else if (channel.current.err == WPAD_ERR_COMMUNICATION_ERROR || channel.current.err == WPAD_ERR_CORRUPTED)
+        std::memcpy(output, &channel.current, sizeof(WPADStatus));
     else {
-        // Retail WPADRead clears this selected core report on other errors,
-        // then returns only its actual error byte.
-        std::memset(output, 0, sizeof(*output));
+        std::memset(output, 0, size);
         output->err = channel.current.err;
     }
 }
@@ -555,7 +683,13 @@ void WPADGetAccGravityUnit(s32 index, u32 type, WPADAccGravityUnit* output) {
     // its own retail fallback. Physical EEPROM calibration remains unqualified.
     if (type == WPAD_ACC_GRAVITY_UNIT_CORE)
         *output = channel.pad ? WPADAccGravityUnit{100, 100, 100} : WPADAccGravityUnit{0, 0, 0};
-    else if (type == WPAD_ACC_GRAVITY_UNIT_FS) *output = {0, 0, 0};
+    else if (type == WPAD_ACC_GRAVITY_UNIT_FS)
+        // Extension calibration exists only after the handshake identified
+        // the virtual Nunchuk; its nominal unit matches the submitted counts.
+        *output = channel.pad && channel.device == WPAD_DEV_FREESTYLE
+            ? WPADAccGravityUnit{mscharged::platform::kNativeNunchukGravity, mscharged::platform::kNativeNunchukGravity,
+                                 mscharged::platform::kNativeNunchukGravity}
+            : WPADAccGravityUnit{0, 0, 0};
 }
 u8 WPADGetSensorBarPosition() { RequireOwner(); return State().settings.sensor_bar_position; }
 u8 WPADGetDpdSensitivity() { RequireOwner(); return State().settings.dpd_sensitivity; }

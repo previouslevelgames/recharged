@@ -220,6 +220,48 @@ const nlVector3* NativeRLGFloat3Rows::Data() const
     return const_cast<Float3Rows&>(rows).Data();
 }
 
+const void* ReadRLGNumericStream(const void* source, std::size_t bytes, std::size_t cellBytes)
+{
+    if (cellBytes != 1 && cellBytes != 2 && cellBytes != 4)
+        throw std::invalid_argument("Authored vertex stream cell width remains unqualified");
+    if (!bytes || cellBytes == 1) return source;
+    if (bytes % cellBytes)
+        throw std::invalid_argument("Authored vertex stream extent splits a numeric cell");
+    GameCompletedSpan span{};
+    if (!FindGameCompletedSpan(source, bytes, span))
+        throw std::invalid_argument("Authored vertex stream leaves its completed original owner");
+    const auto domain = FindGameByteDomain(source, bytes);
+    if (domain == GameByteDomain::NativePayload) return source;
+    if (domain != GameByteDomain::WiiSerialized)
+        throw std::invalid_argument("Authored vertex stream has an unknown numeric byte domain");
+    GameNativeBackingSpan previous{};
+    if (FindGameNativeBacking(source, bytes, previous))
+    {
+        if (previous.bytes != bytes)
+            throw std::invalid_argument("Authored vertex stream already has a different native view");
+        return previous.data;
+    }
+    GameNativeBackingReservation backing(source, bytes, bytes);
+    auto* native = static_cast<unsigned char*>(backing.Data());
+    const auto* raw = static_cast<const unsigned char*>(source);
+    for (std::size_t at = 0; at < bytes; at += cellBytes)
+    {
+        if (cellBytes == 2)
+        {
+            const auto value = std::uint16_t((std::uint16_t(raw[at]) << 8) | raw[at + 1]);
+            std::memcpy(native + at, &value, sizeof(value));
+        }
+        else
+        {
+            // No float arithmetic: retain authored zero, infinity and NaN bits.
+            const std::uint32_t value = SkinWord(raw + at);
+            std::memcpy(native + at, &value, sizeof(value));
+        }
+    }
+    backing.Commit();
+    return native;
+}
+
 NativeRLGWeightRows::NativeRLGWeightRows(const void* source, std::size_t vertices,
     RLGWeightAccess access) : state_(nullptr)
 {

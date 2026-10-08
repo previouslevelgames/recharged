@@ -1,0 +1,33 @@
+From: mscharged-port
+Subject: Keep rewound GL resource-pool storage for original writers
+Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Classification: native ownership contract (shared graphics-storage tracker); depends on 0213 and 0238.
+
+GLXResourcePool::ReleaseResource only moves the pool top on the Wii; the
+memory stays valid until the pool allocates over it. Original
+DrawableNetMesh::Render relies on that: GameRenderTask resets the net pools
+once per frame and renders twice with a secondary NIS (picture-in-picture,
+replays), and the second pass allocates its MeshWriter buffers, rewinds the
+same pool to its marker, then fills, publishes and draws those buffers.
+
+The native rewind hook now commits through CommitRewind. Completed bytes and
+unfinished producers in the range are retired as before, but each graphics
+storage record stays (same incarnation) until a later allocation from the pool
+evicts it or its backing is freed. Frame-memory retirement still ends storage
+lifetime. Pool, marker and renderer code are unchanged.
+
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -395,8 +395,10 @@
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+     mscharged::platform::RetireGameResourceRecords(this,
+         (void*)(mPoolMemory[0] + mUsedMemory[0]), mPoolSizes[0] - mUsedMemory[0]);
++    // A rewind only moves the pool top; retail writers may still fill and draw
++    // storage allocated before it (DrawableNetMesh's second pass per frame).
+     for (int pool = 0; pool < 2; ++pool)
+-        nativeRetirement[pool].Commit((void*)(mPoolMemory[pool] + mUsedMemory[pool]),
++        nativeRetirement[pool].CommitRewind((void*)(mPoolMemory[pool] + mUsedMemory[pool]),
+             mPoolSizes[pool] - mUsedMemory[pool]);
+ #endif
+ #endif

@@ -44,6 +44,15 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def file_sha(path: Path) -> str:
+    """Hash every file byte without allocating a file-sized buffer."""
+    digest = hashlib.sha256()
+    with path.open("rb", buffering=0) as stream:
+        while chunk := stream.read(64 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def encoded(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
@@ -142,7 +151,7 @@ def content_inventory(directory: Path):
             if path.is_symlink():
                 result[relative] = {"symlink": os.readlink(path)}
             elif path.is_file():
-                result[relative] = {"sha256": sha(path.read_bytes()),
+                result[relative] = {"sha256": file_sha(path),
                                     "executable": bool(path.stat().st_mode & 0o111)}
     return result
 

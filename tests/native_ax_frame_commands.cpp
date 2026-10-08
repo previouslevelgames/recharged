@@ -306,6 +306,28 @@ void Run(int argc, char** argv) {
             Throws([&]{CommitNativeAXCommandFrame(memory,malformed,history);},"staged PB/command alias became partial committed output");
             malformed=staged;malformed.voices[1].parameter_address=pb_address+2;
             Throws([&]{CommitNativeAXCommandFrame(memory,malformed,history);},"staged distinct partial PB overlap became committed output");
+            // The opaque final wire byte is part of a stopped PB snapshot too.
+            const auto& stopped=staged.voices.back();
+            Check(!stopped.was_running,"stale-tail gate requires a genuine stopped source PB");
+            std::array<unsigned char,320> changed{};
+            DSPBackendReadMemory(memory,stopped.parameter_address,changed.data(),changed.size());
+            Check(changed==stopped.parameters_before,"stopped source PB changed before stale-tail setup");
+            changed.back()^=1;
+            DSPBackendWriteMemory(memory,stopped.parameter_address+319,&changed.back(),1);
+            bool tail_rejected{};
+            try{CommitNativeAXCommandFrame(memory,staged,history);}
+            catch(const std::runtime_error& e){tail_rejected=std::strcmp(e.what(),"AX stopped source PB changed before whole-frame commit")==0;}
+            Check(tail_rejected,"stopped PB final-byte mismatch escaped full snapshot revalidation");
+            Check(history==staged.before,"rejected stopped PB tail changed device history");
+            for(const auto& w:staged.writes) {
+                std::vector<unsigned char> unchanged(w.before.size());
+                DSPBackendReadMemory(memory,w.address,unchanged.data(),unchanged.size());
+                Check(unchanged==w.before,"rejected stopped PB tail wrote an output/AUX/remote span");
+            }
+            std::array<unsigned char,320> retained{};
+            DSPBackendReadMemory(memory,stopped.parameter_address,retained.data(),retained.size());
+            Check(retained==changed,"rejected stopped PB tail modified the source parameter block");
+            DSPBackendWriteMemory(memory,stopped.parameter_address+319,&stopped.parameters_before.back(),1);
         }
         if(frame==2) {
             const auto saved=static_cast<s32*>(returned[0])[0];static_cast<s32*>(returned[0])[0]=1000000;

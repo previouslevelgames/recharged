@@ -41,6 +41,14 @@ private:
     const void* source_;
 };
 
+// Original CPU readers that index authored GPU vertex streams directly (the
+// goal-net loader keeps pointers into position rows) read this numeric twin of
+// the same completed stream: identical extent, stride and offsets, with every
+// cellBytes-wide scalar in native order. The twin is released with its source
+// incarnation and the GPU stream bytes are unchanged. Native-produced streams
+// and single-byte cells are returned unchanged.
+const void* ReadRLGNumericStream(const void* source, std::size_t bytes, std::size_t cellBytes);
+
 enum class RLGWeightAccess { ReadOnly, ReadWrite };
 // Only original CPU float consumers use this scoped row view. The original
 // loops still compare and swap; StoreWire encodes their result back into the

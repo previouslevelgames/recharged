@@ -52,6 +52,7 @@
 #include "platform/os_shutdown_requests.h"
 #endif
 #include <SDL3/SDL_video.h>
+#include <SDL3/SDL_filesystem.h>
 #include "platform/native_module_loader.h"
 #include <cstdio>
 #include <cstdlib>
@@ -255,9 +256,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             else if(argument=="--diagnostic-frame")nativeSend=false;
             else throw std::runtime_error("Unknown or incomplete argument; use --help");
         }
-        const auto executable=std::filesystem::absolute(std::filesystem::path(argv[0]));
+        const char* basePath=SDL_GetBasePath();
+        Check(basePath && *basePath,"Cannot locate the executable directory");
+        const auto executableDirectory=mscharged::PathFromUtf8(basePath);
         const auto launch=suppliedLaunch ? *suppliedLaunch :
-            mscharged::LoadLaunch(launchOptions,executable.parent_path());
+            mscharged::LoadLaunch(launchOptions,executableDirectory);
         disc=mscharged::PathUtf8(launch.disc_path);
         windowWidth=launch.settings.width;windowHeight=launch.settings.height;
         const auto& aspect = launch.settings.aspect;
@@ -288,12 +291,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             throw std::runtime_error("Original frontend sequence is not in this build");
 #endif
         }
-        const auto modulePath=executable.parent_path()/moduleFilename;
+        const auto modulePath=executableDirectory/moduleFilename;
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.
         const auto dataDirectory = std::filesystem::absolute(
-            executable.parent_path() / "original-main-credits-data");
+            executableDirectory / "original-main-credits-data");
         std::filesystem::create_directories(dataDirectory);
         const auto dataPath = dataDirectory.string();
         AuroraConfig config{};
@@ -402,9 +405,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         mscharged::platform::ConfigureNativeIOSServiceRevision();
         if(!__OSInitSTM())throw std::runtime_error("Actual original STM initialization failed");
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
-        // and FE methods retain their original mappings and decisions.
+        // and FE methods retain their original mappings and decisions. The
+        // keyboard remote carries a virtual Nunchuk, which original matches
+        // require of every playing controller.
         mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,false,false},
-            mscharged::platform::GetNativeSTMInput(),{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr});
+            mscharged::platform::GetNativeSTMInput(),
+            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true});
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(

@@ -1,0 +1,1556 @@
+From: mscharged-port
+Subject: Compile the original gameplay providers with native width contracts
+Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+
+Temporary E13 compiler/ABI adaptations for the original match providers.
+Game behavior, requests and timing are unchanged.
+
+- Animation callback contexts: SAnim trigger callbacks (cSAnimCallback,
+  CharacterTriggerHandler, CharacterAnimTriggerCallback, AnimTagScript) and
+  pose-node callbacks (cPN_SAnimController playback-speed/synchronized-weight,
+  cPN_SingleAxisBlender, cPN_Feather) carry owner, pool-slot and stack-record
+  addresses in unsigned int words. Natively they use the existing
+  PoseCallbackAddressWord (patch 0224): pointer width on hosts, unsigned int
+  on console. Goalie's save-blend word keeps its original index-in-low-bits
+  packing with a carrier-width mask.
+- ODE: intP is pointer-sized for the obstack alignment arithmetic.
+- GoalieActions' MWCC asm LobSaveOwnerDiagnostic only branches to its next
+  instruction (retail code layout); natively it is an empty inline function.
+- Retail emits the inline Desire::UnidentifiedVirtual7 (DesireDebug.inl) and
+  UnidentifiedFuzzyVariantData constructor (FuzzyVariantCollection.inl) out of
+  line in Fielder.cpp. Natively Desire.h and DesireUpdate.h include those
+  unchanged inline bodies, so every referencing vtable and caller has them.
+  Likewise the Desire units that call CallFielderFuzzyFunction include the
+  original inline FuzzyRuntimeCall.h natively.
+- PowerupBase::AwardPowerup reads the captain power-up through Wii offsets
+  0x11C/0x14; natively these are cCharacter::mUnidentified11C and
+  CharacterInfo::unknown_0x14.
+- GoalieActions instantiates a queued-event Function<bool> through header
+  inlines; natively it includes the original nlFunction.inl template bodies.
+- MWCC's double __fabs(double) intrinsic maps to std::fabs on a double.
+- C++ conformance MWCC accepted: `false` as the null AIContext constant, a
+  jump to `default:` past case-local initializations (scoped natively), and a
+  goto past an initialized local (declaration hoisted natively).
+- MegaBallIndicators reads the Wii remote/freestyle DPD records at Wii byte
+  offsets 0x1B0/0x1D0; natively these are WiiRemotePad::mDPDData and
+  WiiFreestylePad::mDPDData, the same members feDPD.cpp names.
+- WaluigiWall event owners and SHPause item contexts use the existing native
+  EventOwnerHandle and pointer-width integer context casts.
+- Animation trigger files (NLBT v1) are big-endian disc records: the
+  BinaryTriggerFile constructor first has the checked native transport convert
+  the header words and anim/trigger records of the completed load in place.
+  AnimTagScript's bytecode size keeps its Wii32 pointer-word subtraction and
+  its memcpy publishes the copy as completed serialized bytecode for the
+  original interpreter load.
+- MSL's stdlib.h inline _abs and the MWCC __declspec(section) placement of
+  PhysicsGoalie's runtime-initialised constant have native equivalents; a goto
+  past two PhysicsWorld locals is resolved by hoisting them natively.
+- NetworkSession's pause/resume event owner cells receive the connection
+  pointer from RegisterEventConnection; natively they are pointer-width, as a
+  u32 is on the Wii, so the store no longer overruns the paused-machine masks
+  that hold FixedUpdateTask's simulation.
+- cTeam::UpdateTeamAI sorts its four fielder pointers with the Wii element
+  size 4 (sizeof(cFielder*)); the native call uses the actual pointer size.
+
+diff --git a/include/Game/AI/Desire.h b/include/Game/AI/Desire.h
+--- a/include/Game/AI/Desire.h
++++ b/include/Game/AI/Desire.h
+@@ -510,4 +510,10 @@
+ float GetRunInDirectionMaxDistance(const DesireRunInDirection*);
+ float GetRunInDirectionDistanceTravelled(const DesireRunInDirection*);
+ 
++#if defined(MSCHARGED_NATIVE)
++// Retail emits this inline body out of line in Fielder.cpp; native vtables and
++// callers need it visible wherever the class is declared.
++#include "Game/AI/DesireDebug.inl"
++#endif
++
+ #endif // GAME_AI_DESIRE_H
+diff --git a/include/Game/AI/DesireUpdate.h b/include/Game/AI/DesireUpdate.h
+--- a/include/Game/AI/DesireUpdate.h
++++ b/include/Game/AI/DesireUpdate.h
+@@ -284,4 +284,10 @@
+     return *this;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// Retail emits this inline body out of line in Fielder.cpp; native vtables and
++// callers need it visible wherever the class is declared.
++#include "Game/AI/FuzzyVariantCollection.inl"
++#endif
++
+ #endif // GAME_AI_DESIREUPDATE_H
+diff --git a/include/Game/AI/Fielder.h b/include/Game/AI/Fielder.h
+--- a/include/Game/AI/Fielder.h
++++ b/include/Game/AI/Fielder.h
+@@ -4,6 +4,7 @@
+ #include "Game/Player.h"
+ #include "Game/AI/Powerups.h"
+ #include "Game/AI/FielderAbility.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ enum ePenaltyType
+ {
+@@ -322,7 +323,7 @@
+     void SetStrafeLeftStopAnimState();
+     void SetIdleAnimState();
+     void SetIdleWBAnimState();
+-    static void RunningSABcallback(unsigned int parameter, cPN_SingleAxisBlender* blender);
++    static void RunningSABcallback(PoseCallbackAddressWord parameter, cPN_SingleAxisBlender* blender);
+ 
+     void GetReceivePassBallContactOffset(nlVector3&, unsigned short, const LooseBallContactAnimInfo*);
+     PlayerTweaks* GetTweaks() const;
+diff --git a/include/Game/AI/Variant.h b/include/Game/AI/Variant.h
+--- a/include/Game/AI/Variant.h
++++ b/include/Game/AI/Variant.h
+@@ -216,4 +216,10 @@
+ 
+ extern Variant gvNotSet;
+ 
++#ifdef MSCHARGED_NATIVE
++// MWCC kept weak out-of-line copies of these original inline definitions in the
++// Matching units that include them; native consumers need the definitions.
++#include "Game/AI/Variant.inl"
++#endif
++
+ #endif // _VARIANT_H_
+diff --git a/include/Game/Character.h b/include/Game/Character.h
+--- a/include/Game/Character.h
++++ b/include/Game/Character.h
+@@ -6,6 +6,7 @@
+ #include "NL/nlAVLTree.h"
+ #include "NL/nlTimer.h"
+ #include "types.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class Blinker;
+ class BlurHandler;
+@@ -191,10 +192,10 @@
+     cPN_SAnimController* NewAnimController(int animID, bool bRestartCyclic,
+         bool bForceMirrorSwap,
+         void (*funcPlaybackSpeedCallback)(
+-            unsigned int, cPN_SAnimController*),
+-        unsigned int nPlaybackSpeedCallbackParam);
++            PoseCallbackAddressWord, cPN_SAnimController*),
++        PoseCallbackAddressWord nPlaybackSpeedCallbackParam);
+     bool ShouldStartCrossBlend(int animID);
+-    static void MatchAnimSpeedToCharacterSpeed(unsigned int nParam,
++    static void MatchAnimSpeedToCharacterSpeed(PoseCallbackAddressWord nParam,
+         cPN_SAnimController* pController);
+ 
+     void UpdateMovementState(float fDeltaT);
+diff --git a/include/Game/CharacterTemplate.h b/include/Game/CharacterTemplate.h
+--- a/include/Game/CharacterTemplate.h
++++ b/include/Game/CharacterTemplate.h
+@@ -3,6 +3,7 @@
+ 
+ #include "Game/Character.h"
+ #include "Game/Inventory.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class AnimRetargetList;
+ class CharacterPhysicsData;
+@@ -48,7 +49,7 @@
+     /* 0x14 */ const char* szTextureFilename;
+     /* 0x18 */ const char* szAlternateTextureFilename;
+     /* 0x1C */ const char* szTriggerFilename;
+-    /* 0x20 */ void (*pTriggerCallback)(cSAnim*, unsigned int);
++    /* 0x20 */ void (*pTriggerCallback)(cSAnim*, PoseCallbackAddressWord);
+     /* 0x24 */ const char* szHierarchyFilename;
+     /* 0x28 */ const char* szHierarchy;
+     /* 0x2C */ const AnimProperties* pAnimProperties;
+diff --git a/include/Game/CharacterTriggers.h b/include/Game/CharacterTriggers.h
+--- a/include/Game/CharacterTriggers.h
++++ b/include/Game/CharacterTriggers.h
+@@ -1,6 +1,8 @@
+ #ifndef GAME_CHARACTERTRIGGERS_H
+ #define GAME_CHARACTERTRIGGERS_H
+ 
++#include "Game/PoseCallbackAddress.h"
++
+ enum eBallShotEffectType
+ {
+     BALL_EFFECT_S2S_SUPER_SHOT = 0,
+@@ -27,7 +29,7 @@
+ class cSAnim;
+ class EffectsGroup;
+ 
+-void CharacterTriggerHandler(cSAnim* pAnim, unsigned int uParam);
++void CharacterTriggerHandler(cSAnim* pAnim, PoseCallbackAddressWord uParam);
+ void GetAnimTriggerInfo(cCharacter* pCharacter, int animID,
+     bool (*pInfoCallback)(float, float, unsigned long, float, void*), void* pUserData);
+ void EmitGoalieCatch(cPlayer* pPlayer, const char* szEffectName, bool bDoRumble);
+diff --git a/include/Game/FE/fePresentation.h b/include/Game/FE/fePresentation.h
+--- a/include/Game/FE/fePresentation.h
++++ b/include/Game/FE/fePresentation.h
+@@ -20,4 +20,10 @@
+ 
+ TLSlide* GetActiveSlide(FEPresentation* presentation);
+ 
++#ifdef MSCHARGED_NATIVE
++// MWCC kept weak out-of-line copies of these original inline definitions in the
++// Matching units that include them; native consumers need the definitions.
++#include "Game/FE/fePresentation.inl"
++#endif
++
+ #endif // GAME_FE_PRESENTATION_H
+diff --git a/include/Game/FE/tlInstance.h b/include/Game/FE/tlInstance.h
+--- a/include/Game/FE/tlInstance.h
++++ b/include/Game/FE/tlInstance.h
+@@ -71,4 +71,10 @@
+ };
+ 
+ 
++#ifdef MSCHARGED_NATIVE
++// MWCC kept weak out-of-line copies of these original inline definitions in the
++// Matching units that include them; native consumers need the definitions.
++#include "Game/FE/tlInstance.inl"
++#endif
++
+ #endif // _TLINSTANCE_H_
+diff --git a/include/Game/Goalie.h b/include/Game/Goalie.h
+--- a/include/Game/Goalie.h
++++ b/include/Game/Goalie.h
+@@ -7,6 +7,7 @@
+ #include "Game/Player.h"
+ #include "NL/nlMath.h"
+ #include "NL/nlTimer.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class AnimRetargetList;
+ class GoalieTweaks;
+@@ -133,7 +134,7 @@
+ 
+     void SetGoalieAction(eGoalieActionState newGoalieState, int newSubstate);
+     static void SaveBlendCallback(
+-        unsigned int nParam, cPN_SAnimController* pAnimCtrl);
++        PoseCallbackAddressWord nParam, cPN_SAnimController* pAnimCtrl);
+     cPoseNode* SetupBlender(bool bPrimary, const float* fStartPercent,
+         int nMainAnimID, int nMilestone);
+     void PlayBlendedAnims(
+@@ -292,15 +293,15 @@
+     void InitActionDazed(bool bParam);
+     void InitMegaStrikeUserControl();
+     static void MoveDirectionCB(
+-        unsigned int nParam, cPN_SingleAxisBlender* blender);
++        PoseCallbackAddressWord nParam, cPN_SingleAxisBlender* blender);
+     static void MoveWeightCB(
+-        unsigned int nParam, cPN_SingleAxisBlender* blender);
++        PoseCallbackAddressWord nParam, cPN_SingleAxisBlender* blender);
+     static void StrafeSynchronizedSpeedCallback(
+-        unsigned int nParam, cPN_SAnimController* controller);
++        PoseCallbackAddressWord nParam, cPN_SAnimController* controller);
+     static void RunWeightCB(
+-        unsigned int nParam, cPN_SingleAxisBlender* blender);
++        PoseCallbackAddressWord nParam, cPN_SingleAxisBlender* blender);
+     static void RunSynchronizedSpeedCallback(
+-        unsigned int nParam, cPN_SAnimController* controller);
++        PoseCallbackAddressWord nParam, cPN_SAnimController* controller);
+     void StartRunBlend();
+     void ActionMoveWB(float fDeltaT);
+     void ActionMove(float deltaTime);
+diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
+--- a/include/Game/NetworkSession.h
++++ b/include/Game/NetworkSession.h
+@@ -512,8 +512,16 @@
+     /* 0x2458 */ NetworkLobby* mLobby;
+     /* 0x245C */ NetworkStatsReporter* mStatsReporter;
+     /* 0x2460 */ NetworkRanking* mRankingReporter;
++#if defined(MSCHARGED_NATIVE)
++    // RegisterEventConnection stores the connection pointer in each owner cell
++    // (a u32 holds it on the Wii); native cells must be pointer-width or the
++    // store overruns mPauseRequestMachineMask/mPausedMachineMask.
++    struct EventConnection* mPauseEventOwner;
++    struct EventConnection* mResumingEventOwner;
++#else
+     /* 0x2464 */ u32 mPauseEventOwner;
+     /* 0x2468 */ u32 mResumingEventOwner;
++#endif
+     /* 0x246C */ u8 mPauseRequestMachineMask;
+     /* 0x246D */ u8 mPausedMachineMask;
+     /* 0x246E */ u8 mMachineLoadedGame[4];
+diff --git a/include/Game/Player.h b/include/Game/Player.h
+--- a/include/Game/Player.h
++++ b/include/Game/Player.h
+@@ -185,7 +185,7 @@
+     bool IsCharacterInAir(float fParam) const;
+     cPN_SingleAxisBlender* CreateSingleAxisBlender(
+         const int* pSABAnims, int nNumSABAnims, int nPrimaryAnim,
+-        void (*fWeightCB)(unsigned int, cPN_SingleAxisBlender*),
++        void (*fWeightCB)(PoseCallbackAddressWord, cPN_SingleAxisBlender*),
+         float fWeightSeek, cPN_SAnimController* pSynchingController,
+         float fInitialWeight);
+ 
+diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
+--- a/include/Game/SAnim.h
++++ b/include/Game/SAnim.h
+@@ -8,6 +8,7 @@
+ #include "NL/nlMath.h"
+ #include "NL/nlChunk.h"
+ #include "types.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class cPoseAccumulator;
+ class cSAnim;
+@@ -23,8 +24,8 @@
+ {
+ public:
+     float m_fTime;
+-    unsigned int m_nParam1;
+-    void (*m_funcCallback)(cSAnim*, unsigned int);
++    PoseCallbackAddressWord m_nParam1;
++    void (*m_funcCallback)(cSAnim*, PoseCallbackAddressWord);
+     cSAnimCallback* next;
+ };
+ 
+@@ -94,11 +95,11 @@
+     void GetRootTrans(float time, nlVector3* rootTranslation) const;
+     bool GetChannelWeight(int channel, float time, float* weight) const;
+ #ifdef MSCHARGED_DIAGNOSTIC_SKELETON
+-    void CreateCallback(float fTime, unsigned int nParam1,
+-        void (*funcCallback)(cSAnim*, unsigned int)) = delete;
++    void CreateCallback(float fTime, PoseCallbackAddressWord nParam1,
++        void (*funcCallback)(cSAnim*, PoseCallbackAddressWord)) = delete;
+ #else
+-    void CreateCallback(float fTime, unsigned int nParam1,
+-        void (*funcCallback)(cSAnim*, unsigned int));
++    void CreateCallback(float fTime, PoseCallbackAddressWord nParam1,
++        void (*funcCallback)(cSAnim*, PoseCallbackAddressWord));
+ #endif
+     float GetMorphWeight(int channel, float time) const;
+ 
+diff --git a/include/Game/SAnim/pnFeather.h b/include/Game/SAnim/pnFeather.h
+--- a/include/Game/SAnim/pnFeather.h
++++ b/include/Game/SAnim/pnFeather.h
+@@ -8,6 +8,7 @@
+ #include "Game/PoseNode.h"
+ #include "Game/SHierarchy.h"
+ #include "NL/nlSlotPool.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ enum eFeatherBlendMode
+ {
+@@ -21,8 +22,8 @@
+     cPN_Feather() { }
+     cPN_Feather(
+         cSHierarchy* hierarchy,
+-        void (*callback)(unsigned int, cPN_Feather*),
+-        unsigned int callbackParam);
++        void (*callback)(PoseCallbackAddressWord, cPN_Feather*),
++        PoseCallbackAddressWord callbackParam);
+     virtual ~cPN_Feather();
+     virtual void Evaluate(
+         int nodeIndex, float weight, cPoseAccumulator* accumulator) const;
+@@ -72,8 +73,8 @@
+ 
+     float* m_pFeatherWeights;
+     float m_fBlendTime;
+-    void (*m_fWeightTableCallback)(unsigned int, cPN_Feather*);
+-    unsigned int m_nCallbackParam1;
++    void (*m_fWeightTableCallback)(PoseCallbackAddressWord, cPN_Feather*);
++    PoseCallbackAddressWord m_nCallbackParam1;
+     float m_fBlendDuration;
+     cSHierarchy* m_pBaseHierarchy;
+     eFeatherBlendMode m_eFeatherBlendMode;
+diff --git a/include/Game/SAnim/pnSAnimController.h b/include/Game/SAnim/pnSAnimController.h
+--- a/include/Game/SAnim/pnSAnimController.h
++++ b/include/Game/SAnim/pnSAnimController.h
+@@ -11,6 +11,7 @@
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/sanim_replay_projection.h"
+ #include "platform/retarget_replay_projection.h"
++#include "Game/PoseCallbackAddress.h"
+ #endif
+ 
+ class cPN_SAnimController : public cPoseNode
+@@ -24,8 +25,8 @@
+     }
+     cPN_SAnimController(cSAnim* anim, const AnimRetarget* retarget,
+         ePlayMode playMode,
+-        void (*playbackSpeedCallback)(unsigned int, cPN_SAnimController*),
+-        unsigned int playbackSpeedCallbackParam, bool mirror);
++        void (*playbackSpeedCallback)(PoseCallbackAddressWord, cPN_SAnimController*),
++        PoseCallbackAddressWord playbackSpeedCallbackParam, bool mirror);
+     virtual ~cPN_SAnimController()
+     {
+     }
+@@ -150,13 +151,13 @@
+     unsigned int m_bIgnoreTriggers : 1;
+     mutable unsigned int m_bNegativeTriggerProcessed : 1;
+     unsigned int m_bLooped : 1;
+-    void (*m_pPlaybackSpeedCallback)(unsigned int, cPN_SAnimController*);
+-    unsigned int m_nPlaybackSpeedCallbackParam;
++    void (*m_pPlaybackSpeedCallback)(PoseCallbackAddressWord, cPN_SAnimController*);
++    PoseCallbackAddressWord m_nPlaybackSpeedCallbackParam;
+     float m_fPlaybackSpeedScale;
+     cPN_SAnimController* m_pSynchronizedController;
+     void (*m_pSynchronizedWeightCallback)(
+-        unsigned int, cPN_SAnimController*);
+-    unsigned int m_nSynchronizedWeightCallbackParam;
++        PoseCallbackAddressWord, cPN_SAnimController*);
++    PoseCallbackAddressWord m_nSynchronizedWeightCallbackParam;
+     float m_fSynchronizedWeight;
+ 
+     static SlotPool<cPN_SAnimController> m_SAnimControllerSlotPool;
+diff --git a/include/Game/SAnim/pnSingleAxisBlender.h b/include/Game/SAnim/pnSingleAxisBlender.h
+--- a/include/Game/SAnim/pnSingleAxisBlender.h
++++ b/include/Game/SAnim/pnSingleAxisBlender.h
+@@ -7,14 +7,15 @@
+ 
+ #include "Game/PoseNode.h"
+ #include "NL/nlSlotPool.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class cPN_SingleAxisBlender : public cPoseNode
+ {
+ public:
+     cPN_SingleAxisBlender() { }
+     cPN_SingleAxisBlender(int numChildren,
+-        void (*callback)(unsigned int, cPN_SingleAxisBlender*),
+-        unsigned int callbackParam, float weightSeek);
++        void (*callback)(PoseCallbackAddressWord, cPN_SingleAxisBlender*),
++        PoseCallbackAddressWord callbackParam, float weightSeek);
+     virtual ~cPN_SingleAxisBlender()
+     {
+     }
+@@ -54,8 +55,8 @@
+     }
+ 
+     float m_fSmoothedWeight;
+-    void (*m_fWeightCallback)(unsigned int, cPN_SingleAxisBlender*);
+-    unsigned int m_nCallbackParam;
++    void (*m_fWeightCallback)(PoseCallbackAddressWord, cPN_SingleAxisBlender*);
++    PoseCallbackAddressWord m_nCallbackParam;
+     float m_fDesiredWeight;
+     float m_fWeightSeek;
+ 
+diff --git a/include/Game/TerrainTweakValue.h b/include/Game/TerrainTweakValue.h
+--- a/include/Game/TerrainTweakValue.h
++++ b/include/Game/TerrainTweakValue.h
+@@ -2,6 +2,9 @@
+ #define GAME_TERRAIN_TWEAK_VALUE_H
+ 
+ #include "Game/TweakRegistry.h"
++#ifdef MSCHARGED_NATIVE
++#include "platform/tweak_storage.h"
++#endif
+ 
+ class TerrainTweakValueBase : public TweakValueBase
+ {
+@@ -14,7 +17,13 @@
+ 
+         if (IsTweakRegistryInitialized() == 0)
+         {
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++            void* entry = mscharged::AllocatePendingTweak();
++#elif defined(MSCHARGED_NATIVE)
++            void* entry = mscharged::AllocateNativeTweakPending();
++#else
+             void* entry = nlMalloc(0x18, 8, true);
++#endif
+             if (entry != 0)
+             {
+                 QueueTweakValue((TweakPendingValue*)entry, this, category);
+diff --git a/include/Game/Triggers/AnimTagScript.h b/include/Game/Triggers/AnimTagScript.h
+--- a/include/Game/Triggers/AnimTagScript.h
++++ b/include/Game/Triggers/AnimTagScript.h
+@@ -3,6 +3,7 @@
+ 
+ #include "Game/InterpreterCore.h"
+ #include "NL/nlSlotPool.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class AnimTagScriptInterpreter;
+ class BinaryTriggerFile;
+@@ -43,7 +44,7 @@
+     virtual void DoFunctionCall(unsigned int) = 0;
+     virtual void TriggerFired(cSAnim*, unsigned long) { }
+ 
+-    static void AnimControllerCB(cSAnim* arg0, unsigned int ref)
++    static void AnimControllerCB(cSAnim* arg0, PoseCallbackAddressWord ref)
+     {
+         AnimTagCBInfo* pInfo = (AnimTagCBInfo*)ref;
+         unsigned long address = pInfo->ScriptInfo.ScriptFuncOffset;
+diff --git a/include/Game/WorldTriggers.h b/include/Game/WorldTriggers.h
+--- a/include/Game/WorldTriggers.h
++++ b/include/Game/WorldTriggers.h
+@@ -2,10 +2,11 @@
+ #define GAME_WORLD_TRIGGERS_H
+ 
+ #include "NL/nlMath.h"
++#include "Game/PoseCallbackAddress.h"
+ 
+ class cSAnim;
+ 
+-void CharacterAnimTriggerCallback(cSAnim* anim, unsigned int uParam);
++void CharacterAnimTriggerCallback(cSAnim* anim, PoseCallbackAddressWord uParam);
+ void EmitCameraFlash(const nlVector3& position, void* flyingCamera = 0);
+ 
+ #endif // GAME_WORLD_TRIGGERS_H
+diff --git a/include/NL/nlMath.h b/include/NL/nlMath.h
+--- a/include/NL/nlMath.h
++++ b/include/NL/nlMath.h
+@@ -625,4 +625,10 @@
+ unsigned short nlAbsAngle(short);
+ int nlAbsInt(int);
+ 
++#ifdef MSCHARGED_NATIVE
++// MWCC kept weak out-of-line copies of these original inline definitions in the
++// Matching units that include them; native consumers need the definitions.
++#include "NL/nlMath.inl"
++#endif
++
+ #endif
+diff --git a/include/ode/config.h b/include/ode/config.h
+--- a/include/ode/config.h
++++ b/include/ode/config.h
+@@ -13,7 +13,12 @@
+ typedef unsigned short uint16;
+ typedef char int8;
+ typedef unsigned char uint8;
++#if defined(MSCHARGED_NATIVE)
++// Native obstack arena alignment arithmetic needs host pointer width.
++typedef __UINTPTR_TYPE__ intP;
++#else
+ typedef uint32 intP;
++#endif
+ #if defined(MSCHARGED_NATIVE)
+ #include <stddef.h>
+ #else
+diff --git a/include/ode/error.h b/include/ode/error.h
+--- a/include/ode/error.h
++++ b/include/ode/error.h
+@@ -6,6 +6,9 @@
+ #ifndef ODE_ERROR_H
+ #define ODE_ERROR_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <stdarg.h>
++#else
+ typedef struct __va_list_struct
+ {
+     char gpr;
+@@ -20,6 +23,7 @@
+ extern void __builtin_va_info(void*);
+ #define va_start(ap, fmt) ((void)fmt, __builtin_va_info(&ap))
+ #define va_end(ap)        ((void)0)
++#endif
+ 
+ #ifdef __cplusplus
+ extern "C"
+diff --git a/src/Game/AI/DesireMark.cpp b/src/Game/AI/DesireMark.cpp
+--- a/src/Game/AI/DesireMark.cpp
++++ b/src/Game/AI/DesireMark.cpp
+@@ -17,6 +17,10 @@
+ #include "NL/nlString.h"
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inline calls out of line in Fielder.cpp.
++#include "Game/AI/FuzzyRuntimeCall.h"
++#endif
+ 
+ extern "C" DesireUpdate fn_800B9020(void*, cFielder*, const char*);
+ 
+diff --git a/src/Game/AI/DesireMegaStrike.cpp b/src/Game/AI/DesireMegaStrike.cpp
+--- a/src/Game/AI/DesireMegaStrike.cpp
++++ b/src/Game/AI/DesireMegaStrike.cpp
+@@ -17,6 +17,13 @@
+ #include <stdlib.h>
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++// MSL stdlib.h inline _abs, which host C libraries do not provide.
++static inline int _abs(int __x)
++{
++    return __x > 0 ? __x : -__x;
++}
++#endif
+ 
+ bool gMegaStrikeUsePassButton;
+ bool gMegaStrikeInvincible;
+diff --git a/src/Game/AI/DesirePass.cpp b/src/Game/AI/DesirePass.cpp
+--- a/src/Game/AI/DesirePass.cpp
++++ b/src/Game/AI/DesirePass.cpp
+@@ -16,6 +16,10 @@
+ #include "NL/nlMemory.h"
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inline calls out of line in Fielder.cpp.
++#include "Game/AI/FuzzyRuntimeCall.h"
++#endif
+ 
+ static bool sDebugPassSpaceSearch;
+ const nlVector3 sStationaryTargetVelocity = { 0.0f, 0.0f, 0.0f };
+diff --git a/src/Game/AI/DesireShoot.cpp b/src/Game/AI/DesireShoot.cpp
+--- a/src/Game/AI/DesireShoot.cpp
++++ b/src/Game/AI/DesireShoot.cpp
+@@ -19,6 +19,10 @@
+ #include <stddef.h>
+ 
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ static float sWindupShotTimeLimitMargin = 0.5f;
+ static unsigned short sDesireWindupShotType = 0xFFFF;
+diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
+--- a/src/Game/AI/DesireSuperPower.cpp
++++ b/src/Game/AI/DesireSuperPower.cpp
+@@ -47,6 +47,10 @@
+ #include "Game/Audio/AudioResourceRuntime.h"
+ #include "Game/EventRegistry.h"
+ #include "NL/nlFunction.inl"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inline calls out of line in Fielder.cpp.
++#include "Game/AI/FuzzyRuntimeCall.h"
++#endif
+ 
+ int ChooseRunDirection(cFielder*, const unsigned short*, int,
+     const nlVector2*, float*);
+diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
+--- a/src/Game/AI/DesireUsePowerup.cpp
++++ b/src/Game/AI/DesireUsePowerup.cpp
+@@ -18,6 +18,10 @@
+ #include "Game/Team.h"
+ #include <stddef.h>
+ #include "Game/UnidentifiedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inline calls out of line in Fielder.cpp.
++#include "Game/AI/FuzzyRuntimeCall.h"
++#endif
+ 
+ static unsigned short sDesireUsePowerupType = 0xFFFF;
+ #pragma explicit_zero_data on
+diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
+--- a/src/Game/AI/Fielder.cpp
++++ b/src/Game/AI/Fielder.cpp
+@@ -4704,7 +4704,7 @@
+         GetRunWBAccel(tweaks), GetRunWBDecel(tweaks));
+ }
+ 
+-void cFielder::RunningSABcallback(unsigned int parameter, cPN_SingleAxisBlender* blender)
++void cFielder::RunningSABcallback(PoseCallbackAddressWord parameter, cPN_SingleAxisBlender* blender)
+ {
+     cFielder* fielder = (cFielder*)parameter;
+     if (fielder->m_eAnimID == 4 || fielder->m_eAnimID == 9 || fielder->m_eAnimID == 0x14)
+diff --git a/src/Game/AI/FielderDesireMachine.cpp b/src/Game/AI/FielderDesireMachine.cpp
+--- a/src/Game/AI/FielderDesireMachine.cpp
++++ b/src/Game/AI/FielderDesireMachine.cpp
+@@ -50,7 +50,11 @@
+  * Offset/Address/Size: 0x0 | 0x800D4E2C | size: 0x4C
+  */
+ FielderDesireMachine::FielderDesireMachine()
++#if defined(MSCHARGED_NATIVE)
++    : ScriptMachine(36, true, 0, 0)
++#else
+     : ScriptMachine(36, true, false, 0)
++#endif
+ {
+ }
+ 
+diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
+--- a/src/Game/AI/GoalieActions.cpp
++++ b/src/Game/AI/GoalieActions.cpp
+@@ -67,6 +67,10 @@
+ #include "math.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/Audio/RegistryPools.h"
++#if defined(MSCHARGED_NATIVE)
++// Header inlines reached here instantiate the original callable templates.
++#include "NL/nlFunction.inl"
++#endif
+ 
+ static const nlVector3 v3Zero = { 0.0f, 0.0f, 0.0f };
+ static int gOffplayDejected[5] = { 0x99, 0x9A, 0x9B, 0x9C, 0x9D };
+@@ -1989,7 +1993,7 @@
+ }
+ 
+ void Goalie::MoveDirectionCB(
+-    unsigned int nParam, cPN_SingleAxisBlender* blender)
++    PoseCallbackAddressWord nParam, cPN_SingleAxisBlender* blender)
+ {
+     Goalie* pGoalie = (Goalie*)nParam;
+     float result = 0.0f;
+@@ -2001,7 +2005,7 @@
+ }
+ 
+ void Goalie::MoveWeightCB(
+-    unsigned int nParam, cPN_SingleAxisBlender* blender)
++    PoseCallbackAddressWord nParam, cPN_SingleAxisBlender* blender)
+ {
+     Goalie* pGoalie = (Goalie*)nParam;
+     blender->m_fDesiredWeight
+@@ -2009,7 +2013,7 @@
+ }
+ 
+ void Goalie::StrafeSynchronizedSpeedCallback(
+-    unsigned int nParam, cPN_SAnimController* controller)
++    PoseCallbackAddressWord nParam, cPN_SAnimController* controller)
+ {
+     Goalie* pGoalie = (Goalie*)nParam;
+     controller->m_fPlaybackSpeedScale = pGoalie->mfSpeedScale;
+@@ -2393,7 +2397,7 @@
+ }
+ 
+ void Goalie::RunWeightCB(
+-    unsigned int nParam, cPN_SingleAxisBlender* blender)
++    PoseCallbackAddressWord nParam, cPN_SingleAxisBlender* blender)
+ {
+     const Goalie* pGoalie = (Goalie*)nParam;
+ 
+@@ -2425,7 +2429,7 @@
+ }
+ 
+ void Goalie::RunSynchronizedSpeedCallback(
+-    unsigned int nParam, cPN_SAnimController* controller)
++    PoseCallbackAddressWord nParam, cPN_SAnimController* controller)
+ {
+     Goalie* pGoalie = (Goalie*)nParam;
+     GoalieTweaks* pTweaks = (GoalieTweaks*)pGoalie->m_pTweaks;
+@@ -2455,7 +2459,7 @@
+             pCtrlr->m_fSynchronizedWeight = 0.0f;
+             pCtrlr->m_pPlaybackSpeedCallback = RunSynchronizedSpeedCallback;
+             pCtrlr->m_nPlaybackSpeedCallbackParam
+-                = (unsigned int)this;
++                = (PoseCallbackAddressWord)this;
+         }
+         else
+         {
+@@ -4217,6 +4221,9 @@
+         {
+         case 1:
+         case 2:
++#if defined(MSCHARGED_NATIVE)
++        {
++#endif
+             if (mpTarget->m_eActionState != (eFielderActionState)1)
+             {
+                 break;
+@@ -4239,6 +4246,9 @@
+                 mPursueDekeType = 0;
+             }
+             break;
++#if defined(MSCHARGED_NATIVE)
++        }
++#endif
+ 
+         default:
+             break;
+@@ -5676,6 +5686,13 @@
+ }
+ 
+ // The ball-path-change check retains an unused owner comparison.
++#if defined(MSCHARGED_NATIVE)
++// The MWCC branch to the next instruction only reproduces retail code layout;
++// it reads and writes no state, so the native function is empty.
++static inline void LobSaveOwnerDiagnostic()
++{
++}
++#else
+ // clang-format off
+ static inline asm void LobSaveOwnerDiagnostic()
+ {
+@@ -5683,6 +5700,7 @@
+  done:
+ }
+ // clang-format on
++#endif
+ 
+ void Goalie::ActionLobSave(float fDeltaT)
+ {
+diff --git a/src/Game/AI/GoalieSave.cpp b/src/Game/AI/GoalieSave.cpp
+--- a/src/Game/AI/GoalieSave.cpp
++++ b/src/Game/AI/GoalieSave.cpp
+@@ -282,8 +282,15 @@
+     }
+ 
+     muNumSaveEntries = 0x58;
++#if defined(MSCHARGED_NATIVE)
++    // Wii 0x2C10 = 0x10 cookie + 0x58 * sizeof(SaveData) (0x80); native
++    // SaveData holds host-width pointers.
++    mpSaveTable = (SaveData*)__construct_new_array(
++        nlMalloc(0x10 + 0x58 * sizeof(SaveData), 8, false), 0, 0, sizeof(SaveData), 0x58);
++#else
+     mpSaveTable = (SaveData*)__construct_new_array(
+         nlMalloc(0x2C10, 8, false), 0, 0, 0x80, 0x58);
++#endif
+ 
+     muLobCatchIndexStart = 0;
+     muLobCatchCount = 0;
+@@ -339,6 +346,9 @@
+     }
+ 
+     muNumPositionEntries = 6;
++#if defined(MSCHARGED_NATIVE)
++    static_assert(sizeof(SavePositionData) == 0x10, "Wii SavePositionData table stride");
++#endif
+     mpPositionTable = (SavePositionData*)__construct_new_array(
+         nlMalloc(0x70, 8, false), 0, 0, 0x10, 6);
+ 
+diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
+--- a/src/Game/AI/Powerups.cpp
++++ b/src/Game/AI/Powerups.cpp
+@@ -38,6 +38,9 @@
+ #include "Game/Render/StadiumLoading.h"
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/Audio/RegistryPools.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/DB/CharacterInfo.h"
++#endif
+ 
+ void UpdateBobombEmitter(EmissionController&);
+ 
+@@ -1370,8 +1373,14 @@
+         if (!pTeam->fn_800A6764()
+             && pTeam->GetCaptain()->IsShattered() != 1)
+         {
++#if defined(MSCHARGED_NATIVE)
++            // Wii 0x11C is cCharacter::mUnidentified11C and its Wii 0x14 is
++            // CharacterInfo::unknown_0x14 (the captain's power-up).
++            powerUpType = (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14;
++#else
+             powerUpType = *(ePowerUpType*)(
+                 *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14);
++#endif
+         }
+         break;
+     default:
+@@ -1400,8 +1409,12 @@
+     }
+     else if (nChance < nChanceForCaptainPowerup)
+     {
++#if defined(MSCHARGED_NATIVE)
++        powerUpType = (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14;
++#else
+         powerUpType = *(ePowerUpType*)(
+             *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14);
++#endif
+     }
+     else if (nChance < nChanceForSpinyShell)
+     {
+@@ -1434,9 +1447,13 @@
+ 
+     if (GameInfoManager::Instance()->GetRule0x0() == 9)
+     {
++#if defined(MSCHARGED_NATIVE)
++        if (powerUpType != (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14)
++#else
+         if (powerUpType
+             != *(ePowerUpType*)(
+                 *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14))
++#endif
+         {
+             powerUpType = POWER_UP_NONE;
+         }
+@@ -1445,8 +1462,12 @@
+             && powerUpType == POWER_UP_NONE && !pTeam->fn_800A6764()
+             && pTeam->GetCaptain()->IsShattered() == 0)
+         {
++#if defined(MSCHARGED_NATIVE)
++            powerUpType = (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14;
++#else
+             powerUpType = *(ePowerUpType*)(
+                 *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14);
++#endif
+         }
+     }
+ 
+diff --git a/src/Game/AI/TeamPlayMachine.cpp b/src/Game/AI/TeamPlayMachine.cpp
+--- a/src/Game/AI/TeamPlayMachine.cpp
++++ b/src/Game/AI/TeamPlayMachine.cpp
+@@ -57,6 +57,10 @@
+ }
+ 
+ TeamPlayMachine::TeamPlayMachine()
++#if defined(MSCHARGED_NATIVE)
++    : ScriptMachine(7, true, 0, gTeamPlayMachineName)
++#else
+     : ScriptMachine(7, true, false, gTeamPlayMachineName)
++#endif
+ {
+ }
+diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
+--- a/src/Game/Character.cpp
++++ b/src/Game/Character.cpp
+@@ -708,7 +708,7 @@
+     mUnidentified024.m_fDecel = fDecel;
+ }
+ 
+-void cCharacter::MatchAnimSpeedToCharacterSpeed(unsigned int nParam,
++void cCharacter::MatchAnimSpeedToCharacterSpeed(PoseCallbackAddressWord nParam,
+     cPN_SAnimController* pController)
+ {
+     cCharacter* pChar = (cCharacter*)nParam;
+@@ -723,12 +723,12 @@
+     }
+ }
+ 
+-cPN_SAnimController* cCharacter::NewAnimController(int animID, bool bRestartCyclic, bool bForceMirrorSwap, void (*funcPlaybackSpeedCallback)(unsigned int, cPN_SAnimController*), unsigned int nPlaybackSpeedCallbackParam)
++cPN_SAnimController* cCharacter::NewAnimController(int animID, bool bRestartCyclic, bool bForceMirrorSwap, void (*funcPlaybackSpeedCallback)(PoseCallbackAddressWord, cPN_SAnimController*), PoseCallbackAddressWord nPlaybackSpeedCallbackParam)
+ {
+     bool restartCyclic = bRestartCyclic;
+     bool forceMirrorSwap = bForceMirrorSwap;
+-    void (*playbackSpeedCallback)(unsigned int, cPN_SAnimController*) = funcPlaybackSpeedCallback;
+-    unsigned int playbackSpeedCallbackParam = (unsigned int)this;
++    void (*playbackSpeedCallback)(PoseCallbackAddressWord, cPN_SAnimController*) = funcPlaybackSpeedCallback;
++    PoseCallbackAddressWord playbackSpeedCallbackParam = (PoseCallbackAddressWord)this;
+ 
+     if (m_pAnimInventory->GetMatchCharacterSpeed(animID))
+     {
+diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
+--- a/src/Game/CharacterTriggers.cpp
++++ b/src/Game/CharacterTriggers.cpp
+@@ -156,7 +156,7 @@
+     return pControl;
+ }
+ 
+-void CharacterTriggerHandler(cSAnim* pAnim, unsigned int uParam)
++void CharacterTriggerHandler(cSAnim* pAnim, PoseCallbackAddressWord uParam)
+ {
+     AnimTriggerCallbackInfo* pAnimTriggerCallbackInfo = (AnimTriggerCallbackInfo*)uParam;
+ 
+@@ -2077,12 +2077,22 @@
+ 
+ void SetCharacterPacketAVisible(cCharacter* pCharacter, bool bValue)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Wii offset 0x181 is cCharacter::mUnidentified181.
++    pCharacter->mUnidentified181 = bValue;
++#else
+     *(bool*)((char*)pCharacter + 0x181) = bValue;
++#endif
+ }
+ 
+ void SetCharacterPacketBVisible(cCharacter* pCharacter, bool bValue)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Wii offset 0x182 is cCharacter::mUnidentified182.
++    pCharacter->mUnidentified182 = bValue;
++#else
+     *(bool*)((char*)pCharacter + 0x182) = bValue;
++#endif
+ }
+ 
+ bool IsCharacterGoalie(cCharacter* pCharacter)
+@@ -2092,12 +2102,22 @@
+ 
+ void SetCharacterLeftPropAnimated(cCharacter* pCharacter, bool bAnimated)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Wii offset 0x17E is cCharacter::m_bLeftPropAnimated.
++    pCharacter->m_bLeftPropAnimated = bAnimated;
++#else
+     *(bool*)((char*)pCharacter + 0x17E) = bAnimated;
++#endif
+ }
+ 
+ void SetCharacterRightPropAnimated(cCharacter* pCharacter, bool bAnimated)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Wii offset 0x17F is cCharacter::m_bRightPropAnimated.
++    pCharacter->m_bRightPropAnimated = bAnimated;
++#else
+     *(bool*)((char*)pCharacter + 0x17F) = bAnimated;
++#endif
+ }
+ 
+ cSAnim* GetControllerSAnim(cPN_SAnimController* pController)
+diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
+--- a/src/Game/Formation.cpp
++++ b/src/Game/Formation.cpp
+@@ -21,6 +21,10 @@
+ #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/Game.h"
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ 
+ static const nlVector3 v3Zero = { 0.0f, 0.0f, 0.0f };
+diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
+--- a/src/Game/Goalie.cpp
++++ b/src/Game/Goalie.cpp
+@@ -64,6 +64,10 @@
+ 
+ #include <math.h>
+ #include "Game/Task/BeginFrameTask.h"
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ extern "C" void CleanupMegaStrike(Goalie* pGoalie);
+ class FuzzyRuntimeBase;
+@@ -945,7 +949,7 @@
+     cBall* pBall;
+     s16 aGoalie2Ball;
+     u16 absBallAngleDiff;
+-    unsigned int nParam;
++    PoseCallbackAddressWord nParam;
+     int eAnimID;
+     int nCurrentAnimID;
+     int nFinalAnim;
+@@ -1396,7 +1400,7 @@
+     cPN_SingleAxisBlender* pSAB_R = CreateSingleAxisBlender(nRightAnims, 3, 1, MoveWeightCB, 0.1f, 0, 0.0f);
+ 
+     cPN_SingleAxisBlender* pSAB = pSAB_L;
+-    nParam = (unsigned int)this;
++    nParam = (PoseCallbackAddressWord)this;
+     cPN_SAnimController* pPrevCtrlr = 0;
+     int j;
+ 
+@@ -1416,7 +1420,7 @@
+                 if (pPrevCtrlr == 0)
+                 {
+                     pCtrlr->m_pSynchronizedWeightCallback = StrafeSynchronizedSpeedCallback;
+-                    pCtrlr->m_nSynchronizedWeightCallbackParam = (unsigned int)this;
++                    pCtrlr->m_nSynchronizedWeightCallbackParam = (PoseCallbackAddressWord)this;
+                     pCtrlr->m_fSynchronizedWeight = 0.0f;
+                 }
+                 else
+@@ -2916,9 +2920,13 @@
+ }
+ 
+ void Goalie::SaveBlendCallback(
+-    unsigned int nParam, cPN_SAnimController* pAnimCtrl)
++    PoseCallbackAddressWord nParam, cPN_SAnimController* pAnimCtrl)
+ {
++#if defined(MSCHARGED_NATIVE)
++    Goalie* pThis = reinterpret_cast<Goalie*>(nParam & ~(PoseCallbackAddressWord)3U);
++#else
+     Goalie* pThis = reinterpret_cast<Goalie*>(nParam & ~3U);
++#endif
+     unsigned int saveDataIndex = nParam & 3U;
+ 
+     SaveData* pSaveData = pThis->mBlendInfo.mpSaveData[saveDataIndex];
+@@ -2968,7 +2976,7 @@
+         index2 = 3;
+     }
+     int animID = GetAnimID(mBlendInfo, index1);
+-    pSaveController1 = NewAnimController(animID, false, false, SaveBlendCallback, index1 + (unsigned int)this);
++    pSaveController1 = NewAnimController(animID, false, false, SaveBlendCallback, index1 + (PoseCallbackAddressWord)this);
+     pSaveController1->m_fPlaybackSpeedScale
+         = mBlendInfo.mfMilestoneScale[index1][nMilestone];
+     if (fStartPercent[index1] > 0.0f)
+@@ -2988,7 +2996,7 @@
+     {
+         animID = GetAnimID(mBlendInfo, index2);
+         cPN_SAnimController* pSaveController2
+-            = NewAnimController(animID, false, false, SaveBlendCallback, index2 + (unsigned int)this);
++            = NewAnimController(animID, false, false, SaveBlendCallback, index2 + (PoseCallbackAddressWord)this);
+         pSaveController2->m_fPlaybackSpeedScale
+             = mBlendInfo.mfMilestoneScale[index2][nMilestone];
+         if (fStartPercent[index2] > 0.0f)
+diff --git a/src/Game/Physics/PhysicsCharacter.cpp b/src/Game/Physics/PhysicsCharacter.cpp
+--- a/src/Game/Physics/PhysicsCharacter.cpp
++++ b/src/Game/Physics/PhysicsCharacter.cpp
+@@ -26,7 +26,11 @@
+ #include "Game/Physics/Physics.h"
+ 
+ 
++#if defined(MSCHARGED_NATIVE)
++extern "C" int strcmpi(const char* str1, const char* str2);
++#else
+ #include <extras.h>
++#endif
+ 
+ 
+ static CollisionPlayerPlayerData* sPlayerPlayerCollisionData[100];
+diff --git a/src/Game/Physics/PhysicsGoalie.cpp b/src/Game/Physics/PhysicsGoalie.cpp
+--- a/src/Game/Physics/PhysicsGoalie.cpp
++++ b/src/Game/Physics/PhysicsGoalie.cpp
+@@ -18,7 +18,10 @@
+ 
+ // Retail addresses this runtime-initialised constant through the small
+ // read-only data base (r2), so it lives in .sbss2 rather than .sbss.
+-__declspec(section ".sdata2") static const float ballMaxMotionPerTick =
++#ifndef MSCHARGED_NATIVE
++__declspec(section ".sdata2")
++#endif
++static const float ballMaxMotionPerTick =
+     PhysicsBall::GetBallMaxVelocity()
+     * FixedUpdateTask::GetPhysicsUpdateTick();
+ 
+diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsWaluigiWall.cpp
+--- a/src/Game/Physics/PhysicsWaluigiWall.cpp
++++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
+@@ -406,10 +406,17 @@
+     , mEmitterStarted(false)
+     , mHeightUpdateDelay(0.0f)
+ {
++#if defined(MSCHARGED_NATIVE)
++    UnidentifiedFindEvent<cPlayer>(gWaluigiWallStartEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallStart), (EventOwnerHandle)&mStartConnection, -1);
++    UnidentifiedFindEvent<cPlayer>(gWaluigiWallEndEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallEnd), (EventOwnerHandle)&mEndConnection, -1);
++    UnidentifiedFindEvent<cPlayer>(gWaluigiWallAbortEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallAbort), (EventOwnerHandle)&mAbortConnection, -1);
++    UnidentifiedFindEvent<void>(gWaluigiWallMegastrikeEventName, -1)->Add(Function<void*>(OnWaluigiWallMegastrikeStart), (EventOwnerHandle)&mMegastrikeConnection, -1);
++#else
+     UnidentifiedFindEvent<cPlayer>(gWaluigiWallStartEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallStart), (unsigned int)&mStartConnection, -1);
+     UnidentifiedFindEvent<cPlayer>(gWaluigiWallEndEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallEnd), (unsigned int)&mEndConnection, -1);
+     UnidentifiedFindEvent<cPlayer>(gWaluigiWallAbortEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallAbort), (unsigned int)&mAbortConnection, -1);
+     UnidentifiedFindEvent<void>(gWaluigiWallMegastrikeEventName, -1)->Add(Function<void*>(OnWaluigiWallMegastrikeStart), (unsigned int)&mMegastrikeConnection, -1);
++#endif
+     for (unsigned int i = 0; i < 20; ++i)
+         mWalls[i] = 0;
+     ++gWaluigiWallManagerCount;
+diff --git a/src/Game/Physics/PhysicsWorld.cpp b/src/Game/Physics/PhysicsWorld.cpp
+--- a/src/Game/Physics/PhysicsWorld.cpp
++++ b/src/Game/Physics/PhysicsWorld.cpp
+@@ -209,6 +209,10 @@
+     }
+ 
+     int i;
++#if defined(MSCHARGED_NATIVE)
++    PhysicsWorld* world;
++    dJointID joint;
++#endif
+     contact = &contacts[0];
+     i = 0;
+     goto checkContact;
+@@ -229,8 +233,13 @@
+         contact->surface.slip2 = contacts[0].surface.slip2;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    world = (PhysicsWorld*)data;
++    joint = dJointCreateContact(world->m_World, world->m_ContactGroup, contact);
++#else
+     PhysicsWorld* world = (PhysicsWorld*)data;
+     dJointID joint = dJointCreateContact(world->m_World, world->m_ContactGroup, contact);
++#endif
+     dJointAttach(joint, body1, body2);
+     contact++;
+     i++;
+diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
+--- a/src/Game/Player.cpp
++++ b/src/Game/Player.cpp
+@@ -1005,7 +1005,7 @@
+     const int* pSABAnims,
+     int nNumSABAnims,
+     int nPrimaryAnim,
+-    void (*fWeightCB)(unsigned int, cPN_SingleAxisBlender*),
++    void (*fWeightCB)(PoseCallbackAddressWord, cPN_SingleAxisBlender*),
+     float fWeightSeek,
+     cPN_SAnimController* pSynchingController,
+     float fInitialWeight)
+@@ -1014,7 +1014,7 @@
+     cPN_SAnimController* pNewCurrentAnimController = NULL;
+ 
+     cPN_SingleAxisBlender* pSAB = new cPN_SingleAxisBlender(
+-        nNumSABAnims, fWeightCB, (unsigned int)this, fWeightSeek);
++        nNumSABAnims, fWeightCB, (PoseCallbackAddressWord)this, fWeightSeek);
+ 
+     pAnims = pSABAnims;
+     for (int i = 0; i < nNumSABAnims; i++)
+@@ -1037,7 +1037,7 @@
+ 
+     SetAnimID(pSABAnims[nPrimaryAnim]);
+     m_pCurrentAnimController = pNewCurrentAnimController;
+-    fWeightCB((unsigned int)this, pSAB);
++    fWeightCB((PoseCallbackAddressWord)this, pSAB);
+     pSAB->m_fSmoothedWeight = fInitialWeight;
+ 
+     return pSAB;
+diff --git a/src/Game/Render/MegaBallIndicators.cpp b/src/Game/Render/MegaBallIndicators.cpp
+--- a/src/Game/Render/MegaBallIndicators.cpp
++++ b/src/Game/Render/MegaBallIndicators.cpp
+@@ -15,7 +15,13 @@
+ #include "NL/nlString.h"
+ #include "NL/nlTicker.h"
+ #include "NL/plat/DPDData.h"
++#if defined(MSCHARGED_NATIVE)
+ #include "NL/plat/WiiPad.h"
++#include "NL/plat/WiiFreestylePad.h"
++#include "NL/plat/WiiRemotePad.h"
++#else
++#include "NL/plat/WiiPad.h"
++#endif
+ #include <math.h>
+ 
+ void SendMegaBallPointerUpdate(u16 angle, u32 textureIndex, u32 status,
+@@ -578,6 +584,9 @@
+     unsigned int nClosest;
+     PadBackend* pPlatform;
+     cGlobalPad* pController = gMegaBallController;
++#if defined(MSCHARGED_NATIVE)
++    int nClassID;
++#endif
+     if (pController == 0)
+     {
+         goto no_controller_data;
+@@ -587,18 +596,32 @@
+     {
+         goto no_controller_data;
+     }
++#if defined(MSCHARGED_NATIVE)
++    nClassID = pPlatform->GetClassID();
++#else
+     int nClassID = pPlatform->GetClassID();
++#endif
+     if (nClassID == gWiiRemotePadClassID)
+     {
++#if defined(MSCHARGED_NATIVE)
++        // Wii offset 0x1B0 is WiiRemotePad::mDPDData.
++        pData = &static_cast<WiiRemotePad*>(pController->mBackend)->mDPDData;
++#else
+         pData = reinterpret_cast<DPDData*>(
+             (u8*)pController->mBackend + 0x1B0);
++#endif
+         goto have_controller_data;
+     }
+     nClassID = pPlatform->GetClassID();
+     if (nClassID == gWiiFreestylePadClassID)
+     {
++#if defined(MSCHARGED_NATIVE)
++        // Wii offset 0x1D0 is WiiFreestylePad::mDPDData.
++        pData = &static_cast<WiiFreestylePad*>(pController->mBackend)->mDPDData;
++#else
+         pData = reinterpret_cast<DPDData*>(
+             (u8*)pController->mBackend + 0x1D0);
++#endif
+         goto have_controller_data;
+     }
+ 
+diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+--- a/src/Game/SAnim.cpp
++++ b/src/Game/SAnim.cpp
+@@ -283,8 +283,8 @@
+ 
+ 
+ #ifndef MSCHARGED_NATIVE
+-void cSAnim::CreateCallback(float fTime, unsigned int nParam1,
+-    void (*funcCallback)(cSAnim*, unsigned int))
++void cSAnim::CreateCallback(float fTime, PoseCallbackAddressWord nParam1,
++    void (*funcCallback)(cSAnim*, PoseCallbackAddressWord))
+ {
+     cSAnimCallback* pCallback = 0;
+     lbl_805840D8.Allocate(pCallback);
+@@ -923,8 +923,8 @@
+ }
+ 
+ 
+-void cSAnim::CreateCallback(float fTime, unsigned int nParam1,
+-    void (*funcCallback)(cSAnim*, unsigned int))
++void cSAnim::CreateCallback(float fTime, PoseCallbackAddressWord nParam1,
++    void (*funcCallback)(cSAnim*, PoseCallbackAddressWord))
+ {
+     cSAnimCallback* pCallback = 0;
+     lbl_805840D8.Allocate(pCallback);
+diff --git a/src/Game/SAnim/pnFeather.cpp b/src/Game/SAnim/pnFeather.cpp
+--- a/src/Game/SAnim/pnFeather.cpp
++++ b/src/Game/SAnim/pnFeather.cpp
+@@ -6,8 +6,8 @@
+ 
+ cPN_Feather::cPN_Feather(
+     cSHierarchy* hierarchy,
+-    void (*callback)(unsigned int, cPN_Feather*),
+-    unsigned int callbackParam)
++    void (*callback)(PoseCallbackAddressWord, cPN_Feather*),
++    PoseCallbackAddressWord callbackParam)
+     : cPoseNode(2)
+ {
+     m_fBlendTime = 0.0f;
+diff --git a/src/Game/SAnim/pnSAnimController.cpp b/src/Game/SAnim/pnSAnimController.cpp
+--- a/src/Game/SAnim/pnSAnimController.cpp
++++ b/src/Game/SAnim/pnSAnimController.cpp
+@@ -624,8 +624,8 @@
+ 
+ cPN_SAnimController::cPN_SAnimController(cSAnim* anim,
+     const AnimRetarget* retarget, ePlayMode playMode,
+-    void (*playbackSpeedCallback)(unsigned int, cPN_SAnimController*),
+-    unsigned int playbackSpeedCallbackParam, bool mirror)
++    void (*playbackSpeedCallback)(PoseCallbackAddressWord, cPN_SAnimController*),
++    PoseCallbackAddressWord playbackSpeedCallbackParam, bool mirror)
+     : cPoseNode(0)
+ {
+     m_pSAnim = anim;
+diff --git a/src/Game/SAnim/pnSingleAxisBlender.cpp b/src/Game/SAnim/pnSingleAxisBlender.cpp
+--- a/src/Game/SAnim/pnSingleAxisBlender.cpp
++++ b/src/Game/SAnim/pnSingleAxisBlender.cpp
+@@ -4,8 +4,8 @@
+     cPN_SingleAxisBlender::m_SingleAxisBlenderSlotPool(16, 16);
+ 
+ cPN_SingleAxisBlender::cPN_SingleAxisBlender(int numChildren,
+-    void (*callback)(unsigned int, cPN_SingleAxisBlender*),
+-    unsigned int callbackParam, float weightSeek)
++    void (*callback)(PoseCallbackAddressWord, cPN_SingleAxisBlender*),
++    PoseCallbackAddressWord callbackParam, float weightSeek)
+     : cPoseNode(numChildren)
+ {
+     m_fSmoothedWeight = 0.0f;
+diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
+--- a/src/Game/SH/SHPause.cpp
++++ b/src/Game/SH/SHPause.cpp
+@@ -29,6 +29,9 @@
+ #include "NL/nlFunction.inl"
+ #include "Game/FE/feDPD.h"
+ #include "Game/FE/tlDefault.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ 
+ static const char* MENU_NAMES[7] = {
+@@ -374,7 +377,11 @@
+  */
+ void PauseMenuScene::OnOptionPointerEnter(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned int which = (unsigned int)(std::uintptr_t)context;
++#else
+     unsigned int which = (unsigned int)context;
++#endif
+     ++mHoverCounts[index];
+     if (!mOptionButtons[which].HasOtherPointerState(1, index))
+     {
+@@ -389,7 +396,11 @@
+  */
+ void PauseMenuScene::OnOptionPointerLeave(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned int which = (unsigned int)(std::uintptr_t)context;
++#else
+     unsigned int which = (unsigned int)context;
++#endif
+     --mHoverCounts[index];
+     if (!mOptionButtons[which].HasOtherPointerState(1, index))
+         mOptionInstances[which]->SetActiveSlide("off", true, false);
+@@ -405,7 +416,11 @@
+         return;
+     mSelectionMade = true;
+     FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
++#if defined(MSCHARGED_NATIVE)
++    switch ((unsigned int)(std::uintptr_t)context)
++#else
+     switch ((unsigned int)context)
++#endif
+     {
+     case 0:
+         OnSelectRESUME(0);
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -620,7 +620,13 @@
+         mtTeamStyleTimer.SetSeconds(1.0f);
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The Wii element size 4 is sizeof(cFielder*); native pointers are wider.
++    qsort(m_pFieldersByTeamRelativeX, 4, sizeof(m_pFieldersByTeamRelativeX[0]),
++        CompareFieldersByTeamRelativeX);
++#else
+     qsort(m_pFieldersByTeamRelativeX, 4, 4, CompareFieldersByTeamRelativeX);
++#endif
+ 
+     bool bSituationChanged = AssignSituation();
+     if (bSituationChanged)
+diff --git a/src/Game/Transitions/ScriptedTransition.cpp b/src/Game/Transitions/ScriptedTransition.cpp
+--- a/src/Game/Transitions/ScriptedTransition.cpp
++++ b/src/Game/Transitions/ScriptedTransition.cpp
+@@ -2,7 +2,9 @@
+ 
+ #include "stdlib.h"
+ #include "string.h"
++#ifndef MSCHARGED_NATIVE
+ #include "strtold.h"
++#endif
+ 
+ #include "NL/gl/gl.h"
+ #include "NL/gl/glDraw2.h"
+diff --git a/src/Game/Transitions/TransitionSequence.cpp b/src/Game/Transitions/TransitionSequence.cpp
+--- a/src/Game/Transitions/TransitionSequence.cpp
++++ b/src/Game/Transitions/TransitionSequence.cpp
+@@ -3,7 +3,9 @@
+ 
+ #include "stdlib.h"
+ #include "string.h"
++#ifndef MSCHARGED_NATIVE
+ #include "strtold.h"
++#endif
+ 
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+diff --git a/src/Game/Triggers/AnimTagScript.cpp b/src/Game/Triggers/AnimTagScript.cpp
+--- a/src/Game/Triggers/AnimTagScript.cpp
++++ b/src/Game/Triggers/AnimTagScript.cpp
+@@ -7,6 +7,10 @@
+ #include "NL/nlMemory.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#include "platform/trigger_file_transport.h"
++#endif
+ 
+ u8 AnimTagScriptInterpreter::SetupAnimationTriggers(void* pFileData,
+     unsigned long FileSize, cInventory<cSAnim>* pAnimInventory)
+@@ -48,7 +52,7 @@
+ 
+                 float fTime = pTriggerRecord->Frame;
+                 fTime /= (float)iterator.Current()->m_nNumKeys;
+-                iterator.Current()->CreateCallback(fTime, (unsigned int)pSlot,
++                iterator.Current()->CreateCallback(fTime, (PoseCallbackAddressWord)pSlot,
+                     AnimTagScriptInterpreter::AnimControllerCB);
+ 
+                 file.m_CurrentTrigger++;
+@@ -56,6 +60,21 @@
+         }
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // Wii32 pointer words subtract to the bytecode offset modulo 2^32.
++    m_ppBytecode[m_BytecodeCount]
++        = nlMalloc(file.m_FileSize
++                - ((u32)(uintptr_t)((u8*)file.m_pFileData
++                       + file.m_pFileData->BytecodeOffset)
++                    - (u32)(uintptr_t)file.m_pFileData),
++            8, false);
++    mscharged::platform::CopyBinaryTriggerBytecode(m_ppBytecode[m_BytecodeCount],
++        (u8*)file.m_pFileData + file.m_pFileData->BytecodeOffset,
++        file.m_FileSize
++            - ((u32)(uintptr_t)((u8*)file.m_pFileData
++                   + file.m_pFileData->BytecodeOffset)
++                - (u32)(uintptr_t)file.m_pFileData));
++#else
+     m_ppBytecode[m_BytecodeCount]
+         = nlMalloc(file.m_FileSize
+                 - ((u32)((u8*)file.m_pFileData
+@@ -68,6 +87,7 @@
+             - ((u32)((u8*)file.m_pFileData
+                    + file.m_pFileData->BytecodeOffset)
+                 - (u32)file.m_pFileData));
++#endif
+     LoadByteCode(m_ppBytecode[m_BytecodeCount]);
+     m_BytecodeCount++;
+ 
+diff --git a/src/Game/Triggers/BinaryTriggerFile.cpp b/src/Game/Triggers/BinaryTriggerFile.cpp
+--- a/src/Game/Triggers/BinaryTriggerFile.cpp
++++ b/src/Game/Triggers/BinaryTriggerFile.cpp
+@@ -1,8 +1,14 @@
+ #include "Game/Triggers/BinaryTriggerFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/trigger_file_transport.h"
++#endif
+ 
+ BinaryTriggerFile::BinaryTriggerFile(
+     void* pFileData, unsigned long FileSize)
+ {
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::PrepareBinaryTriggerFile(pFileData, FileSize);
++#endif
+     m_FileSize = FileSize;
+     m_pFileData = (BinaryTriggerFileHeader*)pFileData;
+     m_pCurrentAnim = 0;
+diff --git a/src/Game/Triggers/SebringAnimScript.cpp b/src/Game/Triggers/SebringAnimScript.cpp
+--- a/src/Game/Triggers/SebringAnimScript.cpp
++++ b/src/Game/Triggers/SebringAnimScript.cpp
+@@ -12,7 +12,7 @@
+         AnimTriggerCallbackInfo data;
+         data.m_uEventID = triggerId;
+         data.m_fIntensity = 100.0f;
+-        CharacterTriggerHandler(animation, (unsigned int)&data);
++        CharacterTriggerHandler(animation, (PoseCallbackAddressWord)&data);
+     }
+ }
+ 
+diff --git a/src/Game/WorldTriggers.cpp b/src/Game/WorldTriggers.cpp
+--- a/src/Game/WorldTriggers.cpp
++++ b/src/Game/WorldTriggers.cpp
+@@ -11,7 +11,7 @@
+ 
+ class EffectsGroup;
+ 
+-void CharacterAnimTriggerCallback(cSAnim* anim, unsigned int uParam)
++void CharacterAnimTriggerCallback(cSAnim* anim, PoseCallbackAddressWord uParam)
+ {
+     CharacterTriggerHandler(anim, uParam);
+ }
+diff --git a/src/ode/collision_kernel.cpp b/src/ode/collision_kernel.cpp
+--- a/src/ode/collision_kernel.cpp
++++ b/src/ode/collision_kernel.cpp
+@@ -28,7 +28,11 @@
+ */
+ 
+ #include <ode/common.h>
++#if defined(MSCHARGED_NATIVE)
++#include <string.h>
++#else
+ #include <mem.h>
++#endif
+ #include <cstring>
+ #include <ode/error.h>
+ #include <ode/matrix.h>
+diff --git a/src/ode/ext/dColumn.cpp b/src/ode/ext/dColumn.cpp
+--- a/src/ode/ext/dColumn.cpp
++++ b/src/ode/ext/dColumn.cpp
+@@ -22,6 +22,10 @@
+ 
+ #include <ode/ext/dColumn.h>
+ #include <ode/odemath.h>
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ extern "C" double sqrt(double);
+ 
+diff --git a/src/ode/ext/dFinitePlane.cpp b/src/ode/ext/dFinitePlane.cpp
+--- a/src/ode/ext/dFinitePlane.cpp
++++ b/src/ode/ext/dFinitePlane.cpp
+@@ -1,5 +1,9 @@
+ #include <ode/NLGAdditions.h>
+ #include <ode/ext/dFinitePlane.h>
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ static inline double fabs(double value)
+ {
+diff --git a/src/ode/odemath.cpp b/src/ode/odemath.cpp
+--- a/src/ode/odemath.cpp
++++ b/src/ode/odemath.cpp
+@@ -22,6 +22,10 @@
+ 
+ #include <ode/common.h>
+ #include <ode/odemath.h>
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ extern "C" double copysign(double value, double sign);
+ 
+diff --git a/src/ode/quickstep.cpp b/src/ode/quickstep.cpp
+--- a/src/ode/quickstep.cpp
++++ b/src/ode/quickstep.cpp
+@@ -29,6 +29,10 @@
+ #include <ode/error.h>
+ #include <ode/matrix.h>
+ #include "util.h"
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ 
+ #define dFabs(x) ((float)__fabs(float(x)))
+diff --git a/src/ode/util.cpp b/src/ode/util.cpp
+--- a/src/ode/util.cpp
++++ b/src/ode/util.cpp
+@@ -12,6 +12,10 @@
+ #include "joint.h"
+ #include "objects.h"
+ #include "util.h"
++#if defined(MSCHARGED_NATIVE)
++// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
++#define __fabs(value) __builtin_fabs(static_cast<double>(value))
++#endif
+ 
+ #define ALLOCA   dALLOCA16
+ #define dFabs(x) ((float)__fabs(float(x)))
