@@ -3,8 +3,9 @@ include_guard(GLOBAL)
 # Whole original CharacterLoader/animation inventory compiler inventory.
 # Serialized retarget transport shares the real source allocation registry;
 # this inventory does not admit character loading or create source owners.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile CXX)
+if(NOT _original_native_profile)
     return()
 endif()
 include(cmake/OriginalFunctionPools.cmake)

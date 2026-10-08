@@ -34,6 +34,7 @@ function(mscharged_select_original_frontend_domination target)
             src/Game/FE/feScrollBar.cpp
             src/Game/FE/feScrollText.cpp
             src/Game/FE/feTimer.cpp
+            src/Game/SAnim/pnBlender.cpp
             src/Game/SH/OnlineGameInfo.cpp)
         set(_source "${MSCHARGED_PREPARED}/${_relative}")
         if(NOT _source IN_LIST _domination_known)

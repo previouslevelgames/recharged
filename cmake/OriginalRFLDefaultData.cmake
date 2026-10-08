@@ -2,8 +2,9 @@ include_guard(GLOBAL)
 
 # Genuine original default-input boundary with local native representation.
 # No RFL initialization, persisted character/CRC or manager readiness admission.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile C)
+if(NOT _original_native_profile)
     return()
 endif()
 add_library(charged_original_rfl_default_data OBJECT EXCLUDE_FROM_ALL

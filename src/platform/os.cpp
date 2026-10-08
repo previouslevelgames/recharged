@@ -6,6 +6,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <thread>
 
 // Only interfaces with a verified equivalent are forwarded to Aurora.
@@ -36,4 +37,18 @@ extern "C" void OSReport(const char* message, ...)
     va_start(arguments, message);
     OSVReport(message, arguments);
     va_end(arguments);
+}
+
+extern "C" [[noreturn]] void OSPanic(const char* file, int line, const char* message, ...)
+{
+    OSDisableInterrupts();
+    va_list arguments;
+    va_start(arguments, message);
+    OSVReport(message, arguments);
+    va_end(arguments);
+    OSReport(" in \"%s\" on line %d.\n", file, line);
+    std::fflush(stderr);
+    // The SDK walks the PowerPC stack and halts the CPU. Abort the native
+    // process so the original fatal path cannot return to game execution.
+    std::abort();
 }

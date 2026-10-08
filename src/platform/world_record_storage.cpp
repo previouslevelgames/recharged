@@ -3,7 +3,7 @@
 
 #include "Game/Render/StadiumWorldObjects.h"
 #include "Game/Render/StadiumPhysicsObject.h"
-#include "Game/Render/tu_8027AE14.h"
+#include "Game/Render/SolarFlareEffect.h"
 #include "Game/Render/CrowdImpostorManager.h"
 #include "Game/Render/WorldNPC.h"
 #include "Game/World/WorldEffect.h"
@@ -64,7 +64,7 @@ Layout Describe(WorldRecordStorageLayout kind) {
     case WorldRecordStorageLayout::AttackSide:
         return {0x80, sizeof(StadiumAttackSideIndicator), alignof(StadiumAttackSideIndicator)};
     case WorldRecordStorageLayout::ConditionalDrawable:
-        return {0x80, sizeof(StadiumDrawable_8027ADC0), alignof(StadiumDrawable_8027ADC0)};
+        return {0x80, sizeof(SolarFlareDrawable), alignof(SolarFlareDrawable)};
     case WorldRecordStorageLayout::ShadowHeight:
         return {0x70, sizeof(StadiumShadowHeightMarker), alignof(StadiumShadowHeightMarker)};
     case WorldRecordStorageLayout::Toggle:
@@ -209,7 +209,7 @@ void Decode(WorldRecordStorageLayout kind, unsigned char* dst, const unsigned ch
         return;
     case WorldRecordStorageLayout::ConditionalDrawable:
         Drawable(dst, src);
-        Word8(dst, offsetof(StadiumDrawable_8027ADC0, m_Unknown70), src, 0x70);
+        Word8(dst, offsetof(SolarFlareDrawable, m_uDrawEnabled), src, 0x70);
         return;
     case WorldRecordStorageLayout::Toggle:
         Drawable(dst, src);

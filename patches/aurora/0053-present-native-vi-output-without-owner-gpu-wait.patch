@@ -1,0 +1,100 @@
+From: mscharged-port contributors
+Subject: [PATCH] Present native VI output without blocking the source owner
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The desktop output service made the source owner wait for the render worker,
+which also waited for an idle GPU before Present. Every VI retrace therefore
+added the full surface/GPU round trip to the original frame, so 59.94 Hz frames
+overran their field on a desktop GPU and movie cadence slipped.
+
+Queue order already places the surface pass after the field passes and earlier
+GX work. Keep one present in flight, publish the unchanged successful-Present
+record only after Present succeeds, still reject a lost device and retire any
+queued presentation before shutdown. Original VI/GX timing, interrupts, field
+history and selected XFB are unchanged.
+
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index 945165d..bbdbc07 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -107,15 +107,12 @@ void RequireOwner(const Output& state) {
+   if (!state.configured || state.owner != std::this_thread::get_id())
+     throw std::logic_error("Native VI output requires its configured source owner");
+ }
+-void complete_gpu() {
+-  struct Done { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
+-  auto done = std::make_shared<Done>();
+-  const auto future = webgpu::g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+-      [done](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { done->status = status; });
+-  AURORA_ASSERT(webgpu::g_instance.WaitAny(future, 5'000'000'000) == wgpu::WaitStatus::Success &&
+-      done->status == wgpu::QueueWorkDoneStatus::Success, "Native VI signal GPU submission did not complete");
++// Queue order already places the surface pass after the field passes and all
++// earlier source GX work; Present never needs an idle GPU. A lost device still
++// prevents publishing a successful presentation.
++void require_live_device() {
+   AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
+-      "Native VI signal completed on a lost device");
++      "Native VI presentation found a lost device");
+ }
+ TextureHandle new_signal(uint32_t width, uint32_t height) {
+   const wgpu::Extent3D size{width, height, 1};
+@@ -193,7 +190,12 @@ void service(void*) {
+       state.desktop = new_signal(scanout.active_width, scanout.active_height);
+     desktop = state.desktop;
+   }
+-  struct Active { Output& state; ~Active() { std::lock_guard lock(state.mutex); state.servicing = false; } } active{state};
++  // The render worker owns presentation once it is queued. At most one present
++  // is in flight; a later commit stays pending for the next owner service.
++  struct Active {
++    Output& state; bool queued = false;
++    ~Active() { if (queued) return; std::lock_guard lock(state.mutex); state.servicing = false; }
++  } active{state};
+   // Owner refresh/presentation runs outside the source VI IRQ and its locks.
+   if (window::is_presentable() && !webgpu::g_surface) webgpu::refresh_surface(true);
+   const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
+@@ -206,6 +208,10 @@ void service(void*) {
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+                               layout, pipeline, desktopPipeline, viewport, windowSize, windowId, windowIncarnation,
+                               desktop = std::move(desktop)] {
++    struct Finished {
++      Output& state;
++      ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
++    } finished{state};
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+     encode_signal(encoder, signal, scanout, snapshot, layout, pipeline, true);
+@@ -234,14 +240,15 @@ void service(void*) {
+       surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
+       surfacePass.Draw(3); surfacePass.End();
+     }
+-    const auto commands = encoder.Finish(); webgpu::g_queue.Submit(1, &commands); complete_gpu();
++    const auto commands = encoder.Finish(); webgpu::g_queue.Submit(1, &commands);
+     if (target) {
+       window::SurfaceLock lock;
+       if (window::is_presentable() && webgpu::g_surface && webgpu::g_surface.Present()) {
++        require_live_device();
+         std::lock_guard stateLock(state.mutex);
+-        // Publish the exact work item only after GPU completion and a
+-        // successful real surface Present. New committed requests can already
+-        // be pending independently; they do not describe this completed field.
++        // Publish the exact work item only after a successful real surface
++        // Present of its submitted passes. New committed requests can already
++        // be pending independently; they do not describe this presented field.
+         state.presented = scanout; state.presented_snapshot = snapshot;
+         ++state.presentations;
+         const AuroraVIPresentedState completion{scanout.framebuffer, snapshot ? snapshot->revision : 0,
+@@ -256,9 +263,13 @@ void service(void*) {
+       window::push_custom_event(window::CustomEvent::RefreshSurface);
+     }
+   });
+-  render_worker::synchronize();
++  // The source owner continues after queueing; it does not wait for the
++  // desktop surface, its vsync or GPU completion of the presented passes.
++  active.queued = true;
+ }
+ void shutdown(void*) {
++  // Retire any queued presentation before releasing its owner state.
++  render_worker::synchronize();
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+   state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.layout = {};

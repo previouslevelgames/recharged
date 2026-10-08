@@ -3,8 +3,9 @@ include_guard(GLOBAL)
 # Whole original scalar codec below the original NL loader. This code lives
 # inside each isolated source module; host SDK/nod retain their own zlib-ng.
 # The source inflater's fixed output-window requests remain unchanged.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile CXX)
+if(NOT _original_native_profile)
     return()
 endif()
 add_library(charged_original_scalar_inflate OBJECT EXCLUDE_FROM_ALL

@@ -5,9 +5,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/OriginalMEMExpHeap.cmake")
 # transport. This compiler inventory does not admit Mii initialization, raw DB
 # records, uncached NAND buffers or native rendering. Consumers share the actual
 # source module's completion/allocator registry; never a separately owned bridge.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU"
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile C CXX)
+if(NOT _original_native_profile)
     return()
 endif()
 add_library(charged_original_rfl_resource_sources OBJECT EXCLUDE_FROM_ALL

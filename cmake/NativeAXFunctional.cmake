@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/NativeOSAudioRegisters.cmake)
 include(cmake/NativeAXNativeFilter.cmake)
 include(cmake/NativeAXFrameCommands.cmake)
 
@@ -10,7 +11,8 @@ add_dependencies(charged_native_ax_functional verify_prepared)
 target_include_directories(charged_native_ax_functional PUBLIC src)
 target_compile_features(charged_native_ax_functional PUBLIC cxx_std_17)
 target_link_libraries(charged_native_ax_functional PUBLIC charged_native_ax_bootstrap
-    charged_native_ax_native_filter charged_native_ax_frame_commands charged_native_ai)
+    charged_native_ax_native_filter charged_native_ax_frame_commands charged_native_ai
+    charged_native_os_audio_registers)
 
 if(BUILD_TESTING AND TARGET native_ax_active_source_fixture)
     add_executable(native_ax_functional_tests tests/native_ax_functional.cpp
@@ -34,3 +36,11 @@ if(BUILD_TESTING AND TARGET native_ax_active_source_fixture)
             ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy" LABELS "Platform")
     endif()
 endif()
+
+# The Release original-main graph includes this device directly, without the
+# older NativeRuntime startup prototype. Bring in the genuine whole OS boot
+# fixture only when the matching whole AX source test image is available.
+if(BUILD_TESTING AND TARGET native_ax_active_source_fixture)
+    include(cmake/NativeOSAudioBoot.cmake)
+endif()
+mscharged_add_native_os_audio_functional_stop_test()

@@ -1,0 +1,121 @@
+# Patch: 0518-native-rtc-sram-wire-fields
+# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Scope: Keep the whole original SRAM software owner with private native names and exact Wii BE16 fields.
+--- a/src/RVL_SDK/os/OSRtc.c
++++ b/src/RVL_SDK/os/OSRtc.c
+@@ -1,5 +1,18 @@
+ #include <revolution/exi.h>
+ #include <revolution/os.h>
++#if defined(MSCHARGED_NATIVE)
++// Private original names conflict with the canonical native SDK declarations.
++#define SramControl ChargedOriginalSramControl
++#define OSGetGbsMode ChargedOriginalOSGetGbsMode
++#define OSSetGbsMode ChargedOriginalOSSetGbsMode
++// SRAM remains the exact64-byte Wii record delivered by EXI.
++static u16 NativeSramLoad16(const void* field) {
++    const u8* p=(const u8*)field;return (u16)((u16)p[0]<<8 | p[1]);
++}
++static void NativeSramStore16(void* field,u16 value) {
++    u8* p=(u8*)field;p[0]=(u8)(value>>8);p[1]=(u8)value;
++}
++#endif
+ 
+ typedef struct SramControl {
+     u8 sram[64];
+@@ -112,11 +125,21 @@
+                 sram->flags &= ~3;
+             }
+ 
++#if defined(MSCHARGED_NATIVE)
++            NativeSramStore16(&sram->checkSum, 0);
++            NativeSramStore16(&sram->checkSumInv, 0);
++#else
+             sram->checkSum = sram->checkSumInv = 0;
++#endif
+ 
+             for (p = (u16*)&sram->counterBias; p < (u16*)(Scb.sram + sizeof(OSSram)); p++) {
++#if defined(MSCHARGED_NATIVE)
++                NativeSramStore16(&sram->checkSum, (u16)(NativeSramLoad16(&sram->checkSum) + NativeSramLoad16(p)));
++                NativeSramStore16(&sram->checkSumInv, (u16)(NativeSramLoad16(&sram->checkSumInv) + (u16)~NativeSramLoad16(p)));
++#else
+                 sram->checkSum += *p;
+                 sram->checkSumInv += ~*p;
++#endif
+             }
+         }
+ 
+@@ -127,9 +150,15 @@
+         if (Scb.offset <= sizeof(OSSram)) {
+             OSSramEx* sram = (OSSramEx*)(Scb.sram + sizeof(OSSram));
+ 
++#if defined(MSCHARGED_NATIVE)
++            if ((NativeSramLoad16(&sram->gbs) & 0x7C00) == 0x5000u || (NativeSramLoad16(&sram->gbs) & 0xC0) == 0xC0u) {
++                NativeSramStore16(&sram->gbs, 0);
++            }
++#else
+             if ((sram->gbs & 0x7C00) == 0x5000u || (sram->gbs & 0xC0) == 0xC0u) {
+                 sram->gbs = 0;
+             }
++#endif
+         }
+ 
+         Scb.sync = WriteSram(Scb.sram + Scb.offset, Scb.offset, 64 - Scb.offset);
+@@ -182,7 +211,11 @@
+     OSSramEx* sram;
+     u16 id;
+     sram = __OSLockSramEx();
++#if defined(MSCHARGED_NATIVE)
++    id = NativeSramLoad16(&sram->wirelessPadID[channel]);
++#else
+     id = sram->wirelessPadID[channel];
++#endif
+     __OSUnlockSramEx(FALSE);
+     return id;
+ }
+@@ -191,8 +224,13 @@
+     OSSramEx* sram;
+     sram = __OSLockSramEx();
+ 
++#if defined(MSCHARGED_NATIVE)
++    if (NativeSramLoad16(&sram->wirelessPadID[channel]) != id) {
++        NativeSramStore16(&sram->wirelessPadID[channel], id);
++#else
+     if (sram->wirelessPadID[channel] != id) {
+         sram->wirelessPadID[channel] = id;
++#endif
+         __OSUnlockSramEx(TRUE);
+     } else {
+         __OSUnlockSramEx(FALSE);
+@@ -203,7 +241,11 @@
+     OSSramEx* sram;
+     u16 mode;
+     sram = __OSLockSramEx();
++#if defined(MSCHARGED_NATIVE)
++    mode = NativeSramLoad16(&sram->gbs);
++#else
+     mode = sram->gbs;
++#endif
+     __OSUnlockSramEx(FALSE);
+     return mode;
+ }
+@@ -217,12 +259,20 @@
+ 
+     sram = __OSLockSramEx();
+ 
++#if defined(MSCHARGED_NATIVE)
++    if (mode == NativeSramLoad16(&sram->gbs)) {
++#else
+     if (mode == sram->gbs) {
++#endif
+         __OSUnlockSramEx(FALSE);
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    NativeSramStore16(&sram->gbs, mode);
++#else
+     sram->gbs = mode;
++#endif
+     __OSUnlockSramEx(TRUE);
+ }
+ 

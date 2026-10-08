@@ -17,6 +17,7 @@ if(TARGET charged_native_filesystem)
        AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         include(cmake/OriginalOSReset.cmake)
         include(cmake/OriginalNAND.cmake)
+        include(cmake/OriginalNANDShutdown.cmake)
         add_executable(original_storage_boot_tests
             tests/original_storage_boot.cpp src/platform/os.cpp
             src/platform/os_version.cpp)

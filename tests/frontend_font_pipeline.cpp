@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "frontend_font_fixture.h"
 #include "runtime/frontend_font_registry.h"
 #include "runtime/frames.h"
@@ -66,7 +67,7 @@ void Case(const char* name, GLResourcePool& pool, GLView& view, OriginalFrames& 
             const bool sample = frame >= 12 && quiet >= 2;
             backend.read_colours = sample; glEndFrame(); glSendFrame(); registry.FinishFrame();
             draws += aurora_get_stats()->drawCallCount;
-            const auto pending = std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();
+            const auto pending = mscharged::platform::GetQueuedPipelineCount();
             quiet = pending ? 0 : quiet + 1;
             if (sample && !pending) break;
         }

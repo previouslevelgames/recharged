@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "runtime/frontend_movie_render.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -61,7 +62,7 @@ void Case(GLResourcePool& pool,GLView& view,OriginalFrames& frames,AuroraFrames&
             const bool sample=n>=12&&quiet>=2;backend.read_colours=sample;glEndFrame();glSendFrame();
             auto receipt=renderer.FinishFrame();draws+=aurora_get_stats()->drawCallCount;
             if(sample)Check(bool(receipt),"Warm movie packet presentation did not issue encoded receipt");
-            const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+            const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
             if(sample&&!pending)break;
         }
         // Independent algebraic YUV conversion oracle from original TEV

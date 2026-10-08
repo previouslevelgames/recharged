@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -29,6 +30,13 @@ void ConfigureNativeSystemSettings(const NativeSystemSettings& settings);
 // retained in the backing record; SCGetSimpleAddressID returns FFFFFFFF for
 // them according to the original SC contract, rather than choosing a country.
 void ConfigureNativeSystemSimpleAddress(std::optional<std::uint32_t> id);
+// Stage the exact virtual-Wii IPL.IDL byte-array record on the same owner,
+// before original SCInit. nullptr/0 explicitly supplies an absent record.
+// A present record of another length remains malformed: the original getter
+// leaves its caller's output untouched. Exactly two bytes are copied at setup;
+// no caller memory is retained. This query does not provide WiiConnect24, slot
+// lighting, standby or shutdown services. There is no implicit idle record.
+void ConfigureNativeSystemIdleMode(const void* record, std::size_t bytes);
 // Retire after original users have stopped; a later session configures anew.
 void ShutdownNativeSystemSettings();
 

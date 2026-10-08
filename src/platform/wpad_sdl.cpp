@@ -313,9 +313,12 @@ void ServiceWpadSDL() {
         bool assigned = false;
         for (const auto& channel : state.channels) assigned |= channel.id == ids[n];
         if (assigned || !SupportedRemote(ids[n])) continue;
+        // Connect to the lowest free channel. When that channel is still retiring
+        // a device in this service, wait for the next service instead of moving
+        // the new device to a later player port.
         Channel* slot = nullptr;
-        for (auto& channel : state.channels) if (!channel.pad && !channel.disconnected_this_service && !channel.pending_disconnect) { slot = &channel; break; }
-        if (!slot) break;
+        for (auto& channel : state.channels) if (!channel.pad) { slot = &channel; break; }
+        if (!slot || slot->disconnected_this_service || slot->pending_disconnect) break;
         SDL_Gamepad* pad = SDL_OpenGamepad(ids[n]);
         if (!pad) continue;
         SDL_Joystick* joystick = SDL_GetGamepadJoystick(pad);

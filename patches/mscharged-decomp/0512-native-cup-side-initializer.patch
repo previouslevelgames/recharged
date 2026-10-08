@@ -1,0 +1,17 @@
+# Patch: 0512-native-cup-side-initializer
+# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Scope: Explicit native short conversions for original HOME/AWAY list initialization; console unchanged.
+--- a/src/Game/DB/CupManager.cpp
++++ b/src/Game/DB/CupManager.cpp
+@@ -673,7 +673,11 @@
+                 for (unsigned int i = 0; i < 3; i++)
+                 {
+                     BasicGameInfo* next = mCurrentCup->GetGameInfo(2, i, 0);
++#if defined(MSCHARGED_NATIVE)
++                    short sides[2] = { static_cast<short>(i == 1 ? AWAY : HOME), static_cast<short>(i == 1 ? HOME : AWAY) };
++#else
+                     short sides[2] = { i == 1 ? AWAY : HOME, i == 1 ? HOME : AWAY };
++#endif
+                     next->mTeamIndex[sides[0]] = captain;
+                     next->mTeamIndex[sides[1]] = team;
+                     for (int j = 0; j < 3; j++)

@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include <aurora/aurora.h>
 #include <aurora/event.h>
 #include <aurora/gfx.h>
@@ -163,7 +164,7 @@ int main(int argc,char** argv) {
             aurora::gfx::synchronize();
             encoded=encoded || AuroraGXWasDrawEncoded(receipt);
             draws+=aurora_get_stats()->drawCallCount;++frames;
-            quiet=std::atomic_ref<const unsigned>(aurora_get_stats()->queuedPipelines).load()?0:quiet+1;
+            quiet=mscharged::platform::GetQueuedPipelineCount()?0:quiet+1;
             SDL_Delay(1);
         }
         Check(snapshot && encoded && draws && aurora_get_last_presentation().sequence,"Original source Credits draw/presentation incomplete");

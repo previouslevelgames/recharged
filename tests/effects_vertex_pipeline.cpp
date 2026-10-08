@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "runtime/effects_vertex_render.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -81,7 +82,7 @@ void Case(const char* name,EffectsVertexResources& resources,OriginalFrames& fra
             Acquire(frames);glBeginFrame();GXSetPixelFmt(GX_PF_RGB8_Z24,GX_ZC_LINEAR);GXSetCopyClear({20,24,30,255},GX_MAX_Z24);
             draw();const bool sample=frame>=12&&quiet>=2;backend.read_colours=sample;
             glEndFrame();glSendFrame();resources.FinishFrame();draws+=aurora_get_stats()->drawCallCount;
-            const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+            const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
             if(sample&&!pending)break;
         }
         for(unsigned x=0;x<3;++x)Pixel(backend.colours,3+x,expected[x]);
@@ -149,7 +150,7 @@ void Owned(GLView& view,ViewMatrices& matrices,OriginalFrames& frames,AuroraFram
                 SubmitEffectsVertex(resources,view,animation.model,identity);
                 backend.read_colours=n>=12&&quiet>=2;glEndFrame();glSendFrame();resources.FinishFrame();
                 const auto calls=aurora_get_stats()->drawCallCount;model_draws+=calls;draws+=calls;
-                const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+                const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
                 if(backend.read_colours&&!pending)for(const auto& pixel:backend.colours)
                     if(std::abs(int(pixel[0])-20)>5||std::abs(int(pixel[1])-24)>5||std::abs(int(pixel[2])-30)>5)++visible;
             }

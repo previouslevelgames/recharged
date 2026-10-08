@@ -3,36 +3,34 @@
 The port is a work in progress alongside the decompilation. Selected tests run
 original game code on Linux/Vulkan; **full startup and matches are unfinished**.
 These tests currently require a USA `R4QE01` revision 1 ISO/RVZ. See
-[Building](BUILDING.md) for the default launcher build and disc configuration.
+[Building](BUILDING.md) for the Release runtime build and disc configuration.
 
 ## Graphics prerequisites
 
-Use a Vulkan GPU/driver, a desktop, validation layers, GNU Make and Tcl 8.6+.
-Initialize the additional pinned sources:
+Linux uses Vulkan; macOS selects Metal and remains under runtime validation.
+Install the [build prerequisites](BUILDING.md#requirements), then initialize the
+required pinned sources from the repository root:
 
 ```sh
-git -c submodule.recurse=false submodule update --init --checkout \
-  extern/aurora extern/dawn extern/fmt extern/xxhash extern/tracy \
-  extern/zlib-ng extern/libpng extern/freetype extern/sqlite extern/zstd
-git -C extern/dawn -c submodule.recurse=false submodule update --init --checkout --depth 1 -- \
-  third_party/abseil-cpp third_party/jinja2 third_party/markupsafe \
-  third_party/spirv-headers/src third_party/spirv-tools/src \
-  third_party/vulkan-headers/src third_party/vulkan-utility-libraries/src
-git -C extern/freetype -c submodule.recurse=false submodule update --init --checkout --depth 1 -- subprojects/dlg
+python3 tools/setup_dependencies.py
 ```
 
-The first graphics build is large. Adjust the build parallelism for available
-memory. Windows, macOS, other disc regions and Wii peripherals remain unverified.
+The first graphics build is large. Adjust parallelism for available memory.
+Real GPU tests are opt-in; the Vulkan test gate requires Linux and installed
+validation layers. Windows, other disc regions and Wii peripherals remain unverified.
 
 ## Original frontend sequence
 
 ```sh
 CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset frontend
-./build/graphics/mscharged --experimental-frontend --disc ./game/R4QE01.rvz --window
+./build/graphics/mscharged --disc ./game/R4QE01.rvz --window
 ```
 
-The `frontend` preset reuses `build/graphics`. It runs original `main`, loading,
+Release includes the same source cohort at `build/release`; `frontend` keeps
+its existing `build/graphics` location. Both workflows build only `mscharged`.
+The runtime runs original `main`, loading,
 frontend world setup, Boot/Intro, Title and Main Menu, including the initial save prompt.
+An explicit `--experimental-frontend` remains available, including for INI-only startup.
 **Menus and gameplay are still being integrated; this test can stop at
 unfinished host services.** Audio quality and performance remain in progress.
 
@@ -69,7 +67,8 @@ preserves the selected layout and fills unused space with bars.
 For the original initialization boundary without graphics:
 
 ```sh
-git submodule update --init --checkout extern/aurora extern/abseil-cpp extern/fmt extern/xxhash extern/tracy extern/zlib-ng
+python3 tools/setup_dependencies.py --launcher
+git -c submodule.recurse=false submodule update --init --checkout -- extern/aurora extern/abseil-cpp extern/fmt extern/xxhash extern/tracy extern/zlib-ng
 cmake --workflow --preset startup
 ./build/startup/mscharged --experimental-startup --config ./mscharged.ini
 ```

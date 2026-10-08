@@ -14,9 +14,15 @@ target_link_libraries(charged_credits_movie_hardware PUBLIC
     charged_native_ai charged_thp_decoder)
 # Whole original THPSimple is hidden inside the existing game module. Its
 # actual compiler/decoder/AI imports resolve to this one host SDK foundation.
-target_link_options(charged_credits_movie_hardware INTERFACE
-    -Wl,--undefined=AIInit -Wl,--undefined=THPInit
-    -Wl,--undefined=THPVideoDecode -Wl,--undefined=THPAudioDecode)
+if(APPLE)
+    target_link_options(charged_credits_movie_hardware INTERFACE
+        LINKER:-u,_AIInit LINKER:-u,_THPInit
+        LINKER:-u,_THPVideoDecode LINKER:-u,_THPAudioDecode)
+else()
+    target_link_options(charged_credits_movie_hardware INTERFACE
+        -Wl,--undefined=AIInit -Wl,--undefined=THPInit
+        -Wl,--undefined=THPVideoDecode -Wl,--undefined=THPAudioDecode)
+endif()
 
 # The existing movie SDK owner composes optional input beneath original APIs.
 include(cmake/NativeHardwareOwner.cmake)

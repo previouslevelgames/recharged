@@ -1,6 +1,7 @@
 #include "platform/system.h"
 #include <revolution/sc.h>
 
+#include <cstring>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -15,9 +16,15 @@ struct SystemDevice
     mscharged::NativeSystemSettings settings{};
     bool simpleAddressSupplied = false;
     std::optional<std::uint32_t> simpleAddressId;
+    bool idleModeSupplied = false;
+    bool idleModePresent = false;
+    std::size_t idleModeBytes = 0;
+    SCIdleModeInfo idleMode{};
     std::thread::id owner;
 };
 SystemDevice device;
+static_assert(sizeof(SCIdleModeInfo) == 2 && alignof(SCIdleModeInfo) == 1);
+static_assert(offsetof(SCIdleModeInfo, wc24) == 0 && offsetof(SCIdleModeInfo, slotLight) == 1);
 
 void RequireOwner()
 {
@@ -65,6 +72,24 @@ void ConfigureNativeSystemSimpleAddress(std::optional<std::uint32_t> id)
     device.simpleAddressSupplied = true;
 }
 
+void ConfigureNativeSystemIdleMode(const void* record, std::size_t bytes)
+{
+    std::lock_guard lock(device.mutex);
+    if (device.phase == Phase::Empty)
+        throw std::logic_error("Stage native system settings before supplying the idle-mode record");
+    RequireOwner();
+    if (device.phase != Phase::Staged)
+        throw std::logic_error("Supply the native idle-mode record before original SCInit");
+    if (!record && bytes != 0)
+        throw std::invalid_argument("An absent native idle-mode record must have zero length");
+    device.idleModeSupplied = true;
+    device.idleModePresent = record != nullptr;
+    device.idleModeBytes = bytes;
+    device.idleMode = {};
+    if (record && bytes == sizeof(SCIdleModeInfo))
+        std::memcpy(&device.idleMode, record, sizeof(SCIdleModeInfo));
+}
+
 void ShutdownNativeSystemSettings()
 {
     std::lock_guard lock(device.mutex);
@@ -74,6 +99,10 @@ void ShutdownNativeSystemSettings()
     device.settings = {};
     device.simpleAddressSupplied = false;
     device.simpleAddressId.reset();
+    device.idleModeSupplied = false;
+    device.idleModePresent = false;
+    device.idleModeBytes = 0;
+    device.idleMode = {};
     device.owner = {};
 }
 
@@ -126,4 +155,18 @@ extern "C" std::uint32_t SCGetSimpleAddressID()
     if (id == 0xFFFFFFFFu || country == 0 || country == 0xFF000000u
         || region == 0x00FF0000u) return 0xFFFFFFFFu;
     return id;
+}
+
+extern "C" void SCGetIdleMode(SCIdleModeInfo* mode)
+{
+    // Original SCFindByteArrayItem is a no-op for a null destination.
+    if (!mode) return;
+    std::lock_guard lock(device.mutex);
+    if (device.phase == Phase::Empty || !device.idleModeSupplied)
+        throw std::logic_error("Native idle-mode record was not supplied before original source query");
+    // scapi.c requests exactly sizeof(SCIdleModeInfo). scsystem.c copies only
+    // a present array of that length; absent/malformed records do not write.
+    // OSShutdownSystem supplies its own zero default before this request.
+    if (device.idleModePresent && device.idleModeBytes == sizeof(SCIdleModeInfo))
+        std::memcpy(mode, &device.idleMode, sizeof(SCIdleModeInfo));
 }

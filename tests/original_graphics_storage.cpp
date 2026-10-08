@@ -191,6 +191,28 @@ int main() {
         Check(!FindGameGraphicsStorage(raw+64,1,a),"True backing free retained GL suballocation records");
         Reject<std::invalid_argument>([&]{ResolveGameGraphicsArray(raw+64);});
         Check(pool.TotalFreeMemory()==free,"Metadata changed original allocation/free algorithms");
+
+        // Live native MEM headers still reject frees of their source backing,
+        // including an outer allocation around the owning record; unrelated
+        // frees and frees after retirement remain unaffected.
+        auto* host=static_cast<unsigned char*>(pool.Allocate(2048,32,false));
+        auto* other=static_cast<unsigned char*>(pool.Allocate(256,32,false));
+        auto* spare=static_cast<unsigned char*>(pool.Allocate(256,32,false));
+        MemoryAllocator inner{};inner.Initialize(host+1024,1024);
+        auto* nested=static_cast<unsigned char*>(inner.Allocate(512,32,false));
+        GameHeapMetadataReservation heap(host+64,512,64);void* heapOwner=heap.Data();heap.Commit(heapOwner);
+        GameHeapMetadataReservation nestedHeap(nested+64,256,64);void* nestedOwner=nestedHeap.Data();
+        nestedHeap.Commit(nestedOwner);
+        Reject<std::logic_error>([&]{pool.Free(host);});
+        Reject<std::logic_error>([&]{inner.Free(nested);});
+        pool.Free(other);
+        Check(FindGameAllocationOwner(host)==&pool,"Rejected free released the owning allocation record");
+        RetireGameHeapMetadata(nestedOwner);
+        inner.Free(nested);
+        Reject<std::logic_error>([&]{pool.Free(host);});
+        RetireGameHeapMetadata(heapOwner);
+        pool.Free(spare);pool.Free(host);
+        Check(pool.TotalFreeMemory()==free,"MEM metadata checks changed the original free algorithm");
         // Local reservations own their pre-reserved scratch nodes until their
         // actual scope destruction. Selected LeakSanitizer checks that cleanup;
         // the separate unchanged197 primitive gate asserts registry emptiness.

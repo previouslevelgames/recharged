@@ -4,10 +4,11 @@ include_guard(GLOBAL)
 # inventories do not enable these temporary flow gates. One source module owns
 # original main, FE/font/resources, handlers and rendering; the host supplies one
 # actual SDK and window/device services before original construction.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
         OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
-    message(FATAL_ERROR "The original-main Credits diagnostic requires Linux LP64 with GCC or Clang")
+    message(FATAL_ERROR "The original-main source diagnostic requires Linux or macOS LP64 with GCC or Clang")
 endif()
+include(cmake/OriginalModuleLinkage.cmake)
 include(cmake/OriginalFunctionPools.cmake)
 include(cmake/WiiStringFormat.cmake)
 include(cmake/NativeSystemSettings.cmake)
@@ -213,10 +214,16 @@ else()
     target_compile_options(mscharged_original_main_credits_module PRIVATE
         -fno-assume-sane-operator-new -Wno-register)
 endif()
-target_link_options(mscharged_original_main_credits_module PRIVATE
-    -Wl,-Bsymbolic-functions -Wl,--gc-sections
-    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map")
-set_property(TARGET mscharged_original_main_credits_module APPEND PROPERTY LINK_DEPENDS
+if(APPLE)
+    # Original source remains incomplete: defer only unexecuted function imports.
+    # Explicit exports keep game operators and the original codec module-local.
+    target_link_options(mscharged_original_main_credits_module PRIVATE
+        LINKER:-undefined,dynamic_lookup LINKER:-dead_strip LINKER:-no_fixup_chains)
+else()
+    target_link_options(mscharged_original_main_credits_module PRIVATE
+        -Wl,-Bsymbolic-functions -Wl,--gc-sections)
+endif()
+mscharged_set_original_module_exports(mscharged_original_main_credits_module
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map")
 
 # Actual source InitPads/FEInput at their original Initialize positions. Keep
@@ -304,12 +311,19 @@ function(mscharged_link_original_main_credits target)
     add_dependencies(${target} mscharged_original_main_credits_module)
     target_link_libraries(${target} PRIVATE charged_original_main_credits_host
         mscharged_original_main_credits_vi aurora::core)
-    target_link_options(${target} PRIVATE
-        -Wl,--gc-sections -Wl,--export-dynamic
-        -Wl,--require-defined=SCGetSimpleAddressID,--export-dynamic-symbol=SCGetSimpleAddressID
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
-    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+    if(APPLE)
+        target_link_options(${target} PRIVATE LINKER:-dead_strip LINKER:-export_dynamic
+            LINKER:-unexported_symbol,___OSHotReset
+            LINKER:-unexported_symbol,___OSShutdownToSBY
+            LINKER:-unexported_symbol,___OSSetVIForceDimming)
+    else()
+        target_link_options(${target} PRIVATE
+            -Wl,--gc-sections -Wl,--export-dynamic
+            "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+    endif()
+    mscharged_require_original_host_symbol(${target} PRIVATE SCGetSimpleAddressID)
     set_property(TARGET ${target} PROPERTY LINK_LIBRARY_OVERRIDE
         "WHOLE_ARCHIVE,aurora_gx,aurora_mtx,aurora_os")
 endfunction()

@@ -22,6 +22,9 @@ extern "C" {
 #include <stdexcept>
 #include <thread>
 
+namespace aurora { extern AuroraConfig g_config; }
+void AuroraOSShutdown();
+
 namespace {
 using namespace mscharged::platform;
 unsigned checks{},aram_irqs{},source_task_inits{};
@@ -36,12 +39,11 @@ void TaskInit(DSPTask*) {++source_task_inits;}
 
 void Run(int argc,char** argv) {
     Check(argc==3&&std::strlen(argv[2])==64,"whole original OS image/hash required");
-    const auto path=std::filesystem::absolute("sdk-data").string();std::filesystem::create_directories(path);
-    AuroraConfig config{};config.appName="Original OS audio boot qualifier";
-    config.userPath=config.cachePath=path.c_str();config.resourcesPath=".";config.desiredBackend=BACKEND_NULL;
-    config.windowWidth=320;config.windowHeight=240;config.windowPosX=config.windowPosY=-1;
-    config.mem1Size=MEM1_DEFAULT_SIZE;config.mem2Size=64u*1024u*1024u;config.logLevel=LOG_WARNING;
-    Check(aurora_initialize(argc,argv,&config).window!=nullptr,"actual oneSDK host unavailable");OSInit();
+    // SDK memory/clock only; this fixture needs no GX device or SDL window.
+    aurora::g_config.mem1Size=MEM1_DEFAULT_SIZE;
+    aurora::g_config.mem2Size=64u*1024u*1024u;
+    OSInit();
+    Check(OSGetArenaLo()&&OSGetMEM2ArenaLo(),"actual oneSDK arenas unavailable");
     auto* image=SDL_LoadObject(argv[1]);Check(image!=nullptr,"whole OS source image failed to load");
     auto Init=Load<void(*)()>(image,"__OSInitAudioSystem");
     auto Stop=Load<void(*)()>(image,"__OSStopAudioSystem");
@@ -168,7 +170,7 @@ void Run(int argc,char** argv) {
 
     ReleaseNativeDSPMemory(rom_pin);ReleaseNativeDSPMemory(work_pin);
     DetachNativeDSPControl();DetachNativeDSPMailboxes();DetachNativeDSPMEM1();
-    ShutdownNativeInterruptController();SDL_UnloadObject(image);aurora_shutdown();
+    ShutdownNativeInterruptController();SDL_UnloadObject(image);AuroraOSShutdown();
     std::cout<<"native_os_audio_boot: "<<checks<<" checks; whole original init/stop, missing-bank stops, generated-bank literal RAM clear and retained-chip source loader; authentic ROM/active kernel/game audio remains held\n";
 }
 }

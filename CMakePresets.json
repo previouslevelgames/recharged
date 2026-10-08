@@ -17,56 +17,26 @@
         "MSCHARGED_BUILD_AURORA_HOST": false,
         "MSCHARGED_BUILD_GAME_STARTUP": false,
         "MSCHARGED_BUILD_GX_CHECK": false,
-        "MSCHARGED_BUILD_SCENE_PREVIEW": false
+        "MSCHARGED_BUILD_SCENE_PREVIEW": false,
+        "MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC": false,
+        "MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC": false,
+        "MSCHARGED_BUILD_ORIGINAL_LOADING_DIAGNOSTIC": false
       }
     },
     {
-      "name": "debug",
+      "name": "optimized",
+      "hidden": true,
       "inherits": "base",
-      "displayName": "Development build (Debug)",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "release",
-      "inherits": "base",
-      "displayName": "Development build (Release)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "aurora",
-      "inherits": "debug",
-      "displayName": "Aurora host integration (Debug, GX pending)",
-      "cacheVariables": {
-        "MSCHARGED_BUILD_AURORA_HOST": true
-      }
-    },
-    {
-      "name": "startup",
-      "inherits": "aurora",
-      "displayName": "Original game startup prototype (Debug, not playable)",
-      "cacheVariables": {
-        "MSCHARGED_BUILD_GAME_STARTUP": true
-      }
-    },
-    {
-      "name": "graphics",
-      "inherits": "release",
-      "displayName": "Standalone GX/Vulkan diagnostic (Release, no game)",
+      "name": "frontend-runtime",
+      "hidden": true,
+      "inherits": "optimized",
       "cacheVariables": {
         "MSCHARGED_BUILD_GX_CHECK": true,
-        "MSCHARGED_BUILD_LAUNCHER": false
-      }
-    },
-    {
-      "name": "frontend",
-      "inherits": "graphics",
-      "displayName": "Original frontend sequence (Release, incomplete startup)",
-      "binaryDir": "${sourceDir}/build/graphics",
-      "cacheVariables": {
         "MSCHARGED_BUILD_LAUNCHER": true,
         "MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC": true,
         "MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC": true,
@@ -97,8 +67,58 @@
         "MSCHARGED_DIAGNOSTIC_FRONTEND_PLAT_PAD_TASK": true,
         "MSCHARGED_DIAGNOSTIC_FRONTEND_MAIN_MENU": true,
         "MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME": true,
-        "MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION": true
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION": true,
+        "MSCHARGED_DIAGNOSTIC_FRONTEND_CREDITS": true
       }
+    },
+    {
+      "name": "debug",
+      "inherits": "base",
+      "displayName": "Development build (Debug)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "frontend-runtime",
+      "displayName": "Original frontend runtime (Release, incomplete game)"
+    },
+    {
+      "name": "launcher",
+      "inherits": "optimized",
+      "displayName": "Launcher and foundation only (Release)"
+    },
+    {
+      "name": "aurora",
+      "inherits": "debug",
+      "displayName": "Aurora host integration (Debug, GX pending)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_AURORA_HOST": true
+      }
+    },
+    {
+      "name": "startup",
+      "inherits": "aurora",
+      "displayName": "Original game startup prototype (Debug, not playable)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_GAME_STARTUP": true
+      }
+    },
+    {
+      "name": "graphics",
+      "inherits": "optimized",
+      "displayName": "Standalone GX/Vulkan diagnostic (Release, no game)",
+      "cacheVariables": {
+        "MSCHARGED_BUILD_GX_CHECK": true,
+        "MSCHARGED_BUILD_LAUNCHER": false
+      }
+    },
+    {
+      "name": "frontend",
+      "inherits": "frontend-runtime",
+      "displayName": "Original frontend sequence (Release, incomplete startup)",
+      "binaryDir": "${sourceDir}/build/graphics"
     },
     {
       "name": "scene",
@@ -114,7 +134,9 @@
     {
       "name": "frontend",
       "configurePreset": "frontend",
-      "targets": ["mscharged"]
+      "targets": [
+        "mscharged"
+      ]
     },
     {
       "name": "debug",
@@ -122,7 +144,14 @@
     },
     {
       "name": "release",
-      "configurePreset": "release"
+      "configurePreset": "release",
+      "targets": [
+        "mscharged"
+      ]
+    },
+    {
+      "name": "launcher",
+      "configurePreset": "launcher"
     },
     {
       "name": "aurora",
@@ -153,8 +182,8 @@
       }
     },
     {
-      "name": "release",
-      "configurePreset": "release",
+      "name": "launcher",
+      "configurePreset": "launcher",
       "output": {
         "outputOnFailure": true
       },
@@ -244,10 +273,23 @@
         {
           "type": "build",
           "name": "release"
+        }
+      ]
+    },
+    {
+      "name": "launcher",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "launcher"
+        },
+        {
+          "type": "build",
+          "name": "launcher"
         },
         {
           "type": "test",
-          "name": "release"
+          "name": "launcher"
         }
       ]
     },

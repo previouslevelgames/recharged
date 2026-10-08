@@ -1,5 +1,6 @@
 #include "platform/alarms.h"
 #include "platform/interrupts.h"
+#include "platform/thread_queues.h"
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
 #include <aurora/time.hpp>
@@ -65,6 +66,88 @@ void Until(unsigned count) {
     ++checks;
 }
 OSTime Add(OSTime a,OSTime b) { return std::bit_cast<OSTime>(std::uint64_t(a)+std::uint64_t(b)); }
+
+OSThread* timed_thread{};
+unsigned timed_services{}, external_resumes{};
+enum class SleepServiceMode { Deadline, ExternalResume, Failure };
+SleepServiceMode sleep_mode{};
+void TimedSleepService() {
+    ++timed_services;
+    Check(std::this_thread::get_id()==owner&&OSGetCurrentThread()==timed_thread,
+          "Timed sleep hardware service escaped its actual source owner");
+    Check(NativeInterruptsEnabled()&&!NativeInterruptDispatchActive()&&
+          OSGetCurrentContext()==interrupted,
+          "Timed sleep service retained source interrupt mask/context");
+    Check(timed_thread->state==OS_THREAD_STATE_READY&&timed_thread->suspend==1,
+          "Timed sleep did not genuinely suspend its source thread");
+    if (sleep_mode==SleepServiceMode::Failure)
+        throw std::runtime_error("Intentional timed-sleep owner failure");
+    if (sleep_mode==SleepServiceMode::ExternalResume) {
+        Check(OSResumeThread(timed_thread)==1,"Actual early resume lost original suspend count");
+        ++external_resumes;
+    } else aurora_service_hardware_interrupts();
+}
+void RejectInterruptSleep() {
+    Reject([]{OSSleepTicks(0);},"Original alarm interrupt accepted a blocking timed sleep");
+}
+void TimedSleepChecks() {
+    timed_thread=OSGetCurrentThread();
+    Check(reinterpret_cast<std::uintptr_t>(timed_thread)>0xffffffffULL,
+          "Timed-sleep full-width thread identity was not above4GiB");
+    Reject([]{OSSleepTicks(0);},"Timed sleep fabricated an absent owner wait service");
+    Check(SetNativeThreadWaitService(TimedSleepService)==nullptr,"Owner timed-wait service already occupied");
+    const auto tag=NativeThreadAlarmTag();
+    Check(tag!=0&&NativeThreadAlarmTag()==tag,"Live native thread alarm identity changed");
+    for (const OSTime ticks : {OSTime(OSMillisecondsToTicks(25)),OSTime(0),OSTime(-1)}) {
+        const auto before=OSGetTime();
+        const auto prior_services=timed_services;
+        OSSleepTicks(ticks);
+        const auto elapsed=OSGetTime()-before;
+        Check(ticks<=0||elapsed>=ticks,"Source thread resumed before its actual alarm deadline");
+        Check(timed_services>prior_services,"Timed sleep returned without genuine suspend/service");
+        Check(!timed_thread->suspend&&timed_thread->state==OS_THREAD_STATE_RUNNING&&
+              NativeInterruptsEnabled()&&OSGetCurrentContext()==interrupted,
+              "Completed timed sleep retained source suspension/mask/context");
+        Check(OSCheckAlarmQueue()&&ServiceNativeAlarms()==0,"Completed timed sleep retained its stack alarm");
+        Check(NativeThreadAlarmTag()==tag,"Timed sleep changed incarnation's cancellation identity");
+    }
+    const auto mask=OSDisableInterrupts();
+    OSSleepTicks(OSMillisecondsToTicks(2));
+    Check(!NativeInterruptsEnabled()&&OSGetCurrentContext()==interrupted,
+          "Timed sleep lost original caller's disabled mask/context");
+    OSRestoreInterrupts(mask);
+
+    sleep_mode=SleepServiceMode::ExternalResume;
+    OSSleepTicks(OSMillisecondsToTicks(8));
+    Check(external_resumes==1,"Actual early-resume request was lost or replayed");
+    Sleep(12);
+    Check(ServiceNativeAlarms()==0&&!timed_thread->suspend,
+          "Early resume retained or later fired its borrowed stack alarm");
+
+    sleep_mode=SleepServiceMode::Failure;
+    bool failed{};
+    try { OSSleepTicks(0); } catch(const std::runtime_error& e) {
+        failed=std::strcmp(e.what(),"Intentional timed-sleep owner failure")==0;
+    }
+    Check(failed,"Failed timed sleep returned invented successful completion");
+    Check(timed_thread->state==OS_THREAD_STATE_RUNNING&&!timed_thread->suspend&&
+          NativeInterruptsEnabled()&&OSGetCurrentContext()==interrupted,
+          "Failed timed sleep retained its own suspension/mask/context");
+    Check(OSCheckAlarmQueue()&&ServiceNativeAlarms()==0,"Failed timed sleep retained borrowed stack alarm");
+    sleep_mode=SleepServiceMode::Deadline;
+    OSSleepTicks(0); // A genuinely restored failed host scope can make a fresh request.
+    Check(DispatchNativeInterrupt(RejectInterruptSleep),"Timed-sleep IRQ rejection probe did not dispatch");
+    {
+        NativeInterruptGuard guard;
+        Reject([]{OSSleepTicks(0);},"Timed sleep accepted an additional host exclusion");
+    }
+    bool foreign_rejected{};
+    std::thread foreign([&]{try{OSSleepTicks(0);}catch(const std::logic_error&){foreign_rejected=true;}});
+    foreign.join();
+    Check(foreign_rejected,"Foreign worker timed sleep claimed unqualified alarm ownership");
+    Check(SetNativeThreadWaitService(nullptr)==TimedSleepService,"Borrowed timed-wait service did not retire");
+    timed_thread=nullptr;
+}
 }
 int main() {
     try {
@@ -196,6 +279,7 @@ int main() {
         Check(OSCheckAlarmQueue(),"Restart inherited prior descriptor links");
         OSCreateAlarm(&alarm[0]); OSSetAlarm(&alarm[0],OSMillisecondsToTicks(1),Callback);
         const auto restartCount=calls; Until(restartCount+1);
+        TimedSleepChecks();
         ShutdownNativeAlarms();
         Check(aurora_unregister_hardware_service(Hook),"SDK alarm hook identity changed");
         AuroraOSShutdown();

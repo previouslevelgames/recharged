@@ -23,4 +23,7 @@ if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8)
     target_compile_features(native_thread_queue_tests PRIVATE cxx_std_17)
     add_test(NAME native_thread_queues COMMAND native_thread_queue_tests)
     set_tests_properties(native_thread_queues PROPERTIES TIMEOUT 15)
+    # Qualify the actual provider in original-main builds as well as the
+    # legacy startup profile, using the complete original message-ring TU.
+    include(cmake/NativeThreadLifecycle.cmake)
 endif()

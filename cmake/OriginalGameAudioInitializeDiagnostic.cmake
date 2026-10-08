@@ -25,14 +25,7 @@ function(mscharged_select_original_game_audio_initialize target)
     target_sources("${target}" PRIVATE tests/diagnostics/original_game_audio_initialize.cpp)
     target_compile_definitions("${target}" PRIVATE MSCHARGED_DIAGNOSTIC_GAME_AUDIO_INITIALIZE=1)
     target_compile_options("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:C>:-fexceptions>")
-    get_target_property(_options "${target}" LINK_OPTIONS)
-    list(REMOVE_ITEM _options
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map"
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_sh_menu_exports.map")
-    set_property(TARGET "${target}" PROPERTY LINK_OPTIONS "${_options}")
-    target_link_options("${target}" PRIVATE
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_audio_initialize_exports.map")
-    set_property(TARGET "${target}" APPEND PROPERTY LINK_DEPENDS
+    mscharged_set_original_module_exports("${target}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_audio_initialize_exports.map")
     target_sources(charged_original_main_credits_host PRIVATE
         tests/diagnostics/original_game_audio_hardware.cpp)
@@ -48,7 +41,6 @@ function(mscharged_select_original_game_audio_initialize target)
             OSDisableInterrupts OSRestoreInterrupts SCGetSoundMode
             DCFlushRange DCFlushRangeNoSync DCInvalidateRange
             WPADCanSendStreamData WPADControlSpeaker WPADSendStreamData)
-        target_link_options(charged_original_main_credits_host INTERFACE
-            "-Wl,--require-defined=${_symbol},--export-dynamic-symbol=${_symbol}")
+        mscharged_require_original_host_symbol(charged_original_main_credits_host INTERFACE "${_symbol}")
     endforeach()
 endfunction()

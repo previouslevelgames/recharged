@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+
+// Wii SDK timed sleep, provided by the actual native alarm/thread endpoints.
+extern "C" void OSSleepTicks(std::int64_t ticks);
+
 namespace mscharged::platform {
 
 using NativeThreadWaitService = void (*)();
@@ -10,6 +15,11 @@ using NativeThreadWaitService = void (*)();
 // before its implementation or device storage is retired. No callback or source
 // readiness is supplied when this slot is empty.
 NativeThreadWaitService SetNativeThreadWaitService(NativeThreadWaitService service);
+
+// Stable nonzero numeric alarm tag for this live native SDK thread incarnation.
+// This is a cancellation identity, never a truncated pointer or device address.
+// Requires an actual runnable caller with its borrowed hardware wait service.
+std::uint32_t NativeThreadAlarmTag();
 
 // Borrowed SDK descriptors/callback images must remain alive until their actual
 // workers have ended and attached source joins/detaches have completed. Host

@@ -50,6 +50,7 @@ struct Options
     fs::path config;
     LaunchOptions launch;
     fs::path screenshot;
+    bool launcher = false;
     bool smoke_test = false;
     bool experimental_startup = false;
     bool experimental_scene = false;
@@ -763,10 +764,21 @@ int main(int argc, char** argv)
     {
         if (ParseLaunchOption(argc, argv, i, options.launch)) continue;
         const std::string arg = argv[i];
-        if (arg == "--version") { std::cout << "mscharged " << mscharged::build::version << " (" << MSCHARGED_BUILD_CONFIG << "; launcher)\n"; return 0; }
+        if (arg == "--version")
+        {
+            std::cout << "mscharged " << mscharged::build::version << " (" << MSCHARGED_BUILD_CONFIG;
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+            std::cout << "; original frontend runtime)\n";
+#else
+            std::cout << "; launcher)\n";
+#endif
+            return 0;
+        }
         if (arg == "--help")
         {
-            std::cout << "Usage: mscharged [launch settings] [--version]\n" << LaunchOptionsHelp <<
+            std::cout << "Usage: mscharged [launch settings] [--launcher] [--version]\n" << LaunchOptionsHelp <<
+                         "Supplying --disc/--disk starts the original game runtime directly when included in this build.\n"
+                         "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
                          "Development checks: --smoke-test | --screenshot FILE [--page game|display|audio|controls|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
@@ -806,6 +818,7 @@ int main(int argc, char** argv)
             return 0;
         }
         if (arg == "--smoke-test") options.smoke_test = true;
+        else if (arg == "--launcher") options.launcher = true;
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--experimental-credits") options.experimental_credits = true;
@@ -894,12 +907,18 @@ int main(int argc, char** argv)
     }
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 2; }
     options.config = options.launch.config;
-    const unsigned runtime_modes = unsigned(options.experimental_startup)
+    unsigned runtime_modes = unsigned(options.experimental_startup)
         + unsigned(options.experimental_scene) + unsigned(options.experimental_credits)
         + unsigned(options.experimental_frontend) + unsigned(options.experimental_options);
-    if (runtime_modes && (runtime_modes > 1 || options.smoke_test
-        || !options.screenshot.empty() || options.page_selected))
-    { std::cerr << "Select one runtime mode; capture/smoke options require the launcher.\n"; return 2; }
+    const bool launcher_requested = options.launcher || options.smoke_test
+        || !options.screenshot.empty() || options.page_selected;
+    if (!runtime_modes && options.launch.disc && !launcher_requested)
+    {
+        options.experimental_frontend = true;
+        runtime_modes = 1;
+    }
+    if (runtime_modes && (runtime_modes > 1 || launcher_requested))
+    { std::cerr << "Select one runtime mode; --launcher and capture/smoke/page options select the launcher.\n"; return 2; }
     if (options.credits_arguments && !options.experimental_credits && !options.experimental_frontend && !options.experimental_options)
     { std::cerr << "Frame/resize options require --experimental-credits or --experimental-frontend.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
@@ -988,7 +1007,8 @@ int main(int argc, char** argv)
                 nullptr, false, options.experimental_options ?
                     OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence);
 #else
-            std::cerr << "Original Boot/Intro is not in this build. Enable MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC.\n";
+            std::cerr << "Original game runtime is not included in this build. "
+                         "A game-enabled build is required for direct disc startup; --launcher opens settings.\n";
             return 2;
 #endif
         }

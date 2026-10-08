@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "skin_render_fixture.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -65,7 +66,7 @@ void Render(OriginalFrames& frames,AuroraFrames& backend,GLView& view,SkinRender
    Check(renderer.Submit(view,pose)==pose->asset->Data().packets.size(),"Skin packet submission differs");
    const bool sample=frame>=12&&quiet>=2;backend.read_colours=sample;glEndFrame();glSendFrame();renderer.FinishFrame();
    total_draws+=aurora_get_stats()->drawCallCount;
-   const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+   const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
    if(sample&&!pending)break;
   }
  }
@@ -156,7 +157,7 @@ void Owned(OriginalFrames& frames,AuroraFrames& backend,GLView& view,ViewMatrice
    Check(std::chrono::steady_clock::now()<deadline,"Owned skin GPU run timed out");Acquire(frames);glBeginFrame();GXSetPixelFmt(GX_PF_RGB8_Z24,GX_ZC_LINEAR);GXSetCopyClear({20,24,30,255},GX_MAX_Z24);
    auto pose=sample(float(frame%120)/119);Check(renderer.Submit(view,pose)==4,"Owned Bowser shock packet count changed");backend.read_colours=frame>=12&&quiet>=2;
    glEndFrame();glSendFrame();renderer.FinishFrame();draws+=aurora_get_stats()->drawCallCount;
-   const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+   const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
    if(backend.read_colours&&!pending){++samples;for(const auto& c:backend.colours)if(std::abs(int(c[0])-20)>8||std::abs(int(c[1])-24)>8||std::abs(int(c[2])-30)>8)++visible;}
   }
  }

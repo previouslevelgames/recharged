@@ -1,5 +1,7 @@
 #include "platform/alarms.h"
 #include "platform/interrupts.h"
+#include "platform/thread_queues.h"
+#include <dolphin/os/OSThread.h>
 #include <dolphin/os.h>
 #include <dolphin/os/OSAlarm.h>
 #include <bit>
@@ -81,6 +83,10 @@ void Invoke(void* data) {
     auto& delivery = *static_cast<Delivery*>(data);
     delivery.handler(delivery.alarm, delivery.interrupted);
 }
+void SleepAlarmHandler(OSAlarm* alarm, OSContext*) {
+    // Original OSThread.c handler; userData carries the full live SDK pointer.
+    OSResumeThread(static_cast<OSThread*>(OSGetAlarmUserData(alarm)));
+}
 }
 
 namespace mscharged::platform {
@@ -159,6 +165,30 @@ extern "C" void OSCreateAlarm(OSAlarm* alarm) {
     alarm->handler = nullptr;
     alarm->tag = 0;
 }
+extern "C" void OSSleepTicks(OSTime ticks) {
+    if (!mscharged::platform::NativeInterruptWaitAllowed())
+        throw std::logic_error("Cannot timed-sleep a native SDK interrupt/host exclusion scope");
+    CriticalSection exclusion;
+    RequireOwner(State()); // Foreign worker alarm ownership remains unqualified.
+    auto* thread = OSGetCurrentThread();
+    if (!thread) return;
+    const auto tag = mscharged::platform::NativeThreadAlarmTag();
+    OSAlarm alarm;
+    OSCreateAlarm(&alarm);
+    OSSetAlarmTag(&alarm, tag);
+    OSSetAlarmUserData(&alarm, thread);
+    OSSetAlarm(&alarm, ticks, SleepAlarmHandler);
+    try {
+        OSSuspendThread(thread);
+    } catch (...) {
+        // The native wait restores its failed suspension, and no stack alarm
+        // or borrowed source pointer may survive this exceptional return.
+        OSCancelAlarm(&alarm);
+        throw;
+    }
+    OSCancelAlarm(&alarm);
+}
+
 extern "C" void OSSetAlarm(OSAlarm* alarm, OSTime tick, OSAlarmHandler handler) {
     CriticalSection exclusion;
     auto& s = State(); RequireOwner(s); RequirePointer(alarm);

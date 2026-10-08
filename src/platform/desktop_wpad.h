@@ -27,6 +27,12 @@ struct DesktopWpadSettings {
 // analog/Nunchuk/Classic/motion remain separate hardware prerequisites.
 // Opt-in mouse supplies an upright virtual raw IR camera only with an actual
 // successful-Present projection. Physical remote IR is still unqualified.
+// Focus policy: buttons and camera objects are reported only while the window
+// has input focus. Focus loss, hide or minimize reports released buttons and no
+// camera objects through the same raw path; a key pressed without focus stays
+// released until pressed again. Mouse leave releases mouse buttons and hides
+// the camera until a new in-window position arrives. KPAD keeps every edge,
+// repeat and invalid-pointer decision.
 void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings);
 void ServiceDesktopWpad();
 void ShutdownDesktopWpad();

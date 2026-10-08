@@ -56,6 +56,5 @@ function(mscharged_select_original_frontend_main_menu target)
     if(NOT TARGET charged_original_main_credits_host)
         message(FATAL_ERROR "Original MainMenu requires its existing native host")
     endif()
-    target_link_options(charged_original_main_credits_host INTERFACE
-        "-Wl,--require-defined=OSTicksToCalendarTime,--export-dynamic-symbol=OSTicksToCalendarTime")
+    mscharged_require_original_host_symbol(charged_original_main_credits_host INTERFACE OSTicksToCalendarTime)
 endfunction()

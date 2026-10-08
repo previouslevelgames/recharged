@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/NativeOSAudioRegisters.cmake)
 include(cmake/NativeDSPBootMemory.cmake)
 include(cmake/NativeAXBootstrap.cmake)
 include(cmake/NativeAI.cmake)
@@ -16,7 +17,7 @@ add_dependencies(charged_native_os_audio_boot verify_prepared)
 target_include_directories(charged_native_os_audio_boot PUBLIC src)
 target_compile_features(charged_native_os_audio_boot PUBLIC cxx_std_17)
 target_link_libraries(charged_native_os_audio_boot PUBLIC charged_native_dsp_boot_memory
-    charged_native_os_boot_environment charged_native_ai)
+    charged_native_os_boot_environment charged_native_ai charged_native_os_audio_registers)
 
 # Complete original methods; explicit compiler inventory, not automatic OS/AX
 # initialization. Authentic banks/cold register input and active kernel remain
@@ -65,7 +66,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT APPLE)
         -Wl,--undefined=DCFlushRange -Wl,--undefined=OSGetTick
         -Wl,--undefined=OSGetArenaHi)
 endif()
-if(BUILD_TESTING AND NOT MSCHARGED_BUILD_GX_CHECK)
+if(BUILD_TESTING)
     add_test(NAME native_os_audio_boot
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/run_native_dsp_backing.py"
             $<TARGET_FILE:native_os_audio_boot_tests> $<TARGET_FILE:native_os_audio_boot_source_fixture>)
@@ -73,3 +74,5 @@ if(BUILD_TESTING AND NOT MSCHARGED_BUILD_GX_CHECK)
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 endif()
+
+mscharged_add_native_os_audio_functional_stop_test()

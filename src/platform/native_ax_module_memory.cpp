@@ -11,7 +11,9 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <filesystem>
+#if !defined(__APPLE__)
 #include <link.h>
+#endif
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -32,9 +34,17 @@ constexpr NativeDSPMemoryEncoding Encodings[13] = {NativeDSPMemoryEncoding::Nati
     NativeDSPMemoryEncoding::NativeU16, NativeDSPMemoryEncoding::AXStudio, NativeDSPMemoryEncoding::NativeU16,
     NativeDSPMemoryEncoding::NativeU32, NativeDSPMemoryEncoding::NativeU16,
     NativeDSPMemoryEncoding::RawBytes, NativeDSPMemoryEncoding::RawBytes};
+const timespec& ModifiedTime(const struct stat& value) noexcept {
+#if defined(__APPLE__)
+    return value.st_mtimespec;
+#else
+    return value.st_mtim;
+#endif
+}
 bool SameFile(const struct stat& a, const struct stat& b) {
     return a.st_dev==b.st_dev && a.st_ino==b.st_ino && a.st_size==b.st_size &&
-        a.st_mtim.tv_sec==b.st_mtim.tv_sec && a.st_mtim.tv_nsec==b.st_mtim.tv_nsec;
+        ModifiedTime(a).tv_sec==ModifiedTime(b).tv_sec &&
+        ModifiedTime(a).tv_nsec==ModifiedTime(b).tv_nsec;
 }
 }
 struct NativeAXModuleMemory::State {
@@ -103,8 +113,8 @@ NativeAXModuleMemory::NativeAXModuleMemory(const char* module_path):state_(new S
     s.RequireFile();
     char suffix[160];std::snprintf(suffix,sizeof(suffix),":%llu:%llu:%llu:%lld:%ld:%016llx",
         static_cast<unsigned long long>(s.file_state.st_dev),static_cast<unsigned long long>(s.file_state.st_ino),
-        static_cast<unsigned long long>(s.file_state.st_size),static_cast<long long>(s.file_state.st_mtim.tv_sec),
-        s.file_state.st_mtim.tv_nsec,static_cast<unsigned long long>(fingerprint));
+        static_cast<unsigned long long>(s.file_state.st_size),static_cast<long long>(ModifiedTime(s.file_state).tv_sec),
+        ModifiedTime(s.file_state).tv_nsec,static_cast<unsigned long long>(fingerprint));
     s.identity=s.path+suffix;
     s.endpoint=AttachNativeDSPMEM1();
     armed_owner=&s;
@@ -119,10 +129,21 @@ NativeAXModuleMemory::~NativeAXModuleMemory() {
 void NativeAXModuleMemory::ConfirmLoaded(void* actual_loader_handle) {
     std::lock_guard lock(LoaderExclusion());
     auto& s=*state_;s.RequireOwner();s.RequireFile();
+#if defined(__APPLE__)
+    // Resolve an existing source entry without calling it. Its real image must
+    // own the same thirteen pre-static spans submitted during this dlopen.
+    void* entry=actual_loader_handle ? dlsym(actual_loader_handle,"charged_original_entry") : nullptr;
+    Dl_info image{};
+    if(!entry || !dladdr(entry,&image) || !image.dli_fbase || !image.dli_fname ||
+        std::filesystem::canonical(image.dli_fname).string()!=s.path ||
+        !s.registered || reinterpret_cast<std::uintptr_t>(image.dli_fbase)!=s.image_base)
+        throw std::logic_error("Actual module load did not register its own pre-static AX spans");
+#else
     link_map* map{};
     if(!actual_loader_handle || dlinfo(actual_loader_handle,RTLD_DI_LINKMAP,&map) || !map ||
         !s.registered || reinterpret_cast<std::uintptr_t>(map->l_addr)!=s.image_base)
         throw std::logic_error("Actual module load did not register its own pre-static AX spans");
+#endif
     s.loaded=true;if(armed_owner==&s)armed_owner=nullptr;
 }
 NativeAXModuleMemoryStatus NativeAXModuleMemory::Status() const {

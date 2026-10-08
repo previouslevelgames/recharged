@@ -1,0 +1,32 @@
+From: mscharged-port contributors
+Subject: [PATCH] Keep a read's channel map when the head audio track ends
+Upstream-base: 8e37db5e797b6167f3a00d697d816a684bd259c7
+
+SDL_ReadFromAudioQueue takes src_map from the head track, then reads the
+present frames. When that read finishes the head track, ReadFromAudioQueue
+destroys it, and ConvertAudio swizzles through the freed track's chmap
+storage. A stream with an input channel map that queues small NoCopy tracks
+hits this whenever one read spans tracks; once the track pool is full the
+block is really freed and its memory reused. Copy the map into local storage
+before reading. SDL main still has the same code.
+
+diff --git a/src/audio/SDL_audioqueue.c b/src/audio/SDL_audioqueue.c
+index b59e847..780638c 100644
+--- a/src/audio/SDL_audioqueue.c
++++ b/src/audio/SDL_audioqueue.c
+@@ -535,7 +535,14 @@ const Uint8 *SDL_ReadFromAudioQueue(SDL_AudioQueue *queue,
+ 
+     SDL_AudioFormat src_format = track->spec.format;
+     int src_channels = track->spec.channels;
+-    const int *src_map = track->chmap;
++    // Reading the present frames below can finish and destroy this head
++    // track. Keep a copy of its channel map rather than a pointer into it.
++    int src_map_storage[SDL_MAX_CHANNELMAP_CHANNELS];
++    const int *src_map = NULL;
++    if (track->chmap) {
++        SDL_memcpy(src_map_storage, track->chmap, sizeof (*track->chmap) * src_channels);
++        src_map = src_map_storage;
++    }
+ 
+     size_t src_frame_size = SDL_AUDIO_BYTESIZE(src_format) * src_channels;
+     size_t dst_frame_size = SDL_AUDIO_BYTESIZE(dst_format) * dst_channels;

@@ -11,7 +11,7 @@ struct NativeAXModuleMemoryStatus {
     std::uintptr_t image_base;
     ChargedAXModuleArenaSnapshot before, after;
 };
-// Linux host-loader ownership only. Construct after real OS arenas, before
+// ELF/Mach-O host-loader ownership. Construct after real OS arenas, before
 // loading the original module. No game allocation/initialization/task/audio
 // decision is supplied. Actual module static owners are never unloaded here.
 class NativeAXModuleMemory {

@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "frontend_packets_fixture.h"
 #include "runtime/frontend_layout_gx.h"
 #include "runtime/frontend_pointer_display.h"
@@ -61,7 +62,7 @@ AuroraPresentation Draw(const FrontendSession::Handle& frame, unsigned pixel, bo
         if (!aurora_begin_frame()) { SDL_Delay(1); continue; }
         GXSetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR); GXSetCopyClear({20,24,30,255}, GX_MAX_Z24);
         DrawFrontendLayout(frame->layout, 640, 480); GXDrawDone();
-        const auto pending = std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();
+        const auto pending = mscharged::platform::GetQueuedPipelineCount();
         quiet = pending ? 0 : quiet + 1;
         if (++count < 16 || quiet < 2) { if (present) aurora_end_frame(); else aurora_end_frame_no_present(); }
         else

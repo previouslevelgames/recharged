@@ -20,13 +20,7 @@ function(mscharged_select_original_sh_menus target)
     target_compile_definitions("${target}" PRIVATE
         MSCHARGED_DIAGNOSTIC_FRONTEND_SH_MENUS=1)
     target_sources("${target}" PRIVATE tests/diagnostics/original_sh_menu.cpp)
-    get_target_property(_sh_link_options "${target}" LINK_OPTIONS)
-    list(REMOVE_ITEM _sh_link_options
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map")
-    set_property(TARGET "${target}" PROPERTY LINK_OPTIONS "${_sh_link_options}")
-    target_link_options("${target}" PRIVATE
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_sh_menu_exports.map")
-    set_property(TARGET "${target}" APPEND PROPERTY LINK_DEPENDS
+    mscharged_set_original_module_exports("${target}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_sh_menu_exports.map")
     get_target_property(_sh_existing "${target}" SOURCES)
     foreach(_sh_source IN ITEMS

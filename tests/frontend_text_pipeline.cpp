@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "frontend_font_fixture.h"
 #include "runtime/frontend_text_gx.h"
 #include "runtime/gpu_readback.h"
@@ -42,7 +43,7 @@ void Case(const resources::FontLayout& layout, std::array<std::uint8_t, 4> modul
         const bool sample = frame >= 12 && quiet_frames >= 2;
         if (sample) samples = EndFrameAndReadColours(); else aurora_end_frame();
         draws += aurora_get_stats()->drawCallCount; ++frame;
-        const auto pending = std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();
+        const auto pending = mscharged::platform::GetQueuedPipelineCount();
         quiet_frames = pending ? 0 : quiet_frames + 1;
         if (sample) break;
         SDL_Delay(1);

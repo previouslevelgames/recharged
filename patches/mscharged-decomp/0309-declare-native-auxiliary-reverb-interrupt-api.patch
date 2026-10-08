@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Declare native interrupt APIs in original auxiliary reverb
-Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
 
 Modern C requires the declarations for the original interrupt calls. Native
 mem.h no longer supplies the console's transitive OS include. Include the

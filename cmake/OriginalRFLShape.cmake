@@ -3,9 +3,9 @@ include_guard(GLOBAL)
 # Whole original RFL model/face texture and bounded serialized data transport.
 # This compiler inventory does not admit source model construction or drawing.
 # Runtime consumers must share their module's actual ownership registry.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU"
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile C CXX)
+if(NOT _original_native_profile)
     return()
 endif()
 add_library(charged_original_rfl_shape_sources OBJECT EXCLUDE_FROM_ALL

@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "model_particles_fixture.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -56,7 +57,7 @@ void Case(ModelParticles& particles,GLView& view,OriginalFrames& frames,AuroraFr
     {
         Check(std::chrono::steady_clock::now()<deadline,"Model-particle pipeline warmup timed out");
         const bool read=n>=12&&quiet>=2;Check(Render(particles,view,frames,backend,read)==1,"Generated model particle was not submitted");
-        const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;if(read&&!pending)break;
+        const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;if(read&&!pending)break;
     }
     for(unsigned i=3;i<6;++i)Pixel(backend.colours,i,i==location?std::array<int,3>{100,100,25}:std::array<int,3>{20,24,30});
     Pixel(backend.colours,0,{20,24,30});Pixel(backend.colours,8,{20,24,30});
@@ -109,7 +110,7 @@ void Owned(const std::filesystem::path& folder,const std::filesystem::path& hier
         {
             Check(std::chrono::steady_clock::now()<deadline,"Owned model-particle gate timed out");particles.Advance(1.f/60);
             Fit(matrices,particles.Sample(),*animation);submitted+=Render(particles,view,frames,backend,n>=12&&quiet>=2);
-            const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+            const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
             if(backend.read_colours&&!pending)for(const auto& pixel:backend.colours)
                 if(std::abs(int(pixel[0])-20)>5||std::abs(int(pixel[1])-24)>5||std::abs(int(pixel[2])-30)>5)++changed;
         }

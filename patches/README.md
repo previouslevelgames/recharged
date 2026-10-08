@@ -19,6 +19,11 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
+Patch 0518 retains the complete original SRAM cache, checksum and retry owner.
+The native EXI device supplies explicit persistent SRAM/RTC register storage;
+16-bit SRAM fields retain their Wii byte order. Device construction does not
+provide a default image or initialize the original cache.
+
 Patches `0284` and `0291` select the temporary original Boot/Intro diagnostic.
 They retain original scene owners and task scheduling while explicitly omitting
 blocked services. These gates are enabled only in the separate frontend test
@@ -371,11 +376,38 @@ rectangle and window identity only after successful surface presentation. Native
 pointer routing uses that retained snapshot; discarded frames do not advance it.
 The snapshot is empty with GX disabled and resets on initialization/shutdown.
 
+`0053-present-native-vi-output-without-owner-gpu-wait.patch` queues each native
+VI desktop presentation on the render worker without making the source owner
+wait for it or for an idle GPU before `Present`. One presentation stays in
+flight; the successful-Present record is unchanged and output shutdown first
+retires queued work. Owner-side readbacks must join the workers explicitly.
+In the original Credits test this removed about 5 ms after every VI retrace.
+
+`0054-retire-native-vi-render-mode-outside-device-lock.patch` releases the VI
+device mutex before shutdown retires the render mode. That retirement can join
+the final GX frame and service owner interrupts; under the lock, the VI service
+deadlocked the owner and froze the window at the end of resize checks.
+
+`0056-scan-out-newest-completed-xfb-copy.patch` scans out the newest display
+copy into the selected framebuffer whose GPU work has completed. A late
+draw-done callback from the previous frame can release the game's swap wait
+before its new copy finishes; that field now shows the buffer's previous
+completed contents instead of stopping the native VI. Seen at the Credits to
+Options transition.
+
 `0010-retain-dvd-handles-on-allocation-failure.patch` closes opened nod/overlay
 handles if command allocation fails and reports failure through the existing
 DVD admission result. Native NL callers can then restore their reserved request
 slot and pending count. Synthetic tests cover both providers and all 64 slots;
 music replacement tests also exercise this path under scoped sanitizers.
+
+`0057-drain-native-dvd-before-reset.patch` implements original SDK reset
+requests through the native DVD worker. It drains actual reads and callbacks,
+preserves silently removed waiting commands and their caller-owned handles,
+and reports cover state from the mounted disc. Reset/close reject unsafe
+interrupt contexts and overlapping media operations; reads remain rejected
+after close until a successful remount. Synthetic-disc tests cover these
+lifetimes. This does not complete original game shutdown or optical timing.
 
 ## Dawn series
 

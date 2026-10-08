@@ -3,9 +3,9 @@ include_guard(GLOBAL)
 # Whole original MEM Exp/common/list algorithms. Native headers are separate
 # metadata attached to the same source module's actual NL allocation owner.
 # This compiler inventory grants no RFL/game readiness or contended scheduler.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU"
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile C CXX)
+if(NOT _original_native_profile)
     return()
 endif()
 add_library(charged_original_mem_exp_heap_sources OBJECT EXCLUDE_FROM_ALL

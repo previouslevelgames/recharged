@@ -34,5 +34,19 @@ if(BUILD_TESTING)
         add_test(NAME native_ai_timing COMMAND native_ai_timing_tests)
         set_tests_properties(native_ai_timing PROPERTIES TIMEOUT 15
             ENVIRONMENT "SDL_AUDIO_DRIVER=dummy" LABELS "Platform")
+        # Late owner delivery: no replay of unprogrammed registers, bounded
+        # catch-up. The dummy device pulls exactly every 2 ms.
+        add_executable(native_ai_delivery_tests tests/native_ai_delivery.cpp)
+        target_link_libraries(native_ai_delivery_tests PRIVATE charged_native_ai SDL3::SDL3)
+        target_link_options(native_ai_delivery_tests PRIVATE -Wl,--wrap=SDL_PutAudioStreamDataNoCopy)
+        add_test(NAME native_ai_delivery COMMAND native_ai_delivery_tests)
+        set_tests_properties(native_ai_delivery PROPERTIES TIMEOUT 15 LABELS "Platform"
+            ENVIRONMENT "SDL_AUDIO_DRIVER=dummy;SDL_AUDIO_FREQUENCY=48000;SDL_AUDIO_DEVICE_SAMPLE_FRAMES=96")
+        # Prepared SDL keeps a read's channel map valid when the head track ends.
+        add_executable(sdl_audio_queue_channel_map_tests tests/sdl_audio_queue_channel_map.cpp)
+        target_link_libraries(sdl_audio_queue_channel_map_tests PRIVATE SDL3::SDL3)
+        add_test(NAME sdl_audio_queue_channel_map COMMAND sdl_audio_queue_channel_map_tests)
+        set_tests_properties(sdl_audio_queue_channel_map PROPERTIES TIMEOUT 15 LABELS "Platform"
+            ENVIRONMENT "SDL_AUDIO_DRIVER=dummy")
     endif()
 endif()

@@ -8,12 +8,16 @@
 
 static_assert(std::is_same_v<decltype(&SCGetLanguage), u8(*)(void)>);
 static_assert(std::is_same_v<decltype(&SCGetSoundMode), u8(*)(void)>);
+static_assert(std::is_same_v<decltype(&SCGetIdleMode), void(*)(SCIdleModeInfo*)>);
+static_assert(sizeof(SCIdleModeInfo) == 2 && alignof(SCIdleModeInfo) == 1);
+static_assert(offsetof(SCIdleModeInfo, wc24) == 0 && offsetof(SCIdleModeInfo, slotLight) == 1);
 static_assert(std::is_same_v<decltype(&SCCheckStatus), u32(*)(void)>);
 static_assert(SC_STATUS_OK==0 && SC_STATUS_BUSY==1 && SC_STATUS_FATAL==2);
 static int checks;
 void Check(bool value,const char* message){if(!value)throw std::runtime_error(message);++checks;}
 template<class Fn> void Reject(Fn fn,const char* message){bool rejected=false;try{fn();}catch(const std::logic_error&){rejected=true;}Check(rejected,message);}
 static void TestSimpleAddress();
+static void TestIdleMode();
 
 int main()
 {
@@ -83,6 +87,7 @@ int main()
         }
         Reject([]{SCGetSoundMode();},"retired sound snapshot unavailable");
         TestSimpleAddress();
+        TestIdleMode();
         ShutdownNativeSystemSettings();
         Check(SCCheckStatus()==SC_STATUS_FATAL,"retirement is idempotent");
         std::printf("237 native SC endpoint PASS:%d checks; explicit backing records/readiness/lifetime, no source/game/video decisions changed.\n",checks);
@@ -132,4 +137,72 @@ static void TestSimpleAddress()
  SCInit();Check(SCGetSimpleAddressID()==0xffffffffu,"source initialization preserves explicit absent property");
  ShutdownNativeSystemSettings();
  Check(SCCheckStatus()==SC_STATUS_FATAL,"true retirement");
+}
+
+static void TestIdleMode()
+{
+    using namespace mscharged;
+    struct Guarded { u8 before; SCIdleModeInfo mode; u8 after; } output{0x5A,{0xA5,0x3C},0xC3};
+    auto untouched = [&] {
+        return output.before == 0x5A && output.after == 0xC3
+            && output.mode.wc24 == 0xA5 && output.mode.slotLight == 0x3C;
+    };
+    Reject([&]{SCGetIdleMode(&output.mode);}, "unconfigured idle query must reject");
+    Check(untouched(), "failed idle query must preserve both bytes and guards");
+    SCGetIdleMode(nullptr);
+    Check(SCCheckStatus() == SC_STATUS_FATAL, "null idle destination does not publish readiness");
+    Reject([]{ConfigureNativeSystemIdleMode(nullptr, 0);}, "idle record requires existing settings owner");
+
+    ConfigureNativeSystemSettings({SC_LANG_EN,0,0,0,SC_SND_STEREO});
+    Reject([&]{SCGetIdleMode(&output.mode);}, "idle record is not fabricated by general settings setup");
+    ConfigureNativeSystemIdleMode(nullptr, 0);
+    SCGetIdleMode(&output.mode);
+    Check(untouched(), "explicit absent IPL.IDL leaves caller output untouched");
+    SCIdleModeInfo original_zero_default{};
+    SCGetIdleMode(&original_zero_default);
+    Check(original_zero_default.wc24 == 0 && original_zero_default.slotLight == 0,
+          "original shutdown caller zero default survives absent record");
+    Check(SCCheckStatus() == SC_STATUS_BUSY, "staging idle data does not initialize source SC");
+
+    const u8 malformed[3] = {0x11,0x22,0x33};
+    for (std::size_t bytes : {std::size_t(0),std::size_t(1),std::size_t(3)}) {
+        ConfigureNativeSystemIdleMode(malformed, bytes);
+        SCGetIdleMode(&output.mode);
+        Check(untouched(), "present wrong-length IPL.IDL leaves output untouched");
+    }
+    u8 record[2] = {1,0xE7};
+    ConfigureNativeSystemIdleMode(record, sizeof(record));
+    record[0] = 0; record[1] = 0;
+    SCGetIdleMode(&output.mode);
+    Check(output.mode.wc24 == 1 && output.mode.slotLight == 0xE7,
+          "staging copies the exact two bytes instead of retaining caller memory");
+    Check(output.before == 0x5A && output.after == 0xC3, "idle query writes only the original two-byte record");
+    Reject([]{ConfigureNativeSystemIdleMode(nullptr, 1);}, "null nonzero-length record is invalid host input");
+    output.mode = {0,0}; SCGetIdleMode(&output.mode);
+    Check(output.mode.wc24 == 1 && output.mode.slotLight == 0xE7,
+          "rejected replacement preserves the existing idle snapshot");
+
+    std::atomic<unsigned> foreign{0};
+    std::thread wrong_owner([&]{
+        try { ConfigureNativeSystemIdleMode(nullptr, 0); }
+        catch (const std::logic_error&) { ++foreign; }
+    }); wrong_owner.join();
+    Check(foreign == 1, "foreign thread cannot replace idle record");
+    SCInit();
+    Check(SCCheckStatus() == SC_STATUS_OK, "original SCInit remains sole initialization publication");
+    Reject([]{ConfigureNativeSystemIdleMode(nullptr, 0);}, "initialized idle snapshot is immutable");
+    SCGetIdleMode(nullptr);
+    std::atomic<bool> coherent{false};
+    std::thread reader([&]{ SCIdleModeInfo value{}; SCGetIdleMode(&value);
+        coherent = value.wc24 == 1 && value.slotLight == 0xE7 && SCCheckStatus() == SC_STATUS_OK; });
+    reader.join();
+    Check(coherent, "foreign reader sees the coherent frozen idle record");
+    ShutdownNativeSystemSettings();
+    Reject([&]{SCGetIdleMode(&output.mode);}, "retired idle record is unavailable");
+    ConfigureNativeSystemSettings({SC_LANG_EN,0,0,0});
+    Reject([&]{SCGetIdleMode(&output.mode);}, "new settings session must not inherit prior idle record");
+    ConfigureNativeSystemIdleMode(nullptr, 0); SCInit();
+    output.mode = {0xA5,0x3C}; SCGetIdleMode(&output.mode);
+    Check(untouched(), "reinitialized absent record preserves caller bytes");
+    ShutdownNativeSystemSettings();
 }

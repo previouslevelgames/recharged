@@ -1,4 +1,6 @@
+#include "platform/graphics_stats.h"
 #include "runtime/original_main_credits.h"
+#include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
@@ -36,6 +38,7 @@
 #include <revolution/os/OSIpc.h>
 #include <revolution/ipc.h>
 #include "credits_movie_hardware.h"
+#include "runtime/frame_rate_title.h"
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
 #include "original_game_audio_hardware.h"
 #endif
@@ -268,8 +271,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         config.appName=optionsScene ? "Mario Strikers Charged | original Options diagnostic" :
             frontend ? "Mario Strikers Charged | original Boot/Intro diagnostic" :
             "Mario Strikers Charged | original-main Credits diagnostic";
+        const std::string windowTitle=config.appName;
         config.userPath=config.cachePath=dataPath.c_str();
-        config.desiredBackend=BACKEND_VULKAN;
+        config.desiredBackend=mscharged::platform::NativeGraphicsBackend;
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
         config.windowPosX=config.windowPosY=-1;
         config.mem1Size=MEM1_DEFAULT_SIZE;
@@ -277,8 +281,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         config.logLevel=LOG_INFO;config.enableBackendValidation=true;
         config.vsync=true;
         const auto host=aurora_initialize(argc,argv,&config);
-        if(!host.window||host.backend!=BACKEND_VULKAN)
-            throw std::runtime_error("Actual Vulkan foundation unavailable; no fallback acceptance");
+        if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
+            throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
+                +" foundation unavailable; no fallback acceptance");
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
         if(nativeSend) {
             // Existing Aurora policy fixes the internal source EFB at 1x.
@@ -356,10 +361,13 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
 #endif
         auto entry=reinterpret_cast<int(*)()>(dlsym(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
-        std::fprintf(stderr,"Entering actual source main with real Aurora Vulkan/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n");
+        std::fprintf(stderr,"Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
+                     mscharged::platform::NativeGraphicsBackendName);
         std::fflush(nullptr);
         const int result=entry();
         Check(result==85, "Original main selected scene did not complete checkpoint 85");
+        // Host AI delivery/starvation observations; they supply no PCM or callback.
+        mscharged::platform::BeginNativeAIObservations();
         using ObserveAudio = unsigned(*)();
         using AudioAction = void(*)();
         using AudioIdle = bool(*)();
@@ -458,9 +466,13 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // retained. No host GXInit, source pool restart or fixture font setup.
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
         unsigned frames=0,draws=0,quiet=0; bool snapshot=false,encoded=false,exit=false,nativePresented=false;
+        unsigned fieldSlots[4]{}; std::uint32_t lastRetrace=0; bool retraceKnown=false;
         bool bootLogoCaptured=false;
         const auto start=std::chrono::steady_clock::now(); auto previous=start;
         auto stageStart=start; unsigned resizeStage=0; bool stageAnnounced=false;
+        // Original game frames per second in the title; always shown until a
+        // command-line/launcher toggle exists.
+        mscharged::runtime::FrameRateTitle frameRateTitle(windowTitle);
         wgpu::Texture retainedEFB;
         Check(!resizeCheck || nativeSend, "Resize qualification requires source-native send");
         while(!exit && (interactive || !snapshot)) {
@@ -476,15 +488,35 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 }
             }
             const auto now=std::chrono::steady_clock::now();
+            if(const auto title=frameRateTitle.Sample(frames,now)) SDL_SetWindowTitle(host.window,title->c_str());
             Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {
+                {
+                    // Host cadence observation: VI fields spent per source frame.
+                    AuroraVIHardwareState vi{};
+                    if(aurora_get_video_hardware_state(&vi)) {
+                        if(retraceKnown) ++fieldSlots[std::min(vi.retrace_count-lastRetrace,3u)];
+                        lastRetrace=vi.retrace_count; retraceKnown=true;
+                    }
+                }
                 const auto receipt=AuroraGXBeginDrawReceipt();
                 Check(receipt,"Native source draw receipt unavailable");
                 const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-                frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt();
+                frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt(); ++frames;
+                // The original frame performs every GX/VI wait it needs. Join the
+                // FIFO/render workers only for host observations: until the first
+                // encoded draw, every 30 frames and before a due stage or readback.
+                const bool logoDue=sourceBoot && lastBootPhase==3 && !bootLogoCaptured &&
+                    now-bootLogoStart>=std::chrono::milliseconds(600);
+                const bool stageDue=!stageAnnounced && now-stageStart>=std::chrono::milliseconds(500);
+                const bool captureDue=now-stageStart>=std::chrono::seconds(resizeStage?8:3) &&
+                    (!snapshot || (resizeCheck && resizeStage<2));
+                if(encoded && frames%30 && !logoDue && !stageDue && !captureDue) {
+                    std::this_thread::yield(); continue;
+                }
                 AuroraGXSync(); aurora::gfx::synchronize();
                 encoded=encoded || AuroraGXWasDrawEncoded(receipt);
-                draws+=aurora_get_stats()->drawCallCount; ++frames;
+                draws+=aurora_get_stats()->drawCallCount;
                 AuroraVIPresentedState output{};
                 const auto presentedCopy=aurora::gfx::scanout::presented_snapshot(output);
                 nativePresented=output.framebuffer && !output.black &&
@@ -546,9 +578,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             aurora::gfx::synchronize();
             encoded=encoded || AuroraGXWasDrawEncoded(receipt);
             draws+=aurora_get_stats()->drawCallCount;++frames;
-            quiet=std::atomic_ref<const unsigned>(aurora_get_stats()->queuedPipelines).load()?0:quiet+1;
+            quiet=mscharged::platform::GetQueuedPipelineCount()?0:quiet+1;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        // Explicit terminal join: no queued GX or presentation work outlives the loop.
+        if(nativeSend){AuroraGXSync(); aurora::gfx::synchronize();}
         Check(snapshot && encoded && draws &&
               (nativeSend ? nativePresented : aurora_get_last_presentation().sequence != 0),
               "Original main Credits real source draw/presentation incomplete");
@@ -570,12 +604,30 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                     static_cast<unsigned long long>(audioClock.maximum_service_gap_ns));
         std::printf("Native audio device: rate%d, period%d frames, queued%d source bytes.\n",
                     audio.device_frequency,audio.device_frames,audio.queued_input_bytes);
+        mscharged::platform::EndNativeAIObservations();
+        const auto delivery=mscharged::platform::GetNativeAIDeliveryStatus();
+        std::printf("Native AI delivery: latched%llu replayed%llu coalesced%llu held%llu (max%lluns) skipped%llu cells, "
+                    "callback latency max%lluns; source silent blocks%llu zero-tail blocks%llu/frames%llu; device short pulls%llu.\n",
+                    static_cast<unsigned long long>(delivery.latched_blocks),
+                    static_cast<unsigned long long>(delivery.replayed_latches),
+                    static_cast<unsigned long long>(delivery.coalesced_causes),
+                    static_cast<unsigned long long>(delivery.held_boundaries),
+                    static_cast<unsigned long long>(delivery.maximum_hold_ns),
+                    static_cast<unsigned long long>(delivery.skipped_cells),
+                    static_cast<unsigned long long>(delivery.maximum_dispatch_latency_ns),
+                    static_cast<unsigned long long>(delivery.silent_blocks),
+                    static_cast<unsigned long long>(delivery.zero_tail_blocks),
+                    static_cast<unsigned long long>(delivery.zero_tail_frames),
+                    static_cast<unsigned long long>(delivery.sdl_short_pulls));
         AuroraVIHardwareState videoClock{};
         Check(aurora_get_video_hardware_state(&videoClock), "Original VI clock observation unavailable");
         const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
         std::printf("Playback observation: %.3fs, %.2f rendered frames/s; VI retraces%u, elapsed fields%llu.\n",
                     elapsed,frames/elapsed,videoClock.retrace_count,
                     static_cast<unsigned long long>(videoClock.elapsed_fields));
+        if(nativeSend)
+            std::printf("Source frame cadence: %u/%u/%u/%u frames spanned 0/1/2/3+ VI fields.\n",
+                        fieldSlots[0],fieldSlots[1],fieldSlots[2],fieldSlots[3]);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio) {
             const auto status=gameAudioHardware->Status();

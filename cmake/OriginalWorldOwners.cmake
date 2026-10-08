@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
 
 function(_mscharged_world_owned_sources target output)
     if("${target}" IN_LIST ARGN)
@@ -34,11 +35,9 @@ endfunction()
 # Its caller must retain original pool/camera/file predecessors and lifecycle.
 function(mscharged_add_original_world_owners target)
     get_target_property(_type "${target}" TYPE)
-    if(NOT _type STREQUAL "MODULE_LIBRARY" OR
-            NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
-            NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
-            NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        message(FATAL_ERROR "Original world owners require the qualified isolated Linux LP64 module profile")
+    mscharged_original_native_profile_supported(_original_native_profile CXX)
+    if(NOT _type STREQUAL "MODULE_LIBRARY" OR NOT _original_native_profile)
+        message(FATAL_ERROR "Original world owners require the isolated Linux/Darwin LP64 GNU/Clang compiler profile")
     endif()
     get_target_property(_existing "${target}" SOURCES)
     _mscharged_world_owned_sources("${target}" _known)
@@ -47,7 +46,8 @@ function(mscharged_add_original_world_owners target)
             src/Game/BasicStadium.cpp
             src/Game/Render/StadiumLoading.cpp
             src/Game/Render/StadiumWorldObjects.cpp
-            src/Game/Render/tu_8027AE14.cpp
+            src/Game/Render/SolarFlareEffect.cpp
+            src/Game/Render/TimedObject.cpp
             src/Game/Render/StadiumPhysicsObject.cpp
             src/Game/World/worldanim.cpp
             src/Game/World/worldanimobjects.cpp

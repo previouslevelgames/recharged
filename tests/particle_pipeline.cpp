@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "runtime/particle_render.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -97,7 +98,7 @@ int main(int argc,char** argv)
     Check(renderer.Submit(*view,true,1,mode!="disabled-infront")==unsigned(mode=="order"?2:1),"Original GPU particle count differs");
     const bool sample=i>=12&&quiet>=2;
     backend.read_colours=sample;glEndFrame();glSendFrame();renderer.FinishFrame();total_draws+=aurora_get_stats()->drawCallCount;
-    const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();
+    const auto pending=mscharged::platform::GetQueuedPipelineCount();
     quiet=pending?0:quiet+1;
     if(sample&&!pending)break;
    }

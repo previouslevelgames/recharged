@@ -8,6 +8,7 @@
 #include <exception>
 #include <limits>
 #include <map>
+#include <set>
 #include <mutex>
 #include <stdexcept>
 #include <utility>
@@ -149,10 +150,14 @@ struct Allocation
 };
 using Records = std::map<std::uintptr_t, Allocation, std::less<std::uintptr_t>,
     HostMetadataAllocator<std::pair<const std::uintptr_t, Allocation>>>;
+using HeapOwners = std::set<std::uintptr_t, std::less<std::uintptr_t>, HostMetadataAllocator<std::uintptr_t>>;
 struct Registry
 {
     std::mutex mutex;
     Records records;
+    // Records that own native MEM headers. A header always lies inside its
+    // owning record, so a freed range only needs checking against these.
+    HeapOwners heap_owners;
     std::uint64_t next_incarnation = 1;
     std::uint64_t next_graphics_incarnation = 1;
     std::uint64_t next_memory_incarnation = 1;
@@ -192,23 +197,28 @@ void RetireDeviceRange(Records& records, std::uintptr_t address, unsigned long b
     for (auto it = first; it != last; ++it) it->second.device.Reset();
 }
 bool Overlaps(std::uintptr_t a, std::size_t n, std::uintptr_t b, std::size_t m);
-void ValidateNoLiveHeapMetadata(Records& records,std::uintptr_t address,std::size_t bytes)
+void ValidateNoLiveHeapMetadata(const Registry& state,std::uintptr_t address,std::size_t bytes)
 {
-    for(const auto& [base,allocation]:records)
-        for(const auto& [key,heap]:allocation.heap_metadata)
+    for(const auto base:state.heap_owners) {
+        const auto owner=state.records.find(base);
+        if(owner==state.records.end())continue;
+        for(const auto& [key,heap]:owner->second.heap_metadata)
             if(Overlaps(heap.source,heap.source_bytes,address,bytes))
                 throw std::logic_error("Original allocation still owns live native MEM headers");
+    }
 }
-void EraseBackingRange(Records& records, std::uintptr_t address, unsigned long bytes)
+void EraseBackingRange(Registry& state, std::uintptr_t address, unsigned long bytes)
 {
     // Child heaps can be contained in an allocation from another original heap.
     // Retiring that backing invalidates their metadata without running new game
     // destructors or altering the original bulk-discard operation.
-    ValidateNoLiveHeapMetadata(records,address,bytes);
+    auto& records = state.records;
+    ValidateNoLiveHeapMetadata(state,address,bytes);
     RetireDeviceRange(records, address, bytes);
     auto first = records.lower_bound(address);
     auto last = records.lower_bound(address + bytes);
     records.erase(first, last);
+    state.heap_owners.erase(state.heap_owners.lower_bound(address), state.heap_owners.lower_bound(address + bytes));
 }
 bool Contains(std::uintptr_t base, std::size_t bytes, std::uintptr_t address, std::size_t count)
 {
@@ -981,6 +991,7 @@ void GameHeapMetadataReservation::Commit(const void* sourceOwner) {
             throw std::invalid_argument("MEM metadata regions overlap or replace live child heaps");
     }
     token.record.key()=reinterpret_cast<std::uintptr_t>(sourceOwner);
+    state.heap_owners.insert(parent->first); // before the record: may throw; a spare owner is harmless
     auto inserted=parent->second.heap_metadata.insert(std::move(token.record));
     if(!inserted.inserted) {token.record=std::move(inserted.node);throw std::logic_error("MEM metadata owner conflict");}
 }
@@ -1045,6 +1056,7 @@ void RetireGameHeapMetadata(const void* sourceOwner) {
         if(current->second.owner==sourceOwner)RetireMemory(parent,current);
     }
     parent.heap_metadata.erase(found.heap);
+    if(parent.heap_metadata.empty())state.heap_owners.erase(found.allocation->first);
 }
 
 GameMemoryStorageReservation::GameMemoryStorageReservation(const void* sourceOwner,std::size_t bytes):pending_(nullptr) {
@@ -1141,9 +1153,14 @@ void GameGraphicsStorageReservation::Commit(void* pointer)
     auto owner = Containing(state.records, address, bytes);
     if (owner == state.records.end()) throw std::invalid_argument("Graphics storage has no real allocation owner");
     ValidateMemoryExtent(owner->second,address,bytes);
-    for (const auto& [base, live] : owner->second.graphics_storage)
-        if (Overlaps(base, live.bytes, address, bytes))
-            throw std::invalid_argument("Graphics suballocation overlaps live source storage");
+    // Every live span passed this check when inserted, so live spans never
+    // overlap: only the first span at or after the address and its
+    // predecessor can intersect it.
+    auto& spans = owner->second.graphics_storage;
+    const auto next = spans.lower_bound(address);
+    if ((next != spans.end() && Overlaps(next->first, next->second.bytes, address, bytes)) ||
+        (next != spans.begin() && Overlaps(std::prev(next)->first, std::prev(next)->second.bytes, address, bytes)))
+        throw std::invalid_argument("Graphics suballocation overlaps live source storage");
     RetireByteRange(owner->second, address, bytes, pending.split);
     pending.record.key() = address;
     auto inserted = owner->second.graphics_storage.insert(std::move(pending.record));
@@ -1345,7 +1362,7 @@ void ValidateGameAllocationFree(MemoryAllocator& owner, const void* pointer)
     if (found->second.arena != reinterpret_cast<std::uintptr_t>(owner.m_memory)
         || found->second.arena_bytes != owner.m_memory_size)
         throw std::invalid_argument("Game free uses a different allocator arena");
-    ValidateNoLiveHeapMetadata(state.records,found->first,found->second.bytes);
+    ValidateNoLiveHeapMetadata(state,found->first,found->second.bytes);
 }
 void FinishGameAllocationFree(const void* pointer)
 {
@@ -1355,7 +1372,7 @@ void FinishGameAllocationFree(const void* pointer)
     auto found = state.records.find(address);
     if (found == state.records.end())
         throw std::logic_error("Game free lost its native ownership record");
-    EraseBackingRange(state.records, address, found->second.bytes);
+    EraseBackingRange(state, address, found->second.bytes);
 }
 void DiscardGameAllocatorRecords(MemoryAllocator& owner)
 {
@@ -1363,7 +1380,7 @@ void DiscardGameAllocatorRecords(MemoryAllocator& owner)
     std::lock_guard lock(state.mutex);
     // Preflight all affected regions before retiring any unrelated record.
     for(const auto& [base,allocation]:state.records)
-        if(allocation.owner==&owner)ValidateNoLiveHeapMetadata(state.records,base,allocation.bytes);
+        if(allocation.owner==&owner)ValidateNoLiveHeapMetadata(state,base,allocation.bytes);
     // Initialize replaces the original free-list backing. Walk without holding
     // iterators across descendant retirement; reset is infrequent and allocates
     // no native metadata.
@@ -1372,7 +1389,7 @@ void DiscardGameAllocatorRecords(MemoryAllocator& owner)
         auto found = state.records.begin();
         while (found != state.records.end() && found->second.owner != &owner) ++found;
         if (found == state.records.end()) break;
-        EraseBackingRange(state.records, found->first, found->second.bytes);
+        EraseBackingRange(state, found->first, found->second.bytes);
     }
 }
 void FreeGameAllocation(void* pointer)

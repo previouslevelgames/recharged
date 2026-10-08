@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 // Synthetic pixels for the genuine Specular program. Matrix/geometry fixtures
 // qualify transport and TEV; they do not qualify original actor pose animation.
 #include "runtime/specular_material.h"
@@ -60,7 +61,7 @@ void Pixels(Fixture& f,ViewMatrices& matrices,const GameLighting& lighting,const
   glSetCurrentMatrix(glGetIdentityMatrix());glplatFrameAllocNextFrame();glModelSetMatrix(&f.model,identity);GXSetPixelFmt(GX_PF_RGB8_Z24,GX_ZC_LINEAR);GXSetCopyClear({20,24,30,255},GX_MAX_Z24);submitted->AttachModel(&f.model,0);
   try{RenderOriginalViews(0,lighting);}catch(...){glSetCurrentMatrix(glGetIdentityMatrix());aurora_end_frame();throw;}glSetCurrentMatrix(glGetIdentityMatrix());GXDrawDone();
   const bool read=frame>=12&&quiet>=2;if(read)colours=EndFrameAndReadColours();else aurora_end_frame();draws+=aurora_get_stats()->drawCallCount;
-  const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;if(read&&!pending)break;
+  const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;if(read&&!pending)break;
  }
  const auto& pixel=colours[sample];for(unsigned c=0;c<3;++c)Check(std::abs(int(pixel[c])-expected[c])<=4,"Original Specular pixel oracle differs");
  Check(draws>0||f.parameters.alphaValue==0,"Specular source issued no GX geometry");total_draws+=draws;std::cout<<name<<": RGB "<<unsigned(pixel[0])<<','<<unsigned(pixel[1])<<','<<unsigned(pixel[2])<<", draws "<<draws<<'\n';Drain();

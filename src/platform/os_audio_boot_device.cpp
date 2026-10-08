@@ -1,4 +1,5 @@
 #include "platform/os_audio_boot_device.h"
+#include "platform/os_audio_registers.h"
 #include "platform/os_audio_boot_abi.h"
 #include "platform/dsp_control_abi.h"
 #include "platform/dsp_mailbox_abi.h"
@@ -12,11 +13,6 @@
 
 namespace {
 using namespace mscharged::platform;
-NativeOSAudioBootDevice* current{};
-NativeOSAudioBootDevice& Current() {
-    if(!current)throw std::logic_error("original OS audio MMIO has no live native owner");
-    return *current;
-}
 constexpr std::uint16_t Halt=4,Init=0x0800;
 }
 namespace mscharged::platform {
@@ -35,6 +31,7 @@ struct NativeOSAudioBootDevice::State {
     std::uint16_t aram_size{};
     std::uint32_t main_address{},aram_address{};
     bool main_written{},aram_written{},attached{},servicing{};
+    std::unique_ptr<NativeOSAudioRegisterOwner> registers;
     State(NativeDSPMemoryEndpoint mem,NativeDSPMailboxEndpoint mail,NativeDSPControlEndpoint csr,
           DSPInstructionCore& core,NativeOSAudioGPIO pins,const DSPInstructionRegisters& registers)
         :memory(mem),mailboxes(mail),control(csr),chip(core),dma(mem,csr,core),gpio(pins),entry(registers) {}
@@ -96,13 +93,28 @@ NativeOSAudioBootDevice::NativeOSAudioBootDevice(NativeDSPMemoryEndpoint memory,
                                                 NativeOSAudioGPIO gpio,const DSPInstructionRegisters& entry)
     :state_(std::make_unique<State>(memory,mailboxes,control,chip,gpio,entry)) {
     NativeInterruptGuard exclusion;auto& s=*state_;s.RequireOwner();
-    if(current||entry.pc!=0||entry.instructions||entry.loop_depth||entry.stack[3])
+    if(entry.pc!=0||entry.instructions||entry.loop_depth||entry.stack[3])
         throw std::logic_error("OS audio boot needs a unique explicit reset-vector register image");
     chip.PauseHaltedExecution();
     AttachNativeDSPProcessorControl(control,{State::Validate,State::Apply,&s});
     try {AttachNativeDSPMailboxService(mailboxes,State::Service,&s);}
     catch(...) {DetachNativeDSPProcessorControl(control,&s);throw;}
-    current=this;s.attached=true;
+    const NativeOSAudioRegisterOwner::Operations operations{
+        [](void* p,std::uint32_t r){return static_cast<NativeOSAudioBootDevice*>(p)->ReadDSP(r);},
+        [](void* p,std::uint32_t r,std::uint16_t v){static_cast<NativeOSAudioBootDevice*>(p)->WriteDSP(r,v);},
+        [](void* p,std::uint32_t r){return static_cast<NativeOSAudioBootDevice*>(p)->ReadDSPPair(r);},
+        [](void* p,std::uint32_t r,std::uint32_t v){static_cast<NativeOSAudioBootDevice*>(p)->WriteDSPPair(r,v);},
+        [](void* p,std::uint32_t r){return static_cast<NativeOSAudioBootDevice*>(p)->ReadIPC(r);},
+        [](void* p,std::uint32_t r,std::uint32_t v){static_cast<NativeOSAudioBootDevice*>(p)->WriteIPC(r,v);},
+        [](void* p){return static_cast<NativeOSAudioBootDevice*>(p)->WorkMemory();}
+    };
+    try {s.registers.reset(new NativeOSAudioRegisterOwner(this,operations));}
+    catch(...) {
+        DetachNativeDSPMailboxService(mailboxes,&s);
+        DetachNativeDSPProcessorControl(control,&s);
+        throw;
+    }
+    s.attached=true;
 }
 NativeOSAudioBootDevice::~NativeOSAudioBootDevice() {if(state_&&state_->attached)std::terminate();}
 std::uint16_t NativeOSAudioBootDevice::ReadDSP(std::uint32_t reg) {
@@ -185,16 +197,10 @@ NativeOSAudioBootStatus NativeOSAudioBootDevice::Status() const {
 }
 void NativeOSAudioBootDevice::Close() {
     NativeInterruptGuard exclusion;auto& s=*state_;s.RequireOwner();
-    if(!(GetNativeDSPControlStatus().csr&Halt)||s.servicing||current!=this)
+    if(!(GetNativeDSPControlStatus().csr&Halt)||s.servicing)
         throw std::logic_error("OS audio boot hardware must halt/drain before retirement");
-    s.chip.PauseHaltedExecution();DetachNativeDSPMailboxService(s.mailboxes,&s);
-    DetachNativeDSPProcessorControl(s.control,&s);current=nullptr;s.attached=false;s.phase=NativeOSAudioBootPhase::Retired;s.environment.Close();
+    s.chip.PauseHaltedExecution();s.registers->Close();
+    DetachNativeDSPMailboxService(s.mailboxes,&s);
+    DetachNativeDSPProcessorControl(s.control,&s);s.attached=false;s.phase=NativeOSAudioBootPhase::Retired;s.environment.Close();
 }
 } // namespace mscharged::platform
-extern "C" uint16_t ChargedOSAudioDSPRead(uint32_t reg) {return Current().ReadDSP(reg);}
-extern "C" void ChargedOSAudioDSPWrite(uint32_t reg,uint16_t value) {Current().WriteDSP(reg,value);}
-extern "C" uint32_t ChargedOSAudioDSPReadPair(uint32_t reg) {return Current().ReadDSPPair(reg);}
-extern "C" void ChargedOSAudioDSPWritePair(uint32_t reg,uint32_t value) {Current().WriteDSPPair(reg,value);}
-extern "C" uint32_t ChargedOSAudioIPCRead(uint32_t reg) {return Current().ReadIPC(reg);}
-extern "C" void ChargedOSAudioIPCWrite(uint32_t reg,uint32_t value) {Current().WriteIPC(reg,value);}
-extern "C" void* ChargedOSAudioWorkMemory() {return Current().WorkMemory();}

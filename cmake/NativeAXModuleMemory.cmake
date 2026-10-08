@@ -15,8 +15,8 @@ target_link_libraries(charged_native_ax_module_memory PUBLIC
     charged_native_dsp_memory charged_native_ai PRIVATE aurora::os ${CMAKE_DL_LIBS})
 
 function(mscharged_add_native_ax_module_memory target)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-        message(FATAL_ERROR "Actual AX module-memory admission currently requires Linux LP64")
+    if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "Actual AX module-memory admission requires Linux or macOS LP64")
     endif()
     get_target_property(_kind "${target}" TYPE)
     if(NOT _kind STREQUAL "MODULE_LIBRARY")
@@ -29,7 +29,30 @@ function(mscharged_add_native_ax_module_memory target)
             target_sources("${target}" PRIVATE "${_path}")
         endif()
     endforeach()
-    target_sources("${target}" PRIVATE src/platform/native_ax_module_storage.cpp)
+    if(APPLE)
+        # Mach-O does not sort constructor priorities across translation units.
+        # A first OBJECT provider also precedes existing inflater/view/focus
+        # objects, which CMake places ahead of ordinary module source objects.
+        set(_early "${target}_ax_pre_static")
+        add_library("${_early}" OBJECT src/platform/native_ax_module_storage.cpp)
+        add_dependencies("${_early}" verify_prepared)
+        foreach(_property IN ITEMS
+                COMPILE_FEATURES COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES)
+            get_target_property(_value "${target}" "${_property}")
+            if(_value)
+                set_property(TARGET "${_early}" PROPERTY "${_property}" "${_value}")
+            endif()
+        endforeach()
+        set_target_properties("${_early}" PROPERTIES
+            POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+        target_link_libraries("${_early}" PRIVATE charged_original_function_pool_abi)
+        target_compile_definitions("${_early}" PRIVATE MSCHARGED_NATIVE_AX_MODULE_MEMORY=1)
+        get_target_property(_source_order "${target}" SOURCES)
+        set_property(TARGET "${target}" PROPERTY SOURCES
+            "$<TARGET_OBJECTS:${_early}>" ${_source_order})
+    else()
+        target_sources("${target}" PRIVATE src/platform/native_ax_module_storage.cpp)
+    endif()
     target_compile_definitions("${target}" PRIVATE MSCHARGED_NATIVE_AX_MODULE_MEMORY=1)
     target_compile_features("${target}" PRIVATE c_std_17)
     # Existing host is shared by the selected Credits/frontend modules; only

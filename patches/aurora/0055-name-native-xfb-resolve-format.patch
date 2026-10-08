@@ -1,0 +1,33 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Declare the existing Aurora XFB renderer format tag
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native compiler/internal graphics format representation.
+
+The display-copy adapter already carries 0x100 through GXTexFmt as a private
+renderer tag. Clang rejects that constexpr conversion outside the unfixed
+GXTexFmt range. Name the same tag in the existing TARGET_PC-only extensions;
+retain every original GX value, enum ABI, display-copy request and consumer.
+This changes no game format or rendering choice. No diagnostic suppression.
+
+--- a/include/dolphin/gx/GXEnum.h
++++ b/include/dolphin/gx/GXEnum.h
+@@ -174,6 +174,8 @@
+   GX_TF_RG8_PC = 0x3 | _GX_TF_PC,
+   GX_TF_RGBA8_PC = 0x6 | _GX_TF_PC,
+   GX_TF_BC1_PC = 0xE | _GX_TF_PC,
++  // Aurora renderer resolve tag; never a GX register or game format.
++  GX_TF_XFB_PC = 0x100,
+ #endif
+ } GXTexFmt;
+ 
+--- a/lib/gfx/xfb.hpp
++++ b/lib/gfx/xfb.hpp
+@@ -7,7 +7,7 @@
+ 
+ namespace aurora::gfx::xfb {
+ // Private renderer tag; it is never a GX register or a game texture format.
+-inline constexpr GXTexFmt ResolveFormat = static_cast<GXTexFmt>(0x100);
++inline constexpr GXTexFmt ResolveFormat = GX_TF_XFB_PC;
+ 
+ struct Snapshot {
+   TextureHandle packedYuyv;

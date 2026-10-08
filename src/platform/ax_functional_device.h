@@ -6,6 +6,7 @@
 #include <memory>
 
 namespace mscharged::platform {
+class NativeOSAudioRegisterOwner;
 // Actual source storage order from ax_storage_abi.h: command,PB,ITD,AUX A/B/C,
 // compressor,Studio,PCM16,surround,remote,DRAM context,source firmware. Source
 // pins/module leases and source exclusion must outlive every complete job.
@@ -38,8 +39,12 @@ public:
     // flags/task globals stay unchanged. Retire pins/source image afterwards.
     void Close();
 private:
+    std::uint16_t ReadOSDSP(std::uint32_t reg);
+    void WriteOSDSP(std::uint32_t reg,std::uint16_t value);
+    std::uint32_t ReadOSDSPPair(std::uint32_t reg);
     struct State;
     std::unique_ptr<State> state_;
     std::unique_ptr<NativeAXBootstrapDevice> protocol_;
+    std::unique_ptr<NativeOSAudioRegisterOwner> registers_;
 };
 } // namespace mscharged::platform

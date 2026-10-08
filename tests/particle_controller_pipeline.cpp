@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "runtime/particle_controller_render.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -110,7 +111,7 @@ int main(int argc,char** argv)
      Check(renderer.Submit(*view)==expected,"Controller GPU count/order differs");
      bool guarded=false;try{controllers.Advance(0);}catch(const std::logic_error&){guarded=true;}Check(guarded,"Pending controller frame accepted mutation");
      const bool sample=i>=12&&quiet>=2;backend.read_colours=sample;glEndFrame();glSendFrame();renderer.FinishFrame();total_draws+=aurora_get_stats()->drawCallCount;
-     const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;if(sample&&!pending)break;
+     const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;if(sample&&!pending)break;
     }
     // Two original half-alpha quads: red then blue over (20,24,30).
     Pixel(backend.colours,mode=="ordered"||mode=="restored"?std::array<int,3>{55,6,108}:std::array<int,3>{20,24,30},mode.c_str());

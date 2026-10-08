@@ -1,0 +1,51 @@
+From: mscharged-port contributors
+Subject: [PATCH] Retire the native VI render mode outside the device lock
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Native VI shutdown reset its device state and then retired the render mode
+while still holding the VI device mutex. Leaving the 640x448 source mode
+prepares an EFB resize, which submits the active native GX hardware frame and
+joins the render worker. Once that join waits longer than its 1 ms pump
+interval it services owner interrupts, and the VI service locks the same
+non-recursive mutex. The owner deadlocks, stops pumping window events and the
+window stops responding.
+
+Without an owner-side GPU wait after every desktop present, the final GX frame
+can wait behind queued presentation work at shutdown, so the bounded original
+Credits resize checks reached this path.
+
+Commit the retired state under the lock, then retire the render mode after
+releasing it. The interrupt service now sees the uninitialized device and
+returns without delivering anything. Shutdown order, device callbacks and the
+render-mode reset are unchanged.
+
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+index 94dd0de..76aeae7 100644
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -346,13 +346,18 @@ void aurora_shutdown_video_hardware() {
+   struct Active { Device& state; ~Active() { std::lock_guard lock(state.mutex); state.active = false; } } active{state};
+   if (output_attached) output.shutdown(output.context);
+   if (attached) device.shutdown(device.context);
+-  std::lock_guard lock(state.mutex);
+-  state.initialized = state.configured = state.interrupt = state.flush = false;
+-  state.interrupt_device_attached = false; state.interrupt_device = {};
+-  state.output_attached = false; state.output_device = {};
+-  state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
+-  state.dimming_request = VI_DM_DEFAULT; state.pending_dimming_threshold = state.dimming_tv_format = 0;
+-  state.current_buffer = state.next_buffer = nullptr;
++  {
++    std::lock_guard lock(state.mutex);
++    state.initialized = state.configured = state.interrupt = state.flush = false;
++    state.interrupt_device_attached = false; state.interrupt_device = {};
++    state.output_attached = false; state.output_device = {};
++    state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
++    state.dimming_request = VI_DM_DEFAULT; state.pending_dimming_threshold = state.dimming_tv_format = 0;
++    state.current_buffer = state.next_buffer = nullptr;
++  }
++  // Retiring the render mode can join submitted GX work, and that wait services
++  // owner interrupts. Release the non-recursive device lock first; the service
++  // then observes the retired device instead of blocking on this lock.
+   aurora::vi::configure(nullptr);
+ }
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState* result) {

@@ -1,0 +1,17 @@
+include_guard(GLOBAL)
+if(NOT TARGET aurora_dvd)
+    return()
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/NativeInterrupts.cmake")
+target_link_libraries(aurora_dvd PRIVATE charged_native_interrupts)
+if(BUILD_TESTING)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_executable(native_dvd_reset_tests tests/native_dvd_reset.cpp)
+    add_dependencies(native_dvd_reset_tests verify_prepared)
+    target_link_libraries(native_dvd_reset_tests PRIVATE aurora::dvd charged_native_interrupts)
+    target_compile_features(native_dvd_reset_tests PRIVATE cxx_std_20)
+    add_test(NAME native_dvd_reset
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/run_native_dvd_reset.py"
+                "$<TARGET_FILE:native_dvd_reset_tests>")
+    set_tests_properties(native_dvd_reset PROPERTIES TIMEOUT 30)
+endif()

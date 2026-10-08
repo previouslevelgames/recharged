@@ -1,4 +1,8 @@
 #include "platform/ax_functional_device.h"
+#include "platform/os_audio_registers.h"
+#include "platform/dsp_control_abi.h"
+#include "platform/dsp_mailbox_abi.h"
+#include <dolphin/ai.h>
 #include "platform/ai.h"
 #include "platform/interrupts.h"
 #include <limits>
@@ -116,11 +120,53 @@ NativeAXFunctionalDevice::NativeAXFunctionalDevice(NativeDSPMemoryEndpoint memor
     auto& s=*state_;s.memory=memory;s.bindings=bindings;s.ValidateBindings();
     const NativeAXFunctionalProcessor processor(&s,State::Initialize,State::Reset,State::Process);
     protocol_=std::make_unique<NativeAXBootstrapDevice>(memory,mailboxes,control,bindings.addresses[12],processor);
+    const NativeOSAudioRegisterOwner::Operations operations{
+        [](void* p,std::uint32_t r){return static_cast<NativeAXFunctionalDevice*>(p)->ReadOSDSP(r);},
+        [](void* p,std::uint32_t r,std::uint16_t v){static_cast<NativeAXFunctionalDevice*>(p)->WriteOSDSP(r,v);},
+        [](void* p,std::uint32_t r){return static_cast<NativeAXFunctionalDevice*>(p)->ReadOSDSPPair(r);},
+        [](void*,std::uint32_t,std::uint32_t){throw std::logic_error("functional AX has no OS boot ARAM register service");},
+        [](void*,std::uint32_t)->std::uint32_t{throw std::logic_error("functional AX has no OS boot GPIO register service");},
+        [](void*,std::uint32_t,std::uint32_t){throw std::logic_error("functional AX has no OS boot GPIO register service");},
+        [](void*)->void*{throw std::logic_error("functional AX has no OS boot work-memory service");}
+    };
+    try {registers_.reset(new NativeOSAudioRegisterOwner(this,operations));}
+    catch(...) {protocol_->Close();protocol_.reset();throw;}
 }
 NativeAXFunctionalDevice::~NativeAXFunctionalDevice() {
     if(protocol_)std::terminate();
 }
 void NativeAXFunctionalDevice::ServiceOwner() {state_->RequireOwner();protocol_->ServiceOwner();}
+std::uint16_t NativeAXFunctionalDevice::ReadOSDSP(std::uint32_t reg) {
+    state_->RequireOwner();
+    switch(reg) {
+    case 0:return ChargedDSPMailToHigh();
+    case 2:return ChargedDSPMailFromHigh();
+    case 3:return ChargedDSPMailFromLow();
+    case 5:ServiceOwner();return ChargedDSPControlRead();
+    case 27:{const auto ai=GetNativeAIStatus();return static_cast<std::uint16_t>((ai.dma_bytes/32)&0x7fff)|(ai.running?0x8000:0);}
+    default:throw std::logic_error("functional AX requested an unsupported OS audio register read");
+    }
+}
+void NativeAXFunctionalDevice::WriteOSDSP(std::uint32_t reg,std::uint16_t value) {
+    state_->RequireOwner();
+    switch(reg) {
+    case 0:ChargedDSPMailToWriteHigh(value);return;
+    case 5:ChargedDSPControlWrite(value);return;
+    case 27:{
+        const auto ai=GetNativeAIStatus();
+        if((value&0x8000)||(value&0x7fff)!=((ai.dma_bytes/32)&0x7fff))
+            throw std::logic_error("OS stop requested unsupported AI DMA register changes");
+        if(ai.running)AIStopDMA();return;
+    }
+    default:throw std::logic_error("functional AX requested an unsupported OS audio register write");
+    }
+}
+std::uint32_t NativeAXFunctionalDevice::ReadOSDSPPair(std::uint32_t reg) {
+    state_->RequireOwner();
+    if(reg!=2)throw std::logic_error("functional AX OS audio mailbox pair read is unsupported");
+    const auto high=ReadOSDSP(reg);const auto low=ReadOSDSP(reg+1);
+    return (std::uint32_t(high)<<16)|low;
+}
 NativeAXFunctionalStatus NativeAXFunctionalDevice::Status() const {
     const auto& s=*state_;s.RequireOwner();
     return {protocol_->Status(),protocol_->FrameStatus(),s.history,
@@ -137,6 +183,7 @@ void NativeAXFunctionalDevice::Close() {
        (frame.phase!=NativeAXFramePhase::Unavailable&&frame.phase!=NativeAXFramePhase::ReadyForListSize&&
         frame.phase!=NativeAXFramePhase::Faulted))
         throw std::logic_error("functional AX retirement requires actual drained source mail/cause/job");
+    registers_->Close();
     protocol_->Close();protocol_.reset();s.history={};s.initialized=false;s.retired=true;
 }
 } // namespace mscharged::platform

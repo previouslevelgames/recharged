@@ -3,9 +3,9 @@ include_guard(GLOBAL)
 # Whole original archive APIs and bounded Wii serialized-byte/address transport.
 # This compiler inventory does not admit Mii/RFL startup or a source readiness
 # predicate. Runtime consumers must share their module's one allocation registry.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU"
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile C CXX)
+if(NOT _original_native_profile)
     return()
 endif()
 add_library(charged_original_arc_sources OBJECT EXCLUDE_FROM_ALL

@@ -5,6 +5,7 @@ endif()
 include(cmake/NativeWpad.cmake)
 include(cmake/NativeSTM.cmake)
 include(cmake/NativeAlarms.cmake)
+include(cmake/NativeRTC.cmake)
 include(cmake/NativeThreadQueues.cmake)
 add_library(charged_native_hardware_owner STATIC
     src/platform/hardware_owner.cpp src/platform/desktop_wpad.cpp
@@ -73,5 +74,23 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_dpd_tests PRIVATE charged_native_hardware_owner aurora::mtx)
     add_test(NAME desktop_dpd COMMAND desktop_dpd_tests)
     set_tests_properties(desktop_dpd PROPERTIES TIMEOUT 15
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
+    # Focus, leave/enter, repeat, shared-mapping and reattach lifecycle through
+    # the same whole original KPAD consumer, one latest sample per update.
+    add_executable(desktop_input_lifecycle_tests tests/desktop_input_lifecycle_tests.cpp
+        "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
+        "${MSCHARGED_PREPARED}/src/NL/nlMath.cpp"
+        src/platform/os.cpp)
+    add_dependencies(desktop_input_lifecycle_tests verify_prepared)
+    target_compile_features(desktop_input_lifecycle_tests PRIVATE cxx_std_20 c_std_99)
+    target_compile_definitions(desktop_input_lifecycle_tests PRIVATE
+        MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+    target_include_directories(desktop_input_lifecycle_tests PRIVATE
+        "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    target_compile_options(desktop_input_lifecycle_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
+    target_link_libraries(desktop_input_lifecycle_tests PRIVATE charged_native_hardware_owner aurora::mtx)
+    add_test(NAME desktop_input_lifecycle COMMAND desktop_input_lifecycle_tests)
+    set_tests_properties(desktop_input_lifecycle PROPERTIES TIMEOUT 30
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 endif()

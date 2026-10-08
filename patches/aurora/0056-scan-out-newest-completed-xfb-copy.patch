@@ -1,0 +1,84 @@
+From: mscharged-port contributors
+Subject: [PATCH] Scan out the newest completed XFB copy
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: permanent native VI hardware output transport.
+
+The native VI stopped the game ("Native VI selected XFB output is not
+qualified") when a field selected a framebuffer whose newest GX display copy
+had not finished on the GPU.
+
+The game reaches that state through its own swap wait. Each frame issues two
+draw-done tokens, one after the display copy and one in the swap, and the swap
+polls a flag that every draw-done callback sets. On the console the second
+token completes right after the first. Natively each token is a GPU
+submission on the render worker, so the previous frame's second token can
+complete after the current frame's copy token was issued. Its callback then
+releases the swap before the copy finishes, and the game flips to that
+buffer. Most of these copies still finish before the next retrace; at the
+Credits to Options transition they did not.
+
+Keep, per destination, the newest copy whose GPU work completed, recorded
+after the existing completion wait, and scan that out. Until a buffer's new
+copy completes, the VI shows that buffer's previous completed contents; the
+console would scan whatever the copy had written so far. Normal double
+buffering is unchanged and nothing waits in the VI interrupt. The draw-done
+timing difference itself is unchanged.
+
+diff --git a/lib/gfx/xfb.cpp b/lib/gfx/xfb.cpp
+index 520aca3..83b7253 100644
+--- a/lib/gfx/xfb.cpp
++++ b/lib/gfx/xfb.cpp
+@@ -19,6 +19,9 @@ wgpu::BindGroupLayout g_layout;
+ wgpu::RenderPipeline g_pipeline;
+ std::mutex g_mutex;
+ std::unordered_map<uint32_t, std::shared_ptr<Snapshot>> g_snapshots;
++// Newest copy per destination whose GPU work has completed. A later copy into
++// a buffer the VI is still scanning stays pending until its own completion.
++std::unordered_map<uint32_t, std::shared_ptr<Snapshot>> g_completed;
+ uint64_t g_revision = 0;
+ 
+ struct alignas(16) CopyUniforms {
+@@ -128,6 +131,9 @@ void complete(const std::shared_ptr<Snapshot>& snapshot) {
+   AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
+       "Original GX XFB completed on a lost device");
+   snapshot->gpuComplete.store(true, std::memory_order_release);
++  std::lock_guard lock{g_mutex};
++  auto& completed = g_completed[snapshot->physical];
++  if (!completed || completed->revision < snapshot->revision) completed = snapshot;
+ }
+ } // namespace
+ 
+@@ -187,6 +193,7 @@ void initialize() {
+ 
+ void shutdown() {
+   std::lock_guard lock{g_mutex};
++  g_completed.clear();
+   for (const auto& [physical, snapshot] : g_snapshots) {
+     AURORA_ASSERT(snapshot.use_count() == 1, "XFB {} still retained during graphics shutdown", physical);
+   }
+@@ -288,7 +295,7 @@ void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
+ std::shared_ptr<const Snapshot> find(const void* originalDestination) {
+   const uint32_t physical = OSCachedToPhysical(const_cast<void*>(originalDestination));
+   std::lock_guard lock{g_mutex};
+-  const auto it = g_snapshots.find(physical);
+-  return it == g_snapshots.end() ? nullptr : it->second;
++  const auto it = g_completed.find(physical);
++  return it == g_completed.end() ? nullptr : it->second;
+ }
+ } // namespace aurora::gfx::xfb
+diff --git a/lib/gfx/xfb.hpp b/lib/gfx/xfb.hpp
+index b6262a2..e63140f 100644
+--- a/lib/gfx/xfb.hpp
++++ b/lib/gfx/xfb.hpp
+@@ -29,7 +29,9 @@ void shutdown();
+ void copy_from_bp(uint32_t flags);
+ void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
+             Range uniforms, const TextureHandle& destination);
+-// The result describes the requested destination, never the latest EFB.
+-// Callers must release references before graphics/OS shutdown.
++// The result describes the requested destination, never the latest EFB: the
++// newest copy into it whose GPU work completed (a copy still in flight into a
++// buffer being scanned out does not replace it). Callers must release
++// references before graphics/OS shutdown.
+ std::shared_ptr<const Snapshot> find(const void* originalDestination);
+ } // namespace aurora::gfx::xfb

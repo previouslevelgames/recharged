@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "frontend_font_fixture.h"
 #include "frontend_layout_fixture.h"
 #include "frontend_image_fixture.h"
@@ -47,7 +48,7 @@ void Case(const resources::FrontendLayoutFrame& layout, const std::array<std::op
         const bool sample = frame >= 12 && quiet >= 2;
         if (sample) samples = EndFrameAndReadColours(); else aurora_end_frame();
         draws += aurora_get_stats()->drawCallCount; ++frame;
-        const auto pending = std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();
+        const auto pending = mscharged::platform::GetQueuedPipelineCount();
         quiet = pending ? 0 : quiet + 1;
         if (sample) break;
         SDL_Delay(1);

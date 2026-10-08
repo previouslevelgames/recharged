@@ -14,7 +14,7 @@ option(MSCHARGED_BUILD_AURORA_HOST "Build the Aurora core initialization check (
 option(MSCHARGED_BUILD_GAME_STARTUP "Build the experimental original-game startup path (not playable)" OFF)
 option(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC "Build the temporary original audio-only movie diagnostic" OFF)
 option(MSCHARGED_NATIVE_VIDEO "Enable original-source native VI hardware (output integration in progress)" OFF)
-option(MSCHARGED_BUILD_GX_CHECK "Build the standalone Aurora GX/Vulkan diagnostic" OFF)
+option(MSCHARGED_BUILD_GX_CHECK "Build the standalone Aurora GX diagnostic" OFF)
 option(MSCHARGED_BUILD_SCENE_PREVIEW "Build the experimental static Wii asset preview (not a game scene)" OFF)
 option(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC "Build the temporary original Credits scene rendering check" OFF)
 option(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC "Build the temporary original Boot/Intro task sequence check" OFF)
@@ -31,8 +31,8 @@ if(MSCHARGED_BUILD_SCENE_PREVIEW)
     set(MSCHARGED_BUILD_GX_CHECK ON)
 endif()
 if(MSCHARGED_BUILD_GX_CHECK)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        message(FATAL_ERROR "The first GX diagnostic currently requires Linux/Vulkan")
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        message(FATAL_ERROR "The GX runtime currently selects Linux/Vulkan or macOS/Metal")
     endif()
     if(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC AND NOT MSCHARGED_BUILD_GAME_STARTUP)
     message(FATAL_ERROR "Use the startup preset for the temporary original movie audio diagnostic")
@@ -184,7 +184,11 @@ if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTU
     include(cmake/WorldObjects.cmake)
 endif()
 
-if(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
+if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
+    # The game runtime enters original main. The older selected-scene fixture
+    # has a separate Linux-only module and is not a prerequisite for this path.
+    include(cmake/OriginalMainCreditsDiagnostic.cmake)
+elseif(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
     include(cmake/OriginalCreditsDiagnostic.cmake)
 endif()
 
@@ -200,6 +204,8 @@ if(BUILD_TESTING)
     add_test(NAME foundation COMMAND foundation_tests)
     add_test(NAME source_preparation
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_prepare_sources.py")
+    add_test(NAME dependency_setup
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_setup_dependencies.py")
     add_test(NAME bootstrap_cli
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                 "$<TARGET_FILE:mscharged-bootstrap>")
@@ -215,6 +221,10 @@ if(BUILD_TESTING)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
+    add_executable(frame_rate_title_tests tests/frame_rate_title.cpp)
+    target_include_directories(frame_rate_title_tests PRIVATE src)
+    target_compile_features(frame_rate_title_tests PRIVATE cxx_std_17)
+    add_test(NAME frame_rate_title COMMAND frame_rate_title_tests)
 endif()
 
 message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}, independent GX check: ${MSCHARGED_BUILD_GX_CHECK}, static asset preview: ${MSCHARGED_BUILD_SCENE_PREVIEW}); playable game remains pending")

@@ -1,7 +1,7 @@
 From: native port compatibility
 Subject: [PATCH] Resolve the original NIS whole-file token before raw busy query
 
-Upstream-base: 0f5a757947b8778b680d4d1ae7e6df1792a514f2
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
 
 Keep the original 32-bit whole-file handle and both destructor branches.
 Only native builds resolve the existing token into the actual raw read entry,

@@ -1,0 +1,361 @@
+From: mscharged-port contributors
+Subject: [PATCH] Drain native DVD commands before original reset
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native DVD worker lifecycle and mounted-media state.
+
+Provide original OSReset's __DVDPrepareReset/__DVDGetCoverStatus requests
+under the existing Nod DVD device. Waiting commands are silently unlinked,
+retaining their source states and caller-owned handles. An active command's
+callback is cleared unless cancellation already began. Enable interrupts
+before waiting for actual read/callback retirement, as the original SDK does.
+Reject retained native guard/IRQ context before any reset mutation.
+
+Serialize complete open/close/reset lifecycles through actual mounted-state
+retirement; reject overlapping and callback-reentrant lifecycle requests.
+Reject new read/seek admission throughout shutdown, including after the worker
+join, until a successful remount explicitly starts the worker again. Normal
+cancellation stays separate. Close joins the actual worker without detaching.
+
+Native cover status observes an actually mounted Nod partition or unmounted
+media, with BUSY during reset/close drain. It does not model optical timing.
+No NL completion, owner free, ResetTask admission or terminal success is added.
+The actual port CMake provider declares the shared native interrupt dependency.
+
+diff --git a/include/dolphin/dvd.h b/include/dolphin/dvd.h
+--- a/include/dolphin/dvd.h
++++ b/include/dolphin/dvd.h
+@@ -37,6 +37,10 @@
+ #define DVD_STATE_IGNORED        9
+ #define DVD_STATE_CANCELED       10
+ #define DVD_STATE_RETRY          11
++
++#define DVD_COVER_BUSY   0
++#define DVD_COVER_OPENED 1
++#define DVD_COVER_CLOSED 2
+ 
+ #define DVD_MIN_TRANSFER_SIZE    32
+ 
+@@ -166,6 +170,9 @@
+ int DVDResetRequired(void);
+ s32 DVDGetCommandBlockStatus(const DVDCommandBlock* block);
+ s32 DVDGetDriveStatus(void);
++// Native mounted-media cover state and actual worker reset quiescence.
++u32 __DVDGetCoverStatus(void);
++void __DVDPrepareReset(void);
+ BOOL DVDSetAutoInvalidation(BOOL autoInval);
+ void DVDPause(void);
+ void DVDResume(void);
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -1,5 +1,6 @@
+ #include <aurora/dvd.h>
+ #include <dolphin/dvd.h>
++#include "platform/interrupts.h"
+ 
+ #include <algorithm>
+ #include <dolphin/os.h>
+@@ -17,6 +18,7 @@
+ #include <memory>
+ #include <mutex>
+ #include <new>
++#include <stdexcept>
+ #include <string>
+ #include <thread>
+ #include <utility>
+@@ -50,6 +52,26 @@
+ 
+ namespace {
+ 
++// The native removable medium is an actually mounted Nod data partition.
++std::atomic<bool> s_mountedForCover{false};
++std::atomic<bool> s_mediaRetiring{false};
++std::recursive_mutex s_mediaLifecycle;
++bool s_mediaLifecycleActive = false;
++
++class MediaLifecycle {
++  std::unique_lock<std::recursive_mutex> m_lock{s_mediaLifecycle, std::try_to_lock};
++public:
++  MediaLifecycle() {
++    // Recursion is detected explicitly: a cancellation callback on the close
++    // caller may request another lifecycle operation without mutex UB.
++    if (!m_lock.owns_lock() || s_mediaLifecycleActive) {
++      throw std::logic_error("DVD media lifecycle overlaps an existing request");
++    }
++    s_mediaLifecycleActive = true;
++  }
++  ~MediaLifecycle() { s_mediaLifecycleActive = false; }
++};
++
+ class CommandDataBase {
+ public:
+   virtual ~CommandDataBase() = default;
+@@ -94,6 +116,7 @@
+ CommandDataNod* s_disc;
+ 
+ void clearState() {
++  s_mountedForCover.store(false, std::memory_order_release);
+   if (s_partition != nullptr) {
+     nod_free(s_partition);
+     s_partition = nullptr;
+@@ -109,6 +132,7 @@
+   s_currentPath = "/";
+   s_diskID = {};
+   s_initialized = false;
++  s_mediaRetiring.store(false, std::memory_order_release);
+ }
+ 
+ bool isValidEntryNum(s32 entry) {
+@@ -358,27 +382,32 @@
+ 
+   void stop() {
+     std::vector<DVDCommandBlock*> canceledBlocks;
+-    bool stoppedFromWorker = false;
+     {
+       std::lock_guard lk{m_mutex};
+       if (!m_running) {
++        m_shutdown = true;
++        s_mediaRetiring.store(true, std::memory_order_release);
+         return;
+       }
++      if (std::this_thread::get_id() == m_thread.get_id()) {
++        throw std::logic_error("Cannot close DVD media from its active worker callback");
++      }
++      if (!mscharged::platform::NativeInterruptWaitAllowed() ||
++          !mscharged::platform::NativeInterruptsEnabled()) {
++        throw std::logic_error("Cannot close DVD media while retaining native interrupt exclusion");
++      }
++      if (m_preparingReset || m_shutdown) {
++        throw std::logic_error("DVD media close overlaps an existing retirement");
++      }
+       m_shutdown = true;
++      s_mediaRetiring.store(true, std::memory_order_release);
+       canceledBlocks = discard_pending_commands_locked();
+-      if (std::this_thread::get_id() == m_thread.get_id()) {
+-        m_running = false;
+-        m_thread.detach();
+-        stoppedFromWorker = true;
+-      } else if (m_activeBlock != nullptr) {
++      if (m_activeBlock != nullptr) {
+         m_cancelActiveBlock = m_activeBlock;
+       }
+     }
+     complete_canceled_commands(canceledBlocks);
+     m_doneCv.notify_all();
+-    if (stoppedFromWorker) {
+-      return;
+-    }
+     m_cv.notify_all();
+     m_thread.join();
+     {
+@@ -388,10 +417,16 @@
+     m_doneCv.notify_all();
+   }
+ 
+-  void enqueue(DVDCommandBlock* block) {
++  bool enqueue(DVDCommandBlock* block) {
+     bool executeNow = false;
+     {
+       std::lock_guard lk(m_mutex);
++      if (m_preparingReset || m_shutdown) {
++        // No accepted request may outlive the quiescence acknowledgement.
++        // No callback or successful read is invented on failed admission.
++        finishCommand(block, DVD_RESULT_IGNORED, 0);
++        return false;
++      }
+       if (!m_running || m_shutdown) {
+         executeNow = true;
+       } else {
+@@ -401,9 +436,44 @@
+     }
+     if (executeNow) {
+       execute(block);
+-      return;
++      return true;
+     }
+     m_cv.notify_one();
++    return true;
++  }
++
++  void prepare_reset() {
++    std::unique_lock lk{m_mutex};
++    if (m_activeBlock != nullptr && std::this_thread::get_id() == m_thread.get_id()) {
++      throw std::logic_error("Cannot prepare DVD reset from its active worker callback");
++    }
++    if (m_preparingReset || (m_shutdown && m_running)) {
++      throw std::logic_error("DVD reset overlaps an existing media retirement");
++    }
++    m_preparingReset = true;
++    // __DVDClearWaitingQueue only unlinks waiting commands: their states,
++    // callbacks, destinations and opened handles remain owned by the caller.
++    m_queue.clear();
++    if (m_activeBlock != nullptr) {
++      // Original __DVDPrepareResetAsync leaves an already-canceling
++      // command's callback intact; otherwise it clears that exact field.
++      if (m_cancelActiveBlock != m_activeBlock) {
++        m_activeBlock->callback = nullptr;
++      }
++      m_cancelActiveBlock = m_activeBlock;
++    }
++    // Original __DVDPrepareReset enables interrupts before its completion
++    // wait. A callback whose delivery already began must be able to finish.
++    OSEnableInterrupts();
++    m_doneCv.wait(lk, [&] { return m_activeBlock == nullptr; });
++    m_preparingReset = false;
++    lk.unlock();
++    m_cv.notify_all();
++  }
++
++  bool retiring_media() {
++    std::lock_guard lk{m_mutex};
++    return m_preparingReset || s_mediaRetiring.load(std::memory_order_acquire);
+   }
+ 
+   void retire_command(DVDCommandBlock* block) {
+@@ -499,7 +569,7 @@
+ 
+     std::unique_lock lk{m_mutex};
+     while (true) {
+-      m_cv.wait(lk, [&] { return m_shutdown || !m_queue.empty(); });
++      m_cv.wait(lk, [&] { return m_shutdown || (!m_preparingReset && !m_queue.empty()); });
+       if (m_shutdown) {
+         return;
+       }
+@@ -536,13 +606,19 @@
+ 
+   void process_command(DVDCommandBlock* block) {
+     auto [result, transferred] = perform_command(block);
+-    if (consume_active_cancel(block)) {
+-      result = DVD_RESULT_CANCELED;
+-      transferred = 0;
++    DVDCBCallback callback;
++    {
++      std::lock_guard lk{m_mutex};
++      if (m_cancelActiveBlock == block) {
++        m_cancelActiveBlock = nullptr;
++        result = DVD_RESULT_CANCELED;
++        transferred = 0;
++      }
++      callback = block->callback;
+     }
+     finishCommand(block, result, transferred);
+-    if (block->callback != nullptr) {
+-      block->callback(result, block);
++    if (callback != nullptr) {
++      callback(result, block);
+     }
+   }
+ 
+@@ -561,15 +637,6 @@
+       }
+     }
+     m_doneCv.notify_all();
+-  }
+-
+-  bool consume_active_cancel(DVDCommandBlock* block) {
+-    std::lock_guard lk{m_mutex};
+-    if (m_cancelActiveBlock != block) {
+-      return false;
+-    }
+-    m_cancelActiveBlock = nullptr;
+-    return true;
+   }
+ 
+   static void complete_canceled_command(DVDCommandBlock* block) {
+@@ -605,6 +672,7 @@
+   std::deque<DVDCommandBlock*> m_queue;
+   DVDCommandBlock* m_activeBlock = nullptr;
+   DVDCommandBlock* m_cancelActiveBlock = nullptr;
++  bool m_preparingReset = false;
+   bool m_running = false;
+   bool m_shutdown = false;
+ };
+@@ -652,6 +720,7 @@
+   if (disc_path == nullptr) {
+     return false;
+   }
++  MediaLifecycle lifecycle;
+ 
+   s_worker.stop();
+   clearState();
+@@ -707,10 +776,12 @@
+   s_currentPath = "/";
+   s_initialized = true;
+   s_worker.start();
++  s_mountedForCover.store(true, std::memory_order_release);
+   return true;
+ }
+ 
+ void aurora_dvd_close(void) {
++  MediaLifecycle lifecycle;
+   s_worker.stop();
+   clearState();
+ }
+@@ -744,8 +815,7 @@
+                 "DVDReadAbsAsync(): command block is used for processing previous request.");
+ 
+   beginCommand(block, command, addr, static_cast<u32>(length), static_cast<u32>(offset), callback);
+-  s_worker.enqueue(block);
+-  return TRUE;
++  return s_worker.enqueue(block) ? TRUE : FALSE;
+ }
+ 
+ int DVDReadAbsAsyncPrio(DVDCommandBlock* block, void* addr, s32 length, s32 offset, DVDCBCallback callback, s32 prio) {
+@@ -760,8 +830,7 @@
+                 "DVDSeekAbs(): command block is used for processing previous request.");
+ 
+   beginCommand(block, DVD_COMMAND_SEEK, nullptr, 0, static_cast<u32>(offset), callback);
+-  s_worker.enqueue(block);
+-  return TRUE;
++  return s_worker.enqueue(block) ? TRUE : FALSE;
+ }
+ 
+ int DVDReadAbsAsyncForBS(DVDCommandBlock* block, void* addr, s32 length, s32 offset, DVDCBCallback callback) {
+@@ -942,6 +1011,27 @@
+ }
+ 
+ s32 DVDGetDriveStatus(void) { return s_initialized ? DVD_STATE_END : DVD_STATE_NO_DISK; }
++
++u32 __DVDGetCoverStatus(void) {
++  if (s_worker.retiring_media()) {
++    return DVD_COVER_BUSY;
++  }
++  return s_mountedForCover.load(std::memory_order_acquire) ? DVD_COVER_CLOSED : DVD_COVER_OPENED;
++}
++
++void __DVDPrepareReset(void) {
++  if (!mscharged::platform::NativeInterruptWaitAllowed()) {
++    throw std::logic_error("Cannot wait for DVD reset from a hardware interrupt or retained native exclusion");
++  }
++  MediaLifecycle lifecycle;
++  const BOOL enabled = OSDisableInterrupts();
++  try {
++    s_worker.prepare_reset();
++  } catch (...) {
++    OSRestoreInterrupts(enabled);
++    throw;
++  }
++}
+ 
+ BOOL DVDSetAutoInvalidation(BOOL autoInval) {
+   BOOL prev = s_autoInvalidation;
+@@ -1173,8 +1263,7 @@
+                 "DVDReadAsync(): specified area is out of the file  ");
+ 
+   fileInfo->callback = callback;
+-  DVDReadAbsAsyncPrio(&fileInfo->cb, addr, length, offset, cbForReadAsync, prio);
+-  return TRUE;
++  return DVDReadAbsAsyncPrio(&fileInfo->cb, addr, length, offset, cbForReadAsync, prio);
+ }
+ 
+ s32 DVDReadPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset, s32 prio) {
+@@ -1200,8 +1289,7 @@
+                 "DVDSeek(): offset is out of the file  ");
+ 
+   fileInfo->callback = callback;
+-  DVDSeekAbsAsyncPrio(&fileInfo->cb, offset, cbForSeekAsync, prio);
+-  return 1;
++  return DVDSeekAbsAsyncPrio(&fileInfo->cb, offset, cbForSeekAsync, prio);
+ }
+ 
+ s32 DVDSeekPrio(DVDFileInfo* fileInfo, s32 offset, s32 prio) {

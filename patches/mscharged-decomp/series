@@ -368,3 +368,9 @@
 0504-restore-original-options-done-bounds.patch
 0505-original-hall-of-fame-cup-admission.patch
 0506-original-offline-domination-selection.patch
+0511-fix-native-character-enum-storage.patch
+0512-native-cup-side-initializer.patch
+0513-isolate-native-msl-stdint-guard.patch
+0514-expose-native-world-inline-definitions.patch
+0515-original-credits-scene-admission.patch
+0518-native-rtc-sram-wire-fields.patch

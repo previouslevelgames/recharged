@@ -2,8 +2,9 @@ include_guard(GLOBAL)
 
 # Whole original RFL record/name providers. The fixed-cell compiler inventory
 # does not qualify serialized bitfields/CRC, database IO or Mii readiness.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
+include("${CMAKE_CURRENT_LIST_DIR}/OriginalNativeCompilerProfile.cmake")
+mscharged_original_native_profile_supported(_original_native_profile C)
+if(NOT _original_native_profile)
     return()
 endif()
 include(cmake/OriginalRFLDefaultData.cmake)

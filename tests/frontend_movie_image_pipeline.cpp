@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "runtime/frontend_packets.h"
 #include "resources/frontend_animation.h"
 #include "runtime/frames.h"
@@ -83,7 +84,7 @@ void Case(FrontendPacketRenderer& renderer,GLView& view,OriginalFrames& frames,A
             Check(!std::memcmp(&before,&after,sizeof before)&&raster==glHandleizeRasterState()&&texture==glHandleizeTextureState(),"Movie image changed caller graphics state");
             const bool sample=n>=12&&quiet>=2;backend.read_colours=sample;
             glEndFrame();glSendFrame();renderer.FinishFrame();draws+=aurora_get_stats()->drawCallCount;
-            const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;if(sample&&!pending)break;
+            const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;if(sample&&!pending)break;
         }
         const auto& c=backend.colours[4];
         std::cout<<"actual movie centre RGB="<<unsigned(c[0])<<','<<unsigned(c[1])<<','<<unsigned(c[2])<<'\n';

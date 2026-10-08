@@ -72,6 +72,48 @@ void WaitService() {
         Check(DispatchNativeInterrupt(InterruptWake), "Actual latched wait event did not dispatch");
 }
 void FailingService() { throw std::runtime_error("Deliberate failed native wait endpoint"); }
+thread_local bool resume_before_resuspend{};
+void ResuspendFailureService() {
+    auto* thread=OSGetCurrentThread();
+    Check(NativeInterruptsEnabled()&&!NativeInterruptDispatchActive(),
+          "Failed self-suspend service retained source exclusion");
+    if (resume_before_resuspend)
+        Check(OSResumeThread(thread)==1,"Actual source resume did not consume first suspension");
+    Check(OSSuspendThread(thread)==(resume_before_resuspend?0:1),
+          "Genuine concurrent resuspension lost original counter");
+    throw std::runtime_error("Intentional service failure with remaining resuspension");
+}
+void FailedSelfSuspend(bool resume_first) {
+    std::exception_ptr failure;
+    std::thread worker([&] {
+        try {
+            resume_before_resuspend=resume_first;
+            auto* thread=OSGetCurrentThread();
+            auto* context=OSGetCurrentContext();
+            Check(!SetNativeThreadWaitService(ResuspendFailureService),"Fresh self-suspend owner already had a hook");
+            const auto mask=OSDisableInterrupts();
+            bool rejected{};
+            try { OSSuspendThread(thread); }
+            catch(const std::runtime_error& e) {
+                rejected=std::strcmp(e.what(),"Intentional service failure with remaining resuspension")==0;
+            }
+            Check(rejected,"Failed self-suspend advertised successful return");
+            Check(!NativeInterruptsEnabled()&&OSGetCurrentContext()==context,
+                  "Failed self-suspend did not restore original caller mask/context");
+            Check(thread->suspend==1&&OSIsThreadSuspended(thread)&&thread->state==OS_THREAD_STATE_READY,
+                  "Failed host wait discarded genuine concurrent resuspension");
+            OSRestoreInterrupts(mask);
+            Check(OSResumeThread(thread)==1&&!OSIsThreadSuspended(thread),
+                  "Explicit final source resume lost retained suspension");
+            // No subsequent source execution or retry is claimed here: the
+            // failed scope's remaining READY scheduling boundary is held.
+            Check(thread->state==OS_THREAD_STATE_READY,"Failed resuspension invented a runnable source scheduler boundary");
+            Check(SetNativeThreadWaitService(nullptr)==ResuspendFailureService,"Failed wait retained borrowed service");
+        } catch (...) { failure=std::current_exception(); }
+    });
+    worker.join();
+    if (failure) std::rethrow_exception(failure);
+}
 
 void OneWait(bool masked, bool stale_wake) {
     OSThreadQueue queue;
@@ -212,6 +254,8 @@ int main() {
         OneWait(false,true);
         OneWait(true,true);
         OrderedWaiters();
+        FailedSelfSuspend(false);
+        FailedSelfSuspend(true);
 
         OSThread fake{};
         OSThreadQueue unknown{&fake,&fake};

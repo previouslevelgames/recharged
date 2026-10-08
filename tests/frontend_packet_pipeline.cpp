@@ -1,3 +1,4 @@
+#include "platform/graphics_stats.h"
 #include "frontend_packets_fixture.h"
 #include "runtime/frames.h"
 #include "runtime/views.h"
@@ -58,7 +59,7 @@ void Case(const char* name,FrontendPacketRenderer& renderer,GLView& view,Origina
             Acquire(frames);glBeginFrame();GXSetPixelFmt(GX_PF_RGB8_Z24,GX_ZC_LINEAR);GXSetCopyClear({20,24,30,255},GX_MAX_Z24);
             renderer.Submit(view,frame);const bool sample=i>=12&&quiet>=2;backend.read_colours=sample;
             glEndFrame();glSendFrame();renderer.FinishFrame();draws+=aurora_get_stats()->drawCallCount;
-            const auto pending=std::atomic_ref<const std::uint32_t>(aurora_get_stats()->queuedPipelines).load();quiet=pending?0:quiet+1;
+            const auto pending=mscharged::platform::GetQueuedPipelineCount();quiet=pending?0:quiet+1;
             if(sample&&!pending)break;
         }
         const auto& c=backend.colours[4];std::cout<<name<<" RGB="<<unsigned(c[0])<<','<<unsigned(c[1])<<','<<unsigned(c[2])<<'\n';
