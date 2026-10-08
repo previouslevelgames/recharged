@@ -1,6 +1,6 @@
 Subject: Select portable original render-state packing and lifecycle
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Preserve Wii raster/texture ID widths and the original texture bit ordering:
 logical bits 0-31 occupy the high word of the numeric u64. Replace only the

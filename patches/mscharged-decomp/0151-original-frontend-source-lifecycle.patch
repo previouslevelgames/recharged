@@ -1,5 +1,5 @@
 Subject: Restore whole original Options frontend provider and native callback contexts
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Retain all original scene and Options control flow, resource requests, input,
 audio and transition decisions. Restore the whole reconstructed provider rather

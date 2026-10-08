@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "NL/nlBundleFile.h"
 #include "NL/nlFile.h"
 #include "NL/nlFileGC.h"
@@ -52,7 +53,7 @@ struct Host
         StandardAllocator.Initialize(standard.data(), standard.size()*8);
         VirtualAllocator.Initialize(virtual_arena.data(), virtual_arena.size()*8);
         gMemoryInitialized = 1;
-        nlInitFileSystem(); files = true;
+        nlInitFileSystem(); files = true; mscharged::test::ConfigureDVDTestMedium(path);
     }
     ~Host()
     {
@@ -347,6 +348,8 @@ void Lifecycle(const char* path, const Oracle& oracle, Host& host)
             Check(!opened.calls && !read.calls && !nlAsyncReadsPending(nullptr), "Failed/cancelled original request fabricated readiness");
             Check(!bundle.m_nativeReadContexts && overlay.handles==0, "Cancelled bundle retained callback/worker ownership");
             memory.Same();
+            Check(overlay.entered, "Independent bundle fault/cancellation never entered its actual provider");
+            mscharged::test::FinishDVDTestFaultCase(mode==Overlay::Error);
         }
     }
     // Original synchronous header allocation must unwind on real raw read failure.
@@ -354,6 +357,8 @@ void Lifecycle(const char* path, const Oracle& oracle, Host& host)
     {
         Overlay overlay(path,oracle,mode,0); BundleFile bundle;
         Reject([&]{bundle.Open(path,true);}); bundle.Close(); memory.Same();
+        Check(overlay.entered && !overlay.handles, "Synchronous bundle fault did not perform I/O and close");
+        mscharged::test::FinishDVDTestFaultCase(mode==Overlay::Error);
     }
     if (oracle.count)
     {

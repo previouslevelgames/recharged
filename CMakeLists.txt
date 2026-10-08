@@ -64,20 +64,76 @@ execute_process(
 )
 get_filename_component(git_index "${git_index}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${MSCHARGED_PREPARER}" "${CMAKE_CURRENT_SOURCE_DIR}/.gitmodules"
+    "${MSCHARGED_PREPARER}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/format_prepared.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.gitmodules"
     "${git_index}" ${patch_inputs})
+
+# Readable prepared game sources: after the patch series, every C/C++ file of
+# the listed dependencies is formatted with tools/formatting/prepared-sources.clang-format
+# (whitespace only, verified by the preparer). prepared/<name>/patched keeps the
+# exact decomp plus patches for patch development; prepared/<name>/source is
+# what gets compiled.
+set(MSCHARGED_FORMAT_PREPARED_SOURCES AUTO CACHE STRING
+    "Format prepared game sources with clang-format 16+: AUTO (when found), ON (required) or OFF")
+set_property(CACHE MSCHARGED_FORMAT_PREPARED_SOURCES PROPERTY STRINGS AUTO ON OFF)
+set(MSCHARGED_FORMATTED_DEPENDENCIES mscharged-decomp CACHE STRING
+    "Prepared dependencies whose C/C++ sources are formatted")
+set(MSCHARGED_FORMAT_JOBS "" CACHE STRING "Parallel formatting processes (default: CPU count)")
+set(MSCHARGED_FORMAT_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/tools/formatting/prepared-sources.clang-format")
+# The preparer formats by default when run directly; CMake always decides explicitly.
+set(MSCHARGED_PREPARE_FORMAT_ARGS --clang-format off)
+set(MSCHARGED_PREPARED_FORMATTED OFF)
+if(NOT MSCHARGED_FORMAT_PREPARED_SOURCES MATCHES "^(AUTO|ON|OFF)$")
+    message(FATAL_ERROR "MSCHARGED_FORMAT_PREPARED_SOURCES must be AUTO, ON or OFF")
+endif()
+if(NOT MSCHARGED_FORMAT_PREPARED_SOURCES STREQUAL "OFF")
+    find_program(MSCHARGED_CLANG_FORMAT NAMES clang-format
+        clang-format-23 clang-format-22 clang-format-21 clang-format-20 clang-format-19
+        clang-format-18 clang-format-17 clang-format-16
+        DOC "clang-format used to format prepared game sources")
+    set(clang_format_major 0)
+    if(MSCHARGED_CLANG_FORMAT)
+        execute_process(COMMAND "${MSCHARGED_CLANG_FORMAT}" --version
+            OUTPUT_VARIABLE clang_format_version OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE clang_format_result ERROR_QUIET)
+        if(clang_format_result EQUAL 0 AND clang_format_version MATCHES "clang-format version ([0-9]+)")
+            set(clang_format_major "${CMAKE_MATCH_1}")
+        endif()
+    endif()
+    if(clang_format_major GREATER_EQUAL 16)
+        set(MSCHARGED_PREPARED_FORMATTED ON)
+        set(MSCHARGED_PREPARE_FORMAT_ARGS --clang-format "${MSCHARGED_CLANG_FORMAT}"
+            --format-config "${MSCHARGED_FORMAT_CONFIG}")
+        if(MSCHARGED_FORMAT_JOBS)
+            list(APPEND MSCHARGED_PREPARE_FORMAT_ARGS --format-jobs "${MSCHARGED_FORMAT_JOBS}")
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${MSCHARGED_FORMAT_CONFIG}" "${MSCHARGED_CLANG_FORMAT}")
+        message(STATUS "Prepared game sources: formatted with ${clang_format_version}")
+    elseif(MSCHARGED_FORMAT_PREPARED_SOURCES STREQUAL "ON")
+        message(FATAL_ERROR "MSCHARGED_FORMAT_PREPARED_SOURCES=ON requires clang-format 16 or newer "
+            "(set MSCHARGED_CLANG_FORMAT to its path, or use AUTO/OFF)")
+    else()
+        message(WARNING "clang-format 16 or newer was not found: prepared game sources are compiled "
+            "unformatted. Install clang-format (for example brew install clang-format) for the readable "
+            "prepared tree; the build is otherwise identical.")
+    endif()
+endif()
 
 # Preparation precedes all source selection and configuration. It never fetches
 # an upstream branch or edits the submodule working tree.
 add_custom_target(verify_prepared ALL)
 function(mscharged_prepare_dependency name output)
-    set(nested_args)
+    set(prepare_args)
     foreach(nested IN LISTS ARGN)
-        list(APPEND nested_args --nested-submodule "${nested}")
+        list(APPEND prepare_args --nested-submodule "${nested}")
     endforeach()
+    if(name IN_LIST MSCHARGED_FORMATTED_DEPENDENCIES)
+        list(APPEND prepare_args ${MSCHARGED_PREPARE_FORMAT_ARGS})
+    endif()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
-                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${nested_args}
+                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${prepare_args}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         OUTPUT_VARIABLE prepared OUTPUT_STRIP_TRAILING_WHITESPACE
         COMMAND_ERROR_IS_FATAL ANY
@@ -86,7 +142,7 @@ function(mscharged_prepare_dependency name output)
     set("${output}" "${prepared}" PARENT_SCOPE)
     add_custom_target("verify_${name}"
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
-                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${nested_args} --check
+                --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${prepare_args} --check
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "Verify pinned, unmodified ${name} and prepared sources"
         VERBATIM
@@ -204,6 +260,12 @@ if(BUILD_TESTING)
     add_test(NAME foundation COMMAND foundation_tests)
     add_test(NAME source_preparation
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_prepare_sources.py")
+    if(MSCHARGED_PREPARED_FORMATTED)
+        set_tests_properties(source_preparation PROPERTIES
+            ENVIRONMENT "MSCHARGED_TEST_CLANG_FORMAT=${MSCHARGED_CLANG_FORMAT}")
+    endif()
+    add_test(NAME prepared_source_formatting
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_format_prepared.py")
     add_test(NAME dependency_setup
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_setup_dependencies.py")
     add_test(NAME bootstrap_cli

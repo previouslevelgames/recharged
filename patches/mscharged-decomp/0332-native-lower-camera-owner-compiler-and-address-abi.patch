@@ -1,6 +1,6 @@
 From: mscharged-port native integration
 Subject: [PATCH] Preserve original lower camera-owner native addresses and compiler declarations
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Permanent native compiler/address ABI only. Whole source owners retain
 their original methods, source globals, allocation requests and algorithms.
@@ -80,3 +80,24 @@ diff --git a/include/Game/Render/NumberDisplay.h b/include/Game/Render/NumberDis
 +#endif
  
  #endif // GAME_RENDER_NUMBER_DISPLAY_H
+diff --git a/include/Game/AI/FuzzyAIRuntime.h b/include/Game/AI/FuzzyAIRuntime.h
+--- a/include/Game/AI/FuzzyAIRuntime.h
++++ b/include/Game/AI/FuzzyAIRuntime.h
+@@ -230,6 +230,17 @@
+ 
+ extern "C" void LoadFuzzyByteCode(const char* filename, bool async);
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/vm_address_abi.h"
++// Only address arguments use the existing Wii32 VM address transport.
++// Numeric and floating-point arguments retain their original four-byte bits.
++template <typename T>
++inline u32 FuzzyArgumentBits(T* const& value)
++{
++    return mscharged::platform::EncodeOwnedVMAddress(value);
++}
++#endif
++
+ // Script arguments occupy one stack word, including the bits of float values.
+ template <typename T>
+ inline u32 FuzzyArgumentBits(const T& value)

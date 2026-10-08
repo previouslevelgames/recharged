@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/frontend_session.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -162,6 +163,8 @@ FrontendSession::Handle Generated()
         }
         else {Pump(receiver,true);Check(receiver.State()==FrontendSessionState::Failed,"FEN read error became ready");}
         Check(receiver.Current()==old&&receiver.SharedResources()==token&&!fault.active,"FEN failure retained worker storage");
+        Check(fault.reads>0,"Independent shared FEN fault never entered its actual provider");
+        mscharged::test::FinishDVDTestFaultCase(mode==Overlay::Fail);
     }
     bool wrong=false;std::thread thread([&]{try{receiver.BeginShared(Request(),token);}catch(const std::logic_error&){wrong=true;}});thread.join();Check(wrong,"Cross-thread shared mutation accepted");
     struct Callback
@@ -214,6 +217,7 @@ int main(int argc,char** argv)
         config.windowPosX=config.windowPosY=-1;config.logLevel=LOG_WARNING;config.mem1Size=MEM1_DEFAULT_SIZE;config.mem2Size=64*1024*1024;
         Host host;const auto state=aurora_initialize(argc,argv,&config);host.live=true;Check(state.window,"Aurora initialization failed");
         InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Cannot open shared frontend disc");host.disc=true;nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         FrontendSession::Handle retained;
         for(unsigned repeat=0;repeat<3;++repeat)
         {

@@ -1,5 +1,5 @@
 Subject: Select temporary original loading/frontend/frame tasks
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Original RunAllTasks owns cadence and MoviePlay after every task.
 Diagnostic omissions retain normal source flow; full Async/3D/AX/reset held.

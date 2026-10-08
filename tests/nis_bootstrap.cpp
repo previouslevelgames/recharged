@@ -1,3 +1,5 @@
+#include "dvd_fixture_medium.h"
+#include <atomic>
 #include "runtime/nis_bootstrap.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -90,10 +92,12 @@ void Cancellation()
 }
 struct ReadFailure
 {
-    static void* Open(void* context) { return context; }
-    static void Close(void*) {}
+    std::atomic<unsigned> handles{0};
+    std::atomic<bool> entered{false};
+    static void* Open(void* context) { ++static_cast<ReadFailure*>(context)->handles; return context; }
+    static void Close(void* p) { --static_cast<ReadFailure*>(p)->handles; }
     static std::int64_t Seek(void*, std::int64_t offset, std::int32_t) { return offset; }
-    static std::int64_t Read(void*, std::uint8_t*, std::size_t) { return -1; }
+    static std::int64_t Read(void* p, std::uint8_t*, std::size_t) { static_cast<ReadFailure*>(p)->entered=true; return -1; }
     ReadFailure()
     {
         const AuroraOverlayCallbacks callbacks{Open, Close, Read, Seek};
@@ -111,6 +115,8 @@ void FailRead()
         Pump(load, external, true);
         Reject([&] { load.Result(); });
         Check((load.CompletedMask() & 1) == 0, "Failed script read set its completion bit");
+        Check(failure.entered && !failure.handles, "NIS fault did not perform real I/O and retire its file");
+        mscharged::test::FinishDVDTestFaultCase(true);
     }
 }
 struct Session
@@ -136,6 +142,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot mount NIS disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         for (unsigned i = 0; i < (mode == "owned" ? 1u : 3u); ++i)
         {
             const auto a = StandardAllocator.TotalFreeMemory(), b = VirtualAllocator.TotalFreeMemory();

@@ -1,0 +1,91 @@
+From: native port preparation
+Subject: [PATCH] Preserve original HBM Wii16 text ABI and owned BE16 ingress
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+
+--- a/src/RVL_SDK/hbm/HBMBase.cpp
++++ b/src/RVL_SDK/hbm/HBMBase.cpp
+@@ -1,4 +1,8 @@
+ #include "revolution/hbm/homebutton/HBMBase.hpp"
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/hbm_text_transport.h"
++#endif
+ 
+ #include "revolution/hbm/homebutton/HBMAnmController.hpp"
+ #include "revolution/hbm/homebutton/HBMController.hpp"
+@@ -977,7 +981,13 @@
+     int i = 0, j = 0, k = 0;
+     bool flag = false; // more accurately insideStringFlag
+ 
++#if defined(MSCHARGED_NATIVE)
++    static_assert(sizeof(wchar_t) == 2, "HBM shares the isolated Wii16 wide ABI");
++    wchar_t* message = static_cast<wchar_t*>(
++        mscharged::platform::PrepareNativeHBMMessage(mpHBInfo->msgBuf));
++#else
+     wchar_t* message = static_cast<wchar_t*>(mpHBInfo->msgBuf);
++#endif
+     for (; message[i]; i++)
+     {
+         if (message[i] == L'\"')
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/TextWriterBase.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/TextWriterBase.h
+@@ -10,6 +10,12 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <wchar.h>
++
++#if defined(MSCHARGED_NATIVE)
++static_assert(sizeof(wchar_t) == 2, "HBM text shares the isolated Wii16 ABI");
++extern "C" size_t ChargedWii_wcslen(const wchar_t*);
++extern "C" int ChargedWii_vswprintf(wchar_t*, size_t, const wchar_t*, va_list);
++#endif
+ 
+ #include "revolution/hbm/nw4hbm/ut/TagProcessorBase.h"
+ 
+@@ -95,11 +101,20 @@
+     static T* GetBuffer();
+ 
+     static int VSNPrintf(T* buffer, u32 count, const T* format, va_list arg) {
++#if defined(MSCHARGED_NATIVE)
++        return sizeof(T) == sizeof(char) ? vsnprintf((char*)buffer, count, (const char*)format, arg)
++                                         : ChargedWii_vswprintf((wchar_t*)buffer, count, (const wchar_t*)format, arg);
++#else
+         return sizeof(T) == sizeof(char) ? vsnprintf((char*)buffer, count, (const char*)format, arg)
+                                          : vswprintf((wchar_t*)buffer, count, (const wchar_t*)format, arg);
++#endif
+     }
+     static int StrLen(const T* str) {
++#if defined(MSCHARGED_NATIVE)
++        return sizeof(T) == sizeof(char) ? strlen((const char*)str) : ChargedWii_wcslen((const wchar_t*)str);
++#else
+         return sizeof(T) == sizeof(char) ? strlen((const char*)str) : wcslen((const wchar_t*)str);
++#endif
+     }
+ 
+     void ut_TextWriterBase_unused1(Rect* pRect, const T* str, int length);
+--- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_textBox.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_textBox.cpp
+@@ -8,7 +8,11 @@
+ #include "revolution/hbm/nw4hbm/lyt/pane.h"
+ #include "revolution/hbm/nw4hbm/lyt/textBox.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ 
+ namespace nw4hbm {
+ namespace lyt {
+@@ -433,7 +437,11 @@
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++u16 TextBox::SetString(const wchar_t* str, u16 dstIdx) { return SetString(str, dstIdx, ChargedWii_wcslen(str)); }
++#else
+ u16 TextBox::SetString(const wchar_t* str, u16 dstIdx) { return SetString(str, dstIdx, wcslen(str)); }
++#endif
+ 
+ u16 TextBox::SetString(const wchar_t* str, u16 dstIdx, u16 strLen) {
+     if (mTextBuf == NULL) {

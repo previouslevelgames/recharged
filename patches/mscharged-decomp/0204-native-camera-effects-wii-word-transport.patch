@@ -1,61 +1,18 @@
-Subject: Preserve copied Wii32 camera event words and compiler fabs type
+Subject: Preserve the original camera transition fabs expression on native hosts
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
-The original thwomp event producer copies one Wii32 word from source offset0;
-retail lwz/stw transfers it into the event's second field. The original camera
-handler compares that scalar word to3. Its native representation is a u32,
-not a host object pointer. Copy only the original four bytes from the already
-native source object, retaining source pointers, pool/queue/free operations,
-callbacks, field decisions and the entire handler body.
+Upstream now owns the Thwomp event as ThwompObject* plus eThwompState,
+produces it from thwomp->mState and consumes THWOMP_STATE_FALLING. Retire
+the superseded opaque pointer/copied-word adaptation and its helper include.
+Keep those original typed event declarations, producer, handlers and lifetime.
 
 Supply the MWCC __fabs operation with the explicit standard double overload,
 retaining the original float subtraction and float result. Keep the original
 expression on console; no camera transition, timing or behavior is changed.
 
-Whole source compiler and four-byte host ABI evidence do not establish genuine
-camera event dispatch, original camera runtime or complete game startup.
+This source-only refresh does not establish camera-event/runtime readiness.
 
-diff --git a/include/Game/EventDataTypes.h b/include/Game/EventDataTypes.h
---- a/include/Game/EventDataTypes.h
-+++ b/include/Game/EventDataTypes.h
-@@ -108,7 +108,11 @@
- struct CollisionThwompPlayerData
- {
-     /* 0x00 */ void* source;
-+#ifdef MSCHARGED_NATIVE
-+    /* Wii copied-word payload, not an object pointer. */ u32 sourceValue;
-+#else
-     /* 0x04 */ void* sourceValue;
-+#endif
-     /* 0x08 */ cCharacter* target;
- }; // total size: 0xC
- 
-diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEventQueue.cpp
---- a/src/Game/Physics/PhysicsEventQueue.cpp
-+++ b/src/Game/Physics/PhysicsEventQueue.cpp
-@@ -41,6 +41,9 @@
- #include "Game/UnidentifiedStaticStorage.h"
- #include "Game/Physics/PhysicsEventQueue.inl"
- #include "NL/nlFunction.inl"
-+#ifdef MSCHARGED_NATIVE
-+#include "platform/wii_word.h"
-+#endif
- 
- class PhysicsEventQueue
- {
-@@ -940,7 +943,11 @@
-     CollisionThwompPlayerData* data = 0;
-     g_CollisionThwompPlayerDataPool.Allocate(data);
-     data->source = source;
-+#ifdef MSCHARGED_NATIVE
-+    data->sourceValue = mscharged::platform::ReadNativeWord32(source);
-+#else
-     data->sourceValue = *(void**)source;
-+#endif
-     data->target = target;
-     gPhysicsEventQueue->mCollisionThwompPlayerEvent.Queue(
-         data,
 diff --git a/src/Game/Camera/tu_800F9460.cpp b/src/Game/Camera/tu_800F9460.cpp
 --- a/src/Game/Camera/tu_800F9460.cpp
 +++ b/src/Game/Camera/tu_800F9460.cpp

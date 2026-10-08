@@ -1,0 +1,154 @@
+Subject: Key native GL inventories by the Wii 32-bit handle value
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Classification: native ABI adaptation (integer width); no game decision changes.
+
+GLInventory keys its model/texture/animation/skin trees by unsigned long,
+which is 32 bits on the Wii and wider natively. All keys are 32-bit hash
+handles, but natively an int hash passed as a key sign-extends while a
+32-bit handle field zero-extends: AsyncImage adds its portrait texture as
+0xffffffff8bf3fb08 and later replaces it through the texture resource's
+0x8bf3fb08, so glx_GetTex returns null and glplatTextureReplace faults
+(Domination sidekick page). Key every tree by the low 32 bits in native
+builds; each console statement is unchanged.
+
+diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
+--- a/src/Game/GL/GLInventory.cpp
++++ b/src/Game/GL/GLInventory.cpp
+@@ -16,6 +16,17 @@
+ 
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++// Inventory keys are Wii 32-bit hash handles. Native unsigned long is wider:
++// an int hash passed as a key sign-extends while a 32-bit handle field
++// zero-extends. Key every tree by the low 32 bits, as the Wii's 32-bit
++// unsigned long does, so both name the same item.
++static inline unsigned long NativeInventoryKey(unsigned long key)
++{
++    return static_cast<unsigned int>(key);
++}
++#endif
++
+ GLResourceChunkLoader::GLResourceChunkLoader(
+     GLResourcePool* pResource, int textureBundleMode)
+ {
+@@ -200,7 +211,11 @@
+ void GLInventory::AddModel(
+     unsigned long key, glModel* model)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long k = NativeInventoryKey(key);
++#else
+     unsigned long k = key;
++#endif
+     glModel* value = model;
+     clearing_GLInventory<glModel>::Tree* pTree = m_pModels[m_nLevel]->m_pItems;
+     pTree->Add(k, value);
+@@ -210,7 +225,11 @@
+ {
+     for (int i = m_nLevel; i >= 0; i--)
+     {
++#if defined(MSCHARGED_NATIVE)
++        unsigned long key = NativeInventoryKey(id);
++#else
+         unsigned long key = id;
++#endif
+         glModel** pResult;
+         bool found = m_pModels[i]->m_pItems->FindGet(key, &pResult);
+         glModel* result;
+@@ -226,7 +245,11 @@
+ 
+ void GLInventory::AddTexture(unsigned long key, PlatTexture* texture)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long k = NativeInventoryKey(key);
++#else
+     unsigned long k = key;
++#endif
+     PlatTexture* value = texture;
+     clearing_GLInventory<PlatTexture>::Tree* pTree = m_pTextures[m_nLevel]->m_pItems;
+     pTree->Add(k, value);
+@@ -236,7 +259,11 @@
+ {
+     for (int i = m_nLevel; i >= 0; i--)
+     {
++#if defined(MSCHARGED_NATIVE)
++        unsigned long key = NativeInventoryKey(id);
++#else
+         unsigned long key = id;
++#endif
+         PlatTexture** pResult;
+         bool found = m_pTextures[i]->m_pItems->FindGet(key, &pResult);
+         PlatTexture* result;
+@@ -252,7 +279,11 @@
+ 
+ void GLInventory::AddTextureAnim(unsigned long key, GLTextureAnim* anim)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long k = NativeInventoryKey(key);
++#else
+     unsigned long k = key;
++#endif
+     GLTextureAnim* value = anim;
+     clearing_GLInventory<GLTextureAnim>::Tree* pTree = m_pTextureAnims[m_nLevel]->m_pItems;
+     pTree->Add(k, value);
+@@ -262,7 +293,11 @@
+ {
+     for (int i = m_nLevel; i >= 0; i--)
+     {
++#if defined(MSCHARGED_NATIVE)
++        unsigned long key = NativeInventoryKey(id);
++#else
+         unsigned long key = id;
++#endif
+         GLTextureAnim** foundValue;
+         bool found =
+             m_pTextureAnims[i]->m_pItems->FindGet(key, &foundValue);
+@@ -292,7 +327,11 @@
+ 
+ void GLInventory::AddVertexAnim(unsigned long key, GLVertexAnim* vertexAnim)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long k = NativeInventoryKey(key);
++#else
+     unsigned long k = key;
++#endif
+     GLVertexAnim* value = vertexAnim;
+     deleting_GLInventoryContainer<GLVertexAnim>::Tree* pTree =
+         m_pVertexAnims[m_nLevel]->m_pItems;
+@@ -303,7 +342,11 @@
+ {
+     for (int i = m_nLevel; i >= 0; i--)
+     {
++#if defined(MSCHARGED_NATIVE)
++        unsigned long key = NativeInventoryKey(id);
++#else
+         unsigned long key = id;
++#endif
+         GLVertexAnim** pResult;
+         bool found = m_pVertexAnims[i]->m_pItems->FindGet(key, &pResult);
+         GLVertexAnim* result;
+@@ -332,7 +375,11 @@
+ 
+ void GLInventory::AddSkinData(unsigned long key, nlChunk* skinData)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long key2 = NativeInventoryKey(key);
++#else
+     unsigned long key2 = key;
++#endif
+     nlChunk* skinData2 = skinData;
+     freeing_GLInventoryContainer<nlChunk>* pSkinData =
+         m_pSkinData[m_nLevel];
+@@ -351,7 +398,11 @@
+             int i;
+             for (i = self->m_nLevel; i >= 0; i--)
+             {
++#if defined(MSCHARGED_NATIVE)
++                unsigned long key = NativeInventoryKey(id);
++#else
+                 unsigned long key = id;
++#endif
+                 nlChunk** pResult;
+                 bool found =
+                     self->m_pSkinData[i]->m_pItems->FindGet(key, &pResult);

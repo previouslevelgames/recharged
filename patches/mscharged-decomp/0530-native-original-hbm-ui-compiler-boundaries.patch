@@ -1,6 +1,6 @@
 Subject: Preserve original HBM UI requests under native compiler and pointer widths
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Lower PPC fsel/fabs through their binary32 selection/sign contract and the
 existing canonical OS fast-cast header. Keep original byte offsets full-width,

@@ -1,6 +1,6 @@
 Subject: Use the standard memory/string header in native source
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 The CodeWarrior MSL mem.h dependency is not supplied by the host toolchain.
 Use string.h for its standard memory/string declarations. No MSL compatibility
@@ -40,8 +40,8 @@ diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
 -#include <mem.h>
 +#include <string.h>
  
- extern "C" float fn_8002E1B0(cFielder*);
  
+ static const nlVector3 v3Zero = { 0.0f, 0.0f, 0.0f };
 diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
 --- a/src/NL/nlString.cpp
 +++ b/src/NL/nlString.cpp

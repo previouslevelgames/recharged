@@ -309,7 +309,29 @@ void Run(int argc, char** argv) {
         }
         if(frame==2) {
             const auto saved=static_cast<s32*>(returned[0])[0];static_cast<s32*>(returned[0])[0]=1000000;
-            Throws([&]{PrepareNativeAXCommandFrame(memory,list_address,128,history,absent);},"unsupported compressor attack became silent output");
+            // The overflowing source AUX return makes the left main bus exceed the
+            // command threshold: firmware attack ramp0 scales both main buses and
+            // restarts the release counter. Staged only; never committed.
+            const auto loud=PrepareNativeAXCommandFrame(memory,list_address,128,history,absent);
+            Check(loud.after.compressor_counter==10 && history.compressor_counter==0,
+                  "source overflow did not start the original compressor release counter");
+            std::array<NativeAXChannel96,3> loud_main{};
+            for(unsigned aux_index=0;aux_index<3;++aux_index) {
+                const auto gain=NativeAXCommandGainRamp(prior[aux_index],requested_aux[aux_index]);
+                auto* source_return=static_cast<s32*>(returned[aux_index]);
+                for(unsigned ch=0;ch<3;++ch) {
+                    NativeAXChannel96 values{};std::copy(source_return+ch*96,source_return+(ch+1)*96,values.begin());
+                    loud_main[ch]=NativeAXMixAuxReturn(loud_main[ch],values,gain);
+                }
+            }
+            const auto* attack=static_cast<const u16*>(compressor().address);
+            for(unsigned ch=0;ch<2;++ch)for(unsigned i=0;i<96;++i)
+                loud_main[ch][i]=NativeAXCompressSample(loud_main[ch][i],attack[i]);
+            const auto loud_pcm=NativeAXPackStereo(loud_main[0],loud_main[1],NativeAXCommandGainRamp(history.master,requested_master));
+            const auto& pcm_write=loud.writes.back();
+            Check(pcm_write.after.size()==384,"compressed frame lost its final PCM output span");
+            for(unsigned i=0;i<192;++i)
+                Check(Signed(BE16(pcm_write.after.data()+i*2))==loud_pcm[i],"source attack PCM differs from the original ramp");
             Throws([&]{CommitNativeAXCommandFrame(memory,staged,history);},"old AUX snapshot overwrote newer source effect output");
             Check(std::equal(output_before.begin(),output_before.end(),static_cast<unsigned char*>(outputs[0].address)),"rejected AUX snapshot changed PCM");
             static_cast<s32*>(returned[0])[0]=saved;

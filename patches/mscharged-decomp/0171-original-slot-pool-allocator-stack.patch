@@ -1,5 +1,5 @@
 Subject: Restore original SlotPool allocator-stack callbacks
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Restore the exact original default allocator/free callback bodies for native
 source too. The callbacks select MEM2, push/pop the actual source stack and

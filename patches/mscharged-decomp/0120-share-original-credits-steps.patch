@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Share original Credits phase and scrolling steps
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 diff --git a/include/Game/FE/FrontendCreditsSteps.h b/include/Game/FE/FrontendCreditsSteps.h
 new file mode 100644

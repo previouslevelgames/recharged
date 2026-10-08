@@ -1,5 +1,6 @@
 include_guard(GLOBAL)
 include(cmake/OriginalNativeCompilerProfile.cmake)
+include(cmake/NativeHBMDebug.cmake)
 
 # Actual source statics and production pre-arena reservation, with and without
 # HBM's optional silence extent. No source sound initializer or worker executes.
@@ -14,6 +15,7 @@ function(mscharged_add_native_hbm_storage_tests)
         "${MSCHARGED_PREPARED}/src/NL/plat/nlMemory.cpp"
         "${MSCHARGED_PREPARED}/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp"
         tests/diagnostics/original_hbm_storage.cpp)
+    mscharged_select_original_hbm_debug(original_hbm_storage_objects)
     foreach(_name IN ITEMS AX AXAlloc AXAux AXCL AXComp AXSPB AXVPB AXProf AXOut DSPCode)
         target_sources(original_hbm_storage_objects PRIVATE
             "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/${_name}.c")
@@ -53,6 +55,8 @@ function(mscharged_add_native_hbm_storage_tests)
     add_executable(native_hbm_storage_tests tests/native_hbm_storage.cpp)
     add_dependencies(native_hbm_storage_tests original_hbm_storage_13 original_hbm_storage_14)
     target_compile_features(native_hbm_storage_tests PRIVATE cxx_std_20)
+    mscharged_link_original_hbm_debug_host(native_hbm_storage_tests CPU_FIXTURE)
+    target_compile_definitions(native_hbm_storage_tests PRIVATE HBM_ASSERT=1)
     target_link_libraries(native_hbm_storage_tests PRIVATE charged_native_ax_module_memory
         charged_native_interrupts aurora::os "${CMAKE_DL_LIBS}")
     target_link_options(native_hbm_storage_tests PRIVATE "LINKER:--export-dynamic")

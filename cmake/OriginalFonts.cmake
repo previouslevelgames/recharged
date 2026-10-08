@@ -134,6 +134,7 @@ if(BUILD_TESTING AND TARGET aurora::gx
         "${MSCHARGED_PREPARED}/src/Game/FE/BaseSceneHandler.cpp"
         "${MSCHARGED_PREPARED}/src/Game/Task/FrontEndTask.cpp"
         "${MSCHARGED_PREPARED}/src/Game/Team.cpp"
+        "${MSCHARGED_PREPARED}/src/Game/AI/StatsGatherer.cpp"
         "${MSCHARGED_PREPARED}/src/Game/FE/feSceneResource.cpp"
         "${MSCHARGED_PREPARED}/src/Game/FE/feTextureResource.cpp"
         src/platform/tweak_storage.cpp)

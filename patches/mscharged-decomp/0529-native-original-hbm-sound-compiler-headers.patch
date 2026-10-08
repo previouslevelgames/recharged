@@ -1,5 +1,5 @@
 # Native-only precise HBM sound includes, modern pure destructor syntax, and pointer-rounding ABI.
-# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 # Prerequisite source523; composed compiler proof also uses frozen524/527/528/530/531/533.
 
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h

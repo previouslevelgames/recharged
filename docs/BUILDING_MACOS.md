@@ -16,7 +16,7 @@ Install [Homebrew](https://docs.brew.sh/Installation), follow its shell setup,
 then install the remaining tools:
 
 ```sh
-brew install cmake ninja python rust tcl-tk
+brew install cmake ninja python rust tcl-tk clang-format
 export PATH="$(brew --prefix tcl-tk)/bin:$PATH"
 ```
 

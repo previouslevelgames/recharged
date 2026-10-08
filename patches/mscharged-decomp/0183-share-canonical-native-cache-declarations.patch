@@ -1,5 +1,5 @@
 Subject: [PATCH] Share canonical native cache declarations
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Permanent hardware/compiler ABI adaptation: the native C declarations come
 from Aurora's canonical cache API with Wii-width byte counts. Const source

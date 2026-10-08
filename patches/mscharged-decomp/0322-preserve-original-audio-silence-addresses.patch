@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original silence buffer hardware words
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Replace only native pointer submissions with the existing checked cached Wii
 word for the actual 0x500-byte source allocation, then keep original u32 times-two

@@ -1,6 +1,6 @@
 Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Matrix handles address live GL matrix storage. Preserve their width through
 allocation, global state, model packets, draw/text callers, render caches and
@@ -205,11 +205,11 @@ diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
 diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
 --- a/include/NL/glx/glxMemory.h
 +++ b/include/NL/glx/glxMemory.h
-@@ -2,10 +2,12 @@
+@@ -2,11 +2,12 @@
  #define NL_GLX_GLXMEMORY_H
  
  #include "NL/nlMath.h"
-+#include "NL/gl/glMatrixHandle.h"
+ #include "NL/glx/glxModel.h"
  #if defined(MSCHARGED_NATIVE)
  #include <stdint.h>
  typedef uintptr_t GLResourceMark;
@@ -218,17 +218,6 @@ diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
  #else
  typedef unsigned long GLResourceMark;
  #endif
-@@ -21,8 +23,8 @@
-     GLM_Num = 6,
- };
- 
--void glplatSetMatrix(unsigned long matrix, const nlMatrix4& m);
--void glplatGetMatrix(unsigned long matrix, nlMatrix4& m);
-+void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m);
-+void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m);
- bool glxInitMemory(
-     unsigned long frameMemSize1, unsigned long frameMemSize2);
- void glplatFrameAllocNextFrame();
 diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
 --- a/include/NL/nlFont.h
 +++ b/include/NL/nlFont.h
@@ -532,8 +521,8 @@ diff --git a/src/NL/gl/glModel.cpp b/src/NL/gl/glModel.cpp
 --- a/src/NL/gl/glModel.cpp
 +++ b/src/NL/gl/glModel.cpp
 @@ -12,57 +12,7 @@
-     /* 0x08 */ u32 size;
- }; // size: 0xC
+ 
+ #include <string.h>
  
 -void glModelSetMatrix(glModel* model, const nlMatrix4& value)
 -{
@@ -939,3 +928,22 @@ diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
          {
              FontCharString fontCharStr;
              fontCharStr.m_pString = (unsigned short*)pString;
+diff --git a/include/NL/glx/glxModel.h b/include/NL/glx/glxModel.h
+--- a/include/NL/glx/glxModel.h
++++ b/include/NL/glx/glxModel.h
+@@ -1,11 +1,13 @@
+ #ifndef NL_GLX_GLXMODEL_H
+ #define NL_GLX_GLXMODEL_H
++
++#include "NL/gl/glMatrixHandle.h"
+ 
+ class nlMatrix4;
+ struct glModelPacket;
+ 
+-void glplatSetMatrix(unsigned long matrix, const nlMatrix4& m);
+-void glplatGetMatrix(unsigned long matrix, nlMatrix4& m);
++void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m);
++void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m);
+ void glplatFinalizePacket(glModelPacket* packet, bool permanent, void* allocator);
+ 
+ // Platform hook applied after a packet and its material data have been cloned.

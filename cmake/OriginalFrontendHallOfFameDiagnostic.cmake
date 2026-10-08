@@ -1,9 +1,9 @@
 include_guard(GLOBAL)
 
-# Temporary admission of the original Cup room requested by the authored
+# Temporary admission of the original Cup and progress pages requested by the authored
 # MainMenu transition. Save/preload/camera/slide/input decisions stay in source.
 option(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME
-    "Admit the original Hall of Fame Cup rooms after the authored MainMenu transition" OFF)
+    "Admit original Hall of Fame Cup and progress pages after the authored MainMenu transition" OFF)
 
 function(mscharged_select_original_frontend_hall_of_fame target)
     if(NOT MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME)
@@ -31,8 +31,14 @@ function(mscharged_select_original_frontend_hall_of_fame target)
             BASE_DIR "${_hof_source_dir}")
         list(APPEND _hof_absolute "${_absolute}")
     endforeach()
-    set(_hof_source "${MSCHARGED_PREPARED}/src/Game/SH/SHHallOfFameRoom.cpp")
-    if(NOT _hof_source IN_LIST _hof_absolute)
-        target_sources("${target}" PRIVATE "${_hof_source}")
-    endif()
+    foreach(_relative IN ITEMS
+            src/Game/SH/SHHallOfFameRoom.cpp
+            src/Game/SH/SHHallOfFameSummary.cpp
+            src/Game/FE/feScrollBar.cpp)
+        set(_hof_source "${MSCHARGED_PREPARED}/${_relative}")
+        if(NOT _hof_source IN_LIST _hof_absolute)
+            target_sources("${target}" PRIVATE "${_hof_source}")
+            list(APPEND _hof_absolute "${_hof_source}")
+        endif()
+    endforeach()
 endfunction()

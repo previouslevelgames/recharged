@@ -12,6 +12,8 @@ include(cmake/OriginalModuleLinkage.cmake)
 include(cmake/OriginalFrontendResetDiagnostic.cmake)
 include(cmake/OriginalFunctionPools.cmake)
 include(cmake/WiiStringFormat.cmake)
+include(cmake/OriginalHBMWii16.cmake)
+include(cmake/NativeHBMDebug.cmake)
 include(cmake/NativeSystemSettings.cmake)
 include(cmake/NativeSTM.cmake)
 include(cmake/NativeVideo.cmake)
@@ -30,6 +32,8 @@ if(BUILD_TESTING)
     include(cmake/NativeHBMArithmetic.cmake)
     include(cmake/NativeHBMStorage.cmake)
     mscharged_add_native_hbm_storage_tests()
+    include(cmake/NativeHBMText.cmake)
+    include(cmake/OriginalHBMSoundArchive.cmake)
 endif()
 
 add_library(mscharged_original_main_credits_module MODULE
@@ -174,6 +178,7 @@ add_library(mscharged_original_main_credits_module MODULE
     "${MSCHARGED_PREPARED}/src/Game/FE/BaseSceneHandler.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Task/FrontEndTask.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Team.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/AI/StatsGatherer.cpp"
     "${MSCHARGED_PREPARED}/src/Game/FE/feSceneResource.cpp"
     "${MSCHARGED_PREPARED}/src/Game/FE/feTextureResource.cpp"
     "${MSCHARGED_PREPARED}/src/NL/nlTask.cpp"
@@ -235,6 +240,7 @@ else()
     target_link_options(mscharged_original_main_credits_module PRIVATE
         -Wl,-Bsymbolic-functions -Wl,--gc-sections)
 endif()
+mscharged_select_original_hbm_debug(mscharged_original_main_credits_module)
 mscharged_set_original_module_exports(mscharged_original_main_credits_module
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map")
 
@@ -320,6 +326,7 @@ target_link_libraries(charged_original_main_credits_host PRIVATE
     charged_native_ipc_boot_buffer charged_original_rtc Threads::Threads ${CMAKE_DL_LIBS})
 
 function(mscharged_link_original_main_credits target)
+    mscharged_link_original_hbm_debug_host("${target}")
     add_dependencies(${target} mscharged_original_main_credits_module)
     target_link_libraries(${target} PRIVATE charged_original_main_credits_host
         mscharged_original_main_credits_vi aurora::core)
@@ -348,6 +355,8 @@ function(mscharged_link_original_main_credits target)
     foreach(symbol __OSInitSram __OSSyncSram __OSGetRTCFlags __OSClearRTCFlags)
         mscharged_require_original_host_symbol(${target} PRIVATE "${symbol}")
     endforeach()
+    # Original nlPrint in the module formats Wii16 strings through the host.
+    mscharged_require_original_host_symbol(${target} PRIVATE mscharged_format_wii16)
     set_property(TARGET ${target} PROPERTY LINK_LIBRARY_OVERRIDE
         "WHOLE_ARCHIVE,aurora_gx,aurora_mtx,aurora_os")
 endfunction()

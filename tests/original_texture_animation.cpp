@@ -1,3 +1,4 @@
+#include "Game/GL/GLInventory.h"
 #include "Game/GL/GLTextureAnim.h"
 #include "NL/gl/glModel.h"
 #include "NL/gl/glTexture.h"
@@ -146,6 +147,39 @@ void Record(const char* bytes_path, const char* oracle_path)
     Check(StandardAllocator.TotalFreeMemory() == free,
         "fixture game allocations did not return to their owning arena");
 }
+// Charged0542: inventory keys are Wii 32-bit hash handles. A key added from a
+// signed int (native unsigned long sign-extends, e.g. AsyncImage portraits) and
+// looked up through a 32-bit handle (zero-extends) must name the same entry.
+// Explicit fixture state: only the two model levels used here are constructed,
+// so original Create/Delete and their GX texture release stay out of this link.
+void Inventory()
+{
+    const auto free = StandardAllocator.TotalFreeMemory();
+    alignas(GLInventory) std::array<std::byte, sizeof(GLInventory)> storage{};
+    auto* inventory = new (storage.data()) GLInventory; // original destructor never runs
+    for (int level = 0; level < 2; ++level)
+        inventory->m_pModels[level] = new (8, false) clearing_GLInventory<glModel>();
+    std::array<glModel, 3> models{};
+    const int portrait = int(0x8BF3FB08u);
+    inventory->AddModel(portrait, &models[0]);
+    inventory->AddModel(0x0BF3FB08u, &models[1]);
+    Check(inventory->GetModel(0x8BF3FB08u) == &models[0],
+        "sign-extended inventory key missed its 32-bit handle lookup");
+    Check(inventory->GetModel(static_cast<unsigned long>(portrait)) == &models[0],
+        "sign-extended inventory key missed its own lookup");
+    Check(inventory->GetModel(0x0BF3FB08u) == &models[1], "distinct 32-bit key aliased the portrait");
+    Check(inventory->GetModel(0x8BF3FB09u) == nullptr, "absent 32-bit key was found");
+    inventory->ResourceMark();
+    inventory->AddModel(0xFFFFFFFFu, &models[2]);
+    Check(inventory->GetModel(static_cast<unsigned long>(-1)) == &models[2],
+        "marked level lost the all-ones Wii handle");
+    Check(inventory->GetModel(static_cast<unsigned long>(portrait)) == &models[0],
+        "original lower-level lookup changed");
+    for (int level = 0; level < 2; ++level)
+        nlDeleteGameObject(inventory->m_pModels[level]);
+    Check(StandardAllocator.TotalFreeMemory() == free,
+        "inventory fixture allocations did not return to their owning arena");
+}
 void Queue()
 {
     u16 words[5] = {90,91,92,93,94};
@@ -167,6 +201,7 @@ int main(int argc, char** argv)
         VirtualAllocator.Initialize(virtual_memory.data(), virtual_memory.size()*sizeof(virtual_memory[0]));
         gMemoryInitialized = 1;
         Queue();
+        Inventory();
         Record(argv[1], argv[2]);
         std::cout << "original texture transport/queue/manager/update checks=" << checks << '\n';
         return 0;

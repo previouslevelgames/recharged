@@ -40,11 +40,33 @@ See [disc setup](docs/BUILDING.md#configure-your-disc).
 
 ## Porting approach
 
-The build exports the pinned decomp's complete `include/`, `libs/`, and `src/`
-trees, then applies reviewed compiler and platform compatibility patches.
-Original game code controls the game flow from `main(...)`; native adapters
-replace Wii hardware services while preserving retail behavior. Dependencies
-stay in clean, pinned submodules and advance through reviewed updates.
+Original source plus reviewed patches becomes the compiled game:
+
+1. **Pin.** The decomp and every dependency stay clean submodules at reviewed
+   commits; upstream changes enter only through explicit updates.
+2. **Patch.** The build exports the decomp's complete `include/`, `libs/`, and
+   `src/` trees and applies the ordered [patch series](patches/README.md):
+   compiler compatibility, native replacements for Wii hardware and platform
+   services, and data/ABI adaptation.
+3. **Format.** clang-format 16+ gives the patched tree one readable layout
+   ([definition](tools/formatting/prepared-sources.clang-format)). It changes
+   whitespace only and is verified token by token; files whose program depends
+   on their layout (`__LINE__`, stringified macro arguments) stay as patched.
+4. **Compile.** Original game code controls the game flow from `main(...)`;
+   native adapters replace Wii hardware services while preserving retail behavior.
+
+Steps 1–3 run during CMake configuration. To produce the source without
+configuring or building:
+
+```sh
+git submodule update --init extern/mscharged-decomp
+python3 tools/prepare_sources.py --build-dir build/release
+```
+
+This writes `build/release/prepared/mscharged-decomp/patched/` (pinned decomp
+plus patches, byte-exact; patches are developed here) and `source/` (the
+formatted tree that is compiled). A later `cmake --preset release` reuses it.
+Without clang-format, `source/` is an unformatted copy.
 
 See the short [port strategy](docs/PORTING.md), [patch workflow](patches/README.md),
 and [contributing guide](CONTRIBUTING.md).

@@ -1,7 +1,9 @@
 #include "platform/ax_adpcm_samples.h"
 #include <revolution/thp/THPAdpcmStep.h>
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 namespace mscharged::platform {
 namespace {
@@ -11,7 +13,7 @@ std::int16_t SignedHalf(const unsigned char* p) {
     const auto bits=Half(p);std::int16_t value;std::memcpy(&value,&bits,sizeof(value));return value;
 }
 unsigned char Byte(NativeDSPMemoryEndpoint endpoint,std::uint32_t address) {
-    unsigned char result{};DSPBackendReadMemory(endpoint,address,&result,1);return result;
+    return DSPBackendReadSampleByte(endpoint,address);
 }
 std::int16_t DecodeSample(unsigned char nibble,const NativeAXADPCMState& state) {
     const auto predictor=(state.predictor_scale>>4)&7;
@@ -29,13 +31,23 @@ std::int16_t DecodeSample(unsigned char nibble,const NativeAXADPCMState& state) 
     const auto pcm=accumulator>=0?accumulator/65536:-((-accumulator+65535)/65536);
     return static_cast<std::int16_t>(pcm);
 }
+std::string Hex(std::uint32_t value) {
+    char text[11];std::snprintf(text,sizeof(text),"0x%08x",value);return text;
+}
 void Geometry(const NativeAXADPCMState& state) {
     if(state.current_nibble&0x40000000u || state.end_nibble&0xc0000000u || state.loop_nibble&0xc0000000u)
         throw std::invalid_argument("AX ADPCM nibble address uses an unqualified hardware address domain");
     if((state.end_nibble&15)<2)
         throw std::logic_error("AX ADPCM special header-nibble end-address behavior is not implemented");
-    if((state.current_nibble&15)<2 || (state.loop_nibble&15)<2 || state.current_nibble>state.end_nibble || state.loop_nibble>state.end_nibble)
-        throw std::logic_error("AX ADPCM raw decoding requires the original ordinary payload/end domain");
+    // Firmware0F61..0F71: the end exception of a voice whose loopFlag is not1
+    // stops it and points AR2 at the zero cell. Its loop address (often a
+    // silence buffer at a frame header) is never decoded; the accelerator's
+    // wrapped address is only written back as the final current address.
+    if((state.current_nibble&15)<2 || state.current_nibble>state.end_nibble ||
+       (state.loop_flag && ((state.loop_nibble&15)<2 || state.loop_nibble>state.end_nibble)))
+        throw std::logic_error("AX ADPCM raw decoding requires the original ordinary payload/end domain (current=" +
+                               Hex(state.current_nibble) + " loop=" + Hex(state.loop_nibble) + " end=" +
+                               Hex(state.end_nibble) + " loopFlag=" + std::to_string(state.loop_flag) + ")");
     if(state.loop_flag>1 || state.voice_type>1)
         throw std::logic_error("AX ADPCM loop/type descriptor is outside the qualified source domain");
 }
@@ -68,6 +80,8 @@ NativeAXRawADPCMBlock DecodeNativeAXRawADPCM(NativeDSPMemoryEndpoint endpoint,
     auto& state=result.next;
     if(!state.running)return result;
     Geometry(state);state.predictor_scale&=0x7f;state.loop_predictor_scale&=0x7f;
+    const auto initial=state;
+    try {
     while(result.samples_decoded<limit && state.running) {
         const auto at=state.current_nibble;
         const auto packed=Byte(endpoint,at/2);
@@ -78,8 +92,9 @@ NativeAXRawADPCMBlock DecodeNativeAXRawADPCM(NativeDSPMemoryEndpoint endpoint,
         const bool ended=at==state.end_nibble;
         ++state.current_nibble;
         // Header prefetch is a real accelerator boundary, including a payload
-        // end at nibble15. It must retain genuine pin/bounds failures; no guessed
-        // padded byte or substituted predictor is supplied by the native host.
+        // end at nibble15: the next frame's header is read before the end
+        // check, past the allocation if the sample ends there. A looping voice
+        // then takes its loop pred/scale; a one-shot voice writes it back.
         if((state.current_nibble&15)==0) {
             state.predictor_scale=Byte(endpoint,state.current_nibble/2)&0x7f;
             state.current_nibble+=2;
@@ -94,6 +109,12 @@ NativeAXRawADPCMBlock DecodeNativeAXRawADPCM(NativeDSPMemoryEndpoint endpoint,
                 ++result.loops;
             } else state.running=false;
         }
+    }
+    } catch(const std::out_of_range& error) {
+        throw std::out_of_range(std::string(error.what())+" during ADPCM decode at nibble "+Hex(state.current_nibble)+
+                                " (voice current="+Hex(initial.current_nibble)+" loop="+Hex(initial.loop_nibble)+
+                                " end="+Hex(initial.end_nibble)+" loopFlag="+std::to_string(initial.loop_flag)+
+                                " type="+std::to_string(initial.voice_type)+")");
     }
     return result;
 }

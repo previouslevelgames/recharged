@@ -14,7 +14,7 @@ include(cmake/OriginalNAND.cmake)
 
 add_library(original_flash_source_fixture MODULE
     "${MSCHARGED_PREPARED}/src/NL/plat/nlFlash.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/Team.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/AI/StatsGatherer.cpp"
     "${MSCHARGED_PREPARED}/src/NL/nlMemory.cpp"
     "${MSCHARGED_PREPARED}/src/NL/plat/nlMemory.cpp"
     "${MSCHARGED_PREPARED}/src/NL/MemAlloc.cpp"
@@ -44,8 +44,8 @@ else()
     target_compile_options(original_flash_source_fixture PRIVATE
         -fno-assume-sane-operator-new -Wno-register)
 endif()
-# One SDK remains in the host. Collection retains the real Team.cpp task-base
-# method without extracting it or introducing its unrelated game providers.
+# One SDK remains in the host. Retain the original task-base method in its
+# upstream StatsGatherer.cpp owner, without extracting or replacing its body.
 target_link_options(original_flash_source_fixture PRIVATE
     -Wl,--gc-sections -Wl,-Bsymbolic -Wl,--exclude-libs,ALL)
 

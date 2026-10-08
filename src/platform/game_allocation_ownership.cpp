@@ -364,6 +364,7 @@ struct PendingBytes
     PendingWrites::node_type active;
     ByteSpan prior_origin{};
     bool has_prior_origin;
+    bool preserve_origin = false;
     std::uintptr_t graphics_base = 0;
     std::uint64_t graphics_incarnation = 0;
     std::uintptr_t memory_base = 0;
@@ -702,6 +703,28 @@ GameByteWriteReservation::GameByteWriteReservation(void* destination, std::size_
         ChargedNativeMetadataRelease(storage); throw;
     }
 }
+namespace
+{
+void* RequireCompleteSerializedProducer(void* destination, std::size_t bytes)
+{
+    GameCompletedSpan span{};
+    if (!bytes || !FindGameCompletedSpan(destination, bytes, span) || span.base != destination
+        || span.bytes != bytes || FindGameByteDomain(destination, bytes) != GameByteDomain::WiiSerialized)
+        throw std::invalid_argument("In-place rewrite must cover one complete serialized producer extent");
+    return destination;
+}
+}
+GameByteWriteReservation::GameByteWriteReservation(void* destination, std::size_t logicalBytes,
+                                                 GameByteInPlaceRewrite)
+    : GameByteWriteReservation(RequireCompleteSerializedProducer(destination, logicalBytes), logicalBytes)
+{
+    auto& token = *static_cast<PendingBytes*>(pending_);
+    const auto address = reinterpret_cast<std::uintptr_t>(destination);
+    if (!token.has_prior_origin || token.prior_origin.logical_base != address
+        || token.prior_origin.logical_bytes != logicalBytes)
+        throw std::logic_error("In-place rewrite lost its validated serialized producer");
+    token.preserve_origin = true;
+}
 GameByteWriteReservation::~GameByteWriteReservation() { Reset(); }
 GameByteWriteReservation::GameByteWriteReservation(GameByteWriteReservation&& other) noexcept
     : pending_(std::exchange(other.pending_, nullptr)) {}
@@ -759,7 +782,7 @@ void GameByteWriteReservation::Complete(GameByteDomain domain)
     }
     auto& complete = token.completed.mapped();
     complete.domain = domain;
-    if (domain != GameByteDomain::WiiSerialized && token.has_prior_origin)
+    if ((domain != GameByteDomain::WiiSerialized || token.preserve_origin) && token.has_prior_origin)
     {
         complete.logical_base = token.prior_origin.logical_base;
         complete.logical_bytes = token.prior_origin.logical_bytes;

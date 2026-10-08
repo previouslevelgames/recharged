@@ -1,3 +1,5 @@
+#include "dvd_fixture_medium.h"
+#include <atomic>
 #include "runtime/audio_bank_load.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -54,10 +56,12 @@ void ReachWave(AudioBankLoad& load)
 }
 struct Overlay
 {
-    static void* Open(void* p) { return p; }
-    static void Close(void*) {}
+    std::atomic<unsigned> handles{0};
+    std::atomic<bool> entered{false};
+    static void* Open(void* p) { ++static_cast<Overlay*>(p)->handles; return p; }
+    static void Close(void* p) { --static_cast<Overlay*>(p)->handles; }
     static std::int64_t Seek(void*, std::int64_t at, std::int32_t) { return at; }
-    static std::int64_t Read(void*, std::uint8_t*, std::size_t) { return -1; }
+    static std::int64_t Read(void* p, std::uint8_t*, std::size_t) { static_cast<Overlay*>(p)->entered=true; return -1; }
     Overlay(const char* path, std::uint64_t size)
     {
         const AuroraOverlayCallbacks callbacks{Open, Close, Read, Seek};
@@ -130,6 +134,8 @@ void Lifecycle()
         Pump(load, external, true);
         Check(load.State() == AudioBankLoadState::Failed, "Failed audio read became ready");
         Reject([&] { load.Result(); });
+        Check(bad_read.entered && !bad_read.handles, "Audio-bank fault did not perform real I/O and retire its file");
+        mscharged::test::FinishDVDTestFaultCase(true);
     }
     for (const auto& [path, size] : std::initializer_list<std::pair<const char*, std::uint64_t>>{
         {"/audio/fixture.resbun", 0}, {"/audio/fixture.nlxwb", 0},
@@ -202,6 +208,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot mount audio bank disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         resources::AudioBankCatalog::Handle catalog = Catalog();
         unsigned name = 0, slot = 0;
         if (mode == "owned")

@@ -2,6 +2,7 @@
 #include "platform/dsp_memory_abi.h"
 #include <dolphin/os.h>
 #include <dolphin/os/OSNativeMemory.h>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -64,8 +65,13 @@ const Span& Find(const AddressSpace& state,std::uint32_t address,std::size_t byt
     if (it==state.spans.begin()) throw std::out_of_range("DSP address has no live pinned source backing");
     --it;
     const auto offset=static_cast<std::uint64_t>(address)-it->first;
-    if (offset>=it->second.bytes || bytes>it->second.bytes-offset)
-        throw std::out_of_range("DSP transfer exceeds its live pinned source extent");
+    if (offset>=it->second.bytes || bytes>it->second.bytes-offset) {
+        char detail[160];
+        std::snprintf(detail,sizeof(detail),
+                      "DSP transfer exceeds its live pinned source extent (address=0x%08x bytes=%zu span=0x%08x+0x%x)",
+                      address,bytes,it->first,it->second.bytes);
+        throw std::out_of_range(detail);
+    }
     if (writing && !it->second.writable)
         throw std::invalid_argument("DSP transfer writes read-only pinned source backing");
     return it->second;
@@ -208,8 +214,8 @@ void DSPBackendValidateMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t add
     auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
     NativePointer(state,address,bytes,writing);
 }
-void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,void* destination,std::size_t bytes) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+namespace {
+void ReadLocked(const AddressSpace& state,std::uint32_t address,void* destination,std::size_t bytes) {
     if (!destination && bytes) throw std::invalid_argument("DSP read destination is null");
     auto* source=NativePointer(state,address,bytes,false);
     const auto& span=Find(state,address,bytes,false);
@@ -222,6 +228,31 @@ void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address
         auto* output=static_cast<unsigned char*>(destination);
         for (std::size_t i=0;i<bytes;++i) output[i]=base[NativeByteOffset(span.encoding,offset+i)];
     }
+}
+}
+void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,void* destination,std::size_t bytes) {
+    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    ReadLocked(state,address,destination,bytes);
+}
+unsigned char DSPBackendReadSampleByte(NativeDSPMemoryEndpoint endpoint,std::uint32_t address) {
+    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    auto it=state.spans.upper_bound(address);
+    if (it!=state.spans.begin()) {
+        --it;
+        const auto offset=static_cast<std::uint64_t>(address)-it->first;
+        if (offset<it->second.bytes) {
+            unsigned char value{};ReadLocked(state,address,&value,1);return value;
+        }
+        // The accelerator reads whatever physical memory follows a sample
+        // allocation when a retail end address overruns it (one ADPCM frame at
+        // most). Such bytes are not pinned; read the actual SDK backing there.
+        if (it->second.encoding==NativeDSPMemoryEncoding::RawBytes &&
+            offset-it->second.bytes<NativeDSPSampleOverrunBytes)
+            return *static_cast<const volatile unsigned char*>(OSPhysicalToCached(address));
+    }
+    char detail[160];
+    std::snprintf(detail,sizeof(detail),"DSP sample read is outside its pinned allocation and overrun (address=0x%08x)",address);
+    throw std::out_of_range(detail);
 }
 void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,const void* source,std::size_t bytes) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);

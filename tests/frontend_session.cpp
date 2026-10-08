@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/frontend_session.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -172,6 +173,8 @@ void Failures()
     {
         FaultFile fault(mode);owner->Begin(Request());Pump(*owner,false,true);
         Check(owner->State()==FrontendSessionState::Failed&&owner->Current()==previous&&fault.finished&&!fault.handles,"Short/error FEN read leaked or changed current");Reject([&]{owner->Result();});
+        Check(fault.entered,"Independent scene fault never entered its actual provider");
+        mscharged::test::FinishDVDTestFaultCase(mode==FaultFile::Error);
     }
     {FaultFile fault(FaultFile::Error,"/art/fe/session.fen",MaximumAssetBytes+1);Reject([&]{owner->Begin(Request());});Check(!fault.entered&&owner->Current()==previous,"Oversized FEN submitted work");}
     for(unsigned operation=0;operation<3;++operation)
@@ -232,6 +235,7 @@ int main(int argc,char** argv)
         config.windowPosX=config.windowPosY=-1;config.logLevel=LOG_WARNING;config.mem1Size=MEM1_DEFAULT_SIZE;config.mem2Size=64*1024*1024;
         Host host;const auto state=aurora_initialize(argc,argv,&config);host.live=true;Check(state.window,"Aurora initialization failed");
         InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Cannot open scene-session disc");host.disc=true;nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         FrontendSession::Handle retained;
         for(unsigned repeat=0;repeat<3;++repeat)
         {

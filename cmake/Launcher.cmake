@@ -24,7 +24,7 @@ else()
 
 endif()
 
-add_executable(mscharged src/launcher/main.cpp)
+add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui mscharged_build_info)
 add_custom_command(TARGET mscharged POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/launcher"
@@ -49,4 +49,7 @@ if(BUILD_TESTING)
         COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
     set_tests_properties(launcher_smoke PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 30)
+    add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
+    target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_test(NAME launcher_ui_metrics COMMAND launcher_ui_metrics_tests)
 endif()

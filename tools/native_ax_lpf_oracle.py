@@ -3,11 +3,18 @@
 
 The oracle executes the owned firmware words and parallel operand transfers.
 It does not use the native filter recurrence, supply ROM, or initialize AX.
-Instruction definitions: Duddie's primary GameCube DSP hardware manual.
+Instruction definitions: Duddie's primary GameCube DSP hardware manual. Both
+original callers enter06AB with SET15 live (firmware0356, never cleared before
+0375/03C0), so multiplier AXx.L operands are unsigned and AXx.H operands signed,
+as in native_ax_voice_oracle.Selected.
 """
 from pathlib import Path
 import argparse, hashlib, json, re, struct
 from native_ax_voice_oracle import signed, sat16, MASK, mix
+
+def operand(value,high):
+    # SET15 at entry: low multiplier halves unsigned, high halves signed.
+    return signed(value,16) if high else value
 
 class SelectedLPF:
     def __init__(self,words,pcm,history,a0,b0):
@@ -50,15 +57,15 @@ class SelectedLPF:
             elif w&0xff80==0x1b00:
                 ar=(w>>5)&3;self.mem[self.r[ar]]=old[w&31];self.advance(ar,1)
             elif w&0xf700==0x8000:pass # NX parallel-only
-            elif w&0xe000==0xa000: # signed fractional MULX/MULXMV
+            elif w&0xe000==0xa000: # SET15/M2 fractional MULX/MULXMV
                 s=(w>>12)&1;t=(w>>11)&1;k=(w>>8)&1;op=(w>>9)&3
                 prior=self.product
-                self.product=(signed(old[24+s*2],16)*signed(old[25+t*2],16)*2)&MASK
+                self.product=(operand(old[24+s*2],s)*operand(old[25+t*2],t)*2)&MASK
                 if op==3:self.a[k]=prior
                 elif op:raise AssertionError('unqualified multiply')
-            elif w&0xfc00==0xe000: # signed fractional MADDX
+            elif w&0xfc00==0xe000: # SET15/M2 fractional MADDX
                 s=(w>>9)&1;t=(w>>8)&1
-                self.product=(self.product+signed(old[24+s*2],16)*signed(old[25+t*2],16)*2)&MASK
+                self.product=(self.product+operand(old[24+s*2],s)*operand(old[25+t*2],t)*2)&MASK
             elif w&0xfe00==0x6e00:self.a[(w>>8)&1]=self.product
             elif w&0xff00==0x1100:
                 self.loops.append([pc+2,self.words[pc+1],w&255]);after+=1

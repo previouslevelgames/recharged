@@ -1,3 +1,5 @@
+#include "dvd_fixture_medium.h"
+#include <atomic>
 #include "runtime/frontend_visuals.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -95,11 +97,13 @@ void Cancel()
 struct ReadFailure
 {
     bool short_read;
-    static void* Open(void* context) { return context; }
-    static void Close(void*) {}
+    std::atomic<unsigned> handles{0};
+    std::atomic<bool> entered{false};
+    static void* Open(void* context) { ++static_cast<ReadFailure*>(context)->handles; return context; }
+    static void Close(void* context) { --static_cast<ReadFailure*>(context)->handles; }
     static std::int64_t Seek(void*, std::int64_t offset, std::int32_t) { return offset; }
     static std::int64_t Read(void* context, std::uint8_t*, std::size_t)
-    { return static_cast<ReadFailure*>(context)->short_read ? 0 : -1; }
+    { auto& self=*static_cast<ReadFailure*>(context); self.entered=true; return self.short_read ? 0 : -1; }
     explicit ReadFailure(bool short_read) : short_read(short_read)
     {
         const AuroraOverlayCallbacks callbacks{Open, Close, Read, Seek}; aurora_dvd_overlay_callbacks(&callbacks);
@@ -115,6 +119,8 @@ void FailReads()
         ReadFailure failure(short_read); FrontendVisualLoad load(FrontendLanguage::English);
         Pump(load, short_read, true); Reject([&] { load.Result(); });
         Check((load.CompletedMask() & 4) == 0, "Failed font read published its completion bit");
+        Check(failure.entered && !failure.handles, "Visual fault did not perform real I/O and retire its file");
+        mscharged::test::FinishDVDTestFaultCase(!short_read);
     }
     std::vector<void*> blocks;
     for (unsigned size = 1024 * 1024; size >= 32; size /= 2)
@@ -148,6 +154,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot mount visual disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         std::shared_ptr<const FrontendVisualAssets> after_session;
         for (unsigned i = 0; i < 3; ++i)
         {

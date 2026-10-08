@@ -1,6 +1,6 @@
 Subject: Restore whole original Main Menu handler and native scalar callback ABI
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Retire historical 0104/0115 game method extractions. The full Matching TU
 retains source visibility, bounds, save/Mii/network decisions and presentation

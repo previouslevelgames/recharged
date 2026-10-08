@@ -342,6 +342,10 @@ void Run(int argc, char** argv) {
     OSRestoreInterrupts(reset_mask);device.ServiceOwner();
     Check(device.Status().frames.phase==NativeAXFramePhase::ReadyForListSize,
           "source acknowledgment did not resume after rejected pending reset");
+    // The remote IIR biquad remains an explicit unsupported remote request.
+    const BOOL remote_mask = OSDisableInterrupts();
+    voice->pb.rmtIIR.biquad.on = 2; voice->sync |= AX_PBSYNC_RMTIIR;
+    OSRestoreInterrupts(remote_mask);
     set_remote(voice,TRUE);
     frames = device.Status().frames;
     const auto irq_count = GetNativeInterruptControllerStatus().dispatched;
@@ -378,6 +382,7 @@ void Run(int argc, char** argv) {
     // Real platform RESET/HALT discards only private native state. The original
     // source task/globals stay owned by their source; invoke its whole original
     // loader again for this bounded hardware restart (not a GameAudio restart).
+    {const BOOL mask=OSDisableInterrupts();voice->pb.rmtIIR.biquad.on=0;voice->sync|=AX_PBSYNC_RMTIIR;OSRestoreInterrupts(mask);}
     set_remote(voice,FALSE);set_state(voice,AX_VOICE_STOP);
     const auto original_task_state=task->state;const auto original_task_flags=task->flags;
     const auto previous_init_count=device.Status().initialization_count;
@@ -464,25 +469,34 @@ void Run(int argc, char** argv) {
         exhausted=!any;
     }
     Check(exhausted&&depop_frames>1,"original depop totals did not decay through their true source frames");
-    // Controlled negative through the actual source accumulation API. Remote
-    // Setup arithmetic is qualified independently; remote output/mix remains
-    // an explicit unsupported request, never fabricated silent completion.
+    // Remote depop through the actual source accumulation API: __AXPrintStudio
+    // fades 200 over 18 samples (value 200, delta -11), Setup ramps the main0
+    // remote accumulator and the original remote output request delivers it.
     auto source_depop=Load<decltype(&__AXDepopVoice)>(image,"__AXDepopVoice");
     AXPB remote_contributor{};remote_contributor.rmtDpop.aMain0=200;
     source_depop(&remote_contributor);
-    std::array<unsigned char,1152> stopped_output_before{};
-    std::memcpy(stopped_output_before.data(),spans[8].storage.address,1152);
     const auto irq_before_depop=GetNativeInterruptControllerStatus().dispatched;
-    const auto before_remote=device.Status();bool exact_depop_hold{};
-    try {source_frame();device.ServiceOwner();}
-    catch(const NativeAXCommandError& error){exact_depop_hold=error.failure()==NativeAXFailure::NonzeroStudio;}
-    Check(exact_depop_hold&&device.Status().protocol.phase==NativeAXBootstrapPhase::Faulted&&
-              device.Status().frames.processed_frames==before_remote.frames.processed_frames&&
-              device.Status().frames.completed_frames==before_remote.frames.completed_frames&&
-              device.Status().history==before_remote.history&&
-              GetNativeInterruptControllerStatus().dispatched==irq_before_depop&&
-              std::memcmp(stopped_output_before.data(),spans[8].storage.address,1152)==0,
-          "unsupported remote Studio hold was hidden by partial PCM/history/IRQ success");
+    const auto before_remote=device.Status();
+    source_frame();device.ServiceOwner();
+    const auto remote_frame=device.Status();
+    Check(remote_frame.protocol.phase==NativeAXBootstrapPhase::NativeKernelInitialized&&
+              remote_frame.frames.completed_frames==before_remote.frames.completed_frames+1&&
+              remote_frame.frames.processed_frames==before_remote.frames.processed_frames+1&&
+              GetNativeInterruptControllerStatus().dispatched==irq_before_depop+2,
+          "actual source remote depop did not complete one real frame");
+    const auto remote_list=ReadNativeAXCommandList(memory,remote_frame.frames.last_list_address,128);
+    unsigned remote_requests{};
+    for(unsigned i=0;i<remote_list.command_count;++i)if(remote_list.commands[i].opcode==NativeAXOpcode::RemoteOutput) {
+        const auto& c=remote_list.commands[i];++remote_requests;
+        for(unsigned speaker=0;speaker<4;++speaker) {
+            std::array<unsigned char,36> wire{};
+            DSPBackendReadMemory(memory,(u32(c.arguments[speaker*2])<<16)|c.arguments[speaker*2+1],wire.data(),36);
+            for(unsigned n=0;n<18;++n)
+                Check(half(wire.data()+n*2)==u16(speaker?0:200-11*int(n)),
+                      "source remote depop fade differs from Setup/remote output arithmetic");
+        }
+    }
+    Check(remote_requests==1,"actual source list omitted its remote output request");
     register_callback(nullptr);
     ShutdownNativeAI();
     ChargedDSPControlWrite(0x0804);

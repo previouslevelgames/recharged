@@ -234,7 +234,10 @@ void Run(int argc,char** argv) {
     }
     // Synthetic hardware edge fixtures use the same real checked byte bus, no
     // synthetic callback/readiness. Zero coefficients make residual PCM exact.
-    auto* bytes_for_edges=static_cast<unsigned char*>(OSAllocFromMEM2ArenaLo(32,32));
+    // 48 owned bytes, 32 pinned: the tail stands for the memory that follows a
+    // sample allocation, which the accelerator may read for one ADPCM frame.
+    auto* bytes_for_edges=static_cast<unsigned char*>(OSAllocFromMEM2ArenaLo(48,32));
+    for(unsigned i=32;i<48;++i)bytes_for_edges[i]=static_cast<unsigned char>(0xa0+i);
     const std::array<unsigned char,32> synthetic{0,0x17,0x8f,0x20,0x04,0x00,0x00,0x00,0,0,0,0,0,0,0,0,
                                               0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     std::memcpy(bytes_for_edges,synthetic.data(),32);backing.Pin({bytes_for_edges,32},true,NativeDSPMemoryEncoding::RawBytes);
@@ -304,19 +307,52 @@ void Run(int argc,char** argv) {
     const auto boundary=DecodeNativeAXRawADPCM(endpoint,state,14);
     Check(boundary.samples_decoded==14 && boundary.end_reached && boundary.next.current_nibble==base+2,
           "last payload/header prefetch/inclusive end boundary changed");
+    // The terminal prefetch reads the genuine next header: a one-shot voice
+    // writes it back, a looping voice replaces it by its loop pred/scale.
+    bytes_for_edges[8]=0x35;
+    const auto one_shot_header=DecodeNativeAXRawADPCM(endpoint,state,14);
+    Check(one_shot_header.end_reached && !one_shot_header.next.running && one_shot_header.next.predictor_scale==0x35,
+          "one-shot terminal header prefetch did not write back the genuine next header");
+    state.loop_flag=1;state.loop_predictor_scale=0x22;
+    const auto looped_header=DecodeNativeAXRawADPCM(endpoint,state,14);
+    Check(looped_header.end_reached && looped_header.next.running && looped_header.loops==1 &&
+              looped_header.next.predictor_scale==0x22,"looping terminal prefetch did not yield the loop pred/scale");
+    state.loop_flag=0;state.loop_predictor_scale=0;bytes_for_edges[8]=0;
     state.end_nibble=base+16;Throws([&]{DecodeNativeAXRawADPCM(endpoint,state,14);},"unsupported header-nibble end silently became ordinary decoding");
     state.end_nibble=base+31;state.current_nibble=base+30;state.loop_nibble=base+30;
     const auto before=state;
-    // Byte immediately after actual backing is needed by genuine header prefetch.
-    state.current_nibble=base+62;state.end_nibble=base+63;state.loop_nibble=base+62;
-    Throws([&]{DecodeNativeAXRawADPCM(endpoint,state,2);},"unrepresented header prefetch supplied a fake padded byte");
+    // Past the allocation the accelerator reads the memory that follows it: a
+    // terminal prefetch, and a retail end address one frame beyond (stream end).
+    state.current_nibble=base+62;state.end_nibble=base+63;state.loop_nibble=base+62;state.predictor_scale=0x11;
+    const auto terminal=DecodeNativeAXRawADPCM(endpoint,state,2);
+    Check(terminal.samples_decoded==2 && terminal.end_reached && !terminal.next.running &&
+              terminal.next.predictor_scale==(0xa0+32)%128 && terminal.next.current_nibble==base+62,
+          "terminal prefetch past the allocation did not read the following memory");
+    state.end_nibble=base+66;
+    const auto overrun=DecodeNativeAXRawADPCM(endpoint,state,4);
+    Check(overrun.samples_decoded==3 && overrun.end_reached && !overrun.next.running &&
+              overrun.next.predictor_scale==(0xa0+32)%128,"stream end one frame past its buffer was not decoded");
+    // Beyond one ADPCM frame the read stays a genuine pin failure.
+    state.end_nibble=base+90;
+    Throws([&]{DecodeNativeAXRawADPCM(endpoint,state,24);},"unrepresented header prefetch supplied a fake padded byte");
     state=before;state.end_nibble=base+31;
     Throws([&]{DecodeNativeAXRawADPCM({endpoint.generation+1},state,2);},"stale byte endpoint was decoded");
     state.predictor_scale=15;state.current_nibble=base+2;state.end_nibble=base+5;state.loop_nibble=base+2;
     const auto saturated=DecodeNativeAXRawADPCM(endpoint,state,4);
     constexpr std::array<s16,4> clip{32767,32767,-32768,-32768};
     Check(std::equal(clip.begin(),clip.end(),saturated.samples.begin()),"signed residual/scale15 saturation changed");
+    // Only a looping voice decodes from its loop address (firmware 0F61..0F71).
+    state.loop_flag=1;
     state.loop_nibble=base+6;Throws([&]{DecodeNativeAXRawADPCM(endpoint,state,1);},"loop target beyond authored inclusive end was accepted");
+    state.loop_nibble=base+16;Throws([&]{DecodeNativeAXRawADPCM(endpoint,state,1);},"looping header-nibble target became ordinary decoding");
+    // A one-shot voice stops at its end exception; its silence-buffer loop
+    // address at a frame header beyond the sample is only written back.
+    state.loop_flag=0;
+    const auto one_shot=DecodeNativeAXRawADPCM(endpoint,state,6);
+    Check(one_shot.samples_decoded==4 && one_shot.end_reached && !one_shot.next.running && one_shot.loops==0 &&
+              one_shot.next.current_nibble==base+16 && one_shot.next.predictor_scale==15 &&
+              std::equal(clip.begin(),clip.end(),one_shot.samples.begin()),
+          "one-shot end did not stop at its unread header-aligned loop address");
     state.loop_nibble=base+2;
     Throws([&]{DecodeNativeAXRawADPCM(endpoint,state,97);},"raw block crossed original96-sample frame capacity");
     std::cout<<"Native AX raw DSP ADPCM: "<<checks<<" checks; "<<raw_samples

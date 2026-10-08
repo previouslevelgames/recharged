@@ -23,6 +23,8 @@ function(mscharged_add_original_hbm_task_capacity_tests)
         tests/original_hbm_task_capacity.cpp src/platform/host_metadata.cpp)
     add_dependencies(original_hbm_task_capacity_tests mscharged_original_hbm_task_module)
     target_compile_features(original_hbm_task_capacity_tests PRIVATE cxx_std_20)
+    mscharged_link_original_hbm_debug_host(original_hbm_task_capacity_tests CPU_FIXTURE)
+    target_compile_definitions(original_hbm_task_capacity_tests PRIVATE HBM_ASSERT=1)
     target_link_libraries(original_hbm_task_capacity_tests PRIVATE
         charged_original_os_messages "${CMAKE_DL_LIBS}")
     if(APPLE)

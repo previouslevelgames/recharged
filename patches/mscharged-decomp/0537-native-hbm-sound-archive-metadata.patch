@@ -1,0 +1,105 @@
+# Native HBM sound archive metadata views; original console reader/control flow retained.
+# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_MemorySoundArchive.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_MemorySoundArchive.cpp
+@@ -1,7 +1,11 @@
+ #include "revolution/hbm/nw4hbm/snd/MemorySoundArchive.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ 
+ #include "revolution/types.h"
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchive.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchive.cpp
+@@ -1,7 +1,12 @@
+ #include "revolution/hbm/nw4hbm/snd/SoundArchive.h"
+ 
+ #include "revolution/hbm/nw4hbm/snd/SoundArchiveFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/HBMAssert.hpp"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include <cstring>
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveFile.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveFile.cpp
+@@ -2,7 +2,15 @@
+ 
+ #include <string.h>
+ #include "decomp.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_hbm_sound_archive.h"
++#endif
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/HBMAssert.hpp"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+@@ -24,11 +32,23 @@
+         return;
+     }
+ 
+-    mHeader = *static_cast<const SoundArchiveFile::Header*>(soundArchiveData);
++    mHeader = *static_cast<const SoundArchiveFile::Header*>(
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::NativeHBMSoundArchiveHeader(soundArchiveData)
++#else
++        soundArchiveData
++#endif
++    );
+ }
+ 
+ bool SoundArchiveFileReader::IsValidFileHeader(const void* soundArchiveData) {
+-    const ut::BinaryFileHeader* fileHeader = static_cast<const ut::BinaryFileHeader*>(soundArchiveData);
++    const ut::BinaryFileHeader* fileHeader = static_cast<const ut::BinaryFileHeader*>(
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::NativeHBMSoundArchiveHeader(soundArchiveData)
++#else
++        soundArchiveData
++#endif
++    );
+ 
+     NW4HBMAssert_Line(fileHeader->signature == SoundArchiveFile::SIGNATURE_FILE, 72);
+     if (fileHeader->signature != SoundArchiveFile::SIGNATURE_FILE) {
+@@ -57,7 +77,13 @@
+ 
+ void SoundArchiveFileReader::SetStringChunk(const void* stringChunk, u32 size) {
+     NW4HBMAssertPointerNonnull_Line(stringChunk, 96);
+-    const SoundArchiveFile::SymbolBlock* symbolBlock = static_cast<const SoundArchiveFile::SymbolBlock*>(stringChunk);
++    const SoundArchiveFile::SymbolBlock* symbolBlock = static_cast<const SoundArchiveFile::SymbolBlock*>(
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::NativeHBMSoundArchiveSymbols(stringChunk, size)
++#else
++        stringChunk
++#endif
++    );
+     NW4HBMAssert_Line(symbolBlock->blockHeader.kind == SoundArchiveFile::SIGNATURE_SYMB_BLOCK, 99);
+     const SoundArchiveFile::StringBlock* pStringBlock = &symbolBlock->stringBlock;
+ 
+@@ -81,7 +107,13 @@
+ 
+ void SoundArchiveFileReader::SetInfoChunk(const void* infoChunk, u32 size) {
+     NW4HBMAssertPointerNonnull_Line(infoChunk, 120);
+-    const SoundArchiveFile::InfoBlock* infoBlock = static_cast<const SoundArchiveFile::InfoBlock*>(infoChunk);
++    const SoundArchiveFile::InfoBlock* infoBlock = static_cast<const SoundArchiveFile::InfoBlock*>(
++#if defined(MSCHARGED_NATIVE)
++        mscharged::platform::NativeHBMSoundArchiveInfo(infoChunk, size, GetVersion())
++#else
++        infoChunk
++#endif
++    );
+     NW4HBMAssert_Line(infoBlock->blockHeader.kind == SoundArchiveFile::SIGNATURE_INFO_BLOCK, 123);
+     mInfo = &infoBlock->info;
+ }

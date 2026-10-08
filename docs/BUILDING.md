@@ -11,6 +11,8 @@ On a Mac, follow the [macOS tool setup](BUILDING_MACOS.md#install-tools) first.
 - Git, CMake 3.25+, Ninja, and Python 3.10+.
 - A C/C++20 compiler and Rust/Cargo 1.85+.
 - Make and Tcl 8.6+ for the pinned SQLite generator.
+- Optional: clang-format 16+ formats the prepared game sources for reading. The
+  build is otherwise identical; without it CMake prints a warning.
 - On Linux, a Vulkan driver/loader, `pkg-config`, and the X11/Wayland development
   packages described in [SDL's Linux notes](../extern/sdl/docs/README-linux.md).
 
@@ -30,7 +32,9 @@ python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --work
 Quote disc paths containing spaces. The helper initializes only required pins
 and stops if a dependency has tracked edits; it does not discard or stash them.
 The workflow prepares source copies and builds `mscharged`. Other diagnostics
-and tests are separate. See the [patch workflow](../patches/README.md).
+and tests are separate. To prepare the patched game source alone, see the
+[porting approach](../README.md#porting-approach) and the [patch workflow](../patches/README.md).
+`-DMSCHARGED_FORMAT_PREPARED_SOURCES=ON` requires formatting; `OFF` skips it.
 
 For an existing checkout:
 

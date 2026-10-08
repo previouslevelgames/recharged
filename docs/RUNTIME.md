@@ -36,8 +36,8 @@ unfinished host services.** Audio quality and performance remain in progress.
 
 Press **Enter or Space** (Wii A) to skip the intro movie through the original
 handler. Use the mouse pointer and Enter/Space to select menu items; Escape/Backspace
-is Wii B. Keep the game window focused. The launcher also offers **Try boot
-sequence**. Close the window to exit; omitting `--window` runs a bounded test.
+is Wii B. Keep the game window focused. The launcher's **Play** button starts
+the same runtime. Close the window to exit; omitting `--window` runs a bounded test.
 The separate `--experimental-options` shortcut requires a build without the
 original Boot script.
 
@@ -60,7 +60,9 @@ transition is unfinished. Host focus and menu input remain under validation.
 Both tests accept `--config FILE`, `--disc FILE` (also `--disk`), `--window`,
 `--fullscreen`, `--size WIDTHxHEIGHT` and `--aspect auto|4:3|16:9`. These override
 INI settings for this run without saving. The default layout is 16:9; resizing
-preserves the selected layout and fills unused space with bars.
+preserves the selected layout and fills unused space with bars. The launcher also
+saves the start display, VSync, frame rate in the title, speaker volume, graphics
+validation and log detail in `mscharged.ini`.
 
 ## Other checks
 

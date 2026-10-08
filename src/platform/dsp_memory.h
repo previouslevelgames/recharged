@@ -41,6 +41,13 @@ void DSPBackendValidateMemory(NativeDSPMemoryEndpoint endpoint, std::uint32_t ph
                               std::size_t bytes, bool writing);
 void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address,
                           void* destination, std::size_t bytes);
+// One accelerator sample byte: inside a live pin as DSPBackendReadMemory, or up
+// to NativeDSPSampleOverrunBytes past the end of a live RawBytes pin, where the
+// Wii accelerator reads whatever physical memory follows a sample allocation
+// (retail end addresses can overrun it). Those bytes come from the actual SDK
+// MEM1/MEM2 backing without a pin; reads further out fail.
+inline constexpr std::uint32_t NativeDSPSampleOverrunBytes = 8; // one ADPCM frame
+unsigned char DSPBackendReadSampleByte(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address);
 void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address,
                            const void* source, std::size_t bytes);
 } // namespace mscharged::platform

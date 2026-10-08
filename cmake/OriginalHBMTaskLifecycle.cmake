@@ -1,6 +1,7 @@
 include_guard(GLOBAL)
 include(cmake/OriginalNativeCompilerProfile.cmake)
 include(cmake/OriginalModuleLinkage.cmake)
+include(cmake/NativeHBMDebug.cmake)
 
 # One explicit test module owns the whole HBM task/MEM/lock source. Additional
 # capacity tests attach to this module, rather than loading a second registry.
@@ -52,6 +53,7 @@ function(mscharged_add_original_hbm_task_lifecycle_tests)
         src/platform/mem_logical_heap.cpp
         src/platform/game_allocation_ownership.cpp
         tests/diagnostics/original_hbm_task_thread.cpp)
+    mscharged_select_original_hbm_debug(mscharged_original_hbm_task_module)
     add_dependencies(mscharged_original_hbm_task_module verify_prepared)
     set_target_properties(mscharged_original_hbm_task_module PROPERTIES
         POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden
@@ -61,7 +63,7 @@ function(mscharged_add_original_hbm_task_lifecycle_tests)
         "${PROJECT_SOURCE_DIR}/src" "${MSCHARGED_AURORA_PREPARED}/include"
         "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
     target_compile_definitions(mscharged_original_hbm_task_module PRIVATE
-        MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+        MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 TARGET_PC=1 AURORA_WII_CLOCK=1 HBM_ASSERT=1)
     target_compile_options(mscharged_original_hbm_task_module PRIVATE
         -ffunction-sections -fdata-sections -fno-strict-aliasing -fsigned-char
         -Wno-unknown-pragmas
@@ -87,6 +89,8 @@ function(mscharged_add_original_hbm_task_lifecycle_tests)
         tests/original_hbm_task_lifecycle.cpp src/platform/host_metadata.cpp)
     add_dependencies(original_hbm_task_lifecycle_tests mscharged_original_hbm_task_module)
     target_compile_features(original_hbm_task_lifecycle_tests PRIVATE cxx_std_20)
+    mscharged_link_original_hbm_debug_host(original_hbm_task_lifecycle_tests CPU_FIXTURE)
+    target_compile_definitions(original_hbm_task_lifecycle_tests PRIVATE HBM_ASSERT=1)
     target_compile_options(original_hbm_task_lifecycle_tests PRIVATE -fno-access-control)
     target_link_libraries(original_hbm_task_lifecycle_tests PRIVATE
         charged_original_os_messages "${CMAKE_DL_LIBS}")

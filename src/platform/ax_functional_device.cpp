@@ -190,7 +190,11 @@ void NativeAXFunctionalDevice::Close() {
        (frame.phase!=NativeAXFramePhase::Unavailable&&frame.phase!=NativeAXFramePhase::ReadyForListSize&&
         frame.phase!=NativeAXFramePhase::Faulted))
         throw std::logic_error("functional AX retirement requires actual drained source mail/cause/job");
+    // The protocol refuses retirement while the DSP is live; only after it
+    // accepts does the OS audio register routing retire, so a refused Close
+    // leaves the device whole and retirable later.
+    protocol_->Close();protocol_.reset();
     registers_->Close();
-    protocol_->Close();protocol_.reset();s.history={};s.initialized=false;s.retired=true;
+    s.history={};s.initialized=false;s.retired=true;
 }
 } // namespace mscharged::platform

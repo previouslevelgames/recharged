@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original Specular material with typed native skin transport
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Keep the original Specular0x22cadb20 TEV/light/exponent/ramp/shadow/alpha
 decisions. Use native parameter offsets/fixed scalar widths and five bounded

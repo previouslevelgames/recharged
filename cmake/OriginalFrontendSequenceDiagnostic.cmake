@@ -35,6 +35,7 @@ function(mscharged_select_original_frontend_sequence target)
         src/Game/DB/BasicGameInfo.cpp
         src/Game/DB/UserOptions.cpp
         src/Game/DB/SaveLoad.cpp
+        src/NL/nlMain.cpp
         src/Game/DB/StadiumInfo.cpp
         src/Game/DB/GameProgress.cpp
         src/Game/SH/SHBootLoading.cpp

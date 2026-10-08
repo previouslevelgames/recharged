@@ -13,7 +13,10 @@ This is a native source port; it does not execute or recompile the PowerPC binar
 2. **Copy, then patch.** Before patching, the build exports an exact copy of the
    decomp's complete `include/`, `libs/`, and `src/` trees. Ordered patches apply
    to this generated copy, leaving submodule checkouts unchanged.
-3. **Compile the game source natively.** Original game and engine translation
+3. **Format for reading.** clang-format lays out the compiled copy consistently.
+   Whitespace-only changes are verified token by token; layout-dependent files
+   (`__LINE__`, stringified arguments) are left exactly as patched.
+4. **Compile the game source natively.** Original game and engine translation
    units remain the authoritative implementation.
 
 ## Original game, native platform

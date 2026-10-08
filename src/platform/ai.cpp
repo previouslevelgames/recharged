@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <cmath>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -67,6 +68,7 @@ struct AIState {
     bool held{};
     std::uint64_t hold_start_ns{};
     mscharged::platform::NativeAIDeliveryStatus delivery{};
+    float output_gain{1.0f};
     char error[256]{};
 };
 
@@ -431,6 +433,14 @@ extern "C" void AIInit(u8*) {
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         throw error;
     }
+    float gain;
+    { std::lock_guard lock(state.mutex); gain = state.output_gain; }
+    if (gain != 1.0f && !SDL_SetAudioStreamGain(stream, gain)) {
+        const auto error = SDLError("AI host output volume failed");
+        SDL_DestroyAudioStream(stream);
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        throw error;
+    }
     std::lock_guard lock(state.mutex);
     state.stream = stream;
     state.owner = std::this_thread::get_id();
@@ -745,6 +755,27 @@ NativeAIDeliveryStatus GetNativeAIDeliveryStatus() {
     auto& state = State();
     std::lock_guard lock(state.mutex);
     return state.delivery;
+}
+
+void SetNativeAIOutputGain(float gain) {
+    if (!std::isfinite(gain) || gain < 0.0f || gain > 1.0f)
+        throw std::invalid_argument("AI host output volume must be between 0 and 1");
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    state.output_gain = gain;
+    if (state.stream && !SDL_SetAudioStreamGain(state.stream, gain))
+        throw SDLError("AI host output volume failed");
+}
+
+float GetNativeAIOutputGain() {
+    auto& state = State();
+    std::lock_guard lock(state.mutex);
+    // Report what the live device stream actually applies.
+    if (state.stream) {
+        const float applied = SDL_GetAudioStreamGain(state.stream);
+        if (applied >= 0.0f) return applied;
+    }
+    return state.output_gain;
 }
 
 void ShutdownNativeAI() {

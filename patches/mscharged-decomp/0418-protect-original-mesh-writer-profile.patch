@@ -1,7 +1,7 @@
 From: native port preparation
 Subject: [PATCH] retain original mesh/model game flow and scope preview checks
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTexturedColourMeshWriter.h
 --- a/include/Game/GL/GLTexturedColourMeshWriter.h
@@ -55,33 +55,3 @@ diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
  
  #include "types.h"
  #include "NL/gl/glMatrixHandle.h"
-diff --git a/src/NL/gl/glModelCopies.cpp b/src/NL/gl/glModelCopies.cpp
---- a/src/NL/gl/glModelCopies.cpp
-+++ b/src/NL/gl/glModelCopies.cpp
-@@ -31,7 +31,7 @@
-     unsigned long numPackets;
-     int i;
- 
--#if defined(MSCHARGED_NATIVE)
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MODELS)
-     // Validate before allocating. The caller owns the destination pool/marker;
-     // streams and indices remain borrowed from the source resource.
-     if (!pModelArray || !nModels || nModels > 4096 || (!bPermanent && pAllocator))
-@@ -61,7 +61,7 @@
-         }
-     }
- #endif
--#if !defined(MSCHARGED_NATIVE)
-+#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
-     glBeginResource(pModelArray->id); // Empty original resource-label hook.
- #endif
- 
-@@ -135,7 +135,7 @@
-         ++i;
-     }
- 
--#if !defined(MSCHARGED_NATIVE)
-+#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
-     glEndResource();
- #endif
-     return result;

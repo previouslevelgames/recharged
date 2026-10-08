@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/frontend_music.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -186,6 +187,10 @@ void Faults(AudioBankCatalog::Handle catalog,AudioCalculationInitial::Handle cal
    Check(music.Status().cue==0xe326f931&&music.Status().paused&&seed==4,"Failed/cancelled real refill replaced current music");music.Unload();
   }
   Check(fault.handles==0&&!nlAsyncReadsPending(nullptr),"Music fault cleanup retained workers/files");
+  mscharged::test::FinishDVDTestFaultCase(mode==1);
+  // A fresh media lifetime rebuilds the fixture FST. Keep the same live
+  // overlay owner and explicitly reinstall its actual source entry.
+  if(mode==1)aurora_dvd_overlay_files(&overlay,1,nullptr);
  }
 }
 void Runtime(int argc,char** argv)
@@ -194,6 +199,7 @@ void Runtime(int argc,char** argv)
  AuroraConfig config{};config.appName="Charged streamed frontend music";config.userPath=config.cachePath=folder.c_str();config.resourcesPath=SDL_GetBasePath();config.desiredBackend=BACKEND_NULL;
  config.windowWidth=320;config.windowHeight=240;config.windowPosX=config.windowPosY=-1;config.logLevel=LOG_WARNING;config.mem1Size=MEM1_DEFAULT_SIZE;config.mem2Size=64*1024*1024;
  Session session;auto host=aurora_initialize(argc,argv,&config);session.live=true;Check(host.window,"Aurora initialization failed");InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Cannot mount music disc");session.disc=true;nlInitFileSystem();
+ mscharged::test::ConfigureDVDTestMedium(argv[1]);
  AudioBankCatalog::Handle catalog;AudioCalculationInitial::Handle calculation;
  if(mode=="owned"){auto global=ReadFile("audio/nlxgs.bun");catalog=ReadAudioBankCatalog(global);calculation=ReadAudioCalculationInitial(global);}
  else{auto c=std::make_shared<AudioBankCatalog>();c->names.resize(27);c->slots.resize(23);c->names[26]={26,"FE_GEN_Music"};c->slots[22]={22,0,0,true};catalog=c;calculation=ReadAudioCalculationInitial(ReadFile("audio/calculation.bun"));}

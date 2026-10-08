@@ -364,6 +364,10 @@ void Run(int argc, char** argv) {
     const auto csr=GetNativeDSPControlStatus().csr;
     Throws([&]{ChargedDSPControlWrite(0x0805);},"normal device reset dropped an attached native processor");
     Check(GetNativeDSPControlStatus().csr==csr,"unsupported reset mutated realCSR before failure");
+    // The remote IIR biquad remains an explicit unsupported remote request.
+    const BOOL remote_mask = OSDisableInterrupts();
+    voice->pb.rmtIIR.biquad.on = 2; voice->sync |= AX_PBSYNC_RMTIIR;
+    OSRestoreInterrupts(remote_mask);
     set_remote(voice,TRUE);
     frames = device.FrameStatus();
     const auto irq_count = GetNativeInterruptControllerStatus().dispatched;

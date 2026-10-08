@@ -1,5 +1,5 @@
 # Patch: 0512-native-cup-side-initializer
-# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 # Scope: Explicit native short conversions for original HOME/AWAY list initialization; console unchanged.
 --- a/src/Game/DB/CupManager.cpp
 +++ b/src/Game/DB/CupManager.cpp

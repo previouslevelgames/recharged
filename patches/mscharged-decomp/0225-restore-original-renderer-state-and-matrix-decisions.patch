@@ -1,6 +1,6 @@
 Subject: Restore original renderer state and matrix decisions outside diagnostics
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Retire invented GL readiness/reset/live-matrix rejection from the original
 source path; keep legacy diagnostics explicit. Restore original memory startup
@@ -352,7 +352,7 @@ diff --git a/src/NL/gl/glModelMatrix.cpp b/src/NL/gl/glModelMatrix.cpp
 diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
 --- a/src/NL/glx/glxModel.cpp
 +++ b/src/NL/glx/glxModel.cpp
-@@ -5,7 +5,22 @@
+@@ -7,7 +7,22 @@
  #include "NL/gl/glPlat.h"
  #include "NL/glx/glxDisplayList.h"
  
@@ -375,7 +375,7 @@ diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
  
  void glplatFinalizePacket(
      glModelPacket* packet, bool permanent, void* allocator)
-@@ -20,4 +35,10 @@
+@@ -22,4 +37,10 @@
      packet->skinnedVertices = 0;
  }
  

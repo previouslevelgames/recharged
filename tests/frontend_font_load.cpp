@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/frontend_font_load.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -105,6 +106,7 @@ void Lifecycle()
             std::jthread release([&]{SDL_Delay(10);o.Release();});f.reset();
         }
         Check(o.entered&&o.finished&&!o.handles&&!nlAsyncReadsPending(nullptr),"Font failure/cancel did not drain worker and file");
+        mscharged::test::FinishDVDTestFaultCase(mode==Overlay::Error);
     }
     {
         FrontendFontLoad f(requests);nlShutdownFileSystem();f.Poll();Check(f.State()==FrontendFontLoadState::Failed,"Font missed file-service shutdown");Reject([&]{f.Result();});Reject([&]{f.RegistrationOrder();});
@@ -144,6 +146,7 @@ int main(int argc,char**argv)
 #endif
         config.windowWidth=320;config.windowHeight=240;config.windowPosX=config.windowPosY=-1;config.logLevel=LOG_WARNING;config.mem1Size=MEM1_DEFAULT_SIZE;config.mem2Size=64*1024*1024;
         Host host;auto initialized=aurora_initialize(argc,argv,&config);host.live=true;Check(initialized.window,"Aurora window failed");InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Disc failed");host.disc=true;nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         FrontendFontLoad::ResultType retained;
         for(unsigned repeat=0;repeat<3;++repeat)
         {

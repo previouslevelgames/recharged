@@ -195,6 +195,7 @@ void Run(int argc, char** argv) {
     auto set_lpf_coefs=Load<decltype(&AXSetVoiceLpfCoefs)>(image,"AXSetVoiceLpfCoefs");
     auto get_lpf_coefs=Load<decltype(&AXGetLpfCoefs)>(image,"AXGetLpfCoefs");
     auto set_remote=Load<decltype(&AXSetVoiceRmtOn)>(image,"AXSetVoiceRmtOn");
+    auto set_remote_mix=Load<decltype(&AXSetVoiceRmtMix)>(image,"AXSetVoiceRmtMix");
     auto set_loop=Load<decltype(&AXSetVoiceLoop)>(image,"AXSetVoiceLoop");
     auto set_loop_addr=Load<decltype(&AXSetVoiceLoopAddr)>(image,"AXSetVoiceLoopAddr");
     auto set_loop_codec=Load<decltype(&AXSetVoiceAdpcmLoop)>(image,"AXSetVoiceAdpcmLoop");
@@ -473,8 +474,26 @@ void Run(int argc, char** argv) {
     // Unqualified true source requests remain explicit failures before stores.
     auto* held=acquire(15,nullptr,0);sp_prepare(sp_get(table,0),held,32000);set_state(held,AX_VOICE_RUN);sync(0);
     const auto held_address=pb_bus+held->index*320;
-    set_remote(held,TRUE);service_vpb(held);
-    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source remote bus silently bypassed");
+    // Original remote requests run the owned remote branch on the real PB layout:
+    // AXSetVoiceRmtMix selects main0's constant handler through rmtMixerCtrl.
+    AXPBRMTMIX remote_mix{};remote_mix.vMain0=0x8000;
+    set_remote(held,TRUE);set_remote_mix(held,&remote_mix);service_vpb(held);
+    const auto remote=PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);
+    Check(remote.remote_enabled&&remote.remote.mixed==1&&BE16(remote.parameters_after.data()+0xd8)==1,
+          "source remote mix did not select main0's constant handler");
+    for(unsigned n=0;n<18;++n)
+        Check(remote.remote.channels[0][n]==remote.remote.resampled[n],"unity remote volume changed main0 samples");
+    Check(BE16(remote.parameters_after.data()+0xfa)==u16(remote.remote.resampled[17])&&
+              BE16(remote.parameters_after.data()+0x102)==0,"remote depop is not the last main0 product/zero aux0");
+    Check(BE16(remote.parameters_after.data()+0x10a)==u16(BE16(remote.parameters_before.data()+0x10a)+18u*0x55555u),
+          "remote resampler did not advance the original 18x0x55555 step");
+    // The remote biquad (rmtIIR selector 2) remains an explicit unsupported request.
+    BOOL remote_mask=OSDisableInterrupts();
+    held->pb.rmtIIR.biquad.on=2;held->sync|=AX_PBSYNC_RMTIIR;OSRestoreInterrupts(remote_mask);service_vpb(held);
+    Throws([&]{PrepareNativeAXADPCMVoiceFrame(memory,held_address,coefficients);},"source remote biquad silently bypassed");
+    remote_mask=OSDisableInterrupts();
+    held->pb.rmtIIR.biquad.on=0;held->sync|=AX_PBSYNC_RMTIIR;OSRestoreInterrupts(remote_mask);
+    AXPBRMTMIX no_remote_mix{};set_remote_mix(held,&no_remote_mix);
     set_remote(held,FALSE);
     AXPBSRC linear_src{};linear_src.ratioHi=1;
     const std::array<s16,4> linear_history{{111,-222,333,-444}};

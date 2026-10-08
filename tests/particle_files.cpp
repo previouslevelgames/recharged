@@ -1,3 +1,5 @@
+#include "dvd_fixture_medium.h"
+#include <atomic>
 #include "runtime/particle_files.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -77,10 +79,12 @@ void Cancellation()
 }
 struct Overlay
 {
-    static void* Open(void* user) { return user; }
-    static void Close(void*) {}
+    std::atomic<unsigned> handles{0};
+    std::atomic<bool> entered{false};
+    static void* Open(void* user) { ++static_cast<Overlay*>(user)->handles; return user; }
+    static void Close(void* p) { --static_cast<Overlay*>(p)->handles; }
     static std::int64_t Seek(void*, std::int64_t offset, std::int32_t) { return offset; }
-    static std::int64_t Read(void*, std::uint8_t*, std::size_t) { return -1; }
+    static std::int64_t Read(void* p, std::uint8_t*, std::size_t) { static_cast<Overlay*>(p)->entered=true; return -1; }
     Overlay(unsigned index, std::uint64_t size, bool batch = false)
     {
         static const char* paths[]{"/art/effects/effects.bun", "/art/effects/effectsNonRes.bun.zlib",
@@ -99,6 +103,8 @@ void Failures()
         Overlay overlay(i, 100); ParticleFileLoad load; Pump(load, i % 2, true);
         Check(load.State() == ParticleFileState::Failed, "Read error became particle readiness");
         Reject([&] { load.Result(); });
+        Check(overlay.entered && !overlay.handles, "Particle fault did not perform real I/O and retire its file");
+        mscharged::test::FinishDVDTestFaultCase(true);
     }
     { Overlay overlay(0, resources::MaximumAssetBytes + 1); Reject([] { ParticleFileLoad load; }); }
     { Overlay overlay(0, resources::MaximumAssetBytes, true); Reject([] { ParticleFileLoad load; }); }
@@ -127,6 +133,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot open particle disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         std::shared_ptr<const ParticleFiles> retained;
         for (unsigned i = 0; i < 3; ++i)
         {

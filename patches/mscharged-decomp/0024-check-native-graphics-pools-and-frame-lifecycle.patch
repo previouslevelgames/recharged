@@ -1,6 +1,6 @@
 Subject: Check native graphics pools and frame lifecycle
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Check native graphics pools and frame lifecycle
 Preserve pointer-width addresses and resource marks, align both halves of the
@@ -44,10 +44,11 @@ diff --git a/include/NL/gl/glMemoryInit.h b/include/NL/gl/glMemoryInit.h
 diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
 --- a/include/NL/glx/glxMemory.h
 +++ b/include/NL/glx/glxMemory.h
-@@ -2,6 +2,13 @@
+@@ -2,7 +2,14 @@
  #define NL_GLX_GLXMEMORY_H
  
  #include "NL/nlMath.h"
+ #include "NL/glx/glxModel.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include <stdint.h>
 +typedef uintptr_t GLResourceMark;

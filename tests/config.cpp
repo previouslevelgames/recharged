@@ -71,8 +71,36 @@ int main()
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[display]\nvsync = maybe\n";
         Reject([&] { LoadConfig(path); });
+
+        // Host presentation/diagnostic settings: defaults keep the previous
+        // behaviour, values round trip and out-of-range input is rejected.
+        const Settings defaults;
+        Require(defaults.show_fps && defaults.monitor == 0 && defaults.graphics_validation
+            && defaults.log_level == "info" && defaults.ui_scale == "auto", "Host setting defaults");
+        const auto host = directory / "host.ini";
+        auto hostFile = LoadConfig(host, true);
+        Settings hostSettings;
+        hostSettings.show_fps = false;
+        hostSettings.monitor = 2;
+        hostSettings.graphics_validation = false;
+        hostSettings.log_level = "warning";
+        hostSettings.ui_scale = "150";
+        SaveConfig(hostFile, hostSettings);
+        const auto hostReloaded = LoadConfig(host).settings;
+        Require(!hostReloaded.show_fps && hostReloaded.monitor == 2 && !hostReloaded.graphics_validation
+            && hostReloaded.log_level == "warning" && hostReloaded.ui_scale == "150", "Host settings round trip");
+        const auto hostText = LoadConfig(host).contents;
+        Require(hostText.find("[advanced]") != std::string::npos && hostText.find("[launcher]") != std::string::npos
+            && hostText.find("show_fps = false") != std::string::npos, "Host settings sections");
+        for (const char* invalid : {"[display]\nmonitor = 16\n", "[display]\nshow_fps = sometimes\n",
+                                    "[advanced]\nlog_level = verbose\n", "[launcher]\nui_scale = 110\n",
+                                    "[advanced]\ngraphics_validation = 2\n"})
+        {
+            std::ofstream(path) << invalid;
+            Reject([&] { LoadConfig(path); });
+        }
         fs::remove_all(directory);
-        std::cout << "Configuration round trips, preservation, validation and write protection passed.\n";
+        std::cout << "Configuration round trips, preservation, validation, host settings and write protection passed.\n";
         return 0;
     }
     catch (const std::exception& error)

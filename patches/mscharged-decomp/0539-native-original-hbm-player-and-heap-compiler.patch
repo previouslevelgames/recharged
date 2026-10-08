@@ -1,0 +1,234 @@
+Subject: Native compiler closure for whole original HBM player/heap owners
+
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+
+Use actual owning declarations, standard placement new, qualified original
+outer-handle friendships, the existing reverse-iterator operation and full
+native pointer arithmetic. Lower the original signed32 MWCC abs intrinsic
+at the whole MEM frame-heap TU. Preserve original console declarations and
+all original algorithms, branches, requests, callbacks and ordering.
+
+This does not supply missing SeqPlayer or MEM state methods and does not
+admit HBM creation, a full player or successful resource readiness.
+
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/ExternalSoundPlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/ExternalSoundPlayer.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/ExternalSoundPlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/ExternalSoundPlayer.h
+@@ -4,6 +4,9 @@
+ #include "revolution/types.h"
+ 
+ #include "revolution/hbm/nw4hbm/snd/BasicSound.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/SoundHandle.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/LinkList.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/LinkList.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/LinkList.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/LinkList.h
+@@ -168,6 +168,14 @@
+         return *this;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    ReverseIterator operator++(int) {
++        ReverseIterator ret = *this;
++        ++*this;
++        return ret;
++    }
++#endif
++
+     const typename TIter::TElem* operator->() const { return &this->operator*(); }
+ 
+     typename TIter::TElem& operator*() const {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicSound.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicSound.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicSound.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicSound.h
+@@ -185,7 +185,11 @@
+     /* 0xC8 */ ut::LinkListNode mSoundPlayerPriorityLink;
+     /* 0xD0 */ ut::LinkListNode mExtSoundPlayerPlayLink;
+ 
++#if defined(MSCHARGED_NATIVE)
++    friend class ::nw4hbm::snd::SoundHandle;
++#else
+     friend class SoundHandle;
++#endif
+ };
+ 
+ typedef ut::LinkList<BasicSound, offsetof(BasicSound, mPriorityLink)> BasicSoundPrioList;
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSoundHandle.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSoundHandle.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSoundHandle.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSoundHandle.h
+@@ -3,7 +3,11 @@
+ 
+ #include "revolution/hbm/nw4hbm/snd/WaveSound.h"
+ #include "revolution/hbm/nw4hbm/snd/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
+@@ -11,6 +11,9 @@
+ #endif
+ 
+ #include "revolution/mem.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/os.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_FrameHeap.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_FrameHeap.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_FrameHeap.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_FrameHeap.cpp
+@@ -3,7 +3,11 @@
+ #include "revolution/hbm/HBMAssert.hpp"
+ #include "revolution/mem.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ 
+ namespace nw4hbm
+ {
+@@ -90,7 +94,11 @@
+     Block* pBlock = new (buffer) Block(size, callback, callbackArg);
+     mSectionList.GetBack().AppendBlock(pBlock);
+ 
++#if defined(MSCHARGED_NATIVE)
++    NW4HBMAssertMessage_Line(NW4HBM_IS_ALIGNED_(reinterpret_cast<uintptr_t>(pBlock) + BLOCK_BUFFER_SIZE, HEAP_ALIGN), 174, "FrameHeap::Alloc: Internal Error");
++#else
+     NW4HBMAssertMessage_Line(NW4HBM_IS_ALIGNED_((u32)pBlock + BLOCK_BUFFER_SIZE, HEAP_ALIGN), 174, "FrameHeap::Alloc: Internal Error");
++#endif
+ 
+     return pBlock->GetBufferAddr();
+ }
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_InstancePool.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_InstancePool.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_InstancePool.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_InstancePool.cpp
+@@ -1,5 +1,12 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/InstancePool.h"
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/snd.h"
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveLoader.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveLoader.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveLoader.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveLoader.cpp
+@@ -2,7 +2,12 @@
+ 
+ #include "revolution/hbm/nw4hbm/snd/SoundArchive.h"
+ #include "revolution/hbm/nw4hbm/snd/SoundMemoryAllocatable.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSound.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSound.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSound.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSound.h
+@@ -30,7 +30,11 @@
+ 
+ namespace detail {
+ class SeqSound : public BasicSound {
++#if defined(MSCHARGED_NATIVE)
++    friend class ::nw4hbm::snd::SeqSoundHandle;
++#else
+     friend class SeqSoundHandle;
++#endif
+ 
+ public:
+     typedef void (*NotifyAsyncEndCallback)(bool result, const void* seqBase, s32 seqOffset, void* userData);
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmSound.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmSound.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmSound.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmSound.h
+@@ -20,7 +20,11 @@
+ namespace detail {
+ 
+ class StrmSound : public BasicSound {
++#if defined(MSCHARGED_NATIVE)
++    friend class ::nw4hbm::snd::StrmSoundHandle;
++#else
+     friend class StrmSoundHandle;
++#endif
+ 
+ public:
+     explicit StrmSound(SoundInstanceManager<StrmSound>* manager);
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSound.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSound.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSound.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WaveSound.h
+@@ -16,7 +16,11 @@
+ template <typename T> class SoundInstanceManager;
+ 
+ class WaveSound : public BasicSound {
++#if defined(MSCHARGED_NATIVE)
++    friend class ::nw4hbm::snd::WaveSoundHandle;
++#else
+     friend class WaveSoundHandle;
++#endif
+ 
+ public:
+     explicit WaveSound(SoundInstanceManager<WaveSound>* manager);
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Bank.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Bank.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Bank.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Bank.cpp
+@@ -1,6 +1,10 @@
+ #include "revolution/hbm/nw4hbm/snd/Bank.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_BankFile.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_BankFile.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_BankFile.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_BankFile.cpp
+@@ -1,6 +1,12 @@
+ #include "revolution/hbm/nw4hbm/snd/BankFile.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/binaryFileFormat.h"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+diff --git a/src/RVL_SDK/mem/mem_frameHeap.c b/src/RVL_SDK/mem/mem_frameHeap.c
+--- a/src/RVL_SDK/mem/mem_frameHeap.c
++++ b/src/RVL_SDK/mem/mem_frameHeap.c
+@@ -1,5 +1,9 @@
+ #include <revolution/mem/frameHeap.h>
+ #include <revolution/os/OSInterrupt.h>
++
++#if defined(MSCHARGED_NATIVE)
++#define __abs(value) __builtin_abs(value)
++#endif
+ 
+ static MEMHeapHandle InitFrameHeap_(void* start, void* end, u16 flags) {
+     MEMHeapHandle heap = (MEMHeapHandle)start;

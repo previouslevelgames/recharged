@@ -1,4 +1,7 @@
 include_guard(GLOBAL)
+include(cmake/OriginalARC.cmake)
+include(cmake/OriginalHBMArcResources.cmake)
+include(cmake/NativeHBMDebug.cmake)
 
 # Admit only the original AsyncLoading HBM resource services26/27. The real
 # source owns construction, language-selected requests, six NL completions and
@@ -23,6 +26,10 @@ function(mscharged_select_original_frontend_hbm target)
     if(NOT _hbm_source IN_LIST _existing)
         target_sources("${target}" PRIVATE "${_hbm_source}")
     endif()
+    mscharged_select_original_hbm_text_transport("${target}")
+    mscharged_add_original_arc("${target}")
+    mscharged_select_original_hbm_arc_resources("${target}")
+    mscharged_select_original_hbm_debug("${target}")
     # The sequence's original SaveLoad/Wii16/TPL transport already supplies the
     # actual qualified palette binder. HBMManager source remains unmodified.
 endfunction()

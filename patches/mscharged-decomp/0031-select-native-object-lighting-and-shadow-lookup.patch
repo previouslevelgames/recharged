@@ -1,5 +1,5 @@
 Subject: Select original object lights and projected-shadow lookup with bounded native inputs
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Select the original diffuse-light, ambient-channel, static shadow projection
 and LightingLookup calculations independently of the stadium/camera/effect

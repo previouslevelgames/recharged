@@ -3,6 +3,7 @@
 #include "runtime/game_config.h"
 #include "runtime/camera_assets.h"
 #include "platform/path.h"
+#include "dvd_fixture_medium.h"
 #include "NL/MemAlloc.h"
 #include "NL/nlMemory.h"
 #include "NL/nlFile.h"
@@ -633,13 +634,25 @@ void CheckReadFailures()
     for (auto mode : {FaultFile::Short, FaultFile::Error})
     {
         fault.mode = mode;
+        const bool fatal = mode == FaultFile::Error;
+        const auto finishCase = [&] {
+            Require(fault.entered && fault.finished && !fault.handles,
+                    "Fault case did not perform and retire its actual overlay read");
+            mscharged::test::FinishDVDTestFaultCase(fatal);
+            // A fatal case gets a new real media owner and therefore a new FST.
+            if (fatal) aurora_dvd_overlay_files(&overlay, 1, nullptr);
+            fault.entered = false;
+            fault.finished = false;
+        };
         alignas(32) std::array<unsigned char, 128> bytes{};
         Callback completion;
         {
+            alignas(32) std::array<unsigned char, 64> survivorBytes{};
+            survivorBytes.fill(0xa5);
+            Callback survivor;
+            // File destructors drain while the borrowed buffer/context live.
             auto file = Open("/read-fault.bin");
             auto survivorFile = Open("/large.bin");
-            alignas(32) std::array<unsigned char, 64> survivorBytes{};
-            Callback survivor;
             // An unpadded 65-byte request has both raw head and tail entries.
             // Keep the failed file open: its destructor must not hide a leak.
             auto* request = completion.Queue(file.get(), bytes.data(), 65, 65);
@@ -652,17 +665,32 @@ void CheckReadFailures()
                 && !nlCancelAsyncRead(request, Callback::Cancel) && !survivor.calls
                 && nlAsyncReadsPending(survivorFile.get()),
                 "Failed raw read retained its pair or changed an unrelated request");
-            ServiceUntil([&] { return survivor.calls != 0; });
-            CheckBytes(survivorBytes.data(), 0, survivorBytes.size());
+            if (fatal)
+            {
+                Require(ExpectThrow<std::runtime_error>([&] {
+                    ServiceUntil([&] { return survivor.calls != 0; });
+                }, "Queued read succeeded after a fatal drive error") == "NL asynchronous DVD read failed",
+                    "Queued read lost the latched fatal-drive result");
+                Require(!survivor.calls && !nlAsyncReadsPending(survivorFile.get()),
+                        "Post-fatal request retained state or reported success");
+                CheckGuard(survivorBytes.data(), 0, survivorBytes.size());
+            }
+            else
+            {
+                ServiceUntil([&] { return survivor.calls != 0; });
+                CheckBytes(survivorBytes.data(), 0, survivorBytes.size());
+            }
         }
         Require(completion.calls == 0 && !nlAsyncReadsPending(nullptr) && fault.handles == 0,
                 "Failed read called back with success or retained its worker handle");
+        finishCase();
         const auto free = StandardAllocator.TotalFreeMemory();
         ExpectThrow<std::runtime_error>([&] {
             nlLoadEntireFile("/read-fault.bin", nullptr, 32, AllocateStart, nullptr, 0, nullptr);
         }, "Failed whole-file read was accepted");
         Require(StandardAllocator.TotalFreeMemory() == free && fault.handles == 0 && !nlAsyncReadsPending(nullptr),
                 "Failed whole-file read leaked its allocation/file/request");
+        finishCase();
         const auto mem2 = VirtualAllocator.TotalFreeMemory();
         for (auto* allocator : {&StandardAllocator, &VirtualAllocator})
         {
@@ -674,7 +702,18 @@ void CheckReadFailures()
             Require(!failed.calls && !failed.cancellations && !survivor.calls && fault.handles == 0
                 && !nlCancelEntireFileLoad(failed.handle, Whole::Cancel),
                 "Failed whole-file request retained state or aborted/completed another request");
-            ServiceUntil([&] { return survivor.calls != 0; });
+            if (fatal)
+            {
+                Require(ExpectThrow<std::runtime_error>([&] {
+                    ServiceUntil([&] { return survivor.calls != 0; });
+                }, "Queued whole file succeeded after a fatal drive error") == "NL asynchronous DVD read failed",
+                    "Queued whole file lost the latched fatal-drive result");
+                Require(!survivor.calls && !survivor.cancellations
+                    && !nlCancelEntireFileLoad(survivor.handle, Whole::Cancel),
+                    "Post-fatal whole file retained state or reported success");
+            }
+            else ServiceUntil([&] { return survivor.calls != 0; });
+            finishCase();
         }
         Whole borrowed; borrowed.size = 128;
         bytes.fill(0xa5);
@@ -688,6 +727,7 @@ void CheckReadFailures()
             && !nlCancelEntireFileLoad(borrowed.handle, Whole::Cancel) && !nlAsyncReadsPending(nullptr)
             && StandardAllocator.TotalFreeMemory() == free && VirtualAllocator.TotalFreeMemory() == mem2,
             "Async read failure leaked its file/output or freed borrowed data");
+        finishCase();
     }
     fault.mode = FaultFile::Blocked; fault.entered = false; fault.finished = false;
     alignas(32) std::array<unsigned char, 128> bytes{};
@@ -819,6 +859,7 @@ void CheckCameraAssets()
         for(auto mode:{FaultFile::Short,FaultFile::Error}) for(bool direct:{false,true})
         {
             fault.mode=mode;
+            fault.entered=false; fault.finished=false;
             mscharged::CameraAssetLoad failed("/camera-fault.cam","failure");
             ExpectThrow<std::runtime_error>([&] {
                 if(!direct) ServiceUntil([&] { return failed.Ready(); });
@@ -827,8 +868,11 @@ void CheckCameraAssets()
                     while(!failed.Ready()) { failed.Service();SDL_Delay(1);Require(std::chrono::steady_clock::now()<end,"Camera read timed out"); }
                 }
             },"Camera disc read error was swallowed");
-            Require(failed.Ready() && fault.handles==0,"Failed camera read stayed pending or retained its file");
+            Require(failed.Ready() && fault.handles==0 && fault.entered && fault.finished,
+                    "Failed camera read did not execute and retire its actual file");
             ExpectThrow<std::runtime_error>([&] { failed.Result(); },"Failed camera read returned an asset");
+            mscharged::test::FinishDVDTestFaultCase(mode==FaultFile::Error);
+            if(mode==FaultFile::Error) aurora_dvd_overlay_files(&overlay,1,nullptr);
         }
     }
     Require(StandardAllocator.TotalFreeMemory()==mem1 && VirtualAllocator.TotalFreeMemory()==mem2,
@@ -898,6 +942,7 @@ int main(int argc, char** argv)
         ExpectThrow<std::runtime_error>([] { nlInitFileSystem(); }, "NL init without a disc was accepted");
         Require(!nlFileSystemReady(), "Failed init retained a manager");
         Require(aurora_dvd_open(argv[1]), "Synthetic Wii partition could not be mounted"); session.disc = true;
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         nlInitFileSystem();
         CheckSync(); CheckAsync(); CheckReentrancy(); CheckCancellation(); CheckPools(); CheckWholeFiles();
         CheckAsyncWholeFiles(); CheckWholeReentrancyAndCancellation();

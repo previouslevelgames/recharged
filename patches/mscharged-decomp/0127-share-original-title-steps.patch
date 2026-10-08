@@ -1,5 +1,5 @@
 Subject: Share selected original Title visual, input and departure fragments
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 --- a/src/Game/SH/SHTitleScreen.cpp

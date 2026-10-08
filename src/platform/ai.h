@@ -37,6 +37,13 @@ bool ServiceNativeAI();
 NativeAIStatus GetNativeAIStatus();
 void ShutdownNativeAI();
 
+// Host output volume (0..1) of the desktop speaker stream, like a TV volume
+// control: it scales only the device playback after the DMA FIFO. Source PCM,
+// DMA timing and callbacks are unchanged. Applies to the current and future
+// AIInit streams; values outside 0..1 or non-finite values are rejected.
+void SetNativeAIOutputGain(float gain);
+float GetNativeAIOutputGain();
+
 // Separate structure leaves the existing NativeAIStatus return ABI unchanged.
 struct NativeAIClockStatus {
     std::uintptr_t active_source_address{};

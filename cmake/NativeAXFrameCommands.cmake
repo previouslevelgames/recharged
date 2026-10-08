@@ -2,8 +2,8 @@ include_guard(GLOBAL)
 include(cmake/NativeAXActiveVoice.cmake)
 
 # Staged AX command/AUX/output conformance, not a production-ready DSP kernel.
-# Original callbacks/ring/source lists remain authoritative. Remote Studio
-# output, prior surround, DPL2, compressor history/attack and authentic FIR remain bounded.
+# Original callbacks/ring/source lists remain authoritative. Prior surround,
+# DPL2, unknown compressor history, the remote biquad and authentic FIR remain bounded.
 add_library(charged_native_ax_frame_commands STATIC src/platform/ax_frame_commands.cpp
     src/platform/ax_studio_depop.cpp)
 add_dependencies(charged_native_ax_frame_commands verify_prepared)
@@ -78,4 +78,33 @@ if(BUILD_TESTING)
     target_compile_features(native_ax_depop_tests PRIVATE cxx_std_17)
     add_test(NAME native_ax_depop COMMAND native_ax_depop_tests "${ax_depop_oracle}")
     set_tests_properties(native_ax_depop PROPERTIES TIMEOUT 10 LABELS "Platform")
+
+    # Owned057B..0609 compressor executed on controlled inputs with the original
+    # __AXCompressorTable; native decision/ramp arithmetic must match exactly.
+    set(ax_compressor_oracle "${CMAKE_CURRENT_BINARY_DIR}/native-ax-compressor-oracle/compressor-oracle.bin")
+    add_custom_command(OUTPUT "${ax_compressor_oracle}"
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_compressor_oracle.py"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c" "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/AXComp.c"
+            "${CMAKE_CURRENT_BINARY_DIR}/native-ax-compressor-oracle"
+        DEPENDS verify_prepared "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/AXComp.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_compressor_oracle.py" VERBATIM)
+    add_custom_target(native_ax_compressor_oracle DEPENDS "${ax_compressor_oracle}")
+    add_executable(native_ax_compressor_tests tests/native_ax_compressor.cpp)
+    add_dependencies(native_ax_compressor_tests native_ax_compressor_oracle)
+    target_link_libraries(native_ax_compressor_tests PRIVATE charged_native_ax_frame_commands)
+    add_test(NAME native_ax_compressor COMMAND native_ax_compressor_tests "${ax_compressor_oracle}")
+    set_tests_properties(native_ax_compressor PROPERTIES TIMEOUT 10 LABELS "Platform")
+    set(ax_remote_oracle "${CMAKE_CURRENT_BINARY_DIR}/native-ax-remote-oracle/remote-oracle.bin")
+    add_custom_command(OUTPUT "${ax_remote_oracle}"
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_remote_oracle.py"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c" "${CMAKE_CURRENT_BINARY_DIR}/native-ax-remote-oracle"
+        DEPENDS verify_prepared "${MSCHARGED_PREPARED}/src/RVL_SDK/ax/DSPCode.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/native_ax_remote_oracle.py" VERBATIM)
+    add_custom_target(native_ax_remote_oracle DEPENDS "${ax_remote_oracle}")
+    add_executable(native_ax_remote_tests tests/native_ax_remote.cpp)
+    add_dependencies(native_ax_remote_tests native_ax_remote_oracle)
+    target_link_libraries(native_ax_remote_tests PRIVATE charged_native_ax_frame_commands)
+    add_test(NAME native_ax_remote COMMAND native_ax_remote_tests "${ax_remote_oracle}")
+    set_tests_properties(native_ax_remote PROPERTIES TIMEOUT 10 LABELS "Platform")
 endif()

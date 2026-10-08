@@ -1,5 +1,5 @@
 # Patch: 0503-original-main-menu-presentation-services
-# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 # Scope: Admit only literal original services41/42/47 under existing native MAIN_MENU diagnostic.
 # Save wait, original Navigation transition and original music/pointer requests remain unchanged.
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp

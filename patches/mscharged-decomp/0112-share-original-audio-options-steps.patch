@@ -1,6 +1,6 @@
 Subject: Share original audio options visual and volume target kernels
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Original source methods delegate to the same visual, listener, category clamp
 and target equations as checked native owners. Global GameInfo, SaveLoad, NAV
@@ -48,26 +48,26 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
          g_pAudioSystem->GetBundleManager()->GetCalculationTable())->sliders;
 -    float volume = VOLUME_TABLE[MusicVolume];
 -    if (volume < sliders[2].minimum)
-+        AudioOptionsApplyVolume(MusicVolume, sliders[2].target, sliders[2].elapsed, sliders[2].minimum, sliders[2].maximum);
++        AudioOptionsApplyVolume(MusicVolume, sliders[2].target, sliders[2].remainingTime, sliders[2].minimum, sliders[2].maximum);
 +    }
      {
 -        sliders[2].target = sliders[2].minimum;
 +        AudioCalculationSlider* sliders = ((AudioCalculationTable*)
 +        g_pAudioSystem->GetBundleManager()->GetCalculationTable())->sliders;
-+        AudioOptionsApplyVolume(SFXVolume, sliders[4].target, sliders[4].elapsed, sliders[4].minimum, sliders[4].maximum);
++        AudioOptionsApplyVolume(SFXVolume, sliders[4].target, sliders[4].remainingTime, sliders[4].minimum, sliders[4].maximum);
      }
 -    else if (volume > sliders[2].maximum)
      {
 -        sliders[2].target = sliders[2].maximum;
 +        AudioCalculationSlider* sliders = ((AudioCalculationTable*)
 +        g_pAudioSystem->GetBundleManager()->GetCalculationTable())->sliders;
-+        AudioOptionsApplyVolume(VoiceVolume, sliders[3].target, sliders[3].elapsed, sliders[3].minimum, sliders[3].maximum);
++        AudioOptionsApplyVolume(VoiceVolume, sliders[3].target, sliders[3].remainingTime, sliders[3].minimum, sliders[3].maximum);
      }
 -    else
 -    {
 -        sliders[2].target = volume;
 -    }
--    sliders[2].elapsed = 0.0f;
+-    sliders[2].remainingTime = 0.0f;
 -
 -    SFXVolume = SFXVolume < 0 ? 0 : SFXVolume;
 -    SFXVolume = SFXVolume > 10 ? 10 : SFXVolume;
@@ -86,7 +86,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    {
 -        sliders[4].target = volume;
 -    }
--    sliders[4].elapsed = 0.0f;
+-    sliders[4].remainingTime = 0.0f;
 -
 -    VoiceVolume = VoiceVolume < 0 ? 0 : VoiceVolume;
 -    VoiceVolume = VoiceVolume > 10 ? 10 : VoiceVolume;
@@ -105,7 +105,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    {
 -        sliders[3].target = volume;
 -    }
--    sliders[3].elapsed = 0.0f;
+-    sliders[3].remainingTime = 0.0f;
  }
  
  void AudioSettings::ApplyMusicVolume()
@@ -120,7 +120,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    if (volume < sliders[2].minimum)
 -    {
 -        sliders[2].target = sliders[2].minimum;
-+        AudioOptionsApplyVolume(MusicVolume, sliders[2].target, sliders[2].elapsed, sliders[2].minimum, sliders[2].maximum);
++        AudioOptionsApplyVolume(MusicVolume, sliders[2].target, sliders[2].remainingTime, sliders[2].minimum, sliders[2].maximum);
      }
 -    else if (volume > sliders[2].maximum)
 -    {
@@ -130,7 +130,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    {
 -        sliders[2].target = volume;
 -    }
--    sliders[2].elapsed = 0.0f;
+-    sliders[2].remainingTime = 0.0f;
  }
  
  void AudioSettings::ApplySFXVolume()
@@ -145,7 +145,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    if (volume < sliders[4].minimum)
 -    {
 -        sliders[4].target = sliders[4].minimum;
-+        AudioOptionsApplyVolume(SFXVolume, sliders[4].target, sliders[4].elapsed, sliders[4].minimum, sliders[4].maximum);
++        AudioOptionsApplyVolume(SFXVolume, sliders[4].target, sliders[4].remainingTime, sliders[4].minimum, sliders[4].maximum);
      }
 -    else if (volume > sliders[4].maximum)
 -    {
@@ -155,7 +155,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    {
 -        sliders[4].target = volume;
 -    }
--    sliders[4].elapsed = 0.0f;
+-    sliders[4].remainingTime = 0.0f;
  }
  
  void AudioSettings::ApplyVoiceVolume()
@@ -170,7 +170,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    if (volume < sliders[3].minimum)
 -    {
 -        sliders[3].target = sliders[3].minimum;
-+        AudioOptionsApplyVolume(VoiceVolume, sliders[3].target, sliders[3].elapsed, sliders[3].minimum, sliders[3].maximum);
++        AudioOptionsApplyVolume(VoiceVolume, sliders[3].target, sliders[3].remainingTime, sliders[3].minimum, sliders[3].maximum);
      }
 -    else if (volume > sliders[3].maximum)
 -    {
@@ -180,7 +180,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
 -    {
 -        sliders[3].target = volume;
 -    }
--    sliders[3].elapsed = 0.0f;
+-    sliders[3].remainingTime = 0.0f;
  }
  
  GameplaySettings::GameplaySettings()

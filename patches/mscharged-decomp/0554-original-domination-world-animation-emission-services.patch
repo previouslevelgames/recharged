@@ -1,0 +1,43 @@
+Subject: Admit the original Domination world animation and emission cleanup services
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Classification: temporary explicit original-source diagnostic admission; depends on 0551 and 0552.
+
+The authored FromGrudgeMatchToStadiumSelect and FromStadiumSelectToGrudgeMatch
+functions open and close the FE world's stadium-select screen ("proxy
+object01") through service 16, original SetWorldAnimation on the loaded
+BasicStadium WorldAnimManager (a no-op when no controller matches). Back
+from Choose Sides calls KillLightCones, service 12: original
+DestroyFrontEndPresentationEmission ("fe_light_cone"), which destroys the
+effects group only if EmissionManager has it. Move only services 12 and 16
+under the existing Domination admission; emission disable/enable (14, 43)
+and all other services keep their guards.
+
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -133,7 +133,7 @@
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     case 12:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -142,6 +142,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 13:
+         BeginLoadTournamentTrophy();
+         break;
+@@ -168,7 +170,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     case 16:
+     {
+         ePlayMode playMode = (ePlayMode)m_SP[-1];

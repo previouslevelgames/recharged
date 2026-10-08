@@ -296,8 +296,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         config.windowPosX=config.windowPosY=-1;
         config.mem1Size=MEM1_DEFAULT_SIZE;
         config.mem2Size=64u*1024u*1024u;
-        config.logLevel=LOG_INFO;config.enableBackendValidation=true;
-        config.vsync=true;
+        // Host presentation/diagnostic preferences; none reaches game code.
+        const auto& logLevel=launch.settings.log_level;
+        config.logLevel=logLevel=="debug"?LOG_DEBUG:logLevel=="warning"?LOG_WARNING:
+            logLevel=="error"?LOG_ERROR:LOG_INFO;
+        config.enableBackendValidation=launch.settings.graphics_validation;
+        config.vsync=launch.settings.vsync;
         const auto host=aurora_initialize(argc,argv,&config);
         if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
@@ -309,6 +313,21 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             retainedWindowClose=true;
         }
 #endif
+        if(launch.settings.monitor>0) {
+            // Start on the selected display; fullscreen then uses that display.
+            int displayCount=0;
+            SDL_DisplayID* displays=SDL_GetDisplays(&displayCount);
+            // display.monitor: 0 keeps the default display, N selects the Nth display.
+            if(displays && launch.settings.monitor<=displayCount) {
+                const auto position=SDL_WINDOWPOS_CENTERED_DISPLAY(displays[launch.settings.monitor-1]);
+                if(!SDL_SetWindowPosition(host.window,int(position),int(position)))
+                    std::fprintf(stderr,"Selected display %d unavailable: %s\n",launch.settings.monitor,SDL_GetError());
+            } else std::fprintf(stderr,"Selected display %d is not connected; using the default display.\n",
+                launch.settings.monitor);
+            SDL_free(displays);
+        }
+        mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
+            float(launch.settings.master_volume)/100.0f);
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
         if(nativeSend) {
             // Existing Aurora policy fixes the internal source EFB at 1x.
@@ -551,7 +570,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 }
             }
             const auto now=std::chrono::steady_clock::now();
-            if(const auto title=frameRateTitle.Sample(frames,now)) SDL_SetWindowTitle(host.window,title->c_str());
+            if(launch.settings.show_fps)
+                if(const auto title=frameRateTitle.Sample(frames,now)) SDL_SetWindowTitle(host.window,title->c_str());
             Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {
                 {

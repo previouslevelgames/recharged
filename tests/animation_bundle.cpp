@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/animation_bundle.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -213,6 +214,8 @@ void Failures()
         FaultFile fault(mode); load.Begin(Request()); Pump(load, false, true);
         Check(load.State() == AnimationBundleState::Failed && load.Current() == previous && fault.finished && !fault.handles,
             "Worker failure leaked storage or replaced the previous bundle"); Reject([&] { load.Result(); });
+        Check(fault.entered, "Independent animation fault never entered its actual provider");
+        mscharged::test::FinishDVDTestFaultCase(mode==FaultFile::Error);
     }
     { FaultFile fault(FaultFile::Error, "/world.res", resources::MaximumAssetBytes + 1);
       Reject([&] { load.Begin(Request()); }); Check(load.Current() == previous && !fault.entered, "Oversized batch submitted a worker"); }
@@ -318,6 +321,8 @@ void Characters(bool bad)
         FaultFile fault(FaultFile::Error, absolute.c_str()); load.BeginCharacter(0); Pump(load, false, true);
         Check(load.State() == AnimationBundleState::Failed && load.Current() == previous && !fault.handles,
             "A character read failure changed publication or retained a worker");
+        Check(fault.entered, "Independent character fault never entered its actual provider");
+        mscharged::test::FinishDVDTestFaultCase(true);
     }
     {
         const std::string path = "/" + std::string(CharacterAnimation(0).retarget_path);
@@ -366,6 +371,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot open animation disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         AnimationBundle::Handle retained;
         AnimationBundle::Handle retained_character;
         for (unsigned repeat = 0; repeat < 3; ++repeat)

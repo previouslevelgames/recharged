@@ -256,7 +256,8 @@ NativeRLGWeightRows::NativeRLGWeightRows(const void* source, std::size_t vertice
             std::memcpy(reinterpret_cast<unsigned char*>(rows->Data()) + at, &bits, 4);
         }
         if (access == RLGWeightAccess::ReadWrite)
-            rows->write = GameByteWriteReservation(const_cast<void*>(span.base), span.bytes);
+            rows->write = GameByteWriteReservation(const_cast<void*>(span.base), span.bytes,
+                GameByteInPlaceRewrite{});
         state_ = rows;
     }
     catch (...)

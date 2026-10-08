@@ -13,6 +13,12 @@
 #include "NL/glx/GXSpecularMaterialProgram.h"
 #include "NL/glx/GXSpecularFresnelMaterialProgram.h"
 #include "NL/glx/GXMegaDiffuseMaterialProgram.h"
+#include "NL/glx/GXCharacterDamageMaterialProgram.h"
+#include "NL/glx/GXBlackTextureAlphaMaterialProgram.h"
+#include "NL/glx/GXColourFresnelMaterialProgram.h"
+#include "NL/glx/GXMegaSpecularFresnelMaterialProgram.h"
+#include "NL/glx/GXMegaSpecularMaterialProgram.h"
+#include "NL/glx/GXSkinnedUnlitTextureMaterialProgram.h"
 
 #include <array>
 #include <cstdint>
@@ -59,14 +65,15 @@ struct alignas(std::max_align_t) SkinnedParameterTag
     std::uint32_t parameters;
 };
 
-template<class Parameters>
+// SizeAt is the native offset of the u32 skin-matrix byte count that follows
+// the matrix pointer (named skinMatrixBytes or skinMatricesSize by source).
+template<class Parameters, std::size_t SizeAt>
 void DecodeSkinnedParameters(glModelPacket* packet, std::size_t wireBytes,
     std::size_t bindings, std::uint32_t parameterCount)
 {
     static_assert(std::is_trivially_copyable_v<Parameters>);
-    static_assert(sizeof(Parameters::skinMatrixBytes) == 4);
-    static_assert(offsetof(Parameters, skinMatrixBytes)
-        == offsetof(Parameters, skinMatrices) + sizeof(Parameters::skinMatrices));
+    static_assert(SizeAt == offsetof(Parameters, skinMatrices) + sizeof(Parameters::skinMatrices));
+    static_assert(SizeAt + 4 <= sizeof(Parameters));
     auto* program = static_cast<GLMaterialProgram*>(packet->materialProgram);
     if (program->parameterDataSize != sizeof(Parameters)
         || program->parameterCount != parameterCount
@@ -112,7 +119,7 @@ void DecodeSkinnedParameters(glModelPacket* packet, std::size_t wireBytes,
     if (Word(raw + pointerAt, 4) != 0)
         throw std::invalid_argument("Nonzero authored skin matrix addresses remain unqualified");
     native.skinMatrices = nullptr;
-    const auto tailAt = offsetof(Parameters, skinMatrixBytes);
+    const auto tailAt = SizeAt;
     for (std::size_t at = pointerAt + 4; at < wireBytes; at += 4)
     {
         const auto bits = Word(raw + at, 4);
@@ -175,22 +182,76 @@ void DecodeRLGMaterialParameters(glModelPacket* packet)
     case 0x041C3281:
         static_assert(sizeof(GXCharacterSkinCustomParameters) == 48);
         static_assert(offsetof(GXCharacterSkinCustomParameters, lightingEnabled) == 40);
-        DecodeSkinnedParameters<GXCharacterSkinCustomParameters>(packet, 40, 2, 7);
+        static_assert(sizeof(GXCharacterSkinCustomParameters::skinMatrixBytes) == 4);
+        DecodeSkinnedParameters<GXCharacterSkinCustomParameters,
+            offsetof(GXCharacterSkinCustomParameters, skinMatrixBytes)>(packet, 40, 2, 7);
         return;
     case 0x22CADB20:
         static_assert(sizeof(GXSpecularParameters) == 80);
         static_assert(offsetof(GXSpecularParameters, lightingEnabled) == 72);
-        DecodeSkinnedParameters<GXSpecularParameters>(packet, 72, 3, 11);
+        static_assert(sizeof(GXSpecularParameters::skinMatrixBytes) == 4);
+        DecodeSkinnedParameters<GXSpecularParameters,
+            offsetof(GXSpecularParameters, skinMatrixBytes)>(packet, 72, 3, 11);
         return;
     case 0x46B46F88:
         static_assert(sizeof(GXSpecularFresnelParameters) == 80);
         static_assert(offsetof(GXSpecularFresnelParameters, lightingEnabled) == 72);
-        DecodeSkinnedParameters<GXSpecularFresnelParameters>(packet, 72, 4, 13);
+        static_assert(sizeof(GXSpecularFresnelParameters::skinMatrixBytes) == 4);
+        DecodeSkinnedParameters<GXSpecularFresnelParameters,
+            offsetof(GXSpecularFresnelParameters, skinMatrixBytes)>(packet, 72, 4, 13);
         return;
     case 0x44410B9B:
         static_assert(sizeof(GXMegaDiffuseParameters) == 56);
         static_assert(offsetof(GXMegaDiffuseParameters, lightingEnabled) == 52);
-        DecodeSkinnedParameters<GXMegaDiffuseParameters>(packet, 52, 3, 9);
+        static_assert(sizeof(GXMegaDiffuseParameters::skinMatrixBytes) == 4);
+        DecodeSkinnedParameters<GXMegaDiffuseParameters,
+            offsetof(GXMegaDiffuseParameters, skinMatrixBytes)>(packet, 52, 3, 9);
+        return;
+    case 0x1ACE1D01:
+        // Wii 104-byte record: six bindings, null authored matrix pointer at
+        // 0x30, then u32/float words; the native pointer widens it to 112.
+        static_assert(sizeof(GXCharacterDamageParameters) == 112);
+        static_assert(sizeof(GXCharacterDamageParameters::skinMatricesSize) == 4);
+        static_assert(offsetof(GXCharacterDamageParameters, alphaValue) == 60);
+        static_assert(offsetof(GXCharacterDamageParameters, damage2Enabled) == 104);
+        DecodeSkinnedParameters<GXCharacterDamageParameters,
+            offsetof(GXCharacterDamageParameters, skinMatricesSize)>(packet, 104, 6, 19);
+        return;
+    // The remaining skinned programs share the same verified shape: bindings,
+    // a null authored matrix pointer, its u32 byte count, then 32-bit words.
+    case 0xBACEA013:
+        static_assert(sizeof(GXBlackTextureAlphaParameters) == 24);
+        static_assert(sizeof(GXBlackTextureAlphaParameters::skinMatrixBytes) == 4);
+        DecodeSkinnedParameters<GXBlackTextureAlphaParameters,
+            offsetof(GXBlackTextureAlphaParameters, skinMatrixBytes)>(packet, 16, 1, 2);
+        return;
+    case 0x5D6C62BA:
+        static_assert(sizeof(GXSkinnedUnlitTextureParameters) == 24);
+        static_assert(sizeof(GXSkinnedUnlitTextureParameters::skinMatrixBytes) == 4);
+        DecodeSkinnedParameters<GXSkinnedUnlitTextureParameters,
+            offsetof(GXSkinnedUnlitTextureParameters, skinMatrixBytes)>(packet, 16, 1, 2);
+        return;
+    case 0x52A9BB54:
+        static_assert(sizeof(GXColourFresnelParameters) == 56);
+        static_assert(sizeof(GXColourFresnelParameters::skinMatrixBytes) == 4);
+        static_assert(offsetof(GXColourFresnelParameters, lightingEnabled) == 48);
+        DecodeSkinnedParameters<GXColourFresnelParameters,
+            offsetof(GXColourFresnelParameters, skinMatrixBytes)>(packet, 48, 3, 8);
+        return;
+    case 0x632E7422:
+        static_assert(sizeof(GXMegaSpecularFresnelParameters) == 96);
+        static_assert(sizeof(GXMegaSpecularFresnelParameters::skinMatrixBytes) == 4);
+        static_assert(offsetof(GXMegaSpecularFresnelParameters, blackOnly) == 88);
+        DecodeSkinnedParameters<GXMegaSpecularFresnelParameters,
+            offsetof(GXMegaSpecularFresnelParameters, skinMatrixBytes)>(packet, 88, 5, 16);
+        return;
+    case 0xF540EBBA:
+        static_assert(sizeof(GXMegaSpecularParameters) == 88);
+        static_assert(sizeof(GXMegaSpecularParameters::skinMatrixBytes) == 4);
+        static_assert(offsetof(GXMegaSpecularParameters, specularColour) == 60);
+        static_assert(offsetof(GXMegaSpecularParameters, lightingEnabled) == 84);
+        DecodeSkinnedParameters<GXMegaSpecularParameters,
+            offsetof(GXMegaSpecularParameters, skinMatrixBytes)>(packet, 84, 4, 13);
         return;
     }
     std::size_t bytes;

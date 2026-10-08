@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend flow and native serialized data ABI
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Restore reconstructed frontend methods and inline game decisions verbatim.
 Adapt only raw Wii FEN data to the native pointer/record ABI beneath the original
@@ -1204,20 +1204,20 @@ diff --git a/src/Game/FE/tlComponent.cpp b/src/Game/FE/tlComponent.cpp
  #include "Game/FE/tlSlide.h"
 @@ -19,14 +17,16 @@
  
- void TLComponent::SetActiveSlide(unsigned long hash, bool arg2, bool arg3)
+ void TLComponent::SetActiveSlide(unsigned long hash, bool forceRestart, bool preserveTime)
  {
--    FrontendMainComponentSelect<TLSlide>(*this, hash, arg2, arg3, FindItemByHashID<TLSlide>);
+-    FrontendMainComponentSelect<TLSlide>(*this, hash, forceRestart, preserveTime, FindItemByHashID<TLSlide>);
 -}
 -
--void TLComponent::SetActiveSlide(TLSlide* slide, bool arg2, bool arg3)
+-void TLComponent::SetActiveSlide(TLSlide* slide, bool forceRestart, bool preserveTime)
 -{
 +    TLSlide* slide = FindItemByHashID<TLSlide>(pChildren, hash);
      if (slide != 0)
      {
--        FrontendSelectComponentTime(slide->m_time, arg2, slide != m_pActiveSlide, arg3);
-+        if (arg2 || slide != m_pActiveSlide)
+-        FrontendSelectComponentTime(slide->m_time, forceRestart, slide != m_pActiveSlide, preserveTime);
++        if (forceRestart || slide != m_pActiveSlide)
 +        {
-+            if (!arg3)
++            if (!preserveTime)
 +            {
 +                slide->m_time = 0.0f;
 +            }
@@ -1230,13 +1230,13 @@ diff --git a/src/Game/FE/tlComponent.cpp b/src/Game/FE/tlComponent.cpp
      }
  }
 +
-+void TLComponent::SetActiveSlide(TLSlide* slide, bool arg2, bool arg3)
++void TLComponent::SetActiveSlide(TLSlide* slide, bool forceRestart, bool preserveTime)
 +{
 +    if (slide != 0)
 +    {
-+        if (arg2 || slide != m_pActiveSlide)
++        if (forceRestart || slide != m_pActiveSlide)
 +        {
-+            if (!arg3)
++            if (!preserveTime)
 +            {
 +                slide->m_time = 0.0f;
 +            }

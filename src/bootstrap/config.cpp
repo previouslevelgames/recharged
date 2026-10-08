@@ -38,7 +38,11 @@ Values Encode(const Settings& s)
             {"audio.effects_volume", std::to_string(s.effects_volume)},
             {"audio.mute", s.mute ? "true" : "false"}, {"controls.input", s.input},
             {"controls.deadzone", std::to_string(s.deadzone)},
-            {"controls.rumble", s.rumble ? "true" : "false"}};
+            {"controls.rumble", s.rumble ? "true" : "false"},
+            {"display.show_fps", s.show_fps ? "true" : "false"},
+            {"display.monitor", std::to_string(s.monitor)},
+            {"advanced.graphics_validation", s.graphics_validation ? "true" : "false"},
+            {"advanced.log_level", s.log_level}, {"launcher.ui_scale", s.ui_scale}};
 }
 
 Settings Decode(const Values& values)
@@ -87,6 +91,11 @@ Settings Decode(const Values& values)
     choice("controls.input", s.input, {"auto", "keyboard", "controller"});
     number("controls.deadzone", s.deadzone, 0, 50);
     boolean("controls.rumble", s.rumble);
+    boolean("display.show_fps", s.show_fps);
+    number("display.monitor", s.monitor, 0, 15);
+    boolean("advanced.graphics_validation", s.graphics_validation);
+    choice("advanced.log_level", s.log_level, {"error", "warning", "info", "debug"});
+    choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     return s;
 }
 

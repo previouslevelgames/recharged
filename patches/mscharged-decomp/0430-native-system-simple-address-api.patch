@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Share canonical native Wii32 SC declarations
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Use the canonical SC owning API on native builds so SCGetSimpleAddressID
 retains its Wii32 return type on LP64. The original console declarations and

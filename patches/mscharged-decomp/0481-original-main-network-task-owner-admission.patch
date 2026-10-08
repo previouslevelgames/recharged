@@ -1,5 +1,5 @@
 # Patch: 0481-original-main-network-task-owner-admission
-# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 # Scope: Explicit native selected-source diagnostic; literal original task static and Initialize call only.
 # Qualification: Original unchanged initializer CPU source-owner leaf on captured source340/SDK48 plus0473/0476/0477.
 # Default/console flow unchanged. No Fixed/online/source-loop admission or initialized-field seeding.

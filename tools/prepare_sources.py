@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Export pinned submodules and apply ordered patches without editing upstream."""
+"""Export pinned submodules and apply ordered patches without editing upstream.
+
+The decomp is prepared into <build-dir>/prepared/mscharged-decomp/: patched/ is
+the exact pinned source plus the patch series (edit it for patch development)
+and source/ is the copy that is compiled, formatted when clang-format 16+ is
+available."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +18,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+import format_prepared
+
+
+DEFAULT_FORMAT_CONFIG = Path(__file__).resolve().parent / "formatting" / "prepared-sources.clang-format"
 
 
 class PreparationError(RuntimeError):
@@ -222,7 +232,13 @@ def preparation_lock(directory: Path):
 
 def prepare(root: Path, build: Path, name: str, *, check=False,
             discard_generated=False, export_patch: Path | None = None,
-            nested_submodules=None) -> Path:
+            nested_submodules=None, clang_format: str | None = None,
+            format_config: Path | None = None, format_jobs: int | None = None) -> Path:
+    """Prepare build/prepared/<name>/source, the tree that is compiled.
+
+    For game sources (or with clang_format), prepared/<name>/patched holds the
+    exact upstream export plus patches, the tree for patch development and
+    export, and source is its copy: formatted with clang_format, else unchanged."""
     root, build = root.resolve(), build.resolve()
     if not build.is_relative_to(root) or build == root:
         raise PreparationError("Use an ignored build directory inside this checkout")
@@ -240,21 +256,50 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
         "format": 3, "export_roots": export_roots,
         "nested_submodules": None if nested_submodules is None else sorted(nested_submodules),
     }
+    base_inputs = dict(inputs)
+    # Game sources keep an exact patched/ tree beside the compiled source/ copy,
+    # formatted or not, so patch development always edits the same place.
+    split = clang_format is not None or name in format_prepared.FORMATTED_BY_DEFAULT
+    if split:
+        inputs["layout"] = "patched+source"
+    formatting = None
+    if clang_format:
+        format_config = (format_config or DEFAULT_FORMAT_CONFIG).resolve()
+        try:
+            formatting = format_prepared.formatter_identity(clang_format, format_config)
+        except RuntimeError as error:
+            raise PreparationError(str(error)) from error
+        inputs["formatting"] = formatting
     key = sha(encoded(inputs))
     parent = build / "prepared"
     parent.mkdir(parents=True, exist_ok=True)
     target = parent / name
     source_path = target / "source"
+    patched_path = target / "patched"
+    cache = parent / f".{name}.format-cache"
     with preparation_lock(parent / f".{name}.lock"):
         state = None
         if (target / "manifest.json").is_file():
             state = json.loads((target / "manifest.json").read_text())
         same_inputs = state is not None and state.get("key") == key
         old_content = content_inventory(source_path) if state is not None and source_path.is_dir() else None
-        clean_output = state is not None and old_content is not None and state.get("content") == old_content
+        old_patched = content_inventory(patched_path) if state is not None and patched_path.is_dir() else None
+        source_clean = state is not None and old_content is not None and state.get("content") == old_content
+        patched_clean = state is not None and old_patched == state.get("patched_content")
+        clean_output = source_clean and patched_clean
         if export_patch is not None:
-            if not same_inputs:
-                raise PreparationError("Export requires the same pin, series, and preparer used to create this tree; restore those inputs before exporting")
+            # Patches are made against the exact tree, so any formatter may have
+            # produced the compiled copy: only the patch inputs must match.
+            recorded = dict(state["inputs"]) if state is not None else None
+            if recorded is not None:
+                recorded.pop("formatting", None)
+                split_tree = recorded.pop("layout", None) is not None
+            if recorded is None or encoded(recorded) != encoded(base_inputs):
+                raise PreparationError("Export requires the same pin, series and preparer used to create this tree; restore those inputs before exporting")
+            exact_path = patched_path if split_tree else source_path
+            if split_tree and not source_clean:
+                raise PreparationError(f"The compiled tree {source_path} was edited. Make patch edits in "
+                                       f"{patched_path} (the exact decomp plus patches), then export them.")
             export_patch = export_patch.resolve()
             if export_patch.exists() or not export_patch.is_relative_to(build) or export_patch.is_relative_to(parent):
                 raise PreparationError("Choose a new patch output file under the build directory, outside prepared/")
@@ -262,12 +307,12 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
                 expected = Path(temp) / "source"
                 materialize(expected, sources, patches, keep_git=True, export_roots=export_roots)
                 git(expected, "add", "--force", "--all")
-                worktree = ("--git-dir=" + str(expected / ".git"), "--work-tree=" + str(source_path))
-                added = git(source_path, *worktree, "ls-files", "--others", "-z").split(b"\0")
+                worktree = ("--git-dir=" + str(expected / ".git"), "--work-tree=" + str(exact_path))
+                added = git(exact_path, *worktree, "ls-files", "--others", "-z").split(b"\0")
                 for path in added:
                     if path:
-                        git(source_path, *worktree, "add", "--intent-to-add", "--force", "--", path.decode())
-                diff = git(source_path, *worktree, "diff", "--binary", "--no-ext-diff", "--no-renames")
+                        git(exact_path, *worktree, "add", "--intent-to-add", "--force", "--", path.decode())
+                diff = git(exact_path, *worktree, "diff", "--binary", "--no-ext-diff", "--no-renames")
                 if not diff:
                     raise PreparationError("No generated-source changes to export")
                 export_patch.parent.mkdir(parents=True, exist_ok=True)
@@ -283,17 +328,33 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
             return source_path
         with tempfile.TemporaryDirectory(prefix=f".{name}-prepare-", dir=parent) as temp:
             staged = Path(temp) / "ready"
-            materialize(staged / "source", sources, patches, export_roots=export_roots)
-            new_content = content_inventory(staged / "source")
-            if clean_output:
-                # Preserve timestamps only for verified identical regular files.
-                # A focused patch update should not recompile unchanged sources.
-                for relative, metadata in new_content.items():
-                    if "sha256" in metadata and old_content.get(relative) == metadata:
-                        previous_stat = (source_path / relative).stat()
-                        os.utime(staged / "source" / relative,
-                                 ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
-            state = {"key": key, "inputs": inputs, "content": new_content}
+            staged.mkdir()
+            # The exact tree is patched/ when a formatted copy is compiled.
+            materialize(staged / ("patched" if split else "source"), sources, patches,
+                        export_roots=export_roots)
+            used, kept = set(), {}
+            if split:
+                shutil.copytree(staged / "patched", staged / "source", symlinks=True)
+            if formatting:
+                used, kept = format_prepared.format_tree(staged / "source", clang_format, format_config,
+                                                         formatting, cache, format_jobs or os.cpu_count() or 1)
+            state = {"key": key, "inputs": inputs}
+            if formatting:
+                # Files whose layout the compiled program depends on, kept as patched.
+                state["kept_unformatted"] = kept
+            for tree, field, old in ((source_path, "content", old_content), (patched_path, "patched_content", old_patched)):
+                if not (staged / tree.name).is_dir():
+                    continue
+                new_content = content_inventory(staged / tree.name)
+                if clean_output and old is not None:
+                    # Preserve timestamps only for verified identical regular files.
+                    # A focused patch update should not recompile unchanged sources.
+                    for relative, metadata in new_content.items():
+                        if "sha256" in metadata and old.get(relative) == metadata:
+                            previous_stat = (tree / relative).stat()
+                            os.utime(staged / tree.name / relative,
+                                     ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
+                state[field] = new_content
             (staged / "manifest.json").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
             previous = Path(temp) / "previous"
             if target.exists():
@@ -304,25 +365,47 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
                 if previous.exists():
                     previous.rename(target)
                 raise
+            if formatting:
+                format_prepared.prune_cache(cache, used)
+                print(f"Formatted prepared {name} sources; {len(kept)} layout-dependent files kept "
+                      "as patched (see kept_unformatted in manifest.json)", file=sys.stderr)
+            elif cache.exists():
+                shutil.rmtree(cache)
         return source_path
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dependency", default="mscharged-decomp")
-    parser.add_argument("--build-dir", type=Path, default=Path("build"))
+    parser.add_argument("--dependency", default="mscharged-decomp", help="Dependency to prepare (default: mscharged-decomp)")
+    parser.add_argument("--build-dir", type=Path, default=Path("build"), help="Build directory receiving prepared/ (default: build)")
     parser.add_argument("--nested-submodule", action="append", dest="nested_submodules",
                         help="Export only these direct nested gitlinks, recursively at their pins; repeat for each. Omit to require all nested sources.")
+    parser.add_argument("--clang-format", metavar="auto|off|PATH",
+                        help="Format the compiled copy of the prepared C/C++ sources. auto (the decomp's default) "
+                             "uses clang-format 16+ from PATH when available; off compiles an unformatted copy")
+    parser.add_argument("--format-config", type=Path, help="Formatting definition (default: tools/formatting/prepared-sources.clang-format)")
+    parser.add_argument("--format-jobs", type=int, help="Parallel formatting processes (default: CPU count)")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--check", action="store_true", help="Verify pins, inputs, and generated contents; do not regenerate")
     modes.add_argument("--discard-generated", action="store_true", help="Explicitly allow replacing edited generated sources")
-    modes.add_argument("--export-patch", type=Path, help="Export local edits as a new patch under the build directory")
+    modes.add_argument("--export-patch", type=Path, help="Export edits of the exact tree (patched/ for the decomp) as a new patch under the build directory")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    clang_format = args.clang_format
+    if clang_format is None:
+        clang_format = "auto" if args.dependency in format_prepared.FORMATTED_BY_DEFAULT else "off"
+    if clang_format == "auto":
+        clang_format = format_prepared.find_clang_format()
+        if clang_format is None and not args.export_patch:
+            print(f"clang-format {format_prepared.MINIMUM_CLANG_FORMAT} or newer was not found; "
+                  "preparing unformatted sources", file=sys.stderr)
+    elif clang_format == "off":
+        clang_format = None
     try:
         path = prepare(root, args.build_dir, args.dependency, check=args.check,
                        discard_generated=args.discard_generated, export_patch=args.export_patch,
-                       nested_submodules=args.nested_submodules)
+                       nested_submodules=args.nested_submodules, clang_format=clang_format,
+                       format_config=args.format_config, format_jobs=args.format_jobs)
         print(path)
     except (PreparationError, OSError, ValueError) as error:
         parser.exit(1, f"Source preparation failed: {error}\n")

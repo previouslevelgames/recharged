@@ -1,0 +1,30 @@
+Subject: Admit original Domination Choose Sides and Stadium Select
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Classification: temporary explicit original-source diagnostic admission; depends on 0506, 0541 and 0543.
+
+The Domination sidekick page's Done handler calls SubmitSidekickChoice, which
+pushes SceneList 4 (SHChooseSides2 FRIENDLY). Its Proceed pushes SceneList 5
+(StadiumSelectScene) in that context. Move only factory cases 4 and 5 into the
+existing Domination admission. Placement allocation and constructors stay
+literal; the Striker Cup, cup Choose Sides (8) and every other case keep their
+current guards.
+
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -321,14 +321,14 @@
+     case SCENE_CHOOSE_SIDEKICKS_DOMINATION:
+         newHandler = new (nlMalloc(sizeof(ChooseSidekicksSceneV2), 8, false)) ChooseSidekicksSceneV2(ChooseCaptainsSceneV2::ST_DOMINATION, movement);
+         break;
+-#endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case (SceneList)4:
+         newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::FRIENDLY, movement);
+         break;
+     case (SceneList)5:
+         newHandler = new (nlMalloc(sizeof(StadiumSelectScene), 8, false)) StadiumSelectScene();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case SCENE_CHOOSE_CAPTAINS_STRIKER_CUP:
+         newHandler = new (nlMalloc(sizeof(ChooseCaptainsSceneV2), 8, false)) ChooseCaptainsSceneV2(ChooseCaptainsSceneV2::ST_STRIKER_CUP, movement);
+         break;

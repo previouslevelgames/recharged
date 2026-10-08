@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/camera_batch.h"
 #include "runtime/graphics_memory.h"
 #include "runtime/startup.h"
@@ -198,22 +199,44 @@ void ReadErrors(const std::vector<unsigned char>& bytes)
         Check(batch.State()==CameraBatchState::Failed&&batch.Progress().failed>=1&&fault.reads>0&&!fault.handles,
             "Actual NL read failure retained camera state or reported success");
         Reject([&]{batch.Publish();});Check(!library.Find("good"),"Read failure partially published cameras");
+        mscharged::test::FinishDVDTestFaultCase(mode==Overlay::Error);
     }
-    // A shared-pump failure must not get attributed to this unrelated good batch.
-    Overlay fault;fault.bytes=bytes;fault.mode=Overlay::Error;InstalledOverlay overlay(fault);
-    CameraAssetLoad unrelated("/fault.cam","unrelated");
-    CameraAssetLibrary library;CameraAssetBatch batch(library,Names(1));bool observed=false;
-    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
-    while(!unrelated.Ready())
+    // A nonfatal short transfer is request-local; a real media fault also
+    // fails a healthy request that was genuinely queued behind that I/O.
+    for (bool fatal : {false,true})
     {
-        try {batch.Service();}catch(const std::runtime_error&){observed=true;}
-        if(batch.State()!=CameraBatchState::Loading&&!unrelated.Ready())
-            try {nlServiceFileSystem();}catch(const std::runtime_error&){observed=true;}
-        Check(std::chrono::steady_clock::now()<deadline,"Unrelated read failure timed out");SDL_Delay(1);
+        Overlay fault;fault.bytes=bytes;fault.mode=fatal?Overlay::Blocked:Overlay::Short;
+        InstalledOverlay overlay(fault);
+        CameraAssetLoad unrelated("/fault.cam","unrelated");
+        if(fatal)fault.WaitEntered();
+        CameraAssetLibrary library;CameraAssetBatch batch(library,Names(1));bool observed=false;
+        if(fatal)fault.Release(true);
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+        while(!unrelated.Ready())
+        {
+            try {batch.Service();}catch(const std::runtime_error&){observed=true;}
+            if(batch.State()!=CameraBatchState::Loading&&!unrelated.Ready())
+                try {nlServiceFileSystem();}catch(const std::runtime_error&){observed=true;}
+            Check(std::chrono::steady_clock::now()<deadline,"Unrelated read failure timed out");SDL_Delay(1);
+        }
+        Check(observed,"Shared NL pump error was swallowed");
+        Pump(batch,false,fatal);
+        if(fatal)
+        {
+            Check(batch.State()==CameraBatchState::Failed&&batch.Progress().failed==1&&!library.Find("camera0"),
+                  "Queued healthy camera succeeded after the genuine media fatal latch");
+            Reject([&]{batch.Publish();});
+        }
+        else
+        {
+            batch.Publish();
+            Check(library.Find("camera0")&&batch.Progress().failed==0,"Foreign nonfatal NL failure aborted the wrong transaction");
+        }
+        Reject([&]{unrelated.Result();});
+        Check(fault.entered&&fault.finished&&!fault.handles&&!nlAsyncReadsPending(nullptr),
+              "Foreign camera fault case did not retire its actual source/file requests");
+        mscharged::test::FinishDVDTestFaultCase(fatal);
     }
-    Check(observed,"Shared NL pump error was swallowed");Pump(batch);batch.Publish();
-    Check(library.Find("camera0")&&batch.Progress().failed==0,"Foreign NL failure aborted the wrong transaction");
-    Reject([&]{unrelated.Result();});
 }
 void ActiveCancellation(const std::vector<unsigned char>& bytes,bool destroy,bool fail)
 {
@@ -242,6 +265,7 @@ void ActiveCancellation(const std::vector<unsigned char>& bytes,bool destroy,boo
     }
     release.join();
     Check(blocked.finished&&!blocked.handles&&!nlAsyncReadsPending(nullptr)&&!library.Find("good"),"Active batch cleanup failed to drain workers or discard staged assets");
+    mscharged::test::FinishDVDTestFaultCase(fail);
 }
 void NativeFailure(bool decoding)
 {
@@ -314,6 +338,7 @@ int main(int argc,char** argv)
         cfg.mem1Size=MEM1_DEFAULT_SIZE;cfg.mem2Size=64*1024*1024;
         Session session;const auto host=aurora_initialize(argc,argv,&cfg);session.live=true;Check(host.window,"Aurora core initialization failed");
         InitializeStartupOS();nlInitMemory();Check(aurora_dvd_open(argv[1]),"Cannot mount generated camera disc");session.disc=true;nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         std::ifstream file(std::filesystem::path(argv[2])/"camera.cam",std::ios::binary);
         const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(file),{}};Check(!bytes.empty(),"Missing generated overlay fixture");
         auto verify=[&](auto action){const auto a=StandardAllocator.TotalFreeMemory(),b=VirtualAllocator.TotalFreeMemory();action();

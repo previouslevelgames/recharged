@@ -1,0 +1,28 @@
+Subject: Admit original main's EnableAllStadiums for the Domination route
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Classification: temporary explicit original-source diagnostic admission; depends on 0551.
+
+Every StadiumInfo entry starts with mEnabled false; original main enables all
+seventeen with EnableAllStadiums() right after the boot INI wait. The
+bootstrap diagnostic omits that whole block, so StadiumSelectScene::
+SceneCreated found no enabled-and-unlocked stadium, never assigned
+mStadiumIndex, and Update indexed mStadiumOrder with an uninitialized value
+(observed 0xBB23DBA0) and crashed. Admit only the EnableAllStadiums call at
+its original position under the Domination admission; the configuration,
+datetime, build-number and remaining statements keep their omission. Stadium
+locks still come from the original IsStadiumUnlocked rules.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -598,7 +598,11 @@
+         OSYieldThread();
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     EnableAllStadiums();
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     const char* buildInfo =
+         GetTweakString("/General/Build Info/BuildNumber", 0);
+     if (buildInfo != 0)

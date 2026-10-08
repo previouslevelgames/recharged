@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original checked model-particle and attachment equations
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Extract original coordinates, matrix/frame, colour/raster and joint/ground math
 for the retained native model-particle owner. Caller service validation stays

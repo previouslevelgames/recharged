@@ -1,0 +1,318 @@
+From: mscharged-port native preparation
+Subject: [PATCH] Preserve original retail HBM assertions and lower native debug hardware
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+
+--- a/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp
++++ b/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp
+@@ -1,5 +1,11 @@
+ #ifndef REVOLUTION_HBM_ASSERT_HPP
+ #define REVOLUTION_HBM_ASSERT_HPP
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/hbm_debug_abi.h"
++#include <cstdint>
++#include <cinttypes>
++#endif
+ 
+ /*******************************************************************************
+  * NW4HBMAssert/NW4HBMCheck base macros
+@@ -49,26 +55,49 @@
+ #define NW4HBMWarningMessage(...) NW4HBMCheckMessage_FileLine(__FILE__, __LINE__, false, __VA_ARGS__)
+ 
+ // Aligned
++#if defined(MSCHARGED_NATIVE)
++#define NW4HBM_IS_ALIGNED_(x, align) \
++    (((std::uintptr_t)(x) & ((align) - 1)) == 0)
++#else
+ #define NW4HBM_IS_ALIGNED_(x, align) \
+     (((unsigned long)(x) & ((align) - 1)) == 0) // just redefine instead of pulling in <macros.h>
++#endif
+ 
+ // NW4HBMAlign family
++#if defined(MSCHARGED_NATIVE)
++#define NW4HBMAlign2_Line(expr_, line_) \
++    NW4HBMAssertMessage_FileLine(__FILE__, line_, NW4HBM_IS_ALIGNED_(expr_, 2), \
++        "NW4HBM:Alignment Error(0x%" PRIxPTR ")\n" #expr_ " must be aligned to 2 bytes boundary.", (std::uintptr_t)(expr_))
++#else
+ #define NW4HBMAlign2_Line(expr_, line_)                                                                           \
+     NW4HBMAssertMessage_FileLine(__FILE__, line_, NW4HBM_IS_ALIGNED_(expr_, 2),                                   \
+                                  "NW4HBM:Alignment Error(0x%x)\n" #expr_ " must be aligned to 2 bytes boundary.", \
+                                  expr_)
++#endif
+ 
+ // NW4HBMAlign32
++#if defined(MSCHARGED_NATIVE)
++#define NW4HBMAlign32_Line(expr_, line_) \
++    NW4HBMAssertMessage_FileLine(__FILE__, line_, NW4HBM_IS_ALIGNED_(expr_, 32), \
++        "NW4HBM:Alignment Error(0x%" PRIxPTR ")\n" #expr_ " must be aligned to 32 bytes boundary.", (std::uintptr_t)(expr_))
++#else
+ #define NW4HBMAlign32_Line(expr_, line_)                                                                           \
+     NW4HBMAssertMessage_FileLine(__FILE__, line_, NW4HBM_IS_ALIGNED_(expr_, 32),                                   \
+                                  "NW4HBM:Alignment Error(0x%x)\n" #expr_ " must be aligned to 32 bytes boundary.", \
+                                  expr_)
++#endif
+ 
+ // Generic align
++#if defined(MSCHARGED_NATIVE)
++#define NW4HBMAssertAligned_Line(line_, val_, align_) \
++    NW4HBMAssertMessage_FileLine(__FILE__, line_, NW4HBM_IS_ALIGNED_(val_, align_), \
++        "NW4HBM:Alignment Error(0x%" PRIxPTR ")\n" #val_ " must be aligned to " #align_ " bytes boundary.", (std::uintptr_t)(val_))
++#else
+ #define NW4HBMAssertAligned_Line(line_, val_, align_)      \
+     NW4HBMAssertMessage_FileLine(                          \
+         __FILE__, line_, NW4HBM_IS_ALIGNED_(val_, align_), \
+         "NW4HBM:Alignment Error(0x%x)\n" #val_ " must be aligned to " #align_ " bytes boundary.", val_)
++#endif
+ 
+ /* Extended asserts */
+ 
+@@ -82,11 +111,15 @@
+ #define NW4HBMAssertHeaderPointerNonnull_FileLine(ptr_, file_, line_) \
+     NW4HBMAssertMessage_FileLine(file_, line_, (ptr_) != 0, "Pointer must not be NULL (" #ptr_ ")")
+ 
++#if defined(MSCHARGED_NATIVE)
++#define POINTER_VALID_TEST(ptr_) ChargedNativeHBMPointerValid((const void*)(ptr_))
++#else
+ #define POINTER_VALID_TEST(ptr_)                                                                             \
+     (((unsigned long)ptr_ & 0xFF000000) == 0x80000000 || ((unsigned long)ptr_ & 0xFF800000) == 0x81000000 || \
+      ((unsigned long)ptr_ & 0xF8000000) == 0x90000000 || ((unsigned long)ptr_ & 0xFF000000) == 0xC0000000 || \
+      ((unsigned long)ptr_ & 0xFF800000) == 0xC1000000 || ((unsigned long)ptr_ & 0xF8000000) == 0xD0000000 || \
+      ((unsigned long)ptr_ & 0xFFFFC000) == 0xE0000000)
++#endif
+ 
+ // PointerValid
+ #define NW4HBMAssertPointerValid_Line(ptr_, line_)                          \
+--- a/libs/RVL_SDK/include/revolution/os/OSLink.h
++++ b/libs/RVL_SDK/include/revolution/os/OSLink.h
+@@ -7,6 +7,9 @@
+ extern "C" {
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSModule.h>
++#else
+ typedef u32 OSModuleID;
+ typedef struct OSModuleLink OSModuleLink;
+ typedef struct OSModuleInfo OSModuleInfo;
+@@ -34,6 +37,8 @@
+ 
+ #define OSGetSectionInfo(module) ((OSSectionInfo*)(((OSModuleInfo*)(module))->sectionInfoOffset))
+ 
++#endif
++
+ void __OSModuleInit(void);
+ 
+ #ifdef __cplusplus
+--- a/src/RVL_SDK/hbm/nw4hbm/db/db_assert.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/db/db_assert.cpp
+@@ -10,12 +10,21 @@
+ 
+ #include "decomp.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/hbm_debug_abi.h"
++#include <cstdint>
++#endif
++
+ namespace nw4hbm {
+ namespace db {
+ 
+ static void Assertion_Printf_(char const* fmt, ...);
+ static bool ShowMapInfoSubroutine_(u32 address, bool preCRFlag);
++#if defined(MSCHARGED_NATIVE)
++static void ShowStack_(std::uintptr_t sp);
++#else
+ static void ShowStack_(register_t sp);
++#endif
+ static void WarningAlarmFunc_(OSAlarm* alarm, OSContext* ctx);
+ 
+ static u32 sWarningTime;
+@@ -58,6 +67,25 @@
+     return false;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++static void ShowStack_(std::uintptr_t sp) {
++    ChargedNativeHBMFrame frames[16];
++    const auto count = ChargedNativeHBMCaptureStack(sp, frames, 16);
++
++    Assertion_Printf_("-------------------------------- TRACE\n");
++    Assertion_Printf_("Address:   Native stack   Return PC\n");
++
++    for (u32 i = 0; i < count; i++) {
++        Assertion_Printf_("%p:  %p ", reinterpret_cast<void*>(frames[i].stack_address),
++                          reinterpret_cast<void*>(frames[i].instruction_address));
++        if (const char* symbol = ChargedNativeHBMStackSymbol(frames[i].instruction_address)) {
++            Assertion_Printf_("%s\n", symbol);
++        } else {
++            Assertion_Printf_("\n");
++        }
++    }
++}
++#else
+ static void ShowStack_(register_t sp) {
+     u32 i;
+     register_t* p;
+@@ -89,14 +117,19 @@
+         p = reinterpret_cast<register_t*>(*p);
+     }
+ }
++#endif
+ 
+ // clang-format off
+ DECL_WEAK void VPanic(const char* file, int line, const char* fmt, va_list vlist) {
++#if defined(MSCHARGED_NATIVE)
++    const auto stackPointer = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
++#else
+     register register_t stackPointer;
+ 
+     asm { mr stackPointer, r1 }
+ 
+     stackPointer = *reinterpret_cast<register_t*>(stackPointer);
++#endif
+ 
+     OSDisableInterrupts();
+ 
+@@ -123,7 +156,11 @@
+         OSReport("\n");
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    ChargedNativeHBMHalt();
++#else
+     PPCHalt();
++#endif
+ }
+ // clang-format on
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/db/db_directPrint.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/db/db_directPrint.cpp
+@@ -7,6 +7,10 @@
+ 
+ #include <stdio.h>
+ #include "string.h"
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ typedef struct FrameBufferInfo {
+     /* 0x00 */ u8* frameMemory;
+@@ -380,9 +384,17 @@
+ }
+ 
+ static void* detail::CreateFB_(GXRenderModeObj const* rmode) {
++#if defined(MSCHARGED_NATIVE)
++    std::uintptr_t arenaHi = reinterpret_cast<std::uintptr_t>(OSGetArenaHi());
++#else
+     u32 arenaHi = (u32)OSGetArenaHi();
++#endif
+     u32 memSize = (u16)ROUND_UP((u16)rmode->fbWidth, 16) * rmode->xfbHeight * 2;
++#if defined(MSCHARGED_NATIVE)
++    std::uintptr_t frameBuf = ROUNDDOWN(arenaHi - memSize, 32);
++#else
+     u32 frameBuf = ROUNDDOWN(arenaHi - memSize, 32);
++#endif
+ 
+     VIConfigure(rmode);
+     VISetNextFrameBuffer(reinterpret_cast<void*>(frameBuf));
+--- a/src/RVL_SDK/hbm/nw4hbm/db/db_mapFile.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/db/db_mapFile.cpp
+@@ -2,6 +2,11 @@
+ 
+ #include "revolution/dvd.h"
+ #include "revolution/os.h"
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/hbm_debug_abi.h"
++#include <cstdint>
++#endif
+ 
+ #include "revolution/hbm/HBMAssert.hpp"
+ 
+@@ -101,7 +106,11 @@
+     u32 endOffset;
+     s32 blockOffset;
+     const s32 bufferOffset = sMapBufOffset;
++#if defined(MSCHARGED_NATIVE)
++    s32 address = (s32)(ChargedNativeHBMMapCursorWord(buf) & ~0x80000000);
++#else
+     s32 address = (s32)(reinterpret_cast<u32>(buf) & ~0x80000000);
++#endif
+     s32 offset = address - bufferOffset;
+ 
+     if ((u32)address < sFileLength == false) {
+@@ -127,7 +136,11 @@
+ 
+         len = DVDReadAsyncPrio(&sFileInfo, sMapBuf, size, sMapBufOffset, NULL, 2);
+ 
++#if defined(MSCHARGED_NATIVE)
++        while (DVDGetCommandBlockStatus(&sFileInfo.cb)) {
++#else
+         while (DVDGetCommandBlockStatus(&sFileInfo.block)) {
++#endif
+         }
+ 
+         OSRestoreInterrupts(intrStatus);
+@@ -371,10 +384,21 @@
+         bool ret;
+ 
+         if (DVDFastOpen(pMapFile->fileEntry, &sFileInfo)) {
++#if defined(MSCHARGED_NATIVE)
++            sFileLength = sFileInfo.length;
++#else
+             sFileLength = sFileInfo.size;
++#endif
+             GetCharPtr_ = &GetCharOnDvd_;
++#if defined(MSCHARGED_NATIVE)
++            // This is the original DVD parser's encoded byte-zero cursor, not a
++            // dereferenced native OSBootInfo or a native allocation address.
++            ret = QuerySymbolToMapFile_(reinterpret_cast<u8*>(std::uintptr_t(0x80000000)), pMapFile->moduleInfo, address,
++                                        strBuf, strBufSize);
++#else
+             ret = QuerySymbolToMapFile_(reinterpret_cast<u8*>(OS_BOOT_INFO.diskID.game), pMapFile->moduleInfo, address,
+                                         strBuf, strBufSize);
++#endif
+ 
+             DVDClose(&sFileInfo);
+             return ret;
+
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
+@@ -18,8 +18,13 @@
+     void Set(const char* stream) {
+         NW4HBMAssertPointerValid_Line(this, 49);
+         NW4HBMAssertPointerValid_Line(stream, 50);
++#if defined(MSCHARGED_NATIVE)
++        NW4HBMAssert_Line(
++            mReadFunc == &CharStrmReader::ReadNextCharUTF8 || mReadFunc == &CharStrmReader::ReadNextCharCP1252 || mReadFunc == &CharStrmReader::ReadNextCharSJIS, 53);
++#else
+         NW4HBMAssert_Line(
+             mReadFunc == ReadNextCharUTF8 || mReadFunc == ReadNextCharCP1252 || mReadFunc == ReadNextCharSJIS, 53);
++#endif
+         mCharStrm = stream;
+     }
+ 
+@@ -27,7 +32,11 @@
+         NW4HBMAssertPointerValid_Line(this, 59);
+         NW4HBMAlign2_Line(stream, 60);
+         NW4HBMAssertPointerValid_Line(stream, 61);
++#if defined(MSCHARGED_NATIVE)
++        NW4HBMAssert_Line(mReadFunc == &CharStrmReader::ReadNextCharUTF16, 62);
++#else
+         NW4HBMAssert_Line(mReadFunc == ReadNextCharUTF16, 62);
++#endif
+         mCharStrm = stream;
+     }
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
+@@ -4,5 +4,8 @@
+ #include "revolution/hbm/nw4hbm/ut.h"
+ 
+ #include "string.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstring>
++#endif
+ 
+ extern "C" int stricmp(const char*, const char*);

@@ -1,3 +1,4 @@
+#include "dvd_fixture_medium.h"
 #include "runtime/frontend_images.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -210,6 +211,8 @@ void Failures()
         FaultFile fault(mode); load.Begin(scene, FrontendImageProfile::InGame); Pump(load, false, true);
         Check(load.State() == FrontendImageState::Failed && load.Current() == previous && fault.finished && !fault.handles,
             "Worker failure changed publication or leaked a handle"); Reject([&] { load.Result(); });
+        Check(fault.entered, "Independent image fault never entered its actual provider");
+        mscharged::test::FinishDVDTestFaultCase(mode==FaultFile::Error);
     }
     { FaultFile fault(FaultFile::Error, "/art/fe/InGameUI.Dmn", MaximumAssetBytes + 1);
       Reject([&] { load.Begin(scene, FrontendImageProfile::InGame); });
@@ -274,6 +277,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot open frontend image disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         FrontendImageCatalog::Handle retained;
         for (unsigned repeat = 0; repeat < 3; ++repeat)
         {

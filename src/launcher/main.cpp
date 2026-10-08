@@ -2,11 +2,14 @@
 #include <SDL3/SDL_main.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_stdlib.h"
 
 #include "bootstrap/launch_options.h"
+#include "launcher/ui_kit.h"
+#include "launcher/ui_metrics.h"
 #include "mscharged/build_version.h"
 #include "platform/disc.h"
 #include "platform/path.h"
@@ -21,7 +24,10 @@
 #include <cmath>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <future>
 #include <iostream>
@@ -34,16 +40,17 @@
 
 namespace fs = std::filesystem;
 using namespace mscharged;
+using namespace mscharged::launcher;
 
 namespace
 {
-constexpr const char* pages[] = {"Game", "Display", "Audio", "Controls", "About"};
-constexpr const char* page_ids[] = {"game", "display", "audio", "controls", "about"};
-const ImVec4 muted{0.61f, 0.65f, 0.72f, 1.0f};
-const ImVec4 accent{0.29f, 0.67f, 1.0f, 1.0f};
-const ImVec4 good{0.39f, 0.84f, 0.63f, 1.0f};
-const ImVec4 warning{1.0f, 0.73f, 0.37f, 1.0f};
-const ImVec4 bad{1.0f, 0.43f, 0.44f, 1.0f};
+enum Page { PagePlay, PageGame, PageDisplay, PageAudio, PageControls, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play", "Game", "Display", "Audio", "Controls", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "display", "audio", "controls", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Sliders,
+                               Icon::Info};
+static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
+    && std::size(page_icons) == PageCount);
 
 struct Options
 {
@@ -62,7 +69,7 @@ struct Options
     bool standalone_assets = false;
     bool page_selected = false;
     SceneOptions scene;
-    int page = 0;
+    int page = PagePlay;
 };
 
 void Require(bool ok, const char* context)
@@ -103,26 +110,47 @@ struct DiscCheck
     std::string selection;
 };
 
-bool Choice(const char* label, std::string& selected, std::initializer_list<std::pair<const char*, const char*>> entries)
+enum class NoticeKind { Info, Success, Warning, Error };
+
+// Region branches follow original Game/main.cpp; the native runtime currently
+// supports the USA release only.
+const char* RegionName(const std::string& id)
 {
-    const char* preview = selected.c_str();
-    for (const auto& [value, name] : entries) if (selected == value) preview = name;
-    bool changed = false;
-    ImGui::SetNextItemWidth(260);
-    if (ImGui::BeginCombo(label, preview))
-    {
-        for (const auto& [value, name] : entries)
-            if (ImGui::Selectable(name, selected == value)) { selected = value; changed = true; }
-        ImGui::EndCombo();
-    }
-    return changed;
+    if (id.size() == 6 && id[3] == 'E') return "USA";
+    if (id.size() == 6 && id[3] == 'P') return "Europe";
+    if (id.size() == 6 && id[3] == 'J') return "Japan";
+    return "Unknown region";
 }
 
-void Paragraph(const char* text, ImVec4 color = muted)
+bool SupportedRelease(const DiscInfo& info) { return info.game_id == "R4QE01" && info.revision == 1; }
+
+std::string FileUrl(const fs::path& path)
 {
-    ImGui::PushStyleColor(ImGuiCol_Text, color);
-    ImGui::TextWrapped("%s", text);
-    ImGui::PopStyleColor();
+    std::string generic = PathUtf8(fs::absolute(path));
+#ifdef _WIN32
+    std::replace(generic.begin(), generic.end(), '\\', '/');
+    std::string url = "file:///";
+#else
+    std::string url = "file://";
+#endif
+    for (const unsigned char c : generic)
+    {
+        if (std::isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == '~' || c == ':') url += char(c);
+        else
+        {
+            char escaped[4];
+            std::snprintf(escaped, sizeof escaped, "%%%02X", unsigned(c));
+            url += escaped;
+        }
+    }
+    return url;
+}
+
+std::string Quote(const std::string& text)
+{
+    std::string quoted = "\"";
+    for (const char c : text) { if (c == '"' || c == '\\') quoted += '\\'; quoted += c; }
+    return quoted + "\"";
 }
 
 class Launcher
@@ -153,39 +181,37 @@ public:
         Require(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD), "Cannot initialize SDL");
         const char* base_path = SDL_GetBasePath();
         Require(base_path != nullptr, "Cannot locate launcher resources");
-        const auto base = PathFromUtf8(base_path);
-        if (options_.config.empty()) options_.config = DefaultConfig(base);
+        base_ = PathFromUtf8(base_path);
+        if (options_.config.empty()) options_.config = DefaultConfig(base_);
         file_.path = fs::absolute(options_.config);
         Reload();
         page_ = options_.page;
+        capture_ = options_.smoke_test || !options_.screenshot.empty();
 
-        const bool capture = options_.smoke_test || !options_.screenshot.empty();
-        int width = 960, height = 680;
-        SDL_Rect available{};
-        if (!capture && SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &available))
-        {
-            width = std::min(width, available.w - 48);
-            height = std::min(height, available.h - 72);
-        }
-        window_ = SDL_CreateWindow("Mario Strikers Charged | Launcher", width, height,
-                                  SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
+        // Created at the design size, then fitted once the window knows its
+        // display's pixel density and content scale.
+        window_ = SDL_CreateWindow("Mario Strikers Charged - Launcher", int(kDefaultDesignWidth),
+                                   int(kDefaultDesignHeight),
+                                   SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
         Require(window_ != nullptr, "Cannot create launcher window");
-        SDL_SetWindowMinimumSize(window_, 800, 600);
         renderer_ = SDL_CreateRenderer(window_, nullptr);
         Require(renderer_ != nullptr, "Cannot create launcher renderer");
         SDL_SetRenderVSync(renderer_, 1);
-        SDL_SetWindowPosition(window_, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        metrics_ = CurrentMetrics();
+        ApplyWindowMetrics(true);
 
-        const auto resources = base / "assets/launcher";
+        const auto resources = base_ / "assets/launcher";
         auto surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
             SDL_LoadPNG(PathUtf8(resources / "header.png").c_str()), SDL_DestroySurface);
         Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
-        header_ratio_ = float(surface->h) / float(surface->w);
         header_width_ = float(surface->w);
         header_height_ = float(surface->h);
         header_ = SDL_CreateTextureFromSurface(renderer_, surface.get());
         Require(header_ != nullptr, "Cannot create header texture");
         SDL_SetTextureScaleMode(header_, SDL_SCALEMODE_LINEAR);
+        font_path_ = PathUtf8(resources / "Roboto-Medium.ttf");
+        if (!fs::exists(resources / "Roboto-Medium.ttf"))
+            throw std::runtime_error("Missing launcher font; rebuild to restore resources");
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -193,24 +219,23 @@ public:
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
         io.IniFilename = nullptr; // UI state must not create a public imgui.ini.
         io.LogFilename = nullptr;
-        const auto font = PathUtf8(resources / "Roboto-Medium.ttf");
-        if (!fs::exists(resources / "Roboto-Medium.ttf"))
-            throw std::runtime_error("Missing launcher font; rebuild to restore resources");
-        normal_ = io.Fonts->AddFontFromFileTTF(font.c_str(), 17);
-        heading_ = io.Fonts->AddFontFromFileTTF(font.c_str(), 24);
-        title_ = io.Fonts->AddFontFromFileTTF(font.c_str(), 36);
-        io.FontDefault = normal_;
-        SetStyle();
+        RebuildScale();
         Require(ImGui_ImplSDL3_InitForSDLRenderer(window_, renderer_), "Cannot initialize window UI");
         window_ui_ready_ = true;
         Require(ImGui_ImplSDLRenderer3_Init(renderer_), "Cannot initialize UI renderer");
         renderer_ui_ready_ = true;
         RefreshGamepad();
-        if (!capture) SDL_ShowWindow(window_);
+        RefreshDisplays();
+        // Screenshots on a real video driver map the window so it learns its
+        // display scale; headless drivers render the hidden window directly.
+        const char* video = SDL_GetCurrentVideoDriver();
+        const bool headless = video && (std::string(video) == "dummy" || std::string(video) == "offscreen");
+        if (!capture_ || (!options_.screenshot.empty() && !headless)) SDL_ShowWindow(window_);
         if (config_ok_ && !EffectiveLaunch().disc_path.empty() && !options_.smoke_test) CheckDisc();
 
         bool quit = false;
         unsigned frame = 0;
+        const unsigned smoke_frames = unsigned(PageCount) * 4 + 2;
         while (!quit)
         {
             const Uint64 frame_start = SDL_GetTicks();
@@ -223,22 +248,40 @@ public:
                     close_requested_ = true;
                 if (event.type == SDL_EVENT_GAMEPAD_ADDED || event.type == SDL_EVENT_GAMEPAD_REMOVED)
                     RefreshGamepad();
+                if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED)
+                    RefreshDisplays();
                 if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
                     SelectDisc(event.drop.data);
             }
             PollResults();
+            // Moving between displays or changing the interface size rebuilds
+            // fonts and style before the frame starts.
+            const auto metrics = CurrentMetrics();
+            if (std::fabs(metrics.ui - metrics_.ui) > 0.005f || std::fabs(metrics.density - metrics_.density) > 0.005f)
+            {
+                metrics_ = metrics;
+                RebuildScale();
+                ApplyWindowMetrics(false);
+            }
+            SetUiScale(metrics_.ui);
             ImGui_ImplSDLRenderer3_NewFrame();
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
-            if (options_.smoke_test) page_ = int(frame / 4) % 5;
+            if (options_.smoke_test) page_ = int(frame / 4) % PageCount;
+            hero_visible_ = false;
             Draw(quit);
             ImGui::Render();
-            SDL_SetRenderDrawColor(renderer_, 17, 21, 29, 255);
+            // ImGui works in window units; the renderer targets framebuffer
+            // pixels. Without this scale a retina display shows the UI in one
+            // corner while input arrives in window units.
+            SDL_SetRenderScale(renderer_, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
+            SDL_SetRenderDrawColor(renderer_, 10, 14, 23, 255);
             SDL_RenderClear(renderer_);
-            RenderHeader();
+            RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
-            if (!options_.screenshot.empty() && frame >= 3 && (!pending_ || frame > 600))
+            if (!options_.screenshot.empty() && frame >= 12 && (!pending_ || frame > 600))
             {
+                SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
                 auto pixels = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
                     SDL_RenderReadPixels(renderer_, nullptr), SDL_DestroySurface);
                 Require(pixels != nullptr, "Cannot capture launcher");
@@ -247,62 +290,79 @@ public:
             }
             SDL_RenderPresent(renderer_);
             ++frame;
-            if (options_.smoke_test && frame >= 20) quit = true;
+            if (options_.smoke_test && frame >= smoke_frames) quit = true;
             const auto elapsed = SDL_GetTicks() - frame_start;
             if (elapsed < 16) SDL_Delay(Uint32(16 - elapsed));
         }
-        if (options_.smoke_test) std::cout << "Launcher rendered all five pages and loaded its resources.\n";
+        if (options_.smoke_test)
+            std::cout << "Launcher rendered all " << int(PageCount) << " pages and loaded its resources.\n";
         return 0;
     }
 
 private:
-    float HeroHeight() const
+    // ---------------------------------------------------------------- scale
+    UiMetrics CurrentMetrics() const
     {
-        const auto size = ImGui::GetIO().DisplaySize;
-        return std::min({size.x * header_ratio_, size.y * 0.28f, 190.0f});
+        const DisplayScale scale{SDL_GetWindowDisplayScale(window_), SDL_GetWindowPixelDensity(window_)};
+        float user = ParseUiScaleSetting(draft_.ui_scale);
+        if (user < 0.0f) user = 0.0f;
+        SDL_Rect usable{};
+        float width = 0.0f, height = 0.0f;
+        if (!capture_ && SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(window_), &usable))
+        { width = float(usable.w); height = float(usable.h); }
+        return ComputeUiMetrics(scale, user, width, height);
     }
 
-    void RenderHeader()
+    void ApplyWindowMetrics(bool initial)
     {
-        // SDL's texture path also works around large textured-triangle artifacts
-        // in the software renderer. Crop vertically without stretching the art.
-        const auto& io = ImGui::GetIO();
-        if (io.DisplaySize.x <= 0 || io.DisplaySize.y <= 0) return;
-        const float crop_height = header_width_ * HeroHeight() / io.DisplaySize.x;
-        const SDL_FRect source{0, (header_height_ - crop_height) * 0.5f, header_width_, crop_height};
-        const SDL_FRect destination{0, 0, io.DisplaySize.x * io.DisplayFramebufferScale.x,
-                                  HeroHeight() * io.DisplayFramebufferScale.y};
-        SDL_RenderTexture(renderer_, header_, &source, &destination);
+        SDL_Rect usable{};
+        float width = 0.0f, height = 0.0f;
+        if (!capture_ && SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(window_), &usable))
+        { width = float(usable.w); height = float(usable.h); }
+        const auto minimum = FitWindow(kMinimumDesignWidth, kMinimumDesignHeight, metrics_.ui, width, height);
+        SDL_SetWindowMinimumSize(window_, minimum.width, minimum.height);
+        if (initial)
+        {
+            const auto size = FitWindow(kDefaultDesignWidth, kDefaultDesignHeight, metrics_.ui, width, height);
+            SDL_SetWindowSize(window_, size.width, size.height);
+            SDL_SetWindowPosition(window_, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        }
     }
 
-    void SetStyle()
+    void RebuildScale()
     {
-        ImGui::StyleColorsDark();
-        auto& style = ImGui::GetStyle();
-        style.WindowPadding = {14, 14};
-        style.FramePadding = {9, 5};
-        style.ItemSpacing = {8, 6};
-        style.ItemInnerSpacing = {8, 6};
-        style.FrameRounding = 4;
-        style.ChildRounding = 6;
-        style.PopupRounding = 8;
-        style.ScrollbarRounding = 8;
-        style.WindowBorderSize = 0;
-        style.Colors[ImGuiCol_WindowBg] = {0.067f, 0.082f, 0.114f, 1};
-        style.Colors[ImGuiCol_ChildBg] = {0.085f, 0.105f, 0.145f, 1};
-        style.Colors[ImGuiCol_Text] = {0.91f, 0.93f, 0.97f, 1};
-        style.Colors[ImGuiCol_TextDisabled] = muted;
-        style.Colors[ImGuiCol_Border] = {0.20f, 0.24f, 0.31f, 1};
-        style.Colors[ImGuiCol_FrameBg] = {0.12f, 0.15f, 0.20f, 1};
-        style.Colors[ImGuiCol_FrameBgHovered] = {0.18f, 0.23f, 0.31f, 1};
-        style.Colors[ImGuiCol_Button] = {0.17f, 0.22f, 0.29f, 1};
-        style.Colors[ImGuiCol_ButtonHovered] = {0.24f, 0.34f, 0.46f, 1};
-        style.Colors[ImGuiCol_ButtonActive] = {0.22f, 0.43f, 0.65f, 1};
-        style.Colors[ImGuiCol_Header] = {0.13f, 0.30f, 0.47f, 1};
-        style.Colors[ImGuiCol_HeaderHovered] = {0.16f, 0.28f, 0.40f, 1};
-        style.Colors[ImGuiCol_CheckMark] = accent;
-        style.Colors[ImGuiCol_SliderGrab] = accent;
-        style.Colors[ImGuiCol_NavCursor] = accent;
+        SetUiScale(metrics_.ui);
+        LoadFonts(font_path_, metrics_.font_raster, metrics_.density);
+        ApplyTheme(metrics_.ui);
+        if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_DestroyFontsTexture(); // recreated by NewFrame
+    }
+
+    void RenderHero()
+    {
+        // The artwork is drawn through SDL (also avoiding large textured
+        // triangles in the software renderer), cropped like CSS "cover";
+        // ImGui then paints its gradients and text over it.
+        if (!hero_visible_ || hero_.w <= 0 || hero_.h <= 0) return;
+        SDL_FRect source{0, 0, header_width_, header_height_};
+        const float target_ratio = hero_.w / hero_.h;
+        if (header_width_ / header_height_ > target_ratio)
+        {
+            source.w = header_height_ * target_ratio;
+            source.x = (header_width_ - source.w) * 0.5f;
+        }
+        else
+        {
+            source.h = header_width_ / target_ratio;
+            source.y = (header_height_ - source.h) * 0.40f;
+        }
+        SDL_RenderTexture(renderer_, header_, &source, &hero_);
+    }
+
+    // ------------------------------------------------------------ settings
+    void Notice(std::string text, NoticeKind kind)
+    {
+        notice_ = std::move(text);
+        notice_kind_ = kind;
     }
 
     void Reload()
@@ -314,10 +374,9 @@ private:
             dirty_ = false;
             config_ok_ = true;
             check_ = {};
-            notice_ = file_.exists ? "Settings loaded." : "Choose a disc image, then save your settings.";
-            notice_error_ = false;
+            Notice(file_.exists ? "Settings loaded." : "Welcome! Choose your game disc to get started.", NoticeKind::Info);
         }
-        catch (const std::exception& e) { notice_ = e.what(); notice_error_ = true; config_ok_ = false; }
+        catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); config_ok_ = false; }
     }
 
     bool Save()
@@ -326,16 +385,19 @@ private:
         {
             SaveConfig(file_, draft_);
             dirty_ = false;
-            notice_ = "Settings saved.";
-            notice_error_ = false;
+            Notice("Settings saved.", NoticeKind::Success);
             return true;
         }
-        catch (const std::exception& e) { notice_ = e.what(); notice_error_ = true; return false; }
+        catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); return false; }
     }
 
     void SelectDisc(const std::string& path)
     {
-        if (options_.launch.disc) { notice_ = "The command-line disc is selected for this run."; notice_error_ = false; return; }
+        if (options_.launch.disc)
+        {
+            Notice("The disc from the command line is used for this run.", NoticeKind::Info);
+            return;
+        }
         std::error_code error;
         const auto absolute = fs::absolute(PathFromUtf8(path));
         auto relative = fs::relative(absolute, file_.path.parent_path(), error);
@@ -383,7 +445,7 @@ private:
             if (dialog_->ready)
             {
                 dialog_->ready = false;
-                if (!dialog_->error.empty()) { notice_ = dialog_->error; notice_error_ = true; }
+                if (!dialog_->error.empty()) Notice(dialog_->error, NoticeKind::Error);
                 else if (!dialog_->path.empty()) SelectDisc(dialog_->path);
             }
         }
@@ -404,327 +466,972 @@ private:
         SDL_free(ids);
     }
 
-    void PageTitle(const char* title, const char* description)
+    void RefreshDisplays()
     {
-        ImGui::PushFont(heading_);
-        ImGui::TextUnformatted(title);
-        ImGui::PopFont();
-        Paragraph(description);
+        displays_.clear();
+        int count = 0;
+        SDL_DisplayID* ids = SDL_GetDisplays(&count);
+        const SDL_DisplayID primary = SDL_GetPrimaryDisplay();
+        for (int i = 0; ids && i < count; ++i)
+        {
+            const char* name = SDL_GetDisplayName(ids[i]);
+            std::string label = std::to_string(i + 1) + "  " + (name && *name ? name : "Display");
+            if (const SDL_DisplayMode* mode = SDL_GetDesktopDisplayMode(ids[i]))
+                label += "  (" + std::to_string(mode->w) + " x " + std::to_string(mode->h) + ")";
+            if (ids[i] == primary) label += "  - primary";
+            displays_.push_back(std::move(label));
+        }
+        SDL_free(ids);
     }
 
-    void LanguageSetting()
+    bool OpenPath(const fs::path& path)
     {
-        // Follow the region branches in the pinned decomp's Game/main.cpp.
-        // This remains a saved preference until the game's SCGetLanguage path is wired up.
-        const std::string id = check_.info ? check_.info->game_id : "";
-        bool supported = draft_.language == "auto";
-        if (id == "R4QE01")
+        if (!SDL_OpenURL(FileUrl(path).c_str()))
         {
-            dirty_ |= Choice("Game text language", draft_.language, {{"auto", "Automatic"},
-                {"english", "English"}, {"french", "French"}, {"spanish", "Spanish"}});
-            supported |= draft_.language == "english" || draft_.language == "french" || draft_.language == "spanish";
+            Notice(std::string("Cannot open the folder: ") + SDL_GetError(), NoticeKind::Error);
+            return false;
         }
-        else if (id == "R4QP01")
+        return true;
+    }
+
+    bool DiscReady() const
+    {
+        return config_ok_ && !pending_ && check_.info && check_.selection == DiscSelection();
+    }
+
+    // Why Play is unavailable, or empty when the game can start.
+    std::string PlayBlocker() const
+    {
+#ifndef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        return "This launcher build does not include the game. Build the release preset to play.";
+#else
+        if (!config_ok_) return "Fix the settings file problem shown below first.";
+        if (pending_) return "Checking your disc...";
+        if (DiscSelection().empty()) return "Choose your Mario Strikers Charged disc image (ISO or RVZ).";
+        if (!check_.info || check_.selection != DiscSelection())
+            return check_.error.empty() ? "Check your disc on the Game page." : check_.error;
+        if (!SupportedRelease(*check_.info))
+            return "This build runs the USA release of Mario Strikers Charged (R4QE01, revision 1).";
+        const auto settings = EffectiveLaunch().settings;
+        if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
+            return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
+        if (settings.language != "auto" && settings.language != "english" && settings.language != "french"
+            && settings.language != "spanish")
+            return "Choose a language this release supports on the Game page.";
+        return {};
+#endif
+    }
+
+    void Play(bool& quit)
+    {
+        if (!PlayBlocker().empty()) return;
+        if (dirty_ && !Save()) return; // Keep the user's choices for the next start.
+        frontend_launch_ = EffectiveLaunch();
+        quit = true;
+    }
+
+    std::string LaunchCommand() const
+    {
+        const auto launch = EffectiveLaunch();
+        const auto& s = launch.settings;
+#ifdef _WIN32
+        const auto executable = base_ / "mscharged.exe";
+#else
+        const auto executable = base_ / "mscharged";
+#endif
+        std::string command = Quote(PathUtf8(executable));
+        if (!launch.disc_path.empty()) command += " --disc " + Quote(PathUtf8(launch.disc_path));
+        command += s.fullscreen ? " --fullscreen" : " --window";
+        command += " --size " + std::to_string(s.width) + "x" + std::to_string(s.height);
+        command += " --aspect " + s.aspect;
+        return command;
+    }
+
+    // ------------------------------------------------------------- layout
+    void Draw(bool& quit)
+    {
+        auto& io = ImGui::GetIO();
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && config_ok_ && dirty_) Save();
+        const ImVec2 size = io.DisplaySize;
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(size);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+        ImGui::Begin("##launcher", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground
+            | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+        const float sidebar = size.x < Dp(1000) ? Dp(216) : Dp(244);
+        DrawSidebar(sidebar, size.y);
+        DrawMain({sidebar, 0}, {size.x - sidebar, size.y}, quit);
+        DrawClosePrompt(quit);
+        ImGui::End();
+    }
+
+    void DrawSidebar(float width, float height)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled({0, 0}, {width, height}, Col(color::sidebar));
+        draw->AddLine({width - 1, 0}, {width - 1, height}, Col(color::border, 0.7f), 1.0f);
+        const float pad = Dp(24);
+        float y = Dp(30);
+        DrawTracked(draw, fonts.caption, {pad, y}, Col(color::muted), "MARIO STRIKERS", Dp(2.4f));
+        y += FontSize(fonts.caption) + Dp(2);
+        // "CHARGED" with a soft glow and a vertical lime-to-green gradient.
+        for (int i = 3; i >= 1; --i)
+            DrawLabel(draw, fonts.title, {pad, y + Dp(float(i) * 0.7f)}, Col(color::accent, 0.08f * float(i)), "CHARGED");
+        const int start = draw->VtxBuffer.Size;
+        DrawLabel(draw, fonts.title, {pad, y}, IM_COL32_WHITE, "CHARGED");
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {pad, y},
+                                                     {pad, y + FontSize(fonts.title)}, Col(color::accent_hi), Col(color::accent));
+        y += FontSize(fonts.title) + Dp(4);
+        DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Native PC port");
+        y += FontSize(fonts.caption) + Dp(28);
+
+        ImGui::SetCursorPos({Dp(12), y});
+        for (int i = 0; i < PageCount; ++i)
         {
-            dirty_ |= Choice("Game text language", draft_.language, {{"auto", "Automatic"},
-                {"english", "English"}, {"french", "French"}, {"spanish", "Spanish"},
-                {"german", "German"}, {"italian", "Italian"}});
-            supported |= draft_.language != "japanese";
+            ImGui::SetCursorPosX(Dp(12));
+            if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24))) page_ = i;
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
         }
-        else if (id == "R4QJ01")
+
+        // Build badge at the bottom of the sidebar.
+        const float badge = height - Dp(78);
+        if (ImGui::GetCursorPosY() < badge)
         {
-            dirty_ |= Choice("Game text language", draft_.language, {{"auto", "Automatic"}, {"japanese", "Japanese"}});
-            supported |= draft_.language == "japanese";
+            ImGui::SetCursorPos({pad, badge});
+            Chip("Development build", color::warning, Icon::Warning);
+            ImGui::SetCursorPosX(pad);
+            ImGui::PushFont(fonts.caption);
+            ImGui::PushStyleColor(ImGuiCol_Text, color::dim);
+            ImGui::TextUnformatted(build::version);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
         }
+    }
+
+    void DrawMain(ImVec2 origin, ImVec2 size, bool& quit)
+    {
+        const float bar = Dp(74);
+        const ImVec2 content{size.x, size.y - bar};
+        ImGui::SetCursorPos(origin);
+        if (page_ == PagePlay) DrawPlayPage(origin, content, quit);
         else
         {
-            ImGui::BeginDisabled();
-            Choice("Game text language", draft_.language, {{"auto", "Automatic"},
-                {"english", "English"}, {"french", "French"}, {"spanish", "Spanish"},
-                {"german", "German"}, {"italian", "Italian"}, {"japanese", "Japanese"}});
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(36, 30));
+            ImGui::BeginChild("##page", content, ImGuiChildFlags_AlwaysUseWindowPadding);
+            const float available = ImGui::GetContentRegionAvail().x;
+            const float column = std::min(available, Dp(900));
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (available - column) * 0.5f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+            ImGui::BeginChild("##column", {column, 0}, ImGuiChildFlags_AutoResizeY);
+            ImGui::BeginDisabled(!config_ok_ && page_ != PageAbout);
+            switch (page_)
+            {
+            case PageGame: GamePage(); break;
+            case PageDisplay: DisplayPage(); break;
+            case PageAudio: AudioPage(); break;
+            case PageControls: ControlsPage(); break;
+            case PageAdvanced: AdvancedPage(quit); break;
+            default: AboutPage(); break;
+            }
             ImGui::EndDisabled();
-            Paragraph("Check a supported game image to see its text language options.");
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
         }
-        supported |= draft_.language == "auto";
-        if (!supported && (id == "R4QE01" || id == "R4QP01" || id == "R4QJ01"))
-            Paragraph("The saved language is unavailable for this release. Choose Automatic or a listed language.", warning);
-        Paragraph("Menus and on-screen text. Saved for when gameplay is available.");
+        DrawBottomBar({origin.x, origin.y + content.y}, {size.x, bar}, quit);
     }
 
+    void DrawPlayPage(ImVec2 origin, ImVec2 size, bool& quit)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float hero = std::clamp(size.y * 0.58f, Dp(250), Dp(440));
+        hero_ = {origin.x, origin.y, size.x, hero};
+        hero_visible_ = true;
+        const ImVec2 hero_max{origin.x + size.x, origin.y + hero};
+        // Readability gradients over the artwork.
+        draw->AddRectFilledMultiColor(origin, {origin.x + size.x * 0.75f, hero_max.y}, Col(color::window, 0.94f),
+                                      Col(color::window, 0.0f), Col(color::window, 0.0f), Col(color::window, 0.94f));
+        draw->AddRectFilledMultiColor({origin.x, origin.y + hero * 0.45f}, hero_max, Col(color::window, 0.0f),
+                                      Col(color::window, 0.0f), Col(color::window, 1.0f), Col(color::window, 1.0f));
+        draw->AddRectFilledMultiColor(origin, {hero_max.x, origin.y + Dp(60)}, Col(color::window, 0.45f),
+                                      Col(color::window, 0.45f), Col(color::window, 0.0f), Col(color::window, 0.0f));
+
+        const float pad = Dp(44);
+        float y = origin.y + std::max(Dp(34), hero * 0.20f);
+        DrawTracked(draw, fonts.caption, {origin.x + pad, y}, Col(color::accent, 0.95f), "NATIVE PC PORT", Dp(2.6f));
+        y += FontSize(fonts.caption) + Dp(10);
+        DrawTracked(draw, fonts.overline, {origin.x + pad, y}, IM_COL32_WHITE, "MARIO STRIKERS", Dp(3.0f));
+        y += FontSize(fonts.overline) - Dp(4);
+        for (int i = 4; i >= 1; --i)
+            DrawLabel(draw, fonts.hero, {origin.x + pad, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "CHARGED");
+        const int start = draw->VtxBuffer.Size;
+        DrawLabel(draw, fonts.hero, {origin.x + pad, y}, IM_COL32_WHITE, "CHARGED");
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {origin.x, y},
+                                                     {origin.x, y + FontSize(fonts.hero)}, Col(color::accent_hi),
+                                                     Col(color::accent));
+        y += FontSize(fonts.hero) + Dp(2);
+        DrawLabel(draw, fonts.label, {origin.x + pad, y}, Col(color::text, 0.82f),
+                  "The original game, rebuilt to run natively on your PC.");
+
+        // Play button and status, overlapping the bottom of the artwork.
+        const std::string blocker = PlayBlocker();
+        const float button_y = hero_max.y - Dp(30);
+        ImGui::SetCursorScreenPos({origin.x + pad, button_y});
+        if (PrimaryButton("play", "PLAY", Dp(230, 62), blocker.empty(), Icon::Play, true)) Play(quit);
+        if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", blocker.c_str());
+        const float status_x = origin.x + pad + Dp(230) + Dp(24);
+        ImGui::SetCursorScreenPos({status_x, button_y + Dp(8)});
+        DrawPlayStatus(blocker);
+
+        // Summary cards.
+        const float cards_y = button_y + Dp(62) + Dp(30);
+        const float footer = Dp(30);
+        if (cards_y + Dp(118) + footer + Dp(12) <= origin.y + size.y)
+        {
+            const float gap = Dp(16);
+            const float width = (size.x - pad * 2 - gap * 2) / 3.0f;
+            ImGui::SetCursorScreenPos({origin.x + pad, cards_y});
+            SummaryCard("##disc_card", "Game disc", Icon::Disc, width, PageGame, DiscSummary());
+            ImGui::SameLine(0, gap);
+            SummaryCard("##display_card", "Display", Icon::Display, width, PageDisplay, DisplaySummary());
+            ImGui::SameLine(0, gap);
+            SummaryCard("##language_card", "Language & audio", Icon::Audio, width, PageAudio, LanguageSummary());
+        }
+        draw->AddText(fonts.caption, FontSize(fonts.caption), {origin.x + pad, origin.y + size.y - footer},
+                      Col(color::dim), "Work in progress: the original menus run; full matches are not playable yet.");
+    }
+
+    void DrawPlayStatus(const std::string& blocker)
+    {
+        const auto& fonts = CurrentFonts();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        auto* draw = ImGui::GetWindowDrawList();
+        ImVec4 tint = color::accent;
+        Icon icon = Icon::Check;
+        std::string headline = "Ready to play";
+        std::string detail;
+        if (pending_)
+        {
+            tint = color::info;
+            icon = Icon::None;
+            headline = "Checking your disc";
+            detail = "Reading the game partition...";
+            Spinner({pos.x + Dp(11), pos.y + Dp(12)}, Dp(8), Col(tint));
+        }
+        else if (!blocker.empty())
+        {
+            tint = DiscSelection().empty() ? color::info : color::warning;
+            icon = DiscSelection().empty() ? Icon::Disc : Icon::Warning;
+            headline = DiscSelection().empty() ? "Choose your game disc" : "Not ready yet";
+            detail = blocker;
+        }
+        else if (check_.info)
+            detail = "Mario Strikers Charged  -  " + std::string(RegionName(check_.info->game_id)) + "  -  "
+                + check_.info->game_id + " rev " + std::to_string(unsigned(check_.info->revision));
+        if (icon != Icon::None) DrawIcon(draw, icon, {pos.x + Dp(11), pos.y + Dp(12)}, Dp(20), Col(tint));
+        DrawLabel(draw, fonts.label, {pos.x + Dp(30), pos.y + Dp(1)}, Col(color::text), headline.c_str());
+        if (!detail.empty())
+        {
+            const float limit = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - Dp(28);
+            draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + Dp(30), pos.y + Dp(26)}, Col(color::muted),
+                          detail.c_str(), nullptr, std::max(Dp(120), limit - pos.x - Dp(30)));
+        }
+    }
+
+    struct Summary { std::string value; std::string detail; ImVec4 tint; };
+
+    Summary DiscSummary() const
+    {
+        if (pending_) return {"Checking...", "Reading the disc header", color::info};
+        if (DiscSelection().empty()) return {"No disc selected", "Choose an ISO or RVZ image", color::warning};
+        if (check_.info && check_.selection == DiscSelection())
+        {
+            const auto& info = *check_.info;
+            return {info.game_id + "  -  " + RegionName(info.game_id),
+                    "Revision " + std::to_string(unsigned(info.revision)) + "  -  " + info.format + "  -  "
+                        + std::to_string(info.file_count) + " files",
+                    SupportedRelease(info) ? color::accent : color::warning};
+        }
+        if (!check_.error.empty()) return {"Disc problem", check_.error, color::danger};
+        return {PathUtf8(PathFromUtf8(DiscSelection()).filename()), "Not checked yet", color::muted};
+    }
+
+    Summary DisplaySummary() const
+    {
+        const auto s = EffectiveLaunch().settings;
+        std::string aspect = s.aspect == "auto" ? "Automatic aspect" : s.aspect;
+        return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
+                aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off"), color::info};
+    }
+
+    Summary LanguageSummary() const
+    {
+        const auto s = EffectiveLaunch().settings;
+        const std::string language = s.language == "auto" ? "Automatic" :
+            std::string(1, char(std::toupper(static_cast<unsigned char>(s.language[0])))) + s.language.substr(1);
+        return {language + " text", s.mute ? "Audio muted" : "Volume " + std::to_string(s.master_volume) + "%",
+                color::info};
+    }
+
+    void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary)
+    {
+        const auto& fonts = CurrentFonts();
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, Mix(color::card, color::window, 0.15f));
+        ImGui::PushStyleColor(ImGuiCol_Border, color::border);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, Dp(16));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(18, 16));
+        ImGui::BeginChild(id, {width, Dp(118)}, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        draw->AddRectFilled(pos, {pos.x + Dp(30), pos.y + Dp(30)}, Col(summary.tint, 0.14f), Dp(9));
+        DrawIcon(draw, icon, {pos.x + Dp(15), pos.y + Dp(15)}, Dp(16), Col(summary.tint));
+        DrawLabel(draw, fonts.caption, {pos.x + Dp(40), pos.y + Dp(6)}, Col(color::muted), title);
+        const float inner = ImGui::GetContentRegionAvail().x;
+        DrawChevron(draw, {pos.x + inner - Dp(4), pos.y + Dp(14)}, Dp(14), Col(color::dim));
+        ImGui::SetCursorScreenPos({pos.x, pos.y + Dp(42)});
+        ImGui::PushFont(fonts.label);
+        ImGui::PushStyleColor(ImGuiCol_Text, color::text);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
+        ImGui::TextUnformatted(summary.value.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+        ImGui::PushFont(fonts.caption);
+        ImGui::PushStyleColor(ImGuiCol_Text, color::muted);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
+        ImGui::TextUnformatted(summary.detail.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        // The whole card opens its settings page.
+        ImGui::SetCursorScreenPos(ImGui::GetWindowPos());
+        if (ImGui::InvisibleButton("##open", ImGui::GetWindowSize())) page_ = page;
+        const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
+        if (hover > 0.0f)
+        {
+            const ImVec2 min = ImGui::GetWindowPos();
+            const ImVec2 max{min.x + ImGui::GetWindowSize().x, min.y + ImGui::GetWindowSize().y};
+            ImGui::GetWindowDrawList()->AddRect(min, max, Col(color::accent, 0.55f * hover), Dp(16), 0, Dp(1.5f));
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+    }
+
+    void DrawBottomBar(ImVec2 origin, ImVec2 size, bool& quit)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y}, Col(Mix(color::window, color::sidebar, 0.7f)));
+        draw->AddLine(origin, {origin.x + size.x, origin.y}, Col(color::border, 0.8f), 1.0f);
+        const float pad = Dp(28);
+        const float button_h = Dp(42);
+        const float button_y = origin.y + (size.y - button_h) * 0.5f;
+
+        // Right-aligned actions: Revert, Save, Play.
+        float x = origin.x + size.x - pad;
+        if (page_ != PagePlay)
+        {
+            x -= Dp(140);
+            ImGui::SetCursorScreenPos({x, button_y});
+            const std::string blocker = PlayBlocker();
+            if (PrimaryButton("bar_play", "Play", {Dp(140), button_h}, blocker.empty(), Icon::Play)) Play(quit);
+            if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", blocker.c_str());
+            x -= Dp(12);
+        }
+        x -= Dp(118);
+        ImGui::SetCursorScreenPos({x, button_y});
+        if (SecondaryButton("save", dirty_ ? "Save" : "Saved", {Dp(118), button_h}, config_ok_ && (dirty_ || !file_.exists),
+                            dirty_ ? Icon::Check : Icon::None))
+            Save();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Saves to %s (Ctrl+S)", PathUtf8(file_.path).c_str());
+        x -= Dp(10) + Dp(104);
+        ImGui::SetCursorScreenPos({x, button_y});
+        if (SecondaryButton("revert", "Revert", {Dp(104), button_h}, dirty_ || !config_ok_, Icon::Refresh)) Reload();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Reload the settings file and discard unsaved changes.");
+        float right = x - Dp(16);
+        if (dirty_)
+        {
+            const float chip = TextSize(fonts.caption, "Unsaved changes").x + Dp(20);
+            right -= chip;
+            ImGui::SetCursorScreenPos({right, origin.y + (size.y - Dp(26)) * 0.5f});
+            Chip("Unsaved changes", color::warning);
+            right -= Dp(14);
+        }
+
+        // Status message on the left.
+        ImVec4 tint = color::muted;
+        Icon icon = Icon::Info;
+        switch (notice_kind_)
+        {
+        case NoticeKind::Success: tint = color::accent; icon = Icon::Check; break;
+        case NoticeKind::Warning: tint = color::warning; icon = Icon::Warning; break;
+        case NoticeKind::Error: tint = color::danger; icon = Icon::Error; break;
+        default: break;
+        }
+        const float text_x = origin.x + pad + Dp(26);
+        const float center = origin.y + size.y * 0.5f;
+        DrawIcon(draw, icon, {origin.x + pad + Dp(9), center}, Dp(17), Col(tint));
+        const float limit = std::max(Dp(60), right - text_x);
+        const ImVec2 text = TextSize(fonts.body, notice_.c_str());
+        draw->PushClipRect({text_x, origin.y}, {text_x + limit, origin.y + size.y}, true);
+        DrawLabel(draw, fonts.body, {text_x, center - text.y * 0.5f},
+                  Col(notice_kind_ == NoticeKind::Info ? color::muted : Mix(tint, color::text, 0.35f)), notice_.c_str());
+        draw->PopClipRect();
+        ImGui::SetCursorScreenPos({text_x, center - text.y * 0.5f});
+        ImGui::InvisibleButton("##notice", {std::min(text.x, limit), text.y});
+        if (text.x > limit && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", notice_.c_str());
+    }
+
+    void DrawClosePrompt(bool& quit)
+    {
+        if (close_requested_)
+        {
+            if (!dirty_) quit = true;
+            else ImGui::OpenPopup("Save changes?");
+            close_requested_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Save changes?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            TextColored(fonts.heading, color::text, "Save your changes?");
+            TextColored(fonts.body, color::muted, "Your settings have unsaved changes.");
+            ImGui::Dummy({0, Dp(8)});
+            if (PrimaryButton("save_close", "Save and close", Dp(170, 42), true)) { if (Save()) quit = true; ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("discard", "Discard", Dp(110, 42))) { quit = true; ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("cancel", "Cancel", Dp(100, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    // -------------------------------------------------------------- pages
     void GamePage()
     {
-        PageTitle("Your game", "Open your ISO or RVZ directly. No extraction needed.");
+        PageHeader("Game", "Your Mario Strikers Charged disc image. ISO and RVZ files are read directly; nothing is extracted.");
         if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
-        { Paragraph(DescribeLaunch(EffectiveLaunch()).c_str()); Paragraph("Command-line overrides apply for this run; Save settings changes only the INI."); }
-        ImGui::TextUnformatted("Disc image");
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 98);
+        {
+            Chip("Command-line options apply to this run only", color::info, Icon::Info);
+            ImGui::Dummy({0, Dp(2)});
+        }
+
+        BeginCard("##disc", "Disc image", "Drop an image onto this window, or browse for it.", Icon::Disc);
+        bool browsing;
+        { std::lock_guard<std::mutex> lock(dialog_->mutex); browsing = dialog_->active; }
+        const float buttons = Dp(118) + Dp(10) + Dp(118);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons - Dp(10));
         if (options_.launch.disc)
         {
             auto selected = DiscSelection();
-            ImGui::BeginDisabled(); ImGui::InputText("##disc", &selected); ImGui::EndDisabled();
+            ImGui::BeginDisabled();
+            ImGui::InputText("##disc_path", &selected);
+            ImGui::EndDisabled();
         }
-        else if (ImGui::InputText("##disc", &draft_.disc)) { dirty_ = true; check_ = {}; }
-        ImGui::SameLine();
-        bool browsing;
-        { std::lock_guard<std::mutex> lock(dialog_->mutex); browsing = dialog_->active; }
-        ImGui::BeginDisabled(browsing || !config_ok_ || options_.launch.disc.has_value());
-        if (ImGui::Button("Browse...", {90, 0})) Browse();
-        ImGui::EndDisabled();
-        ImGui::BeginDisabled(pending_ || !config_ok_ || (config_ok_ && DiscSelection().empty()));
-        if (ImGui::Button(pending_ ? "Checking..." : "Check disc", {110, 0})) CheckDisc();
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::TextColored(muted, "Or drop an image onto this window.");
-        ImGui::BeginChild("disc_status", {0, 96}, ImGuiChildFlags_Borders);
-        if (pending_) Paragraph("Reading the disc header and game file table...", accent);
-        else if (check_.info)
+        else if (ImGui::InputTextWithHint("##disc_path", "Path to R4QE01 .iso or .rvz", &draft_.disc))
+        { dirty_ = true; check_ = {}; }
+        ImGui::SameLine(0, Dp(10));
+        if (SecondaryButton("browse", "Browse...", {Dp(118), ImGui::GetFrameHeight()},
+                            !browsing && config_ok_ && !options_.launch.disc, Icon::Folder))
+            Browse();
+        ImGui::SameLine(0, Dp(10));
+        if (SecondaryButton("check", pending_ ? "Checking" : "Check", {Dp(118), ImGui::GetFrameHeight()},
+                            !pending_ && config_ok_ && !DiscSelection().empty(), Icon::Refresh))
+            CheckDisc();
+        ImGui::Dummy({0, Dp(4)});
+        DiscStatusPanel();
+        EndCard();
+
+        BeginCard("##language", "Game language", "Menus and on-screen text follow the Wii system language.", Icon::Info);
+        if (BeginRows("##language_rows"))
+        {
+            Row("Text language", "Automatic currently selects English. Saved with your settings.");
+            LanguageControl();
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##data", "Save data", "The game keeps its save file in a private folder next to the launcher.", Icon::Folder);
+        const fs::path data = base_ / "original-main-credits-data";
+        if (BeginRows("##data_rows"))
+        {
+            const std::string path = PathUtf8(data);
+            Row("Save folder", path.c_str());
+            if (SecondaryButton("open_data", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                fs::exists(data), Icon::Folder))
+                OpenPath(data);
+            if (!fs::exists(data) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Created when you first play.");
+            EndRows();
+        }
+        EndCard();
+    }
+
+    void DiscStatusPanel()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float height = Dp(86);
+        draw->AddRectFilled(pos, {pos.x + width, pos.y + height}, Col(Mix(color::field, color::card, 0.5f)), Dp(12));
+        const ImVec2 icon_center{pos.x + Dp(40), pos.y + height * 0.5f};
+        const float text_x = pos.x + Dp(76);
+        auto line = [&](ImFont* font, float y, const ImVec4& tint, const std::string& text) {
+            draw->AddText(font, FontSize(font), {text_x, pos.y + y}, Col(tint), text.c_str(), nullptr,
+                          width - (text_x - pos.x) - Dp(16));
+        };
+        if (pending_)
+        {
+            Spinner(icon_center, Dp(14), Col(color::info));
+            line(fonts.label, Dp(20), color::text, "Checking the disc");
+            line(fonts.caption, Dp(46), color::muted, "Reading the disc header and the game file table...");
+        }
+        else if (check_.info && check_.selection == DiscSelection())
         {
             const auto& info = *check_.info;
-            ImGui::TextColored(good, "Disc read successfully");
-            ImGui::Text("%s  |  Revision %u  |  %s  |  %u files", info.game_id.c_str(),
-                        unsigned(info.revision), info.format.c_str(), info.file_count);
-            if (info.game_id != "R4QE01" || info.revision != 1)
-                Paragraph("Different from the current USA revision 1 baseline; compatibility is unverified.", warning);
-            else Paragraph("Matches the current USA revision 1 source baseline.");
+            const bool supported = SupportedRelease(info);
+            draw->AddCircleFilled(icon_center, Dp(22), Col(supported ? color::accent : color::warning, 0.15f));
+            DrawIcon(draw, supported ? Icon::Check : Icon::Warning, icon_center, Dp(22),
+                     Col(supported ? color::accent : color::warning));
+            line(fonts.label, Dp(14), color::text, "Mario Strikers Charged  -  " + std::string(RegionName(info.game_id)));
+            line(fonts.caption, Dp(40), color::muted, info.game_id + "  -  Revision " + std::to_string(unsigned(info.revision))
+                + "  -  " + info.format + "  -  " + std::to_string(info.file_count) + " files");
+            line(fonts.caption, Dp(60), supported ? color::accent : color::warning,
+                 supported ? "Supported release. Ready to play."
+                           : "Readable, but this build runs the USA release (R4QE01 revision 1) only.");
         }
-        else if (!check_.error.empty()) Paragraph(check_.error.c_str(), bad);
-        else Paragraph("Choose an image and check that its game data partition can be opened.");
-        ImGui::EndChild();
-        LanguageSetting();
+        else if (!check_.error.empty())
+        {
+            draw->AddCircleFilled(icon_center, Dp(22), Col(color::danger, 0.15f));
+            DrawIcon(draw, Icon::Error, icon_center, Dp(22), Col(color::danger));
+            line(fonts.label, Dp(20), color::text, "The disc could not be read");
+            line(fonts.caption, Dp(46), color::muted, check_.error);
+        }
+        else
+        {
+            DrawIcon(draw, Icon::Disc, icon_center, Dp(26), Col(color::dim));
+            line(fonts.label, Dp(20), color::text, DiscSelection().empty() ? "No disc selected" : "Not checked yet");
+            line(fonts.caption, Dp(46), color::muted, "Choose your image and check that its game partition opens.");
+        }
+        ImGui::Dummy({width, height});
+    }
+
+    void LanguageControl()
+    {
+        const std::string id = check_.info ? check_.info->game_id : "R4QE01";
+        const float width = ImGui::GetContentRegionAvail().x;
+        if (id == "R4QE01")
+        {
+            const char* values[] = {"auto", "english", "french", "spanish"};
+            int selected = -1;
+            for (int i = 0; i < 4; ++i) if (draft_.language == values[i]) selected = i;
+            if (Segmented("##language_choice", &selected, {"Auto", "English", "French", "Spanish"}, width))
+            { draft_.language = values[selected]; dirty_ = true; }
+            if (selected < 0)
+                TextWrappedColored(CurrentFonts().caption, color::warning,
+                                   "The saved language is not available in this release. Choose one above.");
+            return;
+        }
+        struct Entry { const char* value; const char* name; };
+        std::vector<Entry> entries{{"auto", "Automatic"}};
+        if (id == "R4QP01")
+            entries.insert(entries.end(), {{"english", "English"}, {"french", "French"}, {"spanish", "Spanish"},
+                                           {"german", "German"}, {"italian", "Italian"}});
+        else if (id == "R4QJ01") entries.push_back({"japanese", "Japanese"});
+        const char* preview = draft_.language.c_str();
+        for (const auto& entry : entries) if (draft_.language == entry.value) preview = entry.name;
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::BeginCombo("##language_combo", preview))
+        {
+            for (const auto& entry : entries)
+                if (ImGui::Selectable(entry.name, draft_.language == entry.value))
+                { draft_.language = entry.value; dirty_ = true; }
+            ImGui::EndCombo();
+        }
     }
 
     void DisplayPage()
     {
-        PageTitle("Display", "Game display preferences. These take effect when gameplay is available.");
+        PageHeader("Display", "How the game window opens. The game renders its original 640 x 448 picture and scales it to fit.");
+        const auto run = EffectiveLaunch().settings;
         if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
         {
-            const auto settings = EffectiveLaunch().settings;
-            const auto text = "For this run: " + std::to_string(settings.width) + " x " + std::to_string(settings.height)
-                + ", " + settings.aspect
-                + (settings.fullscreen ? ", fullscreen." : ", windowed.") + " Command-line overrides are not saved.";
-            Paragraph(text.c_str());
+            const std::string text = "This run: " + std::to_string(run.width) + " x " + std::to_string(run.height) + ", "
+                + run.aspect + (run.fullscreen ? ", fullscreen" : ", windowed") + " (command line, not saved)";
+            Chip(text.c_str(), color::info, Icon::Info);
+            ImGui::Dummy({0, Dp(2)});
         }
-        const std::string resolution = std::to_string(draft_.width) + " x " + std::to_string(draft_.height);
-        ImGui::SetNextItemWidth(260);
-        if (ImGui::BeginCombo("Resolution", resolution.c_str()))
+
+        BeginCard("##window", "Window", nullptr, Icon::Display);
+        if (BeginRows("##window_rows"))
         {
-            for (const auto& size : {ImVec2{640, 480}, ImVec2{1280, 720}, ImVec2{1920, 1080}, ImVec2{2560, 1440}, ImVec2{3840, 2160}})
+            Row("Mode", "Fullscreen covers the whole display without changing its resolution.");
+            int mode = draft_.fullscreen ? 1 : 0;
+            if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
+            { draft_.fullscreen = mode == 1; dirty_ = true; }
+
+            Row("Window size", "Used in windowed mode. You can still resize the window while playing.");
+            WindowSizeControl();
+
+            Row("Start on display", displays_.size() > 1 ? "Where the game window opens."
+                                                          : "Only one display is connected.");
+            DisplayChoice();
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##picture", "Picture", nullptr, Icon::Sliders);
+        if (BeginRows("##picture_rows"))
+        {
+            Row("Aspect ratio", "16:9 uses the game's widescreen mode, 4:3 its original layout. Automatic picks by window shape at start.");
+            const char* values[] = {"auto", "4:3", "16:9"};
+            int aspect = -1;
+            for (int i = 0; i < 3; ++i) if (draft_.aspect == values[i]) aspect = i;
+            if (Segmented("##aspect", &aspect, {"Automatic", "4:3", "16:9"}, ImGui::GetContentRegionAvail().x))
+            { draft_.aspect = values[aspect]; dirty_ = true; }
+            if (aspect < 0)
+                TextWrappedColored(CurrentFonts().caption, color::warning,
+                                   ("Saved value " + draft_.aspect + " is not supported by the game. Choose one above.").c_str());
+
+            Row("VSync", "Synchronizes frames with your display to prevent tearing.");
+            if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
+
+            Row("Frame rate in title", "Shows the game's frames per second in the window title.");
+            if (Toggle("##fps", &draft_.show_fps)) dirty_ = true;
+            EndRows();
+        }
+        EndCard();
+    }
+
+    void WindowSizeControl()
+    {
+        static constexpr std::array<std::array<int, 2>, 7> presets{{{1280, 720}, {1600, 900}, {1920, 1080},
+            {2560, 1440}, {3840, 2160}, {1024, 768}, {1440, 1080}}};
+        const float width = ImGui::GetContentRegionAvail().x;
+        std::string preview = std::to_string(draft_.width) + " x " + std::to_string(draft_.height);
+        bool custom = true;
+        for (const auto& preset : presets) if (preset[0] == draft_.width && preset[1] == draft_.height) custom = false;
+        if (custom) preview += "  (custom)";
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::BeginCombo("##size", preview.c_str()))
+        {
+            for (const auto& preset : presets)
             {
-                const auto label = std::to_string(int(size.x)) + " x " + std::to_string(int(size.y));
-                if (ImGui::Selectable(label.c_str(), resolution == label))
-                { draft_.width = int(size.x); draft_.height = int(size.y); dirty_ = true; }
+                const std::string label = std::to_string(preset[0]) + " x " + std::to_string(preset[1])
+                    + (preset[0] * 3 == preset[1] * 4 ? "   (4:3)" : "   (16:9)");
+                if (ImGui::Selectable(label.c_str(), preset[0] == draft_.width && preset[1] == draft_.height))
+                { draft_.width = preset[0]; draft_.height = preset[1]; dirty_ = true; }
             }
             ImGui::EndCombo();
         }
         int dimensions[] = {draft_.width, draft_.height};
-        ImGui::SetNextItemWidth(260);
-        if (ImGui::InputInt2("Custom width / height", dimensions))
-        { draft_.width = dimensions[0]; draft_.height = dimensions[1]; dirty_ = true; }
-        dirty_ |= Choice("Aspect ratio", draft_.aspect, {{"auto", "Follow the window"}, {"4:3", "4:3"},
-            {"16:9", "16:9"}, {"16:10", "16:10"}, {"21:9", "21:9"}});
-        bool backend_supported = draft_.backend == "auto";
-#if defined(__APPLE__)
-        dirty_ |= Choice("Graphics backend", draft_.backend, {{"auto", "Automatic"}, {"metal", "Metal"}});
-        backend_supported |= draft_.backend == "metal";
-#elif defined(_WIN32)
-        dirty_ |= Choice("Graphics backend", draft_.backend, {{"auto", "Automatic"},
-            {"d3d12", "Direct3D 12"}, {"vulkan", "Vulkan"}});
-        backend_supported |= draft_.backend == "d3d12" || draft_.backend == "vulkan";
-#elif defined(__linux__)
-        dirty_ |= Choice("Graphics backend", draft_.backend, {{"auto", "Automatic (Vulkan)"}, {"vulkan", "Vulkan"}});
-        backend_supported |= draft_.backend == "vulkan";
-#else
-        dirty_ |= Choice("Graphics backend", draft_.backend, {{"auto", "Automatic"}});
-#endif
-        backend_supported |= draft_.backend == "auto";
-        if (!backend_supported)
-            Paragraph("The saved backend is unavailable on this platform. Choose a listed backend.", warning);
-        dirty_ |= ImGui::Checkbox("Fullscreen", &draft_.fullscreen);
-        ImGui::SameLine(180);
-        dirty_ |= ImGui::Checkbox("VSync", &draft_.vsync);
-        Paragraph("Applies to the game window. The launcher keeps its own size.");
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::InputInt2("##custom_size", dimensions))
+        {
+            draft_.width = std::clamp(dimensions[0], 320, 16384);
+            draft_.height = std::clamp(dimensions[1], 240, 16384);
+            dirty_ = true;
+        }
+    }
+
+    void DisplayChoice()
+    {
+        const float width = ImGui::GetContentRegionAvail().x;
+        std::string preview = "Default display";
+        if (draft_.monitor > 0)
+            preview = draft_.monitor <= int(displays_.size()) ? displays_[size_t(draft_.monitor - 1)]
+                                                               : "Display " + std::to_string(draft_.monitor) + " (not connected)";
+        ImGui::SetNextItemWidth(width);
+        ImGui::BeginDisabled(displays_.size() <= 1 && draft_.monitor == 0);
+        if (ImGui::BeginCombo("##monitor", preview.c_str()))
+        {
+            if (ImGui::Selectable("Default display", draft_.monitor == 0)) { draft_.monitor = 0; dirty_ = true; }
+            for (size_t i = 0; i < displays_.size(); ++i)
+                if (ImGui::Selectable(displays_[i].c_str(), draft_.monitor == int(i) + 1))
+                { draft_.monitor = int(i) + 1; dirty_ = true; }
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
     }
 
     void AudioPage()
     {
-        PageTitle("Audio", "Set your preferred mix. Audio playback is not connected yet.");
-        ImGui::SetNextItemWidth(300);
-        dirty_ |= ImGui::SliderInt("Master volume", &draft_.master_volume, 0, 100, "%d%%");
-        ImGui::SetNextItemWidth(300);
-        dirty_ |= ImGui::SliderInt("Music", &draft_.music_volume, 0, 100, "%d%%");
-        ImGui::SetNextItemWidth(300);
-        dirty_ |= ImGui::SliderInt("Sound effects", &draft_.effects_volume, 0, 100, "%d%%");
-        dirty_ |= ImGui::Checkbox("Mute all audio", &draft_.mute);
+        PageHeader("Audio", "Output volume for the game. Music, sound effect and voice levels are part of the game's own Options menu.");
+        BeginCard("##output", "Output", "Plays through your system's default audio device.", Icon::Audio);
+        if (BeginRows("##audio_rows"))
+        {
+            Row("Master volume", "Scales the game's speaker output, like the volume of a TV.");
+            ImGui::BeginDisabled(draft_.mute);
+            if (PercentSlider("##volume", &draft_.master_volume, ImGui::GetContentRegionAvail().x)) dirty_ = true;
+            ImGui::EndDisabled();
+            Row("Mute", "Silences the game without changing the volume.");
+            if (Toggle("##mute", &draft_.mute)) dirty_ = true;
+            EndRows();
+        }
+        EndCard();
+    }
+
+    void KeyRow(const char* button, std::initializer_list<const char*> keys, const char* alternative = nullptr,
+                const char* note = nullptr)
+    {
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
+        ImGui::TableSetColumnIndex(0);
+        TextColored(CurrentFonts().label, color::text, button);
+        if (note)
+        {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+            TextColored(CurrentFonts().caption, color::muted, note);
+        }
+        ImGui::TableSetColumnIndex(1);
+        bool first = true;
+        for (const char* key : keys)
+        {
+            if (!first) ImGui::SameLine(0, Dp(6));
+            KeyCap(key);
+            first = false;
+        }
+        if (alternative)
+        {
+            ImGui::SameLine(0, Dp(10));
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
+            TextColored(CurrentFonts().caption, color::muted, alternative);
+        }
     }
 
     void ControlsPage()
     {
-        PageTitle("Controls", "Save input preferences and check connected controller input.");
-        dirty_ |= Choice("Preferred input", draft_.input, {{"auto", "Automatic"}, {"keyboard", "Keyboard"}, {"controller", "Controller"}});
-        ImGui::SetNextItemWidth(260);
-        dirty_ |= ImGui::SliderInt("Stick deadzone", &draft_.deadzone, 0, 50, "%d%%");
-        dirty_ |= ImGui::Checkbox("Controller vibration", &draft_.rumble);
-        Paragraph("Preferences are saved. Wii control mapping and gameplay input still need integration.");
-        ImGui::Separator();
-        ImGui::TextUnformatted("Live controller check");
-        if (!gamepad_) Paragraph("No controller detected. Connect a controller to test its sticks and buttons.");
+        PageHeader("Controls", "Play with keyboard and mouse. Keep the game window focused. Controller support is planned.");
+        BeginCard("##keys", "Keyboard & mouse", "Each key presses a Wii Remote button; the mouse is the pointer.", Icon::Keyboard);
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
+        if (ImGui::BeginTable("##key_table", 2))
+        {
+            ImGui::TableSetupColumn("button", ImGuiTableColumnFlags_WidthFixed, Dp(190));
+            ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
+            KeyRow("A", {"Enter", "Space"}, "or left click", "Confirm, select");
+            KeyRow("B", {"Esc", "Backspace"}, "or right click", "Back");
+            KeyRow("Pointer", {"Mouse"}, nullptr, "Point at menu items");
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
+            ImGui::TableSetColumnIndex(0);
+            TextColored(CurrentFonts().label, color::text, "D-pad");
+            ImGui::TableSetColumnIndex(1);
+            for (int direction = 0; direction < 4; ++direction)
+            {
+                if (direction) ImGui::SameLine(0, Dp(6));
+                KeyCapArrow(direction);
+            }
+            KeyRow("1  /  2", {"Z", "X"});
+            KeyRow("+ (Plus)", {"Tab"});
+            KeyRow("\xE2\x88\x92 (Minus)", {"-"});
+            KeyRow("HOME", {"Home"});
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleVar();
+        EndCard();
+
+        BeginCard("##controller", "Controller test", "Controllers are not used by the game yet. You can check one here.", Icon::Gamepad);
+        if (!gamepad_)
+            TextWrappedColored(CurrentFonts().body, color::muted, "No controller detected.");
         else
         {
             const char* name = SDL_GetGamepadName(gamepad_);
-            ImGui::TextColored(good, "%s", name ? name : "Connected controller");
+            Chip(name ? name : "Connected controller", color::accent, Icon::Gamepad);
             const float x = float(SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTX)) / 32768.0f;
             const float y = float(SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTY)) / 32768.0f;
-            ImGui::Text("Left stick: X %+.2f   Y %+.2f", x, y);
+            const std::string stick = "Left stick  X " + std::to_string(int(std::lround(x * 100))) + "%   Y "
+                + std::to_string(int(std::lround(y * 100))) + "%";
+            TextColored(CurrentFonts().body, color::text, stick.c_str());
             const SDL_GamepadButton buttons[] = {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
                                                 SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH};
             const char* labels[] = {"South", "East", "West", "North"};
             for (int i = 0; i < 4; ++i)
             {
-                if (i) ImGui::SameLine();
-                ImGui::TextColored(SDL_GetGamepadButton(gamepad_, buttons[i]) ? good : muted, "%s", labels[i]);
+                if (i) ImGui::SameLine(0, Dp(8));
+                Chip(labels[i], SDL_GetGamepadButton(gamepad_, buttons[i]) ? color::accent : color::dim);
             }
         }
+        EndCard();
+    }
+
+    void AdvancedPage(bool& quit)
+    {
+        PageHeader("Advanced", "Troubleshooting and development options. The defaults suit most players.");
+        BeginCard("##interface", "Interface", nullptr, Icon::Sliders);
+        if (BeginRows("##interface_rows"))
+        {
+            Row("Launcher size", "Scales this launcher. Automatic follows your display's scaling setting.");
+            const char* values[] = {"auto", "75", "100", "125", "150", "175", "200"};
+            const char* names[] = {"Automatic", "75%", "100%", "125%", "150%", "175%", "200%"};
+            const char* preview = draft_.ui_scale.c_str();
+            for (int i = 0; i < 7; ++i) if (draft_.ui_scale == values[i]) preview = names[i];
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::BeginCombo("##ui_scale", preview))
+            {
+                for (int i = 0; i < 7; ++i)
+                    if (ImGui::Selectable(names[i], draft_.ui_scale == values[i])) { draft_.ui_scale = values[i]; dirty_ = true; }
+                ImGui::EndCombo();
+            }
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##graphics", "Graphics", nullptr, Icon::Display);
+        if (BeginRows("##graphics_rows"))
+        {
+#if defined(__APPLE__)
+            const char* api = "Metal";
+#elif defined(_WIN32)
+            const char* api = "Direct3D 12";
+#else
+            const char* api = "Vulkan";
+#endif
+            Row("Graphics API", "Chosen for your system by this build.");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
+            Chip(api, color::info);
+            Row("API validation", "Checks every graphics call for errors. Useful for bug reports, but slower.");
+            if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##diagnostics", "Diagnostics", nullptr, Icon::Info);
+        if (BeginRows("##diagnostic_rows"))
+        {
+            Row("Log detail", "How much the game prints to its console log.");
+            const char* values[] = {"error", "warning", "info", "debug"};
+            int level = 2;
+            for (int i = 0; i < 4; ++i) if (draft_.log_level == values[i]) level = i;
+            if (Segmented("##log_level", &level, {"Errors", "Warnings", "Info", "Debug"}, ImGui::GetContentRegionAvail().x))
+            { draft_.log_level = values[level]; dirty_ = true; }
+
+            const std::string settings_path = PathUtf8(file_.path);
+            Row("Settings file", settings_path.c_str());
+            if (SecondaryButton("open_settings", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                fs::exists(file_.path.parent_path()), Icon::Folder))
+                OpenPath(file_.path.parent_path());
+
+            Row("Launch command", "Copies a command line that starts the game with these settings.");
+            if (SecondaryButton("copy_command", "Copy command", {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy))
+            {
+                const auto command = LaunchCommand();
+                if (SDL_SetClipboardText(command.c_str())) Notice("Launch command copied to the clipboard.", NoticeKind::Success);
+                else Notice(std::string("Cannot copy: ") + SDL_GetError(), NoticeKind::Error);
+            }
+            EndRows();
+        }
+        EndCard();
+
+#if defined(MSCHARGED_HAS_ORIGINAL_CREDITS) || defined(MSCHARGED_HAS_GAME_STARTUP)
+        BeginCard("##developer", "Developer tests", "Run a single original scene for testing. Settings are used without saving.", Icon::Play);
+        if (BeginRows("##developer_rows"))
+        {
+            const bool ready = DiscReady() && SupportedRelease(*check_.info);
+#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
+            Row("Original Credits", "Runs the original Credits scene with its movie and music.");
+            if (SecondaryButton("credits_test", "Run Credits", {ImGui::GetContentRegionAvail().x, Dp(40)}, ready, Icon::Play))
+            { credits_launch_ = EffectiveLaunch(); quit = true; }
+#endif
+#ifdef MSCHARGED_HAS_GAME_STARTUP
+            Row("Original initialization", "Runs the original startup prefix and reports its first missing service.");
+            if (SecondaryButton("startup_test", "Run startup", {ImGui::GetContentRegionAvail().x, Dp(40)}, ready, Icon::Play))
+            { startup_launch_ = EffectiveLaunch(); quit = true; }
+#endif
+            EndRows();
+        }
+        EndCard();
+#else
+        (void)quit;
+#endif
+
+        BeginCard("##reset", "Reset", nullptr, Icon::Refresh);
+        if (BeginRows("##reset_rows"))
+        {
+            Row("Restore defaults", "Resets every setting except your disc. Save to keep the result.");
+            if (SecondaryButton("defaults", "Restore defaults", {ImGui::GetContentRegionAvail().x, Dp(40)}, config_ok_, Icon::Refresh))
+            {
+                const auto disc = draft_.disc;
+                draft_ = {};
+                draft_.disc = disc;
+                dirty_ = true;
+                Notice("Defaults restored. Save to keep them.", NoticeKind::Info);
+            }
+            EndRows();
+        }
+        EndCard();
     }
 
     void AboutPage()
     {
-        PageTitle("About this build", "Mario Strikers Charged - Native Port");
-        ImGui::Text("Version: %s", mscharged::build::version);
-        ImGui::Text("Configuration: %s", MSCHARGED_BUILD_CONFIG);
-        ImGui::Spacing();
-        Paragraph("This build includes the launcher, settings, controller detection, and ISO/RVZ disc checks. The game is not playable yet.");
-#ifdef MSCHARGED_HAS_GAME_STARTUP
-        Paragraph("Try startup enters the available original initialization code and reports its first missing service. This prototype cannot run a match yet.");
-#elif defined(MSCHARGED_HAS_ORIGINAL_CREDITS)
-        Paragraph("Try Credits enters original main and runs the original scrolling Credits scene, movie and native audio with temporary startup omissions. Full game startup is still in development.");
+        PageHeader("About", "Mario Strikers Charged - native PC port.");
+        BeginCard("##build", "This build", nullptr, Icon::Info);
+        if (BeginRows("##build_rows"))
+        {
+            auto value = [&](const char* label, const std::string& text) {
+                Row(label);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(2));
+                TextWrappedColored(CurrentFonts().body, color::muted, text.c_str());
+            };
+            value("Version", build::version);
+            value("Configuration", MSCHARGED_BUILD_CONFIG);
+            const int sdl = SDL_GetVersion();
+            value("Platform", std::string(SDL_GetPlatform()) + "  -  SDL " + std::to_string(SDL_VERSIONNUM_MAJOR(sdl)) + "."
+                + std::to_string(SDL_VERSIONNUM_MINOR(sdl)) + "." + std::to_string(SDL_VERSIONNUM_MICRO(sdl)));
+            const char* renderer = SDL_GetRendererName(renderer_);
+            char scale[96];
+            std::snprintf(scale, sizeof scale, "%s  -  interface x%.2f  -  pixel density x%.2f",
+                          renderer ? renderer : "unknown renderer", metrics_.ui, metrics_.density);
+            value("Launcher display", scale);
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
-        Paragraph("Try boot sequence runs the original Boot and Intro tasks. Later menus and game sound effects remain incomplete.");
-#endif
+            value("Game runtime", "Included: original game code compiled for this system.");
 #else
-        Paragraph("The decompilation is still incomplete. Game startup, Aurora rendering, audio, and Wii input adaptation are the next integration steps.");
+            value("Game runtime", "Not included in this launcher-only build.");
 #endif
-        ImGui::Separator();
-        Paragraph("Original port code: CC0 1.0. Dependencies retain their own licenses.");
-        Paragraph("Header artwork: SteamGridDB hero 8926, uploaded by Jiquita. Font: Roboto Medium (Apache 2.0).");
-        Paragraph("Unofficial project, unaffiliated with Nintendo or Next Level Games.");
-    }
-
-    void Draw(bool& quit)
-    {
-        const auto size = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowPos({0, 0});
-        ImGui::SetNextWindowSize(size);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-        ImGui::Begin("Launcher", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
-            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground);
-        ImGui::PopStyleVar();
-        const float hero_height = HeroHeight();
-        ImGui::Dummy({size.x, hero_height});
-        auto* draw = ImGui::GetWindowDrawList();
-        draw->AddRectFilledMultiColor({0, 0}, {size.x * 0.75f, hero_height},
-            IM_COL32(9, 14, 23, 210), IM_COL32(9, 14, 23, 0), IM_COL32(9, 14, 23, 20), IM_COL32(9, 14, 23, 230));
-        draw->AddText(normal_, 17, {24, 18}, IM_COL32(169, 201, 232, 255), "NATIVE PORT  /  DEVELOPMENT BUILD");
-        draw->AddText(heading_, 24, {24, hero_height * 0.36f}, IM_COL32(241, 246, 255, 255), "MARIO STRIKERS");
-        draw->AddText(title_, 36, {23, hero_height * 0.36f + 28}, IM_COL32(255, 255, 255, 255), "CHARGED");
-
-        ImGui::SetCursorPos({12, hero_height + 12});
-        const float body_height = std::max(220.0f, size.y - hero_height - 94);
-        ImGui::BeginChild("navigation", {132, body_height}, ImGuiChildFlags_Borders);
-        for (int i = 0; i < 5; ++i)
-            if (ImGui::Selectable(pages[i], page_ == i, 0, {0, 28})) page_ = i;
-        ImGui::EndChild();
-        ImGui::SameLine(156);
-        ImGui::BeginChild("page", {size.x - 168, body_height}, ImGuiChildFlags_Borders);
-        ImGui::BeginDisabled(!config_ok_);
-        switch (page_)
-        {
-        case 0: GamePage(); break;
-        case 1: DisplayPage(); break;
-        case 2: AudioPage(); break;
-        case 3: ControlsPage(); break;
-        default: AboutPage(); break;
+            EndRows();
         }
-        ImGui::EndDisabled();
-        ImGui::EndChild();
+        EndCard();
 
-        ImGui::SetCursorPos({16, size.y - 70});
-        ImGui::TextColored(notice_error_ ? bad : muted, "%s", notice_.c_str());
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", notice_.c_str(), PathUtf8(file_.path).c_str());
-        if (dirty_)
-        {
-            ImGui::SameLine();
-            ImGui::TextColored(warning, "Unsaved changes");
-        }
-        ImGui::SetCursorPos({16, size.y - 44});
-#ifdef MSCHARGED_HAS_GAME_STARTUP
-        const bool startup_ready = config_ok_ && !pending_ && check_.info
-            && check_.selection == DiscSelection() && check_.info->game_id == "R4QE01" && check_.info->revision == 1;
-        ImGui::BeginDisabled(!startup_ready);
-        if (ImGui::Button("Try startup", {104, 32}))
-        { startup_launch_ = EffectiveLaunch(); quit = true; }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Experimental startup for USA revision 1. Uses run settings without saving, closes the launcher, and reports the first missing game service in the terminal and startup log.");
-#elif defined(MSCHARGED_HAS_ORIGINAL_CREDITS)
-        const bool credits_ready = config_ok_ && !pending_ && check_.info
-            && check_.selection == DiscSelection() && check_.info->game_id == "R4QE01" && check_.info->revision == 1;
-        ImGui::BeginDisabled(!credits_ready);
-        if (ImGui::Button("Try Credits", {104, 32}))
-        { credits_launch_ = EffectiveLaunch(); quit = true; }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Original-main Credits test for USA revision 1. Uses run settings without saving and closes the launcher before the game window opens. Full startup and gameplay remain pending.");
-#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!credits_ready);
-        if (ImGui::Button("Try boot sequence", {144, 32}))
-        { frontend_launch_ = EffectiveLaunch(); quit = true; }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Original Boot/Intro test. Later menus and game sound effects are incomplete. Uses run settings without saving.");
-#endif
-#else
-        ImGui::BeginDisabled();
-        ImGui::Button("Play game", {104, 32});
-        ImGui::EndDisabled();
-#endif
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(warning, "Game not playable yet");
-        ImGui::SameLine(size.x - 324);
-        ImGui::BeginDisabled(!config_ok_);
-        if (ImGui::Button("Defaults", {82, 32}))
-        { auto disc = draft_.disc; draft_ = {}; draft_.disc = disc; dirty_ = true; }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Reload", {82, 32})) Reload();
-        ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Button, {0.14f, 0.43f, 0.72f, 1});
-        ImGui::BeginDisabled(!config_ok_ || (!dirty_ && file_.exists));
-        if (ImGui::Button("Save settings", {128, 32})) Save();
-        ImGui::EndDisabled();
-        ImGui::PopStyleColor();
+        BeginCard("##project", "The project", nullptr, Icon::Disc);
+        TextWrappedColored(CurrentFonts().body, color::text,
+            "This port compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. "
+            "The original game logic runs unchanged; the port provides the platform underneath it: graphics, audio, "
+            "input, files and timing.");
+        ImGui::Dummy({0, Dp(2)});
+        TextWrappedColored(CurrentFonts().caption, color::muted,
+            "You need your own copy of the game. Unofficial project, not affiliated with Nintendo or Next Level Games.");
+        ImGui::Dummy({0, Dp(4)});
+        if (SecondaryButton("decomp_link", "Decompilation project", Dp(230, 40), true, Icon::Link))
+            SDL_OpenURL("https://github.com/yannicksuter/mscharged-decomp");
+        EndCard();
 
-        if (close_requested_)
-        {
-            if (!dirty_) quit = true;
-            else ImGui::OpenPopup("Unsaved settings");
-            close_requested_ = false;
-        }
-        if (ImGui::BeginPopupModal("Unsaved settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-        {
-            ImGui::TextUnformatted("Save your changes before closing?");
-            if (ImGui::Button("Save and close")) { if (Save()) quit = true; ImGui::CloseCurrentPopup(); }
-            ImGui::SameLine();
-            if (ImGui::Button("Discard")) { quit = true; ImGui::CloseCurrentPopup(); }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-        ImGui::End();
+        BeginCard("##licenses", "Credits & licenses", nullptr, Icon::Check);
+        TextWrappedColored(CurrentFonts().caption, color::muted,
+            "Original port code, tools and documentation: CC0 1.0. Header artwork: SteamGridDB hero 8926 by Jiquita. "
+            "Font: Roboto (Apache 2.0). Built with SDL3 (zlib), Dear ImGui (MIT), Aurora (MIT), Dawn (BSD), "
+            "nod and its Rust dependencies, and other libraries listed in LICENSES. Each keeps its own license.");
+        EndCard();
     }
 
     Options options_;
+    fs::path base_;
+    std::string font_path_;
+    bool capture_ = false;
+    UiMetrics metrics_{};
     std::optional<ResolvedLaunch> startup_launch_;
     std::optional<ResolvedLaunch> credits_launch_;
     std::optional<ResolvedLaunch> frontend_launch_;
@@ -732,25 +1439,24 @@ private:
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_ = nullptr;
     SDL_Gamepad* gamepad_ = nullptr;
-    ImFont* normal_ = nullptr;
-    ImFont* heading_ = nullptr;
-    ImFont* title_ = nullptr;
-    float header_ratio_ = 620.0f / 1920.0f;
     float header_width_ = 1920;
     float header_height_ = 620;
+    SDL_FRect hero_{};
+    bool hero_visible_ = false;
     bool window_ui_ready_ = false;
     bool renderer_ui_ready_ = false;
     ConfigFile file_;
     Settings draft_;
     bool config_ok_ = false;
     bool dirty_ = false;
-    bool notice_error_ = false;
+    NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
-    int page_ = 0;
+    int page_ = PagePlay;
     bool close_requested_ = false;
     bool pending_ = false;
     DiscCheck check_;
     std::future<DiscCheck> future_;
+    std::vector<std::string> displays_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
 };
 }
@@ -779,7 +1485,7 @@ int main(int argc, char** argv)
             std::cout << "Usage: mscharged [launch settings] [--launcher] [--version]\n" << LaunchOptionsHelp <<
                          "Supplying --disc/--disk starts the original game runtime directly when included in this build.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
-                         "Development checks: --smoke-test | --screenshot FILE [--page game|display|audio|controls|about]\n";
+                         "Development checks: --smoke-test | --screenshot FILE [--page play|game|display|audio|controls|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif

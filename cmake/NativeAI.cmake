@@ -22,6 +22,11 @@ if(BUILD_TESTING)
     add_test(NAME native_ai_observations COMMAND native_ai_observation_tests)
     set_tests_properties(native_ai_observations PROPERTIES TIMEOUT 15
         ENVIRONMENT "SDL_AUDIO_DRIVER=dummy" LABELS "Platform")
+    add_executable(native_ai_gain_tests tests/native_ai_gain.cpp)
+    target_link_libraries(native_ai_gain_tests PRIVATE charged_native_ai SDL3::SDL3)
+    add_test(NAME native_ai_gain COMMAND native_ai_gain_tests)
+    set_tests_properties(native_ai_gain PROPERTIES TIMEOUT 15
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy" LABELS "Platform")
     add_executable(native_ai_output_tests tests/native_ai_output.cpp)
     target_link_libraries(native_ai_output_tests PRIVATE charged_native_ai SDL3::SDL3)
     add_test(NAME native_ai_output COMMAND native_ai_output_tests)

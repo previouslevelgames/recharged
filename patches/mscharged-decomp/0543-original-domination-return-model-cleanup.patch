@@ -1,0 +1,26 @@
+Subject: Admit the original Domination return model cleanup service
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Classification: temporary explicit original-source diagnostic admission; depends on 0506 and 0541.
+
+Back from the Domination gameplay options page calls the authored presentation
+function TransitionGrudgeMatchToMainMenu. Its first host calls are service 27
+for "homemodel" and "awaymodel": original FEModelManager::GetModel, then
+DestroyModel only when that captain hologram exists. The holograms are created
+by StartHomeAwayCaptainHologramSequence, which only the Choose Sides handler
+calls, so on the captain/sidekick route the original lookup finds nothing.
+
+Move only case 27 under the existing Domination admission. FEModelManager is
+the whole original unit, created by original BeginLoadFEWorld. Service 26 and
+every other model, impostor, trophy and animation service keep their guards.
+
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -305,6 +305,8 @@
+         GameSceneManager::Instance()->Push((SceneList)8, SCREEN_FORWARD, false);
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     case 27:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);

@@ -1,4 +1,4 @@
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 Purpose: Native compiler declarations for original OSMutex private scheduler imports. No definitions or contended scheduling admission.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h

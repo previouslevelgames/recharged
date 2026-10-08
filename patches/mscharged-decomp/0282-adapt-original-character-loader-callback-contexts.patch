@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Preserve original CharacterLoader scalar callback contexts
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Use pointer-width compiler casts only for the existing integer model-index
 and audio-count callback contexts. Preserve all source decisions/requests.

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Compile original HBM task thread with native live message types
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 Classification: native LP64 compiler and owning-header compatibility only.
 
 Keep original TaskThread construction, message loop, literal values, returns

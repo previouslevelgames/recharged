@@ -1,24 +1,50 @@
-Subject: Read the host OS bus clock instead of defining console low-memory globals
+Subject: Read the native bus clock without absolute-address definitions
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
-Each original time unit maps __OSBusClock to the same console address.
-Native builds must not create duplicate uninitialized globals. Read the
-initialized Aurora clock through a typed host bridge, preserving tick conversion
-math. Full Wii clock/simulation parity remains separate validation work.
+Upstream now owns the declaration in OSHardware_fwd.h and uses
+OS_BUS_CLOCK_SPEED in both original NL time units. The native forward header
+exposes the existing 32-bit ChargedGetBusClock bridge; console storage stays
+literal. Install read aliases only after each TU's includes, so a macro cannot
+expand inside full OSHardware physical declarations or conflict with the later
+0162 OS umbrella alias. The existing 0244 extern/OSTime transport still applies.
+All original conversion math and clocks remain unchanged.
 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h b/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
+--- a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
++++ b/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
+@@ -2,12 +2,19 @@
+ #define REVOLUTION_OS_HARDWARE_FWD_H
+ 
+ #include <decomp.h>
++#ifdef MSCHARGED_NATIVE
++#include <revolution/types.h>
++#endif
+ 
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
++#ifdef MSCHARGED_NATIVE
++u32 ChargedGetBusClock(void);
++#else
+ unsigned long OS_BUS_CLOCK_SPEED AT_ADDRESS(0x800000F8);
++#endif
+ 
+ #ifdef __cplusplus
+ }
 diff --git a/src/NL/nlTicker.cpp b/src/NL/nlTicker.cpp
 --- a/src/NL/nlTicker.cpp
 +++ b/src/NL/nlTicker.cpp
-@@ -4,7 +4,12 @@
+@@ -2,6 +2,12 @@
+ 
+ #include <revolution/os/OSHardware_fwd.h>
  #include <revolution/os/OSTime_fwd.h>
- 
- 
++
 +#ifdef MSCHARGED_NATIVE
-+extern "C" u32 ChargedGetBusClock();
-+#define __OSBusClock ChargedGetBusClock()
-+#else
- u32 __OSBusClock AT_ADDRESS(0x800000F8);
++// Install the read alias only after declarations have been included.
++#undef OS_BUS_CLOCK_SPEED
++#define OS_BUS_CLOCK_SPEED ChargedGetBusClock()
 +#endif
  
  void nlInitTicker()
@@ -26,15 +52,18 @@ diff --git a/src/NL/nlTicker.cpp b/src/NL/nlTicker.cpp
 diff --git a/src/NL/nlTime.cpp b/src/NL/nlTime.cpp
 --- a/src/NL/nlTime.cpp
 +++ b/src/NL/nlTime.cpp
-@@ -4,7 +4,12 @@
- 
- #include "decomp.h"
- 
+@@ -1,6 +1,15 @@
+ #include <revolution/os/OSTime.h>
 +#ifdef MSCHARGED_NATIVE
-+extern "C" u32 ChargedGetBusClock();
-+#define __OSBusClock ChargedGetBusClock()
-+#else
- u32 __OSBusClock AT_ADDRESS(0x800000F8);
++#include <revolution/os/OSHardware_fwd.h>
++#endif
+ 
+ #include "NL/nlTime.h"
++
++#ifdef MSCHARGED_NATIVE
++// Install the read alias only after declarations have been included.
++#undef OS_BUS_CLOCK_SPEED
++#define OS_BUS_CLOCK_SPEED ChargedGetBusClock()
 +#endif
  
  void nlInitTime()

@@ -1,3 +1,5 @@
+#include "dvd_fixture_medium.h"
+#include <atomic>
 #include "runtime/boot_script_load.h"
 #include "runtime/startup.h"
 #include "runtime/startup_files.h"
@@ -85,10 +87,12 @@ void Cancellation()
 }
 struct Overlay
 {
-    static void* Open(void* context) { return context; }
-    static void Close(void*) {}
+    std::atomic<unsigned> handles{0};
+    std::atomic<bool> entered{false};
+    static void* Open(void* context) { ++static_cast<Overlay*>(context)->handles; return context; }
+    static void Close(void* p) { --static_cast<Overlay*>(p)->handles; }
     static std::int64_t Seek(void*, std::int64_t offset, std::int32_t) { return offset; }
-    static std::int64_t Read(void*, std::uint8_t*, std::size_t) { return -1; }
+    static std::int64_t Read(void* p, std::uint8_t*, std::size_t) { static_cast<Overlay*>(p)->entered=true; return -1; }
     explicit Overlay(std::uint64_t size)
     {
         const AuroraOverlayCallbacks callbacks{Open, Close, Read, Seek};
@@ -106,6 +110,8 @@ void Failures()
         Pump(load, external, true);
         Check(load.State() == BootScriptLoadState::Failed, "Read failure became boot readiness");
         Reject([&] { load.Result(); });
+        Check(failure.entered && !failure.handles, "Boot fault did not perform real I/O and retire its file");
+        mscharged::test::FinishDVDTestFaultCase(true);
     }
     Overlay excessive(resources::MaximumAssetBytes + 1);
     Reject([] { BootScriptLoad load; });
@@ -136,6 +142,7 @@ int main(int argc, char** argv)
         Session session; const auto host = aurora_initialize(argc, argv, &config); session.live = true;
         Check(host.window, "Aurora initialization failed"); InitializeStartupOS(); nlInitMemory();
         Check(aurora_dvd_open(argv[1]), "Cannot mount boot script disc"); session.disc = true; nlInitFileSystem();
+        mscharged::test::ConfigureDVDTestMedium(argv[1]);
         std::shared_ptr<const BootScriptAsset> retained;
         for (unsigned i = 0; i < 3; ++i)
         {

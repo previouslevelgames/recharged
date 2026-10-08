@@ -1,0 +1,140 @@
+Subject: Admit original frontend FE model owners and their presentation services
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Classification: temporary explicit original-source diagnostic admission; depends on 0543.
+
+The Domination Choose Sides constructor calls the authored presentation
+function StartHomeAwayCaptainHologramSequence, which creates the home/away
+captain holograms through FE model services (1 create, 49/50 wait for the
+model and its load, 31 position on a stadium marker, 30/34 default animation
+and completion callback). Later transitions query and play their animations
+(10, 17, 18, 45), set transforms (22), enable them (33) and release impostors
+(2). The frontend task-cadence diagnostic also skipped the original
+FrontEndTask FEModelManager::Update/Render, so no FE model could load or draw.
+
+Under the new named MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS admission, keep
+the original FrontEndTask model update/render (including its HBM guard) and
+the FEModelManager-only VM services 1, 2, 10, 17, 18, 22, 30, 31, 33, 34, 45,
+49 and 50. Every other service keeps its current guard, including world
+animation (16), emissions (12, 14, 43), trophies and cup cameras.
+
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -17,6 +17,8 @@
+         NetTournManager::Instance()->DetachTournamentTrophy();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 1:
+     {
+         bool value = m_SP[-1] != 0;
+@@ -43,6 +45,8 @@
+         FEModelManager::Instance()->ReleaseImpostors();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 3:
+         NetTournManager::Instance()->DestroyTournamentTrophy();
+         break;
+@@ -92,7 +96,7 @@
+         m_SP[-1] = g_e3_Build;
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+ 
+     case 10:
+     {
+@@ -175,6 +179,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 17:
+     {
+         float value = *(float*)&m_SP[-1];
+@@ -204,6 +210,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 19:
+         FEAudio::PlayAnimAudioEvent(0xB60A9CC0, 0, 0, true);
+         break;
+@@ -228,7 +236,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 22:
+     {
+         unsigned int childName = m_SP[-1];
+@@ -338,7 +346,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 30:
+     {
+         unsigned int value = m_SP[-1];
+@@ -380,7 +388,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 33:
+     {
+         bool value = m_SP[-1] != 0;
+@@ -476,7 +484,7 @@
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 45:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -519,7 +527,7 @@
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     case 49:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -550,6 +558,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 51:
+         if (IsTournamentTrophyLoaded())
+             FinishLoadTournamentTrophy();
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -96,7 +96,7 @@
+         }
+     }
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FE_MODELS)
+     if (FEModelManager::Instance() != 0
+         && !IsHBMActive())
+     {
+@@ -104,7 +104,7 @@
+         FEModelManager::Instance()->Render();
+     }
+ 
+-#endif // FE model owners remain outside the selected world draw gate
++#endif // FE model owners are admitted only with the named FE model diagnostic
+ 
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+     if (nlTaskManager::m_pInstance->mCurrentState == 4 && IsStadiumWorldLoaded()

@@ -159,6 +159,27 @@ int main() {
         GameGraphicsStorageSpan recycledOwner{};Check(FindGameGraphicsStorage(raw+512,128,recycledOwner)
             && recycledOwner.incarnation!=parsedOwner.incarnation && ResolveGameGraphicsArray(raw+512).bytes==128,
             "Reused graphics storage revives old parsed-array bounds");
+        // The same producer's in-place rewrite of its complete serialized extent
+        // (RLG weight/bone-index reordering) keeps the bounds registered for it.
+        RegisterGameGraphicsArray(raw+512,24); RegisterGameGraphicsArray(raw+536,24);
+        Reject<std::invalid_argument>([&]{GameByteWriteReservation partial(raw+512,64,GameByteInPlaceRewrite{});});
+        Reject<std::invalid_argument>([&]{GameByteWriteReservation offset(raw+520,120,GameByteInPlaceRewrite{});});
+        Check(FindGameByteDomain(raw+512,128)==GameByteDomain::WiiSerialized && ResolveGameGraphicsArray(raw+512).bytes==24,
+              "Rejected in-place rewrite changed the serialized producer");
+        GameByteWriteReservation inPlace(raw+512,128,GameByteInPlaceRewrite{});
+        Reject<std::invalid_argument>([&]{ResolveGameGraphicsArray(raw+512);});
+        std::memset(raw+512,0x46,128);inPlace.Complete(GameByteDomain::WiiSerialized);inPlace.Reset();
+        Check(ResolveGameGraphicsArray(raw+512).bytes==24 && ResolveGameGraphicsArray(raw+536).bytes==24
+              && !ResolveGameGraphicsArray(raw+512).little_endian,
+              "In-place weight rewrite dropped its own authored array bounds");
+        GameByteWriteReservation plainRewrite(raw+512,128);std::memset(raw+512,0x47,128);
+        plainRewrite.Complete(GameByteDomain::WiiSerialized);plainRewrite.Reset();
+        Check(ResolveGameGraphicsArray(raw+512).bytes==128,"A plain rewrite inherited old producer bounds");
+        GameByteWriteReservation nativeCopy(raw+512,128);std::memset(raw+512,0x48,128);
+        nativeCopy.Complete(GameByteDomain::NativePayload);nativeCopy.Reset();
+        Reject<std::invalid_argument>([&]{GameByteWriteReservation native(raw+512,128,GameByteInPlaceRewrite{});});
+        Check(FindGameByteDomain(raw+512,128)==GameByteDomain::NativePayload,
+              "Rejected native-domain in-place rewrite changed the producer");
         RegisterGameGraphicsArray(nullptr,0); // Original zero-size source request stays neutral.
 
         // Retirement allocates no metadata, even when it must split one raw

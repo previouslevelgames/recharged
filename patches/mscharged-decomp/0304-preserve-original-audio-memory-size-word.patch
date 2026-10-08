@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve Wii32 audio arena size declaration in native builds
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 AudioBackend.cpp already defines gAudioMemorySize as u32. Native unsigned long
 is64 bits, so use the same32-bit type at the declaration. Original requests,

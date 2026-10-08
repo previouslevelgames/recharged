@@ -14,9 +14,16 @@ height = 720
 fullscreen = false
 vsync = true
 backend = auto
+# Game layout: auto (by window shape), 4:3 or 16:9.
 aspect = 16:9
+# Frames per second in the game window title.
+show_fps = true
+# Display the game window opens on: 0 = default, 1 = first display, 2 = second...
+monitor = 0
 
 [audio]
+# Host speaker volume (0-100) and mute. Music, effects and voice levels are in
+# the game's own Options menu.
 master_volume = 100
 music_volume = 100
 effects_volume = 100
@@ -26,3 +33,13 @@ mute = false
 input = auto
 deadzone = 15
 rumble = true
+
+[advanced]
+# Graphics API validation (slower; useful for bug reports) and log detail:
+# error, warning, info or debug.
+graphics_validation = true
+log_level = info
+
+[launcher]
+# Launcher interface size: auto, or a percentage from 75 to 200.
+ui_scale = auto

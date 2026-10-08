@@ -129,12 +129,19 @@ GameByteDomain FindGameByteDomain(const void* pointer, std::size_t bytes);
 // preserve unaffected domains. Concurrent overlapping producers are unsupported.
 // Native conversions can preserve an existing completed logical source extent;
 // new serialized reads always publish their actual requested logical extent.
+// Explicit request: one original producer rewrites its own complete
+// serialized logical extent in place (for example RLG weight/bone-index
+// reordering after load). Its logical origin, and therefore array bounds
+// registered for that producer, survive the rewrite. A partial or native-domain
+// extent is rejected before any state changes; new producers keep new origins.
+struct GameByteInPlaceRewrite {};
 class GameByteWriteReservation
 {
 public:
     GameByteWriteReservation() noexcept : pending_(nullptr) {}
     GameByteWriteReservation(void* destination, std::size_t logicalBytes,
                             std::size_t physicalBytes = 0);
+    GameByteWriteReservation(void* destination, std::size_t logicalBytes, GameByteInPlaceRewrite);
     ~GameByteWriteReservation();
     GameByteWriteReservation(const GameByteWriteReservation&) = delete;
     GameByteWriteReservation& operator=(const GameByteWriteReservation&) = delete;

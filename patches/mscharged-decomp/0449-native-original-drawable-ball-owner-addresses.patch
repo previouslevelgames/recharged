@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original DrawableBall proxy reads to native owners
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Use the genuine typed owners only in native compilation. Original console
 source, branches, masks, draw calls and owner lifetimes stay unchanged.

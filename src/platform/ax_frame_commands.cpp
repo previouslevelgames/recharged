@@ -1,6 +1,7 @@
 #include "platform/ax_frame_commands.h"
 #include "platform/ax_studio_depop.h"
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -89,6 +90,38 @@ NativeAXStereo96 NativeAXPackStereo(const NativeAXChannel96& left,const NativeAX
     }
     return result;
 }
+std::int32_t NativeAXMixAccumulate(std::int32_t bus,std::int32_t contribution) {
+    return static_cast<std::int32_t>(SignedWidth(std::int64_t(bus)+contribution,24));
+}
+std::array<std::int16_t,18> NativeAXRemoteOutput(const std::array<std::int32_t,18>& accumulator) {
+    std::array<std::int16_t,18> result{};
+    for(unsigned i=0;i<18;++i)
+        result[i]=Saturate(Floor(SignedWidth(std::int64_t(accumulator[i])*65536,40),65536));
+    return result;
+}
+NativeAXCompressorDecision NativeAXCompressorStep(std::uint16_t counter,std::uint16_t threshold,
+                                                  std::uint16_t release_frames,
+                                                  const NativeAXChannel96& left,
+                                                  const NativeAXChannel96& right) {
+    // Owned0586..0593 loads each sign-extended bus word, takes ABS and compares
+    // it with the unsigned threshold in AC1.L; carry marks an overflow.
+    bool overflow=false;
+    for(const auto* channel:{&left,&right})for(const auto sample:*channel)
+        if(std::abs(std::int64_t(sample))>=threshold)overflow=true;
+    if(overflow)return {true,std::uint32_t(counter)*192,release_frames};
+    if(!counter)return {};
+    const std::uint16_t next=std::uint16_t(counter-1);
+    return {true,0x840+std::uint32_t(next)*192,next};
+}
+std::int32_t NativeAXCompressSample(std::int32_t sample,std::uint16_t gain) {
+    const auto bits=std::uint32_t(sample);
+    const std::int64_t high=SignedHalf(std::uint16_t(bits>>16)),low=bits&65535;
+    // MULXMV/LSL16 shift the doubled high product inside the 40-bit AC, MULXAC
+    // adds the doubled low product, ASR16 floors and SL/S store the halves.
+    auto accumulator=SignedWidth(2*high*gain*65536,40);
+    accumulator=SignedWidth(accumulator+2*low*std::int64_t(gain),40);
+    return StoreBus(Floor(accumulator,65536));
+}
 NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     NativeDSPMemoryEndpoint memory,std::uint32_t address,std::size_t bytes,
     const NativeAXCommandHistory& history,const NativeAXCoefficientView& coefficients) {
@@ -109,16 +142,18 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     };
     const auto& setup=Take(NativeAXOpcode::Setup);
     const auto studio=Capture(f,memory,Address(setup),120);
-    // Owned Setup initializes twelve96-frame accumulators before voices/AUX.
-    // The final eight18-frame remote histories require separate output/mixing
-    // semantics; retain that honest unsupported boundary before all stores.
-    if(std::any_of(studio.begin()+72,studio.end(),[](unsigned char x){return x!=0;}))
-        Fail(NativeAXFailure::NonzeroStudio,setup,"AX remote Studio depop output/mixing is not yet qualified");
+    // Owned Setup initializes twelve96-frame accumulators before voices/AUX,
+    // then (0184..0222) eight18-frame remote ones in the order main0, aux0,
+    // main1, aux1, ... from the last eight Studio value/delta entries.
     std::array<NativeAXChannel96,12> buses{};
     constexpr unsigned studio_bus[12]={0,1,8,2,3,9,4,5,10,6,7,11};
     for(unsigned i=0;i<12;++i)
         buses[studio_bus[i]]=NativeAXStudioDepop96(SignedWord(Word(studio.data()+i*6)),
                                                 SignedHalf(Half(studio.data()+i*6+4)));
+    std::array<std::array<std::int32_t,18>,8> remote_buses{};
+    for(unsigned i=0;i<8;++i)
+        remote_buses[i]=NativeAXStudioDepop18(SignedWord(Word(studio.data()+72+i*6)),
+                                              SignedHalf(Half(studio.data()+72+i*6+4)));
     const auto& surround=list.commands[next<list.command_count?next:list.command_count-1];
     if(next>=list.command_count || (surround.opcode!=NativeAXOpcode::AddToLR && surround.opcode!=NativeAXOpcode::SubToLR))
         Fail(NativeAXFailure::UnsupportedSequence,surround,"AX DPL2 routing/output is not yet qualified");
@@ -139,6 +174,10 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
             ++f.active_voices;
             for(unsigned c=0;c<12;++c)for(unsigned i=0;i<96;++i)
                 buses[c][i]=StoreBus(std::int64_t(buses[c][i])+voice.buses[c][i]);
+            // 0CB3/0CD0 accumulate a voice's selected remote channels in place.
+            if(voice.remote_enabled)for(unsigned c=0;c<8;++c)if(voice.remote.mixed&(1u<<c))
+                for(unsigned i=0;i<18;++i)
+                    remote_buses[c][i]=NativeAXMixAccumulate(remote_buses[c][i],voice.remote.channels[c][i]);
             f.written_bytes+=voice.parameters_after.size();
         }
         voice_address=Word(voice.parameters_before.data());f.voices.push_back(voice);
@@ -167,14 +206,21 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     }
     if(next<list.command_count && list.commands[next].opcode==NativeAXOpcode::Compressor) {
         const auto& c=Take(NativeAXOpcode::Compressor);
-        if(c.arguments[0]!=32768 || c.arguments[1]!=10 || !history.compressor_counter_known || history.compressor_counter)
-            Fail(NativeAXFailure::UnsupportedCompressor,c,"AX compressor history/parameters are outside fresh no-attack proof");
-        for(unsigned channel=0;channel<2;++channel)for(auto sample:buses[channel])
-            if(sample<=-32768 || sample>=32768)
-                Fail(NativeAXFailure::UnsupportedCompressor,c,"AX compressor attack/attenuation is not yet qualified");
-        // Owned057B..059F skips all coefficient DMA and compression when no
-        // sample reaches the threshold and the actual release counter is zero.
-        DSPBackendValidateMemory(memory,Address(c,2),2,false);
+        if(!history.compressor_counter_known)
+            Fail(NativeAXFailure::UnsupportedCompressor,c,"AX compressor release counter history is unknown");
+        // Owned057B..0609: threshold, release frames and the source table come
+        // from the command list; the counter is the firmware's 0CE4 cell. The
+        // selected 96-halfword ramp scales the left and right main buses only.
+        const auto decision=NativeAXCompressorStep(history.compressor_counter,c.arguments[0],c.arguments[1],
+                                                   buses[0],buses[1]);
+        f.after.compressor_counter=decision.counter;
+        if(decision.apply) {
+            const auto ramp=Capture(f,memory,Address(c,2)+decision.offset,192);
+            for(unsigned channel=0;channel<2;++channel)for(unsigned i=0;i<96;++i)
+                buses[channel][i]=NativeAXCompressSample(buses[channel][i],Half(ramp.data()+i*2));
+        } else {
+            DSPBackendValidateMemory(memory,Address(c,2),2,false);
+        }
     }
     const auto& remote=Take(NativeAXOpcode::RemoteOutput);
     const auto& output=Take(NativeAXOpcode::Output);
@@ -183,7 +229,14 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     Take(NativeAXOpcode::End);
     if(next!=list.command_count)
         Fail(NativeAXFailure::UnsupportedSequence,list.commands[next],"AX staged frame has commands after END");
-    for(unsigned channel=0;channel<4;++channel)Stage(f,memory,Address(remote,channel*2),std::vector<unsigned char>(36));
+    // Owned067C..06A9 writes each speaker's main accumulator as 18 PCM16
+    // samples; the aux remote accumulators are mixed but never output.
+    for(unsigned channel=0;channel<4;++channel) {
+        const auto samples=NativeAXRemoteOutput(remote_buses[channel*2]);
+        std::vector<unsigned char> wire(36);
+        for(unsigned i=0;i<18;++i)PutHalf(wire.data()+i*2,std::uint16_t(samples[i]));
+        Stage(f,memory,Address(remote,channel*2),std::move(wire));
+    }
     std::vector<unsigned char> surround_wire(384);
     for(unsigned i=0;i<96;++i)PutWord(surround_wire.data()+i*4,std::uint32_t(buses[8][i]));
     Stage(f,memory,Address(output,1),std::move(surround_wire));

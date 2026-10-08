@@ -1,0 +1,76 @@
+# Formatting of the prepared game sources (pinned decomp export + port patches).
+#
+# tools/prepare_sources.py applies this definition to every C/C++ file of the
+# prepared decomp tree after the whole patch series, so the tree that is
+# compiled reads consistently. It follows the decomp's conventions (WebKit base,
+# Allman braces, 4-space indentation, flush case labels, unsorted includes) and
+# wraps at 120 columns with arguments aligned to their opening parenthesis.
+#
+# Formatting may change whitespace only. Options that would reorder, insert or
+# rewrite anything else are disabled here, and the preparer rejects any
+# formatted file whose non-whitespace characters differ from its input.
+# Requires clang-format 16 or newer.
+
+Language: Cpp
+# Each file keeps its own '> >' (C++03) or '>>' (C++11) template closers.
+Standard: Auto
+
+BasedOnStyle: WebKit
+ColumnLimit: 120
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+BreakBeforeBraces: Allman
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterObjCDeclaration: true
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+
+NamespaceIndentation: None
+CompactNamespaces: false
+
+AlignConsecutiveAssignments:
+  Enabled: false
+AlignTrailingComments: true
+AlignAfterOpenBracket: Align
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+AlignOperands: AlignAfterOperator
+
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
+AlwaysBreakAfterReturnType: None
+AlwaysBreakTemplateDeclarations: No
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: All
+Cpp11BracedListStyle: false
+InsertNewlineAtEOF: true
+
+# Whitespace only: no reordering, inserted text, split literals or reflowed
+# comments. Include order matters to the reconstructed game code.
+SortIncludes: Never
+IncludeBlocks: Preserve
+SortUsingDeclarations: false
+FixNamespaceComments: false
+BreakStringLiterals: false
+ReflowComments: false
+InsertBraces: false
+RemoveBracesLLVM: false
+RemoveSemicolon: false
+QualifierAlignment: Leave

@@ -18,7 +18,7 @@ struct AudioCategoryVolumes::Implementation
     {switch(category){case AudioCategory::Music:return 2;case AudioCategory::Sfx:return 4;case AudioCategory::Voice:return 3;}throw std::invalid_argument("Unknown audio category");}
     void Set(AudioCategory category,int level)
     {
-        auto& slider=sliders[Index(category)];AudioOptionsApplyVolume(level,slider.target,slider.elapsed,slider.minimum,slider.maximum);
+        auto& slider=sliders[Index(category)];AudioOptionsApplyVolume(level,slider.target,slider.remainingTime,slider.minimum,slider.maximum);
         settings[static_cast<unsigned>(category)]=level;
     }
     void Update(float delta)

@@ -1,6 +1,6 @@
 Subject: Keep original animation decode functions in their whole source TU
 
-Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
 
 Restore the original twelve-bit unpack assignments and all four original
 rotation/GQR entry points in SAnimDecode.cpp. Lower only the fixed signed
