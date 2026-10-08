@@ -80,6 +80,7 @@ struct NativeAXBootstrapDevice::State {
     NativeAXFrameProcessor processor{};
     void* native_context{};
     void (*native_initialize)(void*,NativeDSPMemoryEndpoint){};
+    void (*native_validate_reset)(void*){};
     void (*native_reset)(void*){};
     NativeAXDeviceFrameResult (*native_process)(void*,NativeDSPMemoryEndpoint,std::uint32_t,std::size_t){};
     bool CommandsEnabled() const noexcept {return stopped_voice_commands||processor.process||native_process;}
@@ -116,15 +117,18 @@ struct NativeAXBootstrapDevice::State {
         if(request&2)throw std::logic_error("AX bootstrap PI interrupt/task continuation is not implemented");
         if((request&1)&&s.native_process &&
            (s.servicing || GetNativeDSPMailboxStatus().cpu_mail_full ||
-            GetNativeDSPMailboxStatus().dsp_mail_full || (previous&0x80) ||
-            (s.frames.phase!=NativeAXFramePhase::Unavailable &&
-             s.frames.phase!=NativeAXFramePhase::ReadyForListSize &&
-             s.frames.phase!=NativeAXFramePhase::Faulted)))
+            GetNativeDSPMailboxStatus().dsp_mail_full || (previous&0x80)))
             throw std::logic_error("native AX reset requires its actual idle/drained request lifetime");
         if((request&1)&&s.processor.process)
             throw std::logic_error("AX hardware processor must halt/drain/detach before reset");
         if((request&1)&&!(request&Halt))
             throw std::logic_error("AX bootstrap reset requires actual halted/drained source device");
+        // RESET abandons a partial request or unacknowledged SYNC/YIELD after
+        // real HALT, DMA drain and mailbox/IRQ retirement. These protocol
+        // phases are not a running native processor: Process returns before
+        // publishing SYNC. No source acknowledgment/completion is fabricated.
+        if((request&1)&&s.native_validate_reset)
+            s.native_validate_reset(s.native_context);
         if((request&Init)&&(!(previous&Init)||(!(request&Halt)&&s.phase==NativeAXBootstrapPhase::Cold)))s.ValidateImage();
         if(!(request&Halt)&&((request&Init)||s.native_process)&&s.phase==NativeAXBootstrapPhase::Faulted)
             throw std::logic_error("AX bootstrap device fault needs real halted reset");
@@ -328,6 +332,7 @@ NativeAXBootstrapDevice::NativeAXBootstrapDevice(NativeDSPMemoryEndpoint memory,
     const NativeAXFunctionalProcessor& processor)
     :NativeAXBootstrapDevice(memory,mailboxes,control,firmware,NativeAXFrameMode::BootstrapOnly) {
     auto& s=*state_;s.native_context=processor.context_;s.native_initialize=processor.initialize_;
+    s.native_validate_reset=processor.validate_reset_;
     s.native_reset=processor.reset_;s.native_process=processor.process_;
 }
 NativeAXBootstrapDevice::~NativeAXBootstrapDevice() {

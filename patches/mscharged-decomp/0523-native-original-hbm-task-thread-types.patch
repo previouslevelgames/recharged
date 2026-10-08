@@ -1,0 +1,116 @@
+From: mscharged-port contributors
+Subject: [PATCH] Compile original HBM task thread with native live message types
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Classification: native LP64 compiler and owning-header compatibility only.
+
+Keep original TaskThread construction, message loop, literal values, returns
+and voluntary Destroy/join unchanged. Compare its live OSMessage through
+uintptr_t on native builds. Preserve every console expression.
+
+Use precise native Task headers for the actual assertions, message aliases,
+NonCopyable/list and locking types. This avoids pulling unused font/graphics
+and PPC FastCast declarations through the ut.h umbrella. Preserve the
+original console includes. GetIntPtr uses the actual native live pointer width;
+no serialized record or source task allocation request changes.
+
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
+@@ -1,7 +1,11 @@
+ #ifndef NW4HBM_SND_TASK_H
+ #define NW4HBM_SND_TASK_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include "revolution/hbm/nw4hbm/ut/LinkList.h"
+ 
+ namespace nw4hbm {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+@@ -2,6 +2,9 @@
+ #define NW4HBM_SND_TASK_MANAGER_H
+ 
+ #include "revolution/hbm/nw4hbm/snd/Task.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#endif
+ 
+ #include "revolution/mem.h"
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h
+@@ -2,7 +2,12 @@
+ #define NW4HBM_SND_TASK_THREAD_H
+ 
+ #include "revolution/hbm/nw4hbm/snd/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/HBMAssert.hpp"
++#include "revolution/os/OSMessage.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include "revolution/os.h"
+ 
+ namespace nw4hbm {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
+@@ -2,6 +2,9 @@
+ #define NW4HBM_UT_INLINE_FUNCTIONS_H
+ 
+ #include "revolution/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ namespace nw4hbm {
+ namespace ut {
+@@ -37,7 +40,11 @@
+ 
+ inline byte2_t ReverseEndian(byte2_t x) { return BitExtract(x, 0, 8) << 8 | BitExtract(x, 8, 8); }
+ 
++#if defined(MSCHARGED_NATIVE)
++inline std::uintptr_t GetIntPtr(const void* pPtr) { return reinterpret_cast<std::uintptr_t>(pPtr); }
++#else
+ inline u32 GetIntPtr(const void* pPtr) { return reinterpret_cast<u32>(pPtr); }
++#endif
+ 
+ template <typename T> inline const void* AddOffsetToPtr(const void* base, T offset) {
+     return reinterpret_cast<const void*>(GetIntPtr(base) + offset);
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp
+@@ -1,5 +1,8 @@
+ #include "revolution/hbm/nw4hbm/snd/TaskManager.h"
+ #include "revolution/hbm/nw4hbm/snd/TaskThread.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ namespace nw4hbm
+ {
+@@ -77,11 +80,19 @@
+     {
+         OSReceiveMessage(&mMsgQueue, &msg, 1);
+ 
++#if defined(MSCHARGED_NATIVE)
++        if (reinterpret_cast<std::uintptr_t>(msg) == MSG_EXECUTE)
++#else
+         if (reinterpret_cast<u32>(msg) == MSG_EXECUTE)
++#endif
+         {
+             TaskManager::GetInstance().Execute();
+         }
++#if defined(MSCHARGED_NATIVE)
++        else if (reinterpret_cast<std::uintptr_t>(msg) == MSG_DONE)
++#else
+         else if (reinterpret_cast<u32>(msg) == MSG_DONE)
++#endif
+         {
+             return;
+         }

@@ -4,9 +4,11 @@
 #include <SDL3/SDL.h>
 
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -38,6 +40,10 @@ struct State {
     SDL_WindowID window{};
     mscharged::platform::DesktopWpadSettings settings{};
     std::array<bool, SDL_SCANCODE_COUNT> keys{};
+    std::map<SDL_KeyboardID, std::bitset<SDL_SCANCODE_COUNT>> keyboard_keys;
+    std::map<SDL_MouseID, Uint32> mouse_button_sources;
+    SDL_MouseID mouse_position_source{};
+    bool event_memory_failed{};
     std::unique_ptr<Device> keyboard;
     std::array<std::unique_ptr<Device>, 4> pads;
     bool ready{}, focused{};
@@ -49,6 +55,27 @@ struct State {
 };
 State& Get() { static State state; return state; }
 void Require(bool result, const char* operation);
+void ClearKeyboard(State& state) {
+    state.keyboard_keys.clear();
+    state.keys.fill(false);
+}
+void ClearMouse(State& state) {
+    state.mouse_button_sources.clear();
+    state.mouse_buttons = 0;
+    state.mouse_known = state.mouse_inside = false;
+    state.mouse_position_source = 0;
+}
+void RebuildKeys(State& state) {
+    state.keys.fill(false);
+    for (const auto& source : state.keyboard_keys)
+        for (std::size_t n = 0; n < state.keys.size(); ++n)
+            state.keys[n] = state.keys[n] || source.second[n];
+}
+void RebuildMouseButtons(State& state) {
+    state.mouse_buttons = 0;
+    for (const auto& source : state.mouse_button_sources)
+        state.mouse_buttons |= source.second;
+}
 void RestoreBackgroundHint() {
     auto& state = Get();
     if (!state.owns_background_hint) return;
@@ -138,43 +165,82 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
     auto& state = Get();
     std::lock_guard lock(state.mutex);
     if (!state.ready) return true;
-    if (event->type == SDL_EVENT_WINDOW_FOCUS_GAINED && event->window.windowID == state.window)
-        state.focused = true;
-    else if ((event->type == SDL_EVENT_WINDOW_FOCUS_LOST || event->type == SDL_EVENT_WINDOW_HIDDEN ||
-              event->type == SDL_EVENT_WINDOW_MINIMIZED) && event->window.windowID == state.window) {
-        state.focused = false;
-        state.keys.fill(false);
-        state.mouse_known = state.mouse_inside = false;
-        state.mouse_buttons = 0;
-    } else if ((event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP) &&
-               event->key.windowID == state.window && unsigned(event->key.scancode) < state.keys.size()) {
-        state.keys[event->key.scancode] = event->type == SDL_EVENT_KEY_DOWN && state.focused;
-    }
-    if (state.settings.mouse) {
-        if (event->type == SDL_EVENT_WINDOW_MOUSE_ENTER && event->window.windowID == state.window)
-            state.mouse_inside = true;
-        else if ((event->type == SDL_EVENT_WINDOW_MOUSE_LEAVE || event->type == SDL_EVENT_WINDOW_DESTROYED) &&
-                 event->window.windowID == state.window) {
-            state.mouse_known = state.mouse_inside = false;
-            state.mouse_buttons = 0;
-        } else if (event->type == SDL_EVENT_MOUSE_MOTION && event->motion.windowID == state.window &&
-                   event->motion.which != SDL_TOUCH_MOUSEID && event->motion.which != SDL_PEN_MOUSEID) {
-            state.mouse_x = event->motion.x;
-            state.mouse_y = event->motion.y;
-            state.mouse_known = state.focused;
-            state.mouse_inside = state.focused;
-        } else if ((event->type == SDL_EVENT_MOUSE_BUTTON_DOWN || event->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
-                   event->button.windowID == state.window && event->button.which != SDL_TOUCH_MOUSEID &&
-                   event->button.which != SDL_PEN_MOUSEID &&
-                   (event->button.button == SDL_BUTTON_LEFT || event->button.button == SDL_BUTTON_RIGHT)) {
-            state.mouse_x = event->button.x;
-            state.mouse_y = event->button.y;
-            state.mouse_known = state.focused;
-            state.mouse_inside = state.focused;
-            const Uint32 bit = SDL_BUTTON_MASK(event->button.button);
-            if (event->button.down && state.focused) state.mouse_buttons |= bit;
-            else state.mouse_buttons &= ~bit;
+    try {
+        if (event->type == SDL_EVENT_WINDOW_FOCUS_GAINED && event->window.windowID == state.window)
+            state.focused = true;
+        else if ((event->type == SDL_EVENT_WINDOW_FOCUS_LOST || event->type == SDL_EVENT_WINDOW_HIDDEN ||
+                  event->type == SDL_EVENT_WINDOW_MINIMIZED) && event->window.windowID == state.window) {
+            state.focused = false;
+            ClearKeyboard(state);
+            ClearMouse(state);
+        } else if (event->type == SDL_EVENT_KEYBOARD_REMOVED) {
+            // SDL removal does not guarantee a final key-up or focus loss.
+            // Retire only this actual input instance, not the virtual remote.
+            state.keyboard_keys.erase(event->kdevice.which);
+            RebuildKeys(state);
+        } else if ((event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP) &&
+                   event->key.windowID == state.window && unsigned(event->key.scancode) < state.keys.size()) {
+            const auto scancode = std::size_t(event->key.scancode);
+            if (event->type == SDL_EVENT_KEY_DOWN && state.focused) {
+                state.keyboard_keys.try_emplace(event->key.which).first->second.set(scancode);
+                state.keys[scancode] = true;
+            } else {
+                auto source = state.keyboard_keys.find(event->key.which);
+                if (source != state.keyboard_keys.end()) {
+                    source->second.reset(scancode);
+                    if (source->second.none()) state.keyboard_keys.erase(source);
+                }
+                state.keys[scancode] = false;
+                for (const auto& keys : state.keyboard_keys)
+                    state.keys[scancode] = state.keys[scancode] || keys.second[scancode];
+            }
         }
+        if (state.settings.mouse) {
+            if (event->type == SDL_EVENT_MOUSE_REMOVED) {
+                state.mouse_button_sources.erase(event->mdevice.which);
+                RebuildMouseButtons(state);
+                if (state.mouse_known && state.mouse_position_source == event->mdevice.which) {
+                    state.mouse_known = state.mouse_inside = false;
+                    state.mouse_position_source = 0;
+                }
+            } else if (event->type == SDL_EVENT_WINDOW_MOUSE_ENTER && event->window.windowID == state.window)
+                state.mouse_inside = true;
+            else if ((event->type == SDL_EVENT_WINDOW_MOUSE_LEAVE || event->type == SDL_EVENT_WINDOW_DESTROYED) &&
+                     event->window.windowID == state.window) {
+                ClearMouse(state);
+            } else if (event->type == SDL_EVENT_MOUSE_MOTION && event->motion.windowID == state.window &&
+                       event->motion.which != SDL_TOUCH_MOUSEID && event->motion.which != SDL_PEN_MOUSEID) {
+                state.mouse_x = event->motion.x;
+                state.mouse_y = event->motion.y;
+                state.mouse_position_source = event->motion.which;
+                state.mouse_known = state.focused;
+                state.mouse_inside = state.focused;
+            } else if ((event->type == SDL_EVENT_MOUSE_BUTTON_DOWN || event->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+                       event->button.windowID == state.window && event->button.which != SDL_TOUCH_MOUSEID &&
+                       event->button.which != SDL_PEN_MOUSEID &&
+                       (event->button.button == SDL_BUTTON_LEFT || event->button.button == SDL_BUTTON_RIGHT)) {
+                const Uint32 bit = SDL_BUTTON_MASK(event->button.button);
+                if (event->button.down && state.focused)
+                    state.mouse_button_sources.try_emplace(event->button.which, 0).first->second |= bit;
+                else {
+                    auto source = state.mouse_button_sources.find(event->button.which);
+                    if (source != state.mouse_button_sources.end()) {
+                        source->second &= ~bit;
+                        if (!source->second) state.mouse_button_sources.erase(source);
+                    }
+                }
+                RebuildMouseButtons(state);
+                state.mouse_x = event->button.x;
+                state.mouse_y = event->button.y;
+                state.mouse_position_source = event->button.which;
+                state.mouse_known = state.focused;
+                state.mouse_inside = state.focused;
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        // Metadata allocation failure cannot escape an SDL worker's watcher.
+        // The initialized native owner reports the failure before raw delivery.
+        state.event_memory_failed = true;
     }
     // Workers latch raw device intent only. No game callbacks/managers run here.
     return true;
@@ -223,9 +289,9 @@ void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings) {
         state.window = SDL_GetWindowID(window);
         state.settings = settings;
         state.focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS;
-        state.keys.fill(false);
-        state.mouse_known = state.mouse_inside = false;
-        state.mouse_buttons = 0;
+        ClearKeyboard(state);
+        ClearMouse(state);
+        state.event_memory_failed = false;
         state.ready = true;
     }
     try {
@@ -295,6 +361,8 @@ void ServiceDesktopWpad() {
     std::array<bool, SDL_SCANCODE_COUNT> keys;
     {
         std::lock_guard lock(state.mutex);
+        if (state.event_memory_failed)
+            throw std::runtime_error("Desktop input instance metadata allocation failed");
         focused = state.focused;
         keys = state.keys;
         mouse_known = state.mouse_known;
@@ -345,9 +413,8 @@ void ShutdownDesktopWpad() {
     {
         std::lock_guard lock(state.mutex);
         state.ready = false;
-        state.keys.fill(false);
-        state.mouse_known = state.mouse_inside = false;
-        state.mouse_buttons = 0;
+        ClearKeyboard(state);
+        ClearMouse(state);
     }
     SDL_RemoveEventWatch(Watch, nullptr);
     Retire(state.keyboard);

@@ -3,11 +3,11 @@ include(cmake/NativeSystemSettings.cmake)
 # no extracted game entry, game globals or startup diagnostic owners.
 include_guard(GLOBAL)
 add_library(charged_sanim_decode STATIC
-    "${MSCHARGED_PREPARED}/src/Game/SAnimDecode.cpp"
-    src/runtime/sanim_decode.cpp)
+    "${MSCHARGED_PREPARED}/src/Game/SAnimDecode.cpp")
 add_dependencies(charged_sanim_decode verify_prepared)
 target_include_directories(charged_sanim_decode PUBLIC "${MSCHARGED_PREPARED}/include"
-    PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(charged_sanim_decode PUBLIC MSCHARGED_NATIVE=1)
 target_compile_features(charged_sanim_decode PRIVATE cxx_std_17)
 
@@ -57,6 +57,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     foreach(target IN ITEMS charged_original_core charged_native_allocator charged_sanim_decode)
         target_compile_options(${target} PRIVATE -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
     endforeach()
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
+    target_compile_options(charged_sanim_decode PRIVATE -Wno-register)
 endif()
 
 target_link_libraries(charged_original_core PUBLIC charged_native_system_settings)

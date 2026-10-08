@@ -143,8 +143,10 @@ int main() {
                   "original signed counter did not return to balanced operation");
         }
         {
+            // The explicit native spin fixture tests the running-peer fence.
+            // Equal priority avoids original higher-priority Resume preemption.
             Owned owner; Running job; job.payload = payload.get();
-            Check(OSCreateThread(&owner.sdk, Noncooperative, &job, owner.Top(), sizeof(owner.stack), 15, 0),
+            Check(OSCreateThread(&owner.sdk, Noncooperative, &job, owner.Top(), sizeof(owner.stack), OSGetThreadPriority(caller), 0),
                   "actual running peer create failed");
             Check(OSResumeThread(&owner.sdk) == 1, "actual running peer resume failed");
             Until([&] { return job.entered.load(); });

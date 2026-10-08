@@ -19,6 +19,67 @@ previous tree intact, but the build's validation rejects that stale tree.
 
 ## Charged series
 
+Patch 0532 exposes the original HBM silence array for optional native DSP
+registration before game arena allocation. The host retains its source image
+and permits device reads only; it does not initialize the sound manager.
+
+Patch 0535 supplies precise owning declarations to original HBM stream, wave
+and wave-sound readers. Their parsing bodies and data decisions are unchanged.
+
+Patch 0533 retains native pointers throughout the original HBM channel/track
+callback interfaces. Original numeric sound and resource IDs remain 32-bit.
+
+Patch 0531 carries original live HBM task and stream/sequence owner identities
+at native pointer width. Serialized resource IDs and original cancellation
+and queue decisions remain unchanged.
+
+Patch 0528 retains native-width original HBM voice callbacks and checked SDK
+physical addresses while preserving the original voice and sample calculations.
+
+Patch 0530 adapts original HBM UI declarations and native pointer transport,
+including the original PowerPC float selection/sign operations. The original
+UI control flow and resource requests are retained.
+
+Patch 0529 supplies precise original HBM sound declarations, legal pure virtual
+destructor syntax, and native-width pointer alignment. Original sound methods
+and console code remain in their owning translation units.
+
+Patch 0527 preserves native-width message comparisons in the complete original
+HBM SoundThread and supplies its owning lock/list declarations. Full sound
+system and HOME-menu startup remain separate integration work.
+
+Patch 0524 sizes the original HBM task pool from its actual native task and MEM
+layouts, preserving 128 slots and the original allocation/execution/cancellation
+logic. Native owning headers and the unit-header size query are adapted too.
+
+Patch 0523 adapts original HBM task headers and live message comparisons to
+native pointer widths. A separate test module exercises original worker
+creation, messages and joins; full HOME-menu initialization remains pending.
+
+Patch 0526 restores all animation rotation decoder bodies to the complete
+original `SAnimDecode.cpp`. Native helpers replace only the fixed quantized
+load/store instructions; the copied runtime decoder is retired.
+
+Patches 0516–0517 retain the complete original SDK state/play-record owners.
+They adapt C header ownership and fixed Wii record byte order, preserving
+checksum loops, file choices and source completion decisions. Async transport
+retains buffers through real callbacks, including reentrant block reuse.
+
+Patch 0520 connects the original STM terminal wait to native power removal.
+Original interrupt masking and instruction-cache ordering remain in place;
+the native device requires an explicit policy and verified device quiescence.
+Patch 0519 admits the original ResetTask at its existing construction and
+registration points. The frontend runtime routes window close through that
+source task and its SDK shutdown sequence. Host restart remains unsupported.
+
+Patch 0521 restores the three original DVD-message callback registrations in
+the frontend module, using the complete original `LidOpenMessage.cpp`.
+Patch 0522 retains failed native reads through the original DVD-status wait.
+The frontend profile enables the original error screen; media recovery remains
+unqualified, and the original fatal-error wait is preserved.
+Patch 0525 restores the original initial loading message at its existing
+post-graphics-startup call, using that same complete message owner.
+
 Patch 0518 retains the complete original SRAM cache, checksum and retry owner.
 The native EXI device supplies explicit persistent SRAM/RTC register storage;
 16-bit SRAM fields retain their Wii byte order. Device construction does not
@@ -323,6 +384,10 @@ active blocked read, retained partition/file readers, and threading-disabled
 builds.
 
 ## Aurora series
+
+Patch 0058 implements the original STM display-disable register request. It
+keeps the VI clock, source callbacks and framebuffer owners alive while draining
+queued presentation and displaying black on a presentable native surface.
 
 Patch 0011 adds bounded video/PCM entry points to the existing THP decoder,
 sharing its valid decoding arithmetic. Native movie reads validate container,

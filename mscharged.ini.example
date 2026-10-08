@@ -4,9 +4,8 @@
 [game]
 disc = game/R4QE01.rvz
 
-# These game preferences can be saved now. The game runtime does not use them yet.
-# Language selects game menus/text when supported by the release. Automatic
-# selection will follow the computer's language with a supported regional fallback.
+# Game text for the supported USA disc: auto, english, french, or spanish.
+# Automatic currently uses English. The original game selects localized resources.
 language = auto
 
 [display]

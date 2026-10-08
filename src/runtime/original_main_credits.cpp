@@ -6,6 +6,7 @@
 #include <aurora/hardware.h>
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
+#include "platform/disc.h"
 #include <aurora/event.h>
 #include <aurora/gfx.h>
 #include <aurora/gfx.hpp>
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <vector>
 #include <memory>
+#include <optional>
 #include <chrono>
 #include <thread>
 #include <aurora/video.h>
@@ -25,11 +27,13 @@
 #include <dolphin/vi.h>
 #include "webgpu/gpu.hpp"
 #include "platform/stm_device.h"
+#include "platform/ios_device.h"
 #include "platform/hardware_owner.h"
 #include "platform/desktop_presented_dpd.h"
 #include "platform/ai.h"
 #include "platform/native_ax_module_memory.h"
 #include "platform/system.h"
+#include "platform/rtc_policy.h"
 #include "platform/video_device.h"
 #include "platform/video_output_device.h"
 #include "platform/interrupt_controller.h"
@@ -42,6 +46,10 @@
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
 #include "original_game_audio_hardware.h"
 #endif
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
+#include "original_terminal_verifier.h"
+#include "platform/os_shutdown_requests.h"
+#endif
 #include <SDL3/SDL_video.h>
 #include <dlfcn.h>
 #include <cstdio>
@@ -52,6 +60,9 @@
 #include <string>
 namespace aurora { extern AuroraConfig g_config; }
 extern "C" bool __OSInitSTM();
+// Whole original OSRtc software/cache owner, linked once into the host.
+extern "C" void __OSInitSram();
+extern "C" BOOL __OSSyncSram();
 namespace {
 void Check(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
 struct Snapshot : std::enable_shared_from_this<Snapshot> {
@@ -248,6 +259,13 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         const unsigned aspectWidth=widescreen?16u:4u, aspectHeight=widescreen?9u:3u;
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ with --disc FILE or [game] disc in the INI");
+        // Validate native preferences before acquiring any hardware/module owner.
+        // This host profile is USA/NTSC; the original game still owns its region
+        // and localization branches after reading the supplied SC language.
+        const auto systemLanguage = mscharged::ResolveNativeUSASystemLanguage(launch.settings.language);
+        const auto discProfile = mscharged::InspectDisc(launch.disc_path);
+        Check(discProfile.game_id == "R4QE01" && discProfile.revision == 1,
+              "The original native runtime currently supports R4QE01 revision 1 only");
         Check(!resizeCheck || !launch.settings.fullscreen,"--resize-check requires a windowed launch; add --window");
         Check(!priorBoot || !resizeCheck,
               "The prior Boot stage retains original effects/NPC owners; resize teardown is not qualified");
@@ -284,6 +302,13 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
                 +" foundation unavailable; no fallback acceptance");
+        bool retainedWindowClose=false;
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
+        if(frontend && sourceAudio && nativeSend) {
+            mscharged::platform::RetainNativeHardwareWindowClose(host.window);
+            retainedWindowClose=true;
+        }
+#endif
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
         if(nativeSend) {
             // Existing Aurora policy fixes the internal source EFB at 1x.
@@ -294,19 +319,31 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             VISetFrameBufferScale(1.0f);
             AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
             for(const auto* event=aurora_update();event->type!=AURORA_NONE;++event)
-                Check(event->type!=AURORA_EXIT, "Native window closed before source entry");
+                Check(event->type!=AURORA_EXIT || (retainedWindowClose &&
+                      mscharged::platform::GetNativeHardwareWindowCloseStatus().requested),
+                      "Native window closed before source entry");
             aurora::gfx::synchronize();
         }
         OSInit();
         if(!OSGetArenaLo()||!OSGetMEM2ArenaLo())
             throw std::runtime_error("Actual captured SDK arenas unavailable");
         mscharged::platform::InitializeNativeInterruptController();
-        // Explicit USA diagnostic backing; independent SC and VI settings.
-        const mscharged::NativeSystemSettings settings{1,0,0,std::uint8_t(widescreen),1};
+        // Native EXI hardware precedes the original SRAM cache initializer.
+        // Preserve an existing image; first run explicitly uses the native
+        // virgin policy, independently of disc/locale/SC preferences.
+        mscharged::platform::InitializeNativeRTC(dataDirectory / "native-rtc.bin",
+            mscharged::platform::CreateVirginRTCImage());
+        __OSInitSram();
+        Check(__OSSyncSram(), "Original SRAM initialization did not complete its real EXI read");
+        // Explicit USA native preference; independent SC and VI settings.
+        const mscharged::NativeSystemSettings settings{systemLanguage,0,0,std::uint8_t(widescreen),1};
         mscharged::ConfigureNativeSystemSettings(settings);
         // No virtual Wii address record has been supplied. Original SC queries
         // retain their unavailable-record result, without inferring a country.
         mscharged::ConfigureNativeSystemSimpleAddress(std::nullopt);
+        // No native IPL.IDL record is supplied. The original shutdown source
+        // owns its zero/default destination and interprets actual absence.
+        mscharged::ConfigureNativeSystemIdleMode(nullptr,0);
         mscharged::platform::ConfigureNativeVideoHardware(VI_TVMODE_NTSC_INT,false);
         if(nativeSend) {
             mscharged::platform::ConfigureNativeVideoOutputHardware(settings);
@@ -314,6 +351,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             // This mode never uses diagnostic aurora_begin/end_frame.
             aurora_configure_native_gx_hardware();
         }
+        std::optional<mscharged::platform::NativeFilesystemSettings> discBootIdentity;
         if (frontend) {
             // Physical IPC boot metadata is part of the native OS foundation.
             // The whole original SDK keeps its advancing IPC buffer cursor;
@@ -325,10 +363,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             IPCInit();
             // One isolated native title profile. UID is an explicit native IOS
             // process identity, independent of the host account/retail console.
-            mscharged::platform::InitializeNativeFilesystemForDisc(
+            discBootIdentity=mscharged::platform::InitializeNativeFilesystemForDisc(
                 {launch.disc_path, dataDirectory / "nand", 0x1001});
         }
         mscharged::platform::InitializeNativeSTMDevice();
+        // Report this live host IOS provider, not the disc-requested Wii IOS.
+        mscharged::platform::ConfigureNativeIOSServiceRevision();
         if(!__OSInitSTM())throw std::runtime_error("Actual original STM initialization failed");
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
         // and FE methods retain their original mappings and decisions.
@@ -343,6 +383,10 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::diagnostic::InitializeCreditsMovieHardware(
                 mscharged::platform::ServiceNativeHardwareInput);
         if(!aurora_dvd_open(disc.c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
+        if(frontend)mscharged::platform::ConfigureNativeOSDiscBootIdentity(*discBootIdentity);
+        std::optional<mscharged::diagnostic::OriginalTerminalVerifier> terminalVerifier;
+#endif
         std::unique_ptr<mscharged::platform::NativeAXModuleMemory> axModuleMemory;
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         std::unique_ptr<mscharged::diagnostic::OriginalGameAudioHardware> gameAudioHardware;
@@ -391,6 +435,16 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                   "Original audio owner/initialization/configuration callback incomplete");
             std::puts("Original main audio: source owner initialized, nlxgs configuration genuinely loaded.");
         }
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
+        if(frontend && sourceAudio && nativeSend) {
+            terminalVerifier.emplace(*gameAudioHardware,*axModuleMemory,host.window);
+            mscharged::platform::ConfigureNativeSTMPowerRemoval(terminalVerifier->Policy());
+            // The actual source entry/audio predicates and terminal policy now
+            // exist. Only this host-window intent was deferred; service/tasks
+            // deliver it through unchanged original OSStateTM/ResetTask.
+            mscharged::platform::ArmNativeHardwareWindowClose();
+        }
+#endif
         auto observeBootScript=sourceBoot ? reinterpret_cast<ObserveAudio>(
             dlsym(module,"charged_original_boot_script_observe")) : nullptr;
         auto bootInstruction=sourceBoot ? reinterpret_cast<int(*)()>(
@@ -476,8 +530,17 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         wgpu::Texture retainedEFB;
         Check(!resizeCheck || nativeSend, "Resize qualification requires source-native send");
         while(!exit && (interactive || !snapshot)) {
-            for(const auto* event=aurora_update();event->type!=AURORA_NONE;++event)
-                if(event->type==AURORA_EXIT)exit=true;
+            for(const auto* event=aurora_update();event->type!=AURORA_NONE;++event) {
+                if(event->type!=AURORA_EXIT)continue;
+#if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
+                if(terminalVerifier) {
+                    // The native input watch has retained the genuine power
+                    // event. Keep source tasks/owners alive for ResetTask.
+                    continue;
+                }
+#endif
+                exit=true;
+            }
             if(exit)break;
             mscharged::diagnostic::ServiceCreditsMovieHardware();
             if(requestSH) {
@@ -680,6 +743,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
         Check(!mscharged::platform::GetNativeAIStatus().initialized,
               "Original-main movie owner did not drain the actual host audio device");
+        // No source frame/callback follows this terminal diagnostic retirement.
+        // The endpoint refuses borrowed EXI state; it never clears source Scb.
+        mscharged::platform::ShutdownNativeRTC();
         if(resizeCheck) {
             // Retire the actual native hardware/window for the resize gate.
             // Original game tasks/CRT destruction remain explicitly omitted;

@@ -13,7 +13,12 @@
 #include <filesystem>
 #if !defined(__APPLE__)
 #include <link.h>
+#else
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#include <mach/vm_prot.h>
 #endif
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -25,15 +30,15 @@ namespace mscharged::platform {
 namespace {
 void* armed_owner{};
 std::recursive_mutex& LoaderExclusion() { static std::recursive_mutex mutex; return mutex; }
-const char* const Names[13] = {"AXCommandLists", "AXPB", "AXITD", "AXAuxA", "AXAuxB", "AXAuxC",
-    "AXCompressor", "AXStudio", "AXStereoPCM16", "AXSurround32", "AXRemotePCM16", "AXDramContext", "AXFirmware"};
-constexpr std::uint32_t Sizes[13] = {256,30720,6144,4608,4608,3456,4032,120,1152,768,1440,64,8192};
-constexpr NativeDSPMemoryEncoding Encodings[13] = {NativeDSPMemoryEncoding::NativeU16,
+const char* const Names[CHARGED_AX_HBM_STORAGE_COUNT] = {"AXCommandLists", "AXPB", "AXITD", "AXAuxA", "AXAuxB", "AXAuxC",
+    "AXCompressor", "AXStudio", "AXStereoPCM16", "AXSurround32", "AXRemotePCM16", "AXDramContext", "AXFirmware", "HBMZeroBuffer"};
+constexpr std::uint32_t Sizes[CHARGED_AX_HBM_STORAGE_COUNT] = {256,30720,6144,4608,4608,3456,4032,120,1152,768,1440,64,8192,256};
+constexpr NativeDSPMemoryEncoding Encodings[CHARGED_AX_HBM_STORAGE_COUNT] = {NativeDSPMemoryEncoding::NativeU16,
     NativeDSPMemoryEncoding::AXParameterBlocks, NativeDSPMemoryEncoding::RawBytes,
     NativeDSPMemoryEncoding::NativeU32, NativeDSPMemoryEncoding::NativeU32, NativeDSPMemoryEncoding::NativeU32,
     NativeDSPMemoryEncoding::NativeU16, NativeDSPMemoryEncoding::AXStudio, NativeDSPMemoryEncoding::NativeU16,
     NativeDSPMemoryEncoding::NativeU32, NativeDSPMemoryEncoding::NativeU16,
-    NativeDSPMemoryEncoding::RawBytes, NativeDSPMemoryEncoding::RawBytes};
+    NativeDSPMemoryEncoding::RawBytes, NativeDSPMemoryEncoding::RawBytes, NativeDSPMemoryEncoding::RawBytes};
 const timespec& ModifiedTime(const struct stat& value) noexcept {
 #if defined(__APPLE__)
     return value.st_mtimespec;
@@ -46,15 +51,85 @@ bool SameFile(const struct stat& a, const struct stat& b) {
         ModifiedTime(a).tv_sec==ModifiedTime(b).tv_sec &&
         ModifiedTime(a).tv_nsec==ModifiedTime(b).tv_nsec;
 }
+bool ContainsExtent(std::uintptr_t begin, std::uint64_t size,
+                    std::uintptr_t address, std::size_t bytes) {
+    if (!bytes || size > std::numeric_limits<std::uintptr_t>::max() - begin || address < begin)
+        return false;
+    const auto offset = address - begin;
+    return offset < size && bytes <= size - offset;
+}
+bool ReadableImageContains(std::uintptr_t image, const void* pointer, std::size_t bytes) {
+    if (!image || !pointer || !bytes) return false;
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    if (bytes > std::numeric_limits<std::uintptr_t>::max() - address) return false;
+#if defined(__APPLE__)
+    for (std::uint32_t i = 0; i != _dyld_image_count(); ++i) {
+        const auto* header = _dyld_get_image_header(i);
+        if (reinterpret_cast<std::uintptr_t>(header) != image) continue;
+        if (header->magic != MH_MAGIC_64) return false;
+        const auto* header64 = reinterpret_cast<const mach_header_64*>(header);
+        const auto* commands = reinterpret_cast<const unsigned char*>(header64 + 1);
+        std::size_t offset = 0;
+        const auto slide = _dyld_get_image_vmaddr_slide(i);
+        for (std::uint32_t n = 0; n != header64->ncmds; ++n) {
+            if (offset > header64->sizeofcmds || header64->sizeofcmds - offset < sizeof(load_command))
+                return false;
+            const auto* command = reinterpret_cast<const load_command*>(commands + offset);
+            if (command->cmdsize < sizeof(load_command) || command->cmdsize > header64->sizeofcmds - offset)
+                return false;
+            if (command->cmd == LC_SEGMENT_64) {
+                if (command->cmdsize < sizeof(segment_command_64)) return false;
+                const auto& segment = *reinterpret_cast<const segment_command_64*>(command);
+                // PAGEZERO has no usable mapping. AI reads native storage;
+                // source extent/lifetime does not authorize a native write.
+                // Use mapped size, not file size (which would exclude BSS).
+                if (std::strncmp(segment.segname, SEG_PAGEZERO, sizeof(segment.segname)) != 0 &&
+                    (segment.initprot & VM_PROT_READ) != 0) {
+                    std::uintptr_t begin;
+                    if (slide >= 0) {
+                        if (segment.vmaddr > std::numeric_limits<std::uintptr_t>::max() - std::uintptr_t(slide))
+                            return false;
+                        begin = std::uintptr_t(segment.vmaddr) + std::uintptr_t(slide);
+                    } else {
+                        const auto magnitude = std::uintptr_t(-(slide + 1)) + 1;
+                        if (segment.vmaddr < magnitude) return false;
+                        begin = std::uintptr_t(segment.vmaddr) - magnitude;
+                    }
+                    if (ContainsExtent(begin, segment.vmsize, address, bytes)) return true;
+                }
+            }
+            offset += command->cmdsize;
+        }
+        return false;
+    }
+    return false;
+#else
+    struct Probe { std::uintptr_t image, address; std::size_t bytes; bool contained{}; } probe{image,address,bytes};
+    dl_iterate_phdr([](dl_phdr_info* info, std::size_t, void* context) {
+        auto& p = *static_cast<Probe*>(context);
+        if (info->dlpi_addr != p.image) return 0;
+        for (unsigned i = 0; i != info->dlpi_phnum; ++i) {
+            const auto& segment = info->dlpi_phdr[i];
+            if (segment.p_type != PT_LOAD || (segment.p_flags & PF_R) == 0) continue;
+            if (segment.p_vaddr > std::numeric_limits<std::uintptr_t>::max() - p.image) continue;
+            if (ContainsExtent(p.image + segment.p_vaddr, segment.p_memsz, p.address, p.bytes)) {
+                p.contained = true; break;
+            }
+        }
+        return 1;
+    }, &probe);
+    return probe.contained;
+#endif
+}
 }
 struct NativeAXModuleMemory::State {
     std::string path, identity;
     int file{-1}; struct stat file_state{};
     std::thread::id owner{std::this_thread::get_id()};
-    std::array<OSNativeStaticMemory,13> mappings{};
-    std::array<NativeDSPMemoryPin,13> pins{};
-    std::array<void*,13> retained{};
-    std::array<ChargedAXStorage,13> storage{};
+    std::array<OSNativeStaticMemory,CHARGED_AX_HBM_STORAGE_COUNT> mappings{};
+    std::array<NativeDSPMemoryPin,CHARGED_AX_HBM_STORAGE_COUNT> pins{};
+    std::array<void*,CHARGED_AX_HBM_STORAGE_COUNT> retained{};
+    std::array<ChargedAXStorage,CHARGED_AX_HBM_STORAGE_COUNT> storage{};
     std::uint32_t mapping_count{}, pin_count{}, lease_count{};
     std::uintptr_t image_base{};
     NativeDSPMemoryEndpoint endpoint{};
@@ -71,7 +146,7 @@ struct NativeAXModuleMemory::State {
     }
     static BOOL Retain(void* context) noexcept {
         auto& self=*static_cast<State*>(context);
-        if(self.owner!=std::this_thread::get_id() || self.lease_count==13) return FALSE;
+        if(self.owner!=std::this_thread::get_id() || self.lease_count==self.retained.size()) return FALSE;
         // NOLOAD retains the real currently mapped image. LAZY preserves its
         // unresolved/unexecuted source function boundary; never upgrade NOW.
         void* image=dlopen(self.path.c_str(),RTLD_NOLOAD|RTLD_LAZY|RTLD_LOCAL);
@@ -131,7 +206,7 @@ void NativeAXModuleMemory::ConfirmLoaded(void* actual_loader_handle) {
     auto& s=*state_;s.RequireOwner();s.RequireFile();
 #if defined(__APPLE__)
     // Resolve an existing source entry without calling it. Its real image must
-    // own the same thirteen pre-static spans submitted during this dlopen.
+    // own the same selected pre-static spans submitted during this dlopen.
     void* entry=actual_loader_handle ? dlsym(actual_loader_handle,"charged_original_entry") : nullptr;
     Dl_info image{};
     if(!entry || !dladdr(entry,&image) || !image.dli_fbase || !image.dli_fname ||
@@ -160,6 +235,13 @@ std::uint32_t NativeAXModuleMemory::PhysicalAddress(unsigned source_span) const 
         throw std::out_of_range("AX source static word requires a live loaded span");
     return s.mappings[source_span].physical_address;
 }
+bool NativeAXModuleMemory::OwnsReadableImageExtent(const void* address, std::size_t bytes) const {
+    std::lock_guard lock(LoaderExclusion());
+    auto& s=*state_;s.RequireOwner();
+    if (!s.loaded || s.retired) return false;
+    s.RequireFile();
+    return ReadableImageContains(s.image_base,address,bytes);
+}
 void NativeAXModuleMemory::ReleaseAfterDeviceDrain() {
     auto& s=*state_;s.RequireOwner();
     if(!s.loaded || s.retired) throw std::logic_error("AX module release requires its live loaded owner");
@@ -180,14 +262,14 @@ extern "C" void ChargedNativeAXReserveModuleStorage(const ChargedAXStorage* stor
     auto* s=static_cast<NativeAXModuleMemory::State*>(armed_owner);
     if(!s) throw std::logic_error("Original module AX statics require an armed host before dlopen");
     s->RequireOwner();s->RequireFile();
-    if(s->reserving || s->registered || count!=13 || !storage || !observe ||
+    if(s->reserving || s->registered || (count!=CHARGED_AX_BASE_STORAGE_COUNT && count!=CHARGED_AX_HBM_STORAGE_COUNT) || !storage || !observe ||
         before.memory_initialized || before.standard_address || before.virtual_address)
         throw std::logic_error("AX reservation must precede all original source arena capture");
     if(!cpu_task.address || cpu_task.bytes!=120)
         throw std::invalid_argument("Actual CPU-only native DSPTask has an unexpected ABI");
     s->reserving=true;s->before=before;s->observe=observe;
     try {
-        for(unsigned i=0;i<13;++i) {
+        for(unsigned i=0;i<count;++i) {
             if(!storage[i].address || storage[i].bytes!=Sizes[i])
                 throw std::invalid_argument("Actual AX source array does not match its reviewed native/wire extent");
             Dl_info info{};
@@ -197,7 +279,7 @@ extern "C" void ChargedNativeAXReserveModuleStorage(const ChargedAXStorage* stor
             const auto base=reinterpret_cast<std::uintptr_t>(info.dli_fbase);
             if(i && base!=s->image_base) throw std::invalid_argument("AX static arrays belong to different images");
             s->image_base=base;s->storage[i]=storage[i];
-            const bool writable=i!=6 && i!=7 && i!=12;
+            const bool writable=i!=6 && i!=7 && i!=12 && i!=13;
             OSNativeStaticMemoryOwner owner{s->identity.c_str(),Names[i],storage[i].address,storage[i].bytes,
                 writable?TRUE:FALSE,s,NativeAXModuleMemory::State::Retain,NativeAXModuleMemory::State::Release};
             s->mappings[i]=OSNativeRegisterStaticMemory(&owner);++s->mapping_count;

@@ -1,0 +1,61 @@
+Subject: Preserve original HBM SoundThread messages on native pointer widths
+
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+Use the live OSMessage carrier width only for the original numeric message
+comparisons. Include existing lock/list declarations directly under the native
+compiler profile. Retain all original method bodies and console includes.
+The shared 0523/0524 compiler headers remain separate prerequisites.
+
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundThread.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundThread.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundThread.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundThread.cpp
+@@ -1,4 +1,8 @@
+ #include "revolution/hbm/nw4hbm/snd/SoundThread.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#endif
+ 
+ #include "revolution/hbm/nw4hbm/snd/SeqPlayer.h"
+ #include "revolution/hbm/nw4hbm/snd/StrmPlayer.h"
+@@ -93,7 +97,11 @@
+     {
+         OSReceiveMessage(&mMsgQueue, &message, 1);
+ 
++#if defined(MSCHARGED_NATIVE)
++        if (reinterpret_cast<std::uintptr_t>(message) == MSG_AX_CALLBACK)
++#else
+         if (reinterpret_cast<u32>(message) == MSG_AX_CALLBACK)
++#endif
+         {
+             ut::AutoMutexLock autoMutex(mMutex);
+ 
+@@ -128,7 +136,11 @@
+                 currIt->EndSoundFrame();
+             }
+         }
++#if defined(MSCHARGED_NATIVE)
++        else if (reinterpret_cast<std::uintptr_t>(message) == MSG_SHUTDOWN)
++#else
+         else if (reinterpret_cast<u32>(message) == MSG_SHUTDOWN)
++#endif
+         {
+             SeqPlayer::StopAllPlayers();
+             WsdPlayer::StopAllPlayers();
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WavePlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WavePlayer.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WavePlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WavePlayer.h
+@@ -5,7 +5,12 @@
+ 
+ #include "revolution/hbm/nw4hbm/snd/AxVoice.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/LinkList.h"
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include "revolution/wpad.h"
+ 

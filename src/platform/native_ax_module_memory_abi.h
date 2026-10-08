@@ -12,7 +12,7 @@ typedef struct ChargedAXModuleArenaSnapshot {
 typedef void (*ChargedAXModuleArenaObserver)(ChargedAXModuleArenaSnapshot*);
 // Real host loader endpoint, armed before dlopen. The platform-only module
 // constructor submits genuine source static storage before arena capture.
-void ChargedNativeAXReserveModuleStorage(const ChargedAXStorage storage[13],
+void ChargedNativeAXReserveModuleStorage(const ChargedAXStorage* storage,
     uint32_t count, ChargedAXStorage cpu_task,
     ChargedAXModuleArenaSnapshot before, ChargedAXModuleArenaObserver observe);
 #ifdef __cplusplus

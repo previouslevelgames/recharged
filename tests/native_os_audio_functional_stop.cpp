@@ -87,8 +87,11 @@ struct Span {
     NativeDSPMemoryPin pin{};
 };
 void Run(int argc, char** argv) {
-    Check(argc==4 && std::strlen(argv[2])==64,
-          "need whole originalAX image identity");
+    Check(argc==5 && std::strlen(argv[2])==64,
+          "need whole originalAX image identity and ready|size|sync|yield phase");
+    const std::string phase=argv[4];
+    Check(phase=="ready"||phase=="size"||phase=="sync"||phase=="yield",
+          "unknown source hardware phase");
     // Pure SDK-memory/clock owner, as in native_alarm_tests: no GX/window.
     // This remains requalifiable against a graphical build's actual SDK.
     aurora::g_config.mem1Size = MEM1_DEFAULT_SIZE;
@@ -150,6 +153,7 @@ void Run(int argc, char** argv) {
     auto is_ax_init = Load<decltype(&AXIsInit)>(image, "AXIsInit");
     auto source_ax_init = Load<decltype(&AXInit)>(image, "AXInit");
     auto source_frame = Load<decltype(&__AXOutNewFrame)>(image, "__AXOutNewFrame");
+    auto send_mail = Load<decltype(&DSPSendMailToDSP)>(image, "DSPSendMailToDSP");
     auto register_callback = Load<decltype(&AXRegisterCallback)>(image, "AXRegisterCallback");
     auto source_handler = Load<__OSInterruptHandler>(image, "__DSPHandler");
     Check(!is_dsp_init() && !is_ax_init() && !*actual_current,
@@ -244,12 +248,11 @@ void Run(int argc, char** argv) {
                           [](unsigned char byte) { return byte == 0; }),
               "genuine stopped-voice PCM/surround/remote output is nonzero");
     }
-    const auto before_stop=device.Status();
+    auto before_stop=device.Status();
     const auto source_task_state=task->state;
     const auto source_task_flags=task->flags;
-    const auto source_callbacks=source_frame_callbacks;
     Check(before_stop.frames.phase==NativeAXFramePhase::ReadyForListSize,
-          "whole stop requires its actually acknowledged idle protocol");
+          "phase setup needs genuinely acknowledged source protocol");
     Check(ChargedOSAudioDSPRead(27)==0x800c,
           "OS DMA register lost actual running96frame geometry");
     Throws([]{ChargedOSAudioDSPRead(9);},"functional registers invented OS boot ARAM mode");
@@ -271,9 +274,54 @@ void Run(int argc, char** argv) {
     auto* os_image=SDL_LoadObject(argv[3]);
     Check(os_image!=nullptr,"whole original OS audio image did not load");
     auto source_stop=Load<void(*)()>(os_image,"__OSStopAudioSystem");
+    // Retain actual pending source causes at real SDK/MMIO boundaries. No
+    // source task/ACK/readiness field is written by the phase test.
+    const auto enabled=OSDisableInterrupts();
+    Check(enabled,"phase setup did not preserve its actual prior interrupt mask");
+    auto unchanged=[&](const NativeAXFunctionalStatus& a,std::uint16_t csr) {
+        const auto b=device.Status();
+        return ChargedDSPControlRead()==csr && b.native_initialized==a.native_initialized &&
+            b.protocol.resets==a.protocol.resets && b.frames.phase==a.frames.phase &&
+            b.frames.processed_frames==a.frames.processed_frames &&
+            b.frames.completed_frames==a.frames.completed_frames && b.history==a.history;
+    };
+    {
+        const auto a=device.Status();const auto csr=ChargedDSPControlRead();
+        Throws([&]{ChargedDSPControlWrite((csr&~0xa0u)|5u);},
+               "RESET admitted running actual AI DMA");
+        Check(unchanged(a,csr),"rejected live-AI RESET changed CSR/frame/history");
+    }
+    if(phase=="size")send_mail(reinterpret_cast<DSPMail>(uintptr_t(0x3abe0080u)));
+    if(phase=="sync"||phase=="yield")source_frame();
+    if(phase=="yield") {
+        Check(device.Status().frames.phase==NativeAXFramePhase::WaitingSyncAcknowledgment,
+              "actual source frame did not publish SYNC");
+        // Exactly one genuine source DSP SYNC handler runs; the actual AI
+        // hardware line stays masked while its DMA continues normally.
+        __OSMaskInterrupts(OS_INTERRUPTMASK(__OS_INTERRUPT_DSP_AI));
+        OSRestoreInterrupts(enabled);
+        Check(ServiceNativeInterruptController(),"actual pending SYNC IRQ was not delivered");
+        (void)OSDisableInterrupts();
+        (void)ChargedOSAudioDSPRead(5);
+    }
+    const auto expected=phase=="ready"?NativeAXFramePhase::ReadyForListSize:
+        phase=="size"?NativeAXFramePhase::ReadyForListAddress:
+        phase=="sync"?NativeAXFramePhase::WaitingSyncAcknowledgment:NativeAXFramePhase::WaitingContinue;
+    before_stop=device.Status();
+    Check(before_stop.frames.phase==expected,"actual source request reached a different phase");
+    if(phase=="sync"||phase=="yield") {
+        const auto csr=ChargedDSPControlRead();
+        Throws([&]{ChargedDSPControlWrite(csr|5u);},"RESET admitted unread source mail/IRQ");
+        Check(unchanged(before_stop,csr),"rejected pending-mail RESET changed CSR/frame/history");
+    }
+    const auto source_callbacks=source_frame_callbacks;
+    std::cout << "before original OS stop: phase=" << phase
+              << " processed=" << before_stop.frames.processed_frames
+              << " completed=" << before_stop.frames.completed_frames << '\n';
     const auto irqs_before_stop=GetNativeInterruptControllerStatus().dispatched;
     const auto tick_before=OSGetTick();
     source_stop();
+    OSRestoreInterrupts(enabled);
     const auto after_stop=device.Status();
     Check(static_cast<u32>(OSGetTick()-tick_before)>=44,
           "whole source stop omitted its original44tick wait");
@@ -292,6 +340,14 @@ void Run(int argc, char** argv) {
               source_frame_callbacks==source_callbacks &&
               GetNativeInterruptControllerStatus().dispatched==irqs_before_stop,
           "native stop altered source flags/task or fabricated source callback/IRQ");
+    device.ServiceOwner();ServiceNativeAI();device.ServiceOwner();
+    Check(device.Status().protocol.phase==NativeAXBootstrapPhase::Cold &&
+              device.Status().frames.phase==NativeAXFramePhase::Unavailable &&
+              device.Status().frames.processed_frames==0 &&
+              device.Status().frames.completed_frames==0 &&
+              device.Status().initialization_count==before_stop.initialization_count &&
+              source_frame_callbacks==source_callbacks,
+          "later real owner service restarted reset DSP or fabricated a source callback");
     register_callback(nullptr);
     ShutdownNativeAI();
     device.Close();
@@ -310,7 +366,8 @@ void Run(int argc, char** argv) {
     DetachNativeDSPMEM1();
     AuroraOSShutdown();
     std::cout << "native_os_audio_functional_stop: " << checks
-              << " checks; whole AXInit/8 source frames → original OS stop/HALT/DMA/mail/reset; idle protocol only\n";
+              << " checks; whole AXInit/8 source frames → original OS stop/HALT/DMA/mail/reset; phase="
+              << phase << "\n";
 }
 } // namespace
 int main(int argc, char** argv) {

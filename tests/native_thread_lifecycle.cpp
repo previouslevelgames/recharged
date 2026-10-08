@@ -36,6 +36,17 @@ template<class F> void Reject(F action,const char* error) {
     try { action(); } catch (const std::logic_error&) { rejected=true; }
     Check(rejected,error);
 }
+NativeThreadPowerRemovalStatus PowerFence() {
+    const auto mask=OSDisableInterrupts();
+    auto* context=OSGetCurrentContext();
+    try {
+        const auto status=ValidateNativeThreadsForPowerRemoval();
+        Check(!NativeInterruptsEnabled()&&OSGetCurrentContext()==context,
+            "Terminal thread observation changed original caller mask/context");
+        OSRestoreInterrupts(mask);
+        return status;
+    } catch (...) { OSRestoreInterrupts(mask);throw; }
+}
 unsigned Waiters(OSThreadQueue& queue) {
     const auto mask=OSDisableInterrupts();
     unsigned count{};
@@ -155,6 +166,15 @@ int main() {
         static_assert(sizeof(OSThread::suspend)==4&&sizeof(OSPriority)==4);
         owner_id=std::this_thread::get_id();owner_context=OSGetCurrentContext();
         auto* caller=OSGetCurrentThread();
+        Reject([]{ValidateNativeThreadsForPowerRemoval();},"Enabled terminal thread caller was accepted");
+        Check(!PowerFence().completed_workers,"Cold source owner invented a completed worker");
+        {
+            NativeInterruptGuard exclusion;
+            Reject([]{PowerFence();},"Host exclusion was accepted as source terminal mask");
+        }
+        Check(DispatchNativeInterrupt([]{
+            Reject([]{ValidateNativeThreadsForPowerRemoval();},"IRQ accepted terminal thread observation");
+        }),"Real terminal-thread IRQ negative did not dispatch");
         auto payload=std::make_unique<unsigned>(0x1234abcdu);
         Check(std::uintptr_t(payload.get())>0xffffffffULL,"Actual native pointer owner is not above4GiB");
         {
@@ -169,6 +189,7 @@ int main() {
                 "Suspended source priority changes affected runnable priority early");
             Check(OSResumeThread(&storage.sdk)==2&&storage.sdk.suspend==1&&!job.entered,"Nested Resume executed a still-suspended source worker");
             StartAndWait(storage,job);
+            Reject([]{PowerFence();},"Terminal power admitted a started source message waiter");
             Check(storage.sdk.priority==11,"Resume did not restore original source base priority");
             Reject([&]{ DrainNativeThreadLifetimes(); },"Teardown accepted an active source callback/descriptor");
             Reject([&]{OSCancelThread(&storage.sdk);},"Running source cancellation silently killed native C++ frames");
@@ -205,6 +226,9 @@ int main() {
             StartAndWait(storage,job);
             Check(OSSendMessage(&job.queue,payload.get(),0),"Original detached callback wake failed");
             Until([&]{return OSIsThreadTerminated(&storage.sdk);});
+            const auto terminal=PowerFence();
+            Check(terminal.completed_workers==1&&!terminal.retained_moribund_threads,
+                "Genuine detached completion was rejected or invented a retained source record");
             Check(storage.sdk.state==0&&storage.sdk.val==reinterpret_cast<void*>(std::uintptr_t{0xffffffffu}),
                 "Detached source exit gained attached return-value writes");
             DrainNativeThreadLifetimes();
@@ -215,6 +239,12 @@ int main() {
             Check(OSResumeThread(&storage.sdk)==1,"Completed worker Resume failed");
             Until([&]{return OSIsThreadTerminated(&storage.sdk);});
             Check(storage.sdk.state==OS_THREAD_STATE_MORIBUND,"Attached source worker skipped original MORIBUND state");
+            const auto before=storage.sdk;
+            const auto terminal=PowerFence(); // No OSJoinThread: its real std::thread handle stays joinable.
+            Check(terminal.completed_workers==1&&terminal.retained_moribund_threads==1,
+                "Genuine native completion was confused with unjoined original descriptor lifetime");
+            Check(std::memcmp(&before,&storage.sdk,sizeof(before))==0,
+                "Terminal fence changed original MORIBUND state, result, context or active links");
             Reject([&]{DrainNativeThreadLifetimes();},"Teardown accepted unjoined attached source lifetime");
             OSDetachThread(&storage.sdk);
             Check(storage.sdk.state==0&&storage.sdk.attr==1,"Source Detach failed to retire actual MORIBUND thread");
@@ -225,6 +255,12 @@ int main() {
             const auto before=entries.load();OSCancelThread(&storage.sdk);
             Check(!job.entered&&entries==before&&OSIsThreadTerminated(&storage.sdk),
                 "Cancelled parked worker executed a source callback or remained live");
+            const auto before_descriptor=storage.sdk;
+            const auto terminal=PowerFence();
+            Check(terminal.completed_workers==1&&terminal.retained_moribund_threads==(!attr?1u:0u),
+                "Real parked cancellation did not qualify its retained/retired original state");
+            Check(std::memcmp(&before_descriptor,&storage.sdk,sizeof(before_descriptor))==0,
+                "Terminal fence joined/detached/modified an actually cancelled source descriptor");
             if (!attr) {void* output{};Check(OSJoinThread(&storage.sdk,&output)&&std::uintptr_t(output)==0xffffffffu,
                 "Parked attached cancellation changed source join/default result");}
             else Check(storage.sdk.state==0,"Detached parked cancellation failed to retire real worker");
@@ -235,6 +271,7 @@ int main() {
             Check(OSResumeThread(&storage.sdk)==1,"Self-suspending source worker Resume failed");
             Until([&]{return job.entered&&OSIsThreadSuspended(&storage.sdk);});
             Check(storage.sdk.state==OS_THREAD_STATE_READY&&!job.returned,"Source self-suspension did not really park native execution");
+            Reject([]{PowerFence();},"Terminal power admitted a started self-suspended source continuation");
             Check(OSResumeThread(&storage.sdk)==1,"External Resume failed to release actual self-suspended source worker");
             Until([&]{return Waiters(job.queue.queueReceive)==1;});
             Check(OSSendMessage(&job.queue,payload.get(),0),"Self-suspended source worker message release failed");
@@ -251,13 +288,16 @@ int main() {
             DrainNativeThreadLifetimes();
         }
         {
+            // This native-only spin fixture tests refusal to kill running C++ frames.
+            // Equal priority avoids original higher-priority Resume preemption.
             Owned storage; RunningJob job; job.result=payload.get();
-            Check(OSCreateThread(&storage.sdk,RunningWorker,&job,storage.Top(),0x4000,10,0),"Running source Create failed");
+            Check(OSCreateThread(&storage.sdk,RunningWorker,&job,storage.Top(),0x4000,OSGetThreadPriority(caller),0),"Running source Create failed");
             Check(OSResumeThread(&storage.sdk)==1,"Running source Resume failed"); Until([&]{return job.entered.load();});
             Reject([&]{OSSuspendThread(&storage.sdk);},"External RUNNING suspension faked native preemption");
             Check(!OSIsThreadSuspended(&storage.sdk)&&storage.sdk.state==OS_THREAD_STATE_RUNNING,
                 "Unsupported running Suspend changed source counter/state");
             Reject([&]{OSCancelThread(&storage.sdk);},"External RUNNING cancellation destroyed live source frames");
+            Reject([]{PowerFence();},"Terminal power admitted actual RUNNING source execution");
             job.release=true; void* result{};
             Check(OSJoinThread(&storage.sdk,&result)&&result==payload.get(),"Real running callback failed to return/join");
             DrainNativeThreadLifetimes();
@@ -269,6 +309,7 @@ int main() {
             Until([&]{ const auto mask=OSDisableInterrupts(); bool done=storage->sdk.state==OS_THREAD_STATE_MORIBUND;
                 OSRestoreInterrupts(mask); return done; });
             Check(failed_frame_destroyed,"Actual failed source entry did not destroy its ordinary frame before completion");
+            Reject([]{PowerFence();},"Failed native entry was relabeled successful terminal quiescence");
             bool rejected{}; try { (void)OSIsThreadTerminated(&storage->sdk); } catch(const std::runtime_error&) {rejected=true;}
             Check(rejected,"Failing source entry became successful IsTerminated readiness");
             auto* marker=reinterpret_cast<void*>(std::uintptr_t{0xfedcba9876543210ULL}); void* result=marker;
@@ -277,6 +318,29 @@ int main() {
                 "Failed source join fabricated pointer result or failed to retire actual worker");
             storage.reset(); // True join has ended source access before borrowed descriptor/stack retirement.
             DrainNativeThreadLifetimes();
+        }
+        {
+            // A genuinely joined source owner may free its descriptor before
+            // process removal. The fence must not dereference its stale sdk alias.
+            auto storage=std::make_unique<Owned>();Job job;Prepare(*storage,job,payload.get());Create(*storage,job);
+            Check(OSSendMessage(&job.queue,payload.get(),0)&&OSResumeThread(&storage->sdk)==1,
+                "Retired source descriptor gate could not start its real worker");
+            void* output{};
+            Check(OSJoinThread(&storage->sdk,&output)&&output==payload.get(),"Actual retired source descriptor did not join");
+            storage.reset();
+            const auto terminal=PowerFence();
+            Check(terminal.completed_workers==1&&!terminal.retained_moribund_threads,
+                "Terminal fence read a retired source alias or invented a live source record");
+            DrainNativeThreadLifetimes();
+        }
+        {
+            std::atomic<bool> entered{},release{};
+            std::thread foreign([&]{ (void)OSGetCurrentThread();entered=true;
+                while(!release)std::this_thread::yield(); });
+            Until([&]{return entered.load();});
+            Reject([]{PowerFence();},"Foreign SDK caller was mistaken for a genuinely ended created worker");
+            release=true;foreign.join();
+            Check(!PowerFence().completed_workers,"Retired foreign caller left terminal continuation metadata");
         }
         {
             suspended_owner=caller;

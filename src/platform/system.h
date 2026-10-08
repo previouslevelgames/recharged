@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace mscharged
 {
@@ -18,6 +19,11 @@ struct NativeSystemSettings
     // original movie/audio source still chooses its behavior from SC queries.
     std::uint8_t sound_mode = 1;
 };
+
+// Map the native USA profile preference to a Wii SC language record only.
+// Automatic retains the explicit English fallback; no host-locale inference.
+// Original main still owns game language and localization resource selection.
+std::uint8_t ResolveNativeUSASystemLanguage(std::string_view preference);
 
 // Stage a validated settings snapshot on the host owner before game entry.
 // Source SCInit publishes its initialized status. Queries may read the staged

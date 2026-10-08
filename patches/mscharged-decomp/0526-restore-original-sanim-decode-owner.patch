@@ -1,0 +1,111 @@
+Subject: Keep original animation decode functions in their whole source TU
+
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+Restore the original twelve-bit unpack assignments and all four original
+rotation/GQR entry points in SAnimDecode.cpp. Lower only the fixed signed
+paired-single quantized loads, host-order stores, and GQR register setup.
+The native platform helper has no game types or packing/selection decisions.
+Keep the console instructions and scalar scale/weight bodies unchanged.
+
+diff --git a/src/Game/SAnimDecode.cpp b/src/Game/SAnimDecode.cpp
+--- a/src/Game/SAnimDecode.cpp
++++ b/src/Game/SAnimDecode.cpp
+@@ -2,31 +2,51 @@
+ 
+ #include "Game/SAnim.h"
+ 
+-#ifndef MSCHARGED_NATIVE
+-// Native register-independent rotation decoders are supplied by the port.
++#ifdef MSCHARGED_NATIVE
++#include "platform/quantized_pair.h"
++#endif
++
+ // clang-format off
+ void SAnimInitGQR()
+ {
+     register unsigned int value = 0x0F070F07;
++#ifdef MSCHARGED_NATIVE
++    // Native quantized loads encode this fixed GQR6 format and scale directly.
++    (void)value;
++#else
+     asm {
+         mtspr 918, value
+     }
++#endif
+     value = 0x07060706;
++#ifdef MSCHARGED_NATIVE
++    // Native quantized loads encode this fixed GQR7 format and scale directly.
++    (void)value;
++#else
+     asm {
+         mtspr 919, value
+     }
++#endif
+ }
+ // clang-format on
+ 
+ // clang-format off
+ extern "C" void SAnimDecodeRot16(register nlQuaternion* result, register const void* packed)
+ {
++#ifdef MSCHARGED_NATIVE
++    auto f0 = mscharged::platform::LoadSignedQuantizedPair<16, 15>(packed);
++    mscharged::platform::StoreFloatPair(result, f0);
++    f0 = mscharged::platform::LoadSignedQuantizedPair<16, 15>(
++        (const unsigned char*)packed + 4);
++    mscharged::platform::StoreFloatPair((unsigned char*)result + 8, f0);
++#else
+     asm {
+         psq_l f0, 0(packed), 0, 6
+         psq_st f0, 0(result), 0, 0
+         psq_l f0, 4(packed), 0, 6
+         psq_st f0, 8(result), 0, 0
+     }
++#endif
+ }
+ // clang-format on
+ 
+@@ -46,27 +66,42 @@
+     unpacked[6] = bytes[5];
+     unpacked[7] <<= 4;
+     register unsigned char* values = unpacked;
++#ifdef MSCHARGED_NATIVE
++    auto f0 = mscharged::platform::LoadSignedQuantizedPair<16, 15>(values);
++    mscharged::platform::StoreFloatPair(result, f0);
++    f0 = mscharged::platform::LoadSignedQuantizedPair<16, 15>(
++        (const unsigned char*)values + 4);
++    mscharged::platform::StoreFloatPair((unsigned char*)result + 8, f0);
++#else
+     asm {
+         psq_l f0, 0(values), 0, 6
+         psq_st f0, 0(result), 0, 0
+         psq_l f0, 4(values), 0, 6
+         psq_st f0, 8(result), 0, 0
+     }
++#endif
+ }
+ // clang-format on
+ 
+ // clang-format off
+ extern "C" void SAnimDecodeRot8(register nlQuaternion* result, register const void* packed)
+ {
++#ifdef MSCHARGED_NATIVE
++    auto f0 = mscharged::platform::LoadSignedQuantizedPair<8, 7>(packed);
++    mscharged::platform::StoreFloatPair(result, f0);
++    f0 = mscharged::platform::LoadSignedQuantizedPair<8, 7>(
++        (const unsigned char*)packed + 2);
++    mscharged::platform::StoreFloatPair((unsigned char*)result + 8, f0);
++#else
+     asm {
+         psq_l f0, 0(packed), 0, 7
+         psq_st f0, 0(result), 0, 0
+         psq_l f0, 2(packed), 0, 7
+         psq_st f0, 8(result), 0, 0
+     }
++#endif
+ }
+ // clang-format on
+-#endif
+ 
+ extern "C" void SAnimDecodeScale(nlVector3* result, const PackedScale* packed)
+ {

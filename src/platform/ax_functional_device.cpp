@@ -87,6 +87,13 @@ struct NativeAXFunctionalDevice::State {
         }
         s.history=cold;s.initialized=true;++s.initializations;
     }
+    static void ValidateReset(void* context) {
+        auto& s=*static_cast<State*>(context);s.RequireOwner();
+        const auto ai=GetNativeAIStatus();
+        if(ai.running||ai.interrupt_pending||ai.callback_active||
+           ai.retained_blocks||ai.queued_input_bytes)
+            throw std::logic_error("functional AX reset requires stopped/drained actual AI DMA");
+    }
     static void Reset(void* context) {
         auto& s=*static_cast<State*>(context);s.RequireOwner();
         s.history={};s.initialized=false;s.processed=0;s.active=s.aux=0;
@@ -118,7 +125,7 @@ NativeAXFunctionalDevice::NativeAXFunctionalDevice(NativeDSPMemoryEndpoint memor
     if(policy!=NativeAXCoefficientPolicy::NativeWindowedSinc4TapV1)
         throw std::invalid_argument("functional AX requires explicitly selected NativeWindowedSinc4TapV1 policy");
     auto& s=*state_;s.memory=memory;s.bindings=bindings;s.ValidateBindings();
-    const NativeAXFunctionalProcessor processor(&s,State::Initialize,State::Reset,State::Process);
+    const NativeAXFunctionalProcessor processor(&s,State::Initialize,State::ValidateReset,State::Reset,State::Process);
     protocol_=std::make_unique<NativeAXBootstrapDevice>(memory,mailboxes,control,bindings.addresses[12],processor);
     const NativeOSAudioRegisterOwner::Operations operations{
         [](void* p,std::uint32_t r){return static_cast<NativeAXFunctionalDevice*>(p)->ReadOSDSP(r);},

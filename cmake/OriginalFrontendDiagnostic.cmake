@@ -32,12 +32,16 @@ include(cmake/OriginalFrontendMainMenuDiagnostic.cmake)
 include(cmake/OriginalFrontendHallOfFameDiagnostic.cmake)
 include(cmake/OriginalFrontendDominationDiagnostic.cmake)
 include(cmake/OriginalFrontendCreditsDiagnostic.cmake)
+include(cmake/OriginalFrontendDVDMessagesDiagnostic.cmake)
+include(cmake/OriginalFrontendDVDErrorsDiagnostic.cmake)
 include(cmake/NativeAXModuleMemory.cmake)
+include(cmake/OriginalOSShutdownRecords.cmake)
 
 function(mscharged_add_original_frontend_diagnostic)
     get_target_property(_sources mscharged_original_main_credits_module SOURCES)
     add_library(mscharged_original_frontend_module MODULE ${_sources})
     add_dependencies(mscharged_original_frontend_module verify_prepared)
+    mscharged_add_original_shutdown_records(mscharged_original_frontend_module)
     foreach(_property IN ITEMS
             COMPILE_FEATURES COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES
             LINK_LIBRARIES LINK_OPTIONS LINK_DEPENDS)
@@ -82,6 +86,9 @@ function(mscharged_add_original_frontend_diagnostic)
     mscharged_select_original_frontend_main_menu(mscharged_original_frontend_module)
     mscharged_select_original_frontend_hall_of_fame(mscharged_original_frontend_module)
     mscharged_select_original_frontend_domination(mscharged_original_frontend_module)
+    mscharged_select_original_frontend_reset(mscharged_original_frontend_module)
+    mscharged_select_original_frontend_dvd_messages(mscharged_original_frontend_module)
+    mscharged_select_original_frontend_dvd_errors(mscharged_original_frontend_module)
     # Last selection: copies the module's final settings for the original CreditScene.
     mscharged_select_original_frontend_credits(mscharged_original_frontend_module)
     # dynamic_lookup defers unfinished methods, but missing game vtable/VTT

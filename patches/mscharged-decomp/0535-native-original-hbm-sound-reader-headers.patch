@@ -1,0 +1,45 @@
+# Native owning includes for whole original sound readers.
+# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmFile.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmFile.cpp
+@@ -1,7 +1,13 @@
+ #include "revolution/hbm/nw4hbm/snd/StrmPlayer.h"
+ #include "revolution/hbm/nw4hbm/snd/StrmFile.h"
+ #include "revolution/hbm/nw4hbm/snd/WaveFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/HBMAssert.hpp"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#include "revolution/hbm/nw4hbm/ut/FileStream.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm
+ {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WaveFile.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WaveFile.cpp
+@@ -1,5 +1,10 @@
+ #include "revolution/hbm/nw4hbm/snd/WaveFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/HBMAssert.hpp"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdFile.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdFile.cpp
+@@ -1,5 +1,10 @@
+ #include "revolution/hbm/nw4hbm/snd/WsdFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/HBMAssert.hpp"
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {

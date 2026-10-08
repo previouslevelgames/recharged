@@ -17,16 +17,24 @@ void ObserveArenas(ChargedAXModuleArenaSnapshot* result) {
 // Pure platform/data setup. No game object is constructed, no arena is captured
 // here and no source Initialize/AddTasks/AXInit or callback is bypassed.
 __attribute__((constructor(101))) void ReserveActualSourceAXStorage() {
-    ChargedAXStorage storage[13];
+#if defined(MSCHARGED_NATIVE_HBM_MODULE_MEMORY)
+    constexpr unsigned storage_count = CHARGED_AX_HBM_STORAGE_COUNT;
+#else
+    constexpr unsigned storage_count = CHARGED_AX_BASE_STORAGE_COUNT;
+#endif
+    ChargedAXStorage storage[storage_count];
     storage[0] = ChargedAXGetCommandStorage();
     ChargedAXGetVoiceStorage(storage + 1);
     ChargedAXGetAuxStorage(storage + 3);
     storage[6] = ChargedAXGetCompressorStorage();
     storage[7] = {__AXGetStudio(), sizeof(AXSTUDIO)};
     ChargedAXGetOutputStorage(storage + 8);
+#if defined(MSCHARGED_NATIVE_HBM_MODULE_MEMORY)
+    storage[CHARGED_AX_BASE_STORAGE_COUNT] = ChargedHBMGetZeroStorage();
+#endif
     ChargedAXModuleArenaSnapshot before{};
     ObserveArenas(&before);
-    ChargedNativeAXReserveModuleStorage(storage, 13, ChargedAXGetTaskStorage(),
+    ChargedNativeAXReserveModuleStorage(storage, storage_count, ChargedAXGetTaskStorage(),
                                        before, ObserveArenas);
 }
 }

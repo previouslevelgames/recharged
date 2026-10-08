@@ -1,0 +1,129 @@
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Native fixed-width OS record transport after separate0516 compiler includes.
+Original state machines/checksum loops/NAND request arguments retained.
+
+--- a/src/RVL_SDK/os/OSPlayRecord.c
++++ b/src/RVL_SDK/os/OSPlayRecord.c
+@@ -1,5 +1,8 @@
+ #include <revolution/nand.h>
+ #include <revolution/os.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/os_shutdown_record_transport.h"
++#endif
+ 
+ #define MY_SEC_TO_TICKS(x) (x * (s64)OS_SEC_TO_TICKS(1))
+ 
+@@ -25,6 +28,11 @@
+     char titleId[6]; // at 0x68
+     char UNK_0x6E[0x80 - 0x6E];
+ } OSPlayRecord;
++#if defined(MSCHARGED_NATIVE)
++_Static_assert(sizeof(OSPlayRecord) == 128 && offsetof(OSPlayRecord, titleName) == 4
++    && offsetof(OSPlayRecord, startTime) == 88 && offsetof(OSPlayRecord, stopTime) == 96
++    && offsetof(OSPlayRecord, titleId) == 104, "Original play-record wire layout");
++#endif
+ 
+ static OSPlayRecordState PlayRecordState = PLAY_RECORD_STATE_STOPPED;
+ 
+@@ -49,7 +57,11 @@
+     u32 checksum = 0;
+ 
+     for (i = 0; i < (sizeof(OSPlayRecord) / sizeof(u32)) - 1; i++) {
++#if defined(MSCHARGED_NATIVE)
++        checksum += mscharged_os_play_checksum_word(playRec, ptr++);
++#else
+         checksum += *ptr++;
++#endif
+     }
+ 
+     return checksum;
+@@ -160,8 +172,13 @@
+                               &Block);
+         break;
+     case PLAY_RECORD_STATE_READ:
++#if defined(MSCHARGED_NATIVE)
++        error = mscharged_os_play_nand_read_async(&FileInfo, &PlayRecord, sizeof(OSPlayRecord),
++                              PlayRecordCallback, &Block);
++#else
+         error = NANDReadAsync(&FileInfo, &PlayRecord, sizeof(OSPlayRecord),
+                               PlayRecordCallback, &Block);
++#endif
+         break;
+     case PLAY_RECORD_STATE_SEEK:
+         error = NANDSeekAsync(&FileInfo, 0, NAND_SEEK_BEG, PlayRecordCallback,
+@@ -175,8 +192,13 @@
+     case PLAY_RECORD_STATE_WRITE:
+         PlayRecord.stopTime = OSGetTime();
+         PlayRecord.checksum = RecordCheckSum(&PlayRecord);
++#if defined(MSCHARGED_NATIVE)
++        error = mscharged_os_play_nand_write_async(&FileInfo, &PlayRecord, sizeof(OSPlayRecord),
++                               PlayRecordCallback, &Block);
++#else
+         error = NANDWriteAsync(&FileInfo, &PlayRecord, sizeof(OSPlayRecord),
+                                PlayRecordCallback, &Block);
++#endif
+         break;
+     case PLAY_RECORD_STATE_CLOSE:
+         error = NANDCloseAsync(&FileInfo, PlayRecordCallback, &Block);
+@@ -246,7 +268,11 @@
+         OSRestoreInterrupts(enabled);
+         PlayRecord.stopTime = OSGetTime();
+         PlayRecord.checksum = RecordCheckSum(&PlayRecord);
++#if defined(MSCHARGED_NATIVE)
++        mscharged_os_play_nand_write(&FileInfo, &PlayRecord, sizeof(OSPlayRecord));
++#else
+         NANDWrite(&FileInfo, &PlayRecord, sizeof(OSPlayRecord));
++#endif
+         NANDClose(&FileInfo);
+     } else {
+         if (PlayRecordRetry) {
+--- a/src/RVL_SDK/os/OSStateFlags.c
++++ b/src/RVL_SDK/os/OSStateFlags.c
+@@ -3,6 +3,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <revolution/os/OSStateFlags.h>
+ #include <string.h>
++#include "platform/os_shutdown_record_transport.h"
++_Static_assert(sizeof(OSStateFlags) == 32 && offsetof(OSStateFlags, lastAppType) == 4,
++    "Original state-flag wire layout");
+ #else
+ #include <cstring>
+ #include <mem.h>
+@@ -16,7 +19,11 @@
+     u32 checksum = 0;
+ 
+     for (i = 0; i < (sizeof(OSStateFlags) / sizeof(u32)) - 1; i++) {
++#if defined(MSCHARGED_NATIVE)
++        checksum += mscharged_os_state_checksum_word(state, ptr++);
++#else
+         checksum += *ptr++;
++#endif
+     }
+ 
+     return checksum;
+@@ -30,8 +37,13 @@
+ 
+     if (NANDOpen("/title/00000001/00000002/data/state.dat", &file,
+                  NAND_ACCESS_WRITE) == NAND_RESULT_OK) {
++#if defined(MSCHARGED_NATIVE)
++        if (mscharged_os_state_nand_write(&file, &StateFlags, sizeof(OSStateFlags)) !=
++            sizeof(OSStateFlags)) {
++#else
+         if (NANDWrite(&file, &StateFlags, sizeof(OSStateFlags)) !=
+             sizeof(OSStateFlags)) {
++#endif
+             NANDClose(&file);
+             return FALSE;
+         }
+@@ -50,7 +62,11 @@
+ 
+     if (NANDOpen("/title/00000001/00000002/data/state.dat", &file,
+                  NAND_ACCESS_READ) == NAND_RESULT_OK) {
++#if defined(MSCHARGED_NATIVE)
++        s32 bytesRead = mscharged_os_state_nand_read(&file, &StateFlags, sizeof(OSStateFlags));
++#else
+         s32 bytesRead = NANDRead(&file, &StateFlags, sizeof(OSStateFlags));
++#endif
+         NANDClose(&file);
+ 
+         if (bytesRead != sizeof(OSStateFlags)) {

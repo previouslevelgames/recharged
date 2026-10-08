@@ -1,0 +1,393 @@
+From: mscharged-port contributors
+Subject: [PATCH] Honor immediate native VI display disable without owner retirement
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native VI display register and real output worker lifecycle.
+
+Implement original STM's VI_DCR=0 ENB request independently of deferred source
+VISetBlack, framebuffer/flush ownership, field clocks and PI_VI callbacks.
+An attached output requires an explicit operation; unavailable device support
+fails before register mutation. A real output failure remains explicit and
+retryable without inventing a Present or rolling back the requested register.
+
+Latch the output disable against an already-started Present using a dedicated
+gate, keeping normal source prepare/commit and observer mutex scopes brief.
+Drain actual queued work and request a real black surface before acknowledging
+a presentable display. Only actual successful Present updates its observers.
+Unpresentable windows retain their honest last completion. No owners, snapshots,
+interrupt handlers or source tasks are retired by this operation.
+
+Original cached VIConfigure ENB=1 re-enables only on its genuine Mode flush;
+ordinary retraces, VISetBlack, unflushed requests and idempotent VIInit do not.
+Historical output devices may omit the callback until this operation is used.
+Default non-native Aurora builds retain explicit unsupported display control.
+No ResetTask, OSShutdown or terminal readiness is supplied.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -33,6 +33,14 @@
+ void aurora_service_video_interrupts(void);
+ void aurora_service_video_hardware(void);
+ void aurora_shutdown_video_hardware(void);
++// Original STM's immediate u16 VI_DCR=0 request. This is independent of the
++// driver's deferred VISetBlack state, source field clock and live IRQ owner.
++// An attached output must implement the operation and drain real presentation;
++// it cannot acknowledge a queued request as a successful physical Present.
++void aurora_disable_video_display(void);
++// Register ENB only, not a successful-Present or source black-state observer.
++// False means no initialized owner (or null output); no GPU/SDL work occurs.
++bool aurora_get_video_display_enabled(bool* enabled);
+ // Explicit native scanout endpoint. Only source VI commits select its pointer,
+ // black state, geometry and physical field; GPU/window work runs after the IRQ.
+ typedef struct {
+@@ -50,6 +58,11 @@
+   void (*commit)(void* context, const AuroraVIScanout* scanout);
+   void (*service)(void* context);
+   void (*shutdown)(void* context);
++  // Optional for historical devices. STM DCR=0 rejects an attached device
++  // without this operation before changing the register. Disable may wait;
++  // true is used only by the original cached ENB=1 Mode register flush.
++  // scanout carries actual current/flush geometry, never a new retrace.
++  void (*set_display_enabled)(void* context, bool enabled, const AuroraVIScanout* scanout);
+ } AuroraVIOutputDevice;
+ void aurora_attach_video_output_device(const AuroraVIOutputDevice* device);
+ // Supply the same explicit SC aspect preference to native virtual display
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -71,6 +71,7 @@
+   GXRenderModeObj mode{};
+   uint16_t pan_x{}, pan_y{}, pan_width{}, pan_height{};
+   bool black{true};
++  bool display_enabled{true};
+   void* framebuffer{};
+ };
+ struct Device {
+@@ -78,7 +79,7 @@
+   AuroraVIBootConfig config{};
+   AuroraVIInterruptDevice interrupt_device{};
+   AuroraVIOutputDevice output_device{};
+-  bool output_attached{}, output_active{};
++  bool output_attached{}, output_active{}, display_control_active{}, display_disable_completed{};
+   std::thread::id owner;
+   bool configured{}, initialized{}, active{}, interrupt{}, flush{}, change_mode{}, shadow_change_mode{};
+   bool interrupt_device_attached{}, initializing{}, callback_active{};
+@@ -152,7 +153,10 @@
+ Registers PendingRegisters(const Device& state, bool flush) {
+   Registers regs = state.hardware;
+   if (flush) {
+-    if (state.shadow_dirty & Mode) regs.mode = state.shadow.mode;
++    if (state.shadow_dirty & Mode) {
++      regs.mode = state.shadow.mode;
++      regs.display_enabled = state.shadow.display_enabled;
++    }
+     if (state.shadow_dirty & Pan) {
+       regs.pan_x = state.shadow.pan_x; regs.pan_y = state.shadow.pan_y;
+       regs.pan_width = state.shadow.pan_width; regs.pan_height = state.shadow.pan_height;
+@@ -168,7 +172,7 @@
+     count, uint32_t(!CurrentFieldFirst(state)), regs.mode.fbWidth, regs.mode.xfbHeight,
+     regs.mode.viXOrigin, regs.mode.viYOrigin, regs.mode.viWidth, regs.mode.viHeight,
+     regs.pan_x, regs.pan_y, regs.pan_width, regs.pan_height, 720,
+-    uint16_t(timing.active_lines * 2), regs.black};
++    uint16_t(timing.active_lines * 2), regs.black || !regs.display_enabled};
+ }
+ void Retrace(void*) {
+   auto& state = State();
+@@ -200,13 +204,16 @@
+   if (pre) pre(count);
+   AuroraVIOutputDevice output;
+   AuroraVIScanout scanout;
+-  bool output_attached, flush;
++  bool output_attached, flush, enable_display;
+   {
+     std::lock_guard lock(state.mutex);
+     UpdateClock(state, Clock::now());
+     flush = state.flush && !(state.shadow_change_mode && !CurrentFieldFirst(state));
+     const auto registers = PendingRegisters(state, flush);
+     scanout = Scanout(state, registers, count);
++    // Original VIConfigure updates cached regs[VI_DCR], whose ENB remains one.
++    // A subsequent real Mode flush can therefore overwrite STM's raw zero.
++    enable_display = registers.display_enabled && !state.hardware.display_enabled;
+     output = state.output_device; output_attached = state.output_attached;
+   }
+   // Validate the requested real resource without holding the VI lock. This
+@@ -214,6 +221,11 @@
+   if ((!scanout.black && !output_attached) ||
+       (output_attached && !output.prepare(output.context, &scanout)))
+     throw std::runtime_error("Native VI selected XFB output is not qualified");
++  if (enable_display && output_attached) {
++    if (!output.set_display_enabled)
++      throw std::runtime_error("Native VI output has no display-control register operation");
++    output.set_display_enabled(output.context, true, &scanout);
++  }
+   {
+     std::lock_guard lock(state.mutex);
+     if (flush) {
+@@ -230,6 +242,8 @@
+           state.second_field_seed = (new_mode & 3) == VI_INTERLACE && !first;
+         }
+         state.hardware.mode = state.shadow.mode;
++        state.hardware.display_enabled = state.shadow.display_enabled;
++        state.display_disable_completed = false;
+       }
+       if (state.shadow_dirty & Pan) {
+         state.hardware.pan_x = state.shadow.pan_x; state.hardware.pan_y = state.shadow.pan_y;
+@@ -267,7 +281,7 @@
+   {
+     std::lock_guard lock(state.mutex);
+     UpdateClock(state, Clock::now());
+-    if (!state.initialized || state.active || state.callback_active || state.owner != std::this_thread::get_id()) return false;
++    if (!state.initialized || state.active || state.callback_active || state.display_control_active || state.owner != std::this_thread::get_id()) return false;
+     state.active = true; device = state.interrupt_device; pending = state.interrupt;
+     enabled = state.config.interrupts_enabled();
+   }
+@@ -330,6 +344,41 @@
+   // still dispatch at owner safe points while the GPU/window device is busy.
+   output.service(output.context);
+ }
++void aurora_disable_video_display() {
++  auto& state = State();
++  AuroraVIOutputDevice output;
++  AuroraVIScanout scanout;
++  bool attached;
++  {
++    std::lock_guard lock(state.mutex); RequireOwner(state);
++    if (state.active || state.callback_active || state.output_active || state.display_control_active)
++      throw std::logic_error("Cannot disable native VI display inside active callbacks or output service");
++    if (!state.hardware.display_enabled && state.display_disable_completed) return;
++    output = state.output_device; attached = state.output_attached;
++    if (attached && !output.set_display_enabled)
++      throw std::runtime_error("Native VI output has no immediate display-disable operation");
++    UpdateClock(state, Clock::now());
++    state.hardware.display_enabled = false;
++    state.display_control_active = true;
++    scanout = Scanout(state, state.hardware, state.retraces);
++  }
++  struct Active {
++    Device& state;
++    ~Active() { std::lock_guard lock(state.mutex); state.display_control_active = false; }
++  } active{state};
++  // The output callback owns its actual worker/surface boundary. No source
++  // callbacks, counts, black requests or framebuffer leases are retired here.
++  if (attached) output.set_display_enabled(output.context, false, &scanout);
++  std::lock_guard lock(state.mutex); state.display_disable_completed = true;
++}
++bool aurora_get_video_display_enabled(bool* enabled) {
++  if (!enabled) return false;
++  *enabled = false;
++  auto& state = State(); std::lock_guard lock(state.mutex);
++  if (!state.initialized) return false;
++  *enabled = state.hardware.display_enabled;
++  return true;
++}
+ void aurora_shutdown_video_hardware() {
+   auto& state = State();
+   AuroraVIInterruptDevice device;
+@@ -338,7 +387,7 @@
+   {
+     std::lock_guard lock(state.mutex);
+     if (!state.configured) return;
+-    if (state.owner != std::this_thread::get_id() || state.active || state.output_active || state.callback_active || state.initializing)
++    if (state.owner != std::this_thread::get_id() || state.active || state.output_active || state.callback_active || state.initializing || state.display_control_active)
+       throw std::logic_error("Cannot retire foreign or active native VI callbacks");
+     device = state.interrupt_device; attached = state.interrupt_device_attached; state.active = true;
+     output = state.output_device; output_attached = state.output_attached;
+@@ -354,6 +403,7 @@
+     state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
+     state.dimming_request = VI_DM_DEFAULT; state.pending_dimming_threshold = state.dimming_tv_format = 0;
+     state.current_buffer = state.next_buffer = nullptr;
++    state.display_disable_completed = false;
+   }
+   // Retiring the render mode can join submitted GX work, and that wait services
+   // owner interrupts. Release the non-recursive device lock first; the service
+@@ -408,7 +458,7 @@
+   state.dimming_request = VI_DM_DEFAULT; state.dimming_tv_format = state.source_tv_mode >> 2;
+   state.pending_dimming_threshold = DimmingThreshold(state.dimming_request, state.dimming_tv_format);
+   state.fields = state.previous_fields = state.elapsed_base = state.clocks = 0;
+-  state.interrupt = state.flush = false; state.current_buffer = state.next_buffer = nullptr;
++  state.interrupt = state.flush = state.display_disable_completed = false; state.current_buffer = state.next_buffer = nullptr;
+   state.pre = state.post = nullptr; state.anchor = Clock::now(); state.initialized = true;
+   state.initializing = false;
+   aurora::vi::configure(&boot.mode);
+@@ -613,6 +663,13 @@
+ void aurora_service_video_interrupts() {}
+ void aurora_service_video_hardware() {}
+ void aurora_shutdown_video_hardware() {}
++void aurora_disable_video_display() {
++  throw std::logic_error("Native VI display control is disabled in this build");
++}
++bool aurora_get_video_display_enabled(bool* enabled) {
++  if (enabled) *enabled = false;
++  return false;
++}
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState*) { return false; }
+ bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState*) { return false; }
+ }
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -92,8 +92,10 @@
+ )";
+ struct Output {
+   std::mutex mutex;
++  std::mutex display_gate;
+   std::thread::id owner;
+-  bool configured{}, widescreen{}, pending{}, servicing{};
++  bool configured{}, widescreen{}, pending{}, servicing{}, display_enabled{true};
++  AuroraVIScanout disabled_scanout{};
+   AuroraVIScanout prepared{}, committed{}, presented{};
+   std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot, presented_snapshot;
+   uint64_t presentations{};
+@@ -179,8 +181,9 @@
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+     if (!state.pending || state.servicing) return;
+-    state.servicing = true; state.pending = false; scanout = state.committed;
+-    snapshot = state.committed_snapshot; widescreen = state.widescreen;
++    state.servicing = true; state.pending = false;
++    scanout = state.display_enabled ? state.committed : state.disabled_scanout;
++    snapshot = state.display_enabled ? state.committed_snapshot : nullptr; widescreen = state.widescreen;
+     layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
+@@ -212,10 +215,15 @@
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+     } finished{state};
++    auto effective = scanout;
++    {
++      std::lock_guard lock(state.mutex);
++      effective.black = effective.black || !state.display_enabled;
++    }
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+-    encode_signal(encoder, signal, scanout, snapshot, layout, pipeline, true);
+-    encode_signal(encoder, desktop, scanout, snapshot, layout, desktopPipeline, false);
++    encode_signal(encoder, signal, effective, snapshot, layout, pipeline, true);
++    encode_signal(encoder, desktop, effective, snapshot, layout, desktopPipeline, false);
+     wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+@@ -225,35 +233,48 @@
+             status == wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) target = std::move(current.texture);
+       }
+     }
++    window::SurfaceLock surfaceLock;
++    std::unique_lock displayGate(state.display_gate);
++    // DCR=0 may arrive while GetCurrentTexture is blocked. Once latched, an
++    // older work item must clear rather than display its encoded color signal.
++    // A Present already in progress linearizes before that register write.
++    // The dedicated gate never blocks normal owner prepare/commit/observers.
++    {
++      std::lock_guard lock(state.mutex);
++      effective.black = effective.black || !state.display_enabled;
++    }
+     if (target) {
+       const wgpu::RenderPassColorAttachment attachment{.view = target.CreateView(), .loadOp = wgpu::LoadOp::Clear,
+           .storeOp = wgpu::StoreOp::Store, .clearValue = {0.0, 0.0, 0.0, 1.0}};
+       const wgpu::RenderPassDescriptor desc{.label = "Source VI signal surface", .colorAttachmentCount = 1,
+           .colorAttachments = &attachment};
+       const auto surfacePass = encoder.BeginRenderPass(&desc);
+-      const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
+-      const webgpu::TextureWithSampler source{.texture = desktop->texture, .view = desktop->sampleTextureView,
+-          .size = desktop->size, .format = wgpu::TextureFormat::RGBA8Unorm,
+-          .sampler = webgpu::g_device.CreateSampler(&samplerDesc)};
+-      const auto group = webgpu::create_copy_bind_group(source);
+-      surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, group);
+-      surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
+-      surfacePass.Draw(3); surfacePass.End();
++      if (!effective.black) {
++        const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
++        const webgpu::TextureWithSampler source{.texture = desktop->texture, .view = desktop->sampleTextureView,
++            .size = desktop->size, .format = wgpu::TextureFormat::RGBA8Unorm,
++            .sampler = webgpu::g_device.CreateSampler(&samplerDesc)};
++        const auto group = webgpu::create_copy_bind_group(source);
++        surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, group);
++        surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
++        surfacePass.Draw(3);
++      }
++      surfacePass.End();
+     }
+     const auto commands = encoder.Finish(); webgpu::g_queue.Submit(1, &commands);
+     if (target) {
+-      window::SurfaceLock lock;
+       if (window::is_presentable() && webgpu::g_surface && webgpu::g_surface.Present()) {
+         require_live_device();
+         std::lock_guard stateLock(state.mutex);
+         // Publish the exact work item only after a successful real surface
+         // Present of its submitted passes. New committed requests can already
+         // be pending independently; they do not describe this presented field.
+-        state.presented = scanout; state.presented_snapshot = snapshot;
++        state.presented = effective; state.presented_snapshot = effective.black ? nullptr : snapshot;
+         ++state.presentations;
+-        const AuroraVIPresentedState completion{scanout.framebuffer, snapshot ? snapshot->revision : 0,
+-            state.presentations, scanout.retrace_count, scanout.field, scanout.black};
+-        state.presented_geometry = detail::describe_presented_geometry(completion, scanout,
++        const AuroraVIPresentedState completion{effective.framebuffer,
++            state.presented_snapshot ? state.presented_snapshot->revision : 0,
++            state.presentations, effective.retrace_count, effective.field, effective.black};
++        state.presented_geometry = detail::describe_presented_geometry(completion, effective,
+             windowIncarnation, windowId, windowSize.width, windowSize.height,
+             target.GetWidth(), target.GetHeight(), viewport.left, viewport.top, viewport.width, viewport.height);
+       } else { Log.warn("Native VI surface presentation failed"); }
+@@ -267,6 +288,38 @@
+   // desktop surface, its vsync or GPU completion of the presented passes.
+   active.queued = true;
+ }
++void set_display_enabled(void*, bool enabled, const AuroraVIScanout* scanout) {
++  auto& state = State();
++  if (!scanout || !scanout->active_width || !scanout->active_height || (!enabled && !scanout->black))
++    throw std::invalid_argument("Native VI display control requires its actual register scanout");
++  if (enabled) {
++    // Cached ENB=1 is written by the original retrace Mode flush. This does
++    // not acquire a desktop gate or wait/present inside that source IRQ.
++    std::lock_guard lock(state.mutex); RequireOwner(state);
++    state.display_enabled = true;
++    return;
++  }
++  uint64_t previousPresentations;
++  {
++    // Exclude only an already-started actual Present while latching DCR=0.
++    // Normal source commits retain their existing brief output mutex scope.
++    std::lock_guard gate(state.display_gate);
++    std::lock_guard lock(state.mutex); RequireOwner(state);
++    previousPresentations = state.presentations;
++    state.display_enabled = false;
++    state.disabled_scanout = *scanout; state.pending = true;
++  }
++  // Keep source/XFB/IRQ owners and snapshot leases live. Drain any older
++  // queued item after latching its output gate, then perform the real black
++  // output before returning to the original terminal STM ioctl.
++  render_worker::synchronize();
++  service(nullptr);
++  render_worker::synchronize();
++  const bool presentable = window::is_presentable();
++  std::lock_guard lock(state.mutex);
++  if (presentable && (state.presentations == previousPresentations || !state.presented.black))
++    throw std::runtime_error("Native VI display is disabled but its actual black Present failed");
++}
+ void shutdown(void*) {
+   // Retire any queued presentation before releasing its owner state.
+   render_worker::synchronize();
+@@ -274,7 +327,7 @@
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+   state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+-  state.presented_geometry = {};
++  state.presented_geometry = {}; state.display_enabled = true; state.disabled_scanout = {};
+ }
+ void configure(const AuroraVIOutputConfig* config) {
+   if (!config || !webgpu::g_device)
+@@ -307,10 +360,11 @@
+   desktopPipelineDesc.label = "Pixel-center filtered VI desktop signal";
+   desktopPipelineDesc.fragment = &desktopFragment;
+   const auto desktopPipeline = webgpu::g_device.CreateRenderPipeline(&desktopPipelineDesc);
+-  const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown};
++  const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown, set_display_enabled};
+   aurora_attach_video_output_device(&endpoint);
+   state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline; state.configured = true; state.widescreen = config->widescreen;
+   state.owner = std::this_thread::get_id(); state.pending = false; state.presentations = 0;
++  state.display_enabled = true; state.disabled_scanout = {};
+   state.presented_geometry = {};
+ }
+ } // namespace

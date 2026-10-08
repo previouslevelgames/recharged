@@ -25,11 +25,12 @@ class NativeAXFunctionalProcessor {
 private:
     void* context_;
     void (*initialize_)(void*,NativeDSPMemoryEndpoint);
+    void (*validate_reset_)(void*);
     void (*reset_)(void*);
     NativeAXDeviceFrameResult (*process_)(void*,NativeDSPMemoryEndpoint,std::uint32_t,std::size_t);
     NativeAXFunctionalProcessor(void* context,decltype(initialize_) initialize,
-        decltype(reset_) reset,decltype(process_) process)
-        :context_(context),initialize_(initialize),reset_(reset),process_(process) {}
+        decltype(validate_reset_) validate_reset,decltype(reset_) reset,decltype(process_) process)
+        :context_(context),initialize_(initialize),validate_reset_(validate_reset),reset_(reset),process_(process) {}
     friend class NativeAXFunctionalDevice;
     friend class NativeAXBootstrapDevice;
 };

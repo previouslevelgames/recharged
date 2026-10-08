@@ -43,6 +43,14 @@ mscharged::NativeSystemSettings ReadSettings()
 
 namespace mscharged
 {
+std::uint8_t ResolveNativeUSASystemLanguage(std::string_view preference)
+{
+    if (preference == "auto" || preference == "english") return SC_LANG_EN;
+    if (preference == "french") return SC_LANG_FR;
+    if (preference == "spanish") return SC_LANG_SP;
+    throw std::invalid_argument("The native USA profile supports Automatic, English, French or Spanish text only");
+}
+
 void ConfigureNativeSystemSettings(const NativeSystemSettings& settings)
 {
     if (settings.language >= SC_LANG_MAX || settings.progressive_mode > SC_PROGRESSIVE

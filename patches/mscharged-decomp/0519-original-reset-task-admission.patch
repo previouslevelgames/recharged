@@ -1,0 +1,41 @@
+Subject: [PATCH] admit original reset task at its existing main positions
+
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+Restore original static construction, file-service reset callback registration
+and priority-zero/all-state task registration behind one explicit diagnostic
+admission. Preserve all original ResetTask code and choices. Provider closure
+and actual power-event shutdown qualification are required before enabling.
+
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -241,7 +241,11 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+ static TweakerTask tweakerTask;
+ static ProfilerTask profilerTask;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
+ static ResetTask resetTask;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+ static MemCheckTask memCheckTask;
+ static TextWindowTask textWindowTask;
+ #endif // unrelated diagnostic task statics remain omitted
+@@ -544,6 +548,8 @@
+     nlRegHandleDVDMessageCB(Function<void(int)>(DisplayDVDMessageSebring));
+     nlRegHandleDVDRetryingCB(Function<void(int)>(DisplayDVDMessageSebring));
+     nlRegHandleDVDAllClearCB(Function<void(int)>(DVDAllClearSebring));
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
+     nlRegCheckForResetFromFSCB(Function<FnVoidVoid>(
+         Bind<void>(MemFun<ResetTask, void>(&ResetTask::FSCheckForReset),
+             &resetTask)));
+@@ -793,7 +799,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+ static void AddTasks()
+ {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
+     nlTaskManager::AddTask(&resetTask, 0, (u32)-1);
+ #endif // unqualified unrelated task registration remains omitted
+     nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);

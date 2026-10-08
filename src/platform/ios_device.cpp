@@ -1,16 +1,21 @@
 #include "platform/ios_device.h"
 #include "platform/interrupts.h"
+#include "platform/ios_revision_policy.h"
 
 #include <algorithm>
 #include <deque>
 #include <limits>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
 namespace {
 using namespace mscharged::platform;
+constexpr OSIOSRev compiled_revision=detail::NativeIOSRevisionForBuild(__DATE__);
+static_assert(detail::ValidNativeIOSBuildDate(compiled_revision),
+    "Native IOS service build date is outside the source representation");
 struct Handle { std::uint64_t device; s32 local; };
 struct Request {
     IPCRequest command;
@@ -28,6 +33,7 @@ struct Bus {
     std::map<s32, Handle> handles;
     std::deque<Request> pending;
     bool active{};
+    std::optional<OSIOSRev> revision;
 };
 Bus& State() { static Bus bus; return bus; }
 
@@ -136,7 +142,16 @@ void UnregisterNativeIOSDevice(NativeIOSDeviceLease lease) {
         if (handle->second.device==lease.generation) handle=bus.handles.erase(handle);
         else ++handle;
     bus.devices.erase(lease.generation);
-    if (bus.devices.empty()) bus.owner={};
+    if (bus.devices.empty()) { bus.revision.reset();bus.owner={}; }
+}
+void ConfigureNativeIOSServiceRevision() {
+    NativeInterruptGuard exclusion;
+    auto& bus=State();std::lock_guard lock(bus.mutex);
+    if (bus.devices.empty() || bus.owner!=std::this_thread::get_id())
+        throw std::logic_error("Native IOS metadata requires its live device owner");
+    if (bus.active || !bus.pending.empty() || bus.revision)
+        throw std::logic_error("Native IOS metadata requires an unconfigured quiescent bus");
+    bus.revision=compiled_revision;
 }
 NativeIOSStatus GetNativeIOSStatus() {
     auto& bus=State();std::lock_guard lock(bus.mutex);
@@ -169,6 +184,14 @@ bool ServiceNativeIOSRequests() {
         throw std::logic_error("Native IOS completion lost the enabled owner interrupt boundary");
     return true;
 }
+}
+
+extern "C" void __OSGetIOSRev(OSIOSRev* revision) {
+    if (!revision) throw std::invalid_argument("Native IOS revision destination is null");
+    auto& bus=State();std::lock_guard lock(bus.mutex);
+    if (bus.devices.empty() || !bus.revision)
+        throw std::logic_error("Native IOS service revision is not configured on a live bus");
+    *revision=*bus.revision;
 }
 
 extern "C" s32 IOS_Open(const char* path,IPCOpenMode mode) {

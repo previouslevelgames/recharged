@@ -9,7 +9,7 @@ OriginalGameAudioHardware::OriginalGameAudioHardware(platform::NativeAXModuleMem
     : memory_(memory) {
     using namespace platform;
     const auto owner = memory_.Status();
-    if (!owner.loaded || !owner.reserved || owner.retired || owner.spans != 13 ||
+    if (!owner.loaded || !owner.reserved || owner.retired || (owner.spans != CHARGED_AX_BASE_STORAGE_COUNT && owner.spans != CHARGED_AX_HBM_STORAGE_COUNT) ||
         owner.before.memory_initialized || !owner.after.memory_initialized)
         throw std::logic_error("Original audio attachment requires actual prestatic AX source spans");
     if (GetNativeAIStatus().initialized)

@@ -1,0 +1,162 @@
+Subject: Preserve original HBM AX live callbacks and checked physical address words
+
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+Keep the original AxVoice/AxManager bodies, source lists, voice decisions and
+sample arithmetic. Use canonical native AXVoiceContext for live callbacks,
+retain actual SDK physical conversion, and decode the original numeric AUX
+context at the native carrier width. Console branches remain unchanged.
+Shared 0524 compiler headers and 0530 native HBM math are separate dependencies.
+
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxVoice.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxVoice.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxVoice.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxVoice.cpp
+@@ -3,10 +3,24 @@
+ #include "revolution/hbm/nw4hbm/snd/AxManager.h"
+ #include "revolution/hbm/nw4hbm/snd/Util.h"
+ #include "revolution/hbm/nw4hbm/snd/WaveFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include <cstdint>
++#include "revolution/hbm/nw4hbm/math/arithmetic.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include <string.h>
+ #include "decomp.h"
++
++#if defined(MSCHARGED_NATIVE)
++// The original SDK conversion above these uses returns a checked u32 physical
++// word. Preserve its Wii arithmetic width without a native pointer-to-u32 cast.
++#define HBM_AX_PHYSICAL_WORD(value) static_cast<u32>(reinterpret_cast<std::uintptr_t>(value))
++#else
++#define HBM_AX_PHYSICAL_WORD(value) reinterpret_cast<u32>(value)
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+@@ -170,7 +184,11 @@
+     AXVPB* vpbTable[CHANNEL_MAX * VOICES_MAX];
+ 
+     for (int i = 0; required > i; i++) {
++#if defined(MSCHARGED_NATIVE)
++        AXVPB* vpb = AXAcquireVoice(axPrio, VoiceCallback, reinterpret_cast<AXVoiceContext>(this));
++#else
+         AXVPB* vpb = AXAcquireVoice(axPrio, VoiceCallback, reinterpret_cast<u32>(this));
++#endif
+ 
+         if (vpb == NULL) {
+             int rest = required - i;
+@@ -204,7 +222,11 @@
+                 allocPrio = axPrio;
+             }
+ 
++#if defined(MSCHARGED_NATIVE)
++            vpb = AXAcquireVoice(allocPrio, VoiceCallback, reinterpret_cast<AXVoiceContext>(this));
++#else
+             vpb = AXAcquireVoice(allocPrio, VoiceCallback, reinterpret_cast<u32>(this));
++#endif
+         }
+ 
+         NW4HBMAssertPointerNonnull_Line(vpb, 359);
+@@ -900,7 +922,12 @@
+ 
+ u32 AxVoice::GetDspAddressBySample(const void* base, u32 samples, Format fmt) {
+     if (base != NULL) {
++#if defined(MSCHARGED_NATIVE)
++        base = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(
++            OSCachedToPhysical(const_cast<void*>(base))));
++#else
+         base = (const void*)OSCachedToPhysical(base);
++#endif
+     }
+ 
+     u32 addr = 0;
+@@ -908,16 +935,16 @@
+     switch (fmt) {
+         case FORMAT_ADPCM: {
+             addr = (samples / AX_ADPCM_SAMPLES_PER_FRAME * AX_ADPCM_NIBBLES_PER_FRAME) +
+-                   (samples % AX_ADPCM_SAMPLES_PER_FRAME) + (reinterpret_cast<u32>(base) * sizeof(u16)) + sizeof(u16);
++                   (samples % AX_ADPCM_SAMPLES_PER_FRAME) + (HBM_AX_PHYSICAL_WORD(base) * sizeof(u16)) + sizeof(u16);
+             break;
+         }
+ 
+         case FORMAT_PCM8: {
+-            addr = reinterpret_cast<u32>(base) + samples;
++            addr = HBM_AX_PHYSICAL_WORD(base) + samples;
+             break;
+         }
+         case FORMAT_PCM16: {
+-            addr = reinterpret_cast<u32>(base) / sizeof(u16) + samples;
++            addr = HBM_AX_PHYSICAL_WORD(base) / sizeof(u16) + samples;
+             break;
+         }
+ 
+@@ -931,26 +958,31 @@
+ 
+ u32 AxVoice::GetSampleByDspAddress(const void* base, u32 addr, Format fmt) {
+     if (base != NULL) {
++#if defined(MSCHARGED_NATIVE)
++        base = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(
++            OSCachedToPhysical(const_cast<void*>(base))));
++#else
+         base = (const void*)OSCachedToPhysical(base);
++#endif
+     }
+ 
+     u32 samples = 0;
+ 
+     switch (fmt) {
+         case FORMAT_ADPCM: {
+-            samples = addr - reinterpret_cast<u32>(base) * sizeof(u16);
++            samples = addr - HBM_AX_PHYSICAL_WORD(base) * sizeof(u16);
+             samples = (samples % AX_ADPCM_NIBBLES_PER_FRAME) +
+                       (samples / AX_ADPCM_NIBBLES_PER_FRAME * AX_ADPCM_SAMPLES_PER_FRAME) - sizeof(u16);
+             break;
+         }
+ 
+         case FORMAT_PCM8: {
+-            samples = addr - reinterpret_cast<u32>(base);
++            samples = addr - HBM_AX_PHYSICAL_WORD(base);
+             break;
+         }
+ 
+         case FORMAT_PCM16: {
+-            samples = addr - reinterpret_cast<u32>(base) / sizeof(u16);
++            samples = addr - HBM_AX_PHYSICAL_WORD(base) / sizeof(u16);
+             break;
+         }
+ 
+@@ -1453,3 +1485,5 @@
+ } // namespace detail
+ } // namespace snd
+ } // namespace nw4hbm
++
++#undef HBM_AX_PHYSICAL_WORD
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
+@@ -1,4 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/AxManager.h"
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include <cstdint>
++#else
+ #include "revolution/hbm/nw4hbm/snd.h"
++#endif
+ 
+ #include "revolution/axfx.h"
+ #include "revolution/dvd.h"
+@@ -363,7 +369,11 @@
+     void* buffer[AX_DPL2_MAX];
+ 
+     void** ppChans = static_cast<void**>(chans);
++#if defined(MSCHARGED_NATIVE)
++    AuxBus bus = static_cast<AuxBus>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     AuxBus bus = static_cast<AuxBus>(reinterpret_cast<u32>(context));
++#endif
+ 
+     if (GetInstance().GetOutputMode() == OUTPUT_MODE_DPL2) {
+         num = AX_DPL2_MAX;

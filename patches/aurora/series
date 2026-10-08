@@ -51,3 +51,8 @@
 0055-name-native-xfb-resolve-format.patch
 0056-scan-out-newest-completed-xfb-copy.patch
 0057-drain-native-dvd-before-reset.patch
+0058-native-vi-display-disable.patch
+0059-report-native-dvd-transfer-and-fault-status.patch
+0060-complete-native-dvd-requests-after-fatal-error.patch
+0061-match-native-dvd-result-numbers.patch
+0062-report-good-native-dvd-cancel-all-completion.patch

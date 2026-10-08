@@ -1,0 +1,339 @@
+# Native-only precise HBM sound includes, modern pure destructor syntax, and pointer-rounding ABI.
+# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Prerequisite source523; composed compiler proof also uses frozen524/527/528/530/531/533.
+
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h
+@@ -6,7 +6,11 @@
+ #include "revolution/hbm/nw4hbm/snd/Util.h"
+ #include "revolution/hbm/nw4hbm/snd/WaveFile.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/binaryFileFormat.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include "revolution/hbm/HBMCommon.h"
+ 
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
+@@ -15,11 +15,15 @@
+     BasicPlayer() :
+         mId(-1) {}
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
++    /* 0x08 */ virtual ~BasicPlayer() = 0;
++#else
+     /* 0x08 */ virtual ~BasicPlayer()
+ #ifdef MAKE_DTOR_ZERO
+         = 0
+ #endif
+         {};
++#endif
+ 
+     /* 0x0C */ virtual bool Start() = 0;
+     /* 0x10 */ virtual void Stop() = 0;
+@@ -64,6 +68,10 @@
+     /* 0x04 */ u32 mId;
+ };
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
++inline BasicPlayer::~BasicPlayer() {}
++#endif
++
+ } // namespace
+ 
+ } // namespace detail
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
+@@ -2,6 +2,9 @@
+ #define NW4HBM_SND_SEQ_PLAYER_H
+ 
+ #include "revolution/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#endif
+ 
+ #include "revolution/hbm/nw4hbm/snd/BasicPlayer.h"
+ 
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSoundHandle.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSoundHandle.h
+@@ -7,7 +7,11 @@
+ #include "revolution/hbm/nw4hbm/snd/SeqPlayer.h"
+ #include "revolution/hbm/nw4hbm/snd/SeqSound.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchiveLoader.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchiveLoader.h
+@@ -2,7 +2,12 @@
+ #define NW4HBM_SND_SOUND_ARCHIVE_LOADER_H
+ 
+ #include "revolution/hbm/nw4hbm/snd/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/FileStream.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include "revolution/os.h"
+ 
+ namespace nw4hbm {
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/FileStream.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/FileStream.h
+@@ -5,6 +5,13 @@
+ 
+ namespace nw4hbm {
+ namespace ut {
++
++#if defined(MSCHARGED_NATIVE)
++#pragma push_macro("SEEK_CUR")
++#pragma push_macro("SEEK_END")
++#undef SEEK_CUR
++#undef SEEK_END
++#endif
+ 
+ class FileStream : public IOStream {
+ public:
+@@ -49,6 +56,11 @@
+     }; // size = 0x08
+ }; // size = 0x14
+ 
++#if defined(MSCHARGED_NATIVE)
++#pragma pop_macro("SEEK_END")
++#pragma pop_macro("SEEK_CUR")
++#endif
++
+ } // namespace ut
+ } // namespace nw4hbm
+ 
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
+@@ -64,16 +64,26 @@
+ template <typename T> inline T RoundUp(T t, u32 alignment) { return (alignment + t - 1) & ~(alignment - 1); }
+ 
+ template <typename T> inline void* RoundUp(T* pPtr, u32 alignment) {
++#if defined(MSCHARGED_NATIVE)
++    std::uintptr_t value = reinterpret_cast<std::uintptr_t>(pPtr);
++    std::uintptr_t rounded = (std::uintptr_t(alignment) + value - 1) & ~std::uintptr_t(alignment - 1);
++#else
+     u32 value = reinterpret_cast<u32>(pPtr);
+     u32 rounded = (alignment + value - 1) & ~(alignment - 1);
++#endif
+     return reinterpret_cast<void*>(rounded);
+ }
+ 
+ template <typename T> inline T RoundDown(T t, u32 alignment) { return t & ~(alignment - 1); }
+ 
+ template <typename T> inline void* RoundDown(T* pPtr, u32 alignment) {
++#if defined(MSCHARGED_NATIVE)
++    std::uintptr_t value = reinterpret_cast<std::uintptr_t>(pPtr);
++    std::uintptr_t rounded = value & ~std::uintptr_t(alignment - 1);
++#else
+     u32 value = reinterpret_cast<u32>(pPtr);
+     u32 rounded = value & ~(alignment - 1);
++#endif
+     return reinterpret_cast<void*>(rounded);
+ }
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#endif
+ #include "revolution/hbm/nw4hbm/snd/Channel.h"
+ 
+ #include "revolution/ax.h"
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
+@@ -1,6 +1,11 @@
+ #include "revolution/hbm/nw4hbm/snd/DisposeCallbackManager.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_EnvGenerator.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_EnvGenerator.cpp
+@@ -1,4 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/EnvGenerator.h"
++#include "revolution/hbm/nw4hbm/snd/Util.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/snd.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_RemoteSpeaker.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_RemoteSpeaker.cpp
+@@ -1,4 +1,9 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include "revolution/hbm/nw4hbm/snd/RemoteSpeaker.h"
+ 
+ #include "revolution/os.h"
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqPlayer.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqPlayer.cpp
+@@ -4,7 +4,12 @@
+ #include "revolution/hbm/nw4hbm/snd/NoteOnCallback.h"
+ #include "revolution/hbm/nw4hbm/snd/SeqTrack.h"
+ #include "revolution/hbm/nw4hbm/snd/SeqTrackAllocator.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
+@@ -1,6 +1,19 @@
+ #include "decomp.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/BasicSound.h"
++#include "revolution/hbm/nw4hbm/snd/SeqPlayer.h"
++#include "revolution/hbm/nw4hbm/snd/SeqSound.h"
++#include "revolution/hbm/nw4hbm/snd/SeqSoundHandle.h"
++#include "revolution/hbm/nw4hbm/snd/SoundInstanceManager.h"
++#else
+ #include "revolution/hbm/nw4hbm/snd.h"
++#endif
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
+@@ -1,6 +1,17 @@
+ #include "decomp.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/SeqTrack.h"
++#include "revolution/hbm/nw4hbm/snd/SeqPlayer.h"
++#include "revolution/hbm/nw4hbm/snd/NoteOnCallback.h"
++#else
+ #include "revolution/hbm/nw4hbm/snd.h"
++#endif
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/dvd/dvdqueue.h"
++#include "revolution/hbm/nw4hbm/ut/DvdFileStream.h"
++#endif
+ 
+ 
+ #include "revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h"
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmChannel.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmChannel.cpp
+@@ -1,5 +1,14 @@
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/StrmChannel.h"
++#else
+ #include "revolution/hbm/nw4hbm/snd.h"
++#endif
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include <string.h>
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
+@@ -3,7 +3,12 @@
+ #include "revolution/hbm/nw4hbm/snd/WaveFile.h"
+ 
+ #include "revolution/hbm/nw4hbm/snd/AxManager.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include <string.h>
+ #include <limits.h>
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Util.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Util.cpp
+@@ -1,7 +1,14 @@
+ #include <math.h>
++#if !defined(MSCHARGED_NATIVE)
+ #include "revolution/hbm/nw4hbm/math.h"
++#endif
+ #include "revolution/hbm/nw4hbm/snd/Util.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
+@@ -6,7 +6,12 @@
+ 
+ #include "revolution/hbm/nw4hbm/snd/DisposeCallbackManager.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include "decomp.h"
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
+@@ -3,7 +3,12 @@
+ 
+ #include "revolution/hbm/nw4hbm/snd/AxManager.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#include "revolution/hbm/HBMAssert.hpp"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {

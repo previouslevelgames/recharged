@@ -1,0 +1,437 @@
+From: mscharged-port contributors
+Subject: [PATCH] Preserve original HBM task capacity with native payload and MEM layouts
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Classification: native LP64 storage/header ABI and modern compiler compatibility only.
+
+Retain all original nested SoundArchivePlayer task declarations and methods.
+Reflect their actual sizeof/alignof and the real MEM headers so the native
+unit heap preserves TASK_NUM128 and fits every source task. Keep the original
+32-byte static alignment with a compile-time compatibility check. Read the
+native unit header's named blockSize; keep the console area,64-byte request
+and raw header-offset expression exact. Task IDs,priorities,allocation retry,
+execution,cancellation and recycle algorithms remain unchanged.
+
+Use legal placement-new/dependent-type/pure-destructor/constant-expression
+syntax and precise native owning includes without changing fields or bodies.
+Native u32 aliases unsigned int: exclude duplicated identical Start/Hold/
+Prepare wrappers and the independently uncalled LoadGroup unsigned-int inline.
+The latter's original self-recursive body remains exact in the console branch;
+canonical implementation and actual int-id/label call bindings stay unchanged.
+No SoundArchivePlayer loading,HBM initialization or source readiness is added.
+
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h
+@@ -6,7 +6,12 @@
+ #include "revolution/hbm/nw4hbm/snd/DisposeCallbackManager.h"
+ #include "revolution/hbm/nw4hbm/snd/global.h"
+ #include "revolution/hbm/nw4hbm/snd/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#include "revolution/hbm/nw4hbm/ut/LinkList.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include "revolution/wpad.h"
+ #include <stddef.h>
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
+@@ -18,15 +18,23 @@
+ public:
+     /* 0x00 */ ut::LinkListNode mDisposeLink;
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
++    /* 0x08 */ virtual ~DisposeCallback() = 0;
++#else
+     /* 0x08 */ virtual ~DisposeCallback()
+ #ifdef MAKE_DTOR_ZERO
+         = 0
+ #endif
+         {};
++#endif
+ 
+     /* 0x0C */ virtual void InvalidateData(const void* start, const void* end) = 0;
+     /* 0x10 */ virtual void InvalidateWaveData(const void* start, const void* end) = 0;
+ };
++
++#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
++inline DisposeCallback::~DisposeCallback() {}
++#endif
+ 
+ } // namespace
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
+@@ -3,7 +3,12 @@
+ 
+ #include "revolution/types.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#include "revolution/hbm/nw4hbm/ut/LinkList.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include "revolution/mem.h"
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h
+@@ -6,7 +6,12 @@
+ #include "revolution/hbm/nw4hbm/snd/global.h"
+ #include "revolution/hbm/nw4hbm/snd/types.h"
+ 
++#ifdef MSCHARGED_NATIVE
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#include "revolution/hbm/nw4hbm/ut/LinkList.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include <stddef.h>
+ 
+ namespace nw4hbm {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h
+@@ -1,7 +1,11 @@
+ #ifndef NW4HBM_SND_INSTANCE_POOL_H
+ #define NW4HBM_SND_INSTANCE_POOL_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ #include "revolution/types.h"
+ 
+ namespace nw4hbm {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h
+@@ -3,10 +3,17 @@
+ 
+ #include "revolution/hbm/nw4hbm/snd/global.h"
+ #include "revolution/hbm/nw4hbm/snd/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/inlines.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ #include "revolution/types.h"
+ 
+ namespace nw4hbm {
++#if defined(MSCHARGED_NATIVE)
++namespace ut { class FileStream; }
++#endif
+ namespace snd {
+ namespace detail {
+ class SoundArchiveFileReader;
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
+@@ -34,6 +34,9 @@
+ namespace detail {
+ class SeqTrackAllocator;
+ class SoundArchiveLoader;
++#ifdef MSCHARGED_NATIVE
++class TaskManager;
++#endif
+ } // namespace detail
+ 
+ class SoundArchivePlayer_FileManager {
+@@ -90,9 +93,13 @@
+     bool LoadGroup(int id, SoundMemoryAllocatable* allocatable, u32 loadBlockSize) {
+         return LoadGroup(static_cast<u32>(id), allocatable, loadBlockSize);
+     }
++#ifndef MSCHARGED_NATIVE
++    // Native u32 aliases unsigned int. This unused source overload collides;
++    // retain its original self-recursive body only in the console projection.
+     bool LoadGroup(u32 id, SoundMemoryAllocatable* allocatable, unsigned int loadBlockSize) {
+         return LoadGroup(static_cast<u32>(id), allocatable, loadBlockSize);
+     }
++#endif
+ 
+     u32 GetSoundPlayerCount() const { return mSoundPlayerCount; }
+ 
+@@ -101,6 +108,9 @@
+     u32 GetFreeWaveSoundCount() const { return mWaveSoundInstanceManager.GetFreeCount(); }
+ 
+ private:
++#ifdef MSCHARGED_NATIVE
++    friend class detail::TaskManager;
++#endif
+     class SeqLoadCallback : public detail::SeqSound::SeqLoadCallback {
+     public:
+         SeqLoadCallback(const SoundArchivePlayer& player);
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h
+@@ -6,7 +6,11 @@
+ #include "revolution/hbm/nw4hbm/snd/FrameHeap.h"
+ #include "revolution/hbm/nw4hbm/snd/SoundMemoryAllocatable.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/ut/Lock.h"
++#else
+ #include "revolution/hbm/nw4hbm/ut.h"
++#endif
+ 
+ #include "revolution/os.h"
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h
+@@ -1,7 +1,11 @@
+ #ifndef NW4HBM_SND_SOUND_INSTANCE_MANAGER_H
+ #define NW4HBM_SND_SOUND_INSTANCE_MANAGER_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ 
+ #include "revolution/types.h"
+ 
+@@ -89,7 +93,11 @@
+     }
+ 
+     void InsertPriorityList(T* sound, int priority) {
++#ifdef MSCHARGED_NATIVE
++        typename TPrioList::Iterator it = mPriorityList.GetBeginIter();
++#else
+         TPrioList::Iterator it = mPriorityList.GetBeginIter();
++#endif
+ 
+         for (; it != mPriorityList.GetEndIter(); it++) {
+             if (priority < it->CalcCurrentPlayerPriority()) {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h
+@@ -61,9 +61,11 @@
+     bool StartSound(SoundHandle* soundHandle, u32 id) {
+         return detail_StartSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
++#ifndef MSCHARGED_NATIVE
+     bool StartSound(SoundHandle* soundHandle, unsigned int id) {
+         return detail_StartSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
++#endif
+     bool StartSound(SoundHandle* soundHandle, int id) {
+         return detail_StartSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
+@@ -71,9 +73,11 @@
+     bool HoldSound(SoundHandle* soundHandle, u32 id) {
+         return detail_HoldSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
++#ifndef MSCHARGED_NATIVE
+     bool HoldSound(SoundHandle* soundHandle, unsigned int id) {
+         return detail_HoldSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
++#endif
+     bool HoldSound(SoundHandle* soundHandle, int id) {
+         return detail_HoldSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
+@@ -81,9 +85,11 @@
+     bool PrepareSound(SoundHandle* soundHandle, u32 id) {
+         return detail_PrepareSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
++#ifndef MSCHARGED_NATIVE
+     bool PrepareSound(SoundHandle* soundHandle, unsigned int id) {
+         return detail_PrepareSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
++#endif
+     bool PrepareSound(SoundHandle* soundHandle, int id) {
+         return detail_PrepareSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
+     }
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h
+@@ -9,7 +9,11 @@
+ #include "revolution/hbm/nw4hbm/snd/Util.h"
+ #include "revolution/hbm/nw4hbm/snd/global.h"
+ 
++#ifdef MSCHARGED_NATIVE
++namespace nw4hbm { namespace ut { class FileStream; } }
++#else
+ #include "revolution/hbm/nw4hbm/ut/FileStream.h"
++#endif
+ #include "revolution/hbm/nw4hbm/ut/binaryFileFormat.h"
+ 
+ namespace nw4hbm {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+@@ -38,10 +38,17 @@
+     void* Alloc();
+     void Free(void* ptr);
+ 
++#ifdef MSCHARGED_NATIVE
++    static u8 mTaskArea[];
++#else
+     static u8 mTaskArea[0x2000 + 0x44];
++#endif
+ 
+ private:
+     TaskManager();
++#ifdef MSCHARGED_NATIVE
++    struct NativeTaskStorage;
++#endif
+ 
+     /* 0x00 */ OSMutex mMutex;
+     /* 0x18 */ MEMHeapHandle mHeapHandle;
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskNativeStorage.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskNativeStorage.h
+new file mode 100644
+--- /dev/null
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskNativeStorage.h
+@@ -0,0 +1,54 @@
++#ifndef NW4HBM_SND_TASK_NATIVE_STORAGE_H
++#define NW4HBM_SND_TASK_NATIVE_STORAGE_H
++
++#ifdef MSCHARGED_NATIVE
++#include "revolution/hbm/nw4hbm/snd/TaskManager.h"
++#include "revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h"
++#include <algorithm>
++#include <climits>
++#include <cstddef>
++#include <cstdint>
++
++namespace nw4hbm {
++namespace snd {
++namespace detail {
++
++// Reflect the unchanged source task types and the real native MEM records.
++// This supplies the native static-array bound; no task fields or algorithms
++// are duplicated here, and the original logical capacity remains TASK_NUM.
++struct TaskManager::NativeTaskStorage {
++    static constexpr std::size_t Alignment = std::max({
++        alignof(SoundArchivePlayer::SeqLoadTask),
++        alignof(SoundArchivePlayer::StrmHeaderLoadTask),
++        alignof(SoundArchivePlayer::StrmDataLoadTask),
++        alignof(MEMiHeapHead), alignof(MEMiUntHeapHead),
++        alignof(MEMiUntHeapMBlockHead)});
++    static constexpr std::size_t BlockBytes =
++        (std::max({std::size_t(64), sizeof(SoundArchivePlayer::SeqLoadTask),
++            sizeof(SoundArchivePlayer::StrmHeaderLoadTask),
++            sizeof(SoundArchivePlayer::StrmDataLoadTask)}) + Alignment - 1)
++        & ~(Alignment - 1);
++    static constexpr std::size_t HeaderBytes =
++        (sizeof(MEMiHeapHead) + sizeof(MEMiUntHeapHead) + Alignment - 1)
++        & ~(Alignment - 1);
++    static constexpr std::size_t StorageBytes = HeaderBytes + TASK_NUM * BlockBytes;
++    static constexpr std::size_t StaticAlignment = 32;
++
++    static_assert(Alignment != 0 && (Alignment & (Alignment - 1)) == 0,
++        "Native task alignment must fit the original unit-heap rounding");
++    static_assert(StaticAlignment % Alignment == 0,
++        "Original static storage alignment must fit the actual native records");
++    static_assert(sizeof(MEMiHeapHead) % alignof(MEMiUntHeapHead) == 0,
++        "Original unit-heap header placement must remain aligned");
++    static_assert(BlockBytes >= sizeof(MEMiUntHeapMBlockHead),
++        "Native free-list pointer must fit each task block");
++    static_assert(BlockBytes <= UINT32_MAX && StorageBytes <= UINT32_MAX && Alignment <= INT_MAX,
++        "Native task storage must fit the original scalar heap API");
++};
++
++} // namespace detail
++} // namespace snd
++} // namespace nw4hbm
++#endif
++
++#endif
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
+@@ -15,7 +15,11 @@
+ public:
+     class WsdCallback {
+     public:
++#ifdef MSCHARGED_NATIVE
++        /* 0x08 */ virtual ~WsdCallback() = 0;
++#else
+         /* 0x08 */ virtual ~WsdCallback() = 0 {}
++#endif
+ 
+         /* 0x0C */ virtual bool GetWaveSoundData(WaveSoundInfo* info, WaveSoundNoteInfo* noteInfo, WaveData* waveData,
+                                                  const void* waveSoundData, int index, int noteIndex,
+@@ -59,6 +63,9 @@
+     /* 0x2C */ WsdPlayer* mWsdPlayer;
+     /* 0x30 */ Channel* mChannelList;
+ };
++#ifdef MSCHARGED_NATIVE
++inline WsdTrack::WsdCallback::~WsdCallback() {}
++#endif
+ } // namespace detail
+ } // namespace snd
+ } // namespace nw4hbm
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h
+@@ -52,9 +52,15 @@
+ 
+ static const int REMOTE_FILTER_MAX = 127;
+ 
++#ifdef MSCHARGED_NATIVE
++static constexpr f32 VOLUME_MIN_DB = -90.4f;
++static constexpr f32 VOLUME_MAX_DB = 6.0f;
++static constexpr f32 VOLUME_RANGE_DB = -(VOLUME_MIN_DB - VOLUME_MAX_DB);
++#else
+ static const f32 VOLUME_MIN_DB = -90.4f;
+ static const f32 VOLUME_MAX_DB = 6.0f;
+ static const f32 VOLUME_RANGE_DB = -(VOLUME_MIN_DB - VOLUME_MAX_DB);
++#endif
+ static const int VOLUME_RANGE_MB = static_cast<int>(10 * VOLUME_RANGE_DB);
+ 
+ typedef enum OutputLineFlag {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
+@@ -1,10 +1,17 @@
+ #include "revolution/hbm/nw4hbm/snd/TaskManager.h"
++#ifdef MSCHARGED_NATIVE
++#include "revolution/hbm/nw4hbm/snd/TaskNativeStorage.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+ namespace detail {
+ 
++#ifdef MSCHARGED_NATIVE
++u8 TaskManager::mTaskArea[NativeTaskStorage::StorageBytes] ALIGN(32);
++#else
+ u8 TaskManager::mTaskArea[0x2000 + 0x44] ALIGN(32);
++#endif
+ 
+ TaskManager& TaskManager::GetInstance() {
+     static TaskManager instance;
+@@ -16,7 +23,12 @@
+     mCurrentTask(NULL),
+     mTaskList() {
+     OSInitMutex(&mMutex);
++#ifdef MSCHARGED_NATIVE
++    mHeapHandle = MEMCreateUnitHeapEx(mTaskArea, sizeof(mTaskArea),
++        NativeTaskStorage::BlockBytes, NativeTaskStorage::Alignment, 0);
++#else
+     mHeapHandle = MEMCreateUnitHeap(mTaskArea, sizeof(mTaskArea), 64);
++#endif
+ 
+     // clang-format off
+     NW4HBMAssert_Line(MEMCountFreeBlockForUnitHeap( mHeapHandle ) >= TASK_NUM, 55);
+@@ -42,7 +54,13 @@
+ 
+ u32 TaskManager::GetTaskBufferSize() {
+     //! TODO: fake match?
++#ifdef MSCHARGED_NATIVE
++    const MEMiUntHeapHead* unitHeap = static_cast<const MEMiUntHeapHead*>(
++        AddU32ToPtr(mHeapHandle, sizeof(MEMiHeapHead)));
++    return unitHeap->blockSize;
++#else
+     return *((u32*)mHeapHandle + 0x10);
++#endif
+ }
+ 
+ void TaskManager::Free(void* ptr) {

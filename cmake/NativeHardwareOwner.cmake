@@ -42,6 +42,18 @@ if(BUILD_TESTING)
     set_tests_properties(desktop_wpad PROPERTIES TIMEOUT 15
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
+    add_executable(native_hardware_window_close_tests tests/native_hardware_window_close.cpp)
+    target_compile_features(native_hardware_window_close_tests PRIVATE cxx_std_20)
+    target_compile_definitions(native_hardware_window_close_tests PRIVATE
+        MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+    target_include_directories(native_hardware_window_close_tests PRIVATE
+        "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    target_link_libraries(native_hardware_window_close_tests PRIVATE
+        charged_native_hardware_owner charged_credits_movie_hardware)
+    add_test(NAME native_hardware_window_close COMMAND native_hardware_window_close_tests)
+    set_tests_properties(native_hardware_window_close PROPERTIES TIMEOUT 15
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
     add_executable(desktop_wpad_profile_tests tests/desktop_wpad_profile_tests.cpp)
     target_compile_features(desktop_wpad_profile_tests PRIVATE cxx_std_20)
     target_compile_definitions(desktop_wpad_profile_tests PRIVATE

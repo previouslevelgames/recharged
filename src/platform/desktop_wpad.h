@@ -32,7 +32,10 @@ struct DesktopWpadSettings {
 // camera objects through the same raw path; a key pressed without focus stays
 // released until pressed again. Mouse leave releases mouse buttons and hides
 // the camera until a new in-window position arrives. KPAD keeps every edge,
-// repeat and invalid-pointer decision.
+// repeat and invalid-pointer decision. Actual keyboard/mouse removal retires
+// only that SDL instance's latched keys/buttons; a retained pointer position is
+// invalidated when its producing mouse leaves. Other live instances keep their
+// contributions and the virtual core-Wii device remains connected.
 void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings);
 void ServiceDesktopWpad();
 void ShutdownDesktopWpad();

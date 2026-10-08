@@ -1,0 +1,26 @@
+include_guard(GLOBAL)
+
+option(MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS
+    "Retain failed original frontend reads through the source DVD error wait" OFF)
+
+function(mscharged_select_original_frontend_dvd_errors target)
+    if(NOT MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS)
+        return()
+    endif()
+    if(NOT MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_MESSAGES)
+        message(FATAL_ERROR "Original DVD error waits require original message registrations")
+    endif()
+    get_target_property(_kind "${target}" TYPE)
+    get_target_property(_callbacks "${target}" MSCHARGED_ORIGINAL_DVD_MESSAGE_OWNER)
+    if(NOT _kind STREQUAL "MODULE_LIBRARY" OR NOT _callbacks)
+        message(FATAL_ERROR "Original DVD error waits require this source module's callback owner")
+    endif()
+    set(_source "${MSCHARGED_PREPARED}/src/NL/nlFileGC.cpp")
+    get_target_property(_sources "${target}" SOURCES)
+    if(NOT _source IN_LIST _sources)
+        message(FATAL_ERROR "Original DVD errors require the module's whole nlFileGC.cpp owner")
+    endif()
+    set_property(TARGET "${target}" PROPERTY MSCHARGED_ORIGINAL_DVD_ERROR_OWNER TRUE)
+    set_property(SOURCE "${_source}" APPEND PROPERTY COMPILE_DEFINITIONS
+        "$<$<BOOL:$<TARGET_PROPERTY:MSCHARGED_ORIGINAL_DVD_ERROR_OWNER>>:MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS=1>")
+endfunction()

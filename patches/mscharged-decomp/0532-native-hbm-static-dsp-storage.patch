@@ -1,0 +1,43 @@
+Subject: Expose actual original HBM silence storage for native DSP ownership
+
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+A native storage getter exposes the existing original AxManager static array
+before arena capture. It neither constructs the manager nor initializes sound.
+The host retains the same loaded source image for device reads.
+
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxManager.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxManager.h
+@@ -9,6 +9,9 @@
+ #include "revolution/ai.h"
+ #include "revolution/ax.h"
+ #include <stddef.h>
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_storage_abi.h"
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+@@ -76,6 +79,9 @@
+     AxVoiceList& GetVoiceList() { return mPrioVoiceList; }
+ 
+ private:
++#ifdef MSCHARGED_NATIVE
++    friend ChargedAXStorage (::ChargedHBMGetZeroStorage)(void);
++#endif
+     static const u8 AUX_CALLBACK_WAIT_FRAME = 6;
+ 
+     static const int FX_SAMPLE_RATE = AX_SAMPLE_RATE;
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
+@@ -514,3 +514,10 @@
+ } // namespace detail
+ } // namespace snd
+ } // namespace nw4hbm
++
++#ifdef MSCHARGED_NATIVE
++extern "C" ChargedAXStorage ChargedHBMGetZeroStorage(void) {
++    using nw4hbm::snd::detail::AxManager;
++    return {AxManager::sZeroBuffer, sizeof(AxManager::sZeroBuffer)};
++}
++#endif

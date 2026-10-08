@@ -1,10 +1,13 @@
 #include "platform/ios_device.h"
 #include "platform/interrupts.h"
+#include "platform/ios_revision_policy.h"
+#include <revolution/os/OSIOSRev.h>
 #include <dolphin/os.h>
 
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <cstddef>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -62,6 +65,7 @@ struct Receipt {
               "IOS completion did not enter the actual native interrupt exclusion");
         Check(OSGetCurrentContext()!=receipt.prior,"IOS completion reused source thread context");
         Check(!ServiceNativeIOSRequests(),"IOS callback recursively delivered another request");
+        Reject([&]{ConfigureNativeIOSServiceRevision();},"Active source callback changed IOS metadata");
         if(receipt.retire.generation)
             Reject([&]{UnregisterNativeIOSDevice(receipt.retire);},"Active IOS image retired");
         ++receipt.calls;receipt.result=result;
@@ -70,12 +74,47 @@ struct Receipt {
     }
 };
 void Run() {
+    static_assert(sizeof(OSIOSRev)==8 && offsetof(OSIOSRev,buildYear)==6);
+    OSIOSRev revision;std::memset(&revision,0xa5,sizeof(revision));
+    const auto sentinel=revision;
+    Reject([&]{__OSGetIOSRev(&revision);},"Absent IOS bus supplied revision metadata");
+    Check(std::memcmp(&revision,&sentinel,sizeof(revision))==0,"Failed IOS query modified output");
+    Reject([&]{ConfigureNativeIOSServiceRevision();},"Metadata configured without actual devices");
     Check(!ServiceNativeIOSRequests(),"Absent IOS device fabricated completion");
     Check(IOS_Open("/dev/missing",IPC_OPEN_NONE)==IPC_RESULT_NOEXISTS,"Missing device opened");
     Device first{"/test/first"},second{"/test/second"};
     auto a=RegisterNativeIOSDevice({&first,Device::Owns,Device::Execute});
     auto b=RegisterNativeIOSDevice({&second,Device::Owns,Device::Execute});
     Reject([&]{RegisterNativeIOSDevice({&first,Device::Owns,Device::Execute});},"Same device registered twice");
+    Reject([&]{__OSGetIOSRev(&revision);},"Live unconfigured IOS bus supplied metadata");
+    Check(std::memcmp(&revision,&sentinel,sizeof(revision))==0,"Unconfigured query modified output");
+    std::atomic<bool> configuration_rejected{};
+    std::thread metadata_worker([&] {
+        try {ConfigureNativeIOSServiceRevision();} catch(const std::logic_error&) {configuration_rejected=true;}
+    });
+    metadata_worker.join();Check(configuration_rejected,"Foreign thread configured IOS metadata");
+    ConfigureNativeIOSServiceRevision();
+    Reject([&]{ConfigureNativeIOSServiceRevision();},"Live IOS revision was replaced");
+    __OSGetIOSRev(&revision);
+    Check(revision.idHi==0x4e && revision.idLo==0x53 && revision.verMajor==1 && revision.verMinor==0,
+          "Native service ABI identity misreported as Wii firmware");
+    Check(detail::ValidNativeIOSBuildDate(revision),"Provider compilation date is not representable");
+    constexpr auto leap=detail::NativeIOSRevisionForBuild("Feb 29 2024");
+    constexpr auto single=detail::NativeIOSRevisionForBuild("Oct  8 2026");
+    constexpr auto end=detail::NativeIOSRevisionForBuild("Dec 31 2099");
+    static_assert(leap.buildMon==2 && leap.buildDay==29 && leap.buildYear==2024);
+    static_assert(single.buildMon==10 && single.buildDay==8 && single.buildYear==2026);
+    static_assert(end.buildMon==12 && end.buildDay==31 && end.buildYear==2099);
+    static_assert(detail::ValidNativeIOSBuildDate(leap));
+    static_assert(!detail::ValidNativeIOSBuildDate(detail::NativeIOSRevisionForBuild("Feb 29 2023")));
+    std::cout<<"native_ios revision: NS "<<unsigned(revision.verMajor)<<'.'<<unsigned(revision.verMinor)
+             <<" build "<<revision.buildYear<<'-'<<unsigned(revision.buildMon)<<'-'<<unsigned(revision.buildDay)<<'\n';
+    OSIOSRev worker_revision{};
+    std::thread query_worker([&] {__OSGetIOSRev(&worker_revision);});query_worker.join();
+    Check(std::memcmp(&revision,&worker_revision,sizeof(revision))==0,"Read-only IOS metadata query changed on worker");
+    bool null_rejected=false;
+    try {__OSGetIOSRev(nullptr);} catch(const std::invalid_argument&) {null_rejected=true;}
+    Check(null_rejected,"Null IOS revision destination accepted");
     const auto fa=IOS_Open(first.path,IPC_OPEN_RW),fb=IOS_Open(second.path,IPC_OPEN_RW);
     Check(fa>=0 && fb>=0 && fa!=fb,"Independent local descriptors collided at source interface");
     Check(IOS_Open(first.path,IPC_OPEN_RW)==IPC_RESULT_OPENFD,"Duplicate physical open succeeded");
@@ -109,6 +148,14 @@ void Run() {
     Check(ServiceNativeIOSRequests() && receipt.calls==2,"Completed ordered request lost receipt");
     Check(IOS_ReadAsync(fa,output.data(),4,nullptr,nullptr)==4,
           "Source ipcclt null-callback synchronous contract changed");
+    // Revision reads are independent of actual pending source callbacks.
+    Check(IOS_ReadAsync(fa,output.data(),1,Receipt::Receive,&receipt)==0,"Metadata queue fixture rejected");
+    const auto metadata_state=GetNativeIOSStatus();
+    OSIOSRev pending_revision{};__OSGetIOSRev(&pending_revision);
+    Check(std::memcmp(&revision,&pending_revision,sizeof(revision))==0 &&
+          GetNativeIOSStatus().pending==metadata_state.pending && receipt.calls==2,
+          "Revision query performed hardware work or source completion");
+    Check(ServiceNativeIOSRequests() && receipt.calls==3,"Metadata query lost real pending work");
     const auto prior=receipt.calls;
     for(unsigned i=0;i<64;++i)
         Check(IOS_ReadAsync(fa,output.data(),1,Receipt::Receive,&receipt)==0,"Transport exhausted early");
@@ -125,10 +172,25 @@ void Run() {
     receipt.throws=false;
     Check(IOS_Close(fa)==0 && IOS_Close(fb)==0,"Actual local device close failed");
     Check(IOS_Read(fa,output.data(),1)==IPC_RESULT_INVALID,"Closed descriptor reused");
-    UnregisterNativeIOSDevice(a);UnregisterNativeIOSDevice(b);
+    UnregisterNativeIOSDevice(a);
+    OSIOSRev remaining_revision{};__OSGetIOSRev(&remaining_revision);
+    Check(std::memcmp(&revision,&remaining_revision,sizeof(revision))==0,
+          "One device retirement invalidated another live bus member");
+    UnregisterNativeIOSDevice(b);
+    std::memset(&revision,0xa5,sizeof(revision));
+    Reject([&]{__OSGetIOSRev(&revision);},"Retired IOS bus supplied stale metadata");
+    Check(std::memcmp(&revision,&sentinel,sizeof(revision))==0,"Retired query modified output");
     Reject([&]{UnregisterNativeIOSDevice(a);},"Stale device lease retired a successor");
     a=RegisterNativeIOSDevice({&first,Device::Owns,Device::Execute});
+    Reject([&]{__OSGetIOSRev(&revision);},"New device incarnation inherited retired metadata");
+    Check(std::memcmp(&revision,&sentinel,sizeof(revision))==0,"New unconfigured query modified output");
     auto next=IOS_Open(first.path,IPC_OPEN_RW);
+    Receipt pending{std::this_thread::get_id(),OSGetCurrentContext()};
+    Check(IOS_ReadAsync(next,output.data(),1,Receipt::Receive,&pending)==0,"New metadata pending request rejected");
+    Reject([&]{ConfigureNativeIOSServiceRevision();},"Metadata configured across a pending callback");
+    Check(ServiceNativeIOSRequests() && pending.calls==1,"Real callback did not drain before metadata setup");
+    ConfigureNativeIOSServiceRevision();__OSGetIOSRev(&revision);
+    Check(revision.idHi==0x4e && revision.idLo==0x53,"New live IOS bus configuration failed");
     Check(next!=fa && next!=fb && a.generation!=b.generation,"Reload reused source descriptor identity");
     Check(IOS_Read(fa,output.data(),1)==IPC_RESULT_INVALID,"Old handle accessed reloaded device");
     Check(IOS_Close(next)==0,"Reloaded physical close failed");UnregisterNativeIOSDevice(a);
@@ -136,7 +198,7 @@ void Run() {
     Check(!state.devices && !state.descriptors && !state.pending && !state.active,
           "IOS hardware/receipt ownership did not drain");
     std::cout << "native_ios: " << checks
-              << " checks; device isolation, actual owner IRQs, ordered work, lifetime and exhaustion\n";
+              << " checks; real device lifecycle, explicit native service revision, owner IRQs and ordered work\n";
 }
 }
 int main() {

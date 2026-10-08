@@ -29,6 +29,7 @@ endif()
 
 if(BUILD_TESTING)
     include(cmake/NativeAlarms.cmake)
+    include(cmake/NativeSystemSettings.cmake)
     # Fixture includes the whole original TU to expose only a paired private
     # LockSram/UnlockSram leaf, using bytes read by the original EXI requests.
     add_executable(native_rtc_tests tests/native_rtc.cpp tests/rtc_source.c)
@@ -45,4 +46,14 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/run_native_rtc.py"
         "$<TARGET_FILE:native_rtc_tests>")
     set_tests_properties(native_rtc PROPERTIES TIMEOUT 20 LABELS "Platform")
+
+    add_executable(native_rtc_runtime_tests tests/native_rtc_runtime.cpp)
+    target_compile_definitions(native_rtc_runtime_tests PRIVATE MSCHARGED_NATIVE=1 TARGET_PC=1)
+    target_compile_features(native_rtc_runtime_tests PRIVATE cxx_std_20)
+    target_link_libraries(native_rtc_runtime_tests PRIVATE charged_original_rtc
+        charged_native_alarms charged_native_system_settings charged_native_interrupt_controller)
+    add_test(NAME native_rtc_runtime COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/run_native_rtc.py"
+        "$<TARGET_FILE:native_rtc_runtime_tests>")
+    set_tests_properties(native_rtc_runtime PROPERTIES TIMEOUT 20 LABELS "Platform")
 endif()

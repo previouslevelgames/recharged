@@ -15,6 +15,7 @@ extern "C" {
 #endif
 bool mscharged_stm_reset_button_pressed(void);
 void mscharged_stm_disable_video_output(void);
+void mscharged_stm_terminal_wait(void);
 #ifdef __cplusplus
 }
 #endif

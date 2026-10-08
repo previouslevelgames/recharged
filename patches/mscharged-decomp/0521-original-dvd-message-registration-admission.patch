@@ -1,0 +1,23 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Admit the original DVD-message callback registrations
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Classification: explicit temporary original-main diagnostic admission.
+
+Select only the three literal original DVD-message/retry/all-clear registrations
+at their original Initialize position. The callback owner is whole unchanged
+LidOpenMessage.cpp in the existing frontend module. No callback body, error
+polling, loading request, native NL failure lifecycle or reset cadence changes.
+Normal source and the separate Credits diagnostic retain their existing profile.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -544,7 +544,7 @@
+         nlBreak();
+     }
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_MESSAGES)
+     nlRegHandleDVDMessageCB(Function<void(int)>(DisplayDVDMessageSebring));
+     nlRegHandleDVDRetryingCB(Function<void(int)>(DisplayDVDMessageSebring));
+     nlRegHandleDVDAllClearCB(Function<void(int)>(DVDAllClearSebring));

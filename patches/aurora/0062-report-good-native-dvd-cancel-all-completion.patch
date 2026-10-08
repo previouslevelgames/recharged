@@ -1,0 +1,21 @@
+From: mscharged-port contributors
+Subject: [PATCH] Report GOOD for native DVD cancel-all operation completion
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native DVD API operation-result contract.
+
+Original Wii DVDCancelAllAsync completes the cancellation operation with GOOD0.
+Canceled command callbacks separately report CANCELED-3. Preserve existing
+worker/queue/reset/drain and callback argument behavior; the active command
+argument mismatch remains a separate ownership prerequisite.
+
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -1100,7 +1100,7 @@
+ int DVDCancelAllAsync(DVDCBCallback callback) {
+   s_worker.cancel_all();
+   if (callback != nullptr) {
+-    callback(DVD_RESULT_CANCELED, nullptr);
++    callback(DVD_RESULT_GOOD, nullptr);
+   }
+   return TRUE;
+ }

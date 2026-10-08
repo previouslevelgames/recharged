@@ -1,0 +1,16 @@
+include_guard(GLOBAL)
+include(cmake/OriginalNativeCompilerProfile.cmake)
+
+# A pure hardware/header leaf; no HBM manager or UI admission follows this gate.
+mscharged_original_native_profile_supported(_hbm_math_profile CXX)
+if(BUILD_TESTING AND _hbm_math_profile)
+    if(NOT TARGET charged_original_os_messages)
+        include(cmake/OriginalOSMessages.cmake)
+    endif()
+    add_executable(native_hbm_arithmetic_tests tests/native_hbm_arithmetic.cpp)
+    add_dependencies(native_hbm_arithmetic_tests verify_prepared)
+    target_compile_features(native_hbm_arithmetic_tests PRIVATE cxx_std_20)
+    target_link_libraries(native_hbm_arithmetic_tests PRIVATE charged_original_os_messages)
+    add_test(NAME native_hbm_arithmetic COMMAND native_hbm_arithmetic_tests)
+    set_tests_properties(native_hbm_arithmetic PROPERTIES TIMEOUT 10 LABELS "Platform")
+endif()

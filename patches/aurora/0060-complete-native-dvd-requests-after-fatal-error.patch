@@ -1,0 +1,70 @@
+From: mscharged-port contributors
+Subject: [PATCH] Complete native queued DVD requests after a latched fatal error
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native DVD dispatch under the actual Nod media worker.
+
+Original dvd.c stateReady completes dequeued commands with the fatal result
+without entering a media operation after FatalErrorFlag. Capture the actual
+worker fault at dispatch under the existing mutex and deliver the unchanged
+completion path with zero transferred bytes.
+
+Preserve actual callback, active-command drain, cancellation/reset and media
+ownership. No fault recovery, source polling or game callback admission.
+This follows 0059's observed status; physical pause/retry remains separate.
+
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -594,10 +594,13 @@
+       DVDCommandBlock* block = m_queue.front();
+       m_queue.pop_front();
+       m_activeBlock = block;
+-      atomic_store_release(block->state, DVD_STATE_BUSY);
+-      m_driveState = DVD_STATE_BUSY;
++      const bool fatal = m_fatalError;
++      if (!fatal) {
++        atomic_store_release(block->state, DVD_STATE_BUSY);
++        m_driveState = DVD_STATE_BUSY;
++      }
+       lk.unlock();
+-      process_command(block);
++      process_command(block, fatal);
+       lk.lock();
+       m_activeBlock = nullptr;
+       if (m_cancelActiveBlock == block) {
+@@ -623,8 +626,11 @@
+     return {result, transferred};
+   }
+ 
+-  void process_command(DVDCommandBlock* block) {
+-    auto [result, transferred] = perform_command(block);
++  void process_command(DVDCommandBlock* block, bool fatal) {
++    // Original stateReady completes queued commands after FatalErrorFlag
++    // without entering a media operation. Keep real callback/drain ownership.
++    auto [result, transferred] = fatal ? std::pair<s32, u32>{DVD_RESULT_FATAL_ERROR, 0}
++                                       : perform_command(block);
+     DVDCBCallback callback;
+     {
+       std::lock_guard lk{m_mutex};
+@@ -650,13 +656,17 @@
+   }
+ 
+   void execute(DVDCommandBlock* block) {
++    bool fatal;
+     {
+       std::lock_guard lk{m_mutex};
+       m_activeBlock = block;
+-      atomic_store_release(block->state, DVD_STATE_BUSY);
+-      m_driveState = DVD_STATE_BUSY;
+-    }
+-    process_command(block);
++      fatal = m_fatalError;
++      if (!fatal) {
++        atomic_store_release(block->state, DVD_STATE_BUSY);
++        m_driveState = DVD_STATE_BUSY;
++      }
++    }
++    process_command(block, fatal);
+     {
+       std::lock_guard lk{m_mutex};
+       m_activeBlock = nullptr;

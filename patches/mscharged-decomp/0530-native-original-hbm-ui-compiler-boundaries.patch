@@ -1,0 +1,312 @@
+Subject: Preserve original HBM UI requests under native compiler and pointer widths
+
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+
+Lower PPC fsel/fabs through their binary32 selection/sign contract and the
+existing canonical OS fast-cast header. Keep original byte offsets full-width,
+select canonical OS/GX owning declarations, and adapt the exact C++ allocation,
+callback and switch syntax rejected by current compilers. Source algorithms,
+request widths, choices and console bodies remain unchanged. No HBM admission,
+raw resource/BE text readiness or physical speaker support follows this patch.
+
+diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
+--- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
++++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
+@@ -16,7 +16,11 @@
+ #include "revolution/hbm/nw4hbm/snd/SoundSystem.h"
+ #include "revolution/wpad/WPAD.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ #include <revolution/types.h>
+ 
+ namespace homebutton {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
+--- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
++++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
+@@ -7,7 +7,11 @@
+ #include "revolution/hbm/nw4hbm/snd/SoundHandle.h"
+ #include "revolution/mtx/mtx.h"
+ #include "revolution/os/OSAlarm.h"
++#if defined(MSCHARGED_NATIVE)
++#include <revolution/os.h>
++#else
+ #include "revolution/os/OSTime.h"
++#endif
+ #include "revolution/types.h"
+ #include "revolution/wpad/WPAD.h"
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h
+@@ -3,7 +3,11 @@
+ 
+ #include "revolution/types.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx/GXFrameBuffer.h>
++#else
+ #include "revolution/gx/GXFrameBuf.h"
++#endif
+ 
+ #include <stdarg.h>
+ 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
+@@ -93,11 +93,19 @@
+ 
+ namespace detail {
+ template <typename T> const T* ConvertOffsToPtr(const void* baseAddress, unsigned offset) {
++#if defined(MSCHARGED_NATIVE)
++    return reinterpret_cast<const T*>(static_cast<const u8*>(baseAddress) + offset);
++#else
+     return reinterpret_cast<const T*>(reinterpret_cast<unsigned>(baseAddress) + offset);
++#endif
+ }
+ 
+ template <typename T> T* ConvertOffsToPtr(void* baseAddress, unsigned offset) {
++#if defined(MSCHARGED_NATIVE)
++    return reinterpret_cast<T*>(static_cast<u8*>(baseAddress) + offset);
++#else
+     return reinterpret_cast<T*>(reinterpret_cast<unsigned>(baseAddress) + offset);
++#endif
+ }
+ 
+ template <typename T> inline void SetBit(T* pBits, int pos, bool val) {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h
+@@ -1,12 +1,40 @@
+ #ifndef NW4HBM_MATH_ARITHMETIC_H
+ #define NW4HBM_MATH_ARITHMETIC_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSFastCast.h>
++#else
+ #include "revolution/os/OSFastCast.h"
++#endif
+ #include "revolution/types.h"
+ 
+ namespace nw4hbm {
+ namespace math {
+ 
++#if defined(MSCHARGED_NATIVE)
++// Original fsel copies one input and ignores the sign of zero. Inspecting the
++// binary32 condition also avoids introducing a host FP exception for an SNaN.
++inline f32 FSelect(f32 cond, f32 ifPos, f32 ifNeg) {
++    static_assert(sizeof(f32) == sizeof(u32) && __FLT_RADIX__ == 2 &&
++        __FLT_MANT_DIG__ == 24 && __FLT_MAX_EXP__ == 128);
++    u32 bits;
++    __builtin_memcpy(&bits, &cond, sizeof(bits));
++    const u32 magnitude = bits & 0x7fffffffu;
++    const bool selectPos = magnitude <= 0x7f800000u &&
++        ((bits & 0x80000000u) == 0 || magnitude == 0);
++    return selectPos ? ifPos : ifNeg;
++}
++
++// Original fabs clears only the sign bit, retaining zeros and NaN payloads.
++inline f32 FAbs(f32 x) {
++    static_assert(sizeof(f32) == sizeof(u32));
++    u32 bits;
++    __builtin_memcpy(&bits, &x, sizeof(bits));
++    bits &= 0x7fffffffu;
++    __builtin_memcpy(&x, &bits, sizeof(x));
++    return x;
++}
++#else
+ inline f32 FSelect(register f32 cond, register f32 ifPos, register f32 ifNeg) {
+     register f32 ret;
+ 
+@@ -26,6 +54,8 @@
+ 
+     return ret;
+ }
++
++#endif
+ 
+ inline u16 F32ToU16(f32 x) {
+     u16 rval;
+diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
+--- a/src/RVL_SDK/hbm/HBMBase.cpp
++++ b/src/RVL_SDK/hbm/HBMBase.cpp
+@@ -9,6 +9,11 @@
+ #include "revolution/version.h"
+ 
+ #include <cstring>
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#include <limits>
++#include <stdexcept>
++#endif
+ 
+ #if HBM_REVISION == 1
+ #define LN(rev1, rev2) rev1
+@@ -41,6 +46,19 @@
+ {
+     MEMFreeToAllocator(spAllocator, mem);
+ }
++
++#if defined(MSCHARGED_NATIVE)
++// AXFX's host allocation callback carries a physical size_t. Forward only a
++// representable original Wii request to the unchanged allocator entry.
++static void* NativeHBMAXFXAlloc(size_t size)
++{
++    if (size > std::numeric_limits<u32>::max())
++    {
++        throw std::overflow_error("HBM AXFX allocation exceeds its original request width");
++    }
++    return HBMAllocMem(static_cast<u32>(size));
++}
++#endif
+ 
+ void HBMCreate(const HBMDataInfo* pHBInfo)
+ {
+@@ -1160,7 +1178,11 @@
+ 
+     AXFXGetHooks(&mAxFxAlloc, &mAxFxFree);
+     AXGetAuxACallback(&mAuxCallback, &mpAuxContext);
++#if defined(MSCHARGED_NATIVE)
++    AXFXSetHooks(&NativeHBMAXFXAlloc, &HBMFreeMem);
++#else
+     AXFXSetHooks(&HBMAllocMem, &HBMFreeMem);
++#endif
+ 
+     mAxFxReverb.preDelay = 0.0f;
+     mAxFxReverb.time = 2.5f;
+@@ -1667,6 +1689,9 @@
+         break;
+ 
+     case 16:
++#if defined(MSCHARGED_NATIVE)
++    {
++#endif
+         GroupAnmController* anim = mpGroupAnmController[mSelectAnmNum];
+ 
+         if (!anim->isPlaying())
+@@ -1681,6 +1706,9 @@
+             fadeout_sound(restFrame / mFadeOutSeTime);
+         }
+         break;
++#if defined(MSCHARGED_NATIVE)
++    }
++#endif
+ 
+     case 17:
+         mState = 18;
+@@ -1901,7 +1929,12 @@
+ 
+ static void SpeakerCallback(OSAlarm* alm, OSContext*)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // setSpeakerAlarm writes the original packed channel/sound scalar word.
++    u32 data = static_cast<u32>(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(alm)));
++#else
+     u32 data = OSGetAlarmUserDataAny(u32, alm);
++#endif
+     int chan = (data >> 16) & 0xFFFF;
+     int id = data & 0xFFFF;
+ 
+@@ -1934,7 +1967,12 @@
+ static void RetrySimpleSyncCallback(OSAlarm* alm, OSContext*)
+ {
+     HomeButton* pHBObj = HomeButton::getInstance();
++#if defined(MSCHARGED_NATIVE)
++    // setSimpleSyncAlarm writes its original signed32 selector, never a pointer.
++    int type = static_cast<s32>(static_cast<u32>(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(alm))));
++#else
+     int type = OSGetAlarmUserDataAny(int, alm);
++#endif
+     bool retrySuccessFlag = false;
+ 
+     if (type == 0)
+diff --git a/src/RVL_SDK/hbm/HBMController.cpp b/src/RVL_SDK/hbm/HBMController.cpp
+--- a/src/RVL_SDK/hbm/HBMController.cpp
++++ b/src/RVL_SDK/hbm/HBMController.cpp
+@@ -1,4 +1,8 @@
+ #include "revolution/hbm/homebutton/HBMController.hpp"
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ namespace homebutton {
+ 
+@@ -45,7 +49,11 @@
+ }
+ 
+ void Controller::soundOnCallback(OSAlarm* alm, OSContext*) {
++    #if defined(MSCHARGED_NATIVE)
++    int chan = static_cast<s32>(static_cast<u32>(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(alm))));
++#else
+     int chan = OSGetAlarmUserDataAny(int, alm);
++#endif
+     sThis[chan]->soundOn();
+ }
+ 
+diff --git a/src/RVL_SDK/hbm/HBMGUIManager.cpp b/src/RVL_SDK/hbm/HBMGUIManager.cpp
+--- a/src/RVL_SDK/hbm/HBMGUIManager.cpp
++++ b/src/RVL_SDK/hbm/HBMGUIManager.cpp
+@@ -5,7 +5,11 @@
+ #include "revolution/hbm/nw4hbm/lyt/picture.h"
+ #include "revolution/hbm/nw4hbm/lyt/window.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <new>
++#else
+ #include <new.h>
++#endif
+ 
+ namespace homebutton {
+ namespace gui {
+@@ -40,7 +44,11 @@
+     PSMTXTrans(modelMtx, 0.0f, 0.0f, 0.0f);
+     GXLoadPosMtxImm(modelMtx, 0);
+ 
++#if defined(MSCHARGED_NATIVE)
++    GXSetLineWidth(uWidth, static_cast<GXTexOffset>(0));
++#else
+     GXSetLineWidth(uWidth, 0);
++#endif
+ 
+     GXBegin(GX_LINES, GX_VTXFMT0, 2);
+     GXPosition3f32(x0, y0, z);
+diff --git a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
+--- a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
++++ b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
+@@ -1,4 +1,8 @@
+ #include "revolution/hbm/homebutton/HBMRemoteSpk.hpp"
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ 
+ #include "string.h"
+ 
+@@ -130,7 +134,11 @@
+ void RemoteSpk::Stop(void) { OSCancelAlarm(&speakerAlarm); }
+ 
+ void RemoteSpk::DelaySpeakerOnCallback(OSAlarm* alarm, OSContext*) {
++    #if defined(MSCHARGED_NATIVE)
++    WPADChannel chan = static_cast<s32>(static_cast<u32>(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(alarm))));
++#else
+     WPADChannel chan = OSGetAlarmUserDataAny(WPADChannel, alarm);
++#endif
+     WPADResult result = WPADControlSpeaker(chan, WPAD_SPEAKER_ON, &SpeakerOnCallback);
+ }
+ 
+@@ -155,7 +163,11 @@
+ }
+ 
+ void RemoteSpk::DelaySpeakerPlayCallback(OSAlarm* alarm, OSContext*) {
++    #if defined(MSCHARGED_NATIVE)
++    WPADChannel chan = static_cast<s32>(static_cast<u32>(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(alarm))));
++#else
+     WPADChannel chan = OSGetAlarmUserDataAny(WPADChannel, alarm);
++#endif
+     WPADResult result = WPADControlSpeaker(chan, WPAD_SPEAKER_PLAY, &SpeakerPlayCallback);
+ }
+ 

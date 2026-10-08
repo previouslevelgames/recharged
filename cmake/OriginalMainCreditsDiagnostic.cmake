@@ -9,6 +9,7 @@ if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$" OR NOT CMAKE_SIZEOF_VOID_P E
     message(FATAL_ERROR "The original-main source diagnostic requires Linux or macOS LP64 with GCC or Clang")
 endif()
 include(cmake/OriginalModuleLinkage.cmake)
+include(cmake/OriginalFrontendResetDiagnostic.cmake)
 include(cmake/OriginalFunctionPools.cmake)
 include(cmake/WiiStringFormat.cmake)
 include(cmake/NativeSystemSettings.cmake)
@@ -18,7 +19,18 @@ include(cmake/OriginalCreditsMovieHardware.cmake)
 include(cmake/NativeHardwareOwner.cmake)
 include(cmake/NativeVideoOutput.cmake)
 include(cmake/NativeFilesystemBoot.cmake)
+include(cmake/NativeOSShutdownRequests.cmake)
+include(cmake/OriginalOSShutdown.cmake)
 find_package(Threads REQUIRED)
+if(BUILD_TESTING)
+    include(cmake/OriginalHBMTaskLifecycle.cmake)
+    mscharged_add_original_hbm_task_lifecycle_tests()
+    include(cmake/OriginalHBMTaskCapacity.cmake)
+    mscharged_add_original_hbm_task_capacity_tests()
+    include(cmake/NativeHBMArithmetic.cmake)
+    include(cmake/NativeHBMStorage.cmake)
+    mscharged_add_native_hbm_storage_tests()
+endif()
 
 add_library(mscharged_original_main_credits_module MODULE
     "${MSCHARGED_PREPARED}/src/NL/nlMemory.cpp"
@@ -54,7 +66,7 @@ add_library(mscharged_original_main_credits_module MODULE
     "${MSCHARGED_PREPARED}/src/NL/nlTime.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Core/mtRandom.cpp"
     "${MSCHARGED_PREPARED}/src/NL/gl/glMemoryInit.cpp"
-    src/runtime/sanim_decode.cpp
+    "${MSCHARGED_PREPARED}/src/Game/SAnimDecode.cpp"
     "${MSCHARGED_PREPARED}/src/Game/main.cpp"
     "${MSCHARGED_PREPARED}/src/NL/glx/glxTexture.cpp"
     "${MSCHARGED_PREPARED}/src/Game/TweakRegistry.cpp"
@@ -305,7 +317,7 @@ target_link_libraries(charged_original_main_credits_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_credits_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc Threads::Threads ${CMAKE_DL_LIBS})
 
 function(mscharged_link_original_main_credits target)
     add_dependencies(${target} mscharged_original_main_credits_module)
@@ -313,17 +325,29 @@ function(mscharged_link_original_main_credits target)
         mscharged_original_main_credits_vi aurora::core)
     if(APPLE)
         target_link_options(${target} PRIVATE LINKER:-dead_strip LINKER:-export_dynamic
-            LINKER:-unexported_symbol,___OSHotReset
-            LINKER:-unexported_symbol,___OSShutdownToSBY
             LINKER:-unexported_symbol,___OSSetVIForceDimming)
+        if(NOT MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
+            target_link_options(${target} PRIVATE
+                LINKER:-unexported_symbol,___OSHotReset
+                LINKER:-unexported_symbol,___OSShutdownToSBY)
+        endif()
     else()
+        if(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
+            set(_host_exports original_main_reset_host_exports.map)
+        else()
+            set(_host_exports original_main_credits_host_exports.map)
+        endif()
         target_link_options(${target} PRIVATE
             -Wl,--gc-sections -Wl,--export-dynamic
-            "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+            "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/${_host_exports}")
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/${_host_exports}")
     endif()
     mscharged_require_original_host_symbol(${target} PRIVATE SCGetSimpleAddressID)
+    mscharged_require_original_host_symbol(${target} PRIVATE __OSGetIOSRev)
+    foreach(symbol __OSInitSram __OSSyncSram __OSGetRTCFlags __OSClearRTCFlags)
+        mscharged_require_original_host_symbol(${target} PRIVATE "${symbol}")
+    endforeach()
     set_property(TARGET ${target} PROPERTY LINK_LIBRARY_OVERRIDE
         "WHOLE_ARCHIVE,aurora_gx,aurora_mtx,aurora_os")
 endfunction()

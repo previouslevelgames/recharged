@@ -1,0 +1,53 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Retain native failed reads through the original DVD-status wait
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Classification: explicit temporary original frontend error-path admission.
+
+At the native command error boundary, admit the original Service default
+CheckDVDStatus call before native read cancellation/ownership retirement.
+Retain the real logical head/tail request and incomplete byte reservation
+through that source wait. Reacquire the live ring if the original callback
+returns after recursively servicing reads. Preserve the literal original
+DVD_RESULT_CANCELED case, the source handler body and its retail waits.
+The admission defaults off; no status, completion, retry or recovery is supplied.
+
+diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+--- a/src/NL/nlFileGC.cpp
++++ b/src/NL/nlFileGC.cpp
+@@ -476,6 +476,9 @@
+     {
+         auto* entry = nlDLRingGetStart(m_activeEntryList);
+         auto* tail = entry->Phase == READ_HEAD ? entry->m_next : 0;
++#ifdef MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS
++        bool recheckActiveReads = false;
++#endif
+         try
+         {
+             if (tail && (tail == entry || tail->Phase != READ_TAIL || tail->m_pFile != entry->m_pFile))
+@@ -485,8 +488,24 @@
+                 if (!part) continue;
+                 const auto state = FileCommandStatus(part->mFileInfo);
+                 if (state == DVD_STATE_BUSY || state == DVD_STATE_WAITING) return;
+-                if (state != DVD_STATE_IDLE) throw std::runtime_error("NL asynchronous DVD read failed");
+-            }
++                if (state != DVD_STATE_IDLE)
++                {
++#ifdef MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS
++                    // Keep the original result-code case distinct from command state10.
++                    if (state != DVD_RESULT_CANCELED)
++                        CheckDVDStatus();
++                    recheckActiveReads = true;
++                    break;
++#else
++                    throw std::runtime_error("NL asynchronous DVD read failed");
++#endif
++                }
++            }
++#ifdef MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS
++            // The original all-clear callback may service/cancel/reuse these reads.
++            // Reacquire the live ring after its unchanged source wait returns.
++            if (recheckActiveReads) continue;
++#endif
+             // Close joins any worker callback before reading status/transfer fields
+             // or recycling the command block. Short logical reads are never success.
+             for (auto* part : {entry, tail})

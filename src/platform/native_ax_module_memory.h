@@ -24,6 +24,11 @@ public:
     NativeAXModuleMemoryStatus Status() const;
     NativeDSPMemoryEndpoint Endpoint() const;
     std::uint32_t PhysicalAddress(unsigned source_span) const;
+    // Full native extent in this retained image's mapped readable
+    // storage (including BSS/RELRO). Pure loader extent/lifetime observation;
+    // no DSP mapping/pin or general VM write-permission authorization.
+    // AI/THP CPU-native buffers are not necessarily DSP bus allocations.
+    bool OwnsReadableImageExtent(const void* address, std::size_t bytes) const;
     // Caller must halt/drain every actual DSP job first. Per-transfer memory
     // exclusion is not a complete job fence. AI must already be stopped/drained.
     // The original module's initial loader handle and source statics stay live.

@@ -32,3 +32,6 @@ if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
         RESOURCE_LOCK gx_check
         FAIL_REGULAR_EXPRESSION "VUID-|Error:|Validation Error|GX check failed")
 endif()
+
+# Real native VI display-register/output qualification; no game input required.
+include(cmake/NativeVIDisplayGPU.cmake)

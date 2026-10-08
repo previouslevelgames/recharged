@@ -1,0 +1,1 @@
+{ global: charged_hbm_storage_zero; local: *; };

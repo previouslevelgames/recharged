@@ -45,31 +45,32 @@ void WindowEvent(Uint32 type) {
     event.window.windowID = SDL_GetWindowID(window);
     Push(event);
 }
-void Key(SDL_Scancode code, bool down, bool repeat = false) {
+void Key(SDL_Scancode code, bool down, bool repeat = false, SDL_KeyboardID which = 0) {
     SDL_Event event{};
     event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
     event.key.windowID = SDL_GetWindowID(window);
     event.key.scancode = code;
+    event.key.which = which;
     event.key.down = down;
     event.key.repeat = repeat;
     Push(event);
 }
-void Motion(float x, float y) {
+void Motion(float x, float y, SDL_MouseID which = 1) {
     SDL_Event event{};
     event.type = SDL_EVENT_MOUSE_MOTION;
     event.motion.windowID = SDL_GetWindowID(window);
-    event.motion.which = 1;
+    event.motion.which = which;
     event.motion.x = x;
     event.motion.y = y;
     Push(event);
 }
 // SDL attributes mouse events to its current mouse-focus window; after a real
 // leave (capture already released) that is window 0.
-void Button(float x, float y, bool down, Uint8 button = SDL_BUTTON_LEFT, bool focused_window = true) {
+void Button(float x, float y, bool down, Uint8 button = SDL_BUTTON_LEFT, bool focused_window = true, SDL_MouseID which = 1) {
     SDL_Event event{};
     event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
     event.button.windowID = focused_window ? SDL_GetWindowID(window) : 0;
-    event.button.which = 1;
+    event.button.which = which;
     event.button.button = button;
     event.button.down = down;
     event.button.x = x;
@@ -257,6 +258,85 @@ void DetachAndReattach() {
     Until([] { return !HoldA(); }, "Reattached keyboard release failed");
 }
 
+void RemoveKeyboard(SDL_KeyboardID which) {
+    SDL_Event event{};
+    event.type = SDL_EVENT_KEYBOARD_REMOVED;
+    event.kdevice.which = which;
+    Push(event);
+}
+void MouseDeviceEvent(Uint32 type, SDL_MouseID which) {
+    SDL_Event event{};
+    event.type = type;
+    event.mdevice.which = which;
+    Push(event);
+}
+void DeviceRemoval() {
+    const auto trig = edges.trig, release = edges.release;
+    // Generated instance IDs exercise the actual SDL event/watch and original
+    // KPAD path. This fixture does not claim physical hot-unplug qualification.
+    constexpr SDL_KeyboardID keyboard1 = 42, keyboard2 = 84;
+    constexpr SDL_MouseID mouse1 = 126, mouse2 = 168;
+    Key(SDL_SCANCODE_RETURN, true, false, keyboard1);
+    Key(SDL_SCANCODE_RETURN, true, true, keyboard2);
+    Expect(trig + 1, release, true, "Two keyboard instances generated duplicate A edges");
+    RemoveKeyboard(keyboard1);
+    Expect(trig + 1, release, true, "One keyboard removal released another instance's A");
+    RemoveKeyboard(252);
+    Expect(trig + 1, release, true, "Foreign keyboard removal changed held A");
+    RemoveKeyboard(keyboard2);
+    Expect(trig + 1, release + 1, false, "Last keyboard removal retained A without a key-up");
+    SDL_Event reconnect{};
+    reconnect.type = SDL_EVENT_KEYBOARD_ADDED;
+    reconnect.kdevice.which = keyboard1;
+    Push(reconnect);
+    Expect(trig + 1, release + 1, false, "Keyboard reconnect resurrected old held state");
+    Key(SDL_SCANCODE_RETURN, true, false, keyboard1);
+    Expect(trig + 2, release + 1, true, "Fresh reconnect key did not reach original KPAD");
+    Key(SDL_SCANCODE_RETURN, false, false, keyboard1);
+    Expect(trig + 2, release + 2, false, "Reconnected keyboard release failed");
+
+    Motion(X(.25f), Y(.75f), mouse1);
+    Button(X(.25f), Y(.75f), true, SDL_BUTTON_LEFT, true, mouse1);
+    Motion(X(.6f), Y(.4f), mouse2);
+    Button(X(.6f), Y(.4f), true, SDL_BUTTON_LEFT, true, mouse2);
+    Expect(trig + 3, release + 2, true, "Two mouse instances generated duplicate A edges");
+    Until(Pointer, "Live mouse position failed to reach KPAD");
+    MouseDeviceEvent(SDL_EVENT_MOUSE_REMOVED, mouse1);
+    Expect(trig + 3, release + 2, true, "One mouse removal released another instance's A");
+    Check(Pointer(), "Removing a foreign position owner invalidated live pointer data");
+    MouseDeviceEvent(SDL_EVENT_MOUSE_REMOVED, mouse2);
+    Expect(trig + 3, release + 3, false, "Last mouse removal retained A without button-up");
+    Check(!Pointer(), "Removed producing mouse retained a stale pointer");
+    MouseDeviceEvent(SDL_EVENT_MOUSE_ADDED, mouse2);
+    Expect(trig + 3, release + 3, false, "Mouse reconnect resurrected old held state");
+    Check(!Pointer(), "Mouse reconnect fabricated a fresh position");
+
+    // Device retirement also keeps independent keyboard/mouse A contributors.
+    Key(SDL_SCANCODE_RETURN, true, false, keyboard1);
+    Button(X(.5f), Y(.5f), true, SDL_BUTTON_LEFT, true, mouse1);
+    Expect(trig + 4, release + 3, true, "Shared keyboard/mouse A generated a duplicate edge");
+    RemoveKeyboard(keyboard1);
+    Expect(trig + 4, release + 3, true, "Keyboard removal released a held mouse contribution");
+    MouseDeviceEvent(SDL_EVENT_MOUSE_REMOVED, mouse1);
+    Expect(trig + 4, release + 4, false, "Shared A remained held after all actual contributors retired");
+
+    Key(SDL_SCANCODE_RETURN, true, false, keyboard1);
+    Key(SDL_SCANCODE_RETURN, true, true, keyboard2);
+    Button(X(.5f), Y(.5f), true, SDL_BUTTON_LEFT, true, mouse1);
+    Button(X(.5f), Y(.5f), true, SDL_BUTTON_LEFT, true, mouse2);
+    Expect(trig + 5, release + 4, true, "Multi-instance A setup failed");
+    WindowEvent(SDL_EVENT_WINDOW_FOCUS_LOST);
+    Expect(trig + 5, release + 5, false, "Focus flush retained an instance's held A");
+    WindowEvent(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    Expect(trig + 5, release + 5, false, "Focus regain resurrected retired contributions");
+    RemoveKeyboard(keyboard1);
+    RemoveKeyboard(keyboard2);
+    MouseDeviceEvent(SDL_EVENT_MOUSE_REMOVED, mouse1);
+    MouseDeviceEvent(SDL_EVENT_MOUSE_REMOVED, mouse2);
+    Expect(trig + 5, release + 5, false, "Removal after focus flush delivered a second edge");
+    Check(WpadSDLConnectedChannels() == 1, "Input device removal disconnected the live virtual remote");
+}
+
 void SingleOwner() {
     bool rejected = false;
     std::thread foreign([&] {
@@ -291,6 +371,7 @@ int main() {
         HiddenAndMinimized();
         PresentedGeometryChanges();
         DetachAndReattach();
+        DeviceRemoval();
         SingleOwner();
         ShutdownDesktopWpad();
         WPADShutdown();

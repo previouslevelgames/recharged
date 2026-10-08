@@ -22,6 +22,10 @@ ChargedAXStorage ChargedAXGetCompressorStorage(void);
 void ChargedAXGetOutputStorage(ChargedAXStorage output[5]);
 ChargedAXStorage ChargedAXGetTaskStorage(void);
 
+// Optional actual HBM source static. Does not construct or initialize AxManager.
+ChargedAXStorage ChargedHBMGetZeroStorage(void);
+enum { CHARGED_AX_BASE_STORAGE_COUNT = 13, CHARGED_AX_HBM_STORAGE_COUNT = 14 };
+
 #ifdef __cplusplus
 }
 #endif

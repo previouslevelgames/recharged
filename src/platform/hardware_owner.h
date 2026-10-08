@@ -8,6 +8,22 @@ struct SDL_Window;
 
 namespace mscharged::platform {
 
+// Optional host-window lifecycle, installed before the first event pump. It
+// observes queued/watch close events without consuming or changing them and
+// coalesces one close intent for this exact window lifetime. No source callback
+// or physical/reset input is deferred. Initialization that never completes
+// still needs a separate host-abort policy.
+struct NativeHardwareWindowCloseStatus {
+    bool retaining{}, armed{}, requested{}, submitted{};
+    std::uint32_t window_id{}, event_type{};
+    std::uint64_t event_timestamp{}, stm_generation{};
+};
+void RetainNativeHardwareWindowClose(SDL_Window* window);
+// Call on the inactive owning thread after the matching STM power-removal
+// policy is genuinely configured; this function never services/delivers it.
+void ArmNativeHardwareWindowClose();
+NativeHardwareWindowCloseStatus GetNativeHardwareWindowCloseStatus();
+
 // Compose input with an existing SDK hardware owner. The exact STM input is
 // borrowed from that owner's initialized device and is never retired here.
 // These functions do not register/replace any SDK hardware endpoint.

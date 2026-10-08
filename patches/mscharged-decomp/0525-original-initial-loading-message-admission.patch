@@ -1,0 +1,24 @@
+From: mscharged-port native source preparation
+Subject: [PATCH] Admit the literal original initial loading message in frontend main
+Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+Classification: explicit temporary original frontend loading-message admission.
+
+At its original post-glStartup position, admit DisplayLoadingMessageFast
+through a frontend-only default-off definition. Preserve the whole original
+loading bitmap and GX/VI/XFB/allocator pipeline. Do not enable the historical
+MAIN_LOADING_MESSAGE definition or alter its other diagnostic exit branch.
+No game request, screen content, timing, frame logic or resource owner changes.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -555,7 +555,8 @@
+             &resetTask)));
+ 
+ #endif // DVD/reset registration remains outside this selected loading gate
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_INITIAL_LOADING_MESSAGE))
+     DisplayLoadingMessageFast();
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)

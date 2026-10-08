@@ -1,0 +1,106 @@
+From: mscharged-port contributors
+Subject: [PATCH] Report native DVD transfer and observed fault status
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native DVD drive state under the actual Nod media worker.
+
+Track actual BUSY/END transfer state and the genuine fatal I/O result under
+the existing worker mutex. Latch faults before the existing cancellation
+result substitution; reset cancels commands without inventing recovery.
+A successful new media-worker start clears the retired predecessor's fault.
+Absent/retired media reports NO_DISK.
+
+Report END after actual I/O returns, independently of the retained callback
+and source command storage. The getter never dereferences m_activeBlock;
+existing reset/close worker and callback drain barriers remain unchanged.
+No source polling, callback registration, command dispatch or result change.
+Post-fatal queued dispatch and physical pause/retry states remain unqualified.
+
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -376,6 +376,9 @@
+       return;
+     }
+     m_shutdown = false;
++    // A new, actually mounted media owner has no prior transfer or drive fault.
++    m_driveState = DVD_STATE_END;
++    m_fatalError = false;
+     m_thread = std::thread([this] { run(); });
+     m_running = true;
+   }
+@@ -474,6 +477,21 @@
+   bool retiring_media() {
+     std::lock_guard lk{m_mutex};
+     return m_preparingReset || s_mediaRetiring.load(std::memory_order_acquire);
++  }
++
++  s32 drive_status() {
++    std::lock_guard lk{m_mutex};
++    if (!s_mountedForCover.load(std::memory_order_acquire)) {
++      return DVD_STATE_NO_DISK;
++    }
++    // Original DVDGetDriveStatus gives the latched fatal condition priority.
++    // Preparing reset cancels requests; it does not recover a failed medium.
++    if (m_fatalError) {
++      return DVD_STATE_FATAL_ERROR;
++    }
++    // This is the transfer snapshot, not callback/handle quiescence. A source
++    // callback may have freed its block while m_activeBlock remains a drain token.
++    return m_driveState;
+   }
+ 
+   void retire_command(DVDCommandBlock* block) {
+@@ -577,6 +595,7 @@
+       m_queue.pop_front();
+       m_activeBlock = block;
+       atomic_store_release(block->state, DVD_STATE_BUSY);
++      m_driveState = DVD_STATE_BUSY;
+       lk.unlock();
+       process_command(block);
+       lk.lock();
+@@ -609,11 +628,19 @@
+     DVDCBCallback callback;
+     {
+       std::lock_guard lk{m_mutex};
++      // Source cbForStateError latches the physical fault before resolving a
++      // concurrent cancellation. Preserve the existing canceled result below.
++      if (result == DVD_RESULT_FATAL_ERROR) {
++        m_fatalError = true;
++      }
+       if (m_cancelActiveBlock == block) {
+         m_cancelActiveBlock = nullptr;
+         result = DVD_RESULT_CANCELED;
+         transferred = 0;
+       }
++      // Real I/O has returned. The drive is idle even while the original
++      // callback remains live; reset/close still wait for m_activeBlock to drain.
++      m_driveState = DVD_STATE_END;
+       callback = block->callback;
+     }
+     finishCommand(block, result, transferred);
+@@ -627,6 +654,7 @@
+       std::lock_guard lk{m_mutex};
+       m_activeBlock = block;
+       atomic_store_release(block->state, DVD_STATE_BUSY);
++      m_driveState = DVD_STATE_BUSY;
+     }
+     process_command(block);
+     {
+@@ -671,6 +699,8 @@
+   std::condition_variable m_doneCv;
+   std::deque<DVDCommandBlock*> m_queue;
+   DVDCommandBlock* m_activeBlock = nullptr;
++  s32 m_driveState = DVD_STATE_END;
++  bool m_fatalError = false;
+   DVDCommandBlock* m_cancelActiveBlock = nullptr;
+   bool m_preparingReset = false;
+   bool m_running = false;
+@@ -1010,7 +1040,7 @@
+   return atomic_load_acquire(block->state);
+ }
+ 
+-s32 DVDGetDriveStatus(void) { return s_initialized ? DVD_STATE_END : DVD_STATE_NO_DISK; }
++s32 DVDGetDriveStatus(void) { return s_worker.drive_status(); }
+ 
+ u32 __DVDGetCoverStatus(void) {
+   if (s_worker.retiring_media()) {

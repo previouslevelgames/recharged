@@ -1,0 +1,36 @@
+From: mscharged-port contributors
+Subject: [PATCH] Match native DVD result numbers to the Wii SDK ABI
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native SDK scalar ABI; no DVD/source algorithm change.
+
+The original Wii SDK result enum assigns cancellation -3 and cover closed -4.
+Keep cancellation command state 10 and all provider/source decisions unchanged.
+Refresh the existing result-value test to the independently verified literals.
+
+diff --git a/include/dolphin/dvd.h b/include/dolphin/dvd.h
+--- a/include/dolphin/dvd.h
++++ b/include/dolphin/dvd.h
+@@ -22,7 +22,8 @@
+ #define DVD_RESULT_GOOD        0
+ #define DVD_RESULT_FATAL_ERROR -1
+ #define DVD_RESULT_IGNORED     -2
+-#define DVD_RESULT_CANCELED    -6
++#define DVD_RESULT_CANCELED    -3
++#define DVD_RESULT_COVER_CLOSED -4
+ 
+ #define DVD_STATE_FATAL_ERROR   -1
+ #define DVD_STATE_END            0
+diff --git a/tests/test_dvd.cpp b/tests/test_dvd.cpp
+--- a/tests/test_dvd.cpp
++++ b/tests/test_dvd.cpp
+@@ -19,7 +19,9 @@
+   EXPECT_EQ(DVD_STATE_CANCELED, 10);
+   EXPECT_EQ(DVD_RESULT_GOOD, 0);
+   EXPECT_EQ(DVD_RESULT_FATAL_ERROR, -1);
+-  EXPECT_EQ(DVD_RESULT_CANCELED, -6);
++  EXPECT_EQ(DVD_RESULT_IGNORED, -2);
++  EXPECT_EQ(DVD_RESULT_CANCELED, -3);
++  EXPECT_EQ(DVD_RESULT_COVER_CLOSED, -4);
+ }
+ 
+ TEST(DVDStubs, StructSizes) {

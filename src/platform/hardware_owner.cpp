@@ -15,6 +15,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 namespace {
 struct Owner {
@@ -25,17 +26,46 @@ struct Owner {
     std::uint64_t pending_power{};
     bool ready{}, active{}, overflow{}, registered{};
     bool desktop_cadence{};
+    bool watched{}, close_retained{}, close_armed{}, close_requested{}, close_submitted{};
+    SDL_Window* close_window{};
+    std::uint32_t close_type{};
+    std::uint64_t close_timestamp{};
     std::chrono::steady_clock::time_point next_input{};
 };
 Owner& State() { static Owner owner; return owner; }
 
+void ClearInputState(Owner& state) {
+    std::lock_guard lock(state.latch);
+    state.pending_power = 0;
+    state.window = 0;
+    state.stm = {};
+    state.thread = {};
+    state.overflow = false;
+    state.watched = state.close_retained = state.close_armed = false;
+    state.close_requested = state.close_submitted = false;
+    state.close_window = nullptr;
+    state.close_type = 0;
+    state.close_timestamp = 0;
+}
+
 bool SDLCALL Watch(void*, SDL_Event* event) {
     auto& state = State();
     std::lock_guard lock(state.latch);
-    if (!state.ready) return true;
+    if (!state.ready && !state.close_retained) return true;
     if (event->type != SDL_EVENT_QUIT &&
             !(event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event->window.windowID == state.window))
         return true;
+    if (state.close_retained) {
+        // One host close intent, even when both this watch and the initial
+        // non-consuming queue peek observe the same event. Later Aurora EXIT
+        // is ordinary queue consumption, not a second power request.
+        if (!state.close_requested) {
+            state.close_requested = true;
+            state.close_type = event->type;
+            state.close_timestamp = event->common.timestamp;
+        }
+        return true;
+    }
     // SDL workers only latch hardware intent. Neither this watcher nor the
     // native owner decides how the original ResetTask responds to that input.
     if (state.pending_power == std::numeric_limits<std::uint64_t>::max()) state.overflow = true;
@@ -70,6 +100,13 @@ void Service() {
         // An occupied STM hardware queue or original one-shot registration
         // retains this intent. Original OSStateTM controls re-registration.
         if (state.pending_power && mscharged::platform::SubmitNativeSTMPower(state.stm)) --state.pending_power;
+        if (state.close_retained && state.close_armed && state.close_requested && !state.close_submitted) {
+            if (SDL_GetWindowFromID(state.window) != state.close_window)
+                throw std::logic_error("Retained close lost its exact live host window");
+            if (!mscharged::platform::IsNativeSTMPowerRemovalConfigured(state.stm))
+                throw std::logic_error("Retained close lost its exact configured STM owner");
+            if (mscharged::platform::SubmitNativeSTMPower(state.stm)) state.close_submitted = true;
+        }
     }
     mscharged::platform::ServiceNativeSTMDevice();
     mscharged::platform::ServiceNativeIOSRequests();
@@ -77,6 +114,71 @@ void Service() {
 }
 
 namespace mscharged::platform {
+void RetainNativeHardwareWindowClose(SDL_Window* window) {
+    const auto id = window ? SDL_GetWindowID(window) : 0;
+    if (!id || SDL_GetWindowFromID(id) != window)
+        throw std::invalid_argument("Close retention requires its actual live host window");
+    if (!NativeInterruptWaitAllowed() || !NativeInterruptsEnabled())
+        throw std::logic_error("Close retention requires an ordinary host owner");
+    auto& state = State();
+    {
+        std::lock_guard lock(state.latch);
+        if (state.ready || state.watched || state.close_retained)
+            throw std::logic_error("Close retention must precede native input initialization");
+        state.thread = std::this_thread::get_id();
+        state.window = id;
+        state.close_window = window;
+        state.close_retained = true;
+    }
+    if (!SDL_AddEventWatch(Watch, nullptr)) {
+        std::lock_guard lock(state.latch);
+        state.close_retained = false;
+        state.close_window = nullptr;
+        state.window = 0;
+        state.thread = {};
+        throw std::runtime_error(SDL_GetError());
+    }
+    { std::lock_guard lock(state.latch); state.watched = true; }
+    // AddEventWatch does not replay earlier queue entries. Peek only these
+    // genuine event kinds after installing the watch; overlaps coalesce.
+    // Nothing is removed, filtered, rewritten or re-posted.
+    auto peek = [&](std::uint32_t type) {
+        const int count = SDL_PeepEvents(nullptr, 0, SDL_PEEKEVENT, type, type);
+        if (count < 0) throw std::runtime_error(SDL_GetError());
+        if (!count) return;
+        std::vector<SDL_Event> events(static_cast<std::size_t>(count));
+        const int found = SDL_PeepEvents(events.data(), count, SDL_PEEKEVENT, type, type);
+        if (found < 0) throw std::runtime_error(SDL_GetError());
+        for (int i = 0; i != found; ++i) Watch(nullptr, &events[static_cast<std::size_t>(i)]);
+    };
+    // On failure the actual installed watcher/intent stays owned, rather than
+    // silently dropping a close; explicit native retirement can remove it.
+    peek(SDL_EVENT_QUIT);
+    peek(SDL_EVENT_WINDOW_CLOSE_REQUESTED);
+}
+
+void ArmNativeHardwareWindowClose() {
+    if (!NativeInterruptWaitAllowed() || !NativeInterruptsEnabled())
+        throw std::logic_error("Close arm requires an ordinary owning-thread boundary");
+    auto& state = State();
+    std::lock_guard lock(state.latch);
+    if (!state.ready || !state.close_retained || state.active ||
+            state.thread != std::this_thread::get_id() ||
+            SDL_GetWindowFromID(state.window) != state.close_window)
+        throw std::logic_error("Close arm requires its inactive live native window/input owner");
+    if (!IsNativeSTMPowerRemovalConfigured(state.stm))
+        throw std::logic_error("Close arm requires the matching installed STM power-removal policy");
+    state.close_armed = true;
+}
+
+NativeHardwareWindowCloseStatus GetNativeHardwareWindowCloseStatus() {
+    auto& state = State();
+    std::lock_guard lock(state.latch);
+    return {state.close_retained,state.close_armed,state.close_requested,state.close_submitted,
+        state.close_retained ? state.window : 0,state.close_type,state.close_timestamp,
+        state.close_retained ? state.stm.generation : 0};
+}
+
 void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     StmInput borrowed_stm, DesktopWpadSettings desktop) {
     if (!window || SDL_GetWindowID(window) == 0)
@@ -87,6 +189,9 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     {
         std::lock_guard lock(state.latch);
         if (state.ready) throw std::logic_error("Native hardware input already initialized");
+        if (state.close_retained && (state.thread != std::this_thread::get_id() ||
+                state.close_window != window || SDL_GetWindowFromID(state.window) != window))
+            throw std::logic_error("Native input cannot replace its retained close window lifetime");
     }
     ConfigureWpadSDL(settings);
     InitializeDesktopWpad(window, desktop);
@@ -116,13 +221,16 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
         state.next_input = {};
         state.ready = true;
     }
-    if (!SDL_AddEventWatch(Watch, nullptr)) {
+    bool watched;
+    { std::lock_guard lock(state.latch); watched = state.watched; }
+    if (!watched && !SDL_AddEventWatch(Watch, nullptr)) {
         { std::lock_guard lock(state.latch); state.ready = false; }
         SetNativeThreadWaitService(nullptr);
         ShutdownNativeAlarms();
         ShutdownDesktopWpad();
         throw std::runtime_error(SDL_GetError());
     }
+    { std::lock_guard lock(state.latch); state.watched = true; }
 }
 
 void ServiceNativeHardwareInput() { Service(); }
@@ -144,11 +252,23 @@ void InitializeNativeHardwareOwner(SDL_Window* window, WpadSDLSettings settings)
 
 void ShutdownNativeHardwareInput() {
     auto& state = State();
+    bool early_only = false;
     {
         std::lock_guard lock(state.latch);
-        if (!state.ready) return;
+        if (!state.ready && !state.close_retained) return;
         if (state.thread != std::this_thread::get_id() || state.active || state.registered)
             throw std::logic_error("Native input retirement requires its inactive, unregistered owner");
+        if (!state.ready) {
+            // Explicit retirement of the optional pre-input host stage. No
+            // source module/device ownership is initialized by retention.
+            state.close_retained = false;
+            early_only = true;
+        }
+    }
+    if (early_only) {
+        SDL_RemoveEventWatch(Watch, nullptr);
+        ClearInputState(state);
+        return;
     }
     // Source joins/detaches must have ended before device, descriptor, callback
     // image or arena backing retires. Physical joins cannot hold IRQ exclusion.
@@ -168,6 +288,7 @@ void ShutdownNativeHardwareInput() {
             throw std::logic_error("Native owner wait service identity changed");
         }
         state.ready = false;
+        state.close_retained = false;
     }
     // Remove watchers before releasing the device state they may have borrowed.
     // A previously loaded SDK function pointer sees ready=false and returns.
@@ -175,14 +296,7 @@ void ShutdownNativeHardwareInput() {
     ShutdownNativeAlarms();
     ShutdownDesktopWpad();
     WPADShutdown();
-    {
-        std::lock_guard lock(state.latch);
-        state.pending_power = 0;
-        state.window = 0;
-        state.stm = {};
-        state.thread = {};
-        state.overflow = false;
-    }
+    ClearInputState(state);
 }
 
 void ShutdownNativeHardwareOwner() {

@@ -1,6 +1,7 @@
 #include "platform/video_device.h"
 #include "platform/interrupt_controller.h"
 #include "platform/interrupts.h"
+#include "platform/stm_hardware_abi.h"
 
 #include <aurora/video.h>
 #include <dolphin/os.h>
@@ -143,3 +144,11 @@ void ConfigureNativeVideoHardware(std::uint32_t boot_tv_mode, bool dtv_cable) {
     }
 }
 } // namespace mscharged::platform
+
+// Original OSStateTM writes VI_DCR=0 before its terminal IOS request. The
+// interrupt and scanout owners stay live; this is not VISetBlack or shutdown.
+extern "C" void mscharged_stm_disable_video_output(void) {
+    if (!mscharged::platform::NativeInterruptWaitAllowed())
+        throw std::logic_error("STM display disable cannot wait under retained native interrupt exclusion");
+    aurora_disable_video_display();
+}

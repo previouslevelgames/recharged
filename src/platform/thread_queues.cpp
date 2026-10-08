@@ -55,6 +55,12 @@ struct NativeThread {
     OSThread& sdk;
     std::condition_variable changed;
     bool waiting{}, servicing{};
+    // A genuine initial Resume can park its lower-priority caller until the
+    // resumed incarnation actually blocks or returns. This is execution
+    // bookkeeping, with no source queue or readiness acknowledgement.
+    bool initial_handoff_parked{};
+    NativeThread* initial_resumer{};
+    OSContext* execution_context{};
     NativeThreadWaitService service{};
     // Created SDK descriptors are borrowed from the actual caller. Host stack
     // backing and native execution resources are separate physical ABI state.
@@ -85,7 +91,8 @@ struct NativeThread {
         sdk.val = reinterpret_cast<void*>(std::uintptr_t{0xffffffffu});
         sdk.stackBase = reinterpret_cast<u8*>(stack.high);
         sdk.stackEnd = reinterpret_cast<u8*>(stack.low);
-        if (auto* context = OSGetCurrentContext()) sdk.context = *context;
+        execution_context = OSGetCurrentContext();
+        if (execution_context) sdk.context = *execution_context;
         NativeInterruptGuard exclusion;
         auto& state = State();
         std::lock_guard lock(state.latch);
@@ -110,7 +117,9 @@ struct NativeThread {
         auto& state = State();
         std::lock_guard lock(state.latch);
         if (state.reschedule > 0 && state.scheduler_owner == this) std::terminate();
-        if (waiting || sdk.queue) std::terminate();
+        if (waiting || initial_handoff_parked || initial_resumer ||
+                sdk.queue || sdk.mutex || sdk.queueMutex.head || sdk.queueMutex.tail)
+            std::terminate();
         sdk.state = OS_THREAD_STATE_MORIBUND;
         RemoveActive(state, *this);
         state.live.erase(&sdk);
@@ -178,6 +187,93 @@ void Insert(OSThreadQueue* queue, OSThread* thread) {
     else queue->head = thread;
     if (next) next->link.prev = thread;
     else queue->tail = thread;
+}
+
+void ValidatePriorityOwner(Threads& state, OSThread* thread) {
+    auto& native = Find(state, thread);
+    if (thread->suspend != native.suspend_count ||
+            thread->base < OS_PRIORITY_MIN || thread->base > OS_PRIORITY_MAX)
+        throw std::logic_error("Native SDK priority owner/counter is invalid");
+}
+
+s32 EffectivePriority(Threads& state, OSThread* thread) {
+    ValidatePriorityOwner(state, thread);
+    s32 priority = thread->base;
+    OSMutex* previous{};
+    std::vector<OSMutex*> visited;
+    // Original __OSGetEffectivePriority: the minimum base and first waiter
+    // priority among the actual mutexes held by this same source thread.
+    for (auto* mutex = thread->queueMutex.head; mutex; mutex = mutex->link.next) {
+        for (auto* seen : visited)
+            if (seen == mutex) throw std::logic_error("Native SDK held-mutex list has a cycle");
+        visited.push_back(mutex);
+        if (mutex->thread != thread || mutex->count <= 0 || mutex->link.prev != previous)
+            throw std::logic_error("Native SDK held-mutex owner/list is invalid");
+        ValidateQueue(state, &mutex->queue);
+        if (auto* waiter = mutex->queue.head)
+            if (waiter->priority < priority) priority = waiter->priority;
+        previous = mutex;
+    }
+    if (previous != thread->queueMutex.tail)
+        throw std::logic_error("Native SDK held-mutex tail is invalid");
+    return priority;
+}
+
+OSThread* SetEffectivePriority(Threads& state, OSThread* thread, s32 priority) {
+    auto& native = Find(state, thread);
+    switch (thread->state) {
+    case OS_THREAD_STATE_WAITING: {
+        if (!native.waiting || !thread->queue)
+            throw std::logic_error("Native SDK priority waiter lacks its real queue");
+        auto* queue = thread->queue;
+        ValidateQueue(state, queue);
+        OSThread* owner{};
+        if (thread->mutex) {
+            owner = thread->mutex->thread;
+            if (queue != &thread->mutex->queue || !owner || owner == thread)
+                throw std::logic_error("Native SDK mutex wait owner is invalid");
+            (void)Find(state, owner);
+        }
+        Remove(queue, thread);
+        thread->priority = priority;
+        Insert(queue, thread); // Behind existing equal priorities, as in OSThread.c.
+        if (owner) return owner;
+        break;
+    }
+    case OS_THREAD_STATE_READY:
+    case OS_THREAD_STATE_RUNNING:
+        // Native execution owns physical runnable threads; the canonical SDK
+        // priority and source wait order remain in this sole registry.
+        thread->priority = priority;
+        break;
+    default:
+        break;
+    }
+    return nullptr;
+}
+
+void UpdatePriority(Threads& state, OSThread* thread) {
+    std::size_t changes{};
+    while (thread) {
+        ValidatePriorityOwner(state, thread);
+        if (thread->suspend > 0) return;
+        const auto priority = EffectivePriority(state, thread);
+        if (thread->priority == priority) return;
+        if (++changes > state.live.size())
+            throw std::logic_error("Native SDK priority inheritance failed to converge");
+        thread = SetEffectivePriority(state, thread, priority);
+    }
+}
+
+void PromoteThread(Threads& state, OSThread* thread, s32 priority) {
+    std::size_t changes{};
+    while (thread) {
+        ValidatePriorityOwner(state, thread);
+        if (thread->suspend > 0 || thread->priority <= priority) return;
+        if (++changes > state.live.size())
+            throw std::logic_error("Native SDK priority promotion failed to converge");
+        thread = SetEffectivePriority(state, thread, priority);
+    }
 }
 
 void Wait(NativeThread& native, std::unique_lock<std::mutex>& lock) {
@@ -258,11 +354,47 @@ void Wake(Threads& state, OSThreadQueue* queue) {
         native.changed.notify_one();
     }
 }
+void NotifyInitialResumer(NativeThread& native) {
+    if (native.initial_resumer) native.initial_resumer->changed.notify_one();
+}
+
+bool InitialBoundary(const NativeThread& native) {
+    // Completion is native metadata; never dereference an already retired SDK
+    // descriptor. Entry alone is insufficient: its source queue may not exist.
+    return native.completed || (native.started &&
+        (native.waiting || (native.self_suspended && native.suspend_count > 0)));
+}
+
+void WaitForInitialBoundary(Threads& state, NativeThread& caller,
+        const std::shared_ptr<NativeThread>& peer) {
+    for (;;) {
+        std::unique_lock lock(state.latch);
+        caller.changed.wait(lock, [&] { return InitialBoundary(*peer); });
+        lock.unlock();
+        OSDisableInterrupts();
+        lock.lock();
+        // A genuine wake may have won the native mask before the resumer. It
+        // must wait for the higher-priority source continuation to block again.
+        if (InitialBoundary(*peer)) {
+            if (peer->initial_resumer != &caller || !caller.initial_handoff_parked ||
+                    caller.sdk.state != OS_THREAD_STATE_READY || caller.suspend_count ||
+                    caller.sdk.suspend || caller.waiting || caller.sdk.queue)
+                throw std::logic_error("Native initial-resume continuation ownership changed");
+            peer->initial_resumer = nullptr;
+            caller.initial_handoff_parked = false;
+            caller.sdk.state = OS_THREAD_STATE_RUNNING;
+            return;
+        }
+        lock.unlock();
+        OSEnableInterrupts();
+    }
+}
+
 void Complete(Threads& state, NativeThread& native, void* result) {
     if (native.completed) return;
     if (state.reschedule > 0 && state.scheduler_owner == &native)
         throw std::logic_error("Native SDK owner returned with original scheduling disabled");
-    if (native.waiting || native.sdk.queue || native.sdk.mutex ||
+    if (native.waiting || native.initial_handoff_parked || native.sdk.queue || native.sdk.mutex ||
             native.sdk.queueMutex.head || native.sdk.queueMutex.tail)
         throw std::logic_error("Native SDK exit still borrows an unqualified wait/mutex owner");
     OSClearContext(&native.sdk.context);
@@ -275,6 +407,7 @@ void Complete(Threads& state, NativeThread& native, void* result) {
     }
     Wake(state, &native.sdk.queueJoin);
     native.completed = true;
+    NotifyInitialResumer(native);
     native.changed.notify_all();
 }
 void Run(const std::shared_ptr<NativeThread>& native) noexcept {
@@ -318,7 +451,8 @@ void Run(const std::shared_ptr<NativeThread>& native) noexcept {
             native->sdk.stackEnd = reinterpret_cast<u8*>(stack.low);
         }
         bound_thread = native.get();
-        OSSetCurrentContext(&native->sdk.context);
+        native->execution_context = &native->sdk.context;
+        OSSetCurrentContext(native->execution_context);
         result = native->entry(native->argument);
     } catch (...) {
         native->failure = std::current_exception();
@@ -355,6 +489,22 @@ void JoinHost(const std::shared_ptr<NativeThread>& native) {
 } // namespace
 
 extern "C" OSThread* OSGetCurrentThread() { return &Current().sdk; }
+
+extern "C" s32 __OSGetEffectivePriority(OSThread* thread) {
+    Mask mask;
+    auto& state = State();
+    std::lock_guard lock(state.latch);
+    return EffectivePriority(state, thread);
+}
+
+extern "C" void __OSPromoteThread(OSThread* thread, s32 priority) {
+    if (priority < OS_PRIORITY_MIN || priority > OS_PRIORITY_MAX + 1)
+        throw std::invalid_argument("Native SDK inherited priority is invalid");
+    Mask mask;
+    auto& state = State();
+    std::lock_guard lock(state.latch);
+    PromoteThread(state, thread, priority);
+}
 
 extern "C" s32 OSDisableScheduler() {
     Mask mask;
@@ -431,13 +581,23 @@ extern "C" void OSSleepThread(OSThreadQueue* queue) {
         if (state.reschedule > 0 && state.scheduler_owner == &native)
             throw std::logic_error("Native SDK disabled-scheduler caller cannot deschedule");
         if (native.waiting || native.servicing || native.sdk.queue ||
-                native.sdk.state != OS_THREAD_STATE_RUNNING || native.sdk.suspend != 0 ||
-                native.sdk.mutex || native.sdk.queueMutex.head || native.sdk.queueMutex.tail)
+                native.sdk.state != OS_THREAD_STATE_RUNNING || native.sdk.suspend != 0)
             throw std::logic_error("Native SDK thread wait state is unqualified");
+        (void)EffectivePriority(state, &native.sdk);
+        // Whole original OSLockMutex publishes mutex before this actual sleep;
+        // source holders may also wait on messages while retaining their locks.
+        if (native.sdk.mutex) {
+            auto* owner = native.sdk.mutex->thread;
+            if (queue != &native.sdk.mutex->queue || !owner || owner == &native.sdk ||
+                    native.sdk.mutex->count <= 0)
+                throw std::logic_error("Native SDK source mutex wait is invalid");
+            (void)Find(state, owner);
+        }
         ValidateQueue(state, queue);
         native.sdk.state = OS_THREAD_STATE_WAITING;
         native.waiting = true;
         Insert(queue, &native.sdk);
+        NotifyInitialResumer(native);
     }
 
     // A descheduled Wii thread does not keep hardware globally masked. Enqueue
@@ -463,15 +623,13 @@ extern "C" BOOL OSSetThreadPriority(OSThread* thread, OSPriority priority) {
     Mask mask;
     auto& state = State();
     std::lock_guard lock(state.latch);
-    auto& native = Find(state, thread);
-    if (thread->mutex || thread->queueMutex.head || thread->queueMutex.tail || thread->suspend != native.suspend_count)
-        throw std::logic_error("Native SDK mutex/suspension scheduling is unqualified");
+    ValidatePriorityOwner(state, thread);
     if (thread->base != priority) {
-        auto* queue = native.waiting ? thread->queue : nullptr;
-        if (queue) { ValidateQueue(state, queue); Remove(queue, thread); }
+        const auto& native = Find(state, thread);
+        if (native.initial_resumer || native.initial_handoff_parked)
+            throw std::logic_error("Native initial-resume base reprioritization has no rescheduling boundary");
         thread->base = priority;
-        if (native.suspend_count == 0) thread->priority = priority;
-        if (queue) Insert(queue, thread);
+        UpdatePriority(state, thread);
     }
     return TRUE;
 }
@@ -541,7 +699,7 @@ extern "C" BOOL OSCreateThread(OSThread* thread, void* (*entry)(void*), void* ar
         std::lock_guard lock(state.latch);
         if (const auto found = state.live.find(thread); found != state.live.end()) {
             old = Managed(state, thread);
-            if (!old->completed || old->active)
+            if (!old->completed || old->active || old->initial_resumer || old->initial_handoff_parked)
                 throw std::logic_error("Native SDK thread descriptor is still borrowed by an active lifetime");
         }
     }
@@ -614,31 +772,65 @@ extern "C" BOOL OSIsThreadSuspended(OSThread* thread) {
     return native.suspend_count > 0;
 }
 extern "C" s32 OSResumeThread(OSThread* thread) {
+    auto& caller = Current();
+    const bool may_wait = NativeInterruptWaitAllowed();
     Mask mask;
     auto& state = State();
-    std::lock_guard lock(state.latch);
+    std::unique_lock lock(state.latch);
     auto& native = Find(state, thread);
-    if (native.sdk.suspend != native.suspend_count || native.sdk.mutex ||
-            native.sdk.queueMutex.head || native.sdk.queueMutex.tail)
-        throw std::logic_error("Native SDK resume/mutex state is unqualified");
+    ValidatePriorityOwner(state, thread);
     const auto prior = native.suspend_count;
+    std::shared_ptr<NativeThread> initial_peer;
+    if (prior == 1 && native.managed && !native.started && !native.completed &&
+            !native.waiting && native.sdk.state == OS_THREAD_STATE_READY &&
+            state.reschedule <= 0 && EffectivePriority(state, thread) < caller.sdk.priority) {
+        // Original SelectThread(FALSE) preempts only for a strictly higher
+        // ready priority. Arbitrary running-peer preemption remains held.
+        if (!may_wait || caller.servicing || caller.initial_handoff_parked ||
+                caller.waiting || caller.sdk.state != OS_THREAD_STATE_RUNNING ||
+                caller.suspend_count || caller.sdk.queue ||
+                OSGetCurrentContext() != caller.execution_context)
+            throw std::logic_error("Native initial Resume has no cooperative caller/context boundary");
+        for (const auto& entry : state.live) {
+            const auto& peer = *entry.second;
+            if (&peer == &caller || &peer == &native || peer.completed || peer.initial_handoff_parked)
+                continue;
+            if (peer.servicing || peer.sdk.state == OS_THREAD_STATE_RUNNING ||
+                    (!peer.waiting && peer.suspend_count == 0))
+                throw std::logic_error("Native initial Resume cannot preempt a running/runnable foreign peer");
+        }
+        if (native.initial_resumer)
+            throw std::logic_error("Native initial Resume already borrows this incarnation");
+        initial_peer = Managed(state, thread);
+        native.initial_resumer = &caller;
+        caller.initial_handoff_parked = true;
+        caller.sdk.state = OS_THREAD_STATE_READY;
+    }
     if (native.suspend_count > 0) {
         --native.suspend_count;
         if (native.self_suspended && native.self_suspend_pending)
             native.self_suspend_pending = false;
     }
     native.sdk.suspend = native.suspend_count;
-    if (native.suspend_count == 0) {
+    if (prior == 1) {
         if (native.waiting) {
             auto* queue = native.sdk.queue;
             ValidateQueue(state, queue);
             Remove(queue, thread);
-            thread->priority = thread->base;
+            thread->priority = EffectivePriority(state, thread);
             Insert(queue, thread);
+            if (thread->mutex) UpdatePriority(state, thread->mutex->thread);
         } else if (native.sdk.state == OS_THREAD_STATE_READY) {
-            thread->priority = thread->base;
+            thread->priority = EffectivePriority(state, thread);
         }
         native.changed.notify_one();
+    }
+    if (initial_peer) {
+        lock.unlock();
+        // Preserve a plain caller mask, but do not carry its global native
+        // exclusion through the actual higher-priority source execution.
+        OSEnableInterrupts();
+        WaitForInitialBoundary(state, caller, initial_peer);
     }
     return prior;
 }
@@ -654,10 +846,12 @@ extern "C" s32 OSSuspendThread(OSThread* thread) {
     {
         std::lock_guard lock(state.latch);
         native = &Find(state, thread);
+        if (native->initial_handoff_parked || (native->initial_resumer && !native->started))
+            throw std::logic_error("Native initial-resume continuation cannot be externally suspended");
         if (native == &caller && state.reschedule > 0 && state.scheduler_owner == &caller)
             throw std::logic_error("Native SDK disabled-scheduler caller cannot self-suspend");
-        if (native->sdk.suspend != native->suspend_count || native->sdk.mutex ||
-                native->sdk.queueMutex.head || native->sdk.queueMutex.tail || native->completed ||
+        ValidatePriorityOwner(state, thread);
+        if (native->completed ||
                 native->suspend_count == std::numeric_limits<s32>::max())
             throw std::logic_error("Native SDK suspend state is unqualified");
         if (!native->waiting && native->sdk.state == OS_THREAD_STATE_RUNNING && native != &caller)
@@ -671,10 +865,12 @@ extern "C" s32 OSSuspendThread(OSThread* thread) {
                 Remove(queue, thread);
                 thread->priority = OS_PRIORITY_MAX + 1;
                 Insert(queue, thread);
+                if (thread->mutex) UpdatePriority(state, thread->mutex->thread);
             } else if (native == &caller && native->sdk.state == OS_THREAD_STATE_RUNNING) {
                 native->sdk.state = OS_THREAD_STATE_READY;
                 native->self_suspended = true;
                 native->self_suspend_pending = true;
+                NotifyInitialResumer(*native);
                 self_wait = true;
             }
         }
@@ -714,6 +910,8 @@ extern "C" BOOL OSJoinThread(OSThread* thread, void** value) {
     {
         std::lock_guard lock(state.latch);
         native = Managed(state, thread);
+        if (native->initial_resumer || native->initial_handoff_parked)
+            throw std::logic_error("Native join still borrows an initial-resume continuation");
         wait = !(thread->attr & OS_THREAD_ATTR_DETACH) &&
             thread->state != OS_THREAD_STATE_MORIBUND && thread->queueJoin.head == nullptr;
     }
@@ -740,6 +938,8 @@ extern "C" void OSDetachThread(OSThread* thread) {
     auto& state = State();
     std::lock_guard lock(state.latch);
     auto native = Managed(state, thread);
+    if (native->initial_resumer || native->initial_handoff_parked)
+        throw std::logic_error("Native detach still borrows an initial-resume continuation");
     thread->attr |= OS_THREAD_ATTR_DETACH;
     if (thread->state == OS_THREAD_STATE_MORIBUND) {
         RemoveActive(state, *native);
@@ -756,6 +956,8 @@ extern "C" void OSCancelThread(OSThread* thread) {
         Mask mask;
         std::lock_guard lock(state.latch);
         native = Managed(state, thread);
+        if (native->initial_resumer || native->initial_handoff_parked)
+            throw std::logic_error("Native cancellation still borrows an initial-resume continuation");
         if (native->completed) return;
         if (native->started || native->waiting || native->sdk.mutex ||
                 native->sdk.queueMutex.head || native->sdk.queueMutex.tail)
@@ -767,6 +969,72 @@ extern "C" void OSCancelThread(OSThread* thread) {
     JoinHost(native);
 }
 namespace mscharged::platform {
+NativeThreadPowerRemovalStatus ValidateNativeThreadsForPowerRemoval() {
+    if (NativeInterruptsEnabled() || !NativeInterruptWaitAllowed())
+        throw std::logic_error("Native terminal thread fence requires the source plain interrupt mask");
+    auto& caller = Current();
+    auto& state = State();
+    std::lock_guard lock(state.latch);
+    if (!caller.active || caller.waiting || caller.servicing || caller.initial_handoff_parked ||
+            caller.initial_resumer || caller.self_suspended ||
+            caller.self_suspend_pending || caller.sdk.state != OS_THREAD_STATE_RUNNING ||
+            caller.sdk.suspend != 0 || caller.sdk.queue || caller.sdk.mutex ||
+            caller.sdk.queueMutex.head || caller.sdk.queueMutex.tail ||
+            (state.reschedule > 0 && state.scheduler_owner != &caller))
+        throw std::logic_error("Native terminal caller still borrows an unfinished SDK lifetime");
+
+    NativeThreadPowerRemovalStatus status;
+    // Complete is published only after the original entry and all ordinary
+    // native C++ frame destructors have ended. A std::thread may still have a
+    // joinable handle at that point; power removal retains that handle/image.
+    // Inactive joined/detached descriptors may already be freed by their source
+    // owner, so only native metadata is read in this pass, never their sdk alias.
+    for (const auto& entry : state.managed) {
+        const auto& native = *entry.second;
+        if (&native == &caller) continue;
+        if (!native.completed || native.failure || native.waiting || native.servicing ||
+                native.initial_resumer || native.initial_handoff_parked ||
+                native.self_suspended || native.self_suspend_pending)
+            throw std::logic_error("Native power removal has an unfinished or failed source worker");
+        ++status.completed_workers;
+    }
+    for (const auto& entry : state.live) {
+        const auto& native = *entry.second;
+        if (&native != &caller && !native.managed)
+            throw std::logic_error("Native power removal still owns a foreign SDK caller");
+    }
+
+    // Original OSCancelThread leaves joinable threads MORIBUND in this actual
+    // active list; OSReset::KillThreads does not join them. Verify the retained
+    // source records without changing their state, links, results or ownership.
+    OSThread* previous{};
+    std::size_t count{};
+    bool found_caller{};
+    for (auto* thread = state.active.head; thread; thread = thread->linkActive.next) {
+        if (++count > state.live.size())
+            throw std::logic_error("Native terminal active thread list has a cycle");
+        auto& native = Find(state, thread);
+        if (!native.active || thread->linkActive.prev != previous)
+            throw std::logic_error("Native terminal active thread list ownership is invalid");
+        if (&native == &caller) {
+            found_caller = true;
+        } else {
+            if (!native.managed || !native.completed || native.failure ||
+                    thread->state != OS_THREAD_STATE_MORIBUND || thread->queue ||
+                    thread->mutex || thread->queueMutex.head || thread->queueMutex.tail ||
+                    thread->queueJoin.head || thread->queueJoin.tail)
+                throw std::logic_error("Native terminal source descriptor is not genuinely quiescent");
+            ++status.retained_moribund_threads;
+        }
+        previous = thread;
+    }
+    std::size_t active_count{};
+    for (const auto& entry : state.live) if (entry.second->active) ++active_count;
+    if (!found_caller || previous != state.active.tail || count != active_count)
+        throw std::logic_error("Native terminal source caller/list ownership is invalid");
+    return status;
+}
+
 void DrainNativeThreadLifetimes() {
     if (!NativeInterruptWaitAllowed())
         throw std::logic_error("Cannot retire SDK workers inside an interrupt/host exclusion");
@@ -777,7 +1045,7 @@ void DrainNativeThreadLifetimes() {
         std::lock_guard lock(state.latch);
         for (const auto& entry : state.managed) {
             const auto& native = entry.second;
-            if (!native->completed || native->active)
+            if (!native->completed || native->active || native->initial_resumer || native->initial_handoff_parked)
                 throw std::logic_error("Native SDK source callback or attached thread still owns its lifetime");
             retired.push_back(native);
         }

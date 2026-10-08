@@ -1,0 +1,322 @@
+# Native-only live HBM task and stream/sequence owner carriers.
+# Upstream-base: 132cdee912111da6c9973b1dce13651f1979b07d
+# Prerequisites: original523, real nested-type task storage524, compiler headers529.
+
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
+@@ -7,6 +7,13 @@
+ #include "revolution/hbm/nw4hbm/ut.h"
+ #endif
+ #include "revolution/hbm/nw4hbm/ut/LinkList.h"
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#define NW4HBM_TASK_ID std::uintptr_t
++#else
++#define NW4HBM_TASK_ID u32
++#endif
+ 
+ namespace nw4hbm {
+ namespace snd {
+@@ -19,20 +26,20 @@
+     Task() :
+         mTaskId(0) {}
+ 
+-    Task(u32 taskId) :
++    Task(NW4HBM_TASK_ID taskId) :
+         mTaskId(taskId) {}
+ 
+     /* 0x08 */ virtual ~Task() {}
+     /* 0x0C */ virtual void Execute() = 0;
+     /* 0x10 */ virtual void Cancel() = 0;
+ 
+-    u32 GetTaskId() const { return mTaskId; }
++    NW4HBM_TASK_ID GetTaskId() const { return mTaskId; }
+ 
+ public:
+     /* 0x04 */ ut::LinkListNode mTaskLink;
+ 
+ private:
+-    /* 0x0C */ u32 mTaskId;
++    /* 0x0C */ NW4HBM_TASK_ID mTaskId;
+ };
+ 
+ typedef ut::LinkList<Task, offsetof(Task, mTaskLink)> TaskList;
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+@@ -32,7 +32,7 @@
+     void Execute();
+     bool ExecuteSingle() DECOMP_DONT_INLINE;
+ 
+-    void CancelByTaskId(u32 taskId);
++    void CancelByTaskId(NW4HBM_TASK_ID taskId);
+ 
+     u32 GetTaskBufferSize();
+     void* Alloc();
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
+@@ -109,7 +109,7 @@
+     return true;
+ }
+ 
+-void TaskManager::CancelByTaskId(u32 taskId) {
++void TaskManager::CancelByTaskId(NW4HBM_TASK_ID taskId) {
+     ut::AutoInterruptLock lock;
+ 
+     for (int i = 0; i < PRIORITY_MAX; i++) {
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmPlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmPlayer.h
+@@ -2,6 +2,13 @@
+ #define NW4HBM_SND_STRM_PLAYER_H
+ 
+ #include "revolution/hbm/nw4hbm/snd/types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/Task.h"
++#else
++#ifndef NW4HBM_TASK_ID
++#define NW4HBM_TASK_ID u32
++#endif
++#endif
+ 
+ #include "revolution/hbm/nw4hbm/snd/AxVoice.h"
+ 
+@@ -75,13 +82,13 @@
+ 
+         virtual ~StrmCallback() {}
+ 
+-        virtual Result LoadHeader(StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData, u32 userId,
++        virtual Result LoadHeader(StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData, NW4HBM_TASK_ID userId,
+                                   u32 userData) const = 0;
+         virtual Result LoadStream(void* mramAddr, u32 size, s32 offset, int numChannels, u32 blockSize,
+                                   s32 blockHeaderOffset, bool needUpdateAdpcmLoop, StrmPlayer::LoadCommand& callback,
+-                                  u32 userId, u32 userData) const = 0;
+-
+-        virtual void CancelLoading(u32 userId, u32 userData) const = 0;
++                                  NW4HBM_TASK_ID userId, u32 userData) const = 0;
++
++        virtual void CancelLoading(NW4HBM_TASK_ID userId, u32 userData) const = 0;
+     };
+ 
+ public:
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
+@@ -51,7 +51,7 @@
+     mBufferPool = bufferPool;
+ 
+     StrmCallback::Result result =
+-        callback->LoadHeader(NotifyStrmHeaderAsyncEndCallback, this, reinterpret_cast<u32>(this), callbackData);
++        callback->LoadHeader(NotifyStrmHeaderAsyncEndCallback, this, reinterpret_cast<NW4HBM_TASK_ID>(this), callbackData);
+ 
+     switch (result) {
+         case StrmCallback::RESULT_FAILED: {
+@@ -367,7 +367,7 @@
+ 
+     StrmCallback::Result result = mCallback->LoadStream(param->mMramBuf, loadSize, loadOffset, mChannelCount, blockSize,
+                                                         mStrmInfo.blockHeaderOffset, needUpdateAdpcmLoop, *param,
+-                                                        reinterpret_cast<u32>(this), mCallbackData);
++                                                        reinterpret_cast<NW4HBM_TASK_ID>(this), mCallbackData);
+     switch (result) {
+         case StrmCallback::RESULT_FAILED: {
+             ForceStop();
+@@ -743,7 +743,7 @@
+         }
+     }
+ 
+-    mCallback->CancelLoading(reinterpret_cast<u32>(this), mCallbackData);
++    mCallback->CancelLoading(reinterpret_cast<NW4HBM_TASK_ID>(this), mCallbackData);
+ 
+     {
+         ut::AutoInterruptLock lock;
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSound.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSound.h
+@@ -4,7 +4,14 @@
+ #include "revolution/types.h"
+ 
+ #include "revolution/hbm/nw4hbm/snd/debug.h"
++#if defined(MSCHARGED_NATIVE)
++#include "revolution/hbm/nw4hbm/snd/Task.h"
++#else
+ // #include "revolution/hbm/nw4hbm/snd/Task.h"
++#ifndef NW4HBM_TASK_ID
++#define NW4HBM_TASK_ID u32
++#endif
++#endif
+ 
+ #include "revolution/hbm/nw4hbm/ut/LinkList.h"
+ 
+@@ -40,8 +47,8 @@
+ 
+         /* 0x08 */ virtual ~SeqLoadCallback() {}
+         /* 0x0C */ virtual Result LoadData(SeqSound::NotifyAsyncEndCallback callback, void* callbackArg,
+-                                           u32 userData) const = 0;
+-        /* 0x10 */ virtual void CancelLoading(u32 userData) const = 0;
++                                           NW4HBM_TASK_ID userData) const = 0;
++        /* 0x10 */ virtual void CancelLoading(NW4HBM_TASK_ID userData) const = 0;
+     };
+ 
+     explicit SeqSound(SoundInstanceManager<SeqSound>* nanager);
+@@ -59,7 +66,7 @@
+                                  NoteOnCallback* callback);
+ 
+     void Prepare(const void* seqBase, s32 seqOffset);
+-    void Prepare(const SeqLoadCallback* callback, u32 callbackData);
++    void Prepare(const SeqLoadCallback* callback, NW4HBM_TASK_ID callbackData);
+ 
+     void SetTempoRatio(f32 tempoRatio);
+     void SetChannelPriority(int priority);
+@@ -81,7 +88,7 @@
+     /* 0x1F8 */ SoundInstanceManager<SeqSound>* mManager;
+     /* 0x1E8 */ bool mLoadingFlag;
+     /* 0x1EC */ const SeqLoadCallback* mCallback;
+-    /* 0x1F0 */ u32 mCallbackData;
++    /* 0x1F0 */ NW4HBM_TASK_ID mCallbackData;
+ };
+ 
+ } // namespace detail
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
+@@ -45,7 +45,7 @@
+     mSeqPlayer.SetSeqData(seqBase, seqOffset);
+ }
+ 
+-void SeqSound::Prepare(const SeqLoadCallback* callback, u32 callbackData) {
++void SeqSound::Prepare(const SeqLoadCallback* callback, NW4HBM_TASK_ID callbackData) {
+     NW4HBMAssertPointerNonnull_Line(callback, 128);
+ 
+     if (callback == NULL) {
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
+@@ -116,8 +116,8 @@
+         SeqLoadCallback(const SoundArchivePlayer& player);
+ 
+         virtual Result LoadData(detail::SeqSound::NotifyAsyncEndCallback callback, void* callbackArg,
+-                                u32 userData) const;
+-        virtual void CancelLoading(u32 userData) const;
++                                NW4HBM_TASK_ID userData) const;
++        virtual void CancelLoading(NW4HBM_TASK_ID userData) const;
+ 
+     private:
+         /* 0x04 */ const SoundArchivePlayer& mSoundArchivePlayer;
+@@ -141,11 +141,11 @@
+         StrmCallback(const SoundArchivePlayer& player);
+ 
+         virtual Result LoadHeader(detail::StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData,
+-                                  u32 userId, u32 userData) const;
++                                  NW4HBM_TASK_ID userId, u32 userData) const;
+         virtual Result LoadStream(void* mramAddr, u32 size, s32 offset, int numChannels, u32 blockSize,
+                                   s32 blockHeaderOffset, bool needUpdateAdpcmLoop,
+-                                  detail::StrmPlayer::LoadCommand& callback, u32 userId, u32 userData) const;
+-        virtual void CancelLoading(u32 userId, u32 userData) const;
++                                  detail::StrmPlayer::LoadCommand& callback, NW4HBM_TASK_ID userId, u32 userData) const;
++        virtual void CancelLoading(NW4HBM_TASK_ID userId, u32 userData) const;
+ 
+     private:
+         /* 0x04 */ const SoundArchivePlayer& mSoundArchivePlayer;
+@@ -168,7 +168,7 @@
+     class SeqLoadTask : public detail::Task {
+     public:
+         SeqLoadTask(detail::SeqSound::NotifyAsyncEndCallback callback, void* callbackArg, const SoundArchive& arc,
+-                    u32 fileId, u32 dataOffset, SoundHeap& heap, u32 taskId, OSMutex& mutex);
++                    u32 fileId, u32 dataOffset, SoundHeap& heap, NW4HBM_TASK_ID taskId, OSMutex& mutex);
+ 
+         virtual void Execute();
+         virtual void Cancel();
+@@ -187,7 +187,7 @@
+     class StrmHeaderLoadTask : public detail::Task {
+     public:
+         StrmHeaderLoadTask(detail::StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData,
+-                           const SoundArchive& arc, u32 fileId, u32 taskId, OSMutex& mutex);
++                           const SoundArchive& arc, u32 fileId, NW4HBM_TASK_ID taskId, OSMutex& mutex);
+ 
+         virtual void Execute();
+         virtual void Cancel();
+@@ -205,7 +205,7 @@
+     public:
+         StrmDataLoadTask(void* addr, u32 size, s32 offset, int numChannels, u32 blockSize, s32 blockHeaderOffset,
+                          bool needUpdateAdpcmLoop, detail::StrmPlayer::LoadCommand& callback, const SoundArchive& arc,
+-                         u32 fileId, u32 taskId, OSMutex& mutex);
++                         u32 fileId, NW4HBM_TASK_ID taskId, OSMutex& mutex);
+         virtual void Execute();
+         virtual void Cancel();
+ 
+--- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
+@@ -707,7 +707,7 @@
+         detail::SeqFileReader reader(seqData);
+         sound->Prepare(reader.GetBaseAddress(), info->dataOffset);
+     } else {
+-        sound->Prepare(&mSeqLoadCallback, reinterpret_cast<u32>(sound));
++        sound->Prepare(&mSeqLoadCallback, reinterpret_cast<NW4HBM_TASK_ID>(sound));
+     }
+ 
+     return SoundStartable::START_SUCCESS;
+@@ -829,7 +829,7 @@
+ 
+ detail::SeqSound::SeqLoadCallback::Result
+ SoundArchivePlayer::SeqLoadCallback::LoadData(detail::SeqSound::NotifyAsyncEndCallback callback, void* callbackArg,
+-                                              u32 userData) const {
++                                              NW4HBM_TASK_ID userData) const {
+     if (!mSoundArchivePlayer.IsAvailable()) {
+         return RESULT_FAILED;
+     }
+@@ -865,7 +865,7 @@
+     return RESULT_ASYNC;
+ }
+ 
+-void SoundArchivePlayer::SeqLoadCallback::CancelLoading(u32 userData) const {
++void SoundArchivePlayer::SeqLoadCallback::CancelLoading(NW4HBM_TASK_ID userData) const {
+     detail::TaskManager::GetInstance().CancelByTaskId(userData);
+ }
+ 
+@@ -946,7 +946,7 @@
+ 
+ detail::StrmPlayer::StrmCallback::Result
+ SoundArchivePlayer::StrmCallback::LoadHeader(detail::StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback,
+-                                             void* callbackData, u32 userId, u32 userData) const {
++                                             void* callbackData, NW4HBM_TASK_ID userId, u32 userData) const {
+     if (!mSoundArchivePlayer.IsAvailable()) {
+         return RESULT_FAILED;
+     }
+@@ -967,7 +967,7 @@
+ 
+ detail::StrmPlayer::StrmCallback::Result SoundArchivePlayer::StrmCallback::LoadStream(
+     void* mramAddr, u32 size, s32 offset, int numChannels, u32 blockSize, s32 blockHeaderOffset,
+-    bool needUpdateAdpcmLoop, detail::StrmPlayer::LoadCommand& callback, u32 userId, u32 userData) const {
++    bool needUpdateAdpcmLoop, detail::StrmPlayer::LoadCommand& callback, NW4HBM_TASK_ID userId, u32 userData) const {
+     if (!mSoundArchivePlayer.IsAvailable()) {
+         return RESULT_FAILED;
+     }
+@@ -988,13 +988,13 @@
+     return RESULT_ASYNC;
+ }
+ 
+-void SoundArchivePlayer::StrmCallback::CancelLoading(u32 userId, u32 userData) const {
++void SoundArchivePlayer::StrmCallback::CancelLoading(NW4HBM_TASK_ID userId, u32 userData) const {
+     detail::TaskManager::GetInstance().CancelByTaskId(userId);
+ }
+ 
+ SoundArchivePlayer::SeqLoadTask::SeqLoadTask(detail::SeqSound::NotifyAsyncEndCallback callback, void* callbackArg,
+                                              const SoundArchive& arc, u32 fileId, u32 dataOffset, SoundHeap& heap,
+-                                             u32 taskId, OSMutex& mutex) :
++                                             NW4HBM_TASK_ID taskId, OSMutex& mutex) :
+     mCallback(callback),
+     mCallbackData(callbackArg),
+     mSoundArchive(arc),
+@@ -1043,7 +1043,7 @@
+ 
+ SoundArchivePlayer::StrmHeaderLoadTask::StrmHeaderLoadTask(
+     detail::StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData, const SoundArchive& arc,
+-    u32 fileId, u32 taskId, OSMutex& mutex) :
++    u32 fileId, NW4HBM_TASK_ID taskId, OSMutex& mutex) :
+     Task(taskId),
+     mSoundArchive(arc),
+     mFileId(fileId),
+@@ -1138,7 +1138,7 @@
+ SoundArchivePlayer::StrmDataLoadTask::StrmDataLoadTask(void* addr, u32 size, s32 offset, int numChannels, u32 blockSize,
+                                                        s32 blockHeaderOffset, bool needUpdateAdpcmLoop,
+                                                        detail::StrmPlayer::LoadCommand& callback,
+-                                                       const SoundArchive& arc, u32 fileId, u32 taskId,
++                                                       const SoundArchive& arc, u32 fileId, NW4HBM_TASK_ID taskId,
+                                                        OSMutex& mutex) :
+     Task(taskId),
+     mAddr(addr),

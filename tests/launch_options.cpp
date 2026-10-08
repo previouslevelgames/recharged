@@ -39,7 +39,7 @@ int main()
     fs::create_directories(root / "config"); fs::create_directories(root / "working");
     const auto path = root / "config/settings.ini";
     const std::string original = "\xEF\xBB\xBF; untouched\r\n[game]\r\ndisc = \"games/INI disc.rvz\"\r\n"
-        "[display]\r\nwidth = 960\r\nheight = 640\r\nfullscreen = true\r\naspect = 4:3\r\n"
+        "language = french\r\n[display]\r\nwidth = 960\r\nheight = 640\r\nfullscreen = true\r\naspect = 4:3\r\n"
         "[future]\r\nunknown = retained\r\n";
     std::ofstream(path, std::ios::binary) << original;
     const auto stamp = fs::last_write_time(path);
@@ -48,6 +48,7 @@ int main()
         auto file = LoadConfig(path);
         const auto baseline = ResolveLaunch(file, {});
         Check(baseline.disc_path == root / "config/games/INI disc.rvz", "INI-relative disc base changed");
+        Check(baseline.settings.language == "french", "INI text language lost before native handoff");
         Check(baseline.settings.width == 960 && baseline.settings.height == 640 && baseline.settings.fullscreen,
             "INI display values not retained");
         Check(baseline.disc_source == SettingSource::Config && baseline.width_source == SettingSource::Config
@@ -122,14 +123,17 @@ int main()
         const char* unknown_inline[] = {"test", "--unknown=value"}; index = 1;
         Check(!ParseLaunchOption(2, unknown_inline, index, untouched) && index == 1 && !untouched.disc,
             "Shared parsing consumed an unknown inline option");
-        Settings draft = file.settings; draft.disc = "launcher.rvz"; draft.width = 1111; draft.aspect = "auto";
+        Settings draft = file.settings; draft.disc = "launcher.rvz"; draft.width = 1111; draft.aspect = "auto"; draft.language = "spanish";
         const auto edited = ResolveLaunch(file, {}, &draft);
         Check(edited.disc_source == SettingSource::Launcher && edited.width_source == SettingSource::Launcher
             && edited.height_source == SettingSource::Config && edited.disc_path == root / "config/launcher.rvz",
             "Launcher draft precedence or provenance lost");
+        Check(edited.settings.language == "spanish" && edited.config.settings.language == "french",
+            "Launcher text language must reach handoff without rewriting stored INI settings");
         Check(edited.settings.aspect == "auto" && edited.aspect_source == SettingSource::Launcher,
             "Launcher aspect draft precedence lost");
         const auto override_draft = ResolveLaunch(file, parsed, &draft, root / "working");
+        Check(override_draft.settings.language == "spanish", "Unrelated CLI options lost launcher text language");
         Check(override_draft.settings.width == 600 && override_draft.disc_path == resolved.disc_path,
             "Launcher edits overrode explicit CLI options");
         Check(override_draft.settings.aspect == "16:9" && override_draft.aspect_source == SettingSource::CommandLine,

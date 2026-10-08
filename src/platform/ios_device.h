@@ -21,6 +21,15 @@ NativeIOSDeviceLease RegisterNativeIOSDevice(NativeIOSDevice device);
 // Device storage and callbacks must still be alive. Retirement rejects queued
 // or active requests; the device closes its actual handles before retiring.
 void UnregisterNativeIOSDevice(NativeIOSDeviceLease lease);
+// Explicit host-provider metadata, configured after real device registration.
+// Identity is native services (NS), not an installed Wii IOS slot or version.
+// Configuration requires the owner and no pending/active callbacks; the last
+// device retirement invalidates metadata. The source getter remains read-only.
+void ConfigureNativeIOSServiceRevision();
 bool ServiceNativeIOSRequests();
 NativeIOSStatus GetNativeIOSStatus();
 }
+
+struct OSIOSRev;
+// Source SDK ABI; queries metadata only, without executing IOS work/callbacks.
+extern "C" void __OSGetIOSRev(OSIOSRev* revision);
