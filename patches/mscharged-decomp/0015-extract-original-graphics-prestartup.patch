@@ -1,6 +1,6 @@
 Subject: Build the unchanged original graphics pre-startup helper
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 The selected helper returns true and performs no graphics initialization.
 Extract it unchanged so the native startup can pass this genuine no-op without
@@ -10,7 +10,7 @@ The full original translation unit includes the same definition.
 diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
 --- a/src/NL/gl/glPlat.cpp
 +++ b/src/NL/gl/glPlat.cpp
-@@ -145,10 +145,7 @@
+@@ -125,10 +125,7 @@
      GXFlush();
  }
  

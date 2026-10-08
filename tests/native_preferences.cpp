@@ -11,6 +11,15 @@
 #include <source_location>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 thread_local long allocation_budget=-1;
 void* operator new(std::size_t n)
@@ -56,7 +65,7 @@ void ReachFile(NativePreferences& p)
 }
 void EmptyTemps(const std::filesystem::path& dir)
 {
-    for(const auto& entry:std::filesystem::directory_iterator(dir))Check(entry.path().filename().string().find(".pending-")==std::string::npos,"Temporary file leaked");
+    for(const auto& entry:std::filesystem::directory_iterator(dir))Check(entry.path().filename().native().find(std::filesystem::path(".pending-").native())==std::filesystem::path::string_type::npos,"Temporary file leaked");
 }
 void SourceKernels()
 {
@@ -103,6 +112,25 @@ void Lifecycle(const std::filesystem::path& dir)
     bool foreign=false;std::thread t([&]{try{p.Status();}catch(const std::exception&){foreign=true;}});t.join();Check(foreign,"Foreign thread read accepted");
     p.Cancel();Check(!p.Status().save_enabled&&!p.Status().in_operation&&p.Current()==saved,"Cancel lost prior retained publication");Reject([&]{p.StartLoad();});EmptyTemps(dir);
 }
+void ReplacementAndUnicode(const std::filesystem::path& dir)
+{
+    const auto folder=dir/std::filesystem::path(u8"pr\u00e9f\u00e9rences-\u65e5\u672c");
+    std::filesystem::create_directory(folder);
+    const auto path=folder/std::filesystem::path(u8"options-\u00e9.pref");
+    NativePreferences owner(path);owner.StartLoad();Pump(owner);
+    Check(owner.Status().state==NativePreferencesState::Missing,"Unicode preference absence differs");
+    auto first=DefaultNativePreferences();first.audio={2,6,8};
+    owner.StartSave(first);Pump(owner);const auto retained=owner.Current();
+    auto replacement=first;replacement.audio[0]=7;replacement.auto_zoom=false;replacement.camera_zoom=.25f;
+    owner.StartSave(replacement);Pump(owner);
+    const auto bytes=EncodeNativePreferences(replacement);
+    Check(Read(path)==Data(bytes.begin(),bytes.end()),"Existing Unicode preferences were not replaced exactly");
+    Check(*retained==first&&*owner.Current()==replacement,"Replacement mutated a retained snapshot");
+    NativePreferences reopened(path);reopened.StartLoad();Pump(reopened);
+    Check(*reopened.Current()==replacement&&reopened.Status().preferences_loaded,"Unicode replacement did not reopen");
+    Check(!owner.Status().full_save_complete&&!owner.Status().original_normal_save_loaded,"Host replacement claimed original game-save completion");
+    owner.Cancel();reopened.Cancel();EmptyTemps(folder);
+}
 void FailureAndCancellation(const std::filesystem::path& dir)
 {
     const auto defaults=DefaultNativePreferences();auto edited=defaults;edited.audio={1,2,3};
@@ -129,35 +157,90 @@ void FailureAndCancellation(const std::filesystem::path& dir)
     // Real host failures after successful directory completion, not a fake I/O
     // provider. The harness runs as the ordinary invoking user.
     const auto readonly=dir/"readonly";std::filesystem::create_directory(readonly);
+#ifdef _WIN32
+    // Directory READONLY is not a Windows write ACL. Deny replacement using
+    // the destination's actual readonly attribute after a successful load.
+    const auto denied_path=readonly/"x.pref";Write(denied_path,EncodeNativePreferences(defaults));
+    const DWORD old_attributes=GetFileAttributesW(denied_path.c_str());
+    Check(old_attributes!=INVALID_FILE_ATTRIBUTES,"Cannot observe readonly fixture attributes");
+#endif
     NativePreferences denied(readonly/"x.pref");denied.StartLoad();Pump(denied);auto denied_old=denied.Current();
+#ifdef _WIN32
+    Check(SetFileAttributesW(denied_path.c_str(),old_attributes|FILE_ATTRIBUTE_READONLY)!=0,"Cannot protect Windows preference destination");
+#else
     std::filesystem::permissions(readonly,std::filesystem::perms::owner_read|std::filesystem::perms::owner_exec);
+#endif
     denied.StartSave(edited);
     try
     {
         Reject([&]{Pump(denied);});
         Check(denied.Status().directory_callbacks==2&&denied.Status().in_operation&&denied.Current()==denied_old,"Real file write failure lost original operation state");
     }
-    catch(...){std::filesystem::permissions(readonly,std::filesystem::perms::owner_all);throw;}
-    std::filesystem::permissions(readonly,std::filesystem::perms::owner_all);denied.Cancel();EmptyTemps(readonly);
+    catch(...)
+    {
+#ifdef _WIN32
+        SetFileAttributesW(denied_path.c_str(),old_attributes);
+#else
+        std::filesystem::permissions(readonly,std::filesystem::perms::owner_all);
+#endif
+        throw;
+    }
+#ifdef _WIN32
+    Check(SetFileAttributesW(denied_path.c_str(),old_attributes)!=0,"Cannot restore Windows preference destination");
+    const auto denied_bytes=EncodeNativePreferences(defaults);
+    Check(Read(denied_path)==Data(denied_bytes.begin(),denied_bytes.end()),"Denied replacement changed existing bytes");
+#else
+    std::filesystem::permissions(readonly,std::filesystem::perms::owner_all);
+#endif
+    denied.Cancel();EmptyTemps(readonly);
     const auto protected_dir=dir/"protected-commit";std::filesystem::create_directory(protected_dir);
     NativePreferences protected_commit(protected_dir/"x.pref");protected_commit.StartLoad();Pump(protected_commit);auto protected_old=protected_commit.Current();
     protected_commit.StartSave(edited);ReachFile(protected_commit);
     // Wait for the real worker to close its 64-byte temporary. Poll is withheld
     // so destination publication cannot occur during this observation.
     const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(5);bool staged=false;
+#ifdef _WIN32
+    std::filesystem::path staged_path;
+#endif
     while(!staged)
     {
-        for(const auto& entry:std::filesystem::directory_iterator(protected_dir))if(entry.file_size()==64)staged=true;
+        for(const auto& entry:std::filesystem::directory_iterator(protected_dir))if(entry.file_size()==64)
+        {
+            staged=true;
+#ifdef _WIN32
+            staged_path=entry.path();
+#endif
+        }
         Check(std::chrono::steady_clock::now()<limit,"Staged file was not written");std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+#ifdef _WIN32
+    // Keep the real staged file readable/writable but deny DELETE sharing.
+    // Both rename and the owner's cleanup must fail until this handle closes.
+    const HANDLE staged_lock=CreateFileW(staged_path.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    Check(staged_lock!=INVALID_HANDLE_VALUE,"Cannot retain staged preference fixture");
+#else
     std::filesystem::permissions(protected_dir,std::filesystem::perms::owner_read|std::filesystem::perms::owner_exec);
+#endif
     try
     {
         Reject([&]{Pump(protected_commit);});Reject([&]{protected_commit.Cancel();});
         Check(protected_commit.Current()==protected_old&&!std::filesystem::exists(protected_dir/"x.pref"),"Failed rename/cleanup published data");
     }
-    catch(...){std::filesystem::permissions(protected_dir,std::filesystem::perms::owner_all);throw;}
-    std::filesystem::permissions(protected_dir,std::filesystem::perms::owner_all);protected_commit.Cancel();EmptyTemps(protected_dir);
+    catch(...)
+    {
+#ifdef _WIN32
+        CloseHandle(staged_lock);
+#else
+        std::filesystem::permissions(protected_dir,std::filesystem::perms::owner_all);
+#endif
+        throw;
+    }
+#ifdef _WIN32
+    Check(CloseHandle(staged_lock)!=0,"Cannot release staged preference fixture");
+#else
+    std::filesystem::permissions(protected_dir,std::filesystem::perms::owner_all);
+#endif
+    protected_commit.Cancel();EmptyTemps(protected_dir);
     for(unsigned n:{0u,63u,65u})
     {
         const auto short_path=dir/("short-"+std::to_string(n)+".pref");Data b(n,0);Write(short_path,b);
@@ -198,7 +281,7 @@ int main(int argc,char** argv)
     try
     {
         Check(argc==2,"Expected private fixture directory");const std::filesystem::path dir=argv[1];Check(dir.is_absolute(),"Fixture path is not absolute");
-        SourceKernels();Codec(dir);Lifecycle(dir);FailureAndCancellation(dir);AllocationFailures(dir);
+        SourceKernels();Codec(dir);Lifecycle(dir);ReplacementAndUnicode(dir);FailureAndCancellation(dir);AllocationFailures(dir);
         for(unsigned i=0;i<8;++i){NativePreferences p(dir/"lifecycle.pref");p.StartLoad();Pump(p);Check(p.Current()->audio==std::array{3,4,5},"Repeated owner changed retained file");}
         std::cout<<"Native preferences: "<<checks<<" checks; actual staged host I/O, original game save completeness=false\n";return 0;
     }

@@ -35,7 +35,7 @@ python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --work
 ./build/release/mscharged --disc /path/to/R4QE01.rvz --window
 ```
 
-Quote paths containing spaces. Use `main`, not the older `master` branch.
+Quote paths containing spaces. These commands build the `main` development branch.
 The helper initializes only required recorded revisions, including the selected
 Metal dependencies. It does not update remote branch tips or discard local edits.
 

@@ -29,6 +29,36 @@ written against the exact upstream text, never against the formatted copy.
 
 ## Charged series
 
+Patch 0585 restores the original SDK texture-binding loop and its panic,
+null and unpacked branches. Native address conversion publishes structural
+headers atomically; allocation failure leaves the source bytes intact.
+Standalone SaveLoad and HOME share the same original TPL provider.
+
+Patch 0583 adapts HOME layout byte order and relative offsets beneath the
+original layout constructors. Original layout, material, text and animation
+providers share the existing resource owners. Generated-data tests cover
+scalar/color/text records and resource lifetime; full HOME startup is pending.
+
+Patch 0584 preserves the HOME library's original RGBA word/byte relationship
+on native hosts. Color storage remains four GX bytes; numeric constructors,
+assignments and operators retain the original big-endian scalar interpretation.
+
+Patch 0581 adapts RLAN animation byte order and relative offsets beneath the
+original layout loader. Original header predicates and curve evaluation are
+tested against native views with allocation-owned lifetimes. Full HOME layout
+construction and animation playback remain separate integration steps.
+
+Patch 0582 supplies native HOME TPL header/address transport for I4, IA4, IA8
+and RGB5A3 resources. Original TPLGet and layout texture requests use exact
+archive-file bounds and unchanged tiled pixels. CPU descriptor tests cover
+this data boundary; full HOME rendering remains separate work.
+
+Patch 0580 adapts original HOME font resources to native pointer widths and
+byte order. Original ResFont attachment, rebuilding, glyph lookup and detach
+remain in their whole source units. Embedded resources use exact archive-file
+bounds; native metadata retires with its original allocation. This qualifies
+RFNT 1.4 data transport, not complete HOME-menu rendering.
+
 Patch 0539 supplies compiler declarations, native pointer arithmetic and the
 MWCC absolute-value intrinsic for original HOME sound-player and heap sources.
 A GCC option scoped to the disposal manager preserves its cross-TU virtual
@@ -40,11 +70,28 @@ debug providers. Native services supply address checks, stack unwinding and
 terminal halt behavior; original assertion expressions and initialization side
 effects remain enabled. Full HOME-menu startup is still separate work.
 
-The current pin is `11c0bc65`, which source-links `Team.cpp` and the wind-debris
-unit. Its typed Thwomp event replaces the earlier port workaround. Model
-duplication now stays in the original `glModel.cpp`; the separate copy is used
-only by the historical scene preview. Native clock and matrix-handle adapters
-follow the new upstream header ownership.
+The current pin is `9cdfc1e9`, which additionally source-links `StatsTracker.cpp`,
+`DesireStatusEffects.cpp`, and `ImpostorCluster.cpp`. The patch series follows
+upstream's statistics owners, scene names, CupManager singleton and corrected
+character enum values. Source selection remains explicit: an upstream match
+alone does not establish native gameplay readiness.
+
+Patch 0595 uses the native allocation size type in functor and animation
+controller declarations, including Windows' 64-bit pointer/32-bit `long` ABI.
+Original pool selection and allocation bodies remain unchanged.
+
+Patches 0596–0597 use the host ODE size declaration and carry native list-node
+handles at pointer width. The original list and allocator operations are tested
+with real addresses above 4 GiB, including Windows' 32-bit `long` ABI.
+
+Patch 0598 extends native `size_t` allocation signatures across original class
+allocators and their matching definitions. Pool selection, allocation bodies
+and console declarations are preserved.
+
+Patches 0599 and 0650–0652 adapt native compiler annotations, delete declarations
+and intentional MWCC return semantics. Presentation script strings use the
+existing VM address decoder; their serialized words and original calls remain
+unchanged. The return compatibility option is limited to its two original TUs.
 
 Patch 0532 exposes the original HBM silence array for optional native DSP
 registration before game arena allocation. The host retains its source image

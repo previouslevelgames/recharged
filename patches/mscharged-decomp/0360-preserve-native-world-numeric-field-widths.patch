@@ -1,5 +1,5 @@
 Subject: Preserve Wii numeric world fields and shared native object prefix
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Native-only fixed-width declarations preserve the original numeric hash,
 type/layer, creation flags, effect hash and probability words. Keep full-width
@@ -29,7 +29,7 @@ diff --git a/include/Game/World/WorldEffect.h b/include/Game/World/WorldEffect.h
 --- a/include/Game/World/WorldEffect.h
 +++ b/include/Game/World/WorldEffect.h
 @@ -25,8 +25,13 @@
-     /* 0x64 */ float mUnidentified064;
+     /* 0x64 */ float m_fEmissionIntervalOffset;
      /* 0x68 */ float m_fEmissionRadius;
      /* 0x6C */ u8 m_pad6C[0x04];
 +#if defined(MSCHARGED_NATIVE)

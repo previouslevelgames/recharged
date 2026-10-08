@@ -24,6 +24,7 @@ std::uint32_t NativeThreadAlarmTag();
 
 struct NativeThreadPowerRemovalStatus {
     std::size_t completed_workers{};
+    std::size_t stopped_workers{};
     std::size_t retained_moribund_threads{};
 };
 
@@ -32,7 +33,10 @@ struct NativeThreadPowerRemovalStatus {
 // source MORIBUND joinable descriptors and still-joinable host handles stay
 // retained. It neither joins/detaches/cancels workers nor retires their images.
 // The caller must keep the mask, descriptors, callbacks and arenas alive until
-// actual process removal. Live, failed or servicing peers remain unsupported.
+// actual process removal. Only the original final power-off path may additionally
+// retain cancelled contexts genuinely parked inside the native wait. Their frames
+// have not completed and cannot be joined, resumed, freed or reused. Other live,
+// failed or servicing peers remain unsupported.
 NativeThreadPowerRemovalStatus ValidateNativeThreadsForPowerRemoval();
 
 // Borrowed SDK descriptors/callback images must remain alive until their actual

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original cue, delay and source selection steps
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Typed native callers validate complete resource closure before invoking these
 original algorithms. Inject RNG state explicitly; retain console delegation.
@@ -291,11 +291,12 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
 diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenceEvent.cpp
 --- a/src/Game/Audio/AudioSequenceEvent.cpp
 +++ b/src/Game/Audio/AudioSequenceEvent.cpp
-@@ -13,6 +13,7 @@
+@@ -13,7 +13,8 @@
  
  #include "Game/Audio/SoundInstance.h"
  #include "Game/Audio/AudioSequenceEvent.h"
 +#include "Game/Audio/AudioBankSelectionSteps.h"
+ #include "Game/Audio/AudioBankLoader.h"
  
  SlotPool<SoundPlaybackEvent> sSoundPlaybackEventPool(32, 16);
  SlotPool<HitMarkerEvent> sHitMarkerEventPool(32, 16);
@@ -356,5 +357,5 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
 -    }
 +    u32 selectedIndex = AudioSelectSourceSteps(definition, AudioEventRandom());
  
-     void* entries = *(void**)((u8*)owner->soundInstance->owner->m_Slot
-                               + 0x10);
+     AudioResourceLoadOwner* resource =
+         (AudioResourceLoadOwner*)owner->soundInstance->owner->m_Slot;

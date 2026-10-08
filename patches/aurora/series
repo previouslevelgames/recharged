@@ -56,3 +56,4 @@
 0060-complete-native-dvd-requests-after-fatal-error.patch
 0061-match-native-dvd-result-numbers.patch
 0062-report-good-native-dvd-cancel-all-completion.patch
+0063-reuse-native-vi-surface-copy-resources.patch

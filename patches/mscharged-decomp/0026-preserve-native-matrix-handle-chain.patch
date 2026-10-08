@@ -1,6 +1,6 @@
 Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Matrix handles address live GL matrix storage. Preserve their width through
 allocation, global state, model packets, draw/text callers, render caches and
@@ -312,7 +312,7 @@ diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -182,8 +182,8 @@
+@@ -179,8 +179,8 @@
      glSetRasterState(GLS_AlphaBlend, 2);
      glSetCurrentRasterState(glHandleizeRasterState());
  
@@ -520,7 +520,7 @@ diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
 diff --git a/src/NL/gl/glModel.cpp b/src/NL/gl/glModel.cpp
 --- a/src/NL/gl/glModel.cpp
 +++ b/src/NL/gl/glModel.cpp
-@@ -12,57 +12,7 @@
+@@ -7,57 +7,7 @@
  
  #include <string.h>
  
@@ -809,7 +809,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
 --- a/src/NL/glx/glxModel.cpp
 +++ b/src/NL/glx/glxModel.cpp
-@@ -5,17 +5,7 @@
+@@ -7,17 +7,7 @@
  #include "NL/gl/glPlat.h"
  #include "NL/glx/glxDisplayList.h"
  

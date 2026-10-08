@@ -17,6 +17,10 @@ set(_charged_wii_print_sources
     "${MSCHARGED_PREPARED}/src/MSL/float.c"
 )
 set_source_files_properties(${_charged_wii_print_sources} PROPERTIES LANGUAGE CXX)
+# Keep this original Wii16 loop: a compiler-generated host wcslen call may
+# consume 32-bit wchar_t even when the source is compiled with -fshort-wchar.
+set_property(SOURCE "${MSCHARGED_PREPARED}/src/MSL/wstring.c" APPEND PROPERTY COMPILE_OPTIONS
+    "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fno-builtin-wcslen>")
 add_library(charged_wii_msl STATIC ${_charged_wii_print_sources})
 add_dependencies(charged_wii_msl verify_prepared)
 target_compile_features(charged_wii_msl PRIVATE cxx_std_20)
@@ -52,3 +56,18 @@ target_compile_features(charged_wii_string_format PRIVATE cxx_std_17)
 target_include_directories(charged_wii_string_format PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_options(charged_wii_string_format PRIVATE -fshort-wchar -fno-strict-aliasing)
 target_link_libraries(charged_wii_string_format PRIVATE charged_wii_msl)
+
+if(BUILD_TESTING)
+    add_executable(native_msl_literals_tests tests/native_msl_literals.cpp)
+    target_compile_features(native_msl_literals_tests PRIVATE cxx_std_17)
+    target_include_directories(native_msl_literals_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(native_msl_literals_tests PRIVATE charged_wii_string_format)
+    add_test(NAME native_msl_literals COMMAND native_msl_literals_tests)
+    set_tests_properties(native_msl_literals PROPERTIES TIMEOUT 10)
+    add_executable(native_msl_varargs_tests tests/native_msl_varargs.cpp)
+    target_compile_features(native_msl_varargs_tests PRIVATE cxx_std_17)
+    target_include_directories(native_msl_varargs_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(native_msl_varargs_tests PRIVATE charged_wii_string_format)
+    add_test(NAME native_msl_varargs COMMAND native_msl_varargs_tests)
+    set_tests_properties(native_msl_varargs PROPERTIES TIMEOUT 10)
+endif()

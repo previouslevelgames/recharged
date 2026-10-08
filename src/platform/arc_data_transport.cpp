@@ -126,3 +126,63 @@ extern "C" void ChargedValidateARCLayout(const void* archive,
             throw std::invalid_argument("ARC directory indices exceed its serialized record extent");
     }
 }
+
+bool mscharged::platform::FindNativeARCFileSpan(const void* file,
+    NativeARCFileSpan& result)
+{
+    result = {};
+    if (!file) return false;
+    try
+    {
+        const auto span = Completed(file, 1);
+        const auto* archive = static_cast<const unsigned char*>(span.base);
+        ChargedARCHeader(archive, alignof(std::uint32_t));
+        if (ChargedReadARCWord(archive) != 0x55AA382D) return false;
+        const auto fstStart = ChargedReadARCWord(archive + 4);
+        const auto fstBytes = ChargedReadARCWord(archive + 8);
+        const auto fileStart = ChargedReadARCWord(archive + 12);
+        constexpr auto signedMax = std::uint32_t(std::numeric_limits<std::int32_t>::max());
+        if (fstStart > signedMax || fstBytes > signedMax || fileStart > signedMax)
+            return false;
+        ChargedValidateARCLayout(archive, std::int32_t(fstStart),
+            std::int32_t(fstBytes), std::int32_t(fileStart), alignof(std::uint32_t));
+        // The direct profile admits the real root directory and file area,
+        // without treating an arbitrary interior completed pointer as a root.
+        if (fstStart < 32 || fileStart < std::size_t(fstStart) + fstBytes)
+            return false;
+        const auto* fst = archive + fstStart;
+        const auto count = ChargedReadARCWord(fst + 8);
+        if ((ChargedReadARCWord(fst) >> 24) != 1 || ChargedReadARCWord(fst + 4) != 0)
+            return false;
+        const auto address = reinterpret_cast<std::uintptr_t>(file);
+        const auto base = reinterpret_cast<std::uintptr_t>(archive);
+        std::size_t bytes = 0;
+        bool matched = false;
+        for (std::uint32_t i = 1; i < count; ++i)
+        {
+            const auto* entry = fst + std::size_t(i) * 12;
+            if ((ChargedReadARCWord(entry) >> 24) != 0) continue;
+            const auto position = ChargedReadARCWord(entry + 4);
+            if (position < fileStart
+                || base > std::numeric_limits<std::uintptr_t>::max() - position)
+                return false;
+            if (base + position != address) continue;
+            if (matched) return false;
+            matched = true;
+            bytes = ChargedReadARCWord(entry + 8);
+        }
+        if (!matched || !bytes) return false;
+        const auto current = Completed(file, bytes);
+        if (current.base != span.base || current.bytes != span.bytes
+            || current.allocation.base != span.allocation.base
+            || current.allocation.incarnation != span.allocation.incarnation)
+            return false;
+        Serialized(file, bytes);
+        result = {file, bytes, current};
+        return true;
+    }
+    catch (const std::invalid_argument&)
+    {
+        return false;
+    }
+}

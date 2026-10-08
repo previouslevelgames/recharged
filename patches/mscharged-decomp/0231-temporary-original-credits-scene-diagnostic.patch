@@ -1,6 +1,6 @@
 Subject: [PATCH] Scope temporary original Credits scene integration
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE explicitly omits unrelated views, material
 programs, world/input/movie initialization and later phases in a scene test.
@@ -22,7 +22,7 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
  #include "NL/gl/glPlat.h"
 @@ -115,6 +119,7 @@
  
- void fn_80271DE0()
+ void ApplyLayerVisibilityTweaks()
  {
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
      sLayerViews[eCLV_ImpostorTexture]->m_Visible = eCLV_ImpostorTextureEnabled.GetValue();

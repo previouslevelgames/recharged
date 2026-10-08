@@ -1,0 +1,55 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Purpose: Preserve original RGBA scalar/byte aliases on native little-endian hosts.
+
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/Color.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/Color.h
+@@ -48,13 +48,49 @@
+         return *this;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    Color& operator=(const GXColor& color) {
++        r = color.r;
++        g = color.g;
++        b = color.b;
++        a = color.a;
++        return *this;
++    }
++#else
+     Color& operator=(const GXColor& color) { return *this = *reinterpret_cast<const u32*>(&color); }
++#endif
+ 
+     Color operator|(u32 color) const { return Color(ToU32() | color); }
+     Color operator&(u32 color) const { return Color(ToU32() & color); }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The original big-endian word aliases RGBA bytes. Keep that scalar view
++    // without changing the four-byte GXColor representation on a native host.
++    struct NativeWordRef {
++        GXColor* color;
++        operator u32() const {
++            return (u32(color->r) << 24) | (u32(color->g) << 16)
++                   | (u32(color->b) << 8) | color->a;
++        }
++        NativeWordRef& operator=(u32 value) {
++            color->r = u8(value >> 24);
++            color->g = u8(value >> 16);
++            color->b = u8(value >> 8);
++            color->a = u8(value);
++            return *this;
++        }
++        NativeWordRef& operator=(const NativeWordRef& value) {
++            return *this = u32(value);
++        }
++    };
++    NativeWordRef ToU32ref() { return {this}; }
++    u32 ToU32ref() const {
++        return (u32(r) << 24) | (u32(g) << 16) | (u32(b) << 8) | a;
++    }
++#else
+     u32& ToU32ref() { return *reinterpret_cast<u32*>(this); }
+     const u32& ToU32ref() const { return *reinterpret_cast<const u32*>(this); }
++#endif
+     u32 ToU32() const { return ToU32ref(); }
+ 
+     operator u32() const { return ToU32ref(); }

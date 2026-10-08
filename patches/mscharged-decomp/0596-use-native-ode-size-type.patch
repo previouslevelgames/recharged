@@ -1,0 +1,19 @@
+Subject: Use the host size_t declaration for native ODE compilation
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+The Wii unsigned-long size_t alias conflicts with the actual LLP64 host type.
+Include the host declaration only for native builds; retain console tokens.
+
+--- a/include/ode/config.h
++++ b/include/ode/config.h
+@@ -14,6 +14,10 @@
+ typedef char int8;
+ typedef unsigned char uint8;
+ typedef uint32 intP;
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#else
+ typedef unsigned long size_t;
++#endif
+ 
+ #endif

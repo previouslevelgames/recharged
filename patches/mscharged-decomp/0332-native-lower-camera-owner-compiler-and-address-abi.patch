@@ -1,6 +1,6 @@
 From: mscharged-port native integration
 Subject: [PATCH] Preserve original lower camera-owner native addresses and compiler declarations
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Permanent native compiler/address ABI only. Whole source owners retain
 their original methods, source globals, allocation requests and algorithms.
@@ -28,8 +28,8 @@ diff --git a/src/Game/AI/FuzzyRuntimeBase.cpp b/src/Game/AI/FuzzyRuntimeBase.cpp
              function, 1, (u32)value, 0, 0, 0);
 +#endif
  
-         UnidentifiedVariant_80054AB8* result =
-             *(UnidentifiedVariant_80054AB8**)runtime->m_SP;
+         DesireUpdate* result =
+             *(DesireUpdate**)runtime->m_SP;
 diff --git a/src/Game/NetworkInputRecording.cpp b/src/Game/NetworkInputRecording.cpp
 --- a/src/Game/NetworkInputRecording.cpp
 +++ b/src/Game/NetworkInputRecording.cpp

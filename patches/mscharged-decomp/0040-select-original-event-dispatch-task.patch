@@ -1,9 +1,10 @@
-Subject: Select original dispatch task and base transition hook
+Subject: Select original dispatch task and shared base header
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
-Extract the existing default nlTask::StateTransition from Team.cpp for independent
-source selection and retain the original DispatchEventsTask::Run(true) path.
+Upstream now owns the default nlTask::StateTransition inline in its header.
+Retain the original DispatchEventsTask::Run(true) path and diagnostic destructor
+selection without defining a second transition body.
 Native initialization uses the checked game-new overload with construction-failure
 cleanup. Reset cancels pending payloads before releasing blocks and preserves the
 original persistent task; the port supplies explicit final task destruction.
@@ -44,10 +45,6 @@ diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
 new file mode 100644
 --- /dev/null
 +++ b/src/NL/TaskBase.cpp
-@@ -0,0 +1,6 @@
-+// Original default transition hook extracted from Game/Team.cpp.
+@@ -0,0 +1,2 @@
++// The original default transition hook is inline in NL/nlTask.h.
 +#include "NL/nlTask.h"
-+
-+void nlTask::StateTransition(unsigned int, unsigned int)
-+{
-+}

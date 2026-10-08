@@ -1,13 +1,15 @@
 #include "platform/native_tpl.h"
 #include "platform/game_allocation_ownership.h"
+#include "platform/arc_data_transport.h"
 #include "platform/host_metadata.h"
 #include <dolphin/os.h>
+#include <dolphin/gx.h>
 
-#include <array>
 #include <cstring>
 #include <limits>
 #include <new>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace mscharged::platform
@@ -29,38 +31,27 @@ template<class T> struct MetadataAllocator
     template<class U> bool operator==(const MetadataAllocator<U>&) const noexcept { return true; }
 };
 template<class T> using MetadataVector = std::vector<T, MetadataAllocator<T>>;
-enum class RecordKind { Palette, Descriptors, Texture };
-struct Record
-{
-    std::size_t offset;
-    std::size_t bytes;
-    RecordKind kind;
-    std::array<std::uint32_t, 10> words;
-};
-struct Descriptor
-{
-    std::uint32_t texture;
-    std::uint32_t clut;
-};
-struct Pixels
-{
-    std::size_t offset;
-    std::size_t bytes;
-};
 class Image
 {
 public:
     explicit Image(void* pointer) : data_(static_cast<unsigned char*>(pointer))
     {
-        GameCompletedSpan source{};
-        if (!FindGameCompletedSpan(pointer, 12, source))
+        if (!FindGameCompletedSpan(pointer, 12, source_))
             throw std::invalid_argument("TPL requires actual completed allocation-owned NL bytes");
-        const auto sourceAddress = reinterpret_cast<std::uintptr_t>(source.base);
+        const auto sourceAddress = reinterpret_cast<std::uintptr_t>(source_.base);
         const auto address = reinterpret_cast<std::uintptr_t>(pointer);
-        if (address < sourceAddress || address - sourceAddress > source.bytes)
+        if (address < sourceAddress || address - sourceAddress > source_.bytes)
             throw std::out_of_range("TPL palette leaves its original completed source span");
-        bytes_ = source.bytes - (address - sourceAddress);
-        if (!FindGameCompletedSpan(pointer, bytes_, source)
+        if (pointer == source_.base)
+            bytes_ = source_.bytes;
+        else
+        {
+            NativeARCFileSpan file{};
+            if (!FindNativeARCFileSpan(pointer, file))
+                throw std::invalid_argument("Interior TPL has no exact original ARC file extent");
+            bytes_ = file.bytes;
+        }
+        if (!FindGameCompletedSpan(pointer, bytes_, source_)
             || FindGameByteDomain(pointer, bytes_) != GameByteDomain::WiiSerialized)
             throw std::invalid_argument("TPL raw image is not uniformly completed Wii serialized bytes");
         if (address % 4)
@@ -82,7 +73,6 @@ public:
         Range(offset, 2);
         return std::uint16_t(data_[offset]) << 8 | data_[offset + 1];
     }
-    std::uint8_t Byte(std::size_t offset) const { Range(offset, 1); return data_[offset]; }
     std::uint32_t Address(std::size_t offset, std::size_t bytes) const
     {
         Range(offset, bytes);
@@ -91,18 +81,214 @@ public:
             throw std::out_of_range("TPL pointer has no Wii cached-word representation");
         return physical | 0x80000000u;
     }
-    void PutWord(std::size_t offset, std::uint32_t value) const { std::memcpy(data_ + offset, &value, 4); }
-    void PutHalf(std::size_t offset, std::uint16_t value) const { std::memcpy(data_ + offset, &value, 2); }
-    void PutByte(std::size_t offset, std::uint8_t value) const { data_[offset] = value; }
-    void* At(std::size_t offset) const { return data_ + offset; }
+    unsigned char* At(std::size_t offset) const { return data_ + offset; }
+    std::size_t Bytes() const noexcept { return bytes_; }
+    const GameCompletedSpan& Source() const noexcept { return source_; }
 private:
     unsigned char* data_;
     std::size_t bytes_;
+    GameCompletedSpan source_{};
+};
+class NativeView
+{
+public:
+    explicit NativeView(const Image& source)
+        : data_(static_cast<unsigned char*>(ChargedNativeMetadataAllocate(source.Bytes())))
+    {
+        std::memcpy(data_, source.At(0), source.Bytes());
+    }
+    ~NativeView() { ChargedNativeMetadataRelease(data_); }
+    NativeView(const NativeView&) = delete;
+    NativeView& operator=(const NativeView&) = delete;
+    unsigned char* At(std::size_t offset) const { return data_ + offset; }
+    void Word(std::size_t offset, std::uint32_t value) { std::memcpy(At(offset), &value, 4); }
+    void Half(std::size_t offset, std::uint16_t value) { std::memcpy(At(offset), &value, 2); }
+    std::uint32_t Word(std::size_t offset) const
+    {
+        std::uint32_t value; std::memcpy(&value, At(offset), 4); return value;
+    }
+    std::uint16_t Half(std::size_t offset) const
+    {
+        std::uint16_t value; std::memcpy(&value, At(offset), 2); return value;
+    }
+private:
+    unsigned char* data_;
 };
 bool Overlap(std::size_t a, std::size_t as, std::size_t b, std::size_t bs)
 {
-    return as && bs && a < b + bs && b < a + as;
+    return as && bs && (a <= b ? b - a < as : a - b < bs);
 }
+enum class Kind { Palette, Descriptors, Texture };
+struct Record { std::size_t offset, bytes; Kind kind; };
+struct Pixels { std::size_t offset, bytes; };
+struct Binding
+{
+    Image source;
+    NativeView view;
+    MetadataVector<Record> records;
+    MetadataVector<Pixels> pixels;
+    bool committed = false;
+    explicit Binding(void* palette) : source(palette), view(source)
+    {
+        Add(0, 12, Kind::Palette);
+        for (std::size_t at = 0; at < 12; at += 4) view.Word(at, source.Word(at));
+        // Magic validation belongs to original TPLBind's OSPanic branch.
+    }
+    bool Add(std::size_t offset, std::size_t bytes, Kind kind)
+    {
+        source.Range(offset, bytes);
+        if (offset % 4) throw std::invalid_argument("TPL structural record requires original word alignment");
+        for (const auto& record : records)
+        {
+            if (record.offset == offset && record.bytes == bytes && record.kind == kind) return false;
+            if (Overlap(offset, bytes, record.offset, record.bytes))
+                throw std::invalid_argument("TPL overlapping structural records remain unqualified");
+        }
+        for (const auto& pixel : pixels)
+            if (Overlap(offset, bytes, pixel.offset, pixel.bytes))
+                throw std::invalid_argument("TPL pixels overlapping converted headers remain unqualified");
+        records.push_back({offset, bytes, kind});
+        return true;
+    }
+    std::uint32_t Descriptors(std::uint32_t relative, std::uint32_t count)
+    {
+        // Preserve the source's u16 loop; do not repair empty/overflow inputs.
+        if (!count || count > 0xffffu)
+            throw std::invalid_argument("TPL descriptor count remains unqualified");
+        const auto bytes = std::size_t(count) * 8;
+        if (!Add(relative, bytes, Kind::Descriptors))
+            throw std::logic_error("TPL source requested descriptor relocation twice");
+        // Endian transport of cells only. The original loop selects which
+        // non-null headers to relocate and whether their data is unpacked.
+        for (std::size_t at = relative; at < relative + bytes; at += 4)
+            view.Word(at, source.Word(at));
+        return source.Address(relative, bytes);
+    }
+    std::uint32_t Texture(std::uint32_t relative)
+    {
+        if (Add(relative, 36, Kind::Texture))
+        {
+            view.Half(relative, source.Half(relative));
+            view.Half(relative + 2, source.Half(relative + 2));
+            for (std::size_t at = relative + 4; at <= relative + 28; at += 4)
+                view.Word(at, source.Word(at));
+            // All four byte-sized fields, including unpacked, remain exactly
+            // authored. Only the original source assignment can change TRUE.
+            const auto bytes = TextureBytes(relative);
+            if (*view.At(relative + 35))
+            {
+                // This source branch will skip data relocation. Validate an
+                // already-cached target without rewriting its word or marker.
+                const auto word = view.Word(relative + 8);
+                if ((word & 0xe0000000u) != 0x80000000u)
+                    throw std::invalid_argument("Already-unpacked TPL data has no cached SDK representation");
+                const auto target = reinterpret_cast<std::uintptr_t>(OSPhysicalToCached(word & 0x1fffffffu));
+                const auto base = reinterpret_cast<std::uintptr_t>(source.At(0));
+                if (target < base) throw std::out_of_range("Already-unpacked TPL target leaves its original file");
+                PixelsAt(target - base, bytes);
+            }
+        }
+        return source.Address(relative, 36);
+    }
+    std::size_t TextureBytes(std::size_t at) const
+    {
+        const auto height = view.Half(at), width = view.Half(at + 2);
+        if (!height || !width || *view.At(at + 33) || *view.At(at + 34))
+            throw std::invalid_argument("TPL native transport requires original nonmip data");
+        std::size_t tileWidth, tileHeight;
+        switch (view.Word(at + 4))
+        {
+        case GX_TF_I4: tileWidth = 8; tileHeight = 8; break;
+        case GX_TF_IA4: tileWidth = 8; tileHeight = 4; break;
+        case GX_TF_IA8:
+        case GX_TF_RGB5A3: tileWidth = 4; tileHeight = 4; break;
+        default: throw std::invalid_argument("TPL native texture format remains unqualified");
+        }
+        const auto columns = (std::size_t(width) + tileWidth - 1) / tileWidth;
+        const auto rows = (std::size_t(height) + tileHeight - 1) / tileHeight;
+        if (rows > std::numeric_limits<std::size_t>::max() / columns
+            || columns * rows > std::numeric_limits<std::size_t>::max() / 32)
+            throw std::out_of_range("TPL tiled pixel extent overflows native size_t");
+        return columns * rows * 32;
+    }
+    void PixelsAt(std::size_t relative, std::size_t bytes)
+    {
+        source.Range(relative, bytes);
+        for (const auto& record : records)
+            if (Overlap(relative, bytes, record.offset, record.bytes))
+                throw std::invalid_argument("TPL pixels overlapping converted headers remain unqualified");
+        pixels.push_back({relative, bytes});
+    }
+    std::uint32_t Data(std::uint32_t relative, const void* header)
+    {
+        const auto address = reinterpret_cast<std::uintptr_t>(header);
+        const auto base = reinterpret_cast<std::uintptr_t>(view.At(0));
+        const Record* texture = nullptr;
+        if (address >= base)
+            for (const auto& record : records)
+                if (record.kind == Kind::Texture && address - base == record.offset) texture = &record;
+        if (!texture) throw std::invalid_argument("TPL data relocation has no original requested texture header");
+        const auto at = texture->offset;
+        const auto bytes = TextureBytes(at);
+        PixelsAt(relative, bytes);
+        return source.Address(relative, bytes);
+    }
+    void* Header(const void* raw, std::size_t bytes, std::size_t alignment) const
+    {
+        const auto address = reinterpret_cast<std::uintptr_t>(raw);
+        const auto base = reinterpret_cast<std::uintptr_t>(source.At(0));
+        if (address < base || address - base >= source.Bytes()) return nullptr;
+        const auto offset = address - base;
+        for (const auto& record : records)
+            if (offset >= record.offset && offset - record.offset < record.bytes
+                && bytes <= record.bytes - (offset - record.offset))
+            {
+                GameCompletedSpan current{};
+                if (!FindGameCompletedSpan(raw, bytes, current)
+                    || current.allocation.base != source.Source().allocation.base
+                    || current.allocation.incarnation != source.Source().allocation.incarnation
+                    || reinterpret_cast<std::uintptr_t>(view.At(offset)) % alignment)
+                    throw std::invalid_argument("TPL native view lost its original source lifetime");
+                return view.At(offset);
+            }
+        throw std::invalid_argument("TPL source requested an unconverted header view");
+    }
+    void Commit()
+    {
+        if (committed) throw std::logic_error("TPL source binding committed twice");
+        MetadataVector<GameNativeHeaderProjection> projection;
+        projection.reserve(records.size());
+        for (const auto& record : records)
+            projection.push_back({source.At(record.offset), view.At(record.offset), record.bytes});
+        ProjectGameNativeHeaders(source.At(0), source.Bytes(), source.Source(), projection.data(), projection.size());
+        committed = true;
+    }
+};
+// A temporary representation view, not a second source owner or address bank.
+// Every stored word still names real raw SDK memory. The source call has no
+// callbacks; nested binding cannot borrow another file's temporary records.
+thread_local Binding* activeBinding = nullptr;
+}
+
+bool NativeTPLAddressLessThan(const void* cell, std::uintptr_t boundary)
+{
+    GameCompletedSpan source{};
+    if (boundary > std::numeric_limits<std::uint32_t>::max()
+        || !FindGameCompletedSpan(cell, 4, source))
+        throw std::invalid_argument("TPL word comparison requires a live cell and Wii address boundary");
+    const auto domain = FindGameByteDomain(cell, 4);
+    std::uint32_t word;
+    if (domain == GameByteDomain::WiiSerialized)
+    {
+        const auto* raw = static_cast<const unsigned char*>(cell);
+        word = std::uint32_t(raw[0]) << 24 | std::uint32_t(raw[1]) << 16
+            | std::uint32_t(raw[2]) << 8 | raw[3];
+    }
+    else if (domain == GameByteDomain::NativeHeader)
+        std::memcpy(&word, cell, sizeof(word));
+    else
+        throw std::invalid_argument("TPL address cell has no serialized/native-header domain");
+    return word < boundary;
 }
 
 void* DecodeNativeTPLAddress(std::uint32_t word, std::size_t bytes,
@@ -112,9 +298,12 @@ void* DecodeNativeTPLAddress(std::uint32_t word, std::size_t bytes,
     if ((word & 0xe0000000u) != 0x80000000u)
         throw std::out_of_range("TPL address cell is outside Wii cached memory");
     auto* pointer = OSPhysicalToCached(word & 0x1fffffffu);
+    if (!bytes || !alignment || reinterpret_cast<std::uintptr_t>(pointer) % alignment)
+        throw std::out_of_range("TPL cached pointer has no aligned native representation");
+    if (header && activeBinding)
+        if (auto* view = activeBinding->Header(pointer, bytes, alignment)) return view;
     GameCompletedSpan source{};
-    if (!bytes || !alignment || reinterpret_cast<std::uintptr_t>(pointer) % alignment
-        || !FindGameCompletedSpan(pointer, bytes, source))
+    if (!FindGameCompletedSpan(pointer, bytes, source))
         throw std::out_of_range("TPL cached pointer has no live completed source backing");
     if (header && FindGameByteDomain(pointer, bytes) != GameByteDomain::NativeHeader)
         throw std::invalid_argument("TPL header pointer has no qualified native record domain");
@@ -123,101 +312,30 @@ void* DecodeNativeTPLAddress(std::uint32_t word, std::size_t bytes,
     return pointer;
 }
 
-void BindNativeTPLImage(void* palette)
+NativeTPLBinding::NativeTPLBinding(void* palette) : pending_(nullptr)
 {
-    Image image(palette);
-    const auto version = image.Word(0), count = image.Word(4), table = image.Word(8);
-    if (version != 0x0020af30)
-        throw std::invalid_argument("TPL palette has no original retail version");
-    // The retail binding loop has a16-bit index. Empty/rebind/overflow and other
-    // texture formats remain explicit unqualified inputs in this native seam.
-    if (!count || count > 0xffffu || table % 4)
-        throw std::invalid_argument("TPL descriptor count/alignment remains unqualified");
-    image.Range(table, std::size_t(count) * 8);
-    MetadataVector<Record> records;
-    MetadataVector<Descriptor> descriptors;
-    MetadataVector<Pixels> pixels;
-    records.push_back({0, 12, RecordKind::Palette, {version, count, image.Address(table, std::size_t(count) * 8)}});
-    records.push_back({table, std::size_t(count) * 8, RecordKind::Descriptors, {}});
-    descriptors.reserve(count);
-    for (std::uint32_t i = 0; i < count; ++i)
-    {
-        const auto offset = table + std::size_t(i) * 8;
-        const auto texture = image.Word(offset), clut = image.Word(offset + 4);
-        if (clut)
-            throw std::invalid_argument("TPL CLUT transport remains unqualified");
-        if (!texture) { descriptors.push_back({0, 0}); continue; }
-        if (texture % 4)
-            throw std::invalid_argument("TPL texture header requires original word alignment");
-        image.Range(texture, 36);
-        descriptors.push_back({image.Address(texture, 36), 0});
-        bool known = false;
-        for (const auto& record : records)
-            if (record.kind == RecordKind::Texture && record.offset == texture) known = true;
-        if (known) continue;
-        const auto height = image.Half(texture), width = image.Half(texture + 2);
-        const auto format = image.Word(texture + 4), data = image.Word(texture + 8);
-        if (format != 5 || !height || !width || image.Byte(texture + 33)
-            || image.Byte(texture + 34) || image.Byte(texture + 35))
-            throw std::invalid_argument("TPL native binding currently requires original RGB5A3 nonmip unpacked0 data");
-        const auto bytes = ((std::size_t(width) + 3) & ~std::size_t(3))
-            * ((std::size_t(height) + 3) & ~std::size_t(3)) * 2;
-        image.Range(data, bytes);
-        pixels.push_back({data, bytes});
-        records.push_back({texture, 36, RecordKind::Texture,
-            {height, width, format, image.Address(data, bytes), image.Word(texture + 12),
-             image.Word(texture + 16), image.Word(texture + 20), image.Word(texture + 24),
-             image.Word(texture + 28)}});
-    }
-    for (std::size_t i = 0; i < records.size(); ++i)
-    {
-        for (std::size_t j = 0; j < i; ++j)
-            if (Overlap(records[i].offset, records[i].bytes, records[j].offset, records[j].bytes))
-                throw std::invalid_argument("TPL overlapping structural records remain unqualified");
-        for (const auto& pixel : pixels)
-            if (Overlap(records[i].offset, records[i].bytes, pixel.offset, pixel.bytes))
-                throw std::invalid_argument("TPL pixels overlapping converted headers remain unqualified");
-    }
-    MetadataVector<GameByteWriteReservation> reservations;
-    reservations.reserve(records.size());
-    // Validate every original relative pointer and reserve every native-domain
-    // publication before any raw byte is changed. No expanded game owner exists.
-    for (const auto& record : records)
-    {
-        reservations.emplace_back(image.At(record.offset), record.bytes);
-        if (!reservations.back().Tracked())
-            throw std::logic_error("TPL conversion lost its actual source allocation");
-    }
-    for (const auto& record : records)
-    {
-        const auto at = record.offset;
-        if (record.kind == RecordKind::Palette)
-        {
-            image.PutWord(at, record.words[0]);
-            image.PutWord(at + 4, record.words[1]);
-            image.PutWord(at + 8, record.words[2]);
-        }
-        else if (record.kind == RecordKind::Descriptors)
-        {
-            for (std::size_t i = 0; i < descriptors.size(); ++i)
-            {
-                image.PutWord(at + i * 8, descriptors[i].texture);
-                image.PutWord(at + i * 8 + 4, descriptors[i].clut);
-            }
-        }
-        else
-        {
-            image.PutHalf(at, static_cast<std::uint16_t>(record.words[0]));
-            image.PutHalf(at + 2, static_cast<std::uint16_t>(record.words[1]));
-            for (std::size_t i = 2; i < 9; ++i) image.PutWord(at + i * 4 - 4, record.words[i]);
-            image.PutByte(at + 35, 1); // Original TPLBind marks actual data relocation.
-        }
-    }
-    for (auto& reservation : reservations) reservation.Complete(GameByteDomain::NativeHeader);
+    if (activeBinding) throw std::logic_error("Nested original TPL binding remains unqualified");
+    auto* storage = ChargedNativeMetadataAllocate(sizeof(Binding));
+    try { pending_ = new (storage) Binding(palette); }
+    catch (...) { ChargedNativeMetadataRelease(storage); throw; }
+    activeBinding = static_cast<Binding*>(pending_);
 }
-}
-
-extern "C" void TPLBind(void* palette)
+NativeTPLBinding::~NativeTPLBinding()
 {
-    mscharged::platform::BindNativeTPLImage(palette);
+    auto* binding = static_cast<Binding*>(pending_);
+    activeBinding = nullptr;
+    binding->~Binding(); ChargedNativeMetadataRelease(binding);
+}
+void* NativeTPLBinding::Palette() const noexcept { return static_cast<Binding*>(pending_)->view.At(0); }
+std::uint32_t NativeTPLBinding::RelocateDescriptors(std::uint32_t relative, std::uint32_t count)
+{ return static_cast<Binding*>(pending_)->Descriptors(relative, count); }
+std::uint32_t NativeTPLBinding::RelocateTexture(std::uint32_t relative)
+{ return static_cast<Binding*>(pending_)->Texture(relative); }
+std::uint32_t NativeTPLBinding::RelocatePixels(std::uint32_t relative, const void* header)
+{ return static_cast<Binding*>(pending_)->Data(relative, header); }
+std::uint32_t NativeTPLBinding::RelocateClut(std::uint32_t)
+{ throw std::invalid_argument("TPL CLUT transport remains unqualified"); }
+std::uint32_t NativeTPLBinding::RelocateClutPixels(std::uint32_t)
+{ throw std::invalid_argument("TPL CLUT transport remains unqualified"); }
+void NativeTPLBinding::Commit() { static_cast<Binding*>(pending_)->Commit(); }
 }

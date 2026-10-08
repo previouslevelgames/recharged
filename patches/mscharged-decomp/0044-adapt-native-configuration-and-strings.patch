@@ -1,6 +1,6 @@
 Subject: Adapt original configuration parsing and string ownership
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Retain original sections, hashing and typed parsing. Replace Wii array-cookie
 and fixed temporary-string storage assumptions, correct native copy-on-write
@@ -175,7 +175,7 @@ diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
 diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
 --- a/include/NL/nlConfig.h
 +++ b/include/NL/nlConfig.h
-@@ -7,8 +7,20 @@
+@@ -7,10 +7,22 @@
  #include "NL/nlLexicalCast.h"
  #include "types.h"
  
@@ -194,9 +194,11 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  extern "C" int strcmp(const char* first, const char* second);
 +#endif
  
+ void* ConfigParserAllocate(unsigned long size, unsigned int alignment, bool fromEnd);
+ 
  namespace Detail
  {
-@@ -21,7 +33,11 @@
+@@ -23,7 +35,11 @@
  template <>
  struct LexicalCastImpl<int, const char*>
  {
@@ -208,7 +210,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  };
  
  template <>
-@@ -75,6 +91,11 @@
+@@ -77,6 +93,11 @@
      return t;
  }
  
@@ -220,7 +222,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  template <>
  inline const char* LexicalCastImpl<const char*, bool>::Do(bool value)
  {
-@@ -84,15 +105,23 @@
+@@ -86,15 +107,23 @@
  template <>
  inline const char* LexicalCastImpl<const char*, int>::Do(int)
  {
@@ -244,7 +246,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  }
  } // namespace Detail
  
-@@ -145,6 +174,12 @@
+@@ -147,6 +176,12 @@
  
      Config(AllocateWhere where, unsigned int stringCapacity, unsigned int slotCount);
      ~Config();
@@ -529,7 +531,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          pair->type = CONFIG_STRING;
          pair->value.stringValue = CopyString(value, false);
          if (pair->tag == 0)
-@@ -482,12 +591,18 @@
+@@ -480,12 +589,18 @@
  
  void Config::Parse(const char* data, int size, Parser& parser)
  {
@@ -548,7 +550,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      memcpy(copy, data, size);
      copy[size] = 0;
  
-@@ -504,7 +619,11 @@
+@@ -502,7 +617,11 @@
      {
          if (pairCount == (int)mTvpCapacity)
          {
@@ -560,7 +562,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          }
  
          if (line[0] == '#')
-@@ -534,6 +653,9 @@
+@@ -532,6 +651,9 @@
          }
  
          char* token = tokens.NextToken(false);
@@ -570,7 +572,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          tag.erase(tag.begin(), tag.end());
          tag.insert(tag.begin(), token, token + tokens.GetTokenLength());
          tag.TrimInPlace(sConfigWhitespace);
-@@ -564,7 +686,9 @@
+@@ -562,7 +684,9 @@
          line = lines.GetLine();
      }
  
@@ -580,7 +582,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  }
  
  void SetTagValuePair::TagValuePair(const BString& tag, const BString& value)
-@@ -594,6 +718,9 @@
+@@ -592,6 +716,9 @@
  
  inline Config::TagValuePair::TagValuePair()
      : tag(0)
@@ -590,7 +592,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  {
  }
  
-@@ -628,3 +755,13 @@
+@@ -626,3 +753,13 @@
      }
      return false;
  }

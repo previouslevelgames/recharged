@@ -40,6 +40,9 @@ using AudioEffectUpdate = decltype(Bind<bool>(MemFun(&AudioEffectBinding::Update
 using FreePointer = BindExp2<void, void (*)(void*, void*), Placeholder<0>, void*>;
 using FreeInstance = BindExp3<bool, bool (*)(unsigned const&, void**, unsigned), Placeholder<0>, Placeholder<1>, unsigned>;
 using FreeAudioPointer = BindExp3<bool, bool (*)(unsigned const&, void**, void*), Placeholder<0>, Placeholder<1>, void*>;
+using AudioInstance = BindExp3<bool,
+    bool (*)(const u32&, AudioEffectBase**, AudioInstanceKey),
+    Placeholder<0>, Placeholder<1>, AudioInstanceKey>;
 
 struct ShotAtGoalData;
 using DataBase = UnidentifiedQueuedEventBase<ShotAtGoalData>;
@@ -73,7 +76,9 @@ void Check(const char* family, unsigned wii_capture, unsigned wii_functor,
 }
 
 int main() {
-    static_assert(sizeof(void*) == 8, "This qualifier records the ELF64 native ABI");
+    static_assert(sizeof(void*) == 8, "This qualifier records the 64-bit native ABI");
+    static_assert(!WiiCapture<unsigned long long>::known,
+        "A pointer-sized audio instance must not qualify arbitrary 64-bit captures");
     Check<Member0, Function0<void>::FunctorImpl<Member0>>("member0", 16, 20, 24, 32, 32);
     Check<MemberPlaceholder, Function1<void, TLComponentInstance*>::FunctorImpl<MemberPlaceholder>>("member-placeholder", 20, 24, 32, 40, 32);
     Check<MemberInt, Function0<void>::FunctorImpl<MemberInt>>("member-int", 20, 24, 32, 40, 32);
@@ -85,6 +90,8 @@ int main() {
     Check<FreePointer, Function1<void, void*>::FunctorImpl<FreePointer>>("free-placeholder-pointer", 12, 16, 24, 32, 16);
     Check<FreeInstance, Function2<bool, unsigned const&, void**>::FunctorImpl<FreeInstance>>("free-placeholders-instance", 12, 16, 16, 24, 16);
     Check<FreeAudioPointer, Function2<bool, unsigned const&, void**>::FunctorImpl<FreeAudioPointer>>("free-placeholders-pointer", 12, 16, 24, 32, 16);
+    Check<AudioInstance, Function2<bool, const u32&, AudioEffectBase**>::FunctorImpl<AudioInstance>>(
+        "audio-native-instance", 12, 16, 24, 32, 16);
     Check<DataBinding, Function1<void, bool>::FunctorImpl<DataBinding>>("queue-data", 32, 36, 56, 64, 64);
     Check<VoidBinding, Function1<void, bool>::FunctorImpl<VoidBinding>>("queue-void", 28, 32, 48, 56, 32);
     Check<AudioEffectSoundStartedVisitor, Function2<bool, unsigned const&, bool*>::FunctorImpl<AudioEffectSoundStartedVisitor>>("audio-visitor", 12, 16, 24, 32, 16);

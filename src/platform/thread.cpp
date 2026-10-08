@@ -2,6 +2,20 @@
 #define _GNU_SOURCE
 #endif
 
+// MinGW CRT headers can choose a Windows API level before windows.h is read.
+// Select the stack-query API level before any standard or project header.
+#if defined(_WIN32)
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include "platform/thread.h"
 
 #include <limits>
@@ -9,11 +23,6 @@
 #include <system_error>
 
 #if defined(_WIN32)
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0602
-#endif
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #elif defined(__linux__) || defined(__APPLE__)
 #include <pthread.h>

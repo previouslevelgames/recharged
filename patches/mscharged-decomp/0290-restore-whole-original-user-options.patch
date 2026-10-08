@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Restore the whole original UserOptions source
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Retire historical 0112/0113/0127 UserOptions helper substitutions. Restore
 all original defaults, volume methods and empty settings-update methods
@@ -23,7 +23,7 @@ diff --git a/src/Game/DB/UserOptions.cpp b/src/Game/DB/UserOptions.cpp
  #include <string.h>
  
 @@ -28,57 +25,155 @@
-     UnidentifiedAudioCategoryLookup(0xAB29FE50, 0), // "global"
+     AudioCategorySliderEntry(0xAB29FE50, 0), // "global"
  };
  
 +static const float VOLUME_TABLE[] = {

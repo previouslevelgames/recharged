@@ -1,5 +1,8 @@
 # Mario Strikers Charged — Native Port
 
+[![Build stable](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable)
+[![Development version: 0.0.1-dev](https://img.shields.io/badge/version-0.0.1--dev-blue)](CMakeLists.txt)
+
 A native C/C++ port of **Mario Strikers Charged** for modern systems, based on
 [mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) and
 [Aurora](https://github.com/encounter/aurora). It compiles reconstructed game
@@ -7,7 +10,7 @@ source into native machine code; it is not a recompilation of the PowerPC binary
 
 ## Status
 
-**Work in progress.** The port grows alongside the unfinished decompilation.
+**Work in progress.** Native platform integration is ongoing.
 Experimental startup and menus run on Linux; a complete playable game and
 Windows/macOS game support remain in development.
 
@@ -27,8 +30,10 @@ python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --work
 ./build/release/mscharged --disc ./game/R4QE01.rvz --window
 ```
 
-Use `main`, not the older `master` branch. The helper initializes only the pinned
-dependencies required by your platform. See the [build guide](docs/BUILDING.md)
+`main` is the development branch; `stable` is for reviewed snapshots promoted
+through pull requests. The [GitHub build workflow](docs/BUILDING_GITHUB.md)
+checks promotions and provides binaries after merging. The helper initializes
+only the pinned dependencies required by your platform. See the [build guide](docs/BUILDING.md)
 for updates and the smaller launcher build, and [runtime instructions](docs/RUNTIME.md)
 for separate diagnostics.
 

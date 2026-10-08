@@ -1,0 +1,124 @@
+Subject: Preserve full native NL async file callback contexts
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use the existing nlFileAsyncParam carrier for nlAsyncFileBuffer and NisPlayer callbacks.
+Retain original callback bodies, request choices, synchronous branch, numeric sizes and console signatures.
+
+--- a/include/NL/nlAsyncFileBuffer.h
++++ b/include/NL/nlAsyncFileBuffer.h
+@@ -1,5 +1,9 @@
+ #ifndef NL_ASYNC_FILE_BUFFER_H
+ #define NL_ASYNC_FILE_BUFFER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include "NL/nlFile.h"
++#endif
+ 
+ struct nlFile;
+ 
+@@ -26,7 +30,11 @@
+     int bufferStates[2];
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++void nlAsyncFileBufferReadComplete(nlFile*, void*, unsigned int size, nlFileAsyncParam userParam);
++#else
+ void nlAsyncFileBufferReadComplete(nlFile*, void*, unsigned int size, unsigned long userParam);
++#endif
+ nlAsyncFileBuffer* nlAsyncFileBufferInitialize(nlAsyncFileBuffer* fileBuffer);
+ void nlAsyncFileBufferFinish(nlAsyncFileBuffer* fileBuffer);
+ void nlAsyncFileBufferReset(nlAsyncFileBuffer* fileBuffer, bool constructing);
+--- a/src/NL/nlAsyncFileBuffer.cpp
++++ b/src/NL/nlAsyncFileBuffer.cpp
+@@ -3,7 +3,11 @@
+ 
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++void nlAsyncFileBufferReadComplete(nlFile*, void*, unsigned int size, nlFileAsyncParam userParam)
++#else
+ void nlAsyncFileBufferReadComplete(nlFile*, void*, unsigned int size, unsigned long userParam)
++#endif
+ {
+     nlAsyncFileBuffer* fileBuffer = (nlAsyncFileBuffer*)userParam;
+ 
+@@ -73,7 +77,13 @@
+         }
+ 
+         nlReadAsync(fileBuffer->file, fileBuffer->buffers[fileBuffer->loadBuffer], readSize,
+-            nlAsyncFileBufferReadComplete, (unsigned long)fileBuffer, 0);
++            nlAsyncFileBufferReadComplete,
++#if defined(MSCHARGED_NATIVE)
++                    reinterpret_cast<nlFileAsyncParam>(fileBuffer),
++#else
++                    (unsigned long)fileBuffer,
++#endif
++                    0);
+         fileBuffer->bufferDataSizes[fileBuffer->loadBuffer] = readSize;
+         fileBuffer->bufferStates[fileBuffer->loadBuffer] = AsyncBufferPending;
+     }
+--- a/include/Game/NisPlayer.h
++++ b/include/Game/NisPlayer.h
+@@ -5,6 +5,9 @@
+ #include "Game/Camera/animcam.h"
+ #include "Game/Render/Nis.h"
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "NL/nlFile.h"
++#endif
+ 
+ class NisPlayerOverlay;
+ class nlFile;
+@@ -111,7 +114,11 @@
+     bool AllowsPIP();
+     bool AllowsPIP(const char* name) const;
+     static NisPlayer* Instance();
++#if defined(MSCHARGED_NATIVE)
++    static void AsyncLoad(nlFile* file, void* buffer, unsigned int size, nlFileAsyncParam param);
++#else
+     static void AsyncLoad(nlFile* file, void* buffer, unsigned int size, unsigned long param);
++#endif
+ 
+     /* 0x00028 */ int mLoadedAssetMask;
+     /* 0x0002C */ bool mActive;
+--- a/src/Game/NisPlayer.cpp
++++ b/src/Game/NisPlayer.cpp
+@@ -427,13 +427,24 @@
+                 {
+                     nlFile* file = nlOpen(fileName);
+                     OSGetConsoleType();
+-                    nlReadAsync(file, loadAt, mLoadQueue[i]->size, AsyncLoad, (unsigned long)mLoadQueue[i], 0);
++                    nlReadAsync(file, loadAt, mLoadQueue[i]->size, AsyncLoad,
++#if defined(MSCHARGED_NATIVE)
++                        reinterpret_cast<nlFileAsyncParam>(mLoadQueue[i]),
++#else
++                        (unsigned long)mLoadQueue[i],
++#endif
++                        0);
+                 }
+                 else
+                 {
+                     unsigned long size = 0;
+                     nlLoadEntireFile(fileName, &size, 0x20, AllocateEnd, loadAt, AlignUp32(mLoadQueue[i]->size), 0);
+-                    AsyncLoad(0, loadAt, mLoadQueue[i]->size, (unsigned long)mLoadQueue[i]);
++                    AsyncLoad(0, loadAt, mLoadQueue[i]->size,
++#if defined(MSCHARGED_NATIVE)
++                        reinterpret_cast<nlFileAsyncParam>(mLoadQueue[i]));
++#else
++                        (unsigned long)mLoadQueue[i]);
++#endif
+                 }
+             }
+         }
+@@ -883,7 +894,11 @@
+ 
+ #include "src/Game/NisPlayerLoading.cpp"
+ 
++#if defined(MSCHARGED_NATIVE)
++void NisPlayer::AsyncLoad(nlFile* file, void* buffer, unsigned int size, nlFileAsyncParam param)
++#else
+ void NisPlayer::AsyncLoad(nlFile* file, void* buffer, unsigned int size, unsigned long param)
++#endif
+ {
+     if (file != NULL)
+     {

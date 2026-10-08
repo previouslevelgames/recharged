@@ -1,6 +1,6 @@
 From: mscharged-port native compatibility
 Subject: [PATCH] Preserve world wire records beneath original placement factories
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Prepare typed native backing for the source-selected class at its original
 placement expression. Preserve constructors, Initialize, source raw strides,
@@ -61,12 +61,12 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
      case 0x104:
 -        pObject = (DrawableObject*)pContext->m_pObject;
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldObject_80129EE0>(pContext->m_pObject);
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldHelperObject>(pContext->m_pObject);
 +#else
 +        pObject = (DrawableObject*)pContext->m_pObject;
 +#endif
-         new (pObject) WorldObject_80129EE0;
-         ((WorldObject_80129EE0*)pObject)->Initialize(pContext);
+         new (pObject) WorldHelperObject;
+         ((WorldHelperObject*)pObject)->Initialize(pContext);
          pContext->m_pObject += 0x60;
          ++pContext->m_uNumObjectsLoaded;
          break;

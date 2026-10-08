@@ -1,0 +1,64 @@
+Subject: Preserve original file-cache callback context width
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use the actual existing nlFileAsyncParam for both original disc completion callbacks.
+Retain the original cache choice, callback/free/close order and numeric sizes.
+
+--- a/src/NL/plat/nlFileCache.cpp
++++ b/src/NL/plat/nlFileCache.cpp
+@@ -39,8 +39,16 @@
+ };
+ 
+ static void AfterReadFromCacheCallback(s32, const char*, void*, u32, void*);
++#if defined(MSCHARGED_NATIVE)
++static void AfterReadFromDiscToCacheCallback(nlFile*, void*, unsigned int, nlFileAsyncParam);
++#else
+ static void AfterReadFromDiscToCacheCallback(nlFile*, void*, unsigned int, unsigned long);
++#endif
++#if defined(MSCHARGED_NATIVE)
++static void AfterReadFromDiscCallback(nlFile*, void*, unsigned int, nlFileAsyncParam);
++#else
+ static void AfterReadFromDiscCallback(nlFile*, void*, unsigned int, unsigned long);
++#endif
+ static void AfterWriteToCacheCallback(s32, const char*, void*, u32, void*);
+ static void FlashWriteCallback(s32);
+ static void FlashReadCallback(s32);
+@@ -111,7 +119,13 @@
+     {
+         CachedFileLoadData* asyncData = new (8, true)
+             CachedFileLoadData(file, filename, alloc_data, datasize, filesize, callback, user_data, 1);
+-        nlReadAsync(file, alloc_data, datasize, sFileCache->mCacheWritesEnabled ? AfterReadFromDiscToCacheCallback : AfterReadFromDiscCallback, (unsigned long)asyncData, 0);
++        nlReadAsync(file, alloc_data, datasize, sFileCache->mCacheWritesEnabled ? AfterReadFromDiscToCacheCallback : AfterReadFromDiscCallback,
++#if defined(MSCHARGED_NATIVE)
++                    reinterpret_cast<nlFileAsyncParam>(asyncData),
++#else
++                    (unsigned long)asyncData,
++#endif
++                    0);
+         return true;
+     }
+ }
+@@ -131,7 +145,11 @@
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++static void AfterReadFromDiscToCacheCallback(nlFile*, void* pBuffer, unsigned int, nlFileAsyncParam uParam)
++#else
+ static void AfterReadFromDiscToCacheCallback(nlFile*, void* pBuffer, unsigned int, unsigned long uParam)
++#endif
+ {
+     CachedFileLoadData* data = (CachedFileLoadData*)uParam;
+     nlClose(data->file);
+@@ -143,7 +161,11 @@
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++static void AfterReadFromDiscCallback(nlFile*, void*, unsigned int, nlFileAsyncParam uParam)
++#else
+ static void AfterReadFromDiscCallback(nlFile*, void*, unsigned int, unsigned long uParam)
++#endif
+ {
+     CachedFileLoadData* data = (CachedFileLoadData*)uParam;
+     data->callback(data->alloc_data, data->datasize, data->user_data);

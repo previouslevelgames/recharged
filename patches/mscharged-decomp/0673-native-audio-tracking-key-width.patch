@@ -1,0 +1,212 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -39,28 +39,39 @@
+ unsigned long sAudioPauseDepth = 1;
+ char gAudioResourcePath[] = "audio/";
+ 
+-typedef nlAVLTreeSlotPool<unsigned long, XSoundHandle*,
+-    DefaultKeyCompare<unsigned long> > AudioHandleMap;
+-typedef nlAVLTreeSlotPool<unsigned long, AudioHandleState,
+-    DefaultKeyCompare<unsigned long> > AudioHandleStateMap;
+-typedef nlAVLTreeSlotPool<unsigned long, bool,
+-    DefaultKeyCompare<unsigned long> > PausedAudioHandleMap;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++// These maps hold live context/handle keys, never authored cue IDs.
++#define MSCHARGED_AUDIO_HANDLE_KEY AudioInstanceKey
++#else
++#define MSCHARGED_AUDIO_HANDLE_KEY unsigned long
++#endif
++
++typedef nlAVLTreeSlotPool<MSCHARGED_AUDIO_HANDLE_KEY, XSoundHandle*,
++    DefaultKeyCompare<MSCHARGED_AUDIO_HANDLE_KEY> > AudioHandleMap;
++typedef nlAVLTreeSlotPool<MSCHARGED_AUDIO_HANDLE_KEY, AudioHandleState,
++    DefaultKeyCompare<MSCHARGED_AUDIO_HANDLE_KEY> > AudioHandleStateMap;
++typedef nlAVLTreeSlotPool<MSCHARGED_AUDIO_HANDLE_KEY, bool,
++    DefaultKeyCompare<MSCHARGED_AUDIO_HANDLE_KEY> > PausedAudioHandleMap;
+ 
+ static AudioHandleMap sAudioHandles(0x10, 0x10);
+ static AudioHandleStateMap sAudioHandleStates(0x10, 0x10);
+ static PausedAudioHandleMap sPausedAudioHandles(0x60, 0);
+ 
+-static inline unsigned long MakeAudioHandleKey(
++static inline MSCHARGED_AUDIO_HANDLE_KEY MakeAudioHandleKey(
+     unsigned long cueId, const void* context)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    return cueId ^ reinterpret_cast<AudioInstanceKey>(context);
++#else
+     return cueId ^ (unsigned long)context;
++#endif
+ }
+ 
+ static inline XSoundHandle** FindAudioHandleSlot(
+     unsigned long cueId, void* context)
+ {
+     XSoundHandle** slot = 0;
+-    unsigned long key = MakeAudioHandleKey(cueId, context);
++    MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+     sAudioHandles.FindGet(key, &slot);
+     return slot;
+ }
+@@ -245,14 +256,22 @@
+         if (!findExisting)
+         {
+             XSoundHandle* soundHandle;
+-            unsigned long key;
++            MSCHARGED_AUDIO_HANDLE_KEY key;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            key = reinterpret_cast<AudioInstanceKey>(context) ^ cueId;
++#else
+             key = (unsigned long)context ^ cueId;
++#endif
+             soundHandle = handle;
+             sAudioHandles.Add(key, soundHandle);
+         }
+         else
+         {
+-            unsigned long key = (unsigned long)context ^ cueId;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++            MSCHARGED_AUDIO_HANDLE_KEY key = reinterpret_cast<AudioInstanceKey>(context) ^ cueId;
++#else
++            MSCHARGED_AUDIO_HANDLE_KEY key = (unsigned long)context ^ cueId;
++#endif
+             sAudioHandles.FindGet(key);
+         }
+     }
+@@ -262,7 +281,7 @@
+ bool IsSoundTracked(unsigned long cueId, void* context)
+ {
+     XSoundHandle** slot = 0;
+-    unsigned long key = MakeAudioHandleKey(cueId, context);
++    MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+     return sAudioHandles.FindGet(key, &slot);
+ }
+ 
+@@ -274,7 +293,7 @@
+         return 0;
+     }
+     XSoundHandle** slot = 0;
+-    unsigned long key = MakeAudioHandleKey(cueId, context);
++    MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+     sAudioHandles.FindGet(key, &slot);
+     return slot != 0 ? *slot : 0;
+ }
+@@ -286,7 +305,7 @@
+     {
+         AudioHandleState state;
+         state.Set(slotId, cueId, context, resumable);
+-        unsigned long key = MakeAudioHandleKey(cueId, context);
++        MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+         sAudioHandleStates.Add(key, state);
+         return true;
+     }
+@@ -301,7 +320,7 @@
+     {
+         AudioHandleState state;
+         state.Set(slotId, cueId, context, resumable);
+-        unsigned long key = MakeAudioHandleKey(cueId, context);
++        MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+         sAudioHandleStates.Add(key, state);
+         return true;
+     }
+@@ -314,7 +333,7 @@
+         && cueId != 0xFFFFFFFF)
+     {
+         XSoundHandle** slot = 0;
+-        unsigned long key = MakeAudioHandleKey(cueId, context);
++        MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+         if (sAudioHandles.FindGet(key, &slot))
+         {
+             sAudioHandleStates.Remove(key);
+@@ -348,7 +367,7 @@
+ {
+     if (cueId != 0xFFFFFFFF)
+     {
+-        unsigned long key = MakeAudioHandleKey(cueId, context);
++        MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+         XSoundHandle** slot = 0;
+         if (sAudioHandles.FindGet(key, &slot))
+         {
+@@ -386,7 +405,7 @@
+     {
+         return;
+     }
+-    unsigned long key = MakeAudioHandleKey(cueId, context);
++    MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+     XSoundHandle** slot = 0;
+     if (!sAudioHandles.FindGet(key, &slot))
+     {
+@@ -450,7 +469,7 @@
+ {
+     AudioHandleState state;
+     state.Set(slotId, cueId, context, resumable);
+-    unsigned long key = MakeAudioHandleKey(cueId, context);
++    MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+     sAudioHandleStates.Add(key, state);
+ }
+ 
+@@ -491,7 +510,11 @@
+     sounds = g_pAudioSystem->m_ActiveSoundList.Begin();
+     while (sounds.hasNext())
+     {
+-        unsigned long key = (unsigned long)*sounds;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        MSCHARGED_AUDIO_HANDLE_KEY key = reinterpret_cast<AudioInstanceKey>(*sounds);
++#else
++        MSCHARGED_AUDIO_HANDLE_KEY key = (unsigned long)*sounds;
++#endif
+         bool* paused;
+         if (!sPausedAudioHandles.FindGet(key, &paused))
+         {
+@@ -532,7 +555,7 @@
+ }
+ 
+ void AudioSystem::PauseTrackedSound(
+-    const unsigned long& key, XSoundHandle** handle)
++    const MSCHARGED_AUDIO_HANDLE_KEY& key, XSoundHandle** handle)
+ {
+     AudioHandleState* state;
+     if (sAudioHandleStates.FindGet(key, &state))
+@@ -544,13 +567,19 @@
+         (*handle)->Stop(0, 0);
+     }
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    sPausedAudioHandles.Add(*reinterpret_cast<AudioInstanceKey*>(handle), false);
++#else
+     sPausedAudioHandles.Add(*(unsigned long*)handle, false);
++#endif
+ }
+ 
+ void AudioSystem::ResumeTrackedSound(
+-    const unsigned long&, AudioHandleState* state)
++    const MSCHARGED_AUDIO_HANDLE_KEY&, AudioHandleState* state)
+ {
+     ResumeSound(state->m_CueId, state->m_Context);
+ }
+ 
+ #include "Game/Audio/AudioSystem.inl"
++
++#undef MSCHARGED_AUDIO_HANDLE_KEY
+--- a/include/Game/Audio/AudioSystem.h
++++ b/include/Game/Audio/AudioSystem.h
+@@ -32,10 +32,17 @@
+ 
+     bool UpdateSoundSource(float dt, Plat3dSoundSrc& source);
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    void PauseTrackedSound(
++        const AudioInstanceKey& key, XSoundHandle** handle);
++    void ResumeTrackedSound(
++        const AudioInstanceKey& key, AudioHandleState* state);
++#else
+     void PauseTrackedSound(
+         const unsigned long& key, XSoundHandle** handle);
+     void ResumeTrackedSound(
+         const unsigned long& key, AudioHandleState* state);
++#endif
+ 
+     AudioBundleManager* GetBundleManager() const
+     {

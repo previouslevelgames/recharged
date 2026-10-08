@@ -4,16 +4,25 @@ include(cmake/OriginalFS.cmake)
 include(cmake/OriginalIPCMemory.cmake)
 include(cmake/NativeIPCBootBuffer.cmake)
 
-# Actual persistent IOS FS/ES backing. The current backend uses POSIX file APIs;
-# Windows needs its own physical provider. Installation is explicit native boot
+# Actual persistent IOS FS/ES backing with POSIX and Windows physical providers.
+# Installation is explicit native boot
 # setup, before the original NAND initializer; this supplies no game save data.
-if(UNIX)
+if(UNIX OR WIN32)
     add_library(charged_native_filesystem STATIC EXCLUDE_FROM_ALL
         src/platform/filesystem_device.cpp)
     add_dependencies(charged_native_filesystem verify_prepared)
     target_include_directories(charged_native_filesystem PUBLIC src)
     target_compile_features(charged_native_filesystem PUBLIC cxx_std_17)
     target_link_libraries(charged_native_filesystem PUBLIC charged_native_ios)
+
+    if(BUILD_TESTING)
+        add_executable(native_filesystem_physical_tests tests/native_filesystem_physical.cpp)
+        target_link_libraries(native_filesystem_physical_tests PRIVATE charged_native_filesystem)
+        target_compile_features(native_filesystem_physical_tests PRIVATE cxx_std_20)
+        add_test(NAME native_filesystem_physical COMMAND native_filesystem_physical_tests
+            "${CMAKE_CURRENT_BINARY_DIR}/native-filesystem-physical-data")
+        set_tests_properties(native_filesystem_physical PROPERTIES TIMEOUT 30)
+    endif()
 
     if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
        AND CMAKE_SIZEOF_VOID_P EQUAL 8

@@ -1,0 +1,8 @@
+#pragma once
+
+namespace mscharged::platform
+{
+inline constexpr unsigned char application_icon_png[] = {
+@MSCHARGED_APP_ICON_BYTES@
+};
+}

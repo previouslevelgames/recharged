@@ -1,0 +1,25 @@
+Subject: Expose existing audio inline bodies through their native owning headers
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/include/Game/Audio/AudioSystem.h
++++ b/include/Game/Audio/AudioSystem.h
+@@ -72,4 +72,8 @@
+     return g_pAudioSystem->GetBundleManager();
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Audio/AudioSystem.inl"
++#endif
++
+ #endif // GAME_AUDIO_AUDIO_SYSTEM_H
+--- a/include/Game/Audio/AudioScriptInterpreter.h
++++ b/include/Game/Audio/AudioScriptInterpreter.h
+@@ -15,4 +15,8 @@
+     virtual inline void DoFunctionCall(unsigned int index);
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Audio/AudioScriptInterpreter.inl"
++#endif
++
+ #endif // GAME_AUDIO_AUDIO_SCRIPT_INTERPRETER_H

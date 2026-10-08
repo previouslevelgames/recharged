@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -304,7 +304,7 @@ diff --git a/src/Game/TweakNameRecycler.cpp b/src/Game/TweakNameRecycler.cpp
 --- a/src/Game/TweakNameRecycler.cpp
 +++ b/src/Game/TweakNameRecycler.cpp
 @@ -24,7 +24,11 @@
-     /* 0x14 */ u8 mUnidentified014[4]; // not accessed by retained code
+     /* 0x14 */ u8 m_pad014[4]; // not accessed by retained code
  }; // size: 0x18
  
 +#ifdef MSCHARGED_NATIVE
@@ -820,7 +820,7 @@ diff --git a/src/Game/GameTweaks.cpp b/src/Game/GameTweaks.cpp
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -3281,7 +3281,9 @@
+@@ -3280,7 +3280,9 @@
  }
  
  static unsigned short lbl_806DB5C0 = 0xFFFF;

@@ -1,6 +1,6 @@
 Subject: Restore original configuration startup and parser behavior
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep the matched original Config constructor, global lifetime, load callbacks,
 parser, hash probes and string-capacity behavior outside explicit diagnostics.
@@ -38,7 +38,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  extern "C" double atof(const char* string);
  extern "C" int strcmp(const char* first, const char* second);
  #endif
-@@ -33,7 +41,7 @@
+@@ -35,7 +43,7 @@
  template <>
  struct LexicalCastImpl<int, const char*>
  {
@@ -47,7 +47,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
      static int Do(const char* s) { return NativeConfigInteger(atof(s)); }
  #else
      static int Do(const char* s) { return (int)atof(s); }
-@@ -91,7 +99,7 @@
+@@ -93,7 +101,7 @@
      return t;
  }
  
@@ -56,7 +56,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  template <>
  inline int LexicalCastImpl<int, float>::Do(float value) { return NativeConfigInteger(value); }
  #endif
-@@ -105,7 +113,7 @@
+@@ -107,7 +115,7 @@
  template <>
  inline const char* LexicalCastImpl<const char*, int>::Do(int)
  {
@@ -65,7 +65,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
      throw std::invalid_argument("Numeric configuration value requested as a string");
  #else
      nlBreak();
-@@ -116,7 +124,7 @@
+@@ -118,7 +126,7 @@
  template <>
  inline const char* LexicalCastImpl<const char*, float>::Do(float)
  {
@@ -74,7 +74,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
      throw std::invalid_argument("Numeric configuration value requested as a string");
  #else
      nlBreak();
-@@ -174,7 +182,7 @@
+@@ -176,7 +184,7 @@
  
      Config(AllocateWhere where, unsigned int stringCapacity, unsigned int slotCount);
      ~Config();
@@ -311,7 +311,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      mscharged::ConfigMutation mutation(*this, *pair);
  #endif
          pair->type = CONFIG_STRING;
-@@ -591,7 +605,7 @@
+@@ -589,7 +603,7 @@
  
  void Config::Parse(const char* data, int size, Parser& parser)
  {
@@ -320,7 +320,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      mscharged::ValidateConfigInput(data, size);
  #endif
      if (size == 0)
-@@ -600,7 +614,7 @@
+@@ -598,7 +612,7 @@
      }
  
      char* copy = (char*)ConfigParserAllocate(size + 1, 8, false);
@@ -329,7 +329,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      mscharged::ConfigBuffer copyOwner(copy);
  #endif
      memcpy(copy, data, size);
-@@ -619,7 +633,7 @@
+@@ -617,7 +631,7 @@
      {
          if (pairCount == (int)mTvpCapacity)
          {
@@ -338,7 +338,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
              throw std::length_error("Configuration pair limit exceeded");
  #else
              break;
-@@ -653,7 +667,7 @@
+@@ -651,7 +665,7 @@
          }
  
          char* token = tokens.NextToken(false);
@@ -347,7 +347,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          if (!token) { line = lines.GetLine(); continue; }
  #endif
          tag.erase(tag.begin(), tag.end());
-@@ -686,7 +700,7 @@
+@@ -684,7 +698,7 @@
          line = lines.GetLine();
      }
  
@@ -356,7 +356,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      nlFree(copy);
  #endif
  }
-@@ -718,7 +732,7 @@
+@@ -716,7 +730,7 @@
  
  inline Config::TagValuePair::TagValuePair()
      : tag(0)
@@ -365,7 +365,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      , type(CONFIG_INT), value{}
  #endif
  {
-@@ -756,7 +770,7 @@
+@@ -754,7 +768,7 @@
      return false;
  }
  

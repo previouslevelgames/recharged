@@ -53,6 +53,7 @@ struct Hardware {
     WPADFreeFunc free = nullptr;
     bool configured = false, initialized = false, servicing = false;
     bool motor_enabled = false;
+    u8 speaker_volume = 0;
     std::uint64_t generation = 0;
     std::array<DpdProducer, WPAD_MAX_CONTROLLERS> dpd_producers{};
     std::thread::id dpd_owner{};
@@ -413,6 +414,8 @@ void WPADInit() {
     }
     for (auto& channel : state.channels) ClearReports(channel);
     state.motor_enabled = state.settings.motor_enabled;
+    state.speaker_volume = state.settings.speaker_volume > WPAD_MAX_SPEAKER_VOLUME
+        ? WPAD_MAX_SPEAKER_VOLUME : state.settings.speaker_volume;
     ++state.generation;
     state.initialized = true;
 }
@@ -450,6 +453,17 @@ WPADResult WPADProbe(WPADChannel index, WPADDeviceType* type) {
 BOOL WPADIsSpeakerEnabled(s32 index) {
     (void)GetChannel(index);
     return FALSE;
+}
+u8 WPADGetSpeakerVolume() {
+    RequireOwner();
+    std::lock_guard lock(State().reports);
+    return State().speaker_volume;
+}
+void WPADSetSpeakerVolume(u8 volume) {
+    RequireOwner();
+    std::lock_guard lock(State().reports);
+    State().speaker_volume = volume > WPAD_MAX_SPEAKER_VOLUME
+        ? WPAD_MAX_SPEAKER_VOLUME : volume;
 }
 WPADResult WPADControlSpeaker(WPADChannel index, u32 command, WPADCallback callback) {
     auto& channel = GetChannel(index);

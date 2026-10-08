@@ -1,0 +1,47 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/libs/RVL_SDK/include/revolution/os/OSAlarm.h
++++ b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
+@@ -2,6 +2,7 @@
+ #define REVOLUTION_OS_ALARM_H
+ 
+ #if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
+ #include <dolphin/os/OSAlarm.h>
+ // Wii APIs absent from the current native SDK remain explicit providers.
+ #ifdef __cplusplus
+@@ -14,7 +15,7 @@
+ }
+ #endif
+ #define OSGetAlarmUserDataAny(type_, alarm_) ((type_)(OSGetAlarmUserData(alarm_)))
+-#define OSSetAlarmUserDataAny(alarm_, data_) OSSetAlarmUserData(alarm_, (void*)(data_))
++#define OSSetAlarmUserDataAny(alarm_, data_) OSSetAlarmUserData(alarm_, (void*)(uintptr_t)(data_))
+ #else
+ 
+ #include <revolution/os/OSContext.h>
+--- a/src/RVL_SDK/dsp/dsp_task.c
++++ b/src/RVL_SDK/dsp/dsp_task.c
+@@ -66,7 +66,11 @@
+     while (!DSPCheckMailFromDSP()) {
+         ;
+     }
++#ifdef MSCHARGED_NATIVE
++    ucode = (u32)(uintptr_t)DSPReadMailFromDSP();
++#else
+     ucode = (u32)DSPReadMailFromDSP();
++#endif
+ 
+     if ((__DSP_curr_task->flags & DSP_TASK_CANCELED) && ucode == DSP_YIELD) {
+         ucode = DSP_DONE;
+@@ -343,7 +347,11 @@
+     }
+ 
+     task->state = DSP_TASK_STATE_0;
++#ifdef MSCHARGED_NATIVE
++    __DSP_debug_printf("__DSP_add_task() : Added task    : 0x%08X\n", (u32)(uintptr_t)task);
++#else
+     __DSP_debug_printf("__DSP_add_task() : Added task    : 0x%08X\n", (u32)task);
++#endif
+ }
+ 
+ void __DSP_remove_task(DSPTask* task) {

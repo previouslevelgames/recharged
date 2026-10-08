@@ -24,7 +24,9 @@ def main():
         for name,data in bad.items(): (root/f'bad-{name}.pref').write_bytes(data)
         subprocess.run([sys.argv[1],str(root)],check=True)
         assert (root/'format.pref').read_bytes()==image(), 'Independent big-endian/CRC oracle differs'
-        assert not list(root.glob('*.pending-*')), 'Unpublished temporary file survived owner teardown'
+        replacement=root/'pr\u00e9f\u00e9rences-\u65e5\u672c'/'options-\u00e9.pref'
+        assert replacement.read_bytes()==image(values=(7,6,8,10,10,10)), 'Unicode replacement format/CRC differs'
+        assert not list(root.rglob('*.pending-*')), 'Unpublished temporary file survived owner teardown'
         print('Independent Python native format/CRC oracle passed')
 
 if __name__=='__main__': main()

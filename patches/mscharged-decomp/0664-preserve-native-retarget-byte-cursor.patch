@@ -1,0 +1,34 @@
+Subject: Preserve native retarget byte cursor width
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Keep the pointer-derived local byte cursor at native pointer width on LLP64.
+Retain the original signature fields, record stride, count, lookup loop and first-match decision.
+
+--- a/src/Game/SAnim/AnimRetargeter.cpp
++++ b/src/Game/SAnim/AnimRetargeter.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/SAnim/AnimRetargeter.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/anim_retarget_transport.h"
+ #endif
+@@ -47,9 +50,17 @@
+     unsigned long signature)
+ {
+     AnimRetarget* p;
++#if defined(MSCHARGED_NATIVE)
++    intptr_t offset;
++#else
+     long offset;
++#endif
+     AnimRetarget* result = 0;
++#if defined(MSCHARGED_NATIVE)
++    offset = reinterpret_cast<intptr_t>(result);
++#else
+     offset = (long)result;
++#endif
+ 
+     for (long i = m_NumAnimRetargets; i > 0; i--)
+     {

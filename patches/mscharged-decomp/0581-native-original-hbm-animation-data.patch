@@ -1,0 +1,47 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Purpose: Native RLAN scalar/offset representation at the original Layout ingress.
+
+--- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
+@@ -4,6 +4,10 @@
+ #include "revolution/hbm/nw4hbm/lyt/picture.h"
+ #include "revolution/hbm/nw4hbm/lyt/textBox.h"
+ #include "revolution/hbm/nw4hbm/lyt/window.h"
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_hbm_animation.h"
++#endif
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <new>
+@@ -215,7 +219,12 @@
+     NW4HBMAssertPointerNonnull_Line(mspAllocator, 295);
+     NW4HBMAssertPointerNonnull_Line(anmResBuf, 296);
+ 
++#if defined(MSCHARGED_NATIVE)
++    const res::BinaryFileHeader* pFileHead = static_cast<const res::BinaryFileHeader*>(
++        mscharged::platform::NativeHBMAnimationHeader(anmResBuf));
++#else
+     const res::BinaryFileHeader* pFileHead = static_cast<const res::BinaryFileHeader*>(anmResBuf);
++#endif
+ 
+     if (!detail::TestFileHeader(*pFileHead)) {
+         return NULL;
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/common.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/common.h
+@@ -64,7 +64,15 @@
+ 
+ void InitGXTexObjFromTPL(GXTexObj* to, TPLPalette* pal, u32 id);
+ 
++#if defined(MSCHARGED_NATIVE)
++inline s32 GetSignatureInt(const char* sig) {
++    const u8* bytes = reinterpret_cast<const u8*>(sig);
++    return static_cast<s32>((u32(bytes[0]) << 24) | (u32(bytes[1]) << 16)
++                            | (u32(bytes[2]) << 8) | bytes[3]);
++}
++#else
+ inline s32 GetSignatureInt(const char* sig) { return *reinterpret_cast<const s32*>(sig); }
++#endif
+ 
+ inline const char* GetStrTableStr(const void* pStrTable, int index) {
+     const u32* offsets = static_cast<const u32*>(pStrTable);

@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/OriginalModuleLinkage.cmake)
 
 # The native host installs persistent storage and IPC memory. Original main
 # owns flash initialization and its actual priority13/all-states task; save
@@ -19,6 +20,8 @@ function(mscharged_select_original_frontend_flash target)
     endif()
     target_compile_definitions("${target}" PRIVATE
         MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH=1)
+    mscharged_require_original_host_symbol(charged_original_main_credits_host
+        INTERFACE ChargedNativeBeginThreadPowerRemoval)
     get_target_property(_existing "${target}" SOURCES)
     # Keep original SDK state/functions in this same isolated source module.
     # Its hidden source sections avoid retaining uncalled reset/MEMCLR paths;

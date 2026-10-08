@@ -71,6 +71,10 @@ or behaviors remain untested.
 
 ## Pull requests
 
+Target `main` for development changes. Promote reviewed snapshots through a
+`main` → `stable` pull request. Merging into `stable` generates downloadable
+[build artifacts](docs/BUILDING_GITHUB.md); it does not automatically tag a release.
+
 Use a clear title and include:
 
 - The problem or goal and the resulting behavior.

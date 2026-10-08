@@ -1,6 +1,6 @@
 Subject: Preserve the original camera transition fabs expression on native hosts
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Upstream now owns the Thwomp event as ThwompObject* plus eThwompState,
 produces it from thwomp->mState and consumes THWOMP_STATE_FALLING. Retire
@@ -13,9 +13,9 @@ expression on console; no camera transition, timing or behavior is changed.
 
 This source-only refresh does not establish camera-event/runtime readiness.
 
-diff --git a/src/Game/Camera/tu_800F9460.cpp b/src/Game/Camera/tu_800F9460.cpp
---- a/src/Game/Camera/tu_800F9460.cpp
-+++ b/src/Game/Camera/tu_800F9460.cpp
+diff --git a/src/Game/Camera/GameplayCameraEffects.cpp b/src/Game/Camera/GameplayCameraEffects.cpp
+--- a/src/Game/Camera/GameplayCameraEffects.cpp
++++ b/src/Game/Camera/GameplayCameraEffects.cpp
 @@ -412,7 +412,11 @@
  
      mTransitionBlend

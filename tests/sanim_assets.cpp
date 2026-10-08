@@ -153,7 +153,7 @@ void Valid()
         Check(!weak.expired(),"Retained native animation disappeared");
     }
     for(unsigned roots:{0u,1u})
-    {SAnimAssets assets(Fixture(1,roots));auto a=assets.At(0);Check(a->Root(0).rotation==(roots?65530:0)&&a->Root(1).rotation==(roots?65530:0),"Zero/single root changed");Bits(a->Data().UnidentifiedGetLinearSpeed(),0);}
+    {SAnimAssets assets(Fixture(1,roots));auto a=assets.At(0);Check(a->Root(0).rotation==(roots?65530:0)&&a->Root(1).rotation==(roots?65530:0),"Zero/single root changed");Bits(a->Data().GetLinearSpeed(),0);}
     auto multi=Fixture();Animation(multi,7,0,false,5);SAnimAsset::Handle retained;
     {SAnimAssets assets(multi);Check(assets.Size()==2&&assets.At(1)->Data().m_nNumKeys==7,"Inventory ordering/absolute alignment differs");retained=assets.At(1);Reject([&]{assets.At(2);});}
     multi.clear();Check(retained->Data().GetNumFrames()==7,"Track depended on inventory/file lifetime");
@@ -198,7 +198,7 @@ void Invalid()
     {Reject([&]{a->Root(t);});Reject([&]{a->Weight(0,t);});Reject([&]{a->MorphWeight(0,t);});unsigned short rot;Reject([&]{a->Data().GetRootRot(t,&rot);});}
     Reject([&]{a->Keys(5);});Reject([&]{a->RotationKey(0,1);});Reject([&]{a->RotationKey(4,0);});
     Reject([&]{a->ScaleKey(0,1);});Reject([&]{a->TranslationKey(0,1);});Reject([&]{a->Weight(5,.5f);});Reject([&]{a->MorphWeight(2,0);});
-    float weight;Reject([&]{a->Data().fn_8030939C(-1,0,&weight);});Reject([&]{a->Data().GetMorphWeight(-1,0);});
+    float weight;Reject([&]{a->Data().GetChannelWeight(-1,0,&weight);});Reject([&]{a->Data().GetMorphWeight(-1,0);});
     auto inventory=good;Animation(inventory,5,0);
     {SAnimAssets warm(inventory);}const auto before=allocations::live.load();unsigned failures=0;
     for(std::size_t fail=0;fail<400;++fail)
@@ -236,7 +236,7 @@ void Inspect(const char* path)
             {auto v=asset->RotationKey(n,k);if(auto* angle=std::get_if<std::uint16_t>(&v)){rot.Byte(*angle>>8);rot.Byte(*angle);}else for(float f:std::get<std::array<float,4>>(v))rot.Float(f);}
             for(std::size_t k=0;k<counts.scale;++k)for(float f:asset->ScaleKey(n,k))scale.Float(f);
             for(std::size_t k=0;k<counts.translation;++k)for(float f:asset->TranslationKey(n,k))trans.Float(f);
-            weights.Bytes({d.m_Unknown2C[n],counts.weights});aux.Bytes(asset->AuxiliaryBytes(n));
+            weights.Bytes({d.m_pWeightKeys[n],counts.weights});aux.Bytes(asset->AuxiliaryBytes(n));
             std::cout<<"{\"properties\":"<<d.m_pNodeProperties[n]<<",\"aux_metadata\":"<<d.m_Unknown1C[n]
                 <<",\"aux_present\":"<<(asset->HasAuxiliary(n)?"true":"false")<<",\"counts\":["
                 <<counts.rotation<<','<<counts.scale<<','<<counts.translation<<','<<counts.weights<<"],\"hashes\":["

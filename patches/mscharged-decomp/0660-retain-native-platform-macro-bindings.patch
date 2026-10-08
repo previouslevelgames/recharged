@@ -1,0 +1,51 @@
+Subject: Avoid native platform macro redefinitions with the original bindings intact
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/src/NL/nlAVLTree.cpp
++++ b/src/NL/nlAVLTree.cpp
+@@ -2,9 +2,13 @@
+ #if defined(MSCHARGED_NATIVE)
+ #if defined(_MSC_VER)
+ #include <malloc.h>
++#ifndef __alloca
+ #define __alloca _alloca
++#endif
+ #else
++#ifndef __alloca
+ #define __alloca __builtin_alloca
++#endif
+ #endif
+ #endif
+ 
+--- a/src/NL/nlFont.cpp
++++ b/src/NL/nlFont.cpp
+@@ -11,10 +11,14 @@
+ #include <type_traits>
+ #if defined(_MSC_VER)
+ #include <malloc.h>
++#ifndef __alloca
+ #define __alloca _alloca
++#endif
+ #else
+ #include <alloca.h>
++#ifndef __alloca
+ #define __alloca alloca
++#endif
+ #endif
+ 
+ // Preserve the original null-plus-one token sentinel without undefined native
+--- a/src/RVL_SDK/gamespy/common/gsPlatformSocket.h
++++ b/src/RVL_SDK/gamespy/common/gsPlatformSocket.h
+@@ -127,6 +127,12 @@
+ 
+ int getsockname(SOCKET sock, SOCKADDR* addr, int* len);
+ 
++#if defined(MSCHARGED_NATIVE)
++#undef htonl
++#undef ntohl
++#undef htons
++#undef ntohs
++#endif
+ #define htonl(l) SOHtoNl((u32)l)
+ #define ntohl(l) SONtoHl((u32)l)
+ #define htons(s) SOHtoNs((u16)s)

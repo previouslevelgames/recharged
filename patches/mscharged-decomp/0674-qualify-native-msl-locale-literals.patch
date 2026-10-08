@@ -1,0 +1,115 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/src/MSL/locale.c
++++ b/src/MSL/locale.c
+@@ -4,16 +4,23 @@
+ #include "limits.h"
+ #include "mbstring.h"
+ 
++// Preserve the MSL C ABI; the original literal backing is only read.
++#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
++#define MSCHARGED_MSL_LOCALE_LITERAL(value) const_cast<char*>(value)
++#else
++#define MSCHARGED_MSL_LOCALE_LITERAL(value) value
++#endif
++
+ struct lconv __lconv = {
+-    ".", // decimal_point
+-    "", // thousands_sep
+-    "", // grouping
+-    "", // mon_decimal_point
+-    "", // mon_thousands_sep
+-    "", // mon_grouping
+-    "", // positive_sign
+-    "", // negative_sign
+-    "", // currency_symbol
++    MSCHARGED_MSL_LOCALE_LITERAL("."), // decimal_point
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // thousands_sep
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // grouping
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // mon_decimal_point
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // mon_thousands_sep
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // mon_grouping
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // positive_sign
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // negative_sign
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // currency_symbol
+     CHAR_MAX, // frac_digits
+     CHAR_MAX, // p_cs_precedes
+     CHAR_MAX, // n_cs_precedes
+@@ -21,7 +28,7 @@
+     CHAR_MAX, // n_sep_by_space
+     CHAR_MAX, // p_sign_posn
+     CHAR_MAX, // n_sign_posn
+-    "", // int_curr_symbol
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // int_curr_symbol
+     CHAR_MAX, // int_frac_digits
+     CHAR_MAX, // int_p_cs_precedes
+     CHAR_MAX, // int_n_cs_precedes
+@@ -61,12 +68,12 @@
+ 
+ struct _loc_mon_cmpt __mon_cmpt = {
+     "C", // CmptName
+-    "", // mon_decimal_point
+-    "", // mon_thousands_sep
+-    "", // mon_grouping
+-    "", // positive_sign
+-    "", // negative_sign
+-    "", // currency_symbol
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // mon_decimal_point
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // mon_thousands_sep
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // mon_grouping
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // positive_sign
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // negative_sign
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // currency_symbol
+     CHAR_MAX, // frac_digits
+     CHAR_MAX, // p_cs_precedes
+     CHAR_MAX, // n_cs_precedes
+@@ -74,7 +81,7 @@
+     CHAR_MAX, // n_sep_by_space
+     CHAR_MAX, // p_sign_posn
+     CHAR_MAX, // n_sign_posn
+-    "", // int_curr_symbol
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // int_curr_symbol
+     CHAR_MAX, // int_frac_digits
+     CHAR_MAX, // int_p_cs_precedes
+     CHAR_MAX, // int_n_cs_precedes
+@@ -86,22 +93,22 @@
+ 
+ struct _loc_num_cmpt __num_cmpt = {
+     "C", // CmptName
+-    ".", // decimal_point
+-    "", // thousands_sep
+-    "" // grouping
++    MSCHARGED_MSL_LOCALE_LITERAL("."), // decimal_point
++    MSCHARGED_MSL_LOCALE_LITERAL(""), // thousands_sep
++    MSCHARGED_MSL_LOCALE_LITERAL("") // grouping
+ };
+ 
+ struct _loc_time_cmpt __time_cmpt = {
+     "C", // CmptName
+-    "AM|PM", // am_pm
+-    "%a %b %e %T %Y", // DateTime_Format
+-    "%I:%M:%S %p", // Twelve_hr_format
+-    "%m/%d/%y", // Date_Format
+-    "%T", // Time_Format
+-    "Sun|Sunday|Mon|Monday|Tue|Tuesday|Wed|Wednesday|Thu|Thursday|Fri|Friday|Sat|Saturday", // Day_Names
+-    "Jan|January|Feb|February|Mar|March|Apr|April|May|May|Jun|June|Jul|July|Aug|August|Sep|September|Oct|October|Nov|"
+-    "November|Dec|December", // MonthNames
+-    "" // TimeZone
++    MSCHARGED_MSL_LOCALE_LITERAL("AM|PM"), // am_pm
++    MSCHARGED_MSL_LOCALE_LITERAL("%a %b %e %T %Y"), // DateTime_Format
++    MSCHARGED_MSL_LOCALE_LITERAL("%I:%M:%S %p"), // Twelve_hr_format
++    MSCHARGED_MSL_LOCALE_LITERAL("%m/%d/%y"), // Date_Format
++    MSCHARGED_MSL_LOCALE_LITERAL("%T"), // Time_Format
++    MSCHARGED_MSL_LOCALE_LITERAL("Sun|Sunday|Mon|Monday|Tue|Tuesday|Wed|Wednesday|Thu|Thursday|Fri|Friday|Sat|Saturday"), // Day_Names
++    MSCHARGED_MSL_LOCALE_LITERAL("Jan|January|Feb|February|Mar|March|Apr|April|May|May|Jun|June|Jul|July|Aug|August|Sep|September|Oct|October|Nov|"
++    "November|Dec|December"), // MonthNames
++    MSCHARGED_MSL_LOCALE_LITERAL("") // TimeZone
+ };
+ 
+ struct __locale _current_locale = {
+@@ -113,3 +120,5 @@
+     &__num_cmpt, // num_cmpt_ptr
+     &__time_cmpt // time_cmpt_ptr
+ };
++
++#undef MSCHARGED_MSL_LOCALE_LITERAL

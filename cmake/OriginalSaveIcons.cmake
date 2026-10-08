@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/OriginalTPL.cmake)
 
 # Original SaveLoad alone consumes Wii16 wchar text and fixed32 TPL records.
 # This does not initialize a banner, choose icons, supply CARD/NAND readiness,
@@ -14,8 +15,8 @@ function(mscharged_add_original_save_icon_transport target)
         return()
     endif()
     include(cmake/WiiStringFormat.cmake)
+    mscharged_select_native_tpl_transport("${target}")
     target_sources(${target} PRIVATE
-        src/platform/native_tpl.cpp
         src/platform/save_data.cpp
         src/platform/nand_banner.cpp)
     target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")

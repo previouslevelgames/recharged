@@ -1,6 +1,6 @@
-Subject: Transport original camera serialized words and native placement storage
+Subject: Transport original camera serialized words
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep the original camera loading, owning/borrowed records, copying, list and
 callback algorithms. Before the original direct word reads, ask the native
@@ -8,9 +8,7 @@ platform to convert completed Wii chunk headers and the consumed camera word
 channels in place, retaining the original allocation and surrounding bytes.
 NIS's original borrowed LoadAnimCameraData call uses the same representation.
 
-The three original debug-camera placement requests retain alignment, direction,
-constructor arguments and branch order; native backing uses sizeof(cDebugCamera)
-because its LP64 footprint exceeds the retail 0xA0 physical storage request.
+Upstream now owns the three debug-camera sizeof placement requests.
 
 No original initialization, catalog, camera selection or playback is changed.
 Platform byte domains require the reviewed allocation/completion metadata.
@@ -39,42 +37,3 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
      pAnimCameraData->ownsKeyData = ownsKeyData;
      while (outerChunk < outerEnd)
      {
-diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
---- a/src/Game/Camera/CameraMan.cpp
-+++ b/src/Game/Camera/CameraMan.cpp
-@@ -150,7 +150,11 @@
- 
-     if (frontEnd)
-     {
-+#ifdef MSCHARGED_NATIVE
-+        pBaseCamera = new ((cDebugCamera*)nlMalloc(sizeof(cDebugCamera), 8, false)) cDebugCamera(false);
-+#else
-         pBaseCamera = new ((cDebugCamera*)nlMalloc(0xA0, 8, false)) cDebugCamera(false);
-+#endif
-     }
-     else
-     {
-@@ -242,7 +246,11 @@
-  */
- void AsyncStartCameraLoadingForStadiumViewer()
- {
-+#ifdef MSCHARGED_NATIVE
-+    cBaseCamera* pBaseCamera = new ((cDebugCamera*)nlMalloc(sizeof(cDebugCamera), 8, false)) cDebugCamera(false);
-+#else
-     cBaseCamera* pBaseCamera = new ((cDebugCamera*)nlMalloc(0xA0, 8, false)) cDebugCamera(false);
-+#endif
- 
-     cRumbleFilter* pRumbleFilter = new (8, false) cRumbleFilter();
-     g_pRumbleFilter = pRumbleFilter;
-@@ -455,7 +463,11 @@
-         {
-         case eCameraType_Debug:
-         {
-+#ifdef MSCHARGED_NATIVE
-+            pBaseCamera = new ((cDebugCamera*)nlMalloc(sizeof(cDebugCamera), 8, false)) cDebugCamera(true);
-+#else
-             pBaseCamera = new ((cDebugCamera*)nlMalloc(0xA0, 8, false)) cDebugCamera(true);
-+#endif
-             break;
-         }
-         case eCameraType_Replay:

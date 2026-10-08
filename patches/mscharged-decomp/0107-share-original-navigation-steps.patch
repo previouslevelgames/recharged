@@ -1,6 +1,6 @@
 Subject: Share original NAV visuals and back button kernels
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Console methods delegate to the same authored selection, visibility, label,
 pointer and back-button operations as the retained native adapter.
@@ -285,7 +285,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  #include "NL/nlFunction.inl"
  #include "Game/Render/RLViewLayers.h"
  #include "Game/FE/tlImageInstance.h"
-@@ -51,17 +52,7 @@
+@@ -48,17 +49,7 @@
   */
  void FEBackButton::SetButtonInstance(TLComponentInstance* instance)
  {
@@ -304,7 +304,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  static void InitializePointerButton(FEBackButton* button)
-@@ -74,11 +65,7 @@
+@@ -71,11 +62,7 @@
      FEPointerListener::Callback callback(PointerBinding(
          MemFun(&FEBackButton::OnPointerInside), button, Placeholder<0>(), Placeholder<1>()));
      button->SetPointerInsideCallback(callback);
@@ -317,7 +317,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  /**
-@@ -104,28 +91,7 @@
+@@ -101,28 +88,7 @@
      {
          manager = g_pOverlayManager;
      }
@@ -347,7 +347,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  /**
-@@ -133,13 +99,7 @@
+@@ -130,13 +96,7 @@
   */
  void FEBackButton::OnPointerEnter(int index, void* context)
  {
@@ -362,7 +362,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  /**
-@@ -147,7 +107,7 @@
+@@ -144,7 +104,7 @@
   */
  void FEBackButton::OnPointerInside(int index, void*)
  {
@@ -371,7 +371,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  /**
-@@ -155,9 +115,7 @@
+@@ -152,9 +112,7 @@
   */
  void FEBackButton::OnPointerPress(int index, void* context)
  {
@@ -382,7 +382,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  /**
-@@ -165,8 +123,7 @@
+@@ -162,8 +120,7 @@
   */
  void FEBackButton::OnPointerRelease(int index, void* context)
  {
@@ -392,7 +392,7 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
  }
  
  /**
-@@ -174,12 +131,5 @@
+@@ -171,12 +128,5 @@
   */
  void FEBackButton::OnPointerLeave(int index, void* context)
  {

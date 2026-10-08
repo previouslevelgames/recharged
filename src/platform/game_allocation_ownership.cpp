@@ -12,6 +12,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace mscharged::platform
 {
@@ -665,6 +666,90 @@ GameByteDomain FindGameByteDomain(const void* pointer, std::size_t bytes)
         if (Contains(span->first, span->second.bytes, address, bytes)) return span->second.domain;
     }
     throw std::invalid_argument("Bytes have no uniform completed explicit domain");
+}
+void ProjectGameNativeHeaders(const void* source, std::size_t sourceBytes,
+                              const GameCompletedSpan& expected,
+                              const GameNativeHeaderProjection* projections,
+                              std::size_t count)
+{
+    if (!sourceBytes || !count || !projections)
+        throw std::invalid_argument("Native header projection requires source and structural records");
+    auto& state = State(); std::lock_guard lock(state.mutex);
+    const auto address = reinterpret_cast<std::uintptr_t>(source);
+    if (sourceBytes > std::numeric_limits<std::uintptr_t>::max() - address)
+        throw std::out_of_range("Native header source address extent overflows");
+    auto owner = Containing(state.records, address, sourceBytes);
+    ByteSpan origin{};
+    if (owner == state.records.end() || !Completed(owner->second, address, sourceBytes, origin)
+        || owner->first != reinterpret_cast<std::uintptr_t>(expected.allocation.base)
+        || owner->second.owner != expected.allocation.owner
+        || owner->second.bytes != expected.allocation.bytes
+        || owner->second.incarnation != expected.allocation.incarnation
+        || origin.logical_base != reinterpret_cast<std::uintptr_t>(expected.base)
+        || origin.logical_bytes != expected.bytes)
+        throw std::invalid_argument("Native header projection lost its retained completed source");
+    ValidateMemoryExtent(owner->second, address, sourceBytes);
+    ValidateGraphicsExtent(owner->second, address, sourceBytes);
+    // Completed() proved contiguous coverage with one original logical origin.
+    // Reject mixed or already-converted input, without changing that coverage.
+    auto span = owner->second.byte_spans.upper_bound(address); --span;
+    auto cursor = address; auto remaining = sourceBytes;
+    while (remaining)
+    {
+        if (span->second.domain != GameByteDomain::WiiSerialized)
+            throw std::invalid_argument("Native header projection requires original Wii serialized bytes");
+        const auto available = span->second.bytes - (cursor - span->first);
+        const auto take = remaining < available ? remaining : available;
+        cursor += take; remaining -= take; ++span;
+    }
+    for (const auto& [base, active] : owner->second.pending_writes)
+        if (Overlaps(base, active.bytes, address, sourceBytes))
+            throw std::logic_error("Native header projection overlaps an active source producer");
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const auto& record = projections[i];
+        const auto destination = reinterpret_cast<std::uintptr_t>(record.destination);
+        const auto native = reinterpret_cast<std::uintptr_t>(record.native);
+        if (!record.native || !Contains(address, sourceBytes, destination, record.bytes)
+            || record.bytes > std::numeric_limits<std::uintptr_t>::max() - native
+            || Overlaps(address, sourceBytes, native, record.bytes))
+            throw std::invalid_argument("Native header projection leaves its source or aliases raw input");
+        for (std::size_t j = 0; j < i; ++j)
+            if (Overlaps(destination, record.bytes,
+                         reinterpret_cast<std::uintptr_t>(projections[j].destination), projections[j].bytes))
+                throw std::invalid_argument("Native header projection has overlapping structural records");
+    }
+    struct Publication
+    {
+        ByteSpans::node_type completed;
+        ByteSpans::node_type split;
+    };
+    std::vector<Publication, HostMetadataAllocator<Publication>> reserved;
+    reserved.reserve(count);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        Publication publication{ReservedByteNode(), ReservedByteNode()};
+        publication.completed.key() = reinterpret_cast<std::uintptr_t>(projections[i].destination);
+        publication.completed.mapped() = origin;
+        publication.completed.mapped().bytes = projections[i].bytes;
+        publication.completed.mapped().domain = GameByteDomain::NativeHeader;
+        publication.completed.mapped().graphics_native = false;
+        reserved.push_back(std::move(publication));
+    }
+    // No allocation follows this point. The one registry lock protects domain
+    // publication; quiescent caller ownership protects actual payload reads.
+    // Retiring native metadata invokes only the host metadata release boundary,
+    // never a device lease callback or a source callback.
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const auto& record = projections[i];
+        const auto destination = reinterpret_cast<std::uintptr_t>(record.destination);
+        RetireCompletedByteRange(owner->second, destination, record.bytes, reserved[i].split);
+        RetireNativeBackings(owner->second, destination, record.bytes);
+        std::memcpy(record.destination, record.native, record.bytes);
+        auto inserted = owner->second.byte_spans.insert(std::move(reserved[i].completed));
+        if (!inserted.inserted) std::terminate(); // Disjoint validated ranges cannot collide.
+    }
 }
 GameByteWriteReservation::GameByteWriteReservation(void* destination, std::size_t logicalBytes,
                                                  std::size_t physicalBytes) : pending_(nullptr)

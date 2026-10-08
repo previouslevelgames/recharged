@@ -1,0 +1,50 @@
+# Native RFNT1.4 typed representation beneath whole original ResFont.
+# Preserve the original already-attached Warning/false before ingress.
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+--- a/src/RVL_SDK/hbm/nw4hbm/ut/ut_ResFont.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/ut/ut_ResFont.cpp
+@@ -4,6 +4,11 @@
+ #include "revolution/hbm/nw4hbm/db.h"
+ 
+ #include "decomp.h"
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_hbm_font.h"
++#include <cstdint>
++#endif
+ 
+ #define MAGIC_FONT 'RFNT' // Revolution Font
+ #define MAGIC_FONT_UNPACKED 'RFNU' // Revolution Font, unpacked
+@@ -14,14 +19,22 @@
+ #define MAGIC_FONT_CODE_MAP 'CMAP' // FontCodeMap
+ #define MAGIC_FONT_GLGR 'GLGR' // Glyph Group?
+ 
++#if defined(MSCHARGED_NATIVE)
++#define CONVERT_OFFSET_TO_PTR(type_, ptr_, offset_) reinterpret_cast<type_*>(reinterpret_cast<std::uintptr_t>(ptr_) + offset_)
++#else
+ #define CONVERT_OFFSET_TO_PTR(type_, ptr_, offset_) reinterpret_cast<type_*>(reinterpret_cast<u32>(ptr_) + offset_)
++#endif
+ 
+ namespace nw4hbm {
+ namespace ut {
+ 
+ namespace {
+ template <typename T> void ResolveOffset(T*& ptr, void* base) {
++#if defined(MSCHARGED_NATIVE)
++    ptr = static_cast<T*>(mscharged::platform::ResolveNativeHBMFontOffset(base, reinterpret_cast<std::uintptr_t>(ptr)));
++#else
+     *reinterpret_cast<u32*>(&ptr) = reinterpret_cast<u32>(base) + reinterpret_cast<u32>(ptr);
++#endif
+ }
+ } // namespace
+ 
+@@ -42,6 +55,9 @@
+         return false;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    fileHeader = static_cast<BinaryFileHeader*>(mscharged::platform::NativeHBMFontHeader(brfnt));
++#endif
+     if (fileHeader->signature == MAGIC_FONT_UNPACKED) {
+         BinaryBlockHeader* blockHeader;
+         int nBlocks = 0;

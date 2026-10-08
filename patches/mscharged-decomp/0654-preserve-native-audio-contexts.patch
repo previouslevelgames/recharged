@@ -1,0 +1,318 @@
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Native ABI only: complete audio callback/context and allocator-hook carriers.
+--- a/include/Game/Audio/AudioBackend.h
++++ b/include/Game/Audio/AudioBackend.h
+@@ -10,6 +10,15 @@
+ #include "NL/MemAlloc.h"
+ #include "NL/nlArrayAllocator.h"
+ #include "NL/nlFile.h"
++
++// Original audio reads carry borrowed callback context, not file offsets.
++#ifndef MSCHARGED_AUDIO_ASYNC_PARAM
++#if defined(MSCHARGED_NATIVE)
++#define MSCHARGED_AUDIO_ASYNC_PARAM nlFileAsyncParam
++#else
++#define MSCHARGED_AUDIO_ASYNC_PARAM unsigned long
++#endif
++#endif
+ #include "NL/nlList.h"
+ 
+ class AudioSource;
+@@ -23,7 +32,7 @@
+     unsigned int m_Offset;
+     void* m_Buffer;
+     ReadAsyncCallback m_Callback;
+-    unsigned long m_UserParam;
++    MSCHARGED_AUDIO_ASYNC_PARAM m_UserParam;
+     AudioReadState* m_State;
+     unsigned int m_Size : 31;
+     bool m_Cancel : 1;
+@@ -60,7 +69,7 @@
+     AudioSource* CreateSource(AudioSourceInfo*, XSoundOwner* owner);
+     void ReleaseSource(AudioSource* source);
+     void QueueRead(nlFile* file, unsigned int offset, void* buffer,
+-        unsigned int size, ReadAsyncCallback callback, unsigned long userParam,
++        unsigned int size, ReadAsyncCallback callback, MSCHARGED_AUDIO_ASYNC_PARAM userParam,
+         AudioReadState* state);
+     void QueueReadCancellation(AudioReadState* state);
+     void SetOutputMode(unsigned int mode);
+--- a/include/Game/Audio/AudioEffect.h
++++ b/include/Game/Audio/AudioEffect.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_AUDIOEFFECT_H
+ #define GAME_AUDIO_AUDIOEFFECT_H
++
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_audio_allocation_size.h"
++#endif
+ 
+ #include "NL/nlDLListContainer.h"
+ #include "NL/nlMath.h"
+@@ -139,10 +143,17 @@
+ extern AuxEffectMap* g_pAuxEffectMap;
+ void SetDefaultReverbSettings(AXFX_REVERBHI* reverb);
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* AllocateAudioEffectMemory(std::size_t size)
++{
++    return nlMalloc(mscharged::platform::NativeAudioAllocationSize(size), 8, false);
++}
++#else
+ inline void* AllocateAudioEffectMemory(unsigned long size)
+ {
+     return nlMalloc(size, 8, false);
+ }
++#endif
+ 
+ inline void FreeAudioEffectMemory(void* pointer)
+ {
+--- a/include/Game/Audio/AudioSource.h
++++ b/include/Game/Audio/AudioSource.h
+@@ -8,6 +8,15 @@
+ #include "revolution/sp.h"
+ #include "revolution/os/OSInterrupt.h"
+ #include "NL/nlFile.h"
++
++// Original audio reads carry borrowed callback context, not file offsets.
++#ifndef MSCHARGED_AUDIO_ASYNC_PARAM
++#if defined(MSCHARGED_NATIVE)
++#define MSCHARGED_AUDIO_ASYNC_PARAM nlFileAsyncParam
++#else
++#define MSCHARGED_AUDIO_ASYNC_PARAM unsigned long
++#endif
++#endif
+ #include "NL/nlSlotPool.h"
+ 
+ class Plat3dSoundSrc;
+@@ -228,7 +237,7 @@
+     unsigned int GetStreamDataStart();
+     unsigned int GetChannelDataOffset(AudioStreamChannel* channel);
+     void QueueStreamRead(unsigned int offset, void* buffer, unsigned int size,
+-        ReadAsyncCallback callback, unsigned long userParam);
++        ReadAsyncCallback callback, MSCHARGED_AUDIO_ASYNC_PARAM userParam);
+     void QueuePartialChannelRead(AudioStreamChannel* channel, unsigned int size);
+     void CompleteRead();
+     void QueueFullChannelRead(AudioStreamChannel* channel);
+@@ -251,12 +260,12 @@
+ void SetVoiceInterauralDelay(AXVPB*, int);
+ void SetVoiceLowPassFilter(AXVPB*, bool, unsigned int, bool);
+ void SetVoiceAuxiliaryVolume(AXVPB*, int, int);
+-void OnAudioStreamReadComplete(nlFile*, void*, unsigned int, unsigned long);
+-void OnAudioStreamHeaderRead(nlFile*, void*, unsigned int, unsigned long);
+-void OnAudioStreamPrimeRead(nlFile*, void*, unsigned int, unsigned long);
++void OnAudioStreamReadComplete(nlFile*, void*, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM);
++void OnAudioStreamHeaderRead(nlFile*, void*, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM);
++void OnAudioStreamPrimeRead(nlFile*, void*, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM);
+ void TrackAudioRead(AudioReadState*, AsyncEntry*);
+ void CancelAudioReads(AudioReadState*);
+-void OnAudioReadCancelled(nlFile*, void*, unsigned int, unsigned long, ReadAsyncCallback);
++void OnAudioReadCancelled(nlFile*, void*, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM, ReadAsyncCallback);
+ 
+ extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
+ 
+--- a/include/Game/Audio/AudioSource.inl
++++ b/include/Game/Audio/AudioSource.inl
+@@ -195,7 +195,7 @@
+ }
+ 
+ inline void OnAudioReadCancelled(nlFile* file, void* buffer, unsigned int size,
+-    unsigned long userParam, ReadAsyncCallback callback)
++    MSCHARGED_AUDIO_ASYNC_PARAM userParam, ReadAsyncCallback callback)
+ {
+     callback(file, buffer, size, userParam);
+ }
+--- a/include/NL/nlDebugString.h
++++ b/include/NL/nlDebugString.h
+@@ -1,7 +1,15 @@
+ #ifndef NL_DEBUG_STRING_H
+ #define NL_DEBUG_STRING_H
+ 
++// Diagnostic pointer labels are distinct from 32-bit game/resource IDs.
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define MSCHARGED_DEBUG_STRING_WORD uintptr_t
++#else
++#define MSCHARGED_DEBUG_STRING_WORD unsigned long
++#endif
++
+ extern void* g_pDebugStringTable;
+-const char* nlLookupDebugString(void* table, unsigned long value);
++const char* nlLookupDebugString(void* table, MSCHARGED_DEBUG_STRING_WORD value);
+ 
+ #endif // NL_DEBUG_STRING_H
+--- a/src/Game/Audio/AudioBackend.cpp
++++ b/src/Game/Audio/AudioBackend.cpp
+@@ -262,7 +262,7 @@
+ 
+ void AudioBackend::QueueRead(nlFile* file, unsigned int offset,
+     void* buffer, unsigned int size, ReadAsyncCallback callback,
+-    unsigned long userParam, AudioReadState* state)
++    MSCHARGED_AUDIO_ASYNC_PARAM userParam, AudioReadState* state)
+ {
+     bool enabled = OSDisableInterrupts();
+     AudioReadRequest* request = m_ReadQueue.AllocateAtEnd(0);
+--- a/src/Game/Audio/AudioSource.cpp
++++ b/src/Game/Audio/AudioSource.cpp
+@@ -22,6 +22,12 @@
+ 
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#define MSCHARGED_AUDIO_VOICE_PARAM AXVoiceContext
++#else
++#define MSCHARGED_AUDIO_VOICE_PARAM unsigned long
++#endif
++
+ unsigned int gResidentVoiceDropCount;
+ unsigned int gStreamVoiceDropCount;
+ unsigned int gAudioStreamSourceCount;
+@@ -169,7 +175,7 @@
+ {
+     m_SourceInfo = info;
+     m_SoundEntry = SPGetSoundEntry(((AudioMemoryLoader*)info->m_BankLoader)->m_SoundTable, info->m_SoundIndex);
+-    m_Voice = AXAcquireVoice(15, OnVoiceDropped, (unsigned long)this);
++    m_Voice = AXAcquireVoice(15, OnVoiceDropped, (MSCHARGED_AUDIO_VOICE_PARAM)this);
+     if (m_Voice == 0)
+         DumpAudioMemory();
+     SPPrepareSound(m_SoundEntry, m_Voice, m_SoundEntry->sampleRate);
+@@ -420,7 +426,7 @@
+ }
+ 
+ inline void AudioReadState::QueueStreamRead(unsigned int offset, void* buffer, unsigned int size,
+-    ReadAsyncCallback callback, unsigned long userParam)
++    ReadAsyncCallback callback, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
+     g_pAudioBackend->QueueRead(GetStreamFile(), offset, buffer, size, callback, userParam, this);
+     ++m_PendingReadCount;
+@@ -435,7 +441,7 @@
+     gAudioReadQueueEntryPool.Free(entry);
+ }
+ 
+-void OnAudioStreamReadComplete(nlFile*, void*, unsigned int, unsigned long userParam)
++void OnAudioStreamReadComplete(nlFile*, void*, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
+     ((AudioStreamChannel*)userParam)->m_ReadState->CompleteRead();
+ }
+@@ -495,7 +501,7 @@
+     return (GetStreamDataStart() + m_StreamReadPosition * GetChannelCount()) + (channel - GetFirstChannel()) * GetStreamBlockSize();
+ }
+ 
+-void OnAudioStreamHeaderRead(nlFile*, void* buffer, unsigned int, unsigned long userParam)
++void OnAudioStreamHeaderRead(nlFile*, void* buffer, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
+     AudioReadCallbackEntry* entry = (AudioReadCallbackEntry*)userParam;
+     if (entry->m_State->m_PendingState == 6)
+@@ -518,7 +524,7 @@
+         entry->m_Channel->PrepareVoice(header);
+ 
+         entry->m_State->QueueStreamRead(entry->m_State->GetChannelDataOffset(entry->m_Channel), entry->m_Channel->GetBuffer(),
+-            entry->m_State->GetStreamBlockSize(), OnAudioStreamPrimeRead, (unsigned long)entry);
++            entry->m_State->GetStreamBlockSize(), OnAudioStreamPrimeRead, (MSCHARGED_AUDIO_ASYNC_PARAM)entry);
+         entry->m_Channel->AdvanceReadPosition(entry->m_State->GetStreamBlockSize());
+         entry->m_State->CompleteRead();
+     }
+@@ -550,7 +556,7 @@
+     }
+ }
+ 
+-void OnAudioStreamPrimeRead(nlFile* file, void* buffer, unsigned int size, unsigned long userParam)
++void OnAudioStreamPrimeRead(nlFile* file, void* buffer, unsigned int size, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
+     AudioReadCallbackEntry* entry = (AudioReadCallbackEntry*)userParam;
+     AudioReadState* state = entry->m_State;
+@@ -561,7 +567,7 @@
+         return;
+     }
+ 
+-    OnAudioStreamReadComplete(file, buffer, size, (unsigned long)entry->m_Channel);
++    OnAudioStreamReadComplete(file, buffer, size, (MSCHARGED_AUDIO_ASYNC_PARAM)entry->m_Channel);
+     entry->m_State->m_StreamReadPosition = size;
+     entry->m_State->OnChannelPrepared(entry->m_Channel);
+     gAudioReadCallbackAllocator.Free(entry);
+@@ -577,7 +583,7 @@
+         channel->m_Buffer = g_pAudioBackend->AllocateAudioMemory(m_SourceInfo->m_BankLoader->m_Chunk23200->m_StreamBlockSize * 2);
+         if (channel->m_Buffer == 0)
+             DumpAudioMemory();
+-        channel->m_Voice = AXAcquireVoice(31, AudioStreamChannel::OnVoiceDropped, (unsigned long)channel);
++        channel->m_Voice = AXAcquireVoice(31, AudioStreamChannel::OnVoiceDropped, (MSCHARGED_AUDIO_VOICE_PARAM)channel);
+         MIXInitChannel(channel->m_Voice, 0, 0, -960, -960, -960, 64, 127, 0);
+ #ifdef MSCHARGED_NATIVE
+         channel->m_BufferAddress = channel->m_Buffer == 0 ? 0u
+@@ -601,7 +607,7 @@
+         int index = channel - GetFirstChannel();
+         AudioStreamBlock* header = g_pAudioStreamBlockPool->Allocate();
+         unsigned int offset = GetStreamHeaderOffset() + index * sizeof(AudioStreamHeader);
+-        QueueStreamRead(offset, header, sizeof(AudioStreamHeader), OnAudioStreamHeaderRead, (unsigned long)entry);
++        QueueStreamRead(offset, header, sizeof(AudioStreamHeader), OnAudioStreamHeaderRead, (MSCHARGED_AUDIO_ASYNC_PARAM)entry);
+     }
+     SetInputVolume(-96.0f);
+     m_InternalState = 2;
+@@ -682,17 +688,17 @@
+     if (space < size)
+     {
+         QueueStreamRead(offset, (char*)channel->GetBuffer() + readPos, space,
+-            OnAudioStreamReadComplete, (unsigned long)channel);
++            OnAudioStreamReadComplete, (MSCHARGED_AUDIO_ASYNC_PARAM)channel);
+         channel->AdvanceReadPosition(space);
+         unsigned int remainder = size - space;
+         QueueStreamRead(offset + space, channel->GetBuffer(), remainder,
+-            OnAudioStreamReadComplete, (unsigned long)channel);
++            OnAudioStreamReadComplete, (MSCHARGED_AUDIO_ASYNC_PARAM)channel);
+         channel->AdvanceReadPosition(remainder);
+     }
+     else
+     {
+         QueueStreamRead(offset, (char*)channel->GetBuffer() + readPos, size,
+-            OnAudioStreamReadComplete, (unsigned long)channel);
++            OnAudioStreamReadComplete, (MSCHARGED_AUDIO_ASYNC_PARAM)channel);
+         channel->AdvanceReadPosition(size);
+     }
+ }
+@@ -705,16 +711,16 @@
+     if (space < size)
+     {
+         QueueStreamRead(offset, (char*)channel->GetBuffer() + readPos, space,
+-            OnAudioStreamReadComplete, (unsigned long)channel);
++            OnAudioStreamReadComplete, (MSCHARGED_AUDIO_ASYNC_PARAM)channel);
+         channel->AdvanceReadPosition(space);
+         QueueStreamRead(offset + space, channel->GetBuffer(), size - space,
+-            OnAudioStreamReadComplete, (unsigned long)channel);
++            OnAudioStreamReadComplete, (MSCHARGED_AUDIO_ASYNC_PARAM)channel);
+         channel->AdvanceReadPosition(size - space);
+     }
+     else
+     {
+         QueueStreamRead(offset, (char*)channel->GetBuffer() + readPos, size,
+-            OnAudioStreamReadComplete, (unsigned long)channel);
++            OnAudioStreamReadComplete, (MSCHARGED_AUDIO_ASYNC_PARAM)channel);
+         channel->AdvanceReadPosition(size);
+     }
+ }
+@@ -894,3 +900,5 @@
+ {
+     return AudioReadState::Prepare();
+ }
++
++#undef MSCHARGED_AUDIO_VOICE_PARAM
+--- a/src/Game/Audio/XSoundCueHandle.cpp
++++ b/src/Game/Audio/XSoundCueHandle.cpp
+@@ -66,7 +66,7 @@
+     }
+ 
+     AudioVoiceDefinition* selected = SelectSound();
+-    tDebugPrintManager::Print(DC_SOUND, sCueSelectionMessage, nlLookupDebugString(g_pDebugStringTable, (unsigned long)*(const char**)selected), nlLookupDebugString(g_pDebugStringTable, (unsigned long)this->definition->name));
++    tDebugPrintManager::Print(DC_SOUND, sCueSelectionMessage, nlLookupDebugString(g_pDebugStringTable, (MSCHARGED_DEBUG_STRING_WORD)*(const char**)selected), nlLookupDebugString(g_pDebugStringTable, (MSCHARGED_DEBUG_STRING_WORD)this->definition->name));
+ 
+     SoundInstance* instance = sSoundInstancePool.Allocate();
+     instance = new (instance) SoundInstance(this, selected);
+--- a/src/NL/nlDebugString.cpp
++++ b/src/NL/nlDebugString.cpp
+@@ -2,7 +2,7 @@
+ 
+ void* g_pDebugStringTable;
+ 
+-const char* nlLookupDebugString(void*, unsigned long)
++const char* nlLookupDebugString(void*, MSCHARGED_DEBUG_STRING_WORD)
+ {
+     return "unknown";
+ }

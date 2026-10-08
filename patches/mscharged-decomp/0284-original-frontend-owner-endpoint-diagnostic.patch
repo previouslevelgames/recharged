@@ -1,5 +1,5 @@
 Subject: Select temporary original Boot/Nav/Intro diagnostic endpoints
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Named diagnostic-only omissions retain default native and console game flow.
 Full Async/camera/world/AX services remain unqualified.
@@ -240,7 +240,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
          break;
 +
      case 4:
-         g_pCupManager->ShowRoundNews();
+         CupManager::s_pInstance->ShowRoundNews();
          break;
 +
      case 5:
@@ -724,9 +724,9 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      }
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
-     if (g_pCupManager == 0)
+     if (CupManager::s_pInstance == 0)
      {
-         g_pCupManager = new (8, false) CupManager;
+         CupManager::s_pInstance = new (8, false) CupManager;
 @@ -654,7 +671,11 @@
      nlInitFileCache();
      ReplayChoreo::Instance();

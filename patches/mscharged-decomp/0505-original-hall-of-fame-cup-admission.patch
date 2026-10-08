@@ -1,4 +1,4 @@
-# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 # Whole original Hall of Fame Cup owner; native numeric context casts and
 # temporary diagnostic admission of existing factories62..64/service11.
 --- a/src/Game/SH/SHHallOfFameRoom.cpp
@@ -10,7 +10,7 @@
  #include "NL/nlDLListContainer.inl"
  #include "Game/SH/SHHallOfFameRoom.h"
  #include "NL/nlFunction.inl"
-@@ -223,20 +226,36 @@
+@@ -222,20 +225,36 @@
      unsigned int nextItem = 0;
      mMode = mode;
      mTrophyTimers[nextItem] = 0.0f;
@@ -48,7 +48,7 @@
  }
  
  void SHHallOfFameCup::SceneCreated()
-@@ -339,7 +358,11 @@
+@@ -338,7 +357,11 @@
  
  void SHHallOfFameCup::OnItemPointerEnter(unsigned int index, void* context)
  {
@@ -60,7 +60,7 @@
  
      ++mPointerHoverCounts[index];
      if (mTrophyTimers[item] == 0.0f)
-@@ -388,7 +411,11 @@
+@@ -387,7 +410,11 @@
  
  void SHHallOfFameCup::OnItemPointerLeave(unsigned int index, void* context)
  {
@@ -72,7 +72,7 @@
  
      --mPointerHoverCounts[index];
      mTrophyTimers[item] = 0.1f;
-@@ -410,7 +437,11 @@
+@@ -409,7 +436,11 @@
  void SHHallOfFameCup::OnItemPointerPress(unsigned int index, void* context)
  {
      int i;

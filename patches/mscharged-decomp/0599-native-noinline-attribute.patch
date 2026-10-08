@@ -1,0 +1,17 @@
+Subject: Map the original do-not-inline annotation to the supported native attribute
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/include/decomp.h
++++ b/include/decomp.h
+@@ -45,7 +45,11 @@
+ #endif
+ 
+ #define DECOMP_INLINE inline
++#if defined(MSCHARGED_NATIVE)
++#define DECOMP_DONT_INLINE __attribute__((noinline))
++#else
+ #define DECOMP_DONT_INLINE __attribute__((never_inline))
++#endif
+ #define DECOMP_FORCEACTIVE(module, ...)                       \
+     void fake_function(...);                                 \
+     void CONCAT(FORCEACTIVE##module, __LINE__)(void);         \

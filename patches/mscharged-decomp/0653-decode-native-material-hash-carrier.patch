@@ -1,0 +1,22 @@
+Subject: Decode the original material hash through a native pointer-sized carrier
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+The RLG decoder stores the wire u32 material hash as a temporary void pointer.
+Convert through uintptr_t before restoring that u32 key on LLP64, preserving
+the original material lookup, object assignment and finalization sequence.
+
+--- a/src/NL/glx/glxLoadModel.cpp
++++ b/src/NL/glx/glxLoadModel.cpp
+@@ -126,7 +126,12 @@
+         {
+             glModelPacket* packet = &model->packets[packetIndex];
+             packet->materialProgram =
++#if defined(MSCHARGED_NATIVE)
++                // DecodeRLGPackets carries the wire u32 hash until this lookup.
++                glGetMaterialProgram(static_cast<u32>(reinterpret_cast<uintptr_t>(packet->materialProgram)));
++#else
+                 glGetMaterialProgram((unsigned long)packet->materialProgram);
++#endif
+ 
+             if (HasStream(packet, 7))
+             {

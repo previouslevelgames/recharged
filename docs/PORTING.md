@@ -36,10 +36,10 @@ moddability come after a faithful playable foundation.
 
 ## Current boundary
 
-The decompilation is unfinished, and full original startup and game execution
-are still being integrated. Selected-source checks and scene previews validate
-parts of the native platform; they do not establish a playable game. Missing
-source or services remain explicit rather than being bypassed.
+Full original startup and game execution are still being integrated with native
+platform services. Selected-source checks and scene previews validate individual
+components; they do not establish a playable game. Missing
+native services remain explicit rather than being bypassed.
 
 See [building](BUILDING.md), [runtime checks](RUNTIME.md), and the
 [patch workflow](../patches/README.md).

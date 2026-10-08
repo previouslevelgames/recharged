@@ -1,6 +1,6 @@
 Subject: [PATCH] preserve original emission source and native borrowed address words
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Restore literal controller/manager decisions, preserve retail numeric word
 overflow, and transport genuine native pointer/callback bits without truncation.
@@ -98,7 +98,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
-@@ -623,7 +623,11 @@
+@@ -618,7 +618,11 @@
      {
          EmissionController* controller = EmissionManager::Instance()->Create(
              group, 3, true, 0);
@@ -108,9 +108,9 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
          controller->m_uUserData = (u32)self->m_pFielder;
 +#endif
          controller->SetPosition(
-             self->m_pFielder->mUnidentified024.m_v3Position);
+             self->m_pFielder->m_DetChar.m_v3Position);
          controller->SetVelocity(
-@@ -1567,7 +1571,11 @@
+@@ -1562,7 +1566,11 @@
                      if (group != 0)
                      {
                          EmissionController* emitter = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -119,14 +119,14 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
 +#else
                          emitter->m_uUserData = (unsigned int)m_pFielder;
 +#endif
-                         emitter->SetPosition(m_pFielder->mUnidentified024.m_v3Position);
-                         emitter->SetVelocity(m_pFielder->mUnidentified024.m_v3Velocity);
+                         emitter->SetPosition(m_pFielder->m_DetChar.m_v3Position);
+                         emitter->SetVelocity(m_pFielder->m_DetChar.m_v3Velocity);
                          emitter->SetUpdateCallback(UpdateEmitterFromCharacterBackward);
 diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
 --- a/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
-@@ -1638,7 +1638,11 @@
-         nlSNPrintf(effectName, sizeof(effectName), "%s_mega_bg", mpShooter->mUnidentified11C->mName);
+@@ -1606,7 +1606,11 @@
+         nlSNPrintf(effectName, sizeof(effectName), "%s_mega_bg", mpShooter->m_pCharacterInfo->mName);
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(effectName);
          EmissionController* effect = EmissionManager::Instance()->Create(group, 3, true, 0);
 +#if defined(MSCHARGED_NATIVE)
@@ -135,7 +135,7 @@ diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
          effect->m_uUserData = (u32)this;
 +#endif
          nlVector3 position;
-         nlVec3Set(position, 0.0f, 0.0f, lbl_806DBC38);
+         nlVec3Set(position, 0.0f, 0.0f, gfMegaBallSpawnHeight);
          nlVector3 velocity = { 0.0f, 0.0f, 1.0f };
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 --- a/src/Game/AI/Powerups.cpp
@@ -167,7 +167,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -1690,6 +1690,9 @@
+@@ -1689,6 +1689,9 @@
          }
          break;
      case 6:
@@ -177,7 +177,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
          UpdateBallShotClock(pBall);
          cPlayer* pPrevOwner = pBall->m_pPrevOwner;
          if (pPrevOwner != NULL
-@@ -1703,6 +1706,9 @@
+@@ -1702,6 +1705,9 @@
                      (float)tweaks->fShooting);
          }
          break;
@@ -187,7 +187,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
      case 7:
          UpdateBallShotClock(pBall);
          break;
-@@ -3526,7 +3532,11 @@
+@@ -3525,7 +3531,11 @@
      EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 0, true, 0);
      pController->m_fGround = 0.02f;
      pController->SetPosition(pBallTrail->position);
@@ -202,7 +202,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -435,7 +435,11 @@
+@@ -434,7 +434,11 @@
  
  void cCharacter::AttachEffect(EmissionController* pEmissionController)
  {
@@ -213,7 +213,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 +#endif
      pEmissionController->SetPoseAccumulator(*m_pPoseAccumulator);
      pEmissionController->SetAnimController(*m_pCurrentAnimController);
-     pEmissionController->m_aFacing = mUnidentified024.m_aActualFacingDirection;
+     pEmissionController->m_aFacing = m_DetChar.m_aActualFacingDirection;
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
@@ -292,7 +292,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
 diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
 --- a/src/Game/CrowdRiot.cpp
 +++ b/src/Game/CrowdRiot.cpp
-@@ -271,7 +271,11 @@
+@@ -327,7 +327,11 @@
                      placeholder0));
              controller->SetUpdateCallback(callback);
          }
@@ -301,7 +301,7 @@ diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
 +#else
          controller->m_uUserData = (u32)this;
 +#endif
-         PlaySound(13, 0x198B7ED3, "CrowdRiot", this);
+         PlayCrowdRiotSound(this);
      }
  }
 diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
@@ -611,10 +611,10 @@ diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.c
 diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsWaluigiWall.cpp
 --- a/src/Game/Physics/PhysicsWaluigiWall.cpp
 +++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
-@@ -450,7 +450,11 @@
+@@ -449,7 +449,11 @@
                      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
-                     controller->SetPosition(owner->mUnidentified024.m_v3Position);
-                     controller->SetVelocity(owner->mUnidentified024.m_v3Velocity);
+                     controller->SetPosition(owner->m_DetChar.m_v3Position);
+                     controller->SetVelocity(owner->m_DetChar.m_v3Velocity);
 +#if defined(MSCHARGED_NATIVE)
 +                    controller->m_uUserData = reinterpret_cast<EmissionAddressWord>(wall);
 +#else
@@ -671,7 +671,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -404,7 +404,11 @@
+@@ -401,7 +401,11 @@
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("electric_fence_character");
          controller = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -683,7 +683,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
          controller->SetPosition(pos);
  
          float dirX = dir.x;
-@@ -572,7 +576,11 @@
+@@ -569,7 +573,11 @@
  
  void UpdateElectricFence(float fDeltaT)
  {

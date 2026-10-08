@@ -24,7 +24,8 @@ struct alignas(8) Header {
 };
 static_assert(sizeof(Header) % 8 == 0);
 static_assert(sizeof(float) == 4 && sizeof(int) == 4);
-static_assert(sizeof(void*) == 8 && sizeof(unsigned long) == 8);
+static_assert(sizeof(void*) == 8);
+static_assert(sizeof(unsigned long) == 4 || sizeof(unsigned long) == 8);
 
 struct Layout {
     std::size_t wire_bytes;
@@ -54,7 +55,7 @@ Layout Describe(WorldRecordStorageLayout kind) {
     case WorldRecordStorageLayout::Physics:
         return {0x90, sizeof(WorldPhysicsDrawable), alignof(WorldPhysicsDrawable)};
     case WorldRecordStorageLayout::CommonObject:
-        return {0x60, sizeof(WorldObject_80129EE0), alignof(WorldObject_80129EE0)};
+        return {0x60, sizeof(WorldHelperObject), alignof(WorldHelperObject)};
     case WorldRecordStorageLayout::Crowd:
         return {0x80, sizeof(CrowdLayoutObject), alignof(CrowdLayoutObject)};
     case WorldRecordStorageLayout::NPC:
@@ -91,6 +92,13 @@ void Word8(unsigned char* dst, std::size_t native, const unsigned char* src,
     const std::uintptr_t word = Word(src + wire);
     std::memcpy(dst + native, &word, sizeof(word));
 }
+// Numeric fields retain their actual native unsigned-long width (LP64 or
+// LLP64). Pointer fields above retain the full native uintptr_t width.
+void WordLong(unsigned char* dst, std::size_t native, const unsigned char* src,
+              std::size_t wire) {
+    const unsigned long word = Word(src + wire);
+    std::memcpy(dst + native, &word, sizeof(word));
+}
 void Bytes(unsigned char* dst, std::size_t native, const unsigned char* src,
            std::size_t wire, std::size_t count) {
     std::memcpy(dst + native, src + wire, count);
@@ -125,11 +133,11 @@ void OpaquePrefix(unsigned char* dst, std::size_t offset,
 
 void Physics(unsigned char* dst, const unsigned char* src) {
     OpaquePrefix(dst, offsetof(WorldPhysicsDrawable, m_pad04), src, 8);
-    Word8(dst, offsetof(WorldPhysicsDrawable, m_uObjectCreationFlags), src, 0x0C);
+    WordLong(dst, offsetof(WorldPhysicsDrawable, m_uObjectCreationFlags), src, 0x0C);
     Bytes(dst, offsetof(WorldPhysicsDrawable, m_pad10), src, 0x10, 0x10);
     const auto description = offsetof(WorldPhysicsDrawable, m_Description);
     Word4(dst, description + offsetof(WorldPhysicsDescription, matLocalToParent), src, 0x20, 16);
-    Word8(dst, description + offsetof(WorldPhysicsDescription, uPrimitiveType), src, 0x60);
+    WordLong(dst, description + offsetof(WorldPhysicsDescription, uPrimitiveType), src, 0x60);
     Word4(dst, description + offsetof(WorldPhysicsDescription, fWidth), src, 0x64, 4);
     Bytes(dst, offsetof(WorldPhysicsDrawable, m_pad74), src, 0x74, 12);
     Word8(dst, offsetof(WorldPhysicsDrawable, m_pPhysicsObject), src, 0x80);
@@ -137,12 +145,12 @@ void Physics(unsigned char* dst, const unsigned char* src) {
 }
 
 #define OFFSET_EQ(A, F, B, G) static_assert(offsetof(A, F) == offsetof(B, G))
-OFFSET_EQ(WorldDrawable, m_uHashID, WorldObject_80129EE0, mUnidentified004);
-OFFSET_EQ(WorldDrawable, m_pWorldContext, WorldObject_80129EE0, m_pWorld);
-OFFSET_EQ(WorldDrawable, m_nAnimNode, WorldObject_80129EE0, m_nAnimNode);
-OFFSET_EQ(WorldDrawable, m_pAnimController, WorldObject_80129EE0, m_pAnimController);
-OFFSET_EQ(WorldDrawable, mUnidentified1C, WorldObject_80129EE0, mUnidentified01C);
-OFFSET_EQ(WorldDrawable, mWorldMatrix, WorldObject_80129EE0, mWorldMatrix);
+OFFSET_EQ(WorldDrawable, m_uHashID, WorldHelperObject, mUnidentified004);
+OFFSET_EQ(WorldDrawable, m_pWorldContext, WorldHelperObject, m_pWorld);
+OFFSET_EQ(WorldDrawable, m_nAnimNode, WorldHelperObject, m_nAnimNode);
+OFFSET_EQ(WorldDrawable, m_pAnimController, WorldHelperObject, m_pAnimController);
+OFFSET_EQ(WorldDrawable, mUnidentified1C, WorldHelperObject, mUnidentified01C);
+OFFSET_EQ(WorldDrawable, mWorldMatrix, WorldHelperObject, mWorldMatrix);
 OFFSET_EQ(WorldDrawable, m_uHashID, WorldAnimObject, m_uHashID);
 OFFSET_EQ(WorldDrawable, m_uRenderLayer, WorldAnimObject, m_pad08);
 OFFSET_EQ(WorldDrawable, m_pWorldContext, WorldAnimObject, m_pWorld);
@@ -150,7 +158,7 @@ OFFSET_EQ(WorldDrawable, m_nAnimNode, WorldAnimObject, m_nAnimNode);
 OFFSET_EQ(WorldDrawable, m_pAnimController, WorldAnimObject, m_pAnimController);
 OFFSET_EQ(WorldDrawable, mUnidentified1C, WorldAnimObject, m_pad1C);
 OFFSET_EQ(WorldDrawable, mWorldMatrix, WorldAnimObject, mWorldMatrix);
-static_assert(alignof(WorldObject_80129EE0) == 8);
+static_assert(alignof(WorldHelperObject) == 8);
 #undef OFFSET_EQ
 
 void Decode(WorldRecordStorageLayout kind, unsigned char* dst, const unsigned char* src) {
@@ -182,21 +190,21 @@ void Decode(WorldRecordStorageLayout kind, unsigned char* dst, const unsigned ch
     case WorldRecordStorageLayout::NPC:
         OpaquePrefix(dst, offsetof(WorldNPC, mUnidentified004), src, 28);
         Word4(dst, offsetof(WorldNPC, mTransform), src, 0x20, 16);
-        Word8(dst, offsetof(WorldNPC, mTemplateHash), src, 0x60);
-        Bytes(dst, offsetof(WorldNPC, mUnidentified064), src, 0x64, 12);
+        WordLong(dst, offsetof(WorldNPC, mTemplateHash), src, 0x60);
+        Bytes(dst, offsetof(WorldNPC, mPadding64), src, 0x64, 12);
         return;
     case WorldRecordStorageLayout::StadiumDrawable:
     case WorldRecordStorageLayout::StadiumHighRange:
         Drawable(dst, src);
         Word4(dst, offsetof(StadiumWorldDrawable, m_boundsMin), src, 0x70, 3);
         Word4(dst, offsetof(StadiumWorldDrawable, m_boundsMax), src, 0x7C, 3);
-        Word8(dst, offsetof(StadiumWorldDrawable, m_uFlags), src, 0x88);
+        WordLong(dst, offsetof(StadiumWorldDrawable, m_uFlags), src, 0x88);
         Word4(dst, offsetof(StadiumWorldDrawable, m_fBlend), src, 0x8C);
         return;
     case WorldRecordStorageLayout::StadiumMarker:
         Prefix(dst, src);
         Word4(dst, offsetof(StadiumFEModelMarker, mMarkerID), src, 0x60);
-        Bytes(dst, offsetof(StadiumFEModelMarker, mUnidentified064), src, 0x64, 12);
+        Bytes(dst, offsetof(StadiumFEModelMarker, m_pad64), src, 0x64, 12);
         return;
     case WorldRecordStorageLayout::ShadowHeight:
         Prefix(dst, src);
@@ -209,7 +217,7 @@ void Decode(WorldRecordStorageLayout kind, unsigned char* dst, const unsigned ch
         return;
     case WorldRecordStorageLayout::ConditionalDrawable:
         Drawable(dst, src);
-        Word8(dst, offsetof(SolarFlareDrawable, m_uDrawEnabled), src, 0x70);
+        WordLong(dst, offsetof(SolarFlareDrawable, m_uDrawEnabled), src, 0x70);
         return;
     case WorldRecordStorageLayout::Toggle:
         Drawable(dst, src);
@@ -233,7 +241,7 @@ void Decode(WorldRecordStorageLayout kind, unsigned char* dst, const unsigned ch
         return;
     case WorldRecordStorageLayout::CupTrophy:
         Drawable(dst, src);
-        Word8(dst, offsetof(StadiumCupTrophyDrawable, m_uCupTrophyKey), src, 0x70);
+        WordLong(dst, offsetof(StadiumCupTrophyDrawable, m_uCupTrophyKey), src, 0x70);
         Word4(dst, offsetof(StadiumCupTrophyDrawable, m_fCupTrophyOpacity), src, 0x74);
         Bytes(dst, offsetof(StadiumCupTrophyDrawable, mUnidentified78), src, 0x78, 8);
         return;

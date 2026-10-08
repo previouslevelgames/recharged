@@ -1,0 +1,24 @@
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Requires: reviewed 0654 native debug-string word carrier.
+--- a/src/Game/Audio/AudioRpc.cpp
++++ b/src/Game/Audio/AudioRpc.cpp
+@@ -77,7 +77,7 @@
+ 
+     node->value = EvaluateAudioRpcCurve(node, slider->value);
+     node->valid = true;
+-    tDebugPrintManager::Print(DC_SOUND, sAudioRpcValueFormat, nlLookupDebugString(g_pDebugStringTable, (unsigned long)slider->definition->name), node->value);
++    tDebugPrintManager::Print(DC_SOUND, sAudioRpcValueFormat, nlLookupDebugString(g_pDebugStringTable, (MSCHARGED_DEBUG_STRING_WORD)slider->definition->name), node->value);
+ }
+ 
+ extern "C" AudioRpcController* ParseAudioRpcController(nlChunk* outer)
+--- a/src/Game/Audio/AudioSlider.cpp
++++ b/src/Game/Audio/AudioSlider.cpp
+@@ -74,7 +74,7 @@
+ 
+     AudioSliderDefinition* definition = table->globalDefinitions + table->localToGlobal[0];
+     AudioSlider* slider = set->sliders + definition->index;
+-    tDebugPrintManager::Print(DC_SOUND, "Slider name: %s\n", nlLookupDebugString(g_pDebugStringTable, (unsigned long)slider->definition->name));
++    tDebugPrintManager::Print(DC_SOUND, "Slider name: %s\n", nlLookupDebugString(g_pDebugStringTable, (MSCHARGED_DEBUG_STRING_WORD)slider->definition->name));
+     slider->SetTarget((float)owner->definition->activeCount, 0.0f);
+     slider->Update(0.0f, 1.0f);
+     return set;

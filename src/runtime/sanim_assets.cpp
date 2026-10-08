@@ -73,9 +73,9 @@ struct SAnimAsset::Storage : cSAnim
         morph_ids.assign(decoded.morph_ids.begin(), decoded.morph_ids.end());
         m_szName = name.c_str(); m_uHashID = decoded.hash; m_nNumKeys = decoded.frames;
         m_nNumNodes = count; m_nNumMorphChannels = morph_counts.size(); m_nHierarchySignature = decoded.hierarchy_signature;
-        m_pNodeProperties = properties.data(); m_Unknown18 = weight_counts.data(); m_Unknown1C = auxiliary_metadata.data();
+        m_pNodeProperties = properties.data(); m_pNumWeightKeys = weight_counts.data(); m_Unknown1C = auxiliary_metadata.data();
         m_pRotKeys = rotations.data(); m_pScaleKeys = scales.data(); m_pTransKeys = translations.data();
-        m_Unknown2C = weights.data(); m_Unknown30 = auxiliary.data(); m_nNumRootKeys = root_rotation.size();
+        m_pWeightKeys = weights.data(); m_Unknown30 = auxiliary.data(); m_nNumRootKeys = root_rotation.size();
         m_pRootRot = root_rotation.empty() ? nullptr : root_rotation.data();
         m_pRootTrans = root_translation.empty() ? nullptr : root_translation.data();
         m_nMorphIds = morph_ids.data(); m_pNumMorphKeys = morph_counts.data(); m_pMorphKeys = morph_keys.data();
@@ -140,7 +140,7 @@ SAnimRootSample SAnimAsset::Root(float time) const
 SAnimWeightSample SAnimAsset::Weight(std::size_t node, float time) const
 {
     Time(time); storage_->NodeAt(node); float value;
-    const bool authored = storage_->fn_8030939C(int(node), time, &value); return {authored, value};
+    const bool authored = storage_->GetChannelWeight(int(node), time, &value); return {authored, value};
 }
 float SAnimAsset::MorphWeight(std::size_t channel, float time) const
 {

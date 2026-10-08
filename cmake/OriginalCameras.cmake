@@ -17,7 +17,7 @@ add_library(charged_original_cameras OBJECT EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/Game/Camera/noisefilter.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Camera/rumblefilter.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Camera/GameplayCam.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/Camera/tu_800F9460.cpp"
+    "${MSCHARGED_PREPARED}/src/Game/Camera/GameplayCameraEffects.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Physics/PhysicsEventQueue.cpp"
     "${MSCHARGED_PREPARED}/src/Game/Physics/PhysicsThwomp.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/camera_data_transport.cpp")

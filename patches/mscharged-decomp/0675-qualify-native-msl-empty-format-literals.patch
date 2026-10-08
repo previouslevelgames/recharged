@@ -1,0 +1,28 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/src/MSL/wprintf.c
++++ b/src/MSL/wprintf.c
+@@ -1141,7 +1141,11 @@
+                 buff_ptr = va_arg(arg, wchar_t*);
+ 
+                 if (buff_ptr == 0) {
++#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
++                    buff_ptr = const_cast<wchar_t*>(L"");
++#else
+                     buff_ptr = L"";
++#endif
+                 }
+ 
+                 if (format.alternate_form) {
+@@ -1160,7 +1164,11 @@
+             } else {
+                 strptr = va_arg(arg, char*);
+                 if (strptr == 0) {
++#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
++                    strptr = const_cast<char*>("");
++#else
+                     strptr = "";
++#endif
+                 }
+ 
+                 if (format.alternate_form) {

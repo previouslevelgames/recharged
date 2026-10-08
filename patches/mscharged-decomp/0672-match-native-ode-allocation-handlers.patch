@@ -1,0 +1,88 @@
+Subject: Match native ODE allocation handler size types
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Native ODE uses size_t. Keep console declarations and allocator bodies unchanged.
+The native host preflights allocation/copy operands against the actual unsigned-long NL carrier
+before any request. Requires src/platform/native_ode_allocation_size.h from this proposal.
+
+--- a/include/Game/Physics/Physics.h
++++ b/include/Game/Physics/Physics.h
+@@ -1,6 +1,9 @@
+ #ifndef GAME_PHYSICS_PHYSICS_H
+ #define GAME_PHYSICS_PHYSICS_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#endif
+ #include "Game/Physics/PhysicsWorld.h"
+ #include "NL/nlListContainer.h"
+ 
+@@ -15,9 +18,15 @@
+ void DestroyStaticPhysicsPrimitives();
+ void DestroyPhysicsWorld();
+ void PhysicsUpdate(PhysicsWorld*, float);
++#if defined(MSCHARGED_NATIVE)
++void ODEFree(void*, size_t);
++void* ODERealloc(void*, size_t, size_t);
++void* ODEAlloc(size_t);
++#else
+ void ODEFree(void*, unsigned long);
+ void* ODERealloc(void*, unsigned long, unsigned long);
+ void* ODEAlloc(unsigned long);
++#endif
+ 
+ extern PhysicsMesh* g_TerrainMesh;
+ extern PhysicsWorld* g_PhysicsWorld;
+--- a/src/Game/Physics.cpp
++++ b/src/Game/Physics.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/Physics/Physics.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_ode_allocation_size.h"
++#endif
+ #include <cstring>
+ #include "Game/Physics/PhysicsEventQueue.h"
+ 
+@@ -34,13 +37,28 @@
+ static cInventory<LoadablePhysicsMesh> s_PhysicsMeshes;
+ static PhysicsRoundedCorner* corners[4];
+ 
++#if defined(MSCHARGED_NATIVE)
++void* ODEAlloc(size_t size)
++#else
+ void* ODEAlloc(unsigned long size)
+-{
++#endif
++{
++#if defined(MSCHARGED_NATIVE)
++    size = mscharged::platform::NativeODEAllocationSize(size);
++#endif
+     return nlMalloc(size, 8, false);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void* ODERealloc(void* oldPtr, size_t oldSize, size_t newSize)
++#else
+ void* ODERealloc(void* oldPtr, unsigned long oldSize, unsigned long newSize)
+-{
++#endif
++{
++#if defined(MSCHARGED_NATIVE)
++    oldSize = mscharged::platform::NativeODEAllocationSize(oldSize);
++    newSize = mscharged::platform::NativeODEAllocationSize(newSize);
++#endif
+     void* newPtr = nlMalloc(newSize, 8, false);
+     if (oldSize != 0)
+     {
+@@ -50,7 +68,11 @@
+     return newPtr;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void ODEFree(void* ptr, size_t)
++#else
+ void ODEFree(void* ptr, unsigned long)
++#endif
+ {
+     nlFree(ptr);
+ }

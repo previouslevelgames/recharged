@@ -1,0 +1,132 @@
+Subject: Use the native allocation size type in original functor and controller declarations
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Native allocation declarations require std::size_t on LLP64 as well as LP64.
+Retain the original allocation/free bodies and the console declarations. The
+active typed functor path keeps its original bounded logical pool categories;
+the controller allocation body still ignores its size and uses its source pool.
+
+--- a/include/Game/SAnim/pnSAnimController.h
++++ b/include/Game/SAnim/pnSAnimController.h
+@@ -1,6 +1,9 @@
+ #ifndef GAME_SANIM_PN_SANIM_CONTROLLER_H
+ #define GAME_SANIM_PN_SANIM_CONTROLLER_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ #include "Game/PoseNode.h"
+ #include "Game/SAnim.h"
+ #include "Game/SAnim/AnimRetargeter.h"
+@@ -80,7 +83,11 @@
+ #endif
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
+     {
+         cPN_SAnimController* controller = 0;
+         m_SAnimControllerSlotPool.Allocate(controller);
+--- a/include/NL/nlFunction.h
++++ b/include/NL/nlFunction.h
+@@ -1,6 +1,9 @@
+ #ifndef NL_FUNCTION_H
+ #define NL_FUNCTION_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ #include "NL/nlFunctionCommon.h"
+ #include "NL/nlFunctionMemory.h"
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
+@@ -16,8 +19,17 @@
+ public:
+     struct FunctorBase
+     {
+-        void* operator new(unsigned long size) { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void* operator new(std::size_t size)
++#else
++        void* operator new(unsigned long size)
++#endif
++        { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void operator delete(void* ptr, std::size_t size)
++#else
+         void operator delete(void* ptr, unsigned long size)
++#endif
+         {
+             FreeFunctionMemory(ptr, size);
+         }
+@@ -213,8 +225,17 @@
+ public:
+     struct FunctorBase
+     {
+-        void* operator new(unsigned long size) { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void* operator new(std::size_t size)
++#else
++        void* operator new(unsigned long size)
++#endif
++        { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void operator delete(void* ptr, std::size_t size)
++#else
+         void operator delete(void* ptr, unsigned long size)
++#endif
+         {
+             FreeFunctionMemory(ptr, size);
+         }
+@@ -559,8 +580,17 @@
+ public:
+     struct FunctorBase
+     {
+-        void* operator new(unsigned long size) { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void* operator new(std::size_t size)
++#else
++        void* operator new(unsigned long size)
++#endif
++        { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void operator delete(void* ptr, std::size_t size)
++#else
+         void operator delete(void* ptr, unsigned long size)
++#endif
+         {
+             FreeFunctionMemory(ptr, size);
+         }
+--- a/include/NL/nlFunction2.h
++++ b/include/NL/nlFunction2.h
+@@ -1,6 +1,9 @@
+ #ifndef NL_FUNCTION2_H
+ #define NL_FUNCTION2_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ #include "NL/nlFunctionCommon.h"
+ #include "NL/nlFunctionMemory.h"
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
+@@ -13,8 +16,17 @@
+ public:
+     struct FunctorBase
+     {
+-        void* operator new(unsigned long size) { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void* operator new(std::size_t size)
++#else
++        void* operator new(unsigned long size)
++#endif
++        { return AllocateFunctionMemory(size); }
++#if defined(MSCHARGED_NATIVE)
++        void operator delete(void* ptr, std::size_t size)
++#else
+         void operator delete(void* ptr, unsigned long size)
++#endif
+         {
+             FreeFunctionMemory(ptr, size);
+         }

@@ -24,21 +24,24 @@ def checksum(raw):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: run_original_os_shutdown.py EXECUTABLE AX-SOURCE-IMAGE")
-    executable, image = (Path(value).resolve() for value in sys.argv[1:])
+    if len(sys.argv) not in (3, 4) or (len(sys.argv)==4 and sys.argv[3]!="--sleeping-thread"):
+        raise SystemExit("usage: run_original_os_shutdown.py EXECUTABLE AX-SOURCE-IMAGE [--sleeping-thread]")
+    executable, image = (Path(value).resolve() for value in sys.argv[1:3])
     identity = hashlib.sha256(image.read_bytes()).hexdigest()
     with tempfile.TemporaryDirectory(prefix="original-whole-shutdown-") as temporary:
         root = Path(temporary)
         disc = root / "synthetic.iso"
         write_disc(disc, files={"shutdown.txt": b"Generated shutdown medium\n"})
-        run = subprocess.run([str(executable), str(image), identity, str(disc), str(root)],
+        run = subprocess.run([str(executable), str(image), identity, str(disc), str(root), *sys.argv[3:]],
                              capture_output=True, text=True, timeout=20)
         print(run.stdout, end="")
         print(run.stderr, end="", file=sys.stderr)
         checked(run.returncode == 0, "Original shutdown/device boundary failed")
         checked("Whole original OSShutdownSystem terminal PASS" in run.stdout,
                 "Process exited without actual terminal verification")
+        if len(sys.argv)==4:
+            checked("Original sleeping-worker terminal proof:" in run.stdout,
+                    "Power removal did not retain the actual cancelled source frame")
         checked(hashlib.sha256(image.read_bytes()).hexdigest() == identity,
                 "Original source image changed during qualification")
         receipt = dict(line.split("=", 1) for line in (root / "terminal.txt").read_text().splitlines())

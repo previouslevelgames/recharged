@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original async-loading source ownership
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 Prepared-preimage: exact reviewed strict-source199
 
 Restore the complete matching AsyncLoading TU and original stage/sequence
@@ -207,7 +207,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 @@ -1622,7 +1748,11 @@
      fn_8001FE80();
      fn_80018A00();
-     UnidentifiedCameraEffects::Instance()->RegisterEventListeners();
+     GameplayCameraEffects::Instance()->RegisterEventListeners();
 +#if defined(MSCHARGED_NATIVE)
 +    UnidentifiedFindEvent<UnidentifiedEventNoData>("GameOver", -1)->Add(Function<FnVoidVoid>(GoalieOnGameOver), (EventOwnerHandle)&manager->mLoadingHandle, -1);
 +#else

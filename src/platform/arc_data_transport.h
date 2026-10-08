@@ -17,4 +17,23 @@ void ChargedValidateARCLayout(const void* archive, int32_t fst_start,
 
 #ifdef __cplusplus
 }
+
+#include "platform/game_allocation_ownership.h"
+
+namespace mscharged::platform
+{
+struct NativeARCFileSpan
+{
+    const void* base;
+    std::size_t bytes;
+    GameCompletedSpan archive;
+};
+
+// Data bounds only: the logical completed read must itself be the raw ARC.
+// Match one exact, nonempty FST file start in that live Wii-serialized read.
+// Interior/nested files, ambiguity and retired/uncompleted owners reject and
+// clear result. This query grants no lifetime; the caller keeps its real owner
+// quiescent throughout the query and any subsequent resource use.
+bool FindNativeARCFileSpan(const void* file, NativeARCFileSpan& result);
+}
 #endif

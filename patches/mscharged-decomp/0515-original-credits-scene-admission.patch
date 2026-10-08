@@ -1,5 +1,5 @@
 # Patch: 0515-original-credits-scene-admission
-# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 # Scope: Temporary diagnostic admission of the existing original CreditScene factory case selected by Options item2.
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 index c405203..3933979 100644

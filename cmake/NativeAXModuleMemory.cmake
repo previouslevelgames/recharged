@@ -1,6 +1,7 @@
 include_guard(GLOBAL)
 include(cmake/NativeDSPMemory.cmake)
 include(cmake/NativeAI.cmake)
+include(cmake/NativeModuleLoader.cmake)
 
 # One host owns the actual image leases/device spans; the original module links
 # no SDK or host allocation provider. This is memory admission, not AX readiness.
@@ -12,7 +13,7 @@ target_include_directories(charged_native_ax_module_memory PUBLIC src
 target_compile_definitions(charged_native_ax_module_memory PUBLIC TARGET_PC=1)
 target_compile_features(charged_native_ax_module_memory PUBLIC cxx_std_17)
 target_link_libraries(charged_native_ax_module_memory PUBLIC
-    charged_native_dsp_memory charged_native_ai PRIVATE aurora::os ${CMAKE_DL_LIBS})
+    charged_native_dsp_memory charged_native_ai charged_native_module_loader PRIVATE aurora::os)
 
 function(mscharged_add_native_ax_module_memory target)
     cmake_parse_arguments(_storage "HBM" "" "" ${ARGN})

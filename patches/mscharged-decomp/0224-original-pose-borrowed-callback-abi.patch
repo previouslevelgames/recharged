@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original pose methods and native borrowed callback ABI
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Original modules retain source constructor/array ownership/copy/Pose/Replay
 and callback methods. Preserve first callback word borrowed native addresses;
@@ -135,7 +135,7 @@ diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/Drawabl
 diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
 --- a/src/Game/Player.cpp
 +++ b/src/Game/Player.cpp
-@@ -1047,7 +1047,7 @@
+@@ -1043,7 +1043,7 @@
      return pSAB;
  }
  
@@ -144,7 +144,7 @@ diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
      cPoseAccumulator* pPoseAccumulator, unsigned int nJointIndex, int nParentIndex)
  {
      cPlayer& self = *(cPlayer*)nSelf;
-@@ -1119,7 +1119,11 @@
+@@ -1115,7 +1115,11 @@
  void cPlayer::Unknown7(float)
  {
      m_pPoseAccumulator->SetBuildNodeMatrixCallback(

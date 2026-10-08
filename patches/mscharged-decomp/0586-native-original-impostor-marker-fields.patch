@@ -1,0 +1,23 @@
+Subject: Preserve native impostor marker field widths
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Read the original two usage fields from the actual native GLResourceMarker.
+The capture/cache/resource order and two-zero condition are unchanged.
+Console source is byte-identical. No pool initialization or readiness is added.
+
+--- a/src/Game/Render/ImpostorManager.cpp
++++ b/src/Game/Render/ImpostorManager.cpp
+@@ -242,8 +242,13 @@
+         instance->mCaptured = true;
+         instance->mResourceMarkers[instance->mCurrentResource] =
+             instance->mResources[instance->mCurrentResource]->MarkResource();
++#if defined(MSCHARGED_NATIVE)
++        const GLResourceMarker* marker = (const GLResourceMarker*)instance->mResourceMarkers[instance->mCurrentResource];
++        if (marker->mUsedMemory[0] != 0 || marker->mUsedMemory[1] != 0)
++#else
+         u32* marker = (u32*)instance->mResourceMarkers[instance->mCurrentResource];
+         if (marker[0] != 0 || marker[1] != 0)
++#endif
+         {
+             nlBreak();
+         }

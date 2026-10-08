@@ -3,6 +3,7 @@
 #include <dolphin/ai.h>
 #include <dolphin/os.h>
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -20,7 +21,7 @@
 namespace {
 using namespace mscharged::platform;
 using namespace std::chrono_literals;
-unsigned checks{};
+std::atomic_uint checks{};
 unsigned produced{};
 constexpr unsigned kBlockIds = 30000;
 std::thread::id owner;
@@ -44,21 +45,40 @@ void Producer() {
     ++produced;
 }
 
-void Serve(std::chrono::milliseconds duration, std::chrono::milliseconds stall_every,
-           std::chrono::milliseconds stall) {
+struct OwnerTiming {
+    std::uint64_t maximum_service_gap_ns{};
+    std::uint64_t maximum_stall_ns{};
+    unsigned stalls{};
+};
+
+OwnerTiming Serve(std::chrono::milliseconds duration, std::chrono::milliseconds stall_every,
+                  std::chrono::milliseconds stall) {
+    OwnerTiming timing;
     const auto end = std::chrono::steady_clock::now() + duration;
     auto next_stall = std::chrono::steady_clock::now() + stall_every;
+    auto last_service_ns = SDL_GetTicksNS();
+    auto service = [&] {
+        const auto now = SDL_GetTicksNS();
+        timing.maximum_service_gap_ns = std::max(timing.maximum_service_gap_ns, now - last_service_ns);
+        last_service_ns = now;
+        ServiceNativeAI();
+    };
     while (std::chrono::steady_clock::now() < end) {
         if (stall.count() && std::chrono::steady_clock::now() >= next_stall) {
             // Host owner busy outside a source critical section; the device
-            // worker keeps pulling and transferring.
+            // worker keeps pulling and transferring. Measure actual elapsed
+            // delay because a requested sleep can overshoot under contention.
+            const auto before = SDL_GetTicksNS();
             std::this_thread::sleep_for(stall);
+            timing.maximum_stall_ns = std::max(timing.maximum_stall_ns, SDL_GetTicksNS() - before);
+            ++timing.stalls;
             next_stall = std::chrono::steady_clock::now() + stall_every;
         }
-        ServiceNativeAI();
+        service();
         std::this_thread::sleep_for(200us);
     }
-    ServiceNativeAI();
+    service();
+    return timing;
 }
 
 // Every submitted block must be the next authored source block: no replay of a
@@ -99,24 +119,39 @@ int main() {
     try {
         owner = std::this_thread::get_id();
         AIInit(nullptr);
+        const auto device = GetNativeAIStatus();
+        Check(device.device_frequency == 44100 && device.device_frames == 441,
+              "dummy fixture needs 441 frames at 44.1 kHz for an exact 10 ms nominal pull");
         for (auto& buffer : buffers) buffer.fill(0);
         AIRegisterDMACallback(Producer);
         AIInitDMA(reinterpret_cast<std::uintptr_t>(buffers[0].data()), sizeof(buffers[0]));
         BeginNativeAIObservations();
         AIStartDMA();
         // Repeated 9 ms owner delays: three DMA periods, within the allowance.
-        Serve(800ms, 40ms, 9ms);
+        const auto short_timing = Serve(800ms, 40ms, 9ms);
         auto delivery = GetNativeAIDeliveryStatus();
+        const auto observed = GetNativeAIObservationStatus();
         const auto short_stalls = Contiguous();
+        // Print real timing/queue evidence even when the following invariant
+        // fails. SDL callback demand is in the unconverted input byte domain.
+        std::cout << "{\"phase\":\"short_stalls\",\"device_rate\":" << device.device_frequency
+                  << ",\"device_frames\":" << device.device_frames << ",\"blocks\":" << short_stalls
+                  << ",\"stalls\":" << short_timing.stalls
+                  << ",\"maximum_stall_ns\":" << short_timing.maximum_stall_ns
+                  << ",\"maximum_owner_gap_ns\":" << short_timing.maximum_service_gap_ns
+                  << ",\"held\":" << delivery.held_boundaries << ",\"maximum_hold_ns\":" << delivery.maximum_hold_ns
+                  << ",\"sdl_short_pulls\":" << delivery.sdl_short_pulls
+                  << ",\"sdl_short_input_bytes\":" << delivery.sdl_short_input_bytes
+                  << ",\"minimum_queue_bytes\":" << delivery.minimum_queued_input_bytes
+                  << ",\"maximum_queue_bytes\":" << delivery.maximum_queued_input_bytes
+                  << ",\"maximum_pull_gap_ns\":" << observed.maximum_sdl_pull_gap_ns
+                  << ",\"pulls\":" << observed.sdl_pull_calls << "}\n";
         Check(short_stalls > 150, "timed fixture did not deliver enough authored PCM");
         Check(delivery.held_boundaries > 0, "owner delays never reached a completed DMA block");
         Check(!delivery.replayed_latches && !delivery.coalesced_causes,
               "late owner delivery replayed unprogrammed DMA registers");
         Check(!delivery.skipped_cells, "short owner delays dropped DMA clock time");
-        Check(!delivery.sdl_short_pulls, "owner delays within the allowance starved the device");
-        std::cout << "{\"phase\":\"short_stalls\",\"blocks\":" << short_stalls << ",\"held\":" << delivery.held_boundaries
-                  << ",\"maximum_hold_ns\":" << delivery.maximum_hold_ns << ",\"pulls\":"
-                  << GetNativeAIObservationStatus().sdl_pull_calls << "}\n";
+        Check(!delivery.sdl_short_pulls, "device pull lacked transferred PCM (see actual owner/device timings above)");
 
         // One 100 ms owner stall: silence is allowed, replay and unbounded
         // catch-up latency are not.
@@ -152,7 +187,7 @@ int main() {
         Check(GetNativeAIStatus().retained_blocks == 0, "stop retained queued PCM ownership");
         AIReset();
         SDL_Quit();
-        std::cout << "native AI late-delivery checks=" << checks << '\n';
+        std::cout << "native AI late-delivery checks=" << checks.load() << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "native AI delivery: " << error.what() << '\n';

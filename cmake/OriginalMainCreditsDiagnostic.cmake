@@ -9,6 +9,9 @@ if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$" OR NOT CMAKE_SIZEOF_VOID_P E
     message(FATAL_ERROR "The original-main source diagnostic requires Linux or macOS LP64 with GCC or Clang")
 endif()
 include(cmake/OriginalModuleLinkage.cmake)
+include(cmake/OriginalRetailReturnCompatibility.cmake)
+mscharged_preserve_original_return_semantics()
+include(cmake/NativeModuleLoader.cmake)
 include(cmake/OriginalFrontendResetDiagnostic.cmake)
 include(cmake/OriginalFunctionPools.cmake)
 include(cmake/WiiStringFormat.cmake)
@@ -221,15 +224,14 @@ target_compile_definitions(mscharged_original_main_credits_module PRIVATE
     C_MTXFrustum=Charged_C_MTXFrustum C_MTXOrtho=Charged_C_MTXOrtho)
 target_compile_options(mscharged_original_main_credits_module PRIVATE
     -O1 -ffunction-sections -fdata-sections -fno-strict-aliasing
-    -ffp-contract=off -fsigned-char -Wno-unknown-pragmas -Wno-invalid-offsetof
-    -fcheck-new)
+    -ffp-contract=off -fsigned-char -Wno-unknown-pragmas
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_main_credits_module PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete
-        -fno-devirtualize-speculatively)
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;-fno-assume-sane-operators-new-delete;-fno-devirtualize-speculatively>")
 else()
     target_compile_options(mscharged_original_main_credits_module PRIVATE
-        -fno-assume-sane-operator-new -Wno-register)
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")
 endif()
 if(APPLE)
     # Original source remains incomplete: defer only unexecuted function imports.
@@ -318,6 +320,8 @@ target_compile_definitions(charged_original_main_credits_host PRIVATE
 target_compile_options(charged_original_main_credits_host PRIVATE
     -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -ffp-contract=off)
 target_link_libraries(charged_original_main_credits_host PRIVATE
+    charged_app_icon
+    charged_native_module_loader
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,aurora::gx,aurora::mtx,aurora::os>"
     aurora::core aurora::dvd charged_host charged_wii_string_format charged_native_stm
     charged_native_system_settings charged_native_video_device charged_credits_movie_hardware

@@ -18,6 +18,10 @@ struct WpadSDLSettings {
     // Staged native system preference read by original Options. Keyboard and
     // mouse profiles disable the unavailable physical motor by default.
     bool motor_enabled = true;
+    // Staged BT.SPKV preference. The original SC getter uses 89 when the
+    // record is absent; WPAD clamps this byte to 127 at initialization.
+    // This preference does not provide a physical speaker output endpoint.
+    std::uint8_t speaker_volume = 89;
 };
 void ConfigureWpadSDL(WpadSDLSettings settings);
 

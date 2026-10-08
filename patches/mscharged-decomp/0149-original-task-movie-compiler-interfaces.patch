@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie
@@ -83,7 +83,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
      void Destroy();
 -#endif
  #ifdef MSCHARGED_NATIVE
-     void fn_80308610(nlChunk* nodeChunk, int nodeIndex) = delete;
+     void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex) = delete;
  #else
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 --- a/src/Game/SH/SHMoviePlayer.cpp
@@ -157,15 +157,3 @@ diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMat
  #else
  #include <revolution/gx.h>
  #endif
-diff --git a/include/NL/gl/glPlat.h b/include/NL/gl/glPlat.h
---- a/include/NL/gl/glPlat.h
-+++ b/include/NL/gl/glPlat.h
-@@ -4,7 +4,7 @@
- #include "NL/gl/glStruct.h"
- #include "NL/glx/glxModel.h"
- 
--#if defined(MSCHARGED_NATIVE) && defined(AURORA)
-+#if defined(MSCHARGED_NATIVE)
- #include <dolphin/gx/GXStruct.h>
- #endif
- 

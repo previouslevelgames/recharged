@@ -1,6 +1,6 @@
 Subject: Select original task scheduling and explicit movie service boundary
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Restore the complete original task algorithm for production. Borrowed-task
 registration, constructor zeroing, extra scheduler checks and absent-service
@@ -145,11 +145,9 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
 diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
 --- a/src/NL/TaskBase.cpp
 +++ b/src/NL/TaskBase.cpp
-@@ -4,3 +4,8 @@
- void nlTask::StateTransition(unsigned int, unsigned int)
- {
- }
-+
+@@ -1,2 +1,6 @@
+ // The original default transition hook is inline in NL/nlTask.h.
+ #include "NL/nlTask.h"
 +#ifdef MSCHARGED_DIAGNOSTIC_TASKS
 +#include "runtime/tasks.h"
 +nlTask::~nlTask() { mscharged::DestroyNativeTask(this); }

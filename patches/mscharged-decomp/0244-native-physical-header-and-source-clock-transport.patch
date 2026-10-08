@@ -1,18 +1,20 @@
 Subject: [PATCH] Keep native physical hardware declarations external and route source clock reads
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
-Prepared-preimage: reviewed strict192 c7b2 export; these SDK headers unchanged
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Prepared-preimage: exact strict 0244 prefix; original time declarations moved to OSTime_fwd
 
 MWCC absolute-address declarations must not become allocated native BSS after
 AT_ADDRESS is erased. Keep native references external, and route original
-OSTime arithmetic through the existing actual SDK bus-clock getter. Unknown
-physical symbols remain genuine unresolved dependencies; no zero providers.
-Console declarations and all time conversion expressions are retained.
+OSTime arithmetic through the existing actual SDK bus-clock getter declared by
+OSHardware_fwd. The native tick differences retain the signed 32-bit Wii result
+through unsigned modulo subtraction; LP64 signed long must not widen them.
+Unknown physical symbols remain genuine unresolved dependencies. Console
+branches and all time conversion expressions are retained.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/include/revolution/os/OSHardware.h
 --- a/libs/RVL_SDK/include/revolution/os/OSHardware.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSHardware.h
-@@ -8,6 +8,12 @@
+@@ -9,6 +9,12 @@
  
  #ifdef __cplusplus
  extern "C" {
@@ -25,7 +27,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
  #endif
  
  #define OS_PHYS_WIFI_AFH_CHANNEL 0x000031A2
-@@ -34,28 +40,28 @@
+@@ -35,27 +41,27 @@
  #define OS_PHYS_CURRENT_APP_NAME 0x3180
  #define OS_PHYS_CURRENT_APP_TYPE 0x3184
  
@@ -35,7 +37,6 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
 -OSThreadQueue OS_THREAD_QUEUE AT_ADDRESS(0x800000DC);
 -OSThread* OS_CURRENT_THREAD AT_ADDRESS(0x800000E4);
 -u32 OS_TV_FORMAT AT_ADDRESS(0x800000CC);
--u32 OS_BUS_CLOCK_SPEED AT_ADDRESS(0x800000F8);
 -s64 OS_SYSTEM_TIME AT_ADDRESS(0x800030D8);
 +MSCHARGED_ADDRESS_STORAGE OSContext* OS_CURRENT_CONTEXT_PHYS AT_ADDRESS(0x800000C0);
 +MSCHARGED_ADDRESS_STORAGE OSContext* OS_CURRENT_CONTEXT AT_ADDRESS(0x800000D4);
@@ -43,7 +44,6 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
 +MSCHARGED_ADDRESS_STORAGE OSThreadQueue OS_THREAD_QUEUE AT_ADDRESS(0x800000DC);
 +MSCHARGED_ADDRESS_STORAGE OSThread* OS_CURRENT_THREAD AT_ADDRESS(0x800000E4);
 +MSCHARGED_ADDRESS_STORAGE u32 OS_TV_FORMAT AT_ADDRESS(0x800000CC);
-+MSCHARGED_ADDRESS_STORAGE u32 OS_BUS_CLOCK_SPEED AT_ADDRESS(0x800000F8);
 +MSCHARGED_ADDRESS_STORAGE s64 OS_SYSTEM_TIME AT_ADDRESS(0x800030D8);
  extern volatile s32 OS_EXI_LAST_INSERT[2] AT_ADDRESS(0x800030C0);
 -u16 OS_GC_PAD_3_BTN AT_ADDRESS(0x800030E4);
@@ -99,15 +99,14 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
  
  #ifdef __cplusplus
  }
-diff --git a/libs/RVL_SDK/include/revolution/os/OSTime.h b/libs/RVL_SDK/include/revolution/os/OSTime.h
---- a/libs/RVL_SDK/include/revolution/os/OSTime.h
-+++ b/libs/RVL_SDK/include/revolution/os/OSTime.h
-@@ -10,7 +10,12 @@
- #endif
- 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+--- a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
++++ b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+@@ -31,7 +31,11 @@
+ void OSTicksToCalendarTime(OSTime time, OSCalendarTime* calendar);
+ OSTime OSCalendarTimeToTicks(const OSCalendarTime* calendar);
  
 +#if defined(MSCHARGED_NATIVE)
-+u32 ChargedGetBusClock(void);
 +#define OS_TIME_SPEED (ChargedGetBusClock() / 4)
 +#else
  #define OS_TIME_SPEED (OS_BUS_CLOCK_SPEED / 4)
@@ -115,3 +114,17 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSTime.h b/libs/RVL_SDK/include/
  
  #define OS_TICKS_TO_SEC(x) ((x) / OS_TIME_SPEED)
  #define OS_TICKS_TO_MSEC(x) ((x) / (OS_TIME_SPEED / 1000))
+@@ -50,8 +54,13 @@
+ #define OSMicrosecondsToTicks(usec) OS_USEC_TO_TICKS(usec)
+ #define OSNanosecondsToTicks(nsec) OS_NSEC_TO_TICKS(nsec)
+ 
++#if defined(MSCHARGED_NATIVE)
++#define OS_TICKS_DELTA(x, y) ((int32_t)((uint32_t)(x) - (uint32_t)(y)))
++#define OSDiffTick(tick1, tick0) ((int32_t)((uint32_t)(tick1) - (uint32_t)(tick0)))
++#else
+ #define OS_TICKS_DELTA(x, y) ((signed long)(x) - (signed long)(y))
+ #define OSDiffTick(tick1, tick0) ((signed long)(tick1) - (signed long)(tick0))
++#endif
+ 
+ 
+ #ifdef __cplusplus

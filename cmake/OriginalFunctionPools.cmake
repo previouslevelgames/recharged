@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+get_filename_component(_function_pool_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 # Pure native ABI usage, without a second memory/provider/SDK instance. Every
 # original TU in the future isolated game module must consume this profile;
@@ -7,7 +8,7 @@ add_library(charged_original_function_pool_abi INTERFACE)
 target_compile_definitions(charged_original_function_pool_abi INTERFACE
     MSCHARGED_NATIVE=1 MSCHARGED_ORIGINAL_FUNCTION_POOLS=1 TARGET_PC=1)
 target_include_directories(charged_original_function_pool_abi INTERFACE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${_function_pool_root}/src"
     "${MSCHARGED_PREPARED}/include"
     "${MSCHARGED_PREPARED}/libs/RVL_SDK/include"
     "${MSCHARGED_PREPARED}/libs/Runtime/include")
@@ -26,15 +27,22 @@ endif()
 # SDK foundation with original allocation/SlotPool stack providers.
 if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8
         AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT APPLE AND NOT MSVC)
-    add_executable(original_function_layout_tests tests/original_function_layout.cpp)
+    add_executable(original_function_layout_tests "${_function_pool_root}/tests/original_function_layout.cpp")
+    if(TARGET verify_prepared)
+        add_dependencies(original_function_layout_tests verify_prepared)
+    endif()
     target_link_libraries(original_function_layout_tests PRIVATE
         charged_original_function_pool_abi)
+    target_compile_definitions(original_function_layout_tests PRIVATE MSCHARGED_GAME_MODULE=1)
     target_include_directories(original_function_layout_tests PRIVATE
         "${MSCHARGED_AURORA_PREPARED}/include")
     target_compile_options(original_function_layout_tests PRIVATE
         -ffunction-sections -fdata-sections -fno-strict-aliasing
         -Wno-unknown-pragmas -Wno-invalid-offsetof)
     target_link_options(original_function_layout_tests PRIVATE -Wl,--gc-sections)
+    if(MINGW)
+        target_link_options(original_function_layout_tests PRIVATE -static)
+    endif()
     add_test(NAME original_function_layout COMMAND original_function_layout_tests)
     set_tests_properties(original_function_layout PROPERTIES TIMEOUT 30)
 endif()

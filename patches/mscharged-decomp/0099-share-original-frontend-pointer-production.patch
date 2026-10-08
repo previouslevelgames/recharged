@@ -1,5 +1,5 @@
 Subject: Share original frontend pointer conversion and options event production
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Share exact feDPD normalized-coordinate conversion, integer viewport margins,
 and OptionsScene position-before-action30 event construction. Console callers
@@ -18,7 +18,7 @@ diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
  
  #include "Game/FE/feInput.h"
  #include "Game/PadActions.h"
-@@ -28,20 +29,7 @@
+@@ -27,20 +28,7 @@
  
  static inline void ClampPointerPosition(int pad, nlVector2 position, int width, int height)
  {
@@ -40,7 +40,7 @@ diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
  }
  
  FEDPDTask::FEDPDTask()
-@@ -122,8 +110,7 @@
+@@ -121,8 +109,7 @@
          if (data->mValidFlag > 0)
          {
              data->GetPosition(&position, angle);

@@ -8,6 +8,9 @@ extern "C" {
 // intrusive list access requires the caller's source interrupt mask throughout.
 // This is not a copied list, low-memory overlay or separate reset registry.
 OSThreadQueue* ChargedNativeActiveThreadQueue(void);
+// Original shutdown's final power-off boundary only. The source scheduler and
+// interrupts must already be disabled; all borrowed execution remains retained.
+void ChargedNativeBeginThreadPowerRemoval(void);
 #ifdef __cplusplus
 }
 #endif

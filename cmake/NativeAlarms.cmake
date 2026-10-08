@@ -14,6 +14,9 @@ target_link_libraries(charged_native_alarms PUBLIC
 if(BUILD_TESTING)
     add_executable(native_alarm_tests tests/native_alarm_tests.cpp)
     target_link_libraries(native_alarm_tests PRIVATE charged_native_alarms)
+    target_include_directories(native_alarm_tests PRIVATE
+        "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    target_compile_definitions(native_alarm_tests PRIVATE MSCHARGED_NATIVE=1)
     target_compile_features(native_alarm_tests PRIVATE cxx_std_20)
     add_test(NAME native_alarms COMMAND native_alarm_tests)
     set_tests_properties(native_alarms PROPERTIES TIMEOUT 15)

@@ -1,5 +1,5 @@
 Subject: Transport original SAnim data into allocation-owned native backing
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Retain the full original Initialize/node walk, root/weight/morph sampling,
 callback pool and Destroy/inventory lifetime. Native-only data casts view
@@ -46,9 +46,9 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
  
      chunkA = chunkB->GetNextChunk();
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    pRetval->m_Unknown18 = (const unsigned int*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
++    pRetval->m_pNumWeightKeys = (const unsigned int*)mscharged::platform::NativeSAnimChunkData(nativeView, chunkA);
 +#else
-     pRetval->m_Unknown18 = (const unsigned int*)chunkA->GetData();
+     pRetval->m_pNumWeightKeys = (const unsigned int*)chunkA->GetData();
 +#endif
  
      chunkB = chunkA->GetNextChunk();
@@ -81,9 +81,9 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
  
      chunkB = chunkA->GetNextChunk();
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    pRetval->m_Unknown2C = (unsigned char**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
++    pRetval->m_pWeightKeys = (unsigned char**)mscharged::platform::NativeSAnimChunkData(nativeView, chunkB);
 +#else
-     pRetval->m_Unknown2C = (unsigned char**)chunkB->GetData();
+     pRetval->m_pWeightKeys = (unsigned char**)chunkB->GetData();
 +#endif
  
      chunkA = chunkB->GetNextChunk();
@@ -144,7 +144,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
      return pRetval;
  }
  
- void cSAnim::fn_80308610(nlChunk* nodeChunk, int nodeIndex)
+ void cSAnim::InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex)
  {
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +    const auto nativeView = mscharged::platform::NativeSAnimObjectView(this, nodeChunk);
@@ -181,9 +181,9 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
          else if (type == 0x17112)
          {
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+            m_Unknown2C[nodeIndex] = (unsigned char*)mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
++            m_pWeightKeys[nodeIndex] = (unsigned char*)mscharged::platform::NativeSAnimChunkData(nativeView, subChunk);
 +#else
-             m_Unknown2C[nodeIndex] = (unsigned char*)subChunk->GetData();
+             m_pWeightKeys[nodeIndex] = (unsigned char*)subChunk->GetData();
 +#endif
          }
          else if (type == 0x17115)

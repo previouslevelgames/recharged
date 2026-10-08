@@ -1,0 +1,34 @@
+Subject: Express the read-only native localization filename literals
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Only the native table pointee becomes const. Keep table pointer mutability, all
+original names/indices and both original filename formatting uses unchanged.
+
+--- a/include/NL/nlLocalization.h
++++ b/include/NL/nlLocalization.h
+@@ -59,7 +59,11 @@
+     unsigned short* m_FirstString;
+     nlLanguage m_CurrentLanguage;
+ 
++#if defined(MSCHARGED_NATIVE)
++    static const char* LanguageName[];
++#else
+     static char* LanguageName[];
++#endif
+     static const unsigned long LanguageId[];
+     static const char Thumbprint[5];
+ };
+--- a/src/NL/nlLocalization.cpp
++++ b/src/NL/nlLocalization.cpp
+@@ -35,7 +35,11 @@
+     0x00012332,
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++const char* nlLocalization::LanguageName[] = {
++#else
+ char* nlLocalization::LanguageName[] = {
++#endif
+     "English",
+     "French",
+     "German",

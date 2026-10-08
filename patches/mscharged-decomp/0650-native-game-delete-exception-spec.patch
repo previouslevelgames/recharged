@@ -1,0 +1,26 @@
+Subject: Match native global game delete definitions to the standard exception specification
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/src/NL/nlMemory.cpp
++++ b/src/NL/nlMemory.cpp
+@@ -49,12 +49,20 @@
+ // Host libraries keep standard global new/delete. Only the isolated original
+ // game module restores the source operators and CurrentAllocator requests.
+ #if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
++#if defined(MSCHARGED_NATIVE)
++void operator delete(void* ptr) noexcept
++#else
+ void operator delete(void* ptr)
++#endif
+ {
+     FreeMemory(ptr);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void operator delete[](void* ptr) noexcept
++#else
+ void operator delete[](void* ptr)
++#endif
+ {
+     FreeMemory(ptr);
+ }

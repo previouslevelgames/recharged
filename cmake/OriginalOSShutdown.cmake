@@ -14,6 +14,7 @@ include(cmake/NativeSystemSettings.cmake)
 include(cmake/NativeAXFunctional.cmake)
 include(cmake/NativeOSShutdownRequests.cmake)
 include(cmake/OriginalModuleLinkage.cmake)
+include(cmake/OriginalOSMessages.cmake)
 
 # Deliberately fail rather than silently omit the whole-source closure when
 # its original AX source image or genuine native power endpoint is unavailable.
@@ -40,6 +41,7 @@ target_compile_options(original_os_shutdown_tests PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 target_link_libraries(original_os_shutdown_tests PRIVATE
     charged_original_os_reset charged_original_os_audio
+    charged_original_os_messages
     charged_original_nand_sources charged_original_fs_sources
     charged_native_filesystem charged_original_ipc_memory charged_native_ipc_boot_buffer
     charged_original_rtc charged_native_stm charged_native_alarms
@@ -67,4 +69,10 @@ add_test(NAME original_os_shutdown COMMAND "${Python3_EXECUTABLE}" -B
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/run_original_os_shutdown.py"
     "$<TARGET_FILE:original_os_shutdown_tests>" "$<TARGET_FILE:native_ax_active_source_fixture>")
 set_tests_properties(original_os_shutdown PROPERTIES TIMEOUT 30 LABELS "Platform"
+    ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
+add_test(NAME original_os_shutdown_sleeping_thread COMMAND "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/run_original_os_shutdown.py"
+    "$<TARGET_FILE:original_os_shutdown_tests>" "$<TARGET_FILE:native_ax_active_source_fixture>"
+    --sleeping-thread)
+set_tests_properties(original_os_shutdown_sleeping_thread PROPERTIES TIMEOUT 30 LABELS "Platform"
     ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")

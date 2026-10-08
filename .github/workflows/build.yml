@@ -1,0 +1,158 @@
+name: Build binaries
+
+on:
+  pull_request:
+    branches: [stable]
+  push:
+    branches: [stable]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binaries-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-26.04
+          - platform: macos-arm64
+            runner: macos-15
+    defaults:
+      run:
+        shell: bash
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CARGO_BUILD_JOBS: 2
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check package boundaries
+        run: python -B tests/test_package_build.py
+      - name: Install Linux tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-15 cmake ninja-build make tcl pkg-config \
+            libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+            libwayland-dev libxkbcommon-dev wayland-protocols libdecor-0-dev \
+            libudev-dev libdbus-1-dev libvulkan-dev
+          echo 'CC=gcc-15' >> "$GITHUB_ENV"
+          echo 'CXX=g++-15' >> "$GITHUB_ENV"
+      - name: Install macOS tools
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          brew install cmake ninja tcl-tk
+          echo "$(brew --prefix tcl-tk)/bin" >> "$GITHUB_PATH"
+          echo 'CC=clang' >> "$GITHUB_ENV"
+          echo 'CXX=clang++' >> "$GITHUB_ENV"
+      - name: Select Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+      - name: Prepare pinned dependencies
+        run: python tools/setup_dependencies.py
+      - name: Configure original runtime
+        run: >-
+          cmake --preset release
+          -DBUILD_TESTING=OFF
+          -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
+      - name: Build original runtime
+        run: cmake --build --preset release
+      - name: Check executable
+        run: |
+          ./build/release/mscharged --version | tee build/release/ci-version.txt
+          grep -F 'original frontend runtime' build/release/ci-version.txt
+          ./build/release/mscharged --help
+      - name: Package binaries and notices
+        run: python tools/package_build.py --build-dir build/release --output-dir build/artifacts
+      - name: Upload binaries after promotion
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/stable'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mscharged-${{ matrix.platform }}-${{ github.sha }}
+          path: build/artifacts/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: configure-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            build/release/CMakeFiles/CMakeConfigureLog.yaml
+            build/release/sqlite-generation.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    name: Windows host services (game build pending)
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned LLVM-MinGW
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/toolchain | Out-Null
+          $archive = 'build/toolchain/llvm-mingw.zip'
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/llvm-mingw-20261006-ucrt-x86_64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a') {
+            throw 'LLVM-MinGW archive checksum mismatch'
+          }
+          Expand-Archive $archive -DestinationPath build/toolchain
+          (Resolve-Path 'build/toolchain/llvm-mingw-20261006-ucrt-x86_64/bin').Path >> $env:GITHUB_PATH
+      - name: Initialize host-test source pins
+        run: git submodule update --init --checkout -- extern/mscharged-decomp extern/aurora
+      - name: Prepare original SDK headers and message source
+        run: python tools/prepare_sources.py --build-dir build/host-sources --clang-format off
+      - name: Prepare host SDK headers
+        run: python tools/prepare_sources.py --dependency aurora --build-dir build/host-sources
+      - name: Configure host service tests
+        run: >-
+          cmake -S tests/host-platform -B build/host-checks -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=x86_64-w64-mingw32-clang
+          -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-clang++
+          -DMSCHARGED_PREPARED_BUILD_DIR="${{ github.workspace }}/build/host-sources"
+          -DMSCHARGED_PREPARED_CLANG_FORMAT=off
+      - name: Build host service tests
+        run: cmake --build build/host-checks
+      - name: Run host service tests
+        run: ctest --test-dir build/host-checks --output-on-failure
+      # These tests qualify individual host services, not Windows game startup.
+      # The runtime gate remains until DLL linking, ABI and storage are ready.

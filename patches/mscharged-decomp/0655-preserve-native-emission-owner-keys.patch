@@ -1,0 +1,527 @@
+Subject: Preserve original emission owner keys across native pointer ABIs
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use full-width native address transport through the original manager and
+mixed electric-fence ball helper. Keep original numeric IDs, controller
+fields, algorithms, and console type/cast tokens. No ownership is added.
+
+--- a/include/Game/Effects/EmissionManager.h
++++ b/include/Game/Effects/EmissionManager.h
+@@ -1,6 +1,7 @@
+ #ifndef GAME_EFFECTS_EMISSION_MANAGER_H
+ #define GAME_EFFECTS_EMISSION_MANAGER_H
+ 
++#include "Game/Effects/EmissionOwnerKey.h"
+ #include "NL/nlDLListContainer.h"
+ #include "NL/nlFunction.h"
+ #include "NL/nlColour.h"
+@@ -76,22 +77,22 @@
+     void Render();
+     nlDLListContainer<EmissionController*>* GetContainer();
+     bool IsStillAlive(EmissionController* controller);
+-    void Destroy(unsigned long userData, const EffectsGroup* pEffectsGroup);
++    void Destroy(MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup);
+     void Destroy(const EffectsGroup* pEffectsGroup);
+     void ForEachController(const Function1<void, EmissionController&>& callback);
+     void DestroyAll(int view, bool exceptPersistent);
+     void DestroyAll(bool exceptPersistent);
+-    void Kill(unsigned long userData, const EffectsGroup* pEffectsGroup);
++    void Kill(MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup);
+     bool IsPlaying(
+-        unsigned long userData, const EffectsGroup* pEffectsGroup);
++        MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup);
+     void AddError(const char* format, ...);
+     void Replay(LoadFrame& frame);
+     void Replay(SaveFrame& frame);
+     void KillOldest(int num, bool lingeringOnly);
+     void SetContext(void* context);
+-    EmissionController* FindController(unsigned long userData, const EffectsGroup* pEffectsGroup);
++    EmissionController* FindController(MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup);
+     void Kill(const EffectsGroup* pEffectsGroup);
+-    bool IsDying(unsigned long userData, const EffectsGroup* pEffectsGroup);
++    bool IsDying(MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup);
+     void KillAll();
+     void PrepareForReplay();
+     static void SetResourceBudget(int resource, int budget);
+--- /dev/null
++++ b/include/Game/Effects/EmissionOwnerKey.h
+@@ -0,0 +1,15 @@
++#ifndef GAME_EFFECTS_EMISSION_OWNER_KEY_H
++#define GAME_EFFECTS_EMISSION_OWNER_KEY_H
++
++// Original emission keys hold either a borrowed owner address or a numeric word.
++// This changes native CPU transport only; it grants no lifetime or serialization.
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define MSCHARGED_EMISSION_OWNER_KEY uintptr_t
++#define MSCHARGED_EMISSION_OWNER_ADDRESS(pointer) reinterpret_cast<uintptr_t>(pointer)
++#else
++#define MSCHARGED_EMISSION_OWNER_KEY unsigned long
++#define MSCHARGED_EMISSION_OWNER_ADDRESS(pointer) (unsigned long)pointer
++#endif
++
++#endif // GAME_EFFECTS_EMISSION_OWNER_KEY_H
+--- a/include/Game/Render/ElectricFence.h
++++ b/include/Game/Render/ElectricFence.h
+@@ -1,6 +1,7 @@
+ #ifndef GAME_RENDER_ELECTRIC_FENCE_H
+ #define GAME_RENDER_ELECTRIC_FENCE_H
+ 
++#include "Game/Effects/EmissionOwnerKey.h"
+ #include "Game/Effects/EmissionController.h"
+ #include "NL/nlList.h"
+ #include "NL/nlMath.h"
+@@ -45,6 +46,6 @@
+ void EmitElectricFenceCharacterEffect(const nlVector3& pos,
+     const nlVector3& dir, unsigned long emitterID);
+ bool EmitElectricFenceBallEffect(const nlVector3& pos,
+-    const nlVector3& dir, unsigned long emitterID, bool bNoSpark);
++    const nlVector3& dir, MSCHARGED_EMISSION_OWNER_KEY emitterID, bool bNoSpark);
+ 
+ #endif // GAME_RENDER_ELECTRIC_FENCE_H
+--- a/src/Game/AI/Powerups.cpp
++++ b/src/Game/AI/Powerups.cpp
+@@ -3073,7 +3073,7 @@
+ void Bobomb::Destroy(bool bSilent)
+ {
+     EffectsGroup* pEffectsGroup = EmissionManager::Instance()->GetEffectsGroup("bobomb_tick");
+-    EmissionManager::Instance()->Destroy((unsigned long)this, pEffectsGroup);
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), pEffectsGroup);
+ 
+     if (gBobombAnticipationVoiceID != -1)
+     {
+--- a/src/Game/Ball.cpp
++++ b/src/Game/Ball.cpp
+@@ -1082,7 +1082,7 @@
+     cBall* pBall, const EffectsGroup* pEffectsGroup)
+ {
+     return EmissionManager::Instance()->IsPlaying(
+-        (unsigned long)pBall, pEffectsGroup);
++        MSCHARGED_EMISSION_OWNER_ADDRESS(pBall), pEffectsGroup);
+ }
+ 
+ static inline cFielder* GetOwnerFielderImpl(cBall* pBall)
+@@ -2741,7 +2741,7 @@
+         if (!pBallTrail->visible)
+         {
+             EmissionManager::Instance()->Destroy(
+-                (unsigned long)pBallTrail, NULL);
++                MSCHARGED_EMISSION_OWNER_ADDRESS(pBallTrail), NULL);
+             if (pBallTrail->blurHandler != NULL)
+             {
+                 pBallTrail->blurHandler->Die(lbl_806DB54C);
+@@ -3445,7 +3445,7 @@
+     if (!pBallTrail->visible)
+     {
+         EmissionManager::Instance()->Destroy(
+-            (unsigned long)pBallTrail, NULL);
++            MSCHARGED_EMISSION_OWNER_ADDRESS(pBallTrail), NULL);
+         if (pBallTrail->blurHandler != NULL)
+         {
+             pBallTrail->blurHandler->Die(lbl_806DB54C);
+--- a/src/Game/BasicStadium.cpp
++++ b/src/Game/BasicStadium.cpp
+@@ -314,7 +314,7 @@
+         WorldEffect* pEffect = iterator.Current();
+         if (uType == (unsigned long)pEffect->m_nTimingMode && pGroup != 0)
+         {
+-            pManager->Kill((unsigned long)pEffect, pGroup);
++            pManager->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(pEffect), pGroup);
+         }
+     }
+ }
+--- a/src/Game/Character.cpp
++++ b/src/Game/Character.cpp
+@@ -373,7 +373,7 @@
+ 
+ cCharacter::~cCharacter()
+ {
+-    EmissionManager::Instance()->Destroy((unsigned long)this, 0);
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), 0);
+     m_pEffectsTexturing = 0;
+     if (m_pPhysicsData != 0)
+     {
+@@ -877,7 +877,7 @@
+ 
+ void cCharacter::ResetEffects()
+ {
+-    EmissionManager::Instance()->Destroy((unsigned long)this, 0);
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), 0);
+     m_pEffectsTexturing = 0;
+ }
+ 
+@@ -1057,7 +1057,7 @@
+     if (m_bIsUsingElectrocutionTexture)
+     {
+         EmissionManager* unidentifiedManager = EmissionManager::Instance();
+-        if (!unidentifiedManager->IsPlaying((unsigned long)this,
++        if (!unidentifiedManager->IsPlaying(MSCHARGED_EMISSION_OWNER_ADDRESS(this),
+                 unidentifiedManager->GetEffectsGroup("electrocution")))
+         {
+             if (m_bIsUsingElectrocutionTexture)
+@@ -1124,24 +1124,24 @@
+ void cCharacter::KillEffect(const EffectsGroup* effectGroup)
+ {
+     EmissionManager::Instance()->Destroy(
+-        (unsigned long)this, effectGroup);
++        MSCHARGED_EMISSION_OWNER_ADDRESS(this), effectGroup);
+ }
+ 
+ void cCharacter::EndEffect(const EffectsGroup* effectGroup)
+ {
+-    EmissionManager::Instance()->Kill((unsigned long)this, effectGroup);
++    EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), effectGroup);
+ }
+ 
+ bool cCharacter::IsPlayingEffect(const EffectsGroup* effectGroup) const
+ {
+     return EmissionManager::Instance()->IsPlaying(
+-        (unsigned long)this, effectGroup);
++        MSCHARGED_EMISSION_OWNER_ADDRESS(this), effectGroup);
+ }
+ 
+ bool cCharacter::IsEffectDying(const EffectsGroup* effectGroup) const
+ {
+     return EmissionManager::Instance()->IsDying(
+-        (unsigned long)this, effectGroup);
++        MSCHARGED_EMISSION_OWNER_ADDRESS(this), effectGroup);
+ }
+ 
+ void cCharacter::fn_8001E304(float fSpeed, float fDeltaT)
+@@ -2361,7 +2361,7 @@
+         if (GameInfoManager::Instance()->GetStadium() != 0xB
+             || fabsf(pEventData->pBall->m_v3Position.x) > cField::GetGoalLineX(1U) - 2.5f)
+         {
+-            if (EmitElectricFenceBallEffect(pEventData->position, pEventData->normal, (unsigned long)pEventData->pBall, false))
++            if (EmitElectricFenceBallEffect(pEventData->position, pEventData->normal, MSCHARGED_EMISSION_OWNER_ADDRESS(pEventData->pBall), false))
+             {
+                 PlaySound(10, 0x2AA0C2A9UL, NULL, NULL);
+             }
+--- a/src/Game/CharacterTriggers.cpp
++++ b/src/Game/CharacterTriggers.cpp
+@@ -1243,7 +1243,7 @@
+ {
+     const char* szEffectName = bActive ? s_szHeaderTargetActive : s_szHeaderTarget;
+ 
+-    EmissionManager::Instance()->Destroy((unsigned long)pBall,
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(pBall),
+         EmissionManager::Instance()->GetEffectsGroup(szEffectName));
+ }
+ 
+@@ -1805,7 +1805,7 @@
+     EffectsGroup* pGroup = EmissionManager::Instance()->GetEffectsGroup("skillshot_player_on_fire");
+     if (pCharacter->IsEffectDying(pGroup))
+     {
+-        EmissionManager::Instance()->Destroy((unsigned long)pCharacter, pGroup);
++        EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(pCharacter), pGroup);
+     }
+ 
+     if (!pCharacter->IsPlayingEffect(pGroup))
+@@ -1897,7 +1897,7 @@
+     if (pFielder->m_DetChar.m_eCharacterClass == 3)
+     {
+         EffectsGroup* pGroup = EmissionManager::Instance()->GetEffectsGroup("dk_deke");
+-        EmissionManager::Instance()->Destroy((unsigned long)g_pBall, pGroup);
++        EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(g_pBall), pGroup);
+     }
+     else if (pFielder->m_eActionState == 1)
+     {
+--- a/src/Game/CrowdRiot.cpp
++++ b/src/Game/CrowdRiot.cpp
+@@ -280,13 +280,13 @@
+     mv3Target.z = 0.0f;
+ 
+     group = GetCrowdRiotEffectGroup(GENERATOR_BROKEN);
+-    EmissionManager::Instance()->Kill((unsigned long)this, group);
++    EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     group = GetCrowdRiotEffectGroup(GENERATOR_EXPLOSION);
+-    EmissionManager::Instance()->Kill((unsigned long)this, group);
++    EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     group = GetCrowdRiotEffectGroup(CROWD_RIOT);
+-    EmissionManager::Instance()->Kill((unsigned long)this, group);
++    EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     group = GetCrowdRiotEffectGroup(CROWD_RIOT_WITH_FADE);
+-    EmissionManager::Instance()->Kill((unsigned long)this, group);
++    EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     StopSound(0x198B7ED3, this);
+ 
+     if (resumeRiot && meState != STATE_DISABLED && meState == STATE_READY)
+--- a/src/Game/Effects/EmissionManager.cpp
++++ b/src/Game/Effects/EmissionManager.cpp
+@@ -798,7 +798,7 @@
+ /**
+  * Offset/Address/Size: 0x0 | 0x802E81A0 | size: 0xAC
+  */
+-EmissionController* EmissionManager::FindController(unsigned long userData, const EffectsGroup* pEffectsGroup)
++EmissionController* EmissionManager::FindController(MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup)
+ {
+     nlDLListIterator<EmissionController*> iterator;
+     iterator = static_cast<const nlDLListContainer<EmissionController*>&>(mControllers).Begin();
+@@ -855,7 +855,7 @@
+  * Offset/Address/Size: 0x0 | 0x802E82E4 | size: 0xE0
+  */
+ void EmissionManager::Kill(
+-    unsigned long userData, const EffectsGroup* pEffectsGroup)
++    MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup)
+ {
+     nlDLListIterator<EmissionController*> iterator;
+     iterator = static_cast<const nlDLListContainer<EmissionController*>&>(mControllers).Begin();
+@@ -907,7 +907,7 @@
+  * Offset/Address/Size: 0x0 | 0x802E848C | size: 0xB8
+  */
+ bool EmissionManager::IsPlaying(
+-    unsigned long userData, const EffectsGroup* pEffectsGroup)
++    MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup)
+ {
+     if (pEffectsGroup != 0)
+     {
+@@ -939,7 +939,7 @@
+ /**
+  * Offset/Address/Size: 0x0 | 0x802E8544 | size: 0xB8
+  */
+-bool EmissionManager::IsDying(unsigned long userData, const EffectsGroup* pEffectsGroup)
++bool EmissionManager::IsDying(MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup)
+ {
+     if (pEffectsGroup != 0)
+     {
+@@ -1060,7 +1060,7 @@
+  * Offset/Address/Size: 0x0 | 0x802E88CC | size: 0x160
+  */
+ void EmissionManager::Destroy(
+-    unsigned long userData, const EffectsGroup* pEffectsGroup)
++    MSCHARGED_EMISSION_OWNER_KEY userData, const EffectsGroup* pEffectsGroup)
+ {
+     nlDLListIterator<EmissionController*> iterator;
+     iterator = static_cast<const nlDLListContainer<EmissionController*>&>(mControllers).Begin();
+--- a/src/Game/NisPlayer.cpp
++++ b/src/Game/NisPlayer.cpp
+@@ -1055,7 +1055,7 @@
+ 
+ void NisPlayer::ResetEffects()
+ {
+-    EmissionManager::Instance()->Destroy((unsigned long)this, 0);
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), 0);
+     EmissionManager::Instance()->DestroyAll(0, true);
+     EmissionManager::Instance()->DestroyAll(3, true);
+ }
+--- a/src/Game/Physics/PhysicsPatch.cpp
++++ b/src/Game/Physics/PhysicsPatch.cpp
+@@ -60,8 +60,8 @@
+             EffectsGroup* effects = EmissionManager::Instance()->GetEffectsGroup(info->mEffectName);
+             if (effects != 0)
+             {
+-                EmissionManager::Instance()->Kill((unsigned long)this, effects);
+-                EmissionController* controller = EmissionManager::Instance()->FindController((unsigned long)this, effects);
++                EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), effects);
++                EmissionController* controller = EmissionManager::Instance()->FindController(MSCHARGED_EMISSION_OWNER_ADDRESS(this), effects);
+                 if (controller != 0)
+                 {
+                     controller->mUpdateCallback.Clear();
+@@ -81,8 +81,8 @@
+             EffectsGroup* effects = EmissionManager::Instance()->GetEffectsGroup(info->mEffectName);
+             if (effects != 0)
+             {
+-                EmissionManager::Instance()->Destroy((unsigned long)this, effects);
+-                EmissionController* controller = EmissionManager::Instance()->FindController((unsigned long)this, effects);
++                EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), effects);
++                EmissionController* controller = EmissionManager::Instance()->FindController(MSCHARGED_EMISSION_OWNER_ADDRESS(this), effects);
+                 if (controller != 0)
+                 {
+                     controller->mUpdateCallback.Clear();
+--- a/src/Game/Physics/PhysicsWaluigiWall.cpp
++++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
+@@ -350,8 +350,8 @@
+ inline void WaluigiWallManager::EndWall()
+ {
+     EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(gWaluigiWallEffectName);
+-    if (EmissionManager::Instance()->IsPlaying((unsigned long)mCurrentWall, group))
+-        EmissionManager::Instance()->Kill((unsigned long)mCurrentWall, group);
++    if (EmissionManager::Instance()->IsPlaying(MSCHARGED_EMISSION_OWNER_ADDRESS(mCurrentWall), group))
++        EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(mCurrentWall), group);
+     mEmitterStarted = false;
+     mCurrentWall->mAge = 0.0f;
+     PhysicsWaluigiWall* wall = mCurrentWall;
+--- a/src/Game/Render/BirdoEgg.cpp
++++ b/src/Game/Render/BirdoEgg.cpp
+@@ -120,7 +120,7 @@
+     if (fabsf(mPosition.y) > cField::GetSidelineY(1))
+     {
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
+-        EmissionManager::Instance()->Kill((unsigned long)this, group);
++        EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     }
+ }
+ 
+@@ -205,11 +205,11 @@
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
+         if (!destroyEffect)
+         {
+-            EmissionManager::Instance()->Kill((unsigned long)this, group);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+         }
+         else
+         {
+-            EmissionManager::Instance()->Destroy((unsigned long)this, group);
++            EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+         }
+         if (!destroyEffect)
+         {
+--- a/src/Game/Render/BulletBill.cpp
++++ b/src/Game/Render/BulletBill.cpp
+@@ -193,11 +193,11 @@
+     EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("bulletbill_trail");
+     if (!destroyEffect)
+     {
+-        EmissionManager::Instance()->Kill((unsigned long)this, group);
++        EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     }
+     else
+     {
+-        EmissionManager::Instance()->Destroy((unsigned long)this, group);
++        EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     }
+     physics->DisableCollisions();
+ }
+--- a/src/Game/Render/ChainChomp.cpp
++++ b/src/Game/Render/ChainChomp.cpp
+@@ -84,9 +84,9 @@
+     {
+         mpInEffectSFX = 0;
+     }
+-    EmissionManager::Instance()->Destroy((unsigned long)this,
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this),
+         EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail"));
+-    EmissionManager::Instance()->Destroy((unsigned long)this,
++    EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this),
+         EmissionManager::Instance()->GetEffectsGroup("freeze"));
+     meChainChompState = CHAIN_STATE_HIDDEN;
+     mfDesiredSpeed = 0.0f;
+@@ -151,7 +151,7 @@
+         if (mtStateTimer.Countdown(fDeltaT, 0.0f))
+         {
+             pGroup = EmissionManager::Instance()->GetEffectsGroup("freeze");
+-            EmissionManager::Instance()->Destroy((unsigned long)this, pGroup);
++            EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), pGroup);
+             mpPhysObj->EnableCollisions();
+ 
+             EmitTrail();
+@@ -177,10 +177,10 @@
+                 mpInEffectSFX = 0;
+             }
+             pGroup = EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail");
+-            EmissionManager::Instance()->Kill((unsigned long)this, pGroup);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), pGroup);
+ 
+             pGroup = EmissionManager::Instance()->GetEffectsGroup("freeze");
+-            EmissionManager::Instance()->Kill((unsigned long)this, pGroup);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), pGroup);
+ 
+             meChainChompState = CHAIN_STATE_HIDDEN;
+             mfDesiredSpeed = 0.0f;
+@@ -359,10 +359,10 @@
+                 mpInEffectSFX = 0;
+             }
+             pGroup = EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail");
+-            EmissionManager::Instance()->Kill((unsigned long)this, pGroup);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), pGroup);
+ 
+             pGroup = EmissionManager::Instance()->GetEffectsGroup("freeze");
+-            EmissionManager::Instance()->Kill((unsigned long)this, pGroup);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), pGroup);
+ 
+             meChainChompState = CHAIN_STATE_HIDDEN;
+             mfDesiredSpeed = 0.0f;
+@@ -585,7 +585,7 @@
+     mv3Velocity = v3FallVelocity;
+     mtStateTimer.SetSeconds(1.5f);
+     mpPhysObj->DisableCollisions();
+-    EmissionManager::Instance()->Kill((unsigned long)this,
++    EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this),
+         EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail"));
+ }
+ 
+--- a/src/Game/Render/ElectricFence.cpp
++++ b/src/Game/Render/ElectricFence.cpp
+@@ -350,7 +350,7 @@
+ }
+ 
+ bool EmitElectricFenceBallEffect(const nlVector3& v3Position,
+-    const nlVector3& v3Normal, unsigned long userData, bool bNoSparks)
++    const nlVector3& v3Normal, MSCHARGED_EMISSION_OWNER_KEY userData, bool bNoSparks)
+ {
+     ElectricFenceData* data;
+     const char* groupName;
+--- a/src/Game/Render/KoopaShellObject.cpp
++++ b/src/Game/Render/KoopaShellObject.cpp
+@@ -53,12 +53,12 @@
+         if (!destroyEffect)
+         {
+             EmissionManager::Instance()->Kill(
+-                (unsigned long)object, group);
++                MSCHARGED_EMISSION_OWNER_ADDRESS(object), group);
+         }
+         else
+         {
+             EmissionManager::Instance()->Destroy(
+-                (unsigned long)object, group);
++                MSCHARGED_EMISSION_OWNER_ADDRESS(object), group);
+         }
+ 
+         if (!destroyEffect)
+@@ -157,7 +157,7 @@
+     if (fabsf(mPosition.y) > cField::GetSidelineY(1))
+     {
+         EmissionManager::Instance()->Kill(
+-            (unsigned long)this,
++            MSCHARGED_EMISSION_OWNER_ADDRESS(this),
+             EmissionManager::Instance()->GetEffectsGroup(sKoopaShellTrail));
+     }
+ }
+--- a/src/Game/Render/YoshiEggObject.cpp
++++ b/src/Game/Render/YoshiEggObject.cpp
+@@ -54,7 +54,7 @@
+     {
+         mDelay = delay;
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+-        EmissionManager::Instance()->Destroy((unsigned long)this, group);
++        EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+         mPhysics->EnableCollisions();
+         if (mFielder != 0 && mFielder->m_pBall != 0)
+         {
+@@ -127,7 +127,7 @@
+     if (fabsf(mPosition.y) > cField::GetSidelineY(1))
+     {
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+-        EmissionManager::Instance()->Kill((unsigned long)this, group);
++        EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     }
+ }
+ 
+@@ -157,7 +157,7 @@
+     if (mActive)
+     {
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+-        EmissionManager::Instance()->Kill((unsigned long)this, group);
++        EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+     }
+     mActive = true;
+     mPhysics->EnableCollisions();
+@@ -196,15 +196,15 @@
+         }
+         EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+         if (!destroyEffects)
+-            EmissionManager::Instance()->Kill((unsigned long)this, group);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+         else
+-            EmissionManager::Instance()->Destroy((unsigned long)this, group);
++            EmissionManager::Instance()->Destroy(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+         mPosition = gYoshiEggHiddenPosition;
+         mPhysics->SetPosition(gYoshiEggHiddenPosition, PhysicsObject::WORLD_COORDINATES);
+         if (mActive)
+         {
+             EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
+-            EmissionManager::Instance()->Kill((unsigned long)this, group);
++            EmissionManager::Instance()->Kill(MSCHARGED_EMISSION_OWNER_ADDRESS(this), group);
+         }
+         mActive = false;
+     }

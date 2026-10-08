@@ -5,7 +5,7 @@
 class WorldDrawable;
 class WorldVisibilityDrawable;
 class WorldPhysicsDrawable;
-class WorldObject_80129EE0;
+class WorldHelperObject;
 class WorldAnimObject;
 class CrowdLayoutObject;
 class WorldNPC;
@@ -73,7 +73,7 @@ template <class T> struct WorldRecordStorageTraits;
 CHARGED_WORLD_STORAGE_TYPE(WorldDrawable, Drawable);
 CHARGED_WORLD_STORAGE_TYPE(WorldVisibilityDrawable, Visibility);
 CHARGED_WORLD_STORAGE_TYPE(WorldPhysicsDrawable, Physics);
-CHARGED_WORLD_STORAGE_TYPE(WorldObject_80129EE0, CommonObject);
+CHARGED_WORLD_STORAGE_TYPE(WorldHelperObject, CommonObject);
 CHARGED_WORLD_STORAGE_TYPE(WorldAnimObject, Animation);
 CHARGED_WORLD_STORAGE_TYPE(CrowdLayoutObject, Crowd);
 CHARGED_WORLD_STORAGE_TYPE(WorldNPC, NPC);

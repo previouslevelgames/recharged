@@ -36,4 +36,19 @@ if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8)
     add_test(NAME original_os_mutex_owner_retirement
         COMMAND original_os_mutex_tests --retire-held-mutex)
     set_tests_properties(original_os_mutex_owner_retirement PROPERTIES TIMEOUT 10)
+    # Final process power removal may retain physically stopped frames, but it
+    # must never label them completed or permit reusable source lifetimes.
+    add_executable(native_thread_terminal_tests tests/native_thread_terminal.cpp
+        "${MSCHARGED_PREPARED}/src/RVL_SDK/os/OSMutex.c")
+    add_dependencies(native_thread_terminal_tests verify_prepared)
+    target_compile_features(native_thread_terminal_tests PRIVATE cxx_std_17 c_std_17)
+    target_link_libraries(native_thread_terminal_tests PRIVATE charged_original_os_messages)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(native_thread_terminal_tests PRIVATE
+            "$<$<COMPILE_LANGUAGE:C>:-fexceptions;-fno-strict-aliasing;-Wno-unknown-pragmas>")
+    endif()
+    foreach(mode IN ITEMS early self ready held contended service detached)
+        add_test(NAME native_thread_terminal_${mode} COMMAND native_thread_terminal_tests ${mode})
+        set_tests_properties(native_thread_terminal_${mode} PROPERTIES TIMEOUT 10 LABELS "Platform")
+    endforeach()
 endif()

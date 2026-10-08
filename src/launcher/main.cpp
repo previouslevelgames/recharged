@@ -12,6 +12,7 @@
 #include "launcher/ui_metrics.h"
 #include "mscharged/build_version.h"
 #include "platform/disc.h"
+#include "platform/app_icon.h"
 #include "platform/path.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
 #include "runtime/startup.h"
@@ -194,6 +195,7 @@ public:
                                    int(kDefaultDesignHeight),
                                    SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
         Require(window_ != nullptr, "Cannot create launcher window");
+        platform::SetApplicationIcon(window_);
         renderer_ = SDL_CreateRenderer(window_, nullptr);
         Require(renderer_ != nullptr, "Cannot create launcher renderer");
         SDL_SetRenderVSync(renderer_, 1);

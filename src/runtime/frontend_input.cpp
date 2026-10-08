@@ -46,7 +46,7 @@ class DesktopPad final : public PadBackend
         if (remap)
         {
             if (button < 0 || button >= 51) throw std::out_of_range("Frontend pad action");
-            button = g_pPadRemapArray[button];
+            button = gGameCubeButtonRemap[button];
         }
         if (button <= 0 || button > 0x1fff || !std::has_single_bit(static_cast<unsigned>(button)))
             throw std::out_of_range("Frontend pad button must be one of thirteen masks");

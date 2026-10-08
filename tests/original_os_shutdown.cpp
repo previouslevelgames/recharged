@@ -15,6 +15,7 @@
 #include "platform/rtc_policy.h"
 #include "platform/stm_device.h"
 #include "platform/system.h"
+#include "platform/thread_queues.h"
 #include "platform/video_device.h"
 #include "platform/os_shutdown_record_transport.h"
 #include "credits_movie_hardware.h"
@@ -23,6 +24,7 @@
 #include <aurora/video.h>
 #include <dolphin/os.h>
 #include <dolphin/os/OSNativeMemory.h>
+#include <dolphin/os/OSMessage.h>
 #include <dolphin/ai.h>
 #include <dolphin/vi.h>
 #include <dolphin/dvd.h>
@@ -43,6 +45,7 @@ int fixture_play_alarm_pending();
 }
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -116,10 +119,66 @@ void CreateRecord(const char* path,const void* bytes,u32 count) {
     Check(NANDWrite(&file,bytes,count)==s32(count),"Actual fixture record write failed");
     Check(NANDClose(&file)==0,"Actual fixture record close failed");
 }
+struct SleepingSourceWorker {
+    OSMessageQueue queue{};
+    OSMessage message{};
+    OSThread thread{};
+    alignas(32) std::array<unsigned char, 16384> stack{};
+    std::atomic<unsigned> entries{}, returns{}, destructors{};
+    void* original_value{};
+
+    static void* Entry(void* context) {
+        auto& self = *static_cast<SleepingSourceWorker*>(context);
+        struct Frame {
+            SleepingSourceWorker& owner;
+            ~Frame() { ++owner.destructors; }
+        } frame{self};
+        ++self.entries;
+        OSMessage received;
+        OSReceiveMessage(&self.queue, &received, OS_MESSAGE_BLOCK);
+        ++self.returns;
+        return nullptr;
+    }
+    void Start() {
+        OSInitMessageQueue(&queue, &message, 1);
+        Check(OSCreateThread(&thread, Entry, this, stack.data()+stack.size(),
+            stack.size(), 10, 0), "Actual source message worker creation failed");
+        Check(OSResumeThread(&thread)==1, "Actual source message worker resume failed");
+        Check(entries==1 && returns==0 && destructors==0 &&
+            thread.state==OS_THREAD_STATE_WAITING && thread.queue==&queue.queueReceive &&
+            queue.queueReceive.head==&thread && !thread.mutex && !thread.queueMutex.head,
+            "Original receive did not reach a real message sleep");
+        original_value = thread.val;
+    }
+    void Verify() {
+        const auto status = ValidateNativeThreadsForPowerRemoval();
+        Check(status.stopped_workers==1 && status.completed_workers==0 &&
+            status.retained_moribund_threads==1,
+            "Cancelled live native frame was mislabeled completed");
+        Check(thread.state==OS_THREAD_STATE_MORIBUND && !thread.queue &&
+            !queue.queueReceive.head && !queue.queueReceive.tail &&
+            thread.val==original_value && entries==1 && returns==0 && destructors==0 &&
+            OSIsThreadTerminated(&thread), "Original cancel descriptor or retained frame changed");
+        bool rejected{};
+        try { OSJoinThread(&thread, nullptr); } catch (const std::logic_error&) { rejected=true; }
+        Check(rejected, "Stopped native frame was joined as completed");
+        rejected=false;
+        try { OSResumeThread(&thread); } catch (const std::logic_error&) { rejected=true; }
+        Check(rejected, "Stopped native frame was resumed");
+        rejected=false;
+        try { OSEnableScheduler(); } catch (const std::logic_error&) { rejected=true; }
+        Check(rejected, "Final power path re-enabled source scheduling");
+        rejected=false;
+        try { DrainNativeThreadLifetimes(); } catch (const std::logic_error&) { rejected=true; }
+        Check(rejected, "Stopped live native frame was retired");
+        std::puts("Original sleeping-worker terminal proof: retained frame, unchanged result, no return or destruction.");
+    }
+};
 struct Terminal {
     std::filesystem::path root;
     NativeAXFunctionalDevice* device;
     std::uint64_t before_resets{},before_frames{},before_irqs{};
+    SleepingSourceWorker* worker{};
     static void Verify(void* context,const NativeSTMPowerRequest& request) {
         auto& self=*static_cast<Terminal*>(context);
         Check(std::all_of(request.input.begin(),request.input.end(),[](u8 x){return x==0;}),
@@ -145,6 +204,7 @@ struct Terminal {
         const auto raw=Read(self.root/"nand/data/title/00000001/00000002/data/state.dat");
         Check(raw.size()==32&&raw[5]==OS_SHUTDOWN_REBOOT&&raw[6]==DVD_STATE_WAITING,
               "Original shutdown state/RTC/cover decision changed");
+        if (self.worker) self.worker->Verify();
         std::printf("Whole original OSShutdownSystem terminal PASS: %u checks; %u real IOS completions; %llu source AX frames; no ResetTask/main/active-voice shutdown claim.\n",
             checks,ios_completions,static_cast<unsigned long long>(self.before_frames));
         std::fflush(nullptr);
@@ -155,7 +215,8 @@ struct Terminal {
     }
 };
 void Run(int argc,char** argv) {
-    Check(argc==5&&std::strlen(argv[2])==64,"Need actual AX image/hash, synthetic disc and disposable root");
+    Check((argc==5 || (argc==6 && std::strcmp(argv[5], "--sleeping-thread")==0)) &&
+        std::strlen(argv[2])==64,"Need actual AX image/hash, synthetic disc and disposable root");
     const auto root=std::filesystem::absolute(argv[4]);std::filesystem::create_directories(root);
     aurora::g_config.mem1Size=MEM1_DEFAULT_SIZE;aurora::g_config.mem2Size=64u*1024u*1024u;
     OSInit();Check(OSGetArenaLo()&&OSGetMEM2ArenaLo(),"Actual SDK arenas unavailable");
@@ -241,7 +302,16 @@ void Run(int argc,char** argv) {
     const auto before=device.Status();
     Terminal terminal{root,&device,before.protocol.resets,before.frames.completed_frames,GetNativeInterruptControllerStatus().dispatched};
     ConfigureNativeSTMPowerRemoval({&terminal,Terminal::Verify});
-    OSShutdownSystem(); // Entire original function owns every decision/call below.
+    static SleepingSourceWorker worker;
+    if (argc==6) { worker.Start(); terminal.worker=&worker; }
+    // Retain the actual device/module/worker even if the boundary rejects.
+    // Unwinding these owners would obscure the failure with a destructor fence.
+    try { OSShutdownSystem(); } // Entire original function owns the shutdown.
+    catch (const std::exception& error) {
+        std::fprintf(stderr,"Whole shutdown boundary: %s (%u checks)\n",error.what(),checks);
+        std::fflush(nullptr);
+        std::_Exit(1);
+    }
     throw std::runtime_error("Original terminal shutdown unexpectedly returned");
 }
 }

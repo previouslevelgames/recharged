@@ -5,6 +5,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
 #include <stdexcept>
 
 namespace mscharged::platform {
@@ -17,7 +20,15 @@ static_assert(SourceBytes == 0xF0A0);
 static_assert(std::endian::native == std::endian::little,
               "This banner transport is qualified for little-endian native hosts");
 
-struct Free { void operator()(void* p) const noexcept { std::free(p); } };
+struct Free {
+    void operator()(void* p) const noexcept {
+#if defined(_WIN32)
+        _aligned_free(p);
+#else
+        std::free(p);
+#endif
+    }
+};
 using Snapshot = std::unique_ptr<void, Free>;
 struct Pending {
     void* bytes;
@@ -53,7 +64,11 @@ std::int32_t WriteOriginalNANDBanner(const void* native_banner,
         throw std::invalid_argument("Unqualified original NAND banner extent");
     if (pending.bytes)
         throw std::logic_error("Original NAND banner write is still pending");
+#if defined(_WIN32)
+    Snapshot copy(_aligned_malloc(SourceBytes, 32));
+#else
     Snapshot copy(std::aligned_alloc(32, SourceBytes));
+#endif
     if (!copy) return -2; // Actual NAND_RESULT_ALLOC_FAILED, no request submitted.
     std::memcpy(copy.get(), native_banner, SourceBytes);
     auto* wire = static_cast<unsigned char*>(copy.get());

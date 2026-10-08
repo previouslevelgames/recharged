@@ -1,6 +1,6 @@
 Subject: Adapt original page-control scalar callback contexts for native compilers
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 The original producer encodes only button index zero or one in void*.
 Native pointer-width casts carry that scalar value without changing unsigned
@@ -18,9 +18,9 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
  #include "NL/nlFunction.inl"
  #include "NL/nlPrint.h"
 @@ -196,7 +199,11 @@
-         mButtons[i].SetPointerEnterCallback(callback0);
-         mButtons[i].SetPointerLeaveCallback(callback1);
-         mButtons[i].SetPointerPressCallback(callback2);
+         mButtons[i].SetPointerEnterCallback(enterCallback);
+         mButtons[i].SetPointerLeaveCallback(leaveCallback);
+         mButtons[i].SetPointerPressCallback(pressCallback);
 +#if defined(MSCHARGED_NATIVE)
 +        mButtons[i].mContext = reinterpret_cast<void*>(static_cast<std::uintptr_t>(i));
 +#else

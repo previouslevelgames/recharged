@@ -1,11 +1,11 @@
 # Patch: 0511-fix-native-character-enum-storage
-# Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 # Scope: Fixed signed32 native storage admits literal original unnamed character values; console unchanged.
 --- a/include/Game/Character.h
 +++ b/include/Game/Character.h
 @@ -29,7 +29,11 @@
  class AnimRetargetList;
- struct UnidentifiedCharacterObject_8001C158;
+ struct cCharacterSFX;
  
 +#if defined(MSCHARGED_NATIVE)
 +enum eCharacterClass : int
@@ -14,4 +14,4 @@
 +#endif
  {
      CHARACTER_CLASS_INVALID = -1,
-     BIRDO = 0,
+     MARIO = 0,

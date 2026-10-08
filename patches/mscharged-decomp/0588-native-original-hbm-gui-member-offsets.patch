@@ -1,0 +1,45 @@
+Subject: Preserve original HOME GUI member offsets on native hosts
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use the actual native link-member offsets in the two original GUI list
+initializers. Preserve their u16 offset contract, source algorithms and console
+literal8 calls. No GUI owner, state or readiness is supplied.
+
+--- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMGUIManager.hpp
++++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMGUIManager.hpp
+@@ -2,6 +2,9 @@
+ #define HOMEBUTTON_GUI_MANAGER_H
+ 
+ #include "decomp.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ #include "revolution/hbm/nw4hbm/lyt/pane.h"
+ #include "revolution/hbm/nw4hbm/ut/list.h"
+ #include "revolution/kpad/KPAD.h"
+@@ -128,7 +131,12 @@
+             mpEventHandler->setManager(this);
+         }
+ 
++#if defined(MSCHARGED_NATIVE)
++        static_assert(offsetof(IDToComponent, mLink) <= 0xffff);
++        nw4hbm::ut::List_Init(&mIDToComponent, static_cast<u16>(offsetof(IDToComponent, mLink)));
++#else
+         nw4hbm::ut::List_Init(&mIDToComponent, 8);
++#endif
+     }
+ 
+     /* 0x0C */ virtual void init();
+@@ -184,7 +192,12 @@
+     PaneManager(EventHandler* pEventHandler, const nw4hbm::lyt::DrawInfo* pDrawInfo, MEMAllocator* pAllocator) :
+         Manager(pEventHandler, pAllocator),
+         mpDrawInfo(pDrawInfo) {
++#if defined(MSCHARGED_NATIVE)
++        static_assert(offsetof(PaneToComponent, mLink) <= 0xffff);
++        nw4hbm::ut::List_Init(&mPaneToComponent, static_cast<u16>(offsetof(PaneToComponent, mLink)));
++#else
+         nw4hbm::ut::List_Init(&mPaneToComponent, 8);
++#endif
+     }
+ 
+     /* 0x1C */ virtual ~PaneManager();

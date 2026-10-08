@@ -22,7 +22,7 @@ static_assert(sizeof(CupHistoryRecord) == 8 && sizeof(CupHistory) == 0x36C);
 static_assert(sizeof(CupProgressRecord) == 0x37C);
 static_assert(sizeof(ChallengeCompletionDate) == 4 && sizeof(ChallengeUnlockRecord) == 52);
 static_assert(offsetof(TeamStats, mPlayerTotalStats) == 0x1C);
-static_assert(offsetof(PlayerStats, unknown_0x3C) == 0x3C);
+static_assert(offsetof(PlayerStats, mBallPossessionTime) == 0x3C);
 static_assert(offsetof(CupProgressRecord, mHistory) == 0x10);
 static_assert(offsetof(CupHistory, mWriteIndex) == 0x360);
 static_assert(__builtin_offsetof(CupManager,mCupRecord)-__builtin_offsetof(CupManager,mState)==0x20);

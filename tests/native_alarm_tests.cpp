@@ -6,6 +6,7 @@
 #include <aurora/time.hpp>
 #include <dolphin/os.h>
 #include <dolphin/os/OSAlarm.h>
+#include <revolution/os/OSAlarm.h>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -53,6 +54,31 @@ void Callback(OSAlarm* alarm,OSContext* context) {
     if (rearm) { OSSetAlarm(rearm,OSMillisecondsToTicks(1),Callback); rearm=nullptr; }
     if (releases) { releases=false; delete alarm; }
     if (throws) { throws=false; throw std::runtime_error("Intentional callback exception"); }
+}
+void UserDataCarrierChecks() {
+    OSAlarm alarm{};
+    OSCreateAlarm(&alarm);
+    int context{};
+    unsigned evaluations{};
+    OSSetAlarmUserDataAny(&alarm, (++evaluations, &context));
+    Check(evaluations == 1, "Alarm userdata expression was evaluated more than once");
+    Check(OSGetAlarmUserData(&alarm) == &context,
+          "Alarm userdata lost a real native pointer");
+    for (int label : {-1, 0, 1, 3, 0x7fffffff}) {
+        OSSetAlarmUserDataAny(&alarm, label);
+        Check(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(&alarm))
+                  == static_cast<std::uintptr_t>(label),
+              "Alarm userdata changed a signed numeric label");
+    }
+    for (u32 label : {u32(0), u32(1), u32(0x80000000), u32(0xffffffff)}) {
+        OSSetAlarmUserDataAny(&alarm, label);
+        Check(reinterpret_cast<std::uintptr_t>(OSGetAlarmUserData(&alarm))
+                  == static_cast<std::uintptr_t>(label),
+              "Alarm userdata changed an unsigned numeric label");
+    }
+    OSSetAlarmUserDataAny(&alarm, &context);
+    Check(OSGetAlarmUserDataAny(int*, &alarm) == &context,
+          "Alarm userdata numeric labels changed the real pointer domain");
 }
 void Hook() { (void)ServiceNativeAlarms(); }
 void Sleep(unsigned milliseconds) { std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds)); }
@@ -159,6 +185,7 @@ int main() {
         interrupted=OSGetCurrentContext();
         Check(interrupted&&OSGetArenaLo()&&OSGetMEM2ArenaLo(),"Actual SDK memory/context unavailable");
         OSInitAlarm(); __OSInitAlarm();
+        UserDataCarrierChecks();
         Check(OSCheckAlarmQueue(),"Empty source queue invariants failed");
         Check(sizeof(OSAlarm)==64 && offsetof(OSAlarm,fire)==offsetof(OSAlarm,end),"Native source alarm descriptor ABI mismatch");
         Check(aurora_register_hardware_service(Hook),"Actual SDK hardware clock hook occupied");

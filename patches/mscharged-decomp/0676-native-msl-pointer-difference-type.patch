@@ -1,0 +1,15 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/libs/MSL_C/include/stddef.h
++++ b/libs/MSL_C/include/stddef.h
+@@ -7,6 +7,10 @@
+ #define NULL 0
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++typedef __PTRDIFF_TYPE__ ptrdiff_t;
++#else
+ typedef long ptrdiff_t;
++#endif
+ 
+ #define offsetof(ST, M) ((size_t) & (((ST*)0)->M))

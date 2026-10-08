@@ -1,0 +1,22 @@
+# Address the actual native va_list cursor without copying or changing format requests.
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+--- a/src/MSL/wprintf.c
++++ b/src/MSL/wprintf.c
+@@ -1023,7 +1023,17 @@
+         }
+ 
+         format_ptr = curr_format;
++#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
++        // Pointer-shaped va_list addresses the local cursor. An array-shaped
++        // function parameter already carries the underlying cursor by address.
++        if constexpr (__is_same(va_list, decltype(arg))) {
++            format_ptr = parse_format(format_ptr, (va_list*)&arg, &format);
++        } else {
++            format_ptr = parse_format(format_ptr, (va_list*)arg, &format);
++        }
++#else
+         format_ptr = parse_format(format_ptr, (va_list*)arg, &format);
++#endif
+ 
+         switch (format.conversion_char) {
+         case L'd':

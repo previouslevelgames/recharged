@@ -2,6 +2,7 @@
 #include "platform/dsp_memory.h"
 #include "platform/native_ax_module_memory_abi.h"
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 
 namespace mscharged::platform {
@@ -11,12 +12,13 @@ struct NativeAXModuleMemoryStatus {
     std::uintptr_t image_base;
     ChargedAXModuleArenaSnapshot before, after;
 };
-// ELF/Mach-O host-loader ownership. Construct after real OS arenas, before
+// ELF/Mach-O/PE host-loader ownership. Construct after real OS arenas, before
 // loading the original module. No game allocation/initialization/task/audio
 // decision is supplied. Actual module static owners are never unloaded here.
 class NativeAXModuleMemory {
 public:
     explicit NativeAXModuleMemory(const char* module_path);
+    explicit NativeAXModuleMemory(const std::filesystem::path& module_path);
     ~NativeAXModuleMemory();
     NativeAXModuleMemory(const NativeAXModuleMemory&)=delete;
     NativeAXModuleMemory& operator=(const NativeAXModuleMemory&)=delete;

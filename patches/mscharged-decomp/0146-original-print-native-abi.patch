@@ -1,5 +1,5 @@
 Subject: Compile complete original NL print and isolated Wii16 MSL formatter with native ABI
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep the Matching NL wrapper body, including final-byte termination and the
 original nlVSNPrintf(size-1) rule. Adapt underlying host formatting aliasing,
@@ -243,19 +243,6 @@ diff --git a/src/MSL/mbstring.c b/src/MSL/mbstring.c
  
  #pragma exceptions on
  
-diff --git a/src/MSL/wctype.c b/src/MSL/wctype.c
---- a/src/MSL/wctype.c
-+++ b/src/MSL/wctype.c
-@@ -1,4 +1,9 @@
- #include "ctype.h"
-+#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
-+extern const unsigned short __wctype_map[256];
-+extern const wchar_t __wupper_map[256];
-+extern const wchar_t __wlower_map[256];
-+#endif
- 
- const unsigned short __wctype_map[256] = {
-     ctype_cntrl,
 diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
 --- a/src/MSL/wprintf.c
 +++ b/src/MSL/wprintf.c

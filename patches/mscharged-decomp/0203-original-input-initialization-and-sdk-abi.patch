@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original input initialization and canonical IRQ declarations
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep original pad constructors, declarations, manager initialization and action
 table outside explicit diagnostics. Restore the original cPlatPad declaration.
@@ -15,7 +15,7 @@ diff --git a/include/Game/PadActionMap.inc b/include/Game/PadActionMap.inc
 +#if defined(MSCHARGED_GAME_MODULE)
 +#error Extracted action table belongs only to retained input diagnostics
 +#endif
- int g_pPadRemapArray[51] = {
+ int gGameCubeButtonRemap[51] = {
      0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
  };
 diff --git a/include/NL/platpad.h b/include/NL/platpad.h
@@ -171,12 +171,12 @@ diff --git a/src/Game/PadActions.cpp b/src/Game/PadActions.cpp
 +++ b/src/Game/PadActions.cpp
 @@ -20,9 +20,9 @@
  
- bool g_bEnableGamecubePadMonkey;
+ bool gEnablePadMonkeys;
  
 -#ifndef MSCHARGED_NATIVE
 -#include "Game/PadActionMap.inc"
 -#endif
-+int g_pPadRemapArray[51] = {
++int gGameCubeButtonRemap[51] = {
 +    0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
 +};
  

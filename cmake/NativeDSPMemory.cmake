@@ -33,6 +33,12 @@ if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8
         -ffunction-sections -fdata-sections -fexceptions -Wno-unknown-pragmas)
     target_link_libraries(native_dsp_memory_tests PRIVATE charged_native_dsp_memory aurora::os)
     target_link_options(native_dsp_memory_tests PRIVATE -Wl,--gc-sections)
+    # Genuine OS memory/pin/mailbox qualifier without GX/window initialization.
+    # It reuses this same test/provider graph in a GX-enabled Release build.
+    add_test(NAME native_dsp_memory_read COMMAND native_dsp_memory_tests --memory-only)
+    set_tests_properties(native_dsp_memory_read PROPERTIES TIMEOUT 30
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
     # This CPU prerequisite starts the real core SDK with SDL dummy video.
     # A GX-enabled SDK requires a real graphics surface before memory is reached;
     # that independent renderer lifecycle is outside this fixture.

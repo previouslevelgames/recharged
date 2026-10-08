@@ -1,5 +1,5 @@
 Subject: [PATCH] Admit original Options and Popup diagnostic factories
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Select the exact original constructors for the named SH menu diagnostic.
 Normal source and existing diagnostics remain unchanged.

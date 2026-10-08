@@ -124,6 +124,23 @@ struct GameCompletedSpan
 bool FindGameCompletedSpan(const void* pointer, std::size_t bytes, GameCompletedSpan& result);
 GameByteDomain FindGameByteDomain(const void* pointer, std::size_t bytes);
 
+// In-place structural ABI projection of one retained, completed Wii source.
+// All destination ranges must be disjoint and inside that source; native bytes
+// are caller-owned temporary views. Validate and reserve every publication and
+// split node before copying any bytes or invalidating a domain. The source owner
+// must be quiescent; no device callback, producer, or source request runs here.
+// Only NativeHeader is published, retaining the original logical source extent.
+struct GameNativeHeaderProjection
+{
+    void* destination;
+    const void* native;
+    std::size_t bytes;
+};
+void ProjectGameNativeHeaders(const void* source, std::size_t sourceBytes,
+                              const GameCompletedSpan& expected,
+                              const GameNativeHeaderProjection* projections,
+                              std::size_t count);
+
 // Reserve every metadata node before bytes are touched. physicalBytes includes
 // real DMA padding; only logicalBytes is published at completion. Partial writes
 // preserve unaffected domains. Concurrent overlapping producers are unsupported.

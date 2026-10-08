@@ -1,6 +1,6 @@
 Subject: Add separately selected frame timing diagnostics
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Add timing/history diagnostic copies selected separately from the complete
 original FrameCounter, Histogram and TimeRegions sources. Preserve all original
@@ -45,7 +45,7 @@ new file mode 100644
 +#include <limits>
 +#include <stdexcept>
 +
-+FrameCounter* lbl_806E1DC0;
++FrameCounter* g_pFrameCounter;
 +int FrameCounter::NUM_FRAMES_TO_AVERAGE_OVER = 30;
 +const float lbl_806E6178 = 17.0f;
 +const float lbl_806E617C = 10.0f;
@@ -53,7 +53,7 @@ new file mode 100644
 +
 +FrameCounter::FrameCounter(const char* first, const char* second)
 +{
-+    lbl_806E1DC0 = this;
++    g_pFrameCounter = this;
 +    m_FirstName = first;
 +    m_SecondName = second;
 +
@@ -144,7 +144,7 @@ new file mode 100644
 +
 +FrameCounter::~FrameCounter()
 +{
-+    if (lbl_806E1DC0 == this) lbl_806E1DC0 = nullptr;
++    if (g_pFrameCounter == this) g_pFrameCounter = nullptr;
 +}
 +
 +Histogram::Histogram(

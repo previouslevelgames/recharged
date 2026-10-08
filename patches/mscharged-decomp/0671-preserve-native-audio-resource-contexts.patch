@@ -1,0 +1,86 @@
+Subject: Preserve native audio-resource callback and report words
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use nlFileAsyncParam for the original bank read; retain all sample/table publication.
+Project only the report string-pointer arm to native uintptr_t; formats and numeric operands stay original.
+
+--- a/src/Game/Audio/AudioResourcePlatform.cpp
++++ b/src/Game/Audio/AudioResourcePlatform.cpp
+@@ -16,13 +16,21 @@
+ #include "NL/nlAVLTree.h"
+ #include "NL/nlDebugFile.h"
+ #include "NL/nlFile.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#endif
+ #include "NL/nlMemory.h"
+ #include "NL/nlPrint.h"
+ #include "NL/nlstring_tmpl.h"
+ #include "revolution/sp.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++void OnAudioBankReadComplete(
++    nlFile* file, void* data, unsigned int size, nlFileAsyncParam userParam);
++#else
+ void OnAudioBankReadComplete(
+     nlFile* file, void* data, unsigned int size, unsigned long userParam);
++#endif
+ 
+ struct AudioBankValue
+ {
+@@ -51,12 +59,24 @@
+         if (m_File != 0)
+         {
+             char buffer[256];
+-            nlSNPrintf(buffer, sizeof(buffer), format, name != 0 ? (unsigned long)name : value, value);
++            nlSNPrintf(buffer, sizeof(buffer), format, name != 0 ?
++#if defined(MSCHARGED_NATIVE)
++                reinterpret_cast<uintptr_t>(name)
++#else
++                (unsigned long)name
++#endif
++                : value, value);
+             nlWriteLineDebug(m_File, buffer, false);
+         }
+         else
+         {
+-            tDebugPrintManager::Print(DC_SOUND, format, name != 0 ? (unsigned long)name : value, value);
++            tDebugPrintManager::Print(DC_SOUND, format, name != 0 ?
++#if defined(MSCHARGED_NATIVE)
++                reinterpret_cast<uintptr_t>(name)
++#else
++                (unsigned long)name
++#endif
++                : value, value);
+         }
+     }
+ 
+@@ -134,7 +154,13 @@
+         sCurrentStreamBytes += size;
+     }
+ 
+-    nlReadAsync(file, data, size, OnAudioBankReadComplete, (unsigned long)this, 0);
++    nlReadAsync(file, data, size, OnAudioBankReadComplete,
++#if defined(MSCHARGED_NATIVE)
++        reinterpret_cast<nlFileAsyncParam>(this),
++#else
++        (unsigned long)this,
++#endif
++        0);
+ }
+ 
+ void AudioMemoryLoader::Unload()
+@@ -169,7 +195,12 @@
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+         size
+ #endif
+-    , unsigned long userParam)
++    ,
++#if defined(MSCHARGED_NATIVE)
++    nlFileAsyncParam userParam)
++#else
++    unsigned long userParam)
++#endif
+ {
+     AudioMemoryLoader* loader = (AudioMemoryLoader*)userParam;
+     nlClose(file);

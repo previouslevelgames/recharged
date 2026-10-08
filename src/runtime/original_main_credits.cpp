@@ -1,4 +1,5 @@
 #include "platform/graphics_stats.h"
+#include "platform/app_icon.h"
 #include "runtime/original_main_credits.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
@@ -51,7 +52,7 @@
 #include "platform/os_shutdown_requests.h"
 #endif
 #include <SDL3/SDL_video.h>
-#include <dlfcn.h>
+#include "platform/native_module_loader.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -152,7 +153,12 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
     aurora_service_hardware_interrupts();
     // Original fades and transitions can legitimately present an all-black frame.
     buffer.Unmap();
-    auto* file=std::fopen(output.c_str(),"wb"); Check(file,"Cannot create selected XFB snapshot");
+#if defined(_WIN32)
+    auto* file=_wfopen(output.c_str(),L"wb");
+#else
+    auto* file=std::fopen(output.c_str(),"wb");
+#endif
+    Check(file,"Cannot create selected XFB snapshot");
     std::fprintf(file,"P6\n%u %u\n255\n",copy->width,copy->height);
     std::size_t written=0;
     while(written<rgb.size()) {
@@ -166,7 +172,7 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
     aurora_service_hardware_interrupts();
     Check(written==rgb.size() && !closed,"Selected XFB snapshot write failed");
     std::printf("Actual source-selected XFB %ux%u revision%llu, nonblack pixels%u; saved %s.\n",
-        copy->width,copy->height,static_cast<unsigned long long>(copy->revision),lit,output.c_str());
+        copy->width,copy->height,static_cast<unsigned long long>(copy->revision),lit,mscharged::PathUtf8(output).c_str());
 }
 void EndWithSnapshot(const std::filesystem::path& output) {
     auto s=std::make_shared<Snapshot>();
@@ -182,13 +188,18 @@ void EndWithSnapshot(const std::filesystem::path& output) {
     const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(5);
     while(!s->done && std::chrono::steady_clock::now()<end){aurora::gfx::device().Tick();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
     Check(s->done==1,"Original Credits GPU readback did not complete");
-    auto* f=std::fopen(output.c_str(),"wb");Check(f,"Cannot create Credits snapshot");
+#if defined(_WIN32)
+    auto* f=_wfopen(output.c_str(),L"wb");
+#else
+    auto* f=std::fopen(output.c_str(),"wb");
+#endif
+    Check(f,"Cannot create Credits snapshot");
     std::fprintf(f,"P6\n%u %u\n255\n",s->target.width,s->target.height);
     const auto written=std::fwrite(s->rgb.data(),1,s->rgb.size(),f);const auto closed=std::fclose(f);
     Check(written==s->rgb.size() && !closed,"Credits snapshot write failed");
     unsigned lit=0;for(std::size_t i=0;i<s->rgb.size();i+=3)if(s->rgb[i]||s->rgb[i+1]||s->rgb[i+2])++lit;
     Check(lit != 0, "Original Credits actual EFB is entirely black; visibility remains unqualified");
-    std::printf("Actual Credits EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,output.c_str());
+    std::printf("Actual Credits EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
 }
 }
 int mscharged::RunOriginalMainCredits(int argc, char** argv,
@@ -306,6 +317,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
                 +" foundation unavailable; no fallback acceptance");
+        mscharged::platform::SetApplicationIcon(host.window);
         bool retainedWindowClose=false;
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
         if(frontend && sourceAudio && nativeSend) {
@@ -401,7 +413,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
 #endif
             mscharged::diagnostic::InitializeCreditsMovieHardware(
                 mscharged::platform::ServiceNativeHardwareInput);
-        if(!aurora_dvd_open(disc.c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
+        if(!aurora_dvd_open(mscharged::PathUtf8(disc).c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
         if(frontend)mscharged::platform::ConfigureNativeOSDiscBootIdentity(*discBootIdentity);
         std::optional<mscharged::diagnostic::OriginalTerminalVerifier> terminalVerifier;
@@ -414,15 +426,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // failure. Unwinding a device with active source pins is not retirement.
         try {
         if(frontend)
-            axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath.c_str());
-        auto* module=dlopen(modulePath.c_str(),RTLD_LAZY|RTLD_LOCAL);
-        if(!module)throw std::runtime_error(dlerror());
+            axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath);
+        auto* module=mscharged::platform::LoadNativeModule(modulePath);
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             gameAudioHardware=std::make_unique<mscharged::diagnostic::OriginalGameAudioHardware>(*axModuleMemory);
 #endif
-        auto entry=reinterpret_cast<int(*)()>(dlsym(module,"charged_original_entry"));
+        auto entry=reinterpret_cast<int(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         std::fprintf(stderr,"Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
                      mscharged::platform::NativeGraphicsBackendName);
@@ -435,17 +446,17 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         using AudioAction = void(*)();
         using AudioIdle = bool(*)();
         auto observeAudio=sourceAudio ? reinterpret_cast<ObserveAudio>(
-            dlsym(module,"charged_original_audio_observe")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_audio_observe")) : nullptr;
         auto shutdownAudio=sourceAudio ? reinterpret_cast<AudioAction>(
-            dlsym(module,"charged_original_audio_shutdown")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_audio_shutdown")) : nullptr;
         auto idleAudio=sourceAudio ? reinterpret_cast<AudioIdle>(
-            dlsym(module,"charged_original_audio_idle")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_audio_idle")) : nullptr;
         auto idleBankReads=sourceAudio ? reinterpret_cast<bool(*)()>(
-            dlsym(module,"charged_original_audio_bank_reads_idle")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_audio_bank_reads_idle")) : nullptr;
         auto unloadIdleBanks=sourceAudio ? reinterpret_cast<AudioAction>(
-            dlsym(module,"charged_original_audio_unload_idle_banks")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_audio_unload_idle_banks")) : nullptr;
         auto retireAudioPin=sourceAudio ? reinterpret_cast<AudioAction>(
-            dlsym(module,"charged_original_audio_retire_silence_pin")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_audio_retire_silence_pin")) : nullptr;
         if(sourceAudio) {
             Check(observeAudio && shutdownAudio && idleAudio && idleBankReads && unloadIdleBanks && retireAudioPin,
                   "Original audio source observations and retirement exports unavailable");
@@ -465,11 +476,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
 #endif
         auto observeBootScript=sourceBoot ? reinterpret_cast<ObserveAudio>(
-            dlsym(module,"charged_original_boot_script_observe")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_boot_script_observe")) : nullptr;
         auto bootInstruction=sourceBoot ? reinterpret_cast<int(*)()>(
-            dlsym(module,"charged_original_boot_script_instruction")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_boot_script_instruction")) : nullptr;
         auto bootPhase=sourceBoot ? reinterpret_cast<int(*)()>(
-            dlsym(module,"charged_original_boot_scene_phase")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_boot_scene_phase")) : nullptr;
         Check(!sourceBoot || (observeBootScript && bootInstruction && bootPhase),
               "Original authored Boot observation exports unavailable");
         unsigned lastBootFlags=0;
@@ -493,16 +504,16 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if(bootReady)bootReady=gameAudioHardware->Status().last_active_voices==0;
 #endif
         };
-        auto frame=reinterpret_cast<void(*)(float)>(dlsym(module,nativeSend?"charged_original_scene_native_frame":"charged_original_scene_frame"));
+        auto frame=reinterpret_cast<void(*)(float)>(mscharged::platform::FindNativeModuleSymbol(module,nativeSend?"charged_original_scene_native_frame":"charged_original_scene_frame"));
         Check(frame,"Same original-main module scene-frame export unavailable");
-        auto stopMovie=reinterpret_cast<void(*)()>(dlsym(module,"charged_original_scene_stop_movie"));
+        auto stopMovie=reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_original_scene_stop_movie"));
         Check(stopMovie,"Original main movie-stop export unavailable");
         using ObserveSH = std::uint32_t(*)(OriginalSHSnapshot*,std::uint32_t);
         using RequestSH = std::uint32_t(*)();
         auto observeSH=optionsScene ? reinterpret_cast<ObserveSH>(
-            dlsym(module,"charged_original_sh_observe")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_sh_observe")) : nullptr;
         auto requestSH=optionsScene ? reinterpret_cast<RequestSH>(
-            dlsym(module,"charged_original_sh_request_options")) : nullptr;
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_original_sh_request_options")) : nullptr;
         Check(!optionsScene || (observeSH && requestSH),
               "Original Options diagnostic requires MSCHARGED_DIAGNOSTIC_FRONTEND_SH_MENUS=ON");
         OriginalSHSnapshot sh{};
@@ -587,14 +598,23 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
                 frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt(); ++frames;
                 // The original frame performs every GX/VI wait it needs. Join the
-                // FIFO/render workers only for host observations: until the first
-                // encoded draw, every 30 frames and before a due stage or readback.
+                // FIFO/render workers only for a pending, usable host observation.
                 const bool logoDue=sourceBoot && lastBootPhase==3 && !bootLogoCaptured &&
                     now-bootLogoStart>=std::chrono::milliseconds(600);
                 const bool stageDue=!stageAnnounced && now-stageStart>=std::chrono::milliseconds(500);
-                const bool captureDue=now-stageStart>=std::chrono::seconds(resizeStage?8:3) &&
-                    (!snapshot || (resizeCheck && resizeStage<2));
-                if(encoded && frames%30 && !logoDue && !stageDue && !captureDue) {
+                const bool captureDue=!snapshot &&
+                    now-stageStart>=std::chrono::seconds(resizeStage?8:3) &&
+                    (!optionsScene || optionsReady) && bootReady;
+                if(!logoDue && !stageDue && !captureDue) {
+                    std::this_thread::yield(); continue;
+                }
+                // This mutex-protected completion is only an eligibility probe.
+                // Keep both joins and the retained snapshot query below before
+                // reading worker-owned draw statistics/EFB storage or pixels.
+                AuroraVIPresentedState observed{};
+                if(!aurora_get_presented_video_output_state(&observed) ||
+                   !observed.framebuffer || observed.black || !observed.copy_revision ||
+                   observed.presentation_sequence<3) {
                     std::this_thread::yield(); continue;
                 }
                 AuroraGXSync(); aurora::gfx::synchronize();
@@ -630,8 +650,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                         viewport.left,viewport.top,viewport.width,viewport.height);
                     std::fflush(stdout); stageAnnounced=true;
                 }
-                if(now-stageStart>=std::chrono::seconds(resizeStage?8:3) && nativePresented && encoded &&
-                   (!optionsScene || optionsReady) && bootReady) {
+                if(captureDue && nativePresented && encoded) {
                     if(!snapshot) {
                         const auto filename=resizeCheck?
                             "original-main-native-xfb-stage"+std::to_string(resizeStage)+".ppm":

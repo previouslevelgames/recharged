@@ -1,0 +1,79 @@
+Subject: Admit the original HOME frame and input calls behind a native selector
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Retire only HOME-specific temporary task omissions after their whole original
+providers and native services are selected. Preserve original input predicates,
+Show/Update order, render/copy/retrace branch, frontend suppression and fade calls.
+The named native diagnostic does not seed HOME readiness, task states or input.
+Ordinary pause/world/camera/soft-reset omissions are unchanged. Full retained
+HOME imports, sound ownership and source Back are prerequisite to activation.
+
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -67,7 +67,7 @@
+     {
+         FEResourceManager::Instance()->Run(fDeltaT);
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+         if (!IsHBMActive())
+ #endif // HBM-owned guard omitted with uninitialized HBM
+         {
+@@ -83,7 +83,7 @@
+             }
+         }
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+         if (!IsHBMActive())
+ #endif // HBM-owned guard omitted with uninitialized HBM
+         {
+@@ -119,7 +119,7 @@
+ 
+ #endif // original state/loaded/HBM predicate and world calls retained verbatim
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     HomeButtonFade::Instance()->Update(fDeltaT);
+ 
+     if (!(gpHBMManager != 0 && gpHBMManager->mActive && gpHBMManager->mReady))
+@@ -147,7 +147,7 @@
+     HandleSoftReset(dt);
+ #endif // physical PAD reset lifecycle remains unqualified
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     if (gpHBMManager != 0 && gpHBMManager->mReady)
+     {
+         if (!gpHBMManager->mActive
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -404,7 +404,7 @@
+ 
+ void BeginFrameTask::Run(float dt)
+ {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     if (gpHBMManager != NULL && gpHBMManager->mActive && gpHBMManager->mReady)
+     {
+         static int counter;
+--- a/src/Game/Task/EndFrameTask.cpp
++++ b/src/Game/Task/EndFrameTask.cpp
+@@ -14,7 +14,7 @@
+ 
+ void EndFrameTask::Run(float)
+ {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     if (gpHBMManager == 0 || !gpHBMManager->mActive || !gpHBMManager->mReady)
+ #endif // uninitialized HBM frame guard omitted
+     {
+@@ -49,7 +49,7 @@
+         g_FrameCounter.StartTimer(1);
+         glSendFrame();
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+         if (gpHBMManager != 0 && gpHBMManager->mReady && gpHBMManager->mActive)
+         {
+             HBMManager::Render();

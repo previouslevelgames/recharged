@@ -35,6 +35,7 @@ struct Threads {
     // source scheduler or replacement runnable list.
     s32 reschedule{};
     NativeThread* scheduler_owner{};
+    NativeThread* power_owner{};
 };
 Threads& State() { static Threads state; return state; }
 void AppendActive(Threads& state, NativeThread& native);
@@ -55,6 +56,7 @@ struct NativeThread {
     OSThread& sdk;
     std::condition_variable changed;
     bool waiting{}, servicing{};
+    bool parked{}, terminal_stopped{};
     // A genuine initial Resume can park its lower-priority caller until the
     // resumed incarnation actually blocks or returns. This is execution
     // bookkeeping, with no source queue or readiness acknowledgement.
@@ -145,7 +147,7 @@ bool SchedulerAllows(const Threads& state, const NativeThread& native) {
 }
 
 bool Runnable(const Threads& state, const NativeThread& native) {
-    return !native.waiting && native.suspend_count == 0 && SchedulerAllows(state, native);
+    return !native.terminal_stopped && !native.waiting && native.suspend_count == 0 && SchedulerAllows(state, native);
 }
 
 void ValidateQueue(Threads& state, OSThreadQueue* queue) {
@@ -278,7 +280,18 @@ void PromoteThread(Threads& state, OSThread* thread, s32 priority) {
 
 void Wait(NativeThread& native, std::unique_lock<std::mutex>& lock) {
     auto& state = State();
+    struct ParkedWait {
+        NativeThread& native;
+        explicit ParkedWait(NativeThread& thread) : native(thread) { native.parked = true; }
+        ~ParkedWait() { native.parked = false; }
+    } parked(native);
     while (!Runnable(state, native)) {
+        if (native.terminal_stopped) {
+            // Hardware context cancellation in the final power path cannot
+            // unwind original C++ frames. Keep this actual wait/stack alive
+            // until process removal, including across spurious native wakes.
+            native.changed.wait(lock, [] { return false; });
+        }
         if (!SchedulerAllows(state, native)) {
             // An IRQ on the current owner may wake this source queue, but the
             // other SDK thread cannot resume source frames or service hardware
@@ -477,6 +490,8 @@ std::shared_ptr<NativeThread> Managed(Threads& state, OSThread* thread) {
     const auto found = state.managed.find(thread);
     if (found == state.managed.end())
         throw std::logic_error("SDK lifecycle requires a genuinely created native thread");
+    if (found->second->terminal_stopped)
+        throw std::logic_error("Terminally stopped native source context cannot be reused");
     return found->second;
 }
 void JoinHost(const std::shared_ptr<NativeThread>& native) {
@@ -538,6 +553,8 @@ extern "C" s32 OSEnableScheduler() {
         throw std::overflow_error("Native SDK scheduler enable counter overflow");
     if (state.reschedule > 0 && state.scheduler_owner != &current)
         throw std::logic_error("Native SDK scheduler enable requires its disabling caller");
+    if (state.power_owner)
+        throw std::logic_error("Final native power removal cannot re-enable source scheduling");
     const auto prior = state.reschedule--;
     if (prior == 1) {
         state.scheduler_owner = nullptr;
@@ -757,7 +774,7 @@ extern "C" BOOL OSIsThreadTerminated(OSThread* thread) {
     if (found != state.managed.end()) {
         if (found->second->completed && found->second->failure)
             std::rethrow_exception(found->second->failure);
-        return found->second->completed ? TRUE : FALSE;
+        return found->second->completed || found->second->terminal_stopped ? TRUE : FALSE;
     }
     (void)Find(state, thread);
     return thread->state == OS_THREAD_STATE_MORIBUND || thread->state == kExited;
@@ -778,6 +795,8 @@ extern "C" s32 OSResumeThread(OSThread* thread) {
     auto& state = State();
     std::unique_lock lock(state.latch);
     auto& native = Find(state, thread);
+    if (native.terminal_stopped)
+        throw std::logic_error("Terminally stopped native source context cannot resume");
     ValidatePriorityOwner(state, thread);
     const auto prior = native.suspend_count;
     std::shared_ptr<NativeThread> initial_peer;
@@ -846,6 +865,8 @@ extern "C" s32 OSSuspendThread(OSThread* thread) {
     {
         std::lock_guard lock(state.latch);
         native = &Find(state, thread);
+        if (native->terminal_stopped)
+            throw std::logic_error("Terminally stopped native source context cannot suspend");
         if (native->initial_handoff_parked || (native->initial_resumer && !native->started))
             throw std::logic_error("Native initial-resume continuation cannot be externally suspended");
         if (native == &caller && state.reschedule > 0 && state.scheduler_owner == &caller)
@@ -950,6 +971,7 @@ extern "C" void OSDetachThread(OSThread* thread) {
 extern "C" void OSCancelThread(OSThread* thread) {
     if (!NativeInterruptWaitAllowed())
         throw std::logic_error("Cannot cancel native SDK execution in an interrupt/host exclusion");
+    auto& caller = Current();
     auto& state = State();
     std::shared_ptr<NativeThread> native;
     {
@@ -959,6 +981,32 @@ extern "C" void OSCancelThread(OSThread* thread) {
         if (native->initial_resumer || native->initial_handoff_parked)
             throw std::logic_error("Native cancellation still borrows an initial-resume continuation");
         if (native->completed) return;
+        if (native->started && state.power_owner == &caller) {
+            // Source KillThreads may cancel a physically parked message waiter
+            // after final shutdown callbacks. This is not normal completion.
+            if (!native->parked || !native->waiting || native->servicing || native->service ||
+                    native->failure || native->self_suspended || native->self_suspend_pending ||
+                    native->sdk.state != OS_THREAD_STATE_WAITING || !native->sdk.queue ||
+                    native->sdk.mutex || native->sdk.queueMutex.head || native->sdk.queueMutex.tail ||
+                    native->sdk.queueJoin.head || native->sdk.queueJoin.tail ||
+                    state.reschedule <= 0 || state.scheduler_owner != &caller)
+                throw std::logic_error("Terminal source cancellation lacks a quiescent native wait");
+            auto* queue = native->sdk.queue;
+            ValidateQueue(state, queue);
+            Remove(queue, &native->sdk);
+            native->waiting = false;
+            native->terminal_stopped = true;
+            OSClearContext(&native->sdk.context);
+            if (native->sdk.attr & OS_THREAD_ATTR_DETACH) {
+                RemoveActive(state, *native);
+                native->sdk.state = kExited;
+            } else {
+                native->sdk.state = OS_THREAD_STATE_MORIBUND;
+            }
+            // Preserve val as original OSCancelThread does. No source joiner
+            // exists in this qualified branch; no completion or wake is forged.
+            return;
+        }
         if (native->started || native->waiting || native->sdk.mutex ||
                 native->sdk.queueMutex.head || native->sdk.queueMutex.tail)
             throw std::logic_error("Running native SDK cancellation would destroy unqualified source C++ frames");
@@ -967,6 +1015,18 @@ extern "C" void OSCancelThread(OSThread* thread) {
         native->changed.notify_one();
     }
     JoinHost(native);
+}
+extern "C" void ChargedNativeBeginThreadPowerRemoval() {
+    if (NativeInterruptsEnabled() || !NativeInterruptWaitAllowed())
+        throw std::logic_error("Native final power boundary requires the original plain interrupt mask");
+    auto& caller = Current();
+    auto& state = State();
+    std::lock_guard lock(state.latch);
+    if (state.power_owner || state.reschedule <= 0 || state.scheduler_owner != &caller ||
+            caller.waiting || caller.servicing || caller.initial_resumer ||
+            caller.initial_handoff_parked || caller.sdk.state != OS_THREAD_STATE_RUNNING)
+        throw std::logic_error("Native final power boundary has no exclusive source scheduler owner");
+    state.power_owner = &caller;
 }
 namespace mscharged::platform {
 NativeThreadPowerRemovalStatus ValidateNativeThreadsForPowerRemoval() {
@@ -992,6 +1052,16 @@ NativeThreadPowerRemovalStatus ValidateNativeThreadsForPowerRemoval() {
     for (const auto& entry : state.managed) {
         const auto& native = *entry.second;
         if (&native == &caller) continue;
+        if (native.terminal_stopped) {
+            if (state.power_owner != &caller || state.reschedule <= 0 ||
+                    state.scheduler_owner != &caller || !native.parked || native.completed ||
+                    native.failure || native.waiting || native.servicing || native.service ||
+                    native.initial_resumer || native.initial_handoff_parked ||
+                    native.self_suspended || native.self_suspend_pending)
+                throw std::logic_error("Terminally cancelled native source context is not retained and parked");
+            ++status.stopped_workers;
+            continue;
+        }
         if (!native.completed || native.failure || native.waiting || native.servicing ||
                 native.initial_resumer || native.initial_handoff_parked ||
                 native.self_suspended || native.self_suspend_pending)
@@ -1019,7 +1089,7 @@ NativeThreadPowerRemovalStatus ValidateNativeThreadsForPowerRemoval() {
         if (&native == &caller) {
             found_caller = true;
         } else {
-            if (!native.managed || !native.completed || native.failure ||
+            if (!native.managed || (!native.completed && !native.terminal_stopped) || native.failure ||
                     thread->state != OS_THREAD_STATE_MORIBUND || thread->queue ||
                     thread->mutex || thread->queueMutex.head || thread->queueMutex.tail ||
                     thread->queueJoin.head || thread->queueJoin.tail)

@@ -1,5 +1,5 @@
 Subject: Preserve original target registry with native lifetime and failure checks
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep original target naming, lookup and registration. Native platform targets
 own independent resource pools and Aurora copy-texture lifetimes. Use fixed-width
@@ -7,23 +7,6 @@ Wii descriptions, reject invalid/aliased handles after reuse and roll back faile
 texture registration. Add ordered shutdown and matching frees for game-allocated
 registry nodes. The desktop adapter supplies GX calls and native texture records.
 
-diff --git a/include/NL/gl/glPlat.h b/include/NL/gl/glPlat.h
---- a/include/NL/gl/glPlat.h
-+++ b/include/NL/gl/glPlat.h
-@@ -3,8 +3,12 @@
- 
- #include "NL/gl/glStruct.h"
- #include "NL/glx/glxModel.h"
- 
--#ifndef RVL_SDK_GX_FRAMEBUF_H
-+#if defined(MSCHARGED_NATIVE) && defined(AURORA)
-+#include <dolphin/gx/GXStruct.h>
-+#endif
-+
-+#if !defined(DOLPHIN_GXSTRUCT_H) && !defined(RVL_SDK_GX_FRAMEBUF_H)
- struct GXRenderModeObj
- {
-     u32 tvInfo;
 diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
 --- a/include/NL/gl/glTarget.h
 +++ b/include/NL/gl/glTarget.h
@@ -297,3 +280,24 @@ diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
          return m_RenderPair;
      }
      return glGetBackBufferTarget();
+diff --git a/libs/RVL_SDK/include/revolution/gx/GXRenderModeObj.h b/libs/RVL_SDK/include/revolution/gx/GXRenderModeObj.h
+--- a/libs/RVL_SDK/include/revolution/gx/GXRenderModeObj.h
++++ b/libs/RVL_SDK/include/revolution/gx/GXRenderModeObj.h
+@@ -2,6 +2,10 @@
+ #define RVL_SDK_GX_RENDER_MODE_OBJ_H
+ 
+ #define GX_VFILTER_SZ 7
++
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx/GXStruct.h>
++#else
+ 
+ typedef struct _GXRenderModeObj {
+     union {
+@@ -25,4 +29,6 @@
+     unsigned char vfilter[GX_VFILTER_SZ]; // at 0x32
+ } GXRenderModeObj;
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif

@@ -1,0 +1,46 @@
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+--- a/include/Game/Audio/AudioSystem.h
++++ b/include/Game/Audio/AudioSystem.h
+@@ -8,6 +8,9 @@
+ #include "NL/nlDLListContainer.h"
+ #include "NL/CircularQueue.h"
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Audio/XSoundHandle.h"
++#endif
+ 
+ class XSoundHandle;
+ class XSoundCueHandle;
+@@ -57,9 +60,15 @@
+     /* 0x2E0 */ unsigned int m_OwnedSoundCount;
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++XSoundCueHandle* CreateAudioSoundHandle(AudioSystem* audio, int slotId,
++    XSoundOwner* owner, unsigned long cueId, int value1, int value2,
++    int value3, XSoundHitMarkerCallback callback, void* context);
++#else
+ XSoundCueHandle* CreateAudioSoundHandle(AudioSystem* audio, int slotId,
+     XSoundOwner* owner, unsigned long cueId, int value1, int value2,
+     int value3, int callback, int context);
++#endif
+ void UpdateAudioSystem(AudioSystem* audio, float dt);
+ void PrintAudioSystem(AudioSystem* audio);
+ void DumpAudioSystem(AudioSystem* audio, const char* path);
+--- a/src/Game/Audio/AudioSystem.cpp
++++ b/src/Game/Audio/AudioSystem.cpp
+@@ -61,8 +61,13 @@
+     owners->FreeBlocks();
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++XSoundCueHandle* CreateAudioSoundHandle(AudioSystem* audio, int slotId, XSoundOwner* owner,
++    unsigned long cueId, int value1, int value2, int value3, XSoundHitMarkerCallback callback, void* context)
++#else
+ XSoundCueHandle* CreateAudioSoundHandle(AudioSystem* audio, int slotId, XSoundOwner* owner,
+     unsigned long cueId, int value1, int value2, int value3, int callback, int context)
++#endif
+ {
+     if (!audio->IsInitialized())
+         return 0;

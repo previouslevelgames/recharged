@@ -18,6 +18,7 @@ add_library(charged_original_scalar_inflate OBJECT EXCLUDE_FROM_ALL
 add_dependencies(charged_original_scalar_inflate verify_prepared)
 set_target_properties(charged_original_scalar_inflate PROPERTIES
     POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
+target_compile_definitions(charged_original_scalar_inflate PRIVATE MSCHARGED_NATIVE=1)
 target_include_directories(charged_original_scalar_inflate PRIVATE
     "${MSCHARGED_PREPARED}/src/zlib")
 target_compile_options(charged_original_scalar_inflate PRIVATE

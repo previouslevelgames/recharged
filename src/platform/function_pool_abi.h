@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 
 #include "NL/nlFunctionMemory.h"
@@ -21,6 +22,7 @@ template <typename R, typename P1, typename P2> class Function2;
 template <typename R, typename P1, typename P2, typename P3> class Function3;
 namespace Detail { template <typename R, typename Member> struct MemFunImpl; }
 struct AudioEffectSoundStartedVisitor;
+class AudioEffectBase;
 
 namespace mscharged::function_abi {
 
@@ -100,6 +102,16 @@ template <typename R, typename F, typename A, typename B, typename C>
 struct WiiCapture<BindExp3<R, F, A, B, C>> : Record<F, A, B, C> {};
 template <typename R, typename F, typename A, typename B, typename C, typename D>
 struct WiiCapture<BindExp4<R, F, A, B, C, D>> : Record<F, A, B, C, D> {};
+
+// AudioEffectBinding binds the original four-byte instance word. Its native
+// AudioInstanceKey is uintptr_t, including unsigned long long on Win64. Scope
+// this projection to the actual capture; other 64-bit scalar captures remain
+// unqualified rather than acquiring a four-byte original layout.
+template <>
+struct WiiCapture<BindExp3<bool,
+    bool (*)(const std::uint32_t&, ::AudioEffectBase**, std::uintptr_t),
+    Placeholder<0>, Placeholder<1>, std::uintptr_t>>
+    : Record<void*, Placeholder<0>, Placeholder<1>, unsigned int> {};
 
 // Every original Function wrapper contains the four-byte tag and pointer union;
 // its source-derived specializations add no fields.

@@ -1,5 +1,5 @@
 Subject: Restore original NIS source flow and retail-compatible native address/stores
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Restore original timing and overlay bodies. Native-only address casts and exact
 whole-header byte stores preserve the retail overlapping dictionary writes.
@@ -26,7 +26,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
  
  #include "Game/AI/Fielder.h"
  #include "Game/Goalie.h"
-@@ -268,7 +271,17 @@
+@@ -267,7 +270,17 @@
                  if (parsedValueCount != 3)
                      break;
                  SkipLine(dictionaryCursor);
@@ -44,7 +44,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
              }
              sscanf(dictionaryCursor, "\tnum_anim_proxies %d", &header.numAnimProxies);
              SkipLine(dictionaryCursor);
-@@ -394,7 +407,11 @@
+@@ -393,7 +406,11 @@
                  int memoryOffset = mLoadingFromBack ? mUsedFromBack : mUsedFromFront;
  
                  char* loadAt = mMemory + memoryOffset;
@@ -56,7 +56,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
                  if (!mLoadingFromBack)
                  {
                      mUsedFromFront += mLoadQueue[i]->size;
-@@ -428,7 +445,13 @@
+@@ -427,7 +444,13 @@
  {
      float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
      float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
@@ -71,7 +71,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
      HandleAsyncs();
  
      for (int i = 0; i < 8; i++)
-@@ -451,9 +474,9 @@
+@@ -450,9 +473,9 @@
              if (mCamera[i].m_pActiveCameraData != 0)
              {
                  float overrun = mCamera[i].ManualUpdate(deltaT);

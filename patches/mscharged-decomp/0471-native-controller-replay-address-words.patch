@@ -1,5 +1,5 @@
 Purpose: Preserve the original controller Replay four-byte animation/mirror and retarget words through typed live-owner native address boundaries.
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 Requires: finalized0465 and0468 typed original animation/retarget backing with sole ownership registry.
 Console projection, source order, compression, mode, mirror, null and incoming default-field behavior are preserved.
 

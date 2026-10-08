@@ -1,5 +1,5 @@
 Subject: Share original NPC template resource selection and readiness
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep original ordered template selection, resource paths and completion predicate
 shared with a checked native owner. Actor constructors and console in-place
@@ -64,7 +64,7 @@ diff --git a/src/Game/Render/NPCManager.cpp b/src/Game/Render/NPCManager.cpp
  #include "Game/Render/NPCManager.h"
 +#include "Game/Render/NPCLoadSteps.h"
  #include "Game/Render/FlyingCamera.h"
- #include "Game/Render/tu_801B43F8.h"
+ #include "Game/Render/WindDebris.h"
  #include "Game/Render/WindDebrisConfig.h"
 @@ -115,14 +116,9 @@
          nlDLListIterator<NPCTemplate*> iterator;

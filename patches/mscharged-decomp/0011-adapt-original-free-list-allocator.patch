@@ -1,6 +1,6 @@
 Subject: Preserve original allocator with native pointer and block alignment
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Keep the original start/end allocation, circular free-list, relative 32-bit trailer,
 coalescing, and free-memory statistics algorithms. Native addresses use uintptr_t;
@@ -123,14 +123,10 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
              usedSize = prefix + alignedSize;
              if (usedSize <= blockSize)
              {
-@@ -189,9 +225,13 @@
-     }
- 
+@@ -191,7 +227,11 @@
      u32 remaining = cur->m_size - usedSize;
--    if (remaining > 0xC)
--    {
-+    if (remaining > sizeof(FreeBlockList))
-+    {
+     if (remaining > sizeof(FreeBlockList))
+     {
 +#ifdef MSCHARGED_NATIVE
 +        FreeBlockList* newFree = new ((u8*)cur + usedSize) FreeBlockList;
 +#else
@@ -251,29 +247,21 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      if (header & 0x40000000)
      {
          size += *(u32*)((u8*)p + size);
-@@ -312,13 +397,16 @@
+@@ -312,9 +397,12 @@
  
  void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool fromEnd)
  {
 -    if (alignment < 4)
 -    {
 -        alignment = 4;
--    }
--    if (size < 0xC)
--    {
--        size = 0xC;
 +#ifdef MSCHARGED_NATIVE
 +    ValidateNativeRequest(size, alignment);
 +#endif
 +    if (alignment < kBlockAlignment)
 +    {
 +        alignment = kBlockAlignment;
-+    }
-+    if (size < sizeof(FreeBlockList))
-+    {
-+        size = sizeof(FreeBlockList);
      }
-     if (fromEnd)
+     if (size < sizeof(FreeBlockList))
      {
 @@ -329,6 +417,12 @@
  

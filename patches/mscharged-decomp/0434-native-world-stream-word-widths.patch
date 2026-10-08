@@ -1,5 +1,5 @@
 Subject: Read original world-stream scalar words as four-byte big endian
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Adapt only three original serialized word expressions beneath LoadObjects.
 Preserve all branches, callbacks, class selection, raw cursor increments,
@@ -16,7 +16,7 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
 +#include "platform/world_record_wire.h"
 +#endif
  
- class WorldUpdateObject_80341BC8
+ class WorldUpdateObject
  {
 @@ -237,13 +240,25 @@
      context.m_uNumObjectsLoaded = 0;

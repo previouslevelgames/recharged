@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original SAnim and hierarchy providers outside diagnostics
 
-Upstream-base: 11c0bc65ad2ec21431c5d74f1ac4cbc1e3e2e2c3
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
 
 Compile literal reconstructed animation/hierarchy algorithms in original modules.
 Isolate deleted methods, source extractions and sample validation to explicit
@@ -39,13 +39,13 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
      void Destroy();
 -#ifdef MSCHARGED_NATIVE
 +#ifdef MSCHARGED_DIAGNOSTIC_SKELETON
-     void fn_80308610(nlChunk* nodeChunk, int nodeIndex) = delete;
+     void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex) = delete;
  #else
-     void fn_80308610(nlChunk* nodeChunk, int nodeIndex);
+     void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex);
 @@ -89,7 +93,7 @@
      void GetRootRot(float time, u16* rootRotation) const;
      void GetRootTrans(float time, nlVector3* rootTranslation) const;
-     bool fn_8030939C(int channel, float time, float* weight) const;
+     bool GetChannelWeight(int channel, float time, float* weight) const;
 -#ifdef MSCHARGED_NATIVE
 +#ifdef MSCHARGED_DIAGNOSTIC_SKELETON
      void CreateCallback(float fTime, unsigned int nParam1,
@@ -124,7 +124,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +    pRetval->m_szName = (const char*)chunkB->GetData();
 +
 +    chunkA = chunkB->GetNextChunk();
-+    pRetval->m_Unknown18 = (const unsigned int*)chunkA->GetData();
++    pRetval->m_pNumWeightKeys = (const unsigned int*)chunkA->GetData();
 +
 +    chunkB = chunkA->GetNextChunk();
 +    pRetval->m_Unknown1C = (const unsigned int*)chunkB->GetData();
@@ -139,7 +139,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +    pRetval->m_pScaleKeys = (PackedScale**)chunkA->GetData();
 +
 +    chunkB = chunkA->GetNextChunk();
-+    pRetval->m_Unknown2C = (unsigned char**)chunkB->GetData();
++    pRetval->m_pWeightKeys = (unsigned char**)chunkB->GetData();
 +
 +    chunkA = chunkB->GetNextChunk();
 +    pRetval->m_Unknown30 = (void**)chunkA->GetData();
@@ -158,7 +158,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +    {
 +        if (type == 0x80017100)
 +        {
-+            pRetval->fn_80308610(nodeChunk, nodeIndex);
++            pRetval->InitializeNodeKeys(nodeChunk, nodeIndex);
 +            nodeIndex++;
 +        }
 +        nodeChunk = nodeChunk->GetNextChunk();
@@ -199,7 +199,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +    return pRetval;
 +}
 +
-+void cSAnim::fn_80308610(nlChunk* nodeChunk, int nodeIndex)
++void cSAnim::InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex)
 +{
 +    nlChunk* subEnd;
 +    nlChunk* subChunk;
@@ -223,7 +223,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +        }
 +        else if (type == 0x17112)
 +        {
-+            m_Unknown2C[nodeIndex] = (unsigned char*)subChunk->GetData();
++            m_pWeightKeys[nodeIndex] = (unsigned char*)subChunk->GetData();
 +        }
 +        else if (type == 0x17115)
 +        {
@@ -566,23 +566,23 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +}
 +
 +
-+bool cSAnim::fn_8030939C(int channel, float time, float* weight) const
++bool cSAnim::GetChannelWeight(int channel, float time, float* weight) const
 +{
-+    if (m_Unknown2C == 0 || m_Unknown2C[channel] == 0)
++    if (m_pWeightKeys == 0 || m_pWeightKeys[channel] == 0)
 +    {
 +        *weight = 1.0f;
 +        return false;
 +    }
 +
-+    unsigned char* keys = m_Unknown2C[channel];
-+    float fRealIndex = time * (float)(m_Unknown18[channel] - 1);
++    unsigned char* keys = m_pWeightKeys[channel];
++    float fRealIndex = time * (float)(m_pNumWeightKeys[channel] - 1);
 +    int nIndex = (int)fRealIndex;
 +    float fWeightB = fRealIndex - (float)nIndex;
 +    float fWeightA = 1.0f - fWeightB;
 +    float weightA;
 +    float weightB;
 +    SAnimDecodeWeight(&weightA, &keys[nIndex]);
-+    SAnimDecodeWeight(&weightB, m_Unknown2C[channel] + nIndex + 1);
++    SAnimDecodeWeight(&weightB, m_pWeightKeys[channel] + nIndex + 1);
 +    *weight = fWeightA * weightA + fWeightB * weightB;
 +    return true;
 +}

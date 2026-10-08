@@ -1,0 +1,138 @@
+Subject: Preserve original Variant scalar words and native pointer aliases
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use Wii32 numeric storage/conversion/multiplication and retain full native
+pointer hashes, including the original TEAM/BALL pointer aliases. Reset still
+zeros the complete pointer carrier at its original source position. Constructor
+requests, source switch branches, copy/equality algorithms and game flow remain
+unchanged. Include platform/variant_numeric_abi.h from the host proposal.
+
+--- a/include/Game/AI/Variant.h
++++ b/include/Game/AI/Variant.h
+@@ -99,7 +99,11 @@
+             delete[] mData.string;
+         }
+         mType = FT_UNSPECIFIED;
++#if defined(MSCHARGED_NATIVE)
++        mData.pointer = 0;
++#else
+         mData.u = 0;
++#endif
+     }
+ 
+     virtual eVariantType GetType() const
+@@ -196,7 +200,11 @@
+         char c;
+         signed short s;
+         int i;
++#if defined(MSCHARGED_NATIVE)
++        u32 u;
++#else
+         unsigned long u;
++#endif
+         float f;
+         nlVector3 vector;
+         void* pointer;
+--- a/src/Game/AI/Variant.cpp
++++ b/src/Game/AI/Variant.cpp
+@@ -1,6 +1,10 @@
+ #include "Game/AI/Variant.inl"
+ 
+ #include "NL/nlFormat.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/variant_numeric_abi.h"
++static_assert(sizeof(unsigned long) == sizeof(void*), "Variant pointer hashes require the current LP64 carrier");
++#endif
+ 
+ Variant gvNotSet;
+ 
+@@ -27,7 +31,11 @@
+             valueString = Format(NLString("{0}"), mData.i);
+             break;
+         case FT_U32:
++#if defined(MSCHARGED_NATIVE)
++            valueString = Format(NLString("{0}"), (unsigned long)mData.u);
++#else
+             valueString = Format(NLString("{0}"), mData.u);
++#endif
+             break;
+         case FT_FLOAT:
+             valueString = Format(NLString("{0}"), mData.f);
+@@ -63,28 +71,53 @@
+         hash = mData.b;
+         break;
+     case FT_CHAR:
++#if defined(MSCHARGED_NATIVE)
++        hash = (u32)mData.c;
++#else
+         hash = mData.c;
++#endif
+         break;
+     case FT_SHORT:
++#if defined(MSCHARGED_NATIVE)
++        hash = (u32)mData.s;
++#else
+         hash = mData.s;
++#endif
+         break;
+     case FT_INT:
++#if defined(MSCHARGED_NATIVE)
++        hash = (u32)mData.i;
++#else
+         hash = mData.i;
++#endif
+         break;
+     case FT_U32:
+         hash = mData.u;
+         break;
+     case FT_FLOAT:
++#if defined(MSCHARGED_NATIVE)
++        hash = mscharged::platform::VariantFloatToWiiWord(mData.f);
++#else
+         hash = (unsigned long)mData.f;
++#endif
+         break;
+     case FT_POINTER:
+         hash = (unsigned long)mData.pointer;
+         break;
+     case FT_VECTOR:
++#if defined(MSCHARGED_NATIVE)
++        hash = mscharged::platform::VariantFloatToWiiWord(mData.vector.x)
++             * mscharged::platform::VariantFloatToWiiWord(mData.vector.y);
++#else
+         hash = (unsigned long)mData.vector.x
+              * (unsigned long)mData.vector.y;
++#endif
+         {
++#if defined(MSCHARGED_NATIVE)
++            unsigned long zHash = mscharged::platform::VariantFloatToWiiWord(mData.vector.z);
++#else
+             unsigned long zHash = (unsigned long)mData.vector.z;
++#endif
+             zHash ^= hash;
+             hash = zHash;
+         }
+--- a/src/Game/AI/FuzzyVariant.cpp
++++ b/src/Game/AI/FuzzyVariant.cpp
+@@ -77,13 +77,21 @@
+             hash = (unsigned long)mData.pointer;
+             break;
+         case FT_TEAM:
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)mData.pTeam;
++#else
+             hash = mData.u;
++#endif
+             break;
+         case FT_GAME:
+             hash = (unsigned long)mData.pointer;
+             break;
+         case FT_BALL:
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)mData.pointer;
++#else
+             hash = mData.u;
++#endif
+             break;
+         }
+     }

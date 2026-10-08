@@ -1,0 +1,41 @@
+# Read pointer-format arguments in their real native domain; retain the retail prefix, precision and conversion path.
+# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+--- a/src/MSL/wprintf.c
++++ b/src/MSL/wprintf.c
+@@ -52,7 +52,12 @@
+     intmax_argument,
+     size_t_argument,
+     ptrdiff_argument,
++#if defined(MSCHARGED_NATIVE)
++    long_double_argument,
++    pointer_argument
++#else
+     long_double_argument
++#endif
+ };
+ 
+ typedef struct {
+@@ -267,7 +272,11 @@
+         break;
+ 
+     case L'p':
++#if defined(MSCHARGED_NATIVE)
++        f.argument_options = pointer_argument;
++#else
+         f.argument_options = long_argument;
++#endif
+         f.alternate_form = 1;
+         f.conversion_char = L'x';
+         f.precision = 8;
+@@ -1087,6 +1096,11 @@
+         case L'u':
+         case L'x':
+         case L'X':
++#if defined(MSCHARGED_NATIVE)
++            if (format.argument_options == pointer_argument) {
++                long_num = (MSL_FORMAT_UNSIGNED_WORD)va_arg(arg, void*);
++            } else
++#endif
+             if (format.argument_options == long_argument) {
+                 long_num = va_arg(arg, unsigned long);
+             } else if (format.argument_options == long_long_argument) {

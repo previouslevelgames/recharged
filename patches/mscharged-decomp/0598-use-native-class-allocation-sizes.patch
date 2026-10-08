@@ -1,0 +1,1063 @@
+Subject: Use native allocation size signatures in original class allocators
+Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+
+Use std::size_t in native class operator-new declarations and their matching
+out-of-line definitions, including LLP64 hosts. Retain the original allocation
+bodies, pools, class fields and console declarations. Existing size-bearing
+nlMalloc remains unchanged; measured selected class requests fit its u32 size.
+
+--- a/include/Game/Audio/AudioEffects.h
++++ b/include/Game/Audio/AudioEffects.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_AUDIO_EFFECTS_H
+ #define GAME_AUDIO_AUDIO_EFFECTS_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioEffect.h"
+ #include "NL/nlArrayAllocator.h"
+@@ -23,7 +27,12 @@
+ public:
+     virtual ~VolumeParameter() { }
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         VolumeParameter* parameter = 0;
+         s_Pool.Allocate(parameter);
+@@ -60,7 +69,12 @@
+     virtual void OnParameterFinished(AudioEffectParameter*);
+     virtual void ApplyToSound(void*);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         Volume* effect = 0;
+         s_Pool.Allocate(effect);
+@@ -102,7 +116,12 @@
+     virtual void ApplyToSound(void*);
+     virtual void OnSoundStopped(void*);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         return s_Allocator.Allocate();
+     }
+--- a/include/Game/Audio/AudioSequenceEvent.h
++++ b/include/Game/Audio/AudioSequenceEvent.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_AUDIOSEQUENCEEVENT_H
+ #define GAME_AUDIO_AUDIOSEQUENCEEVENT_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioSequenceInstance.h"
+ #include "NL/nlSlotPool.h"
+@@ -118,7 +122,12 @@
+     void AccumulateRpcModifiers(
+         bool* hasVolume, float* volume, bool* hasPitch, float* pitch);
+ 
+-    static void* operator new(unsigned long size);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t size)
++#else
++    static void* operator new(unsigned long size)
++#endif
++;
+     static void operator delete(void* object);
+ 
+     SoundEventDefinition* definition;
+@@ -144,7 +153,12 @@
+     virtual void Resume() { state = 4; }
+     virtual int Update(float time);
+ 
+-    static void* operator new(unsigned long size);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t size)
++#else
++    static void* operator new(unsigned long size)
++#endif
++;
+     static void operator delete(void* object);
+ 
+     HitMarkerEventDefinition* definition;
+@@ -162,7 +176,12 @@
+     virtual void Resume() { state = 4; }
+     virtual int Update(float time);
+ 
+-    static void* operator new(unsigned long size);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t size)
++#else
++    static void* operator new(unsigned long size)
++#endif
++;
+     static void operator delete(void* object);
+ 
+     ParameterChangeEventDefinition* definition;
+@@ -172,17 +191,32 @@
+ extern SlotPool<HitMarkerEvent> sHitMarkerEventPool;
+ extern SlotPool<ParameterChangeEvent> sParameterChangeEventPool;
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* SoundPlaybackEvent::operator new(std::size_t size)
++#else
+ inline void* SoundPlaybackEvent::operator new(unsigned long size)
++#endif
++
+ {
+     return sSoundPlaybackEventPool.Allocate();
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* HitMarkerEvent::operator new(std::size_t size)
++#else
+ inline void* HitMarkerEvent::operator new(unsigned long size)
++#endif
++
+ {
+     return sHitMarkerEventPool.Allocate();
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* ParameterChangeEvent::operator new(std::size_t size)
++#else
+ inline void* ParameterChangeEvent::operator new(unsigned long size)
++#endif
++
+ {
+     return sParameterChangeEventPool.Allocate();
+ }
+--- a/include/Game/Audio/AudioSequenceInstance.h
++++ b/include/Game/Audio/AudioSequenceInstance.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_AUDIOSEQUENCEINSTANCE_H
+ #define GAME_AUDIO_AUDIOSEQUENCEINSTANCE_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/nlSlotPool.h"
+ #include "types.h"
+@@ -33,7 +37,12 @@
+     void SetVolume(float value);
+     void GetSources(AudioSource** results, u32* count);
+ 
+-    static void* operator new(unsigned long size);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t size)
++#else
++    static void* operator new(unsigned long size)
++#endif
++;
+     static void operator delete(void* instance);
+ 
+     /* 0x00 */ AudioSequenceInstance* next;
+@@ -47,7 +56,12 @@
+ 
+ extern SlotPool<AudioSequenceInstance> sAudioSequenceInstancePool;
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* AudioSequenceInstance::operator new(std::size_t size)
++#else
+ inline void* AudioSequenceInstance::operator new(unsigned long size)
++#endif
++
+ {
+     return sAudioSequenceInstancePool.Allocate();
+ }
+--- a/include/Game/Audio/AudioSource.h
++++ b/include/Game/Audio/AudioSource.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_AUDIO_SOURCE_H
+ #define GAME_AUDIO_AUDIO_SOURCE_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "revolution/sp.h"
+ #include "revolution/os/OSInterrupt.h"
+@@ -106,7 +110,12 @@
+     virtual void Initialize(AudioSourceInfo*);
+     virtual void Update();
+ 
+-    static void* operator new(unsigned long);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
++    static void* operator new(unsigned long)
++#endif
++;
+     static void operator delete(void* pointer);
+     static void OnVoiceDropped(void*);
+ 
+@@ -251,7 +260,12 @@
+ 
+ extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* AudioSampleSource::operator new(std::size_t)
++#else
+ inline void* AudioSampleSource::operator new(unsigned long)
++#endif
++
+ {
+     return gAudioSampleSourcePool.Allocate();
+ }
+@@ -299,7 +313,12 @@
+     virtual void SetInterauralDelay(int value);
+     virtual unsigned int GetStreamHeaderOffset();
+ 
+-    static void* operator new(unsigned long);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
++    static void* operator new(unsigned long)
++#endif
++;
+     static void operator delete(void*);
+ };
+ 
+@@ -312,14 +331,24 @@
+     virtual void SetInterauralDelay(int);
+     virtual unsigned int GetStreamHeaderOffset();
+ 
+-    static void* operator new(unsigned long);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
++    static void* operator new(unsigned long)
++#endif
++;
+     static void operator delete(void*);
+ };
+ 
+ extern SlotPool<AudioMonoStreamSource> gAudioMonoStreamSourcePool;
+ extern SlotPool<AudioStereoStreamSource> gAudioStereoStreamSourcePool;
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* AudioMonoStreamSource::operator new(std::size_t)
++#else
+ inline void* AudioMonoStreamSource::operator new(unsigned long)
++#endif
++
+ {
+     return gAudioMonoStreamSourcePool.Allocate();
+ }
+@@ -329,7 +358,12 @@
+     gAudioMonoStreamSourcePool.Free((AudioMonoStreamSource*)pointer);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++inline void* AudioStereoStreamSource::operator new(std::size_t)
++#else
+ inline void* AudioStereoStreamSource::operator new(unsigned long)
++#endif
++
+ {
+     return gAudioStereoStreamSourcePool.Allocate();
+ }
+--- a/include/Game/Audio/CategoryVolume.h
++++ b/include/Game/Audio/CategoryVolume.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_CATEGORYVOLUME_H
+ #define GAME_AUDIO_CATEGORYVOLUME_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioEffect.h"
+ #include "NL/nlSlotPool.h"
+@@ -11,7 +15,12 @@
+     CategoryVolumeParameter();
+     virtual ~CategoryVolumeParameter();
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         CategoryVolumeParameter* parameter = 0;
+         s_Pool.Allocate(parameter);
+@@ -45,7 +54,12 @@
+     virtual void BlendParameter(AudioEffectParameter* destination,
+         AudioEffectParameter* source);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         CategoryVolume* effect = 0;
+         s_Pool.Allocate(effect);
+--- a/include/Game/Audio/Delay.h
++++ b/include/Game/Audio/Delay.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_DELAY_H
+ #define GAME_AUDIO_DELAY_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioEffect.h"
+ #include "NL/nlSlotPool.h"
+@@ -13,7 +17,12 @@
+     virtual ~DelayParameter() { }
+     void ApplySettings(AXFX_DELAY* delay);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         DelayParameter* parameter = 0;
+         s_Pool.Allocate(parameter);
+@@ -50,7 +59,12 @@
+     virtual void OnSoundStarted(void*);
+     virtual void ApplyToSound(void* handle);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         Delay* effect = 0;
+         s_Pool.Allocate(effect);
+--- a/include/Game/Audio/LowPassFilter.h
++++ b/include/Game/Audio/LowPassFilter.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_LOWPASSFILTER_H
+ #define GAME_AUDIO_LOWPASSFILTER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioEffect.h"
+ #include "NL/nlSlotPool.h"
+@@ -9,7 +13,12 @@
+ public:
+     LowPassFilterParameter();
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         LowPassFilterParameter* parameter = 0;
+         s_Pool.Allocate(parameter);
+@@ -41,7 +50,12 @@
+     virtual void OnParameterFinished(AudioEffectParameter* parameter);
+     virtual void ApplyToSound(void* handle);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         LowPassFilter* effect = 0;
+         s_Pool.Allocate(effect);
+--- a/include/Game/Audio/Pitch.h
++++ b/include/Game/Audio/Pitch.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_PITCH_H
+ #define GAME_AUDIO_PITCH_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioEffect.h"
+ #include "NL/nlSlotPool.h"
+@@ -10,7 +14,12 @@
+     PitchParameter();
+     virtual ~PitchParameter();
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         PitchParameter* parameter = 0;
+         s_Pool.Allocate(parameter);
+@@ -47,7 +56,12 @@
+     virtual void OnParameterFinished(AudioEffectParameter* parameter);
+     virtual void ApplyToSound(void* handle);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         Pitch* effect = 0;
+         s_Pool.Allocate(effect);
+--- a/include/Game/Audio/Reverb.h
++++ b/include/Game/Audio/Reverb.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_REVERB_H
+ #define GAME_AUDIO_REVERB_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioEffect.h"
+ #include "NL/nlSlotPool.h"
+@@ -13,7 +17,12 @@
+     void ApplySettings(AXFX_REVERBHI* reverb);
+     virtual ~ReverbParameter() { }
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         ReverbParameter* parameter = 0;
+         s_Pool.Allocate(parameter);
+@@ -52,7 +61,12 @@
+     virtual void OnSoundStarted(void*);
+     virtual void ApplyToSound(void*);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         Reverb* effect = 0;
+         s_Pool.Allocate(effect);
+--- a/include/Game/Audio/XSoundCueHandle.h
++++ b/include/Game/Audio/XSoundCueHandle.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_AUDIO_XSOUNDCUEHANDLE_H
+ #define GAME_AUDIO_XSOUNDCUEHANDLE_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Audio/AudioResourceBundle.h"
+ #include "Game/Audio/XSoundHandle.h"
+@@ -33,7 +37,12 @@
+     {
+         return m_LocalSliders;
+     }
+-    static void* operator new(unsigned long size);
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t size)
++#else
++    static void* operator new(unsigned long size)
++#endif
++;
+     static void operator delete(void* handle);
+     AudioCueDefinition* definition;
+     SoundInstance* instance;
+@@ -48,7 +57,12 @@
+     } bits;
+ };
+ extern SlotPool<XSoundCueHandle> sSoundCueHandlePool;
++#if defined(MSCHARGED_NATIVE)
++inline void* XSoundCueHandle::operator new(std::size_t size)
++#else
+ inline void* XSoundCueHandle::operator new(unsigned long size)
++#endif
++
+ {
+     return sSoundCueHandlePool.Allocate();
+ }
+--- a/include/Game/DetermDataEvent.h
++++ b/include/Game/DetermDataEvent.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_DETERM_DATA_EVENT_H
+ #define GAME_DETERM_DATA_EVENT_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/nlSlotPool.h"
+ #include "types.h"
+@@ -18,7 +22,12 @@
+     DetermDataEvent(const void* data, u32 size);
+     ~DetermDataEvent() { }
+ 
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t)
++#else
+     void* operator new(unsigned long)
++#endif
++
+     {
+         return gDetermDataEventPool.Allocate();
+     }
+--- a/include/Game/InputRouter.h
++++ b/include/Game/InputRouter.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_NETWORK_INPUT_ROUTER_H
+ #define GAME_NETWORK_INPUT_ROUTER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/PackedDetInput.h"
+ #include "Game/NetworkSession.h"
+@@ -12,7 +16,12 @@
+ class InputRouter
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
+     void* operator new(unsigned long size)
++#endif
++
+     {
+         return nlMalloc(size, 8, false);
+     }
+--- a/include/Game/NetworkLobby.h
++++ b/include/Game/NetworkLobby.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_NETWORK_LOBBY_H
+ #define GAME_NETWORK_LOBBY_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/NetworkSession.h"
+ #include <dwc/dwci_error.h>
+@@ -18,7 +22,12 @@
+     void InitializeReceiveBuffers();
+ 
+ public:
+-    void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
++    void* operator new(unsigned long size)
++#endif
++ { return nlMalloc(size, 8, false); }
+ 
+     NetworkLobby();
+ 
+--- a/include/Game/NetworkMessage.h
++++ b/include/Game/NetworkMessage.h
+@@ -1,16 +1,30 @@
+ #ifndef GAME_NETWORK_MESSAGE_H
+ #define GAME_NETWORK_MESSAGE_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/NetworkMessageSerializer.h"
+ 
+ class NetworkMessage
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
+     void* operator new(unsigned long size)
++#endif
++
+     {
+         return operator new(size, 8, false);
+     }
+-    void* operator new(unsigned long size, unsigned int alignment, bool zeroMemory);
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size, unsigned int alignment, bool zeroMemory)
++#else
++    void* operator new(unsigned long size, unsigned int alignment, bool zeroMemory)
++#endif
++;
+     void operator delete(void* p);
+ 
+     NetworkMessage()
+--- a/include/Game/NetworkSession.h
++++ b/include/Game/NetworkSession.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_NETWORK_SESSION_H
+ #define GAME_NETWORK_SESSION_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/NetworkDebug.h"
+ 
+@@ -165,7 +169,12 @@
+                               public ReliableSocketCallback
+ {
+ public:
+-    void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
++    void* operator new(unsigned long size)
++#endif
++ { return nlMalloc(size, 8, false); }
+ 
+     NetworkSocket();
+ 
+@@ -275,7 +284,12 @@
+                                   public NetworkMessageReceiver
+ {
+ public:
+-    void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
++    void* operator new(unsigned long size)
++#endif
++ { return nlMalloc(size, 8, false); }
+ 
+     LANLobby();
+ 
+@@ -398,7 +412,12 @@
+                                    public NetworkMessageReceiver
+ {
+ public:
+-    void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
++    void* operator new(unsigned long size)
++#endif
++ { return nlMalloc(size, 8, false); }
+ 
+     NetworkSession()
+     {
+--- a/include/Game/NetworkStats.h
++++ b/include/Game/NetworkStats.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_NETWORK_STATS_H
+ #define GAME_NETWORK_STATS_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/nlMemory.h"
+ #include "NL/plat/TransportSocket.h"
+@@ -105,7 +109,12 @@
+ class NetworkStatsReporter : public NetworkStatsInterface
+ {
+ public:
+-    void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
++    void* operator new(unsigned long size)
++#endif
++ { return nlMalloc(size, 8, false); }
+ 
+     NetworkStatsReporter();
+ 
+@@ -183,7 +192,12 @@
+ class NetworkRanking : public NetworkStatsInterface
+ {
+ public:
+-    void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#if defined(MSCHARGED_NATIVE)
++    void* operator new(std::size_t size)
++#else
++    void* operator new(unsigned long size)
++#endif
++ { return nlMalloc(size, 8, false); }
+ 
+     NetworkRanking();
+ 
+--- a/include/Game/Physics/PhysicsHammer.h
++++ b/include/Game/Physics/PhysicsHammer.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_PHYSICS_PHYSICS_HAMMER_H
+ #define GAME_PHYSICS_PHYSICS_HAMMER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Physics/PhysicsSphere.h"
+ #include "NL/nlArrayAllocator.h"
+@@ -24,7 +28,12 @@
+     void EnableGravity();
+     void Freeze();
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         return gPhysicsHammerAllocator.Allocate();
+     }
+--- a/include/Game/Physics/PhysicsPatch.h
++++ b/include/Game/Physics/PhysicsPatch.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_PHYSICS_PHYSICS_PATCH_H
+ #define GAME_PHYSICS_PHYSICS_PATCH_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/DebugWriteCache.h"
+ #include "Game/EventConnection.h"
+@@ -31,7 +35,12 @@
+ public:
+     PhysicsPatch();
+     virtual ~PhysicsPatch();
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         PhysicsPatch* patch = 0;
+         m_PhysicsPatchSlotPool.Allocate(patch);
+--- a/include/Game/Physics/PhysicsShockwave.h
++++ b/include/Game/Physics/PhysicsShockwave.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_PHYSICS_PHYSICS_SHOCKWAVE_H
+ #define GAME_PHYSICS_PHYSICS_SHOCKWAVE_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/Physics/PhysicsSphere.h"
+ #include "NL/nlMath.h"
+@@ -30,7 +34,12 @@
+     virtual bool SetContactInfo(dContact*, PhysicsObject*, bool);
+     virtual ContactType Contact(PhysicsObject*, dContact*, int);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         PhysicsShockwave* object = 0;
+         pool.Allocate(object);
+--- a/include/Game/Physics/PhysicsWaluigiWall.h
++++ b/include/Game/Physics/PhysicsWaluigiWall.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_PHYSICS_PHYSICS_WALUIGI_WALL_H
+ #define GAME_PHYSICS_PHYSICS_WALUIGI_WALL_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/EventConnection.h"
+ #include "Game/Physics/PhysicsBox.h"
+@@ -35,7 +39,12 @@
+     void Shrink(float dt);
+     ContactType FielderContact(cFielder* player);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         PhysicsWaluigiWall* pObject = 0;
+         pool.Allocate(pObject);
+--- a/include/Game/SAnim/pnBlender.h
++++ b/include/Game/SAnim/pnBlender.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_SANIM_PN_BLENDER_H
+ #define GAME_SANIM_PN_BLENDER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/PoseNode.h"
+ #include "NL/nlSlotPool.h"
+@@ -30,7 +34,12 @@
+         Replayable<0>(frame, FloatCompressor<0, 1, 7>(m_fBlendTime));
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         cPN_Blender* blender = 0;
+         m_BlenderSlotPool.Allocate(blender);
+--- a/include/Game/SAnim/pnFeather.h
++++ b/include/Game/SAnim/pnFeather.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_SANIM_PN_FEATHER_H
+ #define GAME_SANIM_PN_FEATHER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/PoseNode.h"
+ #include "Game/SHierarchy.h"
+@@ -49,7 +53,12 @@
+     void BeginBlendIn(float duration);
+     void BeginBlendOut(float duration);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         cPN_Feather* feather = 0;
+         m_FeatherSlotPool.Allocate(feather);
+--- a/include/Game/SAnim/pnScaleBlender.h
++++ b/include/Game/SAnim/pnScaleBlender.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_SANIM_PN_SCALE_BLENDER_H
+ #define GAME_SANIM_PN_SCALE_BLENDER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/PoseNode.h"
+ #include "NL/nlSlotPool.h"
+@@ -41,7 +45,12 @@
+     void BeginBlendIn(float duration);
+     void BeginBlendOut(float duration);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         cPN_ScaleBlender* node = 0;
+         m_ScaleBlenderSlotPool.Allocate(node);
+--- a/include/Game/SAnim/pnSingleAxisBlender.h
++++ b/include/Game/SAnim/pnSingleAxisBlender.h
+@@ -1,5 +1,9 @@
+ #ifndef GAME_SANIM_PN_SINGLE_AXIS_BLENDER_H
+ #define GAME_SANIM_PN_SINGLE_AXIS_BLENDER_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/PoseNode.h"
+ #include "NL/nlSlotPool.h"
+@@ -32,7 +36,12 @@
+         Replayable<0>(frame, FloatCompressor<0, 1, 7>(m_fSmoothedWeight));
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         cPN_SingleAxisBlender* blender = 0;
+         m_SingleAxisBlenderSlotPool.Allocate(blender);
+--- a/include/NL/plat/TransportConnection.h
++++ b/include/NL/plat/TransportConnection.h
+@@ -1,5 +1,9 @@
+ #ifndef NL_PLAT_TRANSPORTCONNECTION_H
+ #define NL_PLAT_TRANSPORTCONNECTION_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/CircularQueue.h"
+ #include "types.h"
+@@ -29,8 +33,14 @@
+         STATE_9,
+     };
+ 
++#if defined(MSCHARGED_NATIVE)
+     static void* operator new(
+-        unsigned long size, unsigned int alignment, bool fromEnd);
++        std::size_t size, unsigned int alignment, bool fromEnd)
++#else
++    static void* operator new(
++        unsigned long size, unsigned int alignment, bool fromEnd)
++#endif
++;
+     void operator delete(void* connection);
+ 
+     TransportConnection(ReliableSocket* socket,
+--- a/include/NL/plat/TransportPacket.h
++++ b/include/NL/plat/TransportPacket.h
+@@ -1,12 +1,22 @@
+ #ifndef NL_PLAT_TRANSPORTPACKET_H
+ #define NL_PLAT_TRANSPORTPACKET_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "Game/NetworkMessageSerializer.h"
+ 
+ struct TransportPacket
+ {
++#if defined(MSCHARGED_NATIVE)
+     static void* operator new(
+-        unsigned long size, unsigned int alignment, bool fromEnd);
++        std::size_t size, unsigned int alignment, bool fromEnd)
++#else
++    static void* operator new(
++        unsigned long size, unsigned int alignment, bool fromEnd)
++#endif
++;
+ 
+     TransportPacket()
+         : mSequence(0)
+--- a/include/NL/plat/WiiFreestylePad.h
++++ b/include/NL/plat/WiiFreestylePad.h
+@@ -1,5 +1,9 @@
+ #ifndef NL_PLAT_WII_FREESTYLE_PAD_H
+ #define NL_PLAT_WII_FREESTYLE_PAD_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/plat/WiiPad.h"
+ #include "NL/plat/PlatPadStatus.h"
+@@ -35,7 +39,12 @@
+ 
+     void UpdateState(float dt);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         return gWiiFreestylePadAllocator.Allocate();
+     }
+--- a/include/NL/plat/WiiRemotePad.h
++++ b/include/NL/plat/WiiRemotePad.h
+@@ -1,5 +1,9 @@
+ #ifndef NL_PLAT_WII_REMOTE_PAD_H
+ #define NL_PLAT_WII_REMOTE_PAD_H
++
++#if defined(MSCHARGED_NATIVE)
++#include <cstddef>
++#endif
+ 
+ #include "NL/plat/WiiPad.h"
+ #include "NL/plat/PlatPadStatus.h"
+@@ -35,7 +39,12 @@
+ 
+     void UpdateState(float dt);
+ 
++#if defined(MSCHARGED_NATIVE)
++    static void* operator new(std::size_t)
++#else
+     static void* operator new(unsigned long)
++#endif
++
+     {
+         return gWiiRemotePadAllocator.Allocate();
+     }
+--- a/src/NL/plat/TransportConnection.cpp
++++ b/src/NL/plat/TransportConnection.cpp
+@@ -19,8 +19,14 @@
+ 
+ SlotPool<TransportConnection> gTransportConnectionPool(16, 0);
+ 
++#if defined(MSCHARGED_NATIVE)
++void* TransportConnection::operator new(
++    std::size_t, unsigned int, bool)
++#else
+ void* TransportConnection::operator new(
+     unsigned long, unsigned int, bool)
++#endif
++
+ {
+     return gTransportConnectionPool.Allocate();
+ }
+--- a/src/NL/plat/TransportPacket.cpp
++++ b/src/NL/plat/TransportPacket.cpp
+@@ -3,8 +3,14 @@
+ 
+ SlotPool<TransportPacket> gTransportPacketPool(400, 0);
+ 
++#if defined(MSCHARGED_NATIVE)
++void* TransportPacket::operator new(
++    std::size_t, unsigned int, bool)
++#else
+ void* TransportPacket::operator new(
+     unsigned long, unsigned int, bool)
++#endif
++
+ {
+     return gTransportPacketPool.Allocate();
+ }
+--- a/src/NL/plat/TransportMessage.cpp
++++ b/src/NL/plat/TransportMessage.cpp
+@@ -489,7 +489,12 @@
+     return memcmp(first, second, 0x20) == 0;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void* NetworkMessage::operator new(std::size_t, unsigned int, bool)
++#else
+ void* NetworkMessage::operator new(unsigned long, unsigned int, bool)
++#endif
++
+ {
+     return gNetworkMessagePool.Allocate();
+ }

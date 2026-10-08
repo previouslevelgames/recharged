@@ -1,0 +1,62 @@
+From: mscharged-port contributors
+Subject: [PATCH] Reuse native VI surface-copy resources by actual texture view
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native output resource lifetime and API allocation reduction.
+
+Retain the constant linear sampler in the native VI output endpoint. Reuse
+its copy bind group while the actual desktop texture view remains identical,
+rebuilding at the existing visible surface branch when that view changes.
+The retained view prevents handle identity reuse; no mutable uniform storage
+is shared. Serialized output work owns cache mutation, and existing shutdown
+drains that work before releasing its handles. Command recording/submission,
+physical fields, filtered desktop pixels, black/display control, device-loss
+checks and original game requests remain unchanged.
+
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -103,6 +103,11 @@
+   TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout;
+   wgpu::RenderPipeline pipeline, desktop_pipeline;
++  // Only the serialized output work mutates these handles. Shutdown drains
++  // that work before retirement. Retain the exact bound view, not its size.
++  wgpu::Sampler copy_sampler;
++  wgpu::TextureView copy_view;
++  wgpu::BindGroup copy_group;
+ };
+ Output& State() { static Output state; return state; }
+ void RequireOwner(const Output& state) {
+@@ -250,12 +255,18 @@
+           .colorAttachments = &attachment};
+       const auto surfacePass = encoder.BeginRenderPass(&desc);
+       if (!effective.black) {
+-        const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
+-        const webgpu::TextureWithSampler source{.texture = desktop->texture, .view = desktop->sampleTextureView,
+-            .size = desktop->size, .format = wgpu::TextureFormat::RGBA8Unorm,
+-            .sampler = webgpu::g_device.CreateSampler(&samplerDesc)};
+-        const auto group = webgpu::create_copy_bind_group(source);
+-        surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, group);
++        if (!state.copy_sampler) {
++          const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
++          state.copy_sampler = webgpu::g_device.CreateSampler(&samplerDesc);
++        }
++        if (!state.copy_group || state.copy_view.Get() != desktop->sampleTextureView.Get()) {
++          const webgpu::TextureWithSampler source{.texture = desktop->texture, .view = desktop->sampleTextureView,
++              .size = desktop->size, .format = wgpu::TextureFormat::RGBA8Unorm,
++              .sampler = state.copy_sampler};
++          const auto group = webgpu::create_copy_bind_group(source);
++          state.copy_group = group; state.copy_view = desktop->sampleTextureView;
++        }
++        surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, state.copy_group);
+         surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
+         surfacePass.Draw(3);
+       }
+@@ -325,6 +336,7 @@
+   render_worker::synchronize();
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
++  state.copy_group = {}; state.copy_view = {}; state.copy_sampler = {};
+   state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+   state.presented_geometry = {}; state.display_enabled = true; state.disabled_scanout = {};
