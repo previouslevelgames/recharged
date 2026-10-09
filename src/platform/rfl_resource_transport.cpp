@@ -1,5 +1,5 @@
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE)
-#error RFL serialized transport must share the original module's owner registry
+#error "RFL serialized transport must share the original module's owner registry"
 #endif
 #include "platform/rfl_resource_transport.h"
 #include "platform/game_allocation_ownership.h"

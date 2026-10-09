@@ -16,6 +16,15 @@ template<class Error, class Action> void Reject(Action action) {
     ++checks; try { action(); } catch (const Error&) { return; }
     throw std::runtime_error("Unsupported graphics metadata operation succeeded");
 }
+template<class Action> void RejectMessage(Action action, const char* expected) {
+    ++checks;
+    try { action(); }
+    catch (const std::invalid_argument& e) {
+        Check(std::strcmp(e.what(),expected)==0,"Graphics metadata rejection order/text changed");
+        return;
+    }
+    throw std::runtime_error("Unsupported graphics metadata operation succeeded");
+}
 void Word(unsigned char* p, std::uint32_t value) {
     p[0]=value>>24; p[1]=value>>16; p[2]=value>>8; p[3]=value;
 }
@@ -30,9 +39,126 @@ extern "C" void ChargedNativeMetadataRelease(void* p) noexcept {
     if (p) { --live; ::operator delete(p); }
 }
 
+namespace {
+void IntervalQueryCases() {
+    using namespace mscharged::platform;
+    alignas(64) std::array<std::byte,32768> arena{};
+    MemoryAllocator pool{}; pool.Initialize(arena.data(),arena.size());
+    const auto free=pool.TotalFreeMemory();
+    auto* raw=static_cast<unsigned char*>(pool.Allocate(16384,32,false));
+    Check(reinterpret_cast<std::uintptr_t>(raw)>UINT32_MAX,"Interval fixture lacks native pointer-width coverage");
+    { GameByteWriteReservation write(raw,16384); std::memset(raw,0x5d,16384);
+      write.Complete(GameByteDomain::WiiSerialized); }
+    std::array<GameGraphicsStorageSpan,24> original{};
+    for (unsigned i=0;i<original.size();++i) {
+        GameGraphicsStorageReservation reserve(48); reserve.Commit(raw+64+i*128);
+        Check(FindGameGraphicsStorage(raw+64+i*128,48,original[i]),"Interval storage registration missing");
+    }
+    struct Range { std::size_t offset,bytes; };
+    const Range ranges[]={
+        {0,32},{16,48},{16,49},{64,48},{64,96},{64,144},
+        {65,47},{112,80},{113,80},{63,49},{63,48},{64,49},
+        {64,3072},{3060,64},{3055,1},{3056,1},{0,8192},
+    };
+    std::array<unsigned char,16384> snapshot{};
+    std::memcpy(snapshot.data(),raw,snapshot.size());
+    for (const auto range:ranges) {
+        // Independent full-scan half-open interval oracle over authored extents.
+        // It exercises real registry APIs; it does not reproduce their lookup.
+        bool cuts=false;
+        for (unsigned i=0;i<original.size();++i) {
+            const auto begin=std::size_t(64+i*128), end=begin+48;
+            const bool meets=begin<range.offset+range.bytes && range.offset<end;
+            const bool inside=range.offset<=begin && end<=range.offset+range.bytes;
+            if (meets && !inside) cuts=true;
+        }
+        GameGraphicsRetirementReservation rewind;
+        const auto before=live;
+        budget=0;
+        if (cuts) RejectMessage([&]{rewind.CommitRewind(raw+range.offset,range.bytes);},
+            "Graphics rewind cuts through a live source suballocation");
+        else rewind.CommitRewind(raw+range.offset,range.bytes);
+        budget=-1;
+        Check(live<=before,"Rewind allocated metadata after reservation");
+        Check(std::memcmp(raw,snapshot.data(),snapshot.size())==0,"Rewind/rejection changed source bytes");
+        for (unsigned i=0;i<original.size();++i) {
+            GameGraphicsStorageSpan now{};
+            Check(FindGameGraphicsStorage(raw+64+i*128,48,now)
+                && now.base==original[i].base && now.bytes==original[i].bytes
+                && now.incarnation==original[i].incarnation,
+                "Rewind/rejection retired or revived a storage incarnation");
+        }
+    }
+    {
+        // Preserve the existing repeated-publication quirk. A partial raw
+        // rewrite leaves native prefix/suffix nodes; repeated End expands the
+        // prefix over them. Do not use global ByteSpans disjointness here.
+        GameGraphicsStorageReservation prior(128); prior.Commit(raw+4096);
+        PublishGameGraphicsNativeBytes(raw+4096,raw+4192);
+        { GameByteWriteReservation partial(raw+4128,32); std::memset(raw+4128,0x71,32);
+          partial.Complete(GameByteDomain::WiiSerialized); }
+        budget=0; PublishGameGraphicsNativeBytes(raw+4096,raw+4224); budget=-1;
+        Check(FindGameByteDomain(raw+4096,128)==GameByteDomain::NativePayload
+            && FindGameByteDomain(raw+4128,32)==GameByteDomain::WiiSerialized
+            && ResolveGameGraphicsArray(raw+4096).bytes==128
+            && ResolveGameGraphicsArray(raw+4128).bytes==32,
+            "Repeated publication after partial raw rewrite changed existing domains");
+        GameGraphicsStorageReservation fresh(64); fresh.Commit(raw+4352);
+        budget=0; PublishGameGraphicsNativeBytes(raw+4352,raw+4416); budget=-1;
+        Check(ResolveGameGraphicsArray(raw+4352).bytes==64,
+            "Overlapping completed spans in another child rejected a fresh native writer");
+
+        GameGraphicsStorageReservation middle(64); middle.Commit(raw+4608);
+        { GameByteWriteReservation partial(raw+4624,16); std::memset(raw+4624,0x72,16);
+          partial.Complete(GameByteDomain::WiiSerialized); }
+        const auto before=live;
+        budget=0;
+        RejectMessage([&]{PublishGameGraphicsNativeBytes(raw+4608,raw+4656);},
+            "Native stream publication overlaps another completed producer");
+        budget=-1;
+        Check(live==before && FindGameByteDomain(raw+4624,16)==GameByteDomain::WiiSerialized,
+            "Rejected first publication consumed its reserved node or changed raw domains");
+        budget=0; PublishGameGraphicsNativeBytes(raw+4608,raw+4624); budget=-1;
+        Check(ResolveGameGraphicsArray(raw+4608).bytes==16,
+            "Adjacent raw producer falsely rejected a shorter native publication");
+
+        GameGraphicsStorageReservation sameBase(64); sameBase.Commit(raw+4864);
+        { GameByteWriteReservation partial(raw+4864,16); partial.Complete(GameByteDomain::WiiSerialized); }
+        budget=0;
+        RejectMessage([&]{PublishGameGraphicsNativeBytes(raw+4864,raw+4880);},
+            "Native stream publication overlaps another completed producer");
+        budget=-1;
+        Check(FindGameByteDomain(raw+4864,16)==GameByteDomain::WiiSerialized,
+            "Same-base publication rejection invalidated its raw producer");
+
+        GameGraphicsStorageReservation active(64); active.Commit(raw+5120);
+        { GameByteWriteReservation pending(raw+5128,16);
+          budget=0;
+          RejectMessage([&]{PublishGameGraphicsNativeBytes(raw+5120,raw+5152);},
+              "Native stream overlaps an unfinished source byte producer");
+          budget=-1; }
+        budget=0; PublishGameGraphicsNativeBytes(raw+5120,raw+5152); budget=-1;
+        Check(ResolveGameGraphicsArray(raw+5120).bytes==32,
+            "Cancelled producer prevented a genuine first native publication");
+        RejectMessage([&]{PublishGameGraphicsNativeBytes(raw+5120,raw+5185);},
+            "Native stream exceeds its exact source suballocation");
+    }
+    GameGraphicsRetirementReservation retire;
+    budget=0; retire.Commit(raw,16384); budget=-1;
+    GameGraphicsStorageSpan missing{};
+    Check(!FindGameGraphicsStorage(raw+64,1,missing)
+        && !FindGameGraphicsStorage(raw+4352,1,missing),"Whole retirement retained source storage");
+    pool.Free(raw);
+    Check(pool.TotalFreeMemory()==free,"Interval queries changed the original allocator lifecycle");
+}
+}
+
 int main() {
     using namespace mscharged::platform;
     try {
+        const auto beforeIntervals=live;
+        IntervalQueryCases();
+        Check(live==beforeIntervals,"Interval fixture retained host metadata after source retirement");
         alignas(64) std::array<std::byte,16384> arena{};
         MemoryAllocator pool{}; pool.Initialize(arena.data(),arena.size());
         const auto free = pool.TotalFreeMemory();

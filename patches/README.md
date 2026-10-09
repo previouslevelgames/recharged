@@ -83,6 +83,17 @@ sound sources' pool entries from the native list layout. 0614 admits the
 gameplay options' cheat-category list (28), reached from VS options' second page
 on a fresh save, and narrows its pointer-button contexts natively.
 
+Patch 0609 reads the captain chant's bus clock through the host: the original
+converts OSGetTime to milliseconds through the Wii OS global at 0x800000F8,
+which is unmapped in a native process. Patch 0608 spells four original
+constructs in host-valid C++ with the same values and linkage: the Waluigi
+direction tables' narrowing (a Clang error), a one-line extern "C" definition,
+ODE's M_SQRT1_2 beside host <math.h> and depth of field's 32-bit memcpy
+prototype. Patch 0607 keeps the original AI transition-context overlay at
+native widths: retail reads a state machine's parameters through a
+FuzzyRuntimeContext view of the machine, and the Wii pad word moved the view's
+parameters one pointer past the machine's natively.
+
 Patches 0620–0621 admit original Strikers 101 lesson and Striker Challenge play
 under the explicit challenge-play diagnostic. 0620 opens the 101 pause menu (84),
 the lesson movie player (87) and the Challenge preview (103), and queues the 101
@@ -602,6 +613,21 @@ discards every polygon in that mode while still drawing points and lines;
 polygon draws now consume their data without encoding a draw. Previously the
 pipeline build aborted when a match restarted play after a goal, and the
 persisted configuration repeated the abort at the next start.
+
+`0066-preserve-position-invariance-between-gx-shaders.patch` requests consistent
+vertex positions across TEV shader variants, as needed by original materials
+that draw depth first and then use GX_EQUAL. The Vulkan fixture checks actual
+equal-depth blending and different-depth rejection. Position math and original
+material decisions remain unchanged; this is not a confirmed fix for the
+reported falling-player transparency artifact.
+
+`0067-native-coplanar-reference-depth.patch` implements GX's retained depth plane
+for co-planar polygons, including hidden GX_CULL_ALL setup and reference vertices
+outside the screen edges. Each queued draw owns its plane coefficients. Vulkan
+fixtures cover overlapping polygons, perspective transforms and depth gradients.
+Original game code is unchanged. Near/far-clipped, behind-eye or degenerate
+references, frozen lines/points and viewport changes while frozen remain
+explicitly unsupported. This does not fix the separate stadium shadow-mask issue.
 
 ## Dawn series
 

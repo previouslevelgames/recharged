@@ -411,10 +411,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
         // and FE methods retain their original mappings and decisions. The
         // keyboard remote carries a virtual Nunchuk, which original matches
-        // require of every playing controller.
-        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,false,false},
+        // require of every playing controller. Physical Wii Remotes (with a
+        // Nunchuk) point with the mouse: SDL reports no Wii Remote IR data.
+        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,true,false},
             mscharged::platform::GetNativeSTMInput(),
-            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true});
+            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true});
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(

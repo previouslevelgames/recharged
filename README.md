@@ -43,6 +43,25 @@ Supply an **ISO or RVZ from your own copy**. Game data is not included. Files in
 `game/` and your personal `mscharged.ini` are excluded from Git.
 See [disc setup](docs/BUILDING.md#configure-your-disc).
 
+## Controls
+
+The keyboard and mouse act as a Wii Remote with a Nunchuk; the original game
+decides what each input does. Keep the game window focused.
+
+| Wii input | Keyboard / mouse |
+| --- | --- |
+| Pointer | Mouse |
+| A | Enter, Space, or left click |
+| B | Esc, Backspace, or right click |
+| D-pad | Arrow keys |
+| 1 / 2 | Z / X |
+| + (Plus) / − (Minus) | Tab / - |
+| HOME | Home |
+| Nunchuk stick | W A S D |
+| Nunchuk C / Z | C / V |
+| Shake Wii Remote (hit an opponent) | E |
+| Shake Nunchuk (switch items) | Q |
+
 ## Porting approach
 
 Original source plus reviewed patches becomes the compiled game:

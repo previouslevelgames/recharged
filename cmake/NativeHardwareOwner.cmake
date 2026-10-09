@@ -65,6 +65,19 @@ if(BUILD_TESTING)
     set_tests_properties(desktop_wpad_profile PROPERTIES TIMEOUT 15
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
+    # Physical Wii Remote + Nunchuk through SDL's Wii HID driver identity,
+    # emulated with an SDL virtual device of the same name/shape.
+    add_executable(wpad_physical_nunchuk_tests tests/wpad_physical_nunchuk_tests.cpp)
+    target_compile_features(wpad_physical_nunchuk_tests PRIVATE cxx_std_20)
+    target_compile_definitions(wpad_physical_nunchuk_tests PRIVATE
+        MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+    target_include_directories(wpad_physical_nunchuk_tests PRIVATE
+        "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    target_link_libraries(wpad_physical_nunchuk_tests PRIVATE charged_native_hardware_owner)
+    add_test(NAME wpad_physical_nunchuk COMMAND wpad_physical_nunchuk_tests)
+    set_tests_properties(wpad_physical_nunchuk PROPERTIES TIMEOUT 15
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
     add_executable(desktop_dpd_projection_tests tests/desktop_dpd_projection_tests.cpp)
     target_compile_features(desktop_dpd_projection_tests PRIVATE cxx_std_20)
     target_link_libraries(desktop_dpd_projection_tests PRIVATE charged_native_hardware_owner)

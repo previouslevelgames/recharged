@@ -217,6 +217,23 @@ void NunchukCycle() {
           "V did not press Nunchuk Z");
     Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_C);
     Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_V);
+    // Q flicks the Nunchuk and E the Remote along X: +2.5 g, then -2.5 g, then
+    // rest. A tap released before the next service still flicks once.
+    Until([&] { auto r = FreestyleReport(); return r.accX == 0 && r.accZ == 100; }, "Remote is not level at rest");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_Q);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_Q);
+    Until([&] { return FreestyleReport().fsAccX == 500; }, "Q did not flick the Nunchuk");
+    Check(FreestyleReport().accX == 0, "A Nunchuk flick moved the Remote");
+    Until([&] { return FreestyleReport().fsAccX == -500; }, "The Nunchuk flick did not swing back");
+    Until([&] { auto r = FreestyleReport(); return r.fsAccX == 0 && r.fsAccZ == 200; },
+          "The Nunchuk flick did not come to rest");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_E);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_E);
+    Until([&] { return FreestyleReport().accX == -250; }, "E did not flick the Remote");
+    Check(FreestyleReport().fsAccX == 0, "A Remote flick moved the Nunchuk");
+    Until([&] { return FreestyleReport().accX == 250; }, "The Remote flick did not swing back");
+    Until([&] { auto r = FreestyleReport(); return r.accX == 0 && r.accZ == 100; },
+          "The Remote flick did not come to rest");
     Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
     Until([&] { return FreestyleReport().button == WPAD_BUTTON_A; }, "Remote A changed with the Nunchuk");
     Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);

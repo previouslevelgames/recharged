@@ -1,6 +1,23 @@
 include_guard(GLOBAL)
 
 function(mscharged_preserve_original_return_semantics)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # GCC has no -fno-strict-return: when optimizing it ends every
+        # value-returning C++ function with __builtin_unreachable(), which
+        # dropped the range check of feHelpFuncs' cheat-name jump tables.
+        # Without optimization it keeps the plain retail fallthrough. These are
+        # small menu helpers. ModelTransition already returns explicitly.
+        set(source "${MSCHARGED_PREPARED}/src/Game/FE/feHelpFuncs.cpp")
+        if(NOT EXISTS "${source}")
+            message(FATAL_ERROR "Missing original return owner: ${source}")
+        endif()
+        get_source_file_property(options "${source}" COMPILE_OPTIONS)
+        if(NOT "-Wno-return-type" IN_LIST options)
+            set_property(SOURCE "${source}" APPEND PROPERTY
+                COMPILE_OPTIONS -O0 -Wno-return-type)
+        endif()
+        return()
+    endif()
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         return()
     endif()

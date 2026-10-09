@@ -22,6 +22,9 @@ struct DesktopWpadSettings {
     // Attach a virtual Nunchuk to the keyboard remote: W/A/S/D move its stick
     // and C/V press C/Z. Requires the keyboard profile.
     bool nunchuk = false;
+    // Lend the mouse camera to physical Wii Remotes, which SDL reports without
+    // IR data, so they can point at original menus. Requires the mouse profile.
+    bool share_mouse_with_remotes = false;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.

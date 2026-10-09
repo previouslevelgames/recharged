@@ -59,3 +59,5 @@
 0063-reuse-native-vi-surface-copy-resources.patch
 0064-retain-robustness-without-backend-debug-layers.patch
 0065-reject-polygons-under-gx-cull-all.patch
+0066-preserve-position-invariance-between-gx-shaders.patch
+0067-native-coplanar-reference-depth.patch

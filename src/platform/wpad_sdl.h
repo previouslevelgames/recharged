@@ -32,4 +32,9 @@ void ConfigureWpadSDL(WpadSDLSettings settings);
 void ServiceWpadSDL();
 std::size_t WpadSDLConnectedChannels();
 
+// Lend the desktop mouse camera to connected remotes without their own camera
+// source: SDL reports physical Wii Remotes without IR data. nullptr withdraws
+// it. Call from the SDL owner; original DPD enable/disable still applies.
+void SetNativeWpadSharedPointer(const NativeDpdObservation* observation);
+
 } // namespace mscharged::platform

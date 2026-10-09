@@ -54,6 +54,11 @@ function(mscharged_add_graphics_providers)
     add_library(sqlite3 STATIC "${MSCHARGED_SQLITE_GENERATED}/sqlite3.c")
     target_include_directories(sqlite3 PUBLIC "${MSCHARGED_SQLITE_GENERATED}")
     target_link_libraries(sqlite3 PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        # Upstream amalgamation code that newer GCC reports (const-returning C23
+        # string functions, a guarded strlen); SQLite itself is unchanged.
+        target_compile_options(sqlite3 PRIVATE -Wno-discarded-qualifiers -Wno-stringop-overread)
+    endif()
     add_library(imgui STATIC
         "${MSCHARGED_IMGUI_PREPARED}/imgui.cpp"
         "${MSCHARGED_IMGUI_PREPARED}/imgui_draw.cpp"

@@ -1308,14 +1308,20 @@ void RetireGraphicsRange(void* pending_, const void* pointer, std::size_t bytes,
     auto owner = Containing(state.records, address, bytes);
     if (owner == state.records.end()) throw std::invalid_argument("Graphics rewind has no real allocation backing");
     ValidateMemoryExtent(owner->second,address,bytes);
-    for (const auto& [base, live] : owner->second.graphics_storage)
-        if (Overlaps(base, live.bytes, address, bytes) && !Contains(address, bytes, base, live.bytes))
+    auto& spans = owner->second.graphics_storage;
+    auto first = spans.lower_bound(address);
+    auto last = spans.lower_bound(address + bytes);
+    // Graphics storage is disjoint, including records kept by a pool rewind.
+    // Only the predecessor and starts inside this range can intersect it.
+    auto check = first;
+    if (check != spans.begin()) --check;
+    for (; check != last; ++check)
+        if (Overlaps(check->first, check->second.bytes, address, bytes)
+            && !Contains(address, bytes, check->first, check->second.bytes))
             throw std::invalid_argument("Graphics rewind cuts through a live source suballocation");
     auto& pending = *static_cast<PendingGraphicsRetirement*>(pending_);
     RetireByteRange(owner->second, address, bytes, pending.split);
-    auto first = owner->second.graphics_storage.lower_bound(address);
-    auto last = owner->second.graphics_storage.lower_bound(address + bytes);
-    if (!keepRewound) { owner->second.graphics_storage.erase(first, last); return; }
+    if (!keepRewound) { spans.erase(first, last); return; }
     // The original pool only moves its top; memory and incarnations remain.
     for (; first != last; ++first) first->second.rewound = true;
 }
@@ -1361,9 +1367,21 @@ void PublishGameGraphicsNativeBytes(const void* base, const void* writtenEnd)
     auto& prepared = graphics->second.native_publication;
     if (!prepared.empty())
     {
-        for (const auto& [oldBase, old] : owner->second.byte_spans)
-            if (Overlaps(oldBase, old.bytes, address, count))
+        // This exact graphics child has not previously published native bytes.
+        // Its registration retired crossing parent domains; later producers
+        // are bounded by ValidateGraphicsExtent. Repeated native publication
+        // can overlap byte spans inside OTHER children, so this is not a
+        // general assertion that every completed byte span is disjoint.
+        auto& completed = owner->second.byte_spans;
+        const auto next = completed.lower_bound(address);
+        if (next != completed.begin())
+        {
+            const auto prior = std::prev(next);
+            if (Overlaps(prior->first, prior->second.bytes, address, count))
                 throw std::invalid_argument("Native stream publication overlaps another completed producer");
+        }
+        if (next != completed.end() && Overlaps(next->first, next->second.bytes, address, count))
+            throw std::invalid_argument("Native stream publication overlaps another completed producer");
         prepared.key() = address; prepared.mapped() = ready;
         auto inserted = owner->second.byte_spans.insert(std::move(prepared));
         if (!inserted.inserted) throw std::logic_error("Native stream publication address conflict");

@@ -1,0 +1,395 @@
+From: mscharged-port contributors
+Subject: [PATCH] Preserve retained GX co-planar depth setup
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native GX rasterization hardware contract.
+
+Consume the actual depth-freeze bit and retain last selected polygon depth
+coefficients by value for queued consumers, including CULL_ALL and finite
+positive-W side-offscreen setup. Preserve coverage, transforms, render
+requests and GX ABI. Unsupported setup errors rather than inventing a plane.
+Apply after 0066; vertex position invariance remains intact.
+
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -433,6 +433,26 @@
+   void clearVtxSizeCache() { lastVtxFmt = GX_MAX_VTXFMT; }
+ };
+ extern GXState g_gxState;
++// Native depth-plane state is separate so the existing GXState ABI is unchanged.
++// A plane is usable only after actual finite polygon setup; no source storage is retained.
++struct CoPlanarState {
++  bool enabled = false;
++  bool valid = false;
++  Vec4<float> plane{0.f, 0.f, 0.f, 0.f};
++  gfx::Viewport viewport{};
++  u64 generation = 0;
++};
++extern CoPlanarState g_coPlanarState;
++
++inline Mat4x4<float> effective_projection() noexcept {
++  auto projection = g_gxState.proj;
++  if constexpr (UseReversedZ) {
++    projection.m2 = projection.m2 * Vec4{-1.f, -1.f, -1.f, -1.f};
++  } else {
++    projection.m2 = projection.m2 + projection.m3;
++  }
++  return projection;
++}
+ struct ShaderInfo;
+ 
+ void initialize() noexcept;
+@@ -497,7 +517,8 @@
+   u8 vtxStride = 0;
+   u8 lineMode : 2 = 0; // 1 = GX_LINES, 2 = GX_LINESTRIP, 3 = GX_POINTS
+   u8 fogRangeEnabled : 1 = false;
+-  u8 pad1 : 5 = 0;
++  u8 coPlanar : 1 = false;
++  u8 pad1 : 4 = 0;
+   u8 pad2 = 0;
+   std::array<AttrConfig, MaxVtxAttr> attrs;
+   std::array<TevSwap, MaxTevSwap> tevSwapTable;
+@@ -536,6 +557,7 @@
+   bool usesFog : 1 = false;
+   bool lightingEnabled : 1 = false;
+   u8 lineMode : 2 = 0;
++  u8 coPlanar : 1 = false;
+ };
+ struct BindGroupRanges {
+   std::array<gfx::Range, MaxIndexAttr> vaRanges{};
+diff --git a/lib/gx/regs.cpp b/lib/gx/regs.cpp
+--- a/lib/gx/regs.cpp
++++ b/lib/gx/regs.cpp
+@@ -86,6 +86,7 @@
+     break;
+   }
+   g_gxState.numIndStages = reg_get(value, 3, 16);
++  g_coPlanarState.enabled = reg_get(value, 1, 19) != 0;
+   g_gxState.xfRegValid.reset(0x09);
+   g_gxState.xfRegValid.reset(0x3F);
+ }
+diff --git a/lib/gx/command_processor.cpp b/lib/gx/command_processor.cpp
+--- a/lib/gx/command_processor.cpp
++++ b/lib/gx/command_processor.cpp
+@@ -15,6 +15,8 @@
+ #include <tracy/Tracy.hpp>
+ 
+ #include <algorithm>
++#include <bit>
++#include <cstring>
+ #include <cmath>
+ #include <cstdint>
+ #include <span>
+@@ -145,6 +147,7 @@
+   GXVtxFmt lastDrawFmt = GX_MAX_VTXFMT;
+ };
+ DrawCache sDrawCache;
++u64 sUniformCoPlanarGeneration = 0;
+ 
+ FogRangeLutKey fog_range_lut_key() noexcept {
+   const auto& state = g_gxState.fog;
+@@ -209,6 +212,150 @@
+   default:
+     return 0;
+   }
++}
++
++// Set up the last selected polygon's depth plane before CULL_ALL rejects rasterization.
++// Finite positive-W side-offscreen vertices define the same window-depth plane.
++// Unsupported setup remains invalid rather than supplying a default depth.
++bool co_planar_position(GXVtxFmt fmt, std::span<const u8> vertex, Vec4<float>& clip) noexcept {
++  u32 offset = 0;
++  for (int attr = GX_VA_PNMTXIDX; attr <= GX_VA_TEX7MTXIDX; ++attr) {
++    if (g_gxState.vtxDesc[attr] == GX_DIRECT) ++offset;
++  }
++  const auto& format = g_gxState.vtxFmts[fmt].attrs[GX_VA_POS];
++  const u32 componentBytes = comp_type_size(GX_VA_POS, format.type);
++  const u32 components = comp_cnt_count(GX_VA_POS, format.cnt);
++  if (components < 2 || components > 3 || componentBytes == 0) return false;
++  const u32 bytes = componentBytes * components;
++  const u8* data = nullptr;
++  bool littleEndian = false;
++  const auto descriptor = g_gxState.vtxDesc[GX_VA_POS];
++  if (descriptor == GX_DIRECT) {
++    if (offset > vertex.size() || bytes > vertex.size() - offset) return false;
++    data = vertex.data() + offset;
++  } else if (descriptor == GX_INDEX8 || descriptor == GX_INDEX16) {
++    const u32 indexBytes = descriptor == GX_INDEX8 ? 1 : 2;
++    if (offset > vertex.size() || indexBytes > vertex.size() - offset) return false;
++    const u32 index = indexBytes == 1 ? vertex[offset] : (u32(vertex[offset]) << 8) | vertex[offset + 1];
++    const auto& array = g_gxState.arrays[GX_VA_POS];
++    const u64 start = u64(index) * array.stride;
++    if (!array.data || start > array.size || bytes > array.size - start) return false;
++    data = static_cast<const u8*>(array.data) + start;
++    littleEndian = array.le;
++  } else {
++    return false;
++  }
++  const auto word = [littleEndian](const u8* p, u32 count) {
++    u32 value = 0;
++    for (u32 i = 0; i < count; ++i) {
++      const u32 shift = littleEndian ? i * 8 : (count - 1 - i) * 8;
++      value |= u32(p[i]) << shift;
++    }
++    return value;
++  };
++  const float scale = format.type == GX_F32 ? 1.f : std::ldexp(1.f, -int(format.frac));
++  float position[3]{};
++  for (u32 i = 0; i < components; ++i) {
++    const u32 value = word(data + i * componentBytes, componentBytes);
++    switch (format.type) {
++    case GX_U8: case GX_U16: position[i] = float(value) * scale; break;
++    case GX_S8: position[i] = float(std::bit_cast<s8>(u8(value))) * scale; break;
++    case GX_S16: position[i] = float(std::bit_cast<s16>(u16(value))) * scale; break;
++    case GX_F32: position[i] = std::bit_cast<float>(value); break;
++    default: return false;
++    }
++    if (!std::isfinite(position[i])) return false;
++  }
++  u32 matrix = g_gxState.currentPnMtx;
++  if (g_gxState.vtxDesc[GX_VA_PNMTXIDX] == GX_DIRECT) {
++    if (vertex.empty()) return false;
++    matrix = vertex.front() / 3;
++  }
++  if (matrix >= MaxPnMtx + MaxTexMtx) return false;
++  const auto& model = matrix < MaxPnMtx ? g_gxState.pnMtx[matrix].pos : g_gxState.texMtxs[matrix - MaxPnMtx];
++  const auto row = [&](const Vec4<float>& r) {
++    return r[0] * position[0] + r[1] * position[1] + r[2] * position[2] + r[3];
++  };
++  const Vec4<float> eye{row(model.m0), row(model.m1), row(model.m2), 1.f};
++  const auto projection = effective_projection();
++  const auto project = [&](const Vec4<float>& r) {
++    return r[0] * eye[0] + r[1] * eye[1] + r[2] * eye[2] + r[3] * eye[3];
++  };
++  clip = {project(projection.m0), project(projection.m1), project(projection.m2), project(projection.m3)};
++  return std::isfinite(clip[0]) && std::isfinite(clip[1]) && std::isfinite(clip[2]) && std::isfinite(clip[3]);
++}
++
++void capture_co_planar_reference(GXPrimitive primitive, GXVtxFmt fmt, std::span<const u8> vertices,
++                                 u16 vertexCount, u32 vertexStride, std::span<const u8> indices = {},
++                                 bool indexed = false) noexcept {
++  auto& reference = g_coPlanarState;
++  if (reference.enabled || vertexCount == 0 || (indexed && indices.empty())) return;
++  reference.valid = false;
++  std::array<u32, 3> last{};
++  if (indexed) {
++    if (primitive != GX_TRIANGLES || indices.size() % (3 * sizeof(u16)) != 0) return;
++    for (u32 i = 0; i < 3; ++i) {
++      u16 index;
++      std::memcpy(&index, indices.data() + indices.size() - (3 - i) * sizeof(u16), sizeof(index));
++      if (index >= vertexCount) return;
++      last[i] = index;
++    }
++  } else if (primitive == GX_TRIANGLES && vertexCount >= 3 && vertexCount % 3 == 0) {
++    last = {u32(vertexCount) - 3, u32(vertexCount) - 2, u32(vertexCount) - 1};
++  } else if (primitive == GX_QUADS && vertexCount >= 4 && vertexCount % 4 == 0) {
++    // Same final triangle order as prepare_idx_buffer, not the last three records.
++    last = {u32(vertexCount) - 2, u32(vertexCount) - 1, u32(vertexCount) - 4};
++  } else if (primitive == GX_TRIANGLEFAN && vertexCount >= 3) {
++    last = {0, u32(vertexCount) - 2, u32(vertexCount) - 1};
++  } else if (primitive == GX_TRIANGLESTRIP && vertexCount >= 3) {
++    last = {u32(vertexCount) - 3, u32(vertexCount) - 2, u32(vertexCount) - 1};
++  } else {
++    return;
++  }
++  const auto& viewport = g_gxState.renderViewport;
++  if (!(viewport.width > 0.f && viewport.height > 0.f)) return;
++  const float nearDepth = UseReversedZ ? 1.f - viewport.zfar : viewport.znear;
++  const float farDepth = UseReversedZ ? 1.f - viewport.znear : viewport.zfar;
++  float window[3][3];
++  for (u32 i = 0; i < 3; ++i) {
++    const size_t start = size_t(last[i]) * vertexStride;
++    if (start > vertices.size() || vertexStride > vertices.size() - start) return;
++    Vec4<float> clip;
++    if (!co_planar_position(fmt, vertices.subspan(start, vertexStride), clip)) return;
++    // Side clipping/scissor do not change a finite planar setup equation.
++    // Near/far-clipped and behind-eye reference setup are not implemented.
++    if (!(clip[3] > 0.f) || clip[2] < 0.f || clip[2] > clip[3]) return;
++    window[i][0] = viewport.left + (clip[0] / clip[3] + 1.f) * .5f * viewport.width;
++    window[i][1] = viewport.top + (1.f - clip[1] / clip[3]) * .5f * viewport.height;
++    window[i][2] = nearDepth + clip[2] / clip[3] * (farDepth - nearDepth);
++  }
++  const float x1 = window[1][0] - window[0][0], y1 = window[1][1] - window[0][1];
++  const float z1 = window[1][2] - window[0][2];
++  const float x2 = window[2][0] - window[0][0], y2 = window[2][1] - window[0][1];
++  const float z2 = window[2][2] - window[0][2];
++  const float determinant = x1 * y2 - x2 * y1;
++  if (determinant == 0.f || !std::isfinite(determinant)) return;
++  const float a = (z1 * y2 - z2 * y1) / determinant;
++  const float b = (x1 * z2 - x2 * z1) / determinant;
++  const float c = window[0][2] - a * window[0][0] - b * window[0][1];
++  if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c)) return;
++  reference.plane = {a, b, c, 0.f};
++  reference.viewport = viewport;
++  reference.valid = true;
++  ++reference.generation;
++}
++
++void require_co_planar_reference(GXPrimitive primitive) noexcept {
++  const auto& reference = g_coPlanarState;
++  if (!reference.enabled) return;
++  AURORA_ASSERT(line_mode_for_prim(primitive) == 0,
++                "GX co-planar: depth freeze for lines/points is not implemented");
++  AURORA_ASSERT(reference.valid, "GX co-planar: reference plane is absent, unsupported or degenerate");
++  const auto& a = reference.viewport;
++  const auto& b = g_gxState.renderViewport;
++  AURORA_ASSERT(a.left == b.left && a.top == b.top && a.width == b.width && a.height == b.height &&
++                a.znear == b.znear && a.zfar == b.zfar,
++                "GX co-planar: viewport changes while depth is frozen are not implemented");
+ }
+ 
+ // GX_CULL_ALL rejects every polygon before rasterization; points and lines are
+@@ -391,6 +538,7 @@
+                          u32 numIndices) noexcept {
+   auto& state = g_gxState;
+   auto& cache = sDrawCache;
++  require_co_planar_reference(prim);
+ 
+   DrawImmediateData immediates{.vtxStart = vertRange.offset, .currentPnMtx = state.currentPnMtx};
+   for (int i = GX_VA_POS; i <= GX_VA_TEX7; ++i) {
+@@ -440,9 +588,11 @@
+     }
+   }
+ 
+-  const bool uniformValid = (state.dirty & DirtyUniform) == 0 && cache.uniformRange.size != 0;
++  const bool uniformValid = (state.dirty & DirtyUniform) == 0 && cache.uniformRange.size != 0 &&
++                            (!cache.shaderInfo.coPlanar || sUniformCoPlanarGeneration == g_coPlanarState.generation);
+   if (!uniformValid) {
+     cache.uniformRange = build_uniform(cache.shaderInfo);
++    sUniformCoPlanarGeneration = g_coPlanarState.generation;
+     state.dirty &= ~DirtyUniform;
+   }
+   if (cache.config.shaderConfig.fogRangeEnabled) {
+@@ -509,6 +659,9 @@
+   if (totalVtxBytes > reader.remaining())
+     UNLIKELY { handle_draw_overrun(totalVtxBytes, reader); }
+ 
++  capture_co_planar_reference(prim, fmt, std::span{reader.data() + reader.offset(), size_t(totalVtxBytes)},
++                               vtxCount, vtxSize);
++
+   if (polygons_culled(prim))
+     UNLIKELY {
+       static_cast<void>(reader.take(totalVtxBytes));
+@@ -519,7 +672,8 @@
+                           prim != GX_LINES && prim != GX_LINESTRIP && prim != GX_POINTS;
+   auto* lastDraw = cleanState ? gfx::get_last_draw_command<DrawData>() : nullptr;
+   const bool canMerge = lastDraw != nullptr && lastDraw->instanceCount == 1 &&
+-                        lastDraw->receiptTag == currentDrawReceipt;
++                        lastDraw->receiptTag == currentDrawReceipt &&
++                        (!g_coPlanarState.enabled || sUniformCoPlanarGeneration == g_coPlanarState.generation);
+ 
+   // Push raw vertex data to buffer. Merged draws must remain contiguous with the previous range.
+   const auto vertexData = reader.take(totalVtxBytes);
+@@ -767,6 +921,7 @@
+     }
+     const u32 totalVtxBytes = vtxCount * vtxSize;
+     const auto vertexData = reader.take(totalVtxBytes);
++    capture_co_planar_reference(prim, fmt, vertexData, vtxCount, vtxSize, indexData, true);
+     if (!polygons_culled(prim)) {
+       const gfx::Range idxRange = gfx::push_indices(indexData.data(), indexData.size(), 4);
+       const gfx::Range vertRange = gfx::push_verts(vertexData.data(), vertexData.size(), 4);
+diff --git a/lib/gx/gx.cpp b/lib/gx/gx.cpp
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -29,6 +29,7 @@
+ using webgpu::g_graphicsConfig;
+ 
+ GXState g_gxState{};
++CoPlanarState g_coPlanarState{};
+ wgpu::BindGroup g_emptyTextureBindGroup;
+ 
+ namespace {
+@@ -441,6 +442,7 @@
+   } else {
+     config.shaderConfig.lineMode = 0;
+   }
++  config.shaderConfig.coPlanar = g_coPlanarState.enabled && config.shaderConfig.lineMode == 0;
+   config.shaderConfig.tevSwapTable = g_gxState.tevSwapTable;
+   for (u8 i = 0; i < g_gxState.numTevStages; ++i) {
+     config.shaderConfig.tevStages[i] = g_gxState.tevStages[i];
+@@ -537,6 +539,7 @@
+ }
+ 
+ void initialize() noexcept {
++  g_coPlanarState = {};
+   {
+     std::array<wgpu::BindGroupLayoutEntry, MaxTextures * 2> textureEntries;
+     for (u32 i = 0; i < MaxTextures; ++i) {
+@@ -613,6 +616,7 @@
+ }
+ 
+ void shutdown() noexcept {
++  g_coPlanarState = {};
+   // TODO we should probably store this all in g_state.gx instead
+   g_emptyTextureBindGroup = {};
+   sEmptySampler = {};
+diff --git a/lib/gx/shader_info.cpp b/lib/gx/shader_info.cpp
+--- a/lib/gx/shader_info.cpp
++++ b/lib/gx/shader_info.cpp
+@@ -235,6 +235,11 @@
+     } else if (attrType == GX_INDEX8 || attrType == GX_INDEX16) {
+       info.indexAttr.set(attr);
+     }
++  }
++
++  if (config.coPlanar) {
++    info.coPlanar = true;
++    info.uniformSize += sizeof(Vec4<float>);
+   }
+ 
+   // 10 position matrices, 10 texture matrices, 10 normal matrices.
+@@ -389,13 +394,11 @@
+       buf.append<u32>(line_texcoord_mask());
+     }
+   }
+-  auto proj = g_gxState.proj;
+-  if constexpr (UseReversedZ) {
+-    proj.m2 = proj.m2 * Vec4{-1.f, -1.f, -1.f, -1.f};
+-  } else {
+-    proj.m2 = proj.m2 + proj.m3;
+-  }
+-  buf.append(proj);
++  buf.append(effective_projection());
++  if (info.coPlanar) {
++    // A command packet owns these coefficients, not a pointer to live state.
++    buf.append(g_coPlanarState.plane);
++  }
+ 
+   for (int i = 0; i < MaxPnMtx; i++) {
+     buf.append(g_gxState.pnMtx[i].pos);
+diff --git a/lib/gx/shader.cpp b/lib/gx/shader.cpp
+--- a/lib/gx/shader.cpp
++++ b/lib/gx/shader.cpp
+@@ -1072,6 +1072,7 @@
+   }
+ 
+   uniBufAttrs += "\n    proj: mat4x4f,";
++  if (config.coPlanar) uniBufAttrs += "\n    co_planar_plane: vec4f,";
+   uniBufAttrs += fmt::format("\n    postex_mtx: array<mat3x4f, {}>,", MaxPnMtx + MaxTexMtx);
+   uniBufAttrs += fmt::format("\n    nrm_mtx: array<mat3x4f, {}>,", MaxPnMtx);
+   std::string fragmentFnPre;
+@@ -1672,6 +1673,24 @@
+     fragmentReturn = "\n    return FragmentOutput(vec4f(prev.rgb, 1.0), prev);";
+   }
+ 
++  if (config.coPlanar) {
++    const std::string depth = "\n    let coPlanarDepth = dot(vec3f(in.pos.xy, 1.0), ubuf.co_planar_plane.xyz);";
++    if (fragmentOutput.empty()) {
++      fragmentOutput = "\nstruct FragmentOutput {\n    @location(0) color: vec4f,\n"
++                       "    @builtin(frag_depth) depth: f32,\n};\n";
++      fragmentOutputType = "FragmentOutput"sv;
++      fragmentReturn = depth + "\n    return FragmentOutput(prev, coPlanarDepth);";
++    } else {
++      fragmentOutput.insert(fragmentOutput.rfind('}'), "    @builtin(frag_depth) depth: f32,\n");
++      if (dstAlphaMode == DstAlphaMode::DualSource) {
++        fragmentReturn = depth + "\n    return FragmentOutput(vec4f(prev.rgb, 1.0), prev, coPlanarDepth);";
++      } else {
++        fragmentReturn.insert(fragmentReturn.rfind("\n    return out;"), "\n    out.depth = coPlanarDepth;");
++        fragmentReturn = depth + fragmentReturn;
++      }
++    }
++  }
++
+   auto shaderSource =
+       fmt::format(R"""(
+ fn bswap32(v: u32, le: bool) -> u32 {{

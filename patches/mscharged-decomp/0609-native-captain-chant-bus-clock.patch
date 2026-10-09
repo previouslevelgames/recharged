@@ -1,0 +1,39 @@
+Subject: Read the captain chant's bus clock through the host
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+UpdateTeamCaptainChant converts OSGetTime to milliseconds by reading the Wii OS
+global bus clock at its fixed console address 0x800000F8. That address is not
+mapped in a native process, so the first captain chant in a stadium with chants
+faulted. The native branch reads the same 32-bit bus clock through the existing
+ChargedGetBusClock bridge (patch 0009). The u32 arithmetic, the 1200 ms repeat
+window, the chant request and every decision stay original; the console
+expression is unchanged.
+
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -48,6 +48,9 @@
+ 
+ #include <stdlib.h>
+ #include "Game/CharacterTriggers.h"
++#if defined(MSCHARGED_NATIVE)
++#include <revolution/os/OSHardware_fwd.h>
++#endif
+ 
+ cTeam* g_pTeams[2] = { NULL, NULL };
+ cTeam* g_pCurrentlyUpdatingTeam;
+@@ -1211,8 +1214,14 @@
+             return;
+         }
+ 
++#if defined(MSCHARGED_NATIVE)
++        // The Wii OS global at 0x800000F8 is the bus clock; the host supplies it.
++        unsigned long nCurrentTime = (unsigned long)(OSGetTime()
++            / ((ChargedGetBusClock() >> 2) / 1000));
++#else
+         unsigned long nCurrentTime = (unsigned long)(OSGetTime()
+             / ((*(unsigned long*)0x800000F8 >> 2) / 1000));
++#endif
+         if (nCurrentTime - gCaptainChantLastPlayTime[0] <= 1200)
+         {
+             return;

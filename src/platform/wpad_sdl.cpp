@@ -5,6 +5,7 @@
 #include <revolution/wpad/WPAD.h>
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include <limits>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 namespace {
 constexpr std::array<u16, 11> kRemoteButtons{
@@ -44,6 +46,11 @@ struct Channel {
     bool pending_disconnect = false;
     bool disconnected_this_service = false;
     bool motor_running = false;
+    // A Wii Remote whose SDL Wii HID driver reports an attached Nunchuk (device
+    // "Nintendo Wii Remote with Nunchuk": left stick, C button, Z trigger axis,
+    // ACCEL_L sensor). Its post-parser freestyle words, as the virtual source's.
+    bool physical_nunchuk = false;
+    mscharged::platform::NativeNunchukObservation nunchuk{};
 };
 struct DpdProducer {
     mscharged::platform::NativeDpdSource source{};
@@ -68,6 +75,14 @@ struct Hardware {
     std::thread::id dpd_owner{};
     std::uint64_t dpd_generation = 0;
     std::array<NunchukProducer, WPAD_MAX_CONTROLLERS> nunchuk_producers{};
+    // Remotes SDL lists without the Wii HID driver's buttons and motion sensor
+    // (for example only through the kernel driver). Opened once, not per frame.
+    std::vector<SDL_JoystickID> rejected_remotes;
+    // Desktop mouse camera lent to remotes without their own camera source.
+    // SDL's Wii HID driver reports no IR data, so a physical remote points
+    // with the mouse while its buttons, stick and motion stay its own.
+    bool shared_pointer = false;
+    mscharged::platform::NativeDpdObservation shared_pointer_observation{};
     std::thread::id nunchuk_owner{};
     std::uint64_t nunchuk_generation = 0;
 };
@@ -103,11 +118,16 @@ DpdProducer& RequireDpdProducer(mscharged::platform::NativeDpdSource source) {
         throw std::invalid_argument("DPD observation source is retired or foreign");
     return *producer;
 }
+const mscharged::platform::NativeDpdObservation* ChannelPointer(const Channel& channel) {
+    if (!channel.id) return nullptr;
+    if (const auto* producer = FindDpdProducer(channel.id)) return &producer->observation;
+    return State().shared_pointer ? &State().shared_pointer_observation : nullptr;
+}
 void CopyDpdObservation(Channel& channel, WPADFSStatus& report) {
-    const auto* producer = FindDpdProducer(channel.id);
-    if (!producer || channel.dpd_command == WPAD_DPD_DISABLE) return;
-    for (std::size_t n = 0; n < producer->observation.size(); ++n) {
-        const auto& object = producer->observation[n];
+    const auto* observation = ChannelPointer(channel);
+    if (!observation || channel.dpd_command == WPAD_DPD_DISABLE) return;
+    for (std::size_t n = 0; n < observation->size(); ++n) {
+        const auto& object = (*observation)[n];
         report.obj[n] = {object.x, object.y, object.size, object.trace_id};
     }
 }
@@ -136,8 +156,8 @@ void CopyNunchukObservation(const Channel& channel, WPADFSStatus& report) {
     // and the original parser decodes them only once the extension is known.
     if (channel.device != WPAD_DEV_FREESTYLE || !FreestyleFormat(channel.format)) return;
     const auto* producer = FindNunchukProducer(channel.id);
-    if (!producer) return;
-    const auto& value = producer->observation;
+    if (!producer && !channel.physical_nunchuk) return;
+    const auto& value = producer ? producer->observation : channel.nunchuk;
     report.fsStickX = value.stick_x;
     report.fsStickY = value.stick_y;
     report.fsAccX = value.acc_x;
@@ -151,6 +171,8 @@ void ClearReports(Channel& channel) {
     channel.buttons = 0;
     channel.device = WPAD_DEV_CORE;
     channel.motor_running = false;
+    channel.physical_nunchuk = false;
+    channel.nunchuk = {};
     channel.head = channel.count = 0;
     channel.dpd_command = WPAD_DPD_DISABLE;
     channel.dpd_pending_command = WPAD_DPD_DISABLE;
@@ -172,6 +194,17 @@ bool RawAccel(float value, bool invert, s16& output) {
     output = static_cast<s16>(word);
     return true;
 }
+std::int8_t NunchukStick(int value) {
+    // SDL's Wii driver posts the calibrated stick as +/-32767 (Y inverted);
+    // the WPAD freestyle word counts from the stick centre, ~100 at full tilt.
+    const double scaled = std::clamp(value / 32767.0, -1.0, 1.0) * 100.0;
+    return static_cast<std::int8_t>(std::lround(scaled));
+}
+std::int16_t NunchukAccel(float value) {
+    // The driver emits (-x, z, y) / 200 counts per g after the 0x200 zero point.
+    const double counts = std::isfinite(value) ? double(value) * 200.0 / double(kGravity) : 0.0;
+    return static_cast<std::int16_t>(std::lround(std::clamp(counts, -512.0, 511.0)));
+}
 bool SDLCALL Watch(void*, SDL_Event* event) {
     auto& state = State();
     std::lock_guard lock(state.reports);
@@ -180,15 +213,37 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
         id = event->jbutton.which;
     else if (event->type == SDL_EVENT_GAMEPAD_SENSOR_UPDATE)
         id = event->gsensor.which;
+    else if (event->type == SDL_EVENT_JOYSTICK_AXIS_MOTION)
+        id = event->jaxis.which;
     else return true;
     for (auto& channel : state.channels) {
         if (!channel.id || channel.id != id) continue;
+        if (event->type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
+            if (!channel.physical_nunchuk) return true;
+            if (event->jaxis.axis == SDL_GAMEPAD_AXIS_LEFTX)
+                channel.nunchuk.stick_x = NunchukStick(event->jaxis.value);
+            else if (event->jaxis.axis == SDL_GAMEPAD_AXIS_LEFTY)
+                channel.nunchuk.stick_y = NunchukStick(-int(event->jaxis.value));
+            else if (event->jaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER)
+                channel.nunchuk.z = event->jaxis.value > 0;
+            return true;
+        }
         if (event->type != SDL_EVENT_GAMEPAD_SENSOR_UPDATE) {
+            if (channel.physical_nunchuk && event->jbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)
+                channel.nunchuk.c = event->jbutton.down;
             int raw_index = int(event->jbutton.button) - int(SDL_GAMEPAD_BUTTON_MISC1);
             if (raw_index >= 0 && raw_index < int(kRemoteButtons.size())) {
                 u16 mask = kRemoteButtons[raw_index];
                 if (event->jbutton.down) channel.buttons |= mask;
                 else channel.buttons &= ~mask;
+            }
+            return true;
+        }
+        if (event->gsensor.sensor == SDL_SENSOR_ACCEL_L) {
+            if (channel.physical_nunchuk) {
+                channel.nunchuk.acc_x = NunchukAccel(-event->gsensor.data[0]);
+                channel.nunchuk.acc_y = NunchukAccel(event->gsensor.data[2]);
+                channel.nunchuk.acc_z = NunchukAccel(event->gsensor.data[1]);
             }
             return true;
         }
@@ -222,9 +277,11 @@ bool SupportedRemote(SDL_JoystickID id) {
     if (!State().settings.physical_wii_remotes && !SDL_IsJoystickVirtual(id)) return false;
     // Mapping names may be cached by GUID across devices. Use the actual
     // underlying joystick identity provided by the pinned Wii HID driver.
+    // The driver renames a remote whose extension it identified as a Nunchuk.
     const char* name = SDL_GetJoystickNameForID(id);
     const auto vendor = SDL_GetGamepadVendorForID(id), product = SDL_GetGamepadProductForID(id);
-    return name && std::strcmp(name, "Nintendo Wii Remote") == 0 && vendor == 0x057e &&
+    return name && (std::strcmp(name, "Nintendo Wii Remote") == 0 ||
+                    std::strcmp(name, "Nintendo Wii Remote with Nunchuk") == 0) && vendor == 0x057e &&
         (product == 0x0306 || product == 0x0330);
 }
 bool DispatchDpdCompletion(Channel& channel, s32 index) {
@@ -287,6 +344,30 @@ NativeDpdSource AttachNativeWpadDpdSource(std::uint32_t joystick_id) {
     slot->source = {joystick_id, ++state.dpd_generation};
     state.dpd_owner = std::this_thread::get_id();
     return slot->source;
+}
+void SetNativeWpadSharedPointer(const NativeDpdObservation* observation) {
+    RequireOwner();
+    if (observation)
+        for (const auto& object : *observation)
+            if (object.size && (object.x < 0 || object.x >= WPAD_MAX_DPD_X ||
+                                object.y < 0 || object.y >= WPAD_MAX_DPD_Y))
+                throw std::invalid_argument("Shared pointer observation exceeds its raw sensor domain");
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    if (observation) {
+        state.shared_pointer = true;
+        state.shared_pointer_observation = *observation;
+        return;
+    }
+    if (!state.shared_pointer) return;
+    state.shared_pointer = false;
+    state.shared_pointer_observation = {};
+    // Remotes that borrowed the camera lose it like a detached camera source.
+    for (auto& channel : state.channels) if (channel.id && !FindDpdProducer(channel.id)) {
+        channel.dpd_command = WPAD_DPD_DISABLE;
+        for (auto& object : channel.current.obj) object = {};
+        for (auto& report : channel.pending) for (auto& object : report.obj) object = {};
+    }
 }
 void SubmitNativeWpadDpdObservation(NativeDpdSource source, const NativeDpdObservation& observation) {
     RequireDpdOwner();
@@ -394,6 +475,8 @@ void ServiceWpadSDL() {
                 if (!DispatchDpdCompletion(channel, index)) return;
                 if (!state.initialized || state.generation != generation) return;
             }
+            if (!SDL_IsJoystickVirtual(SDL_GetGamepadID(channel.pad)))
+                SDL_Log("Wii Remote disconnected from WPAD channel %d", int(index));
             SDL_CloseGamepad(channel.pad);
             channel.pad = nullptr;
             {
@@ -420,6 +503,8 @@ void ServiceWpadSDL() {
         bool assigned = false;
         for (const auto& channel : state.channels) assigned |= channel.id == ids[n];
         if (assigned || !SupportedRemote(ids[n])) continue;
+        if (std::find(state.rejected_remotes.begin(), state.rejected_remotes.end(), ids[n]) !=
+                state.rejected_remotes.end()) continue;
         // Connect to the lowest free channel. When that channel is still retiring
         // a device in this service, wait for the next service instead of moving
         // the new device to a later player port.
@@ -430,7 +515,13 @@ void ServiceWpadSDL() {
         if (!pad) continue;
         SDL_Joystick* joystick = SDL_GetGamepadJoystick(pad);
         if (SDL_GetNumJoystickButtons(joystick) < int(SDL_GAMEPAD_BUTTON_MISC1) + int(kRemoteButtons.size()) ||
-                !SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL)) { SDL_CloseGamepad(pad); continue; }
+                !SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL)) {
+            SDL_CloseGamepad(pad);
+            state.rejected_remotes.push_back(ids[n]);
+            SDL_Log("Wii Remote ignored: SDL lists it without the Wii HID driver's buttons and "
+                    "motion sensor (check /dev/hidraw access)");
+            continue;
+        }
         u16 initial_buttons = 0;
         for (int button = 0; button < int(kRemoteButtons.size()); ++button)
             if (SDL_GetJoystickButton(joystick, int(SDL_GAMEPAD_BUTTON_MISC1) + button)) initial_buttons |= kRemoteButtons[button];
@@ -442,7 +533,9 @@ void ServiceWpadSDL() {
             slot->current.dev = WPAD_DEV_CORE;
             slot->current.err = WPAD_ERR_COMMUNICATION_ERROR;
         }
-        if (!SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL, true)) {
+        const bool nunchuk = SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL_L);
+        if (!SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL, true) ||
+                (nunchuk && !SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL_L, true))) {
             {
                 std::lock_guard lock(state.reports);
                 ClearReports(*slot);
@@ -450,7 +543,22 @@ void ServiceWpadSDL() {
             SDL_CloseGamepad(pad);
             continue;
         }
+        if (nunchuk) {
+            // Current Nunchuk state; later SDL events keep it up to date. A level,
+            // untouched Nunchuk reads +1 g on Z until its first motion sample.
+            std::lock_guard lock(state.reports);
+            slot->physical_nunchuk = true;
+            slot->nunchuk = {};
+            slot->nunchuk.acc_z = mscharged::platform::kNativeNunchukGravity;
+            slot->nunchuk.c = SDL_GetJoystickButton(joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+            slot->nunchuk.z = SDL_GetJoystickAxis(joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 0;
+            slot->nunchuk.stick_x = NunchukStick(SDL_GetJoystickAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX));
+            slot->nunchuk.stick_y = NunchukStick(-int(SDL_GetJoystickAxis(joystick, SDL_GAMEPAD_AXIS_LEFTY)));
+        }
         slot->pad = pad;
+        if (!SDL_IsJoystickVirtual(SDL_GetGamepadID(pad)))
+            SDL_Log("Wii Remote connected on WPAD channel %d%s", int(slot - state.channels.data()),
+                slot->physical_nunchuk ? " with Nunchuk" : "");
     }
     for (s32 index = 0; index < WPAD_MAX_CONTROLLERS; ++index) {
         auto& channel = state.channels[index];
@@ -473,7 +581,7 @@ void ServiceWpadSDL() {
         u8 device = channel.device;
         {
             std::lock_guard lock(state.reports);
-            const bool attached = FindNunchukProducer(channel.id) != nullptr;
+            const bool attached = FindNunchukProducer(channel.id) != nullptr || channel.physical_nunchuk;
             if (attached && channel.device == WPAD_DEV_CORE) device = WPAD_DEV_INITIALIZING;
             else if (attached && channel.device == WPAD_DEV_INITIALIZING) device = WPAD_DEV_FREESTYLE;
             else if (!attached && channel.device != WPAD_DEV_CORE) device = WPAD_DEV_CORE;
@@ -528,6 +636,10 @@ void WPADInit() {
     RequireOwner();
     if (state.initialized) return;
     if (!state.configured) throw std::logic_error("WPAD host system preferences are missing");
+    // SDL's Wii HID driver is off by default. Physical remotes need it; a user
+    // environment value (SDL_JOYSTICK_HIDAPI_WII=0) still takes precedence.
+    if (state.settings.physical_wii_remotes)
+        SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII, "1", SDL_HINT_DEFAULT);
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) throw std::runtime_error(SDL_GetError());
     state.owner = std::this_thread::get_id();
     if (!SDL_AddEventWatch(Watch, nullptr)) {
@@ -535,6 +647,7 @@ void WPADInit() {
         throw std::runtime_error(SDL_GetError());
     }
     for (auto& channel : state.channels) ClearReports(channel);
+    state.rejected_remotes.clear();
     state.motor_enabled = state.settings.motor_enabled;
     state.speaker_volume = state.settings.speaker_volume > WPAD_MAX_SPEAKER_VOLUME
         ? WPAD_MAX_SPEAKER_VOLUME : state.settings.speaker_volume;
@@ -696,14 +809,14 @@ u8 WPADGetDpdSensitivity() { RequireOwner(); return State().settings.dpd_sensiti
 BOOL WPADIsDpdEnabled(s32 index) {
     auto& channel = GetChannel(index);
     std::lock_guard lock(State().reports);
-    return FindDpdProducer(channel.id) && channel.dpd_command != WPAD_DPD_DISABLE;
+    return ChannelPointer(channel) && channel.dpd_command != WPAD_DPD_DISABLE;
 }
 s32 WPADControlDpd(s32 index, u32 command, WPADCallback callback) {
     auto& channel = GetChannel(index);
     WPADResult result;
     {
         std::lock_guard lock(State().reports);
-        if (channel.pad && FindDpdProducer(channel.id)) {
+        if (channel.pad && ChannelPointer(channel)) {
             if (command != WPAD_DPD_DISABLE && command != WPAD_DPD_BASIC && command != WPAD_DPD_STANDARD)
                 result = WPAD_ERR_INVALID;
             // Preserve original WPADControlDpd's disabled/repeated-pending

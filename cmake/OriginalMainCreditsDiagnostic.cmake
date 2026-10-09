@@ -229,6 +229,16 @@ target_compile_options(mscharged_original_main_credits_module PRIVATE
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_main_credits_module PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;-fno-assume-sane-operators-new-delete;-fno-devirtualize-speculatively>")
+    # Retail loops that write past an array (PauseMenuScene's hover counts)
+    # keep their full iteration count: GCC must not derive a shorter one from
+    # the out-of-bounds store. Console idioms GCC reports by default: `register`,
+    # char* string tables, C++20-deprecated volatile increments and small values
+    # stored in pointer-typed contexts. Pointer truncation (-Wpointer-to-int-cast)
+    # stays diagnosed; the online-only 32-bit connection handles in NetworkLobby
+    # and ReliableSocket remain a known native online gap.
+    target_compile_options(mscharged_original_main_credits_module PRIVATE
+        -fno-aggressive-loop-optimizations
+        "$<$<COMPILE_LANGUAGE:CXX>:-Wno-register;-Wno-write-strings;-Wno-volatile;-Wno-int-to-pointer-cast>")
 else()
     target_compile_options(mscharged_original_main_credits_module PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")
@@ -280,13 +290,14 @@ target_compile_definitions(mscharged_original_main_credits_focus PRIVATE
     MSCHARGED_GAME_MODULE=1 AURORA_WII_CLOCK=1 dSINGLE=1 __alloca=__builtin_alloca)
 target_compile_options(mscharged_original_main_credits_focus PRIVATE
     -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -ffp-contract=off
-    -fsigned-char -Wno-unknown-pragmas -Wno-invalid-offsetof -fcheck-new)
+    -fsigned-char -Wno-unknown-pragmas
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_main_credits_focus PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete -fno-devirtualize-speculatively)
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;-fno-assume-sane-operators-new-delete;-fno-devirtualize-speculatively>")
 else()
     target_compile_options(mscharged_original_main_credits_focus PRIVATE
-        -fno-assume-sane-operator-new -Wno-register)
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")
 endif()
 target_link_libraries(mscharged_original_main_credits_module PRIVATE mscharged_original_main_credits_focus)
 

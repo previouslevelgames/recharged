@@ -308,3 +308,8 @@ if(BUILD_TESTING)
 endif()
 
 message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}, independent GX check: ${MSCHARGED_BUILD_GX_CHECK}, static asset preview: ${MSCHARGED_BUILD_SCENE_PREVIEW}); playable game remains pending")
+
+# Last: GCC-only suppressions for console idioms in the original headers, added
+# to the project targets defined above (third-party subdirectories untouched).
+include(cmake/OriginalSourceWarnings.cmake)
+mscharged_apply_gnu_original_warning_policy()

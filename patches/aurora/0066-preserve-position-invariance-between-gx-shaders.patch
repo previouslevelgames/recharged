@@ -1,0 +1,26 @@
+From: mscharged-port contributors
+Subject: [PATCH] Preserve position invariance between GX shader variants
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native GX rasterization contract.
+
+The original material renderer can draw identical vertices first into depth
+and then with GX_EQUAL, changing TEV inputs between passes. Aurora specializes
+these passes into different shaders. Request invariant vertex positions so
+backend optimizations preserve consistent positions across those programs.
+
+Position arithmetic, vertex data, depth comparisons and blend state remain
+unchanged. Pipeline cache records still regenerate shader source, so their
+configuration schema does not change. This supplies the native contract;
+it does not by itself establish a fix for a particular transparency artifact.
+
+--- a/lib/gx/shader.cpp
++++ b/lib/gx/shader.cpp
+@@ -2025,7 +2025,7 @@
+ var<uniform> ubuf: Uniform;{1}
+ 
+ struct VertexOutput {{
+-    @builtin(position) pos: vec4f,{2}
++    @builtin(position) @invariant pos: vec4f,{2}
+ }};
+ 
+ @vertex

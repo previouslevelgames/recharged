@@ -37,7 +37,8 @@ unfinished host services.** Audio quality and performance remain in progress.
 Press **Enter or Space** (Wii A) to skip the intro movie through the original
 handler. Use the mouse pointer and Enter/Space to select menu items; Escape/Backspace
 is Wii B. The keyboard Wii Remote has a Nunchuk attached: W/A/S/D move its
-stick and C/V are its C/Z buttons. Keep the game window focused. The launcher's **Play** button starts
+stick and C/V are its C/Z buttons. E shakes the Remote and Q the Nunchuk (in a
+match: hit, and switch items). Keep the game window focused. The launcher's **Play** button starts
 the same runtime. Close the window to exit; omitting `--window` runs a bounded test.
 The separate `--experimental-options` shortcut requires a build without the
 original Boot script.

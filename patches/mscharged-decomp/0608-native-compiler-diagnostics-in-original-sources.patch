@@ -1,0 +1,106 @@
+Subject: Express four original source constructs in host-valid C++
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+Native-only spellings of original constructs that host compilers reject or
+diagnose without a flag. Every value, linkage and call stays the same; the
+console branches are unchanged.
+
+- DesireSuperPower: the Waluigi direction tables narrow int sums to unsigned
+  short in list-initialization, which Clang rejects (error) and GCC warns
+  about. Explicit conversions give the same modulo-65536 angles.
+- StadiumLoading: `extern "C" bool x = true;` is the same C-linkage definition
+  as the brace form, which GCC accepts without its unconditional warning.
+- ODE dCylinder: host <math.h> defines M_SQRT1_2; undefine it so ODE's own
+  single-precision constant is used, as the later definition already was.
+- depthoffield: the console prototype declares memcpy with a u32 length. On a
+  64-bit host that conflicts with the C library's size_t declaration; use
+  <string.h> instead. The call is unchanged.
+
+diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
+--- a/src/Game/AI/DesireSuperPower.cpp
++++ b/src/Game/AI/DesireSuperPower.cpp
+@@ -1211,7 +1211,13 @@
+             nlVector2 direction;
+             nlVec2Set(direction, x, 0.0f);
+             unsigned short facing = m_pFielder->m_DetChar.m_aActualFacingDirection;
++#if defined(MSCHARGED_NATIVE)
++            // Same modulo-65536 values; host C++ forbids the implicit narrowing.
++            unsigned short angles[4] = { facing, (unsigned short)(facing + 0x4000),
++                (unsigned short)(facing - 0x4000), (unsigned short)(facing + 0x8000) };
++#else
+             unsigned short angles[4] = { facing, facing + 0x4000, facing - 0x4000, facing + 0x8000 };
++#endif
+             float score = 0.0f;
+             unsigned short angle = angles[ChooseRunDirection(m_pFielder, angles, 4, &direction, &score)];
+             if (score > 0.0f)
+@@ -1383,7 +1389,13 @@
+             nlVector2 direction;
+             nlVec2Set(direction, x, 0.0f);
+             unsigned short facing = fielder.mFielder->m_DetChar.m_aActualFacingDirection;
++#if defined(MSCHARGED_NATIVE)
++            // Same modulo-65536 values; host C++ forbids the implicit narrowing.
++            unsigned short angles[3] = { facing, (unsigned short)(facing + 0x4000),
++                (unsigned short)(facing - 0x4000) };
++#else
+             unsigned short angles[3] = { facing, facing + 0x4000, facing - 0x4000 };
++#endif
+             float score = 0.0f;
+             unsigned short angle = angles[ChooseRunDirection(fielder.mFielder, angles, 3, &direction, &score)];
+             if (score == 0.0f && fielder.mFielder->m_pBall != 0 && InOffensiveZone(fielder.mFielder) > 0.0f)
+diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
+--- a/src/Game/Render/StadiumLoading.cpp
++++ b/src/Game/Render/StadiumLoading.cpp
+@@ -530,7 +530,15 @@
+     }
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// The same C-linkage definition; GCC rejects an initializer on the one-line form.
++extern "C"
++{
++bool lbl_806DEE60 = true;
++}
++#else
+ extern "C" bool lbl_806DEE60 = true;
++#endif
+ 
+ void UpdateStadium(float fDeltaT)
+ {
+diff --git a/src/Game/Render/depthoffield.cpp b/src/Game/Render/depthoffield.cpp
+--- a/src/Game/Render/depthoffield.cpp
++++ b/src/Game/Render/depthoffield.cpp
+@@ -8,6 +8,10 @@
+ #include "NL/gl/glView.h"
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
++#if defined(MSCHARGED_NATIVE)
++// The host C library declares memcpy with its native size_t length.
++#include <string.h>
++#endif
+ 
+ typedef float Mtx[3][4];
+ typedef float Mtx44[4][4];
+@@ -26,7 +30,9 @@
+ #define PSMTXIdentity C_MTXIdentity
+ #endif
+     void PSMTXIdentity(Mtx matrix);
++#if !defined(MSCHARGED_NATIVE)
+     void* memcpy(void* destination, const void* source, u32 size);
++#endif
+ }
+ 
+ u8 lbl_806DCDE0 = true;
+diff --git a/src/ode/dCylinder.cpp b/src/ode/dCylinder.cpp
+--- a/src/ode/dCylinder.cpp
++++ b/src/ode/dCylinder.cpp
+@@ -6,6 +6,10 @@
+ 
+ #define dFabs(x) ((float)fabsf(float(x)))
+ #define dInfinity (3.402823466e+38F)
++#if defined(MSCHARGED_NATIVE)
++// Host <math.h> already defines M_SQRT1_2; keep ODE's own single-precision value.
++#undef M_SQRT1_2
++#endif
+ #define M_SQRT1_2 REAL(0.7071067811865475244008443621048490)
+ #define dCROSSpqr(a, op, b, c, p, q, r)                  \
+     (a)[0] op((b)[q] * (c)[2 * (r)] - (b)[2 * (q)] * (c)[r]); \

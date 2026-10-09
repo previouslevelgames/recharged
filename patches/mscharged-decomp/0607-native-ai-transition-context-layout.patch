@@ -1,0 +1,68 @@
+From: mscharged-port
+Subject: Keep the AI transition context overlay at native widths
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+Retail passes a shdStateMachine to its transition scripts as a
+FuzzyRuntimeContext (UpdateStateMachine casts the machine) and reads an
+AIContext's runtime through the same class (DesireSuperPower). On the Wii the
+view's ExtraData overlays the machine's mParameters (0x1C), its variant type the
+machine state and mRuntime the AI context's runtime (0x14). At native pointer
+widths the Wii pad word moved ExtraData one pointer past mParameters, so every
+context parameter query of a transition script read the neighbouring parameter
+slot: the "Target" a transition asks for was looked up in the "Powerup" slot and
+reported absent. The original fn002 transition then passes a stale VM stack word
+as the target fielder, which the native address transport rejects during play.
+Natively the pad follows ExtraData, restoring the original overlay; static
+assertions check all three overlays. Console builds keep the Wii layout.
+
+diff --git a/include/Game/AI/FuzzyAIRuntime.h b/include/Game/AI/FuzzyAIRuntime.h
+--- a/include/Game/AI/FuzzyAIRuntime.h
++++ b/include/Game/AI/FuzzyAIRuntime.h
+@@ -71,8 +71,18 @@
+     FuzzyRuntimeBase* GetRuntime();
+ 
+     FuzzyRuntimeBase* mRuntime;
++#if defined(MSCHARGED_NATIVE)
++    // Retail views a shdStateMachine (UpdateStateMachine) and an AIContext
++    // (DesireSuperPower) through this class: ExtraData overlays the machine's
++    // mParameters and mRuntime the AI context's runtime (Wii 0x1C and 0x14).
++    // With native pointer widths the Wii pad would move ExtraData one pointer
++    // past mParameters; it follows ExtraData instead (see shdStateMachine.cpp).
++    FuzzyVariantCollection ExtraData;
++    u32 m_pad018;
++#else
+     u32 m_pad018;
+     FuzzyVariantCollection ExtraData;
++#endif
+ };
+ 
+ class FuzzyRuntimeBase : public InterpreterCore
+diff --git a/src/Game/AI/shdStateMachine.cpp b/src/Game/AI/shdStateMachine.cpp
+--- a/src/Game/AI/shdStateMachine.cpp
++++ b/src/Game/AI/shdStateMachine.cpp
+@@ -155,6 +155,25 @@
+     return result;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// The transition context below is the machine itself, read through the
++// FuzzyRuntimeContext view as on the Wii: its type is the machine state, its
++// parameters the machine's parameters (e.g. the "Target" a transition queries).
++#if defined(__GNUC__)
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Winvalid-offsetof"
++#endif
++static_assert(offsetof(FuzzyRuntimeContext, ExtraData) == offsetof(shdStateMachine, mParameters),
++    "transition context parameters must overlay the state machine parameters");
++static_assert(offsetof(FuzzyRuntimeContext, mType) == offsetof(shdStateMachine, mState),
++    "transition context type must overlay the state machine state");
++static_assert(offsetof(FuzzyRuntimeContext, mRuntime) == offsetof(AIContext, mRuntime),
++    "context runtime must overlay the AI context runtime");
++#if defined(__GNUC__)
++#pragma GCC diagnostic pop
++#endif
++#endif
++
+ void UpdateStateMachine(
+     shdStateMachine* machine, DesireUpdate* update,
+     bool runUpdate, float deltaTime)
