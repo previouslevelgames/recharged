@@ -93,6 +93,14 @@ prototype. Patch 0607 keeps the original AI transition-context overlay at
 native widths: retail reads a state machine's parameters through a
 FuzzyRuntimeContext view of the machine, and the Wii pad word moved the view's
 parameters one pointer past the machine's natively.
+Patch 0601 binds the original stadium shadow volumes through their actual byte
+domains. The volume models come from the original loader with Wii big-endian
+floats, but GXShadowVolume still declared its arrays native-endian in the game
+module, so volume positions decoded to values near 1e37. The broken volumes left
+non-zero alpha counts that the blend pass turned into large, flickering dark
+polygons on the field. GLShadowBlendMeshWriter now publishes its native streams
+like the other mesh writers; formats, counts and the blend arithmetic are
+unchanged.
 
 Patches 0620–0621 admit original Strikers 101 lesson and Striker Challenge play
 under the explicit challenge-play diagnostic. 0620 opens the 101 pause menu (84),
@@ -628,6 +636,28 @@ fixtures cover overlapping polygons, perspective transforms and depth gradients.
 Original game code is unchanged. Near/far-clipped, behind-eye or degenerate
 references, frozen lines/points and viewport changes while frozen remain
 explicitly unsupported. This does not fix the separate stadium shadow-mask issue.
+
+`0068-keep-coplanar-plane-across-clipped-references.patch` takes the retained
+co-planar plane from homogeneous clip coordinates, so reference triangles with
+vertices behind the eye or beyond near/far still define it, and keeps the last
+plane when a primitive defines none. A freeze without any usable plane logs once
+and draws with the polygon's own depth instead of stopping the match.
+
+`0069-host-screenshot-of-presented-frame.patch` adds
+`aurora_request_video_screenshot`, a host convenience outside the emulated
+hardware: the next successfully presented frame is copied exactly as drawn into
+the window viewport and written as a PNG off the presentation path.
+
+`0070-skip-idle-draw-done-mask.patch` checks the latched GX finish before the
+interrupt-exclusion round trip that every SDK clock query made (retail code polls
+the clock while it waits for draw-done); delivery is unchanged.
+`0071-spirv-validation-follows-debug-layers.patch` turns off Dawn's spirv-val of
+Tint output when the backend debug layers are off (`graphics_validation=false`),
+removing that cost from every pipeline creation; validated runs keep it.
+`0072-reset-consumed-fifo-prefix.patch` drops the GX FIFO bytes the processor has
+already consumed without a join (after VI retrace waits and between host
+frames), instead of letting the buffer grow to the host's 64 MiB full drain,
+which dropped a frame about once a second in matches.
 
 ## Dawn series
 

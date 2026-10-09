@@ -1,0 +1,149 @@
+From: mscharged-port contributors
+Subject: [PATCH] Keep the GX co-planar plane across clipped references
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native GX rasterization hardware contract.
+
+The setup unit's depth plane is the reference triangle's plane in window space,
+independent of clipping, and it stays until another triangle replaces it. Take
+the plane from homogeneous clip coordinates, so references with vertices behind
+the eye or outside near/far define it, and keep the last plane when a primitive
+defines none. Matches no longer stop with "reference plane is absent": a freeze
+without a usable plane (none set up yet, lines/points, changed viewport) logs
+once and draws with the polygon's own depth. Apply after 0067.
+
+diff --git a/lib/gx/command_processor.cpp b/lib/gx/command_processor.cpp
+index 2175e67..ebe1574 100644
+--- a/lib/gx/command_processor.cpp
++++ b/lib/gx/command_processor.cpp
+@@ -290,7 +290,8 @@ void capture_co_planar_reference(GXPrimitive primitive, GXVtxFmt fmt, std::span<
+                                  bool indexed = false) noexcept {
+   auto& reference = g_coPlanarState;
+   if (reference.enabled || vertexCount == 0 || (indexed && indices.empty())) return;
+-  reference.valid = false;
++  // Like the setup unit's registers, the last usable plane stays until another
++  // triangle replaces it; a primitive that defines none leaves it unchanged.
+   std::array<u32, 3> last{};
+   if (indexed) {
+     if (primitive != GX_TRIANGLES || indices.size() % (3 * sizeof(u16)) != 0) return;
+@@ -314,48 +315,66 @@ void capture_co_planar_reference(GXPrimitive primitive, GXVtxFmt fmt, std::span<
+   }
+   const auto& viewport = g_gxState.renderViewport;
+   if (!(viewport.width > 0.f && viewport.height > 0.f)) return;
+-  const float nearDepth = UseReversedZ ? 1.f - viewport.zfar : viewport.znear;
+-  const float farDepth = UseReversedZ ? 1.f - viewport.znear : viewport.zfar;
+-  float window[3][3];
++  const double nearDepth = UseReversedZ ? 1.0 - viewport.zfar : viewport.znear;
++  const double farDepth = UseReversedZ ? 1.0 - viewport.znear : viewport.zfar;
++  double m[3][4];
+   for (u32 i = 0; i < 3; ++i) {
+     const size_t start = size_t(last[i]) * vertexStride;
+     if (start > vertices.size() || vertexStride > vertices.size() - start) return;
+     Vec4<float> clip;
+     if (!co_planar_position(fmt, vertices.subspan(start, vertexStride), clip)) return;
+-    // Side clipping/scissor do not change a finite planar setup equation.
+-    // Near/far-clipped and behind-eye reference setup are not implemented.
+-    if (!(clip[3] > 0.f) || clip[2] < 0.f || clip[2] > clip[3]) return;
+-    window[i][0] = viewport.left + (clip[0] / clip[3] + 1.f) * .5f * viewport.width;
+-    window[i][1] = viewport.top + (1.f - clip[1] / clip[3]) * .5f * viewport.height;
+-    window[i][2] = nearDepth + clip[2] / clip[3] * (farDepth - nearDepth);
++    for (u32 j = 0; j < 4; ++j) m[i][j] = clip[j];
+   }
+-  const float x1 = window[1][0] - window[0][0], y1 = window[1][1] - window[0][1];
+-  const float z1 = window[1][2] - window[0][2];
+-  const float x2 = window[2][0] - window[0][0], y2 = window[2][1] - window[0][1];
+-  const float z2 = window[2][2] - window[0][2];
+-  const float determinant = x1 * y2 - x2 * y1;
+-  if (determinant == 0.f || !std::isfinite(determinant)) return;
+-  const float a = (z1 * y2 - z2 * y1) / determinant;
+-  const float b = (x1 * z2 - x2 * z1) / determinant;
+-  const float c = window[0][2] - a * window[0][0] - b * window[0][1];
++  // The setup depth plane is the triangle's plane in window space, which clipping
++  // does not change. Take it from homogeneous clip coordinates, so vertices behind
++  // the eye or outside near/far define it as well: N.(x, y, z, w) = 0 through the
++  // three vertices gives z/w as an affine function of x/w and y/w.
++  const auto minor = [&](u32 a, u32 b, u32 c) {
++    return m[0][a] * (m[1][b] * m[2][c] - m[1][c] * m[2][b]) - m[0][b] * (m[1][a] * m[2][c] - m[1][c] * m[2][a]) +
++           m[0][c] * (m[1][a] * m[2][b] - m[1][b] * m[2][a]);
++  };
++  const double nx = -minor(1, 2, 3), ny = minor(0, 2, 3), nz = -minor(0, 1, 3), nw = minor(0, 1, 2);
++  const double scale = std::abs(nx) + std::abs(ny) + std::abs(nz) + std::abs(nw);
++  // Degenerate or edge-on triangles define no window-depth plane.
++  if (!std::isfinite(scale) || scale == 0.0 || !(std::abs(nz) > scale * 1e-9)) return;
++  const double alpha = -nx / nz, beta = -ny / nz, gamma = -nw / nz;
++  const double range = farDepth - nearDepth;
++  const double a = range * 2.0 * alpha / viewport.width;
++  const double b = -range * 2.0 * beta / viewport.height;
++  const double c = nearDepth + range * (alpha * (-2.0 * viewport.left / viewport.width - 1.0) +
++                                        beta * (1.0 + 2.0 * viewport.top / viewport.height) + gamma);
+   if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c)) return;
+-  reference.plane = {a, b, c, 0.f};
++  reference.plane = {float(a), float(b), float(c), 0.f};
+   reference.viewport = viewport;
+   reference.valid = true;
+   ++reference.generation;
+ }
+ 
+ void require_co_planar_reference(GXPrimitive primitive) noexcept {
+-  const auto& reference = g_coPlanarState;
+-  if (!reference.enabled) return;
+-  AURORA_ASSERT(line_mode_for_prim(primitive) == 0,
+-                "GX co-planar: depth freeze for lines/points is not implemented");
+-  AURORA_ASSERT(reference.valid, "GX co-planar: reference plane is absent, unsupported or degenerate");
+-  const auto& a = reference.viewport;
+-  const auto& b = g_gxState.renderViewport;
+-  AURORA_ASSERT(a.left == b.left && a.top == b.top && a.width == b.width && a.height == b.height &&
+-                a.znear == b.znear && a.zfar == b.zfar,
+-                "GX co-planar: viewport changes while depth is frozen are not implemented");
++  auto& reference = g_coPlanarState;
++  bool active = false;
++  if (reference.enabled) {
++    const auto& a = reference.viewport;
++    const auto& b = g_gxState.renderViewport;
++    const bool sameViewport = a.left == b.left && a.top == b.top && a.width == b.width && a.height == b.height &&
++                              a.znear == b.znear && a.zfar == b.zfar;
++    active = line_mode_for_prim(primitive) == 0 && reference.valid && sameViewport;
++    if (!active) {
++      // Unsupported freezes keep the polygon's own depth instead of stopping the game.
++      static bool sLogged = false;
++      if (!sLogged) {
++        sLogged = true;
++        Log.error("GX co-planar: {}; drawing with the polygon's own depth",
++                  line_mode_for_prim(primitive) != 0 ? "depth freeze for lines/points is not implemented"
++                  : !reference.valid                ? "no reference plane was set up"
++                                                    : "viewport changed while depth is frozen");
++      }
++    }
++  }
++  if (active != reference.active) {
++    reference.active = active;
++    g_gxState.dirty |= DirtyPipeline;
++  }
+ }
+ 
+ // GX_CULL_ALL rejects every polygon before rasterization; points and lines are
+diff --git a/lib/gx/gx.cpp b/lib/gx/gx.cpp
+index d0f55b1..ecfb576 100644
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -442,7 +442,7 @@ void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXV
+   } else {
+     config.shaderConfig.lineMode = 0;
+   }
+-  config.shaderConfig.coPlanar = g_coPlanarState.enabled && config.shaderConfig.lineMode == 0;
++  config.shaderConfig.coPlanar = g_coPlanarState.active && config.shaderConfig.lineMode == 0;
+   config.shaderConfig.tevSwapTable = g_gxState.tevSwapTable;
+   for (u8 i = 0; i < g_gxState.numTevStages; ++i) {
+     config.shaderConfig.tevStages[i] = g_gxState.tevStages[i];
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+index 8f2b504..01c8896 100644
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -438,6 +438,8 @@ extern GXState g_gxState;
+ struct CoPlanarState {
+   bool enabled = false;
+   bool valid = false;
++  // Frozen depth is applied to the current draw (enabled, valid plane, same viewport).
++  bool active = false;
+   Vec4<float> plane{0.f, 0.f, 0.f, 0.f};
+   gfx::Viewport viewport{};
+   u64 generation = 0;

@@ -62,6 +62,12 @@ decides what each input does. Keep the game window focused.
 | Shake Wii Remote (hit an opponent) | E |
 | Shake Nunchuk (switch items) | Q |
 
+A real **Wii Remote with a Nunchuk** also works (experimental, Linux), with the
+mouse as its pointer; see [Wii Remote setup](docs/RUNTIME.md#wii-remote).
+
+Press **P** to save the presented frame as `screenshots/screenshot_<timestamp>.png`
+in the directory the port was started from.
+
 ## Porting approach
 
 Original source plus reviewed patches becomes the compiled game:

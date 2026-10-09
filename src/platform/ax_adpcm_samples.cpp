@@ -12,9 +12,25 @@ std::uint32_t Word(const unsigned char* p) {return (std::uint32_t(Half(p))<<16)|
 std::int16_t SignedHalf(const unsigned char* p) {
     const auto bits=Half(p);std::int16_t value;std::memcpy(&value,&bits,sizeof(value));return value;
 }
-unsigned char Byte(NativeDSPMemoryEndpoint endpoint,std::uint32_t address) {
-    return DSPBackendReadSampleByte(endpoint,address);
-}
+// Accelerator sample bytes for one decode block, fetched in windows under one
+// DSP memory lock each. Every byte equals DSPBackendReadSampleByte's; a byte
+// outside the window is read afresh, so unavailable bytes fail as before.
+class SampleBytes {
+public:
+    explicit SampleBytes(NativeDSPMemoryEndpoint endpoint) : endpoint_(endpoint) {}
+    unsigned char operator()(std::uint32_t address) {
+        if (address-start_>=count_) {
+            count_=DSPBackendReadSampleBytes(endpoint_,address,window_.data(),window_.size());
+            start_=address;
+        }
+        return window_[address-start_];
+    }
+private:
+    NativeDSPMemoryEndpoint endpoint_;
+    std::array<unsigned char,64> window_{};
+    std::uint32_t start_=0;
+    std::size_t count_=0;
+};
 std::int16_t DecodeSample(unsigned char nibble,const NativeAXADPCMState& state) {
     const auto predictor=(state.predictor_scale>>4)&7;
     const auto scale=state.predictor_scale&15;
@@ -81,10 +97,11 @@ NativeAXRawADPCMBlock DecodeNativeAXRawADPCM(NativeDSPMemoryEndpoint endpoint,
     if(!state.running)return result;
     Geometry(state);state.predictor_scale&=0x7f;state.loop_predictor_scale&=0x7f;
     const auto initial=state;
+    SampleBytes Byte(endpoint);
     try {
     while(result.samples_decoded<limit && state.running) {
         const auto at=state.current_nibble;
-        const auto packed=Byte(endpoint,at/2);
+        const auto packed=Byte(at/2);
         const auto nibble=static_cast<unsigned char>(at&1?packed&15:packed>>4);
         const auto decoded=DecodeSample(nibble,state);
         state.history2=state.history1;state.history1=decoded;
@@ -96,7 +113,7 @@ NativeAXRawADPCMBlock DecodeNativeAXRawADPCM(NativeDSPMemoryEndpoint endpoint,
         // check, past the allocation if the sample ends there. A looping voice
         // then takes its loop pred/scale; a one-shot voice writes it back.
         if((state.current_nibble&15)==0) {
-            state.predictor_scale=Byte(endpoint,state.current_nibble/2)&0x7f;
+            state.predictor_scale=Byte(state.current_nibble/2)&0x7f;
             state.current_nibble+=2;
         }
         if(ended) {

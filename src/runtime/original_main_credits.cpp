@@ -45,6 +45,7 @@
 #include <revolution/ipc.h>
 #include "credits_movie_hardware.h"
 #include "runtime/frame_rate_title.h"
+#include "runtime/frame_timing_log.h"
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
 #include "original_game_audio_hardware.h"
 #endif
@@ -53,6 +54,7 @@
 #include "platform/os_shutdown_requests.h"
 #endif
 #include <SDL3/SDL_video.h>
+#include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_filesystem.h>
 #include "platform/native_module_loader.h"
 #include <cstdio>
@@ -101,6 +103,28 @@ struct Snapshot : std::enable_shared_from_this<Snapshot> {
         });
     }
 };
+// Counters for the opt-in frame timing log. Aurora's render worker updates the
+// statistics; aligned relaxed loads suffice for this diagnostic.
+mscharged::runtime::FrameTimingCounters ReadFrameTimingCounters() {
+    mscharged::runtime::FrameTimingCounters counters{};
+    AuroraVIHardwareState vi{};
+    if(aurora_get_video_hardware_state(&vi)) counters.retraces=vi.retrace_count;
+    // Native source send presents through the VI scanout path.
+    AuroraVIPresentedState presented{};
+    if(aurora_get_presented_video_output_state(&presented)) counters.presents=presented.presentation_sequence;
+    if(const AuroraStats* stats=aurora_get_stats()) {
+        const auto load=[](const std::uint32_t& value) {
+            return std::atomic_ref<std::uint32_t>(const_cast<std::uint32_t&>(value)).load(std::memory_order_relaxed);
+        };
+        counters.draws=load(stats->drawCallCount);
+        counters.pipelines_created=load(stats->createdPipelines);
+        counters.pipelines_queued=load(stats->queuedPipelines);
+        counters.texture_upload_bytes=load(stats->lastTextureUploadSize);
+    }
+    counters.fifo_bytes=aurora::gx::fifo::get_buffer_size();
+    return counters;
+}
+
 // Read the completed resource selected by original VI. This diagnostic reads
 // source copy output; it submits no game draw or diagnostic frame boundary.
 void ReadSelectedXFB(const AuroraVIPresentedState& presented,
@@ -320,6 +344,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             logLevel=="error"?LOG_ERROR:LOG_INFO;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
+        // SDL's Wii HID driver must own physical Wii Remotes from Aurora's first
+        // joystick scan. Enabled only at WPADInit it misses SDL's three-second
+        // idle window and drops a Remote that was connected before the start.
+        // SDL_JOYSTICK_HIDAPI_WII=0 in the environment still takes precedence.
+        SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII,"1",SDL_HINT_DEFAULT);
         const auto host=aurora_initialize(argc,argv,&config);
         if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
@@ -413,7 +442,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // keyboard remote carries a virtual Nunchuk, which original matches
         // require of every playing controller. Physical Wii Remotes (with a
         // Nunchuk) point with the mouse: SDL reports no Wii Remote IR data.
-        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,true,false},
+        // controls.rumble is the system rumble setting original Options reads.
+        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,true,launch.settings.rumble},
             mscharged::platform::GetNativeSTMInput(),
             {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true});
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -479,7 +509,10 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
         if(frontend && sourceAudio && nativeSend) {
             terminalVerifier.emplace(*gameAudioHardware,*axModuleMemory,host.window);
-            mscharged::platform::ConfigureNativeSTMPowerRemoval(terminalVerifier->Policy());
+            auto removal=terminalVerifier->Policy();
+            // The opt-in frame timing log completes before the process ends.
+            removal.before_removal=[](void*){mscharged::runtime::FrameTimingLog::FinishForProcessExit();};
+            mscharged::platform::ConfigureNativeSTMPowerRemoval(removal);
             // The actual source entry/audio predicates and terminal policy now
             // exist. Only this host-window intent was deferred; service/tasks
             // deliver it through unchanged original OSStateTM/ResetTask.
@@ -568,6 +601,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // Original game frames per second in the title; always shown until a
         // command-line/launcher toggle exists.
         mscharged::runtime::FrameRateTitle frameRateTitle(windowTitle);
+        // Opt-in MSCHARGED_FRAME_LOG: per-frame timing for performance reports.
+        const auto frameTiming=mscharged::runtime::FrameTimingLog::FromEnvironment();
         wgpu::Texture retainedEFB;
         Check(!resizeCheck || nativeSend, "Resize qualification requires source-native send");
         while(!exit && (interactive || !snapshot)) {
@@ -607,7 +642,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 const auto receipt=AuroraGXBeginDrawReceipt();
                 Check(receipt,"Native source draw receipt unavailable");
                 const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
+                // Keep the GX FIFO buffer at about one frame when the processor has
+                // caught up, instead of growing it to the full-drain limit below.
+                aurora::gx::fifo::rebase_if_caught_up();
+                if(frameTiming)frameTiming->BeginFrame();
                 frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt(); ++frames;
+                if(frameTiming)frameTiming->EndFrame(ReadFrameTimingCounters());
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
                 // 4 GiB size limit. Draining waits only for the queued backlog.
@@ -811,6 +851,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
         if(priorBoot)
             std::puts("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.");
+        mscharged::runtime::FrameTimingLog::FinishForProcessExit();
         std::fflush(nullptr);std::_Exit(0);
         } catch(const std::exception& e) {
             std::fprintf(stderr,"Actual source diagnostic stopped with live owners: %s\n",e.what());

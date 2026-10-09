@@ -14,6 +14,7 @@ __pycache__/
 /mscharged.ini
 /mscharged.ini.tmp-*
 /game-data/
+/screenshots/
 /orig/
 *.iso
 *.gcm

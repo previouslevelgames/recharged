@@ -1,0 +1,309 @@
+From: mscharged-port contributors
+Subject: [PATCH] Host screenshot of the presented frame
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host convenience outside the emulated hardware.
+
+aurora_request_video_screenshot(path) asks for the next successfully presented
+frame. The VI output work copies its desktop signal exactly as drawn into the
+window viewport (same copy pipeline, no black bars) into a readback buffer,
+submitted with that frame. After Present the buffer is mapped asynchronously
+and the PNG (8-bit RGB) is encoded on its own thread, written to a temporary
+file and renamed, so presentation never waits for it. A frame that is not
+presented keeps the request for the next one. Apply after 0068.
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index 965e7b3..a1035cc 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -102,6 +102,11 @@ typedef struct {
+   AuroraVIScanout scanout;
+ } AuroraVIPresentedGeometry;
+ bool aurora_get_presented_video_geometry(AuroraVIPresentedGeometry* state);
++// Host screenshot, independent of the emulated hardware: the next successfully
++// presented frame, exactly as drawn into the window viewport, is written as a
++// PNG to `path` (UTF-8) after presentation. Returns false for an empty path or
++// while another screenshot request is still waiting for its frame.
++bool aurora_request_video_screenshot(const char* path);
+ // Register/clock state, independent of GX completion/surface presentation.
+ // Output requires a separately configured, real native graphics endpoint.
+ typedef struct {
+diff --git a/lib/gfx/png_io.cpp b/lib/gfx/png_io.cpp
+index 9fb1379..0694db9 100644
+--- a/lib/gfx/png_io.cpp
++++ b/lib/gfx/png_io.cpp
+@@ -3,7 +3,10 @@
+ #include "../io.hpp"
+ #include "png.h"
+ 
++#include <cstdio>
+ #include <cstring>
++#include <system_error>
++#include <vector>
+ 
+ static aurora::Module Log("aurora::gfx::png");
+ 
+@@ -97,6 +100,63 @@ std::optional<ConvertedTexture> parse_png_bytes(ArrayRef<uint8_t> bytes) noexcep
+   };
+ }
+ 
++namespace {
++// libpng reports errors with longjmp; keep this frame free of objects with
++// destructors between setjmp and the libpng calls.
++bool encode_rgb8(std::FILE* file, uint32_t width, uint32_t height, png_bytep* rows) noexcept {
++  png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
++  if (png == nullptr) {
++    return false;
++  }
++  png_infop info = png_create_info_struct(png);
++  if (info == nullptr || setjmp(png_jmpbuf(png))) {
++    png_destroy_write_struct(&png, &info);
++    return false;
++  }
++  png_init_io(png, file);
++  png_set_IHDR(png, info, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
++               PNG_FILTER_TYPE_DEFAULT);
++  png_write_info(png, info);
++  png_write_image(png, rows);
++  png_write_end(png, nullptr);
++  png_destroy_write_struct(&png, &info);
++  return true;
++}
++} // namespace
++
++bool write_png_rgb8(const std::filesystem::path& path, uint32_t width, uint32_t height, const uint8_t* rgb) noexcept {
++  if (width == 0 || height == 0 || rgb == nullptr) {
++    return false;
++  }
++  std::vector<png_bytep> rows(height);
++  for (uint32_t y = 0; y < height; ++y) {
++    rows[y] = const_cast<png_bytep>(rgb + static_cast<size_t>(y) * width * 3);
++  }
++  auto partial = path;
++  partial += ".partial";
++#ifdef _WIN32
++  std::FILE* file = _wfopen(partial.c_str(), L"wb");
++#else
++  std::FILE* file = std::fopen(partial.c_str(), "wb");
++#endif
++  if (file == nullptr) {
++    Log.error("failed to create file: {}", io::fs_path_to_string(partial));
++    return false;
++  }
++  const bool encoded = encode_rgb8(file, width, height, rows.data());
++  const bool closed = std::fclose(file) == 0;
++  std::error_code error;
++  if (encoded && closed) {
++    std::filesystem::rename(partial, path, error);
++    if (!error) {
++      return true;
++    }
++  }
++  Log.error("failed to write PNG: {}", io::fs_path_to_string(path));
++  std::filesystem::remove(partial, error);
++  return false;
++}
++
+ std::optional<ConvertedTexture>
+ load_png_file(const std::filesystem::path& path) noexcept {
+   const auto bytes = io::read_file(path);
+diff --git a/lib/gfx/png_io.hpp b/lib/gfx/png_io.hpp
+index 3e15fbf..2946507 100644
+--- a/lib/gfx/png_io.hpp
++++ b/lib/gfx/png_io.hpp
+@@ -8,4 +8,7 @@
+ namespace aurora::gfx::png {
+ std::optional<ConvertedTexture> parse_png_bytes(ArrayRef<uint8_t> bytes) noexcept;
+ std::optional<ConvertedTexture> load_png_file(const std::filesystem::path& path) noexcept;
++// Writes tightly packed 8-bit RGB rows to `path` through a temporary file in the
++// same directory, replacing it only after the whole image was encoded.
++bool write_png_rgb8(const std::filesystem::path& path, uint32_t width, uint32_t height, const uint8_t* rgb) noexcept;
+ } // namespace aurora::gfx::png
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index e07f47e..35c7302 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -3,14 +3,22 @@
+ #include <SDL3/SDL_video.h>
+ #include "xfb.hpp"
+ #include "render_worker.hpp"
++#include "png_io.hpp"
+ #include "../window.hpp"
+ #include "../webgpu/gpu.hpp"
+ #include <aurora/video.h>
+ #include <dolphin/vi.h>
++#include <algorithm>
+ #include <array>
++#include <cmath>
++#include <filesystem>
+ #include <mutex>
++#include <optional>
+ #include <stdexcept>
++#include <string>
+ #include <thread>
++#include <utility>
++#include <vector>
+ 
+ namespace aurora::gfx::scanout {
+ namespace {
+@@ -110,6 +118,98 @@ struct Output {
+   wgpu::BindGroup copy_group;
+ };
+ Output& State() { static Output state; return state; }
++// Host screenshot, not a Wii hardware feature. Any thread may request one; the
++// next successful Present copies its desktop signal exactly as drawn into the
++// window viewport and encodes the PNG away from presentation.
++std::mutex sScreenshotMutex;
++std::string sScreenshotPath; // UTF-8; empty while no request is pending
++std::string take_screenshot_request() {
++  std::lock_guard lock(sScreenshotMutex);
++  return std::exchange(sScreenshotPath, std::string{});
++}
++void restore_screenshot_request(const std::string& path) {
++  std::lock_guard lock(sScreenshotMutex);
++  if (sScreenshotPath.empty()) sScreenshotPath = path;
++}
++struct Screenshot {
++  std::string path;
++  wgpu::Buffer buffer;
++  uint32_t width{}, height{}, bytesPerRow{};
++  bool bgra{};
++};
++std::optional<Screenshot> encode_screenshot(const wgpu::CommandEncoder& encoder, wgpu::TextureFormat format,
++    const webgpu::Viewport& viewport, const wgpu::BindGroup& group, bool black, const std::string& path) {
++  bool bgra = false;
++  switch (format) {
++  case wgpu::TextureFormat::RGBA8Unorm: case wgpu::TextureFormat::RGBA8UnormSrgb: break;
++  case wgpu::TextureFormat::BGRA8Unorm: case wgpu::TextureFormat::BGRA8UnormSrgb: bgra = true; break;
++  default:
++    Log.warn("Screenshot skipped: unsupported surface format {}", static_cast<uint32_t>(format));
++    return std::nullopt;
++  }
++  const auto width = static_cast<uint32_t>(std::max(1L, std::lround(viewport.width)));
++  const auto height = static_cast<uint32_t>(std::max(1L, std::lround(viewport.height)));
++  const wgpu::TextureDescriptor textureDesc{.label = "Host screenshot",
++      .usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc,
++      .dimension = wgpu::TextureDimension::e2D, .size = {width, height, 1}, .format = format, .mipLevelCount = 1,
++      .sampleCount = 1};
++  const auto texture = webgpu::g_device.CreateTexture(&textureDesc);
++  const wgpu::RenderPassColorAttachment attachment{.view = texture.CreateView(), .loadOp = wgpu::LoadOp::Clear,
++      .storeOp = wgpu::StoreOp::Store, .clearValue = {0.0, 0.0, 0.0, 1.0}};
++  const wgpu::RenderPassDescriptor passDesc{.label = "Host screenshot", .colorAttachmentCount = 1,
++      .colorAttachments = &attachment};
++  const auto pass = encoder.BeginRenderPass(&passDesc);
++  // Same pipeline and bound desktop signal as the surface pass, without its
++  // window placement: the image is the presented viewport only.
++  if (!black && group) {
++    pass.SetPipeline(webgpu::g_CopyPipeline); pass.SetBindGroup(0, group);
++    pass.SetViewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f);
++    pass.Draw(3);
++  }
++  pass.End();
++  const uint32_t bytesPerRow = (width * 4u + 255u) & ~255u;
++  const wgpu::BufferDescriptor bufferDesc{.label = "Host screenshot readback",
++      .usage = wgpu::BufferUsage::MapRead | wgpu::BufferUsage::CopyDst,
++      .size = static_cast<uint64_t>(bytesPerRow) * height};
++  Screenshot shot{path, webgpu::g_device.CreateBuffer(&bufferDesc), width, height, bytesPerRow, bgra};
++  const wgpu::TexelCopyTextureInfo source{.texture = texture};
++  const wgpu::TexelCopyBufferInfo destination{.layout = {.bytesPerRow = bytesPerRow, .rowsPerImage = height},
++      .buffer = shot.buffer};
++  const wgpu::Extent3D size{width, height, 1};
++  encoder.CopyTextureToBuffer(&source, &destination, &size);
++  return shot;
++}
++// Called after the frame's commands were submitted and presented.
++void finish_screenshot(const Screenshot& shot) {
++  const uint64_t size = static_cast<uint64_t>(shot.bytesPerRow) * shot.height;
++  shot.buffer.MapAsync(wgpu::MapMode::Read, 0, size, wgpu::CallbackMode::AllowSpontaneous,
++      [shot, size](wgpu::MapAsyncStatus status, wgpu::StringView) {
++        if (status != wgpu::MapAsyncStatus::Success) {
++          Log.warn("Screenshot readback failed: {}", shot.path);
++          return;
++        }
++        const auto* mapped = static_cast<const uint8_t*>(shot.buffer.GetConstMappedRange(0, size));
++        std::vector<uint8_t> rgb(static_cast<size_t>(shot.width) * shot.height * 3);
++        for (uint32_t y = 0; y < shot.height; ++y) {
++          const uint8_t* src = mapped + static_cast<size_t>(y) * shot.bytesPerRow;
++          uint8_t* dst = rgb.data() + static_cast<size_t>(y) * shot.width * 3;
++          for (uint32_t x = 0; x < shot.width; ++x, src += 4, dst += 3) {
++            dst[0] = src[shot.bgra ? 2 : 0];
++            dst[1] = src[1];
++            dst[2] = src[shot.bgra ? 0 : 2];
++          }
++        }
++        shot.buffer.Unmap();
++        std::thread([path = shot.path, width = shot.width, height = shot.height, rgb = std::move(rgb)] {
++          const std::filesystem::path file{std::u8string(path.begin(), path.end())};
++          if (png::write_png_rgb8(file, width, height, rgb.data())) {
++            Log.info("Screenshot saved: {}", path);
++          } else {
++            Log.warn("Screenshot could not be written: {}", path);
++          }
++        }).detach();
++      });
++}
+ void RequireOwner(const Output& state) {
+   if (!state.configured || state.owner != std::this_thread::get_id())
+     throw std::logic_error("Native VI output requires its configured source owner");
+@@ -213,9 +313,10 @@ void service(void*) {
+   const auto windowSize = window::get_window_size();
+   const auto windowId = SDL_GetWindowID(window::get_sdl_window());
+   const auto windowIncarnation = window::get_window_incarnation();
++  const auto screenshot = take_screenshot_request();
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+                               layout, pipeline, desktopPipeline, viewport, windowSize, windowId, windowIncarnation,
+-                              desktop = std::move(desktop)] {
++                              desktop = std::move(desktop), screenshot] {
+     struct Finished {
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+@@ -248,6 +349,8 @@ void service(void*) {
+       std::lock_guard lock(state.mutex);
+       effective.black = effective.black || !state.display_enabled;
+     }
++    std::optional<Screenshot> shot;
++    bool presented = false;
+     if (target) {
+       const wgpu::RenderPassColorAttachment attachment{.view = target.CreateView(), .loadOp = wgpu::LoadOp::Clear,
+           .storeOp = wgpu::StoreOp::Store, .clearValue = {0.0, 0.0, 0.0, 1.0}};
+@@ -271,6 +374,8 @@ void service(void*) {
+         surfacePass.Draw(3);
+       }
+       surfacePass.End();
++      if (!screenshot.empty())
++        shot = encode_screenshot(encoder, target.GetFormat(), viewport, state.copy_group, effective.black, screenshot);
+     }
+     const auto commands = encoder.Finish(); webgpu::g_queue.Submit(1, &commands);
+     if (target) {
+@@ -282,6 +387,7 @@ void service(void*) {
+         // be pending independently; they do not describe this presented field.
+         state.presented = effective; state.presented_snapshot = effective.black ? nullptr : snapshot;
+         ++state.presentations;
++        presented = true;
+         const AuroraVIPresentedState completion{effective.framebuffer,
+             state.presented_snapshot ? state.presented_snapshot->revision : 0,
+             state.presentations, effective.retrace_count, effective.field, effective.black};
+@@ -294,6 +400,11 @@ void service(void*) {
+                status == wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) {
+       window::push_custom_event(window::CustomEvent::RefreshSurface);
+     }
++    // An unpresented frame keeps the request for the next successful Present.
++    if (!screenshot.empty()) {
++      if (!presented) restore_screenshot_request(screenshot);
++      else if (shot) finish_screenshot(*shot);
++    }
+   });
+   // The source owner continues after queueing; it does not wait for the
+   // desktop surface, its vsync or GPU completion of the presented passes.
+@@ -409,6 +520,13 @@ bool aurora_get_presented_video_geometry(AuroraVIPresentedGeometry* result) {
+   *result = state.presented_geometry;
+   return true;
+ }
++bool aurora_request_video_screenshot(const char* path) {
++  if (path == nullptr || *path == '\0') return false;
++  std::lock_guard lock(aurora::gfx::scanout::sScreenshotMutex);
++  if (!aurora::gfx::scanout::sScreenshotPath.empty()) return false;
++  aurora::gfx::scanout::sScreenshotPath = path;
++  return true;
++}
+ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config) { aurora::gfx::scanout::configure(config); }
+ bool aurora_get_video_output_state(AuroraVIOutputState* result) {
+   if (!result) return false; auto& state = aurora::gfx::scanout::State(); std::lock_guard lock(state.mutex);

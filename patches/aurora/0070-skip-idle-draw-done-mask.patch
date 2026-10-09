@@ -1,0 +1,25 @@
+From: mscharged-port contributors
+Subject: [PATCH] Skip the draw-done mask round trip when nothing is latched
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance, no behaviour change.
+
+Every SDK clock query delivers a latched GX finish (glx WaitDrawDone polls the
+clock until its draw-done callback runs). Without a latched finish there is
+nothing to deliver, yet each query took and released the interrupt exclusion.
+Check the latch first; delivery, interrupt masking and callback order are
+unchanged when a finish is pending. Apply after 0069.
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+index 16bdedf..80b818c 100644
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -293,6 +293,10 @@ void publish_draw_done() noexcept {
+ bool service_draw_done() {
+   // A background SDK yield never dispatches game callbacks on that worker.
+   if (sOwner != std::this_thread::get_id()) return false;
++  // Every SDK clock query calls this. Without a latched finish there is
++  // nothing to deliver, so skip the interrupt-exclusion round trip. A finish
++  // latched after this check is delivered by the next call, as before.
++  if (!sGpuFinishPending.load(std::memory_order_acquire)) return false;
+   const BOOL enabled = OSDisableInterrupts();
+   struct Mask { BOOL enabled; ~Mask() { OSRestoreInterrupts(enabled); } } mask{enabled};
+   if (!enabled || !sGpuFinishPending.exchange(false, std::memory_order_acq_rel)) return false;

@@ -201,6 +201,105 @@ void TypedReadOracle(NativeDSPMemoryEndpoint endpoint) {
     std::cout<<"DSP independent byte oracle: "<<disjoint_transfers<<" disjoint reads, "
              <<alias_transfers<<" ascending alias reads through actual SDK pins\n";
 }
+// Native byte that receives device byte wire: the independent big-endian field
+// position used by ScalarWireByte, without the production XOR mapping.
+std::size_t ScalarNativeIndex(NativeDSPMemoryEncoding encoding,std::size_t wire) {
+    std::size_t field=wire,width=1;
+    switch (encoding) {
+    case NativeDSPMemoryEncoding::RawBytes: break;
+    case NativeDSPMemoryEncoding::NativeU16: width=2;field=(wire/2)*2;break;
+    case NativeDSPMemoryEncoding::NativeU32: width=4;field=(wire/4)*4;break;
+    case NativeDSPMemoryEncoding::AXParameterBlocks: {
+        const auto record=(wire/320)*320,byte=wire-record;
+        if (byte>=12 && byte<16) {width=4;field=record+12;}
+        else if (byte<296) {width=2;field=record+(byte/2)*2;}
+        break;
+    }
+    case NativeDSPMemoryEncoding::AXStudio: {
+        const auto record=(wire/6)*6;
+        if (wire-record<4) {width=4;field=record;}
+        else {width=2;field=record+4;}
+        break;
+    }
+    }
+    // Big-endian byte k of a little-endian native field lives at width-1-k.
+    return field+(width-1-(wire-field));
+}
+void TypedWriteOracle(NativeDSPMemoryEndpoint endpoint) {
+    constexpr std::size_t guard=32,total=768;
+    auto* storage=static_cast<unsigned char*>(OSAllocFromArenaLo(total,32));
+    Check(storage!=nullptr,"actual SDK failed typed-write fixture allocation");
+    auto* base=storage+guard;
+    std::array<unsigned char,total> initial{};
+    for (std::size_t i=0;i<total;++i) initial[i]=static_cast<unsigned char>(i*29+7);
+    std::array<unsigned char,total> input{};
+    for (std::size_t i=0;i<total;++i) input[i]=static_cast<unsigned char>(i*53+101);
+    const NativeDSPMemoryEncoding encodings[]={NativeDSPMemoryEncoding::RawBytes,
+        NativeDSPMemoryEncoding::NativeU16,NativeDSPMemoryEncoding::NativeU32,
+        NativeDSPMemoryEncoding::AXParameterBlocks,NativeDSPMemoryEncoding::AXStudio};
+    std::size_t disjoint_transfers=0,alias_transfers=0;
+    for (const auto encoding:encodings) {
+        const std::size_t pin_bytes=encoding==NativeDSPMemoryEncoding::AXParameterBlocks ? 640
+                                  : encoding==NativeDSPMemoryEncoding::AXStudio ? 120 : 64;
+        std::memcpy(storage,initial.data(),total);
+        const auto pin=PinNativeDSPMemory(base,pin_bytes,true,encoding);
+        const auto physical=OSCachedToPhysical(base);
+        try {
+            std::vector<std::size_t> offsets;
+            if (encoding==NativeDSPMemoryEncoding::AXParameterBlocks) {
+                offsets={0,1,2,3,7,11,12,13,14,15,16,17,293,294,295,296,297,318,319,
+                         320,321,331,332,333,335,336,615,616,617,638,639};
+            } else {
+                for (std::size_t i=0;i<pin_bytes;++i) offsets.push_back(i);
+            }
+            for (const auto offset:offsets) {
+                std::vector<std::size_t> lengths={0,1,2,3,4,5,7,8,15,16,31,32,319,320,321,640,pin_bytes-offset};
+                std::sort(lengths.begin(),lengths.end());
+                lengths.erase(std::unique(lengths.begin(),lengths.end()),lengths.end());
+                for (const auto bytes:lengths) {
+                    if (bytes>pin_bytes-offset) continue;
+                    std::memcpy(storage,initial.data(),total);
+                    auto expected=initial;
+                    for (std::size_t i=0;i<bytes;++i)
+                        expected[guard+ScalarNativeIndex(encoding,offset+i)]=input[i];
+                    DSPBackendWriteMemory(endpoint,physical+offset,input.data(),bytes);
+                    if (std::memcmp(storage,expected.data(),total)!=0)
+                        std::cerr<<"DSP write encoding="<<static_cast<int>(encoding)<<" offset="<<offset
+                                 <<" bytes="<<bytes<<'\n';
+                    Check(std::memcmp(storage,expected.data(),total)==0,
+                          "DSP write bytes or guards differ from independent scalar oracle");
+                    ++disjoint_transfers;
+                }
+            }
+            // Typed writes whose source aliases the pin keep the historical
+            // ascending byte order: each byte is read after earlier writes.
+            if (encoding!=NativeDSPMemoryEncoding::RawBytes) {
+                for (const auto offset:offsets) {
+                    for (const std::size_t bytes:{1u,2u,3u,4u,7u,16u}) {
+                        if (bytes>pin_bytes-offset) continue;
+                        const std::ptrdiff_t deltas[]={-1,0,1,static_cast<std::ptrdiff_t>(bytes),-static_cast<std::ptrdiff_t>(bytes)};
+                        for (const auto delta:deltas) {
+                            const auto from=static_cast<std::ptrdiff_t>(guard+offset)+delta;
+                            Check(from>=0 && static_cast<std::size_t>(from)+bytes<=total,
+                                  "alias write oracle escaped its actual SDK allocation");
+                            std::memcpy(storage,initial.data(),total);
+                            auto expected=initial;
+                            for (std::size_t i=0;i<bytes;++i)
+                                expected[guard+ScalarNativeIndex(encoding,offset+i)]=expected[from+i];
+                            DSPBackendWriteMemory(endpoint,physical+offset,storage+from,bytes);
+                            Check(std::memcmp(storage,expected.data(),total)==0,
+                                  "typed alias write differs from original ascending scalar order");
+                            ++alias_transfers;
+                        }
+                    }
+                }
+            }
+        } catch (...) {ReleaseNativeDSPMemory(pin);throw;}
+        ReleaseNativeDSPMemory(pin);
+    }
+    std::cout<<"DSP independent byte oracle: "<<disjoint_transfers<<" disjoint writes, "
+             <<alias_transfers<<" ascending alias writes through actual SDK pins\n";
+}
 void Run(int argc,char** argv) {
     Check(DSPCheckInit()==FALSE,"original DSP already initialized");
     Throws([]{AttachNativeDSPMEM1();},"uninitialized endpoint invented real MEM1 backing");
@@ -301,6 +400,7 @@ void Run(int argc,char** argv) {
     auto* mem2=OSGetMEM2ArenaLo();
     Throws([&]{PinNativeDSPMEM1(mem2,32,true);},"MEM2 was confused with canonical MEM1");
     TypedReadOracle(endpoint);
+    TypedWriteOracle(endpoint);
     ReleaseNativeDSPMemory(source);
     Throws([&]{DSPBackendReadMemory(endpoint,0x4000,copy.data(),1);},"released source pin retained device access");
     Throws([&]{ChargedDSPTaskMemoryWord(iram,1,0);},"released source object retained address conversion");

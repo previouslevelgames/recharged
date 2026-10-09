@@ -239,9 +239,11 @@ extern "C" void mscharged_stm_terminal_wait(void) {
         throw std::logic_error("STM terminal caller omitted original instruction-cache synchronization");
     (void)ValidateNativeThreadsForPowerRemoval();
     policy.verify_quiescent(policy.context, request);
+    if (policy.before_removal) policy.before_removal(policy.context);
     // Actual configured removal of this native game instance. Retain source
     // storage until the OS ends the process; never run destructors or return
     // success into the original infinite loop. Host restart is not supplied.
+    std::fflush(nullptr);
     std::_Exit(0);
 }
 

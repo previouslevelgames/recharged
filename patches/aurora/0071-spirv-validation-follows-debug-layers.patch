@@ -1,0 +1,33 @@
+From: mscharged-port contributors
+Subject: [PATCH] SPIR-V validation follows the backend debug layers
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance, no behaviour change.
+
+Dawn runs spirv-val on the SPIR-V that Tint generates for every pipeline, even
+when its blob cache already holds the compiled result, which adds to the
+pipeline-creation stalls at scene transitions. It is a debug check of Dawn's
+own compiler output: the generated SPIR-V, robustness and Dawn's command
+validation are unchanged. Disable the enable_spirv_validation toggle when the
+backend debug layers are off (the player setting graphics_validation=false);
+validated runs and tests keep it. Apply after 0070.
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 84446e2..15a346d 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -987,12 +987,15 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     };
+     // Backend debug layers are independent of Dawn command validation and
+     // robust buffer/shader access, which remain enabled in every build.
+-    constexpr std::array disableToggles{
++    std::vector<const char*> disableToggles{
+         "timestamp_quantization",
+         // Adreno strikes again!
+         // https://github.com/TwilitRealm/dusklight/issues/2563
+         "use_spirv_reconvergence_mode",
+     };
++    // spirv-val of Tint's output is a debug check, run on every pipeline even
++    // when the blob cache hits. It follows the backend debug layers.
++    if (!g_config.enableBackendValidation) disableToggles.push_back("enable_spirv_validation");
+     wgpu::DawnTogglesDescriptor togglesDescriptor(wgpu::DawnTogglesDescriptor::Init{
+         .nextInChain = &cacheDescriptor,
+         .enabledToggleCount = enableToggles.size(),

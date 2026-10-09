@@ -24,6 +24,10 @@ add_dependencies(charged_native_hardware_owner verify_prepared)
 # Core-only input tests use raw observations/generated geometry explicitly.
 if(MSCHARGED_BUILD_GX_CHECK)
     target_sources(charged_native_hardware_owner PRIVATE src/platform/desktop_presented_dpd.cpp)
+    # Host screenshots (P) copy the presented frame through the same GX output.
+    target_sources(charged_native_hardware_owner PRIVATE
+        src/platform/screenshot_hotkey.cpp src/platform/screenshot_path.cpp)
+    target_compile_definitions(charged_native_hardware_owner PRIVATE MSCHARGED_HOST_SCREENSHOTS=1)
 endif()
 
 # Native SDK ownership/desktop raw transport, without a game input manager.
@@ -53,6 +57,12 @@ if(BUILD_TESTING)
     add_test(NAME native_hardware_window_close COMMAND native_hardware_window_close_tests)
     set_tests_properties(native_hardware_window_close PROPERTIES TIMEOUT 15
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
+    add_executable(screenshot_path_tests tests/screenshot_path_tests.cpp src/platform/screenshot_path.cpp)
+    target_compile_features(screenshot_path_tests PRIVATE cxx_std_20)
+    target_include_directories(screenshot_path_tests PRIVATE src)
+    add_test(NAME screenshot_path COMMAND screenshot_path_tests)
+    set_tests_properties(screenshot_path PROPERTIES TIMEOUT 15 ENVIRONMENT "TZ=UTC")
 
     add_executable(desktop_wpad_profile_tests tests/desktop_wpad_profile_tests.cpp)
     target_compile_features(desktop_wpad_profile_tests PRIVATE cxx_std_20)

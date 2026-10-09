@@ -315,7 +315,7 @@ target_compile_options(mscharged_original_main_credits_vi PRIVATE -ffunction-sec
 target_link_libraries(mscharged_original_main_credits_vi PRIVATE aurora::vi)
 
 add_library(charged_original_main_credits_host OBJECT
-    src/runtime/original_main_credits.cpp
+    src/runtime/original_main_credits.cpp src/runtime/frame_timing_log.cpp
     src/platform/os.cpp src/platform/host_metadata.cpp src/platform/string_format.cpp
     src/platform/report.cpp src/platform/thread.cpp src/platform/os_version.cpp)
 add_dependencies(charged_original_main_credits_host mscharged_original_main_credits_module)

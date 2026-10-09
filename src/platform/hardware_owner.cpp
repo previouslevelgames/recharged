@@ -1,4 +1,7 @@
 #include "platform/hardware_owner.h"
+#if defined(MSCHARGED_HOST_SCREENSHOTS)
+#include "platform/screenshot_hotkey.h"
+#endif
 #include "platform/alarms.h"
 #include "platform/interrupts.h"
 #include "platform/stm_device.h"
@@ -231,6 +234,9 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
         throw std::runtime_error(SDL_GetError());
     }
     { std::lock_guard lock(state.latch); state.watched = true; }
+#if defined(MSCHARGED_HOST_SCREENSHOTS)
+    InitializeScreenshotHotkey(window);
+#endif
 }
 
 void ServiceNativeHardwareInput() { Service(); }
@@ -293,6 +299,9 @@ void ShutdownNativeHardwareInput() {
     // Remove watchers before releasing the device state they may have borrowed.
     // A previously loaded SDK function pointer sees ready=false and returns.
     SDL_RemoveEventWatch(Watch, nullptr);
+#if defined(MSCHARGED_HOST_SCREENSHOTS)
+    ShutdownScreenshotHotkey();
+#endif
     ShutdownNativeAlarms();
     ShutdownDesktopWpad();
     WPADShutdown();

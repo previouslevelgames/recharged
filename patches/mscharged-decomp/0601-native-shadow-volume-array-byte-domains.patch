@@ -1,0 +1,86 @@
+From: mscharged-port
+Subject: Bind shadow volume arrays through their actual byte domains
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+The original stadium shadow volumes count faces in EFB alpha: front faces add
+4/255, back faces subtract it, and the blend pass darkens every pixel whose
+count stays above zero. In the game module GXShadowVolume still declared all of
+its arrays little-endian, a contract of the earlier preview readers. The stadium
+volume models come from the original resource loader and keep Wii big-endian
+floats, so their positions decoded to values around 1e37. Volumes then became
+open, randomly placed polygons whose counts did not cancel, and the blend pass
+darkened large hard-edged regions of the field that changed with the camera.
+
+Bind the three arrays through SetGameGraphicsArray like every other material
+program: loaded data stays Wii-serialized (big-endian), native writer output is
+native-endian. GLShadowBlendMeshWriter publishes its written native streams as
+the other mesh writers do, so the blend quad resolves through the same path.
+Original vertex formats, counts, strides, raster state and blend arithmetic are
+unchanged; preview builds keep their explicit native arrays.
+diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+--- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
++++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+@@ -13,6 +13,9 @@
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glPlat.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/game_allocation_ownership.h"
++#endif
+ 
+ GLShadowBlendMeshWriter::GLShadowBlendMeshWriter()
+ {
+@@ -146,6 +149,11 @@
+     if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
+         throw std::logic_error("Incomplete or already finalized shadow mesh");
+ #endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, position);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, colour);
++    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[2].address, texcoord);
++#endif
+     for (int i = 0; i < model->numPackets; ++i)
+     {
+         glModelPacket* packet = &model->packets[i];
+diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+--- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
++++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+@@ -9,6 +9,9 @@
+ #include "NL/glx/GXMaterialProgramInternal.h"
+ #include "NL/gl/glLoadModel.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/gx_array_transport.h"
++#endif
+ 
+ GXShadowVolumeMaterialProgram* GXShadowVolumeMaterialProgram::Instance;
+ bool GXShadowVolumeMaterialProgram::Initialized;
+@@ -71,19 +74,25 @@
+ void GXShadowVolumeMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_POS, streams[0].address, 12);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_POS, streams[0].address,
+         packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
+ #else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_CLR0, streams[1].address, 4);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_CLR0, streams[1].address,
+         packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
+ #else
+     GXSetArray(GX_VA_CLR0, streams[1].address, 4);
+ #endif
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    mscharged::platform::SetGameGraphicsArray(GX_VA_TEX0, streams[2].address, 8);
++#elif defined(MSCHARGED_NATIVE)
+     GXSetArray(GX_VA_TEX0, streams[2].address,
+         packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
+ #else

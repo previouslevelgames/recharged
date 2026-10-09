@@ -48,6 +48,13 @@ void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint, std::uint32_t physic
 // MEM1/MEM2 backing without a pin; reads further out fail.
 inline constexpr std::uint32_t NativeDSPSampleOverrunBytes = 8; // one ADPCM frame
 unsigned char DSPBackendReadSampleByte(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address);
+// Consecutive sample bytes from address under one lock: each byte is exactly
+// what DSPBackendReadSampleByte would return. Stops at the end of the pin that
+// contains address (an overrun byte is returned alone), so the caller resolves
+// the next address afresh. Returns the count (1..capacity); throws exactly as
+// DSPBackendReadSampleByte does when the first byte is unavailable.
+std::size_t DSPBackendReadSampleBytes(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address,
+                                      unsigned char* destination, std::size_t capacity);
 void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address,
                            const void* source, std::size_t bytes);
 } // namespace mscharged::platform

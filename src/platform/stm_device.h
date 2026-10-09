@@ -27,6 +27,10 @@ struct NativeSTMPowerRemoval {
     // wait, join, retire devices/modules, or change source fields. The context
     // remains alive until actual process removal. No implicit policy.
     void (*verify_quiescent)(void*, const NativeSTMPowerRequest&);
+    // Optional host bookkeeping on the removing thread after verification,
+    // immediately before the process ends (e.g. diagnostic logs). It must not
+    // touch source state or hardware.
+    void (*before_removal)(void*) = nullptr;
 };
 void ConfigureNativeSTMPowerRemoval(NativeSTMPowerRemoval policy);
 // Owner-only observation of this exact live device's configured native policy;

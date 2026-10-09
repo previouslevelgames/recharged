@@ -14,6 +14,9 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 namespace {
 constexpr std::array<u16, 11> kRemoteButtons{
@@ -46,6 +49,7 @@ struct Channel {
     bool pending_disconnect = false;
     bool disconnected_this_service = false;
     bool motor_running = false;
+    bool rumble_failure_logged = false;
     // A Wii Remote whose SDL Wii HID driver reports an attached Nunchuk (device
     // "Nintendo Wii Remote with Nunchuk": left stick, C button, Z trigger axis,
     // ACCEL_L sensor). Its post-parser freestyle words, as the virtual source's.
@@ -78,6 +82,9 @@ struct Hardware {
     // Remotes SDL lists without the Wii HID driver's buttons and motion sensor
     // (for example only through the kernel driver). Opened once, not per frame.
     std::vector<SDL_JoystickID> rejected_remotes;
+    // Physical remotes already named in the log (open failure or unsupported
+    // extension), so each problem is reported once rather than every service.
+    std::vector<SDL_JoystickID> reported_remotes;
     // Desktop mouse camera lent to remotes without their own camera source.
     // SDL's Wii HID driver reports no IR data, so a physical remote points
     // with the mouse while its buttons, stick and motion stay its own.
@@ -284,6 +291,36 @@ bool SupportedRemote(SDL_JoystickID id) {
                     std::strcmp(name, "Nintendo Wii Remote with Nunchuk") == 0) && vendor == 0x057e &&
         (product == 0x0306 || product == 0x0330);
 }
+bool ReportOnce(SDL_JoystickID id) {
+    auto& reported = State().reported_remotes;
+    if (std::find(reported.begin(), reported.end(), id) != reported.end()) return false;
+    reported.push_back(id);
+    return true;
+}
+// A physical Wii Remote that SDL lists but the WPAD layer does not use (an
+// extension other than the Nunchuk). Logged once; the game never sees it.
+void ReportUnsupportedRemote(SDL_JoystickID id) {
+    if (SDL_IsJoystickVirtual(id) || SDL_GetGamepadVendorForID(id) != 0x057e) return;
+    const auto product = SDL_GetGamepadProductForID(id);
+    if (product != 0x0306 && product != 0x0330) return;
+    const char* name = SDL_GetJoystickNameForID(id);
+    if (!State().settings.physical_wii_remotes || !ReportOnce(id)) return;
+    SDL_Log("Wii Remote ignored: SDL reports \"%s\"; use it with a Nunchuk (or no extension) "
+            "and reconnect it", name ? name : "?");
+}
+#if defined(__linux__)
+// SDL's Wii HID driver opens /dev/hidraw read/write; without permission the
+// Remote stays invisible (or appears only as the kernel's evdev duplicate).
+void ReportInaccessibleRemotes() {
+    SDL_hid_device_info* devices = SDL_hid_enumerate(0x057e, 0);
+    for (auto* device = devices; device; device = device->next)
+        if ((device->product_id == 0x0306 || device->product_id == 0x0330) && device->path &&
+                access(device->path, R_OK | W_OK) != 0)
+            SDL_Log("Wii Remote at %s: no permission for this user. Install the udev rule from "
+                    "docs/RUNTIME.md (Wii Remote), then reconnect the Remote.", device->path);
+    SDL_hid_free_enumeration(devices);
+}
+#endif
 bool DispatchDpdCompletion(Channel& channel, s32 index) {
     struct Completion { Channel* channel; s32 index; } completion{&channel,index};
     return mscharged::platform::DispatchNativeInterrupt([](void* opaque) {
@@ -502,7 +539,8 @@ void ServiceWpadSDL() {
     for (int n = 0; n < count; ++n) {
         bool assigned = false;
         for (const auto& channel : state.channels) assigned |= channel.id == ids[n];
-        if (assigned || !SupportedRemote(ids[n])) continue;
+        if (assigned) continue;
+        if (!SupportedRemote(ids[n])) { ReportUnsupportedRemote(ids[n]); continue; }
         if (std::find(state.rejected_remotes.begin(), state.rejected_remotes.end(), ids[n]) !=
                 state.rejected_remotes.end()) continue;
         // Connect to the lowest free channel. When that channel is still retiring
@@ -512,14 +550,19 @@ void ServiceWpadSDL() {
         for (auto& channel : state.channels) if (!channel.pad) { slot = &channel; break; }
         if (!slot || slot->disconnected_this_service || slot->pending_disconnect) break;
         SDL_Gamepad* pad = SDL_OpenGamepad(ids[n]);
-        if (!pad) continue;
+        if (!pad) {
+            if (!SDL_IsJoystickVirtual(ids[n]) && ReportOnce(ids[n]))
+                SDL_Log("Wii Remote could not be opened: %s (turn it off and on again)", SDL_GetError());
+            continue;
+        }
         SDL_Joystick* joystick = SDL_GetGamepadJoystick(pad);
         if (SDL_GetNumJoystickButtons(joystick) < int(SDL_GAMEPAD_BUTTON_MISC1) + int(kRemoteButtons.size()) ||
                 !SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL)) {
             SDL_CloseGamepad(pad);
             state.rejected_remotes.push_back(ids[n]);
             SDL_Log("Wii Remote ignored: SDL lists it without the Wii HID driver's buttons and "
-                    "motion sensor (check /dev/hidraw access)");
+                    "motion sensor. On Linux this usually means no /dev/hidraw permission; see "
+                    "docs/RUNTIME.md (Wii Remote)");
             continue;
         }
         u16 initial_buttons = 0;
@@ -556,9 +599,13 @@ void ServiceWpadSDL() {
             slot->nunchuk.stick_y = NunchukStick(-int(SDL_GetJoystickAxis(joystick, SDL_GAMEPAD_AXIS_LEFTY)));
         }
         slot->pad = pad;
-        if (!SDL_IsJoystickVirtual(SDL_GetGamepadID(pad)))
+        slot->rumble_failure_logged = false;
+        if (!SDL_IsJoystickVirtual(SDL_GetGamepadID(pad))) {
+            // Retail WPAD lights the LED of the channel the Remote occupies.
+            SDL_SetGamepadPlayerIndex(pad, int(slot - state.channels.data()));
             SDL_Log("Wii Remote connected on WPAD channel %d%s", int(slot - state.channels.data()),
                 slot->physical_nunchuk ? " with Nunchuk" : "");
+        }
     }
     for (s32 index = 0; index < WPAD_MAX_CONTROLLERS; ++index) {
         auto& channel = state.channels[index];
@@ -641,6 +688,9 @@ void WPADInit() {
     if (state.settings.physical_wii_remotes)
         SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII, "1", SDL_HINT_DEFAULT);
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) throw std::runtime_error(SDL_GetError());
+#if defined(__linux__)
+    if (state.settings.physical_wii_remotes) ReportInaccessibleRemotes();
+#endif
     state.owner = std::this_thread::get_id();
     if (!SDL_AddEventWatch(Watch, nullptr)) {
         SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
@@ -648,6 +698,7 @@ void WPADInit() {
     }
     for (auto& channel : state.channels) ClearReports(channel);
     state.rejected_remotes.clear();
+    state.reported_remotes.clear();
     state.motor_enabled = state.settings.motor_enabled;
     state.speaker_volume = state.settings.speaker_volume > WPAD_MAX_SPEAKER_VOLUME
         ? WPAD_MAX_SPEAKER_VOLUME : state.settings.speaker_volume;
@@ -850,16 +901,21 @@ void WPADControlMotor(s32 index, u32 command) {
     if (!channel.pad) return;
     if (command != WPAD_MOTOR_STOP && command != WPAD_MOTOR_RUMBLE)
         throw std::invalid_argument("Unknown Wii motor command");
-    // Preserve original WPAD's disabled/repeated-command branches. A physical
-    // request still requires an actual SDL actuator and successful submission.
+    // Preserve original WPAD's disabled/repeated-command branches. Retail records
+    // the request and has no failure path: a Remote without an actuator, or one
+    // SDL has just dropped, stays silent instead of failing the source call.
     if (!State().motor_enabled && (command != WPAD_MOTOR_STOP || !channel.motor_running)) return;
     if ((command == WPAD_MOTOR_STOP) == !channel.motor_running) return;
-    if (!SDL_GetBooleanProperty(SDL_GetGamepadProperties(channel.pad), SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false))
-        throw std::runtime_error("Wii Remote SDL device has no rumble output");
-    const Uint16 intensity = command == WPAD_MOTOR_RUMBLE ? 65535 : 0;
-    if (!SDL_RumbleGamepad(channel.pad, intensity, intensity, command == WPAD_MOTOR_RUMBLE ? 0xffffffffu : 0))
-        throw std::runtime_error(SDL_GetError());
     channel.motor_running = command == WPAD_MOTOR_RUMBLE;
+    if (!SDL_GamepadConnected(channel.pad) ||
+            !SDL_GetBooleanProperty(SDL_GetGamepadProperties(channel.pad), SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false))
+        return;
+    const Uint16 intensity = channel.motor_running ? 65535 : 0;
+    if (!SDL_RumbleGamepad(channel.pad, intensity, intensity, channel.motor_running ? 0xffffffffu : 0) &&
+            !channel.rumble_failure_logged) {
+        channel.rumble_failure_logged = true;
+        SDL_Log("Wii Remote rumble on WPAD channel %d failed: %s", int(index), SDL_GetError());
+    }
 }
 void WPADEnableMotor(BOOL enabled) {
     RequireOwner();

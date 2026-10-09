@@ -74,17 +74,35 @@ struct GraphicsStorage
 };
 using GraphicsStorageSpans = std::map<std::uintptr_t, GraphicsStorage, std::less<std::uintptr_t>,
     HostMetadataAllocator<std::pair<const std::uintptr_t, GraphicsStorage>>>;
+struct NativeBacking;
+// Committed backings by native storage address. Each backing's storage is its
+// own live host allocation, so live native ranges never overlap and at most
+// one backing contains a native address. Lookups use this instead of scanning
+// every allocation record; the registry mutex protects it.
+struct NativeIndexEntry {
+    std::uintptr_t source;
+    const NativeBacking* backing;
+};
+using NativeBackingIndex=std::map<std::uintptr_t,NativeIndexEntry,std::less<std::uintptr_t>,
+    HostMetadataAllocator<std::pair<const std::uintptr_t,NativeIndexEntry>>>;
 struct NativeBacking {
     void* data;
     std::size_t bytes, source_bytes;
     std::uint64_t logical_tag;
+    // Set once committed; every retirement path destroys the backing, which
+    // removes its index entry under the registry mutex.
+    NativeBackingIndex* index = nullptr;
     NativeBacking(std::size_t nativeBytes, std::size_t sourceBytes, std::uint64_t tag)
         : data(ChargedNativeMetadataAllocate(nativeBytes)), bytes(nativeBytes), source_bytes(sourceBytes), logical_tag(tag) {}
     NativeBacking(const NativeBacking&)=delete;
     NativeBacking& operator=(const NativeBacking&)=delete;
     NativeBacking(NativeBacking&& other) noexcept
-        : data(std::exchange(other.data,nullptr)), bytes(other.bytes), source_bytes(other.source_bytes), logical_tag(other.logical_tag) {}
-    ~NativeBacking() { ChargedNativeMetadataRelease(data); }
+        : data(std::exchange(other.data,nullptr)), bytes(other.bytes), source_bytes(other.source_bytes), logical_tag(other.logical_tag),
+          index(std::exchange(other.index,nullptr)) {}
+    ~NativeBacking() {
+        if (index) index->erase(reinterpret_cast<std::uintptr_t>(data));
+        ChargedNativeMetadataRelease(data);
+    }
 };
 using NativeBackings=std::map<std::uintptr_t,NativeBacking,std::less<std::uintptr_t>,
     HostMetadataAllocator<std::pair<const std::uintptr_t,NativeBacking>>>;
@@ -157,6 +175,9 @@ using HeapOwners = std::set<std::uintptr_t, std::less<std::uintptr_t>, HostMetad
 struct Registry
 {
     std::mutex mutex;
+    // Declared before records: committed backings remove themselves from it
+    // when records are destroyed.
+    NativeBackingIndex native_index;
     Records records;
     // Records that own native MEM headers. A header always lies inside its
     // owning record, so a freed range only needs checking against these.
@@ -935,11 +956,44 @@ void GameNativeBackingReservation::Commit() {
     if(!Contains(domain->first,domain->second.bytes,token.record.key(),token.record.mapped().source_bytes)
         || domain->second.domain!=GameByteDomain::WiiSerialized)
         throw std::invalid_argument("Expanded backing requires unchanged serialized source bytes");
+    // Allocate the index node before publication; nothing below can fail.
+    const auto nativeKey=reinterpret_cast<std::uintptr_t>(token.record.mapped().data);
+    const bool indexed=token.record.mapped().bytes!=0;
+    NativeBackingIndex reserved;
+    if(indexed)reserved.emplace(nativeKey,NativeIndexEntry{token.record.key(),nullptr});
+    if(indexed && state.native_index.count(nativeKey))
+        throw std::logic_error("Expanded backing storage is already indexed");
     auto inserted=owner->second.native_backings.insert(std::move(token.record));
     if(!inserted.inserted) {
         token.record=std::move(inserted.node);
         throw std::logic_error("Expanded source backing address conflict");
     }
+    if(indexed) {
+        auto node=reserved.extract(nativeKey);
+        node.mapped().backing=&inserted.position->second;
+        state.native_index.insert(std::move(node));
+        inserted.position->second.index=&state.native_index;
+    }
+}
+namespace {
+// The committed backing whose native storage contains [address, address+count),
+// with its source key; {0, nullptr} if none.
+std::pair<std::uintptr_t,const NativeBacking*> IndexedNativeBacking(const Registry& state,
+    std::uintptr_t address, std::size_t count)
+{
+    auto entry=state.native_index.upper_bound(address);
+    if(entry==state.native_index.begin())return {0,nullptr};
+    --entry;
+    const auto* backing=entry->second.backing;
+    if(!Contains(entry->first,backing->bytes,address,count))return {0,nullptr};
+    return {entry->second.source,backing};
+}
+// Whether this record's backing map holds exactly this backing at source.
+bool HoldsBacking(const Allocation& owner,std::uintptr_t source,const NativeBacking* backing)
+{
+    auto held=owner.native_backings.find(source);
+    return held!=owner.native_backings.end() && &held->second==backing;
+}
 }
 bool FindGameNativeBacking(const void* source,std::size_t sourceBytes,GameNativeBackingSpan& result) {
     auto& state=State();std::lock_guard lock(state.mutex);
@@ -963,21 +1017,19 @@ bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
     auto owner = Containing(state.records, probe, sourceProbeBytes);
     if (owner == state.records.end()) return false;
     const auto address = reinterpret_cast<std::uintptr_t>(native);
-    for (const auto& entry : owner->second.native_backings)
-    {
-        const auto& backing = entry.second;
-        if (!Contains(entry.first, backing.source_bytes, probe, sourceProbeBytes)
-            || !Contains(reinterpret_cast<std::uintptr_t>(backing.data),
-                         backing.bytes, address, nativeBytes)) continue;
-        ByteSpan origin{};
-        if (Containing(state.records, entry.first, backing.source_bytes) != owner
-            || !Completed(owner->second, entry.first, backing.source_bytes, origin)
-            || origin.logical_tag != backing.logical_tag) return false;
-        result = {reinterpret_cast<const void*>(entry.first), backing.source_bytes,
-                  {backing.data, backing.bytes, Describe(owner)}};
-        return true;
-    }
-    return false;
+    // At most one backing contains the native bytes; it must be one of this
+    // owner's backings and contain the probe.
+    const auto [source, found] = IndexedNativeBacking(state, address, nativeBytes);
+    if (!found || !HoldsBacking(owner->second, source, found)
+        || !Contains(source, found->source_bytes, probe, sourceProbeBytes)) return false;
+    const auto& backing = *found;
+    ByteSpan origin{};
+    if (Containing(state.records, source, backing.source_bytes) != owner
+        || !Completed(owner->second, source, backing.source_bytes, origin)
+        || origin.logical_tag != backing.logical_tag) return false;
+    result = {reinterpret_cast<const void*>(source), backing.source_bytes,
+              {backing.data, backing.bytes, Describe(owner)}};
+    return true;
 }
 bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
     GameNativeBackingSourceSpan& result)
@@ -986,26 +1038,19 @@ bool FindGameNativeBackingSource(const void* native, std::size_t nativeBytes,
     if (!native || !nativeBytes) return false;
     auto& state = State(); std::lock_guard lock(state.mutex);
     const auto address = reinterpret_cast<std::uintptr_t>(native);
-    GameNativeBackingSourceSpan candidate{};
-    for (auto owner = state.records.begin(); owner != state.records.end(); ++owner)
-    {
-        for (const auto& entry : owner->second.native_backings)
-        {
-            const auto& backing = entry.second;
-            if (!Contains(reinterpret_cast<std::uintptr_t>(backing.data),
-                          backing.bytes, address, nativeBytes)) continue;
-            ByteSpan origin{};
-            if (Containing(state.records, entry.first, backing.source_bytes) != owner
-                || !Completed(owner->second, entry.first, backing.source_bytes, origin)
-                || origin.logical_tag != backing.logical_tag) return false;
-            ValidateMemoryExtent(owner->second, entry.first, backing.source_bytes);
-            if (candidate.source) return false;
-            candidate = {reinterpret_cast<const void*>(entry.first), backing.source_bytes,
-                         {backing.data, backing.bytes, Describe(owner)}};
-        }
-    }
-    if (!candidate.source) return false;
-    result = candidate;
+    // At most one backing contains the native bytes; it must be held by the
+    // record containing its source range.
+    const auto [source, found] = IndexedNativeBacking(state, address, nativeBytes);
+    if (!found) return false;
+    const auto& backing = *found;
+    auto owner = Containing(state.records, source, backing.source_bytes);
+    ByteSpan origin{};
+    if (owner == state.records.end() || !HoldsBacking(owner->second, source, found)
+        || !Completed(owner->second, source, backing.source_bytes, origin)
+        || origin.logical_tag != backing.logical_tag) return false;
+    ValidateMemoryExtent(owner->second, source, backing.source_bytes);
+    result = {reinterpret_cast<const void*>(source), backing.source_bytes,
+              {backing.data, backing.bytes, Describe(owner)}};
     return true;
 }
 bool FindGameNativeBackingForSource(const void* sourceProbe, std::size_t sourceProbeBytes,

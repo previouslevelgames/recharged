@@ -1,0 +1,88 @@
+From: mscharged-port contributors
+Subject: [PATCH] Reset the consumed GX FIFO prefix without a join
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance, no behaviour change.
+
+The FIFO buffer is append-only between drains. In native recording nothing
+drained it except the host's full sync at 64 MiB, which joins the processor and
+its GPU waits: with 1.2-1.9 MiB of commands per frame that dropped a frame
+about once a second in matches, and a long backlog stalled for up to ~450 ms.
+rebase_if_caught_up() drops the already processed bytes as drain() does after
+its join, but never waits: when everything is processed the buffer resets; when
+only a small published tail (at most 4 MiB) is still being processed after an
+8 MiB processed prefix, that tail moves to the front. It requires every written
+byte to be published (no open primitive or pending patch offset) and runs on
+the owner outside display lists; the processor takes the same buffer lock for
+every chunk and derives its offset from the stream base inside it.
+VIWaitForRetrace calls it after its genuine retrace; hosts may call it between
+frames. The full drain remains as the fallback. Apply after 0071.
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+index 7d9f92b..9ab1c6e 100644
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -534,6 +534,11 @@ void VIWaitForRetrace() {
+   // this completed native wait boundary, after the genuine source retrace.
+   // Preserve the caller's original saved interrupt state through the mask.
+   OSEnableInterrupts(); aurora_service_hardware(); OSDisableInterrupts();
++#ifdef AURORA_ENABLE_GX
++  // The finished frame's commands are usually all processed by now. Reset the
++  // FIFO buffer here instead of letting it grow to the host's full-drain limit.
++  aurora::gx::fifo::rebase_if_caught_up();
++#endif
+ }
+ u32 VIGetRetraceCount() { auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state); return state.retraces; }
+ u32 VIGetNextField() {
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+index 80b818c..d7ab4ec 100644
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -416,6 +416,32 @@ void drain() {
+   sPendingDraws = 0;
+ }
+ 
++bool rebase_if_caught_up() noexcept {
++  if (sOwner != std::this_thread::get_id() || detail::sInDisplayList || detail::sBufferSize == 0) return false;
++  const uint64_t end = sStreamBase + detail::sBufferSize;
++  // Unpublished bytes (an open primitive with a pending patch offset) stay put.
++  if (sPublished.load(std::memory_order_acquire) != end) return false;
++  // The processor takes this lock for every chunk and derives its read offset
++  // from sStreamBase inside it, so moving the buffer here is consistent.
++  std::lock_guard lock{sBufferMutex};
++  const uint64_t processed = sProcessed.load(std::memory_order_acquire);
++  if (processed == end) {
++    sStreamBase = end;
++    detail::sBufferSize = 0;
++    sPendingDraws = 0;
++    return true;
++  }
++  // A frame tail still being processed: once the processed prefix dominates,
++  // move the small published tail to the front instead of growing the buffer.
++  constexpr uint64_t kMinimumPrefix = 8u << 20, kMaximumTail = 4u << 20;
++  const uint64_t prefix = processed - sStreamBase, tail = end - processed;
++  if (prefix < kMinimumPrefix || tail > kMaximumTail) return false;
++  std::memmove(detail::sBufferData, detail::sBufferData + prefix, tail);
++  sStreamBase = processed;
++  detail::sBufferSize = static_cast<uint32_t>(tail);
++  return true;
++}
++
+ const uint8_t* get_buffer_data() { return detail::sBufferData; }
+ uint32_t get_buffer_size() { return detail::sBufferSize; }
+ 
+diff --git a/lib/gx/fifo.hpp b/lib/gx/fifo.hpp
+index db02fe3..4e8f91a 100644
+--- a/lib/gx/fifo.hpp
++++ b/lib/gx/fifo.hpp
+@@ -118,6 +118,12 @@ bool in_display_list();
+ // Ensure all buffered commands have been processed.
+ void drain();
+ 
++// Owner thread, outside primitives and display lists: drop the bytes the
++// processor has already consumed, as drain() does after its join, without
++// waiting (a small unprocessed tail moves to the front). Returns whether the
++// buffer shrank.
++bool rebase_if_caught_up() noexcept;
++
+ // Internal buffer inspection
+ const uint8_t* get_buffer_data();
+ uint32_t get_buffer_size();
