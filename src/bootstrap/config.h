@@ -23,6 +23,7 @@ struct Settings
     std::string input = "auto";
     int deadzone = 15;
     bool rumble = true;
+    std::string sensor_bar = "bottom"; // controls.sensor_bar: bottom | top (sensor bar / DolphinBar position)
     // Host presentation and diagnostics (never game behaviour).
     bool show_fps = true;             // display.show_fps: frame rate in the game window title
     int monitor = 0;                  // display.monitor: 0 = default display, N = Nth connected display

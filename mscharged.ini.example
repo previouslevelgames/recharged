@@ -30,9 +30,14 @@ effects_volume = 100
 mute = false
 
 [controls]
+# Who plays: auto = Wii Remotes first, then keyboard & mouse; controller = Wii
+# Remotes (keyboard & mouse only while none is connected); keyboard = keyboard
+# & mouse only.
 input = auto
 deadzone = 15
 rumble = true
+# Where the sensor bar or DolphinBar sits: bottom or top of the screen.
+sensor_bar = bottom
 
 [advanced]
 # Backend graphics debug layers (slower; useful for bug reports). WebGPU

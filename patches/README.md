@@ -658,6 +658,12 @@ removing that cost from every pipeline creation; validated runs keep it.
 already consumed without a join (after VI retrace waits and between host
 frames), instead of letting the buffer grow to the host's 64 MiB full drain,
 which dropped a frame about once a second in matches.
+`0073-draw-done-hardware-ordering.patch` keeps the console's order at GX
+draw-done tokens: GXSetDrawDone first delivers every earlier token's finish, and
+after publishing its own token waits until the processor has parsed every
+command before it. A late empty-frame finish no longer releases glx
+WaitDrawDone early, and the game's next frame no longer rewrites vertex data,
+textures or palettes the processor has not read yet (garbage effect polygons).
 
 ## Dawn series
 

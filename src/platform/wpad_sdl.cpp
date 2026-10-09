@@ -489,6 +489,21 @@ void ConfigureWpadSDL(WpadSDLSettings settings) {
     state.settings = settings;
     state.configured = true;
 }
+int GetNativeWpadChannel(std::uint32_t joystick_id) {
+    auto& state = State();
+    for (s32 index = 0; index < WPAD_MAX_CONTROLLERS; ++index)
+        if (state.channels[index].pad && state.channels[index].id == joystick_id) return int(index);
+    return -1;
+}
+
+bool GetNativeWpadCameraEnabled(std::uint32_t joystick_id) {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    for (const auto& channel : state.channels)
+        if (channel.pad && channel.id == joystick_id) return channel.dpd_command != WPAD_DPD_DISABLE;
+    return false;
+}
+
 void ServiceWpadSDL() {
     auto& state = State();
     RequireOwner();
@@ -683,10 +698,11 @@ void WPADInit() {
     RequireOwner();
     if (state.initialized) return;
     if (!state.configured) throw std::logic_error("WPAD host system preferences are missing");
-    // SDL's Wii HID driver is off by default. Physical remotes need it; a user
-    // environment value (SDL_JOYSTICK_HIDAPI_WII=0) still takes precedence.
-    if (state.settings.physical_wii_remotes)
-        SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII, "1", SDL_HINT_DEFAULT);
+    // Physical remotes (Bluetooth or a DolphinBar in mode 4) are served by the
+    // native HID driver (platform/wiimote_hid) as virtual core-Wii devices, with
+    // their IR camera. SDL's own Wii HID driver must not open the same devices;
+    // it also lists a DolphinBar's empty slots as remotes.
+    SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII, "0", SDL_HINT_DEFAULT);
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) throw std::runtime_error(SDL_GetError());
 #if defined(__linux__)
     if (state.settings.physical_wii_remotes) ReportInaccessibleRemotes();

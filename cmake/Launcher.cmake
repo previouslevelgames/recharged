@@ -24,8 +24,10 @@ else()
 
 endif()
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WiimoteScan.cmake")
 add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp)
-target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info)
+target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
+    charged_wiimote_scan)
 if(WIN32)
     enable_language(RC)
     configure_file(cmake/app_icon.rc.in generated/mscharged/app_icon.rc @ONLY)

@@ -60,11 +60,21 @@ transition is unfinished. Host focus and menu input remain under validation.
 
 ## Wii Remote
 
-Experimental, Linux. A Wii Remote (or Wii Remote Plus) with a Nunchuk plays
-alongside the keyboard; the mouse stays the pointer (sensor-bar IR, the Remote
-speaker and other extensions are not supported yet).
+Experimental, Linux. Wii Remotes (or Wii Remote Plus) with a Nunchuk play
+through a Mayflash DolphinBar in mode 4, which is also the sensor bar for the
+Remote's pointer. Pair each Remote with the bar (SYNC on the bar, then SYNC
+under the Remote's battery cover); players follow the bar's slot order. A Remote
+paired directly over Bluetooth uses the same driver but is not verified yet. The
+Remote speaker, MotionPlus and other extensions are not supported.
 
-Once, allow your user to open Wii Remotes, then reconnect the Remote:
+The launcher's Controls page lists connected Remotes with their battery level.
+In `mscharged.ini`, `controls.sensor_bar` is `bottom` or `top` of the screen,
+`controls.input` picks who plays (`auto`: Wii Remotes, then keyboard & mouse;
+`controller`: Wii Remotes, keyboard & mouse only while none is connected;
+`keyboard`: keyboard & mouse only) and `controls.rumble` switches rumble.
+
+If no Remote is found, allow your user to open Wii Remotes once, then reconnect
+the bar or Remote:
 
 ```sh
 sudo tee /etc/udev/rules.d/60-mscharged-wiimote.rules >/dev/null <<'EOF'
@@ -74,13 +84,8 @@ EOF
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
 
-Pair each Remote once with its Nunchuk plugged in: in the Bluetooth settings add
-a device and press the red **SYNC** button under the battery cover (not 1+2), then
-choose *Nintendo RVL-CNT-01*. Connect the Remotes before starting the game, keep
-their Nunchuks plugged in, and restart the game if a Remote disconnects. Hold the
-Remote upright and level while pointing with the mouse. `controls.rumble` in
-`mscharged.ini` switches rumble. Started from a terminal, the game logs
-`Wii Remote connected on WPAD channel N`, or the reason it could not use a Remote.
+Started from a terminal, the game logs `Wii Remote connected via DolphinBar slot N`;
+`MSCHARGED_WIIMOTE_DEBUG=1` logs every step of the Remote setup.
 
 ## Performance log
 

@@ -7,6 +7,7 @@
 #include "platform/stm_device.h"
 #include "platform/ios_device.h"
 #include "platform/thread_queues.h"
+#include "platform/wiimote_hid.h"
 
 #include <aurora/hardware.h>
 #include <revolution/wpad/WPAD.h>
@@ -94,6 +95,7 @@ void Service() {
     if (!state.desktop_cadence || now >= state.next_input) {
         state.next_input = now + std::chrono::milliseconds(10);
         SDL_PumpEvents();
+        mscharged::platform::ServiceWiimoteHid();
         mscharged::platform::ServiceDesktopWpad();
         mscharged::platform::ServiceWpadSDL();
     }
@@ -197,9 +199,13 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
             throw std::logic_error("Native input cannot replace its retained close window lifetime");
     }
     ConfigureWpadSDL(settings);
-    InitializeDesktopWpad(window, desktop);
+    // Real Wii Remotes that are already on take the first players, so probe
+    // them before the keyboard device appears.
+    if (settings.physical_wii_remotes) InitializeWiimoteHid({settings.dpd_sensitivity});
+    try { InitializeDesktopWpad(window, desktop); }
+    catch (...) { ShutdownWiimoteHid(); throw; }
     try { InitializeNativeAlarms(); }
-    catch (...) { ShutdownDesktopWpad(); throw; }
+    catch (...) { ShutdownDesktopWpad(); ShutdownWiimoteHid(); throw; }
     try {
         // Original waits may deschedule this owner. Continue only real native
         // interrupt delivery there, without desktop scanout or game updates.
@@ -211,6 +217,7 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     } catch (...) {
         ShutdownNativeAlarms();
         ShutdownDesktopWpad();
+        ShutdownWiimoteHid();
         throw;
     }
     {
@@ -231,6 +238,7 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
         SetNativeThreadWaitService(nullptr);
         ShutdownNativeAlarms();
         ShutdownDesktopWpad();
+        ShutdownWiimoteHid();
         throw std::runtime_error(SDL_GetError());
     }
     { std::lock_guard lock(state.latch); state.watched = true; }
@@ -303,6 +311,7 @@ void ShutdownNativeHardwareInput() {
     ShutdownScreenshotHotkey();
 #endif
     ShutdownNativeAlarms();
+    ShutdownWiimoteHid();
     ShutdownDesktopWpad();
     WPADShutdown();
     ClearInputState(state);

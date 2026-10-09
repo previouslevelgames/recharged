@@ -39,6 +39,7 @@ Values Encode(const Settings& s)
             {"audio.mute", s.mute ? "true" : "false"}, {"controls.input", s.input},
             {"controls.deadzone", std::to_string(s.deadzone)},
             {"controls.rumble", s.rumble ? "true" : "false"},
+            {"controls.sensor_bar", s.sensor_bar},
             {"display.show_fps", s.show_fps ? "true" : "false"},
             {"display.monitor", std::to_string(s.monitor)},
             {"advanced.graphics_validation", s.graphics_validation ? "true" : "false"},
@@ -91,6 +92,7 @@ Settings Decode(const Values& values)
     choice("controls.input", s.input, {"auto", "keyboard", "controller"});
     number("controls.deadzone", s.deadzone, 0, 50);
     boolean("controls.rumble", s.rumble);
+    choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
     boolean("display.show_fps", s.show_fps);
     number("display.monitor", s.monitor, 0, 15);
     boolean("advanced.graphics_validation", s.graphics_validation);

@@ -25,6 +25,11 @@ struct DesktopWpadSettings {
     // Lend the mouse camera to physical Wii Remotes, which SDL reports without
     // IR data, so they can point at original menus. Requires the mouse profile.
     bool share_mouse_with_remotes = false;
+    // Keyboard & mouse plays only while no other remote is connected: it steps
+    // aside (a real SDL detach, freeing its player) when one connects, and
+    // returns three seconds after the last one disconnects. Requires the
+    // keyboard or mouse profile.
+    bool keyboard_yields_to_remotes = false;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.

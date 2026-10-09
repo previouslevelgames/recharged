@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -69,6 +70,8 @@ struct State {
     Uint32 mouse_buttons{};
     bool owns_background_hint{}, had_background_hint{};
     std::string background_hint;
+    // keyboard_yields_to_remotes: when the last other remote disconnected.
+    std::optional<Clock::time_point> remotes_gone_since;
 };
 State& Get() { static State state; return state; }
 void Require(bool result, const char* operation);
@@ -179,6 +182,52 @@ void Retire(std::unique_ptr<Device>& device) {
     Require(SDL_DetachVirtualJoystick(id), "Retire desktop virtual core-Wii device");
     if (device->input) SDL_CloseGamepad(device->input);
     device.reset();
+}
+// The keyboard & mouse remote and its observation producers.
+void AttachKeyboard(State& state) {
+    state.keyboard = MakeDevice();
+    try {
+        if (state.settings.mouse)
+            state.keyboard->dpd_source = mscharged::platform::AttachNativeWpadDpdSource(state.keyboard->virtual_id);
+        if (state.settings.nunchuk)
+            state.keyboard->nunchuk_source =
+                mscharged::platform::AttachNativeWpadNunchukSource(state.keyboard->virtual_id);
+    } catch (...) {
+        Retire(state.keyboard);
+        throw;
+    }
+}
+// Another WPAD remote: a Wii Remote (native HID or SDL) or a desktop pad's remote.
+bool OtherRemoteConnected(const State& state) {
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    if (!ids) throw std::runtime_error(SDL_GetError());
+    struct IDs { SDL_JoystickID* p; ~IDs() { SDL_free(p); } } owned{ids};
+    for (int n = 0; n < count; ++n) {
+        if (state.keyboard && ids[n] == state.keyboard->virtual_id) continue;
+        const auto vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
+        if (vendor == 0x057e && (product == 0x0306 || product == 0x0330)) return true;
+    }
+    return false;
+}
+// A brief link drop must not hand the player to the keyboard and back.
+constexpr auto kKeyboardReturnDelay = std::chrono::seconds(3);
+void ApplyKeyboardYield(State& state) {
+    if (!state.settings.keyboard_yields_to_remotes) return;
+    if (OtherRemoteConnected(state)) {
+        state.remotes_gone_since.reset();
+        if (!state.keyboard) return;
+        Retire(state.keyboard);
+        SDL_Log("Keyboard & mouse is not a player while a Wii Remote is connected");
+        return;
+    }
+    if (state.keyboard) return;
+    const auto now = Clock::now();
+    if (!state.remotes_gone_since) { state.remotes_gone_since = now; return; }
+    if (now - *state.remotes_gone_since < kKeyboardReturnDelay) return;
+    AttachKeyboard(state);
+    state.remotes_gone_since.reset();
+    SDL_Log("No Wii Remote connected: keyboard & mouse is a player again");
 }
 bool SDLCALL Watch(void*, SDL_Event* event) {
     auto& state = Get();
@@ -341,6 +390,8 @@ void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings) {
         throw std::invalid_argument("The desktop Nunchuk requires the keyboard profile");
     if (settings.share_mouse_with_remotes && !settings.mouse)
         throw std::invalid_argument("Sharing the mouse camera requires the mouse profile");
+    if (settings.keyboard_yields_to_remotes && !settings.keyboard && !settings.mouse)
+        throw std::invalid_argument("Only the keyboard and mouse remote can yield to other remotes");
     {
         std::lock_guard lock(state.mutex);
         if (state.ready) throw std::logic_error("Desktop WPAD transport is already initialized");
@@ -351,6 +402,7 @@ void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings) {
         ClearKeyboard(state);
         ClearMouse(state);
         state.event_memory_failed = false;
+        state.remotes_gone_since.reset();
         state.ready = true;
     }
     try {
@@ -372,12 +424,10 @@ void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings) {
         throw std::runtime_error(SDL_GetError());
     }
     try {
-        if (settings.keyboard || settings.mouse) state.keyboard = MakeDevice();
-        if (settings.mouse)
-            state.keyboard->dpd_source = mscharged::platform::AttachNativeWpadDpdSource(state.keyboard->virtual_id);
-        if (settings.nunchuk)
-            state.keyboard->nunchuk_source =
-                mscharged::platform::AttachNativeWpadNunchukSource(state.keyboard->virtual_id);
+        // Remotes that are already connected keep their players.
+        const bool yield = settings.keyboard_yields_to_remotes && OtherRemoteConnected(state);
+        if ((settings.keyboard || settings.mouse) && !yield) AttachKeyboard(state);
+        if (yield) SDL_Log("Keyboard & mouse is not a player while a Wii Remote is connected");
     }
     catch (...) {
         Retire(state.keyboard);
@@ -417,6 +467,7 @@ void ServiceDesktopWpad() {
             catch (...) { SDL_CloseGamepad(input); throw; }
         }
     }
+    ApplyKeyboardYield(state);
     bool focused, mouse_known, mouse_inside;
     float mouse_x, mouse_y;
     Uint32 mouse_buttons;
@@ -499,6 +550,7 @@ void ShutdownDesktopWpad() {
     if (state.settings.share_mouse_with_remotes) SetNativeWpadSharedPointer(nullptr);
     Retire(state.keyboard);
     for (auto& pad : state.pads) Retire(pad);
+    state.remotes_gone_since.reset();
     RestoreBackgroundHint();
     state.window = 0;
     state.owner = {};

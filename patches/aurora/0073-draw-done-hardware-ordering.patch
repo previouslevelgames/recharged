@@ -1,0 +1,187 @@
+From: mscharged-port contributors
+Subject: [PATCH] Keep console order and consumption at GX draw-done tokens
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native hardware timing fix (rendering corruption).
+
+On the console the command processor consumes the FIFO about as fast as the CPU
+writes it, and a draw-done token's finish interrupt arrives as soon as the
+commands before it are done. glx swap_Post writes a token for an empty frame,
+whose finish arrives within microseconds; swap_Pre writes the next token after
+the frame's commands and then clears glx_bDrawWaitComplete. The native processor
+parses tokens late and submits and waits for each one on the GPU, so it could
+lag by most of a frame:
+- the empty frame's finish could arrive after swap_Pre, so its callback set the
+  wait flag early and the next WaitDrawDone did not wait for the frame;
+- the game's next frame then rewrote vertex data, textures and palettes the
+  processor had not read yet.
+Effects and particles (shot-charge glow, trails) rendered as large white, green
+or dark garbage polygons and magenta quads, worst under GPU load. Faster owner
+frames and the removal of periodic full drains made this frequent.
+GXSetDrawDone now first waits until every earlier token has been processed and
+delivers its finish, and after publishing its token waits until every command
+up to it has been parsed. The GPU still executes the frame while the game
+continues, and the waits sleep instead of spinning in WaitDrawDone. Both waits
+service hardware interrupts like drain(). Game code, its callbacks and its wait
+logic are unchanged. Apply after 0072.
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+index 8f1d8e5..2e4b1bc 100644
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -296,13 +296,15 @@ void GXSetDrawDone() {
+   // Hardware can deliver it before the original SDK critical section; late
+   // owner polling must not let that old cause satisfy the following reset.
+   // Existing owner/context/mask rules retain pending masked/foreign causes.
+-  aurora::gx::fifo::service_draw_done();
++  // Earlier tokens are finished and delivered first, as on the console.
++  aurora::gx::fifo::deliver_prior_draw_done();
+   const BOOL enabled = OSDisableInterrupts();
+   GX_WRITE_RAS_REG(kDrawDoneCommand);
+   GXFlush();
+   aurora::gx::fifo::reset_draw_done();
+   OSRestoreInterrupts(enabled);
+   aurora::gx::fifo::publish_draw_done();
++  aurora::gx::fifo::wait_draw_done_parsed();
+ }
+ 
+ BOOL AuroraServiceGXDrawDone() { return aurora::gx::fifo::service_draw_done(); }
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+index d7ab4ec..1cb3333 100644
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -53,6 +53,13 @@ std::atomic<DrawDoneCallback> sDrawDoneCallback{nullptr};
+ std::atomic_bool sGpuFinishPending{false};
+ bool sDrawDone = false; // Owner-thread PE flag; worker only latches real completion.
+ std::thread::id sOwner;
++// Draw-done tokens published by the owner and latched by the processor. Each
++// token ends one processing step, so the two counts match once all are done.
++uint64_t sDrawDoneTokens = 0;
++std::atomic<uint64_t> sDrawDoneLatches{0};
++// Stream position up to which every command has been parsed. A draw-done token
++// is parsed before the processor waits for its GPU work.
++std::atomic<uint64_t> sParsed{0};
+ 
+ void latch_gpu_draw_done() {
+   if (sNativeRecording.load(std::memory_order_acquire)) {
+@@ -66,6 +73,7 @@ void latch_gpu_draw_done() {
+     gfx::submit_draw_done_and_wait();
+   }
+   sGpuFinishPending.store(true, std::memory_order_release);
++  sDrawDoneLatches.fetch_add(1, std::memory_order_release);
+ }
+ 
+ void wake_worker() noexcept {
+@@ -94,12 +102,18 @@ void process_to(uint64_t target, std::memory_order order) noexcept {
+                   "FIFO processor made invalid progress: processed {} of {} remaining bytes", result.bytesProcessed,
+                   target - processed);
+     if (result.drawDone) {
++      {
++        std::lock_guard progress{sProcessProgressMutex};
++        sParsed.store(processed + result.bytesProcessed, std::memory_order_release);
++      }
++      sProcessProgress.notify_all();
+       latch_gpu_draw_done();
+     }
+     processed += result.bytesProcessed;
+     {
+       std::lock_guard progress{sProcessProgressMutex};
+       sProcessed.store(processed, order);
++      sParsed.store(processed, std::memory_order_release);
+     }
+     sProcessed.notify_all();
+     sProcessProgress.notify_all();
+@@ -167,10 +181,13 @@ void init() {
+   sStreamBase = 0;
+   sGpuFinishPending.store(false, std::memory_order_relaxed);
+   sDrawDone = false;
++  sDrawDoneTokens = 0;
++  sDrawDoneLatches.store(0, std::memory_order_relaxed);
+   sOwner = std::this_thread::get_id();
+   poke::reset();
+   sPublished.store(0, std::memory_order_relaxed);
+   sProcessed.store(0, std::memory_order_relaxed);
++  sParsed.store(0, std::memory_order_relaxed);
+   sWorkerWake.store(0, std::memory_order_relaxed);
+ 
+   start_worker();
+@@ -285,6 +302,7 @@ void publish_draw_done() noexcept {
+   if (detail::sInDisplayList) return;
+   const uint64_t target = sStreamBase + detail::sBufferSize;
+   sPendingDraws = 0;
++  ++sDrawDoneTokens;
+   sPublished.store(target, std::memory_order_release);
+   if (kProcessingMode == ProcessingMode::Thread) wake_worker();
+   else process_to(target, std::memory_order_relaxed);
+@@ -314,6 +332,56 @@ bool service_draw_done() {
+   return true;
+ }
+ 
++// On the console the GPU reaches a draw-done token as soon as the commands before
++// it are done; an empty frame's token (glx swap_Post) completes within
++// microseconds, long before the game writes its next one (swap_Pre). The native
++// processor submits and waits for every token, so with the GPU busy an earlier
++// finish could arrive after the next GXSetDrawDone, and its stale callback would
++// release glx WaitDrawDone before the frame it waits for, while the processor
++// still reads that frame's vertex data from game frame memory. Hardware ordering
++// is kept by finishing and delivering every earlier token first.
++void deliver_prior_draw_done() {
++  if (sOwner != std::this_thread::get_id() || detail::sInDisplayList) return;
++  const uint64_t target = sDrawDoneTokens;
++  if (sDrawDoneLatches.load(std::memory_order_acquire) < target) {
++    ZoneScoped;
++    std::unique_lock progress{sProcessProgressMutex};
++    while (sDrawDoneLatches.load(std::memory_order_acquire) < target) {
++      if (sProcessProgress.wait_for(progress, std::chrono::microseconds{250}, [&] {
++            return sDrawDoneLatches.load(std::memory_order_acquire) >= target;
++          })) break;
++      // Same owner servicing as drain(): genuine causes keep their delivery.
++      progress.unlock();
++      aurora_service_hardware_interrupts();
++      progress.lock();
++    }
++  }
++  service_draw_done();
++}
++
++// The console's command processor consumes the FIFO about as fast as the CPU
++// writes it, so once a frame's draw-done token is written all vertex arrays,
++// textures and palettes of that frame have been read, and the game's next frame
++// may rewrite them. The native processor can lag by most of a frame, so the
++// owner waits here until every command up to the token has been parsed; the GPU
++// still executes the frame while the game continues.
++void wait_draw_done_parsed() {
++  if (kProcessingMode != ProcessingMode::Thread || sOwner != std::this_thread::get_id() || detail::sInDisplayList)
++    return;
++  const uint64_t target = sPublished.load(std::memory_order_relaxed);
++  if (sParsed.load(std::memory_order_acquire) >= target) return;
++  ZoneScoped;
++  std::unique_lock progress{sProcessProgressMutex};
++  while (sParsed.load(std::memory_order_acquire) < target) {
++    if (sProcessProgress.wait_for(progress, std::chrono::microseconds{250}, [&] {
++          return sParsed.load(std::memory_order_acquire) >= target;
++        })) break;
++    progress.unlock();
++    aurora_service_hardware_interrupts();
++    progress.lock();
++  }
++}
++
+ void wait_draw_done() {
+   AURORA_ASSERT(sOwner == std::this_thread::get_id(), "GXWaitDrawDone requires the GX owner thread");
+   const BOOL enabled = OSDisableInterrupts();
+diff --git a/lib/gx/fifo.hpp b/lib/gx/fifo.hpp
+index 4e8f91a..9888384 100644
+--- a/lib/gx/fifo.hpp
++++ b/lib/gx/fifo.hpp
+@@ -109,6 +109,12 @@ void reset_draw_done() noexcept;
+ void publish_draw_done() noexcept;
+ bool service_draw_done();
+ void wait_draw_done();
++// Owner, before writing a new draw-done token: wait until every earlier token
++// has been processed, then deliver its finish (see fifo.cpp).
++void deliver_prior_draw_done();
++// Owner, after publishing a draw-done token: wait until the processor has
++// parsed every command up to it (not for the GPU work they produce).
++void wait_draw_done_parsed();
+ 
+ // Display list recording
+ void begin_display_list(uint8_t* buf, uint32_t size);

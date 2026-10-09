@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 
@@ -57,8 +58,8 @@ WPADStatus Report(int port = 0) {
 WPADFSStatus FreestyleReport() {
     WPADFSStatus s{}; WPADRead(0, reinterpret_cast<WPADStatus*>(&s)); return s;
 }
-template<class F> void Until(F fn, const char* message) {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+template<class F> void Until(F fn, const char* message, int seconds = 2) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     while (!fn()) {
         Service();
         Check(std::chrono::steady_clock::now() < deadline, message);
@@ -87,6 +88,71 @@ struct GenericPad {
         if (id) SDL_DetachVirtualJoystick(id);
     }
 };
+// A connected Wii Remote as WPAD sees one: core-Wii buttons and an accelerometer.
+struct WiiRemote {
+    SDL_JoystickID id{};
+    SDL_Joystick* joystick{};
+    WiiRemote() {
+        static const SDL_VirtualJoystickSensorDesc sensor{SDL_SENSOR_ACCEL, 100.0f};
+        SDL_VirtualJoystickDesc d; SDL_INIT_INTERFACE(&d);
+        d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        d.vendor_id = 0x057e; d.product_id = 0x0306;
+        d.name = "Nintendo Wii Remote";
+        d.naxes = SDL_GAMEPAD_AXIS_COUNT; d.nbuttons = int(SDL_GAMEPAD_BUTTON_MISC1) + 11;
+        d.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+        d.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+        d.nsensors = 1; d.sensors = &sensor;
+        id = SDL_AttachVirtualJoystick(&d);
+        Check(id != 0, "Real SDL Wii Remote fixture attach failed");
+        joystick = SDL_OpenJoystick(id);
+        Check(joystick, "Real SDL Wii Remote fixture handle failed");
+    }
+    ~WiiRemote() {
+        if (joystick) SDL_CloseJoystick(joystick);
+        if (id) SDL_DetachVirtualJoystick(id);
+    }
+};
+// controls.input = controller: keyboard & mouse plays only while no Wii Remote is connected.
+void YieldCycle() {
+    using mscharged::platform::GetNativeWpadChannel;
+    using mscharged::platform::WpadSDLConnectedChannels;
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard_yields_to_remotes = true;
+    bool rejected = false;
+    try { mscharged::platform::InitializeDesktopWpad(window, settings); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "A remote without keyboard or mouse was allowed to yield");
+    settings.keyboard = true;
+    auto remote = std::make_unique<WiiRemote>();
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    Until([&] { return GetNativeWpadChannel(remote->id) == 0; }, "Connected Wii Remote did not keep player 1");
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(WpadSDLConnectedChannels() == 1, "Keyboard & mouse took a player beside the Wii Remote");
+
+    // The remote leaves: keyboard & mouse returns as player 1 after the delay.
+    remote.reset();
+    Until([&] { return WpadSDLConnectedChannels() == 0; }, "Disconnected Wii Remote kept its player");
+    const auto gone = std::chrono::steady_clock::now();
+    Until([&] { return WpadSDLConnectedChannels() == 1; }, "Keyboard & mouse did not return", 6);
+    Check(std::chrono::steady_clock::now() - gone >= std::chrono::milliseconds(2900),
+          "Keyboard & mouse returned before the link-drop delay");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().err == WPAD_ERR_OK && Report().button == WPAD_BUTTON_A; },
+          "Returned keyboard & mouse is not player 1");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == 0; }, "Returned keyboard kept a press");
+
+    // A remote connects again: it takes player 1, keyboard & mouse steps aside.
+    remote = std::make_unique<WiiRemote>();
+    Until([&] { return GetNativeWpadChannel(remote->id) == 0 && WpadSDLConnectedChannels() == 1; },
+          "Reconnected Wii Remote did not take player 1 from keyboard & mouse");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+    remote.reset();
+}
 void Cycle(bool gamepads, bool physical) {
     connects = samples = 0;
     mscharged::platform::ConfigureWpadSDL({0,3,physical,gamepads});
@@ -258,10 +324,11 @@ int main() {
             Cycle(false,false);
             Cycle(true,true);
             NunchukCycle();
+            YieldCycle();
         }
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, keyboard yielding to a Wii Remote and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}

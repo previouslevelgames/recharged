@@ -43,8 +43,11 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_wpad_tests PRIVATE
         charged_native_hardware_owner charged_credits_movie_hardware)
     add_test(NAME desktop_wpad COMMAND desktop_wpad_tests)
+    # Real Wii Remotes or a DolphinBar attached to the host must not join the
+    # generated fixtures' WPAD channels.
+    set(MSCHARGED_NO_REAL_REMOTES "SDL_HIDAPI_IGNORE_DEVICES=0x057e/0x0306,0x057e/0x0330")
     set_tests_properties(desktop_wpad PROPERTIES TIMEOUT 15
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
 
     add_executable(native_hardware_window_close_tests tests/native_hardware_window_close.cpp)
     target_compile_features(native_hardware_window_close_tests PRIVATE cxx_std_20)
@@ -73,7 +76,7 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_wpad_profile_tests PRIVATE charged_native_hardware_owner)
     add_test(NAME desktop_wpad_profile COMMAND desktop_wpad_profile_tests)
     set_tests_properties(desktop_wpad_profile PROPERTIES TIMEOUT 15
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
 
     # Physical Wii Remote + Nunchuk through SDL's Wii HID driver identity,
     # emulated with an SDL virtual device of the same name/shape.
@@ -86,7 +89,7 @@ if(BUILD_TESTING)
     target_link_libraries(wpad_physical_nunchuk_tests PRIVATE charged_native_hardware_owner)
     add_test(NAME wpad_physical_nunchuk COMMAND wpad_physical_nunchuk_tests)
     set_tests_properties(wpad_physical_nunchuk PROPERTIES TIMEOUT 15
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
 
     add_executable(desktop_dpd_projection_tests tests/desktop_dpd_projection_tests.cpp)
     target_compile_features(desktop_dpd_projection_tests PRIVATE cxx_std_20)
@@ -109,7 +112,7 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_dpd_tests PRIVATE charged_native_hardware_owner aurora::mtx)
     add_test(NAME desktop_dpd COMMAND desktop_dpd_tests)
     set_tests_properties(desktop_dpd PROPERTIES TIMEOUT 15
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
 
     # Focus, leave/enter, repeat, shared-mapping and reattach lifecycle through
     # the same whole original KPAD consumer, one latest sample per update.
@@ -127,5 +130,5 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_input_lifecycle_tests PRIVATE charged_native_hardware_owner aurora::mtx)
     add_test(NAME desktop_input_lifecycle COMMAND desktop_input_lifecycle_tests)
     set_tests_properties(desktop_input_lifecycle PROPERTIES TIMEOUT 30
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
 endif()

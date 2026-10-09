@@ -87,6 +87,8 @@ bool Toggle(const char* id, bool* value);
 bool Segmented(const char* id, int* selected, std::initializer_list<const char*> items, float width);
 bool PercentSlider(const char* id, int* value, float width);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
+// Small battery gauge (0-100%), coloured by charge, with the percentage after it.
+void BatteryIcon(int percent);
 void KeyCap(const char* key);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);

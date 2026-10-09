@@ -344,11 +344,10 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             logLevel=="error"?LOG_ERROR:LOG_INFO;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
-        // SDL's Wii HID driver must own physical Wii Remotes from Aurora's first
-        // joystick scan. Enabled only at WPADInit it misses SDL's three-second
-        // idle window and drops a Remote that was connected before the start.
-        // SDL_JOYSTICK_HIDAPI_WII=0 in the environment still takes precedence.
-        SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII,"1",SDL_HINT_DEFAULT);
+        // The native Wii Remote driver (platform/wiimote_hid) owns physical
+        // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
+        // own Wii HID driver must not open the same devices.
+        SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII,"0",SDL_HINT_DEFAULT);
         const auto host=aurora_initialize(argc,argv,&config);
         if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
@@ -440,12 +439,21 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // Borrow input into the existing AI/SDK hardware owner; source KPAD
         // and FE methods retain their original mappings and decisions. The
         // keyboard remote carries a virtual Nunchuk, which original matches
-        // require of every playing controller. Physical Wii Remotes (with a
-        // Nunchuk) point with the mouse: SDL reports no Wii Remote IR data.
-        // controls.rumble is the system rumble setting original Options reads.
-        mscharged::platform::InitializeNativeHardwareInput(host.window,{0,3,true,launch.settings.rumble},
+        // require of every playing controller; the mouse is its pointer.
+        // Physical Wii Remotes (platform/wiimote_hid) bring their own IR
+        // camera and Nunchuk. controls.rumble is the system rumble setting
+        // original Options reads; controls.sensor_bar the sensor-bar position
+        // (bottom/top) original KPAD aims the pointer from. controls.input
+        // picks who plays: auto = Wii Remotes, then keyboard & mouse;
+        // controller = Wii Remotes, keyboard & mouse only while none is
+        // connected; keyboard = keyboard & mouse only.
+        const bool keyboard_only = launch.settings.input == "keyboard";
+        const bool keyboard_yields = launch.settings.input == "controller";
+        mscharged::platform::InitializeNativeHardwareInput(host.window,
+            {static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),3,!keyboard_only,
+             launch.settings.rumble},
             mscharged::platform::GetNativeSTMInput(),
-            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true});
+            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true,keyboard_yields});
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(

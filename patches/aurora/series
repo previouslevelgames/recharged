@@ -66,3 +66,4 @@
 0070-skip-idle-draw-done-mask.patch
 0071-spirv-validation-follows-debug-layers.patch
 0072-reset-consumed-fifo-prefix.patch
+0073-draw-done-hardware-ordering.patch

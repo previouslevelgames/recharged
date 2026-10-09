@@ -14,6 +14,7 @@
 #include "platform/disc.h"
 #include "platform/app_icon.h"
 #include "platform/path.h"
+#include "platform/wiimote_hid.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
 #include "runtime/startup.h"
 #endif
@@ -166,6 +167,7 @@ public:
 
     ~Launcher()
     {
+        wii_probe_.Close();
         if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_Shutdown();
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
@@ -1217,9 +1219,109 @@ private:
         }
     }
 
+    void PollWiimotes()
+    {
+        const Uint64 now = SDL_GetTicksNS();
+        if (wii_probe_.Active())
+        {
+            if (wii_probe_.Poll())
+            {
+                wii_status_ = wii_probe_.Result();
+                wii_known_ = true;
+                wii_next_probe_ns_ = now + 2000000000ull;
+            }
+        }
+        else if (now >= wii_next_probe_ns_)
+            wii_probe_.Start(250);
+    }
+
+    void WiiRemotesCard()
+    {
+        PollWiimotes();
+        const auto& status = wii_status_;
+        const bool found = status.dolphinbar || !status.remotes.empty();
+        const bool remotes_used = draft_.input != "keyboard";
+        const bool keyboard_yields = draft_.input == "controller";
+        const char* subtitle = !wii_known_ ? "Looking for Wii Remotes..."
+            : !status.remotes.empty() ? "Players follow the DolphinBar slot order. Changes apply when the game starts."
+            : status.dolphinbar ? "DolphinBar found. Pair a Wii Remote: press SYNC on the bar, then on the remote."
+            : status.dolphinbar_other_mode ? "The DolphinBar is in a mouse or gamepad mode. Press its MODE button until light 4 is on."
+                                : "Connect a Mayflash DolphinBar in mode 4, or pair a Wii Remote over Bluetooth (experimental).";
+        BeginCard("##wiimotes", "Wii Remotes", subtitle, Icon::Gamepad);
+        if (status.dolphinbar)
+            Chip("DolphinBar", color::accent, Icon::Check);
+        else if (status.dolphinbar_other_mode)
+            Chip("DolphinBar: switch to mode 4", color::warning, Icon::Warning);
+        if (found || draft_.input != "auto")
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 4));
+            if (ImGui::BeginTable("##wii_players", 3))
+            {
+                ImGui::TableSetupColumn("player", ImGuiTableColumnFlags_WidthFixed, Dp(110));
+                ImGui::TableSetupColumn("device", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("battery", ImGuiTableColumnFlags_WidthFixed, Dp(90));
+                int player = 1;
+                auto player_row = [&](bool plays, const std::string& device, const char* note) {
+                    ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(30));
+                    ImGui::TableSetColumnIndex(0);
+                    TextColored(CurrentFonts().label, plays ? color::text : color::dim,
+                                plays ? ("Player " + std::to_string(player++)).c_str() : "Not playing");
+                    ImGui::TableSetColumnIndex(1);
+                    TextColored(CurrentFonts().body, plays ? color::muted : color::dim,
+                                (note ? device + "   " + note : device).c_str());
+                    ImGui::TableSetColumnIndex(2);
+                };
+                for (const auto& remote : status.remotes)
+                {
+                    const std::string device = std::string("Wii Remote") + (remote.nunchuk ? " + Nunchuk" : "")
+                        + (remote.slot >= 0 ? "   DolphinBar slot " + std::to_string(remote.slot + 1) : "   Bluetooth");
+                    player_row(remotes_used, device, nullptr);
+                    BatteryIcon(remote.battery);
+                }
+                const bool keyboard_plays = !keyboard_yields || status.remotes.empty();
+                player_row(keyboard_plays, "Keyboard & mouse",
+                           keyboard_yields ? "(only while no Wii Remote is connected)" : nullptr);
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+        }
+        if (BeginRows("##wii_rows"))
+        {
+            if (found || draft_.input != "auto")
+            {
+                Row("Players", draft_.input == "controller" ? "Keyboard & mouse joins only while no Wii Remote is connected."
+                    : draft_.input == "keyboard" ? "Wii Remotes are not used; keyboard & mouse is player 1."
+                    : "Wii Remotes take the first players, then keyboard & mouse.");
+                const char* values[] = {"auto", "controller", "keyboard"};
+                int choice = 0;
+                for (int i = 0; i < 3; ++i) if (draft_.input == values[i]) choice = i;
+                if (Segmented("##players", &choice, {"Both", "Remotes only", "Keyboard only"},
+                              ImGui::GetContentRegionAvail().x))
+                {
+                    draft_.input = values[choice];
+                    dirty_ = true;
+                }
+            }
+            if ((found && remotes_used) || draft_.sensor_bar != "bottom")
+            {
+                Row("Sensor bar", "Where your DolphinBar or sensor bar sits. The game aims the pointer from it.");
+                int position = draft_.sensor_bar == "top" ? 0 : 1;
+                if (Segmented("##sensor_bar", &position, {"Above the screen", "Below the screen"},
+                              ImGui::GetContentRegionAvail().x))
+                {
+                    draft_.sensor_bar = position == 0 ? "top" : "bottom";
+                    dirty_ = true;
+                }
+            }
+            EndRows();
+        }
+        EndCard();
+    }
+
     void ControlsPage()
     {
         PageHeader("Controls", "Play with keyboard and mouse, or a Wii Remote with Nunchuk (experimental). Keep the game window focused.");
+        WiiRemotesCard();
         BeginCard("##keys", "Keyboard & mouse",
                   "Keys press Wii Remote and Nunchuk buttons or shake them; the mouse is the pointer.", Icon::Keyboard);
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
@@ -1447,6 +1549,11 @@ private:
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_ = nullptr;
     SDL_Gamepad* gamepad_ = nullptr;
+    // Wii Remote / DolphinBar detection for the Controls page (non-blocking).
+    platform::WiimoteHidProbe wii_probe_;
+    platform::WiimoteHidStatus wii_status_{};
+    bool wii_known_ = false;
+    Uint64 wii_next_probe_ns_ = 0;
     float header_width_ = 1920;
     float header_height_ = 620;
     SDL_FRect hero_{};

@@ -515,6 +515,29 @@ void Chip(const char* text, const ImVec4& tint, Icon icon)
     ImGui::Dummy(size);
 }
 
+void BatteryIcon(int percent)
+{
+    percent = std::clamp(percent, 0, 100);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 body{Dp(26), Dp(13)};
+    const ImVec4 tint = percent > 50 ? color::accent : percent >= 20 ? color::warning : color::danger;
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 top{pos.x, pos.y + Dp(6)};
+    draw->AddRect(top, Add(top, body), Col(color::muted), Dp(3), 0, Dp(1.5f));
+    draw->AddRectFilled({top.x + body.x, top.y + Dp(4)}, {top.x + body.x + Dp(3), top.y + body.y - Dp(4)},
+                        Col(color::muted), Dp(1));
+    const float inner = (body.x - Dp(4)) * float(percent) / 100.0f;
+    if (inner > 0.5f)
+        draw->AddRectFilled({top.x + Dp(2), top.y + Dp(2)}, {top.x + Dp(2) + inner, top.y + body.y - Dp(2)},
+                            Col(tint), Dp(1.5f));
+    const std::string text = std::to_string(percent) + "%";
+    const ImVec2 label = TextSize(fonts.caption, text.c_str());
+    DrawLabel(draw, fonts.caption, {top.x + body.x + Dp(9), pos.y + (Dp(25) - label.y) * 0.5f}, Col(color::text),
+              text.c_str());
+    ImGui::Dummy({body.x + Dp(9) + label.x, Dp(25)});
+}
+
 void KeyCap(const char* key)
 {
     const auto& fonts = CurrentFonts();
