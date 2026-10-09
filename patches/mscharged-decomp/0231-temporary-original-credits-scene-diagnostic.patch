@@ -1,6 +1,6 @@
 Subject: [PATCH] Scope temporary original Credits scene integration
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE explicitly omits unrelated views, material
 programs, world/input/movie initialization and later phases in a scene test.
@@ -99,15 +99,16 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  #include "Game/SH/SHNavigation.h"
  #include "Game/GameSceneManager.h"
  #include "Game/SH/SHCredits.h"
-@@ -32,9 +35,15 @@
+@@ -41,9 +44,15 @@
      : mAreCreditsOver(false)
      , mFinalMessageDisplayed(false)
      , mFadeStarted(false)
+-    , mPhase(CREDITS_NINTENDO_LOGO)
+-{
 +#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +    , mPhase(2)
 +#else
-     , mPhase(0)
--{
++    , mPhase(0)
 +#endif
 +{
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
@@ -116,7 +117,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
      mTimeElapsed = 0.0f;
  
      for (int i = 0; i < 20; ++i)
-@@ -47,15 +56,19 @@
+@@ -56,15 +65,19 @@
  
  CreditScene::~CreditScene()
  {
@@ -136,18 +137,20 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  }
  
  void CreditScene::Update(float fDeltaT)
-@@ -74,7 +87,9 @@
+@@ -82,8 +95,10 @@
+         BaseSceneHandler::Update(fDeltaT);
          UpdateForNintendoLogo(fDeltaT);
          break;
-     case 1:
+-    case CREDITS_NLG_INTRO:
 -        MoviePlayerScene::Update(fDeltaT);
++    case 1:
 +    #if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +    MoviePlayerScene::Update(fDeltaT);
 +#endif
          break;
      }
  }
-@@ -93,6 +108,11 @@
+@@ -102,6 +117,11 @@
      mFadeStarted = false;
      mTimeElapsed = 0.0f;
  
@@ -158,8 +161,8 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 +#else
      switch (mPhase)
      {
-     case 1:
-@@ -156,6 +176,7 @@
+     case CREDITS_NLG_INTRO:
+@@ -165,6 +185,7 @@
          }
          break;
      }
@@ -167,7 +170,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  }
  
  void CreditScene::OnMoviePlaybackEnded()
-@@ -257,7 +278,9 @@
+@@ -266,7 +287,9 @@
  
  void CreditScene::UpdateForCredits(float fDeltaT)
  {
@@ -177,7 +180,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  
      float fraction = fDeltaT / 8.5f;
      float movement = 500.0f * fraction;
-@@ -354,11 +377,13 @@
+@@ -363,11 +386,13 @@
                  quitcredits = true;
              }
          }
@@ -191,7 +194,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  
          if (quitcredits)
          {
-@@ -378,7 +403,9 @@
+@@ -387,7 +412,9 @@
          }
          ++mPhase;
          SetupForPhase();
@@ -235,7 +238,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 @@ -46,10 +52,12 @@
          mGameSceneManager = g_pOverlayManager;
      }
-     UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
+     FindEvent<NoEventData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
 +#endif
  }
  

@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original checked model-particle and attachment equations
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Extract original coordinates, matrix/frame, colour/raster and joint/ground math
 for the retained native model-particle owner. Caller service validation stays
@@ -182,22 +182,22 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
 -    nlVector4 dir;
 -    switch (pSpec->m_nForwardAxis)
 -    {
--    case 1:
+-    case FX_FORWARD_POSITIVE_X:
 -        nlVec4Set(dir, 1.0f, 0.0f, 0.0f, 0.0f);
 -        break;
--    case 2:
+-    case FX_FORWARD_POSITIVE_Y:
 -        nlVec4Set(dir, 0.0f, 1.0f, 0.0f, 0.0f);
 -        break;
--    case 3:
+-    case FX_FORWARD_POSITIVE_Z:
 -        nlVec4Set(dir, 0.0f, 0.0f, 1.0f, 0.0f);
 -        break;
--    case 4:
+-    case FX_FORWARD_NEGATIVE_X:
 -        nlVec4Set(dir, -1.0f, 0.0f, 0.0f, 0.0f);
 -        break;
--    case 5:
+-    case FX_FORWARD_NEGATIVE_Y:
 -        nlVec4Set(dir, 0.0f, -1.0f, 0.0f, 0.0f);
 -        break;
--    case 6:
+-    case FX_FORWARD_NEGATIVE_Z:
 -        nlVec4Set(dir, 0.0f, 0.0f, -1.0f, 0.0f);
 -        break;
 -    }

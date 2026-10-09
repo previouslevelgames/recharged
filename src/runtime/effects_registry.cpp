@@ -58,7 +58,7 @@ struct NativeGroup
             spec.m_bGround = s.ground; spec.m_bLight = s.light; spec.m_fOffset = s.offset;
             spec.m_vLocalOffset = {s.local_offset[0], s.local_offset[1], s.local_offset[2]};
             spec.m_uTerrainID = s.terrain; spec.m_fLingerStart = s.linger_start; spec.m_fLingerEnd = s.linger_end;
-            spec.m_uLayer = s.layer; spec.m_nForwardAxis = s.forward_axis;
+            spec.m_uLayer = s.layer; spec.m_nForwardAxis = static_cast<eFXForwardAxis>(s.forward_axis);
             specs.push_back(spec);
         }
         value.m_specs = specs.empty() ? nullptr : specs.data();

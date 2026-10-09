@@ -1,6 +1,6 @@
 #include "Game/EventConnection.h"
 #include "Game/EventDispatcher.inl"
-#include "Game/UnidentifiedStaticEvent.h"
+#include "Game/StaticEvent.h"
 #include "NL/plat/PlatPadManager.h"
 #include "NL/nlSmallBlockAllocator.h"
 
@@ -18,14 +18,14 @@ static void check(bool condition, const char* message) {
     }
 }
 
-using DataBase = UnidentifiedQueuedEventBase<int>;
+using DataBase = QueuedEventBase<int>;
 using DataDispatch = void (DataBase::*)(int*, Function<int*>, unsigned char);
 using DataBinding = decltype(Bind<void>(MemFun(std::declval<DataDispatch>()),
     std::declval<DataBase*>(), std::declval<int*>(),
     std::declval<Function<int*>>(), std::declval<Placeholder<0>>()));
 using DataFunctor = Function<bool>::FunctorImpl<DataBinding>;
 
-using VoidBase = UnidentifiedQueuedEventBase<UnidentifiedEventNoData>;
+using VoidBase = QueuedEventBase<NoEventData>;
 using VoidDispatch = void (VoidBase::*)(VoidBase::Callback, unsigned char);
 using VoidBinding = decltype(Bind<void>(MemFun(std::declval<VoidDispatch>()),
     std::declval<VoidBase*>(), std::declval<VoidBase::Callback>(),
@@ -37,9 +37,9 @@ int main() {
         "Original native owner must retain the full host pointer");
     static_assert(sizeof(EventDispatcherState) == sizeof(u32),
         "Original dispatcher union and 16-bit count retained");
-    static_assert(sizeof(DLListEntry<UnidentifiedListener<int>>) >= sizeof(UnidentifiedListener<int>),
+    static_assert(sizeof(DLListEntry<EventListener<int>>) >= sizeof(EventListener<int>),
         "Actual native intrusive node includes source listener");
-    static_assert(MSCHARGED_EVENT_ENTRY_OFFSET(DLListEntry<UnidentifiedListener<int>>) == 2 * sizeof(void*),
+    static_assert(MSCHARGED_EVENT_ENTRY_OFFSET(DLListEntry<EventListener<int>>) == 2 * sizeof(void*),
         "Actual node prefix is two native pointers");
 
     // Only source metadata construction is exercised here. No EventBase/event,
@@ -56,7 +56,7 @@ int main() {
     connection->mFlags = 0;
     connection->mGroupCount = 0xabcd;
     check(connection->mFlags == 0x0000abcdu, "Original group count occupies low 16 bits");
-    connection->mUnidentified08 = 0x1357;
+    connection->mFlagsHigh = 0x1357;
     check(connection->mFlags == 0x1357abcdu, "Original high half retains reserved flags");
 
     EventDispatcherState state;
@@ -70,7 +70,7 @@ int main() {
 
     std::printf("owner=%zu connection=%zu node-prefix=%zu dispatcher-state=%zu\n",
         sizeof(EventOwnerHandle), sizeof(EventConnection),
-        std::size_t(MSCHARGED_EVENT_ENTRY_OFFSET(DLListEntry<UnidentifiedListener<int>>)),
+        std::size_t(MSCHARGED_EVENT_ENTRY_OFFSET(DLListEntry<EventListener<int>>)),
         sizeof(EventDispatcherState));
     std::printf("data-binding=%zu data-functor=%zu void-binding=%zu void-functor=%zu member-pointer=%zu function-descriptor=%zu\n",
         sizeof(DataBinding), sizeof(DataFunctor), sizeof(VoidBinding), sizeof(VoidFunctor),

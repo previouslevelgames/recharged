@@ -1,7 +1,7 @@
 #include "runtime/events.h"
 #include "Game/EventRegistry.h"
 #include "Game/EventConnection.h"
-#include "Game/UnidentifiedStaticEvent.h"
+#include "Game/StaticEvent.h"
 #include "Game/UnidentifiedStaticEvent3.h"
 #include "NL/nlMemory.h"
 #include "NL/MemAlloc.h"
@@ -31,16 +31,16 @@ void Increment(int* value) { ++*value; }
 
 void RegistryAndOwners()
 {
-    UnidentifiedEvent<int> event("Immediate", -1), other("Other", -1);
-    Require(UnidentifiedFindEvent<int>("IMMEDIATE", -1) == &event, "Original case-insensitive lookup failed");
-    Require(UnidentifiedFindEvent<float>("Immediate", -1) == nullptr, "Wrong event type accepted");
-    Require(UnidentifiedFindEvent<int>("Missing", -1) == nullptr, "Missing event found");
-    Reject([] { UnidentifiedEvent<int> duplicate("Immediate", -1); });
-    Reject<std::invalid_argument>([] { UnidentifiedEvent<int> invalid(nullptr, -1); });
+    Event<int> event("Immediate", -1), other("Other", -1);
+    Require(FindEvent<int>("IMMEDIATE", -1) == &event, "Original case-insensitive lookup failed");
+    Require(FindEvent<float>("Immediate", -1) == nullptr, "Wrong event type accepted");
+    Require(FindEvent<int>("Missing", -1) == nullptr, "Missing event found");
+    Reject([] { Event<int> duplicate("Immediate", -1); });
+    Reject<std::invalid_argument>([] { Event<int> invalid(nullptr, -1); });
     Reject([] { ShutdownNativeEventRegistry(); });
     bool wrongThreadRejected = false;
     std::thread worker([&] {
-        try { UnidentifiedFindEvent<int>("Immediate", -1); }
+        try { FindEvent<int>("Immediate", -1); }
         catch (const std::logic_error&) { wrongThreadRejected = true; }
     });
     worker.join();
@@ -91,7 +91,7 @@ void RegistryAndOwners()
     event.RemoveAll();
     EventConnectionOwner survivor;
     {
-        UnidentifiedEvent<int> temporary("Temporary", -1);
+        Event<int> temporary("Temporary", -1);
         Function<int*> callback(Increment);
         temporary.Add(callback, Handle(survivor), -1);
     }
@@ -102,7 +102,7 @@ void RegistryAndOwners()
 
 void DeliveryMutation()
 {
-    UnidentifiedEvent<int> event("Mutation", -1), nested("Nested", -1);
+    Event<int> event("Mutation", -1), nested("Nested", -1);
     EventConnectionOwner first, second, third;
     int calls = 0, value = 0;
     Function<int*> a([&](int*) { ++calls; event.Disconnect(&second); event.Disconnect(&first); });
@@ -162,7 +162,7 @@ void DeliveryMutation()
 
 void StaticEvents()
 {
-    UnidentifiedStaticEvent<int, 2> event("Fixed", -1);
+    StaticEvent<int, 2> event("Fixed", -1);
     EventConnectionOwner first, second, third;
     Function<int*> a(Increment), b(Increment), c(Increment);
     event.Add(a, Handle(first), 11);
@@ -184,15 +184,15 @@ void StaticEvents()
     Require(value == 3 && !first.mConnection && !second.mConnection,
             "Fixed event RemoveAll during delivery failed");
 
-    UnidentifiedEvent<UnidentifiedEventNoData> dynamicNoData("NoData", -1);
-    UnidentifiedStaticEvent<UnidentifiedEventNoData, 2> fixedNoData("FixedNoData", -1);
+    Event<NoEventData> dynamicNoData("NoData", -1);
+    StaticEvent<NoEventData, 2> fixedNoData("FixedNoData", -1);
     Function<FnVoidVoid> d([&] { ++value; }), e([&] { ++value; });
     dynamicNoData.Add(d, Handle(first), -1);
     fixedNoData.Add(e, Handle(second), -1);
     dynamicNoData.Deliver(); fixedNoData.Deliver();
     Require(value == 5 && !d && !e, "No-argument event delivery/transfer failed");
 
-    UnidentifiedStaticEvent<void(int), 2> byValue("ByValue", -1);
+    StaticEvent<void(int), 2> byValue("ByValue", -1);
     Function<void(int)> f([&](int data) { value += data; });
     byValue.Add(f, 0, -1);
     byValue.Deliver(3);
@@ -212,7 +212,7 @@ void StaticEvents()
 
 void ConnectionStates()
 {
-    UnidentifiedStaticEvent<int, 4> event("Scopes", -1);
+    StaticEvent<int, 4> event("Scopes", -1);
     EventConnectionOwner outer, inner;
     Function<int*> a(Increment), b(Increment);
     event.Add(a, Handle(outer), 13);
@@ -242,8 +242,8 @@ void ConnectionStates()
 
 void AllocationFailures()
 {
-    UnidentifiedStaticEvent<int, 2> fixed("OOMFixed", -1);
-    UnidentifiedEvent<int> dynamic("OOMDynamic", -1);
+    StaticEvent<int, 2> fixed("OOMFixed", -1);
+    Event<int> dynamic("OOMDynamic", -1);
     EventConnectionOwner owner;
     Function<int*> callback(Increment);
     // Exhaust the native arena without injecting a substitute allocator.
@@ -290,7 +290,7 @@ void AllocationFailures()
 
 void ManyConnections()
 {
-    UnidentifiedEvent<int> event("Many", -1);
+    Event<int> event("Many", -1);
     std::array<EventConnectionOwner, 4096> owners;
     for (unsigned i = 0; i < owners.size(); ++i)
     {
@@ -316,7 +316,7 @@ int main()
     try
     {
         Reject([] { InitializeNativeEventRegistry(); });
-        Reject([] { UnidentifiedEvent<int> event("BeforeInit", -1); });
+        Reject([] { Event<int> event("BeforeInit", -1); });
         alignas(64) static std::array<std::byte, 2 * 1024 * 1024> mem1{}, mem2{};
         StandardAllocator.Initialize(mem1.data(), mem1.size());
         VirtualAllocator.Initialize(mem2.data(), mem2.size());

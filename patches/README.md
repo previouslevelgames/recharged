@@ -65,26 +65,44 @@ StartChallengeSequence audio instruction its Proceed runs. The whole handlers
 load each challenge's authored configuration; the following loading request
 (scene 17) keeps its existing gate.
 
-Patches 0610–0613 and 0615–0618 admit the original offline match load under
+Patches 0610–0613 and 0615–0619 admit the original offline match load under
 the explicit match-loading diagnostic. 0610 opens Stadium Select's loading
-scene, the in-game overlays the loading script pushes and the loading-to-game
-transition. 0611 and 0612 qualify the async loading services and the native
-widths of the gameplay sources they reach. 0613 transports the fuzzy AI script
-VM's address words. 0615 admits the original in-game frame updates
+scene, the in-game overlays the loading script pushes, the loading-to-game
+transition, the original pause menu and its pages, the quit path back to the
+frontend, and original main's render and presentation owners (Wiper, replay,
+excitement, views). 0611 and 0612 qualify the async loading services, the
+frontend re-entry after a game, and the native widths of the gameplay sources
+they reach. 0613 transports the fuzzy AI script VM's address words. 0615
+admits the original in-game frame updates
 (Presentation/NIS, characters, shadow views). 0616 lowers the original
 nonzero-morph software skin positions. 0617 decodes Wii data that match loading
 reads directly. 0618 keeps GL resource-pool storage valid after an original
-pool rewind until the pool reuses it, as original writers rely on.
+pool rewind until the pool reuses it, as original writers rely on. 0619 keeps
+the original bit positions of the 3D sound owner flags and finds released
+sound sources' pool entries from the native list layout. 0614 admits the
+gameplay options' cheat-category list (28), reached from VS options' second page
+on a fresh save, and narrows its pointer-button contexts natively.
+
+Patches 0620–0621 admit original Strikers 101 lesson and Striker Challenge play
+under the explicit challenge-play diagnostic. 0620 opens the 101 pause menu (84),
+the lesson movie player (87) and the Challenge preview (103), and queues the 101
+in-game ticker without a handler as retail does. 0621 lets the Challenge
+preview and the button component see header inline bodies that retail emits
+out of line elsewhere, so the module imports no undefined symbols for them.
 
 Patch 0630 admits the original Hall of Fame player cards (scene 65), opened by
 the Cup page's card buttons, under the Hall of Fame diagnostic. Profile (58),
-which no retail code pushes, and the earned trophy histories (66–74) stay gated.
+which no retail code pushes, stays gated. Patch 0631 admits the earned trophy
+histories (66–74), which the same pages open once a cup or award trophy is
+recorded, and gives the history TU the header-inline CharacterInfo::GetName.
 
 Patch 0640 admits the original Road to Striker Cup setup (scenes 6–8), cup news
 (39), hub (31), group schedule (32) and standings/award pages (36–38), plus the
 three FE presentation natives the cup transitions call, under the cup
-diagnostic. Cup cheat, game results, knockout/final round pages and the
-award/forfeit natives stay gated.
+diagnostic. Patch 0641 adds the played-matchup game results (33), the knockout
+and final-round pages (34/35) and the cup award/trophy natives (4, 7, 36, 37,
+38, 40), narrowing the round pages' callback contexts natively. The debug-tweak
+cup cheat (9) and the online tournament natives stay gated.
 
 Patch 0539 supplies compiler declarations, native pointer arithmetic and the
 MWCC absolute-value intrinsic for original HOME sound-player and heap sources.
@@ -97,11 +115,14 @@ debug providers. Native services supply address checks, stack unwinding and
 terminal halt behavior; original assertion expressions and initialization side
 effects remain enabled. Full HOME-menu startup is still separate work.
 
-The current pin is `9cdfc1e9`, which additionally source-links `StatsTracker.cpp`,
-`DesireStatusEffects.cpp`, and `ImpostorCluster.cpp`. The patch series follows
-upstream's statistics owners, scene names, CupManager singleton and corrected
-character enum values. Source selection remains explicit: an upstream match
-alone does not establish native gameplay readiness.
+The selected revision is recorded in [base](mscharged-decomp/base) and the
+decomp submodule gitlink. Source selection remains explicit: a completed
+console reconstruction does not establish native gameplay readiness.
+
+Patches 0681, 0683 and 0684 preserve signed 32-bit values in upstream enums
+used by serialized audio, effects and game settings or integer tweak input.
+Patch 0682 preserves the numeric widths and pointer layout of newly typed world
+object headers. These adaptations retain original data and game decisions.
 
 Patch 0595 uses the native allocation size type in functor and animation
 controller declarations, including Windows' 64-bit pointer/32-bit `long` ABI.
@@ -574,6 +595,13 @@ and reports cover state from the mounted disc. Reset/close reject unsafe
 interrupt contexts and overlapping media operations; reads remain rejected
 after close until a successful remount. Synthetic-disc tests cover these
 lifetimes. This does not complete original game shutdown or optical timing.
+
+`0065-reject-polygons-under-gx-cull-all.patch` implements GX_CULL_ALL, which
+the original game selects through its packet raster culling field. The Wii
+discards every polygon in that mode while still drawing points and lines;
+polygon draws now consume their data without encoding a draw. Previously the
+pipeline build aborted when a match restarted play after a goal, and the
+persisted configuration repeated the abort at the next start.
 
 ## Dawn series
 

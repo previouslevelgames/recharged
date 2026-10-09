@@ -1,6 +1,6 @@
 Subject: Share original Main Options departure service order
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Extract only ApplyItem case6 for the native Main/Options path. Real scene Pop,
 NAV hide, resident audio and frontend bytecode services remain caller-owned.
@@ -38,7 +38,7 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
  #include "Game/GameSceneManager.h"
 @@ -392,16 +393,13 @@
      }
-     case 6:
+     case MAIN_MENU_OPTIONS:
      {
 -        GameSceneManager::Instance()->Pop();
 -        SHNavigation* scene = GetNavigationScene();

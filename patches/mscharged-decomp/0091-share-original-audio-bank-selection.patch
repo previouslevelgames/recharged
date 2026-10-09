@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original cue, delay and source selection steps
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Typed native callers validate complete resource closure before invoking these
 original algorithms. Inject RNG state explicitly; retain console delegation.
@@ -181,7 +181,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
  AudioVoiceDefinition* SelectAudioCueVoice(AudioCueDefinition* cue)
  {
 -    AudioCueEntry* selected = 0;
--    if (cue->selectionMode == -1)
+-    if (cue->selectionMode == AUDIO_CUE_DISABLED)
 -        return 0;
 -    if (cue->voiceCount == 0)
 -        return 0;
@@ -190,8 +190,8 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
 -    {
 -        selected = cue->voices;
 -    }
--    else if (cue->selectionMode == 0
--             || (cue->selectionMode == 1 && cue->selectedVoiceIndex != 0xFFFF))
+-    else if (cue->selectionMode == AUDIO_CUE_SEQUENTIAL
+-             || (cue->selectionMode == AUDIO_CUE_RANDOM_START && cue->selectedVoiceIndex != 0xFFFF))
 -    {
 -        if (cue->selectedVoiceIndex == 0xFFFF)
 -            selected = cue->voices;
@@ -206,7 +206,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
 -    else
 -    {
 -        float totalWeight = 0.0f;
--        if (cue->selectionMode == 3)
+-        if (cue->selectionMode == AUDIO_CUE_RANDOM_NO_REPEAT)
 -        {
 -            u32 i;
 -            AudioCueEntry* entry = cue->voices;
@@ -223,7 +223,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
 -                }
 -            }
 -        }
--        else if (cue->selectionMode == 1 || cue->selectionMode == 2)
+-        else if (cue->selectionMode == AUDIO_CUE_RANDOM_START || cue->selectionMode == AUDIO_CUE_RANDOM)
 -        {
 -            AudioCueEntry* entry = cue->voices;
 -            for (u32 i = 0; i < cue->voiceCount; i++, entry++)
@@ -232,7 +232,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
 -                totalWeight += entry->weight;
 -            }
 -        }
--        else if (cue->selectionMode == 4)
+-        else if (cue->selectionMode == AUDIO_CUE_SHUFFLE)
 -        {
 -            if (cue->selectedVoiceIndex != 0xFFFF)
 -            {
@@ -291,7 +291,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
 diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenceEvent.cpp
 --- a/src/Game/Audio/AudioSequenceEvent.cpp
 +++ b/src/Game/Audio/AudioSequenceEvent.cpp
-@@ -13,7 +13,8 @@
+@@ -13,6 +13,7 @@
  
  #include "Game/Audio/SoundInstance.h"
  #include "Game/Audio/AudioSequenceEvent.h"
@@ -299,8 +299,7 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
  #include "Game/Audio/AudioBankLoader.h"
  
  SlotPool<SoundPlaybackEvent> sSoundPlaybackEventPool(32, 16);
- SlotPool<HitMarkerEvent> sHitMarkerEventPool(32, 16);
-@@ -21,6 +22,18 @@
+@@ -22,6 +23,18 @@
  static inline float RandomRange(float minimum, float maximum)
  {
      return nlRandomf(minimum, maximum, &nlDefaultSeed);
@@ -319,7 +318,7 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
  }
  
  inline SoundPlaybackEvent::SoundPlaybackEvent(
-@@ -35,12 +48,7 @@
+@@ -36,12 +49,7 @@
      , flags(0)
  {
      this->definition = definition;
@@ -333,7 +332,7 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
      sourceInfo = SelectSourceInfo();
      source = g_pAudioBackend->CreateSource(
          sourceInfo, this->owner->soundInstance->owner->m_Owner);
-@@ -126,24 +134,7 @@
+@@ -127,24 +135,7 @@
  
  AudioSourceInfo* SoundPlaybackEvent::SelectSourceInfo()
  {

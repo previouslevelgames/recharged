@@ -1,0 +1,33 @@
+Subject: Preserve signed Wii32 challenge and game-limit values
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+Native-only declaration transport. Console tokens, numeric constants, source
+branches and serialized data remain unchanged. Apply after the refreshed469
+Charged preparation patches.
+
+diff --git a/include/Game/DB/GameProgress.h b/include/Game/DB/GameProgress.h
+--- a/include/Game/DB/GameProgress.h
++++ b/include/Game/DB/GameProgress.h
+@@ -270,6 +270,9 @@
+ };
+ 
+ enum eChallengeCondition
++#if defined(MSCHARGED_NATIVE)
++    : s32
++#endif
+ {
+     CHALLENGE_WIN = 0,
+     CHALLENGE_WIN_BY_MARGIN = 1,
+diff --git a/include/Game/DB/UserOptions.h b/include/Game/DB/UserOptions.h
+--- a/include/Game/DB/UserOptions.h
++++ b/include/Game/DB/UserOptions.h
+@@ -64,6 +64,9 @@
+ };
+ 
+ enum eGameLimitType
++#if defined(MSCHARGED_NATIVE)
++    : s32
++#endif
+ {
+     GAME_LIMIT_TIME = 0,
+     GAME_LIMIT_GOALS = 1,

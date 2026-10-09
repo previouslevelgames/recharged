@@ -1,6 +1,6 @@
 Subject: Original Tutorial/Challenges menu admission and numeric row ABI
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep original factories75/76 behind an explicit default-OFF diagnostic.
 Retain all original handler methods, asset choices, camera waits and later
@@ -9,28 +9,29 @@ transport them via native intptr width, preserving each console statement.
 Make original owning inline definitions visible to the native compiler.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index 6a233d1..7918ac0 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -546,12 +546,16 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
-     case (SceneList)74:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(9);
+@@ -547,13 +547,17 @@
+     case SCENE_HOF_CRYSTAL_BRICK_WALL_HISTORY:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(HOF_CRYSTAL_BRICK_WALL_HISTORY);
          break;
+-    case SCENE_CHALLENGE_SELECT:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CHALLENGES))
-     case (SceneList)75:
++    case (SceneList)75:
          newHandler = new (nlMalloc(sizeof(ChallengeSelectScene), 8, false)) ChallengeSelectScene(false);
          break;
-     case (SceneList)76:
+     case SCENE_STRIKERS_101_SELECT:
          newHandler = new (nlMalloc(sizeof(ChallengeSelectScene), 8, false)) ChallengeSelectScene(true);
          break;
+-    case SCENE_CHALLENGE_NEWS:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)77:
++    case (SceneList)77:
          newHandler = new (nlMalloc(sizeof(SHStrikerTimesChallenge), 8, false)) SHStrikerTimesChallenge();
          break;
+     case SCENE_CHOOSE_SIDES_TOURNAMENT:
 diff --git a/src/Game/SH/SHChallengeSelect.cpp b/src/Game/SH/SHChallengeSelect.cpp
-index 8c445da..3854405 100644
 --- a/src/Game/SH/SHChallengeSelect.cpp
 +++ b/src/Game/SH/SHChallengeSelect.cpp
 @@ -1,3 +1,10 @@
@@ -44,7 +45,7 @@ index 8c445da..3854405 100644
  #include "Game/SH/SHChallengeSelect.h"
  #include "Game/FE/fePresentation.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
-@@ -346,11 +353,19 @@ void ChallengeSelectScene::OnChallengePressed(int, void* context)
+@@ -346,11 +353,19 @@
      int challenge;
      if (mTutorial)
      {
@@ -52,10 +53,13 @@ index 8c445da..3854405 100644
 +        challenge = mChallengeOffset + static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
          challenge = mChallengeOffset + (int)context;
+-    }
+-    else
+-    {
 +#endif
-     }
-     else
-     {
++    }
++    else
++    {
 +#if defined(MSCHARGED_NATIVE)
 +        challenge = mChallengeOffset + static_cast<int>(reinterpret_cast<std::intptr_t>(context)) + 10;
 +#else
@@ -64,7 +68,7 @@ index 8c445da..3854405 100644
      }
      challengeData->SetCurrentChallenge(challenge);
  
-@@ -362,7 +377,11 @@ void ChallengeSelectScene::OnChallengePressed(int, void* context)
+@@ -362,7 +377,11 @@
  
  void ChallengeSelectScene::OnChallengeEnter(int pointerIndex, void* context)
  {
@@ -75,8 +79,8 @@ index 8c445da..3854405 100644
 +#endif
      ++mPointerInsideCount;
      mChallengeSlides[row]->SetActiveSlide("over", true, false);
-     mChallengeButtons[row].SetPointerState(1, pointerIndex);
-@@ -372,7 +391,11 @@ void ChallengeSelectScene::OnChallengeEnter(int pointerIndex, void* context)
+     mChallengeButtons[row].SetPointerState(POINTER_BUTTON_HOVER, pointerIndex);
+@@ -372,7 +391,11 @@
  
  void ChallengeSelectScene::OnChallengeLeave(int pointerIndex, void* context)
  {
@@ -87,8 +91,8 @@ index 8c445da..3854405 100644
 +#endif
      --mPointerInsideCount;
      mChallengeSlides[row]->SetActiveSlide("off", true, false);
-     mChallengeButtons[row].SetPointerState(0, pointerIndex);
-@@ -380,7 +403,11 @@ void ChallengeSelectScene::OnChallengeLeave(int pointerIndex, void* context)
+     mChallengeButtons[row].SetPointerState(POINTER_BUTTON_NORMAL, pointerIndex);
+@@ -380,8 +403,12 @@
  
  void ChallengeSelectScene::OnChallengeInside(int pointerIndex, void* context)
  {
@@ -96,7 +100,9 @@ index 8c445da..3854405 100644
 +    int row = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
      int row = (int)context;
+-    if (mChallengeButtons[row].GetPointerState(pointerIndex) == POINTER_BUTTON_NORMAL)
 +#endif
-     if (mChallengeButtons[row].GetPointerState(pointerIndex) == 0)
++    if (mChallengeButtons[row].GetPointerState(pointerIndex) == 0)
      {
          ++mPointerInsideCount;
+         mChallengeSlides[row]->SetActiveSlide("over", true, false);

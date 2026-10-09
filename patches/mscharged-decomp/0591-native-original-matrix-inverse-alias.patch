@@ -1,5 +1,5 @@
 Subject: Map original paired-single matrix inverse to the sole native SDK
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The original HOME GUI requests PSMTXInverse during Init. The actual native
 SDK already owns C_MTXInverse; expose its matching u32 signature through

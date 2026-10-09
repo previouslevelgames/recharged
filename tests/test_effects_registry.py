@@ -19,6 +19,9 @@ def main():
                  "bad-enum": resident(entry(binding=0xffffffff)),
                  "unbound": resident(entry(texture=0xffffffff, model=0x12341234)),
                  "empty": resident()}
+        # Signed metadata transport only; no particle update/switch is run.
+        for axis in (*range(7), -1, -2147483648, 2147483647):
+            cases[f"forward-axis-{axis}"] = resident(entry(forward_axis=axis))
         for name, data in cases.items():
             (root / (name + ".bun")).write_bytes(data)
         (root / "same.rlt").write_bytes(textures())

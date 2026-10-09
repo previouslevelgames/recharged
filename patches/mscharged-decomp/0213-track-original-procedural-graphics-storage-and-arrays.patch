@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Track original procedural graphics storage and arrays
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: permanent host compiler/platform/data ABI adaptation.
 
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
@@ -9,7 +9,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 @@ -23,6 +23,9 @@
  #include "NL/nlString.h"
  #include "NL/nlstring_tmpl.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -105,7 +105,7 @@ diff --git a/src/Game/GL/GLTexturedColourMeshWriter.cpp b/src/Game/GL/GLTextured
 @@ -10,6 +10,9 @@
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -130,7 +130,7 @@ diff --git a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp b/src/Game/GL/GLFlo
 @@ -9,6 +9,9 @@
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -176,7 +176,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTe
 @@ -9,6 +9,9 @@
  #include "NL/glx/GXMaterialProgramInternal.h"
  #include "NL/gl/glLoadModel.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/gx_array_transport.h"
 +#endif
@@ -209,7 +209,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
 @@ -9,6 +9,9 @@
  #include "NL/glx/GXMaterialProgramInternal.h"
  #include "NL/gl/glLoadModel.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/gx_array_transport.h"
 +#endif
@@ -251,7 +251,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
 @@ -10,6 +10,9 @@
  #include "NL/glx/GXMaterialProgramInternal.h"
  #include "NL/gl/glLoadModel.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/gx_array_transport.h"
 +#endif
@@ -293,7 +293,7 @@ diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp b/src/
 @@ -9,6 +9,9 @@
  #include "NL/glx/GXMaterialProgramInternal.h"
  #include "NL/gl/glLoadModel.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/gx_array_transport.h"
 +#endif

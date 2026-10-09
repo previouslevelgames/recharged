@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original font startup and native texture address ABI
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Prepared-preimage: reviewed strict185 source
 
 Default original-module glFont owns its original globals, glyph method and
@@ -15,7 +15,7 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
 +++ b/src/NL/gl/glFont.cpp
 @@ -15,9 +15,17 @@
  #include "NL/nlstring_tmpl.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
  #include "NL/gl/GLFontAtlas.h"

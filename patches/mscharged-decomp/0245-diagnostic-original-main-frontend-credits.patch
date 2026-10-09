@@ -1,6 +1,6 @@
 From: Charged native preparation
 Subject: [PATCH] diagnostic: enter source frontend and Credits from original main
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Owner-authorized 2026-10-06 temporary diagnostic selection. Normal main retains
 all original source tokens. Selected frontend keeps initialization positions,
@@ -10,7 +10,8 @@ task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -1,5 +1,24 @@
+@@ -1,6 +1,25 @@
+ #include "Game/Task/GameTaskState.h"
  #include "NL/nlDLListContainer.inl"
  #include "Game/main.h"
 +#if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
@@ -35,7 +36,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #include "Game/TweakRegistry.h"
  #include "Game/TweakConfig.h"
  
-@@ -487,8 +506,14 @@
+@@ -488,8 +507,14 @@
      DisplayLoadingMessageFast();
      InitializeODEAllocators();
      RegisterUserGeomClasses();
@@ -51,7 +52,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      unsigned int stringSizes[4];
      stringSizes[1] = 0;
      stringSizes[3] = 0;
-@@ -497,6 +522,8 @@
+@@ -498,6 +523,8 @@
      gResetTweakValueStrings = true;
      InitializeTweakRegistry(0, 1, stringSizes);
      glplatInitializeMaterialPrograms();
@@ -60,7 +61,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
      if (!glLoadTextureBundle("art/global.rlt", glGetCurrentResourcePool()))
      {
-@@ -545,12 +572,18 @@
+@@ -546,12 +573,18 @@
      g_pGameAudio->Initialize();
      gSwappablePadChanged.Add(Function<void(int)>(ConfigureTweakerButtons), 0, -1);
      g_pPadManager->Update(0.0f);
@@ -79,7 +80,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlLocalization::Initialize();
  
      if (FEResourceManager::s_pInstance == 0)
-@@ -563,6 +596,8 @@
+@@ -564,6 +597,8 @@
          FESceneManager::s_pInstance = new (8, false) FESceneManager;
      }
  
@@ -88,7 +89,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      int countryCode;
      if (sCountryCode != 0)
      {
-@@ -607,7 +642,11 @@
+@@ -608,7 +643,11 @@
      FrontEndPresentation::GetInstance();
      ExcitementSystem::Instance();
      AddTasks();
@@ -100,7 +101,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      HideLayerView(eCLV_ScreenBlur);
      HideLayerView(eCLV_ScreenBlur2);
      HideLayerView(eCLV_ShadowVolume);
-@@ -626,8 +665,12 @@
+@@ -627,8 +666,12 @@
      g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
      InitMaxProjectedShadows();
      SetCharacterShadowView(GetLayerView(eCLV_Characters));
@@ -113,7 +114,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      NisPlayer::Instance();
      ReplayManager::Instance();
      Wiper::Instance().Initialize();
-@@ -800,8 +843,62 @@
+@@ -801,8 +844,62 @@
      Initialize();
  
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
@@ -176,7 +177,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #else
  
      while (nlAsyncReadsPending(0))
-@@ -818,3 +915,21 @@
+@@ -819,3 +916,21 @@
      }
  #endif // original async/music/task loop
  }

@@ -1,6 +1,6 @@
 Subject: Share original audio options visual and volume target kernels
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Original source methods delegate to the same visual, listener, category clamp
 and target equations as checked native owners. Global GameInfo, SaveLoad, NAV
@@ -199,7 +199,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
      for (int i = 0; i < 4; ++i)
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
 -
--    if (mOverlayMode == 0)
+-    if (mOverlayMode == OPTIONS_CONTEXT_FRONTEND)
 -    {
 -        FEFinder<TLInstance, 2>::Find<>(presentation,
 -            "OPTIONS_IN", "Layer", "blackbox")->m_bVisible = false;
@@ -264,7 +264,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
      BaseSceneHandler::Update(fDeltaT);
 -
--    if (mState == 0 || mState == 2 || mState == 3)
+-    if (mState == AUDIO_OPTIONS_ENTERING || mState == 2 || mState == AUDIO_OPTIONS_EXITING_BACK)
 -    {
 -        TLSlide* slide = mPresentation->m_currentSlide;
 -        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
@@ -274,26 +274,26 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -            return;
 -        }
 -
--        if (mState == 0)
+-        if (mState == AUDIO_OPTIONS_ENTERING)
 -        {
 -            SHNavigation* navigation = GetNavigationScene();
 -            if (navigation != 0)
 -            {
--                navigation->SetButtons(0x24, true);
--                navigation->SetDoneButtonText(1);
+-                navigation->SetButtons(NAVIGATION_BUTTON_BACK | NAVIGATION_BUTTON_DONE, true);
+-                navigation->SetDoneButtonText(NAV_ACCEPT);
 -            }
--            mState = 1;
+-            mState = AUDIO_OPTIONS_ACTIVE;
 -        }
 -        else if (mState == 2)
 -        {
 -            return;
 -        }
--        else if (mState == 3)
+-        else if (mState == AUDIO_OPTIONS_EXITING_BACK)
 -        {
--            if (mOverlayMode == 0)
--                GameSceneManager::Instance()->Push((SceneList)13, SCREEN_NOTHING, true);
+-            if (mOverlayMode == OPTIONS_CONTEXT_FRONTEND)
+-                GameSceneManager::Instance()->Push(SCENE_OPTIONS, SCREEN_NOTHING, true);
 -            else
--                g_pOverlayManager->Push((SceneList)0x50, SCREEN_NOTHING, true);
+-                g_pOverlayManager->Push(SCENE_PAUSE, SCREEN_NOTHING, true);
 -            return;
 -        }
 -    }
@@ -315,10 +315,10 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -            settings->VoiceVolume = mBackupSettings[2];
 -            settings->ApplySettings();
 -            FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
--            mState = 3;
+-            mState = AUDIO_OPTIONS_EXITING_BACK;
 -            SHNavigation* navigation = GetNavigationScene();
 -            if (navigation != 0)
--                navigation->SetButtons(0, true);
+-                navigation->SetButtons(NAVIGATION_BUTTON_NONE, true);
 -            mPresentation->SetActiveSlide("OPTIONS_OUT", true);
 +            FrontendAudioOptionsBack(*this,[] { return GameInfoManager::Instance()->GetAudioSettings(); },
 +                [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },
@@ -380,50 +380,50 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  void OptionsAudioMenuV2::OnVolumeButtonPointerEnter(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (mButtonComponents[item].HasOtherPointerState(2, -1)
+-    if (mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1)
 -        || !IsVolumeButtonEnabled(item))
 -    {
 -        return;
 -    }
 -
 -    mButtonComponents[item].PlayHoverFeedback(index);
--    if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-    if (!mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mButtons[item]->SetActiveSlide("over", true, false);
 -        FEAudio::PlayAnimAudioEvent(0x96DEB5C3, 0, 0, 1);
 -    }
--    mButtonComponents[item].SetPointerState(1, index);
+-    mButtonComponents[item].SetPointerState(POINTER_BUTTON_HOVER, index);
 +    FrontendAudioOptionsEnter(*this,index,(unsigned int)context, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
  }
  
  void OptionsAudioMenuV2::OnVolumeButtonPointerLeave(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (mButtonComponents[item].HasOtherPointerState(2, -1)
+-    if (mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1)
 -        || !IsVolumeButtonEnabled(item))
 -    {
 -        return;
 -    }
 -
--    if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-    if (!mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mButtons[item]->SetActiveSlide("off", true, false);
 -    }
--    mButtonComponents[item].SetPointerState(0, index);
+-    mButtonComponents[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
 +    FrontendAudioOptionsLeave(*this,index,(unsigned int)context);
  }
  
  void OptionsAudioMenuV2::OnVolumeButtonPointerPress(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (mButtonComponents[item].HasOtherPointerState(2, -1)
+-    if (mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1)
 -        || !IsVolumeButtonEnabled(item))
 -        return;
 -
 -    AudioSettings* settings = GameInfoManager::Instance()->GetAudioSettings();
 -    switch (item)
 -    {
--    case 0:
+-    case AUDIO_BUTTON_MUSIC_DOWN:
 -        settings->MusicVolume = --mSettings[0];
 -        settings->ApplyMusicVolume();
 -        UpdateVolumeBars(0);
@@ -431,7 +431,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -        mButtons[1]->SetActiveSlide("off", true, false);
 -        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
 -        break;
--    case 1:
+-    case AUDIO_BUTTON_MUSIC_UP:
 -        settings->MusicVolume = ++mSettings[0];
 -        settings->ApplyMusicVolume();
 -        UpdateVolumeBars(0);
@@ -439,7 +439,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -        mButtons[0]->SetActiveSlide("off", true, false);
 -        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
 -        break;
--    case 2:
+-    case AUDIO_BUTTON_SFX_DOWN:
 -        settings->SFXVolume = --mSettings[1];
 -        settings->ApplySFXVolume();
 -        UpdateVolumeBars(1);
@@ -447,7 +447,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -        mButtons[3]->SetActiveSlide("off", true, false);
 -        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
 -        break;
--    case 3:
+-    case AUDIO_BUTTON_SFX_UP:
 -        settings->SFXVolume = ++mSettings[1];
 -        settings->ApplySFXVolume();
 -        UpdateVolumeBars(1);
@@ -455,23 +455,23 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -        mButtons[2]->SetActiveSlide("off", true, false);
 -        FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
 -        break;
--    case 4:
+-    case AUDIO_BUTTON_VOICE_DOWN:
 -        settings->VoiceVolume = --mSettings[2];
 -        settings->ApplyVoiceVolume();
 -        UpdateVolumeBars(2);
 -        UpdateVolumeLevelText(2);
--        if (mOverlayMode == 0)
+-        if (mOverlayMode == OPTIONS_CONTEXT_FRONTEND)
 -            FEAudio::PlayAnimAudioEvent(0x1F824C84, 0, 0, 1);
 -        else
 -            FEAudio::PlaySound(1, 0x270203ED, 0, 0);
 -        mButtons[5]->SetActiveSlide("off", true, false);
 -        break;
--    case 5:
+-    case AUDIO_BUTTON_VOICE_UP:
 -        settings->VoiceVolume = ++mSettings[2];
 -        settings->ApplyVoiceVolume();
 -        UpdateVolumeBars(2);
 -        UpdateVolumeLevelText(2);
--        if (mOverlayMode == 0)
+-        if (mOverlayMode == OPTIONS_CONTEXT_FRONTEND)
 -            FEAudio::PlayAnimAudioEvent(0x1F824C84, 0, 0, 1);
 -        else
 -            FEAudio::PlaySound(1, 0x270203ED, 0, 0);
@@ -549,29 +549,29 @@ diff --git a/include/Game/FE/feOptionsSubMenus.h b/include/Game/FE/feOptionsSubM
  #include "Game/FE/fePointerButton.h"
  #include "Game/FE/feBackButton.h"
  
-@@ -48,33 +49,8 @@
+@@ -71,33 +72,8 @@
  
      bool IsVolumeButtonEnabled(unsigned int item) const
      {
 -        bool enabled;
 -        switch (item)
 -        {
--        case 0:
+-        case AUDIO_BUTTON_MUSIC_DOWN:
 -            enabled = mSettings[0] > 0;
 -            break;
--        case 1:
+-        case AUDIO_BUTTON_MUSIC_UP:
 -            enabled = mSettings[0] < 10;
 -            break;
--        case 2:
+-        case AUDIO_BUTTON_SFX_DOWN:
 -            enabled = mSettings[1] > 0;
 -            break;
--        case 3:
+-        case AUDIO_BUTTON_SFX_UP:
 -            enabled = mSettings[1] < 10;
 -            break;
--        case 4:
+-        case AUDIO_BUTTON_VOICE_DOWN:
 -            enabled = mSettings[2] > 0;
 -            break;
--        case 5:
+-        case AUDIO_BUTTON_VOICE_UP:
 -            enabled = mSettings[2] < 10;
 -            break;
 -        default:

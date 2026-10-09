@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Retain genuine NetworkSession event-owner pointer width
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The two original session fields are real event owner addresses. Use the
 existing native EventOwnerHandle ABI before original Add, preserving all
@@ -11,8 +11,8 @@ diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
 +++ b/src/Game/NetworkSession.cpp
 @@ -1917,12 +1917,20 @@
      Function<FnVoidVoid> first(BindMember(session, &NetworkSession::OnPauseGame));
-     UnidentifiedTypedEvent0<void>* pauseEvent
-         = &g_pGame->mUnidentified49C.mPauseGameEvent;
+     TypedEvent0<void>* pauseEvent
+         = &g_pGame->mEventQueue.mPauseGameEvent;
 +#if defined(MSCHARGED_NATIVE)
 +    pauseEvent->Add(first, reinterpret_cast<EventOwnerHandle>(&session->mPauseEventOwner), -1);
 +#else
@@ -20,13 +20,13 @@ diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
 +#endif
  
      Function<FnVoidVoid> second(BindMember(session, &NetworkSession::OnResumingGame));
-     UnidentifiedTypedEvent0<void>* resumingEvent
-         = &g_pGame->mUnidentified49C.mResumingGameEvent;
+     TypedEvent0<void>* resumingEvent
+         = &g_pGame->mEventQueue.mResumingGameEvent;
 +#if defined(MSCHARGED_NATIVE)
 +    resumingEvent->Add(second, reinterpret_cast<EventOwnerHandle>(&session->mResumingEventOwner), -1);
 +#else
      resumingEvent->Add(second, (unsigned int)&session->mResumingEventOwner, -1);
 +#endif
  
-     if (NetTournManager::Instance()->mState != 0)
+     if (NetTournManager::Instance()->mState != NET_TOURN_INACTIVE)
      {

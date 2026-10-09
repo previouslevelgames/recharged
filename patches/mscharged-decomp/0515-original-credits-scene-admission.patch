@@ -1,11 +1,10 @@
 # Patch: 0515-original-credits-scene-admission
-# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 # Scope: Temporary diagnostic admission of the existing original CreditScene factory case selected by Options item2.
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index c405203..3933979 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -381,10 +381,12 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -382,11 +382,13 @@
      case SCENE_INTRO_MOVIE:
          newHandler = new (nlMalloc(sizeof(IntroMovieScene), 8, false)) IntroMovieScene();
          break;
@@ -14,8 +13,10 @@ index c405203..3933979 100644
      case SCENE_CREDITS:
          newHandler = new (nlMalloc(sizeof(CreditScene), 8, false)) CreditScene();
          break;
+-    case SCENE_NETWORK_START:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)24:
++    case (SceneList)24:
          newHandler = new (nlMalloc(sizeof(NetworkStartScene), 8, false)) NetworkStartScene();
          break;
+     case SCENE_ASYNC_LOADING:

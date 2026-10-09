@@ -1,5 +1,5 @@
 Subject: Restore original frontend input, pointer and audio-status source
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain whole reconstructed source decisions, pointer callbacks/bounds and audio
 state policy. Remove replacement helper calls and the native exclusion of actual
@@ -41,9 +41,9 @@ diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
 +            OnPointerPress(event->mIndex, mContext);
 +        }
 +
-+        if (event->mUnidentified0E)
++        if (event->mAuxiliaryTriggered)
 +        {
-+            UnidentifiedVirtual24(event->mIndex, mContext);
++            OnPointerAuxiliaryAction(event->mIndex, mContext);
 +        }
 +    }
 +    else if (ContainsPoint(mPreviousEvents[event->mIndex].mPosition))

@@ -1,6 +1,6 @@
 Subject: Restore original Options Done-button bounds in whole source
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retire the historical template extraction at this original call. Restore
 the original two local arrays and complete matching source method; source
@@ -23,9 +23,9 @@ diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
 +static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
 +static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
  
- // Retail's .sdata2 pool for this unit opens with 0.0f, ahead of the constants
- // EnableAutoPressed creates, although no surviving function generated before
-@@ -351,7 +352,16 @@
+ void ZeroFloat(float* value)
+ {
+@@ -339,7 +340,16 @@
  void SetDoneButtonBounds(
      FEPointerButton* component, TLComponentInstance*, int value)
  {

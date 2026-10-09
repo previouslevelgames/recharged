@@ -1,6 +1,6 @@
 Subject: Restore whole original Main Menu handler and native scalar callback ABI
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retire historical 0104/0115 game method extractions. The full Matching TU
 retains source visibility, bounds, save/Mii/network decisions and presentation
@@ -92,7 +92,7 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
      TLComponentInstance* backButton = 0;
      if (scene != 0)
 @@ -89,7 +138,10 @@
-         backButton = scene->GetButton(4);
+         backButton = scene->GetButton(NAVIGATION_BUTTON_BACK);
      }
  
 -    FrontendMainMenuFindArrows<TLComponentInstance, FEFinder>(*this);
@@ -218,7 +218,7 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
  /**
 @@ -393,13 +493,16 @@
      }
-     case 6:
+     case MAIN_MENU_OPTIONS:
      {
 -        FrontendMainApplyOptions(
 -            []() { GameSceneManager::Instance()->Pop(); },

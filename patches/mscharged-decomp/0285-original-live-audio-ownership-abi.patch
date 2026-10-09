@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original live audio ownership on native ABI
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Adapt live sound-handle notification/tree keys without widening any authored
 hash, serialized field or script word. Use authoritative native owning fields
@@ -59,7 +59,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
  
 -    /* 0x00 */ bool (*mCallback)(u32, AudioEffectBase*);
 +    /* 0x00 */ bool (*mCallback)(AudioInstanceKey, AudioEffectBase*);
-     /* 0x04 */ bool mUnidentified04;
+     /* 0x04 */ bool m_pad04;
      /* 0x08 */ AudioEffectBase* mEffect;
  }; // size: 0x0C
 @@ -75,15 +76,15 @@
@@ -145,7 +145,7 @@ diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptR
 +    AudioInstanceKey instance, u32 key)
  {
      bool added;
-     AudioEffectBinding* binding = script->mBindings.UnidentifiedAddOrGet(key, added);
+     AudioEffectBinding* binding = script->mBindings.AddOrGet(key, added);
 @@ -105,7 +105,7 @@
      return hasValue;
  }
@@ -268,7 +268,7 @@ diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResou
 diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
 --- a/src/Game/Audio/AudioSystem.cpp
 +++ b/src/Game/Audio/AudioSystem.cpp
-@@ -80,7 +80,7 @@
+@@ -81,7 +81,7 @@
      if (handle != 0)
          NotifyAudioSoundStarted(audio->GetBundleManager()->GetResourceRuntime(),
              (value3 ^ value1) ^ (value2 ^ cueId),
@@ -277,9 +277,9 @@ diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
      return handle;
  }
  
-@@ -138,7 +138,7 @@
+@@ -139,7 +139,7 @@
          handle->Update(dt);
-         if (handle->m_State == 9)
+         if (handle->m_State == SOUND_HANDLE_RELEASED)
          {
 -            NotifyAudioSoundStopped(audio->GetBundleManager()->GetResourceRuntime(), reinterpret_cast<u32>(handle));
 +            NotifyAudioSoundStopped(audio->GetBundleManager()->GetResourceRuntime(), reinterpret_cast<AudioInstanceKey>(handle));

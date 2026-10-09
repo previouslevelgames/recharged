@@ -1,7 +1,7 @@
 From: native GX array data transport
 Subject: [PATCH] preserve original character skin array bindings with owned byte domains
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Original game-module attributes, addresses and literal strides remain source-owned.
 The existing native hardware boundary supplies exact completed extent and endian;
@@ -13,7 +13,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp b/src/NL/glx/GX
 @@ -9,6 +9,9 @@
  #include "NL/glx/GXMaterialProgramInternal.h"
  #include "NL/glx/glxTexture.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/gx_array_transport.h"
 +#endif

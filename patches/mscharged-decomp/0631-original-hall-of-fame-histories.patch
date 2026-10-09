@@ -1,0 +1,45 @@
+From: mscharged-port
+Subject: Admit the original Hall of Fame trophy histories
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: temporary explicit original-source diagnostic admission; depends on 0630.
+
+The Hall of Fame cup pages' trophy items (0-2) push the earned-history pages
+66-74 through ShowHallOfFameTrophy once their unlock flag is set (cup won,
+Golden Boot or Brick Wall award, recorded by CupManager::RecordCupUnlock and
+AwardGoalTrophies). Without the flag the original locked popup stays in place.
+A player who earns a trophy therefore reached a gated factory case.
+
+Under the existing MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME admission, which
+already compiles the whole SHHallOfFameHistory.cpp for the player cards (65),
+move cases 66-74 (SHHallOfFameHistory with the history modes) into the admitted
+set. Record selection, statistics/date formatting, images and scrolling stay
+original; the history records are the native cup save data. The history image
+names call CharacterInfo::GetName, which retail emits out of line; natively the
+TU includes its header-inline definition so the module has no lazy import.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -537,7 +537,7 @@
+         newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(13);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME))
+     case (SceneList)66:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(4);
+         break;
+diff --git a/src/Game/SH/SHHallOfFameHistory.cpp b/src/Game/SH/SHHallOfFameHistory.cpp
+--- a/src/Game/SH/SHHallOfFameHistory.cpp
++++ b/src/Game/SH/SHHallOfFameHistory.cpp
+@@ -12,6 +12,10 @@
+ #include <string.h>
+ #include "Game/BaseGameSceneManager.h"
+ #include "Game/DB/CharacterInfo.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits CharacterInfo::GetName out of line; the history images call it.
++#include "Game/DB/CharacterInfo.inl"
++#endif
+ #include "Game/DB/GameProgress.h"
+ #include "Game/FE/feCupFlow.h"
+ #include "Game/FE/feAsyncImage.h"

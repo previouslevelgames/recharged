@@ -1,5 +1,5 @@
 Subject: [PATCH] Admit original Options and Popup diagnostic factories
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Select the exact original constructors for the named SH menu diagnostic.
 Normal source and existing diagnostics remain unchanged.
@@ -7,8 +7,8 @@ Normal source and existing diagnostics remain unchanged.
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -337,6 +337,8 @@
-     case (SceneList)9:
+@@ -338,6 +338,8 @@
+     case SCENE_CUP_CHEATER:
          newHandler = new (nlMalloc(sizeof(CupCheaterScene), 8, false)) CupCheaterScene();
          break;
 +#endif
@@ -16,12 +16,14 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_POPUP_MENU:
          newHandler = new (nlMalloc(sizeof(FEPopupMenu), 8, false)) FEPopupMenu();
          break;
-@@ -349,6 +351,8 @@
+@@ -350,7 +352,9 @@
      case SCENE_VISUAL_OPTIONS:
-         newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(0);
+         newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_FRONTEND);
          break;
+-    case SCENE_LEGAL:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)16:
++    case (SceneList)16:
          newHandler = new (nlMalloc(sizeof(CrossFaderScene), 8, false)) CrossFaderScene();
          break;
+     case SCENE_SUPER_LOADING:

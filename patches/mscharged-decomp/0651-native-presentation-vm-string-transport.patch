@@ -1,9 +1,11 @@
 Subject: Decode original Presentation string words through the existing cached-address ABI
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
+diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentation_interp.cpp
 --- a/src/Game/Render/Presentation_interp.cpp
 +++ b/src/Game/Render/Presentation_interp.cpp
-@@ -1,3 +1,10 @@
+@@ -1,4 +1,11 @@
+ #include "Game/Task/GameTaskState.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/vm_address_abi.h"
 +#define MSCHARGED_PRESENTATION_VM_STRING(word) static_cast<const char*>(mscharged::platform::DecodeVMAddress(word))
@@ -14,7 +16,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
  #include "Game/Game.h"
  /**
   * Address/Size: 0x80288FF8 | size: 0x1444
-@@ -247,7 +254,7 @@
+@@ -248,7 +255,7 @@
      case 33:
      {
          int variant = m_SP[-1];
@@ -23,7 +25,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP -= 2;
          LoadNis(name, variant);
          break;
-@@ -271,7 +278,7 @@
+@@ -272,7 +279,7 @@
          NisUseFilter filter = (NisUseFilter)m_SP[-4];
          NisUseStadiumOffset stadiumOffset = (NisUseStadiumOffset)m_SP[-5];
          NisTarget target = (NisTarget)m_SP[-6];
@@ -32,7 +34,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP -= 7;
          if (!mByPassing)
          {
-@@ -386,15 +393,15 @@
+@@ -387,15 +394,15 @@
      {
          float length = *(float*)&m_SP[-1];
          float delay = *(float*)&m_SP[-2];
@@ -51,7 +53,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP -= 2;
          NISData* data = g_NISDataPool.Allocate();
          data->Type = type;
-@@ -417,7 +424,7 @@
+@@ -418,7 +425,7 @@
      case 55:
      {
          u32* stack = m_SP;
@@ -60,7 +62,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP = stack;
          ScreenTransitionManager::Instance()->m_SelectedTransition = 0;
          ScreenTransitionManager::Instance()->SelectRandomTransition(filter);
-@@ -600,7 +607,7 @@
+@@ -601,7 +608,7 @@
      case 81:
      {
          u32* stack = m_SP;
@@ -69,7 +71,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP = stack;
          if (!mByPassing)
          {
-@@ -638,7 +645,7 @@
+@@ -639,7 +646,7 @@
      case 86:
      {
          u32* stack = m_SP;
@@ -78,7 +80,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP = stack;
          if (!mByPassing)
          {
-@@ -660,7 +667,7 @@
+@@ -661,7 +668,7 @@
      case 89:
      {
          u32* stack = m_SP;
@@ -87,7 +89,7 @@ Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
          m_SP = stack;
          if (!mByPassing)
          {
-@@ -679,3 +686,5 @@
+@@ -680,3 +687,5 @@
          break;
      }
  }

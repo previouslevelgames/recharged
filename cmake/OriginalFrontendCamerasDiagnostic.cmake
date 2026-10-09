@@ -64,7 +64,7 @@ function(mscharged_select_original_frontend_cameras target)
         src/Game/DebugWriteCache.cpp
         src/Game/Net.cpp
         src/Game/Render/ImpostorManager.cpp
-        src/Game/UnidentifiedTweakAction.cpp
+        src/Game/TweakAction.cpp
         src/NL/glx/glxMatrix.cpp)
         set(_camera_path "${MSCHARGED_PREPARED}/${_camera_source}")
         if(NOT _camera_path IN_LIST _camera_existing)

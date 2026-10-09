@@ -1,0 +1,176 @@
+From: mscharged-port
+Subject: Admit original cup game results, knockout and final-round pages and award natives
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: temporary explicit original-source diagnostic admission; depends on 0640.
+
+After a cup match the schedule (32) lists the played matchup; pressing it pushes
+the original GameResultsScene (33), so the first completed cup game reached a
+gated factory case. Once the league phase ends, CycleCupRoundPage and the cup
+re-entry push the knockout (34) and final-round (35) pages, whose matchups open
+33 as well, and BeginCupAwardPresentation runs the authored award transitions,
+which call the cup natives 37 (award rewards popup), 38 (Brick Wall news) and 40
+(Golden Boot news). The authored scripts also toggle the cup trophies (7/36) and
+can request ShowRoundNews (4).
+
+Under the existing MSCHARGED_DIAGNOSTIC_FRONTEND_CUP admission, move factory
+cases 33-35 and FE natives 4, 7, 36, 37, 38 and 40 into the admitted set,
+splitting gated blocks only at case boundaries (online tournament natives 0, 3,
+13, 51 and the generic native 6 keep their gates). CupKnockoutScene and
+CupFinalRoundsScene read their pointer-button and matchup index from the callback
+context word; natively it is a pointer-width value narrowed through
+std::intptr_t. Console builds keep the literal casts. Handler bodies, CupManager
+progression and every push are unchanged.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -430,7 +430,7 @@
+         newHandler = new (nlMalloc(sizeof(CupHubScene), 8, false)) CupHubScene();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
+     case (SceneList)33:
+         newHandler = new (nlMalloc(sizeof(GameResultsScene), 8, false)) GameResultsScene();
+         break;
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -51,6 +51,8 @@
+         NetTournManager::Instance()->DestroyTournamentTrophy();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
+     case 4:
+         CupManager::s_pInstance->ShowRoundNews();
+         break;
+@@ -82,6 +84,8 @@
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
+     case 7:
+         SetCupTrophiesVisible(false);
+         break;
+@@ -434,7 +438,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
+     case 36:
+         SetCupTrophiesVisible(true);
+         break;
+@@ -454,7 +458,7 @@
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
+     case 40:
+         ShowCupGoldenBootNews();
+         break;
+diff --git a/src/Game/SH/SHCupFinalRounds.cpp b/src/Game/SH/SHCupFinalRounds.cpp
+--- a/src/Game/SH/SHCupFinalRounds.cpp
++++ b/src/Game/SH/SHCupFinalRounds.cpp
+@@ -1,4 +1,11 @@
+ #include "Game/SH/SHCupFinalRounds.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/matchup indices.
++#define MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(type, context) (type)context
++#endif
+ #include "NL/nlFunction.inl"
+ #include "Game/FE/feHelpFuncs_decl.h"
+ #include "Game/SH/SHNavigation.h"
+@@ -372,7 +379,7 @@
+ 
+ void CupFinalRoundsScene::OnMatchupPointerEnter(unsigned int index, void* context)
+ {
+-    unsigned int matchup = (unsigned int)context;
++    unsigned int matchup = MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(unsigned int, context);
+     ++mPointerHoverCounts[index];
+     mMatchupInstances[matchup]->SetActiveSlide("slide2", true, false);
+     FEAudio::PlayAnimAudioEvent(0x50204AFA, 0, 0, 1);
+@@ -381,7 +388,7 @@
+ 
+ void CupFinalRoundsScene::OnMatchupPointerLeave(unsigned int index, void* context)
+ {
+-    unsigned int matchup = (unsigned int)context;
++    unsigned int matchup = MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(unsigned int, context);
+     --mPointerHoverCounts[index];
+     mMatchupInstances[matchup]->SetActiveSlide("slide1", true, false);
+     mMatchupButtons[matchup].SetPointerState(POINTER_BUTTON_NORMAL, index);
+@@ -428,7 +435,7 @@
+         GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+     }
+ 
+-    switch ((int)context)
++    switch (MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(int, context))
+     {
+     case 0:
+         FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
+@@ -449,7 +456,7 @@
+ void CupFinalRoundsScene::OnMatchupPointerPress(unsigned int, void* context)
+ {
+     FEAudio::PlayAnimAudioEvent(0x970D6164, 0, 0, 1);
+-    BasicGameInfo* game = CupManager::s_pInstance->GetGameInfo(2, (int)context);
++    BasicGameInfo* game = CupManager::s_pInstance->GetGameInfo(2, MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(int, context));
+     if (game->mFinalScore[0] != 0 || game->mFinalScore[1] != 0)
+     {
+         GameResultsScene* results = (GameResultsScene*)GameSceneManager::Instance()->Push(
+diff --git a/src/Game/SH/SHCupKnockout.cpp b/src/Game/SH/SHCupKnockout.cpp
+--- a/src/Game/SH/SHCupKnockout.cpp
++++ b/src/Game/SH/SHCupKnockout.cpp
+@@ -1,4 +1,11 @@
+ #include "Game/SH/SHCupKnockout.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/matchup indices.
++#define MSCHARGED_CUP_KNOCKOUT_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_CUP_KNOCKOUT_CONTEXT(type, context) (type)context
++#endif
+ 
+ #include "Game/DB/CharacterInfo.h"
+ #include "Game/DB/CupInterface.h"
+@@ -681,7 +688,7 @@
+     for (int i = 0; i < 4; ++i)
+         GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+ 
+-    switch ((int)context)
++    switch (MSCHARGED_CUP_KNOCKOUT_CONTEXT(int, context))
+     {
+     case 0:
+         FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
+@@ -697,7 +704,7 @@
+ 
+ void CupKnockoutScene::OnMatchupPointerEnter(unsigned int index, void* context)
+ {
+-    unsigned int matchup = (unsigned int)context;
++    unsigned int matchup = MSCHARGED_CUP_KNOCKOUT_CONTEXT(unsigned int, context);
+     ++mPointerHoverCounts[index];
+     mMatchupInstances[matchup]->SetActiveSlide("over", true, false);
+     FEAudio::PlayAnimAudioEvent(0x50204AFA, 0, 0, 1);
+@@ -706,7 +713,7 @@
+ 
+ void CupKnockoutScene::OnMatchupPointerLeave(unsigned int index, void* context)
+ {
+-    unsigned int matchup = (unsigned int)context;
++    unsigned int matchup = MSCHARGED_CUP_KNOCKOUT_CONTEXT(unsigned int, context);
+     --mPointerHoverCounts[index];
+     mMatchupInstances[matchup]->SetActiveSlide("off", true, false);
+     mMatchupButtons[matchup].SetPointerState(POINTER_BUTTON_NORMAL, index);
+@@ -716,7 +723,7 @@
+ {
+     int numGames = mTournament->GetNumGames(1);
+     FEAudio::PlayAnimAudioEvent(0x970D6164, 0, 0, 1);
+-    int matchup = (int)context - (7 - numGames);
++    int matchup = MSCHARGED_CUP_KNOCKOUT_CONTEXT(int, context) - (7 - numGames);
+     if (mTournament->HasGameBeenPlayed(1, matchup))
+     {
+         BasicGameInfo* game = mTournament->GetGameInfo(1, matchup);

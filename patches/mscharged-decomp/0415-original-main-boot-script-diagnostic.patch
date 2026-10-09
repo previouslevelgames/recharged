@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Drive selected authored Boot script0 through original main/loading endpoints
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Named default-OFF BOOT_SCRIPT integration restores the actual LoadingTask
 bytecode request/callback, original CallFunctionAt(0)/Run and source-owned
@@ -13,7 +13,8 @@ Prior BootLoadingToFE and complete CleanBoot13/7 remain separate holds.
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -1,5 +1,8 @@
+@@ -1,6 +1,9 @@
+ #include "Game/Task/GameTaskState.h"
  #include "NL/nlDLListContainer.inl"
  #include "Game/main.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
@@ -22,7 +23,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SAVE_OWNERS) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
  #error Original save-owner admission requires the native original frontend diagnostic
  #endif
-@@ -953,6 +956,36 @@
+@@ -954,6 +957,36 @@
      // remain omitted. These are real source methods, with no FinishLoadingStep
      // or invented interpreter state; normal main remains unchanged.
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
@@ -59,7 +60,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      CreateLargeFEResourcePool();
      if (FontManager::Instance() == 0)
      {
-@@ -1044,6 +1077,7 @@
+@@ -1045,6 +1078,7 @@
  #else
      return 83;
  #endif
@@ -67,7 +68,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #else
      // Owner-authorized diagnostic checkpoint: full game startup has not run.
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE)
-@@ -1072,6 +1106,10 @@
+@@ -1073,6 +1107,10 @@
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
  extern "C" __attribute__((visibility("default"))) void charged_original_scene_frame(float delta)
  {
@@ -78,7 +79,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      // Explicit source-frame diagnostic, with original task/VI swap/send omitted.
      // The host supplies elapsed owner time and ends/drains the previous frame.
      gl_ViewReset();
-@@ -1087,7 +1125,8 @@
+@@ -1088,7 +1126,8 @@
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);
@@ -88,7 +89,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ChargedDiagnosticAdvanceFrontendOwner();
  #endif
      FESceneManager::Instance()->Update(delta);
-@@ -1100,6 +1139,7 @@
+@@ -1101,6 +1140,7 @@
      glEndFrame();
      GetLayerView(eCLV_Anark)->Iterate(glx_SendFrame_cb);
      glx_SendEnd();
@@ -96,7 +97,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  }
  #endif
  
-@@ -1125,7 +1165,8 @@
+@@ -1126,7 +1166,8 @@
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);
@@ -109,7 +110,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
-@@ -16,7 +16,8 @@
+@@ -17,7 +17,8 @@
  void LoadingTask::Start()
  {
      mElapsed = 0.0f;
@@ -119,7 +120,7 @@ diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
      fn_80118B50(AsyncLoadingManager::Instance());
  #endif // full bytecode-load/start prerequisite remains explicit
  }
-@@ -32,7 +33,16 @@
+@@ -33,7 +34,16 @@
      FlickDetection::Update();
  #endif // motion/flick startup remains unqualified
  

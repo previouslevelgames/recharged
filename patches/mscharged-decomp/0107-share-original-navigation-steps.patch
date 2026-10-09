@@ -1,6 +1,6 @@
 Subject: Share original NAV visuals and back button kernels
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Console methods delegate to the same authored selection, visibility, label,
 pointer and back-button operations as the retained native adapter.
@@ -154,9 +154,9 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 -    this->mDoneButton->SetActiveSlide("off", true, false);
 -    this->mLowerDoneButton->SetActiveSlide("off", true, false);
 -    this->mProgressButton->SetActiveSlide("off", true, false);
--    SetPlayButtonText(0);
--    SetBackButtonText(0);
--    SetDoneButtonText(0);
+-    SetPlayButtonText(NAV_PLAY_NOW);
+-    SetBackButtonText(NAV_BACK);
+-    SetDoneButtonText(NAV_DONE);
 +    FrontendNavigationResetButtons<TLComponentInstance,TLTextInstance,FEFinder>(*this,enabled);
  }
  
@@ -172,9 +172,9 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 -    this->mDoneButton->m_bVisible = (this->mVisibleButtons >> 5) & 1;
 -    this->mLowerDoneButton->m_bVisible = (this->mVisibleButtons >> 6) & 1;
 -    this->mProgressButton->m_bVisible = (this->mVisibleButtons >> 7) & 1;
--    SetPlayButtonText(0);
--    SetBackButtonText(0);
--    SetDoneButtonText(0);
+-    SetPlayButtonText(NAV_PLAY_NOW);
+-    SetBackButtonText(NAV_BACK);
+-    SetDoneButtonText(NAV_DONE);
 +    FrontendNavigationSetButtons<TLComponentInstance,TLTextInstance,FEFinder>(*this,value,enabled);
  }
  
@@ -194,22 +194,22 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 -
 -    switch (value)
 -    {
--    case 0:
+-    case NAV_PLAY_NOW:
 -        text0->SetStringId("PLAY_NOW");
 -        text1->SetStringId("PLAY_NOW");
 -        text2->SetStringId("PLAY_NOW");
 -        break;
--    case 1:
+-    case NAV_RESTART_CUP:
 -        text0->SetStringId("RESTART_CUP");
 -        text1->SetStringId("RESTART_CUP");
 -        text2->SetStringId("RESTART_CUP");
 -        break;
--    case 2:
+-    case NAV_CONTINUE:
 -        text0->SetStringId("CONTINUE");
 -        text1->SetStringId("CONTINUE");
 -        text2->SetStringId("CONTINUE");
 -        break;
--    case 3:
+-    case NAV_PLAY_READY:
 -        text0->SetStringId("PLAY_NOW_READY");
 -        text1->SetStringId("PLAY_NOW_READY");
 -        text2->SetStringId("PLAY_NOW_READY");
@@ -231,12 +231,12 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 -
 -    switch (value)
 -    {
--    case 0:
+-    case NAV_DONE:
 -        text0->SetStringId("DONE");
 -        text1->SetStringId("DONE");
 -        text2->SetStringId("DONE");
 -        break;
--    case 1:
+-    case NAV_ACCEPT:
 -        text0->SetStringId("OPTIONS_ACCEPT");
 -        text1->SetStringId("OPTIONS_ACCEPT");
 -        text2->SetStringId("OPTIONS_ACCEPT");
@@ -261,12 +261,12 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
 -
 -    switch (value)
 -    {
--    case 0:
+-    case NAV_BACK:
 -        text0->SetStringId("BACK");
 -        text1->SetStringId("BACK");
 -        text2->SetStringId("BACK");
 -        break;
--    case 1:
+-    case NAV_LOG_OUT:
 -        text0->SetStringId("LOG_OUT");
 -        text1->SetStringId("LOG_OUT");
 -        text2->SetStringId("LOG_OUT");
@@ -351,12 +351,12 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
   */
  void FEBackButton::OnPointerEnter(int index, void* context)
  {
--    if (!HasOtherPointerState(1, index))
+-    if (!HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mButtonInstance->SetActiveSlide("over", true, false);
 -        FEAudio::PlayAnimAudioEvent(0xACCDCA48, 0, 0, 1);
 -    }
--    SetPointerState(1, index);
+-    SetPointerState(POINTER_BUTTON_HOVER, index);
 -    FEPointerButton::OnPointerEnter(index, context);
 +    FrontendBackEnter(*this,index,context,[](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); },[this](int index,void* context) { FEPointerButton::OnPointerEnter(index,context); });
  }
@@ -396,13 +396,13 @@ diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
   */
  void FEBackButton::OnPointerLeave(int index, void* context)
  {
--    if (!HasOtherPointerState(1, index))
+-    if (!HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
--        mUnidentifiedB8 = 0.0f;
+-        m_padB8 = 0.0f;
 -        mButtonInstance->SetActiveSlide("off", true, false);
--        mUnidentifiedCE = false;
+-        m_padCE = false;
 -    }
--    SetPointerState(0, index);
+-    SetPointerState(POINTER_BUTTON_NORMAL, index);
 -    FEPointerButton::OnPointerLeave(index, context);
 +    FrontendBackLeave(*this,index,context,[this](int index,void* context) { FEPointerButton::OnPointerLeave(index,context); });
  }
@@ -686,9 +686,9 @@ new file mode 100644
 +{
 +    if (!button.HasOtherPointerState(1, index))
 +    {
-+        button.mUnidentifiedB8 = 0.0f;
++        button.m_padB8 = 0.0f;
 +        button.mButtonInstance->SetActiveSlide("off", true, false);
-+        button.mUnidentifiedCE = false;
++        button.m_padCE = false;
 +    }
 +    button.SetPointerState(0, index);
 +    base(index,context);

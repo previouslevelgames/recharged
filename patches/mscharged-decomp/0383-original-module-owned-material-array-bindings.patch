@@ -1,5 +1,5 @@
 Subject: [PATCH] native: original module material array bindings use owned data
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Prepared-predecessor: exact original material format381 and constructor384 successors
 
 Select source addresses and literal strides in the original game module,

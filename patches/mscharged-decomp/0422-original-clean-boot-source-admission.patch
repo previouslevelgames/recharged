@@ -1,5 +1,5 @@
 Purpose: admit the literal source transition into CleanBoot and its original FE pool/bank endpoints.
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Predecessor: exact actual prepared313, fa1e053, SDK46.
 Scope: native selected diagnostic only; world/Mii/later frontend services remain explicitly held.
 
@@ -18,7 +18,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
          lbl_806E1058 += gAudioEnabled ? 2 : 0;
 @@ -886,9 +889,14 @@
          }
-         mLoadingState = 1;
+         mLoadingState = ASYNC_RESOURCES_LOADED;
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
@@ -34,7 +34,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
-@@ -73,9 +73,15 @@
+@@ -74,9 +74,15 @@
  void LoadingTask::StateTransition(unsigned int from, unsigned int to)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)

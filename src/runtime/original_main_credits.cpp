@@ -13,6 +13,7 @@
 #include <aurora/gfx.hpp>
 #include "gfx/xfb.hpp"
 #include "gfx/scanout.hpp"
+#include "gx/fifo.hpp"
 #include <dolphin/gx/GXAurora.h>
 #include <atomic>
 #include <array>
@@ -66,6 +67,9 @@ extern "C" bool __OSInitSTM();
 extern "C" void __OSInitSram();
 extern "C" BOOL __OSSyncSram();
 namespace {
+// Aurora's FIFO retains every recorded command until a drain; publishing only
+// hands bytes to the worker. Bound that backlog between source frames.
+constexpr std::uint32_t kFifoDrainBytes=64u<<20;
 void Check(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
 struct Snapshot : std::enable_shared_from_this<Snapshot> {
     aurora::gfx::ResolvedTargets target;
@@ -603,6 +607,10 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 Check(receipt,"Native source draw receipt unavailable");
                 const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
                 frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt(); ++frames;
+                // Nothing else drains once no host observation is due: without
+                // this the buffer grows every frame until Aurora aborts on its
+                // 4 GiB size limit. Draining waits only for the queued backlog.
+                if(aurora::gx::fifo::get_buffer_size()>=kFifoDrainBytes) AuroraGXSync();
                 // The original frame performs every GX/VI wait it needs. Join the
                 // FIFO/render workers only for a pending, usable host observation.
                 const bool logoDue=sourceBoot && lastBootPhase==3 && !bootLogoCaptured &&

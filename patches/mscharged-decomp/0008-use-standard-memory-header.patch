@@ -1,6 +1,6 @@
 Subject: Use the standard memory/string header in native source
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The CodeWarrior MSL mem.h dependency is not supplied by the host toolchain.
 Use string.h for its standard memory/string declarations. No MSL compatibility
@@ -35,7 +35,7 @@ diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
 +++ b/src/Game/Formation.cpp
 @@ -20,7 +20,7 @@
  #include "NL/nlPrint.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "Game/Game.h"
 -#include <mem.h>
 +#include <string.h>

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original Road to Striker Cup setup, hub and detail pages
-Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0505, 0571 and 0600.
 
 Main Menu's cup item (SHMainMenu item 2) starts a new cup through StartNewCup
@@ -26,7 +26,7 @@ std::uintptr_t. Console builds keep the literal casts.
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -328,7 +328,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -329,7 +329,7 @@
          newHandler = new (nlMalloc(sizeof(StadiumSelectScene), 8, false)) StadiumSelectScene();
          break;
  #endif
@@ -35,16 +35,18 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_CHOOSE_CAPTAINS_STRIKER_CUP:
          newHandler = new (nlMalloc(sizeof(ChooseCaptainsSceneV2), 8, false)) ChooseCaptainsSceneV2(ChooseCaptainsSceneV2::ST_STRIKER_CUP, movement);
          break;
-@@ -338,6 +338,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
-     case (SceneList)8:
+@@ -339,7 +339,9 @@
+     case SCENE_CHOOSE_SIDES_STRIKER_CUP:
          newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::CUP, movement);
          break;
+-    case SCENE_CUP_CHEATER:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)9:
++    case (SceneList)9:
          newHandler = new (nlMalloc(sizeof(CupCheaterScene), 8, false)) CupCheaterScene();
          break;
-@@ -419,13 +421,15 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+ #endif
+@@ -420,14 +422,16 @@
          newHandler = new (nlMalloc(sizeof(SHNavigation), 8, false)) SHNavigation();
          break;
  #endif
@@ -53,25 +55,29 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case (SceneList)31:
          newHandler = new (nlMalloc(sizeof(RoadToStrikersCupHubScene), 8, false)) RoadToStrikersCupHubScene();
          break;
-     case (SceneList)32:
+     case SCENE_CUP_SCHEDULE:
          newHandler = new (nlMalloc(sizeof(CupHubScene), 8, false)) CupHubScene();
          break;
+-    case SCENE_GAME_RESULTS:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)33:
++    case (SceneList)33:
          newHandler = new (nlMalloc(sizeof(GameResultsScene), 8, false)) GameResultsScene();
          break;
-@@ -435,6 +439,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
-     case (SceneList)35:
+     case SCENE_CUP_KNOCKOUT:
+@@ -436,7 +440,9 @@
+     case SCENE_CUP_FINAL_ROUNDS:
          newHandler = new (nlMalloc(sizeof(CupFinalRoundsScene), 8, false)) CupFinalRoundsScene();
          break;
+-    case SCENE_CUP_STANDINGS:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
-     case (SceneList)36:
++    case (SceneList)36:
          newHandler = new (nlMalloc(sizeof(StrikerCupStandingsScene), 8, false)) StrikerCupStandingsScene();
          break;
-@@ -447,6 +453,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
-     case (SceneList)39:
+     case SCENE_CUP_GOLDEN_BOOT:
+@@ -448,6 +454,8 @@
+     case SCENE_CUP_NEWS:
          newHandler = new (nlMalloc(sizeof(CupNewsScene), 8, false)) CupNewsScene();
          break;
 +#endif
@@ -82,7 +88,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -277,7 +277,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+@@ -277,7 +277,7 @@
      }
  
  #endif
@@ -91,16 +97,16 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 24:
      {
          bool value = m_SP[-1] != 0;
-@@ -313,7 +313,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+@@ -313,7 +313,7 @@
      }
  
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CUP))
      case 26:
-         GameSceneManager::Instance()->Push((SceneList)8, SCREEN_FORWARD, false);
+         GameSceneManager::Instance()->Push(SCENE_CHOOSE_SIDES_STRIKER_CUP, SCREEN_FORWARD, false);
          break;
-@@ -447,10 +447,14 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+@@ -447,10 +447,14 @@
          ShowCupBrickWallNews();
          break;
  
@@ -130,7 +136,7 @@ diff --git a/src/Game/SH/SHCupHub.cpp b/src/Game/SH/SHCupHub.cpp
  #include "Game/SH/SHCupHub.h"
  #include "Game/FE/FEAudio.h"
  
-@@ -404,7 +411,7 @@ void CupHubScene::InitializePointerButtons()
+@@ -404,7 +411,7 @@
  
  void CupHubScene::OnMatchupPointerPress(unsigned int index, void* context)
  {
@@ -139,7 +145,7 @@ diff --git a/src/Game/SH/SHCupHub.cpp b/src/Game/SH/SHCupHub.cpp
      int round = mMatchupStates[mScrollOffset + row][0];
      int matchup = mMatchupStates[mScrollOffset + row][1];
      if (matchup != -1)
-@@ -428,7 +435,7 @@ void CupHubScene::OnMatchupPointerPress(unsigned int index, void* context)
+@@ -428,7 +435,7 @@
  
  void CupHubScene::OnMatchupPointerEnter(unsigned int index, void* context)
  {
@@ -148,7 +154,7 @@ diff --git a/src/Game/SH/SHCupHub.cpp b/src/Game/SH/SHCupHub.cpp
      if (mMatchupStates[mScrollOffset + row][1] == -1)
      {
          mMovingHighlight->m_bVisible = false;
-@@ -451,7 +458,7 @@ void CupHubScene::OnMatchupPointerEnter(unsigned int index, void* context)
+@@ -451,7 +458,7 @@
  
  void CupHubScene::OnMatchupPointerLeave(unsigned int index, void* context)
  {
@@ -157,19 +163,20 @@ diff --git a/src/Game/SH/SHCupHub.cpp b/src/Game/SH/SHCupHub.cpp
      if (mMatchupStates[mScrollOffset + row][1] != -1)
      {
          --mHoverCounts[index];
-@@ -464,15 +471,15 @@ void CupHubScene::OnMatchupPointerLeave(unsigned int index, void* context)
+@@ -464,15 +471,15 @@
  
  void CupHubScene::OnMatchupPointerInside(unsigned int index, void* context)
  {
 -    int matchup = mMatchupStates[mScrollOffset + (int)context][1];
 -    int state = mMatchupComponents[(int)context].GetPointerState(index);
+-    if (state == POINTER_BUTTON_HOVER && matchup == -1)
 +    int matchup = mMatchupStates[mScrollOffset + MSCHARGED_CUP_HUB_CONTEXT(context)][1];
 +    int state = mMatchupComponents[MSCHARGED_CUP_HUB_CONTEXT(context)].GetPointerState(index);
-     if (state == 1 && matchup == -1)
++    if (state == 1 && matchup == -1)
      {
          --mHoverCounts[index];
 -        FEFinder<TLComponentInstance, 4>::FindOrDefault(mRowInstances[(int)context]->GetActiveSlide(), "highlite")->SetActiveSlide("off", true, false);
--        mMatchupComponents[(int)context].SetPointerState(0, index);
+-        mMatchupComponents[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
 -        mRowInstances[(int)context]->SetActiveSlide("off", true, false);
 -        UpdateRow((int)context);
 +        FEFinder<TLComponentInstance, 4>::FindOrDefault(mRowInstances[MSCHARGED_CUP_HUB_CONTEXT(context)]->GetActiveSlide(), "highlite")->SetActiveSlide("off", true, false);
@@ -177,9 +184,9 @@ diff --git a/src/Game/SH/SHCupHub.cpp b/src/Game/SH/SHCupHub.cpp
 +        mRowInstances[MSCHARGED_CUP_HUB_CONTEXT(context)]->SetActiveSlide("off", true, false);
 +        UpdateRow(MSCHARGED_CUP_HUB_CONTEXT(context));
      }
-     else if (state == 0 && matchup != -1)
+     else if (state == POINTER_BUTTON_NORMAL && matchup != -1)
      {
-@@ -507,7 +514,7 @@ void CupHubScene::OnRulesPointerPress(unsigned int, void* context)
+@@ -507,7 +514,7 @@
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -222,7 +229,7 @@ diff --git a/src/Game/SH/SHRoadToStrikersCupHub.cpp b/src/Game/SH/SHRoadToStrike
  #include "Game/Render/FrontEndPresentation.h"
  #include "Game/SH/SHNavigation.h"
  #include "NL/nlBind.h"
-@@ -539,7 +545,11 @@ void RoadToStrikersCupHubScene::OnButtonPointerPress(
+@@ -539,7 +545,11 @@
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -245,7 +252,7 @@ diff --git a/src/Game/SH/SHStrikerCupAwards.cpp b/src/Game/SH/SHStrikerCupAwards
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/SH/SHNavigation.h"
-@@ -430,7 +433,11 @@ void StrikerCupAwardsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -430,7 +433,11 @@
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -257,14 +264,15 @@ diff --git a/src/Game/SH/SHStrikerCupAwards.cpp b/src/Game/SH/SHStrikerCupAwards
      {
      case 0:
          FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
-@@ -450,12 +457,20 @@ void StrikerCupAwardsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -450,13 +457,21 @@
  
  void StrikerCupAwardsScene::OnTeamPointerEnter(unsigned int index, void* context)
  {
+-    mTeamButtons[(unsigned int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
 +#if defined(MSCHARGED_NATIVE)
 +    mTeamButtons[static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context))].SetPointerState(1, index);
 +#else
-     mTeamButtons[(unsigned int)context].SetPointerState(1, index);
++    mTeamButtons[(unsigned int)context].SetPointerState(1, index);
 +#endif
  }
  
@@ -274,10 +282,12 @@ diff --git a/src/Game/SH/SHStrikerCupAwards.cpp b/src/Game/SH/SHStrikerCupAwards
 +    unsigned int item = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
 +#else
      unsigned int item = (unsigned int)context;
+-    mTeamButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
 +#endif
-     mTeamButtons[item].SetPointerState(0, index);
++    mTeamButtons[item].SetPointerState(0, index);
      mTeamRows[item]->SetActiveSlide("off", true, false);
      PopulateTeamRow(item, item + mScrollOffset);
+ }
 diff --git a/src/Game/SH/SHStrikerCupStandings.cpp b/src/Game/SH/SHStrikerCupStandings.cpp
 --- a/src/Game/SH/SHStrikerCupStandings.cpp
 +++ b/src/Game/SH/SHStrikerCupStandings.cpp
@@ -289,7 +299,7 @@ diff --git a/src/Game/SH/SHStrikerCupStandings.cpp b/src/Game/SH/SHStrikerCupSta
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/SH/SHStrikerCupStandings.h"
-@@ -509,7 +512,11 @@ void StrikerCupStandingsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -509,7 +512,11 @@
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -299,16 +309,17 @@ diff --git a/src/Game/SH/SHStrikerCupStandings.cpp b/src/Game/SH/SHStrikerCupSta
      switch ((unsigned int)context)
 +#endif
      {
-     case 0:
+     case CUP_STANDINGS_BUTTON_BRACKET:
      {
-@@ -540,12 +547,20 @@ void StrikerCupStandingsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -540,12 +547,20 @@
  
  void StrikerCupStandingsScene::OnTeamPointerEnter(unsigned int index, void* context)
  {
+-    mTeamButtons[(unsigned int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
 +#if defined(MSCHARGED_NATIVE)
 +    mTeamButtons[static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context))].SetPointerState(1, index);
 +#else
-     mTeamButtons[(unsigned int)context].SetPointerState(1, index);
++    mTeamButtons[(unsigned int)context].SetPointerState(1, index);
 +#endif
  }
  
@@ -320,5 +331,5 @@ diff --git a/src/Game/SH/SHStrikerCupStandings.cpp b/src/Game/SH/SHStrikerCupSta
      unsigned int item = (unsigned int)context;
 +#endif
      mTeamRows[item]->SetActiveSlide("off", true, false);
-     mTeamButtons[item].SetPointerState(0, index);
+     mTeamButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
  }

@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original VM and Wii32 data/address ABI
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Prepared-preimage: reviewed complete dc238202203 source prefix
 
 Default whole InterpreterCore/Operations retain all original algorithms and
@@ -18,7 +18,7 @@ transport. Game services/main/loading completion are not substituted.
 diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 --- a/src/Game/InterpreterCore.cpp
 +++ b/src/Game/InterpreterCore.cpp
-@@ -23,7 +23,7 @@
+@@ -56,7 +56,7 @@
      /* 0x14 */ TweakBoolBinding* boolBindings;
  };
  
@@ -27,7 +27,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  InterpreterCore::InterpreterCore(unsigned int size)
  {
      m_StackSegment = (u32*)nlMalloc(size * 4, 8, false);
-@@ -33,7 +33,7 @@
+@@ -66,7 +66,7 @@
  }
  #endif
  
@@ -36,7 +36,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  InterpreterCore::~InterpreterCore()
  {
      if (m_Globals != 0)
-@@ -55,7 +55,7 @@
+@@ -88,7 +88,7 @@
  }
  #endif
  
@@ -44,8 +44,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
  void InterpreterCore::Reset()
  {
-     m_RunState = 2;
-@@ -103,22 +103,38 @@
+     m_RunState = INTERPRETER_FINISHED;
+@@ -136,22 +136,38 @@
              u32 value3 = 0;
              if (flags & 1)
              {
@@ -84,7 +84,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
                  data += 4;
              }
  
-@@ -137,7 +153,11 @@
+@@ -170,7 +186,11 @@
          u32* relocatedValue = core->m_Globals;
          for (unsigned int i = 0; i < core->m_Header->numStringRefs; i++)
          {
@@ -96,7 +96,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
          }
      }
  }
-@@ -160,6 +180,9 @@
+@@ -193,6 +213,9 @@
          m_TweakStorage = 0;
      }
  
@@ -106,7 +106,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
      m_Header = (ByteCodeHeader*)data;
      if (m_Header->m_CodeSegment == 0)
      {
-@@ -168,12 +191,24 @@
+@@ -201,12 +224,24 @@
          header->m_TweakData = (u8*)(header->m_FunctionTable + header->numFunctions);
          header->m_GlobalInitData = header->m_TweakData + header->tweakDataSize;
          header->m_DataSegment = (u32*)(header->m_GlobalInitData + header->globalDataSize);
@@ -131,7 +131,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
          }
      }
  
-@@ -183,11 +218,15 @@
+@@ -216,11 +251,15 @@
      Reset();
  }
  
@@ -148,7 +148,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
      m_BP = m_SP - count;
  
      if (entry->flags == 3)
-@@ -202,7 +241,11 @@
+@@ -235,7 +274,11 @@
      }
  
      u16* saved_ip = m_IP;
@@ -159,8 +159,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#endif
      Step();
  
-     if (m_RunState != 3)
-@@ -216,7 +259,7 @@
+     if (m_RunState != INTERPRETER_SUSPENDED)
+@@ -249,7 +292,7 @@
  }
  #endif
  
@@ -168,8 +168,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
  bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
  {
-     if (m_RunState == 3)
-@@ -257,7 +300,7 @@
+     if (m_RunState == INTERPRETER_SUSPENDED)
+@@ -290,7 +333,7 @@
  }
  #endif
  
@@ -177,8 +177,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
  bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
  {
-     if (m_RunState == 3)
-@@ -373,7 +416,7 @@
+     if (m_RunState == INTERPRETER_SUSPENDED)
+@@ -406,7 +449,7 @@
      }
  }
  
@@ -187,7 +187,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int& hash)
  {
      unsigned long value = hash;
-@@ -381,21 +424,21 @@
+@@ -414,21 +457,21 @@
  }
  #endif
  
@@ -211,11 +211,13 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
  void InterpreterCore::Step()
  {
-     unsigned int wasNotRunning = m_RunState != 1;
-@@ -417,7 +460,11 @@
+     unsigned int wasNotRunning = m_RunState != INTERPRETER_RUNNING;
+@@ -449,8 +492,12 @@
+             m_SP++;
              break;
  
-         case 1:
+-        case INTERPRETER_OP_PUSH_STRING_CONSTANT:
++        case 1:
 +#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
 +            *m_SP = mscharged::platform::EncodeVMAddress(m_Header->m_StringSegment + m_Header->m_DataSegment[operand]);
 +#else
@@ -224,10 +226,12 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              m_SP++;
              break;
  
-@@ -427,7 +474,11 @@
+@@ -459,8 +506,12 @@
+             m_SP++;
              break;
  
-         case 3:
+-        case INTERPRETER_OP_PUSH_STRING:
++        case 3:
 +#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
 +            *m_SP = mscharged::platform::EncodeVMAddress(m_Header->m_StringSegment + operand);
 +#else
@@ -236,8 +240,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              m_SP++;
              break;
  
-@@ -460,11 +511,23 @@
-         case 9:
+@@ -493,11 +544,23 @@
+         case INTERPRETER_OP_CALL_SCRIPT:
          {
              FunctionEntryPoint* entry = &m_Header->m_FunctionTable[operand];
 +#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
@@ -260,7 +264,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              continue;
          }
  
-@@ -474,8 +537,16 @@
+@@ -507,8 +570,16 @@
              u32* frame = oldBP + (operand >> 1);
              u32* newSP = oldBP + (operand & 1);
              m_SP = frame;
@@ -277,7 +281,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              m_SP = newSP;
              if (m_IP == 0)
              {
-@@ -617,7 +688,7 @@
+@@ -650,7 +721,7 @@
  }
  #endif
  
@@ -286,7 +290,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::StopWithoutUndo()
  {
      m_Stop = 1;
-@@ -625,7 +696,7 @@
+@@ -658,7 +729,7 @@
  }
  #endif
  
@@ -295,7 +299,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::StopWithUndo()
  {
      m_IP--;
-@@ -635,7 +706,7 @@
+@@ -668,7 +739,7 @@
  }
  #endif
  

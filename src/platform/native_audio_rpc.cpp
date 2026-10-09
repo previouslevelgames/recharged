@@ -188,7 +188,7 @@ NativeAudioRpcView PrepareNativeAudioRpc(nlChunk* source) {
                 const auto* raw = child.raw + i * 36;
                 auto* out = new(base + child.native_offset + i * sizeof(AudioRpcDefinition)) AudioRpcDefinition{};
                 out->field_00 = Word(raw); out->field_04 = Word(raw + 4);
-                out->sliderIndex = Word(raw + 8); out->kind = std::bit_cast<std::int32_t>(Word(raw + 12));
+                out->sliderIndex = Word(raw + 8); out->kind = static_cast<eAudioRpcKind>(std::bit_cast<std::int32_t>(Word(raw + 12)));
                 out->enabled = Word(raw + 16); out->field_14 = Word(raw + 20);
                 out->pointCount = Word(raw + 24);
                 out->points = Saved<AudioRpcCurvePoint>(Word(raw + 28));

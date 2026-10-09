@@ -1,5 +1,5 @@
 Subject: Use typed native definitions for the original scalar inflater C providers
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 --- a/src/zlib/adler32.c
 +++ b/src/zlib/adler32.c

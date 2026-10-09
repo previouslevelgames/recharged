@@ -1,12 +1,13 @@
 # Patch: 0486-original-frontend-primary-world-diagnostic
-# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 # Scope: Restore original global texture request, full primary/secondary matrix
 # setup and frontend world calls in the named diagnostic. Genuine source NIS
 # initialization is required. Source predicates, fields and algorithms remain
 # unchanged; active NIS playback and other unfinished owners remain separate.
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -490,12 +490,14 @@
+@@ -491,12 +491,14 @@
          DepthOfFieldManager::instance.TurnOff();
      }
  
@@ -22,9 +23,10 @@
      SetupRenderInfo();
  
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
-@@ -51,7 +51,7 @@
+@@ -52,7 +52,7 @@
  
  static void DrawFrontEndElements(float fDeltaT)
  {
@@ -33,17 +35,19 @@
      UpdateGameObjectLighting();
  #endif // source lighting initialization remains unqualified
  
-@@ -104,6 +104,9 @@
+@@ -105,7 +105,10 @@
          FEModelManager::Instance()->Render();
      }
  
+-    if (nlTaskManager::m_pInstance->mCurrentState == TASK_FRONTEND && IsStadiumWorldLoaded()
 +#endif // FE model owners remain outside the selected world draw gate
 +
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
-     if (nlTaskManager::m_pInstance->mCurrentState == 4 && IsStadiumWorldLoaded()
++    if (nlTaskManager::m_pInstance->mCurrentState == 4 && IsStadiumWorldLoaded()
          && !IsHBMActive())
      {
-@@ -114,6 +117,9 @@
+         glx_Fog(true);
+@@ -115,6 +118,9 @@
          UpdateHighRange();
      }
  
@@ -53,9 +57,10 @@
      HomeButtonFade::Instance()->Update(fDeltaT);
  
      if (!(gpHBMManager != 0 && gpHBMManager->mActive && gpHBMManager->mReady))
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -571,11 +571,15 @@
+@@ -572,11 +572,15 @@
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);

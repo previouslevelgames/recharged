@@ -1,5 +1,5 @@
 Subject: Restore original shadow mesh writer outside explicit preview profile
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 R02 fidelity correction: retain literal original Begin/End/write decisions and
 class layout for the isolated game module and ordinary native source profile.

@@ -1,6 +1,6 @@
 Subject: Restore original Audio and Visual Options with native scalar and Wii16 ABI
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Restore the full Matching TU instead of historical0112/0114/0116/0118 game
 method extractions. Native scalar contexts preserve authored numeric indexes.
@@ -460,7 +460,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  OptionsVisualMenuV2::~OptionsVisualMenuV2()
 @@ -274,13 +559,44 @@
-         mSaveButton = navigation->GetButton(0x20);
+         mSaveButton = navigation->GetButton(NAVIGATION_BUTTON_DONE);
      }
      mNavigation.SetButtonInstance(backButton);
 -    FrontendVisualOptionsCreated<TLInstance,TLComponentInstance,TLTextInstance,FEFinder>(*this,

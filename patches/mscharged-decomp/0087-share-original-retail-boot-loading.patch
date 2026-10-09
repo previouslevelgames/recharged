@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original retail boot loading setup and phase steps
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain original setup, input order, clocks, strap fade and service boundaries
 with typed retained-scene adapters and console forwarding to the same bodies.
@@ -486,14 +486,14 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
 -            mElapsedTime += fDeltaT;
 -            if (mElapsedTime >= 1.5f)
 -            {
--                if (g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x20, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x08, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x1E, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x1F, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x2A, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x2B, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x28, true, 0)
--                    || g_pFEInput->JustPressed((eFEINPUT_PAD)8, 0x29, true, 0))
+-                if (g_pFEInput->JustPressed(FE_ALL_PADS, 0x20, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x08, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x1F, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x2A, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x2B, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x28, true, 0)
+-                    || g_pFEInput->JustPressed(FE_ALL_PADS, 0x29, true, 0))
 -                    mStrapDismissed = true;
 -                if (mElapsedTime >= 15.5f)
 -                    mStrapDismissed = true;
@@ -506,7 +506,7 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
 -        if (slide->GetCurrentTime() >= slide->GetStartTime() + slide->GetDuration())
 -        {
 -            mElapsedTime = 0.0f;
--            if (GetRegion() == 0)
+-            if (GetRegion() == GAME_REGION_US)
 -                mPhase = PhaseRatings;
 -            else
 -                mPhase = PhaseDeveloperLogo;

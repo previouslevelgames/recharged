@@ -1,6 +1,6 @@
 Subject: Share selected original Options visual and callback steps
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain console delegates for authored lookup, pointer callbacks and in/out
 state timing. Native callers own retained resources and report unsupported
@@ -183,7 +183,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 -            SHNavigation* object = GetNavigationScene();
 -            if (object != 0)
 -            {
--                object->SetButtons(4, true);
+-                object->SetButtons(NAVIGATION_BUTTON_BACK, true);
 -            }
 -            mScenePhase = PHASE_CHOOSING;
 -        }
@@ -245,15 +245,15 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 -
 -    switch ((int)context)
 -    {
--    case 1:
+-    case OPTIONS_AUDIO:
 -        FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
 -        mNextScene = SCENE_AUDIO_OPTIONS;
 -        break;
--    case 0:
+-    case OPTIONS_VISUAL:
 -        FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
 -        mNextScene = SCENE_VISUAL_OPTIONS;
 -        break;
--    case 2:
+-    case OPTIONS_CREDITS:
 -        mNextScene = SCENE_CREDITS;
 -        break;
 -    }
@@ -274,10 +274,10 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  void OptionsScene::OnButtonPointerEnter(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (!mOptionButtons[item].HasOtherPointerState(1, index))
+-    if (!mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mOptionInstances[item]->SetActiveSlide("over", true, false);
--        mOptionButtons[item].SetPointerState(1, index);
+-        mOptionButtons[item].SetPointerState(POINTER_BUTTON_HOVER, index);
 -        FEAudio::PlayAnimAudioEvent(0xF6EB899E, 0, 0, 1);
 -    }
 +    FrontendOptionsEnter(*this, index, (unsigned int)context, [](unsigned long cue, const char* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); });
@@ -286,10 +286,10 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  void OptionsScene::OnButtonPointerLeave(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (!mOptionButtons[item].HasOtherPointerState(1, index))
+-    if (!mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mOptionInstances[item]->SetActiveSlide("off", true, false);
--        mOptionButtons[item].SetPointerState(0, index);
+-        mOptionButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
 -    }
 +    FrontendOptionsLeave(*this, index, (unsigned int)context);
  }

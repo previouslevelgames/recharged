@@ -38,7 +38,7 @@ struct Event
 {
     int mIndex = -1;
     nlVector2 mPosition = {-9999.9f, -9999.9f};
-    bool mPressed = false, mReleased = false, mUnidentified0E = false;
+    bool mPressed = false, mReleased = false, mAuxiliaryTriggered = false;
 };
 }
 struct FrontendPointerHost::Implementation
@@ -166,7 +166,7 @@ FrontendPointerDispatch FrontendPointerHost::Route(const FrontendPointerPresenta
     Event event; FrontendOptionsPointerEvent(event, int(s.index), source);
     FrontendPointerDispatch result;
     result.event = {unsigned(event.mIndex), {event.mPosition.x, event.mPosition.y},
-        event.mPressed, event.mReleased, event.mUnidentified0E};
+        event.mPressed, event.mReleased, event.mAuxiliaryTriggered};
     result.active = active;
     try
     {

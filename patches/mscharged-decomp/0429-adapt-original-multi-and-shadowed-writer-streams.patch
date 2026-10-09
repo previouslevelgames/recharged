@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original multi-texture and shadowed writer native streams
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain original layouts, allocations, source selectors and cursor algorithms.
 Transport exact four-byte colours and Wii numeric RGBA channel bytes; publish
@@ -59,7 +59,7 @@ diff --git a/src/NL/gl/glMultiTextureModelWriter.cpp b/src/NL/gl/glMultiTextureM
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
  #include "Game/GL/glModelBuilder.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -136,7 +136,7 @@ diff --git a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp b/src/NL/gl/glSha
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
  #include "Game/GL/glModelBuilder.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif

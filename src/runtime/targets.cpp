@@ -85,8 +85,8 @@ void GLXTarget::Activate(unsigned long mode)
     glNativeTargetGeneration(this);
     // Wii views share the EFB; explicit copy modes resolve it to target textures.
 }
-void GLXTarget::UnidentifiedVirtual10() {} // Empty in the selected original implementation.
-void GLXTarget::UnidentifiedVirtual28() {} // Empty in the selected original implementation.
+void GLXTarget::ReservedTargetHookA() {} // Empty in the selected original implementation.
+void GLXTarget::ReservedTargetHookB() {} // Empty in the selected original implementation.
 void GLXTarget::CreateTexture(unsigned long hash)
 {
     auto& record = storage.at(this);

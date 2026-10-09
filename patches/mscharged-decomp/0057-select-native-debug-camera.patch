@@ -1,6 +1,6 @@
 Subject: Select original debug-camera desktop controls with explicit native inputs
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Select matching orbit/pan/radius/height, input-toggle and view math independently
 of global pad/task/tweak initialization. The port owner supplies checked desktop
@@ -14,12 +14,13 @@ Console source remains unchanged outside its native selection guard.
 diff --git a/src/Game/Camera/DebugCam.cpp b/src/Game/Camera/DebugCam.cpp
 --- a/src/Game/Camera/DebugCam.cpp
 +++ b/src/Game/Camera/DebugCam.cpp
-@@ -1,3 +1,4 @@
+@@ -1,4 +1,5 @@
+ #include "Game/Task/GameTaskState.h"
 +#ifndef MSCHARGED_NATIVE
  #include "revolution/types.h"
  #include "NL/nlDLListContainer.inl"
  #include "NL/plat/PlatPadManager.h"
-@@ -398,3 +399,4 @@
+@@ -399,3 +400,4 @@
  
      glMatrixLookAt(m_matView, m_vecCamera, m_vecTarget, vecUp);
  }
@@ -54,7 +55,7 @@ new file mode 100644
 +    , m_pPad(0)
 +    , m_bUseWiiControls(false)
 +    , m_bEnableControls(true)
-+    , mUnidentified8E(false)
++    , m_pad8E(false)
 +    , m_bUpdateTargets(false)
 +    , m_pTarget(0)
 +    , m_pTargetEntry(0)
@@ -64,7 +65,7 @@ new file mode 100644
 +    // Native owner calls Update after its explicit input scope is installed.
 +    // Wii DPD acquisition is not supplied by this desktop diagnostic.
 +    nlVec3Set(m_vecCamera, 0.0f, 0.0f, 0.0f);
-+    mUnidentified8E = true;
++    m_pad8E = true;
 +}
 +
 +cDebugCamera::~cDebugCamera()

@@ -1,6 +1,6 @@
 Subject: Preserve Wii noise wrapping and validate native camera filter inputs
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Use defined 32-bit modular noise arithmetic and bounded float-to-index
 conversion on native hosts. Initialize inactive noise displacement. Retain the
@@ -83,7 +83,7 @@ diff --git a/src/Game/Camera/noisefilter.cpp b/src/Game/Camera/noisefilter.cpp
 diff --git a/src/Game/Camera/rumblefilter.cpp b/src/Game/Camera/rumblefilter.cpp
 --- a/src/Game/Camera/rumblefilter.cpp
 +++ b/src/Game/Camera/rumblefilter.cpp
-@@ -1,6 +1,12 @@
+@@ -2,6 +2,12 @@
  #include "Game/Camera/rumblefilter.h"
  
  #include "NL/nlTask.h"
@@ -96,7 +96,7 @@ diff --git a/src/Game/Camera/rumblefilter.cpp b/src/Game/Camera/rumblefilter.cpp
  
  cRumbleFilter::cRumbleFilter()
  {
-@@ -33,6 +39,10 @@
+@@ -34,6 +40,10 @@
  
  void cRumbleFilter::Rumble(float x, float y, float ks, float kd)
  {
@@ -107,7 +107,7 @@ diff --git a/src/Game/Camera/rumblefilter.cpp b/src/Game/Camera/rumblefilter.cpp
      nlVec2Set(v2Pos0, 0.0f, 0.0f);
      nlVec2Set(v2Pos1, x, y);
      nlVec2Set(v2Vel0, 0.0f, 0.0f);
-@@ -43,6 +53,10 @@
+@@ -44,6 +54,10 @@
  
  void cRumbleFilter::Update(float dt)
  {

@@ -1,5 +1,5 @@
 Subject: [PATCH] Transport genuine original movie writer streams to native GX
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: permanent host allocation/data/GX ABI adaptation
 
 Publish the actual source writer cursors into existing allocation-owned graphics
@@ -14,7 +14,7 @@ diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.c
 @@ -8,6 +8,9 @@
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -38,7 +38,7 @@ diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialP
 @@ -8,6 +8,9 @@
  #include "NL/glx/GXMaterialProgramInternal.h"
  #include "NL/gl/glLoadModel.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/gx_array_transport.h"
 +#endif

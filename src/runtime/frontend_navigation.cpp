@@ -86,8 +86,8 @@ struct Step
     unsigned mVisibleButtons;bool mIsWidescreen;
     bool mTransitionPlaying,mTransitionPending;
     Node* mButtonInstance;Position mButtonPosition;
-    bool mPressed,mPushBackScene=false,mPopScene=false,mUnidentifiedCE;
-    int mBackScene=-2;float mUnidentifiedB8;
+    bool mPressed,mPushBackScene=false,mPopScene=false,m_padCE;
+    int mBackScene=-2;float m_padB8;
     std::array<bool,4> mPointerInside;
     Step(FrontendAnimationPlayback& p,State v):Step(&p,nullptr,std::move(v)){}
     Step(const FrontendScene& graph,State v):Step(nullptr,&graph,std::move(v)){}
@@ -95,7 +95,7 @@ struct Step
         mVisibleButtons(state.status.visible_buttons),mIsWidescreen(state.status.widescreen),
         mTransitionPlaying(state.status.transition_playing),mTransitionPending(state.status.transition_pending),
         mButtonInstance(Instance(state.back)),mButtonPosition(state.back_position),mPressed(state.pressed),
-        mUnidentifiedCE(state.back_ce),mUnidentifiedB8(state.back_time),mPointerInside(state.status.back_inside)
+        m_padCE(state.back_ce),m_padB8(state.back_time),mPointerInside(state.status.back_inside)
     {
         for(unsigned i=0;i<4;++i)mPointerInstances[i]=Instance(state.pointers[i]);
         std::array<Node**,8> targets{&mPlusButton,&mMinusButton,&mBackButton,&mBreadcrumbs,&mPlayButton,&mDoneButton,&mLowerDoneButton,&mProgressButton};
@@ -119,7 +119,7 @@ struct Step
         state.back=mButtonInstance->root.id;state.back_position=mButtonPosition;state.transition=mTransition->root.id;state.home=mHomeWarning->root.id;state.timer=mTimer->root.id;
         state.status.transition_playing=mTransitionPlaying;state.status.transition_pending=mTransitionPending;
         state.status.visible_buttons=mVisibleButtons;state.status.widescreen=mIsWidescreen;state.status.back_inside=mPointerInside;
-        state.pressed=mPressed;state.back_ce=mUnidentifiedCE;state.back_time=mUnidentifiedB8;return std::move(state);
+        state.pressed=mPressed;state.back_ce=m_padCE;state.back_time=m_padB8;return std::move(state);
     }
 };
 struct Pending{FrontendPointerCallback kind;unsigned index;FrontendSession::Handle frame;};

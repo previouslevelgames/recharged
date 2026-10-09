@@ -1,6 +1,6 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Transport original vertex-animation words and retain whole source
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep original GLVertexAnim/GetModel/Update algorithms and source requests.
 Adapt only authored Wii24-byte header,4-byte signed IDs and raw vertex copy

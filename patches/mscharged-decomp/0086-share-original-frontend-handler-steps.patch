@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend base-handler and loading notification steps
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Share original base timeline, ring and activation contracts with checked native
 retained-scene ownership. Preserve the actual empty remove and SceneCreated
@@ -57,7 +57,7 @@ diff --git a/src/Game/FE/feSceneManager.cpp b/src/Game/FE/feSceneManager.cpp
  #include "Game/FE/feScene.h"
 @@ -287,8 +288,7 @@
      {
-         if (((FEScene*)currentEntry->entry->mFEScene)->mState == 6)
+         if (((FEScene*)currentEntry->entry->mFEScene)->mState == FE_SCENE_READY)
          {
 -            g_pFEInput->EnableInputIfSceneHasFocus(currentEntry->entry);
 -            currentEntry->entry->Update(dt);
@@ -87,7 +87,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
 diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 --- a/src/Game/SH/SHLoading.cpp
 +++ b/src/Game/SH/SHLoading.cpp
-@@ -1,6 +1,7 @@
+@@ -2,6 +2,7 @@
  #include "Game/HBMManager.h"
  
  #include "Game/SH/SHLoading.h"
@@ -95,7 +95,7 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
  #include "Game/FE/FrontendInstanceSteps.h"
  #include "Game/BaseSceneHandler.inl"
  
-@@ -89,19 +90,7 @@
+@@ -91,19 +92,7 @@
  void BaseLoadingScene::Update(float dt)
  {
      BaseSceneHandler::Update(dt);

@@ -1,6 +1,6 @@
 Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Matrix handles address live GL matrix storage. Preserve their width through
 allocation, global state, model packets, draw/text callers, render caches and
@@ -22,8 +22,8 @@ diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting
 +#include "NL/gl/glMatrixHandle.h"
  #include "types.h"
  
- class GLView;
-@@ -49,7 +50,7 @@
+ enum eGameObjectLightingMode
+@@ -56,7 +57,7 @@
  void SetGameObjectAmbientLightingEnabled(int enabled);
  void ApplyGameObjectShadowLighting(int skinned, unsigned long shadowLevel);
  void RestoreGameObjectShadowLighting();
@@ -205,12 +205,7 @@ diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
 diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
 --- a/include/NL/glx/glxMemory.h
 +++ b/include/NL/glx/glxMemory.h
-@@ -2,11 +2,12 @@
- #define NL_GLX_GLXMEMORY_H
- 
- #include "NL/nlMath.h"
- #include "NL/glx/glxModel.h"
- #if defined(MSCHARGED_NATIVE)
+@@ -7,6 +7,7 @@
  #include <stdint.h>
  typedef uintptr_t GLResourceMark;
  void glxShutdownMemory();
@@ -312,7 +307,7 @@ diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -179,8 +179,8 @@
+@@ -180,8 +180,8 @@
      glSetRasterState(GLS_AlphaBlend, 2);
      glSetCurrentRasterState(glHandleizeRasterState());
  

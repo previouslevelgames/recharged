@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original frontend image packets and share image raster state
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Select original textured glQuad3 packet construction and colour assignment.
 Native callers retain checked real texture ownership and submit through GLView
@@ -17,7 +17,7 @@ diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
 +#include "Game/FE/FrontendImageState.h"
  #include "Game/FE/FrontendLayoutSteps.h"
  
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 @@ -192,15 +193,7 @@
      unsigned long textureHandle = pTexRes->GetTextureHandle();
      nlVector2 uv[4];
@@ -71,7 +71,7 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
  
  #include "Game/GL/GLTexturedColourMeshWriter.h"
 @@ -9,6 +12,7 @@
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  
  
 +#if !defined(MSCHARGED_NATIVE)

@@ -1,5 +1,5 @@
 Subject: Preserve original THPSimple with native Wii data and scalar ABI
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep original initialization, movie selection, NL requests, preload/ring order,
 component dispatch, mixing, callback chaining and retail quirks. Adapt Wii32

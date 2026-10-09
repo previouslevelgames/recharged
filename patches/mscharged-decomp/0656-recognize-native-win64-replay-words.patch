@@ -1,5 +1,5 @@
 Subject: Recognize existing native Win64 address words as Replay POD
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Win64 uintptr_t is unsigned long long. Preserve the existing native
 POD sizeof(T) stream policy and console categories; no field or replay

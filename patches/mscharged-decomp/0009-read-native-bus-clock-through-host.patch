@@ -1,6 +1,6 @@
 Subject: Read the native bus clock without absolute-address definitions
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Upstream now owns the declaration in OSHardware_fwd.h and uses
 OS_BUS_CLOCK_SPEED in both original NL time units. The native forward header

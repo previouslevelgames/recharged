@@ -1,5 +1,5 @@
 Subject: Admit the original SuperLoadingScene and FE-to-game loading start
-Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0551-0555 and 0600.
 
 Stadium Select's PLAY NOW and tournament Choose Sides' Proceed call
@@ -22,13 +22,29 @@ super ability (102); their factory cases are admitted here. LoadingTask admits
 the 0x200000 -> 2 hand-off and transitions between in-match task states (mask
 0x2001B). FrontEnd::Update (admitted by 0615) pushes the original pause menu
 (80) on Plus and the post-game results/statistics pages (91/92) at game over;
-those cases are admitted too. Pause sub-pages (81-83, 104) and the
-Strikers 101/Challenge pre-game pages (84, 103) keep their gates.
+those cases are admitted too, with the pause menu's own pages: Choose Sides
+(81), in-game audio (82) and visual (83) options and the controller map (104).
+The goalie pushes the defensive-play overlay (105) when a human side defends a
+Mega Strike; it is admitted. Quitting calls FrontEnd::ReturnToFE, which requests
+task state 0x400000: LoadingTask admits in-match state -> 0x400000 (starting
+the original GameLoadingToFE script, whose services are already admitted) and
+0x400000 -> 4. The Strikers 101/Challenge pre-game pages (84, 103) keep their
+gates.
+
+Original main's render and presentation owners also run under this admission
+at their source positions: ReplayChoreo, ExcitementSystem and ReplayManager
+construction, the view setup (hidden blur/shadow layers, the particle render
+callback and its RenderParticleSystem/BuildParticleQuads definitions with the
+warble tweaks, the 3D transition view, debug views), the resource-pool mark,
+shape renderer, projected-shadow limit and character shadow view, and Wiper,
+depth-of-field, flare, gameplay/replay skin modes, particle update callbacks
+and the temporary-string pool state. Without Wiper::Initialize no transition
+exists, so the goal celebration waited for a wipe forever.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -360,6 +360,8 @@
+@@ -361,6 +361,8 @@
      case (SceneList)16:
          newHandler = new (nlMalloc(sizeof(CrossFaderScene), 8, false)) CrossFaderScene();
          break;
@@ -37,7 +53,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_SUPER_LOADING:
          newHandler = new (nlMalloc(sizeof(SuperLoadingScene), 8, false)) SuperLoadingScene();
          break;
-@@ -390,6 +392,8 @@
+@@ -391,6 +393,8 @@
      case (SceneList)24:
          newHandler = new (nlMalloc(sizeof(NetworkStartScene), 8, false)) NetworkStartScene();
          break;
@@ -46,7 +62,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_ASYNC_LOADING:
          newHandler = new (nlMalloc(sizeof(BaseLoadingScene), 8, false)) BaseLoadingScene();
          break;
-@@ -410,10 +414,12 @@
+@@ -411,11 +415,13 @@
      case (SceneList)29:
          newHandler = new (nlMalloc(sizeof(SHNavigation), 8, false)) SHNavigation();
          break;
@@ -55,27 +71,41 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case (SceneList)30:
          newHandler = new (nlMalloc(sizeof(SHNavigation), 8, false)) SHNavigation();
          break;
+-    case SCENE_ROAD_TO_STRIKERS_CUP:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)31:
++    case (SceneList)31:
          newHandler = new (nlMalloc(sizeof(RoadToStrikersCupHubScene), 8, false)) RoadToStrikersCupHubScene();
          break;
-@@ -571,9 +577,13 @@
+     case SCENE_CUP_SCHEDULE:
+@@ -572,10 +578,14 @@
      case (SceneList)79:
          newHandler = new (nlMalloc(sizeof(HealthWarningSceneV2), 8, false)) HealthWarningSceneV2();
          break;
+-    case SCENE_PAUSE:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
-     case (SceneList)80:
++    case (SceneList)80:
          newHandler = new (nlMalloc(sizeof(PauseMenuScene), 8, false)) PauseMenuScene();
          break;
+-    case SCENE_PAUSE_CHOOSE_SIDES:
 +#endif
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)81:
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
++    case (SceneList)81:
          newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::PAUSE, movement);
          break;
-@@ -589,33 +599,45 @@
-     case (SceneList)87:
+     case SCENE_PAUSE_AUDIO_OPTIONS:
+@@ -584,40 +594,54 @@
+     case SCENE_PAUSE_VISUAL_OPTIONS:
+         newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_PAUSE);
+         break;
+-    case SCENE_STRIKERS_101_PAUSE:
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++    case (SceneList)84:
+         newHandler = new (nlMalloc(sizeof(PauseMenuScene), 8, false)) PauseMenuScene();
+         break;
+     case SCENE_LESSON_MOVIE:
          newHandler = new (nlMalloc(sizeof(LessonMoviePlayerScene), 8, false)) LessonMoviePlayerScene();
          break;
 +#endif
@@ -83,52 +113,66 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case OVERLAY_HUD:
          newHandler = new (nlMalloc(sizeof(HUDOverlay), 8, false)) HUDOverlay();
          break;
-     case (SceneList)90:
+     case OVERLAY_IN_GAME_TEXT:
          newHandler = new (nlMalloc(sizeof(InGameTextOverlay), 8, false)) InGameTextOverlay();
          break;
+-    case OVERLAY_POST_GAME_RESULTS:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
-     case (SceneList)91:
++    case (SceneList)91:
          newHandler = new (nlMalloc(sizeof(PausePostGameScene), 8, false)) PausePostGameScene(PausePostGameScene::MODE_RESULTS);
          break;
-     case (SceneList)92:
+     case OVERLAY_POST_GAME_STATISTICS:
          newHandler = new (nlMalloc(sizeof(PausePostGameScene), 8, false)) PausePostGameScene(PausePostGameScene::MODE_STATISTICS);
          break;
+-    case OVERLAY_ONLINE_RANKING:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)93:
++    case (SceneList)93:
          newHandler = new (nlMalloc(sizeof(OnlineRankingOverlay), 8, false)) OnlineRankingOverlay();
          break;
-     case (SceneList)94:
+     case OVERLAY_STRIKER_TIMES:
          newHandler = new (nlMalloc(sizeof(StrikerTimesOverlay), 8, false)) StrikerTimesOverlay();
          break;
+-    case OVERLAY_GOAL:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
-     case (SceneList)95:
++    case (SceneList)95:
          newHandler = new (nlMalloc(sizeof(GoalOverlay), 8, false)) GoalOverlay();
          break;
+-    case OVERLAY_DEMO:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)96:
++    case (SceneList)96:
          newHandler = new (nlMalloc(sizeof(DemoOverlay), 8, false)) DemoOverlay();
          break;
-     case (SceneList)99:
+     case OVERLAY_LOADING:
          newHandler = new (nlMalloc(sizeof(BaseSceneHandler), 8, false)) BaseSceneHandler();
          break;
+-    case OVERLAY_MEGA_STRIKE_METER:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
-     case (SceneList)100:
++    case (SceneList)100:
          newHandler = new (nlMalloc(sizeof(MegaStrikeMeterOverlay), 8, false)) MegaStrikeMeterOverlay();
          break;
-@@ -625,6 +647,8 @@
-     case (SceneList)102:
+     case OVERLAY_PIP:
+@@ -626,10 +650,14 @@
+     case OVERLAY_SUPER_ABILITY:
          newHandler = new (nlMalloc(sizeof(SuperAbilityOverlay), 8, false)) SuperAbilityOverlay();
          break;
+-    case OVERLAY_CHALLENGE_PREVIEW:
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)103:
++    case (SceneList)103:
          newHandler = new (nlMalloc(sizeof(ChallengePreviewOverlay), 8, false)) ChallengePreviewOverlay(movement);
          break;
+-    case OVERLAY_CONTROLLER_MAP:
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
++    case (SceneList)104:
+         newHandler = new (nlMalloc(sizeof(ControllerMapOverlay), 8, false)) ControllerMapOverlay();
+         break;
+     case OVERLAY_DEFENSIVE_PLAY:
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
@@ -145,7 +189,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
 diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
-@@ -70,6 +70,16 @@
+@@ -71,6 +71,16 @@
  #endif
  }
  
@@ -162,22 +206,26 @@ diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
  void LoadingTask::StateTransition(unsigned int from, unsigned int to)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -81,6 +91,11 @@
+@@ -81,6 +91,15 @@
+         && (from != 0x00100000 || to != 0x00080000)
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MENU_ENTRY)
          && (from != 0x00080000 || to != 0x00000004)
- #endif
++#endif
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING)
 +        && (from != 0x00000004 || to != 0x00200000)
 +        && (from != 0x00200000 || to != 0x00000002)
 +        && !(IsMatchTaskState(from) && IsMatchTaskState(to))
-+#endif
++        // Original FrontEnd::ReturnToFE leaves the match through 0x400000;
++        // GameLoadingToFE then returns the frontend state.
++        && !(IsMatchTaskState(from) && to == 0x00400000)
++        && (from != 0x00400000 || to != 0x00000004)
+ #endif
          )
  #else
-     if (from != 0x00010000 || to != 0x00100000)
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -218,7 +218,7 @@
+@@ -219,7 +219,7 @@
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
  static FrontEndTask frontEndTask;
  #endif
@@ -186,7 +234,16 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static WorldUpdateTask worldUpdateTask;
  static GameRenderTask gameRenderTask;
  #endif
-@@ -609,7 +609,7 @@
+@@ -265,7 +265,7 @@
+     { GLM_Header, MB(2) + KB(256) },
+ };
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+ static TweakValueBool sAllowWarble(
+     "sbAllowWarble", "/Rendering/Effects/Warble", true);
+ static TweakValueBool sRenderWarbleToParticleView(
+@@ -610,7 +610,7 @@
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
      EnableAllStadiums();
  #endif
@@ -195,7 +252,16 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      const char* buildInfo =
          GetTweakString("/General/Build Info/BuildNumber", 0);
      if (buildInfo != 0)
-@@ -672,7 +672,7 @@
+@@ -640,7 +640,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
+     InstallImageRenderCallback();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     GLResourcePool* resourcePool = glGetCurrentResourcePool();
+     resourcePool->MarkResource();
+ #endif
+@@ -673,7 +673,7 @@
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
      StartupAIPads();
  #endif
@@ -204,7 +270,52 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      gTransitionTask.Initialize();
  #endif // unrelated config/script/tasks/audio/world prerequisites
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
-@@ -809,7 +809,7 @@
+@@ -739,7 +739,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     nlInitFileCache();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     ReplayChoreo::Instance();
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_PRESENTATION_OWNER))
+@@ -748,7 +748,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     FrontEndPresentation::GetInstance();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     ExcitementSystem::Instance();
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+@@ -757,7 +757,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
+     SetupViews();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     HideLayerView(eCLV_ScreenBlur);
+     HideLayerView(eCLV_ScreenBlur2);
+     HideLayerView(eCLV_ShadowVolume);
+@@ -775,7 +775,7 @@
+     }
+     rlSetWidescreen(widescreen);
+ #endif // original system aspect selects the frontend projection and slide
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     g_ShapeRenderer.Initialize(resourcePool);
+     g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
+     InitMaxProjectedShadows();
+@@ -788,7 +788,7 @@
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER)
+     NisPlayer::Instance();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+     ReplayManager::Instance();
+     Wiper::Instance().Initialize();
+     DepthOfFieldManager::instance.Initialize();
+@@ -810,7 +810,7 @@
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);
      nlTaskManager::AddTask(&sLoadingTask, 2, 0x01F80000);
@@ -213,7 +324,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_PLAT_PAD_TASK))
-@@ -818,10 +818,10 @@
+@@ -819,10 +819,10 @@
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
      nlTaskManager::AddTask(GetFixedUpdateTask(), 8, 0xFE07FFDF);
  #endif // original fixed task priority/mask; unrelated task registrations remain held
@@ -226,7 +337,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(&gameRenderTask, 11, 0x0002001B);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) \
-@@ -836,10 +836,10 @@
+@@ -837,10 +837,10 @@
      nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);
@@ -239,7 +350,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&feDPDTask, 13, 5);
-@@ -850,7 +850,7 @@
+@@ -851,13 +851,13 @@
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
      nlTaskManager::AddTask(nlGetFileCache(), 3, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
@@ -248,3 +359,10 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(&Wiper::Instance(), 13, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
  }
+ 
+ #endif // selected original task registrations
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+ 
+ bool RenderParticleSystem(ParticleSystem* source, GLView* view,
+     nlDLListSlotPool<Particle*>* vertices, const nlVector3& viewRight,

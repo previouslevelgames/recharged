@@ -1,5 +1,5 @@
 Subject: Use the real Windows alloca header for native font compilation
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 LLVM-MinGW defines _WIN32 without _MSC_VER. Select its real malloc.h/_alloca provider.
 Apply after the reviewed native __alloca macro guards (0660); retain those guards and all font logic.

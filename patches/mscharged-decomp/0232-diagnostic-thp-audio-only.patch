@@ -1,6 +1,6 @@
 Native compiler declaration compatibility and owner-authorized audio-only THP diagnostic.
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 The normal native and console profiles retain every original video request.
 MSCHARGED_DIAGNOSTIC_THP_AUDIO_ONLY omits only the named texture lookups and
 VideoDecode requests for supported standalone mode0 diagnostics. Remove that

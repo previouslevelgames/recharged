@@ -1,0 +1,47 @@
+Subject: Native compiler contracts of the original lesson and Challenge play units
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native compiler contract; no game behavior change.
+
+Retail MWCC emits header inline functions out of line, so units that see only
+a declaration still link. GCC emits no out-of-line copy, which left the module
+importing symbols nothing defines; lazy binding then aborted at the first call
+(GetStrikerChallenge from the Challenge preview, seen at a 101 lesson start).
+
+- OverlayHandlerChallengePreview.cpp includes the unchanged inline bodies of
+  GetStrikerChallenge (GameInfo.inl), BaseSceneHandler::GetPresentation
+  (BaseSceneHandler.inl) and the InlineHasher constructors (feInlineHasher.h).
+- feButtonComponent.cpp includes the InlineHasher constructors as well; that
+  shared frontend unit had the same latent import.
+
+diff --git a/src/Game/FE/Overlay/OverlayHandlerChallengePreview.cpp b/src/Game/FE/Overlay/OverlayHandlerChallengePreview.cpp
+--- a/src/Game/FE/Overlay/OverlayHandlerChallengePreview.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerChallengePreview.cpp
+@@ -20,6 +20,13 @@
+ #include "NL/nlLocalization.h"
+ #include "NL/nlFormat_fwd.h"
+ #include "NL/nlPrint.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these GameInfo, BaseSceneHandler and InlineHasher inlines out
++// of line in other units; natively this unit includes their unchanged bodies.
++#include "Game/BaseSceneHandler.inl"
++#include "Game/FE/feInlineHasher.h"
++#include "Game/GameInfo.inl"
++#endif
+ 
+ #include <string.h>
+ 
+diff --git a/src/Game/FE/feButtonComponent.cpp b/src/Game/FE/feButtonComponent.cpp
+--- a/src/Game/FE/feButtonComponent.cpp
++++ b/src/Game/FE/feButtonComponent.cpp
+@@ -11,6 +11,11 @@
+ #include "NL/nlFont.h"
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits the InlineHasher constructors out of line in other units;
++// natively this unit includes their unchanged inline bodies.
++#include "Game/FE/feInlineHasher.h"
++#endif
+ 
+ ButtonComponent::ButtonComponent()
+ {

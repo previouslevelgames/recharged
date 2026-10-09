@@ -289,7 +289,7 @@ NativeAudioResourceView PrepareNativeAudioResourceChunk(nlChunk* source) {
         auto* cue = new(base + raw.children[1].native_offset + i * sizeof(AudioCueDefinition)) AudioCueDefinition{};
         cue->name = Saved<const char>(Word(r)); cue->voiceCount = Word(r + 4); cue->voices = Saved<AudioCueEntry>(Word(r + 8));
         cue->useSlider = r[12]; std::memcpy(cue->pad_0D, r + 13, 3);
-        cue->selectionMode = std::bit_cast<s32>(Word(r + 16)); cue->sliderIndex = Word(r + 20);
+        cue->selectionMode = static_cast<eAudioCueSelection>(std::bit_cast<s32>(Word(r + 16))); cue->sliderIndex = Word(r + 20);
         cue->selectedVoiceIndex = Word(r + 24); cue->activeCount = Word(r + 28);
         cue->maximumCount = Word(r + 32); cue->field_24 = Saved<void>(Word(r + 36));
     }
@@ -349,7 +349,7 @@ NativeAudioResourceView PrepareNativeAudioResourceChunk(nlChunk* source) {
         for (std::size_t j = 0; j < count; ++j) {
             const auto* r = raw.children[child].data + j * 8;
             auto* event = new(base + raw.children[child].native_offset + j * sizeof(AudioSequenceEventDefinition)) AudioSequenceEventDefinition{};
-            event->type = std::bit_cast<s32>(Word(r)); event->sound = Saved<SoundEventDefinition>(Word(r + 4));
+            event->type = static_cast<eAudioSequenceEventType>(std::bit_cast<s32>(Word(r))); event->sound = Saved<SoundEventDefinition>(Word(r + 4));
         }
     }
     for (std::size_t i = 0; i < sounds; ++i, ++child) {

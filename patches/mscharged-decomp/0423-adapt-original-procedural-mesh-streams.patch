@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original procedural mesh colour and coherent stream transport
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep original mesh layout, allocation, cursor stores and packet finalization.
 Copy exact four-byte colours on native hosts, retain Wii numeric RGBA order,
@@ -22,7 +22,7 @@ diff --git a/src/Game/GL/MeshWriter.cpp b/src/Game/GL/MeshWriter.cpp
 @@ -7,6 +11,9 @@
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -109,7 +109,7 @@ diff --git a/src/Game/GL/GLColourMeshWriter.cpp b/src/Game/GL/GLColourMeshWriter
 @@ -7,6 +11,9 @@
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -196,7 +196,7 @@ diff --git a/src/Game/GL/GLCompactColourMeshWriter.cpp b/src/Game/GL/GLCompactCo
 @@ -7,6 +11,9 @@
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -269,7 +269,7 @@ diff --git a/src/Game/GL/GLFourTextureAddMeshWriter.cpp b/src/Game/GL/GLFourText
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
  #include "Game/GL/glModelBuilder.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif
@@ -347,7 +347,7 @@ diff --git a/src/Game/GL/GLWarbleMeshWriter.cpp b/src/Game/GL/GLWarbleMeshWriter
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
  #include "Game/GL/glModelBuilder.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include "platform/game_allocation_ownership.h"
 +#endif

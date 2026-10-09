@@ -1,5 +1,5 @@
 Subject: Admit the original Domination return model cleanup service
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0506 and 0541.
 
 Back from the Domination gameplay options page calls the authored presentation
@@ -13,10 +13,11 @@ Move only case 27 under the existing Domination admission. FEModelManager is
 the whole original unit, created by original BeginLoadFEWorld. Service 26 and
 every other model, impostor, trophy and animation service keep their guards.
 
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
 @@ -305,6 +305,8 @@
-         GameSceneManager::Instance()->Push((SceneList)8, SCREEN_FORWARD, false);
+         GameSceneManager::Instance()->Push(SCENE_CHOOSE_SIDES_STRIKER_CUP, SCREEN_FORWARD, false);
          break;
  
 +#endif

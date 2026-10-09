@@ -1,0 +1,48 @@
+Subject: Admit the original 101 lesson and Striker Challenge in-game scenes
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: temporary explicit original-source diagnostic admission; depends on 0610.
+
+Under the named MSCHARGED_DIAGNOSTIC_FRONTEND_CHALLENGE_PLAY admission, the
+original factory creates the 101 pause menu (84, PauseMenuScene with
+pausemenu101_v3.fen), the lesson movie player (87) and the Challenge preview
+overlay (103) that FrontEnd::EnterMenuState pushes in Strikers 101 and
+Challenge play. Retail has no factory case for the 101 in-game ticker
+(igticker.fen, 0x61), which InitializeGameStateInGameFE1 pushes in 101 mode;
+it is queued without a handler there, so the diagnostic's default-case stop
+is skipped for that scene only. Allocation and constructors are literal.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -595,7 +595,7 @@
+         newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_PAUSE);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CHALLENGE_PLAY))
+     case (SceneList)84:
+         newHandler = new (nlMalloc(sizeof(PauseMenuScene), 8, false)) PauseMenuScene();
+         break;
+@@ -651,7 +651,7 @@
+         newHandler = new (nlMalloc(sizeof(SuperAbilityOverlay), 8, false)) SuperAbilityOverlay();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CHALLENGE_PLAY))
+     case (SceneList)103:
+         newHandler = new (nlMalloc(sizeof(ChallengePreviewOverlay), 8, false)) ChallengePreviewOverlay(movement);
+         break;
+@@ -666,6 +666,13 @@
+ #endif
+ #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     default:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CHALLENGE_PLAY)
++        // Retail has no factory case for the 101 in-game ticker presentation
++        // (igticker.fen, pushed by InitializeGameStateInGameFE1): it is queued
++        // with no handler.
++        if (newscene == (SceneList)0x61)
++            break;
++#endif
+         throw std::logic_error("Frontend sequence diagnostic reached an unqualified original scene factory case");
+ #endif
+     }

@@ -19,7 +19,7 @@ std::string VerifyStartupEvents()
         PushEventConnectionState();
         statePushed = true;
         {
-            UnidentifiedEvent<int> event("NativeStartup", -1);
+            Event<int> event("NativeStartup", -1);
             EventConnectionOwner owner;
             int received = 0;
             Function<int*> callback([&](int* value) {

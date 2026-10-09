@@ -1,5 +1,5 @@
 Subject: [PATCH] share original NIS camera timing and trigger crossing arithmetic
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Extract the original frame product/clamp/carry ordering, positive primary carry
 and half-open trigger crossing into shared inline helpers. The original methods
@@ -10,14 +10,15 @@ selected by this extraction. Input validation belongs to the native owner.
 diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
 --- a/src/Game/NisPlayer.cpp
 +++ b/src/Game/NisPlayer.cpp
-@@ -1,5 +1,6 @@
+@@ -1,6 +1,7 @@
+ #include "Game/Task/GameTaskState.h"
  #include "NL/nlDLListContainer.inl"
  #include "Game/NisPlayer.h"
 +#include "Game/NisPlaybackTiming.h"
  #include "Game/Blinker.h"
  #include "NL/nlBasicString.h"
  #include "Game/Render/StadiumLoading.h"
-@@ -426,13 +427,7 @@
+@@ -427,13 +428,7 @@
  {
      float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
      float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
@@ -32,7 +33,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
      HandleAsyncs();
  
      for (int i = 0; i < 8; i++)
-@@ -455,9 +450,9 @@
+@@ -456,9 +451,9 @@
              if (mCamera[i].m_pActiveCameraData != 0)
              {
                  float overrun = mCamera[i].ManualUpdate(deltaT);

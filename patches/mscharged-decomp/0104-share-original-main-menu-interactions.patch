@@ -1,5 +1,5 @@
 Subject: Share original Main menu visual and pointer callback bodies
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain source lookup, optional empty component selection, bounds offsets,
 Open/Close, Select dispatch and other-pointer state equations in console delegates
@@ -319,18 +319,20 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
      SHNavigation* scene = GetNavigationScene();
      TLComponentInstance* backButton = 0;
      if (scene != 0)
-@@ -131,10 +88,7 @@
-         backButton = scene->GetButton(4);
+@@ -131,11 +88,8 @@
+         backButton = scene->GetButton(NAVIGATION_BUTTON_BACK);
      }
  
 -    for (int i = 0; i < NUM_ITEMS; ++i)
 -    {
 -        mMenuArrows[i] = FEFinder<TLComponentInstance, 4>::FindOrDefault(mMenuItemInstances[i]->GetActiveSlide(), "arrows");
 -    }
+-    if (g_pNetworkSessionBase->GetSessionMode() != NET_MODE_LOCAL)
 +    FrontendMainMenuFindArrows<TLComponentInstance, FEFinder>(*this);
-     if (g_pNetworkSessionBase->GetSessionMode() != 0)
++    if (g_pNetworkSessionBase->GetSessionMode() != 0)
      {
          g_pNetworkSessionBase->Shutdown();
+     }
 @@ -243,17 +197,8 @@
              {
                  mMenuItems[i].HandlePointerEvent(&event);
@@ -370,11 +372,11 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
  {
 -    unsigned int item = (unsigned int)context;
 -    --mHighlightedItemCounts[index];
--    if (!mMenuItems[item].HasOtherPointerState(1, index))
+-    if (!mMenuItems[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mMenuHighlights[item]->SetActiveSlide("off", true, false);
 -        mMenuArrows[item]->SetActiveSlide("off", true, false);
--        mMenuItems[item].SetPointerState(0, index);
+-        mMenuItems[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
 -    }
 +    FrontendMainMenuClose(*this, index, (unsigned int)context);
  }
@@ -394,11 +396,11 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
 +{
      unsigned int item = (unsigned int)context;
 -    ++mHighlightedItemCounts[index];
--    if (!mMenuItems[item].HasOtherPointerState(1, index))
+-    if (!mMenuItems[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mMenuHighlights[item]->SetActiveSlide("over", true, false);
 -        mMenuArrows[item]->SetActiveSlide("over", true, false);
--        mMenuItems[item].SetPointerState(1, index);
+-        mMenuItems[item].SetPointerState(POINTER_BUTTON_HOVER, index);
 -        FEAudio::PlayAnimAudioEvent(0x6B0689D4, 0, 0, true);
 -    }
 -}
@@ -409,14 +411,14 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
 -void SHMainMenu::SelectItem(unsigned int index, void* context)
 -{
 -    unsigned int item = (unsigned int)context;
--    if (GetTweakBool("/user/media_build", false) && (item == 3 || item == 5 || item == 6))
+-    if (GetTweakBool("/user/media_build", false) && (item == MAIN_MENU_CHALLENGE || item == MAIN_MENU_HALL_OF_FAME || item == MAIN_MENU_OPTIONS))
 -    {
 -        FEAudio::PlayAnimAudioEvent(0x7326DD54, 0, 0, true);
 -        return;
 -    }
 -
 -    FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
--    if (item == 1)
+-    if (item == MAIN_MENU_ONLINE)
 -    {
 +    FrontendMainMenuSelect(item,
 +        []() { return GetTweakBool("/user/media_build", false); },

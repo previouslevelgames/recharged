@@ -1,6 +1,6 @@
 Subject: Adapt original page-control scalar callback contexts for native compilers
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The original producer encodes only button index zero or one in void*.
 Native pointer-width casts carry that scalar value without changing unsigned
@@ -29,7 +29,7 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
          mButtons[i].SetMaxY(20.0f + mButtons[i].GetMaxY());
          mButtons[i].SetMinY(mButtons[i].GetMinY() - 20.0f);
          if (i == 0)
-@@ -211,7 +218,11 @@
+@@ -211,8 +218,12 @@
   */
  void FEPageControls::OnPointerEnter(int index, void* context)
  {
@@ -37,11 +37,13 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
 +    unsigned int which = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
 +#else
      unsigned int which = (unsigned int)context;
+-    if (!mButtons[which].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 +#endif
-     if (!mButtons[which].HasOtherPointerState(1, index))
++    if (!mButtons[which].HasOtherPointerState(1, index))
      {
          if (mPointerHeld && (unsigned int)mHeldButton == which)
-@@ -229,7 +240,11 @@
+             mButtonInstances[which]->SetActiveSlide("down", true, false);
+@@ -229,8 +240,12 @@
   */
  void FEPageControls::OnPointerLeave(int index, void* context)
  {
@@ -49,10 +51,12 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
 +    unsigned int which = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
 +#else
      unsigned int which = (unsigned int)context;
+-    if (!mButtons[which].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 +#endif
-     if (!mButtons[which].HasOtherPointerState(1, index))
++    if (!mButtons[which].HasOtherPointerState(1, index))
      {
          int button = 49;
+         if (which == 0)
 @@ -254,7 +269,11 @@
   */
  void FEPageControls::OnPointerPress(int index, void* context)

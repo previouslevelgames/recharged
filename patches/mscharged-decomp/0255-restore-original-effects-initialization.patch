@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Restore original effects loaders and particle flow outside legacy diagnostics
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep matching retail methods, requests and fixed colour sampling. Confine copied
 registration/simulation representations to an explicitly named diagnostic. Native
@@ -69,7 +69,7 @@ diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/Effec
 diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
 --- a/include/Game/Effects/EffectsGroup.h
 +++ b/include/Game/Effects/EffectsGroup.h
-@@ -75,7 +75,7 @@
+@@ -86,7 +86,7 @@
      bool IsPersistent() const;
      unsigned long GetHashID() const { return m_hashID; }
      UserEffectSpec** GetUserSpecs() const { return m_userSpecsPtr; }
@@ -122,7 +122,7 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
  #include "Game/Effects/EffectsTemplate.h"
 -#ifndef MSCHARGED_NATIVE
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "NL/nlChunk.h"
  #endif
  
@@ -211,7 +211,7 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Sys/simpleparser.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 @@ -47,7 +47,7 @@
      return false;
  }
@@ -259,7 +259,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  #include "Game/TweakValueFloat.h"
 -#ifndef MSCHARGED_NATIVE
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #else
  #include <cmath>
 @@ -65,7 +66,7 @@

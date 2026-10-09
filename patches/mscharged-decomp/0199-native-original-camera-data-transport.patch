@@ -1,6 +1,6 @@
 Subject: Transport original camera serialized words
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep the original camera loading, owning/borrowed records, copying, list and
 callback algorithms. Before the original direct word reads, ask the native

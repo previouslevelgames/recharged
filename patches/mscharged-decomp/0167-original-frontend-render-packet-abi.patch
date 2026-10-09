@@ -1,5 +1,5 @@
 Subject: Restore original frontend quad providers and native packet ABI
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Restore all reconstructed GLDraw3 methods beneath the unchanged original
 frontend decisions. Retain legacy validation only in explicitly diagnostic
@@ -21,7 +21,7 @@ diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
  
  #if defined(MSCHARGED_NATIVE)
  #include <cstdint>
-@@ -38,7 +39,7 @@
+@@ -45,7 +46,7 @@
      /* 0x00 */ FEPackage* m_pFEPackage;
      /* 0x04 */ unsigned long m_uHashID;
      /* 0x08 */ nlMatrix4 m_matView;
@@ -260,7 +260,7 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -618,7 +618,7 @@
+@@ -619,7 +619,7 @@
      InitMaxProjectedShadows();
      SetCharacterShadowView(GetLayerView(eCLV_Characters));
      FESceneManager::s_pInstance->m_uDefaultRenderView =
@@ -280,7 +280,7 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
  #endif
  #include "NL/gl/glTexture.h"
 @@ -12,7 +12,7 @@
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  
  
 -#if !defined(MSCHARGED_NATIVE)

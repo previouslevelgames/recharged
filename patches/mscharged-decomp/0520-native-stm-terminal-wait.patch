@@ -1,6 +1,6 @@
 From: native port preparation
 Subject: Preserve original STM terminal wait through native power removal
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The original caller still disables interrupts, synchronizes instruction fetch,
 and waits forever until real power removal. Only native builds service that

@@ -1,5 +1,5 @@
 Subject: Admit original Domination gameplay options before captain selection
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0506.
 
 The authored MainMenu-to-Grudge-Match transition pushes SCENE_GAMEPLAY_OPTIONS
@@ -16,7 +16,7 @@ pointer width; each console statement is kept unchanged.
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -396,9 +396,13 @@
+@@ -397,9 +397,13 @@
      case SCENE_WIDESCREEN_LOADING:
          newHandler = new (nlMalloc(sizeof(MatchLoadingScene), 8, false)) MatchLoadingScene();
          break;
@@ -40,7 +40,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
  #include "Game/SH/SHGameplayOptions.h"
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
-@@ -547,7 +550,11 @@
+@@ -547,8 +550,12 @@
  
  void SHGameplayOptions::OnOptionPointerEnter(unsigned int index, void* context)
  {
@@ -48,11 +48,13 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
 +    unsigned int item = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
 +#else
      unsigned int item = (unsigned int)context;
+-    if (!mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 +#endif
-     if (!mOptionButtons[item].HasOtherPointerState(2, -1))
++    if (!mOptionButtons[item].HasOtherPointerState(2, -1))
      {
          ++mPointerInsideCounts[index];
-@@ -563,7 +570,11 @@
+         mOptionButtons[item].PlayHoverFeedback(index);
+@@ -563,8 +570,12 @@
  
  void SHGameplayOptions::OnOptionPointerLeave(unsigned int index, void* context)
  {
@@ -60,11 +62,13 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
 +    unsigned int item = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
 +#else
      unsigned int item = (unsigned int)context;
+-    if (!mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 +#endif
-     if (!mOptionButtons[item].HasOtherPointerState(2, -1))
++    if (!mOptionButtons[item].HasOtherPointerState(2, -1))
      {
          --mPointerInsideCounts[index];
-@@ -577,7 +588,11 @@
+         if (!mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+@@ -577,8 +588,12 @@
  
  void SHGameplayOptions::OnOptionPointerPress(unsigned int index, void* context)
  {
@@ -72,10 +76,12 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
 +    unsigned int item = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
 +#else
      unsigned int item = (unsigned int)context;
+-    if (mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 +#endif
-     if (mOptionButtons[item].HasOtherPointerState(2, -1))
++    if (mOptionButtons[item].HasOtherPointerState(2, -1))
          return;
      mOptionInstances[item]->SetActiveSlide("down", true, false);
+     for (int j = 0; j < 4; ++j)
 @@ -624,7 +639,11 @@
  
  void SHGameplayOptions::OnCheatPointerEnter(unsigned int index, void* context)
@@ -87,7 +93,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
 +#endif
      ++mPointerInsideCounts[index];
      mCheatButtons[item].PlayHoverFeedback(index);
-     if (!mCheatButtons[item].HasOtherPointerState(1, index))
+     if (!mCheatButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 @@ -637,7 +656,11 @@
  
  void SHGameplayOptions::OnCheatPointerLeave(unsigned int index, void* context)
@@ -98,7 +104,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
      unsigned int item = (unsigned int)context;
 +#endif
      --mPointerInsideCounts[index];
-     if (!mCheatButtons[item].HasOtherPointerState(1, index))
+     if (!mCheatButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
      {
 @@ -649,7 +672,11 @@
  void SHGameplayOptions::OnCheatPointerPress(unsigned int index, void* context)

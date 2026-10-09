@@ -31,14 +31,14 @@ def template(identity, colours, persistent=0, texture=0x12345678, model=0xffffff
     return chunk(0x80024002, pieces)
 
 
-def group(identity, user=False, binding=3, indices=(1, 0)):
+def group(identity, user=False, binding=3, indices=(1, 0), forward_axis=-1):
     header = words(identity, 0xdeadbeef, len(indices), 1, 0xdeadbeef, user, 0xdeadbeef)
     specs = bytearray()
     for i, index in enumerate(indices):
         data = bytearray(88)
         struct.pack_into(">4IfIfIII4fIffIi", data, 0,
             0x10 + i, index, binding, 42, .25, 0, 1.5, 1, 1, 0,
-            -2, .5, 1.5, 2.5, 9, -1, 2, 3, -1)
+            -2, .5, 1.5, 2.5, 9, -1, 2, 3, forward_axis)
         specs.extend(data)
     source = chunk(0x24023, words(4, 0xdeadcafe) if user else b"")
     if user:
@@ -46,11 +46,11 @@ def group(identity, user=False, binding=3, indices=(1, 0)):
     return chunk(0x80024020, chunk(0x24021, header) + chunk(0x24022, specs) + source)
 
 
-def entry(base=10, group_hash=0x81f2a311, user=False, binding=3, persistent=0, texture=0x12345678, model=0xffffffff):
+def entry(base=10, group_hash=0x81f2a311, user=False, binding=3, persistent=0, texture=0x12345678, model=0xffffffff, forward_axis=-1):
     head = chunk(0x24001, words(0xabcdef01, 2, 2, 0xdeadbeef, 1, 0xdeadbeef))
     head += chunk(0x24025, words(0xdeadbeef, 0xfeedcafe)) + chunk(0x24026, words(0xdeadbeef))
     return chunk(0x80024000, head + template(base, 25, persistent, texture, model)
-        + template(base + 1, 26, texture=texture, model=model) + group(group_hash, user, binding))
+        + template(base + 1, 26, texture=texture, model=model) + group(group_hash, user, binding, forward_axis=forward_axis))
 
 
 def resident(*entries):

@@ -1,5 +1,5 @@
 Subject: [PATCH] share original frontend resource context completion
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Share original package state5/queue/creation order, resource context switches,
 resource Update removal/completion scheduling and the actual empty completion
@@ -24,12 +24,13 @@ diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
  
      nlFree(m_pPointerTable);
      m_pPointerTable = 0;
+-    mState = FE_SCENE_LOADING_RESOURCES;
 +#if defined(MSCHARGED_NATIVE)
 +    FrontendScenePackageResources(*this,
 +        [this] { LoadPackageResources(m_pFEPackage); },
 +        [this] { FESceneManager::Instance()->InitializeScene(this); });
 +#else
-     mState = 5;
++    mState = 5;
  
      LoadPackageResources(m_pFEPackage);
  

@@ -2,8 +2,8 @@ include_guard(GLOBAL)
 include(cmake/OriginalWorldOwners.cmake)
 
 # Temporary admission of the original offline Domination setup pages: gameplay
-# options (pushed first by the authored transition), captain/sidekick
-# selection, Choose Sides and Stadium Select. The authored MainMenu script owns
+# options (pushed first by the authored transition) and their cheat-category
+# list (28), captain/sidekick selection, Choose Sides and Stadium Select. The authored MainMenu script owns
 # the transition and real E3 selection; the source handlers own every push.
 option(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION
     "Admit original offline Domination captain and sidekick selection" OFF)
@@ -30,6 +30,7 @@ function(mscharged_select_original_frontend_domination target)
     _mscharged_world_owned_sources("${target}" _domination_known)
     foreach(_relative IN ITEMS
             src/Game/SH/SHGameplayOptions.cpp
+            src/Game/SH/SHOptionsCheatsList.cpp
             src/Game/SH/SHChooseCaptains.cpp
             src/Game/SH/SHChooseSidekicks.cpp
             src/Game/SH/SHChooseSides.cpp

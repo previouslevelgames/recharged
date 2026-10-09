@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original Hall of Fame player cards
-Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0505 and 0571.
 
 E15 admission of factory case 65 (SHHallOfFamePlayerCard(13), whole Matching
@@ -12,17 +12,21 @@ trophy history cases 66-74 open only for claimed trophies and stay gated.
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -524,11 +524,11 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
-     case (SceneList)64:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(2);
+@@ -525,13 +525,13 @@
+     case SCENE_HOF_CRYSTAL_CUP:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_CRYSTAL_CUP);
          break;
 -#endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case (SceneList)65:
          newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(13);
          break;
+-    case SCENE_HOF_FIRE_CUP_HISTORY:
+-        newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(HOF_FIRE_CUP_HISTORY);
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case (SceneList)66:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(4);
++    case (SceneList)66:
++        newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(4);
          break;
+     case SCENE_HOF_FIRE_GOLDEN_BOOT_HISTORY:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(HOF_FIRE_GOLDEN_BOOT_HISTORY);

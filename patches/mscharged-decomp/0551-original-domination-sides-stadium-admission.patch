@@ -1,5 +1,5 @@
 Subject: Admit original Domination Choose Sides and Stadium Select
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0506, 0541 and 0543.
 
 The Domination sidekick page's Done handler calls SubmitSidekickChoice, which
@@ -9,9 +9,10 @@ existing Domination admission. Placement allocation and constructors stay
 literal; the Striker Cup, cup Choose Sides (8) and every other case keep their
 current guards.
 
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -321,14 +321,14 @@
+@@ -322,14 +322,14 @@
      case SCENE_CHOOSE_SIDEKICKS_DOMINATION:
          newHandler = new (nlMalloc(sizeof(ChooseSidekicksSceneV2), 8, false)) ChooseSidekicksSceneV2(ChooseCaptainsSceneV2::ST_DOMINATION, movement);
          break;
@@ -20,7 +21,7 @@ current guards.
      case (SceneList)4:
          newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::FRIENDLY, movement);
          break;
-     case (SceneList)5:
+     case SCENE_CHOOSE_STADIUM:
          newHandler = new (nlMalloc(sizeof(StadiumSelectScene), 8, false)) StadiumSelectScene();
          break;
 +#endif

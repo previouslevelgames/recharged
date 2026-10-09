@@ -1,6 +1,6 @@
 Subject: Select checked original interpreter execution for native bytecode
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Extract the original execution methods, retaining their instruction dispatch,
 control flow and numeric equations. Native owner hooks validate each access and
@@ -438,7 +438,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
 diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 --- a/src/Game/InterpreterCore.cpp
 +++ b/src/Game/InterpreterCore.cpp
-@@ -23,6 +23,7 @@
+@@ -56,6 +56,7 @@
      /* 0x14 */ TweakBoolBinding* boolBindings;
  };
  
@@ -446,7 +446,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  InterpreterCore::InterpreterCore(unsigned int size)
  {
      m_StackSegment = (u32*)nlMalloc(size * 4, 8, false);
-@@ -30,7 +31,9 @@
+@@ -63,7 +64,9 @@
      m_Globals = 0;
      m_TweakStorage = 0;
  }
@@ -457,7 +457,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  InterpreterCore::~InterpreterCore()
  {
      if (m_Globals != 0)
-@@ -50,7 +53,9 @@
+@@ -83,7 +86,9 @@
      }
      nlFree(m_StackSegment);
  }
@@ -467,8 +467,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#ifndef MSCHARGED_NATIVE
  void InterpreterCore::Reset()
  {
-     m_RunState = 2;
-@@ -59,6 +64,7 @@
+     m_RunState = INTERPRETER_FINISHED;
+@@ -92,6 +97,7 @@
      m_BP = 0;
      m_IP = 0;
  }
@@ -476,7 +476,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  
  void InterpreterCore::InitializeTweaks()
  {
-@@ -177,6 +183,7 @@
+@@ -210,6 +216,7 @@
      Reset();
  }
  
@@ -484,7 +484,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
  {
      m_SP[0] = 0;
-@@ -207,7 +214,9 @@
+@@ -240,7 +247,9 @@
          }
      }
  }
@@ -494,8 +494,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#ifndef MSCHARGED_NATIVE
  bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
  {
-     if (m_RunState == 3)
-@@ -246,7 +255,9 @@
+     if (m_RunState == INTERPRETER_SUSPENDED)
+@@ -279,7 +288,9 @@
      RunFunction(entry, count);
      return true;
  }
@@ -505,8 +505,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#ifndef MSCHARGED_NATIVE
  bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
  {
-     if (m_RunState == 3)
-@@ -269,6 +280,7 @@
+     if (m_RunState == INTERPRETER_SUSPENDED)
+@@ -302,6 +313,7 @@
      RunFunction(entry, count);
      return true;
  }
@@ -514,7 +514,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  
  void InterpreterCore::RegisterTweak(unsigned int index, unsigned int type, const char* name, u8 flags, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
  {
-@@ -361,22 +373,29 @@
+@@ -394,22 +406,29 @@
      }
  }
  
@@ -546,9 +546,9 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#ifndef MSCHARGED_NATIVE
  void InterpreterCore::Step()
  {
-     unsigned int wasNotRunning = m_RunState != 1;
-@@ -596,13 +615,17 @@
-         m_RunState = 2;
+     unsigned int wasNotRunning = m_RunState != INTERPRETER_RUNNING;
+@@ -629,13 +648,17 @@
+         m_RunState = INTERPRETER_FINISHED;
      }
  }
 -
@@ -558,7 +558,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::StopWithoutUndo()
  {
      m_Stop = 1;
-     m_RunState = 3;
+     m_RunState = INTERPRETER_SUSPENDED;
  }
 -
 +#endif
@@ -567,9 +567,9 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::StopWithUndo()
  {
      m_IP--;
-@@ -610,11 +633,14 @@
+@@ -643,11 +666,14 @@
      m_Stop = 1;
-     m_RunState = 3;
+     m_RunState = INTERPRETER_SUSPENDED;
  }
 -
 +#endif

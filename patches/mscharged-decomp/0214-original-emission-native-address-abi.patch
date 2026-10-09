@@ -1,6 +1,6 @@
 Subject: [PATCH] preserve original emission source and native borrowed address words
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Restore literal controller/manager decisions, preserve retail numeric word
 overflow, and transport genuine native pointer/callback bits without truncation.
@@ -35,7 +35,7 @@ diff --git a/include/Game/Effects/EmissionController.h b/include/Game/Effects/Em
  
  class cPN_SAnimController;
  class cPoseAccumulator;
-@@ -85,7 +91,12 @@
+@@ -78,7 +84,12 @@
      /* 0x6C */ const cPN_SAnimController* m_pAnimController;
      /* 0x70 */ u16 m_Id;
      /* 0x72 */ u8 unknown_0x72[0x02];
@@ -98,7 +98,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
-@@ -618,7 +618,11 @@
+@@ -619,7 +619,11 @@
      {
          EmissionController* controller = EmissionManager::Instance()->Create(
              group, 3, true, 0);
@@ -110,7 +110,7 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
          controller->SetPosition(
              self->m_pFielder->m_DetChar.m_v3Position);
          controller->SetVelocity(
-@@ -1562,7 +1566,11 @@
+@@ -1563,7 +1567,11 @@
                      if (group != 0)
                      {
                          EmissionController* emitter = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -167,27 +167,31 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -1689,6 +1689,9 @@
+@@ -1689,7 +1689,10 @@
+                 = pBall->m_pPhysicsBall->GetDefaultBallAirResistance() * lbl_806DB574;
          }
          break;
-     case 6:
+-    case BALL_STATE_SHOT:
++    case 6:
 +#if defined(MSCHARGED_NATIVE)
 +    {
 +#endif
          UpdateBallShotClock(pBall);
          cPlayer* pPrevOwner = pBall->m_pPrevOwner;
          if (pPrevOwner != NULL
-@@ -1702,6 +1705,9 @@
+@@ -1703,7 +1706,10 @@
                      (float)tweaks->fShooting);
          }
          break;
+-    case BALL_STATE_CHIP_SHOT:
 +#if defined(MSCHARGED_NATIVE)
 +    }
 +#endif
-     case 7:
++    case 7:
          UpdateBallShotClock(pBall);
          break;
-@@ -3525,7 +3531,11 @@
+     case BALL_STATE_GROUND_PASS:
+@@ -3526,7 +3532,11 @@
      EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 0, true, 0);
      pController->m_fGround = 0.02f;
      pController->SetPosition(pBallTrail->position);
@@ -202,7 +206,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -434,7 +434,11 @@
+@@ -435,7 +435,11 @@
  
  void cCharacter::AttachEffect(EmissionController* pEmissionController)
  {
@@ -217,7 +221,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
-@@ -107,7 +107,11 @@
+@@ -108,7 +108,11 @@
      EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uEffectHash);
      EmissionController* pControl
          = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -229,7 +233,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
  
      nlVector3 v3Direction = sBallEffectVelocity;
      pControl->SetVelocity(v3Direction);
-@@ -1172,7 +1176,11 @@
+@@ -1173,7 +1177,11 @@
              = fxGetGroup(EmissionManager::Instance(), uHash);
          EmissionController* pController
              = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -241,7 +245,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
          nlVector3 vel = sBallEffectVelocity;
          pController->SetVelocity(vel);
          pController->m_fGround = 0.02f;
-@@ -1194,7 +1202,11 @@
+@@ -1195,7 +1203,11 @@
      pBall = g_pBall;
      pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
      pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -253,7 +257,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -1213,7 +1225,11 @@
+@@ -1214,7 +1226,11 @@
      EmissionController* pController = EmissionManager::Instance()->Create(
          fxGetGroup(EmissionManager::Instance(), nlStringLowerHash(szName)),
          3, true, 0);
@@ -265,7 +269,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -1978,7 +1994,11 @@
+@@ -1979,7 +1995,11 @@
      unsigned long uHash = nlStringLowerHash(szEffectName);
      EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
      EmissionController* pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -277,7 +281,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -2002,7 +2022,11 @@
+@@ -2003,7 +2023,11 @@
      pBall = g_pBall;
      pGroup = fxGetGroup(EmissionManager::Instance(), sHashWeatherLightningBall);
      pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -671,7 +675,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -401,7 +401,11 @@
+@@ -402,7 +402,11 @@
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("electric_fence_character");
          controller = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -683,7 +687,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
          controller->SetPosition(pos);
  
          float dirX = dir.x;
-@@ -569,7 +573,11 @@
+@@ -570,7 +574,11 @@
  
  void UpdateElectricFence(float fDeltaT)
  {
@@ -694,7 +698,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
 +#endif
      static float timeSinceLastEffect;
  
-     if (nlTaskManager::m_pInstance->mCurrentState == 1
+     if (nlTaskManager::m_pInstance->mCurrentState == TASK_PAUSED
 diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellObject.cpp
 --- a/src/Game/Render/KoopaShellObject.cpp
 +++ b/src/Game/Render/KoopaShellObject.cpp

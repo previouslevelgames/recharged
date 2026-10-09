@@ -78,6 +78,32 @@ template<class T> void Field(mscharged::platform::WorldRecordStorageLayout layou
     for (std::size_t i = description.native_bytes; i < native.size(); ++i)
         Check(native[i] == 0xAC);
 }
+template<class T> void PrefixFields(mscharged::platform::WorldRecordStorageLayout layout,
+                                    std::size_t context, std::size_t matrix, std::uint32_t value) {
+    // Native declarations preserve the Wii32 numeric prefix and full native
+    // pointers. Source placement still constructs the object after this decode.
+    static_assert(std::is_same_v<decltype(T::m_uHashID), u32>);
+    static_assert(std::is_same_v<decltype(T::m_uObjectType), u32>);
+    static_assert(std::is_same_v<decltype(T::m_uObjectCreationFlags), u32>);
+    static_assert(offsetof(T, m_uHashID) == offsetof(WorldDrawable, m_uHashID));
+    static_assert(offsetof(T, m_uObjectType) == offsetof(WorldDrawable, m_uObjectType));
+    static_assert(offsetof(T, m_uObjectCreationFlags) == offsetof(WorldDrawable, m_uObjectCreationFlags));
+    static_assert(offsetof(T, m_nAnimNode) == offsetof(WorldDrawable, m_nAnimNode));
+    static_assert(offsetof(T, m_pAnimController) == offsetof(WorldDrawable, m_pAnimController));
+    static_assert(offsetof(T, m_pad1C) == offsetof(WorldDrawable, m_pad1C));
+    Check(context == offsetof(WorldDrawable, m_pWorldContext));
+    Check(matrix == offsetof(WorldDrawable, mWorldMatrix));
+    Field<u32>(layout, offsetof(T, m_uHashID), 4, value);
+    Field<u32>(layout, offsetof(T, m_uObjectType), 8, value);
+    Field<u32>(layout, offsetof(T, m_uObjectCreationFlags), 12, value);
+    Field<World*>(layout, context, 0x10, value);
+    Field<int>(layout, offsetof(T, m_nAnimNode), 0x14, value);
+    Field<WorldAnimController*>(layout, offsetof(T, m_pAnimController), 0x18, value);
+    // Compare every matrix scalar's representation without interpreting float
+    // values or dereferencing the still-serialized pointer words.
+    for (unsigned i = 0; i < 16; ++i)
+        Field<std::uint32_t>(layout, matrix + 4 * i, 0x20 + 4 * i, value);
+}
 }
 
 #if defined(_WIN32)
@@ -89,6 +115,12 @@ extern "C" EXPORT unsigned CheckWorldRecordNativeAbi() {
     using namespace Transport;
     checks = 0;
     for (auto value : {0u, 0x80000000u, 0xFFFFFFFFu}) {
+        PrefixFields<WorldHelperObject>(WorldRecordStorageLayout::CommonObject,
+            offsetof(WorldHelperObject, m_pWorld), offsetof(WorldHelperObject, mWorldMatrix), value);
+        PrefixFields<CrowdLayoutObject>(WorldRecordStorageLayout::Crowd,
+            offsetof(CrowdLayoutObject, m_pWorldContext), offsetof(CrowdLayoutObject, mTransform), value);
+        PrefixFields<WorldNPC>(WorldRecordStorageLayout::NPC,
+            offsetof(WorldNPC, m_pWorldContext), offsetof(WorldNPC, mTransform), value);
         Field<decltype(WorldPhysicsDrawable::m_uObjectCreationFlags)>(WorldRecordStorageLayout::Physics,
             offsetof(WorldPhysicsDrawable, m_uObjectCreationFlags), 0x0C, value);
         Field<decltype(WorldPhysicsDescription::uPrimitiveType)>(WorldRecordStorageLayout::Physics,

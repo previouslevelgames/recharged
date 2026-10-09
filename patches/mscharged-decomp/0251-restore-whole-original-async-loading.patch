@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original async-loading source ownership
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Prepared-preimage: exact reviewed strict-source199
 
 Restore the complete matching AsyncLoading TU and original stage/sequence
@@ -209,9 +209,9 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      fn_80018A00();
      GameplayCameraEffects::Instance()->RegisterEventListeners();
 +#if defined(MSCHARGED_NATIVE)
-+    UnidentifiedFindEvent<UnidentifiedEventNoData>("GameOver", -1)->Add(Function<FnVoidVoid>(GoalieOnGameOver), (EventOwnerHandle)&manager->mLoadingHandle, -1);
++    FindEvent<NoEventData>("GameOver", -1)->Add(Function<FnVoidVoid>(GoalieOnGameOver), (EventOwnerHandle)&manager->mGameOverConnection, -1);
 +#else
-     UnidentifiedFindEvent<UnidentifiedEventNoData>("GameOver", -1)->Add(Function<FnVoidVoid>(GoalieOnGameOver), (unsigned int)&manager->mLoadingHandle, -1);
+     FindEvent<NoEventData>("GameOver", -1)->Add(Function<FnVoidVoid>(GoalieOnGameOver), (unsigned int)&manager->mGameOverConnection, -1);
 +#endif
      GLResourcePool* pool = glGetCurrentResourcePool();
      Jumbotron::instance.Initialize(pool);

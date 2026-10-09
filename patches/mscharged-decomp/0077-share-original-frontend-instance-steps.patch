@@ -1,6 +1,6 @@
 Subject: Share original frontend instance setters and loading-scene setup prefix
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Share actual attribute/visibility/string/resource setter effects with checked
 native snapshots. Share BaseLoadingScene's authored component setup while keeping
@@ -408,7 +408,7 @@ diff --git a/src/Game/FE/tlTextInstance_runtime.cpp b/src/Game/FE/tlTextInstance
 diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 --- a/src/Game/SH/SHLoading.cpp
 +++ b/src/Game/SH/SHLoading.cpp
-@@ -1,6 +1,7 @@
+@@ -2,6 +2,7 @@
  #include "Game/HBMManager.h"
  
  #include "Game/SH/SHLoading.h"
@@ -416,7 +416,7 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
  #include "Game/BaseSceneHandler.inl"
  
  #include "Game/BaseGameSceneManager.h"
-@@ -173,16 +174,17 @@
+@@ -175,16 +176,17 @@
      }
  }
  
@@ -430,7 +430,7 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 +
  void BaseLoadingScene::SceneCreated()
  {
--    mTransitionComponent = FEFinder<TLComponentInstance, TLAT_COMPONENT>::FindOrDefault(mPresentation->m_currentSlide, "Layer", "no home");
+-    mTransitionComponent = FEFinder<TLComponentInstance, TLAT_COMPONENT>::FindOrDefault(GetLoadingSceneSlide(this), "Layer", "no home");
 -    mTransitionComponent->m_bVisible = false;
 -
 -    if (IsWidescreen())

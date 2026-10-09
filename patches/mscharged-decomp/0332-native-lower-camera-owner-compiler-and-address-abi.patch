@@ -1,6 +1,6 @@
 From: mscharged-port native integration
 Subject: [PATCH] Preserve original lower camera-owner native addresses and compiler declarations
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Permanent native compiler/address ABI only. Whole source owners retain
 their original methods, source globals, allocation requests and algorithms.
@@ -49,9 +49,9 @@ diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.c
      }
  
 +#if defined(MSCHARGED_NATIVE)
-+    UnidentifiedFindEvent<void>("ResetEffects", -1)->Add(Function<void*>(HandleResetEffects), reinterpret_cast<EventOwnerHandle>(&mResetEffectsConnection), -1);
++    FindEvent<void>("ResetEffects", -1)->Add(Function<void*>(HandleResetEffects), reinterpret_cast<EventOwnerHandle>(&mResetEffectsConnection), -1);
 +#else
-     UnidentifiedFindEvent<void>("ResetEffects", -1)->Add(Function<void*>(HandleResetEffects), (unsigned int)&mResetEffectsConnection, -1);
+     FindEvent<void>("ResetEffects", -1)->Add(Function<void*>(HandleResetEffects), (unsigned int)&mResetEffectsConnection, -1);
 +#endif
  }
  

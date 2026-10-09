@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Retain numeric popup callback indices across native pointer width
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The actual popup constructor stores numeric0/1/2 in the three pointer contexts.
 Recover the same original int through uintptr_t for modern native compilers.
@@ -27,7 +27,7 @@ diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
      int optionIndex = (int)context;
 +#endif
      ++mPointerHoverCounts[index];
-     if (!mControllerComponents[optionIndex].HasOtherPointerState(1, index))
+     if (!mControllerComponents[optionIndex].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
      {
 @@ -828,7 +836,11 @@
  
@@ -39,7 +39,7 @@ diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
      int optionIndex = (int)context;
 +#endif
      --mPointerHoverCounts[index];
-     if (!mControllerComponents[optionIndex].HasOtherPointerState(1, index))
+     if (!mControllerComponents[optionIndex].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
      {
 @@ -858,7 +870,11 @@
      }

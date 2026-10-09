@@ -30,7 +30,7 @@ OwnedPayload MakePayload(int value)
     auto* data = new (nlMalloc(sizeof(Payload))) Payload{value};
     return {data, [](Payload* data) { data->~Payload(); nlFree(data); }};
 }
-void Queue(UnidentifiedQueuedEvent<Payload>& event, int value, const Function<Payload*>& disposer)
+void Queue(QueuedEvent<Payload>& event, int value, const Function<Payload*>& disposer)
 {
     auto data = MakePayload(value);
     event.Queue(data.get(), disposer);
@@ -94,7 +94,7 @@ void DispatcherModes()
 void QueuedPayloads()
 {
     EventDispatcher dispatcher;
-    UnidentifiedQueuedEvent<Payload> event(&dispatcher, "Payloads", -1);
+    QueuedEvent<Payload> event(&dispatcher, "Payloads", -1);
     std::vector<int> values;
     int disposed = 0;
     Function<Payload*> disposer([&](Payload* data) { ++disposed; nlFree(data); });
@@ -121,7 +121,7 @@ void QueuedPayloads()
     Queue(event, 7, disposer); dispatcher.Dispatch(true);
     Require(disposed == 7 && values.back() == 7, "Dispatcher did not recover after FreeBlocks");
 
-    UnidentifiedQueuedEvent<UnidentifiedEventNoData> signal(&dispatcher, "Signal", -1);
+    QueuedEvent<NoEventData> signal(&dispatcher, "Signal", -1);
     int signals = 0, cleanups = 0;
     Function<FnVoidVoid> signalListener([&] { ++signals; });
     Function<FnVoidVoid> signalCleanup([&] { ++cleanups; });
@@ -138,7 +138,7 @@ void DestructionOrder()
     Function<Payload*> disposer([&](Payload* data) { ++disposed; nlFree(data); });
     EventDispatcher dispatcher;
     {
-        UnidentifiedQueuedEvent<Payload> event(&dispatcher, "DestroyEvent", -1);
+        QueuedEvent<Payload> event(&dispatcher, "DestroyEvent", -1);
         Function<Payload*> listener([&](Payload*) { ++delivered; });
         event.Add(listener, 0, -1);
         Queue(event, 1, disposer); Queue(event, 2, disposer);
@@ -148,7 +148,7 @@ void DestructionOrder()
     Require(disposed == 2 && delivered == 0, "Destroyed event retained a callback target");
     {
         auto host = std::make_unique<EventDispatcher>();
-        auto event = std::make_unique<UnidentifiedQueuedEvent<Payload>>(host.get(), "DestroyDispatcher", -1);
+        auto event = std::make_unique<QueuedEvent<Payload>>(host.get(), "DestroyDispatcher", -1);
         Queue(*event, 3, disposer);
         host.reset();
         Require(disposed == 3, "Dispatcher destruction did not dispose payload");
@@ -161,7 +161,7 @@ void DestructionOrder()
 void CallbackFailures()
 {
     EventDispatcher dispatcher;
-    UnidentifiedQueuedEvent<Payload> event(&dispatcher, "Failures", -1);
+    QueuedEvent<Payload> event(&dispatcher, "Failures", -1);
     int disposed = 0;
     Function<Payload*> disposer([&](Payload* data) { ++disposed; nlFree(data); });
     Function<Payload*> failing([&](Payload*) { throw std::runtime_error("delivery failure"); });
@@ -207,7 +207,7 @@ void CallbackFailures()
 void LimitsAndFailures()
 {
     EventDispatcher dispatcher;
-    UnidentifiedQueuedEvent<Payload> event(&dispatcher, "Bounds", -1);
+    QueuedEvent<Payload> event(&dispatcher, "Bounds", -1);
     int cancelled = 0, disposed = 0;
     Function<bool> callback([&](bool delivery) { if (!delivery) ++cancelled; });
     for (unsigned i = 0; i < mscharged::event_queue_limit; ++i) dispatcher.Add(callback);
@@ -294,7 +294,7 @@ void OriginalTask()
     task->StateTransition(1,2); // Exact original default hook extracted from Team.cpp.
     Reject([] { InitializeDispatchEventsTask(); });
     {
-        UnidentifiedQueuedEvent<Payload> event(&task->dispatcher, "TaskQueue", -1);
+        QueuedEvent<Payload> event(&task->dispatcher, "TaskQueue", -1);
         int received = 0, disposed = 0;
         Function<Payload*> listener([&](Payload* data) {
             Reject([] { mscharged::ShutdownNativeDispatchTask(); });

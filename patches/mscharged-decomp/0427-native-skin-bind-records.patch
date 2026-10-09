@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Preserve Wii32 skin records under the original native factory
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
 --- a/src/NL/glx/glxLoadModel.cpp

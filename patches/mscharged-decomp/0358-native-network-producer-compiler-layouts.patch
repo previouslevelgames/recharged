@@ -1,6 +1,6 @@
 From: mscharged-port native compiler compatibility
 Subject: [PATCH] Preserve console network class assertions on native hosts
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Scope seven Wii-only native-class size checks to the console branch;
 retain field declarations, payload records, source allocations and
@@ -31,7 +31,7 @@ diff --git a/src/Game/NetworkInput.cpp b/src/Game/NetworkInput.cpp
 --- a/src/Game/NetworkInput.cpp
 +++ b/src/Game/NetworkInput.cpp
 @@ -390,7 +390,9 @@
-     return 0;
+     return NETMSG_INPUT;
  }
  
 +#if !defined(MSCHARGED_NATIVE)

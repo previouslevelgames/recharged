@@ -1,5 +1,6 @@
-# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 # Native ABI only: complete audio callback/context and allocator-hook carriers.
+diff --git a/include/Game/Audio/AudioBackend.h b/include/Game/Audio/AudioBackend.h
 --- a/include/Game/Audio/AudioBackend.h
 +++ b/include/Game/Audio/AudioBackend.h
 @@ -10,6 +10,15 @@
@@ -17,8 +18,8 @@
 +#endif
  #include "NL/nlList.h"
  
- class AudioSource;
-@@ -23,7 +32,7 @@
+ enum eAudioOutputMode
+@@ -30,7 +39,7 @@
      unsigned int m_Offset;
      void* m_Buffer;
      ReadAsyncCallback m_Callback;
@@ -27,7 +28,7 @@
      AudioReadState* m_State;
      unsigned int m_Size : 31;
      bool m_Cancel : 1;
-@@ -60,7 +69,7 @@
+@@ -67,7 +76,7 @@
      AudioSource* CreateSource(AudioSourceInfo*, XSoundOwner* owner);
      void ReleaseSource(AudioSource* source);
      void QueueRead(nlFile* file, unsigned int offset, void* buffer,
@@ -36,6 +37,7 @@
          AudioReadState* state);
      void QueueReadCancellation(AudioReadState* state);
      void SetOutputMode(unsigned int mode);
+diff --git a/include/Game/Audio/AudioEffect.h b/include/Game/Audio/AudioEffect.h
 --- a/include/Game/Audio/AudioEffect.h
 +++ b/include/Game/Audio/AudioEffect.h
 @@ -1,5 +1,9 @@
@@ -48,7 +50,7 @@
  
  #include "NL/nlDLListContainer.h"
  #include "NL/nlMath.h"
-@@ -139,10 +143,17 @@
+@@ -151,10 +155,17 @@
  extern AuxEffectMap* g_pAuxEffectMap;
  void SetDefaultReverbSettings(AXFX_REVERBHI* reverb);
  
@@ -66,6 +68,7 @@
  
  inline void FreeAudioEffectMemory(void* pointer)
  {
+diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
 --- a/include/Game/Audio/AudioSource.h
 +++ b/include/Game/Audio/AudioSource.h
 @@ -8,6 +8,15 @@
@@ -84,7 +87,7 @@
  #include "NL/nlSlotPool.h"
  
  class Plat3dSoundSrc;
-@@ -228,7 +237,7 @@
+@@ -240,7 +249,7 @@
      unsigned int GetStreamDataStart();
      unsigned int GetChannelDataOffset(AudioStreamChannel* channel);
      void QueueStreamRead(unsigned int offset, void* buffer, unsigned int size,
@@ -93,7 +96,7 @@
      void QueuePartialChannelRead(AudioStreamChannel* channel, unsigned int size);
      void CompleteRead();
      void QueueFullChannelRead(AudioStreamChannel* channel);
-@@ -251,12 +260,12 @@
+@@ -263,12 +272,12 @@
  void SetVoiceInterauralDelay(AXVPB*, int);
  void SetVoiceLowPassFilter(AXVPB*, bool, unsigned int, bool);
  void SetVoiceAuxiliaryVolume(AXVPB*, int, int);
@@ -110,6 +113,7 @@
  
  extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
  
+diff --git a/include/Game/Audio/AudioSource.inl b/include/Game/Audio/AudioSource.inl
 --- a/include/Game/Audio/AudioSource.inl
 +++ b/include/Game/Audio/AudioSource.inl
 @@ -195,7 +195,7 @@
@@ -121,6 +125,7 @@
  {
      callback(file, buffer, size, userParam);
  }
+diff --git a/include/NL/nlDebugString.h b/include/NL/nlDebugString.h
 --- a/include/NL/nlDebugString.h
 +++ b/include/NL/nlDebugString.h
 @@ -1,7 +1,15 @@
@@ -140,6 +145,7 @@
 +const char* nlLookupDebugString(void* table, MSCHARGED_DEBUG_STRING_WORD value);
  
  #endif // NL_DEBUG_STRING_H
+diff --git a/src/Game/Audio/AudioBackend.cpp b/src/Game/Audio/AudioBackend.cpp
 --- a/src/Game/Audio/AudioBackend.cpp
 +++ b/src/Game/Audio/AudioBackend.cpp
 @@ -262,7 +262,7 @@
@@ -151,9 +157,10 @@
  {
      bool enabled = OSDisableInterrupts();
      AudioReadRequest* request = m_ReadQueue.AllocateAtEnd(0);
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
 --- a/src/Game/Audio/AudioSource.cpp
 +++ b/src/Game/Audio/AudioSource.cpp
-@@ -22,6 +22,12 @@
+@@ -23,6 +23,12 @@
  
  #include <string.h>
  
@@ -166,7 +173,7 @@
  unsigned int gResidentVoiceDropCount;
  unsigned int gStreamVoiceDropCount;
  unsigned int gAudioStreamSourceCount;
-@@ -169,7 +175,7 @@
+@@ -170,7 +176,7 @@
  {
      m_SourceInfo = info;
      m_SoundEntry = SPGetSoundEntry(((AudioMemoryLoader*)info->m_BankLoader)->m_SoundTable, info->m_SoundIndex);
@@ -175,7 +182,7 @@
      if (m_Voice == 0)
          DumpAudioMemory();
      SPPrepareSound(m_SoundEntry, m_Voice, m_SoundEntry->sampleRate);
-@@ -420,7 +426,7 @@
+@@ -421,7 +427,7 @@
  }
  
  inline void AudioReadState::QueueStreamRead(unsigned int offset, void* buffer, unsigned int size,
@@ -184,7 +191,7 @@
  {
      g_pAudioBackend->QueueRead(GetStreamFile(), offset, buffer, size, callback, userParam, this);
      ++m_PendingReadCount;
-@@ -435,7 +441,7 @@
+@@ -436,7 +442,7 @@
      gAudioReadQueueEntryPool.Free(entry);
  }
  
@@ -193,7 +200,7 @@
  {
      ((AudioStreamChannel*)userParam)->m_ReadState->CompleteRead();
  }
-@@ -495,7 +501,7 @@
+@@ -496,7 +502,7 @@
      return (GetStreamDataStart() + m_StreamReadPosition * GetChannelCount()) + (channel - GetFirstChannel()) * GetStreamBlockSize();
  }
  
@@ -201,8 +208,8 @@
 +void OnAudioStreamHeaderRead(nlFile*, void* buffer, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
  {
      AudioReadCallbackEntry* entry = (AudioReadCallbackEntry*)userParam;
-     if (entry->m_State->m_PendingState == 6)
-@@ -518,7 +524,7 @@
+     if (entry->m_State->m_PendingState == AUDIO_SOURCE_STOPPING)
+@@ -519,7 +525,7 @@
          entry->m_Channel->PrepareVoice(header);
  
          entry->m_State->QueueStreamRead(entry->m_State->GetChannelDataOffset(entry->m_Channel), entry->m_Channel->GetBuffer(),
@@ -211,7 +218,7 @@
          entry->m_Channel->AdvanceReadPosition(entry->m_State->GetStreamBlockSize());
          entry->m_State->CompleteRead();
      }
-@@ -550,7 +556,7 @@
+@@ -551,7 +557,7 @@
      }
  }
  
@@ -220,7 +227,7 @@
  {
      AudioReadCallbackEntry* entry = (AudioReadCallbackEntry*)userParam;
      AudioReadState* state = entry->m_State;
-@@ -561,7 +567,7 @@
+@@ -562,7 +568,7 @@
          return;
      }
  
@@ -229,7 +236,7 @@
      entry->m_State->m_StreamReadPosition = size;
      entry->m_State->OnChannelPrepared(entry->m_Channel);
      gAudioReadCallbackAllocator.Free(entry);
-@@ -577,7 +583,7 @@
+@@ -578,7 +584,7 @@
          channel->m_Buffer = g_pAudioBackend->AllocateAudioMemory(m_SourceInfo->m_BankLoader->m_Chunk23200->m_StreamBlockSize * 2);
          if (channel->m_Buffer == 0)
              DumpAudioMemory();
@@ -238,7 +245,7 @@
          MIXInitChannel(channel->m_Voice, 0, 0, -960, -960, -960, 64, 127, 0);
  #ifdef MSCHARGED_NATIVE
          channel->m_BufferAddress = channel->m_Buffer == 0 ? 0u
-@@ -601,7 +607,7 @@
+@@ -602,7 +608,7 @@
          int index = channel - GetFirstChannel();
          AudioStreamBlock* header = g_pAudioStreamBlockPool->Allocate();
          unsigned int offset = GetStreamHeaderOffset() + index * sizeof(AudioStreamHeader);
@@ -246,8 +253,8 @@
 +        QueueStreamRead(offset, header, sizeof(AudioStreamHeader), OnAudioStreamHeaderRead, (MSCHARGED_AUDIO_ASYNC_PARAM)entry);
      }
      SetInputVolume(-96.0f);
-     m_InternalState = 2;
-@@ -682,17 +688,17 @@
+     m_InternalState = AUDIO_SOURCE_PREPARING;
+@@ -683,17 +689,17 @@
      if (space < size)
      {
          QueueStreamRead(offset, (char*)channel->GetBuffer() + readPos, space,
@@ -268,7 +275,7 @@
          channel->AdvanceReadPosition(size);
      }
  }
-@@ -705,16 +711,16 @@
+@@ -706,16 +712,16 @@
      if (space < size)
      {
          QueueStreamRead(offset, (char*)channel->GetBuffer() + readPos, space,
@@ -288,12 +295,13 @@
          channel->AdvanceReadPosition(size);
      }
  }
-@@ -894,3 +900,5 @@
+@@ -895,3 +901,5 @@
  {
      return AudioReadState::Prepare();
  }
 +
 +#undef MSCHARGED_AUDIO_VOICE_PARAM
+diff --git a/src/Game/Audio/XSoundCueHandle.cpp b/src/Game/Audio/XSoundCueHandle.cpp
 --- a/src/Game/Audio/XSoundCueHandle.cpp
 +++ b/src/Game/Audio/XSoundCueHandle.cpp
 @@ -66,7 +66,7 @@
@@ -305,6 +313,7 @@
  
      SoundInstance* instance = sSoundInstancePool.Allocate();
      instance = new (instance) SoundInstance(this, selected);
+diff --git a/src/NL/nlDebugString.cpp b/src/NL/nlDebugString.cpp
 --- a/src/NL/nlDebugString.cpp
 +++ b/src/NL/nlDebugString.cpp
 @@ -2,7 +2,7 @@

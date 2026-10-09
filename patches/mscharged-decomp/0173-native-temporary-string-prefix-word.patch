@@ -1,5 +1,5 @@
 Subject: Preserve native four-byte temporary-string size prefixes
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The original prefix geometry and retail memcpy/lwz transport are four bytes.
 Use a native fixed-width word for New and the ReadSize compiler scratch value,

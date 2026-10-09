@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original net/fence live view addresses and compiler syntax
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Preserve original weak symbols, live view choices, quad submission and
 secondary-NIS save/restore. Use the existing pointer-width view carrier
@@ -41,7 +41,7 @@ diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableN
  #include "Game/Replay.h"
 @@ -20,11 +21,11 @@
  #include <string.h>
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  
 -__declspec(weak) char LightTextureName[] = "global/lightramp";
 -__declspec(weak) char BlackTextureName[] = "global/black";
@@ -83,7 +83,7 @@ diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableN
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -15,6 +15,10 @@
+@@ -16,6 +16,10 @@
  #include "NL/nlTask.h"
  
  #include <math.h>
@@ -94,7 +94,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
  
  static float sfGridTextureSize = 7.0f;
  static float sfNumGridSquares = 9.48f;
-@@ -257,7 +261,11 @@
+@@ -258,7 +262,11 @@
      u8 lightenAmount = (u8)(255.0f * intensity);
      quad.SetColour(
          lightenAmount, lightenAmount, lightenAmount, 0xFF);
@@ -109,7 +109,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
 diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
 --- a/src/Game/Task/GameRenderTask.cpp
 +++ b/src/Game/Task/GameRenderTask.cpp
-@@ -221,7 +221,11 @@
+@@ -222,7 +222,11 @@
          GLView* saveStadiumAlphaView;
          GLView* saveShapeView;
          GLView* save132C;

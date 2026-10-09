@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend flow and native serialized data ABI
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Restore reconstructed frontend methods and inline game decisions verbatim.
 Adapt only raw Wii FEN data to the native pointer/record ABI beneath the original
@@ -40,7 +40,7 @@ diff --git a/include/Game/FE/feOptionsSubMenus.h b/include/Game/FE/feOptionsSubM
  #include "Game/FE/fePointerButton.h"
  #include "Game/FE/feBackButton.h"
  
-@@ -49,8 +48,33 @@
+@@ -72,8 +71,33 @@
  
      bool IsVolumeButtonEnabled(unsigned int item) const
      {
@@ -136,7 +136,7 @@ diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
  
  class FEPackage;
  class MemoryAllocator;
-@@ -33,7 +40,7 @@
+@@ -40,7 +47,7 @@
      /* 0x08 */ nlMatrix4 m_matView;
      /* 0x48 */ unsigned long m_uRenderView;
      /* 0x4C */ FE_FILE_HEADER* m_pFileHeader;
@@ -198,7 +198,7 @@ diff --git a/include/Game/FE/tlSlide.h b/include/Game/FE/tlSlide.h
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -145,7 +145,113 @@
+@@ -146,7 +146,113 @@
  }
  
  SceneEntry SceneEntryTable[] = {
@@ -631,7 +631,7 @@ diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
 -#include "Game/FE/FrontendImageState.h"
 -#include "Game/FE/FrontendLayoutSteps.h"
  
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "Game/FE/fePackage.h"
 @@ -21,6 +18,12 @@
  #include "NL/platvmath.h"

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve native original audio source providers
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Upstream now owns the typed AudioResourceLoadOwner/AudioBankLoader selection
 boundary. Retain the remaining original source-provider compiler adaptations.
@@ -26,8 +26,8 @@ diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoun
 diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
 --- a/src/Game/Audio/AudioSource.cpp
 +++ b/src/Game/Audio/AudioSource.cpp
-@@ -176,7 +176,11 @@
-     m_State = 1;
+@@ -177,7 +177,11 @@
+     m_State = AUDIO_SOURCE_IDLE;
  }
  
 +#if defined(MSCHARGED_NATIVE)
@@ -41,7 +41,7 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
 diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
 --- a/src/Game/Audio/AudioSystem.cpp
 +++ b/src/Game/Audio/AudioSystem.cpp
-@@ -251,6 +251,10 @@
+@@ -252,6 +252,10 @@
  
  int XSoundHandle::IsCallbackEnabled() { return m_CallbackEnabled; }
  

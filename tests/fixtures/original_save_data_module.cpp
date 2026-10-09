@@ -106,7 +106,7 @@ void Verify(const unsigned char* p,const UserInfo& user,const GameRules* rules,
     p=CupWire(p,fire);p=CupWire(p,crystal);p=CupWire(p,striker);
     Scalars(p,&progress,0,7,4);Scalars(p,&progress,32,6,2);Scalars(p,&progress,924,1,4);
     Check(std::memcmp(p+28,reinterpret_cast<const unsigned char*>(&progress)+28,4)==0,"Original Cup flags/padding changed");
-    Check(ReadBE(p+44,2)==((unsigned(progress.record.mUnlockFlags)<<7)|progress.record.mUnidentified86AD),
+    Check(ReadBE(p+44,2)==((unsigned(progress.record.mUnlockFlags)<<7)|progress.record.m_pad86AD),
         "Original MWCC MSB-first Cup unlock bits changed");
     for(unsigned r=0;r<9;++r)for(unsigned n=0;n<12;++n){
         const auto& v=progress.record.mHistory.mRecords[r][n];const auto* h=p+48+(r*12+n)*8;
@@ -121,7 +121,7 @@ void Verify(const unsigned char* p,const UserInfo& user,const GameRules* rules,
     Check(std::memcmp(p+912,progress.record.mHistory.mWriteIndex,9)==0,"Original Cup history write indices changed");
     p+=928;
     for(unsigned n=0;n<12;++n){const auto& v=challenge.mUnlocks.mCompletionDates[n];const auto word=ReadBE(p+4*n,4);
-        Check((word>>27)==v.mDay&&((word>>23)&15)==v.mMonth&&((word>>13)&1023)==v.mYearOffset&&(word&8191)==v.mUnidentified,
+        Check((word>>27)==v.mDay&&((word>>23)&15)==v.mMonth&&((word>>13)&1023)==v.mYearOffset&&(word&8191)==v.m_pad00,
             "Original MWCC date fields changed");}
     Check(ReadBE(p+48,4)==challenge.mUnlocks.mUnlockedChallenges,"Original Striker unlocked challenge word changed");
 }
@@ -144,7 +144,7 @@ extern "C" __attribute__((visibility("default"))) void SaveGateRun(SaveGateObser
     Progress progress;std::memset(&progress,0xCD,sizeof(progress));
     progress.state=0x1020304;for(unsigned n=0;n<4;++n)progress.final[n]=int(0x10203040+n*71);
     progress.previous[0]=-1;progress.previous[1]=0x1357;progress.in_progress=true;progress.highest=false;progress.mode=2;
-    progress.record.mUnlockFlags=0x155;progress.record.mUnidentified86AD=0x53;
+    progress.record.mUnlockFlags=0x155;progress.record.m_pad86AD=0x53;
     for(unsigned n=0;n<108;++n){auto& h=progress.record.mHistory.mRecords[n/12][n%12];
         h.mCaptain=n%16;h.mSidekick1=(n+1)%8;h.mSidekick2=(n+2)%8;h.mSidekick3=(n+3)%8;
         h.mDay=(n+5)%32;h.mMonth=(n+7)%16;h.mYearOffset=(n*19)%1024;h.mGoals=(n*31)%2048;
@@ -152,7 +152,7 @@ extern "C" __attribute__((visibility("default"))) void SaveGateRun(SaveGateObser
     for(unsigned n=0;n<9;++n)progress.record.mHistory.mWriteIndex[n]=n+1;
     StrikerChallenge challenge;
     for(unsigned n=0;n<12;++n){auto& d=challenge.mUnlocks.mCompletionDates[n];d.mDay=(n+19)%32;d.mMonth=(n+11)%16;
-        d.mYearOffset=(n*103+257)%1024;d.mUnidentified=(n*971+1234)%8192;}
+        d.mYearOffset=(n*103+257)%1024;d.m_pad00=(n*971+1234)%8192;}
     challenge.mUnlocks.mUnlockedChallenges=0xABCDEFFF;
     auto* p=save+8;std::memcpy(p,&user,128);p+=128;std::memcpy(p,rules,144);p+=144;
     p=static_cast<unsigned char*>(fire.SerializeData(p));p=static_cast<unsigned char*>(crystal.SerializeData(p));

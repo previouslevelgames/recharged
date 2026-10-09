@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve original effects geometry with native four-byte data cells
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Endian-convert represented scalars inside actual completed NL storage and use
 real cached-address words for address-bearing cells. Original loader decisions,
@@ -147,7 +147,7 @@ diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsG
  
  #include "Game/Effects/EffectsTemplate.h"
  #include "NL/nlMath.h"
-@@ -20,26 +24,30 @@
+@@ -31,26 +35,30 @@
  
  struct EffectsSpec
  {
@@ -183,10 +183,10 @@ diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsG
      /* 0x40 */ float m_fLingerEnd;
 -    /* 0x44 */ unsigned long m_uLayer;
 +    /* 0x44 */ EffectsDataWord m_uLayer;
-     /* 0x48 */ int m_nForwardAxis;
+     /* 0x48 */ eFXForwardAxis m_nForwardAxis;
      /* 0x4C */ unsigned char mPadding04C[0x0C];
  }; // size: 0x58
-@@ -65,8 +73,12 @@
+@@ -76,8 +84,12 @@
  
  struct UserEffectSource
  {
@@ -200,7 +200,7 @@ diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsG
  };
  
  class EffectsGroup
-@@ -83,15 +95,27 @@
+@@ -94,15 +106,27 @@
      void ParseUserSpecs();
  #endif
      void DestroyUserSpecs();

@@ -1,7 +1,7 @@
 From: original source diagnostic integration
 Subject: [PATCH] Preserve original movie world visibility in the primary world diagnostic
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Temporary WORLD_DRAW admission restores three literal original IntroMovieScene
 world hide/show writes under their existing source positions. Default console,
@@ -21,7 +21,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      pStadium->m_bRenderingEnabled = false;
 -#endif // the diagnostic has no stadium object to change
 +#endif // literal world visibility write admitted with the real world draw owner
-     mUnidentifiedB4 = 0.0f;
+     m_padB4 = 0.0f;
      mMovieFinished = false;
      mTransitionPending = false;
 @@ -266,10 +266,10 @@

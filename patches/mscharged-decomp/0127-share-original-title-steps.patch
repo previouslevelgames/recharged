@@ -1,5 +1,5 @@
 Subject: Share selected original Title visual, input and departure fragments
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 --- a/src/Game/SH/SHTitleScreen.cpp
@@ -64,7 +64,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 -    SHNavigation* object = GetNavigationScene();
 -    if (object != 0)
 -    {
--        object->SetButtons(0, true);
+-        object->SetButtons(NAVIGATION_BUTTON_NONE, true);
 -    }
 -
 -    if (mMovement != SCREEN_BACK)
@@ -205,7 +205,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  void TitleScene::OnControllerPointerPress(int index, void*)
  {
 -    mTextPressStart->SetActiveSlide("down", true, false);
--    mControllerComponent.SetPointerState(2, index);
+-    mControllerComponent.SetPointerState(POINTER_BUTTON_SELECTED, index);
 -    FEAudio::PlayAnimAudioEvent(0x55C84A9D, 0, 0, 1);
 -    SetPointerEnabled(1);
 -    GameSceneManager::Instance()->Pop();
@@ -222,7 +222,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  void TitleScene::OnControllerPointerEnter(int index, void*)
  {
 -    mTextPressStart->SetActiveSlide("over", true, false);
--    mControllerComponent.SetPointerState(1, index);
+-    mControllerComponent.SetPointerState(POINTER_BUTTON_HOVER, index);
 -    FEAudio::PlayAnimAudioEvent(0xAA73EF32, 0, 0, 1);
 -    mPointerOverStartButton = true;
 +    FrontendTitleEnter(*this,index,[](unsigned long cue,const char* name,void* context,bool restart){FEAudio::PlayAnimAudioEvent(cue,name,context,restart);});
@@ -231,7 +231,7 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
  void TitleScene::OnControllerPointerLeave(int index, void*)
  {
 -    mTextPressStart->SetActiveSlide("off", true, false);
--    mControllerComponent.SetPointerState(0, index);
+-    mControllerComponent.SetPointerState(POINTER_BUTTON_NORMAL, index);
 -    mPointerOverStartButton = false;
 +    FrontendTitleLeave(*this,index);
  }

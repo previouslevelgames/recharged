@@ -58,3 +58,4 @@
 0062-report-good-native-dvd-cancel-all-completion.patch
 0063-reuse-native-vi-surface-copy-resources.patch
 0064-retain-robustness-without-backend-debug-layers.patch
+0065-reject-polygons-under-gx-cull-all.patch

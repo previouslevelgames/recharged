@@ -1,6 +1,6 @@
 From: mscharged-port native integration
 Subject: [PATCH] Admit original camera services within the named frontend diagnostic
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Temporary diagnostic selection only. Original case bodies and source
 camera update location are unchanged. Default/console and the existing
@@ -162,7 +162,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 26:
-         GameSceneManager::Instance()->Push((SceneList)8, SCREEN_FORWARD, false);
+         GameSceneManager::Instance()->Push(SCENE_CHOOSE_SIDES_STRIKER_CUP, SCREEN_FORWARD, false);
          break;
 @@ -291,6 +311,8 @@
          break;
@@ -298,7 +298,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -480,8 +480,11 @@
+@@ -481,8 +481,11 @@
          }
      }
  
@@ -311,7 +311,7 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      if (!(nlTaskManager::m_pInstance->mCurrentState & 0x18))
      {
          DepthOfFieldManager::instance.TurnOff();
-@@ -492,7 +495,7 @@
+@@ -493,7 +496,7 @@
          = pNis->mUseViewMatrixOverride ? &pNis->mViewMatrixOverride : NULL;
  
      SetupMatrices(NisPlayer::Instance()->GetSecondaryCamera(), pOverride);

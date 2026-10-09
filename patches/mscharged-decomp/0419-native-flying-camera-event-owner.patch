@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve native FlyingCamera event owner pointer width
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Classification: permanent native pointer ABI.
 Three original event registration owners are addresses of the genuine
@@ -17,25 +17,25 @@ diff --git a/src/Game/Render/FlyingCamera.cpp b/src/Game/Render/FlyingCamera.cpp
          if (gPeachCameraFlashConnection.mOwner == 0)
          {
 +#if defined(MSCHARGED_NATIVE)
-+            UnidentifiedFindEvent<void>(sPeachCameraFlashEventName, -1)->Add(Function<void*>(OnPeachCameraFlash), (EventOwnerHandle)&gPeachCameraFlashConnection, -1);
++            FindEvent<void>(sPeachCameraFlashEventName, -1)->Add(Function<void*>(OnPeachCameraFlash), (EventOwnerHandle)&gPeachCameraFlashConnection, -1);
 +#else
-             UnidentifiedFindEvent<void>(sPeachCameraFlashEventName, -1)->Add(Function<void*>(OnPeachCameraFlash), (unsigned int)&gPeachCameraFlashConnection, -1);
+             FindEvent<void>(sPeachCameraFlashEventName, -1)->Add(Function<void*>(OnPeachCameraFlash), (unsigned int)&gPeachCameraFlashConnection, -1);
 +#endif
          }
          if (gResetEffectsConnection.mOwner == 0)
          {
 +#if defined(MSCHARGED_NATIVE)
-+            UnidentifiedFindEvent<void>(sResetEffectsEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (EventOwnerHandle)&gResetEffectsConnection, -1);
++            FindEvent<void>(sResetEffectsEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (EventOwnerHandle)&gResetEffectsConnection, -1);
 +#else
-             UnidentifiedFindEvent<void>(sResetEffectsEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (unsigned int)&gResetEffectsConnection, -1);
+             FindEvent<void>(sResetEffectsEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (unsigned int)&gResetEffectsConnection, -1);
 +#endif
          }
          if (gMegaStrikeMeterEndConnection.mOwner == 0)
          {
 +#if defined(MSCHARGED_NATIVE)
-+            UnidentifiedFindEvent<void>(sMegaStrikeMeterEndEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (EventOwnerHandle)&gMegaStrikeMeterEndConnection, -1);
++            FindEvent<void>(sMegaStrikeMeterEndEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (EventOwnerHandle)&gMegaStrikeMeterEndConnection, -1);
 +#else
-             UnidentifiedFindEvent<void>(sMegaStrikeMeterEndEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (unsigned int)&gMegaStrikeMeterEndConnection, -1);
+             FindEvent<void>(sMegaStrikeMeterEndEventName, -1)->Add(Function<void*>(OnResetFlyingCameras), (unsigned int)&gMegaStrikeMeterEndConnection, -1);
 +#endif
          }
      }

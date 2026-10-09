@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie
@@ -26,7 +26,7 @@ diff --git a/include/Game/BasicStadium.h b/include/Game/BasicStadium.h
 diff --git a/include/Game/World.h b/include/Game/World.h
 --- a/include/Game/World.h
 +++ b/include/Game/World.h
-@@ -68,6 +68,8 @@
+@@ -91,6 +91,8 @@
      /* 0x78 */ WorldVisibilityNode* m_pVisibilityTree;
  };
  
@@ -92,8 +92,8 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      {
          mGameSceneManager = g_pOverlayManager;
      }
--    UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (unsigned int)&mHBMHideConnection, -1);
-+    UnidentifiedFindEvent<UnidentifiedEventNoData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
+-    FindEvent<NoEventData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (unsigned int)&mHBMHideConnection, -1);
++    FindEvent<NoEventData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
  }
  
  MoviePlayerScene::~MoviePlayerScene()

@@ -60,7 +60,7 @@ void Update(FrontendInput& in, bool down = false, unsigned index = 0)
 }
 void SharedSource()
 {
-    struct E { int mIndex = -1; nlVector2 mPosition{}; bool mPressed = false, mReleased = true, mUnidentified0E = true; } event;
+    struct E { int mIndex = -1; nlVector2 mPosition{}; bool mPressed = false, mReleased = true, mAuxiliaryTriggered = true; } event;
     struct S
     {
         E& e; int calls = 0;
@@ -68,7 +68,7 @@ void SharedSource()
         bool JustPressed(int i) { Check(i == 3 && e.mPosition.x == 12 && e.mPosition.y == 34 && calls++ == 1, "Original position/action30 order differs"); return true; }
     } source{event};
     FrontendOptionsPointerEvent(event, 3, source);
-    Check(event.mPressed && event.mReleased && event.mUnidentified0E && source.calls == 2, "Producer overwrote untouched event defaults");
+    Check(event.mPressed && event.mReleased && event.mAuxiliaryTriggered && source.calls == 2, "Producer overwrote untouched event defaults");
     for (int width : {40, 641, 854, 65535}) for (int height : {10, 481, 65535})
         for (float x : {-2.f, -1.f, -.321f, -0.f, 0.f, .987f, 1.f, 2.f})
             for (float y : {-2.f, -1.f, -.125f, 0.f, .75f, 1.f, 2.f})

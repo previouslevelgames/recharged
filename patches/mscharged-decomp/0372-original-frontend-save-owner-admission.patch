@@ -1,6 +1,6 @@
 From: mscharged-port original-source integration
 Subject: Restore original save-owner construction in the frontend diagnostic
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retire the named bootstrap omission for the literal CupManager, StatsTracker
 and StrikerChallenge construction blocks, retaining their original order and
@@ -11,7 +11,8 @@ Default native and console projections are unchanged with this option absent.
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -1,5 +1,8 @@
+@@ -1,6 +1,9 @@
+ #include "Game/Task/GameTaskState.h"
  #include "NL/nlDLListContainer.inl"
  #include "Game/main.h"
 +#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SAVE_OWNERS) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
@@ -20,7 +21,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
  #error Original flash admission requires the native original frontend diagnostic
  #endif
-@@ -673,7 +676,7 @@
+@@ -674,7 +677,7 @@
          GameInfoManager::s_pInstance = new (8, false) GameInfoManager;
      }
  #endif

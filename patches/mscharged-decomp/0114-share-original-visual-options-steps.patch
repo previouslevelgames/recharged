@@ -1,6 +1,6 @@
 Subject: Share original visual options interaction and settings steps
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Selected original scene15 bodies delegate to retained typed native visual
 owners. Full GameInfo, game-save, global DPD/NAV and camera are not supplied.
@@ -32,11 +32,11 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  OptionsVisualMenuV2::~OptionsVisualMenuV2()
 @@ -296,44 +291,13 @@
-         mSaveButton = navigation->GetButton(0x20);
+         mSaveButton = navigation->GetButton(NAVIGATION_BUTTON_DONE);
      }
      mNavigation.SetButtonInstance(backButton);
 -
--    if (mOverlayMode == 0)
+-    if (mOverlayMode == OPTIONS_CONTEXT_FRONTEND)
 -    {
 -        FEFinder<TLInstance, 2>::Find<>(presentation,
 -            "OPTIONS_IN", "Layer", "blackbox")->m_bVisible = false;
@@ -62,11 +62,11 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -    mZoomButtons[mSettings[0]]->SetActiveSlide("down", true, false);
 -    FEPointerButton& zoomButton = mZoomButtonComponents[mSettings[0]];
 -    for (int i = 0; i < 4; ++i)
--        zoomButton.SetPointerState(2, i);
+-        zoomButton.SetPointerState(POINTER_BUTTON_SELECTED, i);
 -    mButtons[mSettings[1]]->SetActiveSlide("down", true, false);
 -    FEPointerButton& button = mButtonComponents[mSettings[1]];
 -    for (int i = 0; i < 4; ++i)
--        button.SetPointerState(2, i);
+-        button.SetPointerState(POINTER_BUTTON_SELECTED, i);
 -
 -    TLTextInstance* text = FEFinder<TLTextInstance, 4>::Find(
 -        mPresentation->m_currentSlide, "Layer", "visual_options", "SERIES SETTING");
@@ -88,7 +88,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
      BaseSceneHandler::Update(fDeltaT);
 -
--    if (mState == 0 || mState == 2 || mState == 3)
+-    if (mState == VISUAL_OPTIONS_ENTERING || mState == 2 || mState == VISUAL_OPTIONS_EXITING_BACK)
 -    {
 -        TLSlide* slide = mPresentation->m_currentSlide;
 -        if (slide->GetCurrentTime() < slide->GetStartTime() + slide->GetDuration())
@@ -98,26 +98,26 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -            return;
 -        }
 -
--        if (mState == 0)
+-        if (mState == VISUAL_OPTIONS_ENTERING)
 -        {
 -            SHNavigation* navigation = GetNavigationScene();
 -            if (navigation != 0)
 -            {
--                navigation->SetButtons(0x24, true);
--                navigation->SetDoneButtonText(1);
+-                navigation->SetButtons(NAVIGATION_BUTTON_BACK | NAVIGATION_BUTTON_DONE, true);
+-                navigation->SetDoneButtonText(NAV_ACCEPT);
 -            }
--            mState = 1;
+-            mState = VISUAL_OPTIONS_ACTIVE;
 -        }
 -        else if (mState == 2)
 -        {
 -            return;
 -        }
--        else if (mState == 3)
+-        else if (mState == VISUAL_OPTIONS_EXITING_BACK)
 -        {
--            if (mOverlayMode == 0)
--                GameSceneManager::Instance()->Push((SceneList)13, SCREEN_NOTHING, true);
+-            if (mOverlayMode == OPTIONS_CONTEXT_FRONTEND)
+-                GameSceneManager::Instance()->Push(SCENE_OPTIONS, SCREEN_NOTHING, true);
 -            else
--                g_pOverlayManager->Push((SceneList)0x50, SCREEN_NOTHING, true);
+-                g_pOverlayManager->Push(SCENE_PAUSE, SCREEN_NOTHING, true);
 -            return;
 -        }
 -    }
@@ -136,10 +136,10 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -            GameInfoManager::Instance()->mUserInfo.mVisualOptions.mCameraZoomLevel = mBackupSettings[1] / 4.0;
 -            GameInfoManager::Instance()->mUserInfo.mVisualOptions.mIsAutoZoomCamera = mBackupSettings[0] == 0;
 -            FEAudio::PlayAnimAudioEvent(0x304FDD1E, 0, 0, 1);
--            mState = 3;
+-            mState = VISUAL_OPTIONS_EXITING_BACK;
 -            SHNavigation* navigation = GetNavigationScene();
 -            if (navigation != 0)
--                navigation->SetButtons(0, true);
+-                navigation->SetButtons(NAVIGATION_BUTTON_NONE, true);
 -            mPresentation->SetActiveSlide("OPTIONS_OUT", true);
 -            mPresentation->Update(0.0f);
 +            FrontendVisualOptionsBack(*this,[]() -> VisualSettings& { return GameInfoManager::Instance()->mUserInfo.mVisualOptions; }, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); }, [] { return GetNavigationScene(); });
@@ -171,15 +171,15 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  void OptionsVisualMenuV2::OnZoomLevelPointerEnter(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (!mButtonComponents[item].HasOtherPointerState(2, -1))
+-    if (!mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 -    {
 -        mButtonComponents[item].PlayHoverFeedback(index);
--        if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-        if (!mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -        {
 -            mButtons[item]->SetActiveSlide("over", true, false);
 -            FEAudio::PlayAnimAudioEvent(0x96DEB5C3, 0, 0, 1);
 -        }
--        mButtonComponents[item].SetPointerState(1, index);
+-        mButtonComponents[item].SetPointerState(POINTER_BUTTON_HOVER, index);
 -    }
 +    FrontendVisualOptionsLevelEnter(*this,index,(unsigned int)context, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
  }
@@ -187,13 +187,13 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  void OptionsVisualMenuV2::OnZoomLevelPointerLeave(int index, void* context)
  {
 -    unsigned int item = (unsigned int)context;
--    if (!mButtonComponents[item].HasOtherPointerState(2, -1))
+-    if (!mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 -    {
--        if (!mButtonComponents[item].HasOtherPointerState(1, index))
+-        if (!mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -        {
 -            mButtons[item]->SetActiveSlide("off", true, false);
 -        }
--        mButtonComponents[item].SetPointerState(0, index);
+-        mButtonComponents[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
 -    }
 +    FrontendVisualOptionsLevelLeave(*this,index,(unsigned int)context);
  }
@@ -201,7 +201,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  void OptionsVisualMenuV2::OnZoomLevelPointerPress(int index, void* context)
  {
 -    int item = (int)context;
--    if (mButtonComponents[item].HasOtherPointerState(2, -1))
+-    if (mButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 -        return;
 -
 -    FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
@@ -209,7 +209,7 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
 -    mButtonComponents[mSettings[1]].ResetPointerStates();
 -    mButtons[item]->SetActiveSlide("down", true, false);
 -    for (int i = 0; i < 4; ++i)
--        mButtonComponents[item].SetPointerState(2, i);
+-        mButtonComponents[item].SetPointerState(POINTER_BUTTON_SELECTED, i);
 -    mSettings[1] = item;
 -    GameInfoManager::Instance()->mUserInfo.mVisualOptions.mCameraZoomLevel = item / 4.0;
 -
@@ -229,18 +229,18 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  {
 -    unsigned int item = (unsigned int)context;
 -    if ((unsigned int)mSettings[0] == item
--        || mZoomButtonComponents[item].HasOtherPointerState(2, -1))
+-        || mZoomButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 -    {
 -        return;
 -    }
 -
 -    mZoomButtonComponents[item].PlayHoverFeedback(index);
--    if (!mZoomButtonComponents[item].HasOtherPointerState(1, index))
+-    if (!mZoomButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mZoomButtons[item]->SetActiveSlide("over", true, false);
 -        FEAudio::PlayAnimAudioEvent(0xF6EB899E, 0, 0, 1);
 -    }
--    mZoomButtonComponents[item].SetPointerState(1, index);
+-    mZoomButtonComponents[item].SetPointerState(POINTER_BUTTON_HOVER, index);
 +    FrontendVisualOptionsModeEnter(*this,index,(unsigned int)context, [](unsigned long cue,const char* name,void* context,bool restartable) { FEAudio::PlayAnimAudioEvent(cue,name,context,restartable); });
  }
  
@@ -248,15 +248,15 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  {
 -    unsigned int item = (unsigned int)context;
 -    if ((unsigned int)mSettings[0] == item
--        || mZoomButtonComponents[item].HasOtherPointerState(2, -1))
+-        || mZoomButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 -    {
 -        return;
 -    }
--    if (!mZoomButtonComponents[item].HasOtherPointerState(1, index))
+-    if (!mZoomButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mZoomButtons[item]->SetActiveSlide("off", true, false);
 -    }
--    mZoomButtonComponents[item].SetPointerState(0, index);
+-    mZoomButtonComponents[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
 +    FrontendVisualOptionsModeLeave(*this,index,(unsigned int)context);
  }
  
@@ -264,14 +264,14 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  {
 -    unsigned int item = (unsigned int)context;
 -    if ((unsigned int)mSettings[0] == item
--        || mZoomButtonComponents[item].HasOtherPointerState(2, -1))
+-        || mZoomButtonComponents[item].HasOtherPointerState(POINTER_BUTTON_SELECTED, -1))
 -        return;
 -
 -    mZoomButtons[mSettings[0]]->SetActiveSlide("off", true, false);
 -    mZoomButtonComponents[mSettings[0]].ResetPointerStates();
 -    mZoomButtons[item]->SetActiveSlide("down", true, false);
 -    for (int i = 0; i < 4; ++i)
--        mZoomButtonComponents[item].SetPointerState(2, i);
+-        mZoomButtonComponents[item].SetPointerState(POINTER_BUTTON_SELECTED, i);
 -    FEAudio::PlayAnimAudioEvent(0x362F2841, 0, 0, 1);
 -    mSettings[0] = item;
 -    GameInfoManager::Instance()->mUserInfo.mVisualOptions.mIsAutoZoomCamera = item == 0;
@@ -293,11 +293,11 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  void OptionsVisualMenuV2::OnSaveButtonPointerPress(int, void*)
  {
--    mState = 3;
+-    mState = VISUAL_OPTIONS_EXITING_BACK;
 -    SHNavigation* navigation = GetNavigationScene();
 -    if (navigation != 0)
 -    {
--        navigation->SetButtons(0, true);
+-        navigation->SetButtons(NAVIGATION_BUTTON_NONE, true);
 -    }
 -    mPresentation->SetActiveSlide("OPTIONS_OUT", true);
 -    mPresentation->Update(0.0f);

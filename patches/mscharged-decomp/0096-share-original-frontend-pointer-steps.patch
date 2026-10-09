@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend pointer bounds and listener steps
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Share original listener event order, disable history reset, rotated hit testing,
 instance bounds and child extent equations with checked native retained owners.
@@ -41,9 +41,9 @@ diff --git a/src/Game/FE/fePointer.cpp b/src/Game/FE/fePointer.cpp
 -            OnPointerPress(event->mIndex, mContext);
 -        }
 -
--        if (event->mUnidentified0E)
+-        if (event->mAuxiliaryTriggered)
 -        {
--            UnidentifiedVirtual24(event->mIndex, mContext);
+-            OnPointerAuxiliaryAction(event->mIndex, mContext);
 -        }
 -    }
 -    else if (ContainsPoint(mPreviousEvents[event->mIndex].mPosition))
@@ -184,9 +184,9 @@ new file mode 100644
 +            listener.OnPointerPress(event->mIndex, listener.mContext);
 +        }
 +
-+        if (event->mUnidentified0E)
++        if (event->mAuxiliaryTriggered)
 +        {
-+            listener.UnidentifiedVirtual24(event->mIndex, listener.mContext);
++            listener.OnPointerAuxiliaryAction(event->mIndex, listener.mContext);
 +        }
 +    }
 +    else if (listener.ContainsPoint(listener.mPreviousEvents[event->mIndex].mPosition))

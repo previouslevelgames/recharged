@@ -1,5 +1,5 @@
 Subject: [PATCH] transport original DSP CSR hardware requests natively
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Replace only native 16-bit MMIO CSR loads/stores with real host hardware APIs.
 Original masks, order, requests, task/control/callback decisions and console

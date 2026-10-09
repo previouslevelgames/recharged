@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original world-effect trigger and scheduling equations
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain initialization, reset, timing, RNG ordering and emission counters in
 shared source helpers. Native callers supply actual retained effect records
@@ -20,7 +20,7 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
  void WorldEffect::Initialize(WorldObjectLoadContext* pContext)
  {
 -    m_bActive = true;
--    if (m_nTimingMode == 0)
+-    if (m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
 -    {
 -        float fEmissionInterval = m_fEmissionInterval;
 -        m_fEmissionTime = fEmissionInterval + 1.0f;
@@ -43,7 +43,7 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
 +    if (WorldEffectUpdateClock(*this, fDeltaT, &nlDefaultSeed))
      {
 -        bool bEmit = false;
--        if (m_nTimingMode == 0)
+-        if (m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
 -        {
 -            if (m_nRemainingEmissions > 0
 -                || m_nRemainingEmissions == -1)
@@ -115,7 +115,7 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
 -        pEffect->m_fEmissionTime = 0.0f;
 -        pEffect->m_nRemainingEmissions = pEffect->m_nEmissionCount;
 -        pEffect->m_fPreviousEmissionTime = 0.0f;
--        if (pEffect->m_nTimingMode == 0)
+-        if (pEffect->m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
 -        {
 -            float fEmissionTime = pEffect->m_fEmissionInterval;
 -            fEmissionTime = 1.0f + fEmissionTime;

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original bounded CPU particle simulation and own atlas allocations
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Native simulation uses an explicit constructor tag and shares the original field
 initialization, emission, RNG, update, motion and quad bodies. It never registers
@@ -63,7 +63,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
 @@ -8,12 +8,24 @@
  #include "NL/gl/glState.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  
 +#endif
 +
@@ -117,7 +117,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
 +#endif
  #include "Game/TweakValueFloat.h"
 +#ifndef MSCHARGED_NATIVE
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#else
 +#include <cmath>
 +#include <limits>

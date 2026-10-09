@@ -1,5 +1,5 @@
 Subject: Compile the complete original lighting providers with native data ABI
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Restore original GameObjectLight declarations, its three-flag constructor and
 the original LightingLookup class in the non-diagnostic native source graph.
@@ -29,10 +29,10 @@ diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting
  #include "Game/GameObjectLightingData.h"
  #endif
  
-@@ -45,16 +46,32 @@
+@@ -52,16 +53,32 @@
  int GetGameObjectLightCount(bool character, bool includeEffects);
  GameObjectLight* GetGameObjectLight(int index, bool character);
- void SetGameObjectLightingMode(int mode);
+ void SetGameObjectLightingMode(eGameObjectLightingMode mode);
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_LIGHTING)
  void SetGameObjectLightTexture(u32 texture);
 +#else

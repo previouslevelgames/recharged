@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original audio script serialized words and callback byte order
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Native module data/ABI compatibility only. Original script selection, VM conditions,
 bindings, update and source-owned cleanup remain unchanged. This does not establish
@@ -9,7 +9,7 @@ the effect factory, voices, normal AX initialization or complete startup.
 diff --git a/include/Game/Audio/AudioScriptInterpreter.inl b/include/Game/Audio/AudioScriptInterpreter.inl
 --- a/include/Game/Audio/AudioScriptInterpreter.inl
 +++ b/include/Game/Audio/AudioScriptInterpreter.inl
-@@ -6,7 +6,12 @@
+@@ -6,8 +6,13 @@
  inline void AudioScriptInterpreter::DoFunctionCall(unsigned int index)
  {
      u32 value = m_SP[-1];
@@ -18,10 +18,12 @@ diff --git a/include/Game/Audio/AudioScriptInterpreter.inl b/include/Game/Audio/
 +    m_SP[-1] = (value & 0xFFFFFF00u) | u32(value != 0);
 +#else
      ((u8*)m_SP)[-1] = value != 0;
+-    if (m_RunState == INTERPRETER_SUSPENDED)
 +#endif
-     if (m_RunState == 3)
++    if (m_RunState == 3)
          m_SP[-1] = value;
  }
+ 
 diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioScriptRuntime.h
 --- a/include/Game/Audio/AudioScriptRuntime.h
 +++ b/include/Game/Audio/AudioScriptRuntime.h
@@ -40,7 +42,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
 @@ -111,8 +115,17 @@
  
      u16 mCount;
-     u16 mUnidentified02;
+     u16 m_pad02;
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +    mscharged::platform::VMAddress32<u32> mValues;
 +#else

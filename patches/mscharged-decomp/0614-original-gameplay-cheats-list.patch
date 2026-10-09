@@ -1,0 +1,88 @@
+From: mscharged-port
+Subject: Admit the original gameplay-options cheats list
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: temporary explicit original-source diagnostic admission; depends on the Domination setup admission.
+
+The gameplay options page that the authored VS transition pushes (27) has a
+second CHEATS view whose three category buttons are always enabled; each press
+pushes the original cheat list (28) with its category. A fresh save reaches it
+from Main Menu -> VS -> Options -> next page, so the gated factory case stopped
+the frontend there.
+
+Under the existing MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION admission, move case
+28 into the admitted set. SHOptionsCheatsList keeps its original unlock queries
+(IsEnvironment/Powerup/PlayerCheatUnlocked), locked texts and apply path; its
+pointer-button index arrives in the callback context word and is narrowed
+through std::uintptr_t natively. Console builds keep the literal casts.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -409,7 +409,7 @@
+         newHandler = new (nlMalloc(sizeof(SHGameplayOptions), 8, false)) SHGameplayOptions();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
+     case SCENE_OPTIONS_CHEATS_LIST:
+         newHandler = new (nlMalloc(sizeof(SHOptionsCheatsList), 8, false)) SHOptionsCheatsList();
+         break;
+diff --git a/src/Game/SH/SHOptionsCheatsList.cpp b/src/Game/SH/SHOptionsCheatsList.cpp
+--- a/src/Game/SH/SHOptionsCheatsList.cpp
++++ b/src/Game/SH/SHOptionsCheatsList.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/SH/SHOptionsCheatsList.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++#endif
+ #include "NL/nlFunction.inl"
+ #include "Game/SH/SHGameplayOptions.h"
+ #include "Game/FE/feHelpFuncs_decl.h"
+@@ -251,7 +254,11 @@
+ void SHOptionsCheatsList::OnCheatPointerEnter(unsigned int index, void* context)
+ {
+     bool unlocked = false;
++#if defined(MSCHARGED_NATIVE)
++    unsigned int item = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     unsigned int item = (unsigned int)context;
++#endif
+ 
+     if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
+     {
+@@ -282,7 +289,11 @@
+ void SHOptionsCheatsList::OnCheatPointerPress(unsigned int, void* context)
+ {
+     bool unlocked = false;
++#if defined(MSCHARGED_NATIVE)
++    int item = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
+     int item = (int)context;
++#endif
+ 
+     if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
+     {
+@@ -325,7 +336,11 @@
+ void SHOptionsCheatsList::OnCheatPointerInside(unsigned int index, void* context)
+ {
+     bool unlocked = false;
++#if defined(MSCHARGED_NATIVE)
++    int item = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
++#else
+     int item = (int)context;
++#endif
+ 
+     if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
+     {
+@@ -355,7 +370,11 @@
+ void SHOptionsCheatsList::OnCheatPointerLeave(unsigned int index, void* context)
+ {
+     bool unlocked = false;
++#if defined(MSCHARGED_NATIVE)
++    unsigned int item = static_cast<unsigned int>(reinterpret_cast<std::uintptr_t>(context));
++#else
+     unsigned int item = (unsigned int)context;
++#endif
+ 
+     if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
+     {

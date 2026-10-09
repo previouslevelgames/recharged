@@ -1,6 +1,6 @@
 Subject: Share original submenu Done pointer bounds and hover callbacks
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Preserve exact authored absolute bounds and common Audio/Visual hover bodies.
 Press still executes its selected source callback; native host preferences are
@@ -21,8 +21,8 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  void OptionsAudioMenuV2::OnSaveButtonPointerEnter(int index, void*)
  {
--    mSaveButtonComponent.SetPointerState(1, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_HOVER, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mSaveButton->SetActiveSlide("over", true, false);
 -        FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
@@ -32,8 +32,8 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  void OptionsAudioMenuV2::OnSaveButtonPointerLeave(int index, void*)
  {
--    mSaveButtonComponent.SetPointerState(0, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_NORMAL, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mSaveButton->SetActiveSlide("off", true, false);
 -    }
@@ -45,8 +45,8 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  void OptionsVisualMenuV2::OnSaveButtonPointerEnter(int index, void*)
  {
--    mSaveButtonComponent.SetPointerState(1, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_HOVER, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mSaveButton->SetActiveSlide("over", true, false);
 -        FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
@@ -56,8 +56,8 @@ diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.c
  
  void OptionsVisualMenuV2::OnSaveButtonPointerLeave(int index, void*)
  {
--    mSaveButtonComponent.SetPointerState(0, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(1, index))
+-    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_NORMAL, index);
+-    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
 -    {
 -        mSaveButton->SetActiveSlide("off", true, false);
 -    }
@@ -82,9 +82,9 @@ diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
 -static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
 -static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
  
- // Retail's .sdata2 pool for this unit opens with 0.0f, ahead of the constants
- // EnableAutoPressed creates, although no surviving function generated before
-@@ -352,16 +351,7 @@
+ void ZeroFloat(float* value)
+ {
+@@ -340,16 +339,7 @@
  void SetDoneButtonBounds(
      FEPointerButton* component, TLComponentInstance*, int value)
  {

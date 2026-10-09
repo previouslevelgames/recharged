@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Compile the original gameplay providers with native width contracts
-Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Temporary E13 compiler/ABI adaptations for the original match providers.
 Game behavior, requests and timing are unchanged.
@@ -23,8 +23,8 @@ Game behavior, requests and timing are unchanged.
   Likewise the Desire units that call CallFielderFuzzyFunction include the
   original inline FuzzyRuntimeCall.h natively.
 - PowerupBase::AwardPowerup reads the captain power-up through Wii offsets
-  0x11C/0x14; natively these are cCharacter::mUnidentified11C and
-  CharacterInfo::unknown_0x14.
+  0x11C/0x14; natively these are cCharacter::m_pCharacterInfo and
+  CharacterInfo::mCaptainPowerup.
 - GoalieActions instantiates a queued-event Function<bool> through header
   inlines; natively it includes the original nlFunction.inl template bodies.
 - MWCC's double __fabs(double) intrinsic maps to std::fabs on a double.
@@ -51,11 +51,28 @@ Game behavior, requests and timing are unchanged.
   that hold FixedUpdateTask's simulation.
 - cTeam::UpdateTeamAI sorts its four fielder pointers with the Wii element
   size 4 (sizeof(cFielder*)); the native call uses the actual pointer size.
+- ModeledScreenTransition::LoadFromParser has no return statement (MWCC
+  returns an unspecified value; both callers discard it). Flowing off a
+  value-returning function is undefined in host C++, and GCC removed the
+  function exit so execution fell back into the parse loop, allocating pose
+  accumulators until MEM1 was exhausted. Natively it returns `this`.
+- GoalieSave::TriggerCallback matches the save-contact event 0xCF83E7CD as
+  (uEventID + 0x307C0000) == 0xE7CD, relying on the 32-bit unsigned long
+  wrapping. Natively unsigned long is 64 bits and the test never matched, so
+  every save kept milestone 2 and its duration at zero, all saves collapsed to
+  the start pose and the goalie's fail-save search returned null, crashing
+  Goalie::InitActionSave. Natively the sum is kept to 32 bits.
+- BitPacker::Pack sizes a field with (1 << i) & range for i up to 63. PowerPC
+  slw gives 0 for counts 32..63; an x86 int shift masks the count, so the size
+  exceeded 32 bits, nothing was packed and every key was 0. The joint-position
+  cache behind cCharacter::GetJointPositionFuture then returned its first entry
+  for every animation and time, and every goalie save shared one height.
+  Natively the test uses a 64-bit shift (range is below 2^31).
 
 diff --git a/include/Game/AI/Desire.h b/include/Game/AI/Desire.h
 --- a/include/Game/AI/Desire.h
 +++ b/include/Game/AI/Desire.h
-@@ -510,4 +510,10 @@
+@@ -517,4 +517,10 @@
  float GetRunInDirectionMaxDistance(const DesireRunInDirection*);
  float GetRunInDirectionDistanceTravelled(const DesireRunInDirection*);
  
@@ -69,7 +86,7 @@ diff --git a/include/Game/AI/Desire.h b/include/Game/AI/Desire.h
 diff --git a/include/Game/AI/DesireUpdate.h b/include/Game/AI/DesireUpdate.h
 --- a/include/Game/AI/DesireUpdate.h
 +++ b/include/Game/AI/DesireUpdate.h
-@@ -284,4 +284,10 @@
+@@ -291,4 +291,10 @@
      return *this;
  }
  
@@ -83,15 +100,15 @@ diff --git a/include/Game/AI/DesireUpdate.h b/include/Game/AI/DesireUpdate.h
 diff --git a/include/Game/AI/Fielder.h b/include/Game/AI/Fielder.h
 --- a/include/Game/AI/Fielder.h
 +++ b/include/Game/AI/Fielder.h
-@@ -4,6 +4,7 @@
- #include "Game/Player.h"
+@@ -5,6 +5,7 @@
  #include "Game/AI/Powerups.h"
  #include "Game/AI/FielderAbility.h"
+ #include "Game/AI/FielderDesireTypes.h"
 +#include "Game/PoseCallbackAddress.h"
  
  enum ePenaltyType
  {
-@@ -322,7 +323,7 @@
+@@ -354,7 +355,7 @@
      void SetStrafeLeftStopAnimState();
      void SetIdleAnimState();
      void SetIdleWBAnimState();
@@ -114,6 +131,23 @@ diff --git a/include/Game/AI/Variant.h b/include/Game/AI/Variant.h
 +#endif
 +
  #endif // _VARIANT_H_
+diff --git a/include/Game/BitPacker.h b/include/Game/BitPacker.h
+--- a/include/Game/BitPacker.h
++++ b/include/Game/BitPacker.h
+@@ -23,7 +23,13 @@
+         unsigned int bits = 0;
+         for (i = 0; i < 64; ++i)
+         {
++#if defined(MSCHARGED_NATIVE)
++            // PowerPC slw gives 0 for shift counts 32..63; an x86 int shift
++            // masks the count, so bit i - 32 would be tested again.
++            if ((1ull << i) & range)
++#else
+             if ((1 << i) & range)
++#endif
+                 bits = i + 1;
+         }
+         if (bits + mBitCount < 32)
 diff --git a/include/Game/Character.h b/include/Game/Character.h
 --- a/include/Game/Character.h
 +++ b/include/Game/Character.h
@@ -125,7 +159,7 @@ diff --git a/include/Game/Character.h b/include/Game/Character.h
  
  class Blinker;
  class BlurHandler;
-@@ -191,10 +192,10 @@
+@@ -198,10 +199,10 @@
      cPN_SAnimController* NewAnimController(int animID, bool bRestartCyclic,
          bool bForceMirrorSwap,
          void (*funcPlaybackSpeedCallback)(
@@ -150,7 +184,7 @@ diff --git a/include/Game/CharacterTemplate.h b/include/Game/CharacterTemplate.h
  
  class AnimRetargetList;
  class CharacterPhysicsData;
-@@ -48,7 +49,7 @@
+@@ -56,7 +57,7 @@
      /* 0x14 */ const char* szTextureFilename;
      /* 0x18 */ const char* szAlternateTextureFilename;
      /* 0x1C */ const char* szTriggerFilename;
@@ -162,15 +196,14 @@ diff --git a/include/Game/CharacterTemplate.h b/include/Game/CharacterTemplate.h
 diff --git a/include/Game/CharacterTriggers.h b/include/Game/CharacterTriggers.h
 --- a/include/Game/CharacterTriggers.h
 +++ b/include/Game/CharacterTriggers.h
-@@ -1,6 +1,8 @@
+@@ -1,5 +1,7 @@
  #ifndef GAME_CHARACTERTRIGGERS_H
  #define GAME_CHARACTERTRIGGERS_H
- 
-+#include "Game/PoseCallbackAddress.h"
 +
++#include "Game/PoseCallbackAddress.h"
+ 
  enum eBallShotEffectType
  {
-     BALL_EFFECT_S2S_SUPER_SHOT = 0,
 @@ -27,7 +29,7 @@
  class cSAnim;
  class EffectsGroup;
@@ -252,7 +285,7 @@ diff --git a/include/Game/Goalie.h b/include/Game/Goalie.h
 diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
 --- a/include/Game/NetworkSession.h
 +++ b/include/Game/NetworkSession.h
-@@ -512,8 +512,16 @@
+@@ -595,8 +595,16 @@
      /* 0x2458 */ NetworkLobby* mLobby;
      /* 0x245C */ NetworkStatsReporter* mStatsReporter;
      /* 0x2460 */ NetworkRanking* mRankingReporter;
@@ -498,9 +531,9 @@ diff --git a/include/NL/nlMath.h b/include/NL/nlMath.h
 +// MWCC kept weak out-of-line copies of these original inline definitions in the
 +// Matching units that include them; native consumers need the definitions.
 +#include "NL/nlMath.inl"
-+#endif
-+
  #endif
++
++#endif
 diff --git a/include/ode/config.h b/include/ode/config.h
 --- a/include/ode/config.h
 +++ b/include/ode/config.h
@@ -544,7 +577,7 @@ diff --git a/src/Game/AI/DesireMark.cpp b/src/Game/AI/DesireMark.cpp
 @@ -17,6 +17,10 @@
  #include "NL/nlString.h"
  
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +// Retail emits these inline calls out of line in Fielder.cpp.
 +#include "Game/AI/FuzzyRuntimeCall.h"
@@ -558,7 +591,7 @@ diff --git a/src/Game/AI/DesireMegaStrike.cpp b/src/Game/AI/DesireMegaStrike.cpp
 @@ -17,6 +17,13 @@
  #include <stdlib.h>
  
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +// MSL stdlib.h inline _abs, which host C libraries do not provide.
 +static inline int _abs(int __x)
@@ -575,7 +608,7 @@ diff --git a/src/Game/AI/DesirePass.cpp b/src/Game/AI/DesirePass.cpp
 @@ -16,6 +16,10 @@
  #include "NL/nlMemory.h"
  
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +// Retail emits these inline calls out of line in Fielder.cpp.
 +#include "Game/AI/FuzzyRuntimeCall.h"
@@ -589,7 +622,7 @@ diff --git a/src/Game/AI/DesireShoot.cpp b/src/Game/AI/DesireShoot.cpp
 @@ -19,6 +19,10 @@
  #include <stddef.h>
  
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +// MWCC intrinsic double __fabs(double), the PowerPC fabs instruction.
 +#define __fabs(value) __builtin_fabs(static_cast<double>(value))
@@ -600,7 +633,7 @@ diff --git a/src/Game/AI/DesireShoot.cpp b/src/Game/AI/DesireShoot.cpp
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
-@@ -47,6 +47,10 @@
+@@ -48,6 +48,10 @@
  #include "Game/Audio/AudioResourceRuntime.h"
  #include "Game/EventRegistry.h"
  #include "NL/nlFunction.inl"
@@ -614,10 +647,10 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
 diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
 --- a/src/Game/AI/DesireUsePowerup.cpp
 +++ b/src/Game/AI/DesireUsePowerup.cpp
-@@ -18,6 +18,10 @@
+@@ -19,6 +19,10 @@
  #include "Game/Team.h"
  #include <stddef.h>
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +// Retail emits these inline calls out of line in Fielder.cpp.
 +#include "Game/AI/FuzzyRuntimeCall.h"
@@ -628,7 +661,7 @@ diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
 diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
 --- a/src/Game/AI/Fielder.cpp
 +++ b/src/Game/AI/Fielder.cpp
-@@ -4704,7 +4704,7 @@
+@@ -4705,7 +4705,7 @@
          GetRunWBAccel(tweaks), GetRunWBDecel(tweaks));
  }
  
@@ -640,7 +673,7 @@ diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
 diff --git a/src/Game/AI/FielderDesireMachine.cpp b/src/Game/AI/FielderDesireMachine.cpp
 --- a/src/Game/AI/FielderDesireMachine.cpp
 +++ b/src/Game/AI/FielderDesireMachine.cpp
-@@ -50,7 +50,11 @@
+@@ -51,7 +51,11 @@
   * Offset/Address/Size: 0x0 | 0x800D4E2C | size: 0x4C
   */
  FielderDesireMachine::FielderDesireMachine()
@@ -657,7 +690,7 @@ diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
 @@ -67,6 +67,10 @@
  #include "math.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "Game/Audio/RegistryPools.h"
 +#if defined(MSCHARGED_NATIVE)
 +// Header inlines reached here instantiate the original callable templates.
@@ -727,7 +760,7 @@ diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
 +#if defined(MSCHARGED_NATIVE)
 +        {
 +#endif
-             if (mpTarget->m_eActionState != (eFielderActionState)1)
+             if (mpTarget->m_eActionState != ACTION_DEKE)
              {
                  break;
 @@ -4239,6 +4246,9 @@
@@ -791,12 +824,26 @@ diff --git a/src/Game/AI/GoalieSave.cpp b/src/Game/AI/GoalieSave.cpp
      mpPositionTable = (SavePositionData*)__construct_new_array(
          nlMalloc(0x70, 8, false), 0, 0, 0x10, 6);
  
+@@ -1219,7 +1229,13 @@
+ {
+     SaveData* pSaveData = (SaveData*)pUserData;
+ 
++#if defined(MSCHARGED_NATIVE)
++    // This test relies on the 32-bit Wii unsigned long wrapping (event
++    // 0xCF83E7CD); natively the sum is kept to 32 bits.
++    if ((u32)(uEventID + 0x307C0000) == 0xE7CD)
++#else
+     if ((uEventID + 0x307C0000) == 0xE7CD)
++#endif
+     {
+         pSaveData->mfMilestonePercent[2] = fTime;
+         pSaveData->mfDuration = fDuration;
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
 @@ -38,6 +38,9 @@
  #include "Game/Render/StadiumLoading.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "Game/Audio/RegistryPools.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "Game/DB/CharacterInfo.h"
@@ -809,9 +856,9 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
              && pTeam->GetCaptain()->IsShattered() != 1)
          {
 +#if defined(MSCHARGED_NATIVE)
-+            // Wii 0x11C is cCharacter::mUnidentified11C and its Wii 0x14 is
-+            // CharacterInfo::unknown_0x14 (the captain's power-up).
-+            powerUpType = (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14;
++            // Wii 0x11C is cCharacter::m_pCharacterInfo and its Wii 0x14 is
++            // CharacterInfo::mCaptainPowerup (the captain's power-up).
++            powerUpType = (ePowerUpType)pTeam->GetCaptain()->m_pCharacterInfo->mCaptainPowerup;
 +#else
              powerUpType = *(ePowerUpType*)(
                  *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14);
@@ -824,7 +871,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
      else if (nChance < nChanceForCaptainPowerup)
      {
 +#if defined(MSCHARGED_NATIVE)
-+        powerUpType = (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14;
++        powerUpType = (ePowerUpType)pTeam->GetCaptain()->m_pCharacterInfo->mCaptainPowerup;
 +#else
          powerUpType = *(ePowerUpType*)(
              *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14);
@@ -837,7 +884,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
      if (GameInfoManager::Instance()->GetRule0x0() == 9)
      {
 +#if defined(MSCHARGED_NATIVE)
-+        if (powerUpType != (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14)
++        if (powerUpType != (ePowerUpType)pTeam->GetCaptain()->m_pCharacterInfo->mCaptainPowerup)
 +#else
          if (powerUpType
              != *(ePowerUpType*)(
@@ -851,7 +898,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
              && pTeam->GetCaptain()->IsShattered() == 0)
          {
 +#if defined(MSCHARGED_NATIVE)
-+            powerUpType = (ePowerUpType)pTeam->GetCaptain()->mUnidentified11C->unknown_0x14;
++            powerUpType = (ePowerUpType)pTeam->GetCaptain()->m_pCharacterInfo->mCaptainPowerup;
 +#else
              powerUpType = *(ePowerUpType*)(
                  *(u8**)((u8*)pTeam->GetCaptain() + 0x11C) + 0x14);
@@ -862,7 +909,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
 diff --git a/src/Game/AI/TeamPlayMachine.cpp b/src/Game/AI/TeamPlayMachine.cpp
 --- a/src/Game/AI/TeamPlayMachine.cpp
 +++ b/src/Game/AI/TeamPlayMachine.cpp
-@@ -57,6 +57,10 @@
+@@ -64,6 +64,10 @@
  }
  
  TeamPlayMachine::TeamPlayMachine()
@@ -876,8 +923,8 @@ diff --git a/src/Game/AI/TeamPlayMachine.cpp b/src/Game/AI/TeamPlayMachine.cpp
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -708,7 +708,7 @@
-     mUnidentified024.m_fDecel = fDecel;
+@@ -709,7 +709,7 @@
+     m_DetChar.m_fDecel = fDecel;
  }
  
 -void cCharacter::MatchAnimSpeedToCharacterSpeed(unsigned int nParam,
@@ -885,7 +932,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
      cPN_SAnimController* pController)
  {
      cCharacter* pChar = (cCharacter*)nParam;
-@@ -723,12 +723,12 @@
+@@ -724,12 +724,12 @@
      }
  }
  
@@ -904,7 +951,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
-@@ -156,7 +156,7 @@
+@@ -157,7 +157,7 @@
      return pControl;
  }
  
@@ -913,13 +960,13 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
  {
      AnimTriggerCallbackInfo* pAnimTriggerCallbackInfo = (AnimTriggerCallbackInfo*)uParam;
  
-@@ -2077,12 +2077,22 @@
+@@ -2078,12 +2078,22 @@
  
  void SetCharacterPacketAVisible(cCharacter* pCharacter, bool bValue)
  {
 +#if defined(MSCHARGED_NATIVE)
-+    // Wii offset 0x181 is cCharacter::mUnidentified181.
-+    pCharacter->mUnidentified181 = bValue;
++    // Wii offset 0x181 is cCharacter::m_bPacketAVisible.
++    pCharacter->m_bPacketAVisible = bValue;
 +#else
      *(bool*)((char*)pCharacter + 0x181) = bValue;
 +#endif
@@ -928,15 +975,15 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
  void SetCharacterPacketBVisible(cCharacter* pCharacter, bool bValue)
  {
 +#if defined(MSCHARGED_NATIVE)
-+    // Wii offset 0x182 is cCharacter::mUnidentified182.
-+    pCharacter->mUnidentified182 = bValue;
++    // Wii offset 0x182 is cCharacter::m_bPacketBVisible.
++    pCharacter->m_bPacketBVisible = bValue;
 +#else
      *(bool*)((char*)pCharacter + 0x182) = bValue;
 +#endif
  }
  
  bool IsCharacterGoalie(cCharacter* pCharacter)
-@@ -2092,12 +2102,22 @@
+@@ -2093,12 +2103,22 @@
  
  void SetCharacterLeftPropAnimated(cCharacter* pCharacter, bool bAnimated)
  {
@@ -963,7 +1010,7 @@ diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
 --- a/src/Game/Formation.cpp
 +++ b/src/Game/Formation.cpp
 @@ -21,6 +21,10 @@
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "Game/Game.h"
  #include <string.h>
 +#if defined(MSCHARGED_NATIVE)
@@ -1014,13 +1061,14 @@ diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
                      pCtrlr->m_fSynchronizedWeight = 0.0f;
                  }
                  else
-@@ -2916,9 +2920,13 @@
+@@ -2906,9 +2910,13 @@
  }
  
  void Goalie::SaveBlendCallback(
 -    unsigned int nParam, cPN_SAnimController* pAnimCtrl)
+-{
 +    PoseCallbackAddressWord nParam, cPN_SAnimController* pAnimCtrl)
- {
++{
 +#if defined(MSCHARGED_NATIVE)
 +    Goalie* pThis = reinterpret_cast<Goalie*>(nParam & ~(PoseCallbackAddressWord)3U);
 +#else
@@ -1029,7 +1077,7 @@ diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
      unsigned int saveDataIndex = nParam & 3U;
  
      SaveData* pSaveData = pThis->mBlendInfo.mpSaveData[saveDataIndex];
-@@ -2968,7 +2976,7 @@
+@@ -2958,7 +2966,7 @@
          index2 = 3;
      }
      int animID = GetAnimID(mBlendInfo, index1);
@@ -1038,7 +1086,7 @@ diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
      pSaveController1->m_fPlaybackSpeedScale
          = mBlendInfo.mfMilestoneScale[index1][nMilestone];
      if (fStartPercent[index1] > 0.0f)
-@@ -2988,7 +2996,7 @@
+@@ -2978,7 +2986,7 @@
      {
          animID = GetAnimID(mBlendInfo, index2);
          cPN_SAnimController* pSaveController2
@@ -1085,15 +1133,15 @@ diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsW
      , mHeightUpdateDelay(0.0f)
  {
 +#if defined(MSCHARGED_NATIVE)
-+    UnidentifiedFindEvent<cPlayer>(gWaluigiWallStartEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallStart), (EventOwnerHandle)&mStartConnection, -1);
-+    UnidentifiedFindEvent<cPlayer>(gWaluigiWallEndEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallEnd), (EventOwnerHandle)&mEndConnection, -1);
-+    UnidentifiedFindEvent<cPlayer>(gWaluigiWallAbortEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallAbort), (EventOwnerHandle)&mAbortConnection, -1);
-+    UnidentifiedFindEvent<void>(gWaluigiWallMegastrikeEventName, -1)->Add(Function<void*>(OnWaluigiWallMegastrikeStart), (EventOwnerHandle)&mMegastrikeConnection, -1);
++    FindEvent<cPlayer>(gWaluigiWallStartEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallStart), (EventOwnerHandle)&mStartConnection, -1);
++    FindEvent<cPlayer>(gWaluigiWallEndEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallEnd), (EventOwnerHandle)&mEndConnection, -1);
++    FindEvent<cPlayer>(gWaluigiWallAbortEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallAbort), (EventOwnerHandle)&mAbortConnection, -1);
++    FindEvent<void>(gWaluigiWallMegastrikeEventName, -1)->Add(Function<void*>(OnWaluigiWallMegastrikeStart), (EventOwnerHandle)&mMegastrikeConnection, -1);
 +#else
-     UnidentifiedFindEvent<cPlayer>(gWaluigiWallStartEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallStart), (unsigned int)&mStartConnection, -1);
-     UnidentifiedFindEvent<cPlayer>(gWaluigiWallEndEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallEnd), (unsigned int)&mEndConnection, -1);
-     UnidentifiedFindEvent<cPlayer>(gWaluigiWallAbortEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallAbort), (unsigned int)&mAbortConnection, -1);
-     UnidentifiedFindEvent<void>(gWaluigiWallMegastrikeEventName, -1)->Add(Function<void*>(OnWaluigiWallMegastrikeStart), (unsigned int)&mMegastrikeConnection, -1);
+     FindEvent<cPlayer>(gWaluigiWallStartEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallStart), (unsigned int)&mStartConnection, -1);
+     FindEvent<cPlayer>(gWaluigiWallEndEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallEnd), (unsigned int)&mEndConnection, -1);
+     FindEvent<cPlayer>(gWaluigiWallAbortEventName, -1)->Add(Function<cPlayer*>(OnWaluigiWallAbort), (unsigned int)&mAbortConnection, -1);
+     FindEvent<void>(gWaluigiWallMegastrikeEventName, -1)->Add(Function<void*>(OnWaluigiWallMegastrikeStart), (unsigned int)&mMegastrikeConnection, -1);
 +#endif
      for (unsigned int i = 0; i < 20; ++i)
          mWalls[i] = 0;
@@ -1129,7 +1177,7 @@ diff --git a/src/Game/Physics/PhysicsWorld.cpp b/src/Game/Physics/PhysicsWorld.c
 diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
 --- a/src/Game/Player.cpp
 +++ b/src/Game/Player.cpp
-@@ -1005,7 +1005,7 @@
+@@ -1006,7 +1006,7 @@
      const int* pSABAnims,
      int nNumSABAnims,
      int nPrimaryAnim,
@@ -1138,7 +1186,7 @@ diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
      float fWeightSeek,
      cPN_SAnimController* pSynchingController,
      float fInitialWeight)
-@@ -1014,7 +1014,7 @@
+@@ -1015,7 +1015,7 @@
      cPN_SAnimController* pNewCurrentAnimController = NULL;
  
      cPN_SingleAxisBlender* pSAB = new cPN_SingleAxisBlender(
@@ -1147,7 +1195,7 @@ diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
  
      pAnims = pSABAnims;
      for (int i = 0; i < nNumSABAnims; i++)
-@@ -1037,7 +1037,7 @@
+@@ -1038,7 +1038,7 @@
  
      SetAnimID(pSABAnims[nPrimaryAnim]);
      m_pCurrentAnimController = pNewCurrentAnimController;
@@ -1306,7 +1354,7 @@ diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
      unsigned int which = (unsigned int)context;
 +#endif
      ++mHoverCounts[index];
-     if (!mOptionButtons[which].HasOtherPointerState(1, index))
+     if (!mOptionButtons[which].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
      {
 @@ -389,7 +396,11 @@
   */
@@ -1318,7 +1366,7 @@ diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
      unsigned int which = (unsigned int)context;
 +#endif
      --mHoverCounts[index];
-     if (!mOptionButtons[which].HasOtherPointerState(1, index))
+     if (!mOptionButtons[which].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
          mOptionInstances[which]->SetActiveSlide("off", true, false);
 @@ -405,7 +416,11 @@
          return;
@@ -1330,7 +1378,7 @@ diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
      switch ((unsigned int)context)
 +#endif
      {
-     case 0:
+     case PAUSE_RESUME:
          OnSelectRESUME(0);
 diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
 --- a/src/Game/Team.cpp
@@ -1349,6 +1397,23 @@ diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
  
      bool bSituationChanged = AssignSituation();
      if (bSituationChanged)
+diff --git a/src/Game/Transitions/ModelTransition.cpp b/src/Game/Transitions/ModelTransition.cpp
+--- a/src/Game/Transitions/ModelTransition.cpp
++++ b/src/Game/Transitions/ModelTransition.cpp
+@@ -452,6 +452,13 @@
+         cPoseAccumulator(m_pSkeleton, false);
+ 
+     FixupModel();
++#if defined(MSCHARGED_NATIVE)
++    // MWCC returns an unspecified value here and both callers discard it.
++    // Flowing off a value-returning function is undefined in host C++: GCC
++    // removed this exit and fell back into the parse loop. Return a defined
++    // value; the original parse and model setup are unchanged.
++    return this;
++#endif
+ }
+ #pragma warning reset(10184)
+ #if defined(MSCHARGED_NATIVE) && defined(__clang__)
 diff --git a/src/Game/Transitions/ScriptedTransition.cpp b/src/Game/Transitions/ScriptedTransition.cpp
 --- a/src/Game/Transitions/ScriptedTransition.cpp
 +++ b/src/Game/Transitions/ScriptedTransition.cpp

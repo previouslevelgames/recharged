@@ -1,11 +1,12 @@
 Subject: Use native allocation size signatures in original class allocators
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Use std::size_t in native class operator-new declarations and their matching
 out-of-line definitions, including LLP64 hosts. Retain the original allocation
 bodies, pools, class fields and console declarations. Existing size-bearing
 nlMalloc remains unchanged; measured selected class requests fit its u32 size.
 
+diff --git a/include/Game/Audio/AudioEffects.h b/include/Game/Audio/AudioEffects.h
 --- a/include/Game/Audio/AudioEffects.h
 +++ b/include/Game/Audio/AudioEffects.h
 @@ -1,5 +1,9 @@
@@ -18,7 +19,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlArrayAllocator.h"
-@@ -23,7 +27,12 @@
+@@ -34,7 +38,12 @@
  public:
      virtual ~VolumeParameter() { }
  
@@ -31,7 +32,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          VolumeParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -60,7 +69,12 @@
+@@ -71,7 +80,12 @@
      virtual void OnParameterFinished(AudioEffectParameter*);
      virtual void ApplyToSound(void*);
  
@@ -44,7 +45,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          Volume* effect = 0;
          s_Pool.Allocate(effect);
-@@ -102,7 +116,12 @@
+@@ -113,7 +127,12 @@
      virtual void ApplyToSound(void*);
      virtual void OnSoundStopped(void*);
  
@@ -57,6 +58,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          return s_Allocator.Allocate();
      }
+diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioSequenceEvent.h
 --- a/include/Game/Audio/AudioSequenceEvent.h
 +++ b/include/Game/Audio/AudioSequenceEvent.h
 @@ -1,5 +1,9 @@
@@ -69,7 +71,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "Game/Audio/AudioSequenceInstance.h"
  #include "NL/nlSlotPool.h"
-@@ -118,7 +122,12 @@
+@@ -142,7 +146,12 @@
      void AccumulateRpcModifiers(
          bool* hasVolume, float* volume, bool* hasPitch, float* pitch);
  
@@ -83,8 +85,8 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      static void operator delete(void* object);
  
      SoundEventDefinition* definition;
-@@ -144,7 +153,12 @@
-     virtual void Resume() { state = 4; }
+@@ -168,7 +177,12 @@
+     virtual void Resume() { state = AUDIO_EVENT_PLAYING; }
      virtual int Update(float time);
  
 -    static void* operator new(unsigned long size);
@@ -97,8 +99,8 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      static void operator delete(void* object);
  
      HitMarkerEventDefinition* definition;
-@@ -162,7 +176,12 @@
-     virtual void Resume() { state = 4; }
+@@ -186,7 +200,12 @@
+     virtual void Resume() { state = AUDIO_EVENT_PLAYING; }
      virtual int Update(float time);
  
 -    static void* operator new(unsigned long size);
@@ -111,7 +113,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      static void operator delete(void* object);
  
      ParameterChangeEventDefinition* definition;
-@@ -172,17 +191,32 @@
+@@ -196,17 +215,32 @@
  extern SlotPool<HitMarkerEvent> sHitMarkerEventPool;
  extern SlotPool<ParameterChangeEvent> sParameterChangeEventPool;
  
@@ -144,6 +146,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return sParameterChangeEventPool.Allocate();
  }
+diff --git a/include/Game/Audio/AudioSequenceInstance.h b/include/Game/Audio/AudioSequenceInstance.h
 --- a/include/Game/Audio/AudioSequenceInstance.h
 +++ b/include/Game/Audio/AudioSequenceInstance.h
 @@ -1,5 +1,9 @@
@@ -183,6 +186,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return sAudioSequenceInstancePool.Allocate();
  }
+diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
 --- a/include/Game/Audio/AudioSource.h
 +++ b/include/Game/Audio/AudioSource.h
 @@ -1,5 +1,9 @@
@@ -195,7 +199,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "revolution/sp.h"
  #include "revolution/os/OSInterrupt.h"
-@@ -106,7 +110,12 @@
+@@ -118,7 +122,12 @@
      virtual void Initialize(AudioSourceInfo*);
      virtual void Update();
  
@@ -209,7 +213,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      static void operator delete(void* pointer);
      static void OnVoiceDropped(void*);
  
-@@ -251,7 +260,12 @@
+@@ -263,7 +272,12 @@
  
  extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
  
@@ -222,7 +226,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return gAudioSampleSourcePool.Allocate();
  }
-@@ -299,7 +313,12 @@
+@@ -311,7 +325,12 @@
      virtual void SetInterauralDelay(int value);
      virtual unsigned int GetStreamHeaderOffset();
  
@@ -236,7 +240,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      static void operator delete(void*);
  };
  
-@@ -312,14 +331,24 @@
+@@ -324,14 +343,24 @@
      virtual void SetInterauralDelay(int);
      virtual unsigned int GetStreamHeaderOffset();
  
@@ -262,7 +266,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return gAudioMonoStreamSourcePool.Allocate();
  }
-@@ -329,7 +358,12 @@
+@@ -341,7 +370,12 @@
      gAudioMonoStreamSourcePool.Free((AudioMonoStreamSource*)pointer);
  }
  
@@ -275,6 +279,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return gAudioStereoStreamSourcePool.Allocate();
  }
+diff --git a/include/Game/Audio/CategoryVolume.h b/include/Game/Audio/CategoryVolume.h
 --- a/include/Game/Audio/CategoryVolume.h
 +++ b/include/Game/Audio/CategoryVolume.h
 @@ -1,5 +1,9 @@
@@ -313,6 +318,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          CategoryVolume* effect = 0;
          s_Pool.Allocate(effect);
+diff --git a/include/Game/Audio/Delay.h b/include/Game/Audio/Delay.h
 --- a/include/Game/Audio/Delay.h
 +++ b/include/Game/Audio/Delay.h
 @@ -1,5 +1,9 @@
@@ -351,6 +357,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          Delay* effect = 0;
          s_Pool.Allocate(effect);
+diff --git a/include/Game/Audio/LowPassFilter.h b/include/Game/Audio/LowPassFilter.h
 --- a/include/Game/Audio/LowPassFilter.h
 +++ b/include/Game/Audio/LowPassFilter.h
 @@ -1,5 +1,9 @@
@@ -389,6 +396,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          LowPassFilter* effect = 0;
          s_Pool.Allocate(effect);
+diff --git a/include/Game/Audio/Pitch.h b/include/Game/Audio/Pitch.h
 --- a/include/Game/Audio/Pitch.h
 +++ b/include/Game/Audio/Pitch.h
 @@ -1,5 +1,9 @@
@@ -427,6 +435,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          Pitch* effect = 0;
          s_Pool.Allocate(effect);
+diff --git a/include/Game/Audio/Reverb.h b/include/Game/Audio/Reverb.h
 --- a/include/Game/Audio/Reverb.h
 +++ b/include/Game/Audio/Reverb.h
 @@ -1,5 +1,9 @@
@@ -465,6 +474,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          Reverb* effect = 0;
          s_Pool.Allocate(effect);
+diff --git a/include/Game/Audio/XSoundCueHandle.h b/include/Game/Audio/XSoundCueHandle.h
 --- a/include/Game/Audio/XSoundCueHandle.h
 +++ b/include/Game/Audio/XSoundCueHandle.h
 @@ -1,5 +1,9 @@
@@ -504,6 +514,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return sSoundCueHandlePool.Allocate();
  }
+diff --git a/include/Game/DetermDataEvent.h b/include/Game/DetermDataEvent.h
 --- a/include/Game/DetermDataEvent.h
 +++ b/include/Game/DetermDataEvent.h
 @@ -1,5 +1,9 @@
@@ -529,6 +540,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          return gDetermDataEventPool.Allocate();
      }
+diff --git a/include/Game/InputRouter.h b/include/Game/InputRouter.h
 --- a/include/Game/InputRouter.h
 +++ b/include/Game/InputRouter.h
 @@ -1,5 +1,9 @@
@@ -554,6 +566,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          return nlMalloc(size, 8, false);
      }
+diff --git a/include/Game/NetworkLobby.h b/include/Game/NetworkLobby.h
 --- a/include/Game/NetworkLobby.h
 +++ b/include/Game/NetworkLobby.h
 @@ -1,5 +1,9 @@
@@ -566,7 +579,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "Game/NetworkSession.h"
  #include <dwc/dwci_error.h>
-@@ -18,7 +22,12 @@
+@@ -42,7 +46,12 @@
      void InitializeReceiveBuffers();
  
  public:
@@ -580,9 +593,10 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      NetworkLobby();
  
+diff --git a/include/Game/NetworkMessage.h b/include/Game/NetworkMessage.h
 --- a/include/Game/NetworkMessage.h
 +++ b/include/Game/NetworkMessage.h
-@@ -1,16 +1,30 @@
+@@ -1,5 +1,9 @@
  #ifndef GAME_NETWORK_MESSAGE_H
  #define GAME_NETWORK_MESSAGE_H
 +
@@ -592,6 +606,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "Game/NetworkMessageSerializer.h"
  
+@@ -42,11 +46,21 @@
  class NetworkMessage
  {
  public:
@@ -614,6 +629,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      void operator delete(void* p);
  
      NetworkMessage()
+diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
 --- a/include/Game/NetworkSession.h
 +++ b/include/Game/NetworkSession.h
 @@ -1,5 +1,9 @@
@@ -626,7 +642,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "Game/NetworkDebug.h"
  
-@@ -165,7 +169,12 @@
+@@ -211,7 +215,12 @@
                                public ReliableSocketCallback
  {
  public:
@@ -640,7 +656,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      NetworkSocket();
  
-@@ -275,7 +284,12 @@
+@@ -358,7 +367,12 @@
                                    public NetworkMessageReceiver
  {
  public:
@@ -654,7 +670,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      LANLobby();
  
-@@ -398,7 +412,12 @@
+@@ -481,7 +495,12 @@
                                     public NetworkMessageReceiver
  {
  public:
@@ -668,6 +684,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      NetworkSession()
      {
+diff --git a/include/Game/NetworkStats.h b/include/Game/NetworkStats.h
 --- a/include/Game/NetworkStats.h
 +++ b/include/Game/NetworkStats.h
 @@ -1,5 +1,9 @@
@@ -680,7 +697,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "NL/nlMemory.h"
  #include "NL/plat/TransportSocket.h"
-@@ -105,7 +109,12 @@
+@@ -128,7 +132,12 @@
  class NetworkStatsReporter : public NetworkStatsInterface
  {
  public:
@@ -694,7 +711,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      NetworkStatsReporter();
  
-@@ -183,7 +192,12 @@
+@@ -206,7 +215,12 @@
  class NetworkRanking : public NetworkStatsInterface
  {
  public:
@@ -708,6 +725,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      NetworkRanking();
  
+diff --git a/include/Game/Physics/PhysicsHammer.h b/include/Game/Physics/PhysicsHammer.h
 --- a/include/Game/Physics/PhysicsHammer.h
 +++ b/include/Game/Physics/PhysicsHammer.h
 @@ -1,5 +1,9 @@
@@ -733,6 +751,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          return gPhysicsHammerAllocator.Allocate();
      }
+diff --git a/include/Game/Physics/PhysicsPatch.h b/include/Game/Physics/PhysicsPatch.h
 --- a/include/Game/Physics/PhysicsPatch.h
 +++ b/include/Game/Physics/PhysicsPatch.h
 @@ -1,5 +1,9 @@
@@ -745,7 +764,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
  #include "Game/DebugWriteCache.h"
  #include "Game/EventConnection.h"
-@@ -31,7 +35,12 @@
+@@ -49,7 +53,12 @@
  public:
      PhysicsPatch();
      virtual ~PhysicsPatch();
@@ -758,6 +777,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          PhysicsPatch* patch = 0;
          m_PhysicsPatchSlotPool.Allocate(patch);
+diff --git a/include/Game/Physics/PhysicsShockwave.h b/include/Game/Physics/PhysicsShockwave.h
 --- a/include/Game/Physics/PhysicsShockwave.h
 +++ b/include/Game/Physics/PhysicsShockwave.h
 @@ -1,5 +1,9 @@
@@ -783,6 +803,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          PhysicsShockwave* object = 0;
          pool.Allocate(object);
+diff --git a/include/Game/Physics/PhysicsWaluigiWall.h b/include/Game/Physics/PhysicsWaluigiWall.h
 --- a/include/Game/Physics/PhysicsWaluigiWall.h
 +++ b/include/Game/Physics/PhysicsWaluigiWall.h
 @@ -1,5 +1,9 @@
@@ -808,6 +829,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          PhysicsWaluigiWall* pObject = 0;
          pool.Allocate(pObject);
+diff --git a/include/Game/SAnim/pnBlender.h b/include/Game/SAnim/pnBlender.h
 --- a/include/Game/SAnim/pnBlender.h
 +++ b/include/Game/SAnim/pnBlender.h
 @@ -1,5 +1,9 @@
@@ -833,6 +855,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          cPN_Blender* blender = 0;
          m_BlenderSlotPool.Allocate(blender);
+diff --git a/include/Game/SAnim/pnFeather.h b/include/Game/SAnim/pnFeather.h
 --- a/include/Game/SAnim/pnFeather.h
 +++ b/include/Game/SAnim/pnFeather.h
 @@ -1,5 +1,9 @@
@@ -858,6 +881,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          cPN_Feather* feather = 0;
          m_FeatherSlotPool.Allocate(feather);
+diff --git a/include/Game/SAnim/pnScaleBlender.h b/include/Game/SAnim/pnScaleBlender.h
 --- a/include/Game/SAnim/pnScaleBlender.h
 +++ b/include/Game/SAnim/pnScaleBlender.h
 @@ -1,5 +1,9 @@
@@ -883,6 +907,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          cPN_ScaleBlender* node = 0;
          m_ScaleBlenderSlotPool.Allocate(node);
+diff --git a/include/Game/SAnim/pnSingleAxisBlender.h b/include/Game/SAnim/pnSingleAxisBlender.h
 --- a/include/Game/SAnim/pnSingleAxisBlender.h
 +++ b/include/Game/SAnim/pnSingleAxisBlender.h
 @@ -1,5 +1,9 @@
@@ -908,6 +933,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          cPN_SingleAxisBlender* blender = 0;
          m_SingleAxisBlenderSlotPool.Allocate(blender);
+diff --git a/include/NL/plat/TransportConnection.h b/include/NL/plat/TransportConnection.h
 --- a/include/NL/plat/TransportConnection.h
 +++ b/include/NL/plat/TransportConnection.h
 @@ -1,5 +1,9 @@
@@ -936,6 +962,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      void operator delete(void* connection);
  
      TransportConnection(ReliableSocket* socket,
+diff --git a/include/NL/plat/TransportPacket.h b/include/NL/plat/TransportPacket.h
 --- a/include/NL/plat/TransportPacket.h
 +++ b/include/NL/plat/TransportPacket.h
 @@ -1,12 +1,22 @@
@@ -962,6 +989,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  
      TransportPacket()
          : mSequence(0)
+diff --git a/include/NL/plat/WiiFreestylePad.h b/include/NL/plat/WiiFreestylePad.h
 --- a/include/NL/plat/WiiFreestylePad.h
 +++ b/include/NL/plat/WiiFreestylePad.h
 @@ -1,5 +1,9 @@
@@ -987,6 +1015,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          return gWiiFreestylePadAllocator.Allocate();
      }
+diff --git a/include/NL/plat/WiiRemotePad.h b/include/NL/plat/WiiRemotePad.h
 --- a/include/NL/plat/WiiRemotePad.h
 +++ b/include/NL/plat/WiiRemotePad.h
 @@ -1,5 +1,9 @@
@@ -1012,6 +1041,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
      {
          return gWiiRemotePadAllocator.Allocate();
      }
+diff --git a/src/NL/plat/TransportConnection.cpp b/src/NL/plat/TransportConnection.cpp
 --- a/src/NL/plat/TransportConnection.cpp
 +++ b/src/NL/plat/TransportConnection.cpp
 @@ -19,8 +19,14 @@
@@ -1029,6 +1059,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return gTransportConnectionPool.Allocate();
  }
+diff --git a/src/NL/plat/TransportPacket.cpp b/src/NL/plat/TransportPacket.cpp
 --- a/src/NL/plat/TransportPacket.cpp
 +++ b/src/NL/plat/TransportPacket.cpp
 @@ -3,8 +3,14 @@
@@ -1046,6 +1077,7 @@ nlMalloc remains unchanged; measured selected class requests fit its u32 size.
  {
      return gTransportPacketPool.Allocate();
  }
+diff --git a/src/NL/plat/TransportMessage.cpp b/src/NL/plat/TransportMessage.cpp
 --- a/src/NL/plat/TransportMessage.cpp
 +++ b/src/NL/plat/TransportMessage.cpp
 @@ -489,7 +489,12 @@

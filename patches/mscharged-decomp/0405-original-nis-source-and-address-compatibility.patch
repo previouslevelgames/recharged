@@ -1,5 +1,5 @@
 Subject: Restore original NIS source flow and retail-compatible native address/stores
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Restore original timing and overlay bodies. Native-only address casts and exact
 whole-header byte stores preserve the retail overlapping dictionary writes.
@@ -8,14 +8,15 @@ No count, loop, member capacity, request or source selection changes.
 diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
 --- a/src/Game/NisPlayer.cpp
 +++ b/src/Game/NisPlayer.cpp
-@@ -1,6 +1,5 @@
+@@ -1,7 +1,6 @@
+ #include "Game/Task/GameTaskState.h"
  #include "NL/nlDLListContainer.inl"
  #include "Game/NisPlayer.h"
 -#include "Game/NisPlaybackTiming.h"
  #include "Game/Blinker.h"
  #include "NL/nlBasicString.h"
  #include "Game/Render/StadiumLoading.h"
-@@ -24,6 +23,10 @@
+@@ -25,6 +24,10 @@
  
  #include <string.h>
  #include <stdio.h>
@@ -26,7 +27,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
  
  #include "Game/AI/Fielder.h"
  #include "Game/Goalie.h"
-@@ -267,7 +270,17 @@
+@@ -268,7 +271,17 @@
                  if (parsedValueCount != 3)
                      break;
                  SkipLine(dictionaryCursor);
@@ -44,7 +45,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
              }
              sscanf(dictionaryCursor, "\tnum_anim_proxies %d", &header.numAnimProxies);
              SkipLine(dictionaryCursor);
-@@ -393,7 +406,11 @@
+@@ -394,7 +407,11 @@
                  int memoryOffset = mLoadingFromBack ? mUsedFromBack : mUsedFromFront;
  
                  char* loadAt = mMemory + memoryOffset;
@@ -56,7 +57,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
                  if (!mLoadingFromBack)
                  {
                      mUsedFromFront += mLoadQueue[i]->size;
-@@ -427,7 +444,13 @@
+@@ -428,7 +445,13 @@
  {
      float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
      float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
@@ -71,7 +72,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
      HandleAsyncs();
  
      for (int i = 0; i < 8; i++)
-@@ -450,9 +473,9 @@
+@@ -451,9 +474,9 @@
              if (mCamera[i].m_pActiveCameraData != 0)
              {
                  float overrun = mCamera[i].ManualUpdate(deltaT);
@@ -186,7 +187,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -69,14 +69,14 @@
+@@ -70,14 +70,14 @@
  static TweakValueBool g_bDisplayFrameTicker(
      "g_bDisplayFrameTicker", gLastTweakCategory, false);
  

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Restore complete original loading scene handlers
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retire the 0077/0086 game-side helper substitutions. The complete restored
 Matching translation unit is byte-identical to the pinned source.
@@ -9,7 +9,7 @@ No algorithms, resource requests, timing, readiness or visibility changes.
 diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 --- a/src/Game/SH/SHLoading.cpp
 +++ b/src/Game/SH/SHLoading.cpp
-@@ -1,8 +1,6 @@
+@@ -2,8 +2,6 @@
  #include "Game/HBMManager.h"
  
  #include "Game/SH/SHLoading.h"
@@ -18,7 +18,7 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
  #include "Game/BaseSceneHandler.inl"
  
  #include "Game/BaseGameSceneManager.h"
-@@ -90,20 +88,6 @@
+@@ -92,20 +90,6 @@
  void BaseLoadingScene::Update(float dt)
  {
      BaseSceneHandler::Update(dt);
@@ -39,7 +39,7 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
  
      if (mTransitionActive)
      {
-@@ -119,6 +103,32 @@
+@@ -121,6 +105,32 @@
      }
  }
  
@@ -69,10 +69,10 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
 +    }
 +}
 +
- bool LoadingSceneHasPresentation(BaseLoadingScene* scene)
+ static TLSlide* GetLoadingSceneSlide(BaseLoadingScene* scene)
  {
-     return scene->GetPresentation() != 0;
-@@ -163,17 +173,16 @@
+     return scene->GetPresentation()->GetActiveSlide();
+@@ -165,17 +175,16 @@
      }
  }
  

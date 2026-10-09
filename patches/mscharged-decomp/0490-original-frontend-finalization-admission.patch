@@ -1,5 +1,5 @@
 # Patch: 0490-original-frontend-finalization-admission
-# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 # Scope: Explicit diagnostic restores original service86 and its first FE initialization path.
 # Restores literal impostor/particle/music/title sequence/audio requests; no body or outcome changes.
 # Returning-to-FE branch and later task transitions retain their explicit diagnostic holds.

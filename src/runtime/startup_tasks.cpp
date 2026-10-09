@@ -29,7 +29,7 @@ std::string VerifyStartupTaskScheduler()
             timing.FinishTiming();
         };
         {
-            UnidentifiedQueuedEvent<UnidentifiedEventNoData> event(&gDispatchEventsTask->dispatcher, "NativeScheduledStartup", -1);
+            QueuedEvent<NoEventData> event(&gDispatchEventsTask->dispatcher, "NativeScheduledStartup", -1);
             int received = 0, disposed = 0;
             Function<FnVoidVoid> dispose([&] { ++disposed; });
             Function<FnVoidVoid> listener([&] { if (++received == 1) event.Queue(dispose); });

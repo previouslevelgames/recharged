@@ -3,6 +3,7 @@
 #include "Game/Effects/EffectsTemplate.h"
 #include <algorithm>
 #include <bit>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -129,6 +130,21 @@ void Generated(const std::filesystem::path& folder)
     Reject([&] { registry->Colour(0, 0, 25); }); Check(registry->Colour(0, 1, 25)[3] == 103, "Authored26th colour was dropped");
     for (auto name : {"persistent-fountain", "persistent-particle"})
     { auto r = EffectsRegistry::Decode(Read(folder / (std::string(name) + ".bun"))); Inspect(r); Check(r->FindGroup(0x81f2a311)->IsPersistent(), "Original persistence threshold failed"); }
+    // Exercise the existing independent BE fixture and native diagnostic
+    // registration for named axes and unknown/high-bit signed metadata. The
+    // original particle-direction switch is not executed by this test.
+    for (const std::int32_t axis : {0, 1, 2, 3, 4, 5, 6, -1, INT32_MIN, INT32_MAX})
+    {
+        const auto raw = Read(folder / ("forward-axis-" + std::to_string(axis) + ".bun"));
+        const auto before = raw;
+        const auto value = EffectsRegistry::Decode(raw);
+        Inspect(value);
+        const auto group = value->FindGroup(0x81f2a311);
+        for (unsigned i = 0; i < group->m_numSpecs; ++i)
+            Check(static_cast<s32>(group->m_specs[i].m_nForwardAxis) == axis,
+                "Signed forward-axis metadata was changed");
+        Check(raw == before, "Effects registration changed independent raw input");
+    }
     auto duplicate = EffectsRegistry::Decode(Read(folder / "duplicate.bun"));
     Check(duplicate->Entries() == 2 && duplicate->Groups() == 2 && duplicate->RegisteredGroups() == 1
         && duplicate->FindGroup(0x81f2a311)->m_specs[0].m_pTemplate->m_uHashID == 21, "Last original group registration did not replace its hash");

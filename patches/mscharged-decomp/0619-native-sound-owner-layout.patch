@@ -1,0 +1,112 @@
+Subject: [PATCH] Preserve original 3D sound owner bit positions and pool entries natively
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native audio ABI contract (shared audio service; flagged for
+the internal audio owner). Depends on the original AudioSystem/XSoundHandle
+sources only.
+
+XSoundOwner overlays its reference count and flags with the 32-bit word that
+the original code also masks directly (SetPosition sets 0x8000, the handle
+destructor tests bit 12). MWCC allocates the bitfields from the most
+significant bit; little-endian native compilers allocate from the least
+significant bit. Natively 0x8000 landed in the reference count, so released
+owners never reached zero references, positions read the pointer as values,
+and the release test read a count bit. Reverse only the little-endian native
+declaration order, as patch 0444 does; widths, masks and methods are unchanged.
+Plat3dSoundSrc's spatial word gets the same treatment: the ball sets its
+square-root pan flag with 0x00800000 and AudioSource reads the interaural
+delay with >> 24.
+
+UpdateAudioSystem finds a released source's pool entry 8 bytes before the
+source: the two 32-bit Wii list links. Natively the links are host pointers;
+the entry is located from the native layout.
+
+Together these left the 3D sound pools non-empty, so quitting a match failed
+the original 400 ms audio-idle check in DestroyGameState and hit its nlBreak.
+diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoundSrc.h
+--- a/include/Game/Audio/Plat3dSoundSrc.h
++++ b/include/Game/Audio/Plat3dSoundSrc.h
+@@ -28,9 +28,17 @@
+         u32 m_SpatialBits;
+         struct
+         {
++#if defined(MSCHARGED_NATIVE) && (defined(_WIN32) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__))
++            // The original also masks this word directly (0x00800000, >> 24).
++            // Keep the MWCC most-significant-first bit positions natively.
++            u32 m_UnknownFlags09 : 23;
++            u32 m_SquareRootPan : 1;
++            u32 m_InterauralDelay : 8;
++#else
+             u32 m_InterauralDelay : 8;
+             u32 m_SquareRootPan : 1;
+             u32 m_UnknownFlags09 : 23;
++#endif
+         } m_Spatial;
+     };
+ };
+diff --git a/include/Game/Audio/XSoundHandle.h b/include/Game/Audio/XSoundHandle.h
+--- a/include/Game/Audio/XSoundHandle.h
++++ b/include/Game/Audio/XSoundHandle.h
+@@ -39,12 +39,23 @@
+         u32 m_ReferencesAndFlags;
+         struct
+         {
++#if defined(MSCHARGED_NATIVE) && (defined(_WIN32) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__))
++            // The original also masks this word directly (0x8000, bit 12).
++            // Keep the MWCC most-significant-first bit positions natively.
++            u32 field_0FFF : 12;
++            u32 field_1000 : 1;
++            u32 zeroVelocity : 1;
++            u32 updatePending : 1;
++            u32 positionIsPointer : 1;
++            s32 references : 16;
++#else
+             s32 references : 16;
+             u32 positionIsPointer : 1;
+             u32 updatePending : 1;
+             u32 zeroVelocity : 1;
+             u32 field_1000 : 1;
+             u32 field_0FFF : 12;
++#endif
+         } count;
+     };
+ };
+diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+--- a/src/Game/Audio/AudioSystem.cpp
++++ b/src/Game/Audio/AudioSystem.cpp
+@@ -90,6 +90,24 @@
+     return handle;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// The Wii pool entry holds two 32-bit links before the source (offset 8).
++// Natively the links are host pointers; locate the entry from the layout.
++static DLListEntry<Plat3dSoundSrc>* NativeSoundSourceEntry(XSoundOwner* owner)
++{
++#if defined(__GNUC__)
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Winvalid-offsetof"
++#endif
++    const unsigned long offset = offsetof(DLListEntry<Plat3dSoundSrc>, entry);
++#if defined(__GNUC__)
++#pragma GCC diagnostic pop
++#endif
++    return reinterpret_cast<DLListEntry<Plat3dSoundSrc>*>(
++        reinterpret_cast<u8*>(static_cast<Plat3dSoundSrc*>(owner)) - offset);
++}
++#endif
++
+ void UpdateAudioSystem(AudioSystem* audio, float dt)
+ {
+     if (!audio->IsInitialized())
+@@ -161,7 +179,11 @@
+         if (owner->count.references == 0)
+         {
+             audio->m_SoundOwnerPool.Remove(&owners);
++#if defined(MSCHARGED_NATIVE)
++            DLListEntry<Plat3dSoundSrc>* entry = NativeSoundSourceEntry(owner);
++#else
+             DLListEntry<Plat3dSoundSrc>* entry = (DLListEntry<Plat3dSoundSrc>*)((u8*)owner - 8);
++#endif
+             nlDLListIterator<Plat3dSoundSrc> instance;
+             instance = audio->m_SoundInstancePool.Begin(entry);
+             audio->m_SoundInstancePool.Remove(&instance);

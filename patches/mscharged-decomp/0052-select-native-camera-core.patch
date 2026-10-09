@@ -1,6 +1,6 @@
 Subject: Select original camera core with native ownership and checked lifecycle
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Separate stack, transitions and pose evaluation from the camera factory, asset
 loader and impostor/gameplay services. Keep native camera allocations paired
@@ -58,7 +58,7 @@ diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
 +#ifdef MSCHARGED_NATIVE
 +#include "runtime/cameras.h"
 +#endif
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/AI/AiUtil.h"
 @@ -28,6 +31,7 @@
@@ -977,7 +977,7 @@ diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -69,15 +69,19 @@
+@@ -70,15 +70,19 @@
  static TweakValueBool g_bDisplayFrameTicker(
      "g_bDisplayFrameTicker", gLastTweakCategory, false);
  

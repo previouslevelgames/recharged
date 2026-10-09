@@ -45,13 +45,13 @@ using AudioInstance = BindExp3<bool,
     Placeholder<0>, Placeholder<1>, AudioInstanceKey>;
 
 struct ShotAtGoalData;
-using DataBase = UnidentifiedQueuedEventBase<ShotAtGoalData>;
+using DataBase = QueuedEventBase<ShotAtGoalData>;
 using DataDispatch = void (DataBase::*)(ShotAtGoalData*, Function<ShotAtGoalData*>, unsigned char);
 using DataBinding = decltype(Bind<void>(MemFun(std::declval<DataDispatch>()),
     std::declval<DataBase*>(), std::declval<ShotAtGoalData*>(),
     std::declval<Function<ShotAtGoalData*>>(), std::declval<Placeholder<0>>()));
 
-using VoidBase = UnidentifiedQueuedEventBase<UnidentifiedEventNoData>;
+using VoidBase = QueuedEventBase<NoEventData>;
 using VoidDispatch = void (VoidBase::*)(VoidBase::Callback, unsigned char);
 using VoidBinding = decltype(Bind<void>(MemFun(std::declval<VoidDispatch>()),
     std::declval<VoidBase*>(), std::declval<VoidBase::Callback>(),

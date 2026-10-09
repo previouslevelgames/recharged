@@ -1,5 +1,6 @@
-# Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 # Native cached32 transport for actual source connection slots; original callback/message widths unchanged.
+diff --git a/src/NL/plat/TransportConnection.cpp b/src/NL/plat/TransportConnection.cpp
 --- a/src/NL/plat/TransportConnection.cpp
 +++ b/src/NL/plat/TransportConnection.cpp
 @@ -1,4 +1,13 @@
@@ -105,6 +106,7 @@
          }
      }
      else if (mState != STATE_7 && !IsClosed())
+diff --git a/src/NL/plat/ReliableSocket.cpp b/src/NL/plat/ReliableSocket.cpp
 --- a/src/NL/plat/ReliableSocket.cpp
 +++ b/src/NL/plat/ReliableSocket.cpp
 @@ -1,4 +1,13 @@
@@ -151,6 +153,7 @@
  }
  
  static TweakIntBinding sTransportLayerLogTweak(
+diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
 --- a/src/Game/LANLobby.cpp
 +++ b/src/Game/LANLobby.cpp
 @@ -1,4 +1,13 @@
@@ -167,11 +170,13 @@
  #include "Game/NetworkSession.h"
  #include "Game/OnlinePlayer.h"
  #include "Game/Sys/debug.h"
-@@ -311,7 +320,7 @@
+@@ -310,8 +319,8 @@
+     if (index == mLocalMachineIndex)
          return (u32)-1;
      int connectionIndex = mPeerInfoList[index].mConnectionIndex;
-     if (connectionIndex != -1 && m_ConnectionPool[connectionIndex].mStatus == 2)
+-    if (connectionIndex != -1 && m_ConnectionPool[connectionIndex].mStatus == LAN_CONNECTION_CONNECTED)
 -        return (u32)m_ConnectionPool[connectionIndex].m_Connection;
++    if (connectionIndex != -1 && m_ConnectionPool[connectionIndex].mStatus == 2)
 +        return TRANSPORT_CONNECTION_WORD(m_ConnectionPool[connectionIndex].m_Connection);
      return 0;
  }
@@ -193,25 +198,29 @@
 +    TransportConnection* entry = TRANSPORT_CONNECTION_POINTER(connection);
      if (!mIsHost)
      {
-         if (mJoinState == 1)
-@@ -432,7 +441,7 @@
+         if (mJoinState == LAN_JOIN_CONNECTING)
+@@ -432,8 +441,8 @@
      if (mIsHost)
      {
          tDebugPrintManager::Print(DC_NETWORK, "Connection attempt accepted by host.  Address %d.%d.%d.%d assigned to connection pool %d\n", address[0], address[1], address[2], address[3], index);
 -        m_ConnectionPool[index].m_Connection = (TransportConnection*)connection;
+-        m_ConnectionPool[index].mStatus = LAN_CONNECTION_CONNECTED;
 +        m_ConnectionPool[index].m_Connection = TRANSPORT_CONNECTION_POINTER(connection);
-         m_ConnectionPool[index].mStatus = 2;
++        m_ConnectionPool[index].mStatus = 2;
          return 1;
      }
-@@ -444,7 +453,7 @@
+     if (mTopology == 0)
+@@ -444,8 +453,8 @@
              if (memcmp(mPeerInfoList[peer].mAddress.bytes, address, 4) == 0)
              {
                  tDebugPrintManager::Print(DC_NETWORK, "Connection attempt accepted by client.  Address %d.%d.%d.%d assigned to connection pool %d\n", address[0], address[1], address[2], address[3], index);
 -                m_ConnectionPool[index].m_Connection = (TransportConnection*)connection;
+-                m_ConnectionPool[index].mStatus = LAN_CONNECTION_CONNECTED;
 +                m_ConnectionPool[index].m_Connection = TRANSPORT_CONNECTION_POINTER(connection);
-                 m_ConnectionPool[index].mStatus = 2;
++                m_ConnectionPool[index].mStatus = 2;
                  mPeerInfoList[peer].mConnectionIndex = index;
                  return 1;
+             }
 @@ -466,7 +475,7 @@
      for (int index = 0; index < 8; ++index)
      {
@@ -223,7 +232,7 @@
              {
 @@ -641,7 +650,7 @@
          {
-             if (m_ConnectionPool[index].mStatus != 0)
+             if (m_ConnectionPool[index].mStatus != LAN_CONNECTION_FREE)
              {
 -                mSocket->Send((u32)m_ConnectionPool[index].m_Connection, buffer, size, true);
 +                mSocket->Send(TRANSPORT_CONNECTION_WORD(m_ConnectionPool[index].m_Connection), buffer, size, true);
@@ -258,7 +267,7 @@
  
  void LANLobby::ProcessJoinRequest(int index, NetMessageJoinRequest* message)
 @@ -959,7 +968,7 @@
-     case 4:
+     case NETMSG_JOIN_REQUEST:
          if (mIsHost)
          {
 -            int index = GetConnectionIndex((TransportConnection*)message->mSource);
@@ -267,7 +276,7 @@
                  ProcessJoinRequest(index, static_cast<NetMessageJoinRequest*>(message));
              else
 @@ -969,7 +978,7 @@
-     case 5:
+     case NETMSG_JOIN_RESPONSE:
          if (!mIsHost)
          {
 -            int index = GetConnectionIndex((TransportConnection*)message->mSource);
@@ -276,7 +285,7 @@
                  ProcessJoinResponse(index, static_cast<NetMessageJoinResponse*>(message));
              else
 @@ -979,7 +988,7 @@
-     case 7:
+     case NETMSG_GAME_PEER_ADDED:
          if (!mIsHost)
          {
 -            int index = GetConnectionIndex((TransportConnection*)message->mSource);

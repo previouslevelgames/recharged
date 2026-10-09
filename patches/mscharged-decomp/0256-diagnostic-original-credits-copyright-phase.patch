@@ -1,13 +1,13 @@
 From: mscharged-port source integration
 Subject: [PATCH] Admit original Credits COPYRIGHTS in the named scene diagnostic
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
 Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
 
 diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 --- a/src/Game/SH/SHCredits.cpp
 +++ b/src/Game/SH/SHCredits.cpp
-@@ -109,12 +109,16 @@
+@@ -118,13 +118,17 @@
      mTimeElapsed = 0.0f;
  
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
@@ -23,37 +23,43 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
 +#endif
      switch (mPhase)
      {
+-    case CREDITS_NLG_INTRO:
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
-     case 1:
++    case 1:
          if (IsWidescreen())
          {
-@@ -143,15 +147,23 @@
+             mPresentation->SetActiveSlide("NLG", true);
+@@ -152,16 +156,24 @@
          FEAudio::PlayAnimAudioEvent(0xF394C076, 0, 0, 1);
          BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
          break;
+-    case CREDITS_SCROLL:
 +#endif
-     case 2:
++    case 2:
          SetupForCredits();
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
          BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
 -        break;
+-    case CREDITS_COPYRIGHT:
 +#endif
 +        break;
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
-     case 3:
++    case 3:
          mPresentation->SetActiveSlide("COPYRIGHTS", true);
          mPresentation->m_currentSlide->Update(0.0f);
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
          BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
 -        break;
+-    case CREDITS_FINISHED:
 +#endif
 +        break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
-     case 4:
++    case 4:
          FEAudio::PlayAnimAudioEvent(0xBB142B94, 0, 0, 1);
          GameSceneManager::Instance()->Push(mNextScene, SCREEN_NOTHING, true);
-@@ -175,8 +187,8 @@
+         if (mNextScene == SCENE_OPTIONS)
+@@ -184,8 +196,8 @@
              pStadium->m_bRenderingEnabled = true;
          }
          break;
@@ -64,7 +70,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  }
  
  void CreditScene::OnMoviePlaybackEnded()
-@@ -377,7 +389,7 @@
+@@ -386,7 +398,7 @@
                  quitcredits = true;
              }
          }
@@ -73,7 +79,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
          else if (g_pFEInput->JustPressed(FE_ALL_PADS, 0x20, true, 0)
                   || g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0))
          {
-@@ -403,7 +415,7 @@
+@@ -412,7 +424,7 @@
          }
          ++mPhase;
          SetupForPhase();

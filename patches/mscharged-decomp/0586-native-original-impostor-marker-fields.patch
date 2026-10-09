@@ -1,5 +1,5 @@
 Subject: Preserve native impostor marker field widths
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Read the original two usage fields from the actual native GLResourceMarker.
 The capture/cache/resource order and two-zero condition are unchanged.

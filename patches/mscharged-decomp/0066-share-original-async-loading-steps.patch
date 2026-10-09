@@ -1,6 +1,6 @@
 Subject: Share original async loading sequence, stage readiness and persistent pool inputs
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep the original sequence switch and readiness/yield equations shared with a
 bounded native boot owner. Select source-defined pool requirements and original
@@ -184,21 +184,22 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
  static const char* lbl_806E103C;
  static BaseSceneHandler* lbl_806E1040;
-@@ -191,12 +193,7 @@
+@@ -190,12 +192,8 @@
+         ((EventBase*)(*owner)->mEvent)->Disconnect(owner);
      }
  }
- 
 -struct PersistentResourceRequirements
 -{
 -    GLMemoryRequirement entries[2];
 -};
 -
 -extern PersistentResourceRequirements gPersistentResourceRequirements;
++
 +#include "Game/AsyncLoadingShared.h"
  
  static inline bool IsTeamInCurrentGame(int team)
  {
-@@ -226,24 +223,15 @@
+@@ -225,24 +223,15 @@
  
  static inline void FinishLoadingStep(AsyncLoadingManager* manager)
  {
@@ -227,7 +228,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  }
  
  extern "C" void fn_80116988(AudioResourceLoadOwner*, void* context)
-@@ -1172,117 +1160,7 @@
+@@ -1171,117 +1160,7 @@
      manager->SetLoadingComment("No Loading Comment");
  
      bool completed = false;
@@ -346,7 +347,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
      if (result == ASYNC_LOADING_NO_TRANSITION)
      {
-@@ -2256,6 +2134,8 @@
+@@ -2255,6 +2134,8 @@
      }
  }
  
@@ -379,7 +380,7 @@ new file mode 100644
 diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
 --- a/src/Game/Task/FixedUpdateTask.cpp
 +++ b/src/Game/Task/FixedUpdateTask.cpp
-@@ -48,17 +48,21 @@
+@@ -49,17 +49,21 @@
  static u16 sSimulationTimeType = 0xFFFF;
  static u16 sTimeScaleType = 0xFFFF;
  

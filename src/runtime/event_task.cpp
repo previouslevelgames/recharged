@@ -33,7 +33,7 @@ std::string VerifyStartupQueuedEvents()
         InitializeDispatchEventsTask();
         int received = 0, disposed = 0;
         {
-            UnidentifiedQueuedEvent<int> event(&gDispatchEventsTask->dispatcher, "NativeQueuedStartup", -1);
+            QueuedEvent<int> event(&gDispatchEventsTask->dispatcher, "NativeQueuedStartup", -1);
             EventConnectionOwner owner;
             Function<int*> listener([&](int* data) { received += *data; });
             Function<int*> disposer([&](int* data) { ++disposed; nlFree(data); });

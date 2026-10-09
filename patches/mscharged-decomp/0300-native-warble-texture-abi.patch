@@ -1,6 +1,6 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Preserve PPC Warble texture bitfields and raw palette reads natively
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep the original palette bytes for GX. Adapt only the CPU BE16 scalar read
 and the MWCC/PPC two-bit packed-row field, whose native allocation order differs.

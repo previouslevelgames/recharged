@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Adapt original audio resource metadata to native ABI
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain the whole Matching source parsers, chunk traversal, AVL/cue lookup,
 loops and rebasing decisions. Native allocation-owned POD views decode Wii32
@@ -239,21 +239,24 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
              eventIndex < sequence->eventCount;
              eventIndex++, event++)
          {
-             if (event->type == 1)
+-            if (event->type == AUDIO_EVENT_SOUND)
++            if (event->type == 1)
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +                event->sound = (SoundEventDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(event->sound, soundEventOffset);
 +#else
                  event->sound = (SoundEventDefinition*)((u8*)event->sound
                                                         + soundEventOffset);
+-            else if (event->type == AUDIO_EVENT_MARKER)
 +#endif
-             else if (event->type == 3)
++            else if (event->type == 3)
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +                event->hitMarker = (HitMarkerEventDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(event->hitMarker, hitMarkerEventOffset);
 +#else
                  event->hitMarker = (HitMarkerEventDefinition*)((u8*)event->hitMarker
                                                                 + hitMarkerEventOffset);
+-            else if (event->type == AUDIO_EVENT_PARAMETER)
 +#endif
-             else if (event->type == 2)
++            else if (event->type == 2)
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +                event->parameter = (ParameterChangeEventDefinition*)mscharged::platform::RelocateNativeAudioResourceRecord(event->parameter, parameterEventOffset);
 +#else

@@ -1,6 +1,6 @@
 Subject: Adapt original event ownership, delivery and registry lifetime
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Keep original event hashing, AVL registration, listener ordering and callback
 transfer. Native owners retain full addresses; flags/counts use explicit masks
@@ -155,7 +155,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 +
 +    virtual void Add(const Callback& callback, EventOwnerHandle value, int flags)
      {
-         UnidentifiedAddListener(callback, value, flags);
+         AddListener(callback, value, flags);
      }
 @@ -398,6 +451,9 @@
  
@@ -192,7 +192,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  protected:
      // Add hands the listener its callback by reference: retail's copies
      // clear the caller's Function instead of cloning it.
-     void UnidentifiedAddListener(
+     void AddListener(
 -        const Callback& callback, unsigned int value, int flags)
 -    {
 +        const Callback& callback, EventOwnerHandle value, int flags)
@@ -202,7 +202,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 +#else
          Listener* listener = mListeners.AllocateAtEnd(0);
  
-         listener->callback.UnidentifiedTransfer(callback);
+         listener->callback.TransferFrom(callback);
          RegisterEventConnection(this, listener, value, flags);
 +#endif
      }
@@ -210,7 +210,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      void Remove(Listener* listener);
 @@ -484,6 +549,9 @@
  template <typename T>
- UnidentifiedEvent<T>::~UnidentifiedEvent()
+ Event<T>::~Event()
  {
 +#ifdef MSCHARGED_NATIVE
 +    this->NativeCheckDestruction();
@@ -220,7 +220,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  }
 @@ -502,6 +570,9 @@
  template <typename T>
- void UnidentifiedEvent<T>::Remove(Listener* listener)
+ void Event<T>::Remove(Listener* listener)
  {
 +#ifdef MSCHARGED_NATIVE
 +    mscharged::RemoveEventListener(*this, mListeners, listener);
@@ -236,8 +236,8 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  }
  
  template <typename T>
- DLListEntry<UnidentifiedListener<T> >*
- UnidentifiedEvent<T>::GetEntry(Listener* listener)
+ DLListEntry<EventListener<T> >*
+ Event<T>::GetEntry(Listener* listener)
  {
 +#ifdef MSCHARGED_NATIVE
 +    return mscharged::EventEntry(mListeners, listener);
@@ -258,7 +258,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 +#endif
      }
  
-     virtual ~UnidentifiedTypedEvent3() { }
+     virtual ~TypedEvent3() { }
      virtual void Disconnect(void* owner) = 0;
 -    virtual void Add(Callback, unsigned int, int) = 0;
 -
@@ -271,13 +271,13 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      static void* sType;
  
 @@ -604,7 +687,7 @@
-     typedef typename UnidentifiedEvent<T>::Callback Callback;
+     typedef typename Event<T>::Callback Callback;
  
-     virtual void Add(const typename UnidentifiedEvent<T>::Callback& callback,
+     virtual void Add(const typename Event<T>::Callback& callback,
 -        unsigned int value, int flags)
 +        EventOwnerHandle value, int flags)
      {
-         this->UnidentifiedAddListener(callback, value, flags);
+         this->AddListener(callback, value, flags);
      }
 diff --git a/include/Game/EventConnection.h b/include/Game/EventConnection.h
 --- a/include/Game/EventConnection.h
@@ -317,7 +317,7 @@ diff --git a/include/Game/EventRegistry.h b/include/Game/EventRegistry.h
 +++ b/include/Game/EventRegistry.h
 @@ -20,9 +20,15 @@
  template <typename T>
- inline typename UnidentifiedEventInterface<T>::Type* UnidentifiedFindEvent(const char* name, int length)
+ inline typename EventInterface<T>::Type* FindEvent(const char* name, int length)
  {
 +#ifdef MSCHARGED_NATIVE
 +    CheckNativeEventThread();
@@ -328,12 +328,12 @@ diff --git a/include/Game/EventRegistry.h b/include/Game/EventRegistry.h
 +#ifdef MSCHARGED_NATIVE
 +    if (value && value->type != UnidentifiedTypedEvent<T>::NativeType()) return 0;
 +#endif
-     return value != 0 ? (typename UnidentifiedEventInterface<T>::Type*)value->event : 0;
+     return value != 0 ? (typename EventInterface<T>::Type*)value->event : 0;
  }
  
-diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedStaticEvent.h
---- a/include/Game/UnidentifiedStaticEvent.h
-+++ b/include/Game/UnidentifiedStaticEvent.h
+diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
+--- a/include/Game/StaticEvent.h
++++ b/include/Game/StaticEvent.h
 @@ -26,17 +26,24 @@
  
      void RemoveAll()
@@ -352,7 +352,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
 +    virtual void Add(const Callback& callback, EventOwnerHandle value, int flags);
      virtual void Disconnect(void* owner);
  
-     void Deliver(typename UnidentifiedEventCallback<T>::Parameter data)
+     void Deliver(typename EventCallbackTraits<T>::Parameter data)
      {
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::DeliverEvent(*this, mListeners, [data](auto& callback) { callback(data); });
@@ -413,7 +413,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
      void DeleteListener(Listener* listener)
 @@ -132,6 +152,9 @@
  template <typename T, int Count>
- UnidentifiedStaticEvent<T, Count>::~UnidentifiedStaticEvent()
+ StaticEvent<T, Count>::~StaticEvent()
  {
 +#ifdef MSCHARGED_NATIVE
 +    this->NativeCheckDestruction();
@@ -424,7 +424,7 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
 @@ -145,8 +168,11 @@
  
  template <typename T, int Count>
- void UnidentifiedStaticEvent<T, Count>::Add(
+ void StaticEvent<T, Count>::Add(
 -    const Callback& callback, unsigned int value, int flags)
 +    const Callback& callback, EventOwnerHandle value, int flags)
  {
@@ -436,12 +436,12 @@ diff --git a/include/Game/UnidentifiedStaticEvent.h b/include/Game/UnidentifiedS
      new (entry) ListenerEntry;
 @@ -155,6 +181,7 @@
  
-     listener->callback.UnidentifiedTransfer(callback);
+     listener->callback.TransferFrom(callback);
      RegisterEventConnection(this, listener, value, flags);
 +#endif
  }
  
- #endif // GAME_UNIDENTIFIED_STATIC_EVENT_H
+ #endif // GAME_STATIC_EVENT_H
 diff --git a/include/Game/UnidentifiedStaticEvent3.h b/include/Game/UnidentifiedStaticEvent3.h
 new file mode 100644
 --- /dev/null
@@ -610,7 +610,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
 +++ b/include/NL/nlFunction.h
 @@ -113,11 +113,20 @@
      // holds by const reference while handing over ownership.
-     void UnidentifiedTransfer(const Function0& other)
+     void TransferFrom(const Function0& other)
      {
 +#ifdef MSCHARGED_NATIVE
 +            if (this == &other) return;
@@ -651,7 +651,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
  };
 @@ -280,11 +298,20 @@
      // holds by const reference while handing over ownership.
-     void UnidentifiedTransfer(const Function1& other)
+     void TransferFrom(const Function1& other)
      {
 +#ifdef MSCHARGED_NATIVE
 +            if (this == &other) return;
@@ -692,7 +692,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
  };
 @@ -605,10 +641,19 @@
  
-     void UnidentifiedTransfer(Function3& other)
+     void TransferFrom(Function3& other)
      {
 +#ifdef MSCHARGED_NATIVE
 +            if (this == &other) return;
@@ -741,24 +741,24 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 -// template members are defined out of class, so they are instantiated with
 -// the event's own destructor after the unit's vtables.
 -template <typename P1, typename P2, typename P3, int Count>
--class UnidentifiedStaticEvent3
--    : public UnidentifiedTypedEvent3<P1, P2, P3>
+-class StaticEvent3
+-    : public TypedEvent3<P1, P2, P3>
 -{
--    typedef UnidentifiedListener3<P1, P2, P3> Listener;
+-    typedef EventListener3<P1, P2, P3> Listener;
 -    typedef DLListEntry<Listener> ListenerEntry;
 -    typedef nlStaticArrayAllocator<ListenerEntry, Count> ListenerPool;
 -    typedef Function<void(P1, P2, P3)> Callback;
 -
 -public:
--    UnidentifiedStaticEvent3(const char* name, int length)
--        : UnidentifiedTypedEvent3<P1, P2, P3>(name, length)
+-    StaticEvent3(const char* name, int length)
+-        : TypedEvent3<P1, P2, P3>(name, length)
 -        , mListeners()
 -    {
 -        RegisterEvent(
--            this, UnidentifiedTypedEvent3<P1, P2, P3>::sType);
+-            this, TypedEvent3<P1, P2, P3>::sType);
 -    }
 -
--    virtual ~UnidentifiedStaticEvent3();
+-    virtual ~StaticEvent3();
 -
 -    void RemoveAll()
 -    {
@@ -836,14 +836,14 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 -};
 -
 -template <typename P1, typename P2, typename P3, int Count>
--UnidentifiedStaticEvent3<P1, P2, P3, Count>::~UnidentifiedStaticEvent3()
+-StaticEvent3<P1, P2, P3, Count>::~StaticEvent3()
 -{
 -    RemoveAll();
 -    UnregisterEvent(this);
 -}
 -
 -template <typename P1, typename P2, typename P3, int Count>
--void UnidentifiedStaticEvent3<P1, P2, P3, Count>::Add(
+-void StaticEvent3<P1, P2, P3, Count>::Add(
 -    Callback callback, unsigned int value, int flags)
 -{
 -    ListenerEntry* entry;
@@ -852,22 +852,22 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
 -    nlDLRingAddEnd(&mListeners.m_Head, entry);
 -    Listener* listener = &entry->entry;
 -
--    listener->callback.UnidentifiedTransfer(callback);
+-    listener->callback.TransferFrom(callback);
 -    RegisterEventConnection(this, listener, value, flags);
 -}
 -
 -template <typename P1, typename P2, typename P3, int Count>
--void UnidentifiedStaticEvent3<P1, P2, P3, Count>::Disconnect(void* owner)
+-void StaticEvent3<P1, P2, P3, Count>::Disconnect(void* owner)
 -{
 -    Listener* listener = (Listener*)FindEventConnection(this, owner);
 -    Remove(listener);
 -}
 -
--class PadDeviceChangedEvent : public UnidentifiedStaticEvent3<int, int, int, 5>
+-class PadDeviceChangedEvent : public StaticEvent3<int, int, int, 5>
 -{
 -public:
 -    PadDeviceChangedEvent()
--        : UnidentifiedStaticEvent3<int, int, int, 5>("DeviceChanged", -1)
+-        : StaticEvent3<int, int, int, 5>("DeviceChanged", -1)
 -    {
 -    }
 -

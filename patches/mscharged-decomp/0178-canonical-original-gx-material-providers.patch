@@ -1,5 +1,5 @@
 Subject: Select canonical SDK declarations for original GX material providers
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 The ten paired programs retain every original method, initialization request,
 loop, material state/scroller branch and array operand. Select canonical native
@@ -65,7 +65,7 @@ diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/
  #include <revolution/gx.h>
 +#endif
  #include "Game/GameObjectLighting.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "NL/gl/glMaterialParameters.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/mtx.h>
@@ -112,7 +112,7 @@ diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GX
  #include <revolution/gx.h>
 +#endif
  #include "Game/GameObjectLighting.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "NL/gl/glMaterialParameters.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/mtx.h>
@@ -186,7 +186,7 @@ diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/
  #include <revolution/gx.h>
 +#endif
  #include "Game/GameObjectLighting.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "NL/gl/glMaterialParameters.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/mtx.h>
@@ -332,7 +332,7 @@ diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/
  #include <revolution/gx.h>
 +#endif
  #include "Game/GameObjectLighting.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  #include "NL/gl/glMaterialParameters.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/mtx.h>

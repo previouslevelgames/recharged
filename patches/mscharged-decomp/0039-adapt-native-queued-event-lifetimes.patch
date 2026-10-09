@@ -1,6 +1,6 @@
 Subject: Adapt original queued dispatch and payload lifetimes
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retain original callback order and one-batch/full-drain modes with native
 counter widths, transactional callback insertion, exception/cancellation cleanup,
@@ -15,19 +15,19 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 +++ b/include/Game/Event.h
 @@ -679,10 +679,22 @@
          EventDispatcher* dispatcher, const char* name, int length)
-         : UnidentifiedEvent<T>(name, length)
+         : Event<T>(name, length)
          , mDispatcher(dispatcher)
 -    {
 -    }
 -
--    virtual ~UnidentifiedQueuedEventBase() { }
+-    virtual ~QueuedEventBase() { }
 +#ifdef MSCHARGED_NATIVE
 +        , mNativeQueue(mscharged::CreateQueuedEventLifetime(dispatcher, this))
 +#endif
 +    {
 +    }
 +
-+    virtual ~UnidentifiedQueuedEventBase()
++    virtual ~QueuedEventBase()
 +    {
 +#ifdef MSCHARGED_NATIVE
 +        this->NativeCheckDestruction();
@@ -38,7 +38,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
 +    void CancelPending() { mscharged::CancelQueuedEvent(mNativeQueue, false); }
 +#endif
  
-     typedef typename UnidentifiedEvent<T>::Callback Callback;
+     typedef typename Event<T>::Callback Callback;
  
 @@ -694,6 +706,10 @@
  
@@ -84,34 +84,34 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  template <typename T>
 @@ -743,23 +768,35 @@
  template <typename T>
- void UnidentifiedQueuedEvent<T>::Queue(T* data, const Function<T*>& disposer)
+ void QueuedEvent<T>::Queue(T* data, const Function<T*>& disposer)
  {
 +#ifdef MSCHARGED_NATIVE
 +    mscharged::QueueNativeEvent(this->mNativeQueue, this->mDispatcher,
-+        [data](void* target) { static_cast<UnidentifiedQueuedEventBase<T>*>(target)->Deliver(data); },
++        [data](void* target) { static_cast<QueuedEventBase<T>*>(target)->Deliver(data); },
 +        [data, disposer] { if (disposer) disposer(data); });
 +#else
-     typedef void (UnidentifiedQueuedEventBase<T>::*DispatchFunction)(
+     typedef void (QueuedEventBase<T>::*DispatchFunction)(
          T*, Function<T*>, unsigned char);
      Function<bool> callback(
-         Bind<void>(MemFun((DispatchFunction)&UnidentifiedQueuedEventBase<T>::Dispatch),
+         Bind<void>(MemFun((DispatchFunction)&QueuedEventBase<T>::Dispatch),
              this, data, disposer, placeholder0));
      this->mDispatcher->Add(callback);
 +#endif
  }
  
  template <typename T>
- void UnidentifiedQueuedEvent<T>::Queue(const Callback& disposer)
+ void QueuedEvent<T>::Queue(const Callback& disposer)
  {
 +#ifdef MSCHARGED_NATIVE
 +    mscharged::QueueNativeEvent(this->mNativeQueue, this->mDispatcher,
-+        [](void* target) { static_cast<UnidentifiedQueuedEventBase<T>*>(target)->Deliver(); },
++        [](void* target) { static_cast<QueuedEventBase<T>*>(target)->Deliver(); },
 +        [disposer] { if (disposer) disposer(); });
 +#else
-     typedef void (UnidentifiedQueuedEventBase<T>::*DispatchFunction)(
+     typedef void (QueuedEventBase<T>::*DispatchFunction)(
          Callback, unsigned char);
      Function<bool> callback(
-         Bind<void>(MemFun((DispatchFunction)&UnidentifiedQueuedEventBase<T>::Dispatch),
+         Bind<void>(MemFun((DispatchFunction)&QueuedEventBase<T>::Dispatch),
              this, disposer, placeholder0));
      this->mDispatcher->Add(callback);
 +#endif

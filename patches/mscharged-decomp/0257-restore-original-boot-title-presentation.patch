@@ -1,5 +1,5 @@
 Subject: Restore whole original boot, title and presentation source
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Retire production0087/0101/0113/0127 method substitutions. Original
 source decisions remain; only address-bearing32-bit VM words use the
@@ -602,15 +602,17 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
          break;
      }
      case 2:
-@@ -50,7 +59,7 @@
+@@ -50,8 +59,8 @@
      case 6:
      {
          unsigned int value = m_SP[-1];
 -        m_SP[-1] = nlStringHash((const char*)value);
+-        if (m_RunState == INTERPRETER_SUSPENDED)
 +        m_SP[-1] = nlStringHash(MSCHARGED_FE_VM_STRING(value));
-         if (m_RunState == 3)
++        if (m_RunState == 3)
          {
              m_SP[-1] = value;
+         }
 @@ -72,8 +81,8 @@
          const char* animationName;
          FEModelHandle* object;
@@ -624,7 +626,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
          unsigned int isPlaying;
 @@ -89,7 +98,7 @@
          m_SP[-1] = isPlaying;
-         if (m_RunState == 3)
+         if (m_RunState == INTERPRETER_SUSPENDED)
          {
 -            m_SP[-1] = (unsigned int)objectName;
 +            m_SP[-1] = MSCHARGED_FE_VM_ADDRESS(objectName);

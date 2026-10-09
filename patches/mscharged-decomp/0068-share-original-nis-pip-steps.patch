@@ -1,6 +1,6 @@
 Subject: Share original NIS picture-in-picture rectangles, timing and target settings
 
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Share the original fixed/expanding rectangles, strict expansion completion and
 camera-swap decisions without selecting Holotron or full NisPlayer dependencies.
@@ -100,7 +100,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  int NisPlayerCameraSwapOverlay::Update(float dt)
  {
 -    mPlayer->SwapCameras();
--    return 1;
+-    return NIS_OVERLAY_PIP;
 +    return AdvanceNisPipSwap(mPlayer);
  }
  
@@ -128,7 +128,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 -    mTime += dt;
 -    if (mTime <= mDuration)
 -    {
--        return 3;
+-        return NIS_OVERLAY_PIP_EXPAND;
 -    }
 -
 -    mPlayer->SwapCameras();
@@ -140,7 +140,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerPIPExpandOverlay::GetOverlayType()
 +{
-+    return 1;
++    return NIS_OVERLAY_PIP;
 +}
 +
 +/**
@@ -148,7 +148,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerCameraSwapOverlay::GetOverlayType()
 +{
-+    return 1;
++    return NIS_OVERLAY_PIP;
 +}
 +
 +/**
@@ -156,7 +156,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerHolotronOverlay::GetOverlayType()
 +{
-+    return 4;
++    return NIS_OVERLAY_HOLOTRON;
 +}
 +
 +/**
@@ -164,7 +164,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerHolotronOverlay::Update(float dt)
 +{
-+    return 4;
++    return NIS_OVERLAY_HOLOTRON;
 +}
 +
 +/**
@@ -172,7 +172,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerPIPOverlay::GetOverlayType()
 +{
-+    return 1;
++    return NIS_OVERLAY_PIP;
 +}
 +
 +/**
@@ -180,7 +180,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerPIPOverlay::Update(float dt)
 +{
-+    return 1;
++    return NIS_OVERLAY_PIP;
 +}
 +
 +/**
@@ -188,7 +188,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerNoOverlay::GetOverlayType()
 +{
-     return 0;
+     return NIS_OVERLAY_NONE;
  }
  
  /**
@@ -196,7 +196,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerPIPExpandOverlay::GetOverlayType()
 -{
--    return 1;
+-    return NIS_OVERLAY_PIP;
 -}
 -
 -/**
@@ -204,7 +204,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerCameraSwapOverlay::GetOverlayType()
 -{
--    return 1;
+-    return NIS_OVERLAY_PIP;
 -}
 -
 -/**
@@ -212,7 +212,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerHolotronOverlay::GetOverlayType()
 -{
--    return 4;
+-    return NIS_OVERLAY_HOLOTRON;
 -}
 -
 -/**
@@ -220,7 +220,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerHolotronOverlay::Update(float dt)
 -{
--    return 4;
+-    return NIS_OVERLAY_HOLOTRON;
 -}
 -
 -/**
@@ -228,7 +228,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerPIPOverlay::GetOverlayType()
 -{
--    return 1;
+-    return NIS_OVERLAY_PIP;
 -}
 -
 -/**
@@ -236,7 +236,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerPIPOverlay::Update(float dt)
 -{
--    return 1;
+-    return NIS_OVERLAY_PIP;
 -}
 -
 -/**
@@ -247,7 +247,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 + */
 +int NisPlayerNoOverlay::Update(float dt)
  {
-     return 0;
+     return NIS_OVERLAY_NONE;
  }
  
 -/**
@@ -255,7 +255,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
 - */
 -int NisPlayerNoOverlay::Update(float dt)
 -{
--    return 0;
+-    return NIS_OVERLAY_NONE;
 -}
 -
  NisPlayerNoOverlay::~NisPlayerNoOverlay()

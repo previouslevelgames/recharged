@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Decode native Wii data read by original match-loading consumers
-Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 E13 native data transport for Matching units that read big-endian Wii data
 directly during match loading. On the Wii these are plain big-endian loads; on
@@ -34,17 +34,17 @@ native branches decode the data.
 diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
 --- a/src/Game/Drawable/DrawableCharacter.cpp
 +++ b/src/Game/Drawable/DrawableCharacter.cpp
-@@ -31,6 +31,9 @@
+@@ -33,6 +33,9 @@
  #include "NL/nlTask.h"
  #include "NL/gl/glTexture.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/gx_data_transport.h"
 +#endif
  
  static int g_nOnscreenUpdate[3] = { 2, 2, 2 };
  static int g_nOffscreenUpdate[3] = { 4, 4, 4 };
-@@ -932,7 +935,12 @@
+@@ -934,7 +937,12 @@
      shadowColour.c[0] = channel;
      shadowColour.c[1] = channel;
      shadowColour.c[2] = channel;
@@ -245,7 +245,7 @@ diff --git a/src/Game/Render/SkinAnimatedNPC.cpp b/src/Game/Render/SkinAnimatedN
 @@ -21,6 +21,9 @@
  #include "NL/nlMemory.h"
  #include "NL/nlString.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/gx_data_transport.h"
 +#endif

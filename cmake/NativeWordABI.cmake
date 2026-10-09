@@ -7,7 +7,7 @@ function(mscharged_add_native_word_checks prepared_dir aurora_dir verification_t
         return()
     endif()
     get_filename_component(_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
-    foreach(_case IN ITEMS audio_context_abi emission_owner_word replay_word_abi shared_host_abi)
+    foreach(_case IN ITEMS audio_context_abi serialized_enum_abi emission_owner_word replay_word_abi shared_host_abi)
         set(_target "native_${_case}_tests")
         add_executable("${_target}" "${_root}/tests/native_${_case}.cpp")
         add_dependencies("${_target}" "${verification_target}")

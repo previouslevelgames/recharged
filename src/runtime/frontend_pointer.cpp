@@ -131,7 +131,7 @@ struct Event
 {
     int mIndex=-1;
     nlVector2 mPosition=Vector({-9999.9f,-9999.9f});
-    bool mPressed=false,mReleased=false,mUnidentified0E=false;
+    bool mPressed=false,mReleased=false,mAuxiliaryTriggered=false;
 };
 }
 FrontendPointerBounds MeasureFrontendPointerBounds(const FrontendSession::Handle& frame,const FrontendPointerBinding& binding)
@@ -187,7 +187,7 @@ struct FrontendPointerRegion::Implementation
     void OnPointerUpdate(int index,void*){Emit(FrontendPointerCallback::Update,index);}
     void OnPointerInside(int index,void*){Emit(FrontendPointerCallback::Inside,index);}
     void OnPointerPress(int index,void*){Emit(FrontendPointerCallback::Press,index);}
-    void UnidentifiedVirtual24(int index,void*){Emit(FrontendPointerCallback::Unidentified,index);}
+    void OnPointerAuxiliaryAction(int index,void*){Emit(FrontendPointerCallback::Unidentified,index);}
     void OnPointerLeave(int index,void*){Emit(FrontendPointerCallback::Leave,index);}
     void OnPointerRelease(int index,void*){Emit(FrontendPointerCallback::Release,index);}
 };
@@ -231,7 +231,7 @@ void FrontendPointerRegion::Deliver(const FrontendPointerEvent& event)
 {
     impl_->Mutable();Check(event.index<4,"Frontend pointer index exceeds four original pointers");Point(event.position);
     Event native;native.mIndex=int(event.index);native.mPosition=Vector(event.position);
-    native.mPressed=event.pressed;native.mReleased=event.released;native.mUnidentified0E=event.unidentified;
+    native.mPressed=event.pressed;native.mReleased=event.released;native.mAuxiliaryTriggered=event.unidentified;
     struct InputView { unsigned m_InputLockDepth; } input{unsigned(impl_->input.InputLocked())};
     impl_->busy=true;struct Guard{bool& busy;~Guard(){busy=false;}}guard{impl_->busy};
     FrontendPointerProcess(*impl_,&native,&input);

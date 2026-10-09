@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Retain native raw audio pins through original allocation lifetime
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Original Backend allocator/silence requests remain at their source positions.
 A pre-reserved native device lease pins each fresh owned RawBytes buffer.

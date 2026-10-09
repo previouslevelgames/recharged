@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original silence buffer hardware words
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Replace only native pointer submissions with the existing checked cached Wii
 word for the actual 0x500-byte source allocation, then keep original u32 times-two
@@ -15,9 +15,9 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
 +#include "platform/native_sp_table.h"
 +#endif
  #include "revolution/types.h"
+ #include "Game/Audio/AudioEffect.h"
  #include "NL/nlDLListContainer.inl"
- #include "Game/Audio/AudioSource.h"
-@@ -218,7 +221,12 @@
+@@ -219,7 +222,12 @@
                  if (!canLoop)
                  {
                      AXSetVoiceLoop(m_Voice, false);
@@ -30,7 +30,7 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
                  }
              }
              m_LastVoiceAddress = address;
-@@ -253,7 +261,12 @@
+@@ -254,7 +262,12 @@
          if (m_Voice != 0)
          {
              AXSetVoiceState(m_Voice, AX_VOICE_STOP);
@@ -43,7 +43,7 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
          }
          OSRestoreInterrupts(enabled);
          break;
-@@ -744,7 +757,12 @@
+@@ -745,7 +758,12 @@
              {
                  unsigned int end = GetStreamEndAddress(channel->m_Voice, m_StreamEndPosition);
                  AXSetVoiceLoop(channel->m_Voice, false);

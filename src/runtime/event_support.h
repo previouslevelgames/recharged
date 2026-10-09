@@ -127,7 +127,7 @@ void AddEventListener(Event& event, List& list, Callback& callback,
     listener.mNativeEntry = entry;
     try { RegisterEventConnection(&event, &listener, owner, group); }
     catch (...) { entry->~Entry(); list.m_Allocator.Free(entry); throw; }
-    listener.callback.UnidentifiedTransfer(callback);
+    listener.callback.TransferFrom(callback);
     nlDLRingAddEnd(&list.m_Head, entry);
 }
 }

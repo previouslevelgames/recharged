@@ -34,7 +34,7 @@ static_assert(std::is_trivially_copyable_v<ChallengeCompletionDate>);
 // CupManager backing. All16 bits are represented; no padding/flags are cleared.
 struct CupUnlockBits {
     u16 mUnlockFlags : 9;
-    u16 mUnidentified86AD : 7;
+    u16 m_pad86AD : 7;
 };
 static_assert(sizeof(CupUnlockBits)==2);
 using Bytes = unsigned char;
@@ -99,11 +99,11 @@ void Date(Bytes* p, bool encode) {
     if(encode) {
         std::memcpy(&record,p,sizeof(record));
         Store32(p,OriginalSaveWord((std::uint32_t(record.mDay)<<27)|(record.mMonth<<23)
-            |(record.mYearOffset<<13)|record.mUnidentified));
+            |(record.mYearOffset<<13)|record.m_pad00));
     } else {
         const auto word=OriginalSaveWord(Load32(p));
         record.mDay=word>>27; record.mMonth=(word>>23)&15;
-        record.mYearOffset=(word>>13)&1023; record.mUnidentified=word&8191;
+        record.mYearOffset=(word>>13)&1023; record.m_pad00=word&8191;
         std::memcpy(p,&record,sizeof(record));
     }
 }
@@ -120,11 +120,11 @@ void Transform(void* payload, std::size_t bytes, bool online, bool encode) {
     CupUnlockBits unlock;
     if(encode) {
         std::memcpy(&unlock,p+0x2C,sizeof(unlock));
-        const auto word=std::uint16_t((unlock.mUnlockFlags<<7)|unlock.mUnidentified86AD);
+        const auto word=std::uint16_t((unlock.mUnlockFlags<<7)|unlock.m_pad86AD);
         Store16(p+0x2C,std::uint16_t((word>>8)|(word<<8)));
     } else {
         auto word=Load16(p+0x2C);word=std::uint16_t((word>>8)|(word<<8));
-        unlock.mUnlockFlags=word>>7;unlock.mUnidentified86AD=word&127;
+        unlock.mUnlockFlags=word>>7;unlock.m_pad86AD=word&127;
         std::memcpy(p+0x2C,&unlock,sizeof(unlock));
     }
     for(unsigned i=0; i<108; ++i)History(p+0x30+8*i,encode);

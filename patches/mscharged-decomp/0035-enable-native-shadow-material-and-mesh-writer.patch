@@ -1,5 +1,5 @@
 Subject: Select original shadow material and checked native frame mesh writing
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Preserve shadow TEV recipes and stream layout through typed Aurora calls.
 Supply shadow colour explicitly until the tweak registry is linked. Replace
@@ -114,7 +114,7 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
 +#endif
  #include "NL/gl/glMemory.h"
  #include "NL/gl/glPlat.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 @@ -25,6 +31,18 @@
  bool GLShadowBlendMeshWriter::Begin(
      int vertexCount, int primitive, void* allocator)
@@ -345,7 +345,7 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXS
 +#endif
  #include "NL/glx/glxDisplayList.h"
  #include "NL/nlMemory.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
 @@ -17,6 +24,16 @@
  };
  

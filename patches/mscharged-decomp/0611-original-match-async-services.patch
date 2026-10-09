@@ -1,5 +1,5 @@
 Subject: Admit the original async services of FELoadingToGame and GameLoadingToFE
-Upstream-base: efa6fc84680e48bfdca7e6ac245d8abf333ae617
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 Classification: temporary explicit original-source diagnostic admission; depends on 0610.
 
 The authored async_loading bytecode's FELoadingToGame and GameLoadingToFE
@@ -9,6 +9,12 @@ under the named MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING admission,
 splitting gated blocks only at case boundaries (fall-through partners stay
 together). Case bodies are unchanged; every service not reached by those two
 scripts keeps its existing gate.
+
+InitializeFEState2's re-entry branch (any frontend entry after the first) is
+admitted under the same name instead of the sequence diagnostic's stop. The
+original then selects the landing scene by mode: Main Menu or Choose Captains
+for exhibition, the Striker Cup hub (round news, goal trophies, save), the
+challenge listing, or the online/tournament scenes.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 --- a/src/Game/AsyncLoading.cpp
@@ -122,12 +128,13 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
          }
          break;
  #endif
--#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
-     case 48:
-         break;
++    case 48:
++        break;
 +#endif
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+-    case 48:
+-        break;
      case 49:
          --m_SP;
          break;
@@ -191,7 +198,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
          SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
          BeginFrameTask::s_FramerateLocked = false;
 @@ -936,6 +960,8 @@
-         mLoadingState = 1;
+         mLoadingState = ASYNC_RESOURCES_LOADED;
          FinishLoadingStep(this);
          break;
 +#endif
@@ -253,3 +260,13 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 139:
          SetLoadingComment("StartLoadingSharedTextures");
          CharacterLoader::sInstance.StartLoadingSharedTextures();
+@@ -1592,7 +1626,8 @@
+     }
+     else
+     {
+-#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++    && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
+         throw std::logic_error("Frontend sequence diagnostic does not qualify later world/network frontend initialization");
+ #else
+         SetPointerEnabled(true);

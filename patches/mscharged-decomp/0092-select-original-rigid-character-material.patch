@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original rigid character material and fixed-font fallback
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Preserve original CharacterSkinCustom TEV/light/raster order and skin matrix
 composition. Native packets emit original PNMTXIDX/position/normal/two-UV index
@@ -239,7 +239,7 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
 +++ b/src/NL/gl/glFont.cpp
 @@ -15,13 +15,10 @@
  #include "NL/nlstring_tmpl.h"
- #include "Game/UnidentifiedStaticStorage.h"
+ #include "Game/SharedStaticStorage.h"
  
 -enum eGLFont
 -{

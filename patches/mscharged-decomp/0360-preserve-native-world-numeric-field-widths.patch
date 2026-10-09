@@ -1,5 +1,5 @@
 Subject: Preserve Wii numeric world fields and shared native object prefix
-Upstream-base: 2c5c51e483b652d178ef06a44b83b07a0f97d2a6
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
 
 Native-only fixed-width declarations preserve the original numeric hash,
 type/layer, creation flags, effect hash and probability words. Keep full-width
@@ -15,11 +15,11 @@ diff --git a/include/Game/World/WorldDrawable.h b/include/Game/World/WorldDrawab
  
 +#if defined(MSCHARGED_NATIVE)
 +    /* 0x04 */ u32 m_uHashID;
-+    /* 0x08 */ u32 m_uRenderLayer;
++    /* 0x08 */ u32 m_uObjectType;
 +    /* 0x0C */ u32 m_uObjectCreationFlags;
 +#else
      /* 0x04 */ unsigned long m_uHashID;
-     /* 0x08 */ unsigned long m_uRenderLayer;
+     /* 0x08 */ unsigned long m_uObjectType;
      /* 0x0C */ unsigned long m_uObjectCreationFlags;
 +#endif
      /* 0x10 */ World* m_pWorldContext;
@@ -28,7 +28,7 @@ diff --git a/include/Game/World/WorldDrawable.h b/include/Game/World/WorldDrawab
 diff --git a/include/Game/World/WorldEffect.h b/include/Game/World/WorldEffect.h
 --- a/include/Game/World/WorldEffect.h
 +++ b/include/Game/World/WorldEffect.h
-@@ -25,8 +25,13 @@
+@@ -30,8 +30,13 @@
      /* 0x64 */ float m_fEmissionIntervalOffset;
      /* 0x68 */ float m_fEmissionRadius;
      /* 0x6C */ u8 m_pad6C[0x04];
