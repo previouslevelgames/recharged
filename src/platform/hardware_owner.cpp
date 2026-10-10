@@ -13,6 +13,7 @@
 #include <revolution/wpad/WPAD.h>
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <chrono>
 #include <limits>
@@ -77,6 +78,31 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
     return true;
 }
 
+// Standard gamepads (not Wii devices) connected now; waits up to 1.5 s for
+// `wanted` of them, since some systems announce controllers asynchronously.
+int ConnectedGamepads(int wanted) {
+    SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII, "0", SDL_HINT_DEFAULT);
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) return 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+    int count = 0;
+    while (true) {
+        count = 0;
+        int total = 0;
+        if (SDL_JoystickID* ids = SDL_GetGamepads(&total)) {
+            for (int n = 0; n < total; ++n) {
+                const auto vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
+                if (!(vendor == 0x057e && (product == 0x0306 || product == 0x0330))) ++count;
+            }
+            SDL_free(ids);
+        }
+        if (count >= wanted || std::chrono::steady_clock::now() >= deadline) break;
+        SDL_PumpEvents();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    return count;
+}
+
 void Service() {
     auto& state = State();
     {
@@ -92,7 +118,8 @@ void Service() {
     if (!exclusion) return;
     mscharged::platform::ServiceNativeAlarms();
     const auto now = std::chrono::steady_clock::now();
-    if (!state.desktop_cadence || now >= state.next_input) {
+    // Desktop devices and real remotes are serviced every 10 ms.
+    if ((!state.desktop_cadence && !mscharged::platform::WiimoteHidHasDevices()) || now >= state.next_input) {
         state.next_input = now + std::chrono::milliseconds(10);
         SDL_PumpEvents();
         mscharged::platform::ServiceWiimoteHid();
@@ -185,7 +212,7 @@ NativeHardwareWindowCloseStatus GetNativeHardwareWindowCloseStatus() {
 }
 
 void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
-    StmInput borrowed_stm, DesktopWpadSettings desktop) {
+    StmInput borrowed_stm, DesktopWpadSettings desktop, NativePlayers players) {
     if (!window || SDL_GetWindowID(window) == 0)
         throw std::invalid_argument("Native hardware requires the actual host window");
     if (!borrowed_stm.generation || GetNativeSTMInput().generation != borrowed_stm.generation)
@@ -199,9 +226,87 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
             throw std::logic_error("Native input cannot replace its retained close window lifetime");
     }
     ConfigureWpadSDL(settings);
-    // Real Wii Remotes that are already on take the first players, so probe
-    // them before the keyboard device appears.
-    if (settings.physical_wii_remotes) InitializeWiimoteHid({settings.dpd_sensitivity});
+    // Real Wii Remotes that are already on take their players before the
+    // keyboard device appears, so probe them first.
+    WiimoteHidSettings hid{settings.dpd_sensitivity};
+    hid.fixed_players = players.fixed;
+    hid.slot_channels = players.remotes;
+    hid.calibrations = players.calibrations;
+    hid.sensor_bar_position = settings.sensor_bar_position;
+    const bool remotes_play = !players.fixed ||
+        std::any_of(players.remotes.begin(), players.remotes.end(), [](int channel) { return channel >= 0; });
+    if (settings.physical_wii_remotes && remotes_play) InitializeWiimoteHid(hid);
+    if (players.fixed) {
+        // Controllers that are configured but not there at start drop out and
+        // the other players close up in order; with nobody left keyboard &
+        // mouse is player 1, so the game can always be controlled.
+        bool dropped = false;
+        const auto status = GetWiimoteHidStatus();
+        if (!status.dolphinbar) {
+            if (remotes_play) SDL_Log("No DolphinBar in mode 4: Wii Remote players are left out");
+            ShutdownWiimoteHid();
+            dropped = remotes_play;
+            players.remotes = {-1, -1, -1, -1};
+        } else {
+            for (int slot = 0; slot < int(players.remotes.size()); ++slot) {
+                if (players.remotes[slot] < 0) continue;
+                const bool present = std::any_of(status.remotes.begin(), status.remotes.end(),
+                    [slot](const WiimoteHidRemote& remote) { return remote.slot == slot; });
+                if (present) continue;
+                SDL_Log("Wii Remote in DolphinBar slot %d is not connected: player %d is left out", slot + 1,
+                    players.remotes[slot] + 1);
+                players.remotes[slot] = -1;
+                dropped = true;
+            }
+        }
+        const int wanted = int(std::count_if(players.gamepads.begin(), players.gamepads.end(),
+            [](int channel) { return channel >= 0; }));
+        if (wanted) {
+            int present = ConnectedGamepads(wanted);
+            for (auto& channel : players.gamepads) {
+                if (channel < 0) continue;
+                if (present > 0) { --present; continue; }
+                SDL_Log("Gamepad for player %d is not connected: that player is left out", channel + 1);
+                channel = -1;
+                dropped = true;
+            }
+        }
+        if (dropped || !status.dolphinbar) {
+            std::array<int*, 4> by_channel{};
+            if (players.keyboard >= 0) by_channel[players.keyboard] = &players.keyboard;
+            for (auto& channel : players.remotes) if (channel >= 0) by_channel[channel] = &channel;
+            for (auto& channel : players.gamepads) if (channel >= 0) by_channel[channel] = &channel;
+            int next = 0;
+            for (auto* channel : by_channel) if (channel) *channel = next++;
+            if (!next) {
+                players.keyboard = 0;
+                SDL_Log("No configured controller is connected: keyboard & mouse is player 1");
+            }
+        }
+        std::uint32_t reserved = 0;
+        if (players.keyboard >= 0) {
+            desktop.keyboard_channel = players.keyboard;
+            reserved = 1u << players.keyboard;
+        } else {
+            desktop.keyboard = desktop.mouse = desktop.nunchuk = desktop.share_mouse_with_remotes = false;
+            // Only for a single player 1 on a controller.
+            int playing = 0;
+            for (const int channel : players.remotes) playing += channel >= 0;
+            for (const int channel : players.gamepads) playing += channel >= 0;
+            if (players.mouse_with_controller && playing == 1) {
+                desktop.mouse = true;
+                desktop.mouse_player_channel = 0;
+            }
+        }
+        for (const int channel : players.remotes)
+            if (channel >= 0) reserved |= 1u << channel;
+        desktop.gamepad_channels = players.gamepads;
+        desktop.gamepad_players = desktop.gamepads =
+            std::any_of(players.gamepads.begin(), players.gamepads.end(), [](int channel) { return channel >= 0; });
+        for (const int channel : players.gamepads)
+            if (channel >= 0) reserved |= 1u << channel;
+        SetNativeWpadReservedChannels(reserved);
+    }
     try { InitializeDesktopWpad(window, desktop); }
     catch (...) { ShutdownWiimoteHid(); throw; }
     try { InitializeNativeAlarms(); }

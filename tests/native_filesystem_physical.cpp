@@ -46,7 +46,8 @@ fs::path Backing(const fs::path& root,const std::string& name){auto out=root/"da
 #endif
  if(end==std::string::npos)break;begin=end+1;}
 #ifdef _WIN32
-return fs::path(std::wstring(L"\\\\?\\")+fs::absolute(out).native());
+// \\?\ paths skip slash normalization; CTest passes forward slashes.
+return fs::path(std::wstring(L"\\\\?\\")+fs::absolute(out).make_preferred().native());
 #else
 return out;
 #endif
@@ -96,7 +97,19 @@ void Run(const fs::path& root) {
     Check(IOS_Close(fd)==0,"Async source descriptor did not close");
 #ifdef _WIN32
     // Independently fixed byte spelling, including reserved and colon names.
-    Check(fs::is_regular_file(Backing(root,dir)/"n434f4e")&&fs::is_regular_file(Backing(root,dir)/"n613a62")&&fs::is_regular_file(Backing(root,dir)/"n53617665")&&fs::is_regular_file(Backing(root,dir)/"n73617665"),"Windows physical hex format is not injective");
+    {
+        const auto backing=Backing(root,dir);
+        const bool spelled=fs::is_regular_file(backing/"n434f4e")&&fs::is_regular_file(backing/"n613a62")&&fs::is_regular_file(backing/"n53617665")&&fs::is_regular_file(backing/"n73617665");
+        std::string message="Windows physical hex format is not injective";
+        if(!spelled) {
+            // Name what is actually there, to diagnose a host that differs.
+            std::string found;std::error_code error;
+            auto utf8=[](const fs::path& path){const auto text=path.u8string();return std::string(text.begin(),text.end());};
+            for(const auto& entry:fs::directory_iterator(backing,error))found+=" "+utf8(entry.path().filename());
+            message+="; "+utf8(backing)+" holds:"+found+(error?" (listing error "+error.message()+")":"");
+        }
+        Check(spelled,message.c_str());
+    }
     const auto catalog=root/"metadata.txt";const auto before=Bytes(catalog);
     auto lock=CreateFileW(catalog.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
     Check(lock!=INVALID_HANDLE_VALUE,"Actual metadata lock fixture failed");

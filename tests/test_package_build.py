@@ -9,6 +9,7 @@ import shutil
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 SOURCE = pathlib.Path(__file__).resolve().parents[1] / "tools/package_build.py"
@@ -35,7 +36,7 @@ class PackageBuildTests(unittest.TestCase):
         for public in PACKAGER.PUBLIC_FILES:
             self.write(self.source, public, b"public text")
         self.write(self.build, "generated/mscharged/build_version.h",
-                   b'inline constexpr const char* version = "0.0.1-dev+g123456789abc";\n')
+                   b'inline constexpr const char* version = "1.0.0+g123456789abc";\n')
         self.write(self.build, "CMakeCache.txt",
                    b"MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC:BOOL=ON\n"
                    b"Rust_CARGO_TARGET_CACHED:INTERNAL=x86_64-unknown-linux-gnu\n")
@@ -141,7 +142,7 @@ checksum = "{self.checksum}"
             self.assertTrue(all(not member.issym() and not member.islnk() for member in members))
             manifest_member = next(member for member in members if member.name.endswith("/SOURCE-MANIFEST.json"))
             manifest = json.load(archive.extractfile(manifest_member))
-            self.assertEqual(manifest["version"], "0.0.1-dev+g123456789abc")
+            self.assertEqual(manifest["version"], "1.0.0+g123456789abc")
             self.assertEqual(manifest["packaging_source_commit"], "6" * 40)
             self.assertEqual(len(manifest["modules"]), 2)
             self.assertEqual(len(manifest["prepared"]), len(PACKAGER.DEPENDENCIES))
@@ -237,6 +238,38 @@ checksum = "{self.checksum}"
             manifest = json.load(archive.extractfile(member))
         self.assertEqual((manifest["platform"], manifest["architecture"]), ("macos", "arm64"))
         self.assertEqual(manifest["modules"], [stem + ".dylib" for stem in PACKAGER.MODULES])
+
+    def test_windows_packages_exe_dlls_runtime_and_notices_as_zip(self):
+        self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
+                   b'set(CMAKE_SYSTEM_NAME "Windows")\nset(CMAKE_SYSTEM_PROCESSOR "x86_64")\n')
+        (self.build / "mscharged").rename(self.build / "mscharged.exe")
+        for stem in PACKAGER.MODULES:
+            (self.build / (stem + ".so")).rename(self.build / (stem + ".dll"))
+        toolchain = self.root / "llvm mingw"
+        for dll in PACKAGER.WINDOWS_RUNTIME:
+            self.write(toolchain, "x86_64-w64-mingw32/bin/" + dll, b"runtime " + dll.encode())
+        for notice in PACKAGER.WINDOWS_RUNTIME_NOTICES:
+            self.write(toolchain, notice, b"notice")
+        cache = (self.build / "CMakeCache.txt").read_bytes()
+        self.write(self.build, "CMakeCache.txt", cache + f"LLVM_MINGW_ROOT:PATH={toolchain}\n".encode())
+        path = self.package()
+        self.assertTrue(path.name.endswith("-windows-x86_64.zip"))
+        with zipfile.ZipFile(path) as archive:
+            names = {name.split("/", 1)[1] for name in archive.namelist()}
+            manifest = json.loads(next(archive.read(n) for n in archive.namelist() if n.endswith("SOURCE-MANIFEST.json")))
+        self.assertIn("mscharged.exe", names)
+        self.assertTrue(set(PACKAGER.WINDOWS_RUNTIME) <= names)
+        self.assertIn("LICENSES/toolchain/llvm-mingw/COPYING.winpthreads.txt", names)
+        self.assertIn("assets/launcher/aurora.png", names)
+        self.assertEqual(manifest["modules"], [stem + ".dll" for stem in PACKAGER.MODULES])
+        self.assertEqual(manifest["platform"], "windows")
+
+    def test_windows_without_toolchain_root_fails(self):
+        self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
+                   b'set(CMAKE_SYSTEM_NAME "Windows")\nset(CMAKE_SYSTEM_PROCESSOR "x86_64")\n')
+        (self.build / "mscharged").rename(self.build / "mscharged.exe")
+        with self.assertRaisesRegex(PACKAGER.PackageError, "LLVM_MINGW_ROOT"):
+            self.package()
 
     def test_changed_prepared_and_cached_notices_fail(self):
         prepared = self.build / "prepared/dawn/source/LICENSE"

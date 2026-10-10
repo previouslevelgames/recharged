@@ -9,6 +9,7 @@
 #include <revolution/ipc.h>
 
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <limits>

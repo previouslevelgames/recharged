@@ -1,0 +1,27 @@
+From: mscharged-port contributors
+Subject: [PATCH] Allow PE color aperture writes into a multisampled EFB
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation option (multisampling) support.
+
+0034's PE aperture refused a multisampled EFB. A poke draws a pixel-aligned
+rectangle with the clear pipeline found for the render target's own layout,
+including its sample count, and such a rectangle covers every sample of each
+poked pixel; a later resolve therefore reads exactly the written color. The
+original loading bitmap and HOME button writes now also work with Aurora
+multisampling. Scaled (non-1x) EFBs remain unsupported. Apply after 0074.
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+index 6931972..03dcc3c 100644
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -917,8 +917,10 @@ void queue_efb_poke(uint16_t x, uint16_t y, uint32_t argb, bool color, bool alph
+   // Physical aperture coordinates are not clipped by ordinary GX draw state.
+   AURORA_ASSERT(x < target.x && y < target.y,
+       "Native PE aperture {},{} is outside qualified EFB {}x{}", x, y, target.x, target.y);
++  // A multisampled EFB takes the poke through the clear pipeline of its own
++  // sample count; the pixel-aligned rectangle covers every sample of each
++  // poked pixel, so a later resolve reads exactly the written color.
+   const auto layout = get_render_target_layout();
+-  AURORA_ASSERT(layout.sampleCount == 1, "Native multisample PE aperture remains unqualified");
+   if (!color && !alpha) return; // Actual independent PE write masks disabled.
+   const clear::PipelineConfig config{.clearColor = color, .clearAlpha = alpha, .clearDepth = false};
+   const PokeDrawData data{

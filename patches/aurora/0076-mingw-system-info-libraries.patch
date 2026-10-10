@@ -1,0 +1,27 @@
+From: mscharged-port contributors
+Subject: [PATCH] Link MinGW system-info libraries on Windows
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host build compatibility (LLVM-MinGW). Apply after 0075.
+
+Windows linked MSVC library files (wbemuuid.lib, comsuppw.lib, DXGI.lib)
+that MinGW does not have under those names. MinGW links the same services as
+wbemuuid, ole32, oleaut32, ntdll and dxgi; its _bstr_t is header-only.
+
+diff --git a/cmake/aurora_core.cmake b/cmake/aurora_core.cmake
+index 2c2c28d..4534e60 100644
+--- a/cmake/aurora_core.cmake
++++ b/cmake/aurora_core.cmake
+@@ -46,7 +46,12 @@ endif ()
+ 
+ if (CMAKE_SYSTEM_NAME STREQUAL Windows)
+     # stuff for fetching system info.
+-    target_link_libraries(aurora_core PRIVATE wbemuuid.lib comsuppw.lib ntdll.lib DXGI.lib)
++    if (MINGW)
++        # MinGW names; its comutil.h _bstr_t needs no separate support library.
++        target_link_libraries(aurora_core PRIVATE wbemuuid ole32 oleaut32 ntdll dxgi)
++    else ()
++        target_link_libraries(aurora_core PRIVATE wbemuuid.lib comsuppw.lib ntdll.lib DXGI.lib)
++    endif ()
+ elseif (APPLE)
+     target_sources(aurora_core PRIVATE lib/system_info_mac.mm)
+ endif ()

@@ -6,7 +6,8 @@ include_guard(GLOBAL)
 function(mscharged_original_native_profile_supported output)
     set("${output}" FALSE PARENT_SCOPE)
     if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
-            CMAKE_SYSTEM_NAME STREQUAL "Darwin") OR
+            CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+            (CMAKE_SYSTEM_NAME STREQUAL "Windows" AND MINGW)) OR
             NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR MSVC)
         return()
     endif()

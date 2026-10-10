@@ -1,9 +1,9 @@
-# Experimental runtime
+# Runtime
 
-The port is a work in progress alongside the decompilation. Selected tests run
-original game code on Linux/Vulkan; **full startup and matches are unfinished**.
-These tests currently require a USA `R4QE01` revision 1 ISO/RVZ. See
-[Building](BUILDING.md) for the Release runtime build and disc configuration.
+The Release build runs the whole original game on Linux/Vulkan; macOS/Metal is
+being tested and Windows is in progress. It requires a USA `R4QE01` revision 1
+ISO/RVZ. See [Building](BUILDING.md) for the Release build and disc
+configuration, and the [feature list](FEATURES.md) for what is supported.
 
 ## Graphics prerequisites
 
@@ -17,7 +17,7 @@ python3 tools/setup_dependencies.py
 
 The first graphics build is large. Adjust parallelism for available memory.
 Real GPU tests are opt-in; the Vulkan test gate requires Linux and installed
-validation layers. Windows, other disc regions and Wii peripherals remain unverified.
+validation layers. Windows and other disc regions remain unsupported.
 
 ## Original frontend sequence
 
@@ -67,11 +67,15 @@ under the Remote's battery cover); players follow the bar's slot order. A Remote
 paired directly over Bluetooth uses the same driver but is not verified yet. The
 Remote speaker, MotionPlus and other extensions are not supported.
 
-The launcher's Controls page lists connected Remotes with their battery level.
-In `mscharged.ini`, `controls.sensor_bar` is `bottom` or `top` of the screen,
-`controls.input` picks who plays (`auto`: Wii Remotes, then keyboard & mouse;
-`controller`: Wii Remotes, keyboard & mouse only while none is connected;
-`keyboard`: keyboard & mouse only) and `controls.rumble` switches rumble.
+Choose who plays on the launcher's Controls page: each of players 1-4 is
+keyboard & mouse, a Wii Remote connected to the bar, or off (`controls.player1`
+to `player4`: `keyboard`, `remote1`-`remote4`, `off`). Players fill in order;
+without a DolphinBar, keyboard & mouse is player 1 alone. The page also shows
+each Remote's battery level. `controls.sensor_bar` is `bottom` or `top` of the
+screen, and `controls.rumble` switches rumble. The bar must be in view of the
+Remote's camera: sit about 1 m or more away when it is on top of the screen.
+To make the pointer land where you aim, press the target button next to a
+Remote and aim at the five targets that follow, pressing A at each (B cancels).
 
 If no Remote is found, allow your user to open Wii Remotes once, then reconnect
 the bar or Remote:

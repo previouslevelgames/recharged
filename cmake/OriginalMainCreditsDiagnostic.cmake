@@ -4,9 +4,10 @@ include_guard(GLOBAL)
 # inventories do not enable these temporary flow gates. One source module owns
 # original main, FE/font/resources, handlers and rendering; the host supplies one
 # actual SDK and window/device services before original construction.
-if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
-    message(FATAL_ERROR "The original-main source diagnostic requires Linux or macOS LP64 with GCC or Clang")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
+        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC
+        OR (WIN32 AND NOT (MINGW AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
+    message(FATAL_ERROR "The original-main source diagnostic requires 64-bit Linux, macOS or Windows (LLVM-MinGW) with GCC or Clang")
 endif()
 include(cmake/OriginalModuleLinkage.cmake)
 include(cmake/OriginalRetailReturnCompatibility.cmake)
@@ -248,6 +249,11 @@ if(APPLE)
     # Explicit exports keep game operators and the original codec module-local.
     target_link_options(mscharged_original_main_credits_module PRIVATE
         LINKER:-undefined,dynamic_lookup LINKER:-dead_strip LINKER:-no_fixup_chains)
+elseif(WIN32)
+    # The DLL imports host services from mscharged.exe (see
+    # mscharged_import_original_windows_host); unfinished functions stay
+    # unresolved until called, like the ELF/Mach-O modules.
+    target_link_options(mscharged_original_main_credits_module PRIVATE -Wl,--gc-sections)
 else()
     target_link_options(mscharged_original_main_credits_module PRIVATE
         -Wl,-Bsymbolic-functions -Wl,--gc-sections)
@@ -315,10 +321,13 @@ target_compile_options(mscharged_original_main_credits_vi PRIVATE -ffunction-sec
 target_link_libraries(mscharged_original_main_credits_vi PRIVATE aurora::vi)
 
 add_library(charged_original_main_credits_host OBJECT
-    src/runtime/original_main_credits.cpp src/runtime/frame_timing_log.cpp
+    src/runtime/original_main_credits.cpp src/runtime/frame_timing_log.cpp src/platform/console.cpp
     src/platform/os.cpp src/platform/host_metadata.cpp src/platform/string_format.cpp
     src/platform/report.cpp src/platform/thread.cpp src/platform/os_version.cpp)
-add_dependencies(charged_original_main_credits_host mscharged_original_main_credits_module)
+if(NOT WIN32)
+    # On Windows the module instead builds after the host it imports from.
+    add_dependencies(charged_original_main_credits_host mscharged_original_main_credits_module)
+endif()
 target_compile_features(charged_original_main_credits_host PRIVATE cxx_std_20)
 target_include_directories(charged_original_main_credits_host BEFORE PRIVATE "${MSCHARGED_AURORA_PREPARED}/include")
 target_include_directories(charged_original_main_credits_host PUBLIC src)
@@ -342,7 +351,9 @@ target_link_libraries(charged_original_main_credits_host PRIVATE
 
 function(mscharged_link_original_main_credits target)
     mscharged_link_original_hbm_debug_host("${target}")
-    add_dependencies(${target} mscharged_original_main_credits_module)
+    if(NOT WIN32)
+        add_dependencies(${target} mscharged_original_main_credits_module)
+    endif()
     target_link_libraries(${target} PRIVATE charged_original_main_credits_host
         mscharged_original_main_credits_vi aurora::core)
     if(APPLE)
@@ -353,6 +364,22 @@ function(mscharged_link_original_main_credits target)
                 LINKER:-unexported_symbol,___OSHotReset
                 LINKER:-unexported_symbol,___OSShutdownToSBY)
         endif()
+    elseif(WIN32)
+        # Host services for the game DLLs: mscharged.exe exports its symbols and
+        # its import library is what the modules link against.
+        # The game keeps addresses in 32-bit unsigned long carriers on LLP64
+        # (64-bit on Linux and macOS). Game memory stays below 2 GB: the Wii
+        # arenas are placed low (Aurora 0079), the game DLLs use low image bases
+        # and allocations go bottom-up without high-entropy ASLR. The process
+        # stays large-address-aware for drivers and Vulkan layers.
+        # No --gc-sections: host services that only the game DLLs call would be
+        # discarded before --export-all-symbols could offer them.
+        target_link_options(${target} PRIVATE -Wl,--export-all-symbols
+            -Wl,-Xlink=-highentropyva:no
+            -Wl,--image-base,0x400000
+            # The modules carry the original zlib; the host's zlib-ng internals
+            # must not be offered to them.
+            -Xlinker --exclude-symbols=zcalloc,zcfree,inflate_table)
     else()
         if(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
             set(_host_exports original_main_reset_host_exports.map)
@@ -386,6 +413,26 @@ if(TARGET mscharged)
     target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_ORIGINAL_CREDITS=1)
     mscharged_link_original_main_credits(mscharged)
 endif()
+
+# Windows: a game DLL resolves host services through mscharged.exe's import
+# library, so it links after the executable (the reverse of the ELF order).
+function(mscharged_import_original_windows_host module)
+    if(NOT WIN32 OR NOT TARGET mscharged)
+        return()
+    endif()
+    add_dependencies(${module} mscharged)
+    # CMake writes the executable's import library (libmscharged.dll.a); a
+    # linker option rather than a file input, as that link produces it.
+    # Below 2 GB like the executable (see mscharged_link_original_main_credits).
+    if(module STREQUAL "mscharged_original_frontend_module")
+        set(_base 0x20000000)
+    else()
+        set(_base 0x30000000)
+    endif()
+    target_link_options(${module} PRIVATE "-L${CMAKE_BINARY_DIR}" -lmscharged
+        -Wl,-Xlink=-force:unresolved -Wl,--image-base,${_base} -Wl,-Xlink=-highentropyva:no)
+endfunction()
+mscharged_import_original_windows_host(mscharged_original_main_credits_module)
 
 if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN AND MSCHARGED_CREDITS_TEST_DISC)
     add_test(NAME original_main_credits_vulkan COMMAND mscharged-original-main-credits-check

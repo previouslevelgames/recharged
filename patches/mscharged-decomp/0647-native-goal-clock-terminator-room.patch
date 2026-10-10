@@ -1,0 +1,35 @@
+From: mscharged-port
+Subject: Native room for the goal clock's out-of-bounds terminator
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native memory-safety adaptation of a retail out-of-bounds write; apply after 0644.
+
+GoalOverlay::UpdateGoalInfo formats minutes and seconds into 16-character wide
+arrays but passes size 32 to nlSNPrintf, which writes its terminator at
+buffer[size - 1]: index 31, or 32 for the seconds after a leading '0'. On the
+Wii this zeroes two bytes of a neighbouring stack slot without visible effect.
+Natively it is undefined behaviour; macOS's stack protector aborted the game
+after a Mega Strike. Natively the arrays get room for that write. The original
+calls, sizes and the displayed text are unchanged.
+
+diff --git a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
+index d18bb9c..5b274ef 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
+@@ -187,8 +187,17 @@ void GoalOverlay::UpdateGoalInfo(int homeAway, int playerIndex, bool isCaptainS2
+     }
+ 
+     BasicString<unsigned short, Detail::TempStringAllocator> formatted;
++#if defined(MSCHARGED_NATIVE)
++    // The calls below pass size 32 and the wide nlSNPrintf terminates at
++    // buffer[size - 1] (index 31, or 32 after the leading '0'): two bytes past
++    // these 16-character arrays. Harmless on the Wii's stack, undefined natively
++    // (macOS aborts on the stack guard). Room for that write; text unchanged.
++    unsigned short minutesWideString[33];
++    unsigned short secondsWideString[33];
++#else
+     unsigned short minutesWideString[16];
+     unsigned short secondsWideString[16];
++#endif
+     nlSNPrintf(minutesWideString, 32, (const unsigned short*)L"%d", minutes);
+     int oldScore[2] = { mCaptainGoals[0] + mSidekickGoals[0], mCaptainGoals[1] + mSidekickGoals[1] };
+     bool isMatchEnd = mIsInOvertime;

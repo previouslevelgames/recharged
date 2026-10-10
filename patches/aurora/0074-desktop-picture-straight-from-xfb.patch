@@ -1,0 +1,288 @@
+From: mscharged-port contributors
+Subject: [PATCH] Draw a clean or sharp desktop picture straight from the XFB
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation option (desktop output only).
+
+The desktop picture went through two resamples: the desktop shader drew the
+XFB into a VI-signal-sized texture (720x480), which was then stretched linearly
+into the window. On top of that the display copy applies the game's vertical
+flicker filter (the 16-32-16 weights of the TV render modes), which on a
+progressive desktop display only softens the picture.
+
+AuroraVIOutputConfig gains desktop_picture. SIGNAL (zero, the default for every
+existing caller) keeps the previous path unchanged. SMOOTH and SHARP draw the
+desktop picture at the window viewport's own size in one pass from the XFB:
+the desktop shader maps each window pixel back to signal and source pixels,
+so the final copy into the viewport is 1:1. SHARP keeps each source pixel
+flat and blends only over about one window pixel at its edge. Both also skip
+the display copy's flicker filter by keeping the filter's total weight on the
+current row, so brightness and the hardware's /64 rounding stay the same.
+
+The physical VI signal, presented geometry and pointer mapping are unchanged.
+Apply after 0073.
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index a1035cc..c264ce0 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -67,7 +67,20 @@ typedef struct {
+ void aurora_attach_video_output_device(const AuroraVIOutputDevice* device);
+ // Supply the same explicit SC aspect preference to native virtual display
+ // hardware before original VIInit. This does not query or initialize game SC.
+-typedef struct { bool widescreen; } AuroraVIOutputConfig;
++// The desktop picture is host presentation, not Wii hardware. SIGNAL
++// stretches the VI's active signal into the window like a TV; SMOOTH and
++// SHARP draw the XFB into the window in one pass (SHARP keeps each source
++// pixel flat and blends only across its edges) and skip the display copy's
++// vertical flicker filter.
++typedef enum {
++  AURORA_DESKTOP_SIGNAL = 0,
++  AURORA_DESKTOP_SMOOTH = 1,
++  AURORA_DESKTOP_SHARP = 2,
++} AuroraDesktopPicture;
++typedef struct {
++  bool widescreen;
++  uint8_t desktop_picture; // AuroraDesktopPicture
++} AuroraVIOutputConfig;
+ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config);
+ typedef struct {
+   const void* framebuffer;
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index 35c7302..e1a1ca2 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -27,10 +27,13 @@ struct alignas(16) Uniforms {
+   std::array<uint32_t, 4> signal; // active width/height, display origin
+   std::array<uint32_t, 4> display; // display size, source pan origin
+   std::array<uint32_t, 4> sample; // source pan size, physical field, interlace
++  // Desktop picture: signal pixels per desktop pixel, then desktop pixels per
++  // source pixel for sharp edges (0 = smooth).
++  std::array<float, 4> output;
+ };
+-static_assert(sizeof(Uniforms) == 48);
++static_assert(sizeof(Uniforms) == 64);
+ constexpr auto Shader = R"(
+-struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, };
++struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, output: vec4f, };
+ @group(0) @binding(0) var xfb: texture_2d<f32>;
+ @group(0) @binding(1) var<uniform> vi: Uniforms;
+ @vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+@@ -56,7 +59,7 @@ struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, };
+ }
+ )";
+ constexpr auto DesktopShader = R"(
+-struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, };
++struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, output: vec4f, };
+ @group(0) @binding(0) var xfb: texture_2d<f32>;
+ @group(0) @binding(1) var<uniform> vi: Uniforms;
+ @vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+@@ -78,19 +81,27 @@ fn desktop_rgb(source: vec2i) -> vec3f {
+   return vec3f(clamp((rgb+vec3i(128))/vec3i(256),vec3i(0),vec3i(255)))/255.0;
+ }
+ @fragment fn fragment_desktop(@builtin(position) position: vec4f) -> @location(0) vec4f {
+-  let at=vec2u(position.xy);
++  // A desktop picture at the window's size maps back to signal pixels; the
++  // signal-sized picture uses them directly (output.xy = 1).
++  let signal_position=position.xy*vi.output.xy;
++  let at=vec2u(signal_position);
+   if any(at<vi.signal.zw) || any(at>=vi.signal.zw+vi.display.xy) {
+     return vec4f(0.0,0.0,0.0,1.0);
+   }
+   // position contains the destination pixel center. Subtract half a source
+   // pixel after mapping to its center-based texel coordinates.
+-  let source=(position.xy-vec2f(vi.signal.zw))*vec2f(vi.source_geometry.xy)/
++  let source=(signal_position-vec2f(vi.signal.zw))*vec2f(vi.source_geometry.xy)/
+       vec2f(vi.display.xy)+vec2f(vi.display.zw)-vec2f(0.5);
+   let first=vec2i(floor(source));
+   let last=first+vec2i(1);
+   let minimum=vec2i(vi.display.zw);
+   let maximum=minimum+vec2i(vi.source_geometry.xy)-vec2i(1);
+-  let weight=fract(source);
++  var weight=fract(source);
++  // Sharp: each source pixel stays flat and blends with its neighbour only
++  // over about one desktop pixel at its edge.
++  if vi.output.z>0.0 {
++    weight=clamp((weight-vec2f(0.5))*vi.output.zw+vec2f(0.5),vec2f(0.0),vec2f(1.0));
++  }
+   let upper=mix(desktop_rgb(clamp(first,minimum,maximum)),
+       desktop_rgb(clamp(vec2i(last.x,first.y),minimum,maximum)),weight.x);
+   let lower=mix(desktop_rgb(clamp(vec2i(first.x,last.y),minimum,maximum)),
+@@ -103,6 +114,7 @@ struct Output {
+   std::mutex display_gate;
+   std::thread::id owner;
+   bool configured{}, widescreen{}, pending{}, servicing{}, display_enabled{true};
++  uint8_t desktop_picture{AURORA_DESKTOP_SIGNAL};
+   AuroraVIScanout disabled_scanout{};
+   AuroraVIScanout prepared{}, committed{}, presented{};
+   std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot, presented_snapshot;
+@@ -231,7 +243,8 @@ TextureHandle new_signal(uint32_t width, uint32_t height) {
+ }
+ void encode_signal(const wgpu::CommandEncoder& encoder, const TextureHandle& destination,
+     const AuroraVIScanout& scanout, const std::shared_ptr<const xfb::Snapshot>& snapshot,
+-    const wgpu::BindGroupLayout& layout, const wgpu::RenderPipeline& pipeline, bool physicalField) {
++    const wgpu::BindGroupLayout& layout, const wgpu::RenderPipeline& pipeline, bool physicalField,
++    uint8_t picture = AURORA_DESKTOP_SIGNAL) {
+     const wgpu::RenderPassColorAttachment color{.view = destination->attachmentTextureView,
+         .loadOp = scanout.black || !physicalField ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load, .storeOp = wgpu::StoreOp::Store,
+         .clearValue = {0.0, 0.0, 0.0, 1.0}};
+@@ -240,9 +253,19 @@ void encode_signal(const wgpu::CommandEncoder& encoder, const TextureHandle& des
+     const auto pass = encoder.BeginRenderPass(&passDesc); wgpu::Buffer uniform;
+     if (!scanout.black) {
+       AURORA_ASSERT(snapshot && snapshot->gpuComplete.load(std::memory_order_acquire), "VI selected a noncompleted GX XFB");
++      std::array<float, 4> output{1.0f, 1.0f, 0.0f, 0.0f};
++      if (!physicalField && picture != AURORA_DESKTOP_SIGNAL) {
++        output[0] = static_cast<float>(scanout.active_width) / static_cast<float>(destination->size.width);
++        output[1] = static_cast<float>(scanout.active_height) / static_cast<float>(destination->size.height);
++        if (picture == AURORA_DESKTOP_SHARP && scanout.pan_width && scanout.pan_height) {
++          output[2] = static_cast<float>(scanout.vi_width) / static_cast<float>(scanout.pan_width) / output[0];
++          output[3] = static_cast<float>(scanout.vi_height) / static_cast<float>(scanout.pan_height) / output[1];
++        }
++      }
+       const Uniforms values{{scanout.active_width, scanout.active_height, scanout.x_origin, scanout.y_origin},
+           {scanout.vi_width, scanout.vi_height, scanout.pan_x, scanout.pan_y},
+-          {scanout.pan_width, scanout.pan_height, scanout.field, physicalField && (scanout.tv_mode & 3u) == VI_INTERLACE}};
++          {scanout.pan_width, scanout.pan_height, scanout.field, physicalField && (scanout.tv_mode & 3u) == VI_INTERLACE},
++          output};
+       const wgpu::BufferDescriptor desc{.label = "Original VI field geometry",
+           .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst, .size = sizeof(values)};
+       uniform = webgpu::g_device.CreateBuffer(&desc); webgpu::g_queue.WriteBuffer(uniform, 0, &values, sizeof(values));
+@@ -283,18 +306,21 @@ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+   std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline; bool widescreen;
++  uint8_t picture;
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+     if (!state.pending || state.servicing) return;
+     state.servicing = true; state.pending = false;
+     scanout = state.display_enabled ? state.committed : state.disabled_scanout;
+     snapshot = state.display_enabled ? state.committed_snapshot : nullptr; widescreen = state.widescreen;
++    picture = state.desktop_picture;
+     layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
+     // Keep physical sampling untouched in both interlaced and progressive modes.
+-    if (!state.desktop || state.desktop == signal || state.desktop->size.width != scanout.active_width ||
+-        state.desktop->size.height != scanout.active_height)
++    if (picture == AURORA_DESKTOP_SIGNAL &&
++        (!state.desktop || state.desktop == signal || state.desktop->size.width != scanout.active_width ||
++         state.desktop->size.height != scanout.active_height))
+       state.desktop = new_signal(scanout.active_width, scanout.active_height);
+     desktop = state.desktop;
+   }
+@@ -308,6 +334,16 @@ void service(void*) {
+   if (window::is_presentable() && !webgpu::g_surface) webgpu::refresh_surface(true);
+   const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
+       webgpu::g_graphicsConfig.surfaceConfiguration.height, widescreen ? 16u : 4u, widescreen ? 9u : 3u);
++  if (picture != AURORA_DESKTOP_SIGNAL) {
++    // Smooth and sharp pictures are drawn at the window viewport's own size.
++    const auto width = std::max(1u, static_cast<uint32_t>(viewport.width));
++    const auto height = std::max(1u, static_cast<uint32_t>(viewport.height));
++    std::lock_guard lock(state.mutex);
++    if (!state.desktop || state.desktop == signal || state.desktop->size.width != width ||
++        state.desktop->size.height != height)
++      state.desktop = new_signal(width, height);
++    desktop = state.desktop;
++  }
+   // Capture SDL event-coordinate identity on the owner before worker dispatch.
+   // Surface dimensions below come from the actually acquired texture.
+   const auto windowSize = window::get_window_size();
+@@ -316,7 +352,7 @@ void service(void*) {
+   const auto screenshot = take_screenshot_request();
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+                               layout, pipeline, desktopPipeline, viewport, windowSize, windowId, windowIncarnation,
+-                              desktop = std::move(desktop), screenshot] {
++                              desktop = std::move(desktop), screenshot, picture] {
+     struct Finished {
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+@@ -329,7 +365,7 @@ void service(void*) {
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+     encode_signal(encoder, signal, effective, snapshot, layout, pipeline, true);
+-    encode_signal(encoder, desktop, effective, snapshot, layout, desktopPipeline, false);
++    encode_signal(encoder, desktop, effective, snapshot, layout, desktopPipeline, false, picture);
+     wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+@@ -450,11 +486,13 @@ void shutdown(void*) {
+   state.copy_group = {}; state.copy_view = {}; state.copy_sampler = {};
+   state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
++  state.desktop_picture = AURORA_DESKTOP_SIGNAL; xfb::set_flicker_filter(true);
+   state.presented_geometry = {}; state.display_enabled = true; state.disabled_scanout = {};
+ }
+ void configure(const AuroraVIOutputConfig* config) {
+   if (!config || !webgpu::g_device)
+     throw std::invalid_argument("Native VI output requires explicit aspect and initialized real GX");
++  if (config->desktop_picture > AURORA_DESKTOP_SHARP) throw std::invalid_argument("Unknown native desktop picture");
+   auto& state = State(); std::lock_guard lock(state.mutex);
+   if (state.configured) throw std::logic_error("Native VI output is already configured");
+   const std::array entries{wgpu::BindGroupLayoutEntry{.binding = 0, .visibility = wgpu::ShaderStage::Fragment,
+@@ -486,6 +524,9 @@ void configure(const AuroraVIOutputConfig* config) {
+   const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown, set_display_enabled};
+   aurora_attach_video_output_device(&endpoint);
+   state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline; state.configured = true; state.widescreen = config->widescreen;
++  state.desktop_picture = config->desktop_picture;
++  // Smooth and sharp desktop pictures skip the display copy's flicker filter.
++  xfb::set_flicker_filter(config->desktop_picture == AURORA_DESKTOP_SIGNAL);
+   state.owner = std::this_thread::get_id(); state.pending = false; state.presentations = 0;
+   state.display_enabled = true; state.disabled_scanout = {};
+   state.presented_geometry = {};
+diff --git a/lib/gfx/xfb.cpp b/lib/gfx/xfb.cpp
+index 83b7253..8267909 100644
+--- a/lib/gfx/xfb.cpp
++++ b/lib/gfx/xfb.cpp
+@@ -9,6 +9,7 @@
+ #include <dolphin/os/OSNativeMemory.h>
+ 
+ #include <array>
++#include <atomic>
+ #include <mutex>
+ #include <unordered_map>
+ 
+@@ -18,6 +19,7 @@ constexpr Module Log{"aurora::gx::xfb"};
+ wgpu::BindGroupLayout g_layout;
+ wgpu::RenderPipeline g_pipeline;
+ std::mutex g_mutex;
++std::atomic<bool> g_flickerFilter{true};
+ std::unordered_map<uint32_t, std::shared_ptr<Snapshot>> g_snapshots;
+ // Newest copy per destination whose GPU work has completed. A later copy into
+ // a buffer the VI is still scanning stays pending until its own completion.
+@@ -245,11 +247,13 @@ void copy_from_bp(uint32_t flags) {
+   const auto coeff = [&](uint32_t index) {
+     return field(registers[index < 4 ? 0x53 : 0x54], (index < 4 ? index : index - 4) * 6, 6);
+   };
++  const uint32_t above = coeff(0) + coeff(1), current = coeff(2) + coeff(3) + coeff(4), below = coeff(5) + coeff(6);
++  const bool flicker = g_flickerFilter.load(std::memory_order_relaxed);
+   const CopyUniforms uniforms{
+       .source = {static_cast<float>(rect.x), static_cast<float>(rect.y),
+           static_cast<float>(rect.width) / width, static_cast<float>(rect.height) / height},
+       .geometry = {width, height, field(flags, 0, 1), field(flags, 1, 1)},
+-      .filter = {coeff(0) + coeff(1), coeff(2) + coeff(3) + coeff(4), coeff(5) + coeff(6),
++      .filter = {flicker ? above : 0, flicker ? current : above + current + below, flicker ? below : 0,
+           static_cast<uint32_t>(state.pixelFmt)},
+   };
+   {
+@@ -264,6 +268,8 @@ void copy_from_bp(uint32_t flags) {
+       state.pixelFmt, &uniforms, sizeof(uniforms), [snapshot] { complete(snapshot); });
+ }
+ 
++void set_flicker_filter(bool enabled) { g_flickerFilter.store(enabled, std::memory_order_relaxed); }
++
+ void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
+             Range uniforms, const TextureHandle& destination) {
+   const std::array entries{
+diff --git a/lib/gfx/xfb.hpp b/lib/gfx/xfb.hpp
+index e63140f..c8fd4d1 100644
+--- a/lib/gfx/xfb.hpp
++++ b/lib/gfx/xfb.hpp
+@@ -27,6 +27,9 @@ void initialize();
+ void shutdown();
+ // Called on the FIFO consumer at the original BP display-copy trigger.
+ void copy_from_bp(uint32_t flags);
++// Host desktop pictures may skip the display copy's vertical flicker filter;
++// the copy then keeps the filter's total weight on the current row.
++void set_flicker_filter(bool enabled);
+ void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
+             Range uniforms, const TextureHandle& destination);
+ // The result describes the requested destination, never the latest EFB: the

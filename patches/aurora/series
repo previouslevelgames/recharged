@@ -67,3 +67,13 @@
 0071-spirv-validation-follows-debug-layers.patch
 0072-reset-consumed-fifo-prefix.patch
 0073-draw-done-hardware-ordering.patch
+0074-desktop-picture-straight-from-xfb.patch
+0075-multisampled-pe-aperture.patch
+0076-mingw-system-info-libraries.patch
+0077-diagnostic-lighting-switches.patch
+0078-gx-shaders-strict-math.patch
+0079-windows-low-wii-arenas.patch
+0080-diagnostic-fog-switches.patch
+0081-diagnostic-inline-fifo.patch
+0082-diagnostic-draw-dump.patch
+0083-spot-attenuation-unset-direction.patch

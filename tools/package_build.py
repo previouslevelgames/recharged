@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a completed original-game Linux/macOS build without game data.
+"""Package a completed original-game Linux/macOS/Windows build without game data.
 
 Requires Python 3.11+, Git, and the Cargo cache used by the completed build.
 Cargo tree runs locked and offline; packaging does not compile or download.
@@ -17,10 +17,16 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+import zipfile
 from pathlib import Path
 
 MODULES = ("mscharged_original_frontend_module", "mscharged_original_main_credits_module")
-ASSETS = ("header.png", "icon.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
+ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
+# LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover
+# them (LLVM: libc++/libunwind; mingw-w64: winpthreads and CRT startup code).
+WINDOWS_RUNTIME = ("libc++.dll", "libunwind.dll", "libwinpthread-1.dll")
+WINDOWS_RUNTIME_NOTICES = ("LICENSE.TXT", "x86_64-w64-mingw32/share/mingw32/COPYING.winpthreads.txt",
+                           "x86_64-w64-mingw32/share/mingw32/COPYING.MinGW-w64-runtime.txt")
 PUBLIC_FILES = ("README.md", "LICENSE", "mscharged.ini.example", "docs/BUILDING.md",
                 "docs/BUILDING_MACOS.md", "docs/BUILDING_GITHUB.md", "docs/RUNTIME.md", "LICENSES/README.md",
                 "LICENSES/Apache-2.0.txt", "extern/README.md")
@@ -75,9 +81,9 @@ def target_platform(build):
     if len(descriptions) != 1:
         raise PackageError("Conflicting configured CMake target platforms; use a fresh build directory.")
     system, arch = descriptions.pop()
-    if system not in ("Linux", "Darwin") or not arch or not re.fullmatch(r"[A-Za-z0-9_+-]+", arch):
-        raise PackageError(f"Packaging is currently supported for Linux/macOS native builds, got {system}/{arch}.")
-    return ("macos" if system == "Darwin" else "linux"), arch
+    if system not in ("Linux", "Darwin", "Windows") or not arch or not re.fullmatch(r"[A-Za-z0-9_+-]+", arch):
+        raise PackageError(f"Packaging is supported for Linux, macOS and Windows builds, got {system}/{arch}.")
+    return {"Darwin": "macos", "Windows": "windows"}.get(system, "linux"), arch
 
 
 def is_notice(relative):
@@ -133,7 +139,9 @@ def cargo_packages(build, cache):
     if not target:
         raise PackageError("Missing configured Rust target for the locked nod dependency inventory.")
     cargo = cache.get("CORROSION_TOOLS_CARGO") or "cargo"
-    command = [cargo, "tree", "--package", "nod-ffi", "--locked", "--offline",
+    # --color never: CI sets CARGO_TERM_COLOR=always, which would put escape
+    # codes into the lines parsed below.
+    command = [cargo, "tree", "--color", "never", "--package", "nod-ffi", "--locked", "--offline",
                "--manifest-path", str(regular_file(build, "prepared/nod/source/nod-ffi/Cargo.toml")),
                "--no-default-features", "--target", target, "--prefix", "none",
                "--format", "{p}", "--edges", "normal,build"]
@@ -196,12 +204,20 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
     if not match:
         raise PackageError("Missing or invalid embedded build version.")
     version = match[1]
-    executable = regular_file(build, "mscharged")
-    if not executable.stat().st_mode & 0o111:
+    windows = system == "windows"
+    executable_name = "mscharged.exe" if windows else "mscharged"
+    executable = regular_file(build, executable_name)
+    if not windows and not executable.stat().st_mode & 0o111:
         raise PackageError("mscharged is not executable; refusing an unusable package.")
+    runtime_root = None
+    if windows:
+        if not cache.get("LLVM_MINGW_ROOT"):
+            raise PackageError("A Windows build needs LLVM_MINGW_ROOT for its runtime DLLs.")
+        runtime_root = Path(cache["LLVM_MINGW_ROOT"]).resolve()
     modules = []
+    suffixes = (".dll",) if windows else (".so", ".dylib", ".bundle")
     for stem in MODULES:
-        matches = [stem + suffix for suffix in (".so", ".dylib", ".bundle") if (build / (stem + suffix)).exists()]
+        matches = [stem + suffix for suffix in suffixes if (build / (stem + suffix)).exists()]
         if len(matches) != 1:
             raise PackageError(f"Require exactly one loadable {stem} module, found {len(matches)}.")
         regular_file(build, matches[0])
@@ -234,9 +250,14 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
                 raise PackageError(f"Notice differs from its recorded source: {path}")
             put(destination or relative, data, stat.S_IMODE(path.stat().st_mode))
 
-        copy(build, "mscharged")
+        copy(build, executable_name)
         for module in modules:
             copy(build, module)
+        if windows:
+            for dll in WINDOWS_RUNTIME:
+                copy(runtime_root / "x86_64-w64-mingw32/bin", dll)
+            for notice in WINDOWS_RUNTIME_NOTICES:
+                copy(runtime_root, notice, Path("LICENSES/toolchain/llvm-mingw") / Path(notice).name)
         for asset in ASSETS:
             copy(build, Path("assets/launcher") / asset)
         for public in PUBLIC_FILES:
@@ -305,22 +326,27 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
                 raise PackageError(f"Unexpected unpinned local Rust dependency: {key[:2]}")
             rust.append(item)
 
+        run_command = "mscharged.exe" if windows else "./mscharged"
+        runtime_note = ", the runtime DLLs" if windows else ""
         readme = f"""# mscharged build package
 
 Build: {version} ({system}, {arch}).
 
-Extract the entire directory, then run from a terminal:
+Extract the entire directory, then start {executable_name} (the launcher), or
+run the game directly from a terminal:
 
-    ./mscharged --disc /path/to/R4QE01.rvz --window
+    {run_command} --disc /path/to/R4QE01.rvz --window
 
-Keep both loadable modules and assets beside the executable. Game data is not
+Keep both loadable modules{runtime_note} and assets beside the executable. Game data is not
 included; players supply their own disc image. This is an experimental original
 game runtime; see docs/BUILDING.md and docs/RUNTIME.md for its current scope.
 
 Host prerequisites remain system components: on Linux, the C/C++ runtimes,
 Vulkan loader/driver and desktop/input/audio services; on macOS, the system
-C/C++ runtimes and Metal, Cocoa, QuartzCore and CoreAudio frameworks. This
-archive does not bundle those system libraries or perform macOS signing.
+C/C++ runtimes and Metal, Cocoa, QuartzCore and CoreAudio frameworks; on
+Windows 10/11, the Universal C Runtime and a Vulkan driver. The LLVM-MinGW C++
+runtime DLLs are included on Windows (notices in LICENSES/toolchain). This
+archive does not bundle system libraries and is not signed.
 
 SOURCE-MANIFEST.json records the embedded build version, packaging source HEAD,
 prepared pins/patches and payload hashes. The packaging HEAD can differ from the
@@ -340,18 +366,26 @@ recorded in assets/launcher/README.md and LICENSES/README.md.
                     "files": files}
         # The manifest describes the payload before itself, avoiding a self-hash.
         put("SOURCE-MANIFEST.json", (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
-        temporary_archive = Path(temporary) / "package.tar.gz"
-        with tarfile.open(temporary_archive, "w:gz") as archive:
-            for path in [stage] + sorted(stage.rglob("*")):
-                info = archive.gettarinfo(str(path), str(Path(package_name) / path.relative_to(stage)))
-                info.uid = info.gid = 0
-                info.uname = info.gname = ""
-                if path.is_file():
-                    with path.open("rb") as stream:
-                        archive.addfile(info, stream)
-                else:
-                    archive.addfile(info)
-        destination = output / (package_name + ".tar.gz")
+        extension = ".zip" if windows else ".tar.gz"
+        temporary_archive = Path(temporary) / ("package" + extension)
+        if windows:
+            # Windows users expect a zip; Explorer opens it without extra tools.
+            with zipfile.ZipFile(temporary_archive, "w", zipfile.ZIP_DEFLATED) as archive:
+                for path in sorted(stage.rglob("*")):
+                    if path.is_file():
+                        archive.write(path, (Path(package_name) / path.relative_to(stage)).as_posix())
+        else:
+            with tarfile.open(temporary_archive, "w:gz") as archive:
+                for path in [stage] + sorted(stage.rglob("*")):
+                    info = archive.gettarinfo(str(path), str(Path(package_name) / path.relative_to(stage)))
+                    info.uid = info.gid = 0
+                    info.uname = info.gname = ""
+                    if path.is_file():
+                        with path.open("rb") as stream:
+                            archive.addfile(info, stream)
+                    else:
+                        archive.addfile(info)
+        destination = output / (package_name + extension)
         os.replace(temporary_archive, destination)
     return destination
 

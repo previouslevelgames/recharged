@@ -11,9 +11,12 @@
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
 #include "mscharged/build_version.h"
+#include "platform/parse_float.h"
+#include "platform/window_fit.h"
 #include "platform/disc.h"
 #include "platform/app_icon.h"
 #include "platform/path.h"
+#include "platform/key_bindings.h"
 #include "platform/wiimote_hid.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
 #include "runtime/startup.h"
@@ -46,6 +49,9 @@ using namespace mscharged::launcher;
 
 namespace
 {
+// Window title of the game and the launcher: the port's name and build.
+std::string GameTitle() { return std::string("MSCharged Port ") + mscharged::build::version; }
+
 enum Page { PagePlay, PageGame, PageDisplay, PageAudio, PageControls, PageAdvanced, PageAbout, PageCount };
 constexpr const char* page_names[] = {"Play", "Game", "Display", "Audio", "Controls", "Advanced", "About"};
 constexpr const char* page_ids[] = {"play", "game", "display", "audio", "controls", "advanced", "about"};
@@ -116,15 +122,7 @@ enum class NoticeKind { Info, Success, Warning, Error };
 
 // Region branches follow original Game/main.cpp; the native runtime currently
 // supports the USA release only.
-const char* RegionName(const std::string& id)
-{
-    if (id.size() == 6 && id[3] == 'E') return "USA";
-    if (id.size() == 6 && id[3] == 'P') return "Europe";
-    if (id.size() == 6 && id[3] == 'J') return "Japan";
-    return "Unknown region";
-}
-
-bool SupportedRelease(const DiscInfo& info) { return info.game_id == "R4QE01" && info.revision == 1; }
+const char* RegionName(const std::string& id) { return DiscRegionName(id); }
 
 std::string FileUrl(const fs::path& path)
 {
@@ -168,11 +166,13 @@ public:
     ~Launcher()
     {
         wii_probe_.Close();
+        live_.Close();
         if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_Shutdown();
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
         if (gamepad_) SDL_CloseGamepad(gamepad_);
         if (header_) SDL_DestroyTexture(header_);
+        if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
         SDL_Quit();
@@ -193,7 +193,7 @@ public:
 
         // Created at the design size, then fitted once the window knows its
         // display's pixel density and content scale.
-        window_ = SDL_CreateWindow("Mario Strikers Charged - Launcher", int(kDefaultDesignWidth),
+        window_ = SDL_CreateWindow(GameTitle().c_str(), int(kDefaultDesignWidth),
                                    int(kDefaultDesignHeight),
                                    SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
         Require(window_ != nullptr, "Cannot create launcher window");
@@ -213,6 +213,15 @@ public:
         header_ = SDL_CreateTextureFromSurface(renderer_, surface.get());
         Require(header_ != nullptr, "Cannot create header texture");
         SDL_SetTextureScaleMode(header_, SDL_SCALEMODE_LINEAR);
+        // Aurora's logo (from its pinned source) is optional decoration.
+        if (auto logo = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
+                SDL_LoadPNG(PathUtf8(resources / "aurora.png").c_str()), SDL_DestroySurface))
+        {
+            aurora_logo_width_ = float(logo->w);
+            aurora_logo_height_ = float(logo->h);
+            aurora_logo_ = SDL_CreateTextureFromSurface(renderer_, logo.get());
+            if (aurora_logo_) SDL_SetTextureScaleMode(aurora_logo_, SDL_SCALEMODE_LINEAR);
+        }
         font_path_ = PathUtf8(resources / "Roboto-Medium.ttf");
         if (!fs::exists(resources / "Roboto-Medium.ttf"))
             throw std::runtime_error("Missing launcher font; rebuild to restore resources");
@@ -256,6 +265,8 @@ public:
                     RefreshDisplays();
                 if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
                     SelectDisc(event.drop.data);
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
+                    CaptureKey(event.key.scancode);
             }
             PollResults();
             // Moving between displays or changing the interface size rebuilds
@@ -457,22 +468,37 @@ private:
         {
             auto result = future_.get();
             pending_ = false;
-            if (result.selection == DiscSelection()) check_ = std::move(result);
+            if (result.selection == DiscSelection())
+            {
+                check_ = std::move(result);
+                region_prompt_ = check_.info && !SupportedRelease(*check_.info);
+            }
         }
     }
 
+    // Standard gamepads in the order the game numbers them (gamepad1-4);
+    // Wii Remotes have their own driver and are left out.
     void RefreshGamepad()
     {
         if (gamepad_) { SDL_CloseGamepad(gamepad_); gamepad_ = nullptr; }
+        gamepad_names_.clear();
         int count = 0;
         auto* ids = SDL_GetGamepads(&count);
-        if (ids && count > 0) gamepad_ = SDL_OpenGamepad(ids[0]);
+        for (int n = 0; ids && n < count; ++n)
+        {
+            const auto vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
+            if (vendor == 0x057e && (product == 0x0306 || product == 0x0330)) continue;
+            const char* name = SDL_GetGamepadNameForID(ids[n]);
+            gamepad_names_.push_back(name ? name : "Controller");
+            if (!gamepad_) gamepad_ = SDL_OpenGamepad(ids[n]);
+        }
         SDL_free(ids);
     }
 
     void RefreshDisplays()
     {
         displays_.clear();
+        display_ids_.clear();
         int count = 0;
         SDL_DisplayID* ids = SDL_GetDisplays(&count);
         const SDL_DisplayID primary = SDL_GetPrimaryDisplay();
@@ -484,6 +510,7 @@ private:
                 label += "  (" + std::to_string(mode->w) + " x " + std::to_string(mode->h) + ")";
             if (ids[i] == primary) label += "  - primary";
             displays_.push_back(std::move(label));
+            display_ids_.push_back(ids[i]);
         }
         SDL_free(ids);
     }
@@ -515,7 +542,7 @@ private:
         if (!check_.info || check_.selection != DiscSelection())
             return check_.error.empty() ? "Check your disc on the Game page." : check_.error;
         if (!SupportedRelease(*check_.info))
-            return "This build runs the USA release of Mario Strikers Charged (R4QE01, revision 1).";
+            return "Only the USA version of Mario Strikers Charged (R4QE01, revision 1) is supported for now.";
         const auto settings = EffectiveLaunch().settings;
         if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
             return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
@@ -529,7 +556,13 @@ private:
     void Play(bool& quit)
     {
         if (!PlayBlocker().empty()) return;
-        if (dirty_ && !Save()) return; // Keep the user's choices for the next start.
+        // Unsaved changes: ask whether to start with or without them.
+        if (dirty_) { play_prompt_ = true; return; }
+        Start(quit);
+    }
+
+    void Start(bool& quit)
+    {
         frontend_launch_ = EffectiveLaunch();
         quit = true;
     }
@@ -554,6 +587,11 @@ private:
     // ------------------------------------------------------------- layout
     void Draw(bool& quit)
     {
+        if (calibration_.active)
+        {
+            DrawCalibration();
+            return;
+        }
         auto& io = ImGui::GetIO();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && config_ok_ && dirty_) Save();
         const ImVec2 size = io.DisplaySize;
@@ -568,6 +606,8 @@ private:
         DrawSidebar(sidebar, size.y);
         DrawMain({sidebar, 0}, {size.x - sidebar, size.y}, quit);
         DrawClosePrompt(quit);
+        DrawPlayPrompt(quit);
+        DrawRegionPrompt();
         ImGui::End();
     }
 
@@ -600,13 +640,11 @@ private:
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
         }
 
-        // Build badge at the bottom of the sidebar.
-        const float badge = height - Dp(78);
+        // Version at the bottom of the sidebar.
+        const float badge = height - Dp(40);
         if (ImGui::GetCursorPosY() < badge)
         {
             ImGui::SetCursorPos({pad, badge});
-            Chip("Development build", color::warning, Icon::Warning);
-            ImGui::SetCursorPosX(pad);
             ImGui::PushFont(fonts.caption);
             ImGui::PushStyleColor(ImGuiCol_Text, color::dim);
             ImGui::TextUnformatted(build::version);
@@ -617,6 +655,7 @@ private:
 
     void DrawMain(ImVec2 origin, ImVec2 size, bool& quit)
     {
+        if (page_ != PageControls && keyboard_view_) CloseKeyboardView();
         const float bar = Dp(74);
         const ImVec2 content{size.x, size.y - bar};
         ImGui::SetCursorPos(origin);
@@ -707,8 +746,6 @@ private:
             ImGui::SameLine(0, gap);
             SummaryCard("##language_card", "Language & audio", Icon::Audio, width, PageAudio, LanguageSummary());
         }
-        draw->AddText(fonts.caption, FontSize(fonts.caption), {origin.x + pad, origin.y + size.y - footer},
-                      Col(color::dim), "Work in progress: the original menus run; full matches are not playable yet.");
     }
 
     void DrawPlayStatus(const std::string& blocker)
@@ -898,6 +935,85 @@ private:
         if (text.x > limit && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", notice_.c_str());
     }
 
+    // Why a readable Charged disc cannot play yet.
+    std::string UnsupportedDiscReason(const DiscInfo& info) const
+    {
+        if (info.game_id != "R4QE01")
+            return std::string("Your disc is the ") + RegionName(info.game_id) + " version (" + info.game_id + ").";
+        if (info.revision != 1)
+            return "Your disc is the USA version, but revision " + std::to_string(unsigned(info.revision))
+                + "; the port needs revision 1.";
+        return "Your disc's game program (main.dol) differs from the original USA release, e.g. a modified image.";
+    }
+
+    // Shown once after a check finds a readable but unsupported disc.
+    void DrawRegionPrompt()
+    {
+        if (region_prompt_)
+        {
+            ImGui::OpenPopup("Unsupported version");
+            region_prompt_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({Dp(520), 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Unsupported version", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            TextColored(fonts.heading, color::text, "Only the USA version is supported for now");
+            ImGui::Dummy({0, Dp(4)});
+            if (check_.info) TextWrappedColored(fonts.body, color::muted, UnsupportedDiscReason(*check_.info).c_str());
+            ImGui::Dummy({0, Dp(4)});
+            TextWrappedColored(fonts.body, color::text,
+                "The port currently runs Mario Strikers Charged for the USA (R4QE01, revision 1). The European, "
+                "Japanese and Korean versions need their own decompilation work and should follow soon.");
+            ImGui::Dummy({0, Dp(10)});
+            if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || ImGui::IsKeyPressed(ImGuiKey_Escape)
+                || ImGui::IsKeyPressed(ImGuiKey_Enter))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    void DrawPlayPrompt(bool& quit)
+    {
+        if (play_prompt_)
+        {
+            ImGui::OpenPopup("Start with changes?");
+            play_prompt_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Start with changes?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            TextColored(fonts.heading, color::text, "Save your changes before playing?");
+            TextColored(fonts.body, color::muted, "Your settings have unsaved changes.");
+            ImGui::Dummy({0, Dp(8)});
+            if (PrimaryButton("save_play", "Save and play", Dp(170, 42), true, Icon::Play))
+            {
+                ImGui::CloseCurrentPopup();
+                if (Save() && PlayBlocker().empty()) Start(quit);
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("discard_play", "Discard and play", Dp(170, 42)))
+            {
+                ImGui::CloseCurrentPopup();
+                // Back to the saved settings; start only if they can still play.
+                Reload();
+                if (config_ok_ && PlayBlocker().empty()) Start(quit);
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("cancel_play", "Cancel", Dp(100, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
     void DrawClosePrompt(bool& quit)
     {
         if (close_requested_)
@@ -1019,7 +1135,7 @@ private:
                 + "  -  " + info.format + "  -  " + std::to_string(info.file_count) + " files");
             line(fonts.caption, Dp(60), supported ? color::accent : color::warning,
                  supported ? "Supported release. Ready to play."
-                           : "Readable, but this build runs the USA release (R4QE01 revision 1) only.");
+                           : "Not supported yet: only the USA release (R4QE01, revision 1) runs for now.");
         }
         else if (!check_.error.empty())
         {
@@ -1114,6 +1230,22 @@ private:
                 TextWrappedColored(CurrentFonts().caption, color::warning,
                                    ("Saved value " + draft_.aspect + " is not supported by the game. Choose one above.").c_str());
 
+            Row("Sharpness", "Clean and Sharp draw the game straight into the window without the TV flicker "
+                "filter; Sharp keeps pixels square. Soft is the original TV picture.");
+            const char* pictures[] = {"soft", "clean", "sharp"};
+            int picture = 2;
+            for (int i = 0; i < 3; ++i) if (draft_.picture == pictures[i]) picture = i;
+            if (Segmented("##sharpness", &picture, {"Soft (TV)", "Clean", "Sharp"}, ImGui::GetContentRegionAvail().x))
+            { draft_.picture = pictures[picture]; dirty_ = true; }
+
+            Row("Antialiasing", "Smooths the jagged edges of 3D shapes (4x multisampling). Costs some GPU time.");
+            bool antialiasing = draft_.antialiasing == "4x";
+            if (Toggle("##antialiasing", &antialiasing))
+            {
+                draft_.antialiasing = antialiasing ? "4x" : "off";
+                dirty_ = true;
+            }
+
             Row("VSync", "Synchronizes frames with your display to prevent tearing.");
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
 
@@ -1124,24 +1256,107 @@ private:
         EndCard();
     }
 
+    // The gamepad layout as a two-column table: pad control, then Wii input.
+    void GamepadLayoutTooltip()
+    {
+        struct Mapping { const char* pad; const char* wii; };
+        static const Mapping buttons[] = {
+            {"A / Cross", "A"}, {"B / Circle", "B"}, {"X / Square", "1"}, {"Y / Triangle", "2"},
+            {"Start", "+"}, {"Back / Select", "-"}, {"Guide / PS", "HOME"}, {"D-pad", "D-pad"}};
+        static const Mapping sticks[] = {
+            {"Left stick", "Nunchuk stick"}, {"Left trigger", "Z"}, {"Left bumper", "C"},
+            {"Right stick", "Pointer"}, {"Right trigger", "Shake Remote (hit)"},
+            {"Right bumper", "Shake Nunchuk (switch items)"}};
+        const auto& fonts = CurrentFonts();
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(16, 14));
+        if (ImGui::BeginTooltip())
+        {
+            TextColored(fonts.label, color::text, "Gamepad as Wii Remote + Nunchuk");
+            TextColored(fonts.caption, color::muted, "Xbox, PlayStation and other standard controllers");
+            auto section = [&](const char* title, const Mapping* rows, std::size_t count, const char* id) {
+                ImGui::Dummy({0, Dp(6)});
+                TextColored(fonts.caption, color::dim, title);
+                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 3));
+                if (ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingFixedFit))
+                {
+                    ImGui::TableSetupColumn("pad", ImGuiTableColumnFlags_WidthFixed, Dp(132));
+                    ImGui::TableSetupColumn("wii", ImGuiTableColumnFlags_WidthFixed, Dp(200));
+                    for (std::size_t i = 0; i < count; ++i)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        TextColored(fonts.body, color::text, rows[i].pad);
+                        ImGui::TableSetColumnIndex(1);
+                        TextColored(fonts.body, color::accent, rows[i].wii);
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::PopStyleVar();
+            };
+            section("BUTTONS", buttons, std::size(buttons), "##pad_buttons");
+            section("STICKS & TRIGGERS", sticks, std::size(sticks), "##pad_sticks");
+            ImGui::EndTooltip();
+        }
+        ImGui::PopStyleVar();
+    }
+
     void WindowSizeControl()
     {
-        static constexpr std::array<std::array<int, 2>, 7> presets{{{1280, 720}, {1600, 900}, {1920, 1080},
-            {2560, 1440}, {3840, 2160}, {1024, 768}, {1440, 1080}}};
+        // Sizes are logical units like the game window's (points on a Retina
+        // Mac), so only those that fit the chosen display are offered.
+        struct Group { const char* title; std::vector<std::array<int, 2>> sizes; };
+        static const std::array<Group, 4> groups{{
+            // The game renders 640 x 448 (480p); whole multiples stay sharpest.
+            {"Wii output (480p and multiples)", {{640, 480}, {854, 480}, {1280, 960}, {1708, 960}, {1920, 1440}, {2562, 1440}}},
+            {"16:9", {{1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}}},
+            {"16:10", {{1280, 800}, {1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600}}},
+            {"4:3", {{800, 600}, {1024, 768}, {1440, 1080}, {1600, 1200}}},
+        }};
+        SDL_DisplayID display = SDL_GetPrimaryDisplay();
+        if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size())) display = display_ids_[size_t(draft_.monitor - 1)];
+        SDL_Rect usable{};
+        const bool known = display && SDL_GetDisplayUsableBounds(display, &usable);
+        auto fits = [&](int w, int h) {
+            if (!known) return true;
+            const auto fit = platform::FitWindowSize(w, h, usable.w, usable.h);
+            return fit.width == w && fit.height == h;
+        };
+        const auto largest = known ? platform::FitWindowSize(16000, 9000, usable.w, usable.h)
+                                   : platform::WindowSize{1280, 720};
+        auto aspect = [](int w, int h) {
+            const double ratio = double(w) / h;
+            return std::abs(ratio - 16.0 / 9) < 0.01 ? "   (16:9)" : std::abs(ratio - 16.0 / 10) < 0.01 ? "   (16:10)"
+                 : std::abs(ratio - 4.0 / 3) < 0.01 ? "   (4:3)" : "";
+        };
+        auto selected = [&](int w, int h) { return draft_.width == w && draft_.height == h; };
+
         const float width = ImGui::GetContentRegionAvail().x;
-        std::string preview = std::to_string(draft_.width) + " x " + std::to_string(draft_.height);
-        bool custom = true;
-        for (const auto& preset : presets) if (preset[0] == draft_.width && preset[1] == draft_.height) custom = false;
-        if (custom) preview += "  (custom)";
+        bool custom = !selected(largest.width, largest.height);
+        for (const auto& group : groups)
+            for (const auto& size : group.sizes) if (selected(size[0], size[1])) custom = false;
+        std::string preview = std::to_string(draft_.width) + " x " + std::to_string(draft_.height)
+            + aspect(draft_.width, draft_.height) + (custom ? "  (custom)" : "");
         ImGui::SetNextItemWidth(width);
-        if (ImGui::BeginCombo("##size", preview.c_str()))
+        if (ImGui::BeginCombo("##size", preview.c_str(), ImGuiComboFlags_HeightLarge))
         {
-            for (const auto& preset : presets)
+            const std::string fill = "Largest that fits: " + std::to_string(largest.width) + " x "
+                + std::to_string(largest.height);
+            if (ImGui::Selectable(fill.c_str(), selected(largest.width, largest.height)))
+            { draft_.width = largest.width; draft_.height = largest.height; dirty_ = true; }
+            for (const auto& group : groups)
             {
-                const std::string label = std::to_string(preset[0]) + " x " + std::to_string(preset[1])
-                    + (preset[0] * 3 == preset[1] * 4 ? "   (4:3)" : "   (16:9)");
-                if (ImGui::Selectable(label.c_str(), preset[0] == draft_.width && preset[1] == draft_.height))
-                { draft_.width = preset[0]; draft_.height = preset[1]; dirty_ = true; }
+                bool any = false;
+                for (const auto& size : group.sizes) any |= fits(size[0], size[1]);
+                if (!any) continue;
+                ImGui::SeparatorText(group.title);
+                for (const auto& size : group.sizes)
+                {
+                    if (!fits(size[0], size[1])) continue;
+                    const std::string label = std::to_string(size[0]) + " x " + std::to_string(size[1])
+                        + aspect(size[0], size[1]) + "##" + group.title;
+                    if (ImGui::Selectable(label.c_str(), selected(size[0], size[1])))
+                    { draft_.width = size[0]; draft_.height = size[1]; dirty_ = true; }
+                }
             }
             ImGui::EndCombo();
         }
@@ -1152,6 +1367,13 @@ private:
             draft_.width = std::clamp(dimensions[0], 320, 16384);
             draft_.height = std::clamp(dimensions[1], 240, 16384);
             dirty_ = true;
+        }
+        if (!fits(draft_.width, draft_.height))
+        {
+            const auto shrunk = platform::FitWindowSize(draft_.width, draft_.height, usable.w, usable.h);
+            const std::string note = "Larger than this display; the game opens it at " + std::to_string(shrunk.width)
+                + " x " + std::to_string(shrunk.height) + ".";
+            TextWrappedColored(CurrentFonts().caption, color::warning, note.c_str());
         }
     }
 
@@ -1235,127 +1457,473 @@ private:
             wii_probe_.Start(250);
     }
 
-    void WiiRemotesCard()
+    struct CalibrationTarget
+    {
+        const char* name;
+        float x, y; // 0..1 across the game picture
+    };
+    static constexpr CalibrationTarget kCalibrationTargets[5] = {
+        {"the centre", 0.5f, 0.5f}, {"the top-left corner", 0.1f, 0.1f}, {"the top-right corner", 0.9f, 0.1f},
+        {"the bottom-right corner", 0.9f, 0.9f}, {"the bottom-left corner", 0.1f, 0.9f}};
+
+    void StartCalibration(int slot)
+    {
+        wii_probe_.Close();
+        if (!live_.Open(slot))
+        {
+            Notice("Wii Remote " + std::to_string(slot + 1) + " did not answer. Press a button on it and try again.",
+                   NoticeKind::Warning);
+            return;
+        }
+        calibration_ = {};
+        calibration_.active = true;
+        calibration_.slot = slot;
+        // Calibrate on the display the game starts on, filled like the game's
+        // fullscreen picture.
+        int count = 0;
+        SDL_DisplayID* ids = SDL_GetDisplays(&count);
+        if (ids && draft_.monitor > 0 && draft_.monitor <= count)
+        {
+            const int position = int(SDL_WINDOWPOS_CENTERED_DISPLAY(ids[draft_.monitor - 1]));
+            SDL_SetWindowPosition(window_, position, position);
+        }
+        SDL_free(ids);
+        SDL_SetWindowFullscreen(window_, true);
+    }
+
+    void EndCalibration()
+    {
+        live_.Close();
+        calibration_.active = false;
+        SDL_SetWindowFullscreen(window_, false);
+        wii_next_probe_ns_ = 0;
+    }
+
+    void DrawCalibration()
+    {
+        auto& c = calibration_;
+        live_.Poll();
+        const auto& io = ImGui::GetIO();
+        const ImVec2 size = io.DisplaySize;
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(size);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+        ImGui::Begin("##calibration", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled({0, 0}, size, Col(color::window));
+        // The game picture fills the screen at the game's aspect ratio.
+        const float aspect = draft_.aspect == "4:3" ? 4.0f / 3.0f
+            : draft_.aspect == "16:9" ? 16.0f / 9.0f : size.x / std::max(1.0f, size.y);
+        float width = size.x, height = size.x / aspect;
+        if (height > size.y) { height = size.y; width = size.y * aspect; }
+        const ImVec2 origin{(size.x - width) * 0.5f, (size.y - height) * 0.5f};
+        draw->AddRect(origin, {origin.x + width, origin.y + height}, Col(color::border), 0, 0, Dp(1));
+        for (std::size_t n = 0; n < 5; ++n)
+        {
+            const auto& target = kCalibrationTargets[n];
+            const ImVec2 at{origin.x + target.x * width, origin.y + target.y * height};
+            if (n < c.step)
+                DrawIcon(draw, Icon::Check, at, Dp(26), Col(color::accent));
+            else if (n == c.step)
+            {
+                const float pulse = 0.5f + 0.5f * std::sin(float(SDL_GetTicks()) * 0.006f);
+                draw->AddCircle(at, Dp(34) + Dp(8) * pulse, Col(color::accent, 0.45f), 0, Dp(2));
+                DrawIcon(draw, Icon::Target, at, Dp(48), Col(color::accent));
+            }
+            else
+                DrawIcon(draw, Icon::Target, at, Dp(24), Col(color::dim));
+        }
+
+        // Where the remote's camera sees the DolphinBar.
+        int visible = 0;
+        for (const auto& object : live_.Dots()) visible += object.size != 0;
+        const auto pair = platform::TrackWiimotePair(c.pair, live_.Dots());
+        const bool in_view = pair.has_value() && visible >= 2;
+        const auto& target = kCalibrationTargets[std::min<std::size_t>(c.step, 4)];
+        const auto& fonts = CurrentFonts();
+        const auto centred = [&](ImFont* font, float y, ImU32 ink, const std::string& text) {
+            const ImVec2 extent = TextSize(font, text.c_str());
+            DrawLabel(draw, font, {(size.x - extent.x) * 0.5f, y}, ink, text.c_str());
+        };
+        const float text_y = origin.y + height * 0.62f;
+        centred(fonts.title, text_y, Col(color::text),
+                "Wii Remote " + std::to_string(c.slot + 1) + ": aim at " + target.name + " and press A");
+        centred(fonts.label, text_y + Dp(48), Col(in_view ? color::accent : color::warning),
+                in_view ? "DolphinBar in view" : "The Wii Remote can't see the DolphinBar");
+        if (!c.message.empty()) centred(fonts.body, text_y + Dp(80), Col(color::warning), c.message);
+        centred(fonts.caption, origin.y + height - Dp(40), Col(color::muted),
+                "Target " + std::to_string(c.step + 1) + " of 5   -   hold the remote as you play   -   B or Esc cancels");
+        ImGui::End();
+
+        const std::uint16_t buttons = live_.Buttons();
+        const std::uint16_t pressed = buttons & ~c.buttons;
+        c.buttons = buttons;
+        const int slot = c.slot;
+        if ((pressed & 0x0004) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        {
+            EndCalibration();
+            Notice("Calibration cancelled; Wii Remote " + std::to_string(slot + 1) + " keeps its previous setting.",
+                   NoticeKind::Info);
+            return;
+        }
+        if (!live_.Connected())
+        {
+            if (!c.lost_since_ns) c.lost_since_ns = SDL_GetTicksNS();
+            else if (SDL_GetTicksNS() - c.lost_since_ns > 3000000000ull)
+            {
+                EndCalibration();
+                Notice("Wii Remote " + std::to_string(slot + 1) + " stopped answering; calibration cancelled.",
+                       NoticeKind::Warning);
+            }
+            return;
+        }
+        c.lost_since_ns = 0;
+        if (!(pressed & 0x0008)) return;
+        if (!in_view)
+        {
+            c.message = "Move back a little or aim closer to the screen, then press A again.";
+            return;
+        }
+        c.samples.push_back({(*pair)[0], (*pair)[1], target.x, target.y});
+        c.message.clear();
+        if (++c.step < 5) return;
+        const auto fit = platform::FitWiimoteCalibration(c.samples);
+        if (!fit)
+        {
+            c.samples.clear();
+            c.step = 0;
+            c.message = "Those aims did not line up. Let's start again from the centre.";
+            return;
+        }
+        draft_.remote_calibration[slot] = platform::FormatWiimoteCalibration(*fit);
+        dirty_ = true;
+        EndCalibration();
+        Notice("Wii Remote " + std::to_string(slot + 1) + " calibrated. Save to keep it.", NoticeKind::Success);
+    }
+
+    // controls.player1-4: keyboard & mouse, a Wii Remote in a DolphinBar slot
+    // or off. Players fill in order and each device plays once. Without a
+    // DolphinBar the game makes keyboard & mouse player 1, alone.
+    void PlayersCard()
     {
         PollWiimotes();
         const auto& status = wii_status_;
-        const bool found = status.dolphinbar || !status.remotes.empty();
-        const bool remotes_used = draft_.input != "keyboard";
-        const bool keyboard_yields = draft_.input == "controller";
-        const char* subtitle = !wii_known_ ? "Looking for Wii Remotes..."
-            : !status.remotes.empty() ? "Players follow the DolphinBar slot order. Changes apply when the game starts."
-            : status.dolphinbar ? "DolphinBar found. Pair a Wii Remote: press SYNC on the bar, then on the remote."
+        const bool bar = status.dolphinbar;
+        auto& players = draft_.players;
+        const char* subtitle = !wii_known_ ? "Looking for a DolphinBar..."
             : status.dolphinbar_other_mode ? "The DolphinBar is in a mouse or gamepad mode. Press its MODE button until light 4 is on."
-                                : "Connect a Mayflash DolphinBar in mode 4, or pair a Wii Remote over Bluetooth (experimental).";
-        BeginCard("##wiimotes", "Wii Remotes", subtitle, Icon::Gamepad);
-        if (status.dolphinbar)
+            : bar ? "Players fill in order and each controller plays once. Changes apply when the game starts."
+            : "Players fill in order: keyboard & mouse and gamepads. Connect a Mayflash DolphinBar in mode 4 for Wii Remotes.";
+        BeginCard("##players", "Players", subtitle, Icon::Gamepad);
+        if (bar)
             Chip("DolphinBar", color::accent, Icon::Check);
         else if (status.dolphinbar_other_mode)
             Chip("DolphinBar: switch to mode 4", color::warning, Icon::Warning);
-        if (found || draft_.input != "auto")
+
+        const auto connected = [&](int slot) -> const platform::WiimoteHidRemote* {
+            for (const auto& remote : status.remotes)
+                if (remote.slot == slot) return &remote;
+            return nullptr;
+        };
+        const auto name = [&](const std::string& device) {
+            if (device == "keyboard") return std::string("Keyboard & mouse");
+            if (device == "off") return std::string("Off");
+            const int slot = device.back() - '1';
+            if (device.rfind("gamepad", 0) == 0)
+                return slot < int(gamepad_names_.size()) ? "Gamepad " + std::to_string(slot + 1) + ": " + gamepad_names_[slot]
+                                                         : "Gamepad " + std::to_string(slot + 1) + "  (not connected)";
+            if (!bar) return "Wii Remote " + std::to_string(slot + 1) + "  (needs the DolphinBar)";
+            const auto* remote = connected(slot);
+            return "Wii Remote " + std::to_string(slot + 1)
+                + (!remote ? "  (not connected)" : remote->nunchuk ? " + Nunchuk" : "");
+        };
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 5));
+        if (ImGui::BeginTable("##player_slots", 4))
         {
-            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 4));
-            if (ImGui::BeginTable("##wii_players", 3))
+            ImGui::TableSetupColumn("player", ImGuiTableColumnFlags_WidthFixed, Dp(110));
+            ImGui::TableSetupColumn("device", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("actions", ImGuiTableColumnFlags_WidthFixed, Dp(84));
+            ImGui::TableSetupColumn("battery", ImGuiTableColumnFlags_WidthFixed, Dp(84));
+            for (int n = 0; n < 4; ++n)
             {
-                ImGui::TableSetupColumn("player", ImGuiTableColumnFlags_WidthFixed, Dp(110));
-                ImGui::TableSetupColumn("device", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("battery", ImGuiTableColumnFlags_WidthFixed, Dp(90));
-                int player = 1;
-                auto player_row = [&](bool plays, const std::string& device, const char* note) {
-                    ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(30));
-                    ImGui::TableSetColumnIndex(0);
-                    TextColored(CurrentFonts().label, plays ? color::text : color::dim,
-                                plays ? ("Player " + std::to_string(player++)).c_str() : "Not playing");
-                    ImGui::TableSetColumnIndex(1);
-                    TextColored(CurrentFonts().body, plays ? color::muted : color::dim,
-                                (note ? device + "   " + note : device).c_str());
-                    ImGui::TableSetColumnIndex(2);
-                };
-                for (const auto& remote : status.remotes)
+                ImGui::PushID(n);
+                ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(36));
+                ImGui::TableSetColumnIndex(0);
+                const std::string shown = players[n];
+                const bool enabled = n == 0 || players[n - 1] != "off";
+                ImGui::AlignTextToFramePadding();
+                TextColored(CurrentFonts().label, enabled || n == 0 ? color::text : color::dim,
+                            ("Player " + std::to_string(n + 1)).c_str());
+                ImGui::TableSetColumnIndex(1);
+                ImGui::BeginDisabled(!enabled);
+                ImGui::SetNextItemWidth(-Dp(12));
+                if (ImGui::BeginCombo("##device", name(shown).c_str()))
                 {
-                    const std::string device = std::string("Wii Remote") + (remote.nunchuk ? " + Nunchuk" : "")
-                        + (remote.slot >= 0 ? "   DolphinBar slot " + std::to_string(remote.slot + 1) : "   Bluetooth");
-                    player_row(remotes_used, device, nullptr);
-                    BatteryIcon(remote.battery);
+                    const auto option = [&](const std::string& device) {
+                        int other = -1;
+                        for (int m = 0; m < 4; ++m)
+                            if (m != n && device != "off" && players[m] == device) other = m;
+                        // Choosing another player's device swaps the two; an
+                        // empty player cannot take one (that would leave a gap).
+                        if (other >= 0 && players[n] == "off") return;
+                        const auto label = name(device)
+                            + (other >= 0 ? "  (swap with player " + std::to_string(other + 1) + ")" : "");
+                        if (ImGui::Selectable(label.c_str(), players[n] == device))
+                        {
+                            if (other >= 0) players[other] = players[n];
+                            players[n] = device;
+                            if (device == "off")
+                                for (int m = n + 1; m < 4; ++m) players[m] = "off";
+                            dirty_ = true;
+                        }
+                    };
+                    option("keyboard");
+                    for (int slot = 0; slot < 4; ++slot)
+                    {
+                        const auto device = "remote" + std::to_string(slot + 1);
+                        if ((bar && connected(slot)) || players[n] == device) option(device);
+                    }
+                    for (int pad = 0; pad < 4; ++pad)
+                    {
+                        const auto device = "gamepad" + std::to_string(pad + 1);
+                        if (pad < int(gamepad_names_.size()) || players[n] == device) option(device);
+                    }
+                    if (n > 0) option("off");
+                    ImGui::EndCombo();
                 }
-                const bool keyboard_plays = !keyboard_yields || status.remotes.empty();
-                player_row(keyboard_plays, "Keyboard & mouse",
-                           keyboard_yields ? "(only while no Wii Remote is connected)" : nullptr);
-                ImGui::EndTable();
+                ImGui::EndDisabled();
+                const int slot = shown.rfind("remote", 0) == 0 ? shown.back() - '1' : -1;
+                const auto* remote = slot >= 0 && bar ? connected(slot) : nullptr;
+                ImGui::TableSetColumnIndex(3);
+                if (remote) BatteryIcon(remote->battery);
+                ImGui::TableSetColumnIndex(2);
+                if (shown.rfind("gamepad", 0) == 0)
+                {
+                    SecondaryButton("##layout", "", Dp(36, 30), true, Icon::Info);
+                    if (ImGui::IsItemHovered()) GamepadLayoutTooltip();
+                }
+                if (shown == "keyboard")
+                {
+                    if (SecondaryButton("##keys", "", Dp(36, 30), true, Icon::Sliders)) OpenKeyboardView();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keyboard & mouse keys");
+                }
+                if (remote)
+                {
+                    const bool calibrated = draft_.remote_calibration[slot] != "none";
+                    if (SecondaryButton("##calibrate", "", Dp(36, 30), true, Icon::Target)) StartCalibration(slot);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(calibrated ? "Pointer calibrated. Click to calibrate again."
+                                                     : "Calibrate the pointer: aim at five targets");
+                    if (calibrated)
+                    {
+                        ImGui::SameLine(0, Dp(6));
+                        if (SecondaryButton("##clear", "", Dp(36, 30), true, Icon::Error))
+                        {
+                            draft_.remote_calibration[slot] = "none";
+                            dirty_ = true;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear the pointer calibration");
+                    }
+                }
+                ImGui::PopID();
             }
-            ImGui::PopStyleVar();
+            ImGui::EndTable();
         }
-        if (BeginRows("##wii_rows"))
+        ImGui::PopStyleVar();
+        // Single player on a Wii Remote or gamepad only.
+        if (players[0] != "keyboard" && players[1] == "off" && BeginRows("##mouse_rows"))
         {
-            if (found || draft_.input != "auto")
+            Row("Mouse pointer", "The mouse also points for player 1: left click is A, right click is B. "
+                "The controller keeps working. Only when player 1 plays alone.");
+            if (Toggle("##mouse_pointer", &draft_.mouse_pointer)) dirty_ = true;
+            EndRows();
+        }
+        if ((bar || draft_.sensor_bar != "bottom") && BeginRows("##sensor_rows"))
+        {
+            Row("Sensor bar", "Where your DolphinBar sits. The game aims the Wii Remote pointer from it.");
+            int position = draft_.sensor_bar == "top" ? 0 : 1;
+            if (Segmented("##sensor_bar", &position, {"Above the screen", "Below the screen"},
+                          ImGui::GetContentRegionAvail().x))
             {
-                Row("Players", draft_.input == "controller" ? "Keyboard & mouse joins only while no Wii Remote is connected."
-                    : draft_.input == "keyboard" ? "Wii Remotes are not used; keyboard & mouse is player 1."
-                    : "Wii Remotes take the first players, then keyboard & mouse.");
-                const char* values[] = {"auto", "controller", "keyboard"};
-                int choice = 0;
-                for (int i = 0; i < 3; ++i) if (draft_.input == values[i]) choice = i;
-                if (Segmented("##players", &choice, {"Both", "Remotes only", "Keyboard only"},
-                              ImGui::GetContentRegionAvail().x))
-                {
-                    draft_.input = values[choice];
-                    dirty_ = true;
-                }
-            }
-            if ((found && remotes_used) || draft_.sensor_bar != "bottom")
-            {
-                Row("Sensor bar", "Where your DolphinBar or sensor bar sits. The game aims the pointer from it.");
-                int position = draft_.sensor_bar == "top" ? 0 : 1;
-                if (Segmented("##sensor_bar", &position, {"Above the screen", "Below the screen"},
-                              ImGui::GetContentRegionAvail().x))
-                {
-                    draft_.sensor_bar = position == 0 ? "top" : "bottom";
-                    dirty_ = true;
-                }
+                draft_.sensor_bar = position == 0 ? "top" : "bottom";
+                dirty_ = true;
             }
             EndRows();
         }
         EndCard();
     }
 
+    // Controls: the Players view, or the keyboard & mouse keys view that slides
+    // in from a player row and saves when it goes back.
     void ControlsPage()
     {
-        PageHeader("Controls", "Play with keyboard and mouse, or a Wii Remote with Nunchuk (experimental). Keep the game window focused.");
-        WiiRemotesCard();
-        BeginCard("##keys", "Keyboard & mouse",
-                  "Keys press Wii Remote and Nunchuk buttons or shake them; the mouse is the pointer.", Icon::Keyboard);
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
-        if (ImGui::BeginTable("##key_table", 2))
+        const float t = Animate(ImGui::GetID("##keyboard_slide"), keyboard_view_, 14.0f);
+        const float shift = keyboard_view_ ? (1.0f - t) * Dp(120) : -t * Dp(120);
+        if (std::fabs(shift) > 0.5f) ImGui::Indent(shift);
+        if (keyboard_view_) KeyboardView();
+        else ControlsMain();
+        if (std::fabs(shift) > 0.5f) ImGui::Unindent(shift);
+    }
+
+    void OpenKeyboardView()
+    {
+        keyboard_view_ = true;
+        capture_action_ = capture_slot_ = -1;
+    }
+
+    void CloseKeyboardView()
+    {
+        keyboard_view_ = false;
+        capture_action_ = capture_slot_ = -1;
+        if (dirty_ && config_ok_) Save();
+    }
+
+    platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys); }
+
+    // A key pressed while a keycap waits: it takes that slot, moving it from
+    // another action unless it is that action's only key.
+    void CaptureKey(SDL_Scancode code)
+    {
+        const int action = capture_action_, slot = capture_slot_;
+        capture_action_ = capture_slot_ = -1;
+        if (action < 0) return;
+        const std::string name = SDL_GetScancodeName(code);
+        if (code == platform::kScreenshotKey)
         {
-            ImGui::TableSetupColumn("button", ImGuiTableColumnFlags_WidthFixed, Dp(190));
-            ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("A", {"Enter", "Space"}, "or left click", "Confirm, select");
-            KeyRow("B", {"Esc", "Backspace"}, "or right click", "Back");
-            KeyRow("Pointer", {"Mouse"}, nullptr, "Point at menu items");
-            ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
-            ImGui::TableSetColumnIndex(0);
-            TextColored(CurrentFonts().label, color::text, "D-pad");
-            ImGui::TableSetColumnIndex(1);
-            for (int direction = 0; direction < 4; ++direction)
+            Notice(name + " takes screenshots and cannot be assigned.", NoticeKind::Warning);
+            return;
+        }
+        auto bindings = DraftBindings();
+        auto& mine = bindings[action];
+        if (mine[0] == code || mine[1] == code) return;
+        int moved = -1;
+        for (std::size_t other = 0; other < KeyActionCount; ++other)
+        {
+            if (int(other) == action) continue;
+            auto& binding = bindings[other];
+            for (int k = 0; k < 2; ++k)
             {
-                if (direction) ImGui::SameLine(0, Dp(6));
-                KeyCapArrow(direction);
+                if (binding[k] != code) continue;
+                if (binding[1 - k] == SDL_SCANCODE_UNKNOWN)
+                {
+                    Notice(name + " is the only key of " + kKeyActions[other].label
+                               + ". Give that action another key first.", NoticeKind::Warning);
+                    return;
+                }
+                binding = {binding[1 - k], SDL_SCANCODE_UNKNOWN};
+                moved = int(other);
             }
-            KeyRow("1  /  2", {"Z", "X"});
-            KeyRow("+ (Plus)", {"Tab"});
-            KeyRow("\xE2\x88\x92 (Minus)", {"-"});
-            KeyRow("HOME", {"Home"});
-            KeyRow("Nunchuk stick", {"W", "A", "S", "D"});
-            KeyRow("C  /  Z", {"C", "V"}, nullptr, "Nunchuk buttons");
-            KeyRow("Shake Remote", {"E"}, nullptr, "Hit an opponent");
-            KeyRow("Shake Nunchuk", {"Q"}, nullptr, "Switch items");
+        }
+        mine[slot] = code;
+        if (mine[0] == SDL_SCANCODE_UNKNOWN) mine = {mine[1], SDL_SCANCODE_UNKNOWN};
+        draft_.keys[action] = platform::FormatKeyBinding(mine);
+        if (moved >= 0) draft_.keys[moved] = platform::FormatKeyBinding(bindings[moved]);
+        dirty_ = true;
+        Notice(name + " now presses " + kKeyActions[action].label
+                   + (moved >= 0 ? std::string(" (moved from ") + kKeyActions[moved].label + ")" : std::string()) + ".",
+               NoticeKind::Info);
+    }
+
+    void KeyboardView()
+    {
+        if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseKeyboardView(); return; }
+        ImGui::Dummy(Dp(0, 6));
+        PageHeader("Keyboard & mouse", "Click a key to change it; each action takes up to two keys. "
+                   "Changes are saved when you go back.");
+        const auto bindings = DraftBindings();
+        bool clicked = false;
+        const auto rows = [&](std::size_t first, std::size_t last) {
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
+            if (ImGui::BeginTable("##keys", 2))
+            {
+                ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
+                ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
+                for (std::size_t n = first; n < last; ++n)
+                {
+                    ImGui::PushID(int(n));
+                    ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
+                    ImGui::TableSetColumnIndex(0);
+                    TextColored(CurrentFonts().label, color::text, kKeyActions[n].label);
+                    if (kKeyActions[n].note)
+                    {
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+                        TextColored(CurrentFonts().caption, color::muted, kKeyActions[n].note);
+                    }
+                    ImGui::TableSetColumnIndex(1);
+                    for (int slot = 0; slot < 2; ++slot)
+                    {
+                        const SDL_Scancode code = bindings[n][slot];
+                        if (slot == 1 && code == SDL_SCANCODE_UNKNOWN && bindings[n][0] == SDL_SCANCODE_UNKNOWN) break;
+                        const bool waiting = capture_action_ == int(n) && capture_slot_ == slot;
+                        const char* label = waiting ? "Press a key..." : code != SDL_SCANCODE_UNKNOWN
+                            ? SDL_GetScancodeName(code) : "+";
+                        if (slot) ImGui::SameLine(0, Dp(6));
+                        ImGui::PushID(slot);
+                        if (KeyCapButton("##key", label, waiting))
+                        {
+                            clicked = true;
+                            capture_action_ = waiting ? -1 : int(n);
+                            capture_slot_ = waiting ? -1 : slot;
+                        }
+                        if (ImGui::IsItemHovered() && !waiting)
+                            ImGui::SetTooltip(code != SDL_SCANCODE_UNKNOWN ? "Click, then press the new key"
+                                                                           : "Add a second key");
+                        ImGui::PopID();
+                    }
+                    if (bindings[n][1] != SDL_SCANCODE_UNKNOWN)
+                    {
+                        ImGui::SameLine(0, Dp(6));
+                        if (SecondaryButton("##remove", "", Dp(30, 30), true, Icon::Error))
+                        {
+                            draft_.keys[n] = platform::FormatKeyBinding({bindings[n][0], SDL_SCANCODE_UNKNOWN});
+                            dirty_ = true;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove the second key");
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+        };
+        BeginCard("##remote_keys", "Wii Remote", "Buttons of the keyboard's Wii Remote.", Icon::Keyboard);
+        rows(KeyActionA, KeyActionStickUp);
+        EndCard();
+        BeginCard("##nunchuk_keys", "Nunchuk & motion", "The Nunchuk stick and buttons, and the shakes.", Icon::Gamepad);
+        rows(KeyActionStickUp, KeyActionCount);
+        EndCard();
+        BeginCard("##mouse_keys", "Mouse & more", nullptr, Icon::Mouse);
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
+        if (ImGui::BeginTable("##fixed_keys", 2))
+        {
+            ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
+            ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
+            KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
             KeyRow("Screenshot", {"P"}, nullptr, "Saved in the screenshots folder");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
+        if (SecondaryButton("##reset_keys", "Reset to defaults", Dp(180, 36), draft_.keys != Settings::DefaultKeys(),
+                            Icon::Refresh))
+        {
+            draft_.keys = Settings::DefaultKeys();
+            capture_action_ = capture_slot_ = -1;
+            dirty_ = true;
+        }
         EndCard();
+        // A click anywhere else stops waiting for a key.
+        if (capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            capture_action_ = capture_slot_ = -1;
+    }
 
-        BeginCard("##controller", "Controller test", "Other controllers are not used by the game yet. You can check one here.", Icon::Gamepad);
+    void ControlsMain()
+    {
+        PageHeader("Controls", "Play with keyboard and mouse, an Xbox, PlayStation or other gamepad, or a Wii Remote with Nunchuk. Keep the game window focused.");
+        PlayersCard();
+
+        BeginCard("##controller", "Controller test", "Check a gamepad's buttons and sticks. Assign gamepads to players above.", Icon::Gamepad);
         if (!gamepad_)
             TextWrappedColored(CurrentFonts().body, color::muted, "No controller detected.");
         else
@@ -1423,12 +1991,15 @@ private:
         BeginCard("##diagnostics", "Diagnostics", nullptr, Icon::Info);
         if (BeginRows("##diagnostic_rows"))
         {
-            Row("Log detail", "How much the game prints to its console log.");
+            Row("Log detail", "Which messages reach the console: errors, warnings, info or debug.");
             const char* values[] = {"error", "warning", "info", "debug"};
             int level = 2;
             for (int i = 0; i < 4; ++i) if (draft_.log_level == values[i]) level = i;
             if (Segmented("##log_level", &level, {"Errors", "Warnings", "Info", "Debug"}, ImGui::GetContentRegionAvail().x))
             { draft_.log_level = values[level]; dirty_ = true; }
+
+            Row("Verbose console", "Also prints development traces and the game's own debug output. Useful for bug reports.");
+            if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;
 
             const std::string settings_path = PathUtf8(file_.path);
             Row("Settings file", settings_path.c_str());
@@ -1516,7 +2087,7 @@ private:
         }
         EndCard();
 
-        BeginCard("##project", "The project", nullptr, Icon::Disc);
+        BeginCard("##project", "Mario Strikers Charged Decompilation Project", nullptr, Icon::Disc);
         TextWrappedColored(CurrentFonts().body, color::text,
             "This port compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. "
             "The original game logic runs unchanged; the port provides the platform underneath it: graphics, audio, "
@@ -1525,8 +2096,44 @@ private:
         TextWrappedColored(CurrentFonts().caption, color::muted,
             "You need your own copy of the game. Unofficial project, not affiliated with Nintendo or Next Level Games.");
         ImGui::Dummy({0, Dp(4)});
-        if (SecondaryButton("decomp_link", "Decompilation project", Dp(230, 40), true, Icon::Link))
+        if (SecondaryButton("decomp_link", "Decompilation project", Dp(230, 40), true, Icon::GitHub))
             SDL_OpenURL("https://github.com/yannicksuter/mscharged-decomp");
+        EndCard();
+
+        BeginCard("##aurora", "Powered by Aurora", nullptr, Icon::Display);
+        if (aurora_logo_)
+        {
+            const float width = Dp(180);
+            ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(aurora_logo_)),
+                         {width, width * aurora_logo_height_ / aurora_logo_width_});
+            ImGui::Dummy({0, Dp(4)});
+        }
+        TextWrappedColored(CurrentFonts().body, color::text,
+            "Aurora by Luke Street provides the GameCube/Wii platform layer the game runs on: GX graphics on "
+            "modern GPUs, plus windowing, input and system services.");
+        ImGui::Dummy({0, Dp(4)});
+        if (SecondaryButton("aurora_link", "Aurora on GitHub", Dp(230, 40), true, Icon::GitHub))
+            SDL_OpenURL("https://github.com/encounter/aurora");
+        EndCard();
+
+        BeginCard("##thanks", "Special thanks", nullptr, Icon::Check);
+        TextWrappedColored(CurrentFonts().body, color::text,
+            "To the contributors of the decompilation, who helped bring it over the last miles:");
+        ImGui::Dummy({0, Dp(2)});
+        {
+            // GitHub accounts; each button opens the profile.
+            const char* contributors[] = {"Jasu14", "vZylev", "GoldenPalazzo"};
+            for (int i = 0; i < 3; ++i)
+            {
+                if (i) ImGui::SameLine(0, Dp(8));
+                const std::string url = std::string("https://github.com/") + contributors[i];
+                ImGui::PushID(i);
+                if (SecondaryButton("##contributor", contributors[i], Dp(170, 36), true, Icon::Link))
+                    SDL_OpenURL(url.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", url.c_str());
+                ImGui::PopID();
+            }
+        }
         EndCard();
 
         BeginCard("##licenses", "Credits & licenses", nullptr, Icon::Check);
@@ -1548,10 +2155,30 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_ = nullptr;
+    SDL_Texture* aurora_logo_ = nullptr;
+    float aurora_logo_width_ = 1, aurora_logo_height_ = 1;
     SDL_Gamepad* gamepad_ = nullptr;
+    std::vector<std::string> gamepad_names_;
     // Wii Remote / DolphinBar detection for the Controls page (non-blocking).
     platform::WiimoteHidProbe wii_probe_;
     platform::WiimoteHidStatus wii_status_{};
+    // Wii Remote pointer calibration: fullscreen targets aimed at with the
+    // remote, A to set each one, B to cancel.
+    struct Calibration
+    {
+        bool active = false;
+        int slot = -1;
+        std::size_t step = 0;
+        std::vector<platform::WiimoteCalibrationSample> samples;
+        platform::WiimotePairTracker pair;
+        std::uint16_t buttons = 0;
+        std::string message;
+        Uint64 lost_since_ns = 0;
+    } calibration_;
+    platform::WiimoteHidLive live_;
+    // Controls: keyboard & mouse keys view, and the keycap waiting for a key.
+    bool keyboard_view_ = false;
+    int capture_action_ = -1, capture_slot_ = -1;
     bool wii_known_ = false;
     Uint64 wii_next_probe_ns_ = 0;
     float header_width_ = 1920;
@@ -1564,14 +2191,17 @@ private:
     Settings draft_;
     bool config_ok_ = false;
     bool dirty_ = false;
+    bool play_prompt_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
     bool close_requested_ = false;
     bool pending_ = false;
+    bool region_prompt_ = false;
     DiscCheck check_;
     std::future<DiscCheck> future_;
     std::vector<std::string> displays_;
+    std::vector<SDL_DisplayID> display_ids_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
 };
 }
@@ -1675,7 +2305,7 @@ int main(int argc, char** argv)
             else if (arg == "--pip-expand")
             {
                 float seconds = 0;
-                const auto parsed = std::from_chars(value.data(), value.data() + value.size(), seconds);
+                const auto parsed = FromCharsFloat(value.data(), value.data() + value.size(), seconds);
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()
                     || !std::isfinite(seconds) || seconds <= 0 || seconds > 60)
                 { std::cerr << "PIP expansion must be between 0 and 60 seconds (exclusive of zero).\n"; return 2; }
@@ -1826,7 +2456,7 @@ int main(int argc, char** argv)
             arguments.push_back(nullptr);
             return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data(),
                 nullptr, false, options.experimental_options ?
-                    OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence);
+                    OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #else
             std::cerr << "Original game runtime is not included in this build. "
                          "A game-enabled build is required for direct disc startup; --launcher opens settings.\n";
@@ -1842,7 +2472,8 @@ int main(int argc, char** argv)
             for (int i = 0; i < argc; ++i)
                 if (std::string_view(argv[i]) != "--experimental-credits") arguments.push_back(argv[i]);
             arguments.push_back(nullptr);
-            return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data());
+            return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data(), nullptr, false,
+                OriginalMainScene::Credits, GameTitle().c_str());
 #else
             std::cerr << "Original-main Credits is not in this build. Enable MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC and MSCHARGED_BUILD_LAUNCHER.\n";
             return 2;
@@ -1891,11 +2522,12 @@ int main(int argc, char** argv)
             frontend_launch = launcher.FrontendLaunch();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
 #ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
-        if (credits_launch) return RunOriginalMainCredits(argc, argv, &*credits_launch, true);
+        if (credits_launch) return RunOriginalMainCredits(argc, argv, &*credits_launch, true,
+            OriginalMainScene::Credits, GameTitle().c_str());
 #endif
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         if (frontend_launch) return RunOriginalMainCredits(argc, argv, &*frontend_launch, true,
-            OriginalMainScene::FrontendSequence);
+            OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif
 #ifdef MSCHARGED_HAS_GAME_STARTUP
         if (startup_launch) return RunGameStartup(argc, argv, *startup_launch);

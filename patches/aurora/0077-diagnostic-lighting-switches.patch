@@ -1,0 +1,146 @@
+From: mscharged-port contributors
+Subject: [PATCH] Diagnostic switches for platform lighting differences
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host diagnostics, off by default. Apply after 0076.
+
+The macOS/Metal build renders lit 3D scenes about half as bright as Linux and
+Dolphin. Two environment switches help locate the cause on a machine without
+a debugger: AURORA_DEBUG_LIGHT_LOG=1 prints every distinct light, lighting
+channel and TEV colour setting once (to diff platforms), and
+AURORA_DEBUG_NO_DUAL_SOURCE=1 leaves dual-source blending off so the alpha
+pre-pass fallback runs. Neither changes anything when unset.
+
+diff --git a/lib/dolphin/gx/GXLighting.cpp b/lib/dolphin/gx/GXLighting.cpp
+index 4a88255..f35fdfd 100644
+--- a/lib/dolphin/gx/GXLighting.cpp
++++ b/lib/dolphin/gx/GXLighting.cpp
+@@ -1,5 +1,6 @@
+ #include "gx.hpp"
+ #include "__gx.h"
++#include "debug_light_log.hpp"
+ 
+ extern "C" {
+ void GXInitLightAttn(GXLightObj* light_, float a0, float a1, float a2, float k0, float k1, float k2) {
+@@ -142,6 +143,10 @@ void GXLoadLightObjImm(GXLightObj* light_, GXLightID id) {
+   // Convert color to packed u32 for XF
+   u32 colorPacked = (static_cast<u32>(light->color.r) << 24) | (static_cast<u32>(light->color.g) << 16) |
+                     (static_cast<u32>(light->color.b) << 8) | static_cast<u32>(light->color.a);
++  aurora::gx::debug::light_log("light {} color {:08X} attn a {:.4g} {:.4g} {:.4g} k {:.4g} {:.4g} {:.4g} pos {:.4g} {:.4g} "
++                               "{:.4g} dir {:.4g} {:.4g} {:.4g}",
++                               idx, colorPacked, light->a0, light->a1, light->a2, light->k0, light->k1, light->k2,
++                               light->px, light->py, light->pz, light->nx, light->ny, light->nz);
+ 
+   GX_WRITE_U8(0x10);
+   GX_WRITE_U32(reg);
+@@ -184,6 +189,7 @@ void GXSetChanAmbColor(GXChannelID id, GXColor color) {
+   // XF ambient color registers: 0x100A (chan 0), 0x100B (chan 1)
+   u32 packed = (static_cast<u32>(color.r) << 24) | (static_cast<u32>(color.g) << 16) |
+                (static_cast<u32>(color.b) << 8) | static_cast<u32>(color.a);
++  aurora::gx::debug::light_log("chan {} amb {:08X}", static_cast<int>(id), packed);
+   if (id == GX_COLOR0 || id == GX_ALPHA0) {
+     __gx->ambColor[0] = packed;
+     GX_WRITE_XF_REG(0xA, packed);
+@@ -209,6 +215,7 @@ void GXSetChanMatColor(GXChannelID id, GXColor color) {
+   // XF material color registers: 0x100C (chan 0), 0x100D (chan 1)
+   u32 packed = (static_cast<u32>(color.r) << 24) | (static_cast<u32>(color.g) << 16) |
+                (static_cast<u32>(color.b) << 8) | static_cast<u32>(color.a);
++  aurora::gx::debug::light_log("chan {} mat {:08X}", static_cast<int>(id), packed);
+   if (id == GX_COLOR0 || id == GX_ALPHA0) {
+     __gx->matColor[0] = packed;
+     GX_WRITE_XF_REG(0xC, packed);
+@@ -273,6 +280,9 @@ void GXSetChanCtrl(GXChannelID id, bool lightingEnabled, GXColorSrc ambSrc, GXCo
+   }
+   CHECK(id >= GX_COLOR0 && id <= GX_ALPHA1, "bad channel {}", static_cast<int>(id));
+ 
++  aurora::gx::debug::light_log("chan {} ctrl light {} amb {} mat {} mask {:02X} diff {} attn {}", static_cast<int>(id),
++                               lightingEnabled, static_cast<int>(ambSrc), static_cast<int>(matSrc), lightState,
++                               static_cast<int>(diffFn), static_cast<int>(attnFn));
+   // Build XF channel control register
+   u32 reg = 0;
+   SET_REG_FIELD(0, reg, 1, 0, matSrc);
+diff --git a/lib/dolphin/gx/GXTev.cpp b/lib/dolphin/gx/GXTev.cpp
+index 5b88284..f74f040 100644
+--- a/lib/dolphin/gx/GXTev.cpp
++++ b/lib/dolphin/gx/GXTev.cpp
+@@ -1,4 +1,5 @@
+ #include "gx.hpp"
++#include "debug_light_log.hpp"
+ #include "__gx.h"
+ 
+ extern "C" {
+@@ -91,6 +92,7 @@ void GXSetTevAlphaOp(GXTevStageID stageId, GXTevOp op, GXTevBias bias, GXTevScal
+ 
+ void GXSetTevColor(GXTevRegID id, GXColor color) {
+   CHECK(id >= GX_TEVPREV && id < GX_MAX_TEVREG, "bad tevreg {}", static_cast<int>(id));
++  aurora::gx::debug::light_log("tev reg {} {:02X}{:02X}{:02X}{:02X}", static_cast<int>(id), color.r, color.g, color.b, color.a);
+ 
+   // Write BP registers (RA + BG pairs) - needed for display list capture
+   u32 regRA = 0;
+@@ -179,6 +181,7 @@ void GXSetNumTevStages(u8 num) {
+ 
+ void GXSetTevKColor(GXTevKColorID id, GXColor color) {
+   CHECK(id >= GX_KCOLOR0 && id < GX_MAX_KCOLOR, "bad kcolor {}", static_cast<int>(id));
++  aurora::gx::debug::light_log("tev k {} {:02X}{:02X}{:02X}{:02X}", static_cast<int>(id), color.r, color.g, color.b, color.a);
+ 
+   // Write BP registers (RA + BG pairs with bit 23 set for K color)
+   u32 regRA = 0;
+diff --git a/lib/dolphin/gx/debug_light_log.hpp b/lib/dolphin/gx/debug_light_log.hpp
+new file mode 100644
+index 0000000..425fe4b
+--- /dev/null
++++ b/lib/dolphin/gx/debug_light_log.hpp
+@@ -0,0 +1,33 @@
++#pragma once
++
++// AURORA_DEBUG_LIGHT_LOG=1 prints every distinct lighting-related GX setting
++// the game makes (lights, channel colours/control, TEV colours) once, to
++// compare platforms. Off unless the environment variable is set.
++#include <cstdio>
++#include <cstdlib>
++#include <mutex>
++#include <string>
++#include <unordered_set>
++
++#include <fmt/format.h>
++
++namespace aurora::gx::debug {
++inline bool light_log_enabled() {
++  static const bool enabled = [] {
++    const char* value = std::getenv("AURORA_DEBUG_LIGHT_LOG");
++    return value && *value && *value != '0';
++  }();
++  return enabled;
++}
++
++template <typename... Args>
++void light_log(fmt::format_string<Args...> format, Args&&... args) {
++  if (!light_log_enabled()) return;
++  static std::mutex mutex;
++  static std::unordered_set<std::string> seen;
++  std::string line = fmt::format(format, std::forward<Args>(args)...);
++  std::lock_guard lock(mutex);
++  if (seen.size() >= 4000 || !seen.insert(line).second) return;
++  std::fprintf(stderr, "[light-log] %s\n", line.c_str());
++}
++} // namespace aurora::gx::debug
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 15a346d..2c0886a 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include "gpu.hpp"
+ 
+ #include <algorithm>
+@@ -944,6 +945,11 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+         } else if (feature == wgpu::FeatureName::TextureComponentSwizzle) {
+           g_textureComponentSwizzleSupported = true;
+         } else if (feature == wgpu::FeatureName::DualSourceBlending) {
++          // AURORA_DEBUG_NO_DUAL_SOURCE=1 tests the alpha pre-pass fallback.
++          const char* noDualSource = std::getenv("AURORA_DEBUG_NO_DUAL_SOURCE");
++          if (noDualSource && *noDualSource && *noDualSource != '0') {
++            continue;
++          }
+           g_dualSourceBlendingSupported = true;
+         }
+         requiredFeatures.push_back(feature);

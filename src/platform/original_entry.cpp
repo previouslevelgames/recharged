@@ -17,3 +17,11 @@ extern "C" __attribute__((visibility("hidden"))) int OriginalMain()
 extern "C" __attribute__((visibility("default"))) int charged_original_entry() {
     return OriginalMain();
 }
+
+// MinGW compilers insert a call to __main() at the start of any function named
+// main, and __main() runs the static constructors. In this DLL the loader
+// (DllMainCRTStartup) has already run them, so the original main would
+// construct every static a second time. In the game module __main does nothing.
+#if defined(_WIN32)
+extern "C" void __main(void) {}
+#endif

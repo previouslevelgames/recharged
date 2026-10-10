@@ -25,7 +25,7 @@ class BootstrapTests(unittest.TestCase):
         return result.stdout + result.stderr
 
     def test_version_and_self_test_need_no_game_data(self):
-        self.assertRegex(self.run_port("--version"), r"mscharged-port \d+\.\d+\.\d+-dev\+g[0-9a-f]+")
+        self.assertRegex(self.run_port("--version"), r"mscharged-port \d+\.\d+\.\d+\+g[0-9a-f]+")
         self.assertIn("checks passed", self.run_port("--self-test"))
 
     def test_missing_configuration_reports_setup(self):

@@ -1,0 +1,181 @@
+From: mscharged-port
+Subject: Admit the remaining original offline script services
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: temporary explicit original-source diagnostic admission; apply after 0642.
+
+The frontend sequence diagnostic still threw when a script called one of the
+offline services it had not admitted. Presentation services: 6 (string hash),
+14/43 (frontend presentation emission off/on), 20 (animation audio event).
+Async loading services: 17 (FE_GEN_SPLASH bank), 21/39/91/99 (stadium viewer
+loading), 49 (stack pop), 57, 60 (legal scene/movie init), 82/83/84 (FE resource
+pools and boot UI), 98, 109 (Diddy's banana) and 118. The disc's scripts alone
+decide which of them run; the original bodies run unchanged under
+MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES. Online tournament trophy services
+(0, 3, 13, 51) stay gated with the online scenes.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 8e4219c..a4fadae 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -493,7 +493,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         break;
+     }
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 17:
+         lbl_806E1058 += gAudioEnabled ? 1 : 0;
+         lbl_806E1048 = nlGetTicker();
+@@ -523,7 +523,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         FinishLoadingStepOrUndo(this, FinishLoadStadium(false));
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 21:
+         SetLoadingComment("AsyncFinalizeGameWorldLoadingForStadiumViewer");
+         FinishLoadingStepOrUndo(this, FinishLoadStadium(true));
+@@ -578,8 +578,6 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         gpHBMManager->LoadResources();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+-#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
+     || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
+     case 28:
+@@ -651,7 +649,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         fn_8011A2E8(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 39:
+         SetLoadingComment("AsyncStartGameWorldLoadingForStadiumViewer");
+         fn_802772D0(GetStadiumName(GameInfoManager::Instance()->GetStadium()), true);
+@@ -725,7 +723,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+     case 48:
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 49:
+         --m_SP;
+         break;
+@@ -761,7 +759,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         FinishLoadingStep(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 57:
+         fn_8011926C(this);
+         break;
+@@ -774,7 +772,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         fn_8011A9DC(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 60:
+         fn_8011B02C(this);
+         break;
+@@ -901,12 +899,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         break;
+     }
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 82:
+         DestroyFEResourcePool();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 83:
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 84:
+         mLoadingState = ASYNC_RESOURCES_LOADING;
+         fn_80111660(2);
+@@ -951,7 +953,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         fn_8011A800(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 91:
+         SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
+         BeginFrameTask::s_FramerateLocked = false;
+@@ -1001,10 +1003,12 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         FinishLoadingStep(this);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 98:
+         fn_8011B6E8(this);
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 99:
+     {
+         SetLoadingComment("InitializeStadiumViewer2");
+@@ -1077,7 +1081,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         m_SP[-1] = gNPCManager->SelectNextNPCTemplate();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 109:
+         gNPCManager->CreateDiddyBanana();
+         break;
+@@ -1108,7 +1112,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         gNPCManager->CreateYoshiEgg();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 118:
+         fn_80111664();
+         break;
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index d7a4de8..62ff16f 100644
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -72,7 +72,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 6:
+     {
+         unsigned int value = m_SP[-1];
+@@ -152,6 +152,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+         BeginLoadTournamentTrophy();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 14:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
+@@ -224,7 +226,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 20:
+     {
+         unsigned int event = m_SP[-1];
+@@ -478,7 +480,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 43:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);

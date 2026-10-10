@@ -1,0 +1,39 @@
+From: mscharged-port contributors
+Subject: [PATCH] Keep spot attenuation finite for an unset light direction
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host rendering correctness (all backends). Apply after 0082.
+
+Charged's LoadGameObjectLight builds every world and character light in a
+GXLightObj on the stack and never calls GXInitLightDir. With GX_AF_SPOT and
+GXInitLightAttnA(1, 0, 0) the direction cannot change the result, so the
+direction registers carry whatever the stack held. When that leftover is
+1e19 or more along the light, the shader squared the cosine to infinity,
+0 * inf gave NaN, max(0, NaN) gave 0 and the light vanished. On macOS this
+happened in most runs (the stack contents differ per run): the lit 3D scene
+of a match came out about half as bright as on Vulkan and in Dolphin, and
+anything that changed what was left on the stack (the lighting log, inline
+FIFO parsing) made a run bright by chance.
+
+Bound the cosine to 1e19 (its square stays finite) and treat NaN as 0, so
+zero coefficients stay zero whatever order a shader compiler evaluates in.
+Cosines below 1e19 give the same result as before.
+
+diff --git a/lib/gx/shader.cpp b/lib/gx/shader.cpp
+index e98c620..7c39f26 100644
+--- a/lib/gx/shader.cpp
++++ b/lib/gx/shader.cpp
+@@ -814,8 +814,13 @@ auto lighting_func(const ShaderConfig& config, const ColorChannelConfig& cc, u8
+   if (cc.attnFn == GX_AF_NONE) {
+     lightAttnFn = "attn = 1.0;"s;
+   } else if (cc.attnFn == GX_AF_SPOT) {
++    // A light with cos_att (1, 0, 0) ignores its direction, and games leave
++    // it uninitialised (Charged's LoadGameObjectLight). Garbage of 1e19 or
++    // more squared to infinity, 0 * inf gave NaN and the light went dark.
++    // Bound the cosine so zero coefficients stay zero; NaN counts as 0.
+     lightAttnFn = fmt::format(R"""(
+-          var cosine = max(0.0, dot(ldir, light.dir));
++          var cosine = dot(ldir, light.dir);
++          cosine = select(0.0, min(cosine, 1.0e19), cosine > 0.0);
+           var cos_attn = dot(light.cos_att, vec3f(1.0, cosine, cosine * cosine));
+           var dist_attn = dot(light.dist_att, vec3f(1.0, dist, dist2));
+           attn = max(0.0, cos_attn / dist_attn);)""");

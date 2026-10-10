@@ -1,0 +1,648 @@
+From: mscharged-port
+Subject: Native LLP64 casts for 32-bit address carriers
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native compiler/ABI compatibility; apply after 0645.
+
+The game stores addresses and pointer-sized contexts in unsigned long: hashes
+and timer keys of Variant/Fuzzy/Desire code, world drawable IDs, emission
+owner keys, resource markers, the reset clock parameter and scene callback
+contexts. These are 64-bit on Linux and macOS. On 64-bit Windows (LLP64) they
+are 32-bit, and the direct casts do not compile. The Windows build keeps all
+game memory (arenas, game DLLs) below 2 GB, so the carriers remain lossless;
+natively each flagged cast goes through
+__UINTPTR_TYPE__ (no change on LP64). Variant's LP64 assertion is replaced by
+that guarantee on Windows. Console spellings remain behind MSCHARGED_NATIVE.
+
+diff --git a/src/Game/AI/DesireMark.cpp b/src/Game/AI/DesireMark.cpp
+index 2087ad8..5c419db 100644
+--- a/src/Game/AI/DesireMark.cpp
++++ b/src/Game/AI/DesireMark.cpp
+@@ -179,7 +179,11 @@ DesireUpdate TransDesireDefendPos(AIContext* input)
+ {
+     DesireUpdate result(FT_INT, gTransDesireDefendPosContinue);
+     cFielder* pFielder = (cFielder*)input->mData.pPlayer;
++#if defined(MSCHARGED_NATIVE)
++    unsigned long key = input->GetTimerKey((unsigned long)(__UINTPTR_TYPE__)TransDesireDefendPos, 1);
++#else
+     unsigned long key = input->GetTimerKey((unsigned long)TransDesireDefendPos, 1);
++#endif
+     if (pFielder->m_pBall != 0 || (bool)fn_800DA050(pFielder))
+     {
+         result = 1;
+diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
+index cefac8d..d25e920 100644
+--- a/src/Game/AI/DesireUsePowerup.cpp
++++ b/src/Game/AI/DesireUsePowerup.cpp
+@@ -40,7 +40,11 @@ DesireUpdate TransDesireUsePowerup(
+     DesireUpdate result(FT_INT, sTransDesireUsePowerupContinue);
+     cFielder* pFielder = (cFielder*)input->mData.pPlayer;
+     unsigned long key = input->GetTimerKey(
++#if defined(MSCHARGED_NATIVE)
++        (unsigned long)(__UINTPTR_TYPE__)TransDesireUsePowerup, 1);
++#else
+         (unsigned long)TransDesireUsePowerup, 1);
++#endif
+ 
+     if (UserControlledT(fn_800D6670(pFielder))
+         || (1.0f - fn_800D85F8(pFielder)))
+diff --git a/src/Game/AI/FuzzyVariant.cpp b/src/Game/AI/FuzzyVariant.cpp
+index 7bf4009..4d78db7 100644
+--- a/src/Game/AI/FuzzyVariant.cpp
++++ b/src/Game/AI/FuzzyVariant.cpp
+@@ -74,21 +74,37 @@ unsigned long FuzzyVariant::GetHash() const
+         switch (GetType())
+         {
+         case FT_PLAYER:
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)(__UINTPTR_TYPE__)mData.pointer;
++#else
+             hash = (unsigned long)mData.pointer;
++#endif
+             break;
+         case FT_TEAM:
+ #if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)(__UINTPTR_TYPE__)mData.pTeam;
++#else
+             hash = (unsigned long)mData.pTeam;
++#endif
+ #else
+             hash = mData.u;
+ #endif
+             break;
+         case FT_GAME:
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)(__UINTPTR_TYPE__)mData.pointer;
++#else
+             hash = (unsigned long)mData.pointer;
++#endif
+             break;
+         case FT_BALL:
+ #if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)(__UINTPTR_TYPE__)mData.pointer;
++#else
+             hash = (unsigned long)mData.pointer;
++#endif
+ #else
+             hash = mData.u;
+ #endif
+diff --git a/src/Game/AI/Variant.cpp b/src/Game/AI/Variant.cpp
+index 374769b..f7b1910 100644
+--- a/src/Game/AI/Variant.cpp
++++ b/src/Game/AI/Variant.cpp
+@@ -3,8 +3,13 @@
+ #include "NL/nlFormat.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/variant_numeric_abi.h"
++#if defined(_WIN32)
++// 64-bit Windows is LLP64; the Windows build keeps game memory below 2 GB
++// (Aurora arenas, game DLL bases), so these addresses fit the carriers.
++#else
+ static_assert(sizeof(unsigned long) == sizeof(void*), "Variant pointer hashes require the current LP64 carrier");
+ #endif
++#endif
+ 
+ Variant gvNotSet;
+ 
+@@ -41,7 +46,11 @@ NLString Variant::ToString() const
+             valueString = Format(NLString("{0}"), mData.f);
+             break;
+         case FT_POINTER:
++#if defined(MSCHARGED_NATIVE)
++            valueString = Format(NLString("{0}"), (unsigned long)(__UINTPTR_TYPE__)mData.pointer);
++#else
+             valueString = Format(NLString("{0}"), (unsigned long)mData.pointer);
++#endif
+             break;
+         case FT_VECTOR:
+             valueString = Format(NLString("({0},{1},{2})"), mData.vector.x, mData.vector.y, mData.vector.z);
+@@ -102,7 +111,11 @@ unsigned long Variant::GetHash() const
+ #endif
+         break;
+     case FT_POINTER:
++#if defined(MSCHARGED_NATIVE)
++        hash = (unsigned long)(__UINTPTR_TYPE__)mData.pointer;
++#else
+         hash = (unsigned long)mData.pointer;
++#endif
+         break;
+     case FT_VECTOR:
+ #if defined(MSCHARGED_NATIVE)
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index a4fadae..50332bb 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -540,7 +540,11 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+             StopWithUndo();
+             break;
+         }
++#if defined(MSCHARGED_NATIVE)
++        glEndLoadTextureBundle(lbl_806E1060, (unsigned long)(__UINTPTR_TYPE__)lbl_806E1064,
++#else
+         glEndLoadTextureBundle(lbl_806E1060, (unsigned long)lbl_806E1064,
++#endif
+             glGetCurrentResourcePool(), 0);
+         nlFree(lbl_806E1060);
+         lbl_806E1060 = 0;
+@@ -1864,7 +1868,11 @@ extern "C" void fn_80119B0C(AsyncLoadingManager* manager)
+     glCompact();
+     g_PendingAnimationRequestPool.FreeBlocks();
+ 
++#if defined(MSCHARGED_NATIVE)
++    glGetCurrentResourcePool()->ReleaseResource((unsigned long)(__UINTPTR_TYPE__)manager->mPoolResourceMark);
++#else
+     glGetCurrentResourcePool()->ReleaseResource((unsigned long)manager->mPoolResourceMark);
++#endif
+     glDestroyResourcePool(glGetCurrentResourcePool());
+     glSetCurrentResourcePool(0);
+     fn_80111658(2);
+@@ -2222,7 +2230,11 @@ extern "C" void fn_8011A9DC(AsyncLoadingManager* manager)
+     FEResourceManager::Instance()->Cleanup();
+     DestroyFEResourcePool();
+     ScreenTransitionManager::Instance()->CancelAllTransitions();
++#if defined(MSCHARGED_NATIVE)
++    glGetCurrentResourcePool()->ReleaseResource((unsigned long)(__UINTPTR_TYPE__)manager->mGameResourceMark);
++#else
+     glGetCurrentResourcePool()->ReleaseResource((unsigned long)manager->mGameResourceMark);
++#endif
+ 
+     if (FontManager::s_pInstance != 0)
+     {
+@@ -2249,7 +2261,11 @@ extern "C" void fn_8011A9DC(AsyncLoadingManager* manager)
+     glCompact();
+     g_PendingAnimationRequestPool.FreeBlocks();
+     FreeFunctionMemoryPools();
++#if defined(MSCHARGED_NATIVE)
++    glGetCurrentResourcePool()->ReleaseResource((unsigned long)(__UINTPTR_TYPE__)manager->mPoolResourceMark);
++#else
+     glGetCurrentResourcePool()->ReleaseResource((unsigned long)manager->mPoolResourceMark);
++#endif
+     glDestroyResourcePool(glGetCurrentResourcePool());
+     glSetCurrentResourcePool(0);
+     FreeEventDataPools();
+diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
+index 914738d..6a9a0a5 100644
+--- a/src/Game/Character.cpp
++++ b/src/Game/Character.cpp
+@@ -2188,7 +2188,11 @@ extern "C" void fn_80021C98(CollisionPowerupWallData* pEventData)
+ {
+     const nlVector3& pos = pEventData->position;
+     const nlVector3& nrm = pEventData->normal;
++#if defined(MSCHARGED_NATIVE)
++    unsigned long powerupID = (unsigned long)(__UINTPTR_TYPE__)pEventData->pPowerup;
++#else
+     unsigned long powerupID = (unsigned long)pEventData->pPowerup;
++#endif
+     if (GameInfoManager::Instance()->GetStadium() != STAD_THUNDER_ISLAND
+         || fabsf(pos.x) > cField::GetGoalLineX(1U) - 2.5f)
+     {
+diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableNetMesh.cpp
+index 5486ac6..967e0ba 100644
+--- a/src/Game/Drawable/DrawableNetMesh.cpp
++++ b/src/Game/Drawable/DrawableNetMesh.cpp
+@@ -185,7 +185,11 @@ void DrawableNetMesh::Render() const
+             {
+                 int index = volatileThis->mNetIndex;
+                 gNetMeshResourcePools[index][siResourcePoolIndex[index]]->ReleaseResource(
++#if defined(MSCHARGED_NATIVE)
++                    (unsigned long)(__UINTPTR_TYPE__)gNetMeshResourceMarkers[index][siResourcePoolIndex[index]]);
++#else
+                     (unsigned long)gNetMeshResourceMarkers[index][siResourcePoolIndex[index]]);
++#endif
+             }
+             ((volatile u8*)sbResourcePoolSelected)[volatileThis->mNetIndex] = true;
+             {
+@@ -206,7 +210,11 @@ void DrawableNetMesh::Render() const
+         else
+         {
+             gNetMeshResourcePools[mNetIndex][siResourcePoolIndex[mNetIndex]]->ReleaseResource(
++#if defined(MSCHARGED_NATIVE)
++                (unsigned long)(__UINTPTR_TYPE__)gNetMeshResourceMarkers[mNetIndex][siResourcePoolIndex[mNetIndex]]);
++#else
+                 (unsigned long)gNetMeshResourceMarkers[mNetIndex][siResourcePoolIndex[mNetIndex]]);
++#endif
+             const volatile DrawableNetMesh* volatileThis = this;
+             int index = volatileThis->mNetIndex;
+             GLResourceMarker* handle = (GLResourceMarker*)gNetMeshResourcePools[index][siResourcePoolIndex[index]]->MarkResource();
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 84f0dc4..e75c20b 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -399,7 +399,11 @@ cGame::cGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
+ 
+     m_pPostResetClock = new (nlMalloc(sizeof(Clock), 8, false))
+         Clock(0.0f, 0.5f, 1.0f, 2, PostResetCallback);
++#if defined(MSCHARGED_NATIVE)
++    m_pPostResetClock->m_uParam1 = (unsigned long)(__UINTPTR_TYPE__)this;
++#else
+     m_pPostResetClock->m_uParam1 = (unsigned long)this;
++#endif
+ 
+     mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
+ #ifdef MSCHARGED_NATIVE
+diff --git a/src/Game/NetTournManager.cpp b/src/Game/NetTournManager.cpp
+index dc86d65..2341bbf 100644
+--- a/src/Game/NetTournManager.cpp
++++ b/src/Game/NetTournManager.cpp
+@@ -1280,7 +1280,11 @@ void NetTournManager::DestroyTournamentTrophy()
+         stadium->RemoveDrawableObject(
+             (DrawableObject*)mTrophyPresentation);
+         glGetCurrentResourcePool()->ReleaseResource(
++#if defined(MSCHARGED_NATIVE)
++            (unsigned long)(__UINTPTR_TYPE__)mTrophyResource);
++#else
+             (unsigned long)mTrophyResource);
++#endif
+         delete (PlanarShadowDrawable*)mTrophyPresentation;
+     }
+     mTrophyPresentation = 0;
+diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
+index 6d638b1..5db5f26 100644
+--- a/src/Game/Render/ChainChomp.cpp
++++ b/src/Game/Render/ChainChomp.cpp
+@@ -883,11 +883,19 @@ void ChainChomp::Hide()
+ 
+     EffectsGroup* pEffectsGroup = EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail");
+     EmissionManager::Instance()->Destroy(
++#if defined(MSCHARGED_NATIVE)
++        (unsigned long)reinterpret_cast<__UINTPTR_TYPE__>(this), pEffectsGroup);
++#else
+         reinterpret_cast<unsigned long>(this), pEffectsGroup);
++#endif
+ 
+     pEffectsGroup = EmissionManager::Instance()->GetEffectsGroup("freeze");
+     EmissionManager::Instance()->Destroy(
++#if defined(MSCHARGED_NATIVE)
++        (unsigned long)reinterpret_cast<__UINTPTR_TYPE__>(this), pEffectsGroup);
++#else
+         reinterpret_cast<unsigned long>(this), pEffectsGroup);
++#endif
+ 
+     meChainChompState = CHAIN_STATE_HIDDEN;
+     mfDesiredSpeed = 0.0f;
+diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index 3e4a47b..29198d3 100644
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -537,7 +537,11 @@ void ChooseCaptainsSceneV2::LoadCaptainTextures()
+  */
+ void ChooseCaptainsSceneV2::OnCaptainPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+     if (side == -1)
+     {
+@@ -587,7 +591,11 @@ void ChooseCaptainsSceneV2::OnCaptainPointerPress(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnCaptainPointerInside(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (side == -1)
+@@ -608,7 +616,11 @@ void ChooseCaptainsSceneV2::OnCaptainPointerInside(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnCaptainPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (side == -1)
+@@ -677,7 +689,11 @@ void ChooseCaptainsSceneV2::OnCaptainPointerEnter(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnCaptainPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+ 
+     if (GetSide(index) == -1)
+     {
+@@ -694,7 +710,11 @@ void ChooseCaptainsSceneV2::OnCaptainPointerLeave(int index, void* context)
+ 
+ void ChooseCaptainsSceneV2::OnSelectPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     if (mSidePads[which] != -1 || GetSide(index) != -1)
+         return;
+     mSidePads[which] = index;
+@@ -734,7 +754,11 @@ void ChooseCaptainsSceneV2::OnSelectPointerPress(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnSelectPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+ 
+     if (mSidePads[which] != -1 || GetSide(index) != -1)
+     {
+@@ -764,7 +788,11 @@ void ChooseCaptainsSceneV2::OnSelectPointerEnter(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnSelectPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+ 
+     if (mSidePads[which] != -1 || GetSide(index) != -1)
+     {
+@@ -784,7 +812,11 @@ void ChooseCaptainsSceneV2::OnSelectPointerLeave(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnSelectPointerInside(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+ 
+     if (mSidePads[which] != -1 || GetSide(index) != -1)
+     {
+@@ -817,7 +849,11 @@ void ChooseCaptainsSceneV2::OnSelectPointerInside(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnReadyPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1 || !mConfirmed[which] || mReadyPressed[which])
+@@ -847,12 +883,24 @@ void ChooseCaptainsSceneV2::OnReadyPointerEnter(int index, void* context)
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    if (!mReadyButtons[(unsigned long)(__UINTPTR_TYPE__)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++#else
+     if (!mReadyButtons[(unsigned long)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++#endif
+     {
++#if defined(MSCHARGED_NATIVE)
++        mOkButtonInstances[(unsigned long)(__UINTPTR_TYPE__)context]->SetActiveSlide("over", true, false);
++#else
+         mOkButtonInstances[(unsigned long)context]->SetActiveSlide("over", true, false);
++#endif
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    mReadyButtons[(unsigned long)(__UINTPTR_TYPE__)context].SetPointerState(POINTER_BUTTON_HOVER, index);
++#else
+     mReadyButtons[(unsigned long)context].SetPointerState(POINTER_BUTTON_HOVER, index);
++#endif
+ }
+ 
+ /**
+@@ -860,7 +908,11 @@ void ChooseCaptainsSceneV2::OnReadyPointerEnter(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnReadyPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+ 
+     if (mSidePads[which] != -1 || GetSide(index) != -1 || !mConfirmed[which] || mReadyPressed[which])
+     {
+diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
+index b28ce34..bfab3d5 100644
+--- a/src/Game/SH/SHChooseSidekicks.cpp
++++ b/src/Game/SH/SHChooseSidekicks.cpp
+@@ -510,7 +510,11 @@ void ChooseSidekicksSceneV2::Update(float dt)
+  */
+ void ChooseSidekicksSceneV2::OnSidekickPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+     if (side == -1 || mSelectedSlots[side] == -1)
+     {
+@@ -540,7 +544,11 @@ void ChooseSidekicksSceneV2::OnSidekickPointerPress(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSidekickPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+     if (side == -1 || mSelectedSlots[side] == -1)
+     {
+@@ -581,7 +589,11 @@ void ChooseSidekicksSceneV2::OnSidekickPointerEnter(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSidekickPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+     if (side == -1 || mSelectedSlots[side] == -1)
+     {
+@@ -600,7 +612,11 @@ void ChooseSidekicksSceneV2::OnSidekickPointerLeave(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSlotPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     bool group = which >= 3;
+     int slot = !group ? which : which - 3;
+     int side = GetSide(index);
+@@ -670,7 +686,11 @@ void ChooseSidekicksSceneV2::OnSlotPointerPress(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSlotPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     bool group = which >= 3;
+     int slot = !group ? which : which - 3;
+     int side = GetSide(index);
+@@ -707,7 +727,11 @@ void ChooseSidekicksSceneV2::OnSlotPointerEnter(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSlotPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     bool group = which >= 3;
+     int slot = !group ? which : which - 3;
+     int side = GetSide(index);
+@@ -726,7 +750,11 @@ void ChooseSidekicksSceneV2::OnSlotPointerLeave(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSlotPointerInside(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     bool group = which >= 3;
+     int slot = !group ? which : which - 3;
+     int side = GetSide(index);
+@@ -749,7 +777,11 @@ void ChooseSidekicksSceneV2::OnSlotPointerInside(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnRandomPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1)
+@@ -773,7 +805,11 @@ void ChooseSidekicksSceneV2::OnRandomPointerPress(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnRandomPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1)
+@@ -796,7 +832,11 @@ void ChooseSidekicksSceneV2::OnRandomPointerEnter(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnRandomPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1)
+@@ -817,7 +857,11 @@ void ChooseSidekicksSceneV2::OnRandomPointerLeave(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSelectPointerPress(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1)
+@@ -843,7 +887,11 @@ void ChooseSidekicksSceneV2::OnSelectPointerPress(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSelectPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1)
+@@ -866,7 +914,11 @@ void ChooseSidekicksSceneV2::OnSelectPointerEnter(int index, void* context)
+  */
+ void ChooseSidekicksSceneV2::OnSelectPointerLeave(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long which = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long which = (unsigned long)context;
++#endif
+     int side = GetSide(index);
+ 
+     if (mSidePads[which] != -1 || side != -1)
+diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
+index 66297f4..917ff88 100644
+--- a/src/Game/SH/SHChooseSides.cpp
++++ b/src/Game/SH/SHChooseSides.cpp
+@@ -631,7 +631,11 @@ void SHChooseSides2::BindChooseSideInstances()
+  */
+ void SHChooseSides2::OnControllerPointerEnter(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long side = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long side = (unsigned long)context;
++#endif
+     if (mPlayingSides[index] != -1 && mPlayingSides[index] != side)
+         return;
+ 
+@@ -651,7 +655,11 @@ void SHChooseSides2::OnControllerPointerEnter(unsigned int index, void* context)
+  */
+ void SHChooseSides2::OnControllerPointerLeave(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long side = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long side = (unsigned long)context;
++#endif
+     if (mPlayingSides[index] != -1 && mPlayingSides[index] != side)
+         return;
+ 
+@@ -669,7 +677,11 @@ void SHChooseSides2::OnControllerPointerLeave(unsigned int index, void* context)
+  */
+ void SHChooseSides2::OnControllerPointerPress(unsigned int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long side = (unsigned long)(__UINTPTR_TYPE__)context;
++#else
+     unsigned long side = (unsigned long)context;
++#endif
+     if (mPlayingSides[index] != -1 && mPlayingSides[index] != side)
+         return;
+ 
+diff --git a/src/Game/world.cpp b/src/Game/world.cpp
+index cdeb417..b1b45af 100644
+--- a/src/Game/world.cpp
++++ b/src/Game/world.cpp
+@@ -400,7 +400,11 @@ DrawableObject* World::CreateObject(
+ 
+ bool World::ResolveModel(glModel*& pModel) const
+ {
++#if defined(MSCHARGED_NATIVE)
++    unsigned long uHashID = (unsigned long)(__UINTPTR_TYPE__)pModel;
++#else
+     unsigned long uHashID = (unsigned long)pModel;
++#endif
+     pModel = m_pResource->m_inventory->GetModel(uHashID);
+     if (pModel == 0)
+     {

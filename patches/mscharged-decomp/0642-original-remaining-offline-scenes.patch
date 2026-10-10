@@ -1,0 +1,81 @@
+From: mscharged-port
+Subject: Admit the remaining original offline scene factory cases
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: temporary explicit original-source diagnostic admission; apply after 0601.
+
+The frontend sequence diagnostic still threw for every offline factory case it
+had not admitted: CupCheaterScene (9), CrossFaderScene (16, the legal screen),
+MoviePlayerScene/NLGLogoMovieScene (20/21), SHHallOfFameProfile (58),
+HealthWarningSceneV2 (79), StrikerTimesOverlay (94), DemoOverlay (96) and the
+plain loading overlay (99). Scripts can push any scene by number, so the
+original code alone decides which of them appear. This admits them unchanged
+under MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES. Online scenes (24, 39-57,
+93) stay gated until the native network services exist.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 67a0b24..b9e2d39 100644
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -340,7 +340,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::CUP, movement);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case (SceneList)9:
+         newHandler = new (nlMalloc(sizeof(CupCheaterScene), 8, false)) CupCheaterScene();
+         break;
+@@ -359,7 +359,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_FRONTEND);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case (SceneList)16:
+         newHandler = new (nlMalloc(sizeof(CrossFaderScene), 8, false)) CrossFaderScene();
+         break;
+@@ -375,7 +375,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case SCENE_BOOT_LOADING_JPN:
+         newHandler = new (nlMalloc(sizeof(BootLoadingScene), 8, false)) BootLoadingScene();
+         break;
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case (SceneList)20:
+         newHandler = new (nlMalloc(sizeof(MoviePlayerScene), 8, false)) MoviePlayerScene();
+         break;
+@@ -510,6 +510,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case SCENE_ONLINE_CONNECTION_QUALITY:
+         newHandler = new (nlMalloc(sizeof(OnlineConnectionQualityScene), 8, false)) OnlineConnectionQualityScene();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case SCENE_HOF_PROFILE:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameProfile), 8, false)) SHHallOfFameProfile();
+         break;
+@@ -582,7 +584,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::TOURNAMENT, movement);
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case (SceneList)79:
+         newHandler = new (nlMalloc(sizeof(HealthWarningSceneV2), 8, false)) HealthWarningSceneV2();
+         break;
+@@ -631,6 +633,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case (SceneList)93:
+         newHandler = new (nlMalloc(sizeof(OnlineRankingOverlay), 8, false)) OnlineRankingOverlay();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case OVERLAY_STRIKER_TIMES:
+         newHandler = new (nlMalloc(sizeof(StrikerTimesOverlay), 8, false)) StrikerTimesOverlay();
+         break;
+@@ -640,7 +644,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(GoalOverlay), 8, false)) GoalOverlay();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case (SceneList)96:
+         newHandler = new (nlMalloc(sizeof(DemoOverlay), 8, false)) DemoOverlay();
+         break;

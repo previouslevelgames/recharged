@@ -43,6 +43,15 @@ function(mscharged_add_dawn)
         set(DAWN_ENABLE_VULKAN OFF)
         set(DAWN_ENABLE_METAL ON)
         set(DAWN_ENABLE_SPIRV_VALIDATION OFF)
+    elseif(WIN32)
+        # Windows starts with Vulkan, which cross-compiles with LLVM-MinGW.
+        # Desktop HWND surfaces only: UWP CoreWindow/XAML need WinRT headers
+        # that MinGW ships broken.
+        set(DAWN_USE_WINDOWS_UI OFF)
+        set(DAWN_USE_WAYLAND OFF)
+        set(DAWN_USE_X11 OFF)
+        set(DAWN_ENABLE_VULKAN ON)
+        set(DAWN_ENABLE_METAL OFF)
     else()
         set(DAWN_USE_WAYLAND ON)
         set(DAWN_USE_X11 ON)
@@ -74,6 +83,16 @@ function(mscharged_add_dawn)
     set(TINT_BUILD_TINTD OFF)
     set(TINT_BUILD_MESA OFF)
     add_subdirectory("${MSCHARGED_DAWN_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/dawn" EXCLUDE_FROM_ALL)
+    if(WIN32 AND MINGW)
+        # MSVC-isms in Windows-only sources: std::getenv without <cstdlib>,
+        # and abseil's tz reader opening files with O_NONBLOCK.
+        if(TARGET tint_utils_system)
+            target_compile_options(tint_utils_system PRIVATE -include cstdlib)
+        endif()
+        if(TARGET absl_time_zone)
+            target_compile_definitions(absl_time_zone PRIVATE O_NONBLOCK=0)
+        endif()
+    endif()
     # Aurora's core compiles its backend selection using the same flags.
     foreach(backend IN ITEMS VULKAN NULL D3D11 D3D12 METAL DESKTOP_GL OPENGLES WEBGPU_ON_WEBGPU)
         set(DAWN_ENABLE_${backend} "${DAWN_ENABLE_${backend}}" PARENT_SCOPE)

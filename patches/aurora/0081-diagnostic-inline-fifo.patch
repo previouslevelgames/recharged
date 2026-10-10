@@ -1,0 +1,37 @@
+From: mscharged-port contributors
+Subject: [PATCH] Switch to parse the GX FIFO on the owner thread
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host diagnostics, off by default. Apply after 0080.
+
+On macOS the live-play field renders half as bright unless the game thread
+is slowed or synchronised (a mutex in the lighting log hides it), which
+points to a race with the FIFO worker. AURORA_DEBUG_FIFO_INLINE=1 parses the
+FIFO on the GX owner thread (the existing Inline mode) so the worker can be
+ruled in or out. Unset, the worker thread is used as before.
+
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+index 1cb3333..19371c5 100644
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -10,6 +10,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <cstdlib>
+ #include <chrono>
+ #include <condition_variable>
+ #include <thread>
+@@ -32,7 +33,12 @@ uint32_t sDlWritePos = 0;
+ 
+ namespace {
+ constexpr Module Log{"aurora::gx::fifo"};
+-constexpr auto kProcessingMode = ProcessingMode::Thread;
++// AURORA_DEBUG_FIFO_INLINE=1 parses the FIFO on the GX owner thread instead of
++// the worker (platform race diagnosis only).
++const ProcessingMode kProcessingMode = [] {
++  const char* value = std::getenv("AURORA_DEBUG_FIFO_INLINE");
++  return value && *value && *value != '0' ? ProcessingMode::Inline : ProcessingMode::Thread;
++}();
+ constexpr uint32_t kDrawBatchSize = 1;
+ 
+ bool sFrameActive = false;

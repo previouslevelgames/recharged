@@ -112,46 +112,77 @@ struct WiiRemote {
         if (id) SDL_DetachVirtualJoystick(id);
     }
 };
-// controls.input = controller: keyboard & mouse plays only while no Wii Remote is connected.
-void YieldCycle() {
+// controls.player1-4: devices connect only on their own player channel, and
+// devices without one skip the channels reserved for configured players.
+void FixedPlayersCycle() {
     using mscharged::platform::GetNativeWpadChannel;
+    using mscharged::platform::SetNativeWpadFixedChannel;
     using mscharged::platform::WpadSDLConnectedChannels;
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
     mscharged::platform::DesktopWpadSettings settings{};
-    settings.keyboard_yields_to_remotes = true;
+    settings.keyboard = true;
+    settings.keyboard_channel = 4;
     bool rejected = false;
     try { mscharged::platform::InitializeDesktopWpad(window, settings); }
     catch (const std::invalid_argument&) { rejected = true; }
-    Check(rejected, "A remote without keyboard or mouse was allowed to yield");
-    settings.keyboard = true;
-    auto remote = std::make_unique<WiiRemote>();
+    Check(rejected, "Keyboard & mouse was given a player outside the Wii ports");
+
+    // Players: 1 = a Wii Remote that is still off, 2 = keyboard & mouse.
+    mscharged::platform::SetNativeWpadReservedChannels(0b11);
+    settings.keyboard_channel = 1;
     mscharged::platform::InitializeDesktopWpad(window, settings);
     WPADInit();
     Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
-    Until([&] { return GetNativeWpadChannel(remote->id) == 0; }, "Connected Wii Remote did not keep player 1");
-    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
-    Check(WpadSDLConnectedChannels() == 1, "Keyboard & mouse took a player beside the Wii Remote");
-
-    // The remote leaves: keyboard & mouse returns as player 1 after the delay.
-    remote.reset();
-    Until([&] { return WpadSDLConnectedChannels() == 0; }, "Disconnected Wii Remote kept its player");
-    const auto gone = std::chrono::steady_clock::now();
-    Until([&] { return WpadSDLConnectedChannels() == 1; }, "Keyboard & mouse did not return", 6);
-    Check(std::chrono::steady_clock::now() - gone >= std::chrono::milliseconds(2900),
-          "Keyboard & mouse returned before the link-drop delay");
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not become player 2");
+    Check(WPADProbe(0, &type) == WPAD_ERR_NO_CONTROLLER, "Keyboard & mouse took player 1's reserved port");
     Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
-    Until([&] { return Report().err == WPAD_ERR_OK && Report().button == WPAD_BUTTON_A; },
-          "Returned keyboard & mouse is not player 1");
+    Until([&] { return Report(1).button == WPAD_BUTTON_A; }, "Keyboard input did not reach player 2");
     Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
-    Until([&] { return Report().button == 0; }, "Returned keyboard kept a press");
+    Until([&] { return Report(1).button == 0; }, "Keyboard kept a press");
 
-    // A remote connects again: it takes player 1, keyboard & mouse steps aside.
-    remote = std::make_unique<WiiRemote>();
-    Until([&] { return GetNativeWpadChannel(remote->id) == 0 && WpadSDLConnectedChannels() == 1; },
-          "Reconnected Wii Remote did not take player 1 from keyboard & mouse");
+    // A remote without a player skips the reserved port 1; player 1's remote
+    // then connects on its own port; a remote whose port is busy waits.
+    WiiRemote spare;
+    Until([&] { return GetNativeWpadChannel(spare.id) == 2; }, "Unassigned remote did not skip reserved ports");
+    WiiRemote first;
+    SetNativeWpadFixedChannel(first.id, 0);
+    Until([&] { return GetNativeWpadChannel(first.id) == 0; }, "Player 1's remote did not get port 1");
+    WiiRemote waiting;
+    SetNativeWpadFixedChannel(waiting.id, 1);
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(GetNativeWpadChannel(waiting.id) == -1, "A remote took a busy player's port");
+    Check(WpadSDLConnectedChannels() == 3, "Fixed players changed the connected ports");
+    SetNativeWpadFixedChannel(waiting.id, -1);
+    SetNativeWpadFixedChannel(first.id, -1);
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
-    remote.reset();
+    mscharged::platform::SetNativeWpadReservedChannels(0);
+}
+// [keyboard] bindings replace the default keys of an action.
+void CustomKeysCycle() {
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard = true;
+    settings.keys[mscharged::KeyActionA] = mscharged::platform::ParseKeyBinding("F1");
+    settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return | P");
+    Check(settings.keys[mscharged::KeyActionB][1] == SDL_SCANCODE_UNKNOWN, "The screenshot key was bound to an action");
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard remote did not connect");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F1);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "F1 bound to A did not press A");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_F1);
+    Until([&] { return Report().button == 0; }, "F1 release kept A");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "Return rebound to B did not press B");
+    Check(!(Report().button & WPAD_BUTTON_A), "Return still pressed A after rebinding");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == 0; }, "Return release kept B");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
 }
 void Cycle(bool gamepads, bool physical) {
     connects = samples = 0;
@@ -206,6 +237,95 @@ void Cycle(bool gamepads, bool physical) {
     Until([&] { return Report().button == WPAD_BUTTON_LEFT; }, "Left raw D-pad mapping failed");
     Event(SDL_EVENT_WINDOW_FOCUS_LOST);
     Until([&] { return Report().button == 0; }, "Raw D-pad did not clear with focus");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// A standard gamepad as a player: a Wii Remote with Nunchuk on its own channel.
+void GamepadPlayerCycle() {
+    connects = samples = extension_count = 0;
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    GenericPad pad;
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    // Extension callbacks are checked on player 1 elsewhere; this pad is player 2.
+    for (int n = 0; n != 4; ++n) {
+        WPADSetConnectCallback(n, Connect);
+        WPADSetSamplingCallback(n, Sample);
+    }
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Gamepad did not connect as player 2 with a Nunchuk");
+    Check(WPADProbe(0, &type) != WPAD_ERR_OK, "Gamepad also took player 1");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto report = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status;
+    };
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    Until([&] { return report().button == WPAD_BUTTON_A; }, "Gamepad south did not press A");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    Until([&] { auto r = report(); return r.fsStickX == 100 && r.fsStickY == 0 && r.button == 0; },
+          "Left stick did not move the Nunchuk stick right");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
+    Until([&] { auto r = report(); return r.fsStickX == 0 && r.button == (WPAD_BUTTON_FS_Z | WPAD_BUTTON_FS_C); },
+          "Left trigger and bumper did not press Z and C");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);
+    Until([&] { return report().button == 0; }, "Gamepad release kept a button");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// controls.mouse_pointer: the mouse adds A/B (and its pointer) to a gamepad player 1.
+bool WholeWindow(void*, SDL_Window* target, mscharged::platform::DesktopDpdProjection* projection) {
+    int w = 0, h = 0;
+    SDL_GetWindowSize(target, &w, &h);
+    *projection = {1, 0.0f, 0.0f, float(w), float(h)};
+    return true;
+}
+void MouseButton(Uint8 button, bool down) {
+    SDL_Event e{};
+    e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    e.button.windowID = SDL_GetWindowID(window);
+    e.button.which = 1;
+    e.button.button = button;
+    e.button.down = down;
+    e.button.x = 320; e.button.y = 224;
+    Check(SDL_PushEvent(&e), "Actual SDL event queue rejected mouse input");
+}
+void MousePlayerCycle() {
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {0, -1, -1, -1};
+    settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    settings.mouse_player_channel = 0;
+    GenericPad pad;
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Gamepad did not connect as player 1");
+    Check(WPADProbe(1, &type) != WPAD_ERR_OK, "The mouse brought its own remote");
+    MouseButton(SDL_BUTTON_LEFT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Left click did not press player 1's A");
+    MouseButton(SDL_BUTTON_LEFT, false);
+    MouseButton(SDL_BUTTON_RIGHT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "Right click did not press player 1's B");
+    MouseButton(SDL_BUTTON_RIGHT, false);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_EAST, true);
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "The gamepad stopped working beside the mouse");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_EAST, false);
+    Until([&] { return Report().button == 0; }, "Mouse or gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
@@ -324,11 +444,15 @@ int main() {
             Cycle(false,false);
             Cycle(true,true);
             NunchukCycle();
-            YieldCycle();
+            FixedPlayersCycle();
+            CustomKeysCycle();
         }
+        // With the generic pad above gone, this test's pad is gamepad 1.
+        GamepadPlayerCycle();
+        MousePlayerCycle();
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, keyboard yielding to a Wii Remote and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, mouse beside a controller and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}

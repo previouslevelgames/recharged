@@ -1,5 +1,8 @@
 #pragma once
 
+#include "platform/key_bindings.h"
+
+#include <array>
 #include <cstdint>
 
 struct SDL_Window;
@@ -25,11 +28,23 @@ struct DesktopWpadSettings {
     // Lend the mouse camera to physical Wii Remotes, which SDL reports without
     // IR data, so they can point at original menus. Requires the mouse profile.
     bool share_mouse_with_remotes = false;
-    // Keyboard & mouse plays only while no other remote is connected: it steps
-    // aside (a real SDL detach, freeing its player) when one connects, and
-    // returns three seconds after the last one disconnects. Requires the
-    // keyboard or mouse profile.
-    bool keyboard_yields_to_remotes = false;
+    // WPAD channel (player - 1) of the keyboard & mouse remote; -1 takes the
+    // lowest free channel.
+    int keyboard_channel = -1;
+    // Keys of each keyboard action ([keyboard] in mscharged.ini).
+    KeyBindings keys = DefaultKeyBindings();
+    // Standard gamepads (Xbox, PlayStation, Switch Pro...) as a Wii Remote
+    // with Nunchuk: the n-th connected pad plays on WPAD channel
+    // gamepad_channels[n]; -1 leaves that pad out. Requires `gamepads` and,
+    // for the right-stick pointer, `pointer_projection`. Without
+    // `gamepad_players` every pad takes the lowest free channel, buttons only.
+    bool gamepad_players = false;
+    std::array<int, 4> gamepad_channels{-1, -1, -1, -1};
+    // controls.mouse_pointer: with keyboard & mouse not playing, the mouse
+    // also points and presses A/B for the controller on this WPAD channel
+    // while it is in use (moving or a button held, then 3 s). -1: off.
+    // Requires `mouse` without `keyboard`.
+    int mouse_player_channel = -1;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.

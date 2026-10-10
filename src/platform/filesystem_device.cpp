@@ -202,7 +202,7 @@ s32 Move(Device& d,const char* old_bytes,const char* new_bytes) {
 s32 Ioctl(Device& d,Handle& handle,const IPCIoctlArgs& args) {
     if(handle.kind==Kind::File) {
         if(args.type!=GetFileStats||args.inSize!=0||!args.out||args.outSize<8)return IPC_RESULT_INVALID;
-        physical::Info info{};if(physical::Stat(handle.physical,info))return Error(errno);
+        physical::Info info{};if(physical::StatFile(handle.physical,info))return Error(errno);
         const auto position=physical::Seek(handle.physical,0,SEEK_CUR);if(position<0)return Error(errno);
         if(info.size>UINT32_MAX||static_cast<u64>(position)>UINT32_MAX)return IPC_RESULT_MAXBLOCKS;
         const u32 fields[2]={static_cast<u32>(info.size),static_cast<u32>(position)};
@@ -338,7 +338,7 @@ s32 Execute(void* context,const IPCRequest& r) {
         }
         if(r.type==IPC_REQ_SEEK) {
             if(r.seek.mode<IPC_SEEK_BEG||r.seek.mode>IPC_SEEK_END)return IPC_RESULT_INVALID;
-            physical::Info info{};if(physical::Stat(h.physical,info))return Error(errno);
+            physical::Info info{};if(physical::StatFile(h.physical,info))return Error(errno);
             const auto current=physical::Seek(h.physical,0,SEEK_CUR);if(current<0)return Error(errno);
             const s64 base=r.seek.mode==IPC_SEEK_BEG?0:r.seek.mode==IPC_SEEK_CUR?current:info.size;
             const auto position=base+r.seek.offset;

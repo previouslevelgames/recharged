@@ -8,6 +8,15 @@ target_include_directories(charged_native_module_loader PUBLIC "${_module_loader
 target_compile_features(charged_native_module_loader PUBLIC cxx_std_17)
 target_link_libraries(charged_native_module_loader PRIVATE ${CMAKE_DL_LIBS})
 
+# Game modules load below 2 GB on Windows (the loader refuses others), so the
+# fixtures use the game DLLs' link options: a low image base without
+# high-entropy ASLR (see mscharged_import_original_windows_host).
+function(mscharged_low_windows_module target base)
+    if(WIN32 AND TARGET "${target}")
+        target_link_options("${target}" PRIVATE -Wl,--image-base,${base} -Wl,-Xlink=-highentropyva:no)
+    endif()
+endfunction()
+
 if(BUILD_TESTING)
     add_executable(native_module_loader_tests "${_module_loader_root}/tests/native_module_loader.cpp")
     target_link_libraries(native_module_loader_tests PRIVATE charged_native_module_loader)
@@ -47,6 +56,9 @@ if(BUILD_TESTING)
                 target_link_options("${_fixture}" PRIVATE -static)
             endif()
         endforeach()
+        mscharged_low_windows_module(native_module_loader_fixture 0x38000000)
+        mscharged_low_windows_module(native_module_loader_foreign 0x39000000)
+        mscharged_low_windows_module(native_module_loader_missing 0x3A000000)
     endif()
     set_tests_properties(native_module_loader PROPERTIES TIMEOUT 20)
 
@@ -70,6 +82,7 @@ if(BUILD_TESTING)
         target_compile_definitions(native_module_shared_runtime_fixture PRIVATE FIXTURE_MODULE=1)
         target_link_libraries(native_module_shared_runtime_fixture PRIVATE native_module_shared_runtime_tests)
         set_target_properties(native_module_shared_runtime_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+        mscharged_low_windows_module(native_module_shared_runtime_fixture 0x3B000000)
         foreach(_target native_module_shared_runtime_tests native_module_shared_runtime_fixture)
             target_compile_features("${_target}" PRIVATE cxx_std_20)
             target_compile_options("${_target}" PRIVATE -fno-assume-sane-operator-new -fno-strict-aliasing)

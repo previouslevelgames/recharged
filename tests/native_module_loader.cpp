@@ -50,6 +50,11 @@ extern "C" FIXTURE_EXPORT void fixture_host_event(unsigned event, const void* ad
     } catch (...) { constructorFailed = true; }
 }
 int main(int argc, char** argv) {
+#if defined(_WIN32)
+    // A missing import must make LoadLibrary fail, not wait on Windows'
+    // "entry point not found" dialog (which nobody closes on a test runner).
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+#endif
     try {
         Check(argc == 4 || argc == 5, "Expected main image, foreign image, disposable directory, optional missing-import image");
         const auto workspace = std::filesystem::absolute(mscharged::PathFromUtf8(argv[3]));

@@ -124,6 +124,12 @@ void* LoadNativeModule(const std::filesystem::path& path) {
     auto module = LoadLibraryExW(absolute.c_str(), nullptr,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!module) throw WindowsError("LoadLibraryExW");
+    // The game keeps addresses in 32-bit unsigned long carriers on LLP64, so its
+    // DLL (like its arenas) must sit below 2 GB.
+    if (reinterpret_cast<std::uintptr_t>(module) >= 0x80000000u) {
+        FreeLibrary(module);
+        throw std::runtime_error("Game module loaded above 2 GB; its 32-bit address carriers would break");
+    }
     return module;
 #else
     auto module = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);

@@ -478,3 +478,11 @@
 0608-native-compiler-diagnostics-in-original-sources.patch
 0607-native-ai-transition-context-layout.patch
 0601-native-shadow-volume-array-byte-domains.patch
+0642-original-remaining-offline-scenes.patch
+0643-original-remaining-offline-services.patch
+0644-native-striker-times-overlay-manager.patch
+0647-native-goal-clock-terminator-room.patch
+0645-native-llp64-new-sizes-and-cache-keys.patch
+0646-native-llp64-address-carrier-casts.patch
+0648-native-llp64-bundle-callback-and-contexts.patch
+0649-native-lp64-posed-ball-drawable.patch

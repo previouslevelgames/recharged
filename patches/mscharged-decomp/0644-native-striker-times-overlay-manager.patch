@@ -1,0 +1,26 @@
+From: mscharged-port
+Subject: Use the inline GetOverlayManager body in the Striker Times overlay
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native compiler compatibility; apply after 0643.
+
+Retail fePopupMenu.cpp keeps an out-of-line copy of the inline
+GetOverlayManager() from Game/GameInfo.inl. Native compilers inline it
+everywhere and emit no copy, so OverlayHandlerStrikerTimes.cpp, which only sees
+the plain declaration, left the game module with an unresolved symbol once 0642
+admitted the overlay. Natively it includes the same inline body.
+
+diff --git a/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp b/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp
+index 97b95ce..5559d24 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp
+@@ -28,6 +28,10 @@
+ #include "NL/nlPrint.h"
+ #include "NL/nlString.h"
+ #include "NL/nlFunction.inl"
++#if defined(MSCHARGED_NATIVE)
++// fePopupMenu.cpp owns the retail out-of-line copy, which native inlining drops.
++#include "Game/GameInfo.inl"
++#endif
+ 
+ int gStrikerTimesCountdownSeconds = 10;
+ 

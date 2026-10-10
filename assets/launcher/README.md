@@ -56,3 +56,10 @@ the pinned Abseil source's Apache 2.0 text.
 
 Resources are located relative to the executable, independently of the current
 working directory. Keep `assets/launcher/` with a copied executable.
+
+## Aurora logo
+
+The About page shows Aurora's logo, `assets/aurora.png` from the pinned
+[Aurora](https://github.com/encounter/aurora) source. It is not stored here:
+CMake copies it from the prepared Aurora tree into `assets/launcher/aurora.png`
+beside the executable. Aurora is MIT-licensed (Copyright (c) 2022 Luke Street).

@@ -4,9 +4,10 @@ include_guard(GLOBAL)
 # executes retail FE/font/resource/drawing and THP movie source. Main/tasks,
 # AX audio predecessor, physical input/world and source VI scanout remain held.
 # The named movie diagnostic selects real THPSimple mode0; normal mode1 remains.
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
-        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC)
-    message(FATAL_ERROR "The original Credits diagnostic currently requires Linux LP64 with GCC or Clang")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
+        OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC
+        OR (WIN32 AND NOT (MINGW AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
+    message(FATAL_ERROR "The original Credits diagnostic requires 64-bit Linux, macOS or Windows (LLVM-MinGW) with GCC or Clang")
 endif()
 if(NOT TARGET aurora::dvd OR NOT TARGET aurora::gx)
     message(FATAL_ERROR "The original Credits diagnostic requires the real GX and DVD providers")

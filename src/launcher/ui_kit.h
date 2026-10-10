@@ -60,7 +60,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link
+    Gamepad, Copy, Link, Target, Back, GitHub
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -90,6 +90,8 @@ void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.
 void BatteryIcon(int percent);
 void KeyCap(const char* key);
+// Clickable keycap; `waiting` shows it pulsing while it waits for a key press.
+bool KeyCapButton(const char* id, const char* key, bool waiting);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);

@@ -152,7 +152,9 @@ inline std::int64_t Seek(File file,std::int64_t offset,int mode) {
     LARGE_INTEGER distance{},result{};distance.QuadPart=offset;
     return SetFilePointerEx(file,distance,&result,mode==SEEK_SET?FILE_BEGIN:mode==SEEK_CUR?FILE_CURRENT:FILE_END)?result.QuadPart:Fail();
 }
-inline int Stat(File file,Info& out) {
+// Separate name: on Windows File is HANDLE (void*), which libc++ would try to
+// turn into an fs::path while resolving an overload.
+inline int StatFile(File file,Info& out) {
     BY_HANDLE_FILE_INFORMATION info{};if(!GetFileInformationByHandle(file,&info))return Fail();
     if(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT){errno=ELOOP;return -1;}
     const auto size=(std::uint64_t(info.nFileSizeHigh)<<32)|info.nFileSizeLow;
@@ -165,7 +167,7 @@ inline int Stat(const fs::path& path,Info& out) {
     const auto file=CreateFileW(WindowsPath(path).c_str(),0,FILE_SHARE_READ|FILE_SHARE_WRITE,
         nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
     if(file==INVALID_HANDLE_VALUE)return Fail();
-    const auto result=Stat(file,out);const auto error=errno;
+    const auto result=StatFile(file,out);const auto error=errno;
     if(!CloseHandle(file)&&!result)return Fail();errno=error;return result;
 }
 inline int MakeDir(const fs::path& path) {PathGuard guard(path);return CreateDirectoryW(WindowsPath(path).c_str(),nullptr)?0:Fail();}
@@ -244,7 +246,7 @@ inline int Sync(File file){return ::fsync(file);}
 inline std::int64_t Read(File file,void* bytes,std::size_t size){return ::read(file,bytes,size);}
 inline std::int64_t Write(File file,const void* bytes,std::size_t size){return ::write(file,bytes,size);}
 inline std::int64_t Seek(File file,std::int64_t offset,int mode){return ::lseek(file,offset,mode);}
-inline int Stat(File file,Info& out){struct stat info{};if(::fstat(file,&info))return -1;out={info.st_size,bool(S_ISDIR(info.st_mode)),bool(S_ISREG(info.st_mode))};return 0;}
+inline int StatFile(File file,Info& out){struct stat info{};if(::fstat(file,&info))return -1;out={info.st_size,bool(S_ISDIR(info.st_mode)),bool(S_ISREG(info.st_mode))};return 0;}
 inline int Stat(const fs::path& path,Info& out){struct stat info{};if(::lstat(path.c_str(),&info))return -1;out={info.st_size,bool(S_ISDIR(info.st_mode)),bool(S_ISREG(info.st_mode))};return 0;}
 inline int MakeDir(const fs::path& path){return ::mkdir(path.c_str(),0700);}
 inline int Remove(const fs::path& path,bool directory){return directory?::rmdir(path.c_str()): ::unlink(path.c_str());}

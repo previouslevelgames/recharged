@@ -1,4 +1,5 @@
 #include <dolphin/os.h>
+#include "console_verbosity.h"
 #include <aurora/hardware.h>
 #ifdef AURORA_ENABLE_GX
 #include <dolphin/gx/GXManage.h>
@@ -28,9 +29,12 @@ extern "C" void OSYieldThread()
     std::this_thread::yield();
 }
 
-// Aurora leaves these reports to the host application.
+// Aurora leaves these reports to the host application. They are the game's
+// debug output (the Wii's debug serial port): a normal console omits them.
 extern "C" void OSVReport(const char* message, va_list arguments)
-{ std::vfprintf(stderr, message, arguments); }
+{
+    if (mscharged::platform::VerboseConsole()) std::vfprintf(stderr, message, arguments);
+}
 extern "C" void OSReport(const char* message, ...)
 {
     va_list arguments;
@@ -42,11 +46,12 @@ extern "C" void OSReport(const char* message, ...)
 extern "C" [[noreturn]] void OSPanic(const char* file, int line, const char* message, ...)
 {
     OSDisableInterrupts();
+    // A fatal report reaches every console.
     va_list arguments;
     va_start(arguments, message);
-    OSVReport(message, arguments);
+    std::vfprintf(stderr, message, arguments);
     va_end(arguments);
-    OSReport(" in \"%s\" on line %d.\n", file, line);
+    std::fprintf(stderr, " in \"%s\" on line %d.\n", file, line);
     std::fflush(stderr);
     // The SDK walks the PowerPC stack and halts the CPU. Abort the native
     // process so the original fatal path cannot return to game execution.

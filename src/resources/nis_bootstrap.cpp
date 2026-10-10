@@ -1,4 +1,5 @@
 #include "resources/nis_bootstrap.h"
+#include "platform/parse_float.h"
 #include <charconv>
 #include <cmath>
 #include <set>
@@ -71,7 +72,7 @@ float Number(std::string_view& text)
 {
     text = Trim(text);
     float value = 0;
-    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    const auto result = mscharged::FromCharsFloat(text.data(), text.data() + text.size(), value);
     Require(result.ec == std::errc{} && result.ptr != text.data() && std::isfinite(value),
             "Invalid NIS dictionary coordinate");
     text.remove_prefix(result.ptr - text.data());

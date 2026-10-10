@@ -43,9 +43,10 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_wpad_tests PRIVATE
         charged_native_hardware_owner charged_credits_movie_hardware)
     add_test(NAME desktop_wpad COMMAND desktop_wpad_tests)
-    # Real Wii Remotes or a DolphinBar attached to the host must not join the
-    # generated fixtures' WPAD channels.
-    set(MSCHARGED_NO_REAL_REMOTES "SDL_HIDAPI_IGNORE_DEVICES=0x057e/0x0306,0x057e/0x0330")
+    # Real Wii Remotes, a DolphinBar or other gamepads attached to the host must
+    # not join the generated fixtures' WPAD channels: only the fixtures' own
+    # virtual devices count as gamepads.
+    set(MSCHARGED_NO_REAL_REMOTES "SDL_HIDAPI_IGNORE_DEVICES=0x057e/0x0306,0x057e/0x0330;SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x1234/0x4321,0x057e/0x0306,0x057e/0x0330")
     set_tests_properties(desktop_wpad PROPERTIES TIMEOUT 15
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
 

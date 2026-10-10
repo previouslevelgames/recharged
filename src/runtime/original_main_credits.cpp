@@ -1,5 +1,7 @@
 #include "platform/graphics_stats.h"
 #include "platform/app_icon.h"
+#include "platform/screenshot_hotkey.h"
+#include "platform/window_fit.h"
 #include "runtime/original_main_credits.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
@@ -33,6 +35,7 @@
 #include "platform/hardware_owner.h"
 #include "platform/desktop_presented_dpd.h"
 #include "platform/ai.h"
+#include "platform/console.h"
 #include "platform/native_ax_module_memory.h"
 #include "platform/system.h"
 #include "platform/rtc_policy.h"
@@ -200,7 +203,7 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
     const auto closed=std::fclose(file);
     aurora_service_hardware_interrupts();
     Check(written==rgb.size() && !closed,"Selected XFB snapshot write failed");
-    std::printf("Actual source-selected XFB %ux%u revision%llu, nonblack pixels%u; saved %s.\n",
+    mscharged::platform::Trace("Actual source-selected XFB %ux%u revision%llu, nonblack pixels%u; saved %s.\n",
         copy->width,copy->height,static_cast<unsigned long long>(copy->revision),lit,mscharged::PathUtf8(output).c_str());
 }
 void EndWithSnapshot(const std::filesystem::path& output) {
@@ -228,11 +231,11 @@ void EndWithSnapshot(const std::filesystem::path& output) {
     Check(written==s->rgb.size() && !closed,"Credits snapshot write failed");
     unsigned lit=0;for(std::size_t i=0;i<s->rgb.size();i+=3)if(s->rgb[i]||s->rgb[i+1]||s->rgb[i+2])++lit;
     Check(lit != 0, "Original Credits actual EFB is entirely black; visibility remains unqualified");
-    std::printf("Actual Credits EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
+    mscharged::platform::Trace("Actual Credits EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
 }
 }
 int mscharged::RunOriginalMainCredits(int argc, char** argv,
-    const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene) {
+    const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene, const char* title) {
     try {
         const bool frontend = scene != OriginalMainScene::Credits;
         const bool optionsScene = scene == OriginalMainScene::FrontendOptions;
@@ -299,6 +302,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         const bool widescreen = aspect=="16:9" ||
             (aspect=="auto" && windowWidth*3u>windowHeight*4u);
         const unsigned aspectWidth=widescreen?16u:4u, aspectHeight=widescreen?9u:3u;
+        // advanced.verbose_console: development traces and the game's debug output.
+        mscharged::platform::SetVerboseConsole(launch.settings.verbose_console);
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ with --disc FILE or [game] disc in the INI");
         // Validate native preferences before acquiring any hardware/module owner.
@@ -306,8 +311,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // and localization branches after reading the supplied SC language.
         const auto systemLanguage = mscharged::ResolveNativeUSASystemLanguage(launch.settings.language);
         const auto discProfile = mscharged::InspectDisc(launch.disc_path);
-        Check(discProfile.game_id == "R4QE01" && discProfile.revision == 1,
-              "The original native runtime currently supports R4QE01 revision 1 only");
+        Check(mscharged::SupportedRelease(discProfile),
+              "Only the USA version of Mario Strikers Charged (R4QE01, revision 1, original main.dol) is "
+              "supported for now; European, Japanese and Korean versions are planned");
         Check(!resizeCheck || !launch.settings.fullscreen,"--resize-check requires a windowed launch; add --window");
         Check(!priorBoot || !resizeCheck,
               "The prior Boot stage retains original effects/NPC owners; resize teardown is not qualified");
@@ -328,10 +334,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         std::filesystem::create_directories(dataDirectory);
         const auto dataPath = dataDirectory.string();
         AuroraConfig config{};
-        config.appName=optionsScene ? "Mario Strikers Charged | original Options diagnostic" :
-            frontend ? "Mario Strikers Charged | original Boot/Intro diagnostic" :
-            "Mario Strikers Charged | original-main Credits diagnostic";
-        const std::string windowTitle=config.appName;
+        // Window title: the port's name and build, then the diagnostic scene.
+        const std::string appTitle=title ? title : "MSCharged Port";
+        const std::string windowTitle=optionsScene ? appTitle+" | Options diagnostic" :
+            frontend ? appTitle : appTitle+" | Credits diagnostic";
+        config.appName=windowTitle.c_str();
         config.userPath=config.cachePath=dataPath.c_str();
         config.desiredBackend=mscharged::platform::NativeGraphicsBackend;
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
@@ -342,8 +349,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         const auto& logLevel=launch.settings.log_level;
         config.logLevel=logLevel=="debug"?LOG_DEBUG:logLevel=="warning"?LOG_WARNING:
             logLevel=="error"?LOG_ERROR:LOG_INFO;
+        config.logCallback=mscharged::platform::ConsoleLog;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
+        // display.antialiasing: Aurora multisampling of the original frame.
+        config.msaa=launch.settings.antialiasing=="4x"?4:1;
         // The native Wii Remote driver (platform/wiimote_hid) owns physical
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
@@ -372,6 +382,24 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             } else std::fprintf(stderr,"Selected display %d is not connected; using the default display.\n",
                 launch.settings.monitor);
             SDL_free(displays);
+        }
+        if(!launch.settings.fullscreen) {
+            // A window larger than its display's usable area (an INI written
+            // for a bigger screen, or pixel sizes on a Retina Mac) shrinks to
+            // fit, keeping its shape, and is centred on that display.
+            const SDL_DisplayID display=SDL_GetDisplayForWindow(host.window);
+            SDL_Rect usable{};
+            if(display && SDL_GetDisplayUsableBounds(display,&usable)) {
+                const auto fit=mscharged::platform::FitWindowSize(int(windowWidth),int(windowHeight),usable.w,usable.h);
+                if(fit.width!=int(windowWidth) || fit.height!=int(windowHeight)) {
+                    std::fprintf(stderr,"Window %ux%u does not fit the display (%dx%d usable); using %dx%d.\n",
+                        windowWidth,windowHeight,usable.w,usable.h,fit.width,fit.height);
+                    windowWidth=unsigned(fit.width);windowHeight=unsigned(fit.height);
+                    SDL_SetWindowSize(host.window,fit.width,fit.height);
+                    const auto centred=SDL_WINDOWPOS_CENTERED_DISPLAY(display);
+                    SDL_SetWindowPosition(host.window,int(centred),int(centred));
+                }
+            }
         }
         mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
             float(launch.settings.master_volume)/100.0f);
@@ -412,7 +440,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         mscharged::ConfigureNativeSystemIdleMode(nullptr,0);
         mscharged::platform::ConfigureNativeVideoHardware(VI_TVMODE_NTSC_INT,false);
         if(nativeSend) {
-            mscharged::platform::ConfigureNativeVideoOutputHardware(settings);
+            // display.picture: host desktop presentation of the original XFB.
+            mscharged::platform::ConfigureNativeVideoOutputHardware(settings,
+                launch.settings.picture=="sharp" ? mscharged::platform::NativeDesktopPicture::Sharp
+                : launch.settings.picture=="clean" ? mscharged::platform::NativeDesktopPicture::Clean
+                                                   : mscharged::platform::NativeDesktopPicture::Signal);
             // Arm source-owned recording before original constructors/commands.
             // This mode never uses diagnostic aurora_begin/end_frame.
             aurora_configure_native_gx_hardware();
@@ -443,17 +475,28 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // Physical Wii Remotes (platform/wiimote_hid) bring their own IR
         // camera and Nunchuk. controls.rumble is the system rumble setting
         // original Options reads; controls.sensor_bar the sensor-bar position
-        // (bottom/top) original KPAD aims the pointer from. controls.input
-        // picks who plays: auto = Wii Remotes, then keyboard & mouse;
-        // controller = Wii Remotes, keyboard & mouse only while none is
-        // connected; keyboard = keyboard & mouse only.
-        const bool keyboard_only = launch.settings.input == "keyboard";
-        const bool keyboard_yields = launch.settings.input == "controller";
+        // (bottom/top) original KPAD aims the pointer from. controls.player1-4
+        // fix who plays as which player.
+        mscharged::platform::NativePlayers players{};
+        players.fixed = true;
+        players.keyboard = -1;
+        players.mouse_with_controller = launch.settings.mouse_pointer;
+        for (int player = 0; player < 4; ++player) {
+            const auto& device = launch.settings.players[player];
+            if (device == "keyboard") players.keyboard = player;
+            else if (device.rfind("gamepad", 0) == 0) players.gamepads[device.back() - '1'] = player;
+            else if (device != "off") players.remotes[device.back() - '1'] = player;
+        }
+        // controls.remoteN_calibration: launcher pointer calibration by DolphinBar slot.
+        for (int slot = 0; slot < 4; ++slot)
+            if (launch.settings.remote_calibration[slot] != "none")
+                players.calibrations[slot] =
+                    mscharged::platform::ParseWiimoteCalibration(launch.settings.remote_calibration[slot]);
         mscharged::platform::InitializeNativeHardwareInput(host.window,
-            {static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),3,!keyboard_only,
-             launch.settings.rumble},
+            {static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),3,true,launch.settings.rumble},
             mscharged::platform::GetNativeSTMInput(),
-            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true,keyboard_yields});
+            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true,-1,
+             mscharged::platform::ParseKeyBindings(launch.settings.keys)}, players);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(
@@ -477,6 +520,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(frontend)
             axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath);
         auto* module=mscharged::platform::LoadNativeModule(modulePath);
+        // MSCHARGED_DEBUG_LAYERS_OFF (frontend module only): diagnostic layer switches.
+        if(auto* layers=reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(
+               module,"charged_apply_debug_layer_toggles"))) {
+            layers();
+            mscharged::platform::SetDebugLayerKeys(
+                reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_debug_layers")),
+                reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_cycle_debug_layer")));
+        }
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
@@ -484,7 +535,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
 #endif
         auto entry=reinterpret_cast<int(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
-        std::fprintf(stderr,"Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
+        mscharged::platform::Trace("Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
                      mscharged::platform::NativeGraphicsBackendName);
         std::fflush(nullptr);
         const int result=entry();
@@ -512,7 +563,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             // True source predicates, before the first original task/frame.
             Check(observeAudio()==7u,
                   "Original audio owner/initialization/configuration callback incomplete");
-            std::puts("Original main audio: source owner initialized, nlxgs configuration genuinely loaded.");
+            mscharged::platform::Trace("Original main audio: source owner initialized, nlxgs configuration genuinely loaded.\n");
         }
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
         if(frontend && sourceAudio && nativeSend) {
@@ -547,7 +598,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                   "Original Boot bytecode callback/header or required source owner is incomplete");
             if(phase==3 && lastBootPhase!=3)bootLogoStart=std::chrono::steady_clock::now();
             if(flags!=lastBootFlags || instruction!=lastBootInstruction || phase!=lastBootPhase) {
-                std::printf("Original authored Boot: VM flags%u instruction%d phase%d.\n",flags,instruction,phase);
+                mscharged::platform::Trace("Original authored Boot: VM flags%u instruction%d phase%d.\n",flags,instruction,phase);
                 std::fflush(stdout);
                 lastBootFlags=flags;lastBootInstruction=instruction;lastBootPhase=phase;
             }
@@ -581,7 +632,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if(!sh.stack_depth)return;
             const auto& top=sh.stack[sh.stack_depth-1];
             if(top.scene_id!=lastScene || top.resource_state!=lastState) {
-                std::printf("Original SH: scene%d resources%d depth%u, owners%u navigation%u pointers%u.\n",
+                mscharged::platform::Trace("Original SH: scene%d resources%d depth%u, owners%u navigation%u pointers%u.\n",
                     top.scene_id,top.resource_state,sh.stack_depth,sh.owners,
                     sh.navigation_ready,sh.pointer_instances);
                 std::fflush(stdout);lastScene=top.scene_id;lastState=top.resource_state;
@@ -591,7 +642,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if(optionsReady && !optionsBoundsReported) {
                 for(unsigned i=0;i<3;++i) {
                     const auto& b=sh.buttons[i];
-                    std::printf("Original Options button%u: %.6g..%.6g, %.6g..%.6g; slide%.6g/%.6g, input%u/%u lock%d.\n",
+                    mscharged::platform::Trace("Original Options button%u: %.6g..%.6g, %.6g..%.6g; slide%.6g/%.6g, input%u/%u lock%d.\n",
                         i,b.min_x,b.max_x,b.min_y,b.max_y,top.slide_time,top.slide_duration,
                         sh.input_allowed,sh.input_enabled,sh.input_lock_depth);
                 }
@@ -630,7 +681,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if(requestSH) {
                 const auto status=requestSH();
                 if(status!=lastRequest) {
-                    std::printf("Original Options selection status%u (7 waits for the original audio context owner).\n",status);
+                    mscharged::platform::Trace("Original Options selection status%u (7 waits for the original audio context owner).\n",status);
                     std::fflush(stdout);lastRequest=status;
                 }
             }
@@ -707,7 +758,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                     else retainedEFB=efb.texture;
                     const auto viewport=aurora::webgpu::calculate_present_viewport(
                         size.native_fb_width,size.native_fb_height,aspectWidth,aspectHeight);
-                    std::printf("Native resize stage%u: surface%ux%u EFB%ux%u same-storage, SC%u:%u viewport %.0f,%.0f %.0fx%.0f.\n",
+                    mscharged::platform::Trace("Native resize stage%u: surface%ux%u EFB%ux%u same-storage, SC%u:%u viewport %.0f,%.0f %.0fx%.0f.\n",
                         resizeStage,size.native_fb_width,size.native_fb_height,efb.size.width,efb.size.height,
                         aspectWidth,aspectHeight,
                         viewport.left,viewport.top,viewport.width,viewport.height);
@@ -752,26 +803,26 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
               (nativeSend ? nativePresented : aurora_get_last_presentation().sequence != 0),
               "Original main Credits real source draw/presentation incomplete");
         if(nativeSend) {
-            std::printf("Original main selected %s: %u native source-send frames, draw receipt+chosen-XFB VI presentation. Full startup/AX/world/reset/CRT remain incomplete.\n",
+            mscharged::platform::Trace("Original main selected %s: %u native source-send frames, draw receipt+chosen-XFB VI presentation. Full startup/AX/world/reset/CRT remain incomplete.\n",
                 sourceBoot ? "authored Boot script0" : optionsScene ? "Options tasks" : frontend ? "Boot/Intro tasks" : "Credits",frames);
         } else {
-        std::printf("Original main→selected Credits live: %u actual source frames, %u encoded draws; one initialized game/SDK, native owner elapsed time. Actual original THP/movie/mode0 audio; digital input endpoints selected; full task/automatic swap reset/AX/motion/CRT scopes remain held.\n",frames,draws);
+        mscharged::platform::Trace("Original main→selected Credits live: %u actual source frames, %u encoded draws; one initialized game/SDK, native owner elapsed time. Actual original THP/movie/mode0 audio; digital input endpoints selected; full task/automatic swap reset/AX/motion/CRT scopes remain held.\n",frames,draws);
         }
         const auto audio=mscharged::platform::GetNativeAIStatus();
         const auto audioClock=mscharged::platform::GetNativeAIClockStatus();
         Check(audio.initialized && audio.consumed_blocks && audio.dispatched_callbacks,
               "Original-main movie audio did not reach the actual host device");
-        std::printf("Original-main native AI: submitted%llu consumed%llu callbacks%llu, rate%d; coalesced%llu, maximum DMA service gap%lluns.\n",
+        mscharged::platform::Trace("Original-main native AI: submitted%llu consumed%llu callbacks%llu, rate%d; coalesced%llu, maximum DMA service gap%lluns.\n",
                     static_cast<unsigned long long>(audio.submitted_blocks),
                     static_cast<unsigned long long>(audio.consumed_blocks),
                     static_cast<unsigned long long>(audio.dispatched_callbacks),audio.input_frequency,
                     static_cast<unsigned long long>(audioClock.coalesced_edges),
                     static_cast<unsigned long long>(audioClock.maximum_service_gap_ns));
-        std::printf("Native audio device: rate%d, period%d frames, queued%d source bytes.\n",
+        mscharged::platform::Trace("Native audio device: rate%d, period%d frames, queued%d source bytes.\n",
                     audio.device_frequency,audio.device_frames,audio.queued_input_bytes);
         mscharged::platform::EndNativeAIObservations();
         const auto delivery=mscharged::platform::GetNativeAIDeliveryStatus();
-        std::printf("Native AI delivery: latched%llu replayed%llu coalesced%llu held%llu (max%lluns) skipped%llu cells, "
+        mscharged::platform::Trace("Native AI delivery: latched%llu replayed%llu coalesced%llu held%llu (max%lluns) skipped%llu cells, "
                     "callback latency max%lluns; source silent blocks%llu zero-tail blocks%llu/frames%llu; device short pulls%llu.\n",
                     static_cast<unsigned long long>(delivery.latched_blocks),
                     static_cast<unsigned long long>(delivery.replayed_latches),
@@ -787,16 +838,16 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         AuroraVIHardwareState videoClock{};
         Check(aurora_get_video_hardware_state(&videoClock), "Original VI clock observation unavailable");
         const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
-        std::printf("Playback observation: %.3fs, %.2f rendered frames/s; VI retraces%u, elapsed fields%llu.\n",
+        mscharged::platform::Trace("Playback observation: %.3fs, %.2f rendered frames/s; VI retraces%u, elapsed fields%llu.\n",
                     elapsed,frames/elapsed,videoClock.retrace_count,
                     static_cast<unsigned long long>(videoClock.elapsed_fields));
         if(nativeSend)
-            std::printf("Source frame cadence: %u/%u/%u/%u frames spanned 0/1/2/3+ VI fields.\n",
+            mscharged::platform::Trace("Source frame cadence: %u/%u/%u/%u frames spanned 0/1/2/3+ VI fields.\n",
                         fieldSlots[0],fieldSlots[1],fieldSlots[2],fieldSlots[3]);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio) {
             const auto status=gameAudioHardware->Status();
-            std::printf("Actual native AX state: initialized%u phase%u processed%llu completed%llu SYNC%llu YIELD%llu.\n",
+            mscharged::platform::Trace("Actual native AX state: initialized%u phase%u processed%llu completed%llu SYNC%llu YIELD%llu.\n",
                 status.native_initialized, static_cast<unsigned>(status.protocol.phase),
                 static_cast<unsigned long long>(status.frames.processed_frames),
                 static_cast<unsigned long long>(status.frames.completed_frames),
@@ -806,7 +857,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                   status.frames.completed_frames && status.frames.sync_interrupts &&
                   status.frames.yield_interrupts,
                   "Original audio requests have no actual native AX frame completion");
-            std::printf("Original main AX: processed%llu completed%llu SYNC%llu YIELD%llu; native ROM-free coefficient policy.\n",
+            mscharged::platform::Trace("Original main AX: processed%llu completed%llu SYNC%llu YIELD%llu; native ROM-free coefficient policy.\n",
                 static_cast<unsigned long long>(status.frames.processed_frames),
                 static_cast<unsigned long long>(status.frames.completed_frames),
                 static_cast<unsigned long long>(status.frames.sync_interrupts),
@@ -831,7 +882,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             gameAudioHardware->CloseAfterAIStop(retireAudioPin,unloadIdleBanks,shutdownAudio);
             gameAudioHardware.reset();
             Check(observeAudio()==7u,"Original source shutdown flags unexpectedly changed");
-            std::puts("Original audio stopped: AI drained, native AX halted/closed, original idle banks/source retired before device pins; original shutdown flags preserved.");
+            mscharged::platform::Trace("Original audio stopped: AI drained, native AX halted/closed, original idle banks/source retired before device pins; original shutdown flags preserved.\n");
         }
 #endif
         mscharged::platform::ShutdownNativeHardwareInput();
@@ -855,10 +906,10 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             aurora_dvd_close();
             aurora_shutdown();
             mscharged::platform::ShutdownNativeInterruptController();
-            std::puts("Native resize qualification retired real VI/GX/window hardware.");
+            mscharged::platform::Trace("Native resize qualification retired real VI/GX/window hardware.\n");
         }
         if(priorBoot)
-            std::puts("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.");
+            mscharged::platform::Trace("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.\n");
         mscharged::runtime::FrameTimingLog::FinishForProcessExit();
         std::fflush(nullptr);std::_Exit(0);
         } catch(const std::exception& e) {

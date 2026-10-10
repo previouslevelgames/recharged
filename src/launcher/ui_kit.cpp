@@ -141,6 +141,32 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
     switch (icon)
     {
     case Icon::None: break;
+    case Icon::GitHub:
+    {
+        // Simplified GitHub mark: the Octocat's head, ears, neck and tail in a ring.
+        draw->AddCircle(c, 0.46f * s, color, 0, t);
+        draw->AddEllipseFilled(p(0.0f, -0.03f), ImVec2{0.22f * s, 0.18f * s}, color);
+        draw->AddTriangleFilled(p(-0.21f, -0.09f), p(-0.19f, -0.32f), p(-0.06f, -0.19f), color);
+        draw->AddTriangleFilled(p(0.21f, -0.09f), p(0.19f, -0.32f), p(0.06f, -0.19f), color);
+        draw->AddRectFilled(p(-0.08f, 0.10f), p(0.08f, 0.44f), color);
+        draw->AddBezierQuadratic(p(-0.08f, 0.27f), p(-0.27f, 0.30f), p(-0.29f, 0.12f), color, t);
+        break;
+    }
+    case Icon::Back:
+    {
+        const ImVec2 arrow[] = {p(0.10f, -0.32f), p(-0.24f, 0.0f), p(0.10f, 0.32f)};
+        draw->AddPolyline(arrow, 3, color, 0, t * 1.3f);
+        draw->AddLine(p(-0.22f, 0.0f), p(0.38f, 0.0f), color, t * 1.3f);
+        break;
+    }
+    case Icon::Target:
+        draw->AddCircle(c, 0.30f * s, color, 0, t);
+        draw->AddLine(p(0.0f, -0.50f), p(0.0f, -0.16f), color, t);
+        draw->AddLine(p(0.0f, 0.16f), p(0.0f, 0.50f), color, t);
+        draw->AddLine(p(-0.50f, 0.0f), p(-0.16f, 0.0f), color, t);
+        draw->AddLine(p(0.16f, 0.0f), p(0.50f, 0.0f), color, t);
+        draw->AddCircleFilled(c, 0.07f * s, color);
+        break;
     case Icon::Play:
         draw->AddTriangleFilled(p(-0.30f, -0.42f), p(-0.30f, 0.42f), p(0.44f, 0.0f), color);
         break;
@@ -397,7 +423,7 @@ bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enable
     const auto& fonts = CurrentFonts();
     const ImVec2 text = TextSize(fonts.body, label);
     const float icon_size = icon == Icon::None ? 0.0f : Dp(16);
-    const float gap = icon == Icon::None ? 0.0f : Dp(8);
+    const float gap = icon == Icon::None || !*label ? 0.0f : Dp(8);
     const float left = pos.x + (size.x - (text.x + icon_size + gap)) * 0.5f;
     const ImU32 ink = Col(enabled ? Mix(color::muted, color::text, 0.6f + 0.4f * hover) : color::dim);
     if (icon != Icon::None) DrawIcon(draw, icon, {left + icon_size * 0.5f, pos.y + size.y * 0.5f}, icon_size, ink);
@@ -551,6 +577,27 @@ void KeyCap(const char* key)
     DrawLabel(draw, fonts.caption, {pos.x + (size.x - label.x) * 0.5f, pos.y + (size.y - label.y) * 0.5f},
              Col(color::text), key);
     ImGui::Dummy({size.x, size.y + Dp(2)});
+}
+
+bool KeyCapButton(const char* id, const char* key, bool waiting)
+{
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 label = TextSize(fonts.caption, key);
+    const ImVec2 size{std::max(Dp(30), label.x + Dp(18)), Dp(28)};
+    const bool pressed = ImGui::InvisibleButton(id, {size.x, size.y + Dp(2)});
+    const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    const float pulse = waiting ? 0.5f + 0.5f * std::sin(float(ImGui::GetTime()) * 6.0f) : 0.0f;
+    auto* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled({pos.x, pos.y + Dp(2)}, Add(pos, {size.x, size.y + Dp(2)}), Col(color::window), Dp(7));
+    draw->AddRectFilled(pos, Add(pos, size),
+                        Col(Mix(Mix(color::field, color::border, 0.5f + 0.3f * hover), color::accent_dark, pulse)), Dp(7));
+    draw->AddRect(pos, Add(pos, size), Col(waiting ? Mix(color::border, color::accent, 0.4f + 0.6f * pulse)
+                                                   : Mix(color::border, color::accent, 0.6f * hover)),
+                  Dp(7), 0, Dp(waiting ? 1.5f : 1.0f));
+    DrawLabel(draw, fonts.caption, {pos.x + (size.x - label.x) * 0.5f, pos.y + (size.y - label.y) * 0.5f},
+              Col(waiting ? color::accent : color::text), key);
+    return pressed;
 }
 
 void KeyCapArrow(int direction)

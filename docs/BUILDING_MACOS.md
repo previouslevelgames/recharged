@@ -61,3 +61,11 @@ cmake --build --preset release --parallel 3
 
 When reporting a failure, include the configure/build output, macOS version,
 Apple Silicon or Intel, and `clang++ --version`.
+
+## Controllers
+
+macOS only lets an app read game controllers and Wii Remotes after you allow
+**Input Monitoring** for the app that starts the game (Terminal, iTerm, …) in
+System Settings → Privacy & Security. Restart that app afterwards, then
+unplug and reconnect the controller: one that was already connected stays
+silent until it is opened again.

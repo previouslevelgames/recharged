@@ -122,4 +122,105 @@ WiimoteHidStatus ScanWiimoteHid(int timeout_ms) {
     while (!probe.Poll()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     return probe.Result();
 }
+WiimoteHidLive::~WiimoteHidLive() { Close(); }
+
+void WiimoteHidLive::Close() {
+    if (hid_) SDL_hid_close(hid_);
+    hid_ = nullptr;
+    if (initialized_) SDL_hid_exit();
+    initialized_ = false;
+    buttons_ = 0;
+    dots_ = {};
+    last_report_ns_ = 0;
+}
+
+bool WiimoteHidLive::Send(std::initializer_list<std::uint8_t> report) {
+    // A DolphinBar slot can reject a write while its Bluetooth link is busy.
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        if (SDL_hid_write(hid_, report.begin(), report.size()) == int(report.size())) return true;
+        SDL_Delay(20);
+    }
+    return false;
+}
+
+bool WiimoteHidLive::Write(std::uint32_t address, const std::uint8_t* data, int size) {
+    std::uint8_t report[22]{0x16, 0x04, std::uint8_t(address >> 16), std::uint8_t(address >> 8),
+                            std::uint8_t(address), std::uint8_t(size)};
+    std::copy(data, data + size, report + 6);
+    bool sent = false;
+    for (int attempt = 0; attempt < 10 && !sent; ++attempt) {
+        sent = SDL_hid_write(hid_, report, sizeof(report)) == int(sizeof(report));
+        if (!sent) SDL_Delay(20);
+    }
+    if (!sent) return false;
+    // Wait for the remote's acknowledgement of this register write.
+    const std::uint64_t deadline = SDL_GetTicks() + 300;
+    std::uint8_t buffer[32];
+    while (SDL_GetTicks() < deadline) {
+        const int got = SDL_hid_read_timeout(hid_, buffer, sizeof(buffer), 20);
+        if (got < 0) return false;
+        if (got >= 5 && buffer[0] == 0x22 && buffer[3] == 0x16) return buffer[4] == 0;
+        if (got > 0) Handle(buffer, got);
+    }
+    return false;
+}
+
+bool WiimoteHidLive::Open(int slot) {
+    Close();
+    if (SDL_hid_init() != 0) return false;
+    initialized_ = true;
+    std::string path;
+    SDL_hid_device_info* list = SDL_hid_enumerate(0x057e, 0);
+    int index = 0;
+    for (auto* info = list; info; info = info->next) {
+        if (!IsWiimoteHid(info) || !info->path || !IsDolphinBarHid(info)) continue;
+        const int interface_slot =
+            info->interface_number >= 0 && info->interface_number < 4 ? info->interface_number : index;
+        ++index;
+        if (interface_slot == slot) { path = info->path; break; }
+    }
+    SDL_hid_free_enumeration(list);
+    if (path.empty() || !(hid_ = SDL_hid_open_path(path.c_str()))) {
+        Close();
+        return false;
+    }
+    // The game's camera set-up (sensitivity level 3, basic mode), the slot's
+    // player LED, then buttons, accelerometer and camera reports.
+    const std::uint8_t on = 0x01, mode = 0x01, done = 0x08;
+    const bool ready = Send({0x13, 0x04}) && Send({0x1a, 0x04}) && Write(0xb00030, &on, 1) &&
+                       Write(0xb00000, kWiimoteIrBlock1[2], 9) && Write(0xb0001a, kWiimoteIrBlock2[2], 2) &&
+                       Write(0xb00033, &mode, 1) && Write(0xb00030, &done, 1) &&
+                       Send({0x11, std::uint8_t(0x10u << slot)}) && Send({0x12, 0x04, 0x37});
+    if (!ready) Close();
+    return ready;
+}
+
+void WiimoteHidLive::Handle(const std::uint8_t* report, int size) {
+    if (report[0] == 0x37 && size >= 22) {
+        buttons_ = std::uint16_t(report[1] << 8 | report[2]);
+        dots_ = DecodeWiimoteBasicIr(report + 6);
+        last_report_ns_ = SDL_GetTicksNS();
+    } else if (report[0] == 0x20) {
+        // After a status report the remote waits for its reporting mode again.
+        const std::uint8_t mode[3]{0x12, 0x04, 0x37};
+        SDL_hid_write(hid_, mode, sizeof(mode));
+    }
+}
+
+void WiimoteHidLive::Poll() {
+    if (!hid_) return;
+    std::uint8_t buffer[32];
+    for (int guard = 0; guard < 256; ++guard) {
+        const int got = SDL_hid_read_timeout(hid_, buffer, sizeof(buffer), 0);
+        if (got <= 0) {
+            if (got < 0) last_report_ns_ = 0;
+            return;
+        }
+        Handle(buffer, got);
+    }
+}
+
+bool WiimoteHidLive::Connected() const {
+    return hid_ && last_report_ns_ && SDL_GetTicksNS() - last_report_ns_ < 500000000ull;
+}
 } // namespace mscharged::platform

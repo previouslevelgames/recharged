@@ -60,7 +60,8 @@ SPSoundTable* PrepareNativeSPSoundTable(nlChunk* chunk) {
     if (adpcmCount > (rawBytes - wireADPCM) / 46)
         throw std::out_of_range("SP ADPCM metadata leaves its original completed table");
     constexpr auto nativeHeader = offsetof(SPSoundTable, sound);
-    if (count > (std::numeric_limits<std::size_t>::max() - nativeHeader) / sizeof(SPSoundEntry))
+    // Widened first: with a 32-bit count the bound only matters where size_t is narrow.
+    if (std::uint64_t(count) > (std::numeric_limits<std::size_t>::max() - nativeHeader) / sizeof(SPSoundEntry))
         throw std::overflow_error("SP native record extent overflows");
     const auto nativeADPCM = nativeHeader + std::size_t(count) * sizeof(SPSoundEntry);
     if (adpcmCount > (std::numeric_limits<std::size_t>::max() - nativeADPCM) / sizeof(SPADPCM))

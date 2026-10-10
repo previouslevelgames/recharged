@@ -70,6 +70,19 @@ function(mscharged_add_aurora_host)
     set(AURORA_ENABLE_TESTS OFF)
     set(AURORA_ENABLE_EXAMPLES OFF)
     add_subdirectory("${MSCHARGED_AURORA_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/aurora" EXCLUDE_FROM_ALL)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        # The Apple SDK deprecates sprintf even for Tracy's bounded case: a
+        # uint32_t thread ID (at most 10 digits) in a 256-byte buffer. Keep this
+        # exception in the amalgamated client's own source directory.
+        set_property(SOURCE "${MSCHARGED_TRACY_PREPARED}/public/TracyClient.cpp"
+            TARGET_DIRECTORY TracyClient APPEND PROPERTY COMPILE_OPTIONS -Wno-deprecated-declarations)
+        if(TARGET aurora_gx)
+            # These GX switches select subsets of the indirect stages; the
+            # GX_MAX_INDTEXSTAGE sentinel is not an additional hardware stage.
+            set_property(SOURCE "${MSCHARGED_AURORA_PREPARED}/lib/dolphin/gx/GXBump.cpp"
+                TARGET_DIRECTORY aurora_gx APPEND PROPERTY COMPILE_OPTIONS -Wno-switch)
+        endif()
+    endif()
 endfunction()
 mscharged_add_aurora_host()
 if(TARGET aurora_gx)

@@ -30,15 +30,6 @@ constexpr std::chrono::milliseconds kSilentLimit{1500}, kCommandWait{250};
 constexpr std::chrono::milliseconds kWriteRetry{20};
 constexpr int kWriteAttempts = 10;
 
-// Console IR camera sensitivity blocks (registers 0xb00000 and 0xb0001a),
-// levels 1-5 as selected by the Wii's sensor-bar sensitivity setting.
-constexpr std::uint8_t kIrBlock1[5][9] = {
-    {0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0x64, 0x00, 0xfe},
-    {0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0x96, 0x00, 0xb4},
-    {0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0xaa, 0x00, 0x64},
-    {0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0xc8, 0x00, 0x36},
-    {0x07, 0x00, 0x00, 0x71, 0x01, 0x00, 0x72, 0x00, 0x20}};
-constexpr std::uint8_t kIrBlock2[5][2] = {{0xfd, 0x05}, {0xb3, 0x04}, {0x63, 0x03}, {0x35, 0x03}, {0x1f, 0x03}};
 
 enum class Wait { None, Ack, Read };
 enum class Tag { None, Calibration, ExtensionId, NunchukCalibration };
@@ -65,6 +56,7 @@ struct Remote {
     int nunchuk_zero[3]{512, 512, 512}, nunchuk_one[3]{712, 712, 712}, nunchuk_centre[2]{128, 128};
     std::uint8_t battery = 0;
     bool ir_visible = false;
+    mscharged::platform::WiimotePairTracker pair{};
     int write_failures = 0;
     Clock::time_point retry_at{};
     Clock::time_point next_debug_log{};
@@ -149,8 +141,8 @@ void QueueSetup(Remote& remote) {
     Queue(remote, {0x13, 0x04});
     Queue(remote, {0x1a, 0x04});
     QueueWrite(remote, 0xb00030, {0x01});
-    QueueWrite(remote, 0xb00000, kIrBlock1[level], 9);
-    QueueWrite(remote, 0xb0001a, kIrBlock2[level], 2);
+    QueueWrite(remote, 0xb00000, mscharged::platform::kWiimoteIrBlock1[level], 9);
+    QueueWrite(remote, 0xb0001a, mscharged::platform::kWiimoteIrBlock2[level], 2);
     QueueWrite(remote, 0xb00033, {0x01}); // basic mode, fits next to the extension bytes
     QueueWrite(remote, 0xb00030, {0x08});
     if (remote.extension) QueueExtensionSetup(remote);
@@ -169,8 +161,28 @@ bool SDLCALL VirtualSensors(void* userdata, bool enabled) {
     return true;
 }
 
+// The fixed WPAD channel of this remote's player, -1 for none, or -2 when
+// the remote is not a player.
+int PlayerChannel(const Remote& remote) {
+    const auto& settings = State().settings;
+    if (!settings.fixed_players) return -1;
+    if (!remote.adapter || remote.slot < 0 || remote.slot >= 4) return -2;
+    const int channel = settings.slot_channels[remote.slot];
+    return channel >= 0 ? channel : -2;
+}
+
 void AttachVirtual(Remote& remote) {
     if (remote.virtual_id) return;
+    const int channel = PlayerChannel(remote);
+    if (channel == -2) {
+        // Connected but not a player: LEDs off.
+        if (remote.led_channel != -3) {
+            remote.led_channel = -3;
+            Send(remote, {0x11, 0x00});
+            SDL_Log("Wii Remote in DolphinBar slot %d is not assigned to a player", remote.slot + 1);
+        }
+        return;
+    }
     const SDL_VirtualJoystickSensorDesc sensor{SDL_SENSOR_ACCEL, 100.0f};
     SDL_VirtualJoystickDesc descriptor;
     SDL_INIT_INTERFACE(&descriptor);
@@ -199,11 +211,13 @@ void AttachVirtual(Remote& remote) {
         remote.virtual_id = 0;
         return;
     }
+    if (channel >= 0) mscharged::platform::SetNativeWpadFixedChannel(remote.virtual_id, channel);
     remote.dpd = mscharged::platform::AttachNativeWpadDpdSource(remote.virtual_id);
     if (remote.nunchuk)
         remote.nunchuk_source = mscharged::platform::AttachNativeWpadNunchukSource(remote.virtual_id);
-    SDL_Log("Wii Remote connected%s%s%s", remote.adapter ? " via DolphinBar slot " : "",
-            remote.adapter ? std::to_string(remote.slot + 1).c_str() : "", remote.nunchuk ? " with Nunchuk" : "");
+    SDL_Log("Wii Remote connected%s%s%s%s", remote.adapter ? " via DolphinBar slot " : "",
+            remote.adapter ? std::to_string(remote.slot + 1).c_str() : "", remote.nunchuk ? " with Nunchuk" : "",
+            channel >= 0 ? (" as player " + std::to_string(channel + 1)).c_str() : "");
 }
 
 void DetachVirtual(Remote& remote) {
@@ -213,6 +227,7 @@ void DetachVirtual(Remote& remote) {
     remote.dpd = {};
     if (remote.joystick) SDL_CloseJoystick(remote.joystick);
     remote.joystick = nullptr;
+    if (remote.virtual_id) mscharged::platform::SetNativeWpadFixedChannel(remote.virtual_id, -1);
     if (remote.virtual_id) SDL_DetachVirtualJoystick(remote.virtual_id);
     remote.virtual_id = 0;
     remote.led_channel = -2;
@@ -225,6 +240,7 @@ void Lost(Remote& remote, const char* why) {
     remote.queue.clear();
     remote.write_failures = 0;
     remote.retry_at = {};
+    remote.pair = {};
     remote.extension = remote.nunchuk = false;
     remote.rumble = false;
     remote.next_probe = Clock::now() + 1s;
@@ -281,7 +297,13 @@ void Publish(Remote& remote, const std::uint8_t* report) {
     const bool buttons[11]{(b1 & 0x08) != 0, (b1 & 0x04) != 0, (b1 & 0x02) != 0, (b1 & 0x01) != 0,
                            (b0 & 0x10) != 0, (b1 & 0x10) != 0, (b1 & 0x80) != 0, (b0 & 0x08) != 0,
                            (b0 & 0x04) != 0, (b0 & 0x01) != 0, (b0 & 0x02) != 0};
-    const auto dots = mscharged::platform::DecodeWiimoteBasicIr(report + 6);
+    auto dots = mscharged::platform::DecodeWiimoteBasicIr(report + 6);
+    const auto& settings = State().settings;
+    const bool calibrated = remote.adapter && remote.slot >= 0 && remote.slot < 4 &&
+        settings.calibrations[remote.slot].has_value();
+    if (calibrated)
+        dots = mscharged::platform::ApplyWiimoteCalibration(*settings.calibrations[remote.slot], remote.pair, dots,
+                                                            settings.sensor_bar_position);
     bool visible = false;
     for (const auto& dot : dots) visible |= dot.size != 0;
     remote.ir_visible = visible;
@@ -307,9 +329,10 @@ void Publish(Remote& remote, const std::uint8_t* report) {
                 int(std::lround(std::hypot(pair[1]->x - pair[0]->x, pair[1]->y - pair[0]->y))));
         const int raw[3]{(report[3] << 2) | ((b0 >> 5) & 3), (report[4] << 2) | ((b1 >> 4) & 2),
                          (report[5] << 2) | ((b1 >> 5) & 2)};
-        SDL_Log("Wii Remote IR: player %d camera %s, objects%s, tilt x %d y %d z %d, raw %s",
+        SDL_Log("Wii Remote IR: player %d camera %s, %sobjects%s, tilt x %d y %d z %d, raw %s",
                 mscharged::platform::GetNativeWpadChannel(remote.virtual_id) + 1,
                 mscharged::platform::GetNativeWpadCameraEnabled(remote.virtual_id) ? "on" : "off",
+                calibrated ? "calibrated " : "",
                 length ? objects : " none", Calibrated(raw[0], remote.zero[0], remote.one[0], 100),
                 Calibrated(raw[1], remote.zero[1], remote.one[1], 100),
                 Calibrated(raw[2], remote.zero[2], remote.one[2], 100), raw_ir);
@@ -601,26 +624,9 @@ void ShutdownWiimoteHid() {
     SDL_hid_exit();
 }
 
-NativeDpdObservation DecodeWiimoteBasicIr(const std::uint8_t* ir) {
-    // Two 5-byte groups of two objects with 10-bit coordinates, converted like
-    // original WPADHIDParser (WPAD_DPD_BASIC): x as sent, y = 767 - sent y;
-    // x 1023 or y 767 means no object (0, 767, size 0), a present one has size 12.
-    NativeDpdObservation dots{};
-    for (int group = 0; group < 2; ++group) {
-        const std::uint8_t* bytes = ir + group * 5;
-        const int x[2]{bytes[0] | ((bytes[2] >> 4) & 3) << 8, bytes[3] | (bytes[2] & 3) << 8};
-        const int y[2]{bytes[1] | ((bytes[2] >> 6) & 3) << 8, bytes[4] | ((bytes[2] >> 2) & 3) << 8};
-        for (int n = 0; n < 2; ++n) {
-            auto& object = dots[group * 2 + n];
-            object.trace_id = static_cast<std::uint8_t>(group * 2 + n);
-            const int flipped = 767 - y[n];
-            const bool absent = x[n] == 1023 || flipped == 767;
-            object.x = static_cast<std::int16_t>(absent ? 0 : x[n]);
-            object.y = static_cast<std::int16_t>(absent ? 767 : flipped);
-            object.size = absent ? 0 : 12;
-        }
-    }
-    return dots;
+bool WiimoteHidHasDevices() {
+    const auto& driver = State();
+    return driver.initialized && !driver.remotes.empty();
 }
 
 WiimoteHidStatus GetWiimoteHidStatus() {

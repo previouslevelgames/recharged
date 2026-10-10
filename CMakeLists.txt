@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 0.0.1 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.0.0 LANGUAGES C CXX)
+if(WIN32 AND MINGW)
+    # COFF weak definitions cannot be exported from mscharged.exe to the game
+    # DLLs (OSReport and friends would bind to address 0). Plain definitions,
+    # as the SDK and decomp headers already use for MSVC.
+    add_compile_definitions(DECL_WEAK=)
+endif()
 if(APPLE AND POLICY CMP0156)
     # Apple linkers resolve archive cycles without repeating the libraries.
     cmake_policy(SET CMP0156 NEW)
@@ -9,7 +15,8 @@ if(APPLE AND POLICY CMP0156)
 endif()
 include(cmake/MacOSDeploymentTarget.cmake)
 mscharged_set_macos_deployment_target()
-set(MSCHARGED_PORT_VERSION "${PROJECT_VERSION}-dev")
+# Release version; the build appends +g<commit> and .dirty for local changes.
+set(MSCHARGED_PORT_VERSION "${PROJECT_VERSION}")
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build -G Ninja")
@@ -40,8 +47,9 @@ if(MSCHARGED_BUILD_SCENE_PREVIEW)
     set(MSCHARGED_BUILD_GX_CHECK ON)
 endif()
 if(MSCHARGED_BUILD_GX_CHECK)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        message(FATAL_ERROR "The GX runtime currently selects Linux/Vulkan or macOS/Metal")
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"
+            AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS/Metal or Windows/Vulkan")
     endif()
     if(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC AND NOT MSCHARGED_BUILD_GAME_STARTUP)
     message(FATAL_ERROR "Use the startup preset for the temporary original movie audio diagnostic")
@@ -173,6 +181,8 @@ function(mscharged_add_nod)
     set(CORROSION_BUILD_TESTS OFF)
     set(NOD_ENABLE_INSTALL OFF)
     add_subdirectory("${MSCHARGED_NOD_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/nod")
+    include(cmake/MacOSLinkLibraries.cmake)
+    mscharged_remove_macos_implicit_system_library(nod-static)
 endfunction()
 mscharged_add_nod()
 add_dependencies(_cargo-build_nod verify_prepared)
@@ -313,7 +323,8 @@ endif()
 
 message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCHER}, experimental startup: ${MSCHARGED_BUILD_GAME_STARTUP}, independent GX check: ${MSCHARGED_BUILD_GX_CHECK}, static asset preview: ${MSCHARGED_BUILD_SCENE_PREVIEW}); playable game remains pending")
 
-# Last: GCC-only suppressions for console idioms in the original headers, added
-# to the project targets defined above (third-party subdirectories untouched).
+# Last: platform-specific diagnostics for console idioms, after every original
+# source consumer is defined (third-party subdirectories untouched).
 include(cmake/OriginalSourceWarnings.cmake)
 mscharged_apply_gnu_original_warning_policy()
+mscharged_apply_macos_original_warning_policy()

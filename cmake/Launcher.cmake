@@ -35,12 +35,17 @@ if(WIN32)
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/generated/mscharged/app_icon.rc"
         PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.ico")
 endif()
+# Aurora's logo for the About page, from its pinned prepared source (MIT).
+if(NOT MSCHARGED_AURORA_PREPARED)
+    mscharged_prepare_dependency(aurora MSCHARGED_AURORA_PREPARED)
+endif()
 add_custom_command(TARGET mscharged POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/launcher"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
             "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
+            "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/README.md"
             "$<TARGET_FILE_DIR:mscharged>/assets/launcher"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
@@ -53,7 +58,8 @@ set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/README.md"
     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/Apache-2.0.txt"
-    "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf")
+    "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
+    "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png")
 
 if(BUILD_TESTING)
     add_test(NAME launcher_smoke

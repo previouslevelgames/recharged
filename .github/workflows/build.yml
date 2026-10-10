@@ -5,6 +5,8 @@ on:
     branches: [stable]
   push:
     branches: [stable]
+    # A version tag (v1.0.1) on stable builds the packages and drafts a release.
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -25,15 +27,21 @@ jobs:
         include:
           - platform: linux-x86_64
             runner: ubuntu-26.04
+            jobs: 4
           - platform: macos-arm64
             runner: macos-15
+            jobs: 3
     defaults:
       run:
         shell: bash
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: 2
-      CARGO_BUILD_JOBS: 2
+      # One job per runner core; ccache keeps unchanged objects between runs.
+      CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.jobs }}
+      CARGO_BUILD_JOBS: ${{ matrix.jobs }}
       CARGO_TERM_COLOR: always
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: 'true'
+      CCACHE_MAXSIZE: 3G
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,9 +57,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-15 cmake ninja-build make tcl pkg-config \
+          sudo apt-get install -y g++-15 cmake ninja-build make tcl pkg-config ccache \
             libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
-            libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libx11-xcb-dev libegl-dev \
             libwayland-dev libxkbcommon-dev wayland-protocols libdecor-0-dev \
             libudev-dev libdbus-1-dev libvulkan-dev
           echo 'CC=gcc-15' >> "$GITHUB_ENV"
@@ -60,7 +68,11 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           test "$(uname -m)" = arm64
-          brew install cmake ninja tcl-tk
+          # Aurora needs std::jthread (Apple Clang 17). Xcode 26 on the macOS 15
+          # image keeps the deployment target at macOS 15.
+          sudo xcode-select -s /Applications/Xcode_26.3.app
+          clang++ --version
+          brew install cmake ninja tcl-tk ccache
           echo "$(brew --prefix tcl-tk)/bin" >> "$GITHUB_PATH"
           echo 'CC=clang' >> "$GITHUB_ENV"
           echo 'CXX=clang++' >> "$GITHUB_ENV"
@@ -71,13 +83,31 @@ jobs:
           cargo --version
       - name: Prepare pinned dependencies
         run: python tools/setup_dependencies.py
+      # Outside the checkout: an untracked folder there marks the version .dirty.
+      # (The runner context is not available in job-level env.)
+      - name: Place compiler cache
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-${{ matrix.platform }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.platform }}-
       - name: Configure original runtime
         run: >-
           cmake --preset release
           -DBUILD_TESTING=OFF
           -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      # Only the packaged targets.
       - name: Build original runtime
-        run: cmake --build --preset release
+        run: >-
+          cmake --build --preset release --target
+          mscharged mscharged_original_frontend_module mscharged_original_main_credits_module
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats || true
       - name: Check executable
         run: |
           ./build/release/mscharged --version | tee build/release/ci-version.txt
@@ -85,15 +115,16 @@ jobs:
           ./build/release/mscharged --help
       - name: Package binaries and notices
         run: python tools/package_build.py --build-dir build/release --output-dir build/artifacts
-      - name: Upload binaries after promotion
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/stable'
+      # Pull requests to stable upload too, so the packages can be tested
+      # before the promotion is merged.
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: mscharged-${{ matrix.platform }}-${{ github.sha }}
           path: build/artifacts/*.tar.gz
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
       - name: Upload configure diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -105,8 +136,106 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  windows-game:
+    # Cross-compiled on Linux with the pinned LLVM-MinGW (UCRT, libc++), the
+    # same toolchain as cmake/toolchains/llvm-mingw-x86_64.cmake documents.
+    name: windows-x86_64
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+      CARGO_BUILD_JOBS: 4
+      CARGO_TERM_COLOR: always
+      LLVM_MINGW: llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: 'true'
+      CCACHE_MAXSIZE: 3G
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build make tcl pkg-config xz-utils ccache
+      - name: Install pinned LLVM-MinGW
+        run: |
+          mkdir -p build/toolchain
+          curl -fsSL -o build/toolchain/llvm-mingw.tar.xz \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/${LLVM_MINGW}.tar.xz"
+          echo '5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4  build/toolchain/llvm-mingw.tar.xz' \
+            | sha256sum -c -
+          tar -xJf build/toolchain/llvm-mingw.tar.xz -C build/toolchain
+      - name: Select Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-pc-windows-gnullvm
+          cargo --version
+      - name: Prepare pinned dependencies
+        run: python tools/setup_dependencies.py
+      # Outside the checkout: an untracked folder there marks the version .dirty.
+      # (The runner context is not available in job-level env.)
+      - name: Place compiler cache
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-windows-x86_64-${{ github.sha }}
+          restore-keys: ccache-windows-x86_64-
+      - name: Configure original runtime
+        run: >-
+          cmake --preset release -B build/windows
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/llvm-mingw-x86_64.cmake
+          -DLLVM_MINGW_ROOT="$PWD/build/toolchain/$LLVM_MINGW"
+          -DBUILD_TESTING=OFF
+          -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      # Only the packaged targets: some Linux-only diagnostics are not portable.
+      - name: Build original runtime
+        run: >-
+          cmake --build build/windows --target
+          mscharged mscharged_original_frontend_module mscharged_original_main_credits_module
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats || true
+      - name: Check executable
+        run: |
+          test -f build/windows/mscharged.exe
+          "build/toolchain/$LLVM_MINGW/bin/llvm-objdump" -p build/windows/mscharged.exe | grep -F 'DLL Name'
+      - name: Package binaries and notices
+        run: python tools/package_build.py --build-dir build/windows --output-dir build/artifacts
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: mscharged-windows-x86_64-${{ github.sha }}
+          path: build/artifacts/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      - name: Upload configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: configure-windows-x86_64-${{ github.sha }}
+          path: |
+            build/windows/CMakeFiles/CMakeConfigureLog.yaml
+            build/windows/sqlite-generation.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   windows:
-    name: Windows host services (game build pending)
+    name: Windows host services
     runs-on: windows-2025
     timeout-minutes: 30
     defaults:
@@ -154,5 +283,51 @@ jobs:
         run: cmake --build build/host-checks
       - name: Run host service tests
         run: ctest --test-dir build/host-checks --output-on-failure
-      # These tests qualify individual host services, not Windows game startup.
-      # The runtime gate remains until DLL linking, ABI and storage are ready.
+      # Native Windows compiler checks of individual host services; the game
+      # itself is built by the windows-game job.
+
+  release:
+    # Drafts the GitHub release for a version tag; publish it after a review.
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, windows-game]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - name: Check the tag against the project version
+        id: version
+        run: |
+          version=$(sed -n 's/^project(mscharged_port VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)
+          tag="${GITHUB_REF_NAME}"
+          echo "CMakeLists.txt version: $version, tag: $tag"
+          if [ "v$version" != "$tag" ]; then
+            echo "::error::Tag $tag does not match the project version $version (tools/bump_version.py)."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mscharged-*-${{ github.sha }}
+          path: release
+          merge-multiple: true
+      - name: Write checksums
+        working-directory: release
+        run: |
+          ls -la
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 3
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          cat SHA256SUMS
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "Mario Strikers Charged Native Port $VERSION" --generate-notes \
+            release/*.tar.gz release/*.zip release/SHA256SUMS

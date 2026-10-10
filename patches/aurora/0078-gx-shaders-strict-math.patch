@@ -1,0 +1,83 @@
+From: mscharged-port contributors
+Subject: [PATCH] Compile GX shaders with strict math where available
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host rendering correctness (Metal). Apply after 0077.
+
+Dawn compiles Metal shaders with fast math unless a shader module chains
+ShaderModuleCompilationOptions{strictMath}. On macOS the lit 3D scene of a
+match measured about half as bright as Vulkan and Dolphin while the game set
+identical light values on both (AURORA_DEBUG_LIGHT_LOG). Request the feature
+when the adapter offers it and compile GX shaders with strict math. Vulkan
+does not offer the feature and is unchanged.
+
+diff --git a/lib/gx/shader.cpp b/lib/gx/shader.cpp
+index 8cb5344..e98c620 100644
+--- a/lib/gx/shader.cpp
++++ b/lib/gx/shader.cpp
+@@ -2085,6 +2085,15 @@ wgpu::ShaderModule build_shader(const ShaderConfig& config, const gfx::RenderTar
+   const auto hash = xxh3_hash(dstAlphaMode, xxh3_hash(normalAttachment, xxh3_hash(config)));
+   wgpu::ShaderSourceWGSL wgslDescriptor{};
+   wgslDescriptor.code = shaderSource.c_str();
++  // Metal compiles fast math unless a module asks for strict math; with it the
++  // lit 3D scene came out about half as bright as on Vulkan and the Wii (GX
++  // lighting uses lights at GX_LARGE_NUMBER). Strict math keeps IEEE results.
++  // Backends without the feature (Vulkan) never use fast math.
++  wgpu::ShaderModuleCompilationOptions compilationOptions{};
++  compilationOptions.strictMath = true;
++  if (webgpu::g_strictMathSupported) {
++    wgslDescriptor.nextInChain = &compilationOptions;
++  }
+   const auto label = fmt::format("GX Shader {:x}", hash);
+   const auto shaderDescriptor = wgpu::ShaderModuleDescriptor{
+       .nextInChain = &wgslDescriptor,
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 2c0886a..5715194 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -69,6 +69,7 @@ wgpu::AdapterInfo g_adapterInfo;
+ static wgpu::SurfaceCapabilities g_surfaceCapabilities;
+ bool g_hasCoreFeatures = false;
+ bool g_dualSourceBlendingSupported = false;
++bool g_strictMathSupported = false;
+ bool g_bcTexturesSupported = false;
+ bool g_astcTexturesSupported = false;
+ bool g_textureComponentSwizzleSupported = false;
+@@ -929,13 +930,15 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     g_astcTexturesSupported = false;
+     g_textureComponentSwizzleSupported = false;
+     g_dualSourceBlendingSupported = false;
++    g_strictMathSupported = false;
+     wgpu::SupportedFeatures supportedFeatures;
+     g_adapter.GetFeatures(&supportedFeatures);
+     for (size_t i = 0; i < supportedFeatures.featureCount; ++i) {
+       const auto feature = supportedFeatures.features[i];
+       if (feature == wgpu::FeatureName::CoreFeaturesAndLimits || feature == wgpu::FeatureName::TextureCompressionBC ||
+           feature == wgpu::FeatureName::TextureCompressionASTC ||
+-          feature == wgpu::FeatureName::TextureComponentSwizzle || feature == wgpu::FeatureName::DualSourceBlending) {
++          feature == wgpu::FeatureName::TextureComponentSwizzle || feature == wgpu::FeatureName::DualSourceBlending ||
++          feature == wgpu::FeatureName::ShaderModuleCompilationOptions) {
+         if (feature == wgpu::FeatureName::CoreFeaturesAndLimits) {
+           g_hasCoreFeatures = true;
+         } else if (feature == wgpu::FeatureName::TextureCompressionBC) {
+@@ -944,6 +947,8 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+           g_astcTexturesSupported = true;
+         } else if (feature == wgpu::FeatureName::TextureComponentSwizzle) {
+           g_textureComponentSwizzleSupported = true;
++        } else if (feature == wgpu::FeatureName::ShaderModuleCompilationOptions) {
++          g_strictMathSupported = true;
+         } else if (feature == wgpu::FeatureName::DualSourceBlending) {
+           // AURORA_DEBUG_NO_DUAL_SOURCE=1 tests the alpha pre-pass fallback.
+           const char* noDualSource = std::getenv("AURORA_DEBUG_NO_DUAL_SOURCE");
+diff --git a/lib/webgpu/gpu.hpp b/lib/webgpu/gpu.hpp
+index a1ce5c0..4b3cac2 100644
+--- a/lib/webgpu/gpu.hpp
++++ b/lib/webgpu/gpu.hpp
+@@ -61,6 +61,8 @@ extern bool g_bcTexturesSupported;
+ extern bool g_astcTexturesSupported;
+ extern bool g_textureComponentSwizzleSupported;
+ extern bool g_dualSourceBlendingSupported;
++// Shaders can request strict (non-fast) math; Metal compiles fast math otherwise.
++extern bool g_strictMathSupported;
+ 
+ bool initialize(AuroraBackend backend, bool allowCpu);
+ void shutdown();

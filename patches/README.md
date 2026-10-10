@@ -664,6 +664,15 @@ after publishing its own token waits until the processor has parsed every
 command before it. A late empty-frame finish no longer releases glx
 WaitDrawDone early, and the game's next frame no longer rewrites vertex data,
 textures or palettes the processor has not read yet (garbage effect polygons).
+`0074-desktop-picture-straight-from-xfb.patch` adds the host desktop picture
+choice `AuroraVIOutputConfig::desktop_picture`. The default keeps the VI signal
+stretched into the window; smooth and sharp pictures are drawn from the XFB at
+the window viewport's size in one pass (sharp keeps source pixels flat) and skip
+the display copy's vertical flicker filter. The physical VI signal is unchanged.
+`0075-multisampled-pe-aperture.patch` lets 0034's PE color aperture write into a
+multisampled EFB (`display.antialiasing = 4x`): a poke is a pixel-aligned clear
+rectangle drawn with the render target's own sample count, covering every
+sample of the pixel. Scaled EFBs remain unsupported.
 
 ## Dawn series
 

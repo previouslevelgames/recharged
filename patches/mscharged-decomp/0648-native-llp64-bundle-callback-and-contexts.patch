@@ -1,0 +1,90 @@
+From: mscharged-port
+Subject: Native LLP64 bundle callback parameter and remaining context casts
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native compiler/ABI compatibility; apply after 0646.
+
+fn_8011B424 is passed as a FileOpenAsyncCallback whose last parameter is the
+native BundleAsyncParam (uintptr_t); its unsigned long spelling only matched on
+LP64 hosts. Natively it now takes __UINTPTR_TYPE__. The remaining
+SHChooseCaptains callback contexts cast through __UINTPTR_TYPE__ like 0646.
+
+diff --git a/include/Game/AsyncLoading.h b/include/Game/AsyncLoading.h
+index 6c749be..d5ee16d 100644
+--- a/include/Game/AsyncLoading.h
++++ b/include/Game/AsyncLoading.h
+@@ -115,7 +115,12 @@ void fn_8011B178(AsyncLoadingManager* manager);
+ void fn_8011B2E4(AsyncLoadingManager* manager);
+ void fn_8011B40C(AudioResourceLoadOwner*, void*);
+ void fn_8011B418();
++#if defined(MSCHARGED_NATIVE)
++// BundleAsyncParam (nlBundleFile.h) is uintptr_t natively.
++void fn_8011B424(void*, unsigned long, __UINTPTR_TYPE__);
++#else
+ void fn_8011B424(void*, unsigned long, unsigned long);
++#endif
+ void fn_8011B6E8(AsyncLoadingManager* manager);
+ }
+ 
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 50332bb..540603a 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -2388,7 +2388,11 @@ extern "C" void fn_8011B418()
+     lbl_806E1068 = true;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++extern "C" void fn_8011B424(void*, unsigned long, __UINTPTR_TYPE__)
++#else
+ extern "C" void fn_8011B424(void*, unsigned long, unsigned long)
++#endif
+ {
+     lbl_806E1069 = true;
+ }
+diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index 29198d3..371aeb9 100644
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -877,8 +877,16 @@ void ChooseCaptainsSceneV2::OnReadyPointerPress(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnReadyPointerEnter(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (mSidePads[(unsigned long)(__UINTPTR_TYPE__)context] != -1 || GetSide(index) != -1
++#else
+     if (mSidePads[(unsigned long)context] != -1 || GetSide(index) != -1
++#endif
++#if defined(MSCHARGED_NATIVE)
++        || !mConfirmed[(unsigned long)(__UINTPTR_TYPE__)context] || mReadyPressed[(unsigned long)(__UINTPTR_TYPE__)context])
++#else
+         || !mConfirmed[(unsigned long)context] || mReadyPressed[(unsigned long)context])
++#endif
+     {
+         return;
+     }
+@@ -932,13 +940,25 @@ void ChooseCaptainsSceneV2::OnReadyPointerLeave(int index, void* context)
+  */
+ void ChooseCaptainsSceneV2::OnReadyPointerInside(int index, void* context)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if (mSidePads[(unsigned long)(__UINTPTR_TYPE__)context] != -1 || GetSide(index) != -1
++#else
+     if (mSidePads[(unsigned long)context] != -1 || GetSide(index) != -1
++#endif
++#if defined(MSCHARGED_NATIVE)
++        || !mConfirmed[(unsigned long)(__UINTPTR_TYPE__)context] || mReadyPressed[(unsigned long)(__UINTPTR_TYPE__)context])
++#else
+         || !mConfirmed[(unsigned long)context] || mReadyPressed[(unsigned long)context])
++#endif
+     {
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    if (mReadyButtons[(unsigned long)(__UINTPTR_TYPE__)context].GetPointerState(index) == POINTER_BUTTON_NORMAL)
++#else
+     if (mReadyButtons[(unsigned long)context].GetPointerState(index) == POINTER_BUTTON_NORMAL)
++#endif
+     {
+         OnReadyPointerEnter(index, context);
+     }

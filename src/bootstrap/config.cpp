@@ -1,9 +1,12 @@
 #include "config.h"
 #include "platform/path.h"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <fstream>
+#include <locale>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -28,22 +31,35 @@ std::string Trim(const std::string& value)
 
 Values Encode(const Settings& s)
 {
-    return {{"game.disc", s.disc}, {"game.language", s.language},
+    Values values{{"game.disc", s.disc}, {"game.language", s.language},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.vsync", s.vsync ? "true" : "false"},
-            {"display.backend", s.backend}, {"display.aspect", s.aspect},
+            {"display.backend", s.backend}, {"display.aspect", s.aspect}, {"display.picture", s.picture},
+            {"display.antialiasing", s.antialiasing},
             {"audio.master_volume", std::to_string(s.master_volume)},
             {"audio.music_volume", std::to_string(s.music_volume)},
             {"audio.effects_volume", std::to_string(s.effects_volume)},
-            {"audio.mute", s.mute ? "true" : "false"}, {"controls.input", s.input},
+            {"audio.mute", s.mute ? "true" : "false"},
+            {"controls.player1", s.players[0]}, {"controls.player2", s.players[1]},
+            {"controls.player3", s.players[2]}, {"controls.player4", s.players[3]},
+            {"controls.remote1_calibration", s.remote_calibration[0]},
+            {"controls.remote2_calibration", s.remote_calibration[1]},
+            {"controls.remote3_calibration", s.remote_calibration[2]},
+            {"controls.remote4_calibration", s.remote_calibration[3]},
             {"controls.deadzone", std::to_string(s.deadzone)},
             {"controls.rumble", s.rumble ? "true" : "false"},
+            {"controls.mouse_pointer", s.mouse_pointer ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
             {"display.show_fps", s.show_fps ? "true" : "false"},
             {"display.monitor", std::to_string(s.monitor)},
             {"advanced.graphics_validation", s.graphics_validation ? "true" : "false"},
-            {"advanced.log_level", s.log_level}, {"launcher.ui_scale", s.ui_scale}};
+            {"advanced.log_level", s.log_level},
+            {"advanced.verbose_console", s.verbose_console ? "true" : "false"},
+            {"launcher.ui_scale", s.ui_scale}};
+    for (std::size_t n = 0; n < KeyActionCount; ++n)
+        values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
+    return values;
 }
 
 Settings Decode(const Values& values)
@@ -85,18 +101,75 @@ Settings Decode(const Values& values)
     boolean("display.vsync", s.vsync);
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
     choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "16:10", "21:9"});
+    choice("display.picture", s.picture, {"soft", "clean", "sharp"});
+    choice("display.antialiasing", s.antialiasing, {"off", "4x"});
     number("audio.master_volume", s.master_volume, 0, 100);
     number("audio.music_volume", s.music_volume, 0, 100);
     number("audio.effects_volume", s.effects_volume, 0, 100);
     boolean("audio.mute", s.mute);
-    choice("controls.input", s.input, {"auto", "keyboard", "controller"});
+    for (int n = 0; n < 4; ++n)
+    {
+        const auto key = "controls.player" + std::to_string(n + 1);
+        choice(key.c_str(), s.players[n], {"keyboard", "remote1", "remote2", "remote3", "remote4",
+                                            "gamepad1", "gamepad2", "gamepad3", "gamepad4", "off"});
+    }
+    for (int n = 0; n < 4; ++n)
+    {
+        const auto key = "controls.remote" + std::to_string(n + 1) + "_calibration";
+        const auto it = values.find(key);
+        if (it == values.end()) continue;
+        if (it->second != "none")
+        {
+            std::istringstream input(it->second);
+            input.imbue(std::locale::classic());
+            double value = 0;
+            int count = 0;
+            while (input >> value && std::isfinite(value)) ++count;
+            if (count != 6 || !input.eof())
+                throw std::runtime_error("Invalid configuration: " + key + " must be none or six numbers");
+        }
+        s.remote_calibration[n] = it->second;
+    }
+    // [keyboard]: one or two key names per action, separated by " | ".
+    for (std::size_t n = 0; n < KeyActionCount; ++n)
+    {
+        const auto key = std::string("keyboard.") + kKeyActions[n].key;
+        const auto it = values.find(key);
+        if (it == values.end()) continue;
+        std::size_t names = 0, start = 0;
+        bool valid = !it->second.empty();
+        while (valid && start <= it->second.size())
+        {
+            const auto bar = std::min(it->second.find('|', start), it->second.size());
+            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++names <= 2;
+            start = bar + 1;
+        }
+        if (!valid)
+            throw std::runtime_error("Invalid configuration: " + key + " must be one or two key names separated by |");
+        s.keys[n] = it->second;
+    }
+    // Players fill in order from player 1, and each device plays once.
+    if (s.players[0] == "off")
+        throw std::runtime_error("Invalid configuration: controls.player1 must be keyboard, a Wii Remote or a gamepad");
+    for (int n = 1; n < 4; ++n)
+    {
+        if (s.players[n] == "off") continue;
+        if (s.players[n - 1] == "off")
+            throw std::runtime_error("Invalid configuration: players must be filled in order (controls.player"
+                + std::to_string(n + 1) + ")");
+        for (int m = 0; m < n; ++m)
+            if (s.players[n] == s.players[m])
+                throw std::runtime_error("Invalid configuration: " + s.players[n] + " is assigned to two players");
+    }
     number("controls.deadzone", s.deadzone, 0, 50);
     boolean("controls.rumble", s.rumble);
+    boolean("controls.mouse_pointer", s.mouse_pointer);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
     boolean("display.show_fps", s.show_fps);
     number("display.monitor", s.monitor, 0, 15);
     boolean("advanced.graphics_validation", s.graphics_validation);
     choice("advanced.log_level", s.log_level, {"error", "warning", "info", "debug"});
+    boolean("advanced.verbose_console", s.verbose_console);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     return s;
 }

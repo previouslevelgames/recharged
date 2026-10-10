@@ -90,6 +90,14 @@ struct Hardware {
     // with the mouse while its buttons, stick and motion stay its own.
     bool shared_pointer = false;
     mscharged::platform::NativeDpdObservation shared_pointer_observation{};
+    // The mouse alongside a controller player (SetNativeWpadMousePlayer).
+    int mouse_channel = -1;
+    bool mouse_pointer = false, mouse_a = false, mouse_b = false;
+    mscharged::platform::NativeDpdObservation mouse_observation{};
+    // Player assignment of native providers: joysticks with a fixed channel,
+    // and the channels kept free for them.
+    std::vector<std::pair<SDL_JoystickID, int>> fixed_channels;
+    std::uint32_t reserved_channels = 0;
     std::thread::id nunchuk_owner{};
     std::uint64_t nunchuk_generation = 0;
 };
@@ -260,6 +268,15 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
         report.err = WPAD_ERR_OK;
         report.button = channel.buttons;
         CopyDpdObservation(channel, report);
+        if (int(&channel - state.channels.data()) == state.mouse_channel) {
+            if (state.mouse_a) report.button |= WPAD_BUTTON_A;
+            if (state.mouse_b) report.button |= WPAD_BUTTON_B;
+            if (state.mouse_pointer && channel.dpd_command != WPAD_DPD_DISABLE)
+                for (std::size_t n = 0; n < state.mouse_observation.size(); ++n) {
+                    const auto& object = state.mouse_observation[n];
+                    report.obj[n] = {object.x, object.y, object.size, object.trace_id};
+                }
+        }
         CopyNunchukObservation(channel, report);
         // Retail WPADiExcludeButton removes opposite right/down bits.
         if ((report.button & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) ==
@@ -382,6 +399,23 @@ NativeDpdSource AttachNativeWpadDpdSource(std::uint32_t joystick_id) {
     state.dpd_owner = std::this_thread::get_id();
     return slot->source;
 }
+void SetNativeWpadMousePlayer(int channel, const NativeDpdObservation* observation, bool a, bool b) {
+    RequireOwner();
+    if (channel < -1 || channel >= WPAD_MAX_CONTROLLERS)
+        throw std::invalid_argument("Mouse player outside Wii hardware ports");
+    if (observation)
+        for (const auto& object : *observation)
+            if (object.size && (object.x < 0 || object.x >= WPAD_MAX_DPD_X ||
+                                object.y < 0 || object.y >= WPAD_MAX_DPD_Y))
+                throw std::invalid_argument("Mouse pointer observation exceeds its raw sensor domain");
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    state.mouse_channel = channel;
+    state.mouse_pointer = channel >= 0 && observation;
+    state.mouse_observation = state.mouse_pointer ? *observation : NativeDpdObservation{};
+    state.mouse_a = channel >= 0 && a;
+    state.mouse_b = channel >= 0 && b;
+}
 void SetNativeWpadSharedPointer(const NativeDpdObservation* observation) {
     RequireOwner();
     if (observation)
@@ -496,6 +530,19 @@ int GetNativeWpadChannel(std::uint32_t joystick_id) {
     return -1;
 }
 
+void SetNativeWpadFixedChannel(std::uint32_t joystick_id, int channel) {
+    RequireOwner();
+    if (channel < -1 || channel >= WPAD_MAX_CONTROLLERS)
+        throw std::out_of_range("WPAD channel outside Wii hardware ports");
+    auto& fixed = State().fixed_channels;
+    std::erase_if(fixed, [&](const auto& entry) { return entry.first == joystick_id; });
+    if (channel >= 0) fixed.emplace_back(joystick_id, channel);
+}
+void SetNativeWpadReservedChannels(std::uint32_t mask) {
+    RequireOwner();
+    State().reserved_channels = mask & ((1u << WPAD_MAX_CONTROLLERS) - 1);
+}
+
 bool GetNativeWpadCameraEnabled(std::uint32_t joystick_id) {
     auto& state = State();
     std::lock_guard lock(state.reports);
@@ -558,12 +605,28 @@ void ServiceWpadSDL() {
         if (!SupportedRemote(ids[n])) { ReportUnsupportedRemote(ids[n]); continue; }
         if (std::find(state.rejected_remotes.begin(), state.rejected_remotes.end(), ids[n]) !=
                 state.rejected_remotes.end()) continue;
-        // Connect to the lowest free channel. When that channel is still retiring
-        // a device in this service, wait for the next service instead of moving
-        // the new device to a later player port.
+        // A fixed player connects only to its own channel and waits while that
+        // channel is busy or still retiring a device. Others take the lowest
+        // free channel outside the reserved ones; when that channel is still
+        // retiring a device in this service, wait for the next service instead
+        // of moving the new device to a later player port.
         Channel* slot = nullptr;
-        for (auto& channel : state.channels) if (!channel.pad) { slot = &channel; break; }
-        if (!slot || slot->disconnected_this_service || slot->pending_disconnect) break;
+        int fixed = -1;
+        for (const auto& [joystick, channel] : state.fixed_channels)
+            if (joystick == ids[n]) fixed = channel;
+        if (fixed >= 0) {
+            auto& channel = state.channels[fixed];
+            if (channel.pad || channel.disconnected_this_service || channel.pending_disconnect) continue;
+            slot = &channel;
+        } else {
+            for (s32 index = 0; index < WPAD_MAX_CONTROLLERS; ++index)
+                if (!state.channels[index].pad && !(state.reserved_channels & (1u << index))) {
+                    slot = &state.channels[index];
+                    break;
+                }
+            if (!slot) continue;
+            if (slot->disconnected_this_service || slot->pending_disconnect) break;
+        }
         SDL_Gamepad* pad = SDL_OpenGamepad(ids[n]);
         if (!pad) {
             if (!SDL_IsJoystickVirtual(ids[n]) && ReportOnce(ids[n]))

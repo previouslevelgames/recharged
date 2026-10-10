@@ -1,0 +1,76 @@
+From: mscharged-port contributors
+Subject: [PATCH] Place MEM1 and MEM2 below 2 GB on 64-bit Windows
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host memory placement (Windows release builds). Apply after 0078.
+
+The game keeps some arena addresses in 32-bit integers. Making the whole
+process non-large-address-aware kept them valid but starved Vulkan layers and
+drivers of address space (one aborted with "Failed to initialise snmalloc").
+Release builds on 64-bit Windows now allocate MEM1 and MEM2 with VirtualAlloc
+at the lowest free addresses below 2 GB and free them with VirtualFree; the
+process stays large-address-aware. Debug builds keep their guarded layout.
+
+diff --git a/lib/dolphin/os/OSMemory.cpp b/lib/dolphin/os/OSMemory.cpp
+index 43e8b76..afdd318 100644
+--- a/lib/dolphin/os/OSMemory.cpp
++++ b/lib/dolphin/os/OSMemory.cpp
+@@ -32,19 +32,42 @@ static void* MEM1Reservation;
+ static void GuardGCMemory();
+ static void* AllocMEM1(u32 size);
+ 
++#if defined(_WIN64) && NDEBUG
++// Games may keep MEM1/MEM2 addresses in 32-bit integers. On 64-bit Windows the
++// process stays large-address-aware (drivers and Vulkan layers may need the
++// space), so place the arenas explicitly at the lowest free addresses below
++// 2 GB. VirtualAlloc memory is zeroed and page-aligned.
++static void* AllocLowWindows(size_t size) {
++  for (uintptr_t base = 0x10000000; base + size <= 0x80000000u; base += 0x01000000) {
++    if (void* ptr = VirtualAlloc(reinterpret_cast<void*>(base), size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) {
++      return ptr;
++    }
++  }
++  return nullptr;
++}
++#endif
++
+ void AuroraOSInitMemory() {
+   AuroraResetNativeAddresses();
+   GuardGCMemory();
+ 
+   if (aurora::g_config.mem1Size > 0) {
++#if defined(_WIN64) && NDEBUG
++    MEM1Start = AllocLowWindows(aurora::g_config.mem1Size);
++#else
+     MEM1Start = AllocMEM1(aurora::g_config.mem1Size);
++#endif
+     MEM1End = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(MEM1Start) + aurora::g_config.mem1Size);
+     if (MEM1Start == nullptr) Log.fatal("Failed to allocate MEM1");
+     OSBaseAddress = reinterpret_cast<uintptr_t>(MEM1Start);
+   }
+   if (aurora::g_config.mem2Size > 0) {
++#if defined(_WIN64) && NDEBUG
++    MEM2Start = AllocLowWindows(aurora::g_config.mem2Size);
++#else
+     MEM2Start = SDL_aligned_alloc(32, aurora::g_config.mem2Size);
+     if (MEM2Start != nullptr) std::memset(MEM2Start, 0, aurora::g_config.mem2Size);
++#endif
+     if (MEM2Start == nullptr) Log.fatal("Failed to allocate MEM2");
+     MEM2End = static_cast<u8*>(MEM2Start) + aurora::g_config.mem2Size;
+   }
+@@ -59,10 +82,16 @@ void AuroraOSShutdownMemory() {
+ #if _WIN64 && !NDEBUG
+   if (MEM1Reservation != nullptr) VirtualFree(MEM1Reservation, 0, MEM_RELEASE);
+   MEM1Reservation = nullptr;
++#elif defined(_WIN64) && NDEBUG
++  if (MEM1Start != nullptr) VirtualFree(MEM1Start, 0, MEM_RELEASE);
+ #else
+   SDL_aligned_free(MEM1Start);
+ #endif
++#if defined(_WIN64) && NDEBUG
++  if (MEM2Start != nullptr) VirtualFree(MEM2Start, 0, MEM_RELEASE);
++#else
+   SDL_aligned_free(MEM2Start);
++#endif
+   MEM1Start = MEM1End = MEM2Start = MEM2End = nullptr;
+   OSBaseAddress = 0;
+ }

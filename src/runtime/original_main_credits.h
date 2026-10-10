@@ -8,5 +8,5 @@ enum class OriginalMainScene { Credits, FrontendSequence, FrontendOptions };
 // Supplied launcher settings are already resolved and remain unsaved.
 int RunOriginalMainCredits(int argc, char** argv,
     const ResolvedLaunch* launch = nullptr, bool interactive = false,
-    OriginalMainScene scene = OriginalMainScene::Credits);
+    OriginalMainScene scene = OriginalMainScene::Credits, const char* title = nullptr);
 }

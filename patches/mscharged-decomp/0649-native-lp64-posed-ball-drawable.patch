@@ -1,0 +1,61 @@
+From: mscharged-port
+Subject: Native LP64 layout of the posed ball drawable
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Classification: native compiler/ABI compatibility; apply after 0648.
+
+DrawableBall poses the ball and its trails through DrawableModel, a view of
+the ChargeShadowDrawable they really are. On the Wii both flag words are 32
+bits, but ChargeShadowDrawable spells its m_uChargeFlags unsigned long, which
+is 64 bits on LP64 hosts (Linux, macOS) while DrawableModel's renderFlags is a
+u32. Every posed member then landed 8 bytes early: the orientation went into
+the charge flags, the translation, scale and charge into the wrong fields and
+the cleared "world matrix up to date" flag into the matrix itself, so the ball
+kept its initial identity matrix and was never seen in play. Natively the
+flags now take the same unsigned long width, and static assertions pin every
+posed member to the real object's offset. LLP64 Windows already matched.
+
+diff --git a/include/Game/Drawable/DrawableModel.h b/include/Game/Drawable/DrawableModel.h
+index 384d338..e0f2266 100644
+--- a/include/Game/Drawable/DrawableModel.h
++++ b/include/Game/Drawable/DrawableModel.h
+@@ -37,7 +37,15 @@ void GetAABBDimensions(const glModel* model,
+ class DrawableModel : public RenderObject
+ {
+ public:
++#if defined(MSCHARGED_NATIVE)
++    // The objects posed through this class are ChargeShadowDrawables (the
++    // ball and its trails). The flags take the width of their unsigned long
++    // m_uChargeFlags so that every member after them keeps the real object's
++    // offset on LP64 hosts, where unsigned long is 64 bits.
++    /* 0x78 */ unsigned long renderFlags;
++#else
+     /* 0x78 */ u32 renderFlags;
++#endif
+     /* 0x7C */ nlQuaternion orientation;
+     /* 0x8C */ nlVector3 translation;
+     /* 0x98 */ float modelScale;
+diff --git a/src/Game/Render/ChargeShadowDrawable.cpp b/src/Game/Render/ChargeShadowDrawable.cpp
+index 9e2b3b2..247362c 100644
+--- a/src/Game/Render/ChargeShadowDrawable.cpp
++++ b/src/Game/Render/ChargeShadowDrawable.cpp
+@@ -22,6 +22,20 @@
+ #include "NL/nlTask.h"
+ #include "NL/nlstring_tmpl.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++
++// DrawableBall poses the ball and its trails through DrawableModel.
++static_assert(offsetof(DrawableModel, renderFlags) == offsetof(ChargeShadowDrawable, m_uChargeFlags));
++static_assert(offsetof(DrawableModel, orientation) == offsetof(ChargeShadowDrawable, m_orientation));
++static_assert(offsetof(DrawableModel, translation) == offsetof(ChargeShadowDrawable, m_translation));
++static_assert(offsetof(DrawableModel, modelScale) == offsetof(ChargeShadowDrawable, m_fScale));
++static_assert(offsetof(DrawableModel, snapshotScale) == offsetof(ChargeShadowDrawable, m_fCharge));
++static_assert(offsetof(DrawableModel, _0A0) == offsetof(ChargeShadowDrawable, m_worldMatrix));
++static_assert(offsetof(DrawableModel, worldMatrixUpToDate)
++    == offsetof(ChargeShadowDrawable, m_bWorldMatrixUpToDate));
++#endif
++
+ // Distance the charge glow is allowed to reach past the sideline.
+ static float sSidelineMargin = 0.25f;
+ 

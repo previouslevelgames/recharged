@@ -1,4 +1,5 @@
 #include "platform/desktop_dpd.h"
+#include "platform/wiimote_calibration.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -16,13 +17,8 @@ NativeDpdObservation MakeDesktopDpdObservation(float x, float y,
     if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 || y < 0 || y > 1)
         throw std::invalid_argument("Desktop camera observation outside its presented content");
 
-    // KPAD get_kobj: raw*2/1024 - (resolution-1)/1024. KPADCalibrateDPD
-    // requests height +/-0.2; KPADSetSensorHeight stores the negative height.
-    // calc_dpd2pos_scale gives sqrt(1^2 + .75^2)/(.75 - .2).
-    constexpr double camera_scale = 1.25 / 0.55;
-    const double centre_y = sensor_bar_position == 1 ? -0.2 : 0.2;
-    const double raw_x = (1023.0 - 1024.0 * (2.0 * double(x) - 1.0) / camera_scale) * 0.5;
-    const double raw_y = (767.0 + 1024.0 * (centre_y - (2.0 * double(y) - 1.0) / camera_scale)) * 0.5;
+    const auto centre = KpadPointerCentre(x, y, sensor_bar_position);
+    const double raw_x = centre[0], raw_y = centre[1];
     // Source kp_obj_interval=.2, dist_vv1=.2/.383864, idist_org=1.
     // The pair is a declared upright virtual unit-distance sensor bar.
     constexpr double half_span = (0.2 / 0.383864) * 256.0;

@@ -1,72 +1,123 @@
 # Mario Strikers Charged — Native Port
 
 [![Build stable](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable)
-[![Development version: 0.0.1-dev](https://img.shields.io/badge/version-0.0.1--dev-blue)](CMakeLists.txt)
+[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue)](CMakeLists.txt)
 
-A native C/C++ port of **Mario Strikers Charged** for modern systems, based on
-[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) and
-[Aurora](https://github.com/encounter/aurora). It compiles reconstructed game
-source into native machine code; it is not a recompilation of the PowerPC binary.
+Play **Mario Strikers Charged** natively on your PC. The port compiles the
+fully reconstructed game source of
+[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp) into native
+code, with [Aurora](https://github.com/encounter/aurora) in place of the Wii
+hardware. It is not an emulator and not a recompilation of the PowerPC binary:
+the original game runs unchanged, modern systems provide the rest.
+
+> [!IMPORTANT]
+> Only the **USA version** of the game (**R4QE01**, revision 1) is supported.
+> European and Japanese discs need their own complete decompilation before they
+> can run glitch free.
+
+## Download and play
+
+You don't need to build anything: ready-made builds for **Windows, Linux and
+macOS** are available.
+
+1. Open the [**latest release**](https://github.com/yannicksuter/mscharged-port/releases/latest)
+   and download the package for your system:
+
+   | System | Package |
+   | --- | --- |
+   | Windows 10/11, 64-bit | `mscharged-<version>-windows-x86_64.zip` |
+   | Linux, x86_64 | `mscharged-<version>-linux-x86_64.tar.gz` |
+   | macOS, Apple Silicon (M1 or newer) | `mscharged-<version>-macos-arm64.tar.gz` |
+
+2. Unpack it into a folder of your choice and keep all its files together.
+3. Start **`mscharged.exe`** (Windows) or **`mscharged`** (Linux, macOS).
+4. In the launcher, choose your own **USA disc image** (ISO or RVZ, see
+   [game data](#game-data)) and press **Play**.
+
+The builds are not signed, so the system asks once on the first start:
+
+- **Windows:** if SmartScreen warns, choose *More info → Run anyway*.
+- **macOS:** allow the app under *System Settings → Privacy & Security*, or run
+  `xattr -dr com.apple.quarantine <unpacked folder>`. Controllers also need
+  the **Input Monitoring** permission
+  ([details](docs/BUILDING_MACOS.md#controllers)).
+- **Linux:** a current distribution (the package is built on Ubuntu 26.04)
+  and a Vulkan driver (Mesa or your GPU vendor's driver) are needed.
+
+Settings and saves are kept beside the program, so the folder can live anywhere
+you like. `SHA256SUMS` in the release lists the packages' checksums. Builds of
+changes not yet released are under the
+[**Build binaries** runs of `stable`](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable+is%3Asuccess)
+(*Artifacts*, signed-in users); see [GitHub builds](docs/BUILDING_GITHUB.md).
 
 ## Status
 
-**Work in progress.** Native platform integration is ongoing.
-Experimental startup and menus run on Linux; a complete playable game and
-Windows/macOS game support remain in development.
+**Every offline feature of the original game works**: all modes, up to four
+players, saves, movies, music and sound. What remains is polishing and testing.
+Online play is not available, since Nintendo Wi-Fi Connection has shut down.
 
-## Checkout, build, run
+Highlights:
 
-Install the [build prerequisites](docs/BUILDING.md#requirements) first; Mac users
-can follow [macOS tool setup](docs/BUILDING_MACOS.md#install-tools).
-For a **fresh checkout**, run these three lines from the parent directory:
+- Keyboard & mouse with freely assignable keys
+- Xbox, PlayStation and other gamepads
+- Real Wii Remotes with Nunchuk through a Mayflash DolphinBar, with pointer
+  calibration
+- Sharp picture, 4:3 or 16:9, optional antialiasing, any window size or
+  fullscreen
+- A launcher for disc, players, controls, display and audio
 
-The Release build includes the incomplete original-source frontend runtime.
-Supply your own USA `R4QE01` revision 1 ISO/RVZ at the path below. Linux startup
-and menus have been tested; macOS runtime validation is still in progress.
+See the full **[feature list](docs/FEATURES.md)**.
 
-```sh
-git clone --branch main --no-recurse-submodules https://github.com/yannicksuter/mscharged-port.git && cd mscharged-port
-python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset release --fresh
-./build/release/mscharged --disc ./game/R4QE01.rvz --window
-```
+### Builds
 
-`main` is the development branch; `stable` is for reviewed snapshots promoted
-through pull requests. The [GitHub build workflow](docs/BUILDING_GITHUB.md)
-checks promotions and provides binaries after merging. The helper initializes
-only the pinned dependencies required by your platform. See the [build guide](docs/BUILDING.md)
-for updates and the smaller launcher build, and [runtime instructions](docs/RUNTIME.md)
-for separate diagnostics.
+All three platforms are built and packaged by the
+[**Build binaries**](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml)
+workflow (badge above: latest `stable` build).
+
+| Platform | Build | Package | State |
+| --- | --- | --- | --- |
+| Linux x86_64 | Ubuntu 26.04, GCC 15, Vulkan | `.tar.gz` | Tested, playable |
+| Windows x86_64 | Cross-compiled with LLVM-MinGW, Vulkan | `.zip` | Playable; tested on Windows |
+| macOS Apple Silicon | macOS 15, Apple Clang, Metal | `.tar.gz` | Playable; tested on Apple Silicon |
 
 ## Game data
 
-Supply an **ISO or RVZ from your own copy**. Game data is not included. Files in
-`game/` and your personal `mscharged.ini` are excluded from Git.
-See [disc setup](docs/BUILDING.md#configure-your-disc).
+Supply an **ISO or RVZ from your own copy** of the USA disc. Game data is not
+included. Choose the file in the launcher or see
+[disc setup](docs/BUILDING.md#configure-your-disc).
 
 ## Controls
 
-The keyboard and mouse act as a Wii Remote with a Nunchuk; the original game
-decides what each input does. Keep the game window focused.
+Keyboard & mouse act as a Wii Remote with a Nunchuk; gamepads and real Wii
+Remotes can be assigned to players 1–4 in the launcher. Default keys:
 
 | Wii input | Keyboard / mouse |
 | --- | --- |
 | Pointer | Mouse |
-| A | Enter, Space, or left click |
-| B | Esc, Backspace, or right click |
+| A / B | Enter or left click / Esc or right click |
 | D-pad | Arrow keys |
-| 1 / 2 | Z / X |
-| + (Plus) / − (Minus) | Tab / - |
-| HOME | Home |
 | Nunchuk stick | W A S D |
 | Nunchuk C / Z | C / V |
-| Shake Wii Remote (hit an opponent) | E |
-| Shake Nunchuk (switch items) | Q |
+| 1 / 2 | Z / X |
+| + / − / HOME | Tab / - / Home |
+| Shake Remote / Nunchuk | E / Q |
 
-A real **Wii Remote with a Nunchuk** also works (experimental, Linux), with the
-mouse as its pointer; see [Wii Remote setup](docs/RUNTIME.md#wii-remote).
+Press **P** for a screenshot. See [Wii Remote setup](docs/RUNTIME.md#wii-remote)
+for the DolphinBar.
 
-Press **P** to save the presented frame as `screenshots/screenshot_<timestamp>.png`
-in the directory the port was started from.
+## Build from source
+
+Install the [build prerequisites](docs/BUILDING.md#requirements) first; Mac users
+can follow [macOS tool setup](docs/BUILDING_MACOS.md#install-tools). Then:
+
+```sh
+git clone --branch main --no-recurse-submodules https://github.com/yannicksuter/mscharged-port.git && cd mscharged-port
+python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset release --fresh
+./build/release/mscharged
+```
+
+`main` is the development branch; `stable` holds reviewed snapshots. See the
+[build guide](docs/BUILDING.md) for updates and options.
 
 ## Porting approach
 

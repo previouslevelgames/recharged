@@ -1,0 +1,378 @@
+From: mscharged-port contributors
+Subject: [PATCH] Diagnostic dump of every draw of one frame
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host diagnostics, off until requested. Apply after 0081.
+
+aurora_debug_request_draw_dump(path) writes the GX state of every draw and
+EFB copy between the next two display copies to a text file: blend/depth
+state, TEV stages, colour channels with their light, material and ambient
+colours, TEV/konst registers, texgens and every sampled texture. For a
+texture loaded from RAM it reports whether the bound upload still matches
+the current RAM contents and the average decoded colour, so a dark and a
+bright run of the same scene can be compared draw by draw.
+
+diff --git a/cmake/aurora_gx.cmake b/cmake/aurora_gx.cmake
+index be05876..5194cfc 100644
+--- a/cmake/aurora_gx.cmake
++++ b/cmake/aurora_gx.cmake
+@@ -18,6 +18,7 @@ add_library(aurora_gx STATIC
+         lib/gfx/texture_replacement.cpp
+         lib/gx/attr_fmt.cpp
+         lib/gx/command_processor.cpp
++        lib/gx/draw_dump.cpp
+         lib/gx/poke.cpp
+         lib/gx/regs.cpp
+         lib/gx/dl.cpp
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index c264ce0..ed37f22 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -120,6 +120,9 @@ bool aurora_get_presented_video_geometry(AuroraVIPresentedGeometry* state);
+ // PNG to `path` (UTF-8) after presentation. Returns false for an empty path or
+ // while another screenshot request is still waiting for its frame.
+ bool aurora_request_video_screenshot(const char* path);
++// Diagnostic: the GX state of every draw and EFB copy of the next complete
++// frame (between two display copies) is written as text to `path` (UTF-8).
++bool aurora_debug_request_draw_dump(const char* path);
+ // Register/clock state, independent of GX completion/surface presentation.
+ // Output requires a separately configured, real native graphics endpoint.
+ typedef struct {
+diff --git a/lib/gx/command_processor.cpp b/lib/gx/command_processor.cpp
+index ebe1574..c485926 100644
+--- a/lib/gx/command_processor.cpp
++++ b/lib/gx/command_processor.cpp
+@@ -6,6 +6,7 @@
+ #include "dolphin/gd/GDGeometry.h"
+ #include "dolphin/gx/GXAurora.h"
+ #include "gx.hpp"
++#include "draw_dump.hpp"
+ #include "pipeline.hpp"
+ #include "poke.hpp"
+ #include "regs.hpp"
+@@ -634,6 +635,9 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
+   } else if (prim == GX_POINTS) {
+     instanceCount = vtxCount;
+   }
++  if (debug::draw_dump_active()) {
++    debug::draw_dump_draw(prim, vtxCount, cache.config, cache.shaderInfo);
++  }
+   cache.lastDrawFmt = fmt;
+   gfx::push_draw_command(DrawData{
+       .pipeline = cache.pipelineRef,
+diff --git a/lib/gx/draw_dump.cpp b/lib/gx/draw_dump.cpp
+new file mode 100644
+index 0000000..8e8496a
+--- /dev/null
++++ b/lib/gx/draw_dump.cpp
+@@ -0,0 +1,157 @@
++#include "draw_dump.hpp"
++
++#include "../gfx/recording.hpp"
++#include "pipeline.hpp"
++#include "shader_info.hpp"
++#include "texture.hpp"
++
++#include <fmt/format.h>
++
++#include <atomic>
++#include <cstdio>
++#include <mutex>
++#include <string>
++
++// Diagnostic: aurora_debug_request_draw_dump(path) writes the complete GX state
++// of every draw (and every EFB copy) between the next two display copies to a
++// text file, to compare one frame between runs and platforms.
++namespace aurora::gx::debug {
++namespace {
++std::mutex s_requestMutex;
++std::string s_requestPath;
++std::atomic<bool> s_requested{false};
++std::FILE* s_file = nullptr;
++uint32_t s_drawIndex = 0;
++
++std::string vec4(const Vec4<float>& v) { return fmt::format("{:.4f} {:.4f} {:.4f} {:.4f}", v[0], v[1], v[2], v[3]); }
++std::string vec3(const Vec4<float>& v) { return fmt::format("{:.6g} {:.6g} {:.6g}", v[0], v[1], v[2]); }
++} // namespace
++
++bool draw_dump_active() noexcept { return s_file != nullptr; }
++
++void draw_dump_display_copy() noexcept {
++  if (s_file != nullptr) {
++    std::fprintf(s_file, "== display copy: end of dumped frame (%u draws)\n", s_drawIndex);
++    std::fclose(s_file);
++    s_file = nullptr;
++    std::fprintf(stderr, "Draw dump written.\n");
++    return;
++  }
++  if (!s_requested.exchange(false)) {
++    return;
++  }
++  std::string path;
++  {
++    std::lock_guard lock{s_requestMutex};
++    path = s_requestPath;
++  }
++  s_file = std::fopen(path.c_str(), "w");
++  if (s_file == nullptr) {
++    std::fprintf(stderr, "Draw dump: cannot open %s\n", path.c_str());
++    return;
++  }
++  s_drawIndex = 0;
++  std::fprintf(s_file, "== draw dump, frame after display copy\n");
++}
++
++void draw_dump_copy(const void* dest, bool clear) noexcept {
++  if (s_file == nullptr) {
++    return;
++  }
++  const auto& s = g_gxState;
++  std::fprintf(s_file, "-- efb copy to %p src %d,%d %dx%d dst %ux%u fmt %d clear %d colorUpd %d alphaUpd %d pixFmt %d clr %s\n",
++               dest, s.texCopySrc.x, s.texCopySrc.y, s.texCopySrc.width, s.texCopySrc.height, s.texCopyDstWidth,
++               s.texCopyDstHeight, static_cast<int>(s.texCopyFmt), clear, s.colorUpdate, s.alphaUpdate,
++               static_cast<int>(s.pixelFmt), vec4(s.clearColor).c_str());
++}
++
++void draw_dump_draw(GXPrimitive prim, u16 vtxCount, const PipelineConfig& config, const ShaderInfo& info) noexcept {
++  if (s_file == nullptr) {
++    return;
++  }
++  const auto& s = g_gxState;
++  const auto& sc = config.shaderConfig;
++  const auto target = gfx::get_render_target_size();
++  std::string out = fmt::format(
++      "## draw {} prim {} vtx {} target {}x{} | blend {} {} {} op {} | z cmp {} upd {} func {} | upd c {} a {} dstA {} "
++      "| cull {} | pixFmt {} | tev {} chans {} texgens {} ind {} fog {} coplanar {}\n",
++      s_drawIndex++, static_cast<int>(prim), vtxCount, target.x, target.y, static_cast<int>(config.blendMode),
++      static_cast<int>(config.blendFacSrc), static_cast<int>(config.blendFacDst), static_cast<int>(config.blendOp),
++      config.depthCompare, config.depthUpdate, static_cast<int>(config.depthFunc), config.colorUpdate,
++      config.alphaUpdate, config.dstAlpha, static_cast<int>(config.cullMode), static_cast<int>(s.pixelFmt),
++      sc.tevStageCount, s.numChans, s.numTexGens, sc.numIndStages, static_cast<int>(sc.fogType),
++      static_cast<int>(sc.coPlanar));
++  for (u32 i = 0; i < sc.tevStageCount; ++i) {
++    const auto& t = sc.tevStages[i];
++    out += fmt::format(
++        "  tev{} c {} {} {} {} op {} bias {} scale {} clamp {} -> {} | a {} {} {} {} op {} bias {} scale {} clamp {} -> "
++        "{} | ksel {} {} | tc {} map {} chan {} swap {} {} | ind stage {} mtx {}\n",
++        i, static_cast<int>(t.colorPass.a), static_cast<int>(t.colorPass.b), static_cast<int>(t.colorPass.c),
++        static_cast<int>(t.colorPass.d), static_cast<int>(t.colorOp.op), static_cast<int>(t.colorOp.bias),
++        static_cast<int>(t.colorOp.scale), t.colorOp.clamp, static_cast<int>(t.colorOp.outReg),
++        static_cast<int>(t.alphaPass.a), static_cast<int>(t.alphaPass.b), static_cast<int>(t.alphaPass.c),
++        static_cast<int>(t.alphaPass.d), static_cast<int>(t.alphaOp.op), static_cast<int>(t.alphaOp.bias),
++        static_cast<int>(t.alphaOp.scale), t.alphaOp.clamp, static_cast<int>(t.alphaOp.outReg),
++        static_cast<int>(t.kcSel), static_cast<int>(t.kaSel), static_cast<int>(t.texCoordId),
++        static_cast<int>(t.texMapId), static_cast<int>(t.channelId), static_cast<int>(t.tevSwapRas),
++        static_cast<int>(t.tevSwapTex), static_cast<int>(t.indTexStage), static_cast<int>(t.indTexMtxId));
++  }
++  GX::LightMask usedLights;
++  for (u32 i = 0; i < sc.colorChannels.size(); ++i) {
++    const auto& cc = sc.colorChannels[i];
++    const auto& cs = s.colorChannelState[i];
++    out += fmt::format("  chan{} light {} mat {} amb {} diff {} attn {} mask {:02x} | mat {} | amb {}\n", i,
++                       cc.lightingEnabled, static_cast<int>(cc.matSrc), static_cast<int>(cc.ambSrc),
++                       static_cast<int>(cc.diffFn), static_cast<int>(cc.attnFn), cs.lightMask.to_ulong(),
++                       vec4(cs.matColor), vec4(cs.ambColor));
++    if (cc.lightingEnabled) {
++      usedLights |= cs.lightMask;
++    }
++  }
++  for (u32 i = 0; i < GX::MaxLights; ++i) {
++    if (!usedLights.test(i)) {
++      continue;
++    }
++    const auto& l = s.lights[i];
++    out += fmt::format("  light{} color {} | pos {} | dir {} | cos {} | dist {}\n", i, vec4(l.color), vec3(l.pos),
++                       vec3(l.dir), vec3(l.cosAtt), vec3(l.distAtt));
++  }
++  for (u32 i = 0; i < info.loadsTevReg.size(); ++i) {
++    if (info.loadsTevReg.test(i)) {
++      out += fmt::format("  reg{} {}\n", i, vec4(s.colorRegs[i]));
++    }
++  }
++  for (u32 i = 0; i < info.sampledKColors.size(); ++i) {
++    if (info.sampledKColors.test(i)) {
++      out += fmt::format("  k{} {}\n", i, vec4(s.kcolors[i]));
++    }
++  }
++  for (u32 i = 0; i < sc.tcgs.size(); ++i) {
++    const auto& tcg = sc.tcgs[i];
++    if (tcg.src == GX_MAX_TEXGENSRC) {
++      continue;
++    }
++    out += fmt::format("  tcg{} type {} src {} mtx {} post {} norm {}\n", i, static_cast<int>(tcg.type),
++                       static_cast<int>(tcg.src), static_cast<int>(tcg.mtx), static_cast<int>(tcg.postMtx),
++                       tcg.normalize);
++  }
++  for (u32 i = 0; i < info.sampledTextures.size(); ++i) {
++    if (info.sampledTextures.test(i)) {
++      out += "  tex " + texture::debug_describe_texture(i) + "\n";
++    }
++  }
++  std::fputs(out.c_str(), s_file);
++}
++} // namespace aurora::gx::debug
++
++extern "C" bool aurora_debug_request_draw_dump(const char* path) {
++  if (path == nullptr || *path == '\0') {
++    return false;
++  }
++  {
++    std::lock_guard lock{aurora::gx::debug::s_requestMutex};
++    aurora::gx::debug::s_requestPath = path;
++  }
++  aurora::gx::debug::s_requested = true;
++  return true;
++}
+diff --git a/lib/gx/draw_dump.hpp b/lib/gx/draw_dump.hpp
+new file mode 100644
+index 0000000..3c5810d
+--- /dev/null
++++ b/lib/gx/draw_dump.hpp
+@@ -0,0 +1,17 @@
++#pragma once
++
++#include "gx.hpp"
++
++namespace aurora::gx {
++struct PipelineConfig;
++struct ShaderInfo;
++} // namespace aurora::gx
++
++namespace aurora::gx::debug {
++// Diagnostic draw dump (see aurora_debug_request_draw_dump). Called on the GX
++// command thread only.
++bool draw_dump_active() noexcept;
++void draw_dump_display_copy() noexcept;
++void draw_dump_copy(const void* dest, bool clear) noexcept;
++void draw_dump_draw(GXPrimitive prim, u16 vtxCount, const PipelineConfig& config, const ShaderInfo& info) noexcept;
++} // namespace aurora::gx::debug
+diff --git a/lib/gx/regs.cpp b/lib/gx/regs.cpp
+index 5473bfc..681d4a8 100644
+--- a/lib/gx/regs.cpp
++++ b/lib/gx/regs.cpp
+@@ -3,6 +3,7 @@
+ 
+ #include "gx_fmt.hpp"
+ #include "texture.hpp"
++#include "draw_dump.hpp"
+ 
+ #include <bit>
+ #include <cmath>
+@@ -277,8 +278,10 @@ void bp_clear_depth(u8, u32 value) noexcept { g_gxState.clearDepth = reg_get(val
+ void bp_efb_copy(u8, u32 value) noexcept {
+   const bool clear = reg_get(value, 1, 11) != 0;
+   if (reg_get(value, 1, 14) != 0) {
++    debug::draw_dump_display_copy();
+     gfx::xfb::copy_from_bp(value);
+   } else {
++    debug::draw_dump_copy(g_gxState.texCopyDest, clear);
+     copy_tex(g_gxState.texCopyDest, clear);
+   }
+ }
+diff --git a/lib/gx/texture.cpp b/lib/gx/texture.cpp
+index a56709a..21e196c 100644
+--- a/lib/gx/texture.cpp
++++ b/lib/gx/texture.cpp
+@@ -9,6 +9,7 @@
+ #include <absl/container/flat_hash_map.h>
+ #include <absl/container/flat_hash_set.h>
+ #include <tracy/Tracy.hpp>
++#include <fmt/format.h>
+ #include <xxhash.h>
+ 
+ #include <algorithm>
+@@ -876,4 +877,75 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+     textureBind = gfx::TextureBind{obj, std::move(handle), s_bindGeneration};
+   }
+ }
++namespace texture {
++std::string debug_describe_texture(u32 index) {
++  if (index >= MaxTextures) {
++    return "invalid";
++  }
++  const GXTexObj_& obj = g_gxState.loadedTextures[index];
++  const auto& bind = g_gxState.textures[index];
++  std::string out = fmt::format("map {} data {} {}x{} fmt {} mips {} id {} ver {} tlut {} wrap {}/{} filt {}/{}", index,
++                                obj.data, obj.width(), obj.height(), obj.format(), obj.mip_count(), obj.texObjId,
++                                obj.texDataVersion, static_cast<int>(obj.tlut), static_cast<int>(obj.wrap_s()),
++                                static_cast<int>(obj.wrap_t()), static_cast<int>(obj.min_filter()),
++                                static_cast<int>(obj.mag_filter()));
++  if (bind.ref) {
++    out += fmt::format(" | bound {} {}x{} wgpu {} gx {}", static_cast<const void*>(bind.ref.get()),
++                       bind.ref->size.width, bind.ref->size.height, static_cast<int>(bind.ref->format),
++                       bind.ref->gxFormat);
++  } else {
++    out += " | bound none";
++  }
++  if (const auto copyIt = g_gxState.copyTextures.find(obj.data); copyIt != g_gxState.copyTextures.end()) {
++    out += fmt::format(" | efb-copy {} rev {}", static_cast<const void*>(copyIt->second.handle.get()),
++                       copyIt->second.revision);
++    return out;
++  }
++  if (!obj.has_data() || texture_source_size(obj.format(), obj.width(), obj.height(), obj.mip_count()) == 0) {
++    return out + " | no data";
++  }
++  const GXTlutObj_* tlut = nullptr;
++  if (is_palette_format(obj.format())) {
++    const auto tlutIdx = static_cast<size_t>(obj.tlut);
++    if (tlutIdx >= g_gxState.loadedTluts.size() || g_gxState.loadedTluts[tlutIdx].data == nullptr) {
++      return out + " | palette without tlut";
++    }
++    tlut = &g_gxState.loadedTluts[tlutIdx];
++  }
++  const auto keys = hash_texture_source(obj, tlut, false);
++  const auto cached = s_contentCache.find(keys.contentKey);
++  const char* status = cached == s_contentCache.end()   ? "RAM-CHANGED(not cached)"
++                       : cached->second.handle == bind.ref ? "fresh"
++                                                           : "RAM-CHANGED(other handle)";
++  out += fmt::format(" | ram {:016x} {}", keys.contentKey.textureHash.low64, status);
++
++  const size_t sourceBytes = texture_source_size(obj.format(), obj.width(), obj.height(), 1);
++  const ArrayRef<uint8_t> source{static_cast<const uint8_t*>(obj.data), sourceBytes};
++  gfx::ConvertedTexture converted;
++  if (tlut != nullptr) {
++    converted = gfx::convert_texture_palette(obj.format(), obj.width(), obj.height(), 1, source, tlut->format,
++                                             tlut->numEntries,
++                                             {static_cast<const uint8_t*>(tlut->data), tlut_source_size(tlut->numEntries)});
++  } else {
++    converted = gfx::convert_texture(obj.format(), obj.width(), obj.height(), 1, source);
++  }
++  const size_t texels = static_cast<size_t>(obj.width()) * obj.height();
++  if (converted.format == wgpu::TextureFormat::RGBA8Unorm && texels != 0 && converted.data.size() >= texels * 4) {
++    std::array<uint64_t, 4> sum{};
++    std::array<uint8_t, 4> lo{255, 255, 255, 255};
++    std::array<uint8_t, 4> hi{};
++    for (size_t t = 0; t < texels; ++t) {
++      for (size_t c = 0; c < 4; ++c) {
++        const uint8_t v = converted.data.data()[t * 4 + c];
++        sum[c] += v;
++        lo[c] = std::min(lo[c], v);
++        hi[c] = std::max(hi[c], v);
++      }
++    }
++    out += fmt::format(" | avg {} {} {} {} min {} {} {} {} max {} {} {} {}", sum[0] / texels, sum[1] / texels,
++                       sum[2] / texels, sum[3] / texels, lo[0], lo[1], lo[2], lo[3], hi[0], hi[1], hi[2], hi[3]);
++  }
++  return out;
++}
++} // namespace texture
+ } // namespace aurora::gx
+diff --git a/lib/gx/texture.hpp b/lib/gx/texture.hpp
+index 29c9a48..c933121 100644
+--- a/lib/gx/texture.hpp
++++ b/lib/gx/texture.hpp
+@@ -4,6 +4,7 @@
+ 
+ #include <cstddef>
+ #include <cstdint>
++#include <string>
+ 
+ namespace aurora::gx {
+ struct TextureStats {
+@@ -43,5 +44,7 @@ void set_content_cache_budget_for_testing(uint64_t bytes) noexcept;
+ // Internal resolvers exposed for cache tests.
+ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj);
+ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GXTlutObj_& tlut);
++// Diagnostic: the loaded texture in slot `index`, its binding and whether RAM still matches the upload.
++std::string debug_describe_texture(u32 index);
+ } // namespace texture
+ } // namespace aurora::gx

@@ -1,6 +1,7 @@
 #pragma once
 #include "original_game_audio_hardware.h"
 #include "platform/ai.h"
+#include "platform/console.h"
 #include "platform/dsp_control.h"
 #include "platform/dsp_mailbox.h"
 #include "platform/stm_device.h"
@@ -118,9 +119,9 @@ private:
         // No service, poll, wait, join, free or source write. 0058 itself already
         // drained the worker before the synchronous original STM ioctl. Its
         // unavailable-surface branch keeps the last completion historical.
-        std::printf("Original source shutdown: native terminal owners quiescent; request=%llu.\n",
+        platform::Trace("Original source shutdown: native terminal owners quiescent; request=%llu.\n",
             static_cast<unsigned long long>(request.generation));
-        std::puts(presentable ? "Original source shutdown: VI black Present verified."
+        platform::Trace("%s\n", presentable ? "Original source shutdown: VI black Present verified."
                              : "Original source shutdown: VI disabled, surface unavailable; last Present historical.");
         std::fflush(stdout);
     }

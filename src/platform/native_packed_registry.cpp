@@ -119,8 +119,9 @@ void* PrepareNativePackedRegistryImage(const void* rawData,std::size_t bytes) {
         // Establish the real native type/lifetime, then transport the original
         // vptr marker until the unchanged source installs the parent's vptr.
         const std::uint32_t marker=raw.U32(layout.raw);
-        std::memset(container,0,sizeof(void*));
-        std::memcpy(container,&marker,sizeof(marker));
+        // Deliberately overwrites the vptr slot with the original marker.
+        std::memset(static_cast<void*>(container),0,sizeof(void*));
+        std::memcpy(static_cast<void*>(container),&marker,sizeof(marker));
         container->mNamedCount=layout.named;container->mUnnamedCount=layout.unnamed;
         auto* types=const_cast<u32*>(container->NamedTypes());
         const auto words=RegistryTypeWords(layout.named)+RegistryTypeWords(layout.unnamed);

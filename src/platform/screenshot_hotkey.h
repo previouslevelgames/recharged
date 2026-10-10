@@ -8,4 +8,7 @@ namespace mscharged::platform
 // A host convenience only: the key never reaches the original game input.
 void InitializeScreenshotHotkey(SDL_Window* window);
 void ShutdownScreenshotHotkey();
+// Diagnostic rendering-layer keys (F9 listed layers, F10 cycle one layer),
+// provided by the game module; null leaves the keys unused.
+void SetDebugLayerKeys(void (*toggle)(), void (*cycle)());
 }
