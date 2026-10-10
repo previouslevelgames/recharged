@@ -3,10 +3,10 @@ name: Build binaries
 on:
   pull_request:
     branches: [stable]
+  # A push to stable (a merged release PR) builds the packages once and drafts
+  # the release of its version.
   push:
     branches: [stable]
-    # A version tag (v1.0.1) on stable builds the packages and drafts a release.
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -287,36 +287,44 @@ jobs:
       # itself is built by the windows-game job.
 
   release:
-    # Drafts the GitHub release for a version tag; publish it after a review.
+    # Drafts the GitHub release of a stable build whose version is not yet
+    # released (tag v<version> on that commit); publish it after a review.
     name: draft release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
     needs: [build, windows-game]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
           submodules: false
           persist-credentials: false
-      - name: Check the tag against the project version
+      - name: Find the version to release
         id: version
         run: |
           version=$(sed -n 's/^project(mscharged_port VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)
-          tag="${GITHUB_REF_NAME}"
-          echo "CMakeLists.txt version: $version, tag: $tag"
-          if [ "v$version" != "$tag" ]; then
-            echo "::error::Tag $tag does not match the project version $version (tools/bump_version.py)."
-            exit 1
-          fi
+          test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A version already tagged or with a (draft) release is not drafted again.
+          if git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/v$version" >/dev/null ||
+             gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' | grep -qx "v$version"; then
+            echo "::notice::Version $version is already released or drafted; raise it with tools/bump_version.py for a new release."
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
+        if: steps.version.outputs.draft == 'true'
         with:
           pattern: mscharged-*-${{ github.sha }}
           path: release
           merge-multiple: true
       - name: Write checksums
+        if: steps.version.outputs.draft == 'true'
         working-directory: release
         run: |
           ls -la
@@ -324,10 +332,10 @@ jobs:
           sha256sum *.tar.gz *.zip > SHA256SUMS
           cat SHA256SUMS
       - name: Draft the release
+        if: steps.version.outputs.draft == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "Mario Strikers Charged Native Port $VERSION" --generate-notes \
             release/*.tar.gz release/*.zip release/SHA256SUMS

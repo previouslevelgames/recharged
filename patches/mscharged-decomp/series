@@ -486,3 +486,4 @@
 0646-native-llp64-address-carrier-casts.patch
 0648-native-llp64-bundle-callback-and-contexts.patch
 0649-native-lp64-posed-ball-drawable.patch
+0685-diagnose-replay-choreography.patch

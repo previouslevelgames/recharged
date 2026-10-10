@@ -255,9 +255,9 @@ checksum = "{self.checksum}"
         path = self.package()
         self.assertTrue(path.name.endswith("-windows-x86_64.zip"))
         with zipfile.ZipFile(path) as archive:
-            names = {name.split("/", 1)[1] for name in archive.namelist()}
+            names = set(archive.namelist())
             manifest = json.loads(next(archive.read(n) for n in archive.namelist() if n.endswith("SOURCE-MANIFEST.json")))
-        self.assertIn("mscharged.exe", names)
+        self.assertIn("mscharged.exe", names)  # at the zip's root, no nested folder
         self.assertTrue(set(PACKAGER.WINDOWS_RUNTIME) <= names)
         self.assertIn("LICENSES/toolchain/llvm-mingw/COPYING.winpthreads.txt", names)
         self.assertIn("assets/launcher/aurora.png", names)

@@ -370,10 +370,12 @@ recorded in assets/launcher/README.md and LICENSES/README.md.
         temporary_archive = Path(temporary) / ("package" + extension)
         if windows:
             # Windows users expect a zip; Explorer opens it without extra tools.
+            # Files sit at the zip's root: Extract All already creates a folder
+            # named after the zip, which a top-level folder would nest again.
             with zipfile.ZipFile(temporary_archive, "w", zipfile.ZIP_DEFLATED) as archive:
                 for path in sorted(stage.rglob("*")):
                     if path.is_file():
-                        archive.write(path, (Path(package_name) / path.relative_to(stage)).as_posix())
+                        archive.write(path, path.relative_to(stage).as_posix())
         else:
             with tarfile.open(temporary_archive, "w:gz") as archive:
                 for path in [stage] + sorted(stage.rglob("*")):

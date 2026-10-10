@@ -7,8 +7,8 @@
     python3 tools/bump_version.py 1.2.3   # an explicit version
 
 The project() line in CMakeLists.txt is the only source of the version; the
-README badge follows it. After merging into stable, tag the merge commit
-v<version> to publish the release (see docs/BUILDING_GITHUB.md).
+README badge follows it. Merging the pull request into stable drafts the
+release v<version>; publish the draft (see docs/BUILDING_GITHUB.md).
 """
 
 import re
@@ -58,7 +58,7 @@ def main():
     readme.write_text(BADGE.sub(
         f"[![Version {version}](https://img.shields.io/badge/version-{version}-blue)]", readme_text, count=1))
     print(f"{'.'.join(map(str, old))} -> {version}")
-    print(f"Commit, open the main -> stable pull request, merge, then tag the merge: v{version}")
+    print(f"Commit, open the main -> stable pull request and merge it; then publish the drafted release v{version}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,74 @@
+Subject: Diagnose the replay choreography choice
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+Native-only diagnostic, printed through nlPrintf (verbose console only):
+- the replay choreography scripts per zone and type after loading;
+- each shot at goal and goal the replay recorder receives;
+- for each replay, whether a shot at goal was recorded in the last six
+  seconds and which script plays.
+A user reported goal replays always showing the same low angle.
+ReplayChoreo::StartScript plays the fixed MID_CENTER_OWN_GOAL_0 script when
+no shot at goal was recorded in the last six seconds. No game behaviour
+changes.
+
+diff --git a/src/Game/ReplayChoreo.cpp b/src/Game/ReplayChoreo.cpp
+index 34872b4..bb3cde0 100644
+--- a/src/Game/ReplayChoreo.cpp
++++ b/src/Game/ReplayChoreo.cpp
+@@ -126,6 +126,20 @@ void ReplayChoreo::LoadScript()
+             }
+         }
+     }
++#if defined(MSCHARGED_NATIVE)
++    // Native diagnostic (verbose console): replay scripts per zone and type.
++    {
++        int total = 0;
++        for (int d = 0; d < 3; d++)
++            for (int w = 0; w < 3; w++)
++                for (int t = 0; t < 8; t++)
++                    total += mNumScripts[d][w][t];
++        nlPrintf("Replay choreography: %d scripts; regular goals by zone %d %d %d / %d %d %d / %d %d %d\n", total,
++                 mNumScripts[0][0][0], mNumScripts[0][1][0], mNumScripts[0][2][0], mNumScripts[1][0][0],
++                 mNumScripts[1][1][0], mNumScripts[1][2][0], mNumScripts[2][0][0], mNumScripts[2][1][0],
++                 mNumScripts[2][2][0]);
++    }
++#endif
+ }
+ 
+ void ReplayChoreo::RegisterEventHandlers()
+@@ -279,6 +293,11 @@ void ReplayChoreo::StartScript(const ReplayShotData& data)
+         nlSNPrintf(scriptName, sizeof(scriptName), scriptNameFormat, zoneDepthNames[zoneDepth], zoneInWidthNames[zoneInWidth], replayTypeNames[replayType], pick);
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // Native diagnostic (verbose console): the script this replay plays.
++    nlPrintf("Replay choreography: shot at goal in the last 6 s: %s, script %s\n",
++             mReplay->DidOccurInLastNumSeconds(2, 6.0f) ? "yes" : "no", scriptName);
++#endif
+     InterpreterCore::Reset();
+     CallFunction(nlStringHash(scriptName));
+ }
+diff --git a/src/Game/ReplayManager.cpp b/src/Game/ReplayManager.cpp
+index 6eae6e5..4025cb6 100644
+--- a/src/Game/ReplayManager.cpp
++++ b/src/Game/ReplayManager.cpp
+@@ -268,6 +268,9 @@ void ReplayManager::OnReceiveBall(ReceiveBallData* event)
+ void ReplayManager::OnShotAtGoal(ShotAtGoalData* event)
+ {
+     mEvents |= 2;
++#if defined(MSCHARGED_NATIVE)
++    nlPrintf("Replay recorder: shot at goal\n"); // native diagnostic (verbose console)
++#endif
+ }
+ 
+ void ReplayManager::OnPassBall(PassBallData* event)
+@@ -281,6 +284,9 @@ void ReplayManager::OnGoalScored(GoalScoredData* event)
+     {
+         mEvents |= 1;
+     }
++#if defined(MSCHARGED_NATIVE)
++    nlPrintf("Replay recorder: goal scored, type %d\n", int(event->uGoalType)); // native diagnostic
++#endif
+ }
+ 
+ void ReplayManager::OnGoalieSave(GoalieSaveData* event)
