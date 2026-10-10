@@ -542,7 +542,7 @@ private:
         if (!check_.info || check_.selection != DiscSelection())
             return check_.error.empty() ? "Check your disc on the Game page." : check_.error;
         if (!SupportedRelease(*check_.info))
-            return "Only the USA version of Mario Strikers Charged (R4QE01, revision 1) is supported for now.";
+            return "Only the USA version of Mario Strikers Charged (R4QE01) is supported for now.";
         const auto settings = EffectiveLaunch().settings;
         if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
             return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
@@ -938,12 +938,7 @@ private:
     // Why a readable Charged disc cannot play yet.
     std::string UnsupportedDiscReason(const DiscInfo& info) const
     {
-        if (info.game_id != "R4QE01")
-            return std::string("Your disc is the ") + RegionName(info.game_id) + " version (" + info.game_id + ").";
-        if (info.revision != 1)
-            return "Your disc is the USA version, but revision " + std::to_string(unsigned(info.revision))
-                + "; the port needs revision 1.";
-        return "Your disc's game program (main.dol) differs from the original USA release, e.g. a modified image.";
+        return std::string("Your disc is the ") + RegionName(info.game_id) + " version (" + info.game_id + ").";
     }
 
     // Shown once after a check finds a readable but unsupported disc.
@@ -966,7 +961,7 @@ private:
             if (check_.info) TextWrappedColored(fonts.body, color::muted, UnsupportedDiscReason(*check_.info).c_str());
             ImGui::Dummy({0, Dp(4)});
             TextWrappedColored(fonts.body, color::text,
-                "The port currently runs Mario Strikers Charged for the USA (R4QE01, revision 1). The European, "
+                "The port currently runs Mario Strikers Charged for the USA (R4QE01). The European, "
                 "Japanese and Korean versions need their own decompilation work and should follow soon.");
             ImGui::Dummy({0, Dp(10)});
             if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || ImGui::IsKeyPressed(ImGuiKey_Escape)
@@ -1135,7 +1130,7 @@ private:
                 + "  -  " + info.format + "  -  " + std::to_string(info.file_count) + " files");
             line(fonts.caption, Dp(60), supported ? color::accent : color::warning,
                  supported ? "Supported release. Ready to play."
-                           : "Not supported yet: only the USA release (R4QE01, revision 1) runs for now.");
+                           : "Not supported yet: only the USA release (R4QE01) runs for now.");
         }
         else if (!check_.error.empty())
         {
@@ -1189,7 +1184,7 @@ private:
 
     void DisplayPage()
     {
-        PageHeader("Display", "How the game window opens. The game renders its original 640 x 448 picture and scales it to fit.");
+        PageHeader("Display", "How the game window opens and how sharply the game is drawn.");
         const auto run = EffectiveLaunch().settings;
         if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
         {
@@ -1237,6 +1232,15 @@ private:
             for (int i = 0; i < 3; ++i) if (draft_.picture == pictures[i]) picture = i;
             if (Segmented("##sharpness", &picture, {"Soft (TV)", "Clean", "Sharp"}, ImGui::GetContentRegionAvail().x))
             { draft_.picture = pictures[picture]; dirty_ = true; }
+
+            Row("3D resolution", "Window renders the game at your window's own resolution, the sharpest picture. "
+                "Native is the Wii's 640 x 448; 2x-4x are fixed multiples for slower graphics cards.");
+            const char* resolutions[] = {"window", "native", "2x", "3x", "4x"};
+            int resolution = 0;
+            for (int i = 0; i < 5; ++i) if (draft_.resolution == resolutions[i]) resolution = i;
+            if (Segmented("##resolution", &resolution, {"Window", "Native", "2x", "3x", "4x"},
+                          ImGui::GetContentRegionAvail().x))
+            { draft_.resolution = resolutions[resolution]; dirty_ = true; }
 
             Row("Antialiasing", "Smooths the jagged edges of 3D shapes (4x multisampling). Costs some GPU time.");
             bool antialiasing = draft_.antialiasing == "4x";
@@ -1306,7 +1310,8 @@ private:
         // Mac), so only those that fit the chosen display are offered.
         struct Group { const char* title; std::vector<std::array<int, 2>> sizes; };
         static const std::array<Group, 4> groups{{
-            // The game renders 640 x 448 (480p); whole multiples stay sharpest.
+            // The Wii picture is 640 x 448 (480p); at 3D resolution Native,
+            // whole multiples of it stay sharpest.
             {"Wii output (480p and multiples)", {{640, 480}, {854, 480}, {1280, 960}, {1708, 960}, {1920, 1440}, {2562, 1440}}},
             {"16:9", {{1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}}},
             {"16:10", {{1280, 800}, {1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600}}},

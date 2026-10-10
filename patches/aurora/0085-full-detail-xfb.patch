@@ -1,0 +1,221 @@
+From: mscharged-port contributors
+Subject: [PATCH] Full-detail desktop picture of a scaled EFB
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation (internal resolution). Apply after 0084.
+
+The display copy writes the original 640 x 448 YUYV XFB, so a scaled EFB
+lost its detail before the desktop scanout. When the EFB is larger than
+the copy, the copy now first keeps the same source rectangle at its
+physical size as RGB (the original YUYV copy still clears the EFB), and the
+Clean/Sharp desktop pictures sample that full-detail copy with the same
+signal geometry. The TV picture and every 1x path are unchanged.
+
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index e1a1ca2..e1a8784 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -109,6 +109,52 @@ fn desktop_rgb(source: vec2i) -> vec3f {
+   return vec4f(mix(upper,lower,weight.y),1.0);
+ }
+ )";
++// Desktop picture from a scaled EFB's full-detail XFB copy (internal
++// resolution above 1x). Same signal geometry as DesktopShader; detail.xy is
++// the copy's pixels per XFB pixel.
++struct alignas(16) ScaledUniforms {
++  Uniforms base;
++  std::array<float, 4> detail;
++};
++static_assert(sizeof(ScaledUniforms) == 80);
++constexpr auto ScaledShader = R"(
++struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, output: vec4f, detail: vec4f, };
++@group(0) @binding(0) var copy: texture_2d<f32>;
++@group(0) @binding(1) var<uniform> vi: Uniforms;
++@vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
++  switch index {
++    case 0u: { return vec4f(-1.0,-1.0,0.0,1.0); }
++    case 1u: { return vec4f(3.0,-1.0,0.0,1.0); }
++    default: { return vec4f(-1.0,3.0,0.0,1.0); }
++  }
++}
++@fragment fn fragment_scaled(@builtin(position) position: vec4f) -> @location(0) vec4f {
++  let signal_position=position.xy*vi.output.xy;
++  let at=vec2u(signal_position);
++  if any(at<vi.signal.zw) || any(at>=vi.signal.zw+vi.display.xy) {
++    return vec4f(0.0,0.0,0.0,1.0);
++  }
++  // XFB position of this pixel, then the full-detail copy's texel centres.
++  let xfb_position=(signal_position-vec2f(vi.signal.zw))*vec2f(vi.source_geometry.xy)/
++      vec2f(vi.display.xy)+vec2f(vi.display.zw);
++  let source=xfb_position*vi.detail.xy-vec2f(0.5);
++  let first=vec2i(floor(source));
++  let last=first+vec2i(1);
++  let minimum=vec2i(floor(vec2f(vi.display.zw)*vi.detail.xy));
++  let maximum=min(minimum+vec2i(floor(vec2f(vi.source_geometry.xy)*vi.detail.xy))-vec2i(1),
++      vec2i(textureDimensions(copy))-vec2i(1));
++  var weight=fract(source);
++  // Sharp: flat copy pixels blended only over about one desktop pixel.
++  if vi.output.z>0.0 {
++    weight=clamp((weight-vec2f(0.5))*vi.output.zw/vi.detail.xy+vec2f(0.5),vec2f(0.0),vec2f(1.0));
++  }
++  let upper=mix(textureLoad(copy,clamp(first,minimum,maximum),0).rgb,
++      textureLoad(copy,clamp(vec2i(last.x,first.y),minimum,maximum),0).rgb,weight.x);
++  let lower=mix(textureLoad(copy,clamp(vec2i(first.x,last.y),minimum,maximum),0).rgb,
++      textureLoad(copy,clamp(last,minimum,maximum),0).rgb,weight.x);
++  return vec4f(mix(upper,lower,weight.y),1.0);
++}
++)";
+ struct Output {
+   std::mutex mutex;
+   std::mutex display_gate;
+@@ -122,7 +168,7 @@ struct Output {
+   AuroraVIPresentedGeometry presented_geometry{};
+   TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout;
+-  wgpu::RenderPipeline pipeline, desktop_pipeline;
++  wgpu::RenderPipeline pipeline, desktop_pipeline, scaled_pipeline;
+   // Only the serialized output work mutates these handles. Shutdown drains
+   // that work before retirement. Retain the exact bound view, not its size.
+   wgpu::Sampler copy_sampler;
+@@ -244,7 +290,7 @@ TextureHandle new_signal(uint32_t width, uint32_t height) {
+ void encode_signal(const wgpu::CommandEncoder& encoder, const TextureHandle& destination,
+     const AuroraVIScanout& scanout, const std::shared_ptr<const xfb::Snapshot>& snapshot,
+     const wgpu::BindGroupLayout& layout, const wgpu::RenderPipeline& pipeline, bool physicalField,
+-    uint8_t picture = AURORA_DESKTOP_SIGNAL) {
++    uint8_t picture = AURORA_DESKTOP_SIGNAL, const wgpu::RenderPipeline* scaledPipeline = nullptr) {
+     const wgpu::RenderPassColorAttachment color{.view = destination->attachmentTextureView,
+         .loadOp = scanout.black || !physicalField ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load, .storeOp = wgpu::StoreOp::Store,
+         .clearValue = {0.0, 0.0, 0.0, 1.0}};
+@@ -266,14 +312,25 @@ void encode_signal(const wgpu::CommandEncoder& encoder, const TextureHandle& des
+           {scanout.vi_width, scanout.vi_height, scanout.pan_x, scanout.pan_y},
+           {scanout.pan_width, scanout.pan_height, scanout.field, physicalField && (scanout.tv_mode & 3u) == VI_INTERLACE},
+           output};
++      // Desktop pictures of a scaled EFB use its full-detail copy.
++      const bool detail = !physicalField && picture != AURORA_DESKTOP_SIGNAL && scaledPipeline &&
++          snapshot->scaled && snapshot->width && snapshot->height;
++      const ScaledUniforms scaledValues{values,
++          {detail ? static_cast<float>(snapshot->scaled->size.width) / static_cast<float>(snapshot->width) : 1.0f,
++           detail ? static_cast<float>(snapshot->scaled->size.height) / static_cast<float>(snapshot->height) : 1.0f,
++           0.0f, 0.0f}};
++      const auto bytes = detail ? sizeof(scaledValues) : sizeof(values);
+       const wgpu::BufferDescriptor desc{.label = "Original VI field geometry",
+-          .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst, .size = sizeof(values)};
+-      uniform = webgpu::g_device.CreateBuffer(&desc); webgpu::g_queue.WriteBuffer(uniform, 0, &values, sizeof(values));
+-      const std::array entries{wgpu::BindGroupEntry{.binding = 0, .textureView = snapshot->packedYuyv->sampleTextureView},
+-          wgpu::BindGroupEntry{.binding = 1, .buffer = uniform, .size = sizeof(values)}};
++          .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst, .size = bytes};
++      uniform = webgpu::g_device.CreateBuffer(&desc);
++      if (detail) webgpu::g_queue.WriteBuffer(uniform, 0, &scaledValues, bytes);
++      else webgpu::g_queue.WriteBuffer(uniform, 0, &values, bytes);
++      const std::array entries{wgpu::BindGroupEntry{.binding = 0,
++              .textureView = detail ? snapshot->scaled->sampleTextureView : snapshot->packedYuyv->sampleTextureView},
++          wgpu::BindGroupEntry{.binding = 1, .buffer = uniform, .size = bytes}};
+       const wgpu::BindGroupDescriptor groupDesc{.layout = layout, .entryCount = entries.size(), .entries = entries.data()};
+       const auto group = webgpu::g_device.CreateBindGroup(&groupDesc);
+-      pass.SetPipeline(pipeline); pass.SetBindGroup(0, group); pass.Draw(3);
++      pass.SetPipeline(detail ? *scaledPipeline : pipeline); pass.SetBindGroup(0, group); pass.Draw(3);
+     }
+     pass.End();
+ }
+@@ -305,7 +362,7 @@ void commit(void*, const AuroraVIScanout* scanout) {
+ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+   std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop;
+-  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline; bool widescreen;
++  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline, scaledPipeline; bool widescreen;
+   uint8_t picture;
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+@@ -314,7 +371,8 @@ void service(void*) {
+     scanout = state.display_enabled ? state.committed : state.disabled_scanout;
+     snapshot = state.display_enabled ? state.committed_snapshot : nullptr; widescreen = state.widescreen;
+     picture = state.desktop_picture;
+-    layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline; signal = state.signal;
++    layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline;
++    scaledPipeline = state.scaled_pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
+     // Keep physical sampling untouched in both interlaced and progressive modes.
+@@ -351,7 +409,8 @@ void service(void*) {
+   const auto windowIncarnation = window::get_window_incarnation();
+   const auto screenshot = take_screenshot_request();
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+-                              layout, pipeline, desktopPipeline, viewport, windowSize, windowId, windowIncarnation,
++                              layout, pipeline, desktopPipeline, scaledPipeline, viewport, windowSize, windowId,
++                              windowIncarnation,
+                               desktop = std::move(desktop), screenshot, picture] {
+     struct Finished {
+       Output& state;
+@@ -365,7 +424,7 @@ void service(void*) {
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+     encode_signal(encoder, signal, effective, snapshot, layout, pipeline, true);
+-    encode_signal(encoder, desktop, effective, snapshot, layout, desktopPipeline, false, picture);
++    encode_signal(encoder, desktop, effective, snapshot, layout, desktopPipeline, false, picture, &scaledPipeline);
+     wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+@@ -484,7 +543,7 @@ void shutdown(void*) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+   state.copy_group = {}; state.copy_view = {}; state.copy_sampler = {};
+-  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.layout = {};
++  state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.scaled_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+   state.desktop_picture = AURORA_DESKTOP_SIGNAL; xfb::set_flicker_filter(true);
+   state.presented_geometry = {}; state.display_enabled = true; state.disabled_scanout = {};
+@@ -521,9 +580,20 @@ void configure(const AuroraVIOutputConfig* config) {
+   desktopPipelineDesc.label = "Pixel-center filtered VI desktop signal";
+   desktopPipelineDesc.fragment = &desktopFragment;
+   const auto desktopPipeline = webgpu::g_device.CreateRenderPipeline(&desktopPipelineDesc);
++  const wgpu::ShaderSourceWGSL scaledWgsl{wgpu::ShaderSourceWGSL::Init{.code = ScaledShader}};
++  const wgpu::ShaderModuleDescriptor scaledModuleDesc{.nextInChain = &scaledWgsl};
++  const auto scaledModule = webgpu::g_device.CreateShaderModule(&scaledModuleDesc);
++  auto scaledFragment = fragment;
++  scaledFragment.module = scaledModule; scaledFragment.entryPoint = "fragment_scaled";
++  auto scaledPipelineDesc = pipelineDesc;
++  scaledPipelineDesc.vertex.module = scaledModule;
++  scaledPipelineDesc.label = "Full-detail VI desktop signal of a scaled EFB";
++  scaledPipelineDesc.fragment = &scaledFragment;
++  const auto scaledPipeline = webgpu::g_device.CreateRenderPipeline(&scaledPipelineDesc);
+   const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown, set_display_enabled};
+   aurora_attach_video_output_device(&endpoint);
+-  state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline; state.configured = true; state.widescreen = config->widescreen;
++  state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline;
++  state.scaled_pipeline = scaledPipeline; state.configured = true; state.widescreen = config->widescreen;
+   state.desktop_picture = config->desktop_picture;
+   // Smooth and sharp desktop pictures skip the display copy's flicker filter.
+   xfb::set_flicker_filter(config->desktop_picture == AURORA_DESKTOP_SIGNAL);
+diff --git a/lib/gfx/xfb.cpp b/lib/gfx/xfb.cpp
+index 8267909..6d62e97 100644
+--- a/lib/gfx/xfb.cpp
++++ b/lib/gfx/xfb.cpp
+@@ -261,6 +261,15 @@ void copy_from_bp(uint32_t flags) {
+     snapshot->revision = ++g_revision;
+     g_snapshots.insert_or_assign(physical, snapshot);
+   }
++  // A scaled EFB keeps its detail for desktop pictures: copy the same source
++  // rectangle at its physical size first; the original YUYV copy below still
++  // performs the copy's EFB clear.
++  if (!flicker && (rect.width > static_cast<int32_t>(width) || rect.height > static_cast<int32_t>(height))) {
++    snapshot->scaled = new_render_texture(static_cast<uint32_t>(rect.width), static_cast<uint32_t>(rect.height),
++        GX_TF_RGBA8, "Scaled GX XFB");
++    resolve_pass_into(snapshot->scaled, rect, false, false, false, state.clearColor, gx::clear_depth_value(),
++        GX_TF_RGBA8, state.pixelFmt);
++  }
+   const bool clear = field(flags, 11, 1) != 0;
+   resolve_pass_into_with_uniforms(snapshot->packedYuyv, rect,
+       clear && state.colorUpdate, clear && state.alphaUpdate && gx::efb_has_alpha(state.pixelFmt),
+diff --git a/lib/gfx/xfb.hpp b/lib/gfx/xfb.hpp
+index c8fd4d1..94f9af9 100644
+--- a/lib/gfx/xfb.hpp
++++ b/lib/gfx/xfb.hpp
+@@ -11,6 +11,9 @@ inline constexpr GXTexFmt ResolveFormat = GX_TF_XFB_PC;
+ 
+ struct Snapshot {
+   TextureHandle packedYuyv;
++  // Internal resolution above 1x: the copy's full-detail RGB pixels for
++  // desktop pictures (null at 1x and for the TV picture).
++  TextureHandle scaled;
+   uint32_t physical = 0;
+   uint32_t width = 0;
+   uint32_t height = 0;

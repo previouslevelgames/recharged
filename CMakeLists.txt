@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.0.0 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.0.1 LANGUAGES C CXX)
 if(WIN32 AND MINGW)
     # COFF weak definitions cannot be exported from mscharged.exe to the game
     # DLLs (OSReport and friends would bind to address 0). Plain definitions,

@@ -21,6 +21,9 @@ aspect = 16:9
 picture = sharp
 # Antialiasing of the game's 3D edges: off or 4x (more GPU time).
 antialiasing = 4x
+# 3D render size: window (one pixel per window pixel, default), native (the
+# Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
+resolution = window
 # Frames per second in the game window title.
 show_fps = true
 # Display the game window opens on: 0 = default, 1 = first display, 2 = second...

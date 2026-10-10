@@ -35,6 +35,8 @@ the reconstructed source, unchanged.
 
 - Vulkan on Linux and Windows, Metal on macOS.
 - Window or fullscreen on any monitor, freely sized, 4:3 or 16:9.
+- **3D at your window's resolution** (default) instead of the Wii's 640 x 448,
+  or fixed 2x-4x; menus and the HUD keep their original artwork.
 - Picture styles: **sharp** (default), clean or soft (the console's TV look),
   and optional **4x antialiasing**.
 - V-sync, an FPS counter, master volume and mute; music, effects and voice

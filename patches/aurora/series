@@ -77,3 +77,6 @@
 0081-diagnostic-inline-fifo.patch
 0082-diagnostic-draw-dump.patch
 0083-spot-attenuation-unset-direction.patch
+0084-scaled-efb-pokes.patch
+0085-full-detail-xfb.patch
+0086-locked-aspect-framebuffer.patch

@@ -23,8 +23,12 @@ struct Settings
     // pass to the window, no TV flicker filter) or sharp (square pixels).
     std::string picture = "sharp";
     // display.antialiasing: off or 4x (Aurora multisampling of the game's
-    // 640x448 frame; smooths polygon edges, not a higher resolution).
+    // frame; smooths polygon edges at any 3D resolution).
     std::string antialiasing = "4x";
+    // display.resolution: the game's 3D render size. window renders one pixel
+    // per window pixel of the picture; native the Wii's 640x448; 2x-4x fixed
+    // multiples of it. Viewport and projection stay the game's own.
+    std::string resolution = "window";
     int master_volume = 100;
     int music_volume = 100;
     int effects_volume = 100;

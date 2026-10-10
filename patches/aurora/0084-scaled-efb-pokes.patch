@@ -1,0 +1,91 @@
+From: mscharged-port contributors
+Subject: [PATCH] EFB pokes on a scaled EFB
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation (internal resolution). Apply after 0083.
+
+PE aperture writes address Wii EFB pixels. With an internal resolution
+above 1x the physical EFB is larger, so each written pixel now covers its
+block of physical pixels (2 x 2 at 2x). Neighbouring pokes still merge in
+Wii coordinates; the physical rectangle is computed when the draw is
+encoded. At 1x the result is unchanged.
+
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+index 03dcc3c..46ef847 100644
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -19,6 +19,8 @@
+ #endif
+ #include "../window.hpp"
+ 
++#include <algorithm>
++#include <cmath>
+ #include <array>
+ #include <cstring>
+ #include <new>
+@@ -369,20 +371,31 @@ DrawCommand make_draw_command(const T& data) {
+ // PE aperture writes are physical EFB accesses, independent of the ordinary
+ // GX draw viewport/scissor. Restore those cached draw requests on the GPU.
+ struct PokeDrawData {
+-  clear::DrawData pixel;
++  clear::DrawData pixel; // pixel.rect: Wii (logical) EFB coordinates
+   Viewport viewport;
+   ClipRect scissor;
++  float scaleX = 1.f; // physical EFB pixels per Wii pixel
++  float scaleY = 1.f;
+ };
+ void render_poke(const PokeDrawData& data, const wgpu::RenderPassEncoder& pass,
+                  const wgpu::Extent3D& targetSize) {
+-  clear::render(data.pixel, pass, targetSize);
++  // A Wii pixel covers its whole block of a scaled EFB (2 x 2 at 2x).
++  auto pixel = data.pixel;
++  const auto& wii = data.pixel.rect;
++  const auto left = static_cast<int32_t>(std::floor(wii.x * data.scaleX));
++  const auto top = static_cast<int32_t>(std::floor(wii.y * data.scaleY));
++  const auto right = static_cast<int32_t>(std::ceil((wii.x + wii.width) * data.scaleX));
++  const auto bottom = static_cast<int32_t>(std::ceil((wii.y + wii.height) * data.scaleY));
++  pixel.rect = {left, top, std::max(right - left, 1), std::max(bottom - top, 1)};
++  clear::render(pixel, pass, targetSize);
+   const auto& v = data.viewport;
+   pass.SetViewport(v.left, v.top, v.width, v.height, v.znear, v.zfar);
+   const auto& r = data.scissor;
+   pass.SetScissorRect(r.x, r.y, r.width, r.height);
+ }
+ bool same_poke(const PokeDrawData& a, const PokeDrawData& b) {
+-  return a.pixel.pipeline == b.pixel.pipeline && a.pixel.color.r == b.pixel.color.r &&
++  return a.scaleX == b.scaleX && a.scaleY == b.scaleY && a.pixel.pipeline == b.pixel.pipeline &&
++      a.pixel.color.r == b.pixel.color.r &&
+       a.pixel.color.g == b.pixel.color.g && a.pixel.color.b == b.pixel.color.b &&
+       a.pixel.color.a == b.pixel.color.a && a.viewport == b.viewport && a.scissor == b.scissor;
+ }
+@@ -909,14 +922,16 @@ void queue_efb_poke(uint16_t x, uint16_t y, uint32_t argb, bool color, bool alph
+   AURORA_ASSERT(g_recorder.active() && !g_recorder.inOffscreen &&
+       g_recorder.currentRenderPass < current_render_passes().size(),
+       "Native PE aperture write requires the active physical EFB recorder");
++  // Aperture coordinates are Wii EFB pixels; a scaled EFB (internal
++  // resolution above 1x) receives each one as its block of physical pixels.
+   const auto target = get_render_target_size();
+   const auto logical = vi::configured_fb_size();
+-  AURORA_ASSERT(target.x == logical.x && target.y == logical.y,
+-      "Native scaled PE aperture transport remains unqualified: physical {}x{}, Wii {}x{}",
++  AURORA_ASSERT(logical.x > 0 && logical.y > 0 && target.x >= logical.x && target.y >= logical.y,
++      "Native PE aperture needs an EFB at least the Wii size: physical {}x{}, Wii {}x{}",
+       target.x, target.y, logical.x, logical.y);
+   // Physical aperture coordinates are not clipped by ordinary GX draw state.
+-  AURORA_ASSERT(x < target.x && y < target.y,
+-      "Native PE aperture {},{} is outside qualified EFB {}x{}", x, y, target.x, target.y);
++  AURORA_ASSERT(x < logical.x && y < logical.y,
++      "Native PE aperture {},{} is outside the Wii EFB {}x{}", x, y, logical.x, logical.y);
+   // A multisampled EFB takes the poke through the clear pipeline of its own
+   // sample count; the pixel-aligned rectangle covers every sample of each
+   // poked pixel, so a later resolve reads exactly the written color.
+@@ -928,7 +943,9 @@ void queue_efb_poke(uint16_t x, uint16_t y, uint32_t argb, bool color, bool alph
+           .color = {double((argb >> 16) & 255u) / 255.0, double((argb >> 8) & 255u) / 255.0,
+               double(argb & 255u) / 255.0, double(argb >> 24) / 255.0},
+           .rect = {x, y, 1, 1}},
+-      .viewport = g_recorder.cachedViewport, .scissor = g_recorder.cachedScissor};
++      .viewport = g_recorder.cachedViewport, .scissor = g_recorder.cachedScissor,
++      .scaleX = static_cast<float>(target.x) / static_cast<float>(logical.x),
++      .scaleY = static_cast<float>(target.y) / static_cast<float>(logical.y)};
+   auto& pass = current_render_passes()[g_recorder.currentRenderPass];
+   AURORA_ASSERT(!pass.sealed, "Native PE aperture cannot rewrite sealed GPU work");
+   auto& commands = pass.commands;

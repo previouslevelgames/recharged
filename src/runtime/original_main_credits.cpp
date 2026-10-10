@@ -259,6 +259,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         bool nativeSend=true, resizeCheck=false;
         mscharged::LaunchOptions launchOptions;
         unsigned windowWidth=800, windowHeight=600;
+        // Internal resolution: the source EFB is efbScale x 640 x 448 (0: window).
+        float efbScale=1.0f;
         std::filesystem::path disc;
         for (int i=1;!suppliedLaunch && i<argc;++i) {
             const std::string argument=argv[i];
@@ -312,7 +314,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         const auto systemLanguage = mscharged::ResolveNativeUSASystemLanguage(launch.settings.language);
         const auto discProfile = mscharged::InspectDisc(launch.disc_path);
         Check(mscharged::SupportedRelease(discProfile),
-              "Only the USA version of Mario Strikers Charged (R4QE01, revision 1, original main.dol) is "
+              "Only the USA version of Mario Strikers Charged (R4QE01) is "
               "supported for now; European, Japanese and Korean versions are planned");
         Check(!resizeCheck || !launch.settings.fullscreen,"--resize-check requires a windowed launch; add --window");
         Check(!priorBoot || !resizeCheck,
@@ -410,7 +412,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             Check(SDL_SetWindowMinimumSize(host.window,1,1), "SDL window minimum rejected");
             Check(SDL_SetWindowSize(host.window,static_cast<int>(windowWidth),static_cast<int>(windowHeight)),
                   "Requested window size rejected");
-            VISetFrameBufferScale(1.0f);
+            // display.resolution: the source EFB's render size. Viewport, scissor,
+            // copies and pixel accesses map the game's 640x448 coordinates onto it.
+            const auto& resolution=launch.settings.resolution;
+            efbScale=resolution=="window"?0.0f:resolution=="2x"?2.0f:resolution=="3x"?3.0f:
+                resolution=="4x"?4.0f:1.0f;
+            // window: one EFB pixel per window pixel of the displayed 4:3/16:9 picture.
+            if(efbScale==0.0f) VILockAspectRatio(int(aspectWidth),int(aspectHeight));
+            VISetFrameBufferScale(efbScale);
             AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
             for(const auto* event=aurora_update();event->type!=AURORA_NONE;++event)
                 Check(event->type!=AURORA_EXIT || (retainedWindowClose &&
@@ -750,12 +759,18 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                     const unsigned expectedHeight=resizeStage==1?720:resizeStage==2?900:windowHeight;
                     Check(launch.settings.fullscreen || (size.width==expectedWidth && size.height==expectedHeight),
                           "Controlled native window resize did not reach its requested actual size");
-                    Check(size.fb_width==640 && size.fb_height==448 &&
-                          efb.size.width==640 && efb.size.height==448,
+                    // A fixed resolution keeps one EFB through resizes; "window"
+                    // follows the window, at least the Wii's 640x448.
+                    const auto efbWidth=efbScale>0.0f?unsigned(std::lround(640.0f*efbScale)):size.fb_width;
+                    const auto efbHeight=efbScale>0.0f?unsigned(std::lround(448.0f*efbScale)):size.fb_height;
+                    Check(size.fb_width==efbWidth && size.fb_height==efbHeight && efbWidth>=640 && efbHeight>=448 &&
+                          efb.size.width==efbWidth && efb.size.height==efbHeight,
                           "Window resize changed original source EFB geometry");
-                    if(retainedEFB) Check(efb.texture.Get()==retainedEFB.Get(),
-                                         "Output resize replaced the original source EFB texture");
-                    else retainedEFB=efb.texture;
+                    if(efbScale>0.0f) {
+                        if(retainedEFB) Check(efb.texture.Get()==retainedEFB.Get(),
+                                             "Output resize replaced the original source EFB texture");
+                        else retainedEFB=efb.texture;
+                    }
                     const auto viewport=aurora::webgpu::calculate_present_viewport(
                         size.native_fb_width,size.native_fb_height,aspectWidth,aspectHeight);
                     mscharged::platform::Trace("Native resize stage%u: surface%ux%u EFB%ux%u same-storage, SC%u:%u viewport %.0f,%.0f %.0fx%.0f.\n",
