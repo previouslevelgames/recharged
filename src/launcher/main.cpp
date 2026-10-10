@@ -428,7 +428,13 @@ private:
         {
             const auto launch = EffectiveLaunch();
             const auto path = launch.disc_path;
-            if (path.empty()) throw std::runtime_error("Choose a disc image or supply --disc FILE");
+            if (path.empty())
+            {
+                // Nothing chosen yet is not a read error; the card asks for a disc.
+                pending_ = false;
+                check_ = {};
+                return;
+            }
             const auto selection = PathUtf8(path);
             pending_ = true;
             check_ = {};
@@ -445,12 +451,16 @@ private:
 
     void Browse()
     {
-        static const SDL_DialogFileFilter filters[] = {{"Wii disc images (ISO / RVZ)", "iso;rvz"}};
+        // "All files" too: a system that does not know the .rvz type (macOS) may
+        // grey such files out under the first filter. The check reads the content.
+        static const SDL_DialogFileFilter filters[] = {{"Wii disc images (ISO / RVZ)", "iso;rvz;ISO;RVZ"},
+                                                       {"All files", "*"}};
         {
             std::lock_guard<std::mutex> lock(dialog_->mutex);
             dialog_->active = true;
         }
-        SDL_ShowOpenFileDialog(DiscChosen, new std::shared_ptr<DialogResult>(dialog_), window_, filters, 1, nullptr, false);
+        SDL_ShowOpenFileDialog(DiscChosen, new std::shared_ptr<DialogResult>(dialog_), window_, filters,
+                               int(std::size(filters)), nullptr, false);
     }
 
     void PollResults()
