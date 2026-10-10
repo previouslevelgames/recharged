@@ -1,0 +1,47 @@
+Subject: Seed the game random generator and set up ODE at start
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+Three more original main blocks stayed behind the early
+MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP gate in the full game:
+- nlSetRandomSeed(OSGetTick(), &nlDefaultSeed): without it every start ran
+  the same "random" sequence (AI choices, replay and cutscene cameras);
+- InitializeODEAllocators()/RegisterUserGeomClasses(): ODE memory through
+  the game allocator and the custom collision classes registered in their
+  original order;
+- ImpostorManager::GetInstance()/ClockManager::Initialize().
+Admit them with the frontend sequence, like their neighbours; the source
+is unchanged. The remaining gated main code is the original endless task
+loop (the port runs it per frame), online tasks and the Wii development
+tools.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index fdd9f97..0ba7e3a 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -560,7 +560,7 @@ static void Initialize()
+     || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_INITIAL_LOADING_MESSAGE))
+     DisplayLoadingMessageFast();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     InitializeODEAllocators();
+     RegisterUserGeomClasses();
+ #endif // physics omitted; logical pads retain their source Initialize position
+@@ -580,7 +580,7 @@ static void Initialize()
+     InitializeTweakRegistry(0, 1, stringSizes);
+     glplatInitializeMaterialPrograms();
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+@@ -633,7 +633,7 @@ static void Initialize()
+     EmissionManager::ConfigureResource(3, "Character", 250);
+     EmissionManager::ConfigureResource(2, "StadiumEffects", 250);
+ #endif // original emission owner/configuration admitted at its source position
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     ImpostorManager::GetInstance();
+     ClockManager::Initialize();
+ #endif // unrelated manager/audio boot; retain the source callback position

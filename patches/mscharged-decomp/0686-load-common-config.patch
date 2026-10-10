@@ -1,0 +1,25 @@
+Subject: Load the original common.ini and datetime.ini at start
+Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+
+The original main loads ini/common.ini into Config::Global() and waits for
+ini/datetime.ini (the /General/Build Info tweaks) before the task loop. The
+block stayed behind the early MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP gate, so the
+full game never loaded it and every common.ini value used its default: goal
+replays placed their generic cameras at 0,0,0 (always the same low angle,
+reported by a user), and demo-mode timeouts, popup spacing and transition
+fades used built-in values. Admit the original block with the frontend
+sequence, like its neighbours; the source is unchanged.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 2b1b90b..fdd9f97 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -590,7 +590,7 @@ static void Initialize()
+     }
+ #endif // original shared material textures; named world draw keeps this exact request
+ 
+-#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
++#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     u8 temporaryState = lbl_806E1458;
+     ParticleUpdateNoOp(&temporaryState);
+ 
