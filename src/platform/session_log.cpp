@@ -3,10 +3,12 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -51,13 +53,18 @@ int Write(int fd, const void* data, std::size_t size) { return _write(fd, data, 
 int Write(int fd, const void* data, std::size_t size) { return int(::write(fd, data, size)); }
 #endif
 
-// One copied stream: the pipe that replaced stdout or stderr, the console it
-// came from and whether its reader is copying a chunk right now.
+// One copied stream: the pipe that replaced stdout or stderr and the console
+// it came from.
 struct Stream
 {
     int pipe_read = -1;
     int console = -1;
-    std::atomic<bool> busy{false};
+#ifdef _WIN32
+    HANDLE wake = nullptr;                             // set by a Drain
+    std::atomic<std::uint64_t> asked{0}, answered{0}; // Drain tickets
+#else
+    std::atomic<bool> busy{false}; // the reader is copying a chunk right now
+#endif
 };
 
 struct Log
@@ -66,6 +73,9 @@ struct Log
     int file = -1;
     std::mutex mutex; // whole chunks, so stdout and stderr lines do not mix
     Stream out, err;
+#ifdef _WIN32
+    HANDLE answered = nullptr; // set by a reader that answered a ticket
+#endif
     bool started = false;
 } g_log;
 
@@ -82,20 +92,75 @@ void WriteLogUnlocked(const char* data, std::size_t size)
     if (g_log.file >= 0) (void)Write(g_log.file, data, size);
 }
 
+void Copy(const Stream& stream, const char* data, std::size_t size)
+{
+    if (stream.console >= 0) (void)Write(stream.console, data, size);
+    WriteLog(data, size);
+}
+
+#ifdef _WIN32
+// Windows serialises the I/O of a synchronous pipe handle: while the reader
+// waits in ReadFile, a PeekNamedPipe from another thread waits as well, until
+// something is printed again. A Drain that peeked hung the game at its first
+// log-only line (1.0.4). So only the reader touches the pipe: it reads what
+// is there, otherwise sleeps until a Drain wakes it or the next poll, and
+// answers a Drain's ticket once it has found the pipe empty after the ticket
+// was drawn.
+void Reader(Stream* stream)
+{
+    const HANDLE pipe = HANDLE(_get_osfhandle(stream->pipe_read));
+    char buffer[4096];
+    for (;;)
+    {
+        const std::uint64_t asked = stream->asked;
+        DWORD available = 0, got = 0;
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) break; // no writers left
+        if (!available)
+        {
+            if (stream->answered.exchange(asked) != asked) SetEvent(g_log.answered);
+            WaitForSingleObject(stream->wake, 20);
+        }
+        else if (ReadFile(pipe, buffer, std::min<DWORD>(available, sizeof buffer), &got, nullptr) && got)
+            Copy(*stream, buffer, got);
+        else
+            break;
+    }
+    stream->answered = UINT64_MAX; // nothing left for a Drain to wait for
+    SetEvent(g_log.answered);
+}
+
+// A ticket the reader answers once it has copied everything written so far.
+std::uint64_t Ask(Stream& stream)
+{
+    if (!stream.wake) return 0;
+    const std::uint64_t ticket = ++stream.asked;
+    SetEvent(stream.wake);
+    return ticket;
+}
+
+// Waits (up to a second) until the readers have copied what was written.
+void Drain()
+{
+    using Clock = std::chrono::steady_clock;
+    const auto deadline = Clock::now() + std::chrono::seconds(1);
+    const std::uint64_t out = Ask(g_log.out), err = Ask(g_log.err);
+    while (g_log.out.answered < out || g_log.err.answered < err)
+    {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
+        if (left <= 0) return;
+        WaitForSingleObject(g_log.answered, DWORD(std::min<long long>(left, 10)));
+    }
+}
+#else
 void Reader(Stream* stream)
 {
     char buffer[4096];
     for (;;)
     {
-#ifdef _WIN32
-        const int got = _read(stream->pipe_read, buffer, sizeof buffer);
-#else
         const auto got = ::read(stream->pipe_read, buffer, sizeof buffer);
-#endif
         if (got <= 0) return;
         stream->busy = true;
-        if (stream->console >= 0) (void)Write(stream->console, buffer, std::size_t(got));
-        WriteLog(buffer, std::size_t(got));
+        Copy(*stream, buffer, std::size_t(got));
         stream->busy = false;
     }
 }
@@ -103,15 +168,9 @@ void Reader(Stream* stream)
 std::size_t Pending(const Stream& stream)
 {
     if (stream.pipe_read < 0) return 0;
-#ifdef _WIN32
-    DWORD available = 0;
-    if (!PeekNamedPipe(HANDLE(_get_osfhandle(stream.pipe_read)), nullptr, 0, nullptr, &available, nullptr)) return 0;
-    return available;
-#else
     int available = 0;
     if (ioctl(stream.pipe_read, FIONREAD, &available) != 0) return 0;
     return std::size_t(available);
-#endif
 }
 
 // Waits (up to a second) until the readers have copied what was written.
@@ -120,13 +179,10 @@ void Drain()
     for (int n = 0; n < 1000; ++n)
     {
         if (!Pending(g_log.out) && !Pending(g_log.err) && !g_log.out.busy && !g_log.err.busy) return;
-#ifdef _WIN32
-        Sleep(1);
-#else
         usleep(1000);
-#endif
     }
 }
+#endif
 
 // Replaces file descriptor `fd` (1 or 2) by a pipe whose reader copies to
 // the original console and the log.
@@ -134,11 +190,18 @@ bool Redirect(int fd, Stream& stream)
 {
     int ends[2];
 #ifdef _WIN32
-    if (_pipe(ends, 65536, _O_BINARY) != 0) return false;
+    if (!g_log.answered) g_log.answered = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    const HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!g_log.answered || !wake || _pipe(ends, 65536, _O_BINARY) != 0)
+    {
+        if (wake) CloseHandle(wake);
+        return false;
+    }
     stream.console = _dup(fd); // -1 without a console
-    if (_dup2(ends[1], fd) != 0) { _close(ends[0]); _close(ends[1]); return false; }
+    if (_dup2(ends[1], fd) != 0) { _close(ends[0]); _close(ends[1]); CloseHandle(wake); return false; }
     _close(ends[1]);
     SetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE, HANDLE(_get_osfhandle(fd)));
+    stream.wake = wake; // a Drain now waits for this stream's reader
 #else
     if (pipe(ends) != 0) return false;
     stream.console = dup(fd);
