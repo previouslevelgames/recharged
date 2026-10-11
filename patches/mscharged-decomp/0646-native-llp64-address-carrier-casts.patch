@@ -1,17 +1,18 @@
 From: mscharged-port
 Subject: Native LLP64 casts for 32-bit address carriers
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 Classification: native compiler/ABI compatibility; apply after 0645.
 
 The game stores addresses and pointer-sized contexts in unsigned long: hashes
 and timer keys of Variant/Fuzzy/Desire code, world drawable IDs, emission
-owner keys, resource markers, the reset clock parameter and scene callback
-contexts. These are 64-bit on Linux and macOS. On 64-bit Windows (LLP64) they
-are 32-bit, and the direct casts do not compile. The Windows build keeps all
-game memory (arenas, game DLLs) below 2 GB, so the carriers remain lossless;
-natively each flagged cast goes through
-__UINTPTR_TYPE__ (no change on LP64). Variant's LP64 assertion is replaced by
-that guarantee on Windows. Console spellings remain behind MSCHARGED_NATIVE.
+owner keys, the reset clock parameter and scene callback contexts. These are
+64-bit on Linux and macOS. On 64-bit Windows (LLP64) they are 32-bit, and the
+direct casts do not compile. The Windows build keeps all game memory (arenas,
+game DLLs) below 2 GB, so the carriers remain lossless; natively each flagged
+cast goes through __UINTPTR_TYPE__ (no change on LP64). Variant's LP64
+assertion is replaced by that guarantee on Windows. Console spellings remain
+behind MSCHARGED_NATIVE. GL resource markers are host records, not game
+memory; 0688 carries them at full width.
 
 diff --git a/src/Game/AI/DesireMark.cpp b/src/Game/AI/DesireMark.cpp
 index 2087ad8..5c419db 100644

@@ -561,6 +561,17 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_debug_layers")),
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_cycle_debug_layer")));
         }
+        // [gameplay] tweaks (frontend module only): the enabled set, before original main.
+        {
+            const unsigned tweaks=launch.settings.GameTweakMask();
+            auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tweaks"));
+            if(configureTweaks) configureTweaks(tweaks);
+            const auto line="Tweaks: "+(configureTweaks || !tweaks ? mscharged::DescribeGameTweaks(tweaks)
+                : "none (this build's game module has no tweaks)");
+            mscharged::platform::SessionLogLine(line.c_str());
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
@@ -787,16 +798,18 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                     const auto& efb=aurora::webgpu::g_frameBuffer;
                     const unsigned expectedWidth=resizeStage==1?1280:resizeStage==2?600:windowWidth;
                     const unsigned expectedHeight=resizeStage==1?720:resizeStage==2?900:windowHeight;
-                    Check(launch.settings.fullscreen || (size.width==expectedWidth && size.height==expectedHeight),
+                    // Only the controlled --resize-check run owns the window size;
+                    // in play the player may resize or maximize it at any time.
+                    Check(!resizeCheck || (size.width==expectedWidth && size.height==expectedHeight),
                           "Controlled native window resize did not reach its requested actual size");
                     // A fixed resolution keeps one EFB through resizes; "window"
                     // follows the window, at least the Wii's 640x448.
                     const auto efbWidth=efbScale>0.0f?unsigned(std::lround(640.0f*efbScale)):size.fb_width;
                     const auto efbHeight=efbScale>0.0f?unsigned(std::lround(448.0f*efbScale)):size.fb_height;
-                    Check(size.fb_width==efbWidth && size.fb_height==efbHeight && efbWidth>=640 && efbHeight>=448 &&
-                          efb.size.width==efbWidth && efb.size.height==efbHeight,
+                    Check(!resizeCheck || (size.fb_width==efbWidth && size.fb_height==efbHeight && efbWidth>=640 &&
+                          efbHeight>=448 && efb.size.width==efbWidth && efb.size.height==efbHeight),
                           "Window resize changed original source EFB geometry");
-                    if(efbScale>0.0f) {
+                    if(resizeCheck && efbScale>0.0f) {
                         if(retainedEFB) Check(efb.texture.Get()==retainedEFB.Get(),
                                              "Output resize replaced the original source EFB texture");
                         else retainedEFB=efb.texture;

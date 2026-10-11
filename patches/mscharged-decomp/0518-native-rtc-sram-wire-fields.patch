@@ -1,5 +1,5 @@
 # Patch: 0518-native-rtc-sram-wire-fields
-# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+# Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Keep the whole original SRAM software owner with private native names and exact Wii BE16 fields.
 --- a/src/RVL_SDK/os/OSRtc.c
 +++ b/src/RVL_SDK/os/OSRtc.c

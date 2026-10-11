@@ -123,6 +123,26 @@ int main()
         const char* unknown_inline[] = {"test", "--unknown=value"}; index = 1;
         Check(!ParseLaunchOption(2, unknown_inline, index, untouched) && index == 1 && !untouched.disc,
             "Shared parsing consumed an unknown inline option");
+        // --no-tweaks: the INI's [gameplay] tweaks are off for this run only.
+        Check(Parse({"test", "--no-tweaks"}).no_tweaks && !Parse({"test", "--window"}).no_tweaks,
+            "--no-tweaks not parsed");
+        Reject([&] { Parse({"test", "--no-tweaks=true"}); });
+        {
+            const auto tweaked = root / "config/tweaked.ini";
+            std::ofstream(tweaked, std::ios::binary) << "[gameplay]\nskip_intro = true\nunlock_all = true\n";
+            const auto tweakedFile = LoadConfig(tweaked);
+            const auto played = ResolveLaunch(tweakedFile, {});
+            Check(played.settings.GameTweakMask()
+                    == (GameTweakBit(GameTweak::SkipIntro) | GameTweakBit(GameTweak::UnlockAll))
+                && played.tweaks_source == SettingSource::Config, "INI tweaks not resolved");
+            LaunchOptions retail; retail.no_tweaks = true;
+            const auto original = ResolveLaunch(tweakedFile, retail);
+            Check(original.settings.GameTweakMask() == 0 && original.tweaks_source == SettingSource::CommandLine
+                && DescribeLaunch(original).find("tweaks: none (command line)") != std::string::npos,
+                "--no-tweaks did not turn the tweaks off");
+            Check(tweakedFile.settings.GameTweakMask() != 0 && Read(tweaked).find("skip_intro = true") != std::string::npos,
+                "--no-tweaks changed the INI");
+        }
         Settings draft = file.settings; draft.disc = "launcher.rvz"; draft.width = 1111; draft.aspect = "auto"; draft.language = "spanish";
         const auto edited = ResolveLaunch(file, {}, &draft);
         Check(edited.disc_source == SettingSource::Launcher && edited.width_source == SettingSource::Launcher

@@ -122,13 +122,10 @@ def submodule_inputs(root: Path, name: str, export_roots=None, nested_submodules
     return sources
 
 
-def patch_inputs(root: Path, name: str, commit: str):
-    directory = root / "patches" / name
-    if not directory.exists():
-        return [], None
+def series_inputs(directory: Path, label: str, commit: str, prefix: str = ""):
     base = (directory / "base").read_text().strip()
     if base != commit:
-        raise PreparationError(f"Patch base for {name} is {base}; selected pin is {commit}. Refresh the series explicitly.")
+        raise PreparationError(f"Patch base for {label} is {base}; selected pin is {commit}. Refresh the series explicitly.")
     series = (directory / "series").read_bytes()
     patches = []
     for line in series.decode().splitlines():
@@ -136,10 +133,30 @@ def patch_inputs(root: Path, name: str, commit: str):
         if not name or name.startswith("#"):
             continue
         path = safe_child(directory, name)
-        if any(p["name"] == name for p in patches):
+        if any(p["name"] == prefix + name for p in patches):
             raise PreparationError(f"Duplicate patch in series: {name}")
-        patches.append({"name": name, "sha256": sha(path.read_bytes()), "file": path})
+        patches.append({"name": prefix + name, "sha256": sha(path.read_bytes()), "file": path})
     return patches, sha(series)
+
+
+def patch_inputs(root: Path, name: str, commit: str):
+    """The dependency's patch series, then its optional tweak series.
+
+    patches/<name>-tweaks holds opt-in game tweaks (mod phase), kept apart from
+    the faithful series. Its hooks only act when the player enables a tweak, so
+    it is applied after the faithful series and recorded under its own names."""
+    directory = root / "patches" / name
+    tweaks = root / "patches" / f"{name}-tweaks"
+    if not directory.exists():
+        if tweaks.exists():
+            raise PreparationError(f"patches/{name}-tweaks requires patches/{name}")
+        return [], None
+    patches, series_sha = series_inputs(directory, name, commit)
+    if tweaks.exists():
+        extra, tweaks_sha = series_inputs(tweaks, f"{name}-tweaks", commit, prefix=f"{name}-tweaks/")
+        patches += extra
+        series_sha = sha(encoded([series_sha, tweaks_sha]))
+    return patches, series_sha
 
 
 def content_inventory(directory: Path):

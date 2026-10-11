@@ -1,5 +1,5 @@
 Purpose: admit the literal source transition into CleanBoot and its original FE pool/bank endpoints.
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 Predecessor: exact actual prepared313, fa1e053, SDK46.
 Scope: native selected diagnostic only; world/Mii/later frontend services remain explicitly held.
 

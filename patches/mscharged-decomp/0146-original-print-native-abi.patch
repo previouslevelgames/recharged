@@ -1,5 +1,5 @@
 Subject: Compile complete original NL print and isolated Wii16 MSL formatter with native ABI
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Keep the Matching NL wrapper body, including final-byte termination and the
 original nlVSNPrintf(size-1) rule. Adapt underlying host formatting aliasing,

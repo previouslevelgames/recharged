@@ -1,5 +1,5 @@
 Subject: Admit the original async services of FELoadingToGame and GameLoadingToFE
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 Classification: temporary explicit original-source diagnostic admission; depends on 0610.
 
 The authored async_loading bytecode's FELoadingToGame and GameLoadingToFE

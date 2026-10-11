@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit original cup game results, knockout and final-round pages and award natives
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 Classification: temporary explicit original-source diagnostic admission; depends on 0640.
 
 After a cup match the schedule (32) lists the played matchup; pressing it pushes

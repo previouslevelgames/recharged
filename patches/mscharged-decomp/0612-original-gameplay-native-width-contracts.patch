@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Compile the original gameplay providers with native width contracts
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Temporary E13 compiler/ABI adaptations for the original match providers.
 Game behavior, requests and timing are unchanged.
@@ -14,8 +14,6 @@ Game behavior, requests and timing are unchanged.
   on console. Goalie's save-blend word keeps its original index-in-low-bits
   packing with a carrier-width mask.
 - ODE: intP is pointer-sized for the obstack alignment arithmetic.
-- GoalieActions' MWCC asm LobSaveOwnerDiagnostic only branches to its next
-  instruction (retail code layout); natively it is an empty inline function.
 - Retail emits the inline Desire::UnidentifiedVirtual7 (DesireDebug.inl) and
   UnidentifiedFuzzyVariantData constructor (FuzzyVariantCollection.inl) out of
   line in Fielder.cpp. Natively Desire.h and DesireUpdate.h include those
@@ -773,28 +771,6 @@ diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
  
          default:
              break;
-@@ -5676,6 +5686,13 @@
- }
- 
- // The ball-path-change check retains an unused owner comparison.
-+#if defined(MSCHARGED_NATIVE)
-+// The MWCC branch to the next instruction only reproduces retail code layout;
-+// it reads and writes no state, so the native function is empty.
-+static inline void LobSaveOwnerDiagnostic()
-+{
-+}
-+#else
- // clang-format off
- static inline asm void LobSaveOwnerDiagnostic()
- {
-@@ -5683,6 +5700,7 @@
-  done:
- }
- // clang-format on
-+#endif
- 
- void Goalie::ActionLobSave(float fDeltaT)
- {
 diff --git a/src/Game/AI/GoalieSave.cpp b/src/Game/AI/GoalieSave.cpp
 --- a/src/Game/AI/GoalieSave.cpp
 +++ b/src/Game/AI/GoalieSave.cpp

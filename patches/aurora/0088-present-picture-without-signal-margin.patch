@@ -1,0 +1,253 @@
+From: mscharged-port contributors
+Subject: [PATCH] Present the game's picture without the TV-signal margin
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation (desktop output only). Apply after 0087.
+
+The clean and sharp desktop pictures showed the whole 720-wide active VI
+signal, so the blank margin around the game's picture (680x448 of 720x480
+for Charged) became black bars inside the window, and the auto-sized EFB,
+locked to the signal's 16:9 or 4:3, was shrunk by about 6% into the
+smaller picture.
+
+These pictures now present the game's VI picture rectangle alone: its share
+of the displayed aspect is fitted to the window, the desktop shader treats
+that rectangle as the whole signal, and the presented geometry describes it
+for pointer mapping. VILockAspectRatio keeps the display aspect of the full
+signal, and the auto-sized EFB takes the shape and the exact pixel size of
+that picture viewport, so one EFB pixel lands on one window pixel.
+
+The physical VI signal, the TV-like signal picture and the game's own
+coordinates are unchanged.
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+index 56e2926..32df98b 100644
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -27,6 +27,7 @@ Vec2<uint32_t> render_mode_size() noexcept {
+ }
+ void configure(const GXRenderModeObj* rm) noexcept {
+   const auto oldSize = render_mode_size();
++  const auto oldShape = picture_shape();
+ #if defined(AURORA_ENABLE_GX)
+   const Vec2<uint32_t> nextSize = rm ? Vec2<uint32_t>{rm->fbWidth, rm->efbHeight} : Vec2<uint32_t>{640, 480};
+   // Retire old-size FIFO work before changing its address/viewport metadata.
+@@ -35,7 +36,7 @@ void configure(const GXRenderModeObj* rm) noexcept {
+ #endif
+   if (rm) g_renderMode = *rm;
+   else g_renderMode.reset();
+-  if (render_mode_size() != oldSize) window::request_frame_buffer_resize();
++  if (render_mode_size() != oldSize || picture_shape() != oldShape) window::request_frame_buffer_resize();
+ }
+ Vec2<uint32_t> configured_fb_size() noexcept { return render_mode_size(); }
+ } // namespace aurora::vi
+@@ -58,6 +59,21 @@ Timing GetTiming(uint32_t mode) {
+   default: throw std::runtime_error("Native VI timing is not implemented for this exact TV mode");
+   }
+ }
++} // namespace
++
++namespace aurora::vi {
++Vec2<uint32_t> picture_shape() noexcept {
++  if (!g_renderMode || !g_renderMode->viWidth || !g_renderMode->viHeight) return {1, 1};
++  try {
++    const uint32_t activeHeight = GetTiming(uint32_t(g_renderMode->viTVmode)).active_lines * 2u;
++    return {uint32_t(g_renderMode->viWidth) * activeHeight, uint32_t(g_renderMode->viHeight) * 720u};
++  } catch (const std::runtime_error&) {
++    return {1, 1};
++  }
++}
++} // namespace aurora::vi
++
++namespace {
+ uint64_t FieldClocks(const Timing& timing) {
+   return uint64_t{timing.half_lines} * timing.half_width * 2;
+ }
+@@ -591,9 +607,9 @@ void VISetWindowPosition(uint32_t x, uint32_t y) { aurora::window::set_window_po
+ void VICenterWindow() { aurora::window::center_window(); }
+ void VISetFrameBufferScale(float scale) { aurora::window::set_frame_buffer_scale(scale); }
+ void VILockAspectRatio(int width, int height) {
+-  aurora::window::set_frame_buffer_locked_aspect(width > 0 && height > 0 ? static_cast<float>(width) / height : 0.f);
++  aurora::window::set_frame_buffer_locked_aspect(width, height);
+ }
+-void VIUnlockAspectRatio() { aurora::window::set_frame_buffer_locked_aspect(0.f); }
++void VIUnlockAspectRatio() { aurora::window::set_frame_buffer_locked_aspect(0, 0); }
+ }
+ 
+ #else
+@@ -632,6 +648,7 @@ void configure(const GXRenderModeObj* rm) noexcept {
+ Vec2<uint32_t> configured_fb_size() noexcept {
+   return render_mode_size();
+ }
++Vec2<uint32_t> picture_shape() noexcept { return {1, 1}; }
+ } // namespace aurora::vi
+ 
+ extern "C" {
+@@ -661,9 +678,9 @@ void VISetWindowPosition(uint32_t x, uint32_t y) { aurora::window::set_window_po
+ void VICenterWindow() { aurora::window::center_window(); }
+ void VISetFrameBufferScale(float scale) { aurora::window::set_frame_buffer_scale(scale); }
+ void VILockAspectRatio(int width, int height) {
+-  aurora::window::set_frame_buffer_locked_aspect(width > 0 && height > 0 ? static_cast<float>(width) / height : 0.f);
++  aurora::window::set_frame_buffer_locked_aspect(width, height);
+ }
+-void VIUnlockAspectRatio() { aurora::window::set_frame_buffer_locked_aspect(0.f); }
++void VIUnlockAspectRatio() { aurora::window::set_frame_buffer_locked_aspect(0, 0); }
+ }
+ 
+ extern "C" {
+diff --git a/lib/dolphin/vi/vi_internal.hpp b/lib/dolphin/vi/vi_internal.hpp
+index a711c3f..c71b715 100644
+--- a/lib/dolphin/vi/vi_internal.hpp
++++ b/lib/dolphin/vi/vi_internal.hpp
+@@ -9,4 +9,8 @@
+ namespace aurora::vi {
+ void configure(const GXRenderModeObj* rm) noexcept;
+ Vec2<uint32_t> configured_fb_size() noexcept;
++// Shape of the configured render mode's VI picture within its active signal,
++// as width x height factors of the signal's display aspect: viWidth times the
++// active height and viHeight times the active width. {1, 1} without a mode.
++Vec2<uint32_t> picture_shape() noexcept;
+ } // namespace aurora::vi
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index e1a8784..b1aa7bf 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -279,6 +279,17 @@ void require_live_device() {
+   AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
+       "Native VI presentation found a lost device");
+ }
++// Clean and sharp desktop pictures show the game's VI picture alone: its
++// rectangle becomes the whole desktop signal, without the blank margins the
++// TV signal has around it. The physical signal is unchanged.
++AuroraVIScanout desktop_view(AuroraVIScanout scanout, uint8_t picture) {
++  if (picture != AURORA_DESKTOP_SIGNAL && scanout.vi_width && scanout.vi_height) {
++    scanout.active_width = scanout.vi_width;
++    scanout.active_height = scanout.vi_height;
++    scanout.x_origin = scanout.y_origin = 0;
++  }
++  return scanout;
++}
+ TextureHandle new_signal(uint32_t width, uint32_t height) {
+   const wgpu::Extent3D size{width, height, 1};
+   const wgpu::TextureDescriptor desc{.label = "Source VI active signal",
+@@ -390,8 +401,15 @@ void service(void*) {
+   } active{state};
+   // Owner refresh/presentation runs outside the source VI IRQ and its locks.
+   if (window::is_presentable() && !webgpu::g_surface) webgpu::refresh_surface(true);
++  // The displayed aspect covers the whole active signal; the desktop view's
++  // shape is its share of that signal (the full signal for SIGNAL pictures).
++  const auto view = desktop_view(scanout, picture);
++  const uint32_t aspectWidth = widescreen ? 16u : 4u, aspectHeight = widescreen ? 9u : 3u;
++  const bool shaped = scanout.active_width && scanout.active_height;
+   const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
+-      webgpu::g_graphicsConfig.surfaceConfiguration.height, widescreen ? 16u : 4u, widescreen ? 9u : 3u);
++      webgpu::g_graphicsConfig.surfaceConfiguration.height,
++      shaped ? aspectWidth * view.active_width * scanout.active_height : aspectWidth,
++      shaped ? aspectHeight * view.active_height * scanout.active_width : aspectHeight);
+   if (picture != AURORA_DESKTOP_SIGNAL) {
+     // Smooth and sharp pictures are drawn at the window viewport's own size.
+     const auto width = std::max(1u, static_cast<uint32_t>(viewport.width));
+@@ -424,7 +442,8 @@ void service(void*) {
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+     encode_signal(encoder, signal, effective, snapshot, layout, pipeline, true);
+-    encode_signal(encoder, desktop, effective, snapshot, layout, desktopPipeline, false, picture, &scaledPipeline);
++    encode_signal(encoder, desktop, desktop_view(effective, picture), snapshot, layout, desktopPipeline, false, picture,
++        &scaledPipeline);
+     wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+@@ -486,7 +505,8 @@ void service(void*) {
+         const AuroraVIPresentedState completion{effective.framebuffer,
+             state.presented_snapshot ? state.presented_snapshot->revision : 0,
+             state.presentations, effective.retrace_count, effective.field, effective.black};
+-        state.presented_geometry = detail::describe_presented_geometry(completion, effective,
++        // Pointer mapping follows the presented desktop view.
++        state.presented_geometry = detail::describe_presented_geometry(completion, desktop_view(effective, picture),
+             windowIncarnation, windowId, windowSize.width, windowSize.height,
+             target.GetWidth(), target.GetHeight(), viewport.left, viewport.top, viewport.width, viewport.height);
+       } else { Log.warn("Native VI surface presentation failed"); }
+diff --git a/lib/window.cpp b/lib/window.cpp
+index f5c85a2..13cda5a 100644
+--- a/lib/window.cpp
++++ b/lib/window.cpp
+@@ -51,8 +51,10 @@ std::atomic<uint64_t> g_windowIncarnation{};
+ SDL_Renderer* g_renderer;
+ float g_frameBufferScale = 0.f;
+ bool g_frameBufferAspectFit = false;
+-// VILockAspectRatio: shape of the auto-sized (scale 0) framebuffer, 0 = the EFB's own.
+-float g_frameBufferLockedAspect = 0.f;
++// VILockAspectRatio: display aspect of the VI signal for the auto-sized (scale
++// 0) framebuffer, 0:0 = the EFB's own shape.
++int g_frameBufferLockedWidth = 0;
++int g_frameBufferLockedHeight = 0;
+ AuroraWindowSize g_windowSize;
+ std::vector<AuroraEvent> g_events;
+ std::deque<std::string> g_eventStrings;
+@@ -503,13 +505,24 @@ AuroraWindowSize get_window_size() {
+     const auto [baseW, baseH] = vi::configured_fb_size();
+     if (baseW > 0 && baseH > 0) {
+       // An auto-sized framebuffer locked to the displayed aspect (4:3, 16:9)
+-      // gets one framebuffer pixel per window pixel of the picture, never
+-      // fewer pixels than the EFB itself.
+-      const bool locked = g_frameBufferScale == 0.f && g_frameBufferLockedAspect > 0.f;
+-      const float aspect = locked ? g_frameBufferLockedAspect : static_cast<float>(baseW) / static_cast<float>(baseH);
+-      const auto [fitW, fitH] = fit_frame_buffer_to_aspect(fb_w, fb_h, aspect);
+-      fb_w = fitW;
+-      fb_h = fitH;
++      // gets one framebuffer pixel per window pixel of the game's picture:
++      // the same viewport the desktop picture is presented in (the picture
++      // without the blank TV-signal margin around it), never fewer pixels
++      // than the EFB itself.
++      const bool locked = g_frameBufferScale == 0.f && g_frameBufferLockedWidth > 0 && g_frameBufferLockedHeight > 0;
++      if (locked) {
++        const auto shape = vi::picture_shape();
++        const auto picture = webgpu::calculate_present_viewport(static_cast<uint32_t>(fb_w),
++            static_cast<uint32_t>(fb_h), static_cast<uint32_t>(g_frameBufferLockedWidth) * shape.x,
++            static_cast<uint32_t>(g_frameBufferLockedHeight) * shape.y);
++        fb_w = std::max(1, static_cast<int>(picture.width));
++        fb_h = std::max(1, static_cast<int>(picture.height));
++      } else {
++        const auto [fitW, fitH] =
++            fit_frame_buffer_to_aspect(fb_w, fb_h, static_cast<float>(baseW) / static_cast<float>(baseH));
++        fb_w = fitW;
++        fb_h = fitH;
++      }
+       if (locked) {
+         fb_w = std::max(fb_w, static_cast<int>(baseW));
+         fb_h = std::max(fb_h, static_cast<int>(baseH));
+@@ -626,14 +639,15 @@ void set_frame_buffer_scale(float scale) {
+   request_frame_buffer_resize();
+ }
+ 
+-void set_frame_buffer_locked_aspect(float aspect) {
+-  if (!(aspect > 0.f)) {
+-    aspect = 0.f;
++void set_frame_buffer_locked_aspect(int width, int height) {
++  if (width <= 0 || height <= 0) {
++    width = height = 0;
+   }
+-  if (g_frameBufferLockedAspect == aspect) {
++  if (g_frameBufferLockedWidth == width && g_frameBufferLockedHeight == height) {
+     return;
+   }
+-  g_frameBufferLockedAspect = aspect;
++  g_frameBufferLockedWidth = width;
++  g_frameBufferLockedHeight = height;
+   request_frame_buffer_resize();
+ }
+ 
+diff --git a/lib/window.hpp b/lib/window.hpp
+index 6683fbe..c74693d 100644
+--- a/lib/window.hpp
++++ b/lib/window.hpp
+@@ -55,7 +55,9 @@ void request_frame_buffer_resize();
+ void resize_swapchain() noexcept;
+ void set_frame_buffer_scale(float scale);
+ void set_frame_buffer_aspect_fit(bool fit);
+-// Aspect (width / height) of the auto-sized framebuffer; 0 restores the EFB's.
+-void set_frame_buffer_locked_aspect(float aspect);
++// Display aspect (e.g. 16:9) of the full VI signal for the auto-sized
++// framebuffer, which then takes the shape of the game's picture within it;
++// 0:0 restores the EFB's own shape.
++void set_frame_buffer_locked_aspect(int width, int height);
+ void set_background_input(bool value);
+ }; // namespace aurora::window

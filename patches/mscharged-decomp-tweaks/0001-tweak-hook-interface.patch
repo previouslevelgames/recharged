@@ -1,0 +1,67 @@
+Subject: Declare the port's opt-in tweak hooks
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+Opt-in game tweaks are the first changes of the port's mod phase: the player
+turns them on in [gameplay] of mscharged.ini, and each is off by default. This
+series is separate from the faithful series and applied after it. Its hooks
+are compiled only into the game module built with MSCHARGED_TWEAKS; there,
+every hook takes the original path unless its tweak is enabled. Other targets
+that build the same sources keep the original code unchanged.
+
+Add include/mscharged_tweaks.h, the hooks' interface to the port
+(src/platform/game_tweaks.cpp in the game module).
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+new file mode 100644
+index 0000000..ab477c8
+--- /dev/null
++++ b/include/mscharged_tweaks.h
+@@ -0,0 +1,48 @@
++#ifndef MSCHARGED_TWEAKS_H
++#define MSCHARGED_TWEAKS_H
++
++// Opt-in game tweaks of the native port ([gameplay] in mscharged.ini). They
++// are not part of the original game. Their hooks exist only in builds with
++// MSCHARGED_TWEAKS, and each keeps the original behaviour unless the player
++// enabled its tweak. The functions are the port's src/platform/game_tweaks.cpp.
++#if defined(MSCHARGED_TWEAKS)
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Bits of the enabled set (mscharged::GameTweak).
++enum
++{
++    MSCHARGED_TWEAK_SKIP_INTRO = 0,
++    MSCHARGED_TWEAK_FAST_MENUS = 1,
++    MSCHARGED_TWEAK_NO_MEGA_STRIKES = 2,
++    MSCHARGED_TWEAK_UNLOCK_ALL = 3,
++};
++
++bool mscharged_tweak_enabled(int tweak);
++
++// Skip intro: whether the title screen still has to be passed this launch,
++// and taking that single press of A.
++bool mscharged_tweak_title_pending(void);
++bool mscharged_tweak_take_title_press(void);
++
++// Fast menus. Once a frame the front end reports whether its menus are up
++// (outside matches and the boot screens) and whether its presentation runs a
++// transition script.
++void mscharged_tweak_frontend_frame(bool menus, bool transition);
++bool mscharged_tweak_fast_menus(void);
++bool mscharged_tweak_fast_transition(void);
++// Time dilation of a task during a transition; the real-time task keeps 1.
++void mscharged_tweak_set_real_time_task(const void* task);
++float mscharged_tweak_task_dilation(const void* task);
++// Slides reset (Update(0)) this frame keep their first frame.
++void mscharged_tweak_note_slide_reset(const void* slide);
++bool mscharged_tweak_slide_reset_this_frame(const void* slide);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_TWEAKS
++#endif // MSCHARGED_TWEAKS_H

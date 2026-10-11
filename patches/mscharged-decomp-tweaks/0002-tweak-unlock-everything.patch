@@ -1,0 +1,37 @@
+Subject: Tweak: unlock everything
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+The game answers every character, stadium and cheat unlock query through
+IsUnlockOverrideEnabled, which is true with its own unlock-all switch
+(gUnlockAll, set by the title screen's hidden input sequence) or the
+/user/unlock_all tweak. With "Unlock everything" enabled the override is true
+as well. gUnlockAll and the save are not changed; the media-build check still
+comes first.
+
+diff --git a/src/Game/DB/GameProgress.cpp b/src/Game/DB/GameProgress.cpp
+index db4aa40..b6af801 100644
+--- a/src/Game/DB/GameProgress.cpp
++++ b/src/Game/DB/GameProgress.cpp
+@@ -2,6 +2,7 @@
+ #include "Game/GameInfo.h"
+ #include "Game/TweakRegistry.h"
+ #include "NL/nlMath.h"
++#include "mscharged_tweaks.h"
+ 
+ bool gUnlockAll;
+ 
+@@ -17,6 +18,14 @@ static inline bool IsUnlockOverrideEnabled(bool includeOnline)
+     {
+         return false;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Unlock everything": the game's own unlock-all override,
++    // answered here only; gUnlockAll and the save stay as they are.
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_UNLOCK_ALL))
++    {
++        return true;
++    }
++#endif
+     return gUnlockAll || GetTweakBool("/user/unlock_all", false)
+         || (includeOnline && GameInfoManager::Instance()->IsOnline());
+ }

@@ -1,4 +1,4 @@
-{ global: charged_original_entry; charged_apply_debug_layer_toggles; charged_toggle_debug_layers; charged_cycle_debug_layer; charged_original_scene_frame;
+{ global: charged_original_entry; charged_apply_debug_layer_toggles; charged_configure_tweaks; charged_toggle_debug_layers; charged_cycle_debug_layer; charged_original_scene_frame;
   charged_original_scene_native_frame; charged_original_scene_stop_movie;
   charged_original_sh_observe; charged_original_sh_request_options;
   charged_original_audio_observe; charged_original_audio_shutdown; charged_original_audio_idle;

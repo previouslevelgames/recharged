@@ -1,6 +1,6 @@
 Subject: Adapt original event ownership, delivery and registry lifetime
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Keep original event hashing, AVL registration, listener ordering and callback
 transfer. Native owners retain full addresses; flags/counts use explicit masks

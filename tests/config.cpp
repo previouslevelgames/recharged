@@ -208,8 +208,34 @@ int main()
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });
         }
+        // [gameplay] tweaks: all off by default and without the section;
+        // each round trips on its own and invalid values are rejected.
+        Require(defaults.GameTweakMask() == 0, "Tweaks are off by default");
+        std::ofstream(path) << "[game]\ndisc = game.rvz\n";
+        Require(LoadConfig(path).settings.GameTweakMask() == 0, "No [gameplay] section means no tweaks");
+        for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
+        {
+            const auto tweaks = directory / ("tweaks" + std::to_string(n) + ".ini");
+            auto tweakFile = LoadConfig(tweaks, true);
+            Settings tweakSettings;
+            tweakSettings.tweaks[n] = true;
+            SaveConfig(tweakFile, tweakSettings);
+            const auto reloaded = LoadConfig(tweaks);
+            Require(reloaded.settings.GameTweakMask() == GameTweakBit(kGameTweaks[n].tweak), "Tweak round trip");
+            Require(reloaded.contents.find(std::string("[gameplay]")) != std::string::npos
+                && reloaded.contents.find(std::string(kGameTweaks[n].key) + " = true") != std::string::npos,
+                "Tweak saved in [gameplay]");
+        }
+        Require(DescribeGameTweaks(0) == "none"
+            && DescribeGameTweaks(GameTweakBit(GameTweak::SkipIntro) | GameTweakBit(GameTweak::UnlockAll))
+                == "Skip intro, Unlock everything", "Tweak descriptions");
+        for (const char* invalid : {"[gameplay]\nskip_intro = yes\n", "[gameplay]\nfast_menus = 2\n"})
+        {
+            std::ofstream(path) << invalid;
+            Reject([&] { LoadConfig(path); });
+        }
         fs::remove_all(directory);
-        std::cout << "Configuration round trips, preservation, validation, host settings and write protection passed.\n";
+        std::cout << "Configuration round trips, preservation, validation, host settings, tweaks and write protection passed.\n";
         return 0;
     }
     catch (const std::exception& error)

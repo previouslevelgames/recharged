@@ -1,0 +1,31 @@
+From: mscharged-port
+Subject: Give native GL resource pools room for native header sizes
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native data-size adaptation; apply after 0688.
+
+Records loaded from disc keep their Wii header quotas (0180, 0238), but
+models, packets and material parameters built or cloned at run time are
+allocated at their native sizes (a packet is 80 bytes instead of 48). That
+can push a pool's MEM1 part past its Wii budget: loading Bowser's Striker
+Challenge reached 1,312,560 of the InGame pool's 1,310,720 bytes and stopped
+in GLXResourcePool::Allocate's out-of-memory break while creating the crowd
+impostor targets. Natively every pool's MEM1 part gets a quarter more room.
+The game never reads pool sizes for decisions (only a debug print and a
+discarded query), so behaviour is unchanged.
+
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index d690ec0..feb9928 100644
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -463,6 +463,11 @@ GLResourcePool* glplatCreateResourcePool(
+         int pool = RealOrVirtual(requirements[i].mType);
+         sizes[pool] += requirements[i].mSize;
+     }
++#if defined(MSCHARGED_NATIVE)
++    // Models, packets and material parameters that are built or cloned at run
++    // time take their larger native sizes from the MEM1 part; give it room.
++    sizes[0] += sizes[0] / 4;
++#endif
+ 
+     return new (8, false)
+         GLXResourcePool(sizes, name);

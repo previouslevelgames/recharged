@@ -40,7 +40,9 @@ is Wii B. The keyboard Wii Remote has a Nunchuk attached: W/A/S/D move its
 stick and C/V are its C/Z buttons. E shakes the Remote and Q the Nunchuk (in a
 match: hit, and switch items). P saves the presented frame to
 `screenshots/screenshot_<timestamp>.png` in the working directory. Keep the game window focused. The launcher's **Play** button starts
-the same runtime. Close the window to exit; omitting `--window` runs a bounded test.
+the same runtime. Close the window to exit, also in fullscreen: Alt+F4 on Windows
+and most Linux desktops, Cmd+Q on macOS. The game then runs its own shutdown, like
+the Wii power button, and quits after a short fade. Omitting `--window` runs a bounded test.
 The separate `--experimental-options` shortcut requires a build without the
 original Boot script.
 
@@ -101,8 +103,8 @@ longest frames.
 ## Run options
 
 Both tests accept `--config FILE`, `--disc FILE` (also `--disk`), `--window`,
-`--fullscreen`, `--size WIDTHxHEIGHT` and `--aspect auto|4:3|16:9`. These override
-INI settings for this run without saving. The default layout is 16:9; resizing
+`--fullscreen`, `--size WIDTHxHEIGHT`, `--aspect auto|4:3|16:9` and `--no-tweaks`
+(the `[gameplay]` tweaks off). These override INI settings for this run without saving. The default layout is 16:9; resizing
 preserves the selected layout and fills unused space with bars. The launcher also
 saves the start display, VSync, frame rate in the title, speaker volume, graphics
 validation and log detail in `mscharged.ini`.

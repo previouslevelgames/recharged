@@ -1,5 +1,5 @@
 # Patch: 0495-original-frontend-menu-entry-diagnostic
-# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+# Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Restore literal loading-audio finalization, source scene-valid wait,
 # movie task owner/registration,
 # and permit the original requested CleanBoot-to-FE transition in the named diagnostic.

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Decode native Wii data read by original match-loading consumers
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 E13 native data transport for Matching units that read big-endian Wii data
 directly during match loading. On the Wii these are plain big-endian loads; on

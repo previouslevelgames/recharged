@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.0.6 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.0.7 LANGUAGES C CXX)
 if(WIN32 AND MINGW)
     # COFF weak definitions cannot be exported from mscharged.exe to the game
     # DLLs (OSReport and friends would bind to address 0). Plain definitions,
@@ -311,6 +311,16 @@ if(BUILD_TESTING)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
+    # Opt-in game tweaks: off means the original code (tweak patches) and the
+    # original answers (the game module's tweak state).
+    add_test(NAME tweak_patches
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_patches.py")
+    add_executable(game_tweaks_tests tests/game_tweaks.cpp src/platform/game_tweaks.cpp)
+    add_dependencies(game_tweaks_tests verify_prepared)
+    target_include_directories(game_tweaks_tests PRIVATE src "${MSCHARGED_PREPARED}/include")
+    target_compile_definitions(game_tweaks_tests PRIVATE MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
+    target_compile_features(game_tweaks_tests PRIVATE cxx_std_17)
+    add_test(NAME game_tweaks COMMAND game_tweaks_tests)
     add_executable(frame_rate_title_tests tests/frame_rate_title.cpp)
     target_include_directories(frame_rate_title_tests PRIVATE src)
     target_compile_features(frame_rate_title_tests PRIVATE cxx_std_17)

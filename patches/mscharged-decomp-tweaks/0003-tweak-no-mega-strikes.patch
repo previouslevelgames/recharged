@@ -1,0 +1,40 @@
+Subject: Tweak: no Mega Strikes
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+SetupGameFromConfig builds each match's own copy of the gameplay settings
+(mCurGameGameplayOptions), which nothing saves. With "No Mega Strikes" enabled,
+both teams' Mega Strike flags of that copy are cleared after the mode rules
+are applied, so cFielder::CanDoCaptainShootToScore refuses them through the
+game's own check. Striker Challenges and Strikers 101 keep their rules, and
+online matches are left alone.
+
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 3405c74..c718807 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -10,6 +10,7 @@
+ #include "Game/NetworkSession.h"
+ #include "Game/TweakRegistry.h"
+ #include "Game/main.h"
++#include "mscharged_tweaks.h"
+ #include "NL/nlDebug.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlMath.h"
+@@ -399,6 +400,17 @@ void GameInfoManager::SetupGameFromConfig()
+         mCurGameGameplayOptions.NumGames = 1;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "No Mega Strikes": this match's own settings copy, which
++    // nothing saves, for both teams. Striker Challenges and Strikers 101 keep
++    // their rules, as do online matches.
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_MEGA_STRIKES) && mCurrentMode != GM_CHALLENGE
++        && !mIsInStrikers101Mode && !IsOnline()) {
++        mCurGameGameplayOptions.mHomeMegastrikeEnabled = false;
++        mCurGameGameplayOptions.mAwayMegastrikeEnabled = false;
++    }
++#endif
++
+     if (GetTweakBool("User/skipfe", false)) {
+         mCurGameGameplayOptions.NumGames = 11;
+     }

@@ -1,5 +1,5 @@
 Subject: Transport Wii32 RLG records beneath the complete original loader
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Decode raw model12/stream8/packet48 bytes into the actual native declared
 records. Retain all source scalar/unknown words and encoded offsets/hash IDs.

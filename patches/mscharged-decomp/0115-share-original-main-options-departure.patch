@@ -1,6 +1,6 @@
 Subject: Share original Main Options departure service order
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Extract only ApplyItem case6 for the native Main/Options path. Real scene Pop,
 NAV hide, resident audio and frontend bytecode services remain caller-owned.

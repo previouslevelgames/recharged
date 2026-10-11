@@ -115,6 +115,11 @@ function(mscharged_add_original_frontend_diagnostic)
     mscharged_select_original_frontend_credits(mscharged_original_frontend_module)
     # MSCHARGED_DEBUG_LAYERS_OFF: switch the game's own rendering layers off.
     target_sources(mscharged_original_frontend_module PRIVATE src/platform/debug_layer_toggles.cpp)
+    # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks are
+    # compiled into this game module only; every other target that builds the
+    # same original sources keeps their original code unchanged.
+    target_compile_definitions(mscharged_original_frontend_module PRIVATE MSCHARGED_TWEAKS=1)
+    target_sources(mscharged_original_frontend_module PRIVATE src/platform/game_tweaks.cpp)
     # dynamic_lookup defers unfinished methods, but missing game vtable/VTT
     # data must be detected before the owner tries to load this module.
     set(_vtable_check "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_original_module_vtables.py")

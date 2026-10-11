@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] transport packed Wii registries into native owned backing
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Preserve original Load/Relocate/Get and owner decisions. Decode only raw data
 width/endian/alignment into a backing twin tied to actual allocation lifetime.

@@ -1,6 +1,6 @@
 From: mscharged-port native compatibility
 Subject: [PATCH] native two-way DSP mailbox hardware transport
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Replace only the four native hardware mailbox accesses with explicit high/low
 register transport, preserving word/status bits and low-read acknowledgement.

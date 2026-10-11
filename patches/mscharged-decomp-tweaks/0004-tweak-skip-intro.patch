@@ -1,0 +1,137 @@
+Subject: Tweak: skip the intro
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+With "Skip intro" enabled the game starts at the main menu, once per launch:
+
+- BootLoadingScene ends its notice screens and the studio logo at once; the
+  boot loading continues behind its finished screen.
+- The logo's sound bank, which never plays, is unloaded by loading step 13 as
+  soon as it has loaded, as the logo's end would unload it. Ending the logo
+  while its jingle plays is avoided entirely.
+- The intro movie ends as if A were pressed (its own abort check).
+- The title screen takes input at once and passes itself with a single press
+  of A through its own handler. Back on the title later, it waits for A.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 540603a..531d97e 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -138,6 +138,7 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <revolution/os/OSTime.h>
++#include "mscharged_tweaks.h"
+ #else
+ #define OS_BUS_CLOCK_SPEED           (*(volatile u32*)0x800000F8)
+ #define OS_TIME_SPEED                (OS_BUS_CLOCK_SPEED / 4)
+@@ -437,6 +438,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+     case 13:
+         if (!lbl_806E1044)
+         {
++#if defined(MSCHARGED_TWEAKS) \
++    && (!defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
++        || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)))
++            // Port tweak "Skip intro": the studio logo ends unplayed, so its
++            // bank is unloaded once it has loaded, as the logo's end would.
++            if (lbl_806E106A && mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO))
++            {
++                g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
++            }
++#endif
+             FinishLoadingStepOrUndo(this, lbl_806E106A);
+         }
+         else if (lbl_806E106A)
+diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
+index 961b65f..8524fd2 100644
+--- a/src/Game/SH/SHBootLoading.cpp
++++ b/src/Game/SH/SHBootLoading.cpp
+@@ -20,6 +20,7 @@
+ #include "Game/FE/tlImageInstance.h"
+ #include "Game/FE/tlInstance.inl"
+ #include "Game/main.h"
++#include "mscharged_tweaks.h"
+ #include "NL/nlColour.h"
+ #include "NL/nlLocalization.h"
+ #include "NL/nlString.h"
+@@ -158,6 +159,18 @@ void BootLoadingScene::SceneCreated()
+ void BootLoadingScene::Update(float fDeltaT)
+ {
+     BaseSceneHandler::Update(fDeltaT);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Skip intro": the notice screens and the studio logo end at
++    // once; the boot loading continues behind the finished screen. The logo's
++    // sound bank is unloaded by the loading script as soon as it has loaded
++    // (AsyncLoading step 13), as it never plays.
++    if (mscharged_tweak_title_pending() && mPhase != PhaseFinished)
++    {
++        mPhase = PhaseFinished;
++        mElapsedTime = -1.0f;
++        SetPhaseSlide();
++    }
++#endif
+     if (mPhase == PhaseRatings)
+     {
+         TLSlide* slide = mPresentation->m_currentSlide;
+diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index cfac012..d086675 100644
+--- a/src/Game/SH/SHMoviePlayer.cpp
++++ b/src/Game/SH/SHMoviePlayer.cpp
+@@ -25,6 +25,7 @@
+ #include "NL/nlString.h"
+ #include "Game/Task/GameRenderTask.h"
+ #include "Game/main.h"
++#include "mscharged_tweaks.h"
+ 
+ #if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
+ Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
+@@ -156,6 +157,12 @@ bool MoviePlayerScene::CheckMoviePlayerAbort()
+ #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) && !defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
+     throw std::logic_error("Credits diagnostic attempted excluded input/movie flow");
+ #else
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Skip intro": the intro movie, the one leading to the title
++    // screen, ends as if A were pressed.
++    if (mscharged_tweak_title_pending() && mNextScene == SCENE_TITLE)
++        return true;
++#endif
+     return g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0);
+ #endif
+ }
+diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
+index 4c424ba..8054edd 100644
+--- a/src/Game/SH/SHTitleScreen.cpp
++++ b/src/Game/SH/SHTitleScreen.cpp
+@@ -31,6 +31,7 @@
+ #include "Game/SH/SHMoviePlayer.h"
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/main.h"
++#include "mscharged_tweaks.h"
+ 
+ static bool sTitleDimmingTimeSet;
+ 
+@@ -137,6 +138,12 @@ void TitleScene::Update(float dt)
+ {
+     BaseSceneHandler::Update(dt);
+     m_fTimeElapsed += dt;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Skip intro": the title takes input at once, and passes
++    // itself with a single press of A (below), once per launch.
++    if (mscharged_tweak_title_pending() && m_fTimeElapsed < 1.5f)
++        m_fTimeElapsed = 1.5f;
++#endif
+     if (m_fTimeElapsed < 1.5f)
+         return;
+ 
+@@ -201,7 +208,11 @@ void TitleScene::Update(float dt)
+         }
+ 
+         pointer->SetActiveSlide("A", true, false);
+-        if (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0))
++        if (g_pFEInput->JustPressed((eFEINPUT_PAD)pad, 0x1E, true, 0)
++#if defined(MSCHARGED_TWEAKS)
++            || mscharged_tweak_take_title_press()
++#endif
++        )
+         {
+             OnControllerPointerPress(pad, 0);
+         }

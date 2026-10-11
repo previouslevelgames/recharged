@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bootstrap/game_tweaks.h"
 #include "bootstrap/gamepad_actions.h"
 #include "bootstrap/key_actions.h"
 
@@ -99,6 +100,15 @@ struct Settings
     std::string log_level = "info";   // advanced.log_level: error | warning | info | debug
     bool verbose_console = false;     // advanced.verbose_console: development traces and game debug output
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
+    // [gameplay]: opt-in game tweaks (kGameTweaks order), all off by default.
+    std::array<bool, kGameTweaks.size()> tweaks{};
+    unsigned GameTweakMask() const
+    {
+        unsigned mask = 0;
+        for (std::size_t n = 0; n < tweaks.size(); ++n)
+            if (tweaks[n]) mask |= GameTweakBit(kGameTweaks[n].tweak);
+        return mask;
+    }
 };
 
 struct ConfigFile

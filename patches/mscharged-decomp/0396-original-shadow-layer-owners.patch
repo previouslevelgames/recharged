@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: Scope shadow preview behavior outside the original game module
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Restore original shadow target methods and source-owned colour tweaks in the
 original game module; retain existing standalone diagnostic behavior.

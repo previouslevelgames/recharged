@@ -1,5 +1,5 @@
 Subject: Preserve original AI clients with canonical native DMA addresses
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Keep whole original THPSimple initialization, callbacks, mixing, requests and
 state unchanged. Native RVL AI declarations forward to the canonical SDK

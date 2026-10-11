@@ -489,3 +489,5 @@
 0685-diagnose-replay-choreography.patch
 0686-load-common-config.patch
 0687-seed-and-physics-setup.patch
+0688-native-llp64-resource-markers.patch
+0689-native-resource-pool-header-headroom.patch

@@ -1,6 +1,6 @@
 From: mscharged native integration
 Subject: [PATCH] admit original audio task in explicit initialized frontend scope
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Retain the original AudioUpdateTask static and priority15/all-state AddTask
 statement only in the named default-OFF audio task diagnostic. Its literal

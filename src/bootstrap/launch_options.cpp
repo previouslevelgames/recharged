@@ -34,6 +34,7 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     const std::string_view token = argv[index];
     if (token == "--window") { options.fullscreen = false; return true; }
     if (token == "--fullscreen") { options.fullscreen = true; return true; }
+    if (token == "--no-tweaks") { options.no_tweaks = true; return true; }
     const auto equals = token.find('=');
     const auto argument = token.substr(0, equals);
     if (argument != "--config" && argument != "--disc" && argument != "--disk"
@@ -86,6 +87,9 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
     result.height_source = Source(config, "display.height");
     result.fullscreen_source = Source(config, "display.fullscreen");
     result.aspect_source = Source(config, "display.aspect");
+    for (const auto& info : kGameTweaks)
+        if (Source(config, ("gameplay." + std::string(info.key)).c_str()) == SettingSource::Config)
+            result.tweaks_source = SettingSource::Config;
     if (launcher_settings)
     {
         if (launcher_settings->disc != config.settings.disc) result.disc_source = SettingSource::Launcher;
@@ -93,6 +97,7 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         if (launcher_settings->height != config.settings.height) result.height_source = SettingSource::Launcher;
         if (launcher_settings->fullscreen != config.settings.fullscreen) result.fullscreen_source = SettingSource::Launcher;
         if (launcher_settings->aspect != config.settings.aspect) result.aspect_source = SettingSource::Launcher;
+        if (launcher_settings->tweaks != config.settings.tweaks) result.tweaks_source = SettingSource::Launcher;
     }
     if (options.disc)
     {
@@ -123,6 +128,11 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         result.settings.aspect = *options.aspect;
         result.aspect_source = SettingSource::CommandLine;
     }
+    if (options.no_tweaks)
+    {
+        result.settings.tweaks = {};
+        result.tweaks_source = SettingSource::CommandLine;
+    }
     return result;
 }
 
@@ -151,6 +161,7 @@ std::string DescribeLaunch(const ResolvedLaunch& launch)
         + " (" + SettingSourceName(launch.width_source) + "/" + SettingSourceName(launch.height_source)
         + "), " + (launch.settings.fullscreen ? "fullscreen" : "windowed")
         + " (" + SettingSourceName(launch.fullscreen_source) + "); aspect: "
-        + launch.settings.aspect + " (" + SettingSourceName(launch.aspect_source) + ")";
+        + launch.settings.aspect + " (" + SettingSourceName(launch.aspect_source) + "); tweaks: "
+        + DescribeGameTweaks(launch.settings.GameTweakMask()) + " (" + SettingSourceName(launch.tweaks_source) + ")";
 }
 }

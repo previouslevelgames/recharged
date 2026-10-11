@@ -16,8 +16,9 @@ vsync = true
 backend = auto
 # Game layout: auto (by window shape), 4:3 or 16:9.
 aspect = 16:9
-# Picture: soft (the original TV signal), clean (drawn straight into the window
-# without the TV flicker filter) or sharp (clean with square pixels).
+# Picture: soft (the original TV signal, with its empty border), clean (the
+# game's picture drawn straight into the window, without the TV flicker filter
+# and the border) or sharp (clean with square pixels).
 picture = sharp
 # Antialiasing of the game's 3D edges: off or 4x (more GPU time).
 antialiasing = 4x
@@ -121,6 +122,19 @@ shake_nunchuk = Q
 # shake_nunchuk = rightshoulder
 # swap_sticks = true
 # controller = xbox
+
+[gameplay]
+# Optional tweaks that change the original game. All off plays it unchanged;
+# --no-tweaks turns them off for one run.
+# skip_intro: start at the main menu (no notices, logo, intro or title screen).
+# fast_menus: skip menu transitions (matches, movies and credits unchanged).
+# no_mega_strikes: Mega Strikes off for both teams (not in Striker Challenges
+# or Strikers 101).
+# unlock_all: all characters, stadiums and cheats; the save is not changed.
+skip_intro = false
+fast_menus = false
+no_mega_strikes = false
+unlock_all = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU

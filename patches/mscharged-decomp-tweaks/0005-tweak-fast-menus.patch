@@ -1,0 +1,192 @@
+Subject: Tweak: fast menus
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+With "Fast menus" enabled menu transitions are skipped, outside matches and
+the boot screens:
+
+- 2D: one-shot slides no longer than 3 s jump to their end, and a screen's
+  presentation starts a one-shot slide of up to 6 s at its end, as the game
+  does for popups. Slides reset this frame keep their first frame; longer
+  slides (credits) and looping ones keep their pace.
+- 3D: while the front end's presentation runs a transition script, its
+  scripted waits end as they start and the time-dilated tasks (camera moves,
+  effects) run 30 times faster. The audio task keeps real time.
+- A popup whose slide is already past 1 s when its layout hides the text shows
+  it again.
+
+diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
+index 818c844..d2f2b6b 100644
+--- a/src/Game/FE/fePopupMenu.cpp
++++ b/src/Game/FE/fePopupMenu.cpp
+@@ -17,6 +17,7 @@
+ #include "Game/GameInfo.h"
+ #include "Game/DB/GameProgress.h"
+ #include "Game/DB/SaveLoad.h"
++#include "mscharged_tweaks.h"
+ #include "Game/DB/CharacterInfo.h"
+ #include "Game/NetTournManager.h"
+ #include "Game/NetworkSession.h"
+@@ -777,6 +778,13 @@ void FEPopupMenu::SetPositions()
+     pImage->SetAssetPosition(position.e[0], position.e[1], position.e[2]);
+     SetMessageAndOptionsVisible(false);
+     mMenuDisplayed = true;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fast menus": the popup's slide may already be past the
++    // moment Update shows the text (1 s) when this layout hides it, so Update
++    // shows it again.
++    if (mscharged_tweak_fast_menus())
++        mMessageAndOptionsShown = false;
++#endif
+ }
+ 
+ void FEPopupMenu::SetMessageAndOptionsVisible(bool visible)
+diff --git a/src/Game/FE/fePresentation.cpp b/src/Game/FE/fePresentation.cpp
+index 59a593c..53bdd01 100644
+--- a/src/Game/FE/fePresentation.cpp
++++ b/src/Game/FE/fePresentation.cpp
+@@ -3,6 +3,7 @@
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/tlSlide.h"
+ #include "NL/nlString.h"
++#include "mscharged_tweaks.h"
+ 
+ void FEPresentation::SetActiveSlide(unsigned long hash, bool resetTime)
+ {
+@@ -24,6 +25,16 @@ void FEPresentation::Update(float deltaTime)
+ {
+     if (m_currentSlide != 0)
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Fast menus": a screen's presentation keeps its own clock.
++        // A one-shot slide short enough to be the screen coming in starts at
++        // its end, as the game itself does for popups (m_fadeDuration 999.9).
++        if (mscharged_tweak_fast_menus() && deltaTime > 0.0f && m_currentSlide->m_uPlayMode != TLPM_LOOPING
++            && m_currentSlide->GetDuration() <= 6.0f)
++        {
++            m_fadeDuration = m_currentSlide->GetStartTime() + m_currentSlide->GetDuration() - deltaTime;
++        }
++#endif
+         m_fadeDuration += deltaTime;
+         f32 end = m_currentSlide->GetStartTime() + m_currentSlide->GetDuration();
+         if (m_fadeDuration > end)
+diff --git a/src/Game/FE/tlSlide.cpp b/src/Game/FE/tlSlide.cpp
+index fb32cfe..eb36fc5 100644
+--- a/src/Game/FE/tlSlide.cpp
++++ b/src/Game/FE/tlSlide.cpp
+@@ -5,6 +5,7 @@
+ #include "NL/nlDLRing.h"
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
++#include "mscharged_tweaks.h"
+ 
+ /**
+  * Offset/Address/Size: 0x0 | 0x802FFAFC | size: 0x1D8
+@@ -41,6 +42,24 @@ void TLSlide::Update(float deltaTime)
+     {
+         deltaTime = 0.0f;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fast menus": a one-shot slide no longer than a transition
++    // goes straight to its end. Update(0) is a reset (SetActiveSlide): a slide
++    // reset this frame keeps its first frame, as scenes holding one rely on it.
++    // Longer slides are content (credits) and looping ones idle animation.
++    if (mscharged_tweak_fast_menus() && !m_bPaused)
++    {
++        if (deltaTime == 0.0f)
++        {
++            mscharged_tweak_note_slide_reset(this);
++        }
++        else if (deltaTime > 0.0f && m_uPlayMode != TLPM_LOOPING && GetDuration() <= 3.0f
++                 && !mscharged_tweak_slide_reset_this_frame(this))
++        {
++            m_time = GetStartTime() + GetDuration() - deltaTime;
++        }
++    }
++#endif
+ 
+     m_time += deltaTime;
+     float end = GetStartTime() + GetDuration();
+diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index 2ff6730..3d70c45 100644
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -32,6 +32,10 @@
+ #include "NL/nlConfig.h"
+ #include "NL/nlTask.h"
+ #include "Game/SH/SHHallOfFame.h"
++#include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Game.h"
++#endif
+ 
+ #include <math.h>
+ 
+@@ -164,6 +168,22 @@ void FrontEndTask::Run(float dt)
+     }
+ 
+ #endif // HBM owner/update omitted
++#if defined(MSCHARGED_TWEAKS)
++    {
++        // Port tweak "Fast menus": once a frame, whether the menus are up
++        // (outside matches and the boot screens) and whether the presentation
++        // runs a transition script; such a script's scripted waits end as
++        // they start, and its camera moves run on dilated time (nlTask.cpp).
++        GameSceneManager* scenes = GameSceneManager::Instance();
++        BaseSceneHandler* top = scenes != 0 ? scenes->GetCurrentScene() : 0;
++        SceneList type = top != 0 ? scenes->GetSceneType(top) : SCENE_INVALID;
++        bool boot = type == SCENE_BOOT_LOADING || type == SCENE_BOOT_LOADING_JPN;
++        FrontEndPresentation* presentation = FrontEndPresentation::GetInstance();
++        mscharged_tweak_frontend_frame(g_pGame == 0 && !boot, presentation->IsActive());
++        if (mscharged_tweak_fast_transition() && presentation->mWaitTime > 0.0f)
++            presentation->mWaitTime = 0.0f;
++    }
++#endif
+     FrontEndPresentation::GetInstance()->Update(dt);
+     DrawFrontEndElements(dt);
+ 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 0ba7e3a..e3c8bd5 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -1,6 +1,7 @@
+ #include "Game/Task/GameTaskState.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/main.h"
++#include "mscharged_tweaks.h"
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
+ #include <stdexcept>
+ #endif
+@@ -835,6 +836,10 @@ static void AddTasks()
+ #endif // unqualified unrelated task registration remains omitted
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK)
+     nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fast menus": audio keeps real time during transitions.
++    mscharged_tweak_set_real_time_task(&audioUpdateTask);
++#endif
+ #endif // unqualified unrelated task registration remains omitted
+     nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING)
+diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
+index 3211342..d94c8c9 100644
+--- a/src/NL/nlTask.cpp
++++ b/src/NL/nlTask.cpp
+@@ -6,6 +6,7 @@
+ #include "NL/nlDLRing.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlTicker.h"
++#include "mscharged_tweaks.h"
+ 
+ #include "Game/Sys/movie.h"
+ #include "Game/SharedStaticStorage.h"
+@@ -113,6 +114,10 @@ void nlTaskManager::RunAllTasks()
+             if (taskIterator->mTimeDilated)
+             {
+                 deltaTime *= m_pInstance->mTimeDilation;
++#if defined(MSCHARGED_TWEAKS)
++                // Port tweak "Fast menus": transition time (FrontEndTask.cpp).
++                deltaTime *= mscharged_tweak_task_dilation(taskIterator);
++#endif
+             }
+             m_pInstance->mCurrentTimeDelta = deltaTime;
+             taskIterator->Run(deltaTime);

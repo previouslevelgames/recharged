@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie

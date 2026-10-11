@@ -81,3 +81,4 @@
 0085-full-detail-xfb.patch
 0086-locked-aspect-framebuffer.patch
 0087-early-low-wii-arenas.patch
+0088-present-picture-without-signal-margin.patch

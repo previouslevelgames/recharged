@@ -1,5 +1,5 @@
 Subject: Select original frontend input with an explicit native pad backend
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Make the native pad base abstract where console method bodies are unavailable;
 a real desktop backend supplies every query. Native owners supply bounded pad

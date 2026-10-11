@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original frontend pointer bounds and listener steps
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Share original listener event order, disable history reset, rotated hit testing,
 instance bounds and child extent equations with checked native retained owners.

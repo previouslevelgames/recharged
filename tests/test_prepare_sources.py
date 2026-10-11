@@ -161,6 +161,39 @@ class SourcePreparationTests(unittest.TestCase):
         self.assertEqual(self.git(self.submodule, "status", "--porcelain"), "")
         self.run_prepare(check=True)
 
+    def tweak_patch(self, name, old, new):
+        tweaks = self.root / "patches/example-tweaks"
+        if not tweaks.exists():
+            tweaks.mkdir(parents=True)
+            (tweaks / "base").write_text(self.pin + "\n", newline="\n")
+            (tweaks / "series").write_text("", newline="\n")
+        text = "".join(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
+                                          fromfile="a/value.txt", tofile="b/value.txt"))
+        (tweaks / name).write_text(text, newline="\n")
+        with (tweaks / "series").open("a") as series:
+            series.write(name + "\n")
+        return tweaks
+
+    def test_tweak_series_applies_after_the_faithful_series(self):
+        self.patch("one.patch", "original\n", "first\n")
+        source = self.run_prepare()
+        key = json.loads((source.parent / "manifest.json").read_text())["key"]
+        # The same file name in both series stays distinct.
+        self.tweak_patch("one.patch", "first\n", "tweaked\n")
+        source = self.run_prepare()
+        self.assertEqual((source / "value.txt").read_text(), "tweaked\n")
+        manifest = json.loads((source.parent / "manifest.json").read_text())
+        self.assertNotEqual(manifest["key"], key)
+        self.assertEqual([p["name"] for p in manifest["inputs"]["patches"]],
+                         ["one.patch", "example-tweaks/one.patch"])
+        self.run_prepare(check=True)
+
+    def test_tweak_series_requires_the_pinned_base(self):
+        tweaks = self.tweak_patch("one.patch", "original\n", "tweaked\n")
+        (tweaks / "base").write_text("0" * 40 + "\n", newline="\n")
+        with self.assertRaisesRegex(PreparationError, "Patch base for example-tweaks"):
+            self.run_prepare()
+
     def test_untracked_and_ignored_files_are_not_exported(self):
         (self.submodule / "scratch.txt").write_text("ignored data\n", newline="\n")
         (self.submodule / "local.txt").write_text("untracked data\n", newline="\n")

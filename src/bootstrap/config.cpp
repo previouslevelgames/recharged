@@ -61,6 +61,8 @@ Values Encode(const Settings& s)
             {"launcher.ui_scale", s.ui_scale}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
+    for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
+        values.emplace(std::string("gameplay.") + kGameTweaks[n].key, s.tweaks[n] ? "true" : "false");
     for (std::size_t n = 0; n < s.pad_profiles.size(); ++n)
     {
         const auto& profile = s.pad_profiles[n];
@@ -229,6 +231,12 @@ Settings Decode(const Values& values)
     choice("advanced.log_level", s.log_level, {"error", "warning", "info", "debug"});
     boolean("advanced.verbose_console", s.verbose_console);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
+    for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
+    {
+        bool value = false;
+        boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
+        s.tweaks[n] = value;
+    }
     return s;
 }
 

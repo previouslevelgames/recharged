@@ -1,5 +1,5 @@
 Subject: Preserve the legacy diagnostic no-data event marker
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 Classification: legacy diagnostic declaration compatibility; original source ABI unchanged.
 
 diff --git a/include/Game/Event.h b/include/Game/Event.h

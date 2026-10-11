@@ -55,11 +55,11 @@ namespace
 // Window title of the game and the launcher: the port's name and build.
 std::string GameTitle() { return std::string("MSCharged Port ") + mscharged::build::version; }
 
-enum Page { PagePlay, PageGame, PageDisplay, PageAudio, PageControls, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Display", "Audio", "Controls", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "display", "audio", "controls", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Sliders,
-                               Icon::Info};
+enum Page { PagePlay, PageGame, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play", "Game", "Display", "Audio", "Controls", "Gameplay", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "display", "audio", "controls", "gameplay", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Target,
+                               Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
@@ -605,6 +605,8 @@ private:
         command += s.fullscreen ? " --fullscreen" : " --window";
         command += " --size " + std::to_string(s.width) + "x" + std::to_string(s.height);
         command += " --aspect " + s.aspect;
+        // Tweaks come from the INI; without any here, keep the INI's off too.
+        if (s.GameTweakMask() == 0 && file_.settings.GameTweakMask() != 0) command += " --no-tweaks";
         return command;
     }
 
@@ -701,6 +703,7 @@ private:
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
+            case PageGameplay: GameplayPage(); break;
             case PageAdvanced: AdvancedPage(quit); break;
             default: AboutPage(); break;
             }
@@ -800,6 +803,13 @@ private:
         else if (check_.info)
             detail = "Mario Strikers Charged  -  " + std::string(RegionName(check_.info->game_id)) + "  -  "
                 + check_.info->game_id + " rev " + std::to_string(unsigned(check_.info->revision));
+        // Gameplay tweaks change the original game: never silently.
+        if (!pending_ && blocker.empty() && draft_.GameTweakMask() != 0)
+        {
+            tint = color::warning;
+            headline = "Ready to play, with tweaks";
+            detail = "Tweaks: " + DescribeGameTweaks(draft_.GameTweakMask());
+        }
         if (icon != Icon::None) DrawIcon(draw, icon, {pos.x + Dp(11), pos.y + Dp(12)}, Dp(20), Col(tint));
         DrawLabel(draw, fonts.label, {pos.x + Dp(30), pos.y + Dp(1)}, Col(color::text), headline.c_str());
         if (!detail.empty())
@@ -1222,7 +1232,11 @@ private:
         BeginCard("##window", "Window", nullptr, Icon::Display);
         if (BeginRows("##window_rows"))
         {
-            Row("Mode", "Fullscreen covers the whole display without changing its resolution.");
+            const std::string native = FullscreenResolution();
+            Row("Mode", native.empty()
+                    ? "Fullscreen covers the whole display at its own resolution, without a mode change."
+                    : ("Fullscreen covers the whole display at its own resolution, " + native
+                       + " here, without a mode change.").c_str());
             int mode = draft_.fullscreen ? 1 : 0;
             if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
             { draft_.fullscreen = mode == 1; dirty_ = true; }
@@ -1250,8 +1264,9 @@ private:
                 TextWrappedColored(CurrentFonts().caption, color::warning,
                                    ("Saved value " + draft_.aspect + " is not supported by the game. Choose one above.").c_str());
 
-            Row("Sharpness", "Clean and Sharp draw the game straight into the window without the TV flicker "
-                "filter; Sharp keeps pixels square. Soft is the original TV picture.");
+            Row("Sharpness", "Clean and Sharp draw the game's picture straight into the window, without the TV "
+                "flicker filter and the TV signal's empty border; Sharp keeps pixels square. Soft is the "
+                "original TV picture.");
             const char* pictures[] = {"soft", "clean", "sharp"};
             int picture = 2;
             for (int i = 0; i < 3; ++i) if (draft_.picture == pictures[i]) picture = i;
@@ -1489,6 +1504,18 @@ private:
                 + " x " + std::to_string(shrunk.height) + ".";
             TextWrappedColored(CurrentFonts().caption, color::warning, note.c_str());
         }
+    }
+
+    // Pixel size of the display the game opens on, as fullscreen uses it
+    // (the default display when none is chosen); empty if unknown.
+    std::string FullscreenResolution() const
+    {
+        SDL_DisplayID display = SDL_GetPrimaryDisplay();
+        if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size())) display = display_ids_[size_t(draft_.monitor - 1)];
+        const SDL_DisplayMode* mode = display ? SDL_GetDesktopDisplayMode(display) : nullptr;
+        if (!mode || mode->w <= 0 || mode->h <= 0) return {};
+        const float density = mode->pixel_density > 0 ? mode->pixel_density : 1.0f;
+        return std::to_string(std::lround(mode->w * density)) + " x " + std::to_string(std::lround(mode->h * density));
     }
 
     void DisplayChoice()
@@ -2501,6 +2528,47 @@ private:
                 Chip(labels[i], SDL_GetGamepadButton(gamepad_, buttons[i]) ? color::accent : color::dim);
             }
         }
+        EndCard();
+    }
+
+    void TweakRow(GameTweak tweak)
+    {
+        const auto index = std::size_t(tweak);
+        const auto& info = kGameTweaks[index];
+        Row(info.name, info.description);
+        const std::string id = std::string("##tweak_") + info.key;
+        if (Toggle(id.c_str(), &draft_.tweaks[index])) dirty_ = true;
+    }
+
+    void GameplayPage()
+    {
+        PageHeader("Gameplay", "Optional tweaks that change the original game. With all of them off, the game plays "
+                               "exactly as on the Wii.");
+        BeginCard("##menus", "Menus & startup", nullptr, Icon::Play);
+        if (BeginRows("##menus_rows"))
+        {
+            TweakRow(GameTweak::SkipIntro);
+            TweakRow(GameTweak::FastMenus);
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##matches", "Matches & unlocks", nullptr, Icon::Target);
+        if (BeginRows("##matches_rows"))
+        {
+            TweakRow(GameTweak::NoMegaStrikes);
+            TweakRow(GameTweak::UnlockAll);
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##mods", "Mods", "Coming later", Icon::Sliders);
+        TextWrappedColored(CurrentFonts().body, color::text,
+            "Texture packs and script mods will be managed here.");
+        ImGui::Dummy({0, Dp(2)});
+        TextWrappedColored(CurrentFonts().caption, color::muted,
+            "Tweaks apply when the game starts. For a bug report, try again with them off (or start the game "
+            "with --no-tweaks) to check whether a tweak is involved.");
         EndCard();
     }
 

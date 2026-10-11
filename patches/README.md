@@ -27,6 +27,17 @@ its input as preprocessing tokens. Files whose program depends on their layout
 patched; `manifest.json` lists them under `kept_unformatted`. Patches are always
 written against the exact upstream text, never against the formatted copy.
 
+## Tweak series
+
+`patches/mscharged-decomp-tweaks/` holds the opt-in game tweaks ([gameplay] in
+`mscharged.ini`), the only intended changes to the original game's behaviour.
+It has its own `base` and `series` and is applied after the Charged series.
+Its hooks are compiled only into the game module built with `MSCHARGED_TWEAKS`
+and take the original path unless their tweak is enabled; every other target
+compiles the original code. The game module receives the enabled set from the
+host before original main (`src/platform/game_tweaks.cpp`). Keep these patches
+apart from the faithful series and refresh them on every pin update.
+
 ## Charged series
 
 Patch 0585 restores the original SDK texture-binding loop and its panic,

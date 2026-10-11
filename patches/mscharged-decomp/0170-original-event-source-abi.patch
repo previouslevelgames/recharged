@@ -1,5 +1,5 @@
 Subject: Restore whole original events with native metadata ABI
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Isolate previous registry/listener/queue/task behavior under an explicit
 diagnostic event profile. Genuine source retains original lazy registry
