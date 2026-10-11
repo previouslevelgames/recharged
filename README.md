@@ -1,7 +1,7 @@
 # Mario Strikers Charged — Native Port
 
 [![Build stable](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable)
-[![Version 1.0.5](https://img.shields.io/badge/version-1.0.5-blue)](CMakeLists.txt)
+[![Version 1.0.6](https://img.shields.io/badge/version-1.0.6-blue)](CMakeLists.txt)
 
 Play **Mario Strikers Charged** natively on your PC. The port compiles the
 fully reconstructed game source of

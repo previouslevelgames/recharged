@@ -5,6 +5,7 @@
 #include "platform/instruction_cache.h"
 #include "platform/thread_queues.h"
 #include "platform/thread_registry_abi.h"
+#include "platform/process_exit.h"
 #include <aurora/video.h>
 #include <revolution/ipc.h>
 
@@ -245,7 +246,7 @@ extern "C" void mscharged_stm_terminal_wait(void) {
     // storage until the OS ends the process; never run destructors or return
     // success into the original infinite loop. Host restart is not supplied.
     std::fflush(nullptr);
-    std::_Exit(0);
+    TerminateProcessNow(0);
 }
 
 namespace {

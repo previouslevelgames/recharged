@@ -1,0 +1,171 @@
+From: mscharged-port contributors
+Subject: [PATCH] Place the Windows Wii arenas before the graphics device
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host memory placement (Windows release builds). Apply after 0086.
+
+0079 places MEM1 and MEM2 below 2 GB when OSInit runs. The host allocates
+bottom-up into the same low addresses, and by then the window, graphics
+device, fullscreen swapchain and scaled EFB exist: with fullscreen at 3x
+internal resolution or more, one system had no 24 or 64 MiB block left and
+stopped with "Failed to allocate MEM1/MEM2". aurora_initialize now places
+both arenas first, with the same search, sizes and below-2-GB rule; OSInit
+takes them or, if that early attempt failed, searches as before. Arenas
+that OSInit never takes are released with the OS memory. When an arena
+still does not fit, the log reports the free space in its search range and
+what occupies it before the fatal error. Other platforms and builds are
+unchanged.
+
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+index 10a97d0..80a95ab 100644
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -35,6 +35,7 @@
+ #include "system_info.hpp"
+ #include "tracy/Tracy.hpp"
+ 
++void AuroraOSReserveMemory();
+ void AuroraOSShutdown();
+ 
+ namespace aurora {
+@@ -131,6 +132,9 @@ bool g_initialFrame = false;
+ 
+ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexcept {
+   g_config = config;
++  // Before the window and graphics device take their share of the low
++  // address space (see AuroraOSReserveMemory).
++  AuroraOSReserveMemory();
+ #ifdef AURORA_ENABLE_GX
+   reset_presentation();
+ #endif
+diff --git a/lib/dolphin/os/OSMemory.cpp b/lib/dolphin/os/OSMemory.cpp
+index afdd318..d0374ee 100644
+--- a/lib/dolphin/os/OSMemory.cpp
++++ b/lib/dolphin/os/OSMemory.cpp
+@@ -6,6 +6,7 @@
+ 
+ #include "fmt/base.h"
+ 
++#include <algorithm>
+ #include <cassert>
+ #include <cstdlib>
+ #include <cstring>
+@@ -45,15 +46,86 @@ static void* AllocLowWindows(size_t size) {
+   }
+   return nullptr;
+ }
++
++// The host allocates bottom-up into the same low addresses, and by OSInit a
++// fullscreen swapchain and scaled EFB had left no room below 2 GB on some
++// systems. aurora_initialize therefore places the arenas before the window and
++// graphics device exist; OSInit takes them, or searches as before.
++struct LowArena {
++  void* ptr = nullptr;
++  size_t size = 0;
++};
++static LowArena MEM1Reserved;
++static LowArena MEM2Reserved;
++
++static void ReserveLowArena(LowArena& arena, size_t size) {
++  if (arena.ptr != nullptr || size == 0) return;
++  arena.ptr = AllocLowWindows(size);
++  arena.size = arena.ptr != nullptr ? size : 0;
++}
++
++static void* TakeLowArena(LowArena& arena, size_t size) {
++  void* ptr = arena.ptr;
++  if (ptr != nullptr && arena.size != size) {
++    VirtualFree(ptr, 0, MEM_RELEASE);
++    ptr = nullptr;
++  }
++  arena = {};
++  return ptr != nullptr ? ptr : AllocLowWindows(size);
++}
++
++static void ReleaseLowArena(LowArena& arena) {
++  if (arena.ptr != nullptr) VirtualFree(arena.ptr, 0, MEM_RELEASE);
++  arena = {};
++}
++
++// What occupies the range AllocLowWindows searches when an arena does not fit.
++static void LogLowAddressSpace() {
++  size_t freeBytes = 0, largestFree = 0, images = 0, mapped = 0, privateBytes = 0;
++  uintptr_t largestAt = 0;
++  MEMORY_BASIC_INFORMATION info;
++  for (uintptr_t address = 0x10000000; address < 0x80000000u;) {
++    if (VirtualQuery(reinterpret_cast<void*>(address), &info, sizeof info) != sizeof info || info.RegionSize == 0) break;
++    const uintptr_t base = reinterpret_cast<uintptr_t>(info.BaseAddress);
++    const uintptr_t end = std::min<uintptr_t>(base + info.RegionSize, 0x80000000u);
++    const size_t size = end - std::max(base, address);
++    if (info.State == MEM_FREE) {
++      freeBytes += size;
++      if (size > largestFree) {
++        largestFree = size;
++        largestAt = std::max(base, address);
++      }
++    } else if (info.Type == MEM_IMAGE) {
++      images += size;
++    } else if (info.Type == MEM_MAPPED) {
++      mapped += size;
++    } else {
++      privateBytes += size;
++    }
++    address = end;
++  }
++  constexpr size_t MiB = 1024 * 1024;
++  Log.error("Arena range 0x10000000-0x80000000: {} MiB free, largest free block {} MiB at {:#x}; in use: {} MiB "
++            "images, {} MiB mapped, {} MiB private",
++            freeBytes / MiB, largestFree / MiB, largestAt, images / MiB, mapped / MiB, privateBytes / MiB);
++}
+ #endif
+ 
++void AuroraOSReserveMemory() {
++#if defined(_WIN64) && NDEBUG
++  ReserveLowArena(MEM1Reserved, aurora::g_config.mem1Size);
++  ReserveLowArena(MEM2Reserved, aurora::g_config.mem2Size);
++#endif
++}
++
+ void AuroraOSInitMemory() {
+   AuroraResetNativeAddresses();
+   GuardGCMemory();
+ 
+   if (aurora::g_config.mem1Size > 0) {
+ #if defined(_WIN64) && NDEBUG
+-    MEM1Start = AllocLowWindows(aurora::g_config.mem1Size);
++    MEM1Start = TakeLowArena(MEM1Reserved, aurora::g_config.mem1Size);
++    if (MEM1Start == nullptr) LogLowAddressSpace();
+ #else
+     MEM1Start = AllocMEM1(aurora::g_config.mem1Size);
+ #endif
+@@ -63,7 +135,8 @@ void AuroraOSInitMemory() {
+   }
+   if (aurora::g_config.mem2Size > 0) {
+ #if defined(_WIN64) && NDEBUG
+-    MEM2Start = AllocLowWindows(aurora::g_config.mem2Size);
++    MEM2Start = TakeLowArena(MEM2Reserved, aurora::g_config.mem2Size);
++    if (MEM2Start == nullptr) LogLowAddressSpace();
+ #else
+     MEM2Start = SDL_aligned_alloc(32, aurora::g_config.mem2Size);
+     if (MEM2Start != nullptr) std::memset(MEM2Start, 0, aurora::g_config.mem2Size);
+@@ -84,6 +157,9 @@ void AuroraOSShutdownMemory() {
+   MEM1Reservation = nullptr;
+ #elif defined(_WIN64) && NDEBUG
+   if (MEM1Start != nullptr) VirtualFree(MEM1Start, 0, MEM_RELEASE);
++  // Placed by aurora_initialize but never taken by OSInit.
++  ReleaseLowArena(MEM1Reserved);
++  ReleaseLowArena(MEM2Reserved);
+ #else
+   SDL_aligned_free(MEM1Start);
+ #endif
+diff --git a/lib/dolphin/os/internal.hpp b/lib/dolphin/os/internal.hpp
+index 96221bb..f231099 100644
+--- a/lib/dolphin/os/internal.hpp
++++ b/lib/dolphin/os/internal.hpp
+@@ -17,6 +17,7 @@ void AuroraResetArena();
+ void AuroraResetAlloc();
+ void AuroraOSShutdown();
+ 
++void AuroraOSReserveMemory();
+ void AuroraOSInitMemory();
+ void AuroraFillBootInfo();
+ void AuroraInitClock();

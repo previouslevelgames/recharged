@@ -37,6 +37,7 @@
 #include "platform/ai.h"
 #include "platform/console.h"
 #include "platform/session_log.h"
+#include "platform/process_exit.h"
 #include "platform/native_ax_module_memory.h"
 #include "platform/system.h"
 #include "platform/rtc_policy.h"
@@ -605,7 +606,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
-                // The power-off path ends with std::_Exit: hand the last lines to the log and console.
+                // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.
                 mscharged::platform::SessionLogLine("=== Session ended (original power off) ===");
                 mscharged::platform::FlushSessionLog();
             };
@@ -946,7 +947,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(resizeCheck) {
             // Retire the actual native hardware/window for the resize gate.
             // Original game tasks/CRT destruction remain explicitly omitted;
-            // _Exit prevents surviving source statics touching released arenas.
+            // TerminateProcessNow prevents surviving source statics touching released arenas.
             aurora_dvd_close();
             aurora_shutdown();
             mscharged::platform::ShutdownNativeInterruptController();
@@ -956,13 +957,13 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::platform::Trace("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.\n");
         mscharged::runtime::FrameTimingLog::FinishForProcessExit();
         mscharged::platform::SessionLogLine("=== Session ended ===");
-        std::fflush(nullptr);std::_Exit(0);
+        std::fflush(nullptr);mscharged::platform::TerminateProcessNow(0);
         } catch(const std::exception& e) {
             mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped with live owners: ")+e.what());
-            std::_Exit(1);
+            mscharged::platform::TerminateProcessNow(1);
         }
     }catch(const std::exception& e){
         mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped: ")+e.what());
-        std::_Exit(1);
+        mscharged::platform::TerminateProcessNow(1);
     }
 }

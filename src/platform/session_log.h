@@ -32,7 +32,7 @@ void SessionLogLine(const std::string& text);
 // Displays, the video driver and the window, for the log only.
 void LogSessionDisplays(SDL_Window* window);
 
-// Writes everything printed so far to the log; call before std::_Exit.
+// Writes everything printed so far to the log; call before TerminateProcessNow.
 void FlushSessionLog();
 
 // An error that ends the program: printed, logged and, when the player has

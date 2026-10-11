@@ -341,8 +341,10 @@ void WriteDump(EXCEPTION_POINTERS* info)
                                     FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
     MINIDUMP_EXCEPTION_INFORMATION exception{GetCurrentThreadId(), info, FALSE};
+    // Full memory info: the address-space layout, e.g. what filled the
+    // region below 2 GB that the Wii arenas and game DLLs need.
     const auto type = MINIDUMP_TYPE(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory
-                                    | MiniDumpWithUnloadedModules);
+                                    | MiniDumpWithUnloadedModules | MiniDumpWithFullMemoryInfo);
     if (dump(GetCurrentProcess(), GetCurrentProcessId(), file, type, info ? &exception : nullptr, nullptr, nullptr))
         CrashWrite(("Minidump: " + Utf8(g_log.dump) + "\n").c_str());
     CloseHandle(file);
