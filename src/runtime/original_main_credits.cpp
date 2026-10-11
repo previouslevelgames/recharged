@@ -36,6 +36,7 @@
 #include "platform/desktop_presented_dpd.h"
 #include "platform/ai.h"
 #include "platform/console.h"
+#include "platform/session_log.h"
 #include "platform/native_ax_module_memory.h"
 #include "platform/system.h"
 #include "platform/rtc_policy.h"
@@ -360,11 +361,22 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
         SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII,"0",SDL_HINT_DEFAULT);
+        // Startup milestones and display settings for logs/mscharged.log.
+        const auto& shown=launch.settings;
+        mscharged::platform::SessionLogLine("Display settings: "+std::string(shown.fullscreen?"fullscreen":"windowed")
+            +" "+std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", aspect "+shown.aspect
+            +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing+", picture "+shown.picture
+            +", vsync "+(shown.vsync?"on":"off")+", display "+std::to_string(shown.monitor)
+            +", graphics validation "+(shown.graphics_validation?"on":"off"));
+        mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
+            +mscharged::platform::NativeGraphicsBackendName+" graphics and the window");
         const auto host=aurora_initialize(argc,argv,&config);
         if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
             throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
                 +" foundation unavailable; no fallback acceptance");
         mscharged::platform::SetApplicationIcon(host.window);
+        mscharged::platform::SessionLogLine("Startup: graphics ready");
+        mscharged::platform::LogSessionDisplays(host.window);
         bool retainedWindowClose=false;
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
         if(frontend && sourceAudio && nativeSend) {
@@ -405,6 +417,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
         mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
             float(launch.settings.master_volume)/100.0f);
+        mscharged::platform::SessionLogLine(launch.settings.fullscreen ? "Startup: switching to fullscreen"
+                                                                        : "Startup: setting the window size");
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
         if(nativeSend) {
             // Existing Aurora policy fixes the internal source EFB at 1x.
@@ -426,6 +440,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                       mscharged::platform::GetNativeHardwareWindowCloseStatus().requested),
                       "Native window closed before source entry");
             aurora::gfx::synchronize();
+            mscharged::platform::SessionLogLine("Startup: first frame done, render size "
+                +std::string(efbScale==0.0f?"follows the window":"fixed"));
+            mscharged::platform::LogSessionDisplays(host.window);
         }
         OSInit();
         if(!OSGetArenaLo()||!OSGetMEM2ArenaLo())
@@ -501,11 +518,17 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if (launch.settings.remote_calibration[slot] != "none")
                 players.calibrations[slot] =
                     mscharged::platform::ParseWiimoteCalibration(launch.settings.remote_calibration[slot]);
+        mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
+            nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys)};
+        // Each gamepad's profile (controls.gamepadN_profile).
+        for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
+            const auto& profile = launch.settings.PadProfileOf(pad);
+            desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
+                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0};
+        }
         mscharged::platform::InitializeNativeHardwareInput(host.window,
             {static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),3,true,launch.settings.rumble},
-            mscharged::platform::GetNativeSTMInput(),
-            {true,false,true,mscharged::platform::QueryPresentedDesktopDpd,nullptr,true,true,-1,
-             mscharged::platform::ParseKeyBindings(launch.settings.keys)}, players);
+            mscharged::platform::GetNativeSTMInput(), desktop, players);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(
@@ -546,6 +569,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         mscharged::platform::Trace("Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
                      mscharged::platform::NativeGraphicsBackendName);
+        mscharged::platform::SessionLogLine("Startup: game module loaded, entering the game");
         std::fflush(nullptr);
         const int result=entry();
         Check(result==85, "Original main selected scene did not complete checkpoint 85");
@@ -579,7 +603,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             terminalVerifier.emplace(*gameAudioHardware,*axModuleMemory,host.window);
             auto removal=terminalVerifier->Policy();
             // The opt-in frame timing log completes before the process ends.
-            removal.before_removal=[](void*){mscharged::runtime::FrameTimingLog::FinishForProcessExit();};
+            removal.before_removal=[](void*){
+                mscharged::runtime::FrameTimingLog::FinishForProcessExit();
+                // The power-off path ends with std::_Exit: hand the last lines to the log and console.
+                mscharged::platform::SessionLogLine("=== Session ended (original power off) ===");
+                mscharged::platform::FlushSessionLog();
+            };
             mscharged::platform::ConfigureNativeSTMPowerRemoval(removal);
             // The actual source entry/audio predicates and terminal policy now
             // exist. Only this host-window intent was deferred; service/tasks
@@ -926,10 +955,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(priorBoot)
             mscharged::platform::Trace("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.\n");
         mscharged::runtime::FrameTimingLog::FinishForProcessExit();
+        mscharged::platform::SessionLogLine("=== Session ended ===");
         std::fflush(nullptr);std::_Exit(0);
         } catch(const std::exception& e) {
-            std::fprintf(stderr,"Actual source diagnostic stopped with live owners: %s\n",e.what());
-            std::fflush(nullptr);std::_Exit(1);
+            mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped with live owners: ")+e.what());
+            std::_Exit(1);
         }
-    }catch(const std::exception& e){std::fprintf(stderr,"Actual source diagnostic stopped: %s\n",e.what());std::fflush(nullptr);std::_Exit(1);}
+    }catch(const std::exception& e){
+        mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped: ")+e.what());
+        std::_Exit(1);
+    }
 }

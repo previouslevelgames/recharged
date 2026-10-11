@@ -60,6 +60,13 @@ deadzone = 15
 rumble = true
 # Where the sensor bar or DolphinBar sits: bottom or top of the screen.
 sensor_bar = bottom
+# Button profile of each gamepad: Default (built in; each controller family
+# gets its own layout) or the name of a [gamepad_profileN] below. A missing
+# profile plays as Default.
+gamepad1_profile = Default
+gamepad2_profile = Default
+gamepad3_profile = Default
+gamepad4_profile = Default
 
 [keyboard]
 # Keys of the keyboard & mouse Wii Remote: one or two SDL key names per
@@ -83,6 +90,37 @@ c = C
 z = V
 shake_remote = E
 shake_nunchuk = Q
+
+# Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
+# launcher's Controls page: a unique name (not Default) and one or two SDL
+# gamepad inputs per action, separated by |: a, b, x, y (bottom, right, left,
+# top face button), start, back, guide, leftshoulder, rightshoulder,
+# leftstick, rightstick, dpup, dpdown, dpleft, dpright, lefttrigger,
+# righttrigger, or none for no button. Actions left out keep the Default
+# (Xbox) input. swap_sticks = true
+# moves the Nunchuk stick to the right stick and the pointer to the left.
+# controller: the controllers the profile is made for, xbox (Xbox and
+# PlayStation, whose buttons sit in the same places), nintendo or gamecube;
+# the launcher offers a gamepad the profiles of its kind.
+# [gamepad_profile1]
+# name = Southpaw
+# a = a
+# b = b
+# one = x
+# two = y
+# plus = start
+# minus = back
+# home = guide
+# up = dpup
+# down = dpdown
+# left = dpleft
+# right = dpright
+# c = leftshoulder
+# z = lefttrigger
+# shake_remote = righttrigger
+# shake_nunchuk = rightshoulder
+# swap_sticks = true
+# controller = xbox
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU

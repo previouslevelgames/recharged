@@ -30,13 +30,6 @@ constexpr int ShakeHalfReports = 6;
 constexpr float ShakeG = 2.5f;
 constexpr float kGravityMs2 = 9.80665f;
 enum Shake { RemoteShake, NunchukShake, ShakeCount };
-constexpr std::array<SDL_GamepadButton, 11> DesktopButtons{
-    SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
-    SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
-    SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK,
-    SDL_GAMEPAD_BUTTON_GUIDE, SDL_GAMEPAD_BUTTON_DPAD_UP,
-    SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT,
-    SDL_GAMEPAD_BUTTON_DPAD_RIGHT};
 struct Device {
     SDL_JoystickID input_id{}, virtual_id{};
     SDL_Gamepad* input{};
@@ -53,6 +46,8 @@ struct Device {
     float pointer_x = 0.5f, pointer_y = 0.5f;
     std::array<bool, ShakeCount> shake_held{};
     Clock::time_point last_service{};
+    // This pad's [gamepadN] buttons and sticks.
+    mscharged::platform::GamepadProfile profile{mscharged::platform::DefaultGamepadBindings()};
 };
 struct State {
     std::mutex mutex;
@@ -383,28 +378,37 @@ float StickAxis(SDL_Gamepad* pad, SDL_GamepadAxis axis) {
     if (std::fabs(value) < dead) return 0.0f;
     return std::copysign((std::fabs(value) - dead) / (1.0f - dead), value);
 }
-bool TriggerHeld(SDL_Gamepad* pad, SDL_GamepadAxis axis) { return SDL_GetGamepadAxis(pad, axis) > 16384; }
+// The Nunchuk stick's axes, or with swapped sticks the pointer's.
+SDL_GamepadAxis StickX(const Device& pad, bool nunchuk) {
+    return nunchuk != pad.profile.swap_sticks ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
+}
+SDL_GamepadAxis StickY(const Device& pad, bool nunchuk) {
+    return nunchuk != pad.profile.swap_sticks ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+}
+bool PadHeld(const Device& pad, std::size_t action) {
+    return mscharged::platform::GamepadBindingHeld(pad.input, pad.profile.bindings[action]);
+}
 mscharged::platform::NativeNunchukObservation GamepadNunchuk(Device& pad, bool focused) {
-    // Left stick on the physical Nunchuk's range (about 100 counts from the
-    // calibrated centre); original ClampWiiStick/KPAD apply their own dead
-    // zone. Left trigger = Z, left bumper = C.
+    // The Nunchuk stick (left by default) on the physical Nunchuk's range
+    // (about 100 counts from the calibrated centre); original ClampWiiStick/KPAD
+    // apply their own dead zone. C and Z follow the pad's [gamepadN] inputs.
     mscharged::platform::NativeNunchukObservation result{};
     result.acc_z = mscharged::platform::kNativeNunchukGravity;
     if (!focused) return result;
-    float x = StickAxis(pad.input, SDL_GAMEPAD_AXIS_LEFTX), y = -StickAxis(pad.input, SDL_GAMEPAD_AXIS_LEFTY);
+    float x = StickAxis(pad.input, StickX(pad, true)), y = -StickAxis(pad.input, StickY(pad, true));
     const float length = std::hypot(x, y);
     if (length > 1.0f) { x /= length; y /= length; }
     result.stick_x = static_cast<std::int8_t>(std::lround(x * 100.0f));
     result.stick_y = static_cast<std::int8_t>(std::lround(y * 100.0f));
-    result.z = TriggerHeld(pad.input, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
-    result.c = SDL_GetGamepadButton(pad.input, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+    result.z = PadHeld(pad, mscharged::GamepadActionZ);
+    result.c = PadHeld(pad, mscharged::GamepadActionC);
     return result;
 }
 void UpdateGamepadShakes(Device& pad, bool focused) {
-    // Right trigger shakes the Remote, right bumper the Nunchuk: one flick per press.
+    // One flick per press of the shake inputs (right trigger / bumper by default).
     const std::array<bool, ShakeCount> held{
-        focused && TriggerHeld(pad.input, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER),
-        focused && SDL_GetGamepadButton(pad.input, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)};
+        focused && PadHeld(pad, mscharged::GamepadActionShakeRemote),
+        focused && PadHeld(pad, mscharged::GamepadActionShakeNunchuk)};
     for (int shake = 0; shake != ShakeCount; ++shake) {
         if (held[shake] && !pad.shake_held[shake]) {
             pad.shake_reports[shake] = 0;
@@ -414,15 +418,15 @@ void UpdateGamepadShakes(Device& pad, bool focused) {
     }
 }
 mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& pad, bool focused, Clock::time_point now) {
-    // The right stick moves the pointer across the picture: full deflection
+    // The pointer stick (right by default) moves across the picture: full deflection
     // crosses its width in about 0.8 s. It stays where it was left.
     const float seconds = pad.last_service == Clock::time_point{} ? 0.0f
         : std::min(0.1f, std::chrono::duration<float>(now - pad.last_service).count());
     pad.last_service = now;
     if (focused) {
         constexpr float speed = 1.25f;
-        pad.pointer_x = std::clamp(pad.pointer_x + StickAxis(pad.input, SDL_GAMEPAD_AXIS_RIGHTX) * speed * seconds, 0.0f, 1.0f);
-        pad.pointer_y = std::clamp(pad.pointer_y + StickAxis(pad.input, SDL_GAMEPAD_AXIS_RIGHTY) * speed * seconds, 0.0f, 1.0f);
+        pad.pointer_x = std::clamp(pad.pointer_x + StickAxis(pad.input, StickX(pad, false)) * speed * seconds, 0.0f, 1.0f);
+        pad.pointer_y = std::clamp(pad.pointer_y + StickAxis(pad.input, StickY(pad, false)) * speed * seconds, 0.0f, 1.0f);
     }
     return mscharged::platform::MakeDesktopDpdObservation(pad.pointer_x, pad.pointer_y, WPADGetSensorBarPosition(),
                                                           focused && state.ready);
@@ -522,6 +526,12 @@ void ServiceDesktopWpad() {
             if (!slot) { SDL_CloseGamepad(input); break; }
             try {
                 *slot = MakeDevice(input);
+                (*slot)->profile = state.settings.gamepad_profiles[index];
+                // The built-in Default takes this controller's own default layout.
+                if ((*slot)->profile.follow_controller)
+                    (*slot)->profile = {mscharged::platform::DefaultGamepadBindings(
+                                            mscharged::platform::GamepadFamilyOf(SDL_GetGamepadType(input))),
+                                        false, true};
                 if (state.settings.gamepad_players) AttachGamepadPlayer(state, **slot, index);
             }
             catch (...) {
@@ -605,8 +615,9 @@ void ServiceDesktopWpad() {
     }
     for (auto& pad : state.pads) if (pad) {
         std::array<bool, 11> buttons{};
-        if (focused) for (int n = 0; n < int(buttons.size()); ++n)
-            buttons[n] = SDL_GetGamepadButton(pad->input, DesktopButtons[n]);
+        // WPAD order: A, B, 1, 2, +, -, HOME, up, down, left, right.
+        if (focused) for (std::size_t n = 0; n < buttons.size(); ++n)
+            buttons[n] = PadHeld(*pad, mscharged::GamepadActionA + n);
         if (!state.settings.gamepad_players) { Report(*pad, buttons, now); continue; }
         auto nunchuk = GamepadNunchuk(*pad, focused);
         UpdateGamepadShakes(*pad, focused);

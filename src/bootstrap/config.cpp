@@ -3,11 +3,13 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <fstream>
 #include <locale>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -59,6 +61,18 @@ Values Encode(const Settings& s)
             {"launcher.ui_scale", s.ui_scale}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
+    for (std::size_t n = 0; n < s.pad_profiles.size(); ++n)
+    {
+        const auto& profile = s.pad_profiles[n];
+        const auto section = "gamepad_profile" + std::to_string(n + 1) + ".";
+        values.emplace(section + "name", profile.name);
+        for (std::size_t action = 0; action < GamepadActionCount; ++action)
+            values.emplace(section + kGamepadActions[action].key, profile.inputs[action]);
+        values.emplace(section + "swap_sticks", profile.swap_sticks ? "true" : "false");
+        values.emplace(section + "controller", profile.controller);
+    }
+    for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
+        values.emplace("controls.gamepad" + std::to_string(slot + 1) + "_profile", s.pad_profile_names[slot]);
     return values;
 }
 
@@ -131,23 +145,66 @@ Settings Decode(const Values& values)
         }
         s.remote_calibration[n] = it->second;
     }
-    // [keyboard]: one or two key names per action, separated by " | ".
-    for (std::size_t n = 0; n < KeyActionCount; ++n)
-    {
-        const auto key = std::string("keyboard.") + kKeyActions[n].key;
+    // [keyboard] and [gamepadN]: one or two names per action, separated by " | ".
+    const auto names = [&](const std::string& key, std::string& value, const char* what) {
         const auto it = values.find(key);
-        if (it == values.end()) continue;
-        std::size_t names = 0, start = 0;
+        if (it == values.end()) return;
+        std::size_t count = 0, start = 0;
         bool valid = !it->second.empty();
         while (valid && start <= it->second.size())
         {
             const auto bar = std::min(it->second.find('|', start), it->second.size());
-            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++names <= 2;
+            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++count <= 2;
             start = bar + 1;
         }
         if (!valid)
-            throw std::runtime_error("Invalid configuration: " + key + " must be one or two key names separated by |");
-        s.keys[n] = it->second;
+            throw std::runtime_error("Invalid configuration: " + key + " must be one or two " + what
+                + " separated by |");
+        value = it->second;
+    };
+    for (std::size_t n = 0; n < KeyActionCount; ++n)
+        names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names");
+    // [gamepad_profileN]: numbered from 1, each with a unique name.
+    for (auto it = values.lower_bound("gamepad_profile"); it != values.end() && it->first.rfind("gamepad_profile", 0) == 0;
+         ++it)
+    {
+        const auto section = it->first.substr(0, it->first.find('.'));
+        const auto digits = section.substr(std::string("gamepad_profile").size());
+        std::size_t number = 0;
+        const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number);
+        if (digits.empty() || digits[0] == '0' || parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size()
+            || number < 1 || number > kMaxGamepadProfiles)
+            throw std::runtime_error("Invalid configuration: gamepad profiles are [gamepad_profile1] to [gamepad_profile"
+                + std::to_string(kMaxGamepadProfiles) + "], not [" + section + "]");
+    }
+    std::vector<Settings::PadProfile> profiles;
+    for (std::size_t number = 1; number <= kMaxGamepadProfiles; ++number)
+    {
+        const auto section = "gamepad_profile" + std::to_string(number) + ".";
+        const auto first = values.lower_bound(section);
+        if (first == values.end() || first->first.rfind(section, 0) != 0) continue;
+        const auto name = values.find(section + "name");
+        if (name == values.end() || !ValidPadProfileName(name->second))
+            throw std::runtime_error("Invalid configuration: " + section
+                + "name must be 1-32 characters without quotes, brackets, = or |, and not Default");
+        for (const auto& other : profiles)
+            if (SamePadProfileName(other.name, name->second))
+                throw std::runtime_error("Invalid configuration: two gamepad profiles are named " + name->second);
+        Settings::PadProfile profile;
+        profile.name = name->second;
+        for (std::size_t action = 0; action < GamepadActionCount; ++action)
+            names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs");
+        boolean((section + "swap_sticks").c_str(), profile.swap_sticks);
+        choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
+        profiles.push_back(std::move(profile));
+    }
+    s.pad_profiles = std::move(profiles);
+    // A gamepad whose profile no longer exists plays with the built-in Default.
+    for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
+    {
+        const auto it = values.find("controls.gamepad" + std::to_string(slot + 1) + "_profile");
+        if (it != values.end()) s.pad_profile_names[slot] = it->second;
+        s.pad_profile_names[slot] = s.PadProfileOf(slot).name;
     }
     // Players fill in order from player 1, and each device plays once.
     if (s.players[0] == "off")
@@ -176,9 +233,24 @@ Settings Decode(const Values& values)
 }
 
 // Preserve comments and unknown settings when rewriting known keys.
+// Sections the settings own completely: on save, their keys that the
+// settings no longer contain are removed (a deleted gamepad profile).
+bool OwnedSection(const std::string& section)
+{
+    const std::string prefix = "gamepad_profile";
+    return section.size() > prefix.size() && section.compare(0, prefix.size(), prefix) == 0
+        && std::all_of(section.begin() + std::ptrdiff_t(prefix.size()), section.end(),
+                       [](unsigned char c) { return std::isdigit(c); });
+}
+
 Values Parse(const std::string& contents, std::string* updated = nullptr, Values replacements = {})
 {
     Values values;
+    std::set<std::string> kept;
+    for (const auto& [key, value] : replacements) kept.insert(key);
+    // An owned section's header (and comments) wait for its first kept key.
+    std::string held;
+    bool holding = false;
     std::istringstream input(contents);
     std::string section, line;
     size_t number = 0;
@@ -190,10 +262,14 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
         if (bom) line.erase(0, 3);
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const auto text = Trim(line);
+        bool header = false, key_line = false, drop = false;
         if (!text.empty() && text[0] != '#' && text[0] != ';')
         {
             if (text.front() == '[' && text.back() == ']')
+            {
                 section = Trim(text.substr(1, text.size() - 2));
+                header = true;
+            }
             else
             {
                 const auto equals = line.find('=');
@@ -206,6 +282,8 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                     value = value.substr(1, value.size() - 2);
                 if (!values.emplace(full_key, value).second)
                     throw std::runtime_error("Invalid configuration: duplicate " + full_key);
+                key_line = true;
+                drop = updated && OwnedSection(section) && !kept.count(full_key);
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)
@@ -215,7 +293,19 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 }
             }
         }
-        if (updated) *updated += (bom ? "\xEF\xBB\xBF" : "") + line + newline;
+        if (!updated) continue;
+        const std::string piece = (bom ? "\xEF\xBB\xBF" : "") + line + newline;
+        if (header)
+        {
+            // The previous owned section kept no key: leave it out entirely.
+            held.clear();
+            holding = OwnedSection(section);
+            if (holding) { held = piece; continue; }
+        }
+        if (drop) continue;
+        if (holding && !key_line) { held += piece; continue; }
+        if (holding) { *updated += held; held.clear(); holding = false; }
+        *updated += piece;
     }
     if (updated)
     {
@@ -245,6 +335,42 @@ std::string Read(const std::filesystem::path& path)
     if (input.bad()) throw std::runtime_error("Failed to read configuration: " + PathUtf8(path));
     return result.str();
 }
+}
+
+bool ValidPadProfileName(const std::string& name)
+{
+    if (name.empty() || name.size() > kMaxGamepadProfileName || name != Trim(name)
+        || SamePadProfileName(name, kDefaultGamepadProfile))
+        return false;
+    return std::none_of(name.begin(), name.end(), [](unsigned char c) {
+        return c < 0x20 || c == 0x7f || c == '"' || c == '[' || c == ']' || c == '=' || c == '|';
+    });
+}
+
+bool SamePadProfileName(const std::string& a, const std::string& b)
+{
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char x, unsigned char y) {
+        return std::tolower(x) == std::tolower(y);
+    });
+}
+
+int Settings::PadProfileIndex(std::size_t slot) const
+{
+    for (std::size_t n = 0; n < pad_profiles.size(); ++n)
+        if (SamePadProfileName(pad_profiles[n].name, pad_profile_names[slot])) return int(n);
+    return -1;
+}
+
+const Settings::PadProfile& Settings::PadProfileOf(std::size_t slot) const
+{
+    const int index = PadProfileIndex(slot);
+    return index < 0 ? DefaultPadProfile() : pad_profiles[std::size_t(index)];
+}
+
+const Settings::PadProfile& Settings::DefaultPadProfile()
+{
+    static const PadProfile profile{kDefaultGamepadProfile, DefaultPadInputs(), false};
+    return profile;
 }
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing)

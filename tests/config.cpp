@@ -102,6 +102,72 @@ int main()
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[keyboard]\na = F1 |\n";
         Reject([&] { LoadConfig(path); });
+        // Gamepad profiles: the built-in Default plus [gamepad_profileN] with a unique name.
+        Require(Settings{}.pad_profiles.empty() && Settings{}.PadProfileIndex(2) == -1
+                    && Settings{}.PadProfileOf(2).name == "Default"
+                    && Settings{}.PadProfileOf(2).inputs[mscharged::GamepadActionA] == "a",
+                "Gamepads play with the built-in Default profile");
+        std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
+                               "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
+                               "[gamepad_profile2]\nname = Spare\nb = x\ncontroller = gamecube\n";
+        {
+            auto file = LoadConfig(path);
+            const auto& loaded = file.settings;
+            Require(loaded.pad_profiles.size() == 2 && loaded.pad_profiles[0].name == "Kyle"
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionA] == "b | start"
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB] == "b"
+                        && loaded.pad_profiles[0].swap_sticks && loaded.pad_profiles[0].controller == "xbox"
+                        && loaded.pad_profiles[1].controller == "gamecube",
+                    "Gamepad profiles load, with their controller kind");
+            Require(loaded.PadProfileIndex(1) == 0 && loaded.pad_profile_names[1] == "Kyle",
+                    "A gamepad finds its profile by name, ignoring case");
+            Require(loaded.PadProfileIndex(2) == -1 && loaded.pad_profile_names[2] == "Default",
+                    "A gamepad whose profile is gone plays with Default");
+            // Delete Kyle: Spare moves up and the old second section must not come back.
+            auto changed = loaded;
+            changed.pad_profiles.erase(changed.pad_profiles.begin());
+            changed.pad_profile_names[1] = "Default";
+            changed.pad_profile_names[3] = "Spare";
+            SaveConfig(file, changed);
+            const auto saved = LoadConfig(path);
+            Require(saved.settings.pad_profiles.size() == 1 && saved.settings.pad_profiles[0].name == "Spare"
+                        && saved.settings.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x"
+                        && !saved.settings.pad_profiles[0].swap_sticks
+                        && saved.settings.pad_profiles[0].controller == "gamecube"
+                        && saved.settings.PadProfileIndex(3) == 0
+                        && saved.settings.PadProfileIndex(1) == -1,
+                    "A deleted gamepad profile stays deleted");
+            Require(saved.contents.find("[gamepad_profile2]") == std::string::npos
+                        && saved.contents.find("name = Kyle") == std::string::npos
+                        && saved.contents.find("; my pads") != std::string::npos,
+                    "Deleting a profile removes only its section");
+            auto again = saved;
+            SaveConfig(again, saved.settings);
+            Require(again.contents == saved.contents, "Saving gamepad profiles again changes nothing");
+            auto none = saved.settings;
+            none.pad_profiles.clear();
+            none.pad_profile_names[3] = "Default";
+            SaveConfig(again, none);
+            Require(LoadConfig(path).settings.pad_profiles.empty()
+                        && again.contents.find("[gamepad_profile") == std::string::npos,
+                    "Deleting every profile leaves the built-in Default");
+        }
+        std::ofstream(path) << "[gamepad_profile1]\na = a\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[gamepad_profile1]\nname = A\n[gamepad_profile2]\nname = a\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[gamepad_profile1]\nname = default\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\ncontroller = playstation\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[gamepad_profile17]\nname = Many\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x\n";
+        Reject([&] { LoadConfig(path); });
+        Require(mscharged::ValidPadProfileName("Kyle's pad") && !mscharged::ValidPadProfileName(" Kyle")
+                    && !mscharged::ValidPadProfileName("a|b") && !mscharged::ValidPadProfileName("")
+                    && !mscharged::ValidPadProfileName("DEFAULT"),
+                "Profile name rules");
         // Pointer calibration: none or six numbers from the launcher.
         Require(Settings{}.remote_calibration[2] == "none", "Remotes start uncalibrated");
         std::ofstream(path) << "[controls]\nremote2_calibration = -0.0024 1e-05 1.68 0 -0.0026 1.58\n";

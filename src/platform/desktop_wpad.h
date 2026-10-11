@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/gamepad_bindings.h"
 #include "platform/key_bindings.h"
 
 #include <array>
@@ -40,6 +41,10 @@ struct DesktopWpadSettings {
     // `gamepad_players` every pad takes the lowest free channel, buttons only.
     bool gamepad_players = false;
     std::array<int, 4> gamepad_channels{-1, -1, -1, -1};
+    // Buttons and sticks of the n-th gamepad (its profile, controls.gamepadN_profile).
+    std::array<GamepadProfile, 4> gamepad_profiles{
+        GamepadProfile{DefaultGamepadBindings()}, GamepadProfile{DefaultGamepadBindings()},
+        GamepadProfile{DefaultGamepadBindings()}, GamepadProfile{DefaultGamepadBindings()}};
     // controls.mouse_pointer: with keyboard & mouse not playing, the mouse
     // also points and presses A/B for the controller on this WPAD channel
     // while it is in use (moving or a button held, then 3 s). -1: off.

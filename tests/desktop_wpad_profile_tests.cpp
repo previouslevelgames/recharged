@@ -283,6 +283,133 @@ void GamepadPlayerCycle() {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
+// [gamepadN]: a gamepad's own layout reaches WPAD as configured.
+void CustomGamepadCycle() {
+    using namespace mscharged::platform;
+    Check(ParseGamepadBinding("b | righttrigger") ==
+              GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER},
+          "Gamepad input names did not parse");
+    Check(ParseGamepadBinding("leftx | nonsense")[0] == kGamepadNone, "A stick axis was accepted as a button");
+    Check(FormatGamepadBinding(ParseGamepadBinding(" a |lefttrigger ")) == "a | lefttrigger",
+          "Gamepad binding did not format back");
+    std::array<std::string, mscharged::GamepadActionCount> texts{};
+    texts[mscharged::GamepadActionA] = "b";
+    texts[mscharged::GamepadActionB] = "a";
+    texts[mscharged::GamepadActionC] = "lefttrigger";
+    texts[mscharged::GamepadActionZ] = "leftshoulder";
+    const auto bindings = ParseGamepadBindings(texts);
+    Check(bindings[mscharged::GamepadActionPlus] == DefaultGamepadBindings()[mscharged::GamepadActionPlus],
+          "An unset gamepad action lost its default");
+    connects = samples = extension_count = 0;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    settings.gamepad_profiles[0] = {bindings, true};
+    GenericPad pad;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Custom gamepad did not connect as player 2");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto report = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status;
+    };
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_EAST, true);
+    Until([&] { return report().button == WPAD_BUTTON_A; }, "Own layout: east did not press A");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_EAST, false);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    Until([&] { return report().button == WPAD_BUTTON_B; }, "Own layout: south did not press B");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
+    Until([&] { auto r = report(); return r.fsStickX == 100 && r.button == 0; },
+          "Swapped sticks: the right stick did not move the Nunchuk stick");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    Until([&] { return report().fsStickX == 0; }, "Swapped sticks: the left stick still moved the Nunchuk stick");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
+    Until([&] { return report().button == WPAD_BUTTON_FS_C; }, "Own layout: left trigger did not press C");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
+    Until([&] { return report().button == WPAD_BUTTON_FS_Z; }, "Own layout: left bumper did not press Z");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);
+    Until([&] { return report().button == 0; }, "Custom gamepad release kept a button");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// The built-in Default follows the connected controller: a Switch Pro
+// controller presses Wii A with its own A, the right face button.
+void ControllerFamilyCycle() {
+    using namespace mscharged::platform;
+    using mscharged::GamepadActionA, mscharged::GamepadActionB, mscharged::GamepadActionOne;
+    Check(DefaultGamepadBindings(GamepadFamily::Nintendo)[GamepadActionA][0] == SDL_GAMEPAD_BUTTON_EAST
+              && DefaultGamepadBindings(GamepadFamily::Nintendo)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_SOUTH,
+          "Nintendo default does not follow its labels");
+    Check(DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_WEST
+              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == kGamepadNone,
+          "GameCube default layout");
+    Check(DefaultGamepadBindings(GamepadFamily::PlayStation) == DefaultGamepadBindings(),
+          "PlayStation default differs from the positional default");
+    Check(GamepadFamilyOf(SDL_GAMEPAD_TYPE_PS5) == GamepadFamily::PlayStation
+              && GamepadFamilyOf(SDL_GAMEPAD_TYPE_GAMECUBE) == GamepadFamily::GameCube
+              && GamepadFamilyOf(SDL_GAMEPAD_TYPE_UNKNOWN) == GamepadFamily::Xbox,
+          "Controller families");
+    std::array<std::string, mscharged::GamepadActionCount> texts{};
+    texts[GamepadActionOne] = "none";
+    Check(ParseGamepadBindings(texts)[GamepadActionOne][0] == kGamepadNone
+              && ParseGamepadBindings(texts)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_EAST
+              && FormatGamepadBinding({kGamepadNone, kGamepadNone}) == "none",
+          "\"none\" did not leave an action without a button");
+
+    connects = samples = extension_count = 0;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    settings.gamepad_profiles[0].follow_controller = true;
+    SDL_VirtualJoystickDesc d; SDL_INIT_INTERFACE(&d);
+    d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    d.vendor_id = 0x057e; d.product_id = 0x2009; // Switch Pro controller
+    d.name = "Generated Nintendo Switch Pro Controller";
+    d.naxes = SDL_GAMEPAD_AXIS_COUNT; d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    d.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+    d.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+    const SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
+    Check(id != 0, "Switch Pro fixture attach failed");
+    SDL_Joystick* joystick = SDL_OpenJoystick(id);
+    Check(joystick, "Switch Pro fixture handle failed");
+    Check(SDL_GetGamepadTypeForID(id) == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO, "Fixture is not a Switch Pro type");
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Switch Pro controller did not connect as player 2");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto report = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status;
+    };
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_EAST, true);
+    Until([&] { return report().button == WPAD_BUTTON_A; }, "Switch Pro A (right) did not press Wii A");
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_EAST, false);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    Until([&] { return report().button == WPAD_BUTTON_B; }, "Switch Pro B (bottom) did not press Wii B");
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    Until([&] { return report().button == 0; }, "Switch Pro release kept a button");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+    SDL_CloseJoystick(joystick);
+    SDL_DetachVirtualJoystick(id);
+}
 // controls.mouse_pointer: the mouse adds A/B (and its pointer) to a gamepad player 1.
 bool WholeWindow(void*, SDL_Window* target, mscharged::platform::DesktopDpdProjection* projection) {
     int w = 0, h = 0;
@@ -449,10 +576,12 @@ int main() {
         }
         // With the generic pad above gone, this test's pad is gamepad 1.
         GamepadPlayerCycle();
+        CustomGamepadCycle();
+        ControllerFamilyCycle();
         MousePlayerCycle();
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, mouse beside a controller and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, controller-family defaults, mouse beside a controller and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}

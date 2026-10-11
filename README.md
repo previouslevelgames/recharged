@@ -1,7 +1,7 @@
 # Mario Strikers Charged — Native Port
 
 [![Build stable](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable)
-[![Version 1.0.3](https://img.shields.io/badge/version-1.0.3-blue)](CMakeLists.txt)
+[![Version 1.0.4](https://img.shields.io/badge/version-1.0.4-blue)](CMakeLists.txt)
 
 Play **Mario Strikers Charged** natively on your PC. The port compiles the
 fully reconstructed game source of
@@ -50,6 +50,14 @@ changes not yet released are under the
 [**Build binaries** runs of `stable`](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable+is%3Asuccess)
 (*Artifacts*, signed-in users); see [GitHub builds](docs/BUILDING_GITHUB.md).
 
+**Something went wrong?** Each run writes `logs/mscharged.log` beside the
+program (the run before is kept as `mscharged.previous.log`). It records your
+system, displays, graphics settings and what happened; after a crash it also
+holds a crash report, and on Windows `mscharged-crash.dmp` is saved next to it.
+Please attach these files to an
+[issue](https://github.com/yannicksuter/mscharged-port/issues). The log shows
+the command line and folder names, which can include your user name.
+
 ## Status
 
 **Every offline feature of the original game works**: all modes, up to four
@@ -88,19 +96,23 @@ included. Choose the file in the launcher or see
 
 ## Controls
 
-Keyboard & mouse act as a Wii Remote with a Nunchuk; gamepads and real Wii
-Remotes can be assigned to players 1–4 in the launcher. Default keys:
+The game is played with a Wii Remote and Nunchuk. Keyboard & mouse and
+gamepads (Xbox, PlayStation, Switch, GameCube adapter) stand in for them, and
+real Wii Remotes work too; assign them to players 1–4 in the launcher. Keys
+and gamepad buttons can be changed there; gamepads use named profiles, so each
+player can keep their own layout. Nintendo and GameCube controllers get
+defaults that follow their own button labels. Defaults:
 
-| Wii input | Keyboard / mouse |
-| --- | --- |
-| Pointer | Mouse |
-| A / B | Enter or left click / Esc or right click |
-| D-pad | Arrow keys |
-| Nunchuk stick | W A S D |
-| Nunchuk C / Z | C / V |
-| 1 / 2 | Z / X |
-| + / − / HOME | Tab / - / Home |
-| Shake Remote / Nunchuk | E / Q |
+| Wii input | Keyboard / mouse | Gamepad (Xbox names) |
+| --- | --- | --- |
+| Pointer | Mouse | Right stick |
+| A / B | Enter or left click / Esc or right click | A / B |
+| D-pad | Arrow keys | D-pad |
+| Nunchuk stick | W A S D | Left stick |
+| Nunchuk C / Z | C / V | LB / LT |
+| 1 / 2 | Z / X | X / Y |
+| + / − / HOME | Tab / - / Home | Start / Back / Guide |
+| Shake Remote / Nunchuk | E / Q | RT / RB |
 
 Press **P** for a screenshot. See [Wii Remote setup](docs/RUNTIME.md#wii-remote)
 for the DolphinBar.

@@ -343,7 +343,7 @@ target_link_libraries(charged_original_main_credits_host PRIVATE
     charged_app_icon
     charged_native_module_loader
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,aurora::gx,aurora::mtx,aurora::os>"
-    aurora::core aurora::dvd charged_host charged_wii_string_format charged_native_stm
+    aurora::core aurora::dvd charged_host charged_session_log charged_wii_string_format charged_native_stm
     charged_native_system_settings charged_native_video_device charged_credits_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
