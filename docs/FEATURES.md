@@ -31,9 +31,9 @@ the reconstructed source, unchanged.
   button, or none; sticks can be swapped). A profile belongs to one kind of
   controller (Xbox and PlayStation share profiles), so each gamepad is offered
   the profiles that fit it; they are kept for the next session.
-- **Real Wii Remotes with Nunchuk** through a **Mayflash DolphinBar** (mode 4):
-  pointer, rumble and battery level, with the sensor bar above or below the
-  screen and a five-target pointer calibration per remote.
+- **Real Wii Remotes with Nunchuk**, paired over **Bluetooth** or through a
+  **Mayflash DolphinBar** (mode 4): pointer, rumble and battery level, with the
+  sensor bar above or below the screen.
 - **Mouse beside a controller**: a single player on a Wii Remote or gamepad
   can also point and press A/B with the mouse.
 
@@ -69,7 +69,7 @@ The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them
 
 A start window that checks your disc, explains what is missing, and keeps every
 setting in one place: players and controllers, keyboard keys, gamepad
-profiles, Wii Remote calibration, display, audio, gameplay tweaks and advanced options. It asks before playing with
+profiles, display, audio, gameplay tweaks and advanced options. It asks before playing with
 unsaved changes.
 
 ## Not supported (yet)

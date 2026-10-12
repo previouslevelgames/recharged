@@ -3,7 +3,6 @@
 #include "platform/wpad_sdl.h"
 #include "platform/desktop_wpad.h"
 #include "platform/stm_device.h"
-#include "platform/wiimote_calibration.h"
 
 #include <array>
 #include <map>
@@ -47,8 +46,6 @@ struct NativePlayers {
     // controls.mouse_pointer: the mouse also points for player 1 when that
     // player is a Wii Remote or gamepad and plays alone.
     bool mouse_with_controller = false;
-    // Pointer calibration of each Wii Remote, by id.
-    std::map<std::string, WiimoteCalibration> calibrations;
 };
 void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     StmInput borrowed_stm, DesktopWpadSettings desktop = {}, NativePlayers players = {});

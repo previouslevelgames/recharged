@@ -1,5 +1,5 @@
 #include "platform/desktop_dpd.h"
-#include "platform/wiimote_calibration.h"
+#include "platform/wiimote_ir.h"
 
 #include <cmath>
 #include <stdexcept>

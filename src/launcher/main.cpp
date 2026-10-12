@@ -14,11 +14,14 @@
 #include "platform/parse_float.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
+#include "platform/console_verbosity.h"
 #include "platform/app_icon.h"
 #include "platform/path.h"
+#include "platform/save_import.h"
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
 #include "platform/key_bindings.h"
+#include "platform/wiimote_bluetooth.h"
 #include "platform/wiimote_hid.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
 #include "runtime/startup.h"
@@ -133,6 +136,12 @@ struct DiscCheck
 };
 
 enum class NoticeKind { Info, Success, Warning, Error };
+enum class FolderPurpose { SaveFolder, DolphinSave };
+
+// The save the game keeps (USA release, the one this port runs): its title,
+// and the identity the runtime gives its storage (original_main_credits.cpp).
+constexpr mscharged::platform::SaveTitle kSaveTitle{0x0001000052345145ull, 0x1001, 0x3031};
+constexpr const char* kSaveFile = "Strikers2";
 
 // Region branches follow original Game/main.cpp; the native runtime currently
 // supports the USA release only.
@@ -180,7 +189,6 @@ public:
     ~Launcher()
     {
         wii_probe_.Close();
-        live_.Close();
         if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_Shutdown();
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
@@ -406,6 +414,7 @@ private:
         {
             file_ = LoadConfig(file_.path, true);
             draft_ = file_.settings;
+            mscharged::platform::SetVerboseConsole(file_.settings.verbose_console);
             dirty_ = false;
             config_ok_ = true;
             check_ = {};
@@ -419,6 +428,7 @@ private:
         try
         {
             SaveConfig(file_, draft_);
+            mscharged::platform::SetVerboseConsole(draft_.verbose_console);
             dirty_ = false;
             Notice("Settings saved.", NoticeKind::Success);
             return true;
@@ -492,6 +502,15 @@ private:
                 dialog_->ready = false;
                 if (!dialog_->error.empty()) Notice(dialog_->error, NoticeKind::Error);
                 else if (!dialog_->path.empty()) SelectDisc(dialog_->path);
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lock(folder_dialog_->mutex);
+            if (folder_dialog_->ready)
+            {
+                folder_dialog_->ready = false;
+                if (!folder_dialog_->error.empty()) Notice(folder_dialog_->error, NoticeKind::Error);
+                else if (!folder_dialog_->path.empty()) FolderChosen(folder_dialog_->path);
             }
         }
         if (pending_ && future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
@@ -624,11 +643,6 @@ private:
     // ------------------------------------------------------------- layout
     void Draw(bool& quit)
     {
-        if (calibration_.active)
-        {
-            DrawCalibration();
-            return;
-        }
         auto& io = ImGui::GetIO();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && config_ok_ && dirty_) Save();
         const ImVec2 size = io.DisplaySize;
@@ -644,6 +658,7 @@ private:
         DrawMain({sidebar, 0}, {size.x - sidebar, size.y}, quit);
         DrawClosePrompt(quit);
         DrawPlayPrompt(quit);
+        DrawImportPrompt();
         DrawRegionPrompt();
         ImGui::End();
     }
@@ -694,6 +709,9 @@ private:
     {
         if (page_ != PageControls && keyboard_view_) CloseKeyboardView();
         if (page_ != PageControls && gamepad_view_) CloseGamepadView();
+        // Bluetooth inquiries can disturb other Bluetooth devices: search only
+        // while the Controls page is open (never in development captures).
+        bluetooth_search_.SetActive(page_ == PageControls && config_ok_ && draft_.bluetooth_search && !capture_);
         const float bar = Dp(74);
         const ImVec2 content{size.x, size.y - bar};
         ImGui::SetCursorPos(origin);
@@ -1128,20 +1146,152 @@ private:
         }
         EndCard();
 
-        BeginCard("##data", "Save data", "The game keeps its save file in a private folder next to the launcher.", Icon::Folder);
-        const fs::path data = base_ / "original-main-credits-data";
+        SaveDataCard();
+    }
+
+    // Where the game keeps its Wii storage, and importing a save from Dolphin.
+    void SaveDataCard()
+    {
+        const auto& fonts = CurrentFonts();
+        BeginCard("##data", "Save data", "Your progress and trophies, in the game's own Wii save files.", Icon::Folder);
+        bool browsing;
+        { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
+        const float buttons = Dp(118) + Dp(10) + Dp(118);
+        const std::string default_folder = PathUtf8(DefaultSaveFolder(base_));
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons - Dp(10));
+        if (ImGui::InputTextWithHint("##save_folder", ("Default: " + default_folder).c_str(), &draft_.save_folder))
+            dirty_ = true;
+        ImGui::SameLine(0, Dp(10));
+        if (SecondaryButton("browse_saves", "Browse...", {Dp(118), ImGui::GetFrameHeight()}, !browsing && config_ok_,
+                            Icon::Folder))
+            BrowseFolder(FolderPurpose::SaveFolder);
+        ImGui::SameLine(0, Dp(10));
+        if (SecondaryButton("default_saves", "Default", {Dp(118), ImGui::GetFrameHeight()},
+                            config_ok_ && !draft_.save_folder.empty(), Icon::Refresh))
+        {
+            draft_.save_folder.clear();
+            dirty_ = true;
+        }
+        if (draft_.save_folder != file_.settings.save_folder)
+        {
+            ImGui::Dummy({0, Dp(2)});
+            TextWrappedColored(fonts.caption, color::warning,
+                               "The game starts with the saves in the new folder (none if it is new). "
+                               "Saves in the old folder stay there.");
+        }
+
+        const fs::path folder = SaveFolder();
         if (BeginRows("##data_rows"))
         {
-            const std::string path = PathUtf8(data);
-            Row("Save folder", path.c_str());
+            const std::string path = PathUtf8(folder);
+            Row("Folder in use", path.c_str());
             if (SecondaryButton("open_data", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                fs::exists(data), Icon::Folder))
-                OpenPath(data);
-            if (!fs::exists(data) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                fs::exists(folder), Icon::Folder))
+                OpenPath(folder);
+            if (!fs::exists(folder) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Created when you first play.");
+
+            const auto found = mscharged::platform::FindDolphinSaves(kSaveTitle.title_id);
+            const std::string description = found.empty()
+                ? "Copies a save from the Dolphin emulator. Choose Dolphin's user folder or the game's save folder in it."
+                : "Copies the save Dolphin keeps in " + PathUtf8(found.front()) + ".";
+            Row("Import from Dolphin", description.c_str());
+            const float width = ImGui::GetContentRegionAvail().x;
+            if (!found.empty())
+            {
+                if (SecondaryButton("import_dolphin", "Import Dolphin save", {width, Dp(40)}, config_ok_, Icon::Copy))
+                    AskImport(found.front());
+                ImGui::Dummy({0, Dp(2)});
+            }
+            if (SecondaryButton("import_choose", found.empty() ? "Choose folder..." : "Choose another folder...",
+                                {width, Dp(40)}, !browsing && config_ok_, Icon::Folder))
+                BrowseFolder(FolderPurpose::DolphinSave);
             EndRows();
         }
         EndCard();
+    }
+
+    fs::path SaveFolder() const { return ResolveSaveFolder(draft_, file_.path, base_); }
+
+    void BrowseFolder(FolderPurpose purpose)
+    {
+        {
+            std::lock_guard<std::mutex> lock(folder_dialog_->mutex);
+            folder_dialog_->active = true;
+        }
+        folder_purpose_ = purpose;
+        SDL_ShowOpenFolderDialog(DiscChosen, new std::shared_ptr<DialogResult>(folder_dialog_), window_, nullptr,
+                                 false);
+    }
+
+    void FolderChosen(const std::string& chosen)
+    {
+        if (folder_purpose_ == FolderPurpose::SaveFolder)
+        {
+            draft_.save_folder = chosen;
+            dirty_ = true;
+            return;
+        }
+        const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), kSaveTitle.title_id,
+                                                                    kSaveFile);
+        if (save.empty())
+            Notice("No Mario Strikers Charged save found in " + chosen + ".", NoticeKind::Warning);
+        else AskImport(save);
+    }
+
+    void AskImport(const fs::path& source)
+    {
+        import_source_ = source;
+        import_prompt_ = true;
+    }
+
+    void ImportDolphinSave()
+    {
+        try
+        {
+            const auto folder = SaveFolder();
+            const auto result = mscharged::platform::ImportDolphinSave(import_source_, folder, kSaveTitle, kSaveFile,
+                                                                       folder / "backups");
+            std::string files;
+            for (const auto& name : result.files) files += (files.empty() ? "" : ", ") + name;
+            Notice("Dolphin save imported (" + files + ")."
+                       + (result.backup.empty() ? "" : " Your previous save is in " + PathUtf8(result.backup) + "."),
+                   NoticeKind::Success);
+        }
+        catch (const std::exception& e) { Notice(std::string("Import failed: ") + e.what(), NoticeKind::Error); }
+    }
+
+    void DrawImportPrompt()
+    {
+        if (import_prompt_)
+        {
+            ImGui::OpenPopup("Import Dolphin save?");
+            import_prompt_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSizeConstraints({Dp(460), 0}, {Dp(640), FLT_MAX});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Import Dolphin save?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            TextColored(fonts.heading, color::text, "Import the Dolphin save?");
+            TextWrappedColored(fonts.body, color::muted, ("From " + PathUtf8(import_source_)).c_str());
+            TextWrappedColored(fonts.body, color::muted, ("Into " + PathUtf8(SaveFolder())).c_str());
+            TextWrappedColored(fonts.body, color::muted,
+                               "It replaces the game's save there; the current one is backed up first.");
+            ImGui::Dummy({0, Dp(8)});
+            if (PrimaryButton("import_confirm", "Import", Dp(140, 42), true, Icon::Copy))
+            {
+                ImGui::CloseCurrentPopup();
+                ImportDolphinSave();
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("import_cancel", "Cancel", Dp(100, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
     }
 
     void DiscStatusPanel()
@@ -1609,15 +1759,6 @@ private:
             wii_probe_.Start(250);
     }
 
-    struct CalibrationTarget
-    {
-        const char* name;
-        float x, y; // 0..1 across the game picture
-    };
-    static constexpr CalibrationTarget kCalibrationTargets[5] = {
-        {"the centre", 0.5f, 0.5f}, {"the top-left corner", 0.1f, 0.1f}, {"the top-right corner", 0.9f, 0.1f},
-        {"the bottom-right corner", 0.9f, 0.9f}, {"the bottom-left corner", 0.1f, 0.9f}};
-
     // The connected remote with this id, or null.
     const platform::WiimoteHidRemote* ConnectedRemote(const std::string& id) const
     {
@@ -1637,141 +1778,22 @@ private:
         return model + " (Bluetooth " + (address.size() > 8 ? address.substr(address.size() - 8) : address) + ")";
     }
 
-    void StartCalibration(const std::string& id)
+    // Windows: connect Wii Remotes over Bluetooth with 1+2 or SYNC.
+    void BluetoothSearchRow()
     {
-        wii_probe_.Close();
-        if (!live_.Open(id))
-        {
-            Notice(RemoteName(id) + " did not answer. Press a button on it and try again.", NoticeKind::Warning);
-            return;
-        }
-        calibration_ = {};
-        calibration_.active = true;
-        calibration_.id = id;
-        calibration_.name = RemoteName(id);
-        // Calibrate on the display the game starts on, filled like the game's
-        // fullscreen picture.
-        int count = 0;
-        SDL_DisplayID* ids = SDL_GetDisplays(&count);
-        if (ids && draft_.monitor > 0 && draft_.monitor <= count)
-        {
-            const int position = int(SDL_WINDOWPOS_CENTERED_DISPLAY(ids[draft_.monitor - 1]));
-            SDL_SetWindowPosition(window_, position, position);
-        }
-        SDL_free(ids);
-        SDL_SetWindowFullscreen(window_, true);
-    }
-
-    void EndCalibration()
-    {
-        live_.Close();
-        calibration_.active = false;
-        SDL_SetWindowFullscreen(window_, false);
-        wii_next_probe_ns_ = 0;
-    }
-
-    void DrawCalibration()
-    {
-        auto& c = calibration_;
-        live_.Poll();
-        const auto& io = ImGui::GetIO();
-        const ImVec2 size = io.DisplaySize;
-        ImGui::SetNextWindowPos({0, 0});
-        ImGui::SetNextWindowSize(size);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-        ImGui::Begin("##calibration", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
-            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleVar();
-        auto* draw = ImGui::GetWindowDrawList();
-        draw->AddRectFilled({0, 0}, size, Col(color::window));
-        // The game picture fills the screen at the game's aspect ratio.
-        const float aspect = draft_.aspect == "4:3" ? 4.0f / 3.0f
-            : draft_.aspect == "16:9" ? 16.0f / 9.0f : size.x / std::max(1.0f, size.y);
-        float width = size.x, height = size.x / aspect;
-        if (height > size.y) { height = size.y; width = size.y * aspect; }
-        const ImVec2 origin{(size.x - width) * 0.5f, (size.y - height) * 0.5f};
-        draw->AddRect(origin, {origin.x + width, origin.y + height}, Col(color::border), 0, 0, Dp(1));
-        for (std::size_t n = 0; n < 5; ++n)
-        {
-            const auto& target = kCalibrationTargets[n];
-            const ImVec2 at{origin.x + target.x * width, origin.y + target.y * height};
-            if (n < c.step)
-                DrawIcon(draw, Icon::Check, at, Dp(26), Col(color::accent));
-            else if (n == c.step)
-            {
-                const float pulse = 0.5f + 0.5f * std::sin(float(SDL_GetTicks()) * 0.006f);
-                draw->AddCircle(at, Dp(34) + Dp(8) * pulse, Col(color::accent, 0.45f), 0, Dp(2));
-                DrawIcon(draw, Icon::Target, at, Dp(48), Col(color::accent));
-            }
-            else
-                DrawIcon(draw, Icon::Target, at, Dp(24), Col(color::dim));
-        }
-
-        // Where the remote's camera sees the sensor bar (or DolphinBar).
-        int visible = 0;
-        for (const auto& object : live_.Dots()) visible += object.size != 0;
-        const auto pair = platform::TrackWiimotePair(c.pair, live_.Dots());
-        const bool in_view = pair.has_value() && visible >= 2;
-        const auto& target = kCalibrationTargets[std::min<std::size_t>(c.step, 4)];
-        const auto& fonts = CurrentFonts();
-        const auto centred = [&](ImFont* font, float y, ImU32 ink, const std::string& text) {
-            const ImVec2 extent = TextSize(font, text.c_str());
-            DrawLabel(draw, font, {(size.x - extent.x) * 0.5f, y}, ink, text.c_str());
-        };
-        const float text_y = origin.y + height * 0.62f;
-        centred(fonts.title, text_y, Col(color::text),
-                c.name + ": aim at " + target.name + " and press A");
-        const bool bar = platform::WiimoteDolphinBarSlot(c.id) >= 0;
-        centred(fonts.label, text_y + Dp(48), Col(in_view ? color::accent : color::warning),
-                in_view ? (bar ? "DolphinBar in view" : "Sensor bar in view")
-                        : (bar ? "The Wii Remote can't see the DolphinBar" : "The Wii Remote can't see the sensor bar"));
-        if (!c.message.empty()) centred(fonts.body, text_y + Dp(80), Col(color::warning), c.message);
-        centred(fonts.caption, origin.y + height - Dp(40), Col(color::muted),
-                "Target " + std::to_string(c.step + 1) + " of 5   -   hold the remote as you play   -   B or Esc cancels");
-        ImGui::End();
-
-        const std::uint16_t buttons = live_.Buttons();
-        const std::uint16_t pressed = buttons & ~c.buttons;
-        c.buttons = buttons;
-        const std::string id = c.id, name = c.name;
-        if ((pressed & 0x0004) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-        {
-            EndCalibration();
-            Notice("Calibration cancelled; " + name + " keeps its previous setting.", NoticeKind::Info);
-            return;
-        }
-        if (!live_.Connected())
-        {
-            if (!c.lost_since_ns) c.lost_since_ns = SDL_GetTicksNS();
-            else if (SDL_GetTicksNS() - c.lost_since_ns > 3000000000ull)
-            {
-                EndCalibration();
-                Notice(name + " stopped answering; calibration cancelled.", NoticeKind::Warning);
-            }
-            return;
-        }
-        c.lost_since_ns = 0;
-        if (!(pressed & 0x0008)) return;
-        if (!in_view)
-        {
-            c.message = "Move back a little or aim closer to the screen, then press A again.";
-            return;
-        }
-        c.samples.push_back({(*pair)[0], (*pair)[1], target.x, target.y});
-        c.message.clear();
-        if (++c.step < 5) return;
-        const auto fit = platform::FitWiimoteCalibration(c.samples);
-        if (!fit)
-        {
-            c.samples.clear();
-            c.step = 0;
-            c.message = "Those aims did not line up. Let's start again from the centre.";
-            return;
-        }
-        draft_.SetRemoteCalibration(id, platform::FormatWiimoteCalibration(*fit));
-        dirty_ = true;
-        EndCalibration();
-        Notice(name + " calibrated. Save to keep it.", NoticeKind::Success);
+        const auto search = bluetooth_search_.Status();
+        if (!search.supported || !BeginRows("##bluetooth_search_rows")) return;
+        std::string description = !draft_.bluetooth_search
+            ? "Off: pair Wii Remotes in the Windows Bluetooth settings instead."
+            : !search.adapter ? "No Bluetooth adapter found."
+            : "Press 1+2 / SYNC on a Wii Remote to connect it.";
+        if (draft_.bluetooth_search && !search.last.empty()) description += " Last: " + search.last + ".";
+        Row("Connect Wii Remotes", description.c_str());
+        if (Toggle("##bluetooth_search", &draft_.bluetooth_search)) dirty_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Searching can briefly disturb other Bluetooth devices, such as headphones.\n"
+                              "Wii Remotes Windows remembers but can't reconnect are removed, so 1+2 works again.");
+        EndRows();
     }
 
     // controls.player1-4: keyboard & mouse, a Wii Remote (in a DolphinBar
@@ -1905,24 +1927,6 @@ private:
                     if (SecondaryButton("##keys", "", Dp(36, 30), true, Icon::Sliders)) OpenKeyboardView();
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keyboard & mouse keys");
                 }
-                if (remote)
-                {
-                    const bool calibrated = draft_.RemoteCalibration(shown) != "none";
-                    if (SecondaryButton("##calibrate", "", Dp(36, 30), true, Icon::Target)) StartCalibration(shown);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(calibrated ? "Pointer calibrated. Click to calibrate again."
-                                                     : "Calibrate the pointer: aim at five targets");
-                    if (calibrated)
-                    {
-                        ImGui::SameLine(0, Dp(6));
-                        if (SecondaryButton("##clear", "", Dp(36, 30), true, Icon::Error))
-                        {
-                            draft_.SetRemoteCalibration(shown, "none");
-                            dirty_ = true;
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear the pointer calibration");
-                    }
-                }
                 ImGui::PopID();
             }
             ImGui::EndTable();
@@ -1936,6 +1940,7 @@ private:
             if (Toggle("##mouse_pointer", &draft_.mouse_pointer)) dirty_ = true;
             EndRows();
         }
+        BluetoothSearchRow();
         if (status.no_permission && BeginRows("##wiimote_access_rows"))
         {
 #if defined(__linux__)
@@ -2853,21 +2858,9 @@ private:
     std::map<SDL_JoystickID, std::array<bool, 2>> trigger_held_;
     // Wii Remote / DolphinBar detection for the Controls page (non-blocking).
     platform::WiimoteHidProbe wii_probe_;
+    // Windows: connects Wii Remotes over Bluetooth while Controls is open.
+    platform::WiimoteBluetoothSearch bluetooth_search_;
     platform::WiimoteHidStatus wii_status_{};
-    // Wii Remote pointer calibration: fullscreen targets aimed at with the
-    // remote, A to set each one, B to cancel.
-    struct Calibration
-    {
-        bool active = false;
-        std::string id, name; // remote id (wiimote_ids.h) and its shown name
-        std::size_t step = 0;
-        std::vector<platform::WiimoteCalibrationSample> samples;
-        platform::WiimotePairTracker pair;
-        std::uint16_t buttons = 0;
-        std::string message;
-        Uint64 lost_since_ns = 0;
-    } calibration_;
-    platform::WiimoteHidLive live_;
     // Controls: keyboard & mouse keys view, and the keycap waiting for a key.
     bool keyboard_view_ = false;
     int capture_action_ = -1, capture_slot_ = -1;
@@ -2903,6 +2896,10 @@ private:
     std::vector<std::string> displays_;
     std::vector<SDL_DisplayID> display_ids_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
+    std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
+    FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
+    fs::path import_source_;
+    bool import_prompt_ = false;
 };
 }
 

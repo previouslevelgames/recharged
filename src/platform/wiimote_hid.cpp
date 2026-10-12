@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <initializer_list>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -64,7 +65,6 @@ struct Remote {
     int nunchuk_zero[3]{512, 512, 512}, nunchuk_one[3]{712, 712, 712}, nunchuk_centre[2]{128, 128};
     std::uint8_t battery = 0;
     bool ir_visible = false;
-    mscharged::platform::WiimotePairTracker pair{};
     int write_failures = 0;
     Clock::time_point retry_at{};
     Clock::time_point next_debug_log{};
@@ -77,13 +77,7 @@ struct Remote {
     mscharged::platform::NativeNunchukSource nunchuk_source{};
 };
 
-bool Verbose() {
-    static const bool verbose = [] {
-        const char* value = SDL_getenv("MSCHARGED_WIIMOTE_DEBUG");
-        return value && *value && *value != '0';
-    }();
-    return verbose;
-}
+bool Verbose() { return mscharged::platform::WiimoteDebug(); }
 
 struct Driver {
     bool initialized = false;
@@ -105,7 +99,7 @@ std::string Describe(const Remote& remote) {
 bool Send(Remote& remote, std::vector<std::uint8_t> report) {
     if (!remote.hid || report.size() < 2) return false;
     report[1] = static_cast<std::uint8_t>((report[1] & ~1u) | (remote.rumble ? 1u : 0u));
-    return SDL_hid_write(remote.hid, report.data(), report.size()) == int(report.size());
+    return mscharged::platform::WriteWiimoteReport(remote.hid, report.data(), report.size());
 }
 void Queue(Remote& remote, std::vector<std::uint8_t> report, Wait wait = Wait::None, Tag tag = Tag::None) {
     remote.queue.push_back({std::move(report), wait, tag});
@@ -256,7 +250,6 @@ void Lost(Remote& remote, const char* why) {
     remote.queue.clear();
     remote.write_failures = 0;
     remote.retry_at = {};
-    remote.pair = {};
     remote.extension = remote.nunchuk = false;
     remote.rumble = false;
     remote.next_probe = Clock::now() + 1s;
@@ -313,13 +306,7 @@ void Publish(Remote& remote, const std::uint8_t* report) {
     const bool buttons[11]{(b1 & 0x08) != 0, (b1 & 0x04) != 0, (b1 & 0x02) != 0, (b1 & 0x01) != 0,
                            (b0 & 0x10) != 0, (b1 & 0x10) != 0, (b1 & 0x80) != 0, (b0 & 0x08) != 0,
                            (b0 & 0x04) != 0, (b0 & 0x01) != 0, (b0 & 0x02) != 0};
-    auto dots = mscharged::platform::DecodeWiimoteBasicIr(report + 6);
-    const auto& settings = State().settings;
-    const auto calibration = settings.calibrations.find(remote.id);
-    const bool calibrated = calibration != settings.calibrations.end();
-    if (calibrated)
-        dots = mscharged::platform::ApplyWiimoteCalibration(calibration->second, remote.pair, dots,
-                                                            settings.sensor_bar_position);
+    const auto dots = mscharged::platform::DecodeWiimoteBasicIr(report + 6);
     bool visible = false;
     for (const auto& dot : dots) visible |= dot.size != 0;
     remote.ir_visible = visible;
@@ -345,10 +332,9 @@ void Publish(Remote& remote, const std::uint8_t* report) {
                 int(std::lround(std::hypot(pair[1]->x - pair[0]->x, pair[1]->y - pair[0]->y))));
         const int raw[3]{(report[3] << 2) | ((b0 >> 5) & 3), (report[4] << 2) | ((b1 >> 4) & 2),
                          (report[5] << 2) | ((b1 >> 5) & 2)};
-        SDL_Log("Wii Remote IR: player %d camera %s, %sobjects%s, tilt x %d y %d z %d, raw %s",
+        SDL_Log("Wii Remote IR: player %d camera %s, objects%s, tilt x %d y %d z %d, raw %s",
                 mscharged::platform::GetNativeWpadChannel(remote.virtual_id) + 1,
                 mscharged::platform::GetNativeWpadCameraEnabled(remote.virtual_id) ? "on" : "off",
-                calibrated ? "calibrated " : "",
                 length ? objects : " none", Calibrated(raw[0], remote.zero[0], remote.one[0], 100),
                 Calibrated(raw[1], remote.zero[1], remote.one[1], 100),
                 Calibrated(raw[2], remote.zero[2], remote.one[2], 100), raw_ir);

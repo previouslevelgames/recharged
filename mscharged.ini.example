@@ -8,6 +8,10 @@ disc = game/R4QE01.rvz
 # Automatic currently uses English. The original game selects localized resources.
 language = auto
 
+# Folder for the game's Wii saves. Empty: original-main-credits-data/nand next
+# to the program. A different folder starts without saves.
+save_folder = ""
+
 [display]
 width = 1280
 height = 720
@@ -53,13 +57,9 @@ player4 = off
 # When player 1 is a Wii Remote or gamepad and plays alone, the mouse also
 # points for it (left click A, right click B); the controller keeps working.
 mouse_pointer = true
-# Pointer calibration of the Wii Remote in each DolphinBar slot, made on the
-# launcher's Controls page (none = uncalibrated). A Bluetooth remote's is
-# remote-<address>_calibration.
-remote1_calibration = none
-remote2_calibration = none
-remote3_calibration = none
-remote4_calibration = none
+# Windows: while the launcher's Controls page is open it connects Wii Remotes
+# over Bluetooth when you press 1+2 or the SYNC button on them.
+bluetooth_search = true
 deadzone = 15
 rumble = true
 # Where the sensor bar or DolphinBar sits: bottom or top of the screen.

@@ -16,6 +16,10 @@ namespace mscharged
 struct Settings
 {
     std::string disc;
+    // game.save_folder: where the game keeps its Wii storage (saves). Empty
+    // uses the default folder next to the executable; a relative path
+    // counts from the settings file, like the disc.
+    std::string save_folder;
     std::string language = "auto";
     int width = 1280;
     int height = 720;
@@ -42,15 +46,6 @@ struct Settings
     // Bluetooth, e.g. remote-9ce635c69076), gamepad1-gamepad4 or off.
     // Players fill in order; each device plays once.
     std::array<std::string, 4> players{"keyboard", "off", "off", "off"};
-    // controls.remote1-4_calibration: pointer calibration of the Wii Remote
-    // in that DolphinBar slot (six numbers from the launcher) or none.
-    std::array<std::string, 4> remote_calibration{"none", "none", "none", "none"};
-    // controls.remote-<address>_calibration: the same for a Wii Remote paired
-    // over Bluetooth, by its id (remote-9ce635c69076).
-    std::map<std::string, std::string> bluetooth_calibration;
-    // Pointer calibration of any Wii Remote id (platform/wiimote_ids.h), "none" without one.
-    std::string RemoteCalibration(const std::string& id) const;
-    void SetRemoteCalibration(const std::string& id, const std::string& value);
     // [keyboard]: keys of each keyboard & mouse action ("Return | Space").
     std::array<std::string, KeyActionCount> keys = DefaultKeys();
     static std::array<std::string, KeyActionCount> DefaultKeys()
@@ -101,6 +96,9 @@ struct Settings
     bool rumble = true;
     // The mouse also points for player 1 on a Wii Remote or gamepad playing alone.
     bool mouse_pointer = true;
+    // controls.bluetooth_search: on Windows the launcher's Controls page
+    // connects Wii Remotes over Bluetooth when 1+2 or SYNC is pressed.
+    bool bluetooth_search = true;
     std::string sensor_bar = "bottom"; // controls.sensor_bar: bottom | top (sensor bar / DolphinBar position)
     // Host presentation and diagnostics (never game behaviour).
     bool show_fps = true;             // display.show_fps: frame rate in the game window title
@@ -138,5 +136,10 @@ bool SamePadProfileName(const std::string& a, const std::string& b);
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);
 void SaveConfig(ConfigFile& file, const Settings& settings);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
+// The game's Wii storage folder: game.save_folder, or by default
+// <executable directory>/original-main-credits-data/nand.
+std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_directory);
+std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,
+                                        const std::filesystem::path& executable_directory);
 std::filesystem::path LoadDiscPath(const std::filesystem::path& config);
 }

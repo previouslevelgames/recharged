@@ -22,6 +22,14 @@ if(UNIX OR WIN32)
         add_test(NAME native_filesystem_physical COMMAND native_filesystem_physical_tests
             "${CMAKE_CURRENT_BINARY_DIR}/native-filesystem-physical-data")
         set_tests_properties(native_filesystem_physical PROPERTIES TIMEOUT 30)
+
+        # Dolphin save import (launcher) into a backing the device then opens.
+        add_executable(save_import_tests tests/save_import.cpp)
+        target_link_libraries(save_import_tests PRIVATE charged_native_filesystem charged_host)
+        target_compile_features(save_import_tests PRIVATE cxx_std_17)
+        add_test(NAME save_import COMMAND save_import_tests
+            "${CMAKE_CURRENT_BINARY_DIR}/save-import-tests-data")
+        set_tests_properties(save_import PROPERTIES TIMEOUT 30)
     endif()
 
     if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux"

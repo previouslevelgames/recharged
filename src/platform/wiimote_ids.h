@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <string>
 
-// Names of physical Wii Remotes in settings (controls.player1-4 and
-// controls.<remote>_calibration), shared by the launcher, the configuration
-// and the native driver. C++17: the configuration library includes it.
+// Names of physical Wii Remotes in settings (controls.player1-4), shared by
+// the launcher, the configuration and the native driver. C++17: the
+// configuration library includes it.
 //   remote1-remote4      the Wii Remote in that slot of a Mayflash DolphinBar
 //   remote-9ce635c69076  a Wii Remote paired directly over Bluetooth, by its
 //                        Bluetooth address (12 lowercase hex digits)
