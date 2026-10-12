@@ -5,11 +5,17 @@ SetupGameFromConfig builds each match's own copy of the gameplay settings
 (mCurGameGameplayOptions), which nothing saves. With "No Mega Strikes" enabled,
 both teams' Mega Strike flags of that copy are cleared after the mode rules
 are applied, so cFielder::CanDoCaptainShootToScore refuses them through the
-game's own check. Striker Challenges and Strikers 101 keep their rules, and
-online matches are left alone.
+game's own check. Skillshots stay: CanDoSidekickShootToScore reads the
+separate Skillshot flags (m_unk18/m_unk19), whereas the game's Classic Mode
+cheat ("No Skillshots or Megastrikes") refuses both (issue #22).
+
+Strikers 101 keeps its rules, so its Mega Strike lessons stay completable.
+Its lessons are the challenges below STRIKER_CHALLENGE_MARIO, the test the
+game itself uses to tell them from the Striker Challenges, which follow the
+tweak. Online matches are left alone.
 
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
-index 3405c74..c718807 100644
+index 3405c74..d87bea5 100644
 --- a/src/Game/GameInfo.cpp
 +++ b/src/Game/GameInfo.cpp
 @@ -10,6 +10,7 @@
@@ -20,16 +26,17 @@ index 3405c74..c718807 100644
  #include "NL/nlDebug.h"
  #include "NL/nlMemory.h"
  #include "NL/nlMath.h"
-@@ -399,6 +400,17 @@ void GameInfoManager::SetupGameFromConfig()
+@@ -399,6 +400,18 @@ void GameInfoManager::SetupGameFromConfig()
          mCurGameGameplayOptions.NumGames = 1;
      }
  
 +#if defined(MSCHARGED_TWEAKS)
 +    // Port tweak "No Mega Strikes": this match's own settings copy, which
-+    // nothing saves, for both teams. Striker Challenges and Strikers 101 keep
++    // nothing saves, for both teams. Skillshots have their own flags and stay.
++    // Strikers 101 lessons (challenges below STRIKER_CHALLENGE_MARIO) keep
 +    // their rules, as do online matches.
-+    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_MEGA_STRIKES) && mCurrentMode != GM_CHALLENGE
-+        && !mIsInStrikers101Mode && !IsOnline()) {
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_MEGA_STRIKES) && !mIsInStrikers101Mode && !IsOnline()
++        && !(mCurrentMode == GM_CHALLENGE && g_pStrikerChallenge->mCurrentChallenge < STRIKER_CHALLENGE_MARIO)) {
 +        mCurGameGameplayOptions.mHomeMegastrikeEnabled = false;
 +        mCurGameGameplayOptions.mAwayMegastrikeEnabled = false;
 +    }

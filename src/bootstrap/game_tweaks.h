@@ -37,7 +37,8 @@ inline constexpr std::array<GameTweakInfo, 4> kGameTweaks{{
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
      "Skips menu transitions. Matches, movies and the credits are unchanged."},
     {GameTweak::NoMegaStrikes, "no_mega_strikes", "No Mega Strikes",
-     "Mega Strikes are off for both teams. Striker Challenges and Strikers 101 keep their own rules."},
+     "Mega Strikes are off for both teams, the usual competitive rule. Skillshots stay, and Strikers 101 lessons "
+     "keep their own rules."},
     {GameTweak::UnlockAll, "unlock_all", "Unlock everything",
      "All characters, stadiums and cheats, through the game's own unlock switch. Your save is not changed; "
      "cup finals then no longer feature the locked captains."},

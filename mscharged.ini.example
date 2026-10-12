@@ -131,8 +131,8 @@ shake_nunchuk = Q
 # --no-tweaks turns them off for one run.
 # skip_intro: start at the main menu (no notices, logo, intro or title screen).
 # fast_menus: skip menu transitions (matches, movies and credits unchanged).
-# no_mega_strikes: Mega Strikes off for both teams (not in Striker Challenges
-# or Strikers 101).
+# no_mega_strikes: Mega Strikes off for both teams; Skillshots stay (Strikers
+# 101 lessons keep their own rules).
 # unlock_all: all characters, stadiums and cheats; the save is not changed.
 skip_intro = false
 fast_menus = false
