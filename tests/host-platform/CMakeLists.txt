@@ -88,6 +88,22 @@ add_test(NAME native_filesystem_physical COMMAND native_filesystem_physical
     "${CMAKE_CURRENT_BINARY_DIR}/filesystem-test-data")
 set_tests_properties(native_filesystem_physical PROPERTIES TIMEOUT 30)
 host_check(native_thread_queues tests/native_thread_queues.cpp host_threads)
+if(NOT WIN32)
+    # Original tweak-name stack classification over the native per-thread stack
+    # query (cached on Linux). Not on Windows: there the query is the OS call
+    # itself, and lld-link still wants the registry symbols that the unit's
+    # unused functions name.
+    host_check(original_tweak_stack tests/original_tweak_stack.cpp host_threads
+        "${DECOMP}/src/Game/TweakValueBase.cpp")
+    add_dependencies(original_tweak_stack verify_host_sources)
+    target_compile_options(original_tweak_stack PRIVATE -ffunction-sections -fdata-sections
+        -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas)
+    if(APPLE)
+        target_link_options(original_tweak_stack PRIVATE LINKER:-dead_strip)
+    else()
+        target_link_options(original_tweak_stack PRIVATE LINKER:--gc-sections)
+    endif()
+endif()
 host_check(original_os_messages tests/original_os_messages.cpp host_messages)
 host_check(native_thread_lifecycle tests/native_thread_lifecycle.cpp host_messages)
 
@@ -102,6 +118,33 @@ if(APPLE)
 else()
     target_link_options(world_record_fields PRIVATE LINKER:--gc-sections)
 endif()
+
+# Native FEN transport on the independent generated fixture: converted
+# pointers, host-only storage and rejection cleanup. It runs in the game
+# module, where ordinary allocations would land in the original game heap.
+set(_fen_fixture "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture")
+add_custom_command(OUTPUT "${_fen_fixture}/generated.fen" "${_fen_fixture}/generated_offsets.h"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${PORT_ROOT}/tests/generate_original_frontend_fixture.py" "${_fen_fixture}"
+    DEPENDS "${PORT_ROOT}/tests/generate_original_frontend_fixture.py"
+    VERBATIM)
+add_executable(frontend_package_transport "${PORT_ROOT}/tests/frontend_package_transport.cpp"
+    "${PORT_ROOT}/src/platform/frontend_package.cpp" "${_fen_fixture}/generated_offsets.h")
+target_include_directories(frontend_package_transport PRIVATE "${_fen_fixture}")
+target_link_libraries(frontend_package_transport PRIVATE host_headers)
+add_dependencies(frontend_package_transport verify_host_sources)
+target_compile_definitions(frontend_package_transport PRIVATE MSCHARGED_GAME_MODULE=1
+    MSCHARGED_ORIGINAL_FUNCTION_POOLS=1 AURORA_WII_CLOCK=1 dSINGLE=1)
+target_compile_options(frontend_package_transport PRIVATE -ffunction-sections
+    -fdata-sections -fno-strict-aliasing -Wno-invalid-offsetof)
+if(APPLE)
+    target_link_options(frontend_package_transport PRIVATE LINKER:-dead_strip)
+else()
+    target_link_options(frontend_package_transport PRIVATE LINKER:--gc-sections)
+endif()
+add_test(NAME frontend_package_transport
+    COMMAND frontend_package_transport "${_fen_fixture}/generated.fen")
+set_tests_properties(frontend_package_transport PROPERTIES TIMEOUT 60)
 
 add_executable(native_preferences_tests "${PORT_ROOT}/tests/native_preferences.cpp"
     "${PORT_ROOT}/src/resources/native_preferences.cpp"

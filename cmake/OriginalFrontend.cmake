@@ -8,6 +8,8 @@ target_include_directories(charged_frontend_package_abi PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src" "${MSCHARGED_PREPARED}/include"
     PRIVATE "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
 target_compile_definitions(charged_frontend_package_abi PUBLIC MSCHARGED_NATIVE=1 TARGET_PC=1)
+# Its storage comes from the host metadata interface, never the game heap.
+target_link_libraries(charged_frontend_package_abi PUBLIC charged_native_metadata)
 
 # These entire reconstructed methods remain the game-side record authority.
 add_library(charged_original_frontend_records STATIC

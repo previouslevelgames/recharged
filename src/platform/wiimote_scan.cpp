@@ -169,18 +169,24 @@ bool WiimoteHidProbe::Poll() {
         if (!device->answered && device->slot < 0)
             LogOnce(device->id, "did not answer its status request");
     auto status = result_;
-    for (auto* device : devices_)
+    for (auto* device : devices_) {
         if (device->answered)
             status.remotes.push_back({device->path, device->id, device->slot, device->plus, -1, device->nunchuk, false,
                                       device->battery});
-    // DolphinBar slots first, then directly connected remotes by address.
-    std::stable_sort(status.remotes.begin(), status.remotes.end(), [](const auto& a, const auto& b) {
-        const int sa = a.slot < 0 ? 100 : a.slot, sb = b.slot < 0 ? 100 : b.slot;
-        return sa != sb ? sa < sb : a.id < b.id;
-    });
+        else
+            status.silent.push_back(device->id);
+    }
+    SortWiimoteRemotes(status.remotes);
     Close();
     result_ = status;
     return true;
+}
+
+void SortWiimoteRemotes(std::vector<WiimoteHidRemote>& remotes) {
+    std::stable_sort(remotes.begin(), remotes.end(), [](const auto& a, const auto& b) {
+        const int sa = a.slot < 0 ? 100 : a.slot, sb = b.slot < 0 ? 100 : b.slot;
+        return sa != sb ? sa < sb : a.id < b.id;
+    });
 }
 
 bool DolphinBarInOtherMode() {

@@ -14,13 +14,11 @@
 #include "Game/FE/tlSlide.h"
 #include <algorithm>
 #include <cstring>
-#include <deque>
 #include <limits>
-#include <map>
 #include <new>
-#include <set>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 namespace mscharged::platform
 {
@@ -46,11 +44,22 @@ static_assert(std::is_trivially_copyable_v<FETextureResource>);
 static_assert(std::is_trivially_copyable_v<fAnimationKeyframe>);
 static_assert(std::is_trivially_copyable_v<v3AnimationKeyframe>);
 
+// Scratch containers use the same host storage as the native image.
+template<class T> using HostVector = FrontendPackageVector<T>;
+
 constexpr std::uint32_t NullWord=0xffffffffu;
 enum class Kind:unsigned
 {
     Package,Presentation,Library,Resource,Slide,Instance,Animation,
     FloatKey,VectorKey,String,Matrix,ExternalFont,FontString,UnknownKeys
+};
+// Record layouts. Every record of one original type has the same fields, so
+// a package describes each type once instead of once per record.
+enum class Profile:unsigned
+{
+    Package,Presentation,LayerLibrary,GroupLibrary,ImageLibrary,TextLibrary,ComponentLibrary,
+    TextureResource,FontResource,Slide,Instance,ComponentInstance,ImageInstance,TextInstance,
+    FloatAnimation,VectorAnimation,UnknownAnimation,FloatKey,VectorKey,Matrix,Count
 };
 enum class Encoding { Bytes,Word,Half,Pointer };
 struct Field
@@ -61,9 +70,22 @@ struct Field
 };
 struct Node
 {
+    Kind kind=Kind::Package;
+    std::size_t raw_size=0,native_size=0,alignment=1;
+    HostVector<Field> fields;
+};
+struct Layout
+{
+    Node node;
+    bool described=false,checked=false;
+};
+// One raw record: its address, layout and native placement.
+struct Object
+{
+    std::uint32_t at;
     Kind kind;
-    std::size_t raw_size=0,native_size=0,alignment=1,native_offset=0;
-    std::vector<Field> fields;
+    Profile profile;
+    std::size_t raw_size,native_size,alignment,native_offset;
 };
 using Bytes=std::span<const std::byte>;
 void Require(bool condition,const char* message)
@@ -176,63 +198,106 @@ void ResourceBase(Node& n)
     FBYTES(n,FEResourceHandle,m_bValid,16);FBYTES(n,FEResourceHandle,pad_0x11,17);
     FWORD(n,FEResourceHandle,m_uFileBlock,20);
 }
-Node Describe(Bytes data,std::uint32_t at,Kind kind)
+// The layout of the record at `at`; reads only the words that select it.
+Profile Classify(Bytes data,std::uint32_t at,Kind kind)
 {
-    Node n{kind};
     switch (kind)
     {
-    case Kind::Package:
-        Shape<FEPackage>(n,24);
+    case Kind::Package:return Profile::Package;
+    case Kind::Presentation:return Profile::Presentation;
+    case Kind::Library:
+    {
+        const auto type=Word(data,std::size_t(at)+0x74);
+        switch (type)
+        {
+        case FEOT_LAYER:return Profile::LayerLibrary;
+        case FEOT_GROUP:return Profile::GroupLibrary;
+        case FEOT_IMAGE:return Profile::ImageLibrary;
+        case FEOT_TEXT:return Profile::TextLibrary;
+        case FEOT_COMPONENT:return Profile::ComponentLibrary;
+        default:throw std::runtime_error("Unsupported original FEN library record profile");
+        }
+    }
+    case Kind::Resource:
+    {
+        const auto type=Word(data,std::size_t(at)+8);
+        if (type==FERT_TEXTURE) return Profile::TextureResource;
+        if (type==FERT_FONT) return Profile::FontResource;
+        throw std::runtime_error("Unsupported serialized FEN scene/external resource profile");
+    }
+    case Kind::Slide:return Profile::Slide;
+    case Kind::Instance:
+    {
+        const auto type=Word(data,std::size_t(at)+0x88);
+        switch (type)
+        {
+        case TLAT_LAYER:case TLAT_GROUP:return Profile::Instance;
+        case TLAT_COMPONENT:return Profile::ComponentInstance;
+        case TLAT_IMAGE:return Profile::ImageInstance;
+        case TLAT_TEXT:return Profile::TextInstance;
+        default:throw std::runtime_error("Unsupported original FEN instance record profile");
+        }
+    }
+    case Kind::Animation:
+    {
+        const auto cast=Half(data,std::size_t(at)+16);
+        return cast==0?Profile::FloatAnimation:cast==1?Profile::VectorAnimation:Profile::UnknownAnimation;
+    }
+    case Kind::FloatKey:return Profile::FloatKey;
+    case Kind::VectorKey:return Profile::VectorKey;
+    case Kind::Matrix:return Profile::Matrix;
+    default:throw std::runtime_error("Unsupported non-null FEN external/runtime pointer profile");
+    }
+}
+Node Describe(Profile profile)
+{
+    Node n;
+    n.fields.reserve(96); // the largest layout (text instance) has 85 fields
+    switch (profile)
+    {
+    case Profile::Package:
+        n.kind=Kind::Package;Shape<FEPackage>(n,24);
         FPTR(n,FEPackage,m_pComponentList,0,Kind::Library);
         FPTR(n,FEPackage,m_pFEPresentation,4,Kind::Presentation);
         FPTR(n,FEPackage,m_pResourceList,8,Kind::Resource);
         FPTR(n,FEPackage,m_pFEObjectLibrary,12,Kind::Library);
         FWORD(n,FEPackage,m_uUniqueID,16);FWORD(n,FEPackage,m_uResourceCount,20);
         break;
-    case Kind::Presentation:
-        Shape<FEPresentation>(n,12);
+    case Profile::Presentation:
+        n.kind=Kind::Presentation;Shape<FEPresentation>(n,12);
         FPTR(n,FEPresentation,m_slides,0,Kind::Slide);
         FPTR(n,FEPresentation,m_currentSlide,4,Kind::Slide);
         FWORD(n,FEPresentation,m_fadeDuration,8);
         break;
-    case Kind::Library:
-    {
-        const auto type=Word(data,std::size_t(at)+0x74);
-        switch (type)
-        {
-        case FEOT_LAYER:Shape<FELayer>(n,0x78);break;
-        case FEOT_GROUP:Shape<FEGroup>(n,0x78);break;
-        case FEOT_IMAGE:
-            Shape<FEImage>(n,0x7c);FPTR(n,FEImage,m_pFeTextureResource,0x78,Kind::Resource);break;
-        case FEOT_TEXT:
-            Shape<FEText>(n,0x88);FPTR(n,FEText,m_pFeFontResource,0x78,Kind::Resource);
-            BytesField(n,0x7c,offsetof(FEText,m_TextAttributes)+offsetof(FETextLibObjectAttributes,EffectColour),4);
-            WordField(n,0x80,offsetof(FEText,m_TextAttributes)+offsetof(FETextLibObjectAttributes,BoxSize));
-            WordField(n,0x84,offsetof(FEText,m_TextAttributes)+offsetof(FETextLibObjectAttributes,BoxSize)+4);break;
-        case FEOT_COMPONENT:
-            Shape<TLComponent>(n,0x80);
-            FPTR(n,TLComponent,pChildren,0x78,Kind::Slide);FPTR(n,TLComponent,m_pActiveSlide,0x7c,Kind::Slide);break;
-        default:throw std::runtime_error("Unsupported original FEN library record profile");
-        }
+    case Profile::LayerLibrary:n.kind=Kind::Library;Shape<FELayer>(n,0x78);LibraryBase(n);break;
+    case Profile::GroupLibrary:n.kind=Kind::Library;Shape<FEGroup>(n,0x78);LibraryBase(n);break;
+    case Profile::ImageLibrary:
+        n.kind=Kind::Library;
+        Shape<FEImage>(n,0x7c);FPTR(n,FEImage,m_pFeTextureResource,0x78,Kind::Resource);
         LibraryBase(n);break;
-    }
-    case Kind::Resource:
-    {
-        const auto type=Word(data,std::size_t(at)+8);
-        if (type==FERT_TEXTURE)
-        {
-            Shape<FETextureResource>(n,0x20);FWORD(n,FETextureResource,m_glTextureHandle,24);
-            FHALF(n,FETextureResource,m_uWidth,28);FHALF(n,FETextureResource,m_uHeight,30);
-        }
-        else if (type==FERT_FONT)
-        {
-            Shape<FEFontResource>(n,0x1c);FPTR(n,FEFontResource,m_pFontReference,24,Kind::ExternalFont);
-        }
-        else throw std::runtime_error("Unsupported serialized FEN scene/external resource profile");
+    case Profile::TextLibrary:
+        n.kind=Kind::Library;
+        Shape<FEText>(n,0x88);FPTR(n,FEText,m_pFeFontResource,0x78,Kind::Resource);
+        BytesField(n,0x7c,offsetof(FEText,m_TextAttributes)+offsetof(FETextLibObjectAttributes,EffectColour),4);
+        WordField(n,0x80,offsetof(FEText,m_TextAttributes)+offsetof(FETextLibObjectAttributes,BoxSize));
+        WordField(n,0x84,offsetof(FEText,m_TextAttributes)+offsetof(FETextLibObjectAttributes,BoxSize)+4);
+        LibraryBase(n);break;
+    case Profile::ComponentLibrary:
+        n.kind=Kind::Library;
+        Shape<TLComponent>(n,0x80);
+        FPTR(n,TLComponent,pChildren,0x78,Kind::Slide);FPTR(n,TLComponent,m_pActiveSlide,0x7c,Kind::Slide);
+        LibraryBase(n);break;
+    case Profile::TextureResource:
+        n.kind=Kind::Resource;
+        Shape<FETextureResource>(n,0x20);FWORD(n,FETextureResource,m_glTextureHandle,24);
+        FHALF(n,FETextureResource,m_uWidth,28);FHALF(n,FETextureResource,m_uHeight,30);
         ResourceBase(n);break;
-    }
-    case Kind::Slide:
-        Shape<TLSlide>(n,0x48);
+    case Profile::FontResource:
+        n.kind=Kind::Resource;
+        Shape<FEFontResource>(n,0x1c);FPTR(n,FEFontResource,m_pFontReference,24,Kind::ExternalFont);
+        ResourceBase(n);break;
+    case Profile::Slide:
+        n.kind=Kind::Slide;Shape<TLSlide>(n,0x48);
         FPTR(n,TLSlide,m_next,0,Kind::Slide);
         // Pinned source names this Wii pointer slot pad0. Actual FEN relocation
         // proves its backlink; native pointer width occupies this slot/padding.
@@ -243,93 +308,78 @@ Node Describe(Bytes data,std::uint32_t at,Kind kind)
         FWORD(n,TLSlide,m_uPlayMode,28);FBYTES(n,TLSlide,m_szName,32);FWORD(n,TLSlide,m_hash,64);
         FBYTES(n,TLSlide,m_bPaused,68);BytesField(n,69,offsetof(TLSlide,m_bPaused)+1,3);
         break;
-    case Kind::Instance:
+    case Profile::Instance:n.kind=Kind::Instance;Shape<TLInstance>(n,0x90);InstanceBase(n);break;
+    case Profile::ComponentInstance:n.kind=Kind::Instance;Shape<TLComponentInstance>(n,0x90);InstanceBase(n);break;
+    case Profile::ImageInstance:
+        n.kind=Kind::Instance;
+        Shape<TLImageInstance>(n,0x98);FPTR(n,TLImageInstance,m_pTextureResource,0x90,Kind::Resource);
+        FWORD(n,TLImageInstance,field_0x94,0x94);
+        InstanceBase(n);break;
+    case Profile::TextInstance:
     {
-        const auto type=Word(data,std::size_t(at)+0x88);
-        switch (type)
+        n.kind=Kind::Instance;
+        Shape<TLTextInstance>(n,0x114);FWORD(n,TLTextInstance,m_LocStrId,0x90);
+        BytesField(n,0x94,offsetof(TLTextInstance,m_OverloadedAttributes)+offsetof(FETextLibObjectAttributes,EffectColour),4);
+        WordField(n,0x98,offsetof(TLTextInstance,m_OverloadedAttributes)+offsetof(FETextLibObjectAttributes,BoxSize));
+        WordField(n,0x9c,offsetof(TLTextInstance,m_OverloadedAttributes)+offsetof(FETextLibObjectAttributes,BoxSize)+4);
+        FWORD(n,TLTextInstance,m_OverloadFlags,0xa0);
+        const auto draw=offsetof(TLTextInstance,m_DrawInfo);
+        PointerField(n,0xa4,draw+offsetof(nlTextBox::StringDrawInfo,pFont),Kind::ExternalFont);
+        PointerField(n,0xa8,draw+offsetof(nlTextBox::StringDrawInfo,String),Kind::String);
+        PointerField(n,0xac,draw+offsetof(nlTextBox::StringDrawInfo,pMatrix),Kind::Matrix);
+        WordField(n,0xb0,draw+offsetof(nlTextBox::StringDrawInfo,DrawOptions),sizeof(((nlTextBox::StringDrawInfo*)nullptr)->DrawOptions));
+        HalfField(n,0xb4,draw+offsetof(nlTextBox::StringDrawInfo,RowCount));
+        HalfField(n,0xb6,draw+offsetof(nlTextBox::StringDrawInfo,YOffset));
+        for (unsigned i=0;i<17;++i)
         {
-        case TLAT_LAYER:case TLAT_GROUP:Shape<TLInstance>(n,0x90);break;
-        case TLAT_COMPONENT:Shape<TLComponentInstance>(n,0x90);break;
-        case TLAT_IMAGE:
-            Shape<TLImageInstance>(n,0x98);FPTR(n,TLImageInstance,m_pTextureResource,0x90,Kind::Resource);
-            FWORD(n,TLImageInstance,field_0x94,0x94);break;
-        case TLAT_TEXT:
-        {
-            Shape<TLTextInstance>(n,0x114);FWORD(n,TLTextInstance,m_LocStrId,0x90);
-            BytesField(n,0x94,offsetof(TLTextInstance,m_OverloadedAttributes)+offsetof(FETextLibObjectAttributes,EffectColour),4);
-            WordField(n,0x98,offsetof(TLTextInstance,m_OverloadedAttributes)+offsetof(FETextLibObjectAttributes,BoxSize));
-            WordField(n,0x9c,offsetof(TLTextInstance,m_OverloadedAttributes)+offsetof(FETextLibObjectAttributes,BoxSize)+4);
-            FWORD(n,TLTextInstance,m_OverloadFlags,0xa0);
-            const auto draw=offsetof(TLTextInstance,m_DrawInfo);
-            PointerField(n,0xa4,draw+offsetof(nlTextBox::StringDrawInfo,pFont),Kind::ExternalFont);
-            PointerField(n,0xa8,draw+offsetof(nlTextBox::StringDrawInfo,String),Kind::String);
-            PointerField(n,0xac,draw+offsetof(nlTextBox::StringDrawInfo,pMatrix),Kind::Matrix);
-            WordField(n,0xb0,draw+offsetof(nlTextBox::StringDrawInfo,DrawOptions),sizeof(((nlTextBox::StringDrawInfo*)nullptr)->DrawOptions));
-            HalfField(n,0xb4,draw+offsetof(nlTextBox::StringDrawInfo,RowCount));
-            HalfField(n,0xb6,draw+offsetof(nlTextBox::StringDrawInfo,YOffset));
-            for (unsigned i=0;i<17;++i)
-            {
-                const auto row=draw+offsetof(nlTextBox::StringDrawInfo,Rows)+i*sizeof(Row);
-                HalfField(n,0xb8+4*i,row+offsetof(Row,XOffset));
-                HalfField(n,0xba+4*i,row+offsetof(Row,FirstChar));
-            }
-            FPTR(n,TLTextInstance,m_pFontString,0xfc,Kind::FontString);
-            FWORD(n,TLTextInstance,m_DrawOptions,0x100);FPTR(n,TLTextInstance,m_wcUserString,0x104,Kind::String);
-            FBYTES(n,TLTextInstance,m_UseScissorRect,0x108);FBYTES(n,TLTextInstance,pad_109,0x109);
-            for (unsigned i=0;i<4;++i) HalfField(n,0x10a+2*i,offsetof(TLTextInstance,m_ScissorRect)+2*i);
-            BytesField(n,0x112,offsetof(TLTextInstance,m_ScissorRect)+8,2);
-            break;
+            const auto row=draw+offsetof(nlTextBox::StringDrawInfo,Rows)+i*sizeof(Row);
+            HalfField(n,0xb8+4*i,row+offsetof(Row,XOffset));
+            HalfField(n,0xba+4*i,row+offsetof(Row,FirstChar));
         }
-        default:throw std::runtime_error("Unsupported original FEN instance record profile");
-        }
+        FPTR(n,TLTextInstance,m_pFontString,0xfc,Kind::FontString);
+        FWORD(n,TLTextInstance,m_DrawOptions,0x100);FPTR(n,TLTextInstance,m_wcUserString,0x104,Kind::String);
+        FBYTES(n,TLTextInstance,m_UseScissorRect,0x108);FBYTES(n,TLTextInstance,pad_109,0x109);
+        for (unsigned i=0;i<4;++i) HalfField(n,0x10a+2*i,offsetof(TLTextInstance,m_ScissorRect)+2*i);
+        BytesField(n,0x112,offsetof(TLTextInstance,m_ScissorRect)+8,2);
         InstanceBase(n);break;
     }
-    case Kind::Animation:
-    {
-        Shape<FEAnimation>(n,0x1c);
+    case Profile::FloatAnimation:case Profile::VectorAnimation:case Profile::UnknownAnimation:
+        n.kind=Kind::Animation;Shape<FEAnimation>(n,0x1c);
         // The foreign serialized vptr is never dereferenced or copied as a
         // native callable address. Actual native lifetime starts after memcpy.
         FPTR(n,FEAnimation,m_next,4,Kind::Animation);FPTR(n,FEAnimation,m_prev,8,Kind::Animation);
         FPTR(n,FEAnimation,m_pTLInstanceTarget,12,Kind::Instance);
         FHALF(n,FEAnimation,m_cast_type,16);FBYTES(n,FEAnimation,pad12,18);FWORD(n,FEAnimation,m_type,20);
-        const auto cast=Half(data,std::size_t(at)+16);
-        FPTR(n,FEAnimation,m_DLRingHead,24,cast==0?Kind::FloatKey:cast==1?Kind::VectorKey:Kind::UnknownKeys);
+        FPTR(n,FEAnimation,m_DLRingHead,24,profile==Profile::FloatAnimation?Kind::FloatKey:
+            profile==Profile::VectorAnimation?Kind::VectorKey:Kind::UnknownKeys);
         break;
-    }
-    case Kind::FloatKey:
-        Shape<fAnimationKeyframe>(n,0x18);
+    case Profile::FloatKey:
+        n.kind=Kind::FloatKey;Shape<fAnimationKeyframe>(n,0x18);
         for (unsigned i=0;i<4;++i) WordField(n,4*i,offsetof(fAnimationKeyframe,pKeyFrameData)+4*i);
         FPTR(n,fAnimationKeyframe,m_next,16,Kind::FloatKey);FPTR(n,fAnimationKeyframe,m_prev,20,Kind::FloatKey);
         break;
-    case Kind::VectorKey:
-        Shape<v3AnimationKeyframe>(n,0x38);
+    case Profile::VectorKey:
+        n.kind=Kind::VectorKey;Shape<v3AnimationKeyframe>(n,0x38);
         for (unsigned i=0;i<12;++i) WordField(n,4*i,4*i);
         FPTR(n,v3AnimationKeyframe,m_next,48,Kind::VectorKey);FPTR(n,v3AnimationKeyframe,m_prev,52,Kind::VectorKey);
         break;
-    case Kind::String:
-    {
-        Require(at%2==0,"FEN UTF16 byte address is unaligned");
-        std::size_t end=at;
-        while (Half(data,end)!=0) end+=2;
-        n.raw_size=end+2-at;n.native_size=n.raw_size;n.alignment=alignof(std::uint16_t);
-        for (std::size_t i=0;i<n.raw_size;i+=2) HalfField(n,i,i);
-        break;
-    }
-    case Kind::Matrix:
-        n.raw_size=64;n.native_size=sizeof(nlMatrix4);n.alignment=alignof(nlMatrix4);
+    case Profile::Matrix:
+        n.kind=Kind::Matrix;n.raw_size=64;n.native_size=sizeof(nlMatrix4);n.alignment=alignof(nlMatrix4);
         static_assert(sizeof(nlMatrix4)==64);
         for (unsigned i=0;i<16;++i) WordField(n,4*i,4*i);
         break;
-    default:throw std::runtime_error("Unsupported non-null FEN external/runtime pointer profile");
+    default:throw std::logic_error("Unknown FEN record profile");
     }
-    Bounds(data,at,n.raw_size);
+    return n;
+}
+void CheckFields(const Node& n)
+{
     for (const auto& field:n.fields)
     {
         const auto raw_width=field.encoding==Encoding::Bytes?field.width:field.encoding==Encoding::Half?2:4;
         Require(field.raw<=n.raw_size && raw_width<=n.raw_size-field.raw,"FEN raw record schema overlaps another object");
         Require(field.native<=n.native_size && field.width<=n.native_size-field.native,"Native FEN record schema does not fit this ABI");
     }
-    return n;
 }
 #undef FWORD
 #undef FHALF
@@ -346,71 +396,124 @@ PreparedFrontendPackage PrepareFrontendPackage(const void* input,std::size_t siz
     Require(data_size>=24 && data_size%4==0 && table_size%4==0,"Invalid raw Wii FEN byte lengths");
     Require(size>=16 && data_size<=size-16 && table_size==size-16-data_size,"Raw FEN byte lengths do not cover the actual input");
     const Bytes data=file.subspan(16,data_size),table=file.subspan(16+data_size,table_size);
-    std::vector<std::uint32_t> relocation_order;
-    std::set<std::uint32_t> relocations;
+    // Flat tables indexed by raw address replace node-based maps and sets:
+    // relocation slots are words (one bit each), records start on half-words.
+    HostVector<std::uint64_t> relocations((data.size()/4+63)/64);
+    const auto relocated=[&](std::size_t slot)
+    {
+        return slot%4==0 && slot<data.size() && (relocations[slot/256]>>(slot/4%64)&1);
+    };
+    HostVector<std::uint32_t> relocation_order;
+    relocation_order.reserve(table.size()/4);
     for (std::size_t i=0;i<table.size();i+=4)
     {
         const auto field=Word(table,i);
         Require(field%4==0 && field<=data.size()-4,"Raw FEN relocation slot is out of bounds");
-        Require(relocations.insert(field).second,"Duplicate raw FEN relocation slot has no qualified native ABI contract");
+        auto& bits=relocations[field/256];
+        const auto bit=std::uint64_t(1)<<(field/4%64);
+        Require(!(bits&bit),"Duplicate raw FEN relocation slot has no qualified native ABI contract");
+        bits|=bit;
         const auto target=Word(data,field);
         Require(target==NullWord || target<data.size(),"Raw FEN relocation target is out of bounds");
         relocation_order.push_back(field);
     }
-    std::map<std::uint32_t,Node> nodes;
-    std::map<std::uint32_t,std::pair<std::uint32_t,std::size_t>> pointer_slots;
-    std::deque<std::pair<std::uint32_t,Kind>> pending{{0,Kind::Package}};
-    while (!pending.empty())
+    HostVector<Layout> layouts(static_cast<std::size_t>(Profile::Count));
+    HostVector<Object> objects;
+    objects.reserve(relocation_order.size()+1);
+    // Record index + 1 by raw half-word address, 0 for none.
+    HostVector<std::uint32_t> object_at(data.size()/2);
+    // Per pointer slot word: owning record index + 1 and its native field offset.
+    HostVector<std::pair<std::uint32_t,std::uint32_t>> pointer_slots(data.size()/4);
+    HostVector<std::pair<std::uint32_t,Kind>> pending;
+    pending.reserve(relocation_order.size()+1);
+    pending.emplace_back(0,Kind::Package);
+    for (std::size_t next=0;next<pending.size();++next)
     {
-        const auto [at,kind]=pending.front();pending.pop_front();
-        if (const auto found=nodes.find(at);found!=nodes.end())
+        const auto [at,kind]=pending[next];
+        if (const auto found=at%2==0?object_at[at/2]:0)
         {
-            Require(found->second.kind==kind,"Conflicting typed aliases in raw FEN object storage");
+            Require(objects[found-1].kind==kind,"Conflicting typed aliases in raw FEN object storage");
             continue;
         }
         Require(at%((kind==Kind::String)?2:4)==0,"Raw FEN typed record is unaligned");
-        Node node=Describe(data,at,kind);
-        for (const auto& field:node.fields)
+        Object object{at,kind,Profile::Count,0,0,1,0};
+        const Node* layout=nullptr;
+        if (kind==Kind::String)
         {
-            if (field.encoding!=Encoding::Pointer) continue;
-            const auto slot=at+static_cast<std::uint32_t>(field.raw);
-            const auto value=Word(data,slot);
-            pointer_slots.emplace(slot,std::pair{at,field.native});
-            if (!relocations.contains(slot))
-                Require(value==0,"Non-null raw FEN pointer has no source relocation slot");
-            else if (value!=NullWord) pending.emplace_back(value,field.target);
-        }
-        nodes.emplace(at,std::move(node));
-    }
-    for (const auto field:relocation_order)
-        Require(pointer_slots.contains(field),"Unclassified raw FEN relocation profile");
-
-    PreparedFrontendPackage out;
-    std::size_t native_size=0;
-    const Node* previous=nullptr;
-    std::uint32_t previous_at=0;
-    for (auto& [at,node]:nodes)
-    {
-        if (previous && at<std::size_t(previous_at)+previous->raw_size)
-        {
-            // UTF16 suffix aliases must retain exact address identity. No
-            // other typed overlaps are silently flattened or discarded.
-            Require(node.kind==Kind::String && previous->kind==Kind::String &&
-                std::size_t(at)+node.raw_size==std::size_t(previous_at)+previous->raw_size,
-                "Overlapping original FEN record profile is not qualified");
-            node.native_offset=previous->native_offset+(at-previous_at);
+            Require(at%2==0,"FEN UTF16 byte address is unaligned");
+            std::size_t end=at;
+            while (Half(data,end)!=0) end+=2;
+            object.raw_size=end+2-at;object.native_size=object.raw_size;object.alignment=alignof(std::uint16_t);
+            Bounds(data,at,object.raw_size);
         }
         else
         {
-            native_size=Align(native_size,node.alignment);
-            node.native_offset=native_size;
-            Require(native_size<=std::numeric_limits<std::uint32_t>::max() &&
-                node.native_size<=std::numeric_limits<std::uint32_t>::max()-native_size,"Native FEN data exceeds its source header width");
-            native_size+=node.native_size;
-            previous=&node;previous_at=at;
+            object.profile=Classify(data,at,kind);
+            auto& entry=layouts[static_cast<std::size_t>(object.profile)];
+            if (!entry.described)
+            {
+                entry.node=Describe(object.profile);
+                entry.described=true;
+            }
+            object.raw_size=entry.node.raw_size;object.native_size=entry.node.native_size;
+            object.alignment=entry.node.alignment;
+            Bounds(data,at,object.raw_size);
+            if (!entry.checked)
+            {
+                CheckFields(entry.node);
+                entry.checked=true;
+            }
+            layout=&entry.node;
         }
-        out.records_.push_back({at,node.native_offset,node.native_size,static_cast<unsigned>(node.kind)});
-        if (node.kind==Kind::Animation) out.animation_offsets_.push_back(node.native_offset);
+        const auto index=static_cast<std::uint32_t>(objects.size());
+        if (layout)
+            for (const auto& field:layout->fields)
+            {
+                if (field.encoding!=Encoding::Pointer) continue;
+                const auto slot=at+static_cast<std::uint32_t>(field.raw);
+                const auto value=Word(data,slot);
+                auto& owner=pointer_slots[slot/4];
+                if (!owner.first) owner={index+1,static_cast<std::uint32_t>(field.native)};
+                if (!relocated(slot))
+                    Require(value==0,"Non-null raw FEN pointer has no source relocation slot");
+                else if (value!=NullWord) pending.emplace_back(value,field.target);
+            }
+        object_at[at/2]=index+1;
+        objects.push_back(object);
+    }
+    for (const auto field:relocation_order)
+        Require(pointer_slots[field/4].first!=0,"Unclassified raw FEN relocation profile");
+
+    PreparedFrontendPackage out;
+    out.records_.reserve(objects.size());
+    std::size_t native_size=0;
+    const Object* previous=nullptr;
+    // object_at in index order visits the records by ascending raw address.
+    for (const auto found:object_at)
+    {
+        if (!found) continue;
+        auto& object=objects[found-1];
+        const auto at=object.at;
+        if (previous && at<std::size_t(previous->at)+previous->raw_size)
+        {
+            // UTF16 suffix aliases must retain exact address identity. No
+            // other typed overlaps are silently flattened or discarded.
+            Require(object.kind==Kind::String && previous->kind==Kind::String &&
+                std::size_t(at)+object.raw_size==std::size_t(previous->at)+previous->raw_size,
+                "Overlapping original FEN record profile is not qualified");
+            object.native_offset=previous->native_offset+(at-previous->at);
+        }
+        else
+        {
+            native_size=Align(native_size,object.alignment);
+            object.native_offset=native_size;
+            Require(native_size<=std::numeric_limits<std::uint32_t>::max() &&
+                object.native_size<=std::numeric_limits<std::uint32_t>::max()-native_size,"Native FEN data exceeds its source header width");
+            native_size+=object.native_size;
+            previous=&object;
+        }
+        out.records_.push_back({at,object.native_offset,object.native_size,static_cast<unsigned>(object.kind)});
+        if (object.kind==Kind::Animation) out.animation_offsets_.push_back(object.native_offset);
     }
     native_size=Align(native_size,alignof(std::uintptr_t));
     Require(relocation_order.size()<=std::numeric_limits<std::uint32_t>::max()/sizeof(std::uintptr_t),"Native FEN relocation table exceeds its source header width");
@@ -422,11 +525,27 @@ PreparedFrontendPackage PrepareFrontendPackage(const void* input,std::size_t siz
     std::memcpy(native.data(),file.data(),4);
     StoreWord(native,4,1,4);StoreWord(native,8,static_cast<std::uint32_t>(native_size),4);
     StoreWord(native,12,static_cast<std::uint32_t>(native_table_size),4);
-    for (const auto& [at,node]:nodes)
+    const auto native_offset_of=[&](std::uint32_t raw)
     {
-        for (const auto& field:node.fields)
+        const auto found=raw%2==0 && raw/2<object_at.size()?object_at[raw/2]:0;
+        Require(found!=0,"Raw FEN pointer target has no record");
+        return objects[found-1].native_offset;
+    };
+    for (const auto found:object_at)
+    {
+        if (!found) continue;
+        const auto& object=objects[found-1];
+        if (object.kind==Kind::String)
         {
-            const std::size_t src=at+field.raw,dst=16+node.native_offset+field.native;
+            for (std::size_t i=0;i<object.raw_size;i+=2)
+            {
+                const auto value=Half(data,object.at+i);Store(native,16+object.native_offset+i,&value,2);
+            }
+            continue;
+        }
+        for (const auto& field:layouts[static_cast<std::size_t>(object.profile)].node.fields)
+        {
+            const std::size_t src=object.at+field.raw,dst=16+object.native_offset+field.native;
             switch (field.encoding)
             {
             case Encoding::Bytes:
@@ -439,8 +558,8 @@ PreparedFrontendPackage PrepareFrontendPackage(const void* input,std::size_t siz
             case Encoding::Pointer:
             {
                 const auto value=Word(data,src);
-                const std::uintptr_t native_value=!relocations.contains(static_cast<std::uint32_t>(src))?0:
-                    value==NullWord?NullWord:nodes.at(value).native_offset;
+                const std::uintptr_t native_value=!relocated(src)?0:
+                    value==NullWord?NullWord:native_offset_of(value);
                 StorePointer(native,dst,native_value);break;
             }
             }
@@ -448,8 +567,8 @@ PreparedFrontendPackage PrepareFrontendPackage(const void* input,std::size_t siz
     }
     for (std::size_t i=0;i<relocation_order.size();++i)
     {
-        const auto [record,field]=pointer_slots.at(relocation_order[i]);
-        StorePointer(native,16+native_size+i*sizeof(std::uintptr_t),nodes.at(record).native_offset+field);
+        const auto [record,field]=pointer_slots[relocation_order[i]/4];
+        StorePointer(native,16+native_size+i*sizeof(std::uintptr_t),objects[record-1].native_offset+field);
     }
     return out;
 }

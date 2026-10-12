@@ -29,6 +29,9 @@ int main()
         Check(IsTweakNameOnStack(persistent) == 0, "Original static name was unnecessarily interned");
         Check(IsTweakNameOnStack(heap.get()) == 0, "Original heap name was unnecessarily interned");
         const auto main_limits = mscharged::CurrentThreadStackLimits();
+        const auto main_again = mscharged::CurrentThreadStackLimits();
+        Check(main_again.low == main_limits.low && main_again.high == main_limits.high,
+              "Repeated stack queries changed the calling thread's range");
         Check(IsTweakNameOnStack(reinterpret_cast<const char*>(main_limits.low)) == 1,
               "Original inclusive lower stack boundary changed");
         Check(IsTweakNameOnStack(reinterpret_cast<const char*>(main_limits.high)) == 1,
@@ -47,6 +50,9 @@ int main()
             char worker_local[] = "Worker stack";
             try
             {
+                const auto worker_limits = mscharged::CurrentThreadStackLimits();
+                if (worker_limits.low == main_limits.low || worker_limits.high == main_limits.high)
+                    throw std::runtime_error("A worker received the main thread's stack range");
                 if (IsTweakNameOnStack(worker_local) != 1
                     || IsTweakNameOnStack(local) != 0
                     || IsTweakNameOnStack(persistent) != 0

@@ -51,7 +51,12 @@ struct WiimoteHidStatus {
     // Wii Remotes the system lists but this user may not open (Linux: no
     // udev rule for the hidraw device).
     int no_permission = 0;
+    // Launcher probe: ids of remotes that are listed and open but did not
+    // answer this time (a flaky link, or just switched off).
+    std::vector<std::string> silent;
 };
+// DolphinBar slots first, then directly connected remotes by address.
+void SortWiimoteRemotes(std::vector<WiimoteHidRemote>& remotes);
 
 // Owner thread. Probes immediately and waits briefly for remotes that are
 // already on, so they can take their players before the keyboard device.

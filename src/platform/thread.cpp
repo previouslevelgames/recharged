@@ -45,6 +45,11 @@ ThreadStackLimits CurrentThreadStackLimits()
     if (size > high) throw std::runtime_error("Invalid native thread stack size");
     low = high - size;
 #elif defined(__linux__)
+    // For the main thread glibc parses /proc/self/maps on every call, and the
+    // original tweak registry asks once per new tweak (hundreds when a match
+    // loads). A thread's stack does not move: query it once per thread.
+    static thread_local ThreadStackLimits cached{};
+    if (cached.low) return cached;
     pthread_attr_t attributes;
     const int attribute_error = pthread_getattr_np(pthread_self(), &attributes);
     if (attribute_error)
@@ -61,6 +66,9 @@ ThreadStackLimits CurrentThreadStackLimits()
     if (size > std::numeric_limits<std::uintptr_t>::max() - low)
         throw std::runtime_error("Native thread stack address overflow");
     high = low + size;
+    if (!low || high <= low) throw std::runtime_error("Invalid native thread stack limits");
+    cached = {low, high};
+    return cached;
 #else
     throw std::runtime_error("Current thread stack limits are unavailable on this platform");
 #endif
