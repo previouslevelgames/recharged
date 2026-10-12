@@ -1,0 +1,46 @@
+From: mscharged-port
+Subject: Test desire update results as 32-bit codes
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: TEMPORARY native source correction; remove when the pin includes decomp 0a6e72402.
+
+FielderDesireMachine::Update and ScriptState::Update read the update result
+through Variant's pointer member. Retail tests only the 32-bit word (R4QE01
+lwz/cmpwi at 0x800D5BD8 and 0x80317568), and the result always holds an int
+code (DESIRE_CONTINUE, 2 on timeout, ...), which ScriptMachine::Update reads
+through mData.i. MWCC compiles both spellings to the same instructions.
+
+Natively the pointer is eight bytes and the int assignment writes four. The
+Windows (Clang) build copies stale stack bytes into the other four, so the
+frozen state that hides a Strikers 101 or Striker Challenge team's missing
+sidekicks ended at random moments and those sidekicks joined the match
+(issue #25), and script states could skip their update. The Linux (GCC)
+build happens to zero those bytes. Decomp commit 0a6e72402 fixes the source
+with main.dol unchanged for R4QE01, R4QP01_rev2 and R4QP01_rev1; drop this
+patch when adopting it.
+
+diff --git a/src/Game/AI/FielderDesireMachine.cpp b/src/Game/AI/FielderDesireMachine.cpp
+index fc1d493..b91d462 100644
+--- a/src/Game/AI/FielderDesireMachine.cpp
++++ b/src/Game/AI/FielderDesireMachine.cpp
+@@ -216,7 +216,7 @@ void FielderDesireMachine::Update(float deltaTime)
+     {
+         DesireUpdate result;
+         UpdateStateMachine(frozen, &result, true, deltaTime);
+-        if (result.mData.pointer != 0)
++        if (result.mData.i != DESIRE_CONTINUE)
+         {
+             RequestStateMachineDeactivation(frozen);
+         }
+diff --git a/src/Game/AI/shdStateMachine.cpp b/src/Game/AI/shdStateMachine.cpp
+index be664c8..41a4887 100644
+--- a/src/Game/AI/shdStateMachine.cpp
++++ b/src/Game/AI/shdStateMachine.cpp
+@@ -274,7 +274,7 @@ bool ScriptState::Initialize(void*)
+ void ScriptState::Update(
+     DesireUpdate* update, float deltaTime)
+ {
+-    if (update->mData.pointer != 0)
++    if (update->mData.i != DESIRE_CONTINUE)
+     {
+         return;
+     }

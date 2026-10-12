@@ -1,0 +1,42 @@
+Subject: Fix: redraw resting goal nets (issue #19)
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+A fix of the original game, always on and without a switch (owner decision,
+2026-10-12). It lives in the tweak series so the faithful series stays retail.
+
+DrawableNetMesh::Render rebuilds a goal net's mesh only while the net
+simulation is active (a ball in the net) or after a replay frame changed the
+net's recorded visibility; a resting net keeps drawing the mesh it built last.
+Every goal resets both nets (NetMesh::Reset) when its replay starts
+(StartAutoReplay) and when it ends (ReplayChoreo::Finish). The simulated net
+returns to its rest shape and turns inactive, but the drawn mesh is not
+invalidated, so the shape last drawn in the replay stayed on screen until the
+ball next entered that net and it was redrawn at once (issue #19: a net left
+bulged outward after a goal). The original code does the same.
+
+The net is now rebuilt every frame, as the original already does while a ball
+is in it. Only the drawing changes; the net simulation, replays and sync logs
+are unchanged. A resting net now also follows the world darkening, which the
+original applied only when it rebuilt the mesh.
+
+diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableNetMesh.cpp
+index 05ff67c..05841eb 100644
+--- a/src/Game/Drawable/DrawableNetMesh.cpp
++++ b/src/Game/Drawable/DrawableNetMesh.cpp
+@@ -174,7 +174,15 @@ void DrawableNetMesh::Render() const
+     glSetCurrentTexture(texture, (eGLTextureType)0);
+
+     u16* indices = spTriIndices[mNetIndex];
+-    if ((!sbNetModelValid[mNetIndex] || mVisible == true)
++    if ((!sbNetModelValid[mNetIndex] || mVisible == true
++#if defined(MSCHARGED_TWEAKS)
++            // Port fix, always on (issue #19): rebuild a resting net too. The
++            // original reuses a resting net's last mesh, and NetMesh::Reset
++            // (start and end of every goal replay) does not invalidate it, so
++            // the shape from the replay stayed until the ball entered again.
++            || true
++#endif
++            )
+         && writer.Begin(mNumTriIndices, 1, gNetMeshResourcePools[mNetIndex][siResourcePoolIndex[mNetIndex]]))
+     {
+         if (!sbResourcePoolSelected[mNetIndex])

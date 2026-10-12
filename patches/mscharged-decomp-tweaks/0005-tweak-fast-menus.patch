@@ -11,11 +11,13 @@ the boot screens:
 - 3D: while the front end's presentation runs a transition script, its
   scripted waits end as they start and the time-dilated tasks (camera moves,
   effects) run 30 times faster. The audio task keeps real time.
-- A popup whose slide is already past 1 s when its layout hides the text shows
-  it again.
+- Popups: the black box behind a popup, which FEPopupMenu grows itself over
+  0.75 s rather than through a slide, opens at full size at once. A popup
+  whose slide is already past 1 s when its layout hides the text shows it
+  again.
 
 diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
-index 818c844..d2f2b6b 100644
+index 818c844..1e37107 100644
 --- a/src/Game/FE/fePopupMenu.cpp
 +++ b/src/Game/FE/fePopupMenu.cpp
 @@ -17,6 +17,7 @@
@@ -26,7 +28,24 @@ index 818c844..d2f2b6b 100644
  #include "Game/DB/CharacterInfo.h"
  #include "Game/NetTournManager.h"
  #include "Game/NetworkSession.h"
-@@ -777,6 +778,13 @@ void FEPopupMenu::SetPositions()
+@@ -423,6 +424,16 @@ void FEPopupMenu::UpdateBackgroundScale(float fDeltaT)
+         TLImageInstance* pImage = FEFinder<TLImageInstance, 2>::FindOrDefault<TLSlide>(
+             mPresentation->GetActiveSlide(), "Layer", "blackbox");
+         const feVector3 scale = pImage->GetAssetScale();
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Fast menus": the black box behind the popup opens at its
++        // full size at once instead of growing to it over 0.75 s.
++        if (mscharged_tweak_fast_menus() && fDeltaT > 0.0f)
++        {
++            pImage->SetAssetScale(mBackgroundTargetScaleX, mBackgroundTargetScaleY, scale.e[2]);
++            mBackgroundScaleDone = true;
++            return;
++        }
++#endif
+         if (scale.e[0] >= mBackgroundTargetScaleX && scale.e[1] >= mBackgroundTargetScaleY)
+             mBackgroundScaleDone = true;
+         else
+@@ -777,6 +788,13 @@ void FEPopupMenu::SetPositions()
      pImage->SetAssetPosition(position.e[0], position.e[1], position.e[2]);
      SetMessageAndOptionsVisible(false);
      mMenuDisplayed = true;

@@ -491,3 +491,4 @@
 0687-seed-and-physics-setup.patch
 0688-native-llp64-resource-markers.patch
 0689-native-resource-pool-header-headroom.patch
+0690-temporary-desire-update-result-codes.patch

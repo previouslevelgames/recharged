@@ -17,7 +17,7 @@ struct LaunchOptions
     std::optional<bool> fullscreen;
     std::optional<WindowSize> size;
     std::optional<std::string> aspect;
-    bool no_tweaks = false; // --no-tweaks: play the original game unchanged
+    bool no_tweaks = false; // --no-tweaks: play without the [gameplay] tweaks
 };
 
 enum class SettingSource { Defaults, Config, Launcher, CommandLine };
@@ -47,7 +47,7 @@ const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =
     "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9] [--no-tweaks]\n"
     "Command-line settings override the INI for this run only; later options win.\n"
-    "--no-tweaks turns the [gameplay] tweaks off for this run, playing the original game unchanged.\n"
+    "--no-tweaks turns the [gameplay] tweaks off for this run.\n"
     "Options with values accept --option VALUE or --option=VALUE, before or after the runtime mode.\n"
     "INI disc paths are relative to that INI; command-line paths are relative to the working directory.\n";
 }

@@ -52,7 +52,9 @@ the reconstructed source, unchanged.
 
 ## Optional tweaks
 
-Off by default; with all of them off the game plays exactly as on the Wii.
+Off by default; with all of them off the game plays as on the Wii. One fix of
+the original game is always on: a goal net no longer stays dented after a
+goal ([#19](https://github.com/yannicksuter/mscharged-port/issues/19)).
 The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them on:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio

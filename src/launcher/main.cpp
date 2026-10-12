@@ -2611,7 +2611,7 @@ private:
     void GameplayPage()
     {
         PageHeader("Gameplay", "Optional tweaks that change the original game. With all of them off, the game plays "
-                               "exactly as on the Wii.");
+                               "as on the Wii.");
         BeginCard("##menus", "Menus & startup", nullptr, Icon::Play);
         if (BeginRows("##menus_rows"))
         {
@@ -2667,10 +2667,8 @@ private:
         {
 #if defined(__APPLE__)
             const char* api = "Metal";
-#elif defined(_WIN32)
-            const char* api = "Direct3D 12";
 #else
-            const char* api = "Vulkan";
+            const char* api = "Vulkan"; // Windows builds Dawn with Vulkan only (cmake/Dawn.cmake)
 #endif
             Row("Graphics API", "Chosen for your system by this build.");
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));

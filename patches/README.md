@@ -30,15 +30,25 @@ written against the exact upstream text, never against the formatted copy.
 ## Tweak series
 
 `patches/mscharged-decomp-tweaks/` holds the opt-in game tweaks ([gameplay] in
-`mscharged.ini`), the only intended changes to the original game's behaviour.
-It has its own `base` and `series` and is applied after the Charged series.
-Its hooks are compiled only into the game module built with `MSCHARGED_TWEAKS`
-and take the original path unless their tweak is enabled; every other target
-compiles the original code. The game module receives the enabled set from the
+`mscharged.ini`) and the owner-approved fixes of original game bugs, the only
+intended changes to the original game's behaviour. It has its own `base` and
+`series` and is applied after the Charged series. Its hooks are compiled only
+into the game module built with `MSCHARGED_TWEAKS` and take the original path
+unless their tweak is enabled; a fix is always on there and has no switch
+(0006: resting goal nets are redrawn, issue #19; 0007: the flying shells'
+ground shadow sits 0.1 higher, issue #18). Every other target compiles
+the original code. The game module receives the enabled set from the
 host before original main (`src/platform/game_tweaks.cpp`). Keep these patches
 apart from the faithful series and refresh them on every pin update.
 
 ## Charged series
+
+Patch 0690 (temporary) tests AI desire update results as the 32-bit codes
+retail compares. The reconstructed source read them through the variant's
+pointer member, which natively also takes four bytes the int assignment leaves
+unwritten. In the Windows build those bytes held stale stack data, which ended
+the frozen state hiding a lesson's or challenge's missing sidekicks (issue #25).
+The decomp carries the same fix; drop the patch once the pin includes it.
 
 Patch 0585 restores the original SDK texture-binding loop and its panic,
 null and unpacked branches. Native address conversion publishes structural
