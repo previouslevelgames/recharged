@@ -175,6 +175,33 @@ int main()
                 "A calibration loads");
         std::ofstream(path) << "[controls]\nremote1_calibration = 1 2 3\n";
         Reject([&] { LoadConfig(path); });
+        // Wii Remotes paired over Bluetooth: players and calibration by address.
+        {
+            std::ofstream(path) << "[controls]\nplayer1 = remote-9ce635c69076\nplayer2 = remote1\n"
+                                   "remote-9ce635c69076_calibration = 1 0 0 0 1 0\n";
+            auto bluetooth = LoadConfig(path);
+            Require(bluetooth.settings.players[0] == "remote-9ce635c69076"
+                    && bluetooth.settings.RemoteCalibration("remote-9ce635c69076") == "1 0 0 0 1 0"
+                    && bluetooth.settings.RemoteCalibration("remote-001122334455") == "none"
+                    && bluetooth.settings.RemoteCalibration("remote1") == "none", "A Bluetooth remote loads");
+            auto changed = bluetooth.settings;
+            changed.SetRemoteCalibration("remote-001122334455", "2 0 0 0 2 0");
+            changed.SetRemoteCalibration("remote2", "3 0 0 0 3 0");
+            changed.players[2] = "remote-001122334455";
+            SaveConfig(bluetooth, changed);
+            const auto again = LoadConfig(path).settings;
+            Require(again.RemoteCalibration("remote-001122334455") == "2 0 0 0 2 0"
+                    && again.remote_calibration[1] == "3 0 0 0 3 0" && again.players == changed.players,
+                    "Bluetooth remotes round trip");
+            std::ofstream(path) << "[controls]\nplayer1 = remote-9CE635C69076\n";
+            Reject([&] { LoadConfig(path); });
+            std::ofstream(path) << "[controls]\nremote-12345_calibration = none\n";
+            Reject([&] { LoadConfig(path); });
+            std::ofstream(path) << "[controls]\nremote-9ce635c69076_calibration = 1 2\n";
+            Reject([&] { LoadConfig(path); });
+            std::ofstream(path) << "[controls]\nplayer1 = remote-9ce635c69076\nplayer2 = remote-9ce635c69076\n";
+            Reject([&] { LoadConfig(path); });
+        }
         std::ofstream(path) << "[controls]\nremote1_calibration = 1 2 3 4 5 6 x\n";
         Reject([&] { LoadConfig(path); });
 

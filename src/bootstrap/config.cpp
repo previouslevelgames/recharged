@@ -1,5 +1,6 @@
 #include "config.h"
 #include "platform/path.h"
+#include "platform/wiimote_ids.h"
 
 #include <algorithm>
 #include <charconv>
@@ -75,6 +76,8 @@ Values Encode(const Settings& s)
     }
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
         values.emplace("controls.gamepad" + std::to_string(slot + 1) + "_profile", s.pad_profile_names[slot]);
+    for (const auto& [id, calibration] : s.bluetooth_calibration)
+        values.emplace("controls." + id + "_calibration", calibration);
     return values;
 }
 
@@ -127,25 +130,43 @@ Settings Decode(const Values& values)
     for (int n = 0; n < 4; ++n)
     {
         const auto key = "controls.player" + std::to_string(n + 1);
+        const auto it = values.find(key);
+        if (it == values.end()) continue;
+        if (platform::IsBluetoothWiimoteId(it->second)) { s.players[n] = it->second; continue; }
         choice(key.c_str(), s.players[n], {"keyboard", "remote1", "remote2", "remote3", "remote4",
                                             "gamepad1", "gamepad2", "gamepad3", "gamepad4", "off"});
     }
+    const auto calibration = [&](const std::string& key, const std::string& value) {
+        if (value == "none") return;
+        std::istringstream input(value);
+        input.imbue(std::locale::classic());
+        double number = 0;
+        int count = 0;
+        while (input >> number && std::isfinite(number)) ++count;
+        if (count != 6 || !input.eof())
+            throw std::runtime_error("Invalid configuration: " + key + " must be none or six numbers");
+    };
     for (int n = 0; n < 4; ++n)
     {
         const auto key = "controls.remote" + std::to_string(n + 1) + "_calibration";
         const auto it = values.find(key);
         if (it == values.end()) continue;
-        if (it->second != "none")
-        {
-            std::istringstream input(it->second);
-            input.imbue(std::locale::classic());
-            double value = 0;
-            int count = 0;
-            while (input >> value && std::isfinite(value)) ++count;
-            if (count != 6 || !input.eof())
-                throw std::runtime_error("Invalid configuration: " + key + " must be none or six numbers");
-        }
+        calibration(key, it->second);
         s.remote_calibration[n] = it->second;
+    }
+    // controls.remote-<address>_calibration (Bluetooth remotes).
+    for (auto it = values.lower_bound("controls.remote-"); it != values.end()
+         && it->first.rfind("controls.remote-", 0) == 0; ++it)
+    {
+        const std::string suffix = "_calibration";
+        const auto& key = it->first;
+        const auto id = key.size() > suffix.size() && key.compare(key.size() - suffix.size(), suffix.size(), suffix) == 0
+            ? key.substr(9, key.size() - 9 - suffix.size()) : std::string();
+        if (!platform::IsBluetoothWiimoteId(id))
+            throw std::runtime_error("Invalid configuration: unsupported " + key
+                + " (expected controls.remote-<12 hex digits>_calibration)");
+        calibration(key, it->second);
+        s.bluetooth_calibration[id] = it->second;
     }
     // [keyboard] and [gamepadN]: one or two names per action, separated by " | ".
     const auto names = [&](const std::string& key, std::string& value, const char* what) {
@@ -360,6 +381,21 @@ bool SamePadProfileName(const std::string& a, const std::string& b)
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char x, unsigned char y) {
         return std::tolower(x) == std::tolower(y);
     });
+}
+
+std::string Settings::RemoteCalibration(const std::string& id) const
+{
+    const int slot = platform::WiimoteDolphinBarSlot(id);
+    if (slot >= 0) return remote_calibration[std::size_t(slot)];
+    const auto it = bluetooth_calibration.find(id);
+    return it == bluetooth_calibration.end() ? "none" : it->second;
+}
+
+void Settings::SetRemoteCalibration(const std::string& id, const std::string& value)
+{
+    const int slot = platform::WiimoteDolphinBarSlot(id);
+    if (slot >= 0) remote_calibration[std::size_t(slot)] = value;
+    else if (platform::IsBluetoothWiimoteId(id)) bluetooth_calibration[id] = value;
 }
 
 int Settings::PadProfileIndex(std::size_t slot) const

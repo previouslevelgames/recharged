@@ -63,6 +63,17 @@ constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Display, Icon::Audi
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
+#if defined(__linux__)
+// The udev rule from docs/RUNTIME.md (Wii Remote): lets the logged-in user
+// open Wii Remotes, paired over Bluetooth or behind a DolphinBar.
+constexpr const char* kWiimoteUdevCommands =
+    "sudo tee /etc/udev/rules.d/60-mscharged-wiimote.rules >/dev/null <<'EOF'\n"
+    "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"*057E:0306*\", TAG+=\"uaccess\"\n"
+    "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"*057E:0330*\", TAG+=\"uaccess\"\n"
+    "EOF\n"
+    "sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw\n";
+#endif
+
 struct Options
 {
     fs::path config;
@@ -1607,18 +1618,37 @@ private:
         {"the centre", 0.5f, 0.5f}, {"the top-left corner", 0.1f, 0.1f}, {"the top-right corner", 0.9f, 0.1f},
         {"the bottom-right corner", 0.9f, 0.9f}, {"the bottom-left corner", 0.1f, 0.9f}};
 
-    void StartCalibration(int slot)
+    // The connected remote with this id, or null.
+    const platform::WiimoteHidRemote* ConnectedRemote(const std::string& id) const
+    {
+        for (const auto& remote : wii_status_.remotes)
+            if (remote.id == id) return &remote;
+        return nullptr;
+    }
+
+    // "Wii Remote (DolphinBar slot 2)" or "Wii Remote Plus (Bluetooth C6:90:76)".
+    std::string RemoteName(const std::string& id) const
+    {
+        const auto* remote = ConnectedRemote(id);
+        const std::string model = remote && remote->plus ? "Wii Remote Plus" : "Wii Remote";
+        const int slot = platform::WiimoteDolphinBarSlot(id);
+        if (slot >= 0) return model + " (DolphinBar slot " + std::to_string(slot + 1) + ")";
+        const auto address = platform::WiimoteBluetoothAddress(id);
+        return model + " (Bluetooth " + (address.size() > 8 ? address.substr(address.size() - 8) : address) + ")";
+    }
+
+    void StartCalibration(const std::string& id)
     {
         wii_probe_.Close();
-        if (!live_.Open(slot))
+        if (!live_.Open(id))
         {
-            Notice("Wii Remote " + std::to_string(slot + 1) + " did not answer. Press a button on it and try again.",
-                   NoticeKind::Warning);
+            Notice(RemoteName(id) + " did not answer. Press a button on it and try again.", NoticeKind::Warning);
             return;
         }
         calibration_ = {};
         calibration_.active = true;
-        calibration_.slot = slot;
+        calibration_.id = id;
+        calibration_.name = RemoteName(id);
         // Calibrate on the display the game starts on, filled like the game's
         // fullscreen picture.
         int count = 0;
@@ -1677,7 +1707,7 @@ private:
                 DrawIcon(draw, Icon::Target, at, Dp(24), Col(color::dim));
         }
 
-        // Where the remote's camera sees the DolphinBar.
+        // Where the remote's camera sees the sensor bar (or DolphinBar).
         int visible = 0;
         for (const auto& object : live_.Dots()) visible += object.size != 0;
         const auto pair = platform::TrackWiimotePair(c.pair, live_.Dots());
@@ -1690,9 +1720,11 @@ private:
         };
         const float text_y = origin.y + height * 0.62f;
         centred(fonts.title, text_y, Col(color::text),
-                "Wii Remote " + std::to_string(c.slot + 1) + ": aim at " + target.name + " and press A");
+                c.name + ": aim at " + target.name + " and press A");
+        const bool bar = platform::WiimoteDolphinBarSlot(c.id) >= 0;
         centred(fonts.label, text_y + Dp(48), Col(in_view ? color::accent : color::warning),
-                in_view ? "DolphinBar in view" : "The Wii Remote can't see the DolphinBar");
+                in_view ? (bar ? "DolphinBar in view" : "Sensor bar in view")
+                        : (bar ? "The Wii Remote can't see the DolphinBar" : "The Wii Remote can't see the sensor bar"));
         if (!c.message.empty()) centred(fonts.body, text_y + Dp(80), Col(color::warning), c.message);
         centred(fonts.caption, origin.y + height - Dp(40), Col(color::muted),
                 "Target " + std::to_string(c.step + 1) + " of 5   -   hold the remote as you play   -   B or Esc cancels");
@@ -1701,12 +1733,11 @@ private:
         const std::uint16_t buttons = live_.Buttons();
         const std::uint16_t pressed = buttons & ~c.buttons;
         c.buttons = buttons;
-        const int slot = c.slot;
+        const std::string id = c.id, name = c.name;
         if ((pressed & 0x0004) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         {
             EndCalibration();
-            Notice("Calibration cancelled; Wii Remote " + std::to_string(slot + 1) + " keeps its previous setting.",
-                   NoticeKind::Info);
+            Notice("Calibration cancelled; " + name + " keeps its previous setting.", NoticeKind::Info);
             return;
         }
         if (!live_.Connected())
@@ -1715,8 +1746,7 @@ private:
             else if (SDL_GetTicksNS() - c.lost_since_ns > 3000000000ull)
             {
                 EndCalibration();
-                Notice("Wii Remote " + std::to_string(slot + 1) + " stopped answering; calibration cancelled.",
-                       NoticeKind::Warning);
+                Notice(name + " stopped answering; calibration cancelled.", NoticeKind::Warning);
             }
             return;
         }
@@ -1738,47 +1768,66 @@ private:
             c.message = "Those aims did not line up. Let's start again from the centre.";
             return;
         }
-        draft_.remote_calibration[slot] = platform::FormatWiimoteCalibration(*fit);
+        draft_.SetRemoteCalibration(id, platform::FormatWiimoteCalibration(*fit));
         dirty_ = true;
         EndCalibration();
-        Notice("Wii Remote " + std::to_string(slot + 1) + " calibrated. Save to keep it.", NoticeKind::Success);
+        Notice(name + " calibrated. Save to keep it.", NoticeKind::Success);
     }
 
-    // controls.player1-4: keyboard & mouse, a Wii Remote in a DolphinBar slot
-    // or off. Players fill in order and each device plays once. Without a
-    // DolphinBar the game makes keyboard & mouse player 1, alone.
+    // controls.player1-4: keyboard & mouse, a Wii Remote (in a DolphinBar
+    // slot or paired over Bluetooth), a gamepad or off. Players fill in order
+    // and each device plays once. Controllers missing when the game starts
+    // drop out; with nobody left keyboard & mouse is player 1, alone.
     void PlayersCard()
     {
         PollWiimotes();
         const auto& status = wii_status_;
         const bool bar = status.dolphinbar;
+        int bluetooth = 0;
+        for (const auto& remote : status.remotes) bluetooth += remote.slot < 0;
         auto& players = draft_.players;
-        const char* subtitle = !wii_known_ ? "Looking for a DolphinBar..."
+        const char* subtitle = !wii_known_ ? "Looking for Wii Remotes..."
             : status.dolphinbar_other_mode ? "The DolphinBar is in a mouse or gamepad mode. Press its MODE button until light 4 is on."
-            : bar ? "Players fill in order and each controller plays once. Changes apply when the game starts."
-            : "Players fill in order: keyboard & mouse and gamepads. Connect a Mayflash DolphinBar in mode 4 for Wii Remotes.";
+            : bar || bluetooth ? "Players fill in order and each controller plays once. Changes apply when the game starts."
+            : "Players fill in order: keyboard & mouse and gamepads. For Wii Remotes, pair one over Bluetooth or connect a Mayflash DolphinBar in mode 4.";
         BeginCard("##players", "Players", subtitle, Icon::Gamepad);
+        bool chip = false;
+        const auto next_chip = [&] { if (chip) ImGui::SameLine(0, Dp(8)); chip = true; };
         if (bar)
+        {
+            next_chip();
             Chip("DolphinBar", color::accent, Icon::Check);
+        }
         else if (status.dolphinbar_other_mode)
+        {
+            next_chip();
             Chip("DolphinBar: switch to mode 4", color::warning, Icon::Warning);
+        }
+        if (bluetooth)
+        {
+            next_chip();
+            const auto text = "Bluetooth: " + std::to_string(bluetooth) + (bluetooth == 1 ? " Wii Remote" : " Wii Remotes");
+            Chip(text.c_str(), color::accent, Icon::Check);
+        }
+        if (status.no_permission)
+        {
+            next_chip();
+            Chip("Wii Remote without access", color::warning, Icon::Warning);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A Wii Remote is connected, but this user can't open it.");
+        }
 
-        const auto connected = [&](int slot) -> const platform::WiimoteHidRemote* {
-            for (const auto& remote : status.remotes)
-                if (remote.slot == slot) return &remote;
-            return nullptr;
-        };
         const auto name = [&](const std::string& device) {
             if (device == "keyboard") return std::string("Keyboard & mouse");
             if (device == "off") return std::string("Off");
-            const int slot = device.back() - '1';
             if (device.rfind("gamepad", 0) == 0)
+            {
+                const int slot = device.back() - '1';
                 return slot < int(gamepad_names_.size()) ? "Gamepad " + std::to_string(slot + 1) + ": " + gamepad_names_[slot]
                                                          : "Gamepad " + std::to_string(slot + 1) + "  (not connected)";
-            if (!bar) return "Wii Remote " + std::to_string(slot + 1) + "  (needs the DolphinBar)";
-            const auto* remote = connected(slot);
-            return "Wii Remote " + std::to_string(slot + 1)
-                + (!remote ? "  (not connected)" : remote->nunchuk ? " + Nunchuk" : "");
+            }
+            const auto* remote = ConnectedRemote(device);
+            return RemoteName(device) + (!remote ? "  (not connected)" : remote->nunchuk ? " + Nunchuk" : "");
         };
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 5));
         if (ImGui::BeginTable("##player_slots", 4))
@@ -1824,11 +1873,9 @@ private:
                         }
                     };
                     option("keyboard");
-                    for (int slot = 0; slot < 4; ++slot)
-                    {
-                        const auto device = "remote" + std::to_string(slot + 1);
-                        if ((bar && connected(slot)) || players[n] == device) option(device);
-                    }
+                    // Connected Wii Remotes, then this player's remote when it is away.
+                    for (const auto& remote : status.remotes) option(remote.id);
+                    if (platform::IsWiimoteId(players[n]) && !ConnectedRemote(players[n])) option(players[n]);
                     for (int pad = 0; pad < 4; ++pad)
                     {
                         const auto device = "gamepad" + std::to_string(pad + 1);
@@ -1843,8 +1890,7 @@ private:
                     ProfileCombo("##profile", std::size_t(shown.back() - '1'), profile_width);
                 }
                 ImGui::EndDisabled();
-                const int slot = shown.rfind("remote", 0) == 0 ? shown.back() - '1' : -1;
-                const auto* remote = slot >= 0 && bar ? connected(slot) : nullptr;
+                const auto* remote = platform::IsWiimoteId(shown) ? ConnectedRemote(shown) : nullptr;
                 ImGui::TableSetColumnIndex(3);
                 if (remote) BatteryIcon(remote->battery);
                 ImGui::TableSetColumnIndex(2);
@@ -1861,8 +1907,8 @@ private:
                 }
                 if (remote)
                 {
-                    const bool calibrated = draft_.remote_calibration[slot] != "none";
-                    if (SecondaryButton("##calibrate", "", Dp(36, 30), true, Icon::Target)) StartCalibration(slot);
+                    const bool calibrated = draft_.RemoteCalibration(shown) != "none";
+                    if (SecondaryButton("##calibrate", "", Dp(36, 30), true, Icon::Target)) StartCalibration(shown);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(calibrated ? "Pointer calibrated. Click to calibrate again."
                                                      : "Calibrate the pointer: aim at five targets");
@@ -1871,7 +1917,7 @@ private:
                         ImGui::SameLine(0, Dp(6));
                         if (SecondaryButton("##clear", "", Dp(36, 30), true, Icon::Error))
                         {
-                            draft_.remote_calibration[slot] = "none";
+                            draft_.SetRemoteCalibration(shown, "none");
                             dirty_ = true;
                         }
                         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear the pointer calibration");
@@ -1890,9 +1936,26 @@ private:
             if (Toggle("##mouse_pointer", &draft_.mouse_pointer)) dirty_ = true;
             EndRows();
         }
-        if ((bar || draft_.sensor_bar != "bottom") && BeginRows("##sensor_rows"))
+        if (status.no_permission && BeginRows("##wiimote_access_rows"))
         {
-            Row("Sensor bar", "Where your DolphinBar sits. The game aims the Wii Remote pointer from it.");
+#if defined(__linux__)
+            Row("Wii Remote access", "A Wii Remote is connected, but this user can't open it. Install the udev rule "
+                "(copy the commands, run them in a terminal), then turn the remote off and on.");
+            if (SecondaryButton("##copy_udev", "Copy commands", {ImGui::GetContentRegionAvail().x, Dp(36)}, true, Icon::Copy))
+            {
+                if (SDL_SetClipboardText(kWiimoteUdevCommands))
+                    Notice("Udev rule commands copied to the clipboard.", NoticeKind::Success);
+            }
+#else
+            Row("Wii Remote access", "A Wii Remote is connected, but it could not be opened. Close other programs "
+                "that use it (Dolphin, Steam), then turn the remote off and on.");
+            ImGui::Dummy({0, 0});
+#endif
+            EndRows();
+        }
+        if ((bar || !status.remotes.empty() || draft_.sensor_bar != "bottom") && BeginRows("##sensor_rows"))
+        {
+            Row("Sensor bar", "Where your sensor bar or DolphinBar sits. The game aims the Wii Remote pointer from it.");
             int position = draft_.sensor_bar == "top" ? 0 : 1;
             if (Segmented("##sensor_bar", &position, {"Above the screen", "Below the screen"},
                           ImGui::GetContentRegionAvail().x))
@@ -2796,7 +2859,7 @@ private:
     struct Calibration
     {
         bool active = false;
-        int slot = -1;
+        std::string id, name; // remote id (wiimote_ids.h) and its shown name
         std::size_t step = 0;
         std::vector<platform::WiimoteCalibrationSample> samples;
         platform::WiimotePairTracker pair;

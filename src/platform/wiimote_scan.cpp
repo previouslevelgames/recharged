@@ -24,10 +24,23 @@ bool IsDolphinBarHid(const SDL_hid_device_info* info) {
            contains(info->product_string, L"DolphinBar") || contains(info->manufacturer_string, L"HJZ");
 }
 
+std::string WiimoteHidId(const SDL_hid_device_info* info, int& adapter_index) {
+    if (IsDolphinBarHid(info)) {
+        const int slot = info->interface_number >= 0 && info->interface_number < 4 ? info->interface_number
+                                                                                   : adapter_index;
+        ++adapter_index;
+        return WiimoteDolphinBarId(slot);
+    }
+    std::string serial;
+    for (const wchar_t* c = info->serial_number; c && *c; ++c) serial += *c < 0x80 ? char(*c) : '?';
+    return BluetoothWiimoteId(serial, info->path ? info->path : "");
+}
+
 struct WiimoteHidProbe::Device {
-    std::string path;
+    std::string path, id;
     SDL_hid_device* hid = nullptr;
     int slot = -1;
+    bool plus = false;
     bool answered = false, nunchuk = false;
     int battery = 0;
 };
@@ -55,15 +68,16 @@ void WiimoteHidProbe::Start(int timeout_ms) {
     for (auto* info = list; info; info = info->next) {
         if (!IsWiimoteHid(info) || !info->path) continue;
         const bool adapter = IsDolphinBarHid(info);
-        int slot = -1;
+        const auto id = WiimoteHidId(info, adapter_index);
         if (adapter) {
             status.dolphinbar = true;
             ++status.adapter_slots;
-            slot = info->interface_number >= 0 && info->interface_number < 4 ? info->interface_number : adapter_index;
-            ++adapter_index;
         }
         auto* hid = SDL_hid_open_path(info->path);
-        if (!hid) continue;
+        if (!hid) {
+            ++status.no_permission;
+            continue;
+        }
         SDL_hid_set_nonblocking(hid, 1);
         // Status request; an empty DolphinBar slot rejects the write.
         const unsigned char request[2]{0x15, 0x00};
@@ -71,7 +85,7 @@ void WiimoteHidProbe::Start(int timeout_ms) {
             SDL_hid_close(hid);
             continue;
         }
-        devices_.push_back(new Device{info->path, hid, slot});
+        devices_.push_back(new Device{info->path, id, hid, WiimoteDolphinBarSlot(id), info->product_id == 0x0330});
     }
     SDL_hid_free_enumeration(list);
     status.dolphinbar_other_mode = !status.dolphinbar && DolphinBarInOtherMode();
@@ -99,9 +113,12 @@ bool WiimoteHidProbe::Poll() {
     auto status = result_;
     for (auto* device : devices_)
         if (device->answered)
-            status.remotes.push_back({device->path, device->slot, -1, device->nunchuk, false, device->battery});
+            status.remotes.push_back({device->path, device->id, device->slot, device->plus, -1, device->nunchuk, false,
+                                      device->battery});
+    // DolphinBar slots first, then directly connected remotes by address.
     std::stable_sort(status.remotes.begin(), status.remotes.end(), [](const auto& a, const auto& b) {
-        return (a.slot < 0 ? 100 : a.slot) < (b.slot < 0 ? 100 : b.slot);
+        const int sa = a.slot < 0 ? 100 : a.slot, sb = b.slot < 0 ? 100 : b.slot;
+        return sa != sb ? sa < sb : a.id < b.id;
     });
     Close();
     result_ = status;
@@ -165,7 +182,7 @@ bool WiimoteHidLive::Write(std::uint32_t address, const std::uint8_t* data, int 
     return false;
 }
 
-bool WiimoteHidLive::Open(int slot) {
+bool WiimoteHidLive::Open(const std::string& id) {
     Close();
     if (SDL_hid_init() != 0) return false;
     initialized_ = true;
@@ -173,19 +190,17 @@ bool WiimoteHidLive::Open(int slot) {
     SDL_hid_device_info* list = SDL_hid_enumerate(0x057e, 0);
     int index = 0;
     for (auto* info = list; info; info = info->next) {
-        if (!IsWiimoteHid(info) || !info->path || !IsDolphinBarHid(info)) continue;
-        const int interface_slot =
-            info->interface_number >= 0 && info->interface_number < 4 ? info->interface_number : index;
-        ++index;
-        if (interface_slot == slot) { path = info->path; break; }
+        if (!IsWiimoteHid(info) || !info->path) continue;
+        if (WiimoteHidId(info, index) == id) { path = info->path; break; }
     }
     SDL_hid_free_enumeration(list);
     if (path.empty() || !(hid_ = SDL_hid_open_path(path.c_str()))) {
         Close();
         return false;
     }
-    // The game's camera set-up (sensitivity level 3, basic mode), the slot's
-    // player LED, then buttons, accelerometer and camera reports.
+    // The game's camera set-up (sensitivity level 3, basic mode), a player
+    // LED (the DolphinBar slot's), then buttons, accelerometer and camera reports.
+    const int slot = std::max(0, WiimoteDolphinBarSlot(id));
     const std::uint8_t on = 0x01, mode = 0x01, done = 0x08;
     const bool ready = Send({0x13, 0x04}) && Send({0x1a, 0x04}) && Write(0xb00030, &on, 1) &&
                        Write(0xb00000, kWiimoteIrBlock1[2], 9) && Write(0xb0001a, kWiimoteIrBlock2[2], 2) &&

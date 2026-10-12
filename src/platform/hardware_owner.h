@@ -6,7 +6,9 @@
 #include "platform/wiimote_calibration.h"
 
 #include <array>
+#include <map>
 #include <optional>
+#include <string>
 
 struct SDL_Window;
 
@@ -32,19 +34,21 @@ NativeHardwareWindowCloseStatus GetNativeHardwareWindowCloseStatus();
 // borrowed from that owner's initialized device and is never retired here.
 // These functions do not register/replace any SDK hardware endpoint.
 // Who plays (controls.player1-4): the WPAD channel (player - 1) of keyboard &
-// mouse and of the Wii Remote in each DolphinBar slot, -1 = not a player.
-// Without a DolphinBar at start keyboard & mouse is player 1 and plays alone.
+// mouse, of each Wii Remote (by id, wiimote_ids.h: a DolphinBar slot or a
+// Bluetooth address) and of each gamepad, -1 = not a player. Controllers
+// missing at start drop out and the others close up; with nobody left
+// keyboard & mouse is player 1 and plays alone.
 struct NativePlayers {
     bool fixed = false; // false: remotes, then keyboard & mouse, as they connect
     int keyboard = 0;
-    std::array<int, 4> remotes{-1, -1, -1, -1};
+    std::map<std::string, int> remotes;
     // WPAD channel of the n-th connected standard gamepad, or -1.
     std::array<int, 4> gamepads{-1, -1, -1, -1};
     // controls.mouse_pointer: the mouse also points for player 1 when that
     // player is a Wii Remote or gamepad and plays alone.
     bool mouse_with_controller = false;
-    // Pointer calibration of the Wii Remote in each DolphinBar slot.
-    std::array<std::optional<WiimoteCalibration>, 4> calibrations{};
+    // Pointer calibration of each Wii Remote, by id.
+    std::map<std::string, WiimoteCalibration> calibrations;
 };
 void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     StmInput borrowed_stm, DesktopWpadSettings desktop = {}, NativePlayers players = {});

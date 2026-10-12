@@ -512,13 +512,16 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             const auto& device = launch.settings.players[player];
             if (device == "keyboard") players.keyboard = player;
             else if (device.rfind("gamepad", 0) == 0) players.gamepads[device.back() - '1'] = player;
-            else if (device != "off") players.remotes[device.back() - '1'] = player;
+            else if (device != "off") players.remotes[device] = player;
         }
-        // controls.remoteN_calibration: launcher pointer calibration by DolphinBar slot.
-        for (int slot = 0; slot < 4; ++slot)
-            if (launch.settings.remote_calibration[slot] != "none")
-                players.calibrations[slot] =
-                    mscharged::platform::ParseWiimoteCalibration(launch.settings.remote_calibration[slot]);
+        // controls.<remote>_calibration: launcher pointer calibration by remote
+        // (DolphinBar slot or Bluetooth address).
+        for (const auto& [id, channel] : players.remotes) {
+            const auto calibration = launch.settings.RemoteCalibration(id);
+            if (calibration != "none")
+                if (auto parsed = mscharged::platform::ParseWiimoteCalibration(calibration))
+                    players.calibrations.emplace(id, *parsed);
+        }
         mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
             nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys)};
         // Each gamepad's profile (controls.gamepadN_profile).

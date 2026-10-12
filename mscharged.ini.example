@@ -40,10 +40,12 @@ mute = false
 
 [controls]
 # Who plays: keyboard (keyboard & mouse), remote1-remote4 (the Wii Remote in
-# that DolphinBar slot), gamepad1-gamepad4 (the n-th connected Xbox,
-# PlayStation or other standard gamepad, played as Wii Remote + Nunchuk) or
-# off. Players fill in order and each device plays once. Without a DolphinBar
-# the Wii Remote players are left out and the others close up in order.
+# that DolphinBar slot), remote-<Bluetooth address> (a Wii Remote paired over
+# Bluetooth, e.g. remote-9ce635c69076; the launcher lists connected ones),
+# gamepad1-gamepad4 (the n-th connected Xbox, PlayStation or other standard
+# gamepad, played as Wii Remote + Nunchuk) or off. Players fill in order and
+# each device plays once. Controllers missing when the game starts are left
+# out and the others close up in order.
 player1 = keyboard
 player2 = off
 player3 = off
@@ -52,7 +54,8 @@ player4 = off
 # points for it (left click A, right click B); the controller keeps working.
 mouse_pointer = true
 # Pointer calibration of the Wii Remote in each DolphinBar slot, made on the
-# launcher's Controls page (none = uncalibrated).
+# launcher's Controls page (none = uncalibrated). A Bluetooth remote's is
+# remote-<address>_calibration.
 remote1_calibration = none
 remote2_calibration = none
 remote3_calibration = none

@@ -25,6 +25,12 @@ constexpr std::uint16_t kNintendo = 0x057e, kRemote = 0x0306, kRemotePlus = 0x03
 constexpr float kGravity = 9.80665f;
 constexpr std::chrono::milliseconds kProbeWait{600}, kProbeInterval{2000}, kEnumerateInterval{2000};
 constexpr std::chrono::milliseconds kSilentLimit{1500}, kCommandWait{250};
+// Another program can switch a directly connected remote to its own report
+// mode: the Linux hid-wiimote driver answers every status report with buttons
+// only, sent on change. A remote that sends another mode gets its set-up
+// again, at most this often; one silent for kDataGap gets the game's
+// continuous reporting mode back.
+constexpr std::chrono::milliseconds kModeRestore{500}, kDataGap{100};
 // A DolphinBar slot can reject a write while its Bluetooth link is busy; only
 // repeated failures mean the remote is gone.
 constexpr std::chrono::milliseconds kWriteRetry{20};
@@ -41,7 +47,9 @@ struct Command {
 
 struct Remote {
     std::string path;
+    std::string id;       // settings name (wiimote_ids.h)
     bool adapter = false; // DolphinBar interface
+    bool plus = false;    // Wii Remote Plus
     int slot = -1;
     SDL_hid_device* hid = nullptr;
     bool present = false, probing = false, ready = false;
@@ -61,6 +69,7 @@ struct Remote {
     Clock::time_point retry_at{};
     Clock::time_point next_debug_log{};
     int led_channel = -2;
+    Clock::time_point next_mode_restore{}, last_data{}, next_data_restore{};
     bool sensors = false;
     SDL_JoystickID virtual_id = 0;
     SDL_Joystick* joystick = nullptr;
@@ -85,6 +94,13 @@ struct Driver {
     bool reported_other_mode = false;
 };
 Driver& State() { static Driver driver; return driver; }
+
+// "DolphinBar slot 2" or "Bluetooth 9C:E6:35:C6:90:76", for logs.
+std::string Describe(const Remote& remote) {
+    if (remote.adapter) return "DolphinBar slot " + std::to_string(remote.slot + 1);
+    const auto address = mscharged::platform::WiimoteBluetoothAddress(remote.id);
+    return address.empty() ? "connected directly" : "Bluetooth " + address;
+}
 
 bool Send(Remote& remote, std::vector<std::uint8_t> report) {
     if (!remote.hid || report.size() < 2) return false;
@@ -166,9 +182,8 @@ bool SDLCALL VirtualSensors(void* userdata, bool enabled) {
 int PlayerChannel(const Remote& remote) {
     const auto& settings = State().settings;
     if (!settings.fixed_players) return -1;
-    if (!remote.adapter || remote.slot < 0 || remote.slot >= 4) return -2;
-    const int channel = settings.slot_channels[remote.slot];
-    return channel >= 0 ? channel : -2;
+    const auto it = settings.channels.find(remote.id);
+    return it != settings.channels.end() && it->second >= 0 ? it->second : -2;
 }
 
 void AttachVirtual(Remote& remote) {
@@ -179,7 +194,7 @@ void AttachVirtual(Remote& remote) {
         if (remote.led_channel != -3) {
             remote.led_channel = -3;
             Send(remote, {0x11, 0x00});
-            SDL_Log("Wii Remote in DolphinBar slot %d is not assigned to a player", remote.slot + 1);
+            SDL_Log("Wii Remote (%s, %s) is not assigned to a player", Describe(remote).c_str(), remote.id.c_str());
         }
         return;
     }
@@ -215,8 +230,9 @@ void AttachVirtual(Remote& remote) {
     remote.dpd = mscharged::platform::AttachNativeWpadDpdSource(remote.virtual_id);
     if (remote.nunchuk)
         remote.nunchuk_source = mscharged::platform::AttachNativeWpadNunchukSource(remote.virtual_id);
-    SDL_Log("Wii Remote connected%s%s%s%s", remote.adapter ? " via DolphinBar slot " : "",
-            remote.adapter ? std::to_string(remote.slot + 1).c_str() : "", remote.nunchuk ? " with Nunchuk" : "",
+    SDL_Log("Wii Remote%s connected via %s%s%s", remote.plus ? " Plus" : "",
+            remote.adapter ? Describe(remote).c_str() : (Describe(remote) + " (" + remote.id + ")").c_str(),
+            remote.nunchuk ? " with Nunchuk" : "",
             channel >= 0 ? (" as player " + std::to_string(channel + 1)).c_str() : "");
 }
 
@@ -299,10 +315,10 @@ void Publish(Remote& remote, const std::uint8_t* report) {
                            (b0 & 0x04) != 0, (b0 & 0x01) != 0, (b0 & 0x02) != 0};
     auto dots = mscharged::platform::DecodeWiimoteBasicIr(report + 6);
     const auto& settings = State().settings;
-    const bool calibrated = remote.adapter && remote.slot >= 0 && remote.slot < 4 &&
-        settings.calibrations[remote.slot].has_value();
+    const auto calibration = settings.calibrations.find(remote.id);
+    const bool calibrated = calibration != settings.calibrations.end();
     if (calibrated)
-        dots = mscharged::platform::ApplyWiimoteCalibration(*settings.calibrations[remote.slot], remote.pair, dots,
+        dots = mscharged::platform::ApplyWiimoteCalibration(calibration->second, remote.pair, dots,
                                                             settings.sensor_bar_position);
     bool visible = false;
     for (const auto& dot : dots) visible |= dot.size != 0;
@@ -421,8 +437,15 @@ void HandleReport(Remote& remote, const std::uint8_t* report, int size, Clock::t
         return;
     }
     if (id >= 0x30 && id <= 0x3f) {
-        remote.last_report = now;
+        remote.last_report = remote.last_data = now;
         if (id == 0x37 && size >= 22 && remote.ready) Publish(remote, report);
+        else if (id != 0x37 && remote.ready && !remote.waiting && remote.queue.empty() &&
+                 now >= remote.next_mode_restore) {
+            remote.next_mode_restore = now + kModeRestore;
+            SDL_Log("Wii Remote (%s) switched to report mode %02x by another program; restoring the game's",
+                    Describe(remote).c_str(), id);
+            QueueSetup(remote);
+        }
     }
 }
 
@@ -453,6 +476,7 @@ void Pump(Remote& remote, Clock::time_point now) {
     }
     if (!remote.ready && remote.present) {
         remote.ready = true;
+        remote.last_data = now;
         AttachVirtual(remote);
     }
 }
@@ -494,9 +518,7 @@ void Enumerate(Driver& driver) {
         if (!mscharged::platform::IsWiimoteHid(info) || !info->path) continue;
         seen.emplace_back(info->path);
         const bool adapter = mscharged::platform::IsDolphinBarHid(info);
-        const int slot = adapter ? (info->interface_number >= 0 && info->interface_number < 4
-                                        ? info->interface_number : adapter_index) : -1;
-        if (adapter) ++adapter_index;
+        const auto id = mscharged::platform::WiimoteHidId(info, adapter_index);
         auto known = std::find_if(driver.remotes.begin(), driver.remotes.end(),
                                   [&](const auto& remote) { return remote->path == info->path; });
         if (known != driver.remotes.end()) {
@@ -508,11 +530,19 @@ void Enumerate(Driver& driver) {
         }
         auto remote = std::make_unique<Remote>();
         remote->path = info->path;
+        remote->id = id;
         remote->adapter = adapter;
-        remote->slot = slot;
+        remote->plus = info->product_id == kRemotePlus;
+        remote->slot = mscharged::platform::WiimoteDolphinBarSlot(id);
         remote->hid = SDL_hid_open_path(info->path);
         if (remote->hid) SDL_hid_set_nonblocking(remote->hid, 1);
-        else SDL_Log("Wii Remote HID %s could not be opened: %s", info->path, SDL_GetError());
+        else SDL_Log("Wii Remote HID %s could not be opened: %s%s", info->path, SDL_GetError(),
+#if defined(__linux__)
+                     " (no permission? Install the udev rule from docs/RUNTIME.md, Wii Remote)"
+#else
+                     ""
+#endif
+                     );
         driver.remotes.push_back(std::move(remote));
     }
     SDL_hid_free_enumeration(devices);
@@ -527,10 +557,11 @@ void Enumerate(Driver& driver) {
         if ((*it)->hid) SDL_hid_close((*it)->hid);
         it = driver.remotes.erase(it);
     }
-    // Remotes take players in slot order: adapter slots first, then others.
+    // Remotes take players in slot order: adapter slots first, then directly
+    // connected remotes by address.
     std::stable_sort(driver.remotes.begin(), driver.remotes.end(), [](const auto& a, const auto& b) {
         const int sa = a->slot < 0 ? 100 : a->slot, sb = b->slot < 0 ? 100 : b->slot;
-        return sa < sb;
+        return sa != sb ? sa < sb : a->id < b->id;
     });
 }
 
@@ -555,6 +586,13 @@ void ServiceRemote(Remote& remote, Clock::time_point now) {
         return;
     }
     Pump(remote, now);
+    if (remote.ready && !remote.waiting && remote.queue.empty() && now - remote.last_data > kDataGap &&
+        now >= remote.next_data_restore) {
+        remote.next_data_restore = now + kDataGap;
+        if (Verbose()) SDL_Log("Wii Remote (%s): no data reports; restoring the reporting mode", Describe(remote).c_str());
+        QueueReportingMode(remote);
+        Pump(remote, now);
+    }
     if (remote.ready && now - remote.last_report > kSilentLimit) {
         Lost(remote, "no reports");
         return;
@@ -608,6 +646,18 @@ void ServiceWiimoteHid() {
     for (auto& remote : driver.remotes) ServiceRemote(*remote, now);
 }
 
+void SetWiimoteHidChannels(std::map<std::string, int> channels) {
+    auto& driver = State();
+    if (!driver.initialized) return;
+    RequireOwner();
+    driver.settings.channels = std::move(channels);
+    for (auto& remote : driver.remotes) {
+        if (!remote->virtual_id) continue;
+        const int channel = PlayerChannel(*remote);
+        if (channel >= 0) mscharged::platform::SetNativeWpadFixedChannel(remote->virtual_id, channel);
+    }
+}
+
 void ShutdownWiimoteHid() {
     auto& driver = State();
     if (!driver.initialized) return;
@@ -634,8 +684,9 @@ WiimoteHidStatus GetWiimoteHidStatus() {
     for (const auto& remote : State().remotes) {
         if (remote->adapter) { status.dolphinbar = true; ++status.adapter_slots; }
         if (!remote->ready) continue;
-        status.remotes.push_back({remote->path, remote->slot, remote->led_channel >= 0 ? remote->led_channel : -1,
-                                  remote->nunchuk, remote->ir_visible, std::min(100, remote->battery * 100 / 0xc8)});
+        status.remotes.push_back({remote->path, remote->id, remote->slot, remote->plus,
+                                  remote->led_channel >= 0 ? remote->led_channel : -1, remote->nunchuk,
+                                  remote->ir_visible, std::min(100, remote->battery * 100 / 0xc8)});
     }
     return status;
 }

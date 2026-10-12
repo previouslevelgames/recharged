@@ -113,6 +113,23 @@ int main() {
           !ParseWiimoteCalibration("1 0 0 0 1 0 7") && !ParseWiimoteCalibration("0 0 0 0 0 0"),
           "a malformed calibration was read");
 
+    // Remote ids in settings: DolphinBar slots and Bluetooth addresses.
+    Check(WiimoteDolphinBarSlot("remote3") == 2 && WiimoteDolphinBarId(2) == "remote3" &&
+          WiimoteDolphinBarSlot("remote5") < 0 && WiimoteDolphinBarSlot("remote-9ce635c69076") < 0,
+          "DolphinBar slot ids");
+    const auto linux_id = BluetoothWiimoteId("9c:e6:35:C6:90:76", "/dev/hidraw5");
+    Check(linux_id == "remote-9ce635c69076" && BluetoothWiimoteId("9c-e6-35-c6-90-76", "x") == linux_id &&
+          BluetoothWiimoteId("9CE635C69076", "y") == linux_id, "a Bluetooth address gives the same id on each system");
+    Check(IsBluetoothWiimoteId(linux_id) && IsWiimoteId(linux_id) && IsWiimoteId("remote1") &&
+          !IsWiimoteId("remote-9ce635c6907") && !IsWiimoteId("remote-9CE635C69076") && !IsWiimoteId("keyboard"),
+          "remote id forms");
+    Check(WiimoteBluetoothAddress(linux_id) == "9C:E6:35:C6:90:76" && WiimoteBluetoothAddress("remote1").empty(),
+          "shown Bluetooth address");
+    // Without an address the path stands in, stable for the same path.
+    const auto unnamed = BluetoothWiimoteId("", "/dev/hidraw7");
+    Check(IsBluetoothWiimoteId(unnamed) && unnamed == BluetoothWiimoteId("serial?", "/dev/hidraw7") &&
+          unnamed != BluetoothWiimoteId("", "/dev/hidraw8"), "a remote without an address");
+
     std::printf("Wii Remote IR decoding and calibration: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -63,24 +63,27 @@ transition is unfinished. Host focus and menu input remain under validation.
 ## Wii Remote
 
 Experimental, Linux. Wii Remotes (or Wii Remote Plus) with a Nunchuk play
-through a Mayflash DolphinBar in mode 4, which is also the sensor bar for the
-Remote's pointer. Pair each Remote with the bar (SYNC on the bar, then SYNC
-under the Remote's battery cover); players follow the bar's slot order. A Remote
-paired directly over Bluetooth uses the same driver but is not verified yet. The
-Remote speaker, MotionPlus and other extensions are not supported.
+either through a Mayflash DolphinBar in mode 4 or paired directly over
+Bluetooth. Pair with the bar by pressing SYNC on the bar, then SYNC under the
+Remote's battery cover. To pair over Bluetooth, press SYNC under the battery
+cover and connect "Nintendo RVL-CNT-01" in your system's Bluetooth settings
+(no PIN). Over Bluetooth the Remote needs a separate sensor bar for its
+pointer. The Remote speaker, MotionPlus and other extensions are not supported.
 
-Choose who plays on the launcher's Controls page: each of players 1-4 is
-keyboard & mouse, a Wii Remote connected to the bar, or off (`controls.player1`
-to `player4`: `keyboard`, `remote1`-`remote4`, `off`). Players fill in order;
-without a DolphinBar, keyboard & mouse is player 1 alone. The page also shows
+Choose who plays on the launcher's Controls page. Each of players 1-4 is
+keyboard & mouse, a connected Wii Remote, a gamepad, or off (`controls.player1`
+to `player4`: `keyboard`, `remote1`-`remote4` for DolphinBar slots,
+`remote-<address>` for a Bluetooth Remote, `gamepad1`-`gamepad4`, `off`).
+Players fill in order. Controllers missing when the game starts are left out,
+and keyboard & mouse is player 1 when nobody is left. The page also shows
 each Remote's battery level. `controls.sensor_bar` is `bottom` or `top` of the
 screen, and `controls.rumble` switches rumble. The bar must be in view of the
 Remote's camera: sit about 1 m or more away when it is on top of the screen.
 To make the pointer land where you aim, press the target button next to a
 Remote and aim at the five targets that follow, pressing A at each (B cancels).
 
-If no Remote is found, allow your user to open Wii Remotes once, then reconnect
-the bar or Remote:
+If a Remote is connected but cannot be opened, the Controls page says so and
+copies these commands. Run them once, then reconnect the bar or Remote:
 
 ```sh
 sudo tee /etc/udev/rules.d/60-mscharged-wiimote.rules >/dev/null <<'EOF'
@@ -90,8 +93,9 @@ EOF
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
 
-Started from a terminal, the game logs `Wii Remote connected via DolphinBar slot N`;
-`MSCHARGED_WIIMOTE_DEBUG=1` logs every step of the Remote setup.
+Started from a terminal, the game logs `Wii Remote connected via ...` with
+the DolphinBar slot or Bluetooth address; `MSCHARGED_WIIMOTE_DEBUG=1` logs
+every step of the Remote setup.
 
 ## Performance log
 
