@@ -1,0 +1,60 @@
+From: mscharged-port
+Subject: Convert the native HUD clock the way MWCC does
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native compiler/ABI compatibility; same fix as patch 0700.
+
+HUDClock::Update converts the remaining match time to unsigned long three
+times. R4QE01 calls __cvt_fp2unsigned for all three (0x801EA04C, 0x801EA078,
+0x801EA140), which turns a negative value into 0. While a shot is still live
+after the whistle, the game clock runs past the match length (Game::Update
+waits for the shot before time-up or overtime), so fRemainingTime is
+negative and isOvertime is still false. Retail then shows 0.0.
+On x86-64 the conversion of a negative float to unsigned is undefined and
+returns the wrapped integer. The tenths become (unsigned long)(-3.0f), and
+the clock's "%d" tenths field then shows -3 instead of 0. ARM64 macOS
+saturates to 0 like MWCC. For a remainder below -1 s, the seconds value
+also wraps.
+
+Natively the three conversions use VariantFloatToWiiWord, the existing
+replica of __cvt_fp2unsigned. Wii builds are unchanged.
+
+diff --git a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+--- a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+@@ -18,6 +18,9 @@
+ #include "Game/Render/RLViewLayers.h"
+ #include "Game/Team.h"
+ #include "NL/nlMemory.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/variant_numeric_abi.h"
++#endif
+ #include "NL/nlFormat.h"
+ #include "NL/nlLocalizationLookup.h"
+ #include <string.h>
+@@ -483,8 +486,14 @@ void HUDClock::Update(float fDeltaT)
+     float fRemainingTime = g_pGame->GetGameDuration() - fTime;
+     fTime -= g_pGame->GetGameDuration();
+     overtimeTime = (fTime > overtimeTime) ? overtimeTime : fTime;
++#if defined(MSCHARGED_NATIVE)
++    // MWCC converts the negative remainder after the whistle to 0.
++    unsigned long time = mscharged::platform::VariantFloatToWiiWord(fRemainingTime);
++    unsigned long remainingTime = mscharged::platform::VariantFloatToWiiWord(isOvertime ? overtimeTime : (float)time);
++#else
+     unsigned long time = (unsigned long)fRemainingTime;
+     unsigned long remainingTime = (unsigned long)(isOvertime ? overtimeTime : (float)time);
++#endif
+     unsigned long newMinutes = remainingTime / 60;
+     unsigned long newSeconds = remainingTime - newMinutes * 60;
+     unsigned long newTenths = 0;
+@@ -502,7 +511,11 @@ void HUDClock::Update(float fDeltaT)
+     }
+     if (newMinutes == 0 && fRemainingTime < 30.0f && !isOvertime)
+     {
++#if defined(MSCHARGED_NATIVE)
++        newTenths = mscharged::platform::VariantFloatToWiiWord((fRemainingTime - (float)newSeconds) * 10.0f);
++#else
+         newTenths = (unsigned long)((fRemainingTime - (float)newSeconds) * 10.0f);
++#endif
+     }
+     if (!isOvertime && (float)remainingTime == g_pGame->GetGameDuration() && mClockColourChanged)
+     {

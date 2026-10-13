@@ -503,3 +503,5 @@
 0699-read-native-physics-event-data.patch
 0700-convert-native-time-up-checks.patch
 0701-zero-native-variant-pointer-carrier.patch
+0702-convert-native-hud-clock-like-mwcc.patch
+0703-read-native-captain-character-by-member.patch

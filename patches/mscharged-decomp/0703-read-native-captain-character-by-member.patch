@@ -1,0 +1,46 @@
+From: mscharged-port
+Subject: Read the banner captain's character class by member
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native compiler/ABI compatibility; same kind of fix as patch 0699.
+
+StadiumWorldDrawable::UpdateModelMaterials picks the team banner texture.
+When the task state is 0x10 or lower (gameplay, replay, NIS), it reads each
+captain's character with a Wii byte offset: *(int*)((u8*)captain + 0x24).
+R4QE01 has cmplwi 0x10 / ble, then lwz r30,0x24(r3) / lwz r29,0x24(r3) at
+0x80279C50 / 0x80279C5C. That offset is
+cCharacter::m_DetChar.m_eCharacterClass on the Wii.
+Natively m_pSkinMesh starts at 0x10 and m_DetChar at 0x40. The read returns
+the upper half of m_pSkinMesh[2], so the result is 0 (Mario's banners) when
+that pointer is null or below 4 GiB, and an out-of-range GetCharacterInfo
+index otherwise.
+
+Stadium loading (TASK_FE_TO_GAME / TASK_BOOT_TO_GAME) takes the
+GameInfoManager branch, but every StadiumWorldDrawable::Initialize clears
+the cached banner again. WorldDrawable::DrawToView then calls
+UpdateModelMaterials on each frame of a vertex-animated drawable, so the
+first stadium intro frame (TASK_NIS) chooses the banner through this read.
+On The Vice the hanging banners asked for mario/mario_banners, which is only
+loaded when Mario plays, so they drew the missing-texture fallback
+font/fixedWidthMedium (Wario vs Bowser run; Linux GCC build).
+
+Natively the function reads the declared member. Wii builds are unchanged.
+The member read also matches upstream: GC/3.0a5 with the R4QE01 flags gives
+an identical .text for this TU (lwz 0x24(r3)).
+
+diff --git a/src/Game/Render/StadiumWorldObjects.cpp b/src/Game/Render/StadiumWorldObjects.cpp
+--- a/src/Game/Render/StadiumWorldObjects.cpp
++++ b/src/Game/Render/StadiumWorldObjects.cpp
+@@ -180,7 +180,13 @@ static const char* sBannerProxyObjects[] = {
+ // movement state, so it is read positionally until that layout is resolved.
+ static inline int GetCaptainCharacter(cFielder* captain)
+ {
++#if defined(MSCHARGED_NATIVE)
++    // Wii offset 0x24 is cCharacter::m_DetChar.m_eCharacterClass; natively
++    // it lands in m_pSkinMesh[2].
++    return captain->m_DetChar.m_eCharacterClass;
++#else
+     return *(const int*)((const u8*)captain + 0x24);
++#endif
+ }
+ 
+ static unsigned long sStadiumBannerTexture;
