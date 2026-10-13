@@ -1,0 +1,30 @@
+From: mscharged-port
+Subject: Match the goalie loose-ball pickup event on LP64
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native compiler/ABI compatibility; same fix as GoalieSave in 0612.
+
+LooseBallCallback finds the pickup event (0xCF84E7CD) of each goalie
+loose-ball animation with (uEventID + 0x307c0000U) == 0xe7cd, which holds
+only when the sum wraps at 32 bits. unsigned long is 32 bits on the Wii and
+on Windows but 64 bits on Linux and macOS, where the test never matched:
+every pickup, kick, trap and dive animation kept a pickup time and duration
+of 0, so the goalie approached a loose ball on the ground without ever
+picking it up. Natively the sum is narrowed to 32 bits, as patch 0612 does
+for GoalieSave::TriggerCallback.
+
+diff --git a/src/Game/AI/GoalieLooseBall.cpp b/src/Game/AI/GoalieLooseBall.cpp
+index 1caccc8..8aa53c6 100644
+--- a/src/Game/AI/GoalieLooseBall.cpp
++++ b/src/Game/AI/GoalieLooseBall.cpp
+@@ -31,7 +31,11 @@ static const int gLooseBallKickAnims[3] = { 0x2, 0x3, 0x4 };
+ static bool LooseBallCallback(float fTime, float fDuration,
+     unsigned long uEventID, float, void* pUserData)
+ {
++#if defined(MSCHARGED_NATIVE)
++    if ((u32)(uEventID + 0x307c0000U) == 0xe7cd)
++#else
+     if ((uEventID + 0x307c0000U) == 0xe7cd)
++#endif
+     {
+         LooseBallInfo* info = (LooseBallInfo*)pUserData;
+         info->mfPickupTime = fTime;
