@@ -320,12 +320,15 @@ jobs:
             echo "draft=true" >> "$GITHUB_OUTPUT"
           fi
       # The packages of this run, uploaded unarchived by the build jobs.
+      # skip-decompress keeps the Windows .zip package as a file: the action
+      # otherwise unpacks every download served as a zip.
       - uses: actions/download-artifact@v8
         if: steps.version.outputs.draft == 'true'
         with:
           pattern: mscharged-*
           path: release
           merge-multiple: true
+          skip-decompress: true
       - name: Write checksums
         if: steps.version.outputs.draft == 'true'
         working-directory: release

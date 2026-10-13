@@ -37,7 +37,9 @@ into the game module built with `MSCHARGED_TWEAKS` and take the original path
 unless their tweak is enabled; a fix is always on there and has no switch
 (0006: resting goal nets are redrawn, issue #19; 0009: the electrocution
 overlay's texture, which the disc keeps only in an unused debug bundle, is
-loaded, issue #33). Every other target compiles the original code. The game module receives the enabled set from the
+loaded, issue #33; 0010: a ball lost by an intangible player gets its player
+and goalie collisions back, and the goalie no longer takes the ball from an
+intangible teammate, issue #38). Every other target compiles the original code. The game module receives the enabled set from the
 host before original main (`src/platform/game_tweaks.cpp`). Keep these patches
 apart from the faithful series and refresh them on every pin update.
 

@@ -2,10 +2,12 @@ Subject: Tweak: fast menus
 Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 With "Fast menus" enabled menu transitions are skipped, outside matches and
-the boot screens. A match's post-match screens are menus too: from its GameOver
-event (FrontEnd::m_bGameOver), which brings up the results, the result popups
-and the stats. The match itself, its end sequence and the pause menu keep
-their pace.
+the boot screens. In a match its menus count too: the pause menu and the
+screens it opens (Choose Sides, options, quit popup) while the pause menu
+state is up (FrontEnd::m_bInPauseMenuState, issue #39), and the post-match
+screens from its GameOver event (FrontEnd::m_bGameOver), which brings up the
+results, the result popups and the stats. The match itself and its end
+sequence keep their pace.
 
 - 2D: one-shot slides no longer than 3 s jump to their end, and a screen's
   presentation starts a one-shot slide of up to 6 s at its end, as the game
@@ -23,6 +25,9 @@ their pace.
   0.75 s rather than through a slide, opens at full size at once. A popup
   whose slide is already past 1 s when its layout hides the text shows it
   again.
+- Quitting a match from the pause menu: once the quit popup has gone, the
+  game returns to the front end at once instead of after the rest of the
+  pause menu's 1 s wait (PauseMenuScene::mQuitDelay).
 
 diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
 index 818c844..1e37107 100644
@@ -133,8 +138,37 @@ index fb32cfe..eb36fc5 100644
  
      m_time += deltaTime;
      float end = GetStartTime() + GetDuration();
+diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
+index b6c4687..7717284 100644
+--- a/src/Game/SH/SHPause.cpp
++++ b/src/Game/SH/SHPause.cpp
+@@ -29,6 +29,7 @@
+ #include "NL/nlFunction.inl"
+ #include "Game/FE/feDPD.h"
+ #include "Game/FE/tlDefault.h"
++#include "mscharged_tweaks.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <cstdint>
+ #endif
+@@ -218,6 +219,16 @@ void PauseMenuScene::Update(float fDeltaT)
+ {
+     if (mQuitDelay > 0.0f)
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Fast menus": once the quit popup has gone, the screen
++        // turns black and the game returns to the front end in this frame
++        // instead of after the rest of a 1 s wait (issue #39).
++        if (mscharged_tweak_fast_menus() && fDeltaT > 0.0f && mQuitDelay > fDeltaT
++            && !g_pOverlayManager->IsOnStack(SCENE_POPUP_MENU))
++        {
++            mQuitDelay = fDeltaT;
++        }
++#endif
+         mQuitDelay -= fDeltaT;
+         if (!g_pOverlayManager->IsOnStack(SCENE_POPUP_MENU))
+             glxSwapSetBlack(true);
 diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
-index 2ff6730..c8df1fa 100644
+index 2ff6730..a7c8f7f 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
 @@ -32,6 +32,10 @@
@@ -148,23 +182,24 @@ index 2ff6730..c8df1fa 100644
  
  #include <math.h>
  
-@@ -164,6 +168,25 @@ void FrontEndTask::Run(float dt)
+@@ -164,6 +168,26 @@ void FrontEndTask::Run(float dt)
      }
  
  #endif // HBM owner/update omitted
 +#if defined(MSCHARGED_TWEAKS)
 +    {
 +        // Port tweak "Fast menus": once a frame, whether the menus are up
-+        // (outside matches and the boot screens, and in a match once its
-+        // GameOver event has brought up the post-match screens) and whether
-+        // the presentation runs a transition script; such a script's scripted
-+        // waits end as they start, and its camera moves run on dilated time
-+        // (nlTask.cpp). A match's tasks never run on transition time.
++        // (outside matches and the boot screens; in a match while its pause
++        // menu state is up, issue #39, and once its GameOver event has brought
++        // up the post-match screens) and whether the presentation runs a
++        // transition script; such a script's scripted waits end as they
++        // start, and its camera moves run on dilated time (nlTask.cpp). A
++        // match's tasks never run on transition time.
 +        GameSceneManager* scenes = GameSceneManager::Instance();
 +        BaseSceneHandler* top = scenes != 0 ? scenes->GetCurrentScene() : 0;
 +        SceneList type = top != 0 ? scenes->GetSceneType(top) : SCENE_INVALID;
 +        bool boot = type == SCENE_BOOT_LOADING || type == SCENE_BOOT_LOADING_JPN;
-+        bool menus = (g_pGame == 0 || FrontEnd::m_bGameOver) && !boot;
++        bool menus = (g_pGame == 0 || FrontEnd::m_bGameOver || FrontEnd::m_bInPauseMenuState) && !boot;
 +        FrontEndPresentation* presentation = FrontEndPresentation::GetInstance();
 +        mscharged_tweak_frontend_frame(menus, g_pGame == 0 && presentation->IsActive());
 +        if (mscharged_tweak_fast_transition() && presentation->mWaitTime > 0.0f)

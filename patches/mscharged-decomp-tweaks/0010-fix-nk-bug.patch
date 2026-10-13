@@ -1,0 +1,92 @@
+Subject: Fix: shots no longer pass through the goalies after a cut-short deke (issue #38)
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+A fix of the original game, always on and without a switch (owner decision,
+2026-10-12). It lives in the tweak series so the faithful series stays retail.
+
+The NK bug, or Boo glitch: a fielder who turns intangible while he carries the
+ball (Boo's deke and Skillshot, the teleport dekes of Waluigi, Daisy and Dry
+Bones, Monty Mole and Yoshi, a Peach photo) also switches off the ball's
+collisions with players and goalies (cFielder::SetTangible). Turning tangible
+again switches them back on only if he still carries the ball. If he loses it
+while intangible they stay off: the ball goes through the players and through
+both goalies, whose contacts and through-goalie check need them, so every shot
+and chip on goal scores. That lasts until the next kickoff (ResetBall), the end
+of a Skillshot or Mega Strike, or another intangible carrier who still has the
+ball when he turns tangible (another Boo deke). The original code does the same.
+
+The two known triggers: Boo dekes next to his own goalie with the ball. The
+goalie takes the ball from a teammate who hoards it beside him
+(Goalie::IsTeammateHoardingBall, ActionGrabBall) without checking that he is
+intangible, and the steal ends Boo's deke without the ball. Or a teleport deke
+ends in a goal: the deker is lifted above it, to be electrocuted on the fence,
+and the ball is dropped in front of the goal line.
+
+cPlayer::ReleaseBall now gives a ball released by an intangible fielder its
+player and goalie collisions back, as it already gives back its visibility.
+That covers every way an intangible carrier loses the ball. The goalie also no
+longer takes the ball from an intangible teammate, as he does not touch
+intangible opponents either: a deking Boo keeps it. Boo's and Monty Mole's
+Skillshots and Mega Strikes, which keep the ball off the goalie on purpose, are
+unchanged: they switch the collisions off after the shot's release, or the
+shooter is tangible when he shoots.
+
+diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
+index 532e662..2517660 100644
+--- a/src/Game/AI/GoalieActions.cpp
++++ b/src/Game/AI/GoalieActions.cpp
+@@ -4747,7 +4747,13 @@ void Goalie::ActionGrabBall(float fDeltaT)
+                 g_pBall->m_v3Position.y - jointPos.y,
+                 g_pBall->m_v3Position.z - jointPos.z);
+ 
+-            if (nlGetLengthSquared3D(delta.x, delta.y, delta.z) < 0.25f)
++            if (nlGetLengthSquared3D(delta.x, delta.y, delta.z) < 0.25f
++#if defined(MSCHARGED_TWEAKS)
++                // Port fix, always on (issue #38): a teammate who turned
++                // intangible during the grab keeps the ball, as above.
++                && g_pBall->GetOwnerFielder()->mbTangible
++#endif
++                )
+             {
+                 StealBall(g_pBall->m_pOwner);
+                 PickupBall(g_pBall);
+@@ -7604,6 +7610,13 @@ bool Goalie::IsTeammateHoardingBall()
+         cBall* pBall;
+         cFielder* pOwner = g_pBall->GetOwnerFielder();
+         if (pOwner != 0 && !pOwner->IsYoshiSuperPowerActive()
++#if defined(MSCHARGED_TWEAKS)
++            // Port fix, always on (issue #38, the NK bug): not from a teammate
++            // who is intangible (a Boo or teleport deke), whom the goalie
++            // cannot touch either. Taking the ball from him left it unable to
++            // hit either goalie (see cPlayer::ReleaseBall).
++            && pOwner->mbTangible
++#endif
+             && IsOnSameTeam(pOwner))
+         {
+             float ownerX;
+diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
+index 59bbbab..6405566 100644
+--- a/src/Game/Player.cpp
++++ b/src/Game/Player.cpp
+@@ -824,6 +824,21 @@ void cPlayer::ReleaseBall(int nParam)
+     {
+         g_pBall->m_bVisible = true;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port fix, always on (issue #38, the NK bug): a fielder who turns
++    // intangible while carrying the ball switches off the ball's player and
++    // goalie collisions too (cFielder::SetTangible), and only switches them
++    // back on if he still carries it when he turns tangible again. A fielder
++    // who loses the ball while intangible (his own goalie taking it from a
++    // deking Boo, a teleport deke ending above a goal) left them off, and the
++    // ball went through both goalies until the next kickoff. As with its
++    // visibility above, the released ball gets them back.
++    if (m_eClassType == FIELDER && !((cFielder*)this)->mbTangible)
++    {
++        g_pBall->m_pPhysicsBall->mbCanCollidePlayer = true;
++        g_pBall->m_pPhysicsBall->mbCanCollideGoalie = true;
++    }
++#endif
+ }
+ 
+ extern "C" void fn_80097358(cPlayer* pPlayer, float fDuration)

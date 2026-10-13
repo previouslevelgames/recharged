@@ -36,7 +36,8 @@ inline constexpr std::array<GameTweakInfo, 5> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
-     "Skips menu transitions, also on the screens after a match. Matches, movies and the credits are unchanged."},
+     "Skips menu transitions, also in the pause menu and on the screens after a match. Matches, movies and the "
+     "credits are unchanged."},
     {GameTweak::NoMegaStrikes, "no_mega_strikes", "No Mega Strikes",
      "Mega Strikes are off for both teams, the usual competitive rule. Skillshots stay, and Strikers 101 lessons "
      "keep their own rules."},

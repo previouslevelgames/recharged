@@ -53,17 +53,20 @@ the reconstructed source, unchanged.
 
 ## Optional tweaks
 
-Off by default; with all of them off the game plays as on the Wii. Two fixes
+Off by default; with all of them off the game plays as on the Wii. Three fixes
 of the original game are always on: a goal net no longer stays dented after a
-goal ([#19](https://github.com/yannicksuter/mscharged-port/issues/19)), and
+goal ([#19](https://github.com/yannicksuter/mscharged-port/issues/19)),
 electrocuted players flash with the game's lightning texture instead of a
-debug texture ([#33](https://github.com/yannicksuter/mscharged-port/issues/33)).
+debug texture ([#33](https://github.com/yannicksuter/mscharged-port/issues/33)),
+and the NK bug (Boo glitch) is gone: a Boo deke into his own goalie or a
+teleport into a goal no longer lets later shots pass through the goalies
+([#38](https://github.com/yannicksuter/mscharged-port/issues/38)).
 The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them on:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio
   logo, intro movie and title screen.
-- **Fast menus**: skip menu transitions, also on the screens after a match
-  (matches, movies and credits unchanged).
+- **Fast menus**: skip menu transitions, also in the pause menu and on the
+  screens after a match (matches, movies and credits unchanged).
 - **No Mega Strikes** for both teams, the usual competitive rule. Skillshots
   stay, and Strikers 101 lessons keep their own rules.
 - **Unlock everything**: all characters, stadiums and cheats, through the

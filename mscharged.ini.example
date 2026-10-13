@@ -134,8 +134,8 @@ shake_nunchuk = Q
 # Optional tweaks that change the original game. All off plays it unchanged;
 # --no-tweaks turns them off for one run.
 # skip_intro: start at the main menu (no notices, logo, intro or title screen).
-# fast_menus: skip menu transitions, also on the screens after a match
-# (matches, movies and credits unchanged).
+# fast_menus: skip menu transitions, also in the pause menu and on the
+# screens after a match (matches, movies and credits unchanged).
 # no_mega_strikes: Mega Strikes off for both teams; Skillshots stay (Strikers
 # 101 lessons keep their own rules).
 # unlock_all: all characters, stadiums and cheats; the save is not changed.
