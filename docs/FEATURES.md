@@ -46,8 +46,9 @@ the reconstructed source, unchanged.
 - Picture styles: **sharp** (default) or clean fill the window with the game's
   picture; soft keeps the console's TV look, with the TV signal's empty border.
 - Optional **4x antialiasing**.
-- V-sync, an FPS counter, master volume and mute; music, effects and voice
-  levels stay in the game's own options.
+- V-sync, an FPS counter (window title, or on screen also in fullscreen),
+  master volume and mute; music, effects and voice levels stay in the game's
+  own options.
 - **Screenshots** with the P key.
 
 ## Optional tweaks
@@ -59,11 +60,15 @@ The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them
 
 - **Skip intro**: start at the main menu, without the notice screens, studio
   logo, intro movie and title screen.
-- **Fast menus**: skip menu transitions (matches, movies and credits unchanged).
+- **Fast menus**: skip menu transitions, also on the screens after a match
+  (matches, movies and credits unchanged).
 - **No Mega Strikes** for both teams, the usual competitive rule. Skillshots
   stay, and Strikers 101 lessons keep their own rules.
 - **Unlock everything**: all characters, stadiums and cheats, through the
   game's own unlock switch; the save is not changed.
+- **CPU vs CPU**: in Domination, press Done on Choose Sides without picking a
+  side and the CPU plays both teams. Choose Sides in the pause menu can also
+  hand a match over to the CPU.
 
 `--no-tweaks` turns them off for one run.
 

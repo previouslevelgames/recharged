@@ -49,7 +49,8 @@
 #include <revolution/os/OSIpc.h>
 #include <revolution/ipc.h>
 #include "credits_movie_hardware.h"
-#include "runtime/frame_rate_title.h"
+#include "runtime/fps_overlay.h"
+#include "runtime/frame_rate.h"
 #include "runtime/frame_timing_log.h"
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
 #include "original_game_audio_hardware.h"
@@ -368,6 +369,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             +" "+std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", aspect "+shown.aspect
             +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing+", picture "+shown.picture
             +", vsync "+(shown.vsync?"on":"off")+", display "+std::to_string(shown.monitor)
+            +", fps counter "+(shown.fps_overlay?shown.fps_overlay_corner:std::string("off"))
             +", graphics validation "+(shown.graphics_validation?"on":"off"));
         mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
             +mscharged::platform::NativeGraphicsBackendName+" graphics and the window");
@@ -702,9 +704,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         bool bootLogoCaptured=false;
         const auto start=std::chrono::steady_clock::now(); auto previous=start;
         auto stageStart=start; unsigned resizeStage=0; bool stageAnnounced=false;
-        // Original game frames per second in the title; always shown until a
-        // command-line/launcher toggle exists.
-        mscharged::runtime::FrameRateTitle frameRateTitle(windowTitle);
+        // Original game frames per second: display.show_fps in the window
+        // title, display.fps_overlay as a counter over the presented picture.
+        mscharged::runtime::FrameRateMeter frameRate;
+        std::optional<mscharged::runtime::FpsOverlay> fpsOverlay;
+        if(launch.settings.fps_overlay && nativeSend)
+            fpsOverlay.emplace(executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf",
+                mscharged::runtime::ParseOverlayCorner(launch.settings.fps_overlay_corner)
+                    .value_or(mscharged::runtime::OverlayCorner::TopRight));
         // Opt-in MSCHARGED_FRAME_LOG: per-frame timing for performance reports.
         const auto frameTiming=mscharged::runtime::FrameTimingLog::FromEnvironment();
         wgpu::Texture retainedEFB;
@@ -731,8 +738,16 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 }
             }
             const auto now=std::chrono::steady_clock::now();
-            if(launch.settings.show_fps)
-                if(const auto title=frameRateTitle.Sample(frames,now)) SDL_SetWindowTitle(host.window,title->c_str());
+            if(launch.settings.show_fps || fpsOverlay)
+                if(const auto rate=frameRate.Sample(frames,now)) {
+                    if(launch.settings.show_fps)
+                        SDL_SetWindowTitle(host.window,mscharged::runtime::FrameRateTitle(windowTitle,*rate).c_str());
+                    if(fpsOverlay)fpsOverlay->SetRate(*rate);
+                }
+            if(fpsOverlay) {
+                const auto size=aurora_get_window_size();
+                fpsOverlay->Update(size.native_fb_width,size.native_fb_height);
+            }
             Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {
                 {

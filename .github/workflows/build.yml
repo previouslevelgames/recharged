@@ -117,13 +117,14 @@ jobs:
         run: python tools/package_build.py --build-dir build/release --output-dir build/artifacts
       # Pull requests to stable upload too, so the packages can be tested
       # before the promotion is merged.
+      # Uploaded as the package file itself (no zip around it); the artifact
+      # takes the file's name, e.g. mscharged-<version>-<system>-<arch>.tar.gz.
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: mscharged-${{ matrix.platform }}-${{ github.sha }}
           path: build/artifacts/*.tar.gz
+          archive: false
           if-no-files-found: error
-          compression-level: 0
           retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
       - name: Upload configure diagnostics on failure
         if: failure()
@@ -215,13 +216,14 @@ jobs:
           "build/toolchain/$LLVM_MINGW/bin/llvm-objdump" -p build/windows/mscharged.exe | grep -F 'DLL Name'
       - name: Package binaries and notices
         run: python tools/package_build.py --build-dir build/windows --output-dir build/artifacts
+      # Uploaded as the package file itself (no zip around it); the artifact
+      # takes the file's name, e.g. mscharged-<version>-<system>-<arch>.zip.
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: mscharged-windows-x86_64-${{ github.sha }}
           path: build/artifacts/*.zip
+          archive: false
           if-no-files-found: error
-          compression-level: 0
           retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
       - name: Upload configure diagnostics on failure
         if: failure()
@@ -317,10 +319,11 @@ jobs:
           else
             echo "draft=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@v4
+      # The packages of this run, uploaded unarchived by the build jobs.
+      - uses: actions/download-artifact@v8
         if: steps.version.outputs.draft == 'true'
         with:
-          pattern: mscharged-*-${{ github.sha }}
+          pattern: mscharged-*
           path: release
           merge-multiple: true
       - name: Write checksums

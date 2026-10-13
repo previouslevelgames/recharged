@@ -41,7 +41,8 @@ int main()
         static_assert(unsigned(mscharged::GameTweak::SkipIntro) == MSCHARGED_TWEAK_SKIP_INTRO
             && unsigned(mscharged::GameTweak::FastMenus) == MSCHARGED_TWEAK_FAST_MENUS
             && unsigned(mscharged::GameTweak::NoMegaStrikes) == MSCHARGED_TWEAK_NO_MEGA_STRIKES
-            && unsigned(mscharged::GameTweak::UnlockAll) == MSCHARGED_TWEAK_UNLOCK_ALL,
+            && unsigned(mscharged::GameTweak::UnlockAll) == MSCHARGED_TWEAK_UNLOCK_ALL
+            && unsigned(mscharged::GameTweak::CpuVsCpu) == MSCHARGED_TWEAK_CPU_VS_CPU,
             "Host tweak bits and the game hooks' IDs must agree");
 
         // Before configuration and with an empty set: the original game.

@@ -1,0 +1,40 @@
+From: mscharged-port
+Subject: Zero the native Variant pointer member before a narrow store
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native compiler/ABI compatibility
+
+Variant(eVariantType, T) stores sizeof(T) bytes: one for a bool, four for
+an int, u32, float or enum. On the Wii that fills the 32-bit pointer member,
+so the original code may read a stored word back through mData.pointer, as
+FielderDesireMachine::Update and ScriptState::Update did with update results
+(patch 0690). Natively the pointer is eight bytes and bytes 4..7 stay
+uninitialised; the copies that follow (FuzzyVariant::operator=, CopyFrom)
+carry them along. That is the root cause of issues #25, #28 and #29.
+DesireUpdate::operator=<int> in 1.0.7:
+- Windows (Clang): movl %edx,0x30(%rsp) into the temporary, then the whole
+  union is copied, so the result holds four stale stack bytes.
+- macOS (Apple Clang): str w1,[sp,#0x18], then the same full copy.
+- Linux (GCC): Reset() clears the union first, so the result is clean, but
+  only because of that code generation.
+
+Natively the constructor first clears the pointer member, as Reset already
+does (patch 0587). A pointer-width read of a stored word then equals the Wii
+word read. Values, types and all algorithms are unchanged. The Wii build is
+unchanged.
+
+diff --git a/include/Game/AI/Variant.h b/include/Game/AI/Variant.h
+--- a/include/Game/AI/Variant.h
++++ b/include/Game/AI/Variant.h
+@@ -50,6 +50,12 @@ public:
+     template <typename T>
+     Variant(eVariantType type, T value)
+     {
++#if defined(MSCHARGED_NATIVE)
++        // A Wii word fills the whole 32-bit pointer member; natively the
++        // pointer is wider. Clear it first so a pointer-width read of a stored
++        // word sees that word, as on the Wii, instead of stale bytes.
++        mData.pointer = 0;
++#endif
+         *(T*)&mData = value;
+         mType = type;
+     }

@@ -5,21 +5,18 @@
 #include <cstdio>
 #include <optional>
 #include <string>
-#include <utility>
 
 namespace mscharged::runtime {
 
-// Window-title frame rate: original game frames completed per second,
-// measured over windows of at least one second. Bookkeeping only; the
-// caller sets the title on the window's thread.
-class FrameRateTitle {
+// Original game frames completed per second, measured over windows of at
+// least one second. Bookkeeping only; the caller shows the rate in the
+// window title (FrameRateTitle) and/or the on-screen counter.
+class FrameRateMeter {
 public:
     using Clock = std::chrono::steady_clock;
 
-    explicit FrameRateTitle(std::string base) : base_(std::move(base)) {}
-
-    // Returns the new title each time a measurement window closes.
-    std::optional<std::string> Sample(std::uint64_t frames, Clock::time_point now)
+    // Returns the rate each time a measurement window closes.
+    std::optional<double> Sample(std::uint64_t frames, Clock::time_point now)
     {
         if (!start_ || frames < startFrames_) {
             start_ = now;
@@ -31,15 +28,20 @@ public:
         const double rate = static_cast<double>(frames - startFrames_) / elapsed.count();
         start_ = now;
         startFrames_ = frames;
-        char suffix[32];
-        std::snprintf(suffix, sizeof suffix, " | %.1f FPS", rate);
-        return base_ + suffix;
+        return rate;
     }
 
 private:
-    std::string base_;
     std::optional<Clock::time_point> start_;
     std::uint64_t startFrames_ = 0;
 };
+
+// The window title with a measured rate: "<base> | 59.8 FPS".
+inline std::string FrameRateTitle(const std::string& base, double rate)
+{
+    char suffix[32];
+    std::snprintf(suffix, sizeof suffix, " | %.1f FPS", rate);
+    return base + suffix;
+}
 
 } // namespace mscharged::runtime

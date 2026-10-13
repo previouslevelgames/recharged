@@ -1,0 +1,222 @@
+From: mscharged-port contributors
+Subject: [PATCH] Draw a host overlay over the native VI desktop picture
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation (frame-rate counter). Apply after 0089.
+
+The port's optional frame-rate counter (display.fps_overlay) has to be visible
+in fullscreen, where the window title is not. The native VI output presents
+the game's picture itself in one surface pass; Aurora's ImGui pass exists only
+in its own end_frame, which the native path never uses.
+
+aurora_imgui_begin_overlay/end_overlay record ImGui draws in surface pixels
+and publish them. Scanout draws the latest overlay after the picture, in the
+same surface pass, while the acquired surface has the size the overlay was laid
+out for; after a resize it waits for the host's new layout. Screenshots
+re-render the picture without it, and the game's EFB, XFB and frames never
+contain it.
+
+The overlay frame only draws: no ImGui platform backend frame (which would
+show or change the OS cursor, capture the mouse while dragging and open
+gamepads), no mouse or keyboard input and no imgui.ini. Font changes go
+through aurora_imgui_update_overlay_fonts, which drains queued presentations
+and rebuilds the renderer's font texture on the render worker.
+
+diff --git a/include/aurora/imgui.h b/include/aurora/imgui.h
+index 77eba9a..b5e877c 100644
+--- a/include/aurora/imgui.h
++++ b/include/aurora/imgui.h
+@@ -13,6 +13,21 @@ extern "C" {
+ 
+ ImTextureID aurora_imgui_add_texture(uint32_t width, uint32_t height, const void* rgba8);
+ 
++// Host overlay over the native VI desktop picture (a frame-rate counter, for
++// example). Between begin and end the host records ImGui draws in surface
++// pixels; the frame reads no input, keeps no settings file and leaves the
++// cursor, mouse capture and gamepads alone. The recorded draws appear on every
++// following presented picture whose surface still has that size, until
++// replaced or cleared. Screenshots and the game's own frames never contain
++// them. Owner thread only.
++void aurora_imgui_begin_overlay(uint32_t surface_width, uint32_t surface_height);
++void aurora_imgui_end_overlay(void);
++void aurora_imgui_clear_overlay(void);
++// After the host built ImGui's font atlas (before the first overlay, and after
++// each change): clears the overlay, waits for queued presentations that may
++// still sample the previous font texture, then uploads the new one.
++void aurora_imgui_update_overlay_fonts(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index b1aa7bf..74ead76 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -4,6 +4,7 @@
+ #include "xfb.hpp"
+ #include "render_worker.hpp"
+ #include "png_io.hpp"
++#include "../imgui.hpp"
+ #include "../window.hpp"
+ #include "../webgpu/gpu.hpp"
+ #include <aurora/video.h>
+@@ -426,10 +427,11 @@ void service(void*) {
+   const auto windowId = SDL_GetWindowID(window::get_sdl_window());
+   const auto windowIncarnation = window::get_window_incarnation();
+   const auto screenshot = take_screenshot_request();
++  auto overlay = imgui::overlay();
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+                               layout, pipeline, desktopPipeline, scaledPipeline, viewport, windowSize, windowId,
+                               windowIncarnation,
+-                              desktop = std::move(desktop), screenshot, picture] {
++                              desktop = std::move(desktop), screenshot, picture, overlay = std::move(overlay)] {
+     struct Finished {
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+@@ -487,6 +489,10 @@ void service(void*) {
+         surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
+         surfacePass.Draw(3);
+       }
++      // The host overlay covers whatever this present shows, on the surface
++      // size it was laid out for; screenshots below never contain it.
++      if (overlay && target.GetWidth() == overlay->width && target.GetHeight() == overlay->height)
++        imgui::render(surfacePass, overlay->drawData);
+       surfacePass.End();
+       if (!screenshot.empty())
+         shot = encode_screenshot(encoder, target.GetFormat(), viewport, state.copy_group, effective.black, screenshot);
+diff --git a/lib/imgui.cpp b/lib/imgui.cpp
+index 77f65fd..785c8de 100644
+--- a/lib/imgui.cpp
++++ b/lib/imgui.cpp
+@@ -1,9 +1,12 @@
+ #include "imgui.hpp"
+ 
++#include <algorithm>
++#include <chrono>
+ #include <cstddef>
+ #include <cmath>
+ #include <cstring>
+ #include <memory>
++#include <mutex>
+ #include <string>
+ #include <utility>
+ #include <vector>
+@@ -78,6 +81,55 @@ void enqueue_texture_upload(wgpu::Buffer buffer, wgpu::TexelCopyTextureInfo dst,
+ input::LayerId g_inputLayer = input::kInvalidLayerId;
+ bool g_cursorManaged = false;
+ 
++// Host overlay: the owner thread publishes it, scanout reads it per present.
++std::mutex g_overlayMutex;
++std::shared_ptr<const Overlay> g_overlay;
++uint32_t g_overlayWidth = 0;
++uint32_t g_overlayHeight = 0;
++bool g_overlayFontsReady = false;
++std::chrono::steady_clock::time_point g_overlayFrameTime{};
++
++void set_overlay(std::shared_ptr<const Overlay> next) noexcept {
++  std::lock_guard lock(g_overlayMutex);
++  g_overlay = std::move(next);
++}
++
++void update_overlay_fonts() noexcept {
++  set_overlay(nullptr);
++  if (!g_useSdlRenderer) {
++    // Queued presentations may still draw the previous overlay with the old
++    // font texture. The renderer's device objects are rebuilt on the render
++    // worker, which owns the drawing.
++    gfx::render_worker::synchronize();
++    gfx::render_worker::enqueue_work([] { ImGui_ImplWGPU_CreateDeviceObjects(); });
++    gfx::render_worker::synchronize();
++  }
++  g_overlayFontsReady = true;
++}
++
++void begin_overlay(uint32_t width, uint32_t height) noexcept {
++  if (!g_overlayFontsReady) {
++    update_overlay_fonts();
++  }
++  ImGuiIO& io = ImGui::GetIO();
++  // Draws only: no input (the overlay never captures the game's keyboard or
++  // mouse), no settings file, and no platform backend frame, which would
++  // change the OS cursor, capture the mouse while dragging and open gamepads.
++  io.ConfigFlags |= ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoKeyboard | ImGuiConfigFlags_NoMouseCursorChange;
++  io.IniFilename = nullptr;
++  const auto now = std::chrono::steady_clock::now();
++  const float elapsed = g_overlayFrameTime == std::chrono::steady_clock::time_point{}
++                            ? 1.0f / 60.0f
++                            : std::chrono::duration<float>(now - g_overlayFrameTime).count();
++  g_overlayFrameTime = now;
++  io.DeltaTime = std::max(elapsed, 1.0f / 1000.0f);
++  io.DisplaySize = {static_cast<float>(width), static_cast<float>(height)};
++  io.DisplayFramebufferScale = {1.0f, 1.0f};
++  g_overlayWidth = width;
++  g_overlayHeight = height;
++  ImGui::NewFrame();
++}
++
+ input::EventResult input_layer_event(const input::InputEvent& event, void*) {
+   using Kind = input::InputSource::Kind;
+   const Kind kind = event.source.kind;
+@@ -154,6 +206,8 @@ void initialize() noexcept {
+ 
+ void shutdown() noexcept {
+   ZoneScoped;
++  set_overlay(nullptr);
++  g_overlayFontsReady = false;
+   input::unregister_layer(g_inputLayer);
+   g_inputLayer = input::kInvalidLayerId;
+   if (g_useSdlRenderer) {
+@@ -280,6 +334,17 @@ void render(const wgpu::RenderPassEncoder& pass, const DrawData& drawData) noexc
+   }
+ }
+ 
++std::shared_ptr<const Overlay> overlay() noexcept {
++  std::lock_guard lock(g_overlayMutex);
++  return g_overlay;
++}
++
++namespace {
++void end_overlay() noexcept {
++  set_overlay(std::make_shared<const Overlay>(Overlay{freeze(), g_overlayWidth, g_overlayHeight}));
++}
++} // namespace
++
+ ImTextureID add_texture(uint32_t width, uint32_t height, const uint8_t* data) noexcept {
+   if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
+     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, width, height);
+@@ -333,4 +398,10 @@ extern "C" {
+ ImTextureID aurora_imgui_add_texture(uint32_t width, uint32_t height, const void* rgba8) {
+   return aurora::imgui::add_texture(width, height, static_cast<const uint8_t*>(rgba8));
+ }
++void aurora_imgui_begin_overlay(uint32_t surface_width, uint32_t surface_height) {
++  aurora::imgui::begin_overlay(surface_width, surface_height);
++}
++void aurora_imgui_end_overlay(void) { aurora::imgui::end_overlay(); }
++void aurora_imgui_clear_overlay(void) { aurora::imgui::set_overlay(nullptr); }
++void aurora_imgui_update_overlay_fonts(void) { aurora::imgui::update_overlay_fonts(); }
+ }
+diff --git a/lib/imgui.hpp b/lib/imgui.hpp
+index a40f297..a474d1f 100644
+--- a/lib/imgui.hpp
++++ b/lib/imgui.hpp
+@@ -2,6 +2,7 @@
+ 
+ #include <aurora/event.h>
+ 
++#include <cstdint>
+ #include <memory>
+ #include <utility>
+ 
+@@ -36,4 +37,13 @@ void set_cursor_managed(bool managed) noexcept;
+ void new_frame(const AuroraWindowSize& size) noexcept;
+ DrawData freeze() noexcept;
+ void render(const wgpu::RenderPassEncoder& pass, const DrawData& drawData) noexcept;
++
++// The host overlay drawn over the native VI desktop picture, for a surface of
++// exactly width x height pixels (see aurora_imgui_begin_overlay).
++struct Overlay {
++  DrawData drawData;
++  uint32_t width = 0;
++  uint32_t height = 0;
++};
++std::shared_ptr<const Overlay> overlay() noexcept;
+ } // namespace aurora::imgui

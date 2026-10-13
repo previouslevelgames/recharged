@@ -1,0 +1,47 @@
+Subject: Tweak: CPU vs CPU
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+Choose Sides offers its Done button only while a controller is on a side:
+UpdateHomeAwayVisibility shows Done for the first one, and hides and disables
+it again when the last one leaves. With "CPU vs CPU" enabled, Done stays
+available with no controller on a side in offline Domination, on its Choose
+Sides screen and on the pause menu's. Proceed then stores no side for any pad,
+and the CPU plays both teams, as in the title screen's demo matches
+(StartDemoMatch resets every pad's side). Any controller can still pause. The
+Road to the Striker Cup, Strikers 101, the Striker Challenges and online or LAN
+matches keep the original rule.
+
+Issue #31's Gecko code got there by never drawing Done: SetButtonVisibility
+stored false for it, so the branch that hides and disables Done, which tests
+whether it is drawn, never ran.
+
+diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
+index 917ff88..6cd7774 100644
+--- a/src/Game/SH/SHChooseSides.cpp
++++ b/src/Game/SH/SHChooseSides.cpp
+@@ -34,6 +34,7 @@
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/BaseGameSceneManager.h"
+ #include "Game/SH/SHStrikerTimesChallenge.h"
++#include "mscharged_tweaks.h"
+ 
+ 
+ 
+@@ -970,6 +971,17 @@ void SHChooseSides2::UpdateHomeAwayVisibility()
+         }
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "CPU vs CPU": in offline Domination (its Choose Sides and the
++    // pause menu's), Done stays available with no controller on a side, and
++    // Proceed then leaves both teams to the CPU.
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_CPU_VS_CPU) && (mContext == FRIENDLY || mContext == PAUSE)
++        && GameInfoManager::Instance()->IsInFriendlyMode() && !GameInfoManager::Instance()->IsOnline())
++    {
++        hasPlayingSide = true;
++    }
++#endif
++
+     if (mHomeAwayBox->m_bVisible == true)
+     {
+         if (!hasPlayingSide)

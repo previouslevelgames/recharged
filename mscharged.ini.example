@@ -31,6 +31,10 @@ antialiasing = 4x
 resolution = window
 # Frames per second in the game window title.
 show_fps = true
+# Frames per second drawn in a corner of the game window, also in fullscreen.
+fps_overlay = false
+# Corner of that counter: top-left, top-right, bottom-left or bottom-right.
+fps_overlay_corner = top-right
 # Display the game window opens on: 0 = default, 1 = first display, 2 = second...
 monitor = 0
 
@@ -130,14 +134,18 @@ shake_nunchuk = Q
 # Optional tweaks that change the original game. All off plays it unchanged;
 # --no-tweaks turns them off for one run.
 # skip_intro: start at the main menu (no notices, logo, intro or title screen).
-# fast_menus: skip menu transitions (matches, movies and credits unchanged).
+# fast_menus: skip menu transitions, also on the screens after a match
+# (matches, movies and credits unchanged).
 # no_mega_strikes: Mega Strikes off for both teams; Skillshots stay (Strikers
 # 101 lessons keep their own rules).
 # unlock_all: all characters, stadiums and cheats; the save is not changed.
+# cpu_vs_cpu: in Domination, Done on Choose Sides also works with no side
+# picked; the CPU then plays both teams (from the pause menu too).
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
 unlock_all = false
+cpu_vs_cpu = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU

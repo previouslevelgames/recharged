@@ -52,6 +52,8 @@ Values Encode(const Settings& s)
             {"controls.bluetooth_search", s.bluetooth_search ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
             {"display.show_fps", s.show_fps ? "true" : "false"},
+            {"display.fps_overlay", s.fps_overlay ? "true" : "false"},
+            {"display.fps_overlay_corner", s.fps_overlay_corner},
             {"display.monitor", std::to_string(s.monitor)},
             {"advanced.graphics_validation", s.graphics_validation ? "true" : "false"},
             {"advanced.log_level", s.log_level},
@@ -214,6 +216,8 @@ Settings Decode(const Values& values)
     boolean("controls.bluetooth_search", s.bluetooth_search);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
     boolean("display.show_fps", s.show_fps);
+    boolean("display.fps_overlay", s.fps_overlay);
+    choice("display.fps_overlay_corner", s.fps_overlay_corner, {"top-left", "top-right", "bottom-left", "bottom-right"});
     number("display.monitor", s.monitor, 0, 15);
     boolean("advanced.graphics_validation", s.graphics_validation);
     choice("advanced.log_level", s.log_level, {"error", "warning", "info", "debug"});

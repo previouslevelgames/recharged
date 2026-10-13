@@ -125,8 +125,8 @@ Both tests accept `--config FILE`, `--disc FILE` (also `--disk`), `--window`,
 `--fullscreen`, `--size WIDTHxHEIGHT`, `--aspect auto|4:3|16:9` and `--no-tweaks`
 (the `[gameplay]` tweaks off). These override INI settings for this run without saving. The default layout is 16:9; resizing
 preserves the selected layout and fills unused space with bars. The launcher also
-saves the start display, VSync, frame rate in the title, speaker volume, graphics
-validation and log detail in `mscharged.ini`.
+saves the start display, VSync, the frame rate counter (window title or on
+screen), speaker volume, graphics validation and log detail in `mscharged.ini`.
 
 ## Other checks
 

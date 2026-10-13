@@ -502,3 +502,4 @@
 0698-native-goalie-loose-ball-event-word.patch
 0699-read-native-physics-event-data.patch
 0700-convert-native-time-up-checks.patch
+0701-zero-native-variant-pointer-carrier.patch

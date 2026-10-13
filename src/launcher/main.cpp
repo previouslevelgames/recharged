@@ -49,6 +49,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -1473,12 +1474,44 @@ private:
 
             Row("VSync", "Synchronizes frames with your display to prevent tearing.");
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
-
-            Row("Frame rate in title", "Shows the game's frames per second in the window title.");
-            if (Toggle("##fps", &draft_.show_fps)) dirty_ = true;
             EndRows();
         }
         EndCard();
+
+        BeginCard("##frame_rate", "Frame rate", "The game's frames per second while you play.", Icon::Info);
+        if (BeginRows("##frame_rate_rows"))
+        {
+            Row("In the window title", "Next to the game's name in the title bar; not visible in fullscreen.");
+            if (Toggle("##fps", &draft_.show_fps)) dirty_ = true;
+
+            Row("On screen", "A small counter in a corner of the game window, also in fullscreen.");
+            if (Toggle("##fps_overlay", &draft_.fps_overlay)) dirty_ = true;
+
+            Row("Corner", "Where the on-screen counter sits.");
+            FpsCornerChoice();
+            EndRows();
+        }
+        EndCard();
+    }
+
+    void FpsCornerChoice()
+    {
+        static constexpr std::pair<const char*, const char*> corners[] = {
+            {"top-left", "Top left"}, {"top-right", "Top right"},
+            {"bottom-left", "Bottom left"}, {"bottom-right", "Bottom right"}};
+        const char* preview = "Top right";
+        for (const auto& [value, name] : corners)
+            if (draft_.fps_overlay_corner == value) preview = name;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        ImGui::BeginDisabled(!draft_.fps_overlay);
+        if (ImGui::BeginCombo("##fps_corner", preview))
+        {
+            for (const auto& [value, name] : corners)
+                if (ImGui::Selectable(name, draft_.fps_overlay_corner == value))
+                { draft_.fps_overlay_corner = value; dirty_ = true; }
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
     }
 
     // Gamepad `slot`'s profile as a two-column table: pad control, then Wii input.
@@ -2723,6 +2756,7 @@ private:
         if (BeginRows("##matches_rows"))
         {
             TweakRow(GameTweak::NoMegaStrikes);
+            TweakRow(GameTweak::CpuVsCpu);
             TweakRow(GameTweak::UnlockAll);
             EndRows();
         }

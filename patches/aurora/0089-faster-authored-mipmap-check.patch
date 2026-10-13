@@ -1,0 +1,167 @@
+From: mscharged-port contributors
+Subject: [PATCH] Check for authored mipmaps without the per-byte double sum
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance (texture conversion). Apply after 0088.
+
+Every converted GX texture with mipmaps runs arb_mip_check, which box-filters
+the mip chain and compares it with the authored levels. It summed the squared
+byte differences one double addition at a time, a dependency chain the
+compiler cannot vectorize, and allocated a new buffer per level; it took about
+as long as decoding the texture. A match's stadium textures (about 20 MB after
+decoding) cost several milliseconds of it in one frame.
+
+The squares are now summed as integers in 4096-byte blocks, which the compiler
+vectorizes, and the box filter adds the two source rows first, then averages
+each pixel pair with its four channels in one 64-bit word. Two scratch levels
+are reused, and the check stops once the average difference is already above
+the threshold (later levels only add non-negative terms). About 2.5 times
+faster; the downscaled pixels, the integer sum (exactly what the double sum
+gave below 2^53), every per-level difference and the result are unchanged.
+The detection rule and its threshold are unchanged.
+
+diff --git a/lib/gfx/texture_convert.cpp b/lib/gfx/texture_convert.cpp
+index b2f791b..195d4a7 100644
+--- a/lib/gfx/texture_convert.cpp
++++ b/lib/gfx/texture_convert.cpp
+@@ -5,7 +5,10 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <bit>
++#include <cmath>
+ #include <cstring>
++#include <vector>
+ 
+ #include <tracy/Tracy.hpp>
+ 
+@@ -30,46 +33,69 @@ size_t calc_offset_rgba8(uint32_t x, uint32_t y, uint32_t width) {
+   return (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * sizeof(RGBA8);
+ }
+ 
++static_assert(std::endian::native == std::endian::little, "downscale_into packs channels in little-endian lanes");
++
+ /**
+- * Downscales RGBA8 data using a simple box filter.
++ * Downscales RGBA8 data into the next mip level with a simple box filter: each pixel is the rounded
++ * average of a 2x2 block, clamped at the edges. For even widths the two source rows are added into
++ * 16-bit sums first, then each pixel pair is averaged with all four channels in one 64-bit word
++ * (every lane stays below 1023, so no carry reaches the next lane).
+  */
+-ByteBuffer downscale(const uint8_t* src, uint32_t srcWidth, uint32_t srcHeight, uint32_t dstWidth, uint32_t dstHeight) {
+-  ByteBuffer dst{calc_size_rgba8(dstWidth, dstHeight)};
+-  auto* dstPixels = dst.data();
++void downscale_into(const uint8_t* src, uint32_t srcWidth, uint32_t srcHeight, uint8_t* dst, uint32_t dstWidth,
++                    uint32_t dstHeight, std::vector<uint16_t>& rowSums) {
++  rowSums.resize(static_cast<size_t>(srcWidth) * 4);
+   for (uint32_t y = 0; y < dstHeight; ++y) {
+     const uint32_t srcY0 = std::min(y * 2, srcHeight - 1);
+     const uint32_t srcY1 = std::min(srcY0 + 1, srcHeight - 1);
+-    for (uint32_t x = 0; x < dstWidth; ++x) {
+-      const uint32_t srcX0 = std::min(x * 2, srcWidth - 1);
+-      const uint32_t srcX1 = std::min(srcX0 + 1, srcWidth - 1);
+-      const size_t sampleOffsets[4] = {
+-          calc_offset_rgba8(srcX0, srcY0, srcWidth),
+-          calc_offset_rgba8(srcX1, srcY0, srcWidth),
+-          calc_offset_rgba8(srcX0, srcY1, srcWidth),
+-          calc_offset_rgba8(srcX1, srcY1, srcWidth),
+-      };
+-      uint8_t* out = dstPixels + calc_offset_rgba8(x, y, dstWidth);
+-      for (size_t channel = 0; channel < 4; ++channel) {
+-        uint32_t sum = 0;
+-        for (const size_t offset : sampleOffsets) {
+-          sum += src[offset + channel];
++    const uint8_t* row0 = src + calc_offset_rgba8(0, srcY0, srcWidth);
++    const uint8_t* row1 = src + calc_offset_rgba8(0, srcY1, srcWidth);
++    uint8_t* out = dst + calc_offset_rgba8(0, y, dstWidth);
++    if (srcWidth == dstWidth * 2) {
++      uint16_t* sums = rowSums.data();
++      for (size_t i = 0; i < static_cast<size_t>(srcWidth) * 4; ++i) {
++        sums[i] = static_cast<uint16_t>(row0[i] + row1[i]);
++      }
++      for (uint32_t x = 0; x < dstWidth; ++x) {
++        uint64_t left;
++        uint64_t right;
++        std::memcpy(&left, sums + static_cast<size_t>(x) * 8, sizeof(left));
++        std::memcpy(&right, sums + static_cast<size_t>(x) * 8 + 4, sizeof(right));
++        const uint64_t lanes = ((left + right + 0x0002000200020002ull) >> 2) & 0x00ff00ff00ff00ffull;
++        const uint32_t pixel = static_cast<uint32_t>(lanes & 0xff) | static_cast<uint32_t>((lanes >> 8) & 0xff00) |
++                               static_cast<uint32_t>((lanes >> 16) & 0xff0000) |
++                               static_cast<uint32_t>((lanes >> 24) & 0xff000000);
++        std::memcpy(out + static_cast<size_t>(x) * 4, &pixel, sizeof(pixel));
++      }
++    } else {
++      for (uint32_t x = 0; x < dstWidth; ++x) {
++        const uint32_t srcX0 = std::min(x * 2, srcWidth - 1);
++        const uint32_t srcX1 = std::min(srcX0 + 1, srcWidth - 1);
++        for (uint32_t channel = 0; channel < 4; ++channel) {
++          const uint32_t sum = row0[srcX0 * 4 + channel] + row0[srcX1 * 4 + channel] + row1[srcX0 * 4 + channel] +
++                               row1[srcX1 * 4 + channel];
++          out[x * 4 + channel] = static_cast<uint8_t>((sum + 2) / 4);
+         }
+-        out[channel] = static_cast<uint8_t>((sum + 2) / 4);
+       }
+     }
+   }
+-  return dst;
+ }
+ 
+-float avg_diff(const uint8_t* lhs, const uint8_t* rhs, uint32_t width, uint32_t height) {
+-  double diffSum = 0.0;
+-  const size_t byteCount = calc_size_rgba8(width, height);
+-  for (size_t i = 0; i < byteCount; ++i) {
+-    const int diff = static_cast<int>(lhs[i]) - static_cast<int>(rhs[i]);
+-    diffSum += static_cast<double>(diff * diff);
++/**
++ * Sums the squared byte differences of two images. Each 4096-byte block keeps its 32-bit partial sum
++ * exact (4096 * 255^2 < 2^32), which lets the compiler vectorize the loop.
++ */
++uint64_t squared_diff(const uint8_t* lhs, const uint8_t* rhs, size_t byteCount) {
++  uint64_t total = 0;
++  for (size_t start = 0; start < byteCount; start += 4096) {
++    const size_t end = std::min(byteCount, start + 4096);
++    uint32_t partial = 0;
++    for (size_t i = start; i < end; ++i) {
++      const int diff = static_cast<int>(lhs[i]) - static_cast<int>(rhs[i]);
++      partial += static_cast<uint32_t>(diff * diff);
++    }
++    total += partial;
+   }
+-  const double sampleCount = static_cast<double>(width) * static_cast<double>(height) * 4.0;
+-  return static_cast<float>(std::sqrt(diffSum / sampleCount) / 2.56);
++  return total;
+ }
+ 
+ /**
+@@ -99,14 +125,27 @@ bool arb_mip_check(uint32_t width, uint32_t height, uint32_t mips, ArrayRef<uint
+     height = std::max(height >> 1, 1u);
+   }
+ 
+-  ByteBuffer downscaled;
++  // Two buffers of level 1's size alternate as the downscaled level and the next source.
++  const size_t scratchSize = calc_size_rgba8(widths[1], heights[1]);
++  ByteBuffer scratch{scratchSize * 2};
++  std::vector<uint16_t> rowSums;
++  const uint8_t* src = levels[0];
+   float totalDiff = 0.0f;
+   for (uint32_t mip = 0; mip + 1 < mips; ++mip) {
+-    const uint8_t* src = mip == 0 ? levels[mip] : downscaled.data();
+-    downscaled = downscale(src, widths[mip], heights[mip], widths[mip + 1], heights[mip + 1]);
+-    totalDiff += avg_diff(levels[mip + 1], downscaled.data(), widths[mip + 1], heights[mip + 1]);
++    uint8_t* downscaled = scratch.data() + (mip & 1) * scratchSize;
++    downscale_into(src, widths[mip], heights[mip], downscaled, widths[mip + 1], heights[mip + 1], rowSums);
++    // The integer sum is exactly what summing the squares as doubles gave (below 2^53 for GX sizes).
++    const uint64_t squares =
++        squared_diff(levels[mip + 1], downscaled, calc_size_rgba8(widths[mip + 1], heights[mip + 1]));
++    const double sampleCount = static_cast<double>(widths[mip + 1]) * static_cast<double>(heights[mip + 1]) * 4.0;
++    totalDiff += static_cast<float>(std::sqrt(static_cast<double>(squares) / sampleCount) / 2.56);
++    // Later levels only add non-negative terms, so an average above the threshold stays above it.
++    if (totalDiff / static_cast<float>(mips - 1) > kArbMipThreshold) {
++      return true;
++    }
++    src = downscaled;
+   }
+-  return (totalDiff / static_cast<float>(mips - 1)) > kArbMipThreshold;
++  return false;
+ }
+ } // namespace
+ 
