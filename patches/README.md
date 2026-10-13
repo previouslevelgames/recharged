@@ -35,9 +35,9 @@ intended changes to the original game's behaviour. It has its own `base` and
 `series` and is applied after the Charged series. Its hooks are compiled only
 into the game module built with `MSCHARGED_TWEAKS` and take the original path
 unless their tweak is enabled; a fix is always on there and has no switch
-(0006: resting goal nets are redrawn, issue #19; 0007: the flying shells'
-ground shadow sits 0.1 higher, issue #18). Every other target compiles
-the original code. The game module receives the enabled set from the
+(0006: resting goal nets are redrawn, issue #19; 0009: the electrocution
+overlay's texture, which the disc keeps only in an unused debug bundle, is
+loaded, issue #33). Every other target compiles the original code. The game module receives the enabled set from the
 host before original main (`src/platform/game_tweaks.cpp`). Keep these patches
 apart from the faithful series and refresh them on every pin update.
 
@@ -126,6 +126,14 @@ non-zero alpha counts that the blend pass turned into large, flickering dark
 polygons on the field. GLShadowBlendMeshWriter now publishes its native streams
 like the other mesh writers; formats, counts and the blend arithmetic are
 unchanged.
+
+Patch 0704 reads the float positions that GetAABBDimensions turns into model
+bounding boxes in host byte order. The loader keeps authored vertex streams in
+their Wii byte order, so every box was built from byte-swapped floats (around
+1e38, with an infinite extent). Thrown items and hammers derive their planar
+shadow's co-planar reference quad from these boxes; with garbage boxes Aurora
+kept an unrelated depth plane, and the item shadows flickered, were cut off or
+vanished (issue #18).
 
 Patches 0620–0621 admit original Strikers 101 lesson and Striker Challenge play
 under the explicit challenge-play diagnostic. 0620 opens the 101 pause menu (84),

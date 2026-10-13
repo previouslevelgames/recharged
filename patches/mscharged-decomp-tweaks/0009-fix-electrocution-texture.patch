@@ -1,0 +1,126 @@
+Subject: Fix: load the electrocution overlay texture (issue #33)
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+A fix of the original game, always on and without a switch (owner decision,
+2026-10-12). It lives in the tweak series so the faithful series stays retail.
+
+While a player is electrocuted, ElectrocutionUpdateCallback turns an overlay
+on and off every few updates (cCharacter::SetElectrocutionTextureEnabled), and
+DrawableCharacter::ApplyMaterialEffects then draws the whole player with
+effects/fx_electrocution. None of the effects bundles the game loads contains
+that texture. The disc has it only in art/effects/debugEffectsNonRes.bun, next
+to seven unused effect textures, and the game never reads that file. The
+overlay therefore drew glx_BindTexture's missing-texture fallback, the built-in
+debug font: electrocuted players flashed black with white letters, also while
+lying on the ground afterwards (issue #33). The original code does the same.
+
+EmissionManager now also reads the debug bundle while the resident effects
+load, adds that one texture (64x32 RGB5A3, black with cyan lightning) to the
+persistent resource pool along with them, and frees the bundle; its other
+textures are not loaded. After boot that pool has about 355 KB of texture
+memory left, and the texture takes 5.4 KB. If the disc lacks the bundle, or
+the texture is already loaded, nothing changes.
+
+diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
+index 6e7023f..0e0bfc3 100644
+--- a/src/Game/Effects/EmissionManager.cpp
++++ b/src/Game/Effects/EmissionManager.cpp
+@@ -27,6 +27,10 @@
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/SharedStaticStorage.h"
+ #include "NL/nlDebugViews.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "NL/gl/glState.h"
++#include "NL/glx/glxTexture.h"
++#endif
+ 
+ class EffectsBundle
+ {
+@@ -299,6 +303,52 @@ void LoadNonResidentEffects(bool allocateNonResidentAtStart)
+         allocateNonResidentAtStart ? AllocateStart : AllocateEnd, 0, 0, 0);
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port fix, always on (issue #33): the overlay that electrocuted players flash
++// (effects/fx_electrocution, see CharacterEffects.cpp) is in none of the
++// effects bundles the game loads. The disc has it only in the debug bundle
++// debugEffectsNonRes.bun, which the original never reads, so the overlay drew
++// glx_BindTexture's missing-texture fallback, the debug font. That texture
++// alone now joins the resident effects; the bundle's others stay unloaded.
++static unsigned int sElectrocutionBundleLoad;
++static void* sElectrocutionBundle;
++
++static void AddElectrocutionTexture(GLResourcePool* context)
++{
++    unsigned long texture = glGetTexture("effects/fx_electrocution");
++    nlChunk* bundle = (nlChunk*)sElectrocutionBundle;
++    if (bundle != 0 && glGetTextureIndex(texture) == 0xFFFF)
++    {
++        for (nlChunk* chunk = bundle->GetFirstChunk(); chunk != bundle->GetLastChunk();
++             chunk = chunk->GetNextChunk())
++        {
++            if (chunk->GetID() != 0x00024100)
++            {
++                continue;
++            }
++            BundleHeader* header = (BundleHeader*)chunk->GetData();
++            int numTextures = header->numTextures;
++            glTexBundleDict* dict = (glTexBundleDict*)(header + 1);
++            unsigned char* textureData = (unsigned char*)(dict + numTextures);
++            for (int i = 0; i < numTextures; ++i, ++dict)
++            {
++                if (dict->hash == texture)
++                {
++                    glTextureAdd(texture, textureData + dict->offset, dict->fileSize, context);
++                    break;
++                }
++            }
++        }
++    }
++    if (sElectrocutionBundle != 0)
++    {
++        nlFree(sElectrocutionBundle);
++    }
++    sElectrocutionBundle = 0;
++    sElectrocutionBundleLoad = 0;
++}
++#endif
++
+ /**
+  * Offset/Address/Size: 0x6BC | 0x802E6620 | size: 0x154
+  */
+@@ -331,6 +381,13 @@ void EmissionManager::StartLoading(bool allocateAtStart,
+     nlLoadEntireFileAsync("art/objects/effectsgeometrytextures.rlt",
+         OnEffectsTexturesLoaded, &gEffectsTextureData, 0x20,
+         allocateAtStart ? AllocateStart : AllocateEnd, 0, 0, 0);
++#if defined(MSCHARGED_TWEAKS)
++    // Issue #33: read the debug bundle for its electrocution texture; it is
++    // freed again in FinishLoading.
++    sElectrocutionBundle = 0;
++    sElectrocutionBundleLoad = nlLoadEntireFileAsync("art/effects/debugEffectsNonRes.bun",
++        OnEffectsDataLoaded, &sElectrocutionBundle, 0x20, AllocateEnd, 0, 0, 0);
++#endif
+ 
+     gEffectsModelInventory = glGetCurrentResourcePool()->m_inventory;
+ }
+@@ -348,10 +405,20 @@ bool EmissionManager::FinishLoading(GLResourcePool* context)
+     {
+         return false;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Issue #33: also wait for the debug bundle, if the disc has it.
++    if (sElectrocutionBundleLoad != 0 && sElectrocutionBundle == 0)
++    {
++        return false;
++    }
++#endif
+ 
+     gEffectsBundleManager.Load(gEffectsData, gEffectsNonResidentData,
+         context, EFFECTS_BUNDLE_DEFAULT);
+     nlFree(gEffectsNonResidentData);
+     gEffectsNonResidentData = 0;
++#if defined(MSCHARGED_TWEAKS)
++    AddElectrocutionTexture(context);
++#endif
+     return true;
+ }

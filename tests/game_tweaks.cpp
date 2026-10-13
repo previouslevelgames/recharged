@@ -21,7 +21,7 @@ void Check(bool value, const char* message)
 void CheckOriginal(const char* what)
 {
     const int task = 0, other = 0, slide = 0;
-    mscharged_tweak_set_real_time_task(&task);
+    mscharged_tweak_set_transition_task(&task);
     for (bool menus : {false, true})
         for (bool transition : {false, true})
         {
@@ -69,10 +69,11 @@ int main()
         Check(!mscharged_tweak_fast_menus(), "Skip intro enabled fast menus");
 
         // Fast menus: only in the menus, and transition time only during a
-        // transition, never for the real-time (audio) task.
+        // transition and only for the camera task; effects (issue #34), audio
+        // and every other task keep real time.
         charged_configure_tweaks(mscharged::GameTweakBit(mscharged::GameTweak::FastMenus));
-        const int audio = 0, camera = 0, slide = 0, other = 0;
-        mscharged_tweak_set_real_time_task(&audio);
+        const int camera = 0, particles = 0, audio = 0, slide = 0, other = 0;
+        mscharged_tweak_set_transition_task(&camera);
         mscharged_tweak_frontend_frame(false, true);
         Check(!mscharged_tweak_fast_menus() && !mscharged_tweak_fast_transition()
             && mscharged_tweak_task_dilation(&camera) == 1.0f, "Fast menus outside the menus");
@@ -81,7 +82,8 @@ int main()
             && mscharged_tweak_task_dilation(&camera) == 1.0f, "Fast menus without a transition");
         mscharged_tweak_frontend_frame(true, true);
         Check(mscharged_tweak_fast_transition() && mscharged_tweak_task_dilation(&camera) > 1.0f
-            && mscharged_tweak_task_dilation(&audio) == 1.0f, "Fast menus transition time");
+            && mscharged_tweak_task_dilation(&particles) == 1.0f && mscharged_tweak_task_dilation(&audio) == 1.0f
+            && mscharged_tweak_task_dilation(nullptr) == 1.0f, "Fast menus transition time");
         mscharged_tweak_note_slide_reset(&slide);
         Check(mscharged_tweak_slide_reset_this_frame(&slide) && !mscharged_tweak_slide_reset_this_frame(&other),
             "Slide reset not recorded for this frame only");

@@ -53,9 +53,11 @@ the reconstructed source, unchanged.
 
 ## Optional tweaks
 
-Off by default; with all of them off the game plays as on the Wii. One fix of
-the original game is always on: a goal net no longer stays dented after a
-goal ([#19](https://github.com/yannicksuter/mscharged-port/issues/19)).
+Off by default; with all of them off the game plays as on the Wii. Two fixes
+of the original game are always on: a goal net no longer stays dented after a
+goal ([#19](https://github.com/yannicksuter/mscharged-port/issues/19)), and
+electrocuted players flash with the game's lightning texture instead of a
+debug texture ([#33](https://github.com/yannicksuter/mscharged-port/issues/33)).
 The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them on:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio

@@ -1,0 +1,69 @@
+From: mscharged-port
+Subject: Read native float positions for model bounding boxes (issue #18)
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native data transport (Wii byte order), same kind of fix as 0601 and 0617.
+
+GetAABBDimensions builds a model's bounding box from its position stream with
+a plain memcpy of three floats. The RLG loader keeps authored vertex streams
+in their Wii byte order (CopyRLGWireVertices; Aurora decodes them on the GPU),
+so on the host every box was built from byte-swapped floats. A probe of the
+box cache in a match read min x -2.5e38, max x 1.6e38 and an infinite extent,
+in the Windows and in the Linux build alike.
+
+Thrown items (shells, bananas, Bob-ombs) and hammers draw a planar shadow:
+DrawPlanarShadowBounds draws a culled quad 0.1 above the field over the
+flattened box, and GX co-planar mode gives the flattened model the depth of
+that quad. With a box near 1e38 the quad's corners are infinite or far beyond
+float precision, so Aurora keeps the depth plane of an earlier, unrelated
+triangle. The item shadows then flickered, were cut along straight lines or
+vanished (issue #18, reported on Windows; the Linux build computed the same
+garbage boxes).
+PlanarShadowDrawable and ChargeShadowDrawable take their radius from the same
+boxes.
+
+The native branch reads the same 12-byte rows through NativeRLGFloat3Rows,
+which turns each float word into host order. Indices, strides, the s8 branch,
+the box cache and the comparisons are unchanged; Wii builds are unchanged.
+
+diff --git a/src/Game/Drawable/DrawableModel.cpp b/src/Game/Drawable/DrawableModel.cpp
+--- a/src/Game/Drawable/DrawableModel.cpp
++++ b/src/Game/Drawable/DrawableModel.cpp
+@@ -5,6 +5,9 @@
+ #include "NL/nlAVLTree.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/rlg_geometry_bytes.h"
++#endif
+ 
+ static nlAVLTreeSlotPool<BoundingBoxCacheKey, AABBDimensions,
+     DefaultKeyCompare<BoundingBoxCacheKey> >
+@@ -38,6 +41,14 @@
+         glModelStream* stream = glModelPacketGetStream(packet, 1);
+         pVert = packet->indexBuffer;
+         vertexIndex = 0;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        // Authored GPU vertex streams keep their Wii byte order (patch 0617).
++        // The original CPU read of 12-byte float positions uses native rows of
++        // the same completed stream; indices and the s8 branch are unchanged.
++        mscharged::platform::NativeRLGFloat3Rows positionRows(stream->address,
++            stream->stride == 12 ? packet->numUniqueVertices : 0, 12);
++        const nlVector3* positions = positionRows.Data();
++#endif
+ 
+         while (vertexIndex < packet->numVertices)
+         {
+@@ -46,9 +57,13 @@
+ 
+             if (stream->stride == 12)
+             {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++                memcpy(&point, positions + vert, 12);
++#else
+                 memcpy(&point,
+                     (u8*)stream->address + vert * stream->stride,
+                     12);
++#endif
+             }
+             else if (stream->stride == 6)
+             {

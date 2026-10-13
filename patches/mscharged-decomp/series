@@ -505,3 +505,4 @@
 0701-zero-native-variant-pointer-carrier.patch
 0702-convert-native-hud-clock-like-mwcc.patch
 0703-read-native-captain-character-by-member.patch
+0704-read-native-bounding-box-positions.patch

@@ -17,11 +17,14 @@ bool sTitlePassed;
 
 // Fast menus.
 // Transition time runs this much faster while the front end's presentation
-// script plays one (camera moves, scripted waits): over in a frame or two.
+// script plays one: its camera moves are over in a frame or two.
 constexpr float kTransitionDilation = 30.0f;
 bool sMenus;      // in the front end, outside matches and the boot screens
 bool sTransition; // ... and the presentation runs a transition script
-const void* sRealTimeTask; // audio keeps real time
+// The only task on transition time: the one that moves the cameras. Effects
+// on it advanced up to 3 s a frame, too far to be drawn (issue #34), and no
+// script waits for them, so they, audio and pads keep real time.
+const void* sTransitionTask;
 unsigned long sFrame;
 // Slides set again this frame (SetActiveSlide resets a slide with Update(0)).
 constexpr int kMaxResets = 256;
@@ -74,14 +77,14 @@ bool mscharged_tweak_fast_transition(void)
     return sTransition;
 }
 
-void mscharged_tweak_set_real_time_task(const void* task)
+void mscharged_tweak_set_transition_task(const void* task)
 {
-    sRealTimeTask = task;
+    sTransitionTask = task;
 }
 
 float mscharged_tweak_task_dilation(const void* task)
 {
-    return sTransition && task != sRealTimeTask ? kTransitionDilation : 1.0f;
+    return sTransition && task != nullptr && task == sTransitionTask ? kTransitionDilation : 1.0f;
 }
 
 void mscharged_tweak_note_slide_reset(const void* slide)

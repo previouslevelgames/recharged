@@ -12,9 +12,13 @@ their pace.
   does for popups. Slides reset this frame keep their first frame; longer
   slides (credits) and looping ones keep their pace.
 - 3D: while the front end's presentation runs a transition script outside a
-  match, its scripted waits end as they start and the time-dilated tasks
-  (camera moves, effects) run 30 times faster. The audio task keeps real
-  time; a match's tasks never run on transition time.
+  match, its scripted waits end as they start and its camera moves run 30
+  times faster. Only the camera task (BeginFrameTask) runs on that
+  transition time: no script waits for an effect, and effects at 30 times
+  their speed advanced up to 3 s a frame, so most particles were removed
+  before they were drawn and the rest popped in and out (issue #34).
+  Effects, audio, rumble and pads keep real time; a match's tasks never run
+  on transition time.
 - Popups: the black box behind a popup, which FEPopupMenu grows itself over
   0.75 s rather than through a slide, opens at full size at once. A popup
   whose slide is already past 1 s when its layout hides the text shows it
@@ -171,7 +175,7 @@ index 2ff6730..c8df1fa 100644
      DrawFrontEndElements(dt);
  
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 0ba7e3a..e3c8bd5 100644
+index 0ba7e3a..12c2ab7 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,7 @@
@@ -182,17 +186,18 @@ index 0ba7e3a..e3c8bd5 100644
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
  #include <stdexcept>
  #endif
-@@ -835,6 +836,10 @@ static void AddTasks()
+@@ -809,6 +810,11 @@ static void AddTasks()
+     nlTaskManager::AddTask(&resetTask, 0, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
- #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK)
-     nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
+     nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);
 +#if defined(MSCHARGED_TWEAKS)
-+    // Port tweak "Fast menus": audio keeps real time during transitions.
-+    mscharged_tweak_set_real_time_task(&audioUpdateTask);
++    // Port tweak "Fast menus": this task moves the cameras, which run on
++    // transition time; every other task keeps real time (nlTask.cpp).
++    mscharged_tweak_set_transition_task(&beginFrameTask);
 +#endif
- #endif // unqualified unrelated task registration remains omitted
-     nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);
+     nlTaskManager::AddTask(&sLoadingTask, 2, 0x01F80000);
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING)
+     nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
 diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
 index 3211342..d94c8c9 100644
 --- a/src/NL/nlTask.cpp
