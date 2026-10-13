@@ -1,0 +1,133 @@
+From: mscharged-port
+Subject: Convert native time-up checks the way MWCC does
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native compiler/ABI compatibility
+
+Game, StatsTracker and Presentation detect the end of regulation time with
+(unsigned int)(10.0f * (duration - gameTime)) == 0. The game clock keeps
+running past the duration (its end time is 999999), so in sudden death and
+while a shot holds the whistle the remainder is negative. MWCC's
+__cvt_fp2unsigned turns any negative value into 0, so retail keeps treating
+that time as up; on x86-64 the conversion is undefined and yields a large
+nonzero word. Natively a sudden death goal then played the ordinary goal
+celebration, skipped StatsTracker::TrackWinner (final score and series wins
+stayed 0-0, and the Striker Times paired the away captain with itself), and
+the time-up test only held within a tenth of a second of the whistle, so a
+shot still active then let the match run on.
+
+Natively the five checks use VariantFloatToWiiWord, the existing replica of
+__cvt_fp2unsigned.
+
+diff --git a/src/Game/DB/StatsTracker.cpp b/src/Game/DB/StatsTracker.cpp
+index fd987c2..77d754c 100644
+--- a/src/Game/DB/StatsTracker.cpp
++++ b/src/Game/DB/StatsTracker.cpp
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/DB/StatsTracker.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/variant_numeric_abi.h"
++#endif
+ #include "Game/FE/feHelpFuncs_decl.h"
+ 
+ #include <stdio.h>
+@@ -362,7 +365,12 @@ void StatsTracker::OnGoalScored(GoalScoredStatsData* data)
+     if (g_pGame != 0)
+     {
+         float gameDuration = g_pGame->m_fGameDuration;
++#if defined(MSCHARGED_NATIVE)
++        // MWCC converts the negative remainder of overtime to 0.
++        if (!(mscharged::platform::VariantFloatToWiiWord(10.0f * (gameDuration - g_pGame->GetGameTime())) == 0
++#else
+         if (!((unsigned int)(10.0f * (gameDuration - g_pGame->GetGameTime())) == 0
++#endif
+                 && !scoreTied
+                 && GameInfoManager::Instance()->GetCurrentSettings()->GameLimitType == GAME_LIMIT_TIME))
+         {
+@@ -402,7 +410,12 @@ void StatsTracker::OnMegastrikeEnd(MegaStrikeEndData* data)
+         if (g_pGame != 0)
+         {
+             float gameDuration = g_pGame->m_fGameDuration;
++#if defined(MSCHARGED_NATIVE)
++            // MWCC converts the negative remainder of overtime to 0.
++            if (!(mscharged::platform::VariantFloatToWiiWord(10.0f * (gameDuration - g_pGame->GetGameTime())) == 0
++#else
+             if (!((unsigned int)(10.0f * (gameDuration - g_pGame->GetGameTime())) == 0
++#endif
+                     && !scoreTied
+                     && GameInfoManager::Instance()->GetCurrentSettings()->GameLimitType == GAME_LIMIT_TIME))
+             {
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index b36438b..f5abf57 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -3,6 +3,7 @@
+ #include "Game/AI/TeamPlayMachine.h"
+ #ifdef MSCHARGED_NATIVE
+ #include <cstdint>
++#include "platform/variant_numeric_abi.h"
+ #endif
+ #include "Game/Game.h"
+ #include "Game/MathHelpers.h"
+@@ -1525,7 +1526,13 @@ void cGame::Update(float fDeltaT)
+     IsNetworkOrRecordedGame();
+ 
+     // Time is up once fewer than a tenth of a second remain.
++#if defined(MSCHARGED_NATIVE)
++    // MWCC converts a negative float to 0: once the clock runs past the
++    // duration (overtime, or a shot still active at the whistle) time stays up.
++    if (mscharged::platform::VariantFloatToWiiWord(10.0f * (m_fGameDuration - m_pGameClock->m_fTimer)) == 0
++#else
+     if ((unsigned int)(10.0f * (m_fGameDuration - m_pGameClock->m_fTimer)) == 0
++#endif
+         && !IsBallShotActive(g_pBall))
+     {
+         if (g_pTeams[0]->m_nScore == g_pTeams[1]->m_nScore)
+diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
+index 86da5ec..4a52c60 100644
+--- a/src/Game/Render/Presentation.cpp
++++ b/src/Game/Render/Presentation.cpp
+@@ -1,6 +1,9 @@
+ #include "Game/Task/GameTaskState.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Render/Presentation.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/variant_numeric_abi.h"
++#endif
+ #include "Game/DetInput.h"
+ #include "Game/Blinker.h"
+ 
+@@ -877,9 +880,16 @@ void Presentation::OnGoalScored(GoalScoredData* data)
+         functionName = "GameEndSuddenDeath";
+     }
+     else if (!scoreTied && g_pGame != 0
++#if defined(MSCHARGED_NATIVE)
++        // MWCC converts the negative remainder of overtime to 0.
++        && mscharged::platform::VariantFloatToWiiWord(10.0f
++                * (g_pGame->GetGameDuration() - g_pGame->GetGameTime()))
++            == 0)
++#else
+         && (unsigned int)(10.0f
+                 * (g_pGame->GetGameDuration() - g_pGame->GetGameTime()))
+             == 0)
++#endif
+     {
+         int awayScore = g_pTeams[1]->m_nScore;
+         int homeScore = g_pTeams[0]->m_nScore;
+@@ -1064,9 +1074,16 @@ void Presentation::HandleMegaStrikeResult(MegaStrikeEndData* __restrict data)
+         Call(gameEndFunction, "high");
+     }
+     else if (g_pGame != 0
++#if defined(MSCHARGED_NATIVE)
++        // MWCC converts the negative remainder of overtime to 0.
++        && mscharged::platform::VariantFloatToWiiWord(10.0f
++                * (g_pGame->GetGameDuration() - g_pGame->GetGameTime()))
++            == 0
++#else
+         && (unsigned int)(10.0f
+                 * (g_pGame->GetGameDuration() - g_pGame->GetGameTime()))
+             == 0
++#endif
+         && data->goals != 0)
+     {
+         gameEndFunction = "GameEndMegaStrike";
