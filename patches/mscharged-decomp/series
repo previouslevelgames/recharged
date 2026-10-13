@@ -493,3 +493,9 @@
 0689-native-resource-pool-header-headroom.patch
 0690-temporary-desire-update-result-codes.patch
 0691-so-header-ostime-fwd.patch
+0692-change-debug-lan-ports.patch
+0693-native-online-player-count-context-words.patch
+0694-print-network-debug-channel.patch
+0695-admit-debug-lan-lobby.patch
+0696-continue-debug-lan-series.patch
+0697-leave-debug-lan-draft-on-disconnect.patch

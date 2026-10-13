@@ -1,0 +1,118 @@
+From: mscharged-port
+Subject: Leave the debug LAN draft when a peer disconnects
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: temporary explicit original-source diagnostic admission
+
+The online lobby exists only in NET_MODE_ONLINE. When a peer is lost during
+the captain, sidekick or matchmaking draft, a LAN session is shut down
+instead of closing the online lobby's connections (a null dereference), and
+the popup returns to Main Menu instead of the online menus. The LAN lobby is
+entered without the online camera transition, so the return is a plain Main
+Menu push: TransitionOnlineMatchToMainMenu pops a camera this flow never
+pushed and crashed from the sidekick draft.
+
+diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index 371aeb9..d1edd04 100644
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -1328,6 +1328,15 @@ void ChooseCaptainsSceneV2::OnDisconnectDismissed()
+ {
+     mPopupActive = false;
+     FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, 1);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    // Not using TransitionOnlineMatchToMainMenu to avoid popping a camera
++    // that was never pushed
++    if (g_pNetworkSessionBase->GetSessionMode() != NET_MODE_ONLINE)
++    {
++        GameSceneManager::Instance()->Push(SCENE_MAIN_MENU, SCREEN_BACK, true);
++        return;
++    }
++#endif
+     GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_BACK, true);
+ }
+ 
+@@ -1370,7 +1379,14 @@ void ChooseCaptainsSceneV2::SetSelectButtonBounds(int side)
+ 
+ inline void ChooseCaptainsSceneV2::ShowDisconnectedError()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    if (g_pNetworkSessionBase->GetSessionMode() != NET_MODE_ONLINE)
++        g_pNetworkSessionBase->Shutdown();
++    else
++        g_pNetworkSession->GetOnlineLobby()->CloseConnectionsAndReset();
++#else
+     g_pNetworkSession->GetOnlineLobby()->CloseConnectionsAndReset();
++#endif
+     NetworkDraft::Instance()->UnregisterMessageReceivers();
+     if (GameSceneManager::Instance()->GetSceneType(GameSceneManager::Instance()->GetCurrentScene()) != SCENE_POPUP_MENU)
+     {
+diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
+index bfab3d5..eeaefc0 100644
+--- a/src/Game/SH/SHChooseSidekicks.cpp
++++ b/src/Game/SH/SHChooseSidekicks.cpp
+@@ -1511,6 +1511,15 @@ void ChooseSidekicksSceneV2::OnDisconnectDismissed()
+ {
+     mPopupActive = false;
+     FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, 1);
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    // Not using TransitionOnlineMatchToMainMenu to avoid popping a camera
++    // that was never pushed
++    if (g_pNetworkSessionBase->GetSessionMode() != NET_MODE_ONLINE)
++    {
++        GameSceneManager::Instance()->Push(SCENE_MAIN_MENU, SCREEN_BACK, true);
++        return;
++    }
++#endif
+     GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_BACK, true);
+ }
+ 
+@@ -1531,7 +1540,14 @@ void ChooseSidekicksSceneV2::ReleaseController(int index)
+ 
+ inline void ChooseSidekicksSceneV2::ShowDisconnectedError()
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    if (g_pNetworkSessionBase->GetSessionMode() != NET_MODE_ONLINE)
++        g_pNetworkSessionBase->Shutdown();
++    else
++        g_pNetworkSession->GetOnlineLobby()->CloseConnectionsAndReset();
++#else
+     g_pNetworkSession->GetOnlineLobby()->CloseConnectionsAndReset();
++#endif
+     NetworkDraft::Instance()->UnregisterMessageReceivers();
+     if (GameSceneManager::Instance()->GetSceneType(GameSceneManager::Instance()->GetCurrentScene()) != SCENE_POPUP_MENU)
+     {
+diff --git a/src/Game/SH/SHOnlineMatchmakingDraft.cpp b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+index e421f5e..e93a94b 100644
+--- a/src/Game/SH/SHOnlineMatchmakingDraft.cpp
++++ b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+@@ -363,7 +363,14 @@ void SHOnlineMatchmakingDraft::Update(float fDeltaT)
+         UpdateDraftStatuses();
+         if (NetworkDraft::Instance()->mState == NET_DRAFT_DISCONNECTED)
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++            if (g_pNetworkSession->GetSessionMode() != NET_MODE_ONLINE)
++                g_pNetworkSession->Shutdown();
++            else
++                g_pNetworkSession->GetOnlineLobby()->CloseConnectionsAndReset();
++#else
+             g_pNetworkSession->GetOnlineLobby()->CloseConnectionsAndReset();
++#endif
+             ShowError(0x60);
+             return;
+         }
+@@ -432,6 +439,15 @@ void SHOnlineMatchmakingDraft::Update(float fDeltaT)
+ void SHOnlineMatchmakingDraft::OnErrorDismissed()
+ {
+     mErrorPopupOpen = false;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    // Not using TransitionOnlineMatchToMainMenu to avoid popping a camera
++    // that was never pushed
++    if (g_pNetworkSession->GetSessionMode() != NET_MODE_ONLINE)
++    {
++        GameSceneManager::Instance()->Push(SCENE_MAIN_MENU, SCREEN_BACK, true);
++        return;
++    }
++#endif
+     if (mReturnScene == SCENE_MAIN_MENU)
+     {
+         GameSceneManager::Instance()->Pop();

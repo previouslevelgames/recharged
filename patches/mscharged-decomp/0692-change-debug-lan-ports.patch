@@ -1,0 +1,64 @@
+From: mscharged-port
+Subject: Change debug LAN default ports
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native platform adaptation
+
+Retail's debug LAN code uses UDP port 1000 for connections and 1001 for
+broadcasts. Ports below 1024 need privileges on Unix-like systems, so
+native builds use 6767 and 6768. Retail never enables LAN, so no console
+peer expects the original numbers. The broadcast port, a literal in
+retail, becomes a variable next to the direct port.
+
+diff --git a/src/Game/NetworkDebug.cpp b/src/Game/NetworkDebug.cpp
+index 468f935..82d2ba9 100644
+--- a/src/Game/NetworkDebug.cpp
++++ b/src/Game/NetworkDebug.cpp
+@@ -21,7 +21,11 @@ bool g_bDisplayNetworkVerbose;
+ bool g_bDirectConnectMode;
+ 
+ int g_nConnectToServerAddress[4] = { 192, 168, 2, 218 };
++#if defined(MSCHARGED_NATIVE)
++int g_nConnectToServerPort = 6767;
++#else
+ int g_nConnectToServerPort = 1000;
++#endif
+ static const char* sNetworkSessionStateNames[] = {
+     "None", "LogIn", "Matchmake", "PreStart", "Loading", "InGame", "GameEnd"
+ };
+diff --git a/src/Game/NetworkSocket.cpp b/src/Game/NetworkSocket.cpp
+index 5589862..1ebffeb 100644
+--- a/src/Game/NetworkSocket.cpp
++++ b/src/Game/NetworkSocket.cpp
+@@ -11,7 +11,13 @@
+ #include <string.h>
+ #include "Game/TweakValue.inl"
+ 
++#if defined(MSCHARGED_NATIVE)
++int g_nLocalDirectPort = 6767;
++int g_nBroadcastPort = 6768;
++#else
+ int g_nLocalDirectPort = 1000;
++int g_nBroadcastPort = 1001;
++#endif
+ static int sLocalAddressColumn = 2;
+ static int sLocalAddressRow = 5;
+ 
+@@ -210,7 +215,7 @@ void NetworkSocket::SetBroadcastEnabled(bool enabled)
+         {
+             tDebugPrintManager::Print(DC_NETWORK, "Broadcast socket open error\n");
+         }
+-        else if (!TransportSocketBind(&mBroadcastSocket, 1001))
++        else if (!TransportSocketBind(&mBroadcastSocket, (u16)g_nBroadcastPort))
+         {
+             tDebugPrintManager::Print(DC_NETWORK, "Broadcast socket bind failed\n");
+         }
+@@ -233,7 +238,7 @@ void NetworkSocket::SendBroadcast(void* buffer, int size)
+     memcpy(mPacketBuffer, &mVersionWord, sizeof(mVersionWord));
+     memcpy(mPacketBuffer + sizeof(mVersionWord), buffer, size);
+     TransportSocketBroadcast(&mBroadcastSocket, mPacketBuffer,
+-        size + sizeof(mVersionWord), 1001);
++        size + sizeof(mVersionWord), (u16)g_nBroadcastPort);
+ }
+ 
+ void NetworkSocket::SetConnectionEnabled(bool enabled)
+

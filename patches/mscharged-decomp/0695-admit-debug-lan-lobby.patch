@@ -1,0 +1,94 @@
+From: mscharged-port
+Subject: Admit the debug LAN lobby from Main Menu
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: temporary explicit original-source diagnostic admission
+
+Retail never calls NetworkSession::InitializeLAN. Under
+MSCHARGED_DIAGNOSTIC_FRONTEND_LAN, Main Menu's Online item starts a LAN
+session and pushes the original lobby (scene 24, NetworkStartScene)
+instead of the DWC login, or shows POPUP_NETWORK_START_FAILED if the
+session does not start. The lobby's back button shuts the session down
+and returns to Main Menu. The scene factory admits the lobby and the
+network draft scenes; hub, login, Mii selection and every DWC scene keep
+their gates.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index b9e2d39..876af04 100644
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -391,7 +391,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(CreditScene), 8, false)) CreditScene();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN))
+     case (SceneList)24:
+         newHandler = new (nlMalloc(sizeof(NetworkStartScene), 8, false)) NetworkStartScene();
+         break;
+@@ -483,12 +483,16 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case SCENE_ONLINE_FRIEND_CODE_ENTRY:
+         newHandler = new (nlMalloc(sizeof(SHOnlineFriendCodeEntry), 8, false)) SHOnlineFriendCodeEntry();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN))
+     case SCENE_ONLINE_MATCHMAKING_DRAFT:
+         newHandler = new (nlMalloc(sizeof(SHOnlineMatchmakingDraft), 8, false)) SHOnlineMatchmakingDraft();
+         break;
+     case SCENE_ONLINE_FRIENDS_DRAFT:
+         newHandler = new (nlMalloc(sizeof(SHOnlineFriendsDraft), 8, false)) SHOnlineFriendsDraft();
+         break;
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case SCENE_ONLINE_LOGIN:
+         newHandler = new (nlMalloc(sizeof(SHOnlineLogin), 8, false)) SHOnlineLogin();
+         break;
+diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
+index 8fa7aff..6c2fbd2 100644
+--- a/src/Game/SH/SHMainMenu.cpp
++++ b/src/Game/SH/SHMainMenu.cpp
+@@ -21,6 +21,9 @@
+ #include "Game/FE/tlImageInstance.h"
+ #include "Game/FE/FEAudio.h"
+ #include "Game/FE/fePopupMenu.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++#include "Game/SH/SHOnlinePlayerCount.h"
++#endif
+ #include "Game/FE/feFinder.h"
+ #include "Game/FE/feInlineHasher.h"
+ #include "Game/FE/feFinder_impl.h"
+@@ -361,6 +364,18 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
+     FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
+     if (item == 1)
+     {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++        g_pNetworkSession->InitializeLAN();
++        if (g_pNetworkSession->GetSessionMode() != NET_MODE_LAN)
++        {
++            FEPopupMenu* popup = (FEPopupMenu*)GameSceneManager::Instance()->Push(SCENE_POPUP_MENU, SCREEN_NOTHING, false);
++            popup->Create(POPUP_NETWORK_START_FAILED);
++            return;
++        }
++        InitializeOnlineMatch(false, 0, true);
++        GameSceneManager::Instance()->Push(SCENE_NETWORK_START, SCREEN_FORWARD, true);
++        return;
++#endif
+         if (!SaveEnabled)
+         {
+             FEPopupMenu* popup = (FEPopupMenu*)GameSceneManager::Instance()->Push(SCENE_POPUP_MENU, SCREEN_NOTHING, false);
+diff --git a/src/Game/SH/SHNetworkStart.cpp b/src/Game/SH/SHNetworkStart.cpp
+index 47f72f0..c288725 100644
+--- a/src/Game/SH/SHNetworkStart.cpp
++++ b/src/Game/SH/SHNetworkStart.cpp
+@@ -340,7 +340,12 @@ void NetworkStartScene::UpdateMenuInput()
+         }
+         else if (g_pFEInput->JustPressed(FE_ALL_PADS, 31, true, 0))
+         {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++            g_pNetworkSessionBase->Shutdown();
++            GameSceneManager::Instance()->Push(SCENE_MAIN_MENU, SCREEN_BACK, true);
++#else
+             GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_BACK, true);
++#endif
+             g_pNetworkSessionBase->SetSessionState(NET_SESSION_NONE);
+         }
+     }

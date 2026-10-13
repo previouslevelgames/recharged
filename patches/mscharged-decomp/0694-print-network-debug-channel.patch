@@ -1,0 +1,43 @@
+From: mscharged-port
+Subject: Print the network debug channel under the LAN admission
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: temporary explicit original-source diagnostic admission
+
+Retail compiles tDebugPrintManager::Print to nothing. Under
+MSCHARGED_DIAGNOSTIC_FRONTEND_LAN, native builds print the DC_NETWORK
+channel to stderr with a "[net] " prefix, so the original session, lobby
+and connection messages reach the terminal. Other channels stay silent.
+
+diff --git a/include/Game/Sys/debug.h b/include/Game/Sys/debug.h
+index 11f42ad..8b3a9c2 100644
+--- a/include/Game/Sys/debug.h
++++ b/include/Game/Sys/debug.h
+@@ -1,6 +1,11 @@
+ #ifndef _DEBUG_H_
+ #define _DEBUG_H_
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++#include <cstdarg>
++#include <cstdio>
++#endif
++
+ enum eDEBUG_CHANNEL
+ {
+     DC_STARTUP = 0,
+@@ -31,6 +36,16 @@ namespace tDebugPrintManager
+ 
+ inline int Print(eDEBUG_CHANNEL channel, const char* format, ...)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    if (channel == DC_NETWORK)
++    {
++        va_list args;
++        va_start(args, format);
++        std::fputs("[net] ", stderr);
++        std::vfprintf(stderr, format, args);
++        va_end(args);
++    }
++#endif
+     return channel;
+ }
+ 
