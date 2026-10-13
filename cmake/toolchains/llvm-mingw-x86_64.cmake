@@ -45,8 +45,8 @@ endforeach()
 set(CMAKE_C_STANDARD_INCLUDE_DIRECTORIES "${_shims}")
 set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES "${_shims}")
 
-# The Windows SDK's PIX capture interface, which MinGW does not ship. Dawn only
-# includes it; the D3D12 capture code that uses it is not built here.
+# The Windows SDK's optional PIX capture interface, which MinGW does not ship.
+# Dawn queries it only when a graphics debugger requests a capture.
 if(NOT EXISTS "${_shims}/DXProgrammableCapture.h")
     file(MAKE_DIRECTORY "${_shims}")
     file(WRITE "${_shims}/DXProgrammableCapture.h" [=[

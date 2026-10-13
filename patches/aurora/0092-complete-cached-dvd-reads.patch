@@ -1,0 +1,84 @@
+Subject: Complete bounded resident file reads without a DVD worker handoff
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The original frontend serially loads hundreds of textures. Even when Nod has
+the bytes in its existing cache, handing each tiny read to a worker often makes
+the original NL service observe completion one frame later. The read itself
+usually takes microseconds; those observations account for seconds of loading.
+
+Use Nod's nonblocking cache probe only for an idle, healthy, running worker with
+an empty queue and the exact native file adapter whose application callback is
+null. Hold the existing admission mutex through bounded copy and release-ready
+publication, preserving FIFO and reset/close/cancel exclusion. The empty adapter
+has no source callback to move; real callbacks and all other reads retain the
+existing worker. Never access the command after ready publication. The cache
+probe performs no I/O, allocation or blocking cache lock and misses without
+changing the destination or cursors. Original NL callbacks, service cadence,
+loading/gameplay code, clocks and presentation remain unchanged.
+
+Requires nod patch 0003. Apply after Aurora 0091.
+
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -77,6 +77,8 @@
+   virtual ~CommandDataBase() = default;
+   virtual int64_t read(uint8_t *buf, size_t len) = 0;
+   virtual int64_t seek(int64_t offset, int32_t whence) = 0;
++  // A miss performs no I/O and leaves destination and cursor untouched.
++  virtual int64_t readCachedAt(uint8_t*, size_t, uint64_t) { return -2; }
+ };
+ 
+ class CommandDataNod final : public CommandDataBase {
+@@ -93,6 +95,10 @@
+ 
+   int64_t seek(int64_t offset, int32_t whence) override {
+     return nod_seek(handle, offset, whence);
++  }
++
++  int64_t readCachedAt(uint8_t* buf, size_t len, uint64_t offset) override {
++    return nod_try_read_cached_at(handle, offset, buf, len);
+   }
+ };
+ 
+@@ -365,6 +371,8 @@
+ void finishCommand(DVDCommandBlock* block, s32 result, u32 transferred) {
+   setCommandResult(block, stateForResult(result), transferred);
+ }
++
++void cbForReadAsync(s32 result, DVDCommandBlock* block);
+ 
+ class DvdWorker {
+ public:
+@@ -429,6 +437,31 @@
+         // No callback or successful read is invented on failed admission.
+         finishCommand(block, DVD_RESULT_IGNORED, 0);
+         return false;
++      }
++      // The normal worker may already finish before its submitter resumes.
++      // Avoid a worker handoff only when the entire bounded read is already in
++      // Nod's resident cache and the native file adapter has no callback to run.
++      // Holding admission through copy/publication preserves FIFO and prevents
++      // reset, close or cancellation from acknowledging a live destination write.
++      // Cache misses never block, perform I/O, or modify the destination/cursor.
++      if (m_running && !m_fatalError && m_activeBlock == nullptr && m_queue.empty() &&
++          block->command == DVD_COMMAND_READ && block->callback == cbForReadAsync &&
++          block->addr != nullptr && block->length != 0 && block->length <= 64 * 1024 &&
++          block->offset <= static_cast<u32>(std::numeric_limits<s32>::max())) {
++        const auto* file = reinterpret_cast<const DVDFileInfo*>(
++            reinterpret_cast<const char*>(block) - offsetof(DVDFileInfo, cb));
++        auto* handle = getCommandHandle(block);
++        if (file->callback == nullptr && handle != nullptr) {
++          const int64_t read = handle->readCachedAt(static_cast<uint8_t*>(block->addr),
++                                                     block->length, block->offset);
++          if (read >= 0) {
++            m_driveState = DVD_STATE_END;
++            // cbForReadAsync is empty for this exact null application callback.
++            // No application callback changes thread, order or service cadence.
++            finishCommand(block, static_cast<s32>(read), static_cast<u32>(read));
++            return true; // The ready consumer may now retire block; do not read it.
++          }
++        }
+       }
+       if (!m_running || m_shutdown) {
+         executeNow = true;

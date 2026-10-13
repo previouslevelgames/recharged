@@ -1,0 +1,612 @@
+Subject: Probe bounded resident Wii file bytes without scheduling I/O
+Upstream-base: ebd80cac99b48a323200d84365e07a58cc27412d
+
+Expose a nonblocking cache-only file read for the native DVD adapter. Restrict
+hits to at most 64 KiB within one existing Wii sector group, with exact request
+identity, complete sector coverage and validation-disabled readers. Preflight
+all bytes before copying, clip only at file EOF, preserve the output tail and
+advance both original cursors on success. A miss changes neither bytes nor
+positions and uses no allocation, I/O, decompression or blocking lock.
+
+Shared hits borrow the existing immutable group under try_lock, without cloning,
+LRU promotion, prefetch or a second cache. Retain ordinary poison checks and
+reader-local cache precedence. Non-threaded shared probes always miss, preserving
+that configuration's original loader/error path. Other reader kinds also miss.
+The new API does not change ordinary reads. Include byte, cursor, partial-EOF,
+request-key, cold/contended/poisoned-cache and zero-allocation regression tests.
+
+diff --git a/nod/src/read.rs b/nod/src/read.rs
+--- a/nod/src/read.rs
++++ b/nod/src/read.rs
+@@ -317,6 +317,12 @@
+ pub trait PartitionReader: DynClone + BufRead + Seek + Send {
+     /// Whether this is a Wii partition. (GameCube otherwise)
+     fn is_wii(&self) -> bool;
++
++    /// Copy one complete bounded range only from already resident immutable bytes.
++    /// A false result leaves both the destination and stream position unchanged.
++    /// Implementations must perform no I/O, allocation or blocking lock acquisition.
++    /// The default deliberately keeps unsupported reader kinds on ordinary reads.
++    fn try_read_cached_at(&mut self, _offset: u64, _out: &mut [u8]) -> bool { false }
+ 
+     /// Reads the partition header and file system table.
+     fn meta(&mut self) -> Result<PartitionMeta>;
+diff --git a/nod/src/disc/wii.rs b/nod/src/disc/wii.rs
+--- a/nod/src/disc/wii.rs
++++ b/nod/src/disc/wii.rs
+@@ -427,6 +427,40 @@
+     fn stream_position(&mut self) -> io::Result<u64> { Ok(self.pos) }
+ }
+ 
++// Separate preflight/copy makes cache misses transactional across sector edges.
++fn copy_cached_wii_group(
++    group: &SectorGroup, request: SectorGroupRequest, offset: u64, out: &mut [u8], has_hashes: bool,
++) -> bool {
++    let data_size = if has_hashes { SECTOR_DATA_SIZE } else { SECTOR_SIZE };
++    if group.request != request || out.is_empty() || out.len() > 64 * 1024 {
++        return false;
++    }
++    let Some(end) = offset.checked_add(out.len() as u64) else { return false; };
++    let first = offset / data_size as u64;
++    let last = (end - 1) / data_size as u64;
++    if first / 64 != request.group_idx as u64 || last / 64 != request.group_idx as u64 {
++        return false;
++    }
++    for sector in first..=last {
++        let local = (sector % 64) as usize;
++        if group.sector_bitmap & (1u64 << local) == 0 || (local + 1) * SECTOR_SIZE > group.data.len() {
++            return false;
++        }
++    }
++    let mut position = offset;
++    let mut written = 0;
++    while written < out.len() {
++        let sector = (position / data_size as u64 % 64) as usize;
++        let within = (position % data_size as u64) as usize;
++        let count = (data_size - within).min(out.len() - written);
++        let source = sector * SECTOR_SIZE + if has_hashes { HASHES_SIZE } else { 0 } + within;
++        out[written..written + count].copy_from_slice(&group.data[source..source + count]);
++        written += count;
++        position += count as u64;
++    }
++    true
++}
++
+ fn verify_hashes(buf: &[u8; SECTOR_GROUP_SIZE], group_idx: u32, h3_table: &[u8]) -> io::Result<()> {
+     for sector in 0..64 {
+         let buf = array_ref![buf, sector * SECTOR_SIZE, SECTOR_SIZE];
+@@ -487,6 +521,42 @@
+ }
+ 
+ impl PartitionReader for PartitionReaderWii {
++    fn try_read_cached_at(&mut self, offset: u64, out: &mut [u8]) -> bool {
++        if self.options.validate_hashes || out.is_empty() || out.len() > 64 * 1024 {
++            return false;
++        }
++        let Some(end) = offset.checked_add(out.len() as u64) else { return false; };
++        let data_size = if self.partition.has_hashes { SECTOR_DATA_SIZE } else { SECTOR_SIZE };
++        let first = offset / data_size as u64;
++        let last = (end - 1) / data_size as u64;
++        let Some(sectors) = self.partition.data_end_sector.checked_sub(self.partition.data_start_sector) else {
++            return false;
++        };
++        if last >= sectors as u64 || first / 64 != last / 64 {
++            return false;
++        }
++        let Ok(group_idx) = u32::try_from(first / 64) else { return false; };
++        let Ok(partition_idx) = u8::try_from(self.partition.index) else { return false; };
++        let request = SectorGroupRequest {
++            group_idx, partition_idx: Some(partition_idx),
++            mode: PartitionEncryption::ForceDecryptedNoHashes, force_rehash: false,
++        };
++        // The same logical-to-physical translation as fill_buf, but validate the
++        // ENTIRE range before touching the destination. Never copy hash blocks,
++        // absent sectors or an unvalidated prefix before falling back to real I/O.
++        let has_hashes = self.partition.has_hashes;
++        let mut copy = |group: &SectorGroup| {
++            copy_cached_wii_group(group, request, offset, out, has_hashes)
++        };
++        let found = if let Some(group) = self.sector_group.as_ref().filter(|g| g.request == request) {
++            copy(group)
++        } else {
++            self.preloader.try_with_cached_group(&request, copy)
++        };
++        if found { self.pos = end; }
++        found
++    }
++
+     fn is_wii(&self) -> bool { true }
+ 
+     fn meta(&mut self) -> Result<PartitionMeta> {
+@@ -539,3 +609,7 @@
+         Ok(meta)
+     }
+ }
++
++#[cfg(test)]
++#[path = "wii_cached_tests.rs"]
++mod cached_tests;
+diff --git a/nod/src/disc/preloader.rs b/nod/src/disc/preloader.rs
+--- a/nod/src/disc/preloader.rs
++++ b/nod/src/disc/preloader.rs
+@@ -257,6 +257,31 @@
+ }
+ 
+ impl Preloader {
++    /// Borrow a current cache entry without waiting, cloning or scheduling work.
++    /// Preserve fetch's poison checks; reader-local groups bypass these in both
++    /// paths. The callback holds the cache borrow for its bounded memory copy.
++    pub(super) fn try_with_cached_group(
++        &self, request: &SectorGroupRequest, use_group: impl FnOnce(&SectorGroup) -> bool,
++    ) -> bool {
++        #[cfg(feature = "threading")]
++        {
++            let Ok(threads) = self.threads.try_lock() else { return false; };
++            drop(threads);
++            let Ok(cache) = self.cache.try_lock() else { return false; };
++            match cache.lru_cache.peek(request) {
++                Some(group) => use_group(group),
++                None => false,
++            }
++        }
++        #[cfg(not(feature = "threading"))]
++        {
++            // Ordinary non-threaded fetch always reloads through the loader.
++            // Keep that path and its errors; only reader-local cache hits qualify.
++            let _ = (request, use_group);
++            false
++        }
++    }
++
+     #[cfg(feature = "threading")]
+     pub fn new(loader: SectorGroupLoader, num_threads: usize) -> Arc<Self> {
+         debug!("Creating preloader with {} threads", num_threads);
+@@ -692,3 +717,40 @@
+     let sector_group = preloader.fetch(request, max_groups)?;
+     Ok((cached.insert(sector_group), true))
+ }
++
++#[cfg(test)]
++impl Preloader {
++    pub(super) fn cached_test_insert(&self, group: SectorGroup) {
++        self.cache.lock().unwrap().push(group.request, group);
++    }
++    pub(super) fn cached_test_lock(&self, action: impl FnOnce()) {
++        let _guard = self.cache.lock().unwrap();
++        action();
++    }
++    #[cfg(feature = "threading")]
++    pub(super) fn cached_test_threads_lock(&self, action: impl FnOnce()) {
++        let _guard = self.threads.lock().unwrap();
++        action();
++    }
++    #[cfg(not(feature = "threading"))]
++    pub(super) fn cached_test_poison_loader(&self) {
++        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++            let _guard = self.loader.lock().unwrap();
++            panic!("fixture: poisoned non-threaded loader");
++        }));
++        assert!(result.is_err());
++    }
++    pub(super) fn cached_test_poison(&self, threads: bool) {
++        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++            #[cfg(feature = "threading")]
++            if threads {
++                let _guard = self.threads.lock().unwrap();
++                panic!("fixture: poisoned threads metadata");
++            }
++            let _ = threads;
++            let _guard = self.cache.lock().unwrap();
++            panic!("fixture: poisoned sector cache");
++        }));
++        assert!(result.is_err());
++    }
++}
+diff --git a/nod/src/disc/wii_cached_tests.rs b/nod/src/disc/wii_cached_tests.rs
+new file mode 100644
+--- /dev/null
++++ b/nod/src/disc/wii_cached_tests.rs
+@@ -0,0 +1,225 @@
++use super::*;
++use bytes::Bytes;
++use std::io::{Read, Seek, SeekFrom};
++use crate::{
++    common::{PartitionKind, Format},
++    disc::{BOOT_SIZE, DiscHeader, preloader::SectorGroupLoader},
++    io::block::{Block, BlockReader},
++    read::{DiscMeta, OwnedFileReader},
++};
++use zerocopy::FromZeros;
++
++#[derive(Clone)]
++struct ForbiddenIo;
++impl BlockReader for ForbiddenIo {
++    fn read_block(&mut self, _: &mut [u8], _: u32) -> io::Result<Block> {
++        panic!("Cached read attempted physical I/O");
++    }
++    fn block_size(&self) -> u32 { SECTOR_SIZE as u32 }
++    fn meta(&self) -> DiscMeta { DiscMeta { format: Format::Iso, ..Default::default() } }
++}
++fn preloader() -> Arc<Preloader> {
++    let loader = SectorGroupLoader::new(Box::new(ForbiddenIo),
++        Arc::new(DiscHeader::new_zeroed()), Arc::from([]));
++    #[cfg(feature = "threading")]
++    { Preloader::new(loader, 0) }
++    #[cfg(not(feature = "threading"))]
++    { Preloader::new(loader) }
++}
++fn partition(has_hashes: bool) -> PartitionInfo {
++    PartitionInfo {
++        index: 3, kind: PartitionKind::Data, start_sector: 0,
++        data_start_sector: 100, data_end_sector: 228, key: [0;16],
++        header: Arc::new(WiiPartitionHeader::new_zeroed()),
++        has_encryption: false, has_hashes,
++        raw_boot: Arc::new([0;BOOT_SIZE]), raw_fst: None,
++    }
++}
++fn reader(cache: Arc<Preloader>, has_hashes: bool) -> PartitionReaderWii {
++    PartitionReaderWii { preloader: cache, partition: partition(has_hashes), pos: 73,
++        options: PartitionOptions::default(), sector_group: None, meta: None }
++}
++fn key(group_idx: u32) -> SectorGroupRequest {
++    SectorGroupRequest { group_idx, partition_idx: Some(3),
++        mode: PartitionEncryption::ForceDecryptedNoHashes, force_rehash: false }
++}
++// Literal byte oracle: hash areas are distinct and must never appear in output.
++fn pattern(logical: usize) -> u8 { ((logical * 37 + logical / 251 + 11) % 251) as u8 }
++fn group(has_hashes: bool, group_idx: u32) -> SectorGroup {
++    let mut data = vec![0xFE; SECTOR_GROUP_SIZE];
++    let sector_data = if has_hashes { SECTOR_DATA_SIZE } else { SECTOR_SIZE };
++    for sector in 0..64 {
++        let begin = sector * SECTOR_SIZE + if has_hashes { HASHES_SIZE } else { 0 };
++        for byte in 0..sector_data {
++            data[begin+byte] = pattern((group_idx as usize * 64 + sector) * sector_data + byte);
++        }
++    }
++    SectorGroup { request: key(group_idx), start_sector: 100 + 64 * group_idx,
++        data: Bytes::from(data), sector_bitmap: u64::MAX, io_duration: None, group_hashes: None }
++}
++fn expect_bytes(bytes: &[u8], offset: usize) {
++    for (i,byte) in bytes.iter().enumerate() { assert_eq!(*byte,pattern(offset+i),"byte {i}"); }
++}
++#[test]
++fn cached_local_crosses_hash_blocks_and_advances_real_reader() {
++    let mut r = reader(preloader(),true); r.sector_group=Some(group(true,0));
++    let begin=SECTOR_DATA_SIZE-7; let mut output=vec![0xFD;65536];
++    assert!(r.try_read_cached_at(begin as u64,&mut output)); expect_bytes(&output,begin);
++    assert_eq!(r.pos,(begin+output.len()) as u64);
++    let mut following=[0;19]; r.read_exact(&mut following).unwrap();
++    expect_bytes(&following,begin+output.len());
++}
++#[test]
++fn cached_file_eof_preserves_both_positions_and_tail() {
++    let cache=preloader(); cache.cached_test_insert(group(true,0));
++    let r=reader(cache,true);
++    #[cfg(not(feature="threading"))]
++    let r={ let mut r=r; r.sector_group=Some(group(true,0)); r };
++    let r:Box<dyn PartitionReader>=Box::new(r);
++    let start=(SECTOR_DATA_SIZE-9) as u64;
++    let mut file=OwnedFileReader::new(r,start,65520).unwrap();
++    let mut output=vec![0xFD;65536];
++    assert_eq!(file.try_read_cached_at(1,&mut output),Some(65519));
++    expect_bytes(&output[..65519],start as usize+1);
++    assert!(output[65519..].iter().all(|b|*b==0xFD));
++    assert_eq!(file.stream_position().unwrap(),start+65520);
++    // Seek uses the same underlying partition cursor after the hit.
++    file.seek(SeekFrom::Current(-12)).unwrap(); let mut following=[0;12];
++    file.read_exact(&mut following).unwrap(); expect_bytes(&following,start as usize+65508);
++}
++#[test]
++fn cached_no_hash_partition_preserves_sector_layout() {
++    let cache=preloader(); cache.cached_test_insert(group(false,1));
++    let mut r=reader(cache,false);
++    #[cfg(not(feature="threading"))]
++    { r.sector_group=Some(group(false,1)); }
++    let start=64*SECTOR_SIZE+SECTOR_SIZE-11;
++    let mut out=vec![0;65536]; assert!(r.try_read_cached_at(start as u64,&mut out));
++    expect_bytes(&out,start); assert_eq!(r.pos,(start+out.len()) as u64);
++}
++#[test]
++fn cached_misses_preflight_all_bytes_and_keep_position() {
++    let cache=preloader(); let mut r=reader(cache,true);
++    let mut output=vec![0xFD;65537]; let before=r.pos;
++    assert!(!r.try_read_cached_at(1,&mut output[..32]));
++    r.sector_group=Some(group(true,0));
++    assert!(!r.try_read_cached_at(1,&mut output));
++    assert!(!r.try_read_cached_at(u64::MAX-7,&mut output[..32]));
++    assert!(!r.try_read_cached_at((64*SECTOR_DATA_SIZE-7) as u64,&mut output[..32]));
++    assert!(!r.try_read_cached_at(0,&mut output[..0]));
++    r.options.validate_hashes=true;
++    assert!(!r.try_read_cached_at(0,&mut output[..32])); r.options.validate_hashes=false;
++    // Missing SECOND sector must not expose even the valid first seven bytes.
++    r.sector_group.as_mut().unwrap().sector_bitmap &= !(1<<1);
++    assert!(!r.try_read_cached_at((SECTOR_DATA_SIZE-7) as u64,&mut output[..32]));
++    // A present bitmap cannot authorize bytes beyond the immutable group buffer.
++    let g=r.sector_group.as_mut().unwrap(); g.sector_bitmap=u64::MAX;
++    g.data=g.data.slice(..SECTOR_SIZE+1);
++    assert!(!r.try_read_cached_at((SECTOR_DATA_SIZE-7) as u64,&mut output[..32]));
++    assert_eq!(r.pos,before); assert!(output.iter().all(|b|*b==0xFD));
++}
++#[test]
++fn cached_request_key_and_partition_end_are_exact() {
++    let cache=preloader(); let mut r=reader(cache.clone(),true); let mut out=[0xFD;32];
++    for change in 0..4 {
++        let mut g=group(true,0);
++        match change {0=>g.request.partition_idx=Some(4),1=>g.request.mode=PartitionEncryption::ForceDecrypted,
++            2=>g.request.force_rehash=true,_=>g.request.group_idx=1}
++        cache.cached_test_insert(g); assert!(!r.try_read_cached_at(10,&mut out));
++    }
++    r.sector_group=Some(group(true,0)); r.partition.data_end_sector=101;
++    assert!(!r.try_read_cached_at((SECTOR_DATA_SIZE-7) as u64,&mut out));
++    assert_eq!(r.pos,73); assert_eq!(out,[0xFD;32]);
++}
++#[test]
++fn cached_contended_and_poisoned_shared_locks_miss_without_waiting() {
++    let cache=preloader(); cache.cached_test_insert(group(true,0));
++    let mut r=reader(cache.clone(),true); let mut out=[0xFD;32];
++    // Same-thread held lock would hang if the probe used blocking lock().
++    cache.cached_test_lock(||assert!(!r.try_read_cached_at(10,&mut out)));
++    #[cfg(feature="threading")]
++    cache.cached_test_threads_lock(||assert!(!r.try_read_cached_at(10,&mut out)));
++    cache.cached_test_poison(false);
++    assert!(!r.try_read_cached_at(10,&mut out));
++    assert_eq!(r.pos,73); assert_eq!(out,[0xFD;32]);
++    // Ordinary fetch_sector_group bypasses locks for a matching local group.
++    r.sector_group=Some(group(true,0));
++    assert!(r.try_read_cached_at(10,&mut out)); expect_bytes(&out,10);
++}
++#[cfg(feature="threading")]
++#[test]
++fn cached_thread_metadata_poison_is_not_hidden_by_lru_hit() {
++    let cache=preloader(); cache.cached_test_insert(group(true,0)); cache.cached_test_poison(true);
++    let mut r=reader(cache,true); let mut out=[0xFD;32];
++    assert!(!r.try_read_cached_at(10,&mut out)); assert_eq!(r.pos,73); assert_eq!(out,[0xFD;32]);
++    r.sector_group=Some(group(true,0));
++    assert!(r.try_read_cached_at(10,&mut out)); expect_bytes(&out,10);
++}
++#[test]
++fn cached_file_miss_leaves_window_and_underlying_reader_unchanged() {
++    let mut r=reader(preloader(),true); r.sector_group=Some(group(true,0));
++    let r:Box<dyn PartitionReader>=Box::new(r);
++    let mut file=OwnedFileReader::new(r,25,64*SECTOR_DATA_SIZE as u64).unwrap();
++    let before=file.stream_position().unwrap(); let mut out=[0xFD;32];
++    assert_eq!(file.try_read_cached_at(u64::MAX,&mut out),None);
++    assert_eq!(file.try_read_cached_at((64*SECTOR_DATA_SIZE-26) as u64,&mut out),None);
++    assert_eq!(file.stream_position().unwrap(),before); assert_eq!(out,[0xFD;32]);
++    let mut next=[0;32];file.read_exact(&mut next).unwrap();expect_bytes(&next,25);
++}
++
++// Count allocations only on this test's thread and only inside the actual probe.
++// Fixture creation, assertion diagnostics and other parallel tests are excluded.
++struct AllocationObserver;
++thread_local! {
++    static WATCH_ALLOC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    static ALLOCATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++}
++fn note_allocation() {
++    if WATCH_ALLOC.try_with(|v|v.get()).unwrap_or(false) {
++        let _=ALLOCATIONS.try_with(|v|v.set(v.get()+1));
++    }
++}
++unsafe impl std::alloc::GlobalAlloc for AllocationObserver {
++    unsafe fn alloc(&self,layout:std::alloc::Layout)->*mut u8 {
++        note_allocation();unsafe{std::alloc::System.alloc(layout)}
++    }
++    unsafe fn alloc_zeroed(&self,layout:std::alloc::Layout)->*mut u8 {
++        note_allocation();unsafe{std::alloc::System.alloc_zeroed(layout)}
++    }
++    unsafe fn realloc(&self,p:*mut u8,layout:std::alloc::Layout,size:usize)->*mut u8 {
++        note_allocation();unsafe{std::alloc::System.realloc(p,layout,size)}
++    }
++    unsafe fn dealloc(&self,p:*mut u8,layout:std::alloc::Layout) {
++        unsafe{std::alloc::System.dealloc(p,layout)}
++    }
++}
++#[global_allocator]
++static CACHED_PROBE_ALLOCATOR:AllocationObserver=AllocationObserver;
++#[test]
++fn cached_hit_and_miss_allocate_no_host_memory() {
++    let cache=preloader();cache.cached_test_insert(group(true,0));
++    let mut shared=reader(cache,true);
++    let mut local=reader(preloader(),true);local.sector_group=Some(group(true,0));
++    let mut out=[0;128];let before=ALLOCATIONS.with(|v|v.get());
++    WATCH_ALLOC.with(|v|v.set(true));
++    let a=shared.try_read_cached_at(51,&mut out);
++    let b=local.try_read_cached_at(51,&mut out);
++    let c=shared.try_read_cached_at((64*SECTOR_DATA_SIZE) as u64,&mut out);
++    WATCH_ALLOC.with(|v|v.set(false));
++    assert_eq!(a,cfg!(feature="threading"));assert!(b&&!c);assert_eq!(ALLOCATIONS.with(|v|v.get()),before);
++}
++
++#[cfg(not(feature="threading"))]
++#[test]
++fn cached_non_threaded_shared_cache_does_not_hide_loader_errors() {
++    let cache=preloader();cache.cached_test_insert(group(true,0));
++    let mut r=reader(cache.clone(),true);let mut out=[0xFD;32];
++    assert!(!r.try_read_cached_at(10,&mut out));
++    cache.cached_test_poison_loader();
++    assert!(!r.try_read_cached_at(10,&mut out));
++    assert_eq!(r.pos,73);assert_eq!(out,[0xFD;32]);
++    // Ordinary local hits bypass the loader even when it is poisoned.
++    r.sector_group=Some(group(true,0));
++    assert!(r.try_read_cached_at(10,&mut out));expect_bytes(&out,10);
++    let mut following=[0;12];r.read_exact(&mut following).unwrap();expect_bytes(&following,42);
++}
+diff --git a/nod/src/util/mod.rs b/nod/src/util/mod.rs
+--- a/nod/src/util/mod.rs
++++ b/nod/src/util/mod.rs
+@@ -61,6 +61,24 @@
+     #[inline]
+     #[allow(clippy::len_without_is_empty)]
+     pub fn len(&self) -> u64 { self.end - self.begin }
++}
++
++impl WindowedReader<Box<dyn crate::read::PartitionReader>> {
++    /// Nonblocking bounded file-relative cache probe. EOF clips the successful
++    /// count, but not the caller's destination. A miss changes neither cursor.
++    pub fn try_read_cached_at(&mut self, offset: u64, out: &mut [u8]) -> Option<usize> {
++        if out.is_empty() || out.len() > 64 * 1024 || offset >= self.len() {
++            return None;
++        }
++        let count = out.len().min(usize::try_from(self.len() - offset).unwrap_or(usize::MAX));
++        let absolute = self.begin.checked_add(offset)?;
++        let end = absolute.checked_add(count as u64)?;
++        if !self.base.try_read_cached_at(absolute, &mut out[..count]) {
++            return None;
++        }
++        self.pos = end;
++        Some(count)
++    }
+ }
+ 
+ impl<T> Read for WindowedReader<T>
+diff --git a/nod-ffi/include/nod.h b/nod-ffi/include/nod.h
+--- a/nod-ffi/include/nod.h
++++ b/nod-ffi/include/nod.h
+@@ -525,6 +525,16 @@
+ int64_t nod_read(struct NodHandle *handle, uint8_t *buf, size_t len);
+ 
+ /**
++ * Nonblocking resident Wii-file read. Returns -2 on miss/unsupported/invalid input.
++ * Maximum requested len: 64 KiB. Zero len/zero available bytes miss. Miss preserves
++ * output, file/partition cursors and diagnostics. Hit returns exact bytes clipped
++ * to file EOF, preserves the output tail and updates both cursors like seek+read.
++ * No I/O, decompression, allocation, callback or blocking lock; validation-enabled
++ * readers always miss. Handle/buffer lifetime and aliasing follow nod_read.
++ */
++int64_t nod_try_read_cached_at(struct NodHandle *handle, uint64_t offset, uint8_t *buf, size_t len);
++
++/**
+  * Seeks a handle to a new position.
+  *
+  * `whence`: 0 = from start, 1 = from current, 2 = from end.
+diff --git a/nod-ffi/src/lib.rs b/nod-ffi/src/lib.rs
+--- a/nod-ffi/src/lib.rs
++++ b/nod-ffi/src/lib.rs
+@@ -379,6 +379,31 @@
+     }
+ }
+ 
++/// Try a bounded file read using only resident Wii partition bytes.
++///
++/// Returns -2 for cache miss, unsupported reader, invalid arguments, zero-sized
++/// request, or requested length above 64 KiB. A miss changes neither the cursor,
++/// destination nor thread-local diagnostic state. It performs no I/O, allocation,
++/// decompression, callback or blocking lock acquisition.
++///
++/// On a hit, returns the requested count clipped only to the actual file EOF,
++/// advances both file and partition positions as a seek followed by reads, and
++/// leaves any destination tail beyond EOF untouched. Validation-enabled readers
++/// always miss. Zero bytes available at EOF also miss.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn nod_try_read_cached_at(
++    handle: *mut NodHandle, offset: u64, buf: *mut u8, len: usize,
++) -> i64 {
++    if handle.is_null() || !handle.is_aligned() || buf.is_null() || len == 0 || len > 64 * 1024 {
++        return -2;
++    }
++    let handle = unsafe { &mut *handle };
++    if !handle.is_valid() { return -2; }
++    let NodHandleInner::File(file) = &mut handle.inner else { return -2; };
++    let destination = unsafe { std::slice::from_raw_parts_mut(buf, len) };
++    file.try_read_cached_at(offset, destination).map_or(-2, |count| count as i64)
++}
++
+ /// Seeks a handle to a new position.
+ ///
+ /// `whence`: 0 = from start, 1 = from current, 2 = from end.
+@@ -686,3 +711,7 @@
+             as usize;
+     }
+ }
++
++#[cfg(test)]
++#[path = "cached_read_tests.rs"]
++mod cached_read_tests;
+diff --git a/nod-ffi/src/cached_read_tests.rs b/nod-ffi/src/cached_read_tests.rs
+new file mode 100644
+--- /dev/null
++++ b/nod-ffi/src/cached_read_tests.rs
+@@ -0,0 +1,82 @@
++use super::*;
++use std::{io::{self, Cursor, BufRead, Read, Seek, SeekFrom}, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
++use nod::read::{OwnedFileReader, PartitionReader, PartitionMeta};
++
++#[derive(Clone)]
++struct Resident {
++    inner: Cursor<Vec<u8>>, enabled: bool, cached: Arc<AtomicUsize>, ordinary: Arc<AtomicUsize>,
++}
++impl Read for Resident {
++    fn read(&mut self,out:&mut[u8])->io::Result<usize> { self.ordinary.fetch_add(1,Ordering::Relaxed); self.inner.read(out) }
++}
++impl BufRead for Resident {
++    fn fill_buf(&mut self)->io::Result<&[u8]> { self.ordinary.fetch_add(1,Ordering::Relaxed); self.inner.fill_buf() }
++    fn consume(&mut self,n:usize) { self.inner.consume(n); }
++}
++impl Seek for Resident { fn seek(&mut self,pos:SeekFrom)->io::Result<u64> { self.inner.seek(pos) } }
++impl PartitionReader for Resident {
++    fn is_wii(&self)->bool { true }
++    fn meta(&mut self)->nod::Result<PartitionMeta> { panic!("Cache API attempted metadata I/O") }
++    fn try_read_cached_at(&mut self,offset:u64,out:&mut[u8])->bool {
++        self.cached.fetch_add(1,Ordering::Relaxed);
++        if !self.enabled { return false; }
++        let Ok(offset)=usize::try_from(offset) else {return false;};
++        let Some(end)=offset.checked_add(out.len()) else {return false;};
++        let Some(bytes)=self.inner.get_ref().get(offset..end) else {return false;};
++        out.copy_from_slice(bytes);self.inner.set_position(end as u64);true
++    }
++}
++struct Fixture {handle:*mut NodHandle,cached:Arc<AtomicUsize>,ordinary:Arc<AtomicUsize>}
++impl Fixture {
++    fn new(enabled:bool)->Self {
++        let cached=Arc::new(AtomicUsize::new(0));let ordinary=Arc::new(AtomicUsize::new(0));
++        let bytes=(0..70000).map(|i|((i*29+i/113)%251) as u8).collect();
++        let base:Box<dyn PartitionReader>=Box::new(Resident {inner:Cursor::new(bytes),enabled,cached:cached.clone(),ordinary:ordinary.clone()});
++        let reader=OwnedFileReader::new(base,37,65520).unwrap();
++        let handle=Box::into_raw(Box::new(NodHandle::new(NodHandleInner::File(reader))));
++        Self{handle,cached,ordinary}
++    }
++    fn position(&mut self)->u64 { unsafe { match &mut (*self.handle).inner { NodHandleInner::File(reader) => reader.stream_position().unwrap(), _ => unreachable!() } } }
++}
++impl Drop for Fixture {fn drop(&mut self){unsafe{nod_free(self.handle);}}}
++fn expected(position:usize)->u8 {((position*29+position/113)%251) as u8}
++#[test]
++fn cached_c_api_file_relative_read_and_short_eof_tail() {
++    let mut f=Fixture::new(true);let mut out=vec![0xFD;65536];
++    let got=unsafe{nod_try_read_cached_at(f.handle,0,out.as_mut_ptr(),out.len())};
++    assert_eq!(got,65520);assert_eq!(f.position(),37+65520);
++    for i in 0..65520 {assert_eq!(out[i],expected(37+i));}
++    assert!(out[65520..].iter().all(|b|*b==0xFD));
++    assert_eq!(f.cached.load(Ordering::Relaxed),1);assert_eq!(f.ordinary.load(Ordering::Relaxed),0);
++    // A subsequent ordinary read sees exactly the position produced by the hit.
++    let mut tail=[0xFC;32];assert_eq!(unsafe{nod_read(f.handle,tail.as_mut_ptr(),tail.len())},0);
++    assert_eq!(tail,[0xFC;32]);
++    assert_eq!(unsafe{nod_seek(f.handle,-12,1)},65508);
++    assert_eq!(unsafe{nod_read(f.handle,tail.as_mut_ptr(),12)},12);
++    for i in 0..12 {assert_eq!(tail[i],expected(37+65508+i));}
++}
++#[test]
++fn cached_c_api_miss_is_transactional_including_diagnostics() {
++    let mut f=Fixture::new(false);let mut out=[0xFD;64];let before=f.position();
++    set_last_error("prior diagnostic stays owned");let error=unsafe{nod_error_message()};
++    assert_eq!(unsafe{nod_try_read_cached_at(f.handle,5,out.as_mut_ptr(),out.len())},-2);
++    assert_eq!(f.position(),before);assert_eq!(out,[0xFD;64]);assert_eq!(unsafe{nod_error_message()},error);
++    assert_eq!(f.cached.load(Ordering::Relaxed),1);assert_eq!(f.ordinary.load(Ordering::Relaxed),0);
++    assert_eq!(unsafe{nod_read(f.handle,out.as_mut_ptr(),out.len())},64);
++    for i in 0..out.len(){assert_eq!(out[i],expected(37+i));}
++}
++#[test]
++fn cached_c_api_guards_do_not_delegate_or_mutate() {
++    let mut f=Fixture::new(true);let mut out=vec![0xFD;65537];let before=f.position();
++    set_last_error("unchanged guard diagnostic");let error=unsafe{nod_error_message()};
++    for (offset,len) in [(0,0),(0,65537),(u64::MAX,32),(65520,32),(65521,1)] {
++        assert_eq!(unsafe{nod_try_read_cached_at(f.handle,offset,out.as_mut_ptr(),len)},-2);
++    }
++    assert_eq!(unsafe{nod_try_read_cached_at(std::ptr::null_mut(),0,out.as_mut_ptr(),32)},-2);
++    assert_eq!(unsafe{nod_try_read_cached_at(f.handle,0,std::ptr::null_mut(),32)},-2);
++    let unaligned=unsafe{(f.handle as *mut u8).add(1)} as *mut NodHandle;
++    assert_eq!(unsafe{nod_try_read_cached_at(unaligned,0,out.as_mut_ptr(),32)},-2);
++    assert_eq!(f.position(),before);assert!(out.iter().all(|b|*b==0xFD));
++    assert_eq!(f.cached.load(Ordering::Relaxed),0);assert_eq!(f.ordinary.load(Ordering::Relaxed),0);
++    assert_eq!(unsafe{nod_error_message()},error);
++}

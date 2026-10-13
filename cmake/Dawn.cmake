@@ -1,5 +1,5 @@
-# Pinned native GPU providers: Vulkan on Linux and Metal on macOS. Browser,
-# toolchain, fuzzing, and upstream test sources remain omitted.
+# Pinned native GPU providers: Vulkan on Linux, Vulkan/D3D12 on Windows, and
+# Metal on macOS. Browser, toolchain, fuzzing, and upstream tests remain omitted.
 set(MSCHARGED_DAWN_NESTED
     third_party/abseil-cpp
     third_party/jinja2
@@ -35,6 +35,7 @@ function(mscharged_add_dawn)
     set(DAWN_BUILD_PROTOBUF OFF)
     set(DAWN_BUILD_FUZZERS OFF)
     set(DAWN_USE_GLFW OFF)
+    set(DAWN_ENABLE_D3D12 OFF)
     if(APPLE)
         set(CMAKE_OBJCXX_STANDARD 20)
         set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
@@ -44,14 +45,15 @@ function(mscharged_add_dawn)
         set(DAWN_ENABLE_METAL ON)
         set(DAWN_ENABLE_SPIRV_VALIDATION OFF)
     elseif(WIN32)
-        # Windows starts with Vulkan, which cross-compiles with LLVM-MinGW.
         # Desktop HWND surfaces only: UWP CoreWindow/XAML need WinRT headers
         # that MinGW ships broken.
         set(DAWN_USE_WINDOWS_UI OFF)
         set(DAWN_USE_WAYLAND OFF)
         set(DAWN_USE_X11 OFF)
         set(DAWN_ENABLE_VULKAN ON)
+        set(DAWN_ENABLE_D3D12 ON)
         set(DAWN_ENABLE_METAL OFF)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WindowsGraphics.cmake")
     else()
         set(DAWN_USE_WAYLAND ON)
         set(DAWN_USE_X11 ON)
@@ -60,7 +62,6 @@ function(mscharged_add_dawn)
     endif()
     set(DAWN_ENABLE_NULL OFF)
     set(DAWN_ENABLE_D3D11 OFF)
-    set(DAWN_ENABLE_D3D12 OFF)
     set(DAWN_ENABLE_DESKTOP_GL OFF)
     set(DAWN_ENABLE_OPENGLES OFF)
     set(DAWN_ENABLE_WEBGPU_ON_WEBGPU OFF)
@@ -74,7 +75,7 @@ function(mscharged_add_dawn)
     set(TINT_BUILD_IR_BINARY OFF)
     set(TINT_BUILD_GLSL_WRITER OFF)
     set(TINT_BUILD_GLSL_VALIDATOR OFF)
-    set(TINT_BUILD_HLSL_WRITER OFF)
+    set(TINT_BUILD_HLSL_WRITER ${DAWN_ENABLE_D3D12})
     set(TINT_BUILD_MSL_WRITER ${DAWN_ENABLE_METAL})
     set(TINT_BUILD_SPV_READER OFF)
     set(TINT_BUILD_SPV_WRITER ${DAWN_ENABLE_VULKAN})
@@ -83,7 +84,15 @@ function(mscharged_add_dawn)
     set(TINT_BUILD_TINTD OFF)
     set(TINT_BUILD_MESA OFF)
     add_subdirectory("${MSCHARGED_DAWN_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/dawn" EXCLUDE_FROM_ALL)
+    if(WIN32)
+        # Aurora links the monolithic target, which bypasses dawn_native's
+        # runtime-copy dependency. Normal game builds need the same DLLs.
+        add_dependencies(webgpu_dawn copy_d3dcompiler_dll)
+    endif()
     if(WIN32 AND MINGW)
+        # SharedFence uses CompareObjectHandles, available on our Windows 10+
+        # minimum. MinGW otherwise hides its declaration behind a Windows 7 default.
+        target_compile_definitions(dawn_native_objects PRIVATE _WIN32_WINNT=0x0A00)
         # MSVC-isms in Windows-only sources: std::getenv without <cstdlib>,
         # and abseil's tz reader opening files with O_NONBLOCK.
         if(TARGET tint_utils_system)

@@ -122,6 +122,7 @@ int main(int argc, char** argv)
     try
     {
         unsigned frames = 180;
+        std::string backend = "auto";
         bool interactive = false, resize = false, optimized_device = false;
         for (int i = 1; i < argc; ++i)
         {
@@ -129,6 +130,7 @@ int main(int argc, char** argv)
             if (arg == "--window") interactive = true;
             else if (arg == "--resize-test") resize = true;
             else if (arg == "--optimized-device") optimized_device = true;
+            else if (arg == "--backend" && i+1 < argc) backend = argv[++i];
             else if (arg == "--frames" && i+1 < argc)
             {
                 std::size_t used = 0;
@@ -138,7 +140,7 @@ int main(int argc, char** argv)
                 frames = value;
             }
             else if (arg == "--version") { std::cout << "mscharged-gx-check " << mscharged::build::version << '\n'; return 0; }
-            else if (arg == "--help") { std::cout << "mscharged-gx-check [--frames N] [--resize-test] [--window] [--optimized-device]\n"; return 0; }
+            else if (arg == "--help") { std::cout << "mscharged-gx-check [--frames N] [--resize-test] [--window] [--optimized-device] [--backend auto|vulkan|d3d12|metal]\n"; return 0; }
             else throw std::runtime_error("Unknown or incomplete argument: " + arg);
         }
         const char* base = SDL_GetBasePath();
@@ -150,7 +152,8 @@ int main(int argc, char** argv)
         config.appName = "Mario Strikers Charged | native GX check";
         config.userPath = config.cachePath = path.c_str();
         config.resourcesPath = base;
-        config.desiredBackend = mscharged::platform::NativeGraphicsBackend;
+        const auto& graphics = mscharged::ResolveGraphicsBackend(backend);
+        config.desiredBackend = mscharged::platform::AuroraGraphicsBackend(graphics.backend);
         config.windowWidth = 800; config.windowHeight = 600;
         config.windowPosX = config.windowPosY = -1;
         config.logLevel = LOG_INFO; config.logCallback = Log;
@@ -159,8 +162,8 @@ int main(int argc, char** argv)
         Session session;
         const auto info = aurora_initialize(argc, argv, &config);
         session.live = true;
-        if (!info.window || info.backend != mscharged::platform::NativeGraphicsBackend)
-            throw std::runtime_error(std::string("Requested ") + mscharged::platform::NativeGraphicsBackendName
+        if (!info.window || info.backend != config.desiredBackend)
+            throw std::runtime_error(std::string("Requested ") + graphics.label
                 + " is unavailable; the diagnostic cannot pass on a fallback backend");
 #ifdef WEBGPU_DAWN
         // Exercise the actual requested device in both debug-layer modes.
@@ -217,7 +220,7 @@ int main(int argc, char** argv)
             throw std::runtime_error("GX check incomplete: frames=" + std::to_string(rendered)
                 + ", draws=" + std::to_string(draws) + ", depth=" + std::to_string(depth)
                 + ", resize=" + std::to_string(resized) + ", errors=" + std::to_string(errors.load()));
-        std::cout << mscharged::platform::NativeGraphicsBackendName << " GX check passed: " << rendered << " frames, " << draws
+        std::cout << graphics.label << " GX check passed: " << rendered << " frames, " << draws
                   << " draw calls, geometry depth " << depth << ", resize events " << resize_events << '\n';
         return 0;
     }

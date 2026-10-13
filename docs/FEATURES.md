@@ -39,7 +39,8 @@ the reconstructed source, unchanged.
 
 ## Picture and sound
 
-- Vulkan on Linux and Windows, Metal on macOS.
+- Vulkan on Linux; a Vulkan / DirectX 12 choice on Windows (Advanced → Graphics API);
+  Metal on macOS. DirectX 12 still needs real Windows hardware validation.
 - Window or fullscreen on any monitor, freely sized, 4:3 or 16:9.
 - **3D at your window's resolution** (default) instead of the Wii's 640 x 448,
   or fixed 2x-4x; menus and the HUD keep their original artwork.

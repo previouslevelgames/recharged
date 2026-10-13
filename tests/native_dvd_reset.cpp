@@ -13,6 +13,10 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <vector>
+#include <memory>
+#include <exception>
+#include <nod.h>
 
 namespace {
 using namespace mscharged::platform;
@@ -634,6 +638,285 @@ void CheckFatalDispatch(const char* disc, bool reset_during_callback) {
           "Genuine new media owner failed to admit a fresh physical request");
     CheckNodRead();
 }
+constexpr unsigned CachedFileLength = 65536 + 73;
+
+void CheckRealNodCacheAPI(const char* path) {
+    // A second actual Nod media lifetime: no shared Aurora or test cache state.
+    // Preloading is disabled so cold.bin in sector group 1 is deterministically
+    // absent while metadata/cached.bin have populated only group 0.
+    NodDiscOptions options{};
+    NodHandle* raw{};
+    Check(nod_disc_open(path, &options, &raw) == NOD_RESULT_OK, "Nod C-API fixture did not mount");
+    using NodOwner = std::unique_ptr<NodHandle, decltype(&nod_free)>;
+    NodOwner disc(raw, nod_free);
+    Check(nod_disc_open_partition(disc.get(), 0, nullptr, &raw) == NOD_RESULT_OK,
+          "Nod C-API Wii partition did not open");
+    NodOwner partition(raw, nod_free);
+    auto open = [&](const char* name) {
+        const auto entry = nod_partition_find_file(partition.get(), name, nullptr, nullptr);
+        Check(entry != NOD_FST_STOP, "Nod C-API fixture file not found");
+        Check(nod_partition_open_file(partition.get(), entry, &raw) == NOD_RESULT_OK,
+              "Nod C-API fixture file did not open");
+        return NodOwner(raw, nod_free);
+    };
+    auto file = open("cached.bin");
+    auto cold = open("cold.bin");
+    std::array<u8, 65537> bytes{};
+    bytes.fill(0xa5);
+    Check(nod_seek(cold.get(), 17, 0) == 17, "Nod cold-file seek failed");
+    Check(nod_try_read_cached_at(cold.get(), 5, bytes.data(), 32) == -2 &&
+          nod_seek(cold.get(), 0, 1) == 17,
+          "True absent sector-group probe did not preserve cold file position");
+    for (const auto byte : bytes) Check(byte == 0xa5, "True cold miss wrote caller bytes");
+    // Warm the actual file reader via ordinary reads, including its local group.
+    unsigned total{};
+    while (total != 65536) {
+        const auto got = nod_read(file.get(), bytes.data() + total, 65536 - total);
+        Check(got > 0 && got <= 65536 - total, "Ordinary Nod cache warm-up failed");
+        total += static_cast<unsigned>(got);
+    }
+    bytes.fill(0xa5);
+    Check(nod_try_read_cached_at(file.get(), 19, bytes.data(), 65536) == 65536,
+          "Real resident Wii file did not provide an exact 64 KiB cache hit");
+    for (unsigned i = 0; i != 65536; ++i)
+        Check(bytes[i] == Expected(i + 19), "Real Nod cached bytes differ from literal oracle");
+    Check(bytes[65536] == 0xa5, "Real Nod cache hit overwrote output guard");
+    u8 following{};
+    Check(nod_read(file.get(), &following, 1) == 1 && following == Expected(65555) &&
+          nod_seek(file.get(), 0, 1) == 65556,
+          "Nod cache hit failed to advance both real file/partition cursors");
+    bytes.fill(0xa5);
+    Check(nod_try_read_cached_at(file.get(), CachedFileLength - 5, bytes.data(), 32) == 5,
+          "Nod cached EOF did not clip the actual available count");
+    for (unsigned i = 0; i != bytes.size(); ++i)
+        Check(bytes[i] == (i < 5 ? Expected(CachedFileLength - 5 + i) : u8{0xa5}),
+              "Nod cached short EOF changed data or untouched tail");
+    following = 0x6d;
+    Check(nod_read(file.get(), &following, 1) == 0 && following == 0x6d,
+          "Ordinary Nod read did not observe cached EOF cursor/tail");
+    Check(nod_seek(file.get(), 23, 0) == 23, "Nod miss-fixture seek failed");
+    bytes.fill(0xa5);
+    const std::array<std::pair<std::uint64_t, std::size_t>, 5> misses{{
+        {0, 0}, {0, 65537}, {UINT64_MAX, 32}, {CachedFileLength, 32}, {CachedFileLength + 1, 1}}};
+    for (const auto [offset, length] : misses) {
+        Check(nod_try_read_cached_at(file.get(), offset, bytes.data(), length) == -2 &&
+              nod_seek(file.get(), 0, 1) == 23, "Nod guarded miss changed real file cursor");
+        for (const auto byte : bytes) Check(byte == 0xa5, "Nod guarded miss modified the destination");
+    }
+    Check(nod_read(file.get(), &following, 1) == 1 && following == Expected(23),
+          "Nod miss changed underlying partition cursor");
+    Check(nod_read(cold.get(), &following, 1) == 1 && following == Expected(17),
+          "Cold Nod miss changed following ordinary read position or bytes");
+    std::printf("Real Nod C-API cache oracle: exact/cold/EOF/tail/dual cursor gates passed\n");
+}
+
+void WarmCachedFile() {
+    DVDFileInfo file{};
+    std::array<u8, 65536> bytes{};
+    Check(DVDOpen("/cached.bin", &file), "Cached fixture did not open");
+    Check(DVDReadPrio(&file, bytes.data(), bytes.size(), 0, 2) == bytes.size(),
+          "Actual cache warm-up read failed");
+    Check(DVDClose(&file), "Cache warm-up retained its real worker/handle");
+}
+
+void CheckCachedReadBytes() {
+    WarmCachedFile();
+    struct Span { unsigned offset, length, expected; };
+    const std::array<Span, 8> spans{{
+        {0, 1, 1}, {19, 33, 33}, {0, 65536, 65536},
+        {0, 65537, 65537}, // Strictly above the native cache shortcut limit.
+        {CachedFileLength - 5, 32, 5},
+        {CachedFileLength, 31, 0}, // Real EOF, unchanged worker path.
+        {32, 0, 0}, {31, 1, 1}}};
+    for (unsigned repeat = 0; repeat != 4; ++repeat) {
+        for (const auto span : spans) {
+            DVDFileInfo file{};
+            std::vector<u8> bytes(span.length + 64, 0xa5);
+            Check(DVDOpen("/cached.bin", &file) && file.length == CachedFileLength,
+                  "Cached fixture length/handle changed");
+            Check(DVDReadAsyncPrio(&file, bytes.data() + 32, span.length, span.offset, nullptr, 2),
+                  "Null-callback original read was not admitted");
+            Until([&] { const auto state = DVDGetFileInfoStatus(&file);
+                return state != DVD_STATE_BUSY && state != DVD_STATE_WAITING; });
+            const auto state = DVDGetFileInfoStatus(&file);
+            const auto transferred = DVDGetTransferredSize(&file);
+            Check(DVDClose(&file), "Read completion retained the worker's borrowed file");
+            Check(state == DVD_STATE_END && transferred == span.expected,
+                  "Cached/fallback read completion count or state changed");
+            for (unsigned i = 0; i != bytes.size(); ++i) {
+                const auto expected = i >= 32 && i < 32 + span.expected
+                    ? Expected(span.offset + i - 32) : u8{0xa5};
+                Check(bytes[i] == expected, "Cached/fallback read changed bytes, EOF tail or guards");
+            }
+        }
+    }
+}
+
+struct CachedCallbackProbe {
+    std::atomic<bool> done{};
+    std::thread::id thread;
+    s32 result{};
+    static CachedCallbackProbe* current;
+    static void Complete(s32 result, DVDFileInfo*) {
+        auto& p = *current;
+        p.thread = std::this_thread::get_id();
+        p.result = result;
+        p.done.store(true, std::memory_order_release);
+    }
+};
+CachedCallbackProbe* CachedCallbackProbe::current{};
+
+void CheckNullOverlayWorker() {
+    Overlay overlay;
+    overlay.blocked = true;
+    const AuroraOverlayCallbacks functions{Overlay::Open, Overlay::Close, Overlay::Read, Overlay::Seek};
+    aurora_dvd_overlay_callbacks(&functions);
+    const AuroraOverlayFile path{"/null-overlay.bin", &overlay, 128};
+    aurora_dvd_overlay_files(&path, 1, nullptr);
+    DVDFileInfo file{};
+    std::array<u8, 128> bytes{};
+
+    Check(DVDOpen(path.fileName, &file), "Null-callback overlay did not open");
+    Check(DVDReadAsyncPrio(&file, bytes.data(), bytes.size(), 0, nullptr, 2),
+          "Null-callback overlay was not admitted");
+    Until([&] { return overlay.entered.load(); });
+    const auto busy = DVDGetFileInfoStatus(&file);
+    overlay.gate.Release();
+    Until([&] { return DVDGetFileInfoStatus(&file) == DVD_STATE_END; });
+    const auto count = DVDGetTransferredSize(&file);
+    const auto closed = DVDClose(&file);
+    aurora_dvd_overlay_files(nullptr, 0, nullptr);
+    Check(busy == DVD_STATE_BUSY && count == bytes.size() && closed && overlay.handles == 0 &&
+          overlay.reads == 1 && overlay.seeks == 1,
+          "Null application callback bypassed the real overlay worker/handle lifetime");
+    for (unsigned i = 0; i != bytes.size(); ++i)
+        Check(bytes[i] == Expected(i), "Null-callback overlay bytes changed");
+}
+
+void CheckCachedCallbackThread() {
+    WarmCachedFile();
+    DVDFileInfo file{};
+    std::array<u8, 128> bytes{};
+    CachedCallbackProbe probe;
+    CachedCallbackProbe::current = &probe;
+    const auto submitter = std::this_thread::get_id();
+
+    Check(DVDOpen("/cached.bin", &file), "Callback cached fixture did not open");
+    Check(DVDReadAsyncPrio(&file, bytes.data(), bytes.size(), 0, CachedCallbackProbe::Complete, 2),
+          "Real non-null callback read was not admitted");
+    Until([&] { return probe.done.load(std::memory_order_acquire); });
+    Check(DVDClose(&file), "Actual non-null callback worker did not drain");
+    CachedCallbackProbe::current = nullptr;
+    Check(probe.thread != submitter && probe.result == bytes.size(),
+          "Cached bytes moved the actual application callback onto its submitting thread");
+    for (unsigned i = 0; i != bytes.size(); ++i)
+        Check(bytes[i] == Expected(i), "Worker callback read changed cached bytes");
+}
+
+// Cached bytes must not bypass an older active worker or any original lifecycle
+// barrier. Record observations while blocked; assert only after real drain.
+void CheckCachedBehindWorker(unsigned action) {
+    WarmCachedFile();
+    Overlay active;
+    active.blocked = true;
+    const AuroraOverlayCallbacks functions{Overlay::Open, Overlay::Close, Overlay::Read, Overlay::Seek};
+    aurora_dvd_overlay_callbacks(&functions);
+    const AuroraOverlayFile overlay{"/cached-predecessor.bin", &active, 128};
+    aurora_dvd_overlay_files(&overlay, 1, nullptr);
+    DVDFileInfo predecessor{}, cached{}, rejected{};
+    std::array<u8, 128> first{}, output{}, rejectedOutput{};
+    output.fill(0x7b); rejectedOutput.fill(0x7c);
+    Check(DVDOpen(overlay.fileName, &predecessor) && DVDOpen("/cached.bin", &cached) &&
+          DVDOpen("/cached.bin", &rejected), "Cached FIFO fixture handles did not open");
+    callbacks = 0;
+    Check(DVDReadAsyncPrio(&predecessor, first.data(), first.size(), 0, Completion, 2),
+          "Real overlay predecessor was not admitted");
+    Until([&] { return active.entered.load(); });
+
+    const bool admitted = DVDReadAsyncPrio(&cached, output.data(), output.size(), 32, nullptr, 2);
+    const auto waiting = DVDGetFileInfoStatus(&cached);
+    const bool unchanged = std::all_of(output.begin(), output.end(), [](u8 v) { return v == 0x7b; });
+    bool resetRejected = true;
+    bool failedAdmissionUnchanged = true;
+    if (action == 1) {
+        const auto result = DVDCancel(&cached.cb);
+        resetRejected = result == DVD_RESULT_GOOD;
+        active.gate.Release();
+    } else if (action == 2) {
+        std::exception_ptr helperError;
+        std::thread release([&] {
+            try {
+                Until([] { return __DVDGetCoverStatus() == DVD_COVER_BUSY; });
+                resetRejected = !DVDReadAsyncPrio(&rejected, rejectedOutput.data(), rejectedOutput.size(),
+                                                 0, nullptr, 2);
+                failedAdmissionUnchanged = DVDGetFileInfoStatus(&rejected) == DVD_STATE_IGNORED &&
+                    std::all_of(rejectedOutput.begin(), rejectedOutput.end(), [](u8 v) { return v == 0x7c; });
+            } catch (...) { helperError = std::current_exception(); }
+            active.gate.Release();
+        });
+        __DVDPrepareReset();
+        release.join();
+        if (helperError) std::rethrow_exception(helperError);
+    } else {
+        active.gate.Release();
+    }
+    if (action == 0) Until([&] { return DVDGetFileInfoStatus(&cached) == DVD_STATE_END; });
+    const auto completedState = DVDGetFileInfoStatus(&cached);
+    const auto count = DVDGetTransferredSize(&cached);
+    const bool closed = DVDClose(&predecessor) && DVDClose(&cached) && DVDClose(&rejected);
+    aurora_dvd_overlay_files(nullptr, 0, nullptr);
+    Check(admitted && waiting == DVD_STATE_WAITING && unchanged,
+          "Cached request bypassed the actual FIFO/active worker boundary");
+    Check(closed && active.finished && active.handles == 0,
+          "Cached FIFO/cancel/reset gate retained real overlay ownership");
+    Check(resetRejected && failedAdmissionUnchanged,
+          "Cached readiness bypassed reset admission or ordinary cancellation");
+    if (action == 0) {
+        Check(completedState == DVD_STATE_END && count == output.size() && callbacks == 1,
+              "Queued cached read lost original completion/count");
+        for (unsigned i = 0; i != output.size(); ++i)
+            Check(output[i] == Expected(i + 32), "FIFO cached data bytes changed");
+    } else {
+        Check(completedState == (action == 1 ? DVD_STATE_CANCELED : DVD_STATE_WAITING) && count == 0,
+              "Canceled/reset cached request changed source state or invented bytes");
+        Check(callbacks == (action == 1 ? 1u : 0u),
+              "Cached reset/cancel changed predecessor callback suppression");
+        for (const auto byte : output) Check(byte == 0x7b, "Canceled/reset cached read wrote its destination");
+    }
+}
+
+void CheckCachedFatalLatch(const char* disc) {
+    WarmCachedFile();
+    Overlay fault;
+    fault.fail = true;
+    const AuroraOverlayCallbacks functions{Overlay::Open, Overlay::Close, Overlay::Read, Overlay::Seek};
+    aurora_dvd_overlay_callbacks(&functions);
+    const AuroraOverlayFile overlay{"/cached-fault.bin", &fault, 128};
+    aurora_dvd_overlay_files(&overlay, 1, nullptr);
+    DVDFileInfo failed{}, cached{};
+    std::array<u8, 128> output{};
+    Check(DVDOpen(overlay.fileName, &failed) && DVDOpen("/cached.bin", &cached),
+          "Fatal cached fixture did not open");
+    Check(DVDReadPrio(&failed, output.data(), output.size(), 0, 2) == DVD_RESULT_FATAL_ERROR,
+          "Actual overlay failure was not established");
+    Check(DVDClose(&failed), "Faulty provider handle did not drain");
+    output.fill(0x9a);
+
+    const auto result = DVDReadPrio(&cached, output.data(), output.size(), 0, 2);
+    const auto state = DVDGetFileInfoStatus(&cached);
+    const auto count = DVDGetTransferredSize(&cached);
+    Check(DVDClose(&cached), "Failed cached handle did not drain");
+    const auto drive = DVDGetDriveStatus();
+    aurora_dvd_close();
+    aurora_dvd_overlay_files(nullptr, 0, nullptr);
+    Check(result == DVD_RESULT_FATAL_ERROR && state == DVD_STATE_FATAL_ERROR && count == 0 &&
+          drive == DVD_STATE_FATAL_ERROR,
+          "Resident bytes bypassed the real fatal drive latch");
+    for (const auto byte : output) Check(byte == 0x9a, "Fatal cached request fabricated successful data");
+    Check(fault.reads == 1 && fault.handles == 0, "Fatal cached fixture retained provider ownership");
+    Check(aurora_dvd_open(disc), "Cached-fault fixture could not establish a fresh medium");
+}
+
 } // namespace
 
 int main(int argc,char** argv) {
@@ -649,6 +932,10 @@ int main(int argc,char** argv) {
         Check(aurora_dvd_open(argv[1]),"Real Nod data partition mount failed");
         Check(__DVDGetCoverStatus()==DVD_COVER_CLOSED,"Mounted native medium lacked truthful cover");
         Check(DVDGetDriveStatus()==DVD_STATE_END,"Mounted idle drive reported a pending transfer");
+        CheckRealNodCacheAPI(argv[1]);
+        CheckCachedReadBytes(); CheckCachedCallbackThread(); CheckNullOverlayWorker();
+        for (unsigned action : {0u, 1u, 2u}) CheckCachedBehindWorker(action);
+        CheckCachedFatalLatch(argv[1]);
         CheckNodRead();ResetBlockedRead();ResetStartedCallback();CheckReentrant();
         CheckCancelAllCompletion();
         CloseBlockedRead();

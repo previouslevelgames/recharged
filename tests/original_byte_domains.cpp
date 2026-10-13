@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <stdexcept>
 
@@ -32,9 +33,149 @@ extern "C" void ChargedNativeMetadataRelease(void* p) noexcept {
     if (p) { --metadata_live; ::operator delete(p); }
 }
 
+namespace {
+template<class Error,class Action>
+void PendingRejectMessage(Action action,const char* expected) {
+    ++checks;
+    try { action(); }
+    catch(const Error& error) {
+        Check(std::strcmp(error.what(),expected)==0,"Pending-write rejection changed the exact error");
+        return;
+    }
+    throw std::runtime_error("Pending-write rejection was not observed");
+}
+void PendingWriteNeighborCases() {
+    using namespace mscharged::platform;
+    const auto initialLive=metadata_live;
+    alignas(64) std::array<std::byte,65536> arena{};
+    MemoryAllocator owner{};owner.Initialize(arena.data(),arena.size());
+    auto* raw=static_cast<unsigned char*>(owner.Allocate(32768,32,false));
+    std::memset(raw,0x7b,32768);
+    {GameByteWriteReservation all(raw,32768);all.Complete(GameByteDomain::WiiSerialized);}
+    std::array<unsigned char,32768> original{};std::memcpy(original.data(),raw,original.size());
+    std::array<GameByteWriteReservation,128> pending;
+    // Deliberately publish neither ascending nor descending: both map neighbors
+    // must work independently of insertion order, with a long unrelated prefix.
+    for(unsigned turn=0;turn<pending.size();++turn) {
+        const auto i=(turn*37)%pending.size();
+        pending[i]=GameByteWriteReservation(raw+1024+i*64,16);
+    }
+    const auto livePending=metadata_live,allocatedPending=metadata_allocations;
+    const auto freePending=owner.TotalFreeMemory();
+    const auto countPending=owner.m_allocation_count;
+    constexpr const char* overlap="Concurrent overlapping byte producers are unsupported";
+    struct Range {unsigned offset,length,physical;};
+    const Range forbidden[]={
+        {1024,16,16}, // exact same range
+        {1024,1,1},   // same start, contained
+        {1028,4,4},   // strict nested range
+        {1023,2,2},   // successor's left edge
+        {1039,2,2},   // predecessor's right edge
+        {1020,88,88}, // encloses both neighbors and their gap
+        {900,9000,9000}, // encloses many intervals from before the first
+        {1016,8,9},   // only physical padding touches next producer
+        {1080,8,9},   // only physical padding touches an interior successor
+        {1024+64*96-1,2,2}, // large preceding prefix, successor conflict
+        {1024+64*96+15,2,2}, // large prefix, predecessor conflict
+        {1024+64*127+4,32,32} // final predecessor with no successor
+    };
+    metadata_budget=0;
+    for(const auto range:forbidden) {
+        PendingRejectMessage<std::logic_error>([&]{
+            GameByteWriteReservation bad(raw+range.offset,range.length,range.physical);
+        },overlap);
+        Check(metadata_live==livePending && metadata_allocations==allocatedPending
+              && owner.TotalFreeMemory()==freePending && owner.m_allocation_count==countPending
+              && std::memcmp(raw,original.data(),original.size())==0,
+              "Overlap rejection changed source bytes, allocation state, or metadata");
+    }
+    PendingRejectMessage<std::invalid_argument>([&]{GameByteWriteReservation bad(raw+1024,0);},
+                                                "A byte reservation requires positive logical bytes");
+    PendingRejectMessage<std::invalid_argument>([&]{GameByteWriteReservation bad(raw+1024,16,8);},
+                                                "Physical write is shorter than logical bytes");
+    PendingRejectMessage<std::invalid_argument>([&]{GameByteWriteReservation bad(raw+1024,1,std::numeric_limits<std::size_t>::max());},
+                                                "Byte span leaves its actual source allocation");
+    PendingRejectMessage<std::invalid_argument>([&]{GameByteWriteReservation bad(raw+32760,8,9);},
+                                                "Byte span leaves its actual source allocation");
+    PendingRejectMessage<std::invalid_argument>([&]{
+        GameByteWriteReservation bad(reinterpret_cast<void*>(std::numeric_limits<std::uintptr_t>::max()-7),16);
+    },"Byte write has no actual source allocation");
+    metadata_budget=-1;
+    // A valid disjoint request still follows the same four reservations; every
+    // failure must leave its completed bytes and the other tickets unchanged.
+    for(int quota=0;quota<4;++quota) {
+        const auto liveBefore=metadata_live;
+        metadata_budget=quota;
+        Reject<std::bad_alloc>([&]{GameByteWriteReservation bad(raw+1056,8);});
+        metadata_budget=-1;
+        Check(metadata_live==liveBefore && FindGameByteDomain(raw+1056,8)==GameByteDomain::WiiSerialized
+              && std::memcmp(raw,original.data(),original.size())==0,
+              "Disjoint reservation OOM changed completed bytes or pending producers");
+    }
+    // Exact adjacency at both extremes and both edges of one interior gap.
+    {
+        GameByteWriteReservation left(raw+1016,8),gap(raw+1040,48),right(raw+9168,8);
+        metadata_budget=0;
+        left.Complete(GameByteDomain::NativePayload);gap.Complete(GameByteDomain::NativePayload);
+        right.Complete(GameByteDomain::NativePayload);metadata_budget=-1;
+    }
+    // Retire half the active map, reuse their exact addresses, then complete the
+    // remainder in reverse order. Each identity remains independently valid.
+    for(unsigned i=0;i<pending.size();i+=2)pending[i].Reset();
+    for(unsigned i=0;i<pending.size();i+=2) {
+        metadata_budget=4;
+        pending[i]=GameByteWriteReservation(raw+1024+i*64,16);
+        Check(metadata_budget==0,"Neighbor search changed byte reservation allocation count");
+        pending[i].Complete(GameByteDomain::NativePayload);metadata_budget=-1;
+    }
+    metadata_budget=0;
+    for(unsigned i=pending.size();i--;)if(i%2)pending[i].Complete(GameByteDomain::NativePayload);
+    metadata_budget=-1;
+    for(auto& ticket:pending)ticket.Reset();
+    for(unsigned i=0;i<pending.size();++i)
+        Check(FindGameByteDomain(raw+1024+i*64,16)==GameByteDomain::NativePayload,
+              "Pending map removal or completion lost a surviving producer");
+    // Physical padding remains protected while pending, but never becomes
+    // completed logical bytes. Cancelled tickets can be replaced exactly.
+    {
+        GameByteWriteReservation padded(raw+12000,8,24);
+        metadata_budget=0;
+        PendingRejectMessage<std::logic_error>([&]{GameByteWriteReservation bad(raw+12016,4);},overlap);
+        padded.Complete(GameByteDomain::NativePayload);metadata_budget=-1;
+        GameCompletedSpan completed{};
+        Check(FindGameByteDomain(raw+12000,8)==GameByteDomain::NativePayload
+              && !FindGameCompletedSpan(raw+12008,16,completed),
+              "Physical producer padding was published as logical bytes");
+        GameByteWriteReservation again(raw+12016,4);again.Reset();
+        GameByteWriteReservation replacement(raw+12016,4);
+        metadata_budget=0;replacement.Complete(GameByteDomain::WiiSerialized);metadata_budget=-1;
+    }
+    Check(std::memcmp(raw,original.data(),original.size())==0,
+          "Pending-write metadata operations changed payload bytes");
+    // An allocation created inside an existing producer becomes its own exact
+    // metadata owner. Keep the original per-owner admission and crossing checks.
+    {
+        GameByteWriteReservation outer(raw+16384,4096);
+        MemoryAllocator nested{};nested.Initialize(raw+16384,4096);
+        auto* leaf=static_cast<unsigned char*>(nested.Allocate(256,32,false));
+        GameByteWriteReservation inner(leaf,32);
+        metadata_budget=0;
+        PendingRejectMessage<std::invalid_argument>([&]{GameByteWriteReservation crossing(leaf+255,2);},
+                                                    "Byte span leaves its actual source allocation");
+        PendingRejectMessage<std::invalid_argument>([&]{outer.Complete(GameByteDomain::NativePayload);},
+                                                    "Byte span crosses a live nested allocation");
+        inner.Complete(GameByteDomain::NativePayload);outer.Reset();metadata_budget=-1;
+        nested.Free(leaf);
+    }
+    owner.Free(raw);
+    Check(metadata_live==initialLive,"Pending-write fixture leaked native metadata");
+}
+}
+
 int main() {
     using namespace mscharged::platform;
     try {
+        PendingWriteNeighborCases();
         alignas(64) std::array<std::byte, 65536> arena{};
         MemoryAllocator parent{}, child{}, nested{};
         parent.Initialize(arena.data(), arena.size());

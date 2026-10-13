@@ -278,24 +278,34 @@ GameAllocationSpan Describe(Records::iterator found)
             found->second.owner, found->second.incarnation};
 }
 struct HeapFound { Records::iterator allocation; HeapMetadataRecords::iterator heap; };
-HeapFound HeapOwner(Records& records,const void* owner) {
+HeapFound HeapOwner(Registry& state,const void* owner) {
     const auto address=reinterpret_cast<std::uintptr_t>(owner);
-    for(auto a=records.begin();a!=records.end();++a) {
+    // The existing owner set is published before any native MEM header and
+    // retired with its last header or source allocation. Its address order is
+    // exactly the order of the containing allocation map; empty records do
+    // not contribute a candidate or alter first-match/error semantics.
+    for(const auto base:state.heap_owners) {
+        auto a=state.records.find(base);
+        if(a==state.records.end())continue;
         auto h=a->second.heap_metadata.find(address);
         if(h!=a->second.heap_metadata.end())return {a,h};
     }
-    return {records.end(),{}};
+    return {state.records.end(),{}};
 }
 GameHeapMetadataSpan DescribeHeap(HeapFound found) {
     const auto& h=found.heap->second;
     return {h.data,h.bytes,reinterpret_cast<const void*>(h.source),h.source_bytes,Describe(found.allocation)};
 }
-void ValidateHeapChildren(Records& records,HeapFound found,const void* pointer,std::size_t bytes) {
+void ValidateHeapChildren(Registry& state,HeapFound found,const void* pointer,std::size_t bytes) {
     const auto address=reinterpret_cast<std::uintptr_t>(pointer);
-    for(auto& [base,a]:records)for(auto& [key,h]:a.heap_metadata)
-        if(key!=found.heap->first && Overlaps(address,bytes,h.source,h.source_bytes)
-            && Contains(found.heap->second.source,found.heap->second.source_bytes,h.source,h.source_bytes))
-            throw std::logic_error("Source MEM retirement still contains a live child heap");
+    for(const auto base:state.heap_owners) {
+        const auto a=state.records.find(base);
+        if(a==state.records.end())continue;
+        for(const auto& [key,h]:a->second.heap_metadata)
+            if(key!=found.heap->first && Overlaps(address,bytes,h.source,h.source_bytes)
+                && Contains(found.heap->second.source,found.heap->second.source_bytes,h.source,h.source_bytes))
+                throw std::logic_error("Source MEM retirement still contains a live child heap");
+    }
 }
 void ValidateHeapStorageRetirement(HeapFound found) {
     // Exactly the same crossing checks required by RetireMemory, before the
@@ -786,9 +796,20 @@ GameByteWriteReservation::GameByteWriteReservation(void* destination, std::size_
     if (owner == state.records.end()) throw std::invalid_argument("Byte write has no actual source allocation");
     ValidateMemoryExtent(owner->second,address,physicalBytes);
     ValidateGraphicsExtent(owner->second, address, physicalBytes);
-    for (const auto& [base, active] : owner->second.pending_writes)
-        if (Overlaps(base, active.bytes, address, physicalBytes))
+    // Pending producers are positive, disjoint physical ranges: the sole
+    // insertion below rejects overlaps before publication, and retirement only
+    // erases them. Any overlap is therefore in the predecessor or first range
+    // beginning at/after this address. Keep the original overflow-safe predicate.
+    const auto& writes = owner->second.pending_writes;
+    const auto next = writes.lower_bound(address);
+    if (next != writes.begin())
+    {
+        auto prior = next; --prior;
+        if (Overlaps(prior->first, prior->second.bytes, address, physicalBytes))
             throw std::logic_error("Concurrent overlapping byte producers are unsupported");
+    }
+    if (next != writes.end() && Overlaps(next->first, next->second.bytes, address, physicalBytes))
+        throw std::logic_error("Concurrent overlapping byte producers are unsupported");
     if (!owner->second.next_write) throw std::overflow_error("Byte write incarnation exhausted");
     void* storage = ChargedNativeMetadataAllocate(sizeof(PendingBytes));
     PendingBytes* token = nullptr;
@@ -1140,10 +1161,14 @@ void GameHeapMetadataReservation::Commit(const void* sourceOwner) {
     if(parent==state.records.end() || parent->second.incarnation!=token.incarnation
         || Containing(state.records,h.source,h.source_bytes)!=parent)
         throw std::invalid_argument("MEM metadata source was retired or reused");
-    for(const auto& [base,a]:state.records)for(const auto& [key,live]:a.heap_metadata) {
-        if(live.source==h.source || (Overlaps(live.source,live.source_bytes,h.source,h.source_bytes)
-            && !Contains(live.source,live.source_bytes,h.source,h.source_bytes)))
-            throw std::invalid_argument("MEM metadata regions overlap or replace live child heaps");
+    for(const auto base:state.heap_owners) {
+        const auto a=state.records.find(base);
+        if(a==state.records.end())continue;
+        for(const auto& [key,live]:a->second.heap_metadata) {
+            if(live.source==h.source || (Overlaps(live.source,live.source_bytes,h.source,h.source_bytes)
+                && !Contains(live.source,live.source_bytes,h.source,h.source_bytes)))
+                throw std::invalid_argument("MEM metadata regions overlap or replace live child heaps");
+        }
     }
     token.record.key()=reinterpret_cast<std::uintptr_t>(sourceOwner);
     state.heap_owners.insert(parent->first); // before the record: may throw; a spare owner is harmless
@@ -1152,7 +1177,7 @@ void GameHeapMetadataReservation::Commit(const void* sourceOwner) {
 }
 bool FindGameHeapMetadata(const void* sourceOwner,GameHeapMetadataSpan& result) {
     auto& state=State();std::lock_guard lock(state.mutex);
-    auto found=HeapOwner(state.records,sourceOwner);
+    auto found=HeapOwner(state,sourceOwner);
     if(found.allocation==state.records.end())return false;
     result=DescribeHeap(found);return true;
 }
@@ -1160,11 +1185,14 @@ bool FindGameHeapMetadataNative(const void* pointer,std::size_t bytes,GameHeapMe
     if(!pointer || !bytes)return false;
     auto& state=State();std::lock_guard lock(state.mutex);
     const auto address=reinterpret_cast<std::uintptr_t>(pointer);
-    for(auto a=state.records.begin();a!=state.records.end();++a)
+    for(const auto base:state.heap_owners) {
+        auto a=state.records.find(base);
+        if(a==state.records.end())continue;
         for(auto h=a->second.heap_metadata.begin();h!=a->second.heap_metadata.end();++h)
             if(Contains(reinterpret_cast<std::uintptr_t>(h->second.data),h->second.bytes,address,bytes)) {
                 result=DescribeHeap({a,h});return true;
             }
+    }
     return false;
 }
 bool FindGameHeapMetadataSource(const void* pointer,std::size_t bytes,GameHeapMetadataSpan& result) {
@@ -1172,11 +1200,14 @@ bool FindGameHeapMetadataSource(const void* pointer,std::size_t bytes,GameHeapMe
     auto& state=State();std::lock_guard lock(state.mutex);
     const auto address=reinterpret_cast<std::uintptr_t>(pointer);
     HeapFound found{state.records.end(),{}};std::size_t shortest=std::numeric_limits<std::size_t>::max();
-    for(auto a=state.records.begin();a!=state.records.end();++a)
+    for(const auto base:state.heap_owners) {
+        auto a=state.records.find(base);
+        if(a==state.records.end())continue;
         for(auto h=a->second.heap_metadata.begin();h!=a->second.heap_metadata.end();++h)
             if(Contains(h->second.source,h->second.source_bytes,address,1) && h->second.source_bytes<shortest) {
                 found={a,h};shortest=h->second.source_bytes;
             }
+    }
     if(found.allocation==state.records.end())return false;
     if(!Contains(found.heap->second.source,found.heap->second.source_bytes,address,bytes))
         throw std::invalid_argument("MEM metadata query leaves its exact logical heap");
@@ -1184,26 +1215,26 @@ bool FindGameHeapMetadataSource(const void* pointer,std::size_t bytes,GameHeapMe
 }
 void ValidateGameHeapMetadataRetirement(const void* sourceOwner) {
     auto& state=State();std::lock_guard lock(state.mutex);
-    auto found=HeapOwner(state.records,sourceOwner);
+    auto found=HeapOwner(state,sourceOwner);
     if(found.allocation==state.records.end())throw std::invalid_argument("MEM heap is unknown or retired");
     const auto& h=found.heap->second;
-    ValidateHeapChildren(state.records,found,reinterpret_cast<const void*>(h.source),h.source_bytes);
+    ValidateHeapChildren(state,found,reinterpret_cast<const void*>(h.source),h.source_bytes);
     ValidateHeapStorageRetirement(found);
 }
 void ValidateGameHeapMetadataRangeRetirement(const void* sourceOwner,const void* base,std::size_t bytes) {
     auto& state=State();std::lock_guard lock(state.mutex);
-    auto found=HeapOwner(state.records,sourceOwner);
+    auto found=HeapOwner(state,sourceOwner);
     if(found.allocation==state.records.end())throw std::invalid_argument("MEM heap is unknown or retired");
     if(!Contains(found.heap->second.source,found.heap->second.source_bytes,reinterpret_cast<std::uintptr_t>(base),bytes))
         throw std::invalid_argument("MEM free leaves its actual heap backing");
-    ValidateHeapChildren(state.records,found,base,bytes);
+    ValidateHeapChildren(state,found,base,bytes);
 }
 void RetireGameHeapMetadata(const void* sourceOwner) {
     auto& state=State();std::lock_guard lock(state.mutex);
-    auto found=HeapOwner(state.records,sourceOwner);
+    auto found=HeapOwner(state,sourceOwner);
     if(found.allocation==state.records.end())throw std::invalid_argument("MEM heap is unknown or retired");
     const auto& h=found.heap->second;
-    ValidateHeapChildren(state.records,found,reinterpret_cast<const void*>(h.source),h.source_bytes);
+    ValidateHeapChildren(state,found,reinterpret_cast<const void*>(h.source),h.source_bytes);
     ValidateHeapStorageRetirement(found);
     auto& parent=found.allocation->second;
     for(auto i=parent.memory_storage.begin();i!=parent.memory_storage.end();) {
@@ -1216,7 +1247,7 @@ void RetireGameHeapMetadata(const void* sourceOwner) {
 
 GameMemoryStorageReservation::GameMemoryStorageReservation(const void* sourceOwner,std::size_t bytes):pending_(nullptr) {
     auto& state=State();std::lock_guard lock(state.mutex);
-    auto projected=HeapOwner(state.records,sourceOwner);
+    auto projected=HeapOwner(state,sourceOwner);
     auto parent=projected.allocation!=state.records.end()?projected.allocation:
         Containing(state.records,reinterpret_cast<std::uintptr_t>(sourceOwner),1);
     if(parent==state.records.end())throw std::invalid_argument("MEM heap has no live original backing allocation");

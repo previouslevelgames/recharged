@@ -6,6 +6,7 @@ import io
 import json
 import pathlib
 import shutil
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ import zipfile
 from unittest import mock
 
 SOURCE = pathlib.Path(__file__).resolve().parents[1] / "tools/package_build.py"
+sys.path.insert(0, str(SOURCE.parent))
 SPEC = importlib.util.spec_from_file_location("package_build", SOURCE)
 PACKAGER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGER)
@@ -114,6 +116,10 @@ checksum = "{self.checksum}"
         lock.write_text(lock.read_text().replace(previous, self.checksum))
 
     def git_output(self, command):
+        if "--coff-imports" in command:
+            name = pathlib.Path(command[-1]).name
+            imports = self.windows_imports.get(name, ["KERNEL32.dll"])
+            return ("Format: COFF-x86-64\n" + "".join(f"Import {{\n  Name: {dll}\n}}\n" for dll in imports)).encode()
         self.assertEqual(command[0], "git")
         if "rev-parse" in command:
             return ("6" * 40 + "\n").encode()
@@ -239,19 +245,43 @@ checksum = "{self.checksum}"
         self.assertEqual((manifest["platform"], manifest["architecture"]), ("macos", "arm64"))
         self.assertEqual(manifest["modules"], [stem + ".dylib" for stem in PACKAGER.MODULES])
 
-    def test_windows_packages_exe_dlls_runtime_and_notices_as_zip(self):
+    def windows_build(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
                    b'set(CMAKE_SYSTEM_NAME "Windows")\nset(CMAKE_SYSTEM_PROCESSOR "x86_64")\n')
         (self.build / "mscharged").rename(self.build / "mscharged.exe")
         for stem in PACKAGER.MODULES:
             (self.build / (stem + ".so")).rename(self.build / (stem + ".dll"))
         toolchain = self.root / "llvm mingw"
+        self.write(toolchain, "bin/llvm-readobj", b"fixture tool")
+        self.windows_imports = {"mscharged.exe": ["libc++.dll"],
+                                "libc++.dll": ["libunwind.dll"],
+                                "libunwind.dll": ["libwinpthread-1.dll", "api-ms-win-crt-runtime-l1-1-0.dll"]}
         for dll in PACKAGER.WINDOWS_RUNTIME:
             self.write(toolchain, "x86_64-w64-mingw32/bin/" + dll, b"runtime " + dll.encode())
         for notice in PACKAGER.WINDOWS_RUNTIME_NOTICES:
             self.write(toolchain, notice, b"notice")
         cache = (self.build / "CMakeCache.txt").read_bytes()
         self.write(self.build, "CMakeCache.txt", cache + f"LLVM_MINGW_ROOT:PATH={toolchain}\n".encode())
+        graphics = self.root / "windows graphics"
+        pin = json.loads(PACKAGER.WINDOWS_GRAPHICS_PIN.read_text())
+        for record in PACKAGER.graphics_file_records(pin):
+            data = ("synthetic " + record["path"]).encode()
+            record["sha256"] = hashlib.sha256(data).hexdigest()
+            self.write(graphics, record["path"], data)
+            if record["path"].endswith(".dll"):
+                self.write(self.build, record["path"], data)
+        self.write(graphics, "windows-graphics.json", json.dumps(pin).encode())
+        pin_path = self.root / "graphics pin.json"
+        pin_path.write_text(json.dumps(pin))
+        patch = mock.patch.object(PACKAGER, "WINDOWS_GRAPHICS_PIN", pin_path)
+        patch.start()
+        self.addCleanup(patch.stop)
+        with (self.build / "CMakeCache.txt").open("a") as stream:
+            stream.write(f"MSCHARGED_WINDOWS_GRAPHICS_DIR:PATH={graphics}\n")
+        return graphics, pin
+
+    def test_windows_packages_exe_dlls_runtime_and_notices_as_zip(self):
+        _, pin = self.windows_build()
         path = self.package()
         self.assertTrue(path.name.endswith("-windows-x86_64.zip"))
         with zipfile.ZipFile(path) as archive:
@@ -263,6 +293,35 @@ checksum = "{self.checksum}"
         self.assertIn("assets/launcher/aurora.png", names)
         self.assertEqual(manifest["modules"], [stem + ".dll" for stem in PACKAGER.MODULES])
         self.assertEqual(manifest["platform"], "windows")
+        self.assertEqual(manifest["windows_graphics"], pin)
+        self.assertEqual(manifest["windows_imports"]["mscharged.exe"], ["libc++.dll"])
+        for record in PACKAGER.graphics_file_records(pin):
+            self.assertIn(record["path"], names)
+            self.assertEqual(manifest["files"][record["path"]]["sha256"], record["sha256"])
+
+    def test_windows_rejects_missing_shader_compiler(self):
+        self.windows_build()
+        (self.build / "dxil.dll").unlink()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "Missing.*dxil.dll"):
+            self.package()
+
+    def test_windows_rejects_stale_shader_compiler(self):
+        self.windows_build()
+        (self.build / "dxcompiler.dll").write_bytes(b"wrong version")
+        with self.assertRaisesRegex(PACKAGER.PackageError, "differs.*dxcompiler.dll"):
+            self.package()
+
+    def test_windows_rejects_missing_compiler_notice(self):
+        graphics, _ = self.windows_build()
+        (graphics / "LICENSES/dxc/LICENSE-MS.txt").unlink()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "Missing or modified"):
+            self.package()
+
+    def test_windows_rejects_missing_transitive_runtime(self):
+        self.windows_build()
+        self.windows_imports["dxcompiler.dll"] = ["VCRUNTIME140.dll"]
+        with self.assertRaisesRegex(PACKAGER.PackageError, "missing VCRUNTIME140.dll, imported by dxcompiler.dll"):
+            self.package()
 
     def test_windows_without_toolchain_root_fails(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",

@@ -316,6 +316,18 @@ if(BUILD_TESTING)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
+    add_executable(graphics_backend_tests tests/graphics_backend.cpp)
+    target_include_directories(graphics_backend_tests PRIVATE src)
+    target_compile_features(graphics_backend_tests PRIVATE cxx_std_17)
+    add_test(NAME graphics_backend COMMAND graphics_backend_tests)
+    add_test(NAME windows_graphics_dependencies
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_windows_graphics.py")
+    if(WIN32 AND MSCHARGED_BUILD_GX_CHECK)
+        add_executable(windows_graphics_runtime_tests tests/windows_graphics_runtime.cpp)
+        target_compile_features(windows_graphics_runtime_tests PRIVATE cxx_std_17)
+        add_dependencies(windows_graphics_runtime_tests copy_d3dcompiler_dll)
+        add_test(NAME windows_graphics_runtime COMMAND windows_graphics_runtime_tests)
+    endif()
     # Opt-in game tweaks: off means the original code (tweak patches) and the
     # original answers (the game module's tweak state).
     add_test(NAME tweak_patches

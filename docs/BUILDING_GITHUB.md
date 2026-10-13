@@ -13,7 +13,9 @@ tests natively.
 
 Windows packages are cross-compiled on Ubuntu with the pinned LLVM-MinGW
 toolchain and include its C++ runtime DLLs (`libc++`, `libunwind`,
-`winpthread`) with their notices.
+`winpthread`), plus the pinned DirectX shader compilers (`dxcompiler.dll`,
+`dxil.dll`, `d3dcompiler_47.dll`) with their notices. Packaging verifies the
+shader compiler versions and rejects missing or modified DLLs.
 
 Extract the downloaded `.tar.gz` (Linux, macOS) or `.zip` (Windows), keep the
 runtime modules, DLLs and `assets/` beside the executable, and start the
@@ -26,7 +28,8 @@ own disc:
 
 Game data, personal settings and saves are excluded. Linux builds use Ubuntu
 26.04/GCC 15 and need compatible system libraries plus a Vulkan driver. Windows
-builds need Windows 10/11 and a Vulkan driver. macOS builds use macOS 15/Apple
+builds need Windows 10/11 and a Vulkan or DirectX 12 driver; choose the API on
+the launcher's Advanced page. macOS builds use macOS 15/Apple
 Clang and need Metal. These archives are not self-contained installers.
 
 ## Releases and version numbers

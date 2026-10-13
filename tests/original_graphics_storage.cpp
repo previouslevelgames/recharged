@@ -1,5 +1,6 @@
 #include "NL/MemAlloc.h"
 #include "platform/game_allocation_ownership.h"
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -7,6 +8,7 @@
 #include <cstring>
 #include <new>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 thread_local int budget = -1;
@@ -153,11 +155,132 @@ void IntervalQueryCases() {
 }
 }
 
+namespace {
+void HeapMetadataQueryCases() {
+    using namespace mscharged::platform;
+    const auto startLive=live;
+    alignas(64) std::array<std::byte,65536> arena{};
+    MemoryAllocator pool{};pool.Initialize(arena.data(),arena.size());
+    const auto initialFree=pool.TotalFreeMemory();
+    std::array<void*,48> unrelated{};
+    for(unsigned i=0;i<16;++i)unrelated[i]=pool.Allocate(128,32,false);
+    auto* first=static_cast<unsigned char*>(pool.Allocate(8192,32,false));
+    for(unsigned i=16;i<32;++i)unrelated[i]=pool.Allocate(128,32,false);
+    auto* second=static_cast<unsigned char*>(pool.Allocate(2048,32,false));
+    for(unsigned i=32;i<48;++i)unrelated[i]=pool.Allocate(128,32,false);
+    std::memset(first,0x5a,8192);std::memset(second,0xa5,2048);
+    const auto allocatedLive=live;
+    GameHeapMetadataSpan span{};
+    // Failed reservation and owner publication must not introduce a header,
+    // retain a host allocation, or change original source memory.
+    for(int quota=0;quota<3;++quota) {
+        budget=quota;
+        Reject<std::bad_alloc>([&]{GameHeapMetadataReservation fail(first+64,4096,96);});
+        budget=-1;
+        Check(live==allocatedLive && !FindGameHeapMetadataSource(first+64,1,span),
+              "MEM reservation OOM published or leaked a heap");
+    }
+    void *outer{},*child{},*other{};
+    {
+        GameHeapMetadataReservation reserve(first+64,4096,96);outer=reserve.Data();
+        const auto pendingLive=live;
+        Reject<std::invalid_argument>([&]{reserve.Commit(first);});
+        Check(live==pendingLive && !FindGameHeapMetadata(outer,span),
+              "Foreign MEM owner rejection consumed/published its reservation");
+        budget=0;
+        Reject<std::bad_alloc>([&]{reserve.Commit(outer);});
+        budget=-1;
+        Check(live==pendingLive && !FindGameHeapMetadata(outer,span)
+            && !FindGameHeapMetadataSource(first+64,1,span),
+              "MEM owner-index OOM left a visible or consumed heap");
+        reserve.Commit(outer);
+    }
+    // Register a later allocation before the nested header. Queries must still
+    // choose the genuine address/extent, not registration or CRT address order.
+    {
+        GameHeapMetadataReservation reserve(second+64,1024,64);other=reserve.Data();reserve.Commit(other);
+    }
+    {
+        GameHeapMetadataReservation reserve(first+576,512,80);child=reserve.Data();reserve.Commit(child);
+    }
+    const auto stableLive=live;
+    budget=0;
+    Check(FindGameHeapMetadata(outer,span) && span.data==outer && span.source==first+64
+          && span.source_bytes==4096 && span.bytes==96 && span.allocation.base==first,
+          "Sparse MEM exact-owner lookup lost its source incarnation");
+    Check(FindGameHeapMetadata(other,span) && span.data==other && span.allocation.base==second,
+          "Sparse MEM lookup skipped a second original allocation");
+    Check(FindGameHeapMetadataNative(static_cast<unsigned char*>(child)+79,1,span)
+          && span.data==child && span.source==first+576,
+          "Native MEM interior lookup did not select its full-width header");
+    Check(!FindGameHeapMetadataNative(static_cast<unsigned char*>(child)+79,2,span),
+          "Native MEM query crossing its header found unrelated storage");
+    Check(FindGameHeapMetadataSource(first+576,512,span) && span.data==child,
+          "Nested source MEM query failed to select the shortest live region");
+    RejectMessage([&]{FindGameHeapMetadataSource(first+1080,16,span);},
+                  "MEM metadata query leaves its exact logical heap");
+    Check(FindGameHeapMetadataSource(first+1088,1,span) && span.data==outer,
+          "Adjacent source MEM query retained the preceding child");
+    Check(!FindGameHeapMetadata(reinterpret_cast<const void*>(1),span)
+          && !FindGameHeapMetadataSource(second+1600,1,span)
+          && !FindGameHeapMetadataNative(nullptr,1,span)
+          && !FindGameHeapMetadataSource(first+64,0,span),
+          "Unknown or empty MEM query invented ownership");
+    ValidateGameHeapMetadataRangeRetirement(outer,first+64,128);
+    Reject<std::logic_error>([&]{ValidateGameHeapMetadataRetirement(outer);});
+    Reject<std::logic_error>([&]{ValidateGameHeapMetadataRangeRetirement(outer,first+560,32);});
+    Reject<std::logic_error>([&]{RetireGameHeapMetadata(outer);});
+    budget=-1;
+    Check(live==stableLive,"Read-only MEM query/validation allocated or retired metadata");
+    // Exact source duplicates and equal-width crossings cannot establish a
+    // tie. Rejection must leave both nested candidates and every byte intact.
+    for(const auto range: {std::pair<std::size_t,std::size_t>{64,4096}, {800,512}, {32,5000}}) {
+        GameHeapMetadataReservation conflict(first+range.first,range.second,48);
+        const auto before=live;
+        RejectMessage([&]{conflict.Commit(conflict.Data());},
+                      "MEM metadata regions overlap or replace live child heaps");
+        Check(live==before && FindGameHeapMetadataSource(first+600,1,span) && span.data==child,
+              "Rejected overlapping MEM header changed existing ownership");
+    }
+    // A reserved but unpublished header cannot outlive/reuse the allocation
+    // incarnation it captured. Failed commit does not leave a spare live owner.
+    {
+        auto* temporary=static_cast<unsigned char*>(pool.Allocate(1024,32,false));
+        GameHeapMetadataReservation stale(temporary+64,512,48);
+        pool.Free(temporary);
+        auto* reused=pool.Allocate(1024,32,false);
+        RejectMessage([&]{stale.Commit(stale.Data());},"MEM metadata source was retired or reused");
+        Check(!FindGameHeapMetadata(stale.Data(),span),"Stale MEM reservation became a visible owner");
+        pool.Free(reused);
+    }
+    budget=0;
+    RetireGameHeapMetadata(child);
+    Check(!FindGameHeapMetadata(child,span) && !FindGameHeapMetadataNative(child,1,span)
+          && FindGameHeapMetadataSource(first+600,1,span) && span.data==outer,
+          "Nested MEM retirement retained a header or lost its genuine parent");
+    RetireGameHeapMetadata(outer);
+    Check(!FindGameHeapMetadata(outer,span) && !FindGameHeapMetadataSource(first+64,1,span)
+          && FindGameHeapMetadata(other,span) && span.data==other,
+          "Last MEM header retirement retained its owner or retired another owner");
+    RetireGameHeapMetadata(other);
+    budget=-1;
+    Check(std::all_of(first,first+8192,[](unsigned char byte){return byte==0x5a;}),
+          "MEM metadata traversal mutated source bytes");
+    Check(std::all_of(second,second+2048,[](unsigned char byte){return byte==0xa5;}),
+          "MEM metadata traversal mutated another source");
+    pool.Free(first);pool.Free(second);
+    for(auto* address:unrelated)pool.Free(address);
+    Check(pool.TotalFreeMemory()==initialFree && live==startLive,
+          "Sparse MEM ownership/lifetime cases leaked source or host storage");
+}
+}
+
 int main() {
     using namespace mscharged::platform;
     try {
         const auto beforeIntervals=live;
         IntervalQueryCases();
+        HeapMetadataQueryCases();
         Check(live==beforeIntervals,"Interval fixture retained host metadata after source retirement");
         alignas(64) std::array<std::byte,16384> arena{};
         MemoryAllocator pool{}; pool.Initialize(arena.data(),arena.size());

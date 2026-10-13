@@ -34,6 +34,7 @@ file-specific terms or notices on nested third-party material:
 | Charged decompilation | [CC0 dedication](../extern/mscharged-decomp/LICENSE) for original contributions; [separate third-party notices](../extern/mscharged-decomp/LICENSES). Reconstructed game code is not relicensed by this port. |
 | Aurora | [MIT](../extern/aurora/LICENSE), copyright Luke Street. |
 | Dawn | [BSD-style terms](../extern/dawn/LICENSE); nested sources retain their own notices. |
+| Windows shader compilers | Microsoft DXC and Windows SDK redistributables; exact versions and hashes in [windows_graphics.json](../tools/windows_graphics.json). Windows packages include the accompanying notices in `LICENSES/dxc` and `LICENSES/windows-sdk`. |
 | SDL | [zlib license](../extern/sdl/LICENSE.txt). |
 | Abseil | [Apache 2.0](../extern/abseil-cpp/LICENSE). |
 | xxHash | [BSD terms](../extern/xxhash/LICENSE). |

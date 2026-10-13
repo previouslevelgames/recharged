@@ -345,7 +345,8 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             frontend ? appTitle : appTitle+" | Credits diagnostic";
         config.appName=windowTitle.c_str();
         config.userPath=config.cachePath=dataPath.c_str();
-        config.desiredBackend=mscharged::platform::NativeGraphicsBackend;
+        const auto& graphics=mscharged::ResolveGraphicsBackend(launch.settings.backend);
+        config.desiredBackend=mscharged::platform::AuroraGraphicsBackend(graphics.backend);
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
         config.windowPosX=config.windowPosY=-1;
         config.mem1Size=MEM1_DEFAULT_SIZE;
@@ -372,11 +373,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             +", fps counter "+(shown.fps_overlay?shown.fps_overlay_corner:std::string("off"))
             +", graphics validation "+(shown.graphics_validation?"on":"off"));
         mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
-            +mscharged::platform::NativeGraphicsBackendName+" graphics and the window");
+            +graphics.label+" graphics and the window");
         const auto host=aurora_initialize(argc,argv,&config);
-        if(!host.window||host.backend!=mscharged::platform::NativeGraphicsBackend)
-            throw std::runtime_error(std::string("Actual ")+mscharged::platform::NativeGraphicsBackendName
-                +" foundation unavailable; no fallback acceptance");
+        if(!host.window||host.backend!=config.desiredBackend)
+            throw std::runtime_error(std::string(graphics.label)
+                +" is unavailable. Select a different graphics API in the launcher.");
         mscharged::platform::SetApplicationIcon(host.window);
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         mscharged::platform::LogSessionDisplays(host.window);
@@ -577,7 +578,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         auto entry=reinterpret_cast<int(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         mscharged::platform::Trace("Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
-                     mscharged::platform::NativeGraphicsBackendName);
+                     graphics.label);
         mscharged::platform::SessionLogLine("Startup: game module loaded, entering the game");
         std::fflush(nullptr);
         const int result=entry();

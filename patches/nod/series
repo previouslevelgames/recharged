@@ -1,2 +1,3 @@
 0001-lock-cargo-dependencies.patch
 0002-join-preloader-workers-before-stream-release.patch
+0003-probe-resident-file-bytes.patch

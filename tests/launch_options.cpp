@@ -39,7 +39,7 @@ int main()
     fs::create_directories(root / "config"); fs::create_directories(root / "working");
     const auto path = root / "config/settings.ini";
     const std::string original = "\xEF\xBB\xBF; untouched\r\n[game]\r\ndisc = \"games/INI disc.rvz\"\r\n"
-        "language = french\r\n[display]\r\nwidth = 960\r\nheight = 640\r\nfullscreen = true\r\naspect = 4:3\r\n"
+        "language = french\r\n[display]\r\nbackend = d3d12\r\nwidth = 960\r\nheight = 640\r\nfullscreen = true\r\naspect = 4:3\r\n"
         "[future]\r\nunknown = retained\r\n";
     std::ofstream(path, std::ios::binary) << original;
     const auto stamp = fs::last_write_time(path);
@@ -49,6 +49,11 @@ int main()
         const auto baseline = ResolveLaunch(file, {});
         Check(baseline.disc_path == root / "config/games/INI disc.rvz", "INI-relative disc base changed");
         Check(baseline.settings.language == "french", "INI text language lost before native handoff");
+        Check(baseline.settings.backend == "d3d12", "INI graphics backend lost before native handoff");
+        auto graphics_draft = file.settings;
+        graphics_draft.backend = "vulkan";
+        Check(ResolveLaunch(file, {}, &graphics_draft).settings.backend == "vulkan"
+            && file.settings.backend == "d3d12", "Launcher backend choice did not override the INI for launch");
         Check(baseline.settings.width == 960 && baseline.settings.height == 640 && baseline.settings.fullscreen,
             "INI display values not retained");
         Check(baseline.disc_source == SettingSource::Config && baseline.width_source == SettingSource::Config

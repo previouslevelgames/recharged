@@ -1,0 +1,31 @@
+Subject: Honor explicit graphics backend selections
+
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Only BACKEND_AUTO may try other APIs. The Windows launcher offers Vulkan and
+DirectX 12 as explicit choices; a failed choice must report an error rather
+than initializing another API. This also keeps GPU checks on their requested
+backend. No game or rendering algorithm changes.
+
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+index 80a95ab..a37fd6b 100644
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -175,7 +175,7 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+     }
+   }
+ 
+-  if (!windowCreated) {
++  if (!windowCreated && config.desiredBackend == BACKEND_AUTO) {
+     for (const auto backendType : PreferredBackendOrder) {
+       selectedBackend = backendType;
+       if (!window::create_window(selectedBackend)) {
+@@ -190,7 +190,7 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+     }
+   }
+ 
+-  AURORA_ASSERT(windowCreated, "Error creating window: {}", SDL_GetError());
++  AURORA_ASSERT(windowCreated, "Could not initialize the requested graphics backend; see preceding graphics errors. SDL: {}", SDL_GetError());
+ 
+   // Initialize SDL_Renderer for ImGui when we can't use a Dawn backend
+   if (webgpu::g_backendType == wgpu::BackendType::Null) {

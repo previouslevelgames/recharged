@@ -8,6 +8,11 @@ configuration, and the [feature list](FEATURES.md) for what is supported.
 ## Graphics prerequisites
 
 Linux uses Vulkan; macOS selects Metal and remains under runtime validation.
+On Windows, **Advanced → Graphics API** selects Vulkan or DirectX 12 for the
+next game launch (`display.backend = vulkan` or `d3d12` in the INI). Existing
+`auto` settings keep Vulkan. A failed selection reports an error without
+switching APIs. Keep the three shader compiler DLLs included in the Windows ZIP
+beside `mscharged.exe`.
 Install the [build prerequisites](BUILDING.md#requirements), then initialize the
 required pinned sources from the repository root:
 
@@ -17,7 +22,8 @@ python3 tools/setup_dependencies.py
 
 The first graphics build is large. Adjust parallelism for available memory.
 Real GPU tests are opt-in; the Vulkan test gate requires Linux and installed
-validation layers. Windows and other disc regions remain unsupported.
+validation layers. DirectX 12 rendering and performance still need validation
+on real Windows hardware. Other disc regions remain unsupported.
 
 ## Original frontend sequence
 

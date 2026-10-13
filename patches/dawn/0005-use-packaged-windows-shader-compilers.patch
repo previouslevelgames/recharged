@@ -1,0 +1,37 @@
+Subject: Allow app-local prebuilt DXC and shader compiler deployment
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+
+DAWN_DXC_RUNTIME_DIR enables the existing dynamic DXC loader without building
+its LLVM tree or linking the compiler into the application. The parent build
+verifies and deploys the pinned Microsoft DLLs, including FXC for shader model 5
+devices, through copy_d3dcompiler_dll. Honor that supplied target instead of
+requiring an installed Windows SDK on the cross-compilation host.
+
+diff --git a/src/dawn/native/CMakeLists.txt b/src/dawn/native/CMakeLists.txt
+index f45b4fa..ff399ed 100644
+--- a/src/dawn/native/CMakeLists.txt
++++ b/src/dawn/native/CMakeLists.txt
+@@ -981,9 +981,11 @@ if (DAWN_USE_X11)
+ endif()
+ 
+ if (DAWN_ENABLE_D3D12)
+-    if (DAWN_USE_BUILT_DXC)
++    if (DAWN_USE_BUILT_DXC OR DAWN_DXC_RUNTIME_DIR)
+         target_compile_definitions(dawn_native PRIVATE "DAWN_USE_BUILT_DXC")
+         target_compile_definitions(dawn_native_objects PRIVATE "DAWN_USE_BUILT_DXC")
++    endif()
++    if (DAWN_USE_BUILT_DXC)
+         add_dependencies(dawn_native copy_dxil_dll)
+     endif()
+     if (DAWN_USE_AGILITY_SDK)
+@@ -1120,6 +1122,8 @@ endif()
+ 
+ # Copy d3dcompiler_47.dll from Windows SDK when not using system component loading
+ if (WIN32 AND NOT DAWN_FORCE_SYSTEM_COMPONENT_LOAD AND (DAWN_ENABLE_D3D11 OR DAWN_ENABLE_D3D12))
+-    AddCopyWindowsSDKDLLTarget(copy_d3dcompiler_dll "d3dcompiler_47.dll")
++    if (NOT TARGET copy_d3dcompiler_dll)
++        AddCopyWindowsSDKDLLTarget(copy_d3dcompiler_dll "d3dcompiler_47.dll")
++    endif()
+     add_dependencies(dawn_native copy_d3dcompiler_dll)
+ endif()

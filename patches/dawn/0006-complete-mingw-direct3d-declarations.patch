@@ -1,0 +1,51 @@
+Subject: Complete Direct3D declarations for LLVM-MinGW
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+Classification: Windows compiler compatibility.
+
+MinGW's winerror.h does not declare HRESULT; use Dawn's Windows include wrapper
+before the error declarations. Its D3D12 header also ends at shader model 6.7.
+Supply the SDK's 6.8/6.9 enum values locally so the existing runtime capability
+probes, including rejection on older drivers, remain unchanged. Values match
+the pinned Microsoft Windows SDK 10.0.26100.7705 d3d12.h. Use IID_PPV_ARGS
+for the resource-device query so MinGW requests the interface UUID, not an
+undefined UUID specialization for ComPtr<ID3D12Device>.
+
+--- a/src/dawn/native/d3d/D3DError.h
++++ b/src/dawn/native/d3d/D3DError.h
+@@ -28,7 +28,7 @@
+ #ifndef SRC_DAWN_NATIVE_D3D_D3DERROR_H_
+ #define SRC_DAWN_NATIVE_D3D_D3DERROR_H_
+ 
+-#include <winerror.h>
++#include "src/utils/windows_with_undefs.h"
+ 
+ #include "src/dawn/native/Error.h"
+ #include "src/dawn/native/ErrorInjector.h"
+--- a/src/dawn/native/d3d12/D3D12Info.cpp
++++ b/src/dawn/native/d3d12/D3D12Info.cpp
+@@ -39,6 +39,13 @@
+ namespace dawn::native::d3d12 {
+ 
+ namespace {
++#if defined(__MINGW32__) && !defined(DAWN_USE_AGILITY_SDK)
++// MinGW's D3D12 header ends at shader model 6.7. Keep the newer SDK probes:
++// CheckFeatureSupport still decides which shader models the driver supports.
++constexpr D3D_SHADER_MODEL D3D_SHADER_MODEL_6_8 = static_cast<D3D_SHADER_MODEL>(0x68);
++constexpr D3D_SHADER_MODEL D3D_SHADER_MODEL_6_9 = static_cast<D3D_SHADER_MODEL>(0x69);
++#endif
++
+ #ifdef DAWN_USE_AGILITY_SDK
+ std::vector<D3D12DeviceInfo::LinAlgWMMSupport> GatherLinAlgWaveMatrixMultiplySupports(
+     ComPtr<ID3D12Device> d3d12Device,
+--- a/src/dawn/native/d3d12/SharedBufferMemoryD3D12.cpp
++++ b/src/dawn/native/d3d12/SharedBufferMemoryD3D12.cpp
+@@ -178,7 +178,7 @@
+     ComPtr<ID3D12Resource> d3d12Resource = descriptor->resource;
+ 
+     ComPtr<ID3D12Device> resourceDevice;
+-    d3d12Resource->GetDevice(__uuidof(resourceDevice), &resourceDevice);
++    d3d12Resource->GetDevice(IID_PPV_ARGS(&resourceDevice));
+     DAWN_INVALID_IF(resourceDevice.Get() != device->GetD3D12Device(),
+                     "The D3D12 device of the resource and the D3D12 device of %s must be same.",
+                     device);

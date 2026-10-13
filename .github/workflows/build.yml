@@ -193,6 +193,8 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-windows-x86_64-${{ github.sha }}
           restore-keys: ccache-windows-x86_64-
+      - name: Prepare pinned Windows shader compilers
+        run: python tools/setup_windows_graphics.py
       - name: Configure original runtime
         run: >-
           cmake --preset release -B build/windows

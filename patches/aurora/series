@@ -84,3 +84,5 @@
 0088-present-picture-without-signal-margin.patch
 0089-faster-authored-mipmap-check.patch
 0090-host-overlay-over-vi-picture.patch
+0091-honor-explicit-graphics-backend.patch
+0092-complete-cached-dvd-reads.patch

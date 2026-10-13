@@ -8,6 +8,7 @@
 #include "imgui_stdlib.h"
 
 #include "bootstrap/launch_options.h"
+#include "bootstrap/graphics_backend.h"
 #include "launcher/player_lineup.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
@@ -599,6 +600,8 @@ private:
         if (!SupportedRelease(*check_.info))
             return "Only the USA version of Mario Strikers Charged (R4QE01) is supported for now.";
         const auto settings = EffectiveLaunch().settings;
+        try { ResolveGraphicsBackend(settings.backend); }
+        catch (const std::invalid_argument& error) { return error.what(); }
         if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
             return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
         if (settings.language != "auto" && settings.language != "english" && settings.language != "french"
@@ -2797,14 +2800,24 @@ private:
         BeginCard("##graphics", "Graphics", nullptr, Icon::Display);
         if (BeginRows("##graphics_rows"))
         {
-#if defined(__APPLE__)
-            const char* api = "Metal";
+            Row("Graphics API", "Used the next time you start the game.");
+#if defined(_WIN32)
+            const std::string selected = draft_.backend == "auto" ? kGraphicsBackends.front().value : draft_.backend;
+            const char* preview = "Choose a graphics API";
+            for (const auto& choice : kGraphicsBackends)
+                if (selected == choice.value) preview = choice.label;
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##graphics_api", preview))
+            {
+                for (const auto& choice : kGraphicsBackends)
+                    if (ImGui::Selectable(choice.label, selected == choice.value))
+                    { draft_.backend = choice.value; dirty_ = true; }
+                ImGui::EndCombo();
+            }
 #else
-            const char* api = "Vulkan"; // Windows builds Dawn with Vulkan only (cmake/Dawn.cmake)
-#endif
-            Row("Graphics API", "Chosen for your system by this build.");
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
-            Chip(api, color::info);
+            Chip(kGraphicsBackends.front().label, color::info);
+#endif
             Row("API validation", "Checks every graphics call for errors. Useful for bug reports, but slower.");
             if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
             EndRows();

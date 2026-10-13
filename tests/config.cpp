@@ -43,12 +43,13 @@ int main()
         settings.players = {"remote2", "keyboard", "remote1", "off"};
         settings.deadzone = 20;
         settings.rumble = false;
+        settings.backend = "d3d12";
         SaveConfig(file, settings);
         const auto reloaded = LoadConfig(path);
         Require(reloaded.settings.width == 1920 && reloaded.settings.height == 1080
             && reloaded.settings.fullscreen && reloaded.settings.master_volume == 65
             && reloaded.settings.players == settings.players && reloaded.settings.deadzone == 20
-            && !reloaded.settings.rumble, "Settings round trip");
+            && !reloaded.settings.rumble && reloaded.settings.backend == "d3d12", "Settings round trip");
         Require(reloaded.contents.find("; keep my comment\r\n") != std::string::npos
             && reloaded.contents.find("option = keep me\r\n") != std::string::npos
             && reloaded.contents.compare(0, 3, "\xEF\xBB\xBF") == 0, "Preserve comments, unknown keys, BOM and CRLF");

@@ -1,0 +1,61 @@
+{
+  "architecture": "x86_64",
+  "archives": [
+    {
+      "name": "dxc",
+      "url": "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip",
+      "sha256": "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1",
+      "files": [
+        {
+          "member": "bin\\x64\\dxcompiler.dll",
+          "path": "dxcompiler.dll",
+          "sha256": "0689e2fee0a1c9df8662a59680469f24e2a3ad7ce6bbbcc9284f7a83172bfc59"
+        },
+        {
+          "member": "bin\\x64\\dxil.dll",
+          "path": "dxil.dll",
+          "sha256": "64be2368211d257a038a7d4ea6bb3e24c878eb8d588c7b8414fccf759b69c2ac"
+        },
+        {
+          "member": "LICENSE-MS.txt",
+          "path": "LICENSES/dxc/LICENSE-MS.txt",
+          "sha256": "734f72f239fe7b07b4c7203f294c1a7ce27095687278bab7e56d630d7c672963"
+        },
+        {
+          "member": "LICENSE-LLVM.txt",
+          "path": "LICENSES/dxc/LICENSE-LLVM.txt",
+          "sha256": "729615317e28dd03907e46f0fc3b5e88f7853cee61d1a1471d2749335516b46f"
+        },
+        {
+          "member": "LICENCE-MIT.txt",
+          "path": "LICENSES/dxc/LICENCE-MIT.txt",
+          "sha256": "903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c"
+        }
+      ]
+    },
+    {
+      "name": "windows-sdk",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.cpp/10.0.26100.7705/microsoft.windows.sdk.cpp.10.0.26100.7705.nupkg",
+      "sha256": "ff455660bee071a744715a9665666fa29c07681579d3d815959a9eec5a556424",
+      "files": [
+        {
+          "member": "c/Redist/D3D/x64/d3dcompiler_47.dll",
+          "path": "d3dcompiler_47.dll",
+          "sha256": "a05f99734f7c4822fefc12b367af21fd0976ed6608752fb1e1e80b6ece7ecbbb"
+        },
+        {
+          "member": "Microsoft.Windows.SDK.CPP.nuspec",
+          "path": "LICENSES/windows-sdk/Microsoft.Windows.SDK.CPP.nuspec",
+          "sha256": "339aa6ab971fd67fc9a00c6cb79dcefc8b353e4eacdfeeaee8fce7604bfe80ea"
+        }
+      ]
+    }
+  ],
+  "notices": [
+    {
+      "url": "https://download.microsoft.com/download/0/F/F/0FF2B061-47DD-4F55-89B6-FD1D8C44F14D/sdk_license.rtf",
+      "path": "LICENSES/windows-sdk/sdk_license.rtf",
+      "sha256": "dd07eb178e00c6bba4148457fc00ff77cd4887eb521d504186fe59c9ec8bbe62"
+    }
+  ]
+}

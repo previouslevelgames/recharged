@@ -20,6 +20,10 @@ import tomllib
 import zipfile
 from pathlib import Path
 
+from setup_windows_graphics import verify as verify_windows_graphics, file_records as graphics_file_records
+
+WINDOWS_GRAPHICS_PIN = Path(__file__).with_name("windows_graphics.json")
+
 MODULES = ("mscharged_original_frontend_module", "mscharged_original_main_credits_module")
 ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
 # LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover
@@ -27,6 +31,15 @@ ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.m
 WINDOWS_RUNTIME = ("libc++.dll", "libunwind.dll", "libwinpthread-1.dll")
 WINDOWS_RUNTIME_NOTICES = ("LICENSE.TXT", "x86_64-w64-mingw32/share/mingw32/COPYING.winpthreads.txt",
                            "x86_64-w64-mingw32/share/mingw32/COPYING.MinGW-w64-runtime.txt")
+# OS components supplied by supported Windows 10/11 installations. Compiler
+# runtimes (including the Visual C++ runtime) deliberately are not in this set.
+WINDOWS_SYSTEM_DLLS = frozenset((
+    "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "cfgmgr32.dll", "comdlg32.dll",
+    "crypt32.dll", "d3d11.dll", "d3d12.dll", "dbghelp.dll", "dwmapi.dll", "dxgi.dll",
+    "gdi32.dll", "imm32.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll",
+    "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
+    "user32.dll", "userenv.dll", "version.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
+))
 PUBLIC_FILES = ("README.md", "LICENSE", "mscharged.ini.example", "docs/BUILDING.md",
                 "docs/BUILDING_MACOS.md", "docs/BUILDING_GITHUB.md", "docs/RUNTIME.md", "LICENSES/README.md",
                 "LICENSES/Apache-2.0.txt", "extern/README.md")
@@ -84,6 +97,27 @@ def target_platform(build):
     if system not in ("Linux", "Darwin", "Windows") or not arch or not re.fullmatch(r"[A-Za-z0-9_+-]+", arch):
         raise PackageError(f"Packaging is supported for Linux, macOS and Windows builds, got {system}/{arch}.")
     return {"Darwin": "macos", "Windows": "windows"}.get(system, "linux"), arch
+
+
+def verify_windows_imports(stage, toolchain):
+    name = "bin/llvm-readobj.exe" if (toolchain / "bin/llvm-readobj.exe").is_file() else "bin/llvm-readobj"
+    reader = regular_file(toolchain, name)
+    binaries = {path.name.lower(): path for path in stage.iterdir()
+                if path.is_file() and path.suffix.lower() in (".exe", ".dll")}
+    imports = {}
+    for name, path in sorted(binaries.items()):
+        # --coff-imports reports both Import and DelayImport records.
+        report = run([str(reader), "--coff-imports", str(path)]).decode().replace("\r\n", "\n")
+        if "Format: COFF-x86-64" not in report:
+            raise PackageError(f"Expected an x86_64 PE binary: {path}")
+        dependencies = sorted(set(re.findall(r"^  Name: (\S+)$", report, re.MULTILINE)))
+        for dependency in dependencies:
+            key = dependency.lower()
+            if (key not in binaries and key not in WINDOWS_SYSTEM_DLLS
+                    and not key.startswith(("api-ms-win-", "ext-ms-win-"))):
+                raise PackageError(f"Windows package is missing {dependency}, imported by {path.name}")
+        imports[path.name] = dependencies
+    return imports
 
 
 def is_notice(relative):
@@ -210,10 +244,22 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
     if not windows and not executable.stat().st_mode & 0o111:
         raise PackageError("mscharged is not executable; refusing an unusable package.")
     runtime_root = None
+    graphics_root = None
+    graphics_pin = None
     if windows:
         if not cache.get("LLVM_MINGW_ROOT"):
             raise PackageError("A Windows build needs LLVM_MINGW_ROOT for its runtime DLLs.")
         runtime_root = Path(cache["LLVM_MINGW_ROOT"]).resolve()
+        if not cache.get("MSCHARGED_WINDOWS_GRAPHICS_DIR"):
+            raise PackageError("A Windows build needs MSCHARGED_WINDOWS_GRAPHICS_DIR for its shader compiler DLLs.")
+        graphics_root = Path(cache["MSCHARGED_WINDOWS_GRAPHICS_DIR"]).resolve()
+        graphics_pin = json.loads(WINDOWS_GRAPHICS_PIN.read_text())
+        if arch != graphics_pin["architecture"]:
+            raise PackageError("Windows shader compiler architecture does not match the build.")
+        try:
+            verify_windows_graphics(graphics_root, graphics_pin)
+        except ValueError as error:
+            raise PackageError(str(error)) from error
     modules = []
     suffixes = (".dll",) if windows else (".so", ".dylib", ".bundle")
     for stem in MODULES:
@@ -247,7 +293,7 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
             path = regular_file(root, relative)
             data = path.read_bytes()
             if expected and digest(data) != expected:
-                raise PackageError(f"Notice differs from its recorded source: {path}")
+                raise PackageError(f"File differs from its recorded source: {path}")
             put(destination or relative, data, stat.S_IMODE(path.stat().st_mode))
 
         copy(build, executable_name)
@@ -258,6 +304,15 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
                 copy(runtime_root / "x86_64-w64-mingw32/bin", dll)
             for notice in WINDOWS_RUNTIME_NOTICES:
                 copy(runtime_root, notice, Path("LICENSES/toolchain/llvm-mingw") / Path(notice).name)
+            for record in graphics_file_records(graphics_pin):
+                relative = record["path"]
+                # Package the DLLs actually used by this build. Reject stale,
+                # missing, or modified copies instead of masking them at packaging.
+                if relative.endswith(".dll"):
+                    copy(build, relative, expected=record["sha256"])
+                else:
+                    copy(graphics_root, relative, expected=record["sha256"])
+            copy(graphics_root, "windows-graphics.json", "LICENSES/windows-graphics.json")
         for asset in ASSETS:
             copy(build, Path("assets/launcher") / asset)
         for public in PUBLIC_FILES:
@@ -344,8 +399,10 @@ game runtime; see docs/BUILDING.md and docs/RUNTIME.md for its current scope.
 Host prerequisites remain system components: on Linux, the C/C++ runtimes,
 Vulkan loader/driver and desktop/input/audio services; on macOS, the system
 C/C++ runtimes and Metal, Cocoa, QuartzCore and CoreAudio frameworks; on
-Windows 10/11, the Universal C Runtime and a Vulkan driver. The LLVM-MinGW C++
-runtime DLLs are included on Windows (notices in LICENSES/toolchain). This
+Windows 10/11, the Universal C Runtime and a Vulkan or DirectX 12 driver. Select
+the Windows graphics API in the launcher's Advanced page. The LLVM-MinGW C++
+runtime and DirectX shader compiler DLLs are included on Windows (notices in
+LICENSES/toolchain, LICENSES/dxc and LICENSES/windows-sdk). This
 archive does not bundle system libraries and is not signed.
 
 SOURCE-MANIFEST.json records the embedded build version, packaging source HEAD,
@@ -364,6 +421,9 @@ recorded in assets/launcher/README.md and LICENSES/README.md.
                     "packaging_source_commit": revision, "modules": modules, "prepared": prepared,
                     "cargo": {"options": cargo_options, "lock_sha256": digest(lock_bytes), "packages": rust},
                     "files": files}
+        if windows:
+            manifest["windows_graphics"] = graphics_pin
+            manifest["windows_imports"] = verify_windows_imports(stage, runtime_root)
         # The manifest describes the payload before itself, avoiding a self-hash.
         put("SOURCE-MANIFEST.json", (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
         extension = ".zip" if windows else ".tar.gz"

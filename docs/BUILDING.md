@@ -50,6 +50,15 @@ After code changes, use `cmake --build --preset release`. If presets or build
 options changed, run `cmake --preset release` first to refresh the configuration.
 Run `mscharged --help` for available options.
 
+For Windows cross builds, use `cmake/toolchains/llvm-mingw-x86_64.cmake` with
+`LLVM_MINGW_ROOT` pointing at LLVM-MinGW. First run
+`python3 tools/setup_windows_graphics.py` to download the checksum-pinned
+Microsoft shader compiler DLLs and notices into `build/windows-graphics`.
+Configuration and builds verify those files offline; the ZIP packager includes
+them. Windows offers Vulkan and DirectX 12 in **Advanced → Graphics API**.
+An explicit selection never switches to another backend on failure. DirectX 12
+still needs rendering and performance validation on real Windows hardware.
+
 ## Smaller builds and tests
 
 `launcher` and `debug` build the launcher and foundation tools without the game
