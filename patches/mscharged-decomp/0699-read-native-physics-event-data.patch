@@ -1,0 +1,184 @@
+From: mscharged-port
+Subject: Read native physics event data by member
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Classification: native compiler/ABI compatibility
+
+The PhysicsEventQueue handlers read their event data and objects through
+Wii byte offsets. Natively pointers and vtable pointers are 8 bytes, so those
+offsets land inside other fields:
+
+- Koopa shell and Birdo egg end: the cracked flag at 4 is the object
+  pointer's upper half and the owner/shooter at 0x2C/0x3C is another field.
+  Every end took the cracked branch with a garbage shooter and faulted the
+  first time Birdo's super shot egg ended.
+- Fireball, destroy and hammer powerup collisions: m_bShouldDestroy at 4 is
+  inside the vtable pointer, which the handlers overwrote; the hammer test
+  also read meSize/m_eType at Wii offsets 0xA4/0x1C.
+- Crack egg: CollisionEggData::pFielder at 4 and m_eClassType at 0xF0.
+- Patch-patch: CollisionPatchData::pPatch at 0x10 and PhysicsPatch m_Type
+  and m_bKillMe at 0x48/0x65.
+- Waluigi wall: m_DetChar.m_aActualFacingDirection at 0x62.
+
+On native builds every handler reads these through the declared members.
+Wii builds are unchanged.
+
+diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEventQueue.cpp
+index c75cd7d..896976c 100644
+--- a/src/Game/Physics/PhysicsEventQueue.cpp
++++ b/src/Game/Physics/PhysicsEventQueue.cpp
+@@ -278,24 +278,44 @@ extern "C" void fn_800156F8(cBall* pBall, cPlayer* pShooter);
+ extern "C" void fn_80015B38(cBall* pBall, bool bParam);
+ void HandleCollisionFireballPowerup(void* object)
+ {
++#if defined(MSCHARGED_NATIVE)
++    ((PowerupBase*)object)->m_bShouldDestroy = true;
++#else
+     ((unsigned char*)object)[4] = true;
++#endif
+ }
+ 
+ void HandleDestroyPowerup(void* object)
+ {
++#if defined(MSCHARGED_NATIVE)
++    PowerupBase* powerup = (PowerupBase*)object;
++    if (powerup->m_bShouldDestroy == false)
++    {
++        powerup->m_bShouldDestroy = true;
++    }
++#else
+     unsigned char* bytes = (unsigned char*)object;
+     if (bytes[4] == false)
+     {
+         bytes[4] = true;
+     }
++#endif
+ }
+ 
+ void HandleCollisionWaluigiWall(void* object)
+ {
++#if defined(MSCHARGED_NATIVE)
++    cFielder* fielder = (cFielder*)object;
++    nlVector3 direction;
++    nlPolarToCartesian(direction.x, direction.y, fielder->m_DetChar.m_aActualFacingDirection, 1.0f);
++    direction.z = 0.0f;
++    fielder->InitActionShellReact(direction, v3Zero);
++#else
+     nlVector3 direction;
+     nlPolarToCartesian(direction.x, direction.y, *(unsigned short*)((unsigned char*)object + 0x62), 1.0f);
+     direction.z = 0.0f;
+     ((cFielder*)object)->InitActionShellReact(direction, v3Zero);
++#endif
+ }
+ 
+ void HandleDestroyHammer(void* object)
+@@ -308,11 +328,19 @@ void HandleDestroyHammer(void* object)
+ 
+ void HandleCollisionHammerPowerup(void* object)
+ {
++#if defined(MSCHARGED_NATIVE)
++    PowerupBase* powerup = (PowerupBase*)object;
++    if (powerup->meSize != POWERUPSIZE_LARGE || powerup->m_eType != POWER_UP_SPINY_SHELL)
++    {
++        powerup->m_bShouldDestroy = true;
++    }
++#else
+     unsigned char* bytes = (unsigned char*)object;
+     if (*(int*)(bytes + 0xA4) != 2 || *(int*)(bytes + 0x1C) != 2)
+     {
+         bytes[4] = true;
+     }
++#endif
+ }
+ 
+ void HandleCollisionPatchPowerup(void*)
+@@ -321,15 +349,36 @@ void HandleCollisionPatchPowerup(void*)
+ 
+ void HandleCollisionCrackEgg(void* data)
+ {
++#if defined(MSCHARGED_NATIVE)
++    cFielder* fielder = ((CollisionEggData*)data)->pFielder;
++    if (fielder->m_eClassType == FIELDER)
++    {
++        fielder->EndSuperPower(0);
++    }
++#else
+     unsigned char* object = *(unsigned char**)((unsigned char*)data + 4);
+     if (*(int*)(object + 0xF0) == 2)
+     {
+         ((cFielder*)object)->EndSuperPower(0);
+     }
++#endif
+ }
+ 
+ void HandleCollisionKoopaShellEnd(void* data)
+ {
++#if defined(MSCHARGED_NATIVE)
++    CollisionKoopaShellEndData* event = (CollisionKoopaShellEndData*)data;
++    KoopaShellObject* shell = (KoopaShellObject*)event->shell;
++    if (event->cracked != false)
++    {
++        fn_800156F8(g_pBall, shell->mOwner);
++    }
++    else
++    {
++        fn_80015B38(g_pBall, 0);
++    }
++    shell->Deactivate(false);
++#else
+     unsigned char* bytes = (unsigned char*)data;
+     if (bytes[4] != false)
+     {
+@@ -341,10 +390,23 @@ void HandleCollisionKoopaShellEnd(void* data)
+         fn_80015B38(g_pBall, 0);
+     }
+     (*(KoopaShellObject**)bytes)->Deactivate(false);
++#endif
+ }
+ 
+ void HandleCollisionBirdoEggEnd(void* data)
+ {
++#if defined(MSCHARGED_NATIVE)
++    CollisionBirdoEggEndData* event = (CollisionBirdoEggEndData*)data;
++    if (event->cracked != false)
++    {
++        fn_800156F8(g_pBall, event->egg->mShooter);
++    }
++    else
++    {
++        fn_80015B38(g_pBall, 0);
++    }
++    event->egg->Hide(false);
++#else
+     unsigned char* bytes = (unsigned char*)data;
+     if (bytes[4] != false)
+     {
+@@ -356,6 +425,7 @@ void HandleCollisionBirdoEggEnd(void* data)
+         fn_80015B38(g_pBall, 0);
+     }
+     (*(BirdoEggObject**)bytes)->Hide(false);
++#endif
+ }
+ 
+ void HandleCollisionShockwave(CollisionShockwaveData* data)
+@@ -643,12 +706,21 @@ void HandleCollisionShockwave(CollisionShockwaveData* data)
+ 
+ void HandleCollisionPatchPatch(void* data)
+ {
++#if defined(MSCHARGED_NATIVE)
++    PhysicsPatch* patch = ((CollisionPatchData*)data)->pPatch;
++    if (patch->m_Type == 0 && patch->m_bKillMe == false)
++    {
++        CreateExplosionShockwave(&((PhysicsObject*)patch)->GetPosition());
++        ((PhysicsObject*)patch)->Unknown0();
++    }
++#else
+     unsigned char* object = *(unsigned char**)((unsigned char*)data + 0x10);
+     if (*(int*)(object + 0x48) == 0 && object[0x65] == false)
+     {
+         CreateExplosionShockwave(&((PhysicsObject*)object)->GetPosition());
+         ((PhysicsObject*)object)->Unknown0();
+     }
++#endif
+ }
+ 
+ void QueueBallFall()
