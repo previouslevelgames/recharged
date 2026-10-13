@@ -270,6 +270,10 @@ elseif(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
 endif()
 
 if(BUILD_TESTING)
+    include(cmake/Network.cmake)
+endif()
+
+if(BUILD_TESTING)
     include(cmake/NativeListEntryHandles.cmake)
     mscharged_add_list_entry_checks("${MSCHARGED_PREPARED}" verify_prepared)
     include(cmake/NativeWordABI.cmake)

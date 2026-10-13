@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/Network.cmake)
 
 option(MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER
     "Admit the original network task owner and initializer" OFF)
@@ -73,4 +74,12 @@ function(mscharged_add_original_frontend_network_owner_diagnostic target)
     endforeach()
     target_include_directories("${target}" PRIVATE "${MSCHARGED_PREPARED}/src/RVL_SDK")
     target_compile_definitions("${target}" PRIVATE MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER=1)
+    if(TARGET charged_network)
+        target_link_libraries(charged_original_main_credits_host PRIVATE charged_network)
+        foreach(_symbol IN ITEMS SOInit SOStartup SOCleanup SOFinish SOSocket2 SOClose
+                SOBind SOFcntl SOSendTo SORecvFrom SOHtoNs SONtoHs SOGetHostID SOConnect
+                SOSend)
+            mscharged_require_original_host_symbol(charged_original_main_credits_host INTERFACE "${_symbol}")
+        endforeach()
+    endif()
 endfunction()

@@ -1,0 +1,46 @@
+#include "so_host.h"
+
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+
+// MSCHARGED_NET_IFACE (e.g. "enp3s0") forces one interface when several
+// qualify (Docker bridges, VPNs, wifi + ethernet)
+uint32_t so_host_find_ipv4(void)
+{
+    const char* wanted = getenv("MSCHARGED_NET_IFACE");
+    if (wanted != NULL && wanted[0] == '\0')
+        wanted = NULL;
+
+    uint32_t found = 0;
+    struct ifaddrs* list;
+    if (getifaddrs(&list) == 0)
+    {
+        for (struct ifaddrs* ifa = list; ifa != NULL; ifa = ifa->ifa_next)
+        {
+            if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
+                continue;
+            if ((ifa->ifa_flags & (IFF_UP | IFF_RUNNING)) != (IFF_UP | IFF_RUNNING))
+                continue;
+            if (wanted != NULL)
+            {
+                if (strcmp(ifa->ifa_name, wanted) != 0)
+                    continue;
+            }
+            else if (ifa->ifa_flags & IFF_LOOPBACK)
+            {
+                continue;
+            }
+            found = ((const struct sockaddr_in*)ifa->ifa_addr)->sin_addr.s_addr;
+            break;
+        }
+        freeifaddrs(list);
+    }
+
+    if (found == 0)
+        found = htonl(INADDR_LOOPBACK);
+    return found;
+}
