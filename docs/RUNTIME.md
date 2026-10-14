@@ -14,12 +14,16 @@ next game launch (`display.backend = vulkan` or `d3d12` in the INI). Existing
 switching APIs. Keep the three shader compiler DLLs included in the Windows ZIP
 beside `mscharged.exe`.
 
-Before the game starts, **Preparing graphics** builds every drawing and effect
-pipeline the game has used on this PC, for the selected graphics API and GPU.
-Nothing is prepared once the game runs: a pipeline the game has not used before
-compiles when it is first drawn, which can cause a brief stutter, and is
-prepared from the next launch on. Driver, GPU or renderer changes may require
-compilation again.
+Before the game starts, **Preparing graphics** builds the game's drawing and
+effect pipelines for the selected graphics API and GPU: the ones listed in the
+package's `assets/graphics/initial_pipeline_cache.db`, recorded from runs through
+every stadium and captain, and any others the game has used on this PC. The
+first launch compiles them all once, on several processor cores; later launches
+load them from the local cache. Nothing is prepared once the game runs: a
+pipeline missing from both compiles when it is first drawn, which can cause a
+brief stutter, and is prepared from the next launch on. Driver, GPU or renderer
+changes may require compilation again. Keep `assets/graphics/initial_pipeline_cache.db`
+in the package.
 
 Each graphics API retains its own compatible compiled data across launches,
 including when switching away from that API and back. The session log records
@@ -160,8 +164,8 @@ logging failures are reported in the session log. The old `MSCHARGED_FRAME_LOG`
 environment variable no longer enables logging or selects its output path.
 
 The same card includes **Clear shader cache**, which removes compiled shaders and
-the list of known pipelines for all graphics APIs. The game compiles them again
-as it uses them.
+the pipelines learned on this PC for all graphics APIs. The next launch prepares
+the bundled pipelines again.
 Clearing is refused while a game is using the cache. Saves, settings and frame
 recordings are kept.
 

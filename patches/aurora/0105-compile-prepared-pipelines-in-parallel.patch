@@ -1,0 +1,629 @@
+From: mscharged-port
+Subject: Compile prepared pipelines in parallel
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Startup preparation compiled every known pipeline one after another on the
+single pipeline worker. Background (preparation) pipelines are now created with
+CreateRenderPipelineAsync, so Dawn's worker pool translates and compiles several
+at once while the worker builds the next shader modules. Pipelines a draw waits
+for keep synchronous creation on the worker, as before. A failed asynchronous
+creation is retried synchronously, so errors are reported and counted as before.
+Shutdown waits up to 30 s for creations still in flight. The blob cache
+callbacks were already serialized by their mutex.
+
+Dawn's default platform pool runs two worker threads. Every Dawn instance now
+gets Aurora's platform, whose pool uses all but one processor; Tracy builds keep
+their trace hooks on the same platform.
+
+diff --git a/lib/dawn/TracyPlatform.cpp b/lib/dawn/TracyPlatform.cpp
+index 922c0e9..ff73984 100644
+--- a/lib/dawn/TracyPlatform.cpp
++++ b/lib/dawn/TracyPlatform.cpp
+@@ -1,17 +1,124 @@
+ #include "TracyPlatform.hpp"
+ 
+-#if defined(TRACY_ENABLE) && __has_include(<dawn/platform/DawnPlatform.h>)
++#if __has_include(<dawn/platform/DawnPlatform.h>)
+ 
+-#include <chrono>
+-#include <cstring>
++#include <algorithm>
++#include <condition_variable>
++#include <deque>
++#include <memory>
++#include <mutex>
++#include <thread>
+ #include <vector>
+ 
+ #include <dawn/platform/DawnPlatform.h>
++#if defined(TRACY_ENABLE)
++#include <chrono>
++#include <cstring>
++
+ #include <tracy/TracyC.h>
++#endif
+ 
+ namespace aurora::webgpu {
+ namespace {
+-class TracyDawnPlatform final : public dawn::platform::Platform {
++class WorkerEvent final : public dawn::platform::WaitableEvent {
++public:
++  struct State {
++    std::mutex mutex;
++    std::condition_variable cv;
++    bool done = false;
++  };
++
++  explicit WorkerEvent(std::shared_ptr<State> state) : mState(std::move(state)) {}
++  void Wait() override {
++    std::unique_lock lock{mState->mutex};
++    mState->cv.wait(lock, [this] { return mState->done; });
++  }
++  bool IsComplete() override {
++    std::lock_guard lock{mState->mutex};
++    return mState->done;
++  }
++
++private:
++  std::shared_ptr<State> mState;
++};
++
++// Dawn runs asynchronous pipeline creation on its platform's worker pool; the
++// default pool has two threads. This one uses the available processors.
++class WorkerTaskPool final : public dawn::platform::WorkerTaskPool {
++public:
++  explicit WorkerTaskPool(unsigned threads) {
++    for (unsigned i = 0; i < threads; ++i) {
++      mThreads.emplace_back([this] { Run(); });
++    }
++  }
++  ~WorkerTaskPool() override {
++    {
++      std::lock_guard lock{mMutex};
++      mStop = true;
++    }
++    mCv.notify_all();
++    for (auto& thread : mThreads) {
++      thread.join();
++    }
++  }
++
++  std::unique_ptr<dawn::platform::WaitableEvent> PostWorkerTask(dawn::platform::PostWorkerTaskCallback callback,
++                                                                void* userdata) override {
++    auto state = std::make_shared<WorkerEvent::State>();
++    {
++      std::lock_guard lock{mMutex};
++      mTasks.push_back({callback, userdata, state});
++    }
++    mCv.notify_one();
++    return std::make_unique<WorkerEvent>(std::move(state));
++  }
++
++private:
++  struct Task {
++    dawn::platform::PostWorkerTaskCallback callback = nullptr;
++    void* userdata = nullptr;
++    std::shared_ptr<WorkerEvent::State> state;
++  };
++
++  void Run() {
++    for (;;) {
++      Task task;
++      {
++        std::unique_lock lock{mMutex};
++        mCv.wait(lock, [this] { return mStop || !mTasks.empty(); });
++        if (mTasks.empty()) {
++          return;
++        }
++        task = std::move(mTasks.front());
++        mTasks.pop_front();
++      }
++      task.callback(task.userdata);
++      {
++        std::lock_guard lock{task.state->mutex};
++        task.state->done = true;
++      }
++      task.state->cv.notify_all();
++    }
++  }
++
++  std::mutex mMutex;
++  std::condition_variable mCv;
++  std::deque<Task> mTasks;
++  bool mStop = false;
++  std::vector<std::thread> mThreads;
++};
++
++class AuroraDawnPlatform : public dawn::platform::Platform {
++public:
++  std::unique_ptr<dawn::platform::WorkerTaskPool> CreateWorkerTaskPool() override {
++    // Leave one processor for the threads that record and present frames.
++    const unsigned processors = std::thread::hardware_concurrency();
++    return std::make_unique<WorkerTaskPool>(std::max(2u, processors > 1 ? processors - 1 : 1u));
++  }
++};
++
++#if defined(TRACY_ENABLE)
++class TracyDawnPlatform final : public AuroraDawnPlatform {
+ public:
+   const unsigned char* GetTraceCategoryEnabledFlag(dawn::platform::TraceCategory) override {
+     static const unsigned char enabled = 1;
+@@ -35,16 +142,19 @@ public:
+     return 0;
+   }
+ };
+-TracyDawnPlatform g_tracyDawnPlatform;
++TracyDawnPlatform g_dawnPlatform;
++#else
++AuroraDawnPlatform g_dawnPlatform;
++#endif
+ } // namespace
+ 
+-dawn::platform::Platform* tracy_dawn_platform() { return &g_tracyDawnPlatform; }
++dawn::platform::Platform* dawn_platform() { return &g_dawnPlatform; }
+ } // namespace aurora::webgpu
+ 
+ #else
+ 
+ namespace aurora::webgpu {
+-dawn::platform::Platform* tracy_dawn_platform() { return nullptr; }
++dawn::platform::Platform* dawn_platform() { return nullptr; }
+ } // namespace aurora::webgpu
+ 
+ #endif
+diff --git a/lib/dawn/TracyPlatform.hpp b/lib/dawn/TracyPlatform.hpp
+index 1279e65..662da73 100644
+--- a/lib/dawn/TracyPlatform.hpp
++++ b/lib/dawn/TracyPlatform.hpp
+@@ -5,5 +5,7 @@ class Platform;
+ } // namespace dawn::platform
+ 
+ namespace aurora::webgpu {
+-dawn::platform::Platform* tracy_dawn_platform();
++// Dawn's platform: a worker pool sized to the processors for asynchronous
++// pipeline creation, plus Tracy tracing in Tracy builds. Null without Dawn.
++dawn::platform::Platform* dawn_platform();
+ } // namespace aurora::webgpu
+diff --git a/lib/gfx/pipeline_cache.cpp b/lib/gfx/pipeline_cache.cpp
+index 33dc948..df885ec 100644
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -43,10 +43,15 @@ constexpr const char* InitialPipelineCacheName = "initial_pipeline_cache.db";
+ constexpr const char* SdlVfsName = "aurora_pipeline_cache_sdl_vfs";
+ 
+ using NewPipelineCallback = std::function<CompiledPipeline()>;
++// Starts creation on Dawn's worker pool and reports once, from any thread. No
++// value means the asynchronous path failed; the worker then creates the
++// pipeline synchronously, so errors surface exactly as before.
++using NewPipelineAsyncCallback = std::function<void(std::function<void(std::optional<CompiledPipeline>)>)>;
+ 
+ struct PendingPipeline {
+   PipelineRef hash;
+   NewPipelineCallback create;
++  NewPipelineAsyncCallback createAsync;
+ };
+ 
+ using PipelineScope = std::array<uint8_t, 16>;
+@@ -114,6 +119,10 @@ static bool g_pipelineDiscoveryOpen = false;
+ static bool g_gpuCachePrunePending = false;
+ static bool g_gpuCachePruning = false;
+ static uint64_t g_activePipelineCompilations = 0;
++// Background (preparation) pipelines compile in parallel on Dawn's worker pool,
++// at most this many at once. Draw demands keep synchronous creation here.
++static uint32_t g_asyncPipelineLimit = 0;
++static uint32_t g_asyncPipelinesInFlight = 0;
+ static uint64_t g_failedPipelines = 0;
+ static uint64_t g_demandHits = 0;
+ static uint64_t g_demandMisses = 0;
+@@ -581,7 +590,8 @@ static void observe_pipeline_config(ShaderType type, HashType hash) {
+ 
+ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallback&& cb,
+                                       const PipelineTraceIdentity& identity,
+-                                      PipelinePriority priority = PipelinePriority::Normal) {
++                                      PipelinePriority priority = PipelinePriority::Normal,
++                                      NewPipelineAsyncCallback&& createAsync = {}) {
+   ZoneScoped;
+ 
+   const bool blocking = priority == PipelinePriority::Blocking;
+@@ -643,6 +653,7 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+       PendingPipeline pending{
+           .hash = runtimeKey,
+           .create = std::move(cb),
++          .createAsync = std::move(createAsync),
+       };
+       switch (priority) {
+       case PipelinePriority::Background:
+@@ -700,8 +711,10 @@ static PipelineRef resolve_pipeline(ShaderType type, const gx::PipelineConfig& c
+                                     PipelinePriority priority) {
+   const auto configKey = xxh3_hash(config, static_cast<HashType>(type));
+   const auto runtimeKey = xxh3_hash(layout.key, configKey);
+-  return find_pipeline_impl(runtimeKey, [config, layout] { return create_pipeline(config, layout); },
+-                            {type, configKey, config.version, layout.key}, priority);
++  return find_pipeline_impl(
++      runtimeKey, [config, layout] { return create_pipeline(config, layout); },
++      {type, configKey, config.version, layout.key}, priority,
++      [config, layout](auto done) { create_pipeline_async(config, layout, std::move(done)); });
+ }
+ 
+ static PipelineRef resolve_pipeline(ShaderType type, const clear::PipelineConfig& config,
+@@ -1166,46 +1179,81 @@ static void pipeline_cache_writer() {
+   }
+ }
+ 
++// With g_pipelineMutex held: whether the worker can take a queued pipeline now.
++static bool pipeline_work_available() {
++  return !g_pipelineQueue.empty() ||
++         (!g_backgroundPipelineQueue.empty() &&
++          (g_asyncPipelineLimit == 0 || g_asyncPipelinesInFlight < g_asyncPipelineLimit));
++}
++
++static void publish_pipeline(PipelineRef hash, CompiledPipeline result, bool async) {
++  const auto pipelineCount = result.pipeline_count();
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    g_failedPipelines += !result.main;
++    g_pipelines.try_emplace(hash, std::move(result));
++    g_pendingPipelines.erase(hash);
++    g_asyncPipelinesInFlight -= async;
++  }
++  if (!g_hasPipelineThread) {
++    g_pipelinesPerFrame += std::max(1u, pipelineCount);
++  }
++  notify_pipeline_ready(true, pipelineCount);
++  if (async) {
++    g_pipelineQueueCv.notify_one();
++  }
++}
++
++static void start_async_pipeline(PendingPipeline pending) {
++  pending.createAsync([hash = pending.hash, create = std::move(pending.create)](
++                          std::optional<CompiledPipeline> result) mutable {
++    if (result) {
++      publish_pipeline(hash, std::move(*result), true);
++      return;
++    }
++    // Keep the configuration pending and retry it synchronously, first.
++    {
++      std::lock_guard lock{g_pipelineMutex};
++      --g_asyncPipelinesInFlight;
++      --g_activePipelineCompilations;
++      g_pipelineQueue.emplace_front(PendingPipeline{.hash = hash, .create = std::move(create)});
++    }
++    g_pipelineQueueCv.notify_one();
++    g_pipelineReadyCv.notify_all();
++  });
++}
++
+ static void pipeline_worker() {
+ #ifdef TRACY_ENABLE
+   tracy::SetThreadName("Pipeline compilation thread");
+ #endif
+ 
+-  bool hasMore = false;
+   while (g_hasPipelineThread || g_pipelinesPerFrame < BuildPipelinesPerFrame) {
+     PendingPipeline pending;
++    bool async = false;
+     {
+       std::unique_lock lock{g_pipelineMutex};
+       if (g_hasPipelineThread) {
+-        if (!hasMore) {
+-          g_pipelineQueueCv.wait(lock, [] {
+-            return !g_pipelineQueue.empty() || !g_backgroundPipelineQueue.empty() || g_pipelineThreadEnd;
+-          });
+-        }
++        g_pipelineQueueCv.wait(lock, [] { return pipeline_work_available() || g_pipelineThreadEnd; });
+       } else if (g_pipelineQueue.empty() && g_backgroundPipelineQueue.empty()) {
+         return;
+       }
+       if (g_pipelineThreadEnd) {
+         break;
+       }
+-      auto& source = !g_pipelineQueue.empty() ? g_pipelineQueue : g_backgroundPipelineQueue;
++      const bool background = g_pipelineQueue.empty();
++      auto& source = background ? g_backgroundPipelineQueue : g_pipelineQueue;
+       pending = std::move(source.front());
+       source.pop_front();
+       ++g_activePipelineCompilations;
++      async = background && g_hasPipelineThread && g_asyncPipelineLimit != 0 && pending.createAsync;
++      g_asyncPipelinesInFlight += async;
+     }
+-    auto result = pending.create();
+-    const auto pipelineCount = result.pipeline_count();
+-    {
+-      std::lock_guard lock{g_pipelineMutex};
+-      g_failedPipelines += !result.main;
+-      g_pipelines.try_emplace(pending.hash, std::move(result));
+-      g_pendingPipelines.erase(pending.hash);
+-      hasMore = !g_pipelineQueue.empty() || !g_backgroundPipelineQueue.empty();
+-    }
+-    if (!g_hasPipelineThread) {
+-      g_pipelinesPerFrame += std::max(1u, pipelineCount);
++    if (async) {
++      start_async_pipeline(std::move(pending));
++      continue;
+     }
+-    notify_pipeline_ready(true, pipelineCount);
++    publish_pipeline(pending.hash, pending.create(), false);
+   }
+ }
+ 
+@@ -1646,8 +1694,11 @@ void initialize_pipeline_cache() {
+ 
+   if (webgpu::g_backendType == wgpu::BackendType::WebGPU) {
+     g_hasPipelineThread = false;
++    g_asyncPipelineLimit = 0;
+   } else {
+     g_hasPipelineThread = true;
++    // Keeps the worker pool busy while this thread prepares the next shaders.
++    g_asyncPipelineLimit = std::max(2u, std::thread::hardware_concurrency());
+     g_pipelineThread = std::thread(pipeline_worker);
+   }
+ 
+@@ -1679,6 +1730,11 @@ void shutdown_pipeline_cache() {
+     g_pipelineQueueCv.notify_all();
+     g_pipelineReadyCv.notify_all();
+     g_pipelineThread.join();
++    // Pipelines being compiled on Dawn's workers still report into the cache.
++    std::unique_lock lock{g_pipelineMutex};
++    if (!g_pipelineReadyCv.wait_for(lock, std::chrono::seconds(30), [] { return g_asyncPipelinesInFlight == 0; })) {
++      Log.warn("{} asynchronous pipeline creations did not finish before shutdown", g_asyncPipelinesInFlight);
++    }
+   }
+   g_hasPipelineThread = false;
+ 
+diff --git a/lib/gx/gx.cpp b/lib/gx/gx.cpp
+index 88692ee..affbc5b 100644
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -334,10 +334,10 @@ void set_render_scissor(const gfx::ClipRect& scissor) noexcept {
+ 
+ const gfx::TextureBind& get_texture(GXTexMapID id) noexcept { return g_gxState.textures[static_cast<size_t>(id)]; }
+ 
+-wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
+-                                    const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
+-                                    wgpu::ShaderModule shader, const char* label) noexcept {
+-  ZoneScoped;
++template <typename Create>
++static auto with_pipeline_descriptor(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
++                                     const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
++                                     const wgpu::ShaderModule& shader, const char* label, Create&& create) {
+   const float depthBias = (UseReversedZ ? -1.0f : 1.0f) * std::bit_cast<float>(config.polygonOffsetBits);
+   const float depthBiasSlopeScale = (UseReversedZ ? -1.0f : 1.0f) * std::bit_cast<float>(config.polygonOffsetScaleBits);
+   const float depthBiasClamp = webgpu::g_hasCoreFeatures ? std::bit_cast<float>(config.polygonOffsetClampBits) : 0.0f;
+@@ -384,7 +384,36 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, const gfx::Ren
+       .multisample = wgpu::MultisampleState{.count = layout.sampleCount},
+       .fragment = &fragmentState,
+   };
+-  return g_device.CreateRenderPipeline(&descriptor);
++  return create(descriptor);
++}
++
++wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
++                                    const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
++                                    wgpu::ShaderModule shader, const char* label) noexcept {
++  ZoneScoped;
++  return with_pipeline_descriptor(config, layout, options, vtxBuffers, shader, label,
++                                  [](const wgpu::RenderPipelineDescriptor& descriptor) {
++                                    return g_device.CreateRenderPipeline(&descriptor);
++                                  });
++}
++
++void build_pipeline_async(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
++                          const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
++                          wgpu::ShaderModule shader, const char* label,
++                          std::function<void(wgpu::RenderPipeline)> done) noexcept {
++  ZoneScoped;
++  with_pipeline_descriptor(config, layout, options, vtxBuffers, shader, label,
++                           [&](const wgpu::RenderPipelineDescriptor& descriptor) {
++                             // The descriptor and its shader modules are captured by the
++                             // call; Dawn reports completion from its worker thread.
++                             g_device.CreateRenderPipelineAsync(
++                                 &descriptor, wgpu::CallbackMode::AllowSpontaneous,
++                                 [done = std::move(done)](wgpu::CreatePipelineAsyncStatus status,
++                                                          wgpu::RenderPipeline pipeline, wgpu::StringView) {
++                                   done(status == wgpu::CreatePipelineAsyncStatus::Success ? std::move(pipeline)
++                                                                                           : wgpu::RenderPipeline{});
++                                 });
++                           });
+ }
+ 
+ void canonicalize_identity_texgens(ShaderConfig& config) noexcept {
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+index ef80073..c579a34 100644
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -10,6 +10,7 @@
+ #include <type_traits>
+ #include <cstring>
+ #include <bitset>
++#include <functional>
+ #include <memory>
+ #include <array>
+ #include <cfloat>
+@@ -575,6 +576,13 @@ void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXV
+ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
+                                     const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
+                                     wgpu::ShaderModule shader, const char* label) noexcept;
++// The same pipeline, compiled on Dawn's worker pool. `done` receives it, or a
++// null pipeline if asynchronous creation failed; it runs once, on any thread,
++// possibly before this function returns.
++void build_pipeline_async(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
++                          const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
++                          wgpu::ShaderModule shader, const char* label,
++                          std::function<void(wgpu::RenderPipeline)> done) noexcept;
+ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlphaMode,
+                                 uint32_t normalAttachment = UINT32_MAX) noexcept;
+ wgpu::ShaderModule build_shader(const ShaderConfig& config, const gfx::RenderTargetLayout& layout,
+diff --git a/lib/gx/pipeline.cpp b/lib/gx/pipeline.cpp
+index 02dd95f..4f43fff 100644
+--- a/lib/gx/pipeline.cpp
++++ b/lib/gx/pipeline.cpp
+@@ -10,24 +10,26 @@
+ 
+ #include <tracy/Tracy.hpp>
+ 
++#include <memory>
++#include <mutex>
++#include <string>
++
+ namespace aurora::gx {
+ std::atomic<uint64_t> lastEncodedDrawReceipt{0};
+ 
+-gfx::CompiledPipeline create_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout) {
+-  ZoneScoped;
+-  const auto hash = xxh3_hash(layout.key, xxh3_hash(config, static_cast<HashType>(gfx::ShaderType::GX)));
+-  const auto create = [&](const PipelineOptions& options, const char* passName) {
+-    const auto shader = build_shader(config.shaderConfig, layout, options.dstAlphaMode);
+-    const auto label = fmt::format("GX Pipeline {:x} {}", hash, passName);
+-    return build_pipeline(config, layout, options, {}, shader, label.c_str());
+-  };
++namespace {
++struct PipelinePasses {
++  std::optional<PipelineOptions> prepass;
++  PipelineOptions main;
++};
+ 
+-  PipelineOptions options{
+-      .colorUpdate = config.colorUpdate,
+-      .alphaUpdate = config.alphaUpdate,
+-      .depthUpdate = config.depthUpdate,
+-  };
+-  gfx::CompiledPipeline pipeline;
++PipelinePasses pipeline_passes(const PipelineConfig& config, const gfx::RenderTargetLayout& layout) {
++  PipelinePasses passes{.main = {
++                            .colorUpdate = config.colorUpdate,
++                            .alphaUpdate = config.alphaUpdate,
++                            .depthUpdate = config.depthUpdate,
++                        }};
++  auto& options = passes.main;
+   if (config.alphaUpdate && config.dstAlpha != UINT32_MAX && config.dstAlpha != 0) {
+     const auto usesSourceAlpha = [](GXBlendFactor factor) {
+       return factor == GX_BL_SRCALPHA || factor == GX_BL_INVSRCALPHA;
+@@ -44,20 +46,83 @@ gfx::CompiledPipeline create_pipeline(const PipelineConfig& config, const gfx::R
+       alpha.dstAlphaMode = DstAlphaMode::Replace;
+       alpha.colorUpdate = false;
+       alpha.depthUpdate = false;
+-      pipeline.prepass = create(alpha, "alpha");
+-      if (!pipeline.prepass) {
+-        return {};
+-      }
++      passes.prepass = alpha;
+       options.alphaUpdate = false;
+     }
+   }
+-  pipeline.main = create(options, "main");
++  return passes;
++}
++
++std::string pipeline_label(const PipelineConfig& config, const gfx::RenderTargetLayout& layout, const char* pass) {
++  const auto hash = xxh3_hash(layout.key, xxh3_hash(config, static_cast<HashType>(gfx::ShaderType::GX)));
++  return fmt::format("GX Pipeline {:x} {}", hash, pass);
++}
++} // namespace
++
++gfx::CompiledPipeline create_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout) {
++  ZoneScoped;
++  const auto create = [&](const PipelineOptions& options, const char* passName) {
++    const auto shader = build_shader(config.shaderConfig, layout, options.dstAlphaMode);
++    return build_pipeline(config, layout, options, {}, shader, pipeline_label(config, layout, passName).c_str());
++  };
++
++  const auto passes = pipeline_passes(config, layout);
++  gfx::CompiledPipeline pipeline;
++  if (passes.prepass) {
++    pipeline.prepass = create(*passes.prepass, "alpha");
++    if (!pipeline.prepass) {
++      return {};
++    }
++  }
++  pipeline.main = create(passes.main, "main");
+   if (!pipeline.main) {
+     return {};
+   }
+   return pipeline;
+ }
+ 
++void create_pipeline_async(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
++                           std::function<void(std::optional<gfx::CompiledPipeline>)> done) {
++  ZoneScoped;
++  struct Pending {
++    std::mutex mutex;
++    gfx::CompiledPipeline result;
++    int remaining = 0;
++    bool failed = false;
++    std::function<void(std::optional<gfx::CompiledPipeline>)> done;
++  };
++  const auto passes = pipeline_passes(config, layout);
++  auto pending = std::make_shared<Pending>();
++  pending->remaining = passes.prepass ? 2 : 1;
++  pending->done = std::move(done);
++  const auto start = [&](const PipelineOptions& options, const char* passName, bool prepass) {
++    const auto shader = build_shader(config.shaderConfig, layout, options.dstAlphaMode);
++    build_pipeline_async(config, layout, options, {}, shader, pipeline_label(config, layout, passName).c_str(),
++                         [pending, prepass](wgpu::RenderPipeline pipeline) {
++                           {
++                             std::lock_guard lock{pending->mutex};
++                             if (!pipeline) {
++                               pending->failed = true;
++                             } else {
++                               (prepass ? pending->result.prepass : pending->result.main) = std::move(pipeline);
++                             }
++                             if (--pending->remaining != 0) {
++                               return;
++                             }
++                           }
++                           if (pending->failed) {
++                             pending->done(std::nullopt);
++                           } else {
++                             pending->done(std::move(pending->result));
++                           }
++                         });
++  };
++  if (passes.prepass) {
++    start(*passes.prepass, "alpha", true);
++  }
++  start(passes.main, "main", false);
++}
++
+ void render(const DrawData& data, const wgpu::RenderPassEncoder& pass) {
+   gfx::CompiledPipeline pipeline;
+   if (!gfx::get_pipeline(data.pipeline, pipeline)) {
+diff --git a/lib/gx/pipeline.hpp b/lib/gx/pipeline.hpp
+index a005f0f..bd31c6e 100644
+--- a/lib/gx/pipeline.hpp
++++ b/lib/gx/pipeline.hpp
+@@ -3,6 +3,8 @@
+ #include "../gfx/pipeline_cache.hpp"
+ #include "gx.hpp"
+ #include <atomic>
++#include <functional>
++#include <optional>
+ 
+ namespace aurora::gx {
+ extern std::atomic<uint64_t> lastEncodedDrawReceipt;
+@@ -46,6 +48,10 @@ struct PipelineOptions {
+ };
+ 
+ gfx::CompiledPipeline create_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout);
++// Creates the same pipelines on Dawn's worker pool. `done` runs once, on any
++// thread; no value means asynchronous creation failed.
++void create_pipeline_async(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
++                           std::function<void(std::optional<gfx::CompiledPipeline>)> done);
+ void render(const DrawData& data, const wgpu::RenderPassEncoder& pass);
+ 
+ void queue_surface(const u8* dlStart, uint32_t dlSize, bool bigEndian) noexcept;
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 5715194..7643276 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -798,9 +798,7 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+         ? dawn::native::BackendValidationLevel::Full
+         : dawn::native::BackendValidationLevel::Disabled;
+     dawnInstanceDescriptor.SetLoggingCallback(wgpu_log);
+-#ifdef TRACY_ENABLE
+-    dawnInstanceDescriptor.platform = tracy_dawn_platform();
+-#endif
++    dawnInstanceDescriptor.platform = dawn_platform();
+     instanceDescriptor.nextInChain = &dawnInstanceDescriptor;
+ #endif
+     g_instance = wgpu::CreateInstance(&instanceDescriptor);

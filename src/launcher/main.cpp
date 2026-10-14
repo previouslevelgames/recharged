@@ -2851,14 +2851,14 @@ private:
                                 true, Icon::Folder))
                 OpenPath(base_);
 
-            Row("Shader cache", "Clears compiled shaders for all graphics APIs. The game compiles them again as it uses them.");
+            Row("Shader cache", "Clears compiled shaders for all graphics APIs. The next launch prepares them again.");
             if (SecondaryButton("clear_shader_cache", "Clear shader cache", {ImGui::GetContentRegionAvail().x, Dp(40)},
                                 true, Icon::Refresh))
             {
                 try
                 {
                     const auto cleared = platform::ClearShaderCache(platform::ShaderCacheDirectory(base_));
-                    Notice(cleared.removed_files ? "Shader cache cleared. Shaders are compiled again as the game uses them."
+                    Notice(cleared.removed_files ? "Shader cache cleared. Graphics will be prepared again on the next launch."
                                                 : "The shader cache is already empty.", NoticeKind::Success);
                 }
                 catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }

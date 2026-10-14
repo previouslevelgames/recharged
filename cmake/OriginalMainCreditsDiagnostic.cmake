@@ -410,6 +410,8 @@ endfunction()
 
 add_executable(mscharged-original-main-credits-check
     tests/diagnostics/original_main_credits_window.cpp)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
+mscharged_stage_pipeline_catalog(mscharged-original-main-credits-check)
 mscharged_link_original_main_credits(mscharged-original-main-credits-check)
 
 # The user opts into this combined executable by enabling both existing options.

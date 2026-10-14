@@ -1,5 +1,6 @@
 """Synthetic package allowlist, provenance and extraction checks; no game data."""
 
+from contextlib import closing
 import hashlib
 import importlib.util
 import io
@@ -35,6 +36,14 @@ class PackageBuildTests(unittest.TestCase):
             self.write(self.build, stem + ".so", b"synthetic module", 0o755)
         for asset in PACKAGER.ASSETS:
             self.write(self.build, "assets/launcher/" + asset, b"synthetic asset")
+        from pipeline_catalog import ABI, generate
+        catalog = {"format": 1, "schema": 1, "config_abi": ABI,
+                   "pipelines": [{"type": 0, "hash": "0000000000000001", "version": 5,
+                                  "first_frame": 0, "config": "0500000001010100",
+                                  "sha256": self.hash(bytes.fromhex("0500000001010100"))}]}
+        path = self.write(self.source, "assets/graphics/pipelines.json", json.dumps(catalog).encode())
+        generate(self.build / "assets/graphics/initial_pipeline_cache.db", PACKAGER.catalog_rows(path))
+        self.write(self.source, "assets/graphics/README.md", b"pipeline descriptions only")
         for public in PACKAGER.PUBLIC_FILES:
             self.write(self.source, public, b"public text")
         self.write(self.build, "generated/mscharged/build_version.h",
@@ -180,13 +189,29 @@ checksum = "{self.checksum}"
                 self.assertEqual(member.mode, int(item["mode"], 8))
                 self.assertEqual(member.uid, 0)
             self.assertEqual(manifest["files"]["mscharged"]["mode"], "0o755")
-            self.assertFalse(any(name.startswith("assets/graphics/") for name in manifest["files"]))
+            self.assertIn("assets/graphics/initial_pipeline_cache.db", manifest["files"])
+            self.assertIn("assets/graphics/README.md", manifest["files"])
             self.assertFalse(any("MUST NOT BE PACKAGED" in archive.extractfile(member).read().decode(errors="ignore")
                                  for member in members if member.isfile()))
             extraction = self.root / "extracted"
             archive.extractall(extraction, filter="data")
             executable = next(extraction.glob("*/mscharged"))
             self.assertTrue(executable.stat().st_mode & 0o111)
+
+    def test_pipeline_resource_is_required_and_matches_catalogue(self):
+        path = self.build / "assets/graphics/initial_pipeline_cache.db"
+        original = path.read_bytes()
+        path.unlink()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "Missing or unsafe"):
+            self.package()
+        self.write(path.parent, path.name, original)
+        import sqlite3
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("UPDATE pipeline_cache SET first_frame_used=42")
+            db.commit()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "differs from its reviewed"):
+            self.package()
+        self.assertFalse(self.output.exists())
 
     def test_missing_module_fails_without_archive(self):
         (self.build / (PACKAGER.MODULES[1] + ".so")).unlink()

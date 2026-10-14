@@ -1,5 +1,6 @@
 #include "runtime/pipeline_warmup.h"
 #include "runtime/pipeline_warmup_loop.h"
+#include "runtime/pipeline_catalog_layout.h"
 #include "runtime/graphics_loading_view.h"
 
 #include "platform/session_log.h"
