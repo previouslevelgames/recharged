@@ -3,8 +3,8 @@
 `main` contains development work. `stable` holds reviewed snapshots, promoted
 through a `main` → `stable` pull request.
 
-The **Build binaries** workflow builds Linux x86_64, Windows x86_64 and macOS
-Apple Silicon packages for PRs targeting `stable` and for pushes to `stable`.
+The **Build binaries** workflow builds Linux x86_64, Steam Deck, Windows x86_64
+and macOS Apple Silicon packages for PRs targeting `stable` and for pushes to `stable`.
 Packages appear under **Actions → Build binaries → run → Artifacts**: a PR's
 for 7 days (to test before merging), `stable`'s for 14 days. Failed checks may
 attach configuration logs. A `stable` build of a new version also drafts its
@@ -16,6 +16,11 @@ toolchain and include its C++ runtime DLLs (`libc++`, `libunwind`,
 `winpthread`), plus the pinned DirectX shader compilers (`dxcompiler.dll`,
 `dxil.dll`, `d3dcompiler_47.dll`) with their notices. Packaging verifies the
 shader compiler versions and rejects missing or modified DLLs.
+
+The Steam Deck package is a Linux x86_64 build made on Ubuntu 24.04 with
+GCC 14, so it needs no newer glibc (2.40) or C++ runtime (GCC 14) than
+SteamOS 3.7. Packaging with `--steamdeck` reads each binary's dynamic
+dependencies and rejects newer symbol versions or other system libraries.
 
 Extract the downloaded `.tar.gz` (Linux, macOS) or `.zip` (Windows), keep the
 runtime modules, DLLs and `assets/` beside the executable, and start the
@@ -47,7 +52,7 @@ bug fixes (1.0.0 → 1.0.1), a **minor** for new features (1.0.1 → 1.1.0), a
 
 2. Open the `main` → `stable` pull request; its run builds and uploads the
    packages for testing. Merge it.
-3. The merge's `stable` run builds the three packages once and, as that
+3. The merge's `stable` run builds the four packages once and, as that
    version has no release yet, drafts the GitHub release `v<version>` on the
    merge commit with the packages, `SHA256SUMS` and notes generated from the
    changes since the last release. No tag needs to be pushed by hand.

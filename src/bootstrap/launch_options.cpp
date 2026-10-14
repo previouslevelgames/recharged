@@ -1,6 +1,7 @@
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include <charconv>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace mscharged
@@ -142,6 +143,19 @@ ResolvedLaunch LoadLaunch(const LaunchOptions& options, const std::filesystem::p
     return ResolveLaunch(LoadConfig(path, !options.explicit_config), options);
 }
 
+bool UnderGamescope()
+{
+    const char* display = std::getenv("GAMESCOPE_WAYLAND_DISPLAY");
+    return display && *display;
+}
+
+void ApplyGameModeDisplay(ResolvedLaunch& launch, bool game_mode)
+{
+    if (!game_mode || launch.fullscreen_source == SettingSource::CommandLine) return;
+    launch.settings.fullscreen = true;
+    launch.fullscreen_source = SettingSource::GameMode;
+}
+
 const char* SettingSourceName(SettingSource source)
 {
     switch (source)
@@ -150,6 +164,7 @@ const char* SettingSourceName(SettingSource source)
     case SettingSource::Config: return "INI";
     case SettingSource::Launcher: return "launcher";
     case SettingSource::CommandLine: return "command line";
+    case SettingSource::GameMode: return "Steam Game Mode";
     }
     return "unknown";
 }

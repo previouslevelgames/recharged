@@ -1,7 +1,7 @@
 # Mario Strikers Charged — Native Port
 
 [![Build stable](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable)
-[![Version 1.0.8](https://img.shields.io/badge/version-1.0.8-blue)](CMakeLists.txt)
+[![Version 1.0.9](https://img.shields.io/badge/version-1.0.9-blue)](CMakeLists.txt)
 
 Play **Mario Strikers Charged** natively on your PC. The port compiles the
 fully reconstructed game source of
@@ -27,6 +27,7 @@ macOS** are available.
    | --- | --- |
    | Windows 10/11, 64-bit | `mscharged-<version>-windows-x86_64.zip` |
    | Linux, x86_64 | `mscharged-<version>-linux-x86_64.tar.gz` |
+   | Steam Deck (SteamOS 3.7 or newer) | `mscharged-<version>-steamdeck-x86_64.tar.gz` |
    | macOS, Apple Silicon (M1 or newer) | `mscharged-<version>-macos-arm64.tar.gz` |
 
 2. Unpack it into a folder of your choice and keep all its files together.
@@ -43,6 +44,8 @@ The builds are not signed, so the system asks once on the first start:
   ([details](docs/BUILDING_MACOS.md#controllers)).
 - **Linux:** a current distribution (the package is built on Ubuntu 26.04)
   and a Vulkan driver (Mesa or your GPU vendor's driver) are needed.
+- **Steam Deck:** add `mscharged` to Steam as a non-Steam game
+  ([steps](docs/RUNTIME.md#steam-deck)).
 
 Settings and saves are kept beside the program, so the folder can live anywhere
 you like. The launcher's **Game** page can move the saves to another folder and
@@ -79,13 +82,14 @@ See the full **[feature list](docs/FEATURES.md)**.
 
 ### Builds
 
-All three platforms are built and packaged by the
+All platforms are built and packaged by the
 [**Build binaries**](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml)
 workflow (badge above: latest `stable` build).
 
 | Platform | Build | Package | State |
 | --- | --- | --- | --- |
 | Linux x86_64 | Ubuntu 26.04, GCC 15, Vulkan | `.tar.gz` | Tested, playable |
+| Steam Deck (SteamOS 3.7+) | Ubuntu 24.04, GCC 14, Vulkan | `.tar.gz` | Not yet tested on a Steam Deck |
 | Windows x86_64 | Cross-compiled with LLVM-MinGW, Vulkan | `.zip` | Playable; tested on Windows |
 | macOS Apple Silicon | macOS 15, Apple Clang, Metal | `.tar.gz` | Playable; tested on Apple Silicon |
 

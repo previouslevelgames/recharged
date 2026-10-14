@@ -49,7 +49,7 @@ target_compile_options(charged_original_game_module_sources PRIVATE
 # to the compiler; do not alter source allocation requests to retain them.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(charged_original_game_module_sources PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(charged_original_game_module_sources PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

@@ -45,7 +45,7 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
         "$<$<COMPILE_LANGUAGE:CXX>:-fcheck-new>")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(native_ax_output_source_fixture PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;-fno-assume-sane-operators-new-delete>")
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;${MSCHARGED_GCC_NO_SANE_NEW_DELETE}>")
     else()
         target_compile_options(native_ax_output_source_fixture PRIVATE
             "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")

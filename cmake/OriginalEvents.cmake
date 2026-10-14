@@ -31,7 +31,7 @@ endif()
 # visible to optimizers; this compiler inventory is not the isolated game module.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(charged_original_events PRIVATE
-        -fno-assume-sane-operators-new-delete)
+        ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
     target_compile_options(charged_original_events PRIVATE
         -fno-assume-sane-operator-new)

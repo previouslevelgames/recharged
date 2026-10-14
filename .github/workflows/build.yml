@@ -28,6 +28,15 @@ jobs:
           - platform: linux-x86_64
             runner: ubuntu-26.04
             jobs: 4
+            gcc: 15
+          # Steam Deck: SteamOS 3.7 has glibc 2.40 and the GCC 14 C++ runtime.
+          # Ubuntu 24.04 (glibc 2.39) with GCC 14 builds binaries that need
+          # nothing newer; the packager checks every binary against SteamOS.
+          - platform: steamdeck-x86_64
+            runner: ubuntu-24.04
+            jobs: 4
+            gcc: 14
+            package_args: --steamdeck
           - platform: macos-arm64
             runner: macos-15
             jobs: 3
@@ -55,15 +64,21 @@ jobs:
         run: python -B tests/test_package_build.py
       - name: Install Linux tools
         if: runner.os == 'Linux'
+        env:
+          GCC_VERSION: ${{ matrix.gcc }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-15 cmake ninja-build make tcl pkg-config ccache \
+          sudo apt-get install -y "g++-$GCC_VERSION" cmake ninja-build make tcl pkg-config ccache \
             libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libx11-xcb-dev libegl-dev \
             libwayland-dev libxkbcommon-dev wayland-protocols libdecor-0-dev \
             libudev-dev libdbus-1-dev libvulkan-dev
-          echo 'CC=gcc-15' >> "$GITHUB_ENV"
-          echo 'CXX=g++-15' >> "$GITHUB_ENV"
+          echo "CC=gcc-$GCC_VERSION" >> "$GITHUB_ENV"
+          echo "CXX=g++-$GCC_VERSION" >> "$GITHUB_ENV"
+          # ubuntu-24.04's apt CMake 3.28 repeats whole-archive libraries when
+          # linking; the runner's newer CMake in /usr/local/bin comes first.
+          cmake --version
+          "g++-$GCC_VERSION" --version
       - name: Install macOS tools
         if: runner.os == 'macOS'
         run: |
@@ -114,7 +129,7 @@ jobs:
           grep -F 'original frontend runtime' build/release/ci-version.txt
           ./build/release/mscharged --help
       - name: Package binaries and notices
-        run: python tools/package_build.py --build-dir build/release --output-dir build/artifacts
+        run: python tools/package_build.py --build-dir build/release --output-dir build/artifacts ${{ matrix.package_args }}
       # Pull requests to stable upload too, so the packages can be tested
       # before the promotion is merged.
       # Uploaded as the package file itself (no zip around it); the artifact
@@ -336,7 +351,7 @@ jobs:
         working-directory: release
         run: |
           ls -la
-          test "$(ls *.tar.gz *.zip | wc -l)" -eq 3
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 4
           sha256sum *.tar.gz *.zip > SHA256SUMS
           cat SHA256SUMS
       - name: Draft the release

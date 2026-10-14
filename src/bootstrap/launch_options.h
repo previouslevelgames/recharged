@@ -20,7 +20,7 @@ struct LaunchOptions
     bool no_tweaks = false; // --no-tweaks: play without the [gameplay] tweaks
 };
 
-enum class SettingSource { Defaults, Config, Launcher, CommandLine };
+enum class SettingSource { Defaults, Config, Launcher, CommandLine, GameMode };
 struct ResolvedLaunch
 {
     ConfigFile config;
@@ -42,6 +42,11 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
     const Settings* launcher_settings = nullptr,
     const std::filesystem::path& working_directory = std::filesystem::current_path());
 ResolvedLaunch LoadLaunch(const LaunchOptions& options, const std::filesystem::path& executable_directory);
+// Steam's Game Mode runs games inside gamescope, which shows one window and
+// sizes it to the screen only when it asks for fullscreen. There the game
+// opens fullscreen unless --window asked for a window on this run.
+bool UnderGamescope();
+void ApplyGameModeDisplay(ResolvedLaunch& launch, bool game_mode);
 std::string DescribeLaunch(const ResolvedLaunch& launch);
 const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =

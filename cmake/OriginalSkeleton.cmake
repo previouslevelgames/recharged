@@ -27,7 +27,7 @@ target_compile_options(charged_original_skeleton PRIVATE
     -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas -fcheck-new -fno-rtti)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(charged_original_skeleton PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 else()
     target_compile_options(charged_original_skeleton PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

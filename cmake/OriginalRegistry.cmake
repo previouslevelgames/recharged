@@ -30,7 +30,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         TARGET_DIRECTORY charged_original_registry_module_sources
         APPEND PROPERTY COMPILE_OPTIONS -fno-devirtualize)
     target_compile_options(charged_original_registry_module_sources PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 else()
     target_compile_options(charged_original_registry_module_sources PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

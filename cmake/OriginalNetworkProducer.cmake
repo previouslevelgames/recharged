@@ -33,7 +33,7 @@ target_compile_options(charged_original_network_producer_sources PRIVATE
     -fcheck-new -fno-rtti)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(charged_original_network_producer_sources PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 else()
     target_compile_options(charged_original_network_producer_sources PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

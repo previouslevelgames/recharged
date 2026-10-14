@@ -115,7 +115,22 @@ checksum = "{self.checksum}"
         lock = self.build / "prepared/nod/source/Cargo.lock"
         lock.write_text(lock.read_text().replace(previous, self.checksum))
 
+    @staticmethod
+    def readelf_report(needed, versions):
+        # The parts of `readelf --dynamic --version-info --wide` the packager reads.
+        lines = [f" 0x0000000000000001 (NEEDED)             Shared library: [{library}]" for library in needed]
+        lines += ["", "Version needs section '.gnu.version_r' contains 1 entry:",
+                  "  000000: Version: 1  File: libc.so.6  Cnt: 1"]
+        lines += [f"  0x{16 * (n + 1):04x}:   Name: {version}  Flags: none  Version: {n + 2}"
+                  for n, version in enumerate(versions)]
+        return ("\n".join(lines) + "\n").encode()
+
     def git_output(self, command):
+        if command[0] == "readelf":
+            name = pathlib.Path(command[-1]).name
+            default = (["libstdc++.so.6", "libm.so.6", "libgcc_s.so.1", "libc.so.6"],
+                       ["GLIBC_2.2.5", "GLIBC_2.39", "GLIBCXX_3.4.33", "CXXABI_1.3.15", "GCC_3.0"])
+            return self.readelf_report(*getattr(self, "elf", {}).get(name, default))
         if "--coff-imports" in command:
             name = pathlib.Path(command[-1]).name
             imports = self.windows_imports.get(name, ["KERNEL32.dll"])
@@ -130,9 +145,10 @@ checksum = "{self.checksum}"
         self.assertTrue(command[-1].startswith(self.pin + ":"))
         return b"pinned decomp license"
 
-    def package(self):
+    def package(self, steamdeck=False):
         return PACKAGER.package_build(self.build, self.output, self.source,
-                                      lambda build, cache: (self.packages, {"locked": True, "offline": True}))
+                                      lambda build, cache: (self.packages, {"locked": True, "offline": True}),
+                                      steamdeck=steamdeck)
 
     def test_allowlist_archive_manifest_and_executable_mode(self):
         for root, path in ((self.source, "mscharged.ini"), (self.source, "game/R4QE01.rvz"),
@@ -244,6 +260,50 @@ checksum = "{self.checksum}"
             manifest = json.load(archive.extractfile(member))
         self.assertEqual((manifest["platform"], manifest["architecture"]), ("macos", "arm64"))
         self.assertEqual(manifest["modules"], [stem + ".dylib" for stem in PACKAGER.MODULES])
+
+    def test_steamdeck_package_records_requirements_within_steamos(self):
+        path = self.package(steamdeck=True)
+        self.assertTrue(path.name.endswith("-steamdeck-x86_64.tar.gz"))
+        with tarfile.open(path) as archive:
+            member = next(item for item in archive if item.name.endswith("/SOURCE-MANIFEST.json"))
+            manifest = json.load(archive.extractfile(member))
+            readme = archive.extractfile(next(item for item in archive
+                                              if item.name.endswith("/PACKAGE-README.md"))).read().decode()
+        self.assertEqual((manifest["platform"], manifest["architecture"]), ("steamdeck", "x86_64"))
+        requirements = manifest["steamdeck_requirements"]
+        self.assertEqual(sorted(requirements), sorted(["mscharged"] + [m + ".so" for m in PACKAGER.MODULES]))
+        self.assertEqual(requirements["mscharged"]["newest"],
+                         {"CXXABI": "CXXABI_1.3.15", "GCC": "GCC_3.0", "GLIBC": "GLIBC_2.39",
+                          "GLIBCXX": "GLIBCXX_3.4.33"})
+        self.assertIn("Add a Non-Steam Game", readme)
+        self.assertNotIn("steamdeck_requirements", json.loads(self.manifest_of(self.package())))
+
+    def manifest_of(self, path):
+        with tarfile.open(path) as archive:
+            member = next(item for item in archive if item.name.endswith("/SOURCE-MANIFEST.json"))
+            return archive.extractfile(member).read()
+
+    def test_steamdeck_rejects_newer_or_unknown_system_requirements(self):
+        cases = {
+            "GLIBC_2.43": (["libc.so.6"], ["GLIBC_2.43"]),
+            "GLIBCXX_3.4.34": (["libstdc++.so.6"], ["GLIBC_2.2.5", "GLIBCXX_3.4.34"]),
+            "CXXABI_1.3.16": (["libstdc++.so.6"], ["CXXABI_1.3.16"]),
+            "GLIBC_PRIVATE": (["libc.so.6"], ["GLIBC_PRIVATE"]),
+            "libSDL3.so.0": (["libSDL3.so.0", "libc.so.6"], ["GLIBC_2.2.5"]),
+            "dynamic dependencies": ([], []),
+        }
+        for message, report in cases.items():
+            with self.subTest(message=message):
+                self.elf = {PACKAGER.MODULES[0] + ".so": report}
+                with self.assertRaisesRegex(PACKAGER.PackageError, message.replace(".", r"\.")):
+                    self.package(steamdeck=True)
+        self.assertEqual(list(self.output.glob("*.tar.gz")), [])
+
+    def test_steamdeck_requires_a_linux_x86_64_build(self):
+        self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
+                   b'set(CMAKE_SYSTEM_NAME "Linux")\nset(CMAKE_SYSTEM_PROCESSOR "aarch64")\n')
+        with self.assertRaisesRegex(PACKAGER.PackageError, "Linux x86_64 build"):
+            self.package(steamdeck=True)
 
     def windows_build(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",

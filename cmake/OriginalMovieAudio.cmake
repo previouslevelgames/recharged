@@ -46,7 +46,7 @@ target_link_options(original_movie_audio_module PRIVATE
     "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/thp_audio_exports.map")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(original_movie_audio_module PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 else()
     target_compile_options(original_movie_audio_module PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

@@ -191,7 +191,7 @@ target_compile_options(mscharged_original_credits_module PRIVATE
     -fcheck-new)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_credits_module PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE}
         # Preserve genuine virtual calls without retaining speculative branches
         # into unrelated IntroMovieScene/world providers in this bounded gate.
         -fno-devirtualize-speculatively)
@@ -234,7 +234,7 @@ target_compile_options(mscharged_original_credits_focus PRIVATE
     -fsigned-char -Wno-unknown-pragmas -Wno-invalid-offsetof -fcheck-new)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_credits_focus PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete -fno-devirtualize-speculatively)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE} -fno-devirtualize-speculatively)
 else()
     target_compile_options(mscharged_original_credits_focus PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.0.8 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.0.9 LANGUAGES C CXX)
+
+# The game module replaces the global operator new/delete with allocators whose
+# scopes are global state. GCC 15 assumes replaceable new/delete leave global
+# state alone unless told otherwise; GCC 11.2-14 never assume it (PR101480) and
+# do not know the option, so it is passed only where it exists.
+set(MSCHARGED_GCC_NO_SANE_NEW_DELETE "")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+    set(MSCHARGED_GCC_NO_SANE_NEW_DELETE -fno-assume-sane-operators-new-delete)
+endif()
 if(WIN32 AND MINGW)
     # COFF weak definitions cannot be exported from mscharged.exe to the game
     # DLLs (OSReport and friends would bind to address 0). Plain definitions,

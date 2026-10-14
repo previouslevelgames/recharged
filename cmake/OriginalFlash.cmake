@@ -39,7 +39,7 @@ target_compile_options(original_flash_source_fixture PRIVATE
     -ffp-contract=off -fsigned-char -fcheck-new -Wno-unknown-pragmas)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(original_flash_source_fixture PRIVATE
-        -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+        -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 else()
     target_compile_options(original_flash_source_fixture PRIVATE
         -fno-assume-sane-operator-new -Wno-register)

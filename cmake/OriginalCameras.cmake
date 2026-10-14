@@ -36,7 +36,7 @@ target_compile_definitions(charged_original_cameras PRIVATE
     MSCHARGED_GAME_MODULE=1 dSINGLE=1 __alloca=__builtin_alloca)
 target_compile_options(charged_original_cameras PRIVATE
     -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas
-    -fcheck-new -fno-gnu-unique -fno-assume-sane-operators-new-delete)
+    -fcheck-new -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE})
 add_custom_target(charged_original_camera_scan
     COMMAND "${CMAKE_COMMAND}" "-DNM:FILEPATH=${CMAKE_NM}"
         "-DOBJECT:STRING=$<TARGET_OBJECTS:charged_original_cameras>"

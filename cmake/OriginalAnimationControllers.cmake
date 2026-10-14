@@ -26,4 +26,4 @@ target_compile_definitions(charged_original_animation_controllers PRIVATE
     MSCHARGED_GAME_MODULE=1 dSINGLE=1 __alloca=__builtin_alloca)
 target_compile_options(charged_original_animation_controllers PRIVATE
     -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas
-    -fcheck-new -fno-gnu-unique -fno-assume-sane-operators-new-delete -fno-rtti)
+    -fcheck-new -fno-gnu-unique ${MSCHARGED_GCC_NO_SANE_NEW_DELETE} -fno-rtti)

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Package a completed original-game Linux/macOS/Windows build without game data.
 
+--steamdeck packages a Linux x86_64 build for SteamOS (Steam Deck) instead: it
+refuses binaries that need newer system libraries than SteamOS 3.7 provides.
+
 Requires Python 3.11+, Git, and the Cargo cache used by the completed build.
 Cargo tree runs locked and offline; packaging does not compile or download.
 """
@@ -43,6 +46,15 @@ WINDOWS_SYSTEM_DLLS = frozenset((
 PUBLIC_FILES = ("README.md", "LICENSE", "mscharged.ini.example", "docs/BUILDING.md",
                 "docs/BUILDING_MACOS.md", "docs/BUILDING_GITHUB.md", "docs/RUNTIME.md", "LICENSES/README.md",
                 "LICENSES/Apache-2.0.txt", "extern/README.md")
+# SteamOS 3.7 (Steam Deck): glibc 2.40 and the GCC 14 runtime (gcc-libs 14.2),
+# from Valve's package mirror. A Steam Deck package needs no newer symbol
+# versions and links only these system libraries; SDL and Dawn load the
+# desktop, audio and Vulkan libraries at run time.
+STEAMDECK_SYMBOL_CEILINGS = {"GLIBC": (2, 40), "GLIBCXX": (3, 4, 33), "CXXABI": (1, 3, 15), "GCC": (14, 0, 0)}
+STEAMDECK_SYSTEM_LIBRARIES = frozenset((
+    "libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1",
+    "libstdc++.so.6", "libgcc_s.so.1", "ld-linux-x86-64.so.2",
+))
 DEPENDENCIES = ("mscharged-decomp", "aurora", "sdl", "nod", "corrosion", "dawn",
                 "imgui", "freetype", "libpng", "zlib-ng", "zstd", "sqlite",
                 "tracy", "fmt", "xxhash")
@@ -118,6 +130,34 @@ def verify_windows_imports(stage, toolchain):
                 raise PackageError(f"Windows package is missing {dependency}, imported by {path.name}")
         imports[path.name] = dependencies
     return imports
+
+
+def verify_steamdeck_requirements(stage, binaries):
+    """System libraries and symbol versions each binary needs, within SteamOS 3.7."""
+    requirements = {}
+    for name in binaries:
+        report = run(["readelf", "--dynamic", "--version-info", "--wide", str(stage / name)]).decode()
+        needed = sorted(set(re.findall(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]", report)))
+        versions = sorted(set(re.findall(r"^\s*0x[0-9a-f]+:\s+Name: (\S+)\s+Flags:", report, re.MULTILINE)))
+        if not needed or not versions:
+            raise PackageError(f"Could not read the dynamic dependencies of {name}.")
+        for library in needed:
+            if library not in STEAMDECK_SYSTEM_LIBRARIES:
+                raise PackageError(f"{name} needs {library}, which SteamOS does not provide as a system library.")
+        newest = {}
+        for version in versions:
+            match = re.fullmatch(r"([A-Z]+)_([0-9]+(?:\.[0-9]+)*)", version)
+            if not match or match[1] not in STEAMDECK_SYMBOL_CEILINGS:
+                raise PackageError(f"{name} needs unsupported symbol version {version}.")
+            number = tuple(int(part) for part in match[2].split("."))
+            if number > STEAMDECK_SYMBOL_CEILINGS[match[1]]:
+                limit = ".".join(map(str, STEAMDECK_SYMBOL_CEILINGS[match[1]]))
+                raise PackageError(f"{name} needs {version}, newer than SteamOS 3.7 ({match[1]} {limit}); "
+                                   "build it with an older C library and compiler runtime.")
+            if number > newest.get(match[1], ((),))[0]:
+                newest[match[1]] = (number, version)
+        requirements[name] = {"needed": needed, "newest": {k: v[1] for k, v in sorted(newest.items())}}
+    return requirements
 
 
 def is_notice(relative):
@@ -229,10 +269,12 @@ def cargo_packages(build, cache):
                       "edges": ["normal", "build"]}
 
 
-def package_build(build, output, source, cargo_loader=cargo_packages):
+def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=False):
     build, output, source = build.resolve(), output.resolve(), source.resolve()
     cache = cache_values(build)
     system, arch = target_platform(build)
+    if steamdeck and (system, arch) != ("linux", "x86_64"):
+        raise PackageError(f"A Steam Deck package needs a Linux x86_64 build, got {system}/{arch}.")
     version_body = regular_file(build, "generated/mscharged/build_version.h").read_text()
     match = re.search(r'const char\* version\s*=\s*"([A-Za-z0-9._+\-]+)"', version_body)
     if not match:
@@ -272,7 +314,7 @@ def package_build(build, output, source, cargo_loader=cargo_packages):
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise PackageError("Invalid packaging source Git revision.")
     packages, cargo_options = cargo_loader(build, cache)
-    package_name = f"mscharged-{version}-{system}-{arch}"
+    package_name = f"mscharged-{version}-{'steamdeck' if steamdeck else system}-{arch}"
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".mscharged-package-", dir=output) as temporary:
         stage = Path(temporary) / package_name
@@ -416,11 +458,31 @@ and any component-specific obligations remain in the accompanying notices.
 Launcher artwork provenance and its unspecified redistribution license are
 recorded in assets/launcher/README.md and LICENSES/README.md.
 """
+        if steamdeck:
+            readme += """
+## Steam Deck
+
+This package is the Linux x86_64 build checked against SteamOS 3.7 or newer:
+it needs no newer system libraries than glibc 2.40 and the GCC 14 C++ runtime.
+
+1. In Desktop Mode, extract the directory to a folder you can write to, for
+   example ~/Games/mscharged, and start mscharged. Choose your disc image on
+   the Game page. On the Controls page, choose gamepad1 for player 1: Steam
+   presents the Deck's own buttons and sticks as a gamepad.
+2. In Steam, choose Games > Add a Non-Steam Game to My Library, browse to
+   mscharged in that folder and add it.
+3. Start it from your library in Game Mode. The launcher accepts the Deck's
+   controls; press Play. In Game Mode the game opens fullscreen; --window in
+   the shortcut's launch options keeps a window instead.
+"""
         put("PACKAGE-README.md", readme.encode())
-        manifest = {"format": 1, "version": version, "platform": system, "architecture": arch,
+        manifest = {"format": 1, "version": version, "platform": "steamdeck" if steamdeck else system,
+                    "architecture": arch,
                     "packaging_source_commit": revision, "modules": modules, "prepared": prepared,
                     "cargo": {"options": cargo_options, "lock_sha256": digest(lock_bytes), "packages": rust},
                     "files": files}
+        if steamdeck:
+            manifest["steamdeck_requirements"] = verify_steamdeck_requirements(stage, [executable_name] + modules)
         if windows:
             manifest["windows_graphics"] = graphics_pin
             manifest["windows_imports"] = verify_windows_imports(stage, runtime_root)
@@ -458,9 +520,11 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--source-dir", type=Path, default=Path(__file__).resolve().parents[1],
                         help="Port checkout (defaults to the script's repository).")
+    parser.add_argument("--steamdeck", action="store_true",
+                        help="Package a Linux x86_64 build for SteamOS 3.7+ and check its system requirements.")
     args = parser.parse_args()
     try:
-        archive = package_build(args.build_dir, args.output_dir, args.source_dir)
+        archive = package_build(args.build_dir, args.output_dir, args.source_dir, steamdeck=args.steamdeck)
     except (OSError, ValueError, KeyError, StopIteration) as error:
         print(f"Packaging failed: {error}", file=sys.stderr)
         return 1

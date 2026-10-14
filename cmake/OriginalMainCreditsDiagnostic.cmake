@@ -229,7 +229,7 @@ target_compile_options(mscharged_original_main_credits_module PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_main_credits_module PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;-fno-assume-sane-operators-new-delete;-fno-devirtualize-speculatively>")
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;${MSCHARGED_GCC_NO_SANE_NEW_DELETE};-fno-devirtualize-speculatively>")
     # Retail loops that write past an array (PauseMenuScene's hover counts)
     # keep their full iteration count: GCC must not derive a shorter one from
     # the out-of-bounds store. Console idioms GCC reports by default: `register`,
@@ -300,7 +300,7 @@ target_compile_options(mscharged_original_main_credits_focus PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(mscharged_original_main_credits_focus PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;-fno-assume-sane-operators-new-delete;-fno-devirtualize-speculatively>")
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;${MSCHARGED_GCC_NO_SANE_NEW_DELETE};-fno-devirtualize-speculatively>")
 else()
     target_compile_options(mscharged_original_main_credits_focus PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")

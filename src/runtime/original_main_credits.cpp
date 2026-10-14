@@ -295,8 +295,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         const char* basePath=SDL_GetBasePath();
         Check(basePath && *basePath,"Cannot locate the executable directory");
         const auto executableDirectory=mscharged::PathFromUtf8(basePath);
-        const auto launch=suppliedLaunch ? *suppliedLaunch :
+        auto launch=suppliedLaunch ? *suppliedLaunch :
             mscharged::LoadLaunch(launchOptions,executableDirectory);
+        mscharged::ApplyGameModeDisplay(launch,mscharged::UnderGamescope());
         disc=mscharged::PathUtf8(launch.disc_path);
         windowWidth=launch.settings.width;windowHeight=launch.settings.height;
         const auto& aspect = launch.settings.aspect;

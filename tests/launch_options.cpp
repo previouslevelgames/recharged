@@ -177,6 +177,18 @@ int main()
         Check(absolute.disc_path == root / "absolute.rvz", "Absolute CLI path changed");
         Check(Read(path) == original && fs::last_write_time(path) == stamp, "Run overrides wrote the INI");
         Check(DescribeLaunch(resolved).find("command line") != std::string::npos, "Resolved setting source not described");
+        auto game_mode = baseline;
+        ApplyGameModeDisplay(game_mode, false);
+        Check(game_mode.settings.fullscreen == baseline.settings.fullscreen
+            && game_mode.fullscreen_source == baseline.fullscreen_source, "Desktop launch changed by Game Mode rule");
+        game_mode.settings.fullscreen = false;
+        ApplyGameModeDisplay(game_mode, true);
+        Check(game_mode.settings.fullscreen && game_mode.fullscreen_source == SettingSource::GameMode
+            && DescribeLaunch(game_mode).find("Steam Game Mode") != std::string::npos, "Game Mode did not open fullscreen");
+        auto windowed = ResolveLaunch(file, Parse({"test", "--window"}));
+        ApplyGameModeDisplay(windowed, true);
+        Check(!windowed.settings.fullscreen && windowed.fullscreen_source == SettingSource::CommandLine,
+            "Game Mode overrode an explicit --window");
         std::ofstream(path) << "[display]\nwidth = 600\nheight = 900\n";
         const auto tall = LoadConfig(path);
         Check(tall.settings.width == 600 && tall.settings.height == 900,

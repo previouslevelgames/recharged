@@ -105,6 +105,22 @@ the DolphinBar slot or Bluetooth address; **Advanced → Verbose console** or
 HID devices the launcher sees and how each Remote answers (also in
 `logs/mscharged.log`).
 
+## Steam Deck
+
+Use the `steamdeck-x86_64` package (SteamOS 3.7 or newer).
+
+1. In Desktop Mode, unpack it to a folder you can write to, such as
+   `~/Games/mscharged`, and start `mscharged`. Choose the disc on the
+   **Game** page; on **Controls**, set player 1 to `gamepad1` (Steam presents
+   the Deck's buttons and sticks as a gamepad).
+2. In Steam, choose *Games → Add a Non-Steam Game to My Library* and add
+   `mscharged` from that folder.
+3. Start it from the library in Game Mode and press **Play** in the launcher.
+
+In Game Mode (gamescope) the game opens fullscreen; `--window` in the
+shortcut's launch options keeps a window. The Steam Deck build has not been
+tested on a Deck yet.
+
 ## Saves
 
 The game keeps its Wii saves (`Strikers2` and `banner.bin`) in
