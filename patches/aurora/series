@@ -98,3 +98,5 @@
 0102-learn-resource-pipeline-scopes.patch
 0103-canonicalize-identity-texture-generators.patch
 0104-forget-resource-discovered-pipelines.patch
+0106-expose-native-address-generation.patch
+0107-release-unused-native-textures.patch

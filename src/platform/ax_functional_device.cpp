@@ -8,6 +8,7 @@
 #include <limits>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace mscharged::platform {
 namespace {
@@ -115,7 +116,10 @@ struct NativeAXFunctionalDevice::State {
         }
         CommitNativeAXCommandFrame(memory,frame,s.history);
         ++s.processed;s.active=frame.active_voices;s.aux=frame.aux_commands;
-        return {frame.consumed_words,std::uint16_t(frame.voice_count-frame.active_voices),96,18,frame.written_bytes};
+        const NativeAXDeviceFrameResult result{frame.consumed_words,
+            std::uint16_t(frame.voice_count-frame.active_voices),96,18,frame.written_bytes};
+        RecycleNativeAXCommandFrame(std::move(frame));
+        return result;
     }
 };
 NativeAXFunctionalDevice::NativeAXFunctionalDevice(NativeDSPMemoryEndpoint memory,

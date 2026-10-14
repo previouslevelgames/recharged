@@ -1,0 +1,40 @@
+From: mscharged-port
+Subject: Release textures the game stops using in native GX mode
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: native host resource lifetime fix (GPU memory leak).
+
+Aurora releases a cached texture object once it has not been bound for 600
+frames, in gx::texture::end_frame(). Only the diagnostic aurora::end_frame()
+calls it, and native GX recording (0033) forbids that path, so in the game the
+cache's frame counter never advanced and nothing was ever released.
+GXInitTexObj gives each call a new object, and the movie player prepares its
+Y/U/V textures again for every decoded frame: every movie frame stayed in GPU
+memory (about 1.7 GB during the credits), and new stadiums and characters added
+their textures for good. A Windows player's session that ended with
+VK_ERROR_OUT_OF_DEVICE_MEMORY after 19 minutes held about 6.4 GB of small
+textures. The display copy now ends a native frame and ages the caches there,
+on the FIFO processor that owns them. A playing movie still keeps its last 600
+frames of textures (the credits level off about 1 GB above the menus).
+
+diff --git a/lib/gx/regs.cpp b/lib/gx/regs.cpp
+index 681d4a8..0513225 100644
+--- a/lib/gx/regs.cpp
++++ b/lib/gx/regs.cpp
+@@ -1,5 +1,6 @@
+ #include "regs.hpp"
+ #include "../gfx/xfb.hpp"
++#include "fifo.hpp"
+ 
+ #include "gx_fmt.hpp"
+ #include "texture.hpp"
+@@ -280,6 +281,10 @@ void bp_efb_copy(u8, u32 value) noexcept {
+   if (reg_get(value, 1, 14) != 0) {
+     debug::draw_dump_display_copy();
+     gfx::xfb::copy_from_bp(value);
++    // Original GX frames never reach the diagnostic aurora::end_frame(), so the
++    // display copy ends the frame: age the texture caches here. Otherwise every
++    // texture the game stops using (each decoded movie frame) stays allocated.
++    if (native_recording_configured()) gx::texture::end_frame();
+   } else {
+     debug::draw_dump_copy(g_gxState.texCopyDest, clear);
+     copy_tex(g_gxState.texCopyDest, clear);

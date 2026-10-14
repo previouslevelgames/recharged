@@ -86,4 +86,7 @@ void ValidateNativeAXCommandCommit(NativeDSPMemoryEndpoint memory,
 void CommitNativeAXCommandFrame(NativeDSPMemoryEndpoint memory,
                                const NativeAXPreparedCommandFrame& frame,
                                NativeAXCommandHistory& history);
+// Optional: hands a finished frame's voice storage (about 600 KiB) to the next
+// PrepareNativeAXCommandFrame on this thread instead of freeing it.
+void RecycleNativeAXCommandFrame(NativeAXPreparedCommandFrame&& frame) noexcept;
 } // namespace mscharged::platform

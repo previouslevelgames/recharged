@@ -52,6 +52,8 @@ void Stage(NativeAXPreparedCommandFrame& f,NativeDSPMemoryEndpoint e,std::uint32
             throw std::runtime_error("AX original output/AUX writable spans overlap");
     f.written_bytes+=after.size();f.writes.push_back({a,Read(e,a,after.size()),std::move(after)});
 }
+// Voice storage of the previous frame on this thread (RecycleNativeAXCommandFrame).
+thread_local std::vector<NativeAXPreparedVoiceFrame> spare_voices;
 bool IsZero(const std::vector<unsigned char>& bytes) {
     return std::all_of(bytes.begin(),bytes.end(),[](unsigned char x){return x==0;});
 }
@@ -162,13 +164,21 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
         Fail(NativeAXFailure::NonzeroSurround,surround,"AX prior surround routing is not yet qualified");
     const auto& process=Take(NativeAXOpcode::Process);
     std::array<std::uint32_t,96> seen{};auto voice_address=Address(process);
+    // Each prepared voice carries its own 12x96 bus contributions (~6 KiB).
+    // Voices are prepared in place, reusing the previous frame's voice objects
+    // when recycled: a stopped voice then only rewrites its PB and flags.
+    f.voices.swap(spare_voices);
+    const auto reusable=f.voices.size();
+    f.voices.reserve(96);
     while(voice_address) {
         if(f.voice_count==96 || std::find(seen.begin(),seen.begin()+f.voice_count,voice_address)!=seen.begin()+f.voice_count)
             Fail(NativeAXFailure::InvalidVoiceChain,process,"AX source PB chain is cyclic or exceeds96 voices");
         for(unsigned i=0;i<f.voice_count;++i)
             if(Overlap(seen[i],320,voice_address,320))
                 Fail(NativeAXFailure::InvalidVoiceChain,process,"AX distinct source PB records partially overlap");
-        const auto voice=PrepareNativeAXADPCMVoiceFrame(memory,voice_address,coefficients);
+        auto& slot=f.voice_count<reusable ? f.voices[f.voice_count] : f.voices.emplace_back();
+        PrepareNativeAXADPCMVoiceInto(slot,memory,voice_address,coefficients);
+        const auto& voice=slot;
         seen[f.voice_count++]=voice_address;
         if(voice.was_running) {
             ++f.active_voices;
@@ -180,8 +190,9 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
                     remote_buses[c][i]=NativeAXMixAccumulate(remote_buses[c][i],voice.remote.channels[c][i]);
             f.written_bytes+=voice.parameters_after.size();
         }
-        voice_address=Word(voice.parameters_before.data());f.voices.push_back(voice);
+        voice_address=Word(voice.parameters_before.data());
     }
+    f.voices.resize(f.voice_count);
     if(f.voice_count!=96)
         Fail(NativeAXFailure::InvalidVoiceChain,process,"AX staged frame requires the complete original96-PB owner");
     constexpr unsigned aux_bus[3][3]={{2,3,9},{4,5,10},{6,7,11}};
@@ -301,6 +312,9 @@ void ValidateNativeAXCommandCommit(NativeDSPMemoryEndpoint memory,const NativeAX
                 throw std::runtime_error("AX output aliases its original parameter-block owner");
         }
     }
+}
+void RecycleNativeAXCommandFrame(NativeAXPreparedCommandFrame&& frame) noexcept {
+    if(frame.voices.capacity()>spare_voices.capacity())spare_voices.swap(frame.voices);
 }
 void CommitNativeAXCommandFrame(NativeDSPMemoryEndpoint memory,const NativeAXPreparedCommandFrame& f,
                                NativeAXCommandHistory& history) {

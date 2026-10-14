@@ -1,0 +1,137 @@
+From: mscharged-port
+Subject: Expose the native address-map generation and linear physical ranges
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The port's DSP memory endpoint checks on every transfer that physical 0
+still resolves to MEM1 and that the transferred address still resolves to
+its pinned native backing. Each check takes the address mutex and walks the
+region map, and the game's audio frames transfer a few hundred times per
+frame: about a fifth of the main thread in a match.
+
+OSNativeAddressGeneration changes after every change that can make a
+physical address resolve differently: SDK memory init and shutdown, and
+static region registration, release and reset. OSNativeResolvePhysicalRange
+returns the native pointer of a physical range when every byte of it
+resolves linearly from there (OSPhysicalToCached), else NULL. With both the
+endpoint can prove a whole pinned span once per generation instead of
+checking each transfer; address resolution itself is unchanged.
+
+diff --git a/include/dolphin/os/OSNativeMemory.h b/include/dolphin/os/OSNativeMemory.h
+index 407bc71..fc85556 100644
+--- a/include/dolphin/os/OSNativeMemory.h
++++ b/include/dolphin/os/OSNativeMemory.h
+@@ -28,6 +28,12 @@ void OSNativeReleaseStaticMemory(OSNativeStaticMemory memory);
+ // Validate the exact bank/registered extent and retain a static mapping during
+ // device ownership. Zero is returned only for real SDK MEM1/MEM2 bank backing.
+ u64 OSNativePinAddress(const void* address, u32 bytes, BOOL writable, u32* physical_address);
++/* Changes whenever a physical address may resolve differently: SDK memory
++ * init/shutdown and static region registration, release or reset. */
++u64 OSNativeAddressGeneration(void);
++/* The native pointer of physical when every byte of [physical, physical+bytes)
++ * resolves to that pointer plus its offset (OSPhysicalToCached), else NULL. */
++void* OSNativeResolvePhysicalRange(u32 physical, u32 bytes);
+ void OSNativeUnpinAddress(u64 identity);
+ #ifdef __cplusplus
+ }
+diff --git a/lib/dolphin/os/OSAddress.cpp b/lib/dolphin/os/OSAddress.cpp
+index 5002b11..ad29a55 100644
+--- a/lib/dolphin/os/OSAddress.cpp
++++ b/lib/dolphin/os/OSAddress.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ #include "internal.hpp"
+ #include <dolphin/os.h>
+ #include <dolphin/os/OSNativeMemory.h>
+@@ -37,6 +38,10 @@ struct AddressState {
+     u64 next_identity{};
+ };
+ AddressState& Addresses() { static AddressState state; return state; }
++// Bumped after every change to the regions or the SDK banks (writers hold the
++// address mutex or own SDK memory init/shutdown).
++std::atomic<u64> s_addressGeneration{1};
++void AddressesChanged() { s_addressGeneration.fetch_add(1, std::memory_order_acq_rel); }
+ uintptr_t Value(const void* p) { return reinterpret_cast<uintptr_t>(p); }
+ u32 BankSize(void* start, void* end) {
+     const auto begin = Value(start), finish = Value(end);
+@@ -202,11 +207,13 @@ OSNativeStaticMemory OSNativeRegisterStaticMemory(const OSNativeStaticMemoryOwne
+             // Allocate all metadata before committing the real SDK reservation.
+             auto [it, inserted] = state.regions.emplace(physical, std::move(entry));
+             if (!inserted) throw std::logic_error("Native physical reservation collision");
++            AddressesChanged();
+             if (Value(OSAllocFromArenaHi(reserved, 32)) != Value(MEM1Start) + physical) {
+                 it->second.active = false;
++                AddressesChanged();
+                 throw std::logic_error("SDK physical reservation differs from its arena allocation");
+             }
+-        } else existing->second = std::move(entry);
++        } else { existing->second = std::move(entry); AddressesChanged(); }
+         state.owner = std::this_thread::get_id();
+         return {identity, physical, owner->bytes};
+     } catch (...) {
+@@ -222,6 +229,7 @@ void OSNativeReleaseStaticMemory(OSNativeStaticMemory memory) {
+     if (entry.pins) throw std::logic_error("Native static backing still has live device owners");
+     auto release = entry.release; auto* context = entry.context;
+     entry.active = false; entry.address = 0; entry.context = nullptr; entry.release = nullptr;
++    AddressesChanged();
+     lock.unlock(); release(context);
+     // Keep the physical reservation excluded until SDK reset. A reloaded exact
+     // module/resource contract can reuse it; a different identity cannot alias it.
+@@ -247,4 +255,28 @@ void AuroraResetNativeAddresses() {
+     for (const auto& [physical, entry] : state.regions)
+         if (entry.active || entry.pins) throw std::logic_error("SDK memory reset requires drained native static owners");
+     state.regions.clear(); state.owner = {};
++    AddressesChanged();
++}
++void AuroraNativeAddressesChanged() { AddressesChanged(); }
++u64 OSNativeAddressGeneration() { return s_addressGeneration.load(std::memory_order_acquire); }
++void* OSNativeResolvePhysicalRange(u32 physical, u32 bytes) {
++    if (!bytes || bytes - 1 > std::numeric_limits<u32>::max() - physical) return nullptr;
++    const u32 last = physical + (bytes - 1);
++    auto& state = Addresses(); std::lock_guard lock(state.mutex);
++    try {
++        // A region resolves linearly inside its live bytes; the banks resolve
++        // linearly where no region reservation covers an address.
++        auto first = RegionAt(state, physical);
++        if (first != state.regions.end()) {
++            if (!first->second.active || static_cast<u64>(last) - first->first >= first->second.bytes) return nullptr;
++            return ResolvePhysical(state, physical);
++        }
++        auto next = state.regions.upper_bound(physical);
++        if (next != state.regions.end() && next->first <= last) return nullptr;
++        auto* begin = static_cast<u8*>(ResolvePhysical(state, physical));
++        if (static_cast<u8*>(ResolvePhysical(state, last)) != begin + (last - physical)) return nullptr;
++        return begin;
++    } catch (const std::out_of_range&) {
++        return nullptr;
++    }
+ }
+diff --git a/lib/dolphin/os/OSMemory.cpp b/lib/dolphin/os/OSMemory.cpp
+index d0374ee..8334d80 100644
+--- a/lib/dolphin/os/OSMemory.cpp
++++ b/lib/dolphin/os/OSMemory.cpp
+@@ -144,6 +144,7 @@ void AuroraOSInitMemory() {
+     if (MEM2Start == nullptr) Log.fatal("Failed to allocate MEM2");
+     MEM2End = static_cast<u8*>(MEM2Start) + aurora::g_config.mem2Size;
+   }
++  AuroraNativeAddressesChanged();
+ }
+ 
+ u32 OSGetConsoleSimulatedMem2Size() {
+@@ -170,6 +171,7 @@ void AuroraOSShutdownMemory() {
+ #endif
+   MEM1Start = MEM1End = MEM2Start = MEM2End = nullptr;
+   OSBaseAddress = 0;
++  AuroraNativeAddressesChanged();
+ }
+ 
+ #if GUARD_MEMORY
+diff --git a/lib/dolphin/os/internal.hpp b/lib/dolphin/os/internal.hpp
+index f231099..311fa40 100644
+--- a/lib/dolphin/os/internal.hpp
++++ b/lib/dolphin/os/internal.hpp
+@@ -24,3 +24,5 @@ void AuroraInitClock();
+ void AuroraInitArena();
+ 
+ void AuroraResetNativeAddresses();
++// After SDK bank changes: physical addresses may resolve differently.
++void AuroraNativeAddressesChanged();

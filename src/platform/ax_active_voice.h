@@ -102,6 +102,12 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
 NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
     NativeDSPMemoryEndpoint endpoint, std::uint32_t parameter_address,
     const NativeAXCoefficientView& coefficients);
+// Same preparation into an existing frame. Every field a stopped voice keeps
+// is rewritten; its signal arrays (buses, samples, remote) are left as they
+// were and must not be read. A running voice gets them zeroed first.
+void PrepareNativeAXADPCMVoiceInto(NativeAXPreparedVoiceFrame& frame,
+    NativeDSPMemoryEndpoint endpoint, std::uint32_t parameter_address,
+    const NativeAXCoefficientView& coefficients);
 void ValidateNativeAXVoiceCommit(NativeDSPMemoryEndpoint endpoint,
                                 const NativeAXPreparedVoiceFrame& frame);
 void CommitNativeAXVoiceFrame(NativeDSPMemoryEndpoint endpoint,

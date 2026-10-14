@@ -2,6 +2,7 @@
 #include "platform/interrupts.h"
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace mscharged::platform {
 struct NativeAXNormalCommandDevice::State {
@@ -48,15 +49,17 @@ struct NativeAXNormalCommandDevice::State {
             throw std::logic_error("AX normal slice received a different bus lifetime");
         const auto before=Context(s.status.history);
         s.chip.ValidateNativeDataWords(0x0ce4,before.data(),before.size());
-        const auto frame=PrepareNativeAXCommandFrame(bus,address,bytes,s.status.history,s.coefficients);
+        auto frame=PrepareNativeAXCommandFrame(bus,address,bytes,s.status.history,s.coefficients);
         CommitNativeAXCommandFrame(bus,frame,s.status.history);
         const auto after=Context(s.status.history);
         s.chip.CommitNativeDataWords(0x0ce4,before.data(),after.data(),after.size());
         ++s.status.processed_frames;s.status.last_active_voices=frame.active_voices;
         s.status.last_aux_commands=frame.aux_commands;
         // The outer real device publishes SYNC only after these genuine stores.
-        return {frame.consumed_words,std::uint16_t(frame.voice_count-frame.active_voices),96,18,
-                frame.written_bytes};
+        const NativeAXDeviceFrameResult result{frame.consumed_words,
+            std::uint16_t(frame.voice_count-frame.active_voices),96,18,frame.written_bytes};
+        RecycleNativeAXCommandFrame(std::move(frame));
+        return result;
     }
 };
 NativeAXNormalCommandDevice::NativeAXNormalCommandDevice(NativeAXBootstrapDevice& device,

@@ -515,3 +515,4 @@
 0711-cover-source-render-transitions.patch
 0712-prepare-shadow-and-opacity-continuations.patch
 0713-delay-frontend-model-publication-until-prepared.patch
+0714-release-destroyed-target-copies.patch

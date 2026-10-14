@@ -58,6 +58,11 @@ Patch 0701 clears that pointer member before `Variant(eVariantType, T)` stores
 a narrower value, so a pointer-width read of a stored 32-bit word sees the
 word, as on the Wii, for every reader. It stays after 0690 is dropped.
 
+Patch 0714 releases a destroyed GL target's EFB copies through
+`GXDestroyCopyTex`. On the console a copy is written into the target's memory,
+so no call is needed; native GX keeps copies in host textures keyed by that
+address, and each match left its crowd and captain impostor copies allocated.
+
 Patch 0585 restores the original SDK texture-binding loop and its panic,
 null and unpacked branches. Native address conversion publishes structural
 headers atomically; allocation failure leaves the source bytes intact.
@@ -716,6 +721,12 @@ ImGui draws recorded in surface pixels and drawn after the picture in the same
 surface pass, while the surface keeps the size they were laid out for. The
 overlay frame reads no input and leaves the cursor, mouse capture and gamepads
 alone; screenshots and the game's frames never contain it.
+`0107-release-unused-native-textures.patch` ages Aurora's texture caches at each
+display copy in native GX mode. Their cleanup ran only in the diagnostic frame
+loop, so every texture the game had prepared stayed in GPU memory, including
+each decoded movie frame (about 1.7 GB over the credits; a Windows player's
+out-of-video-memory crash held about 6.4 GB of small textures). A playing movie
+still keeps its last 600 frames of textures.
 
 ## Dawn series
 

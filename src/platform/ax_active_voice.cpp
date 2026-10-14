@@ -143,7 +143,16 @@ NativeAXRemoteVoice NativeAXProcessRemoteVoice(const std::array<std::int16_t, 96
 NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
     NativeDSPMemoryEndpoint endpoint, std::uint32_t address,
     const NativeAXCoefficientView& coefficients) {
-    NativeAXPreparedVoiceFrame result; result.parameter_address = address;
+    NativeAXPreparedVoiceFrame result;
+    PrepareNativeAXADPCMVoiceInto(result, endpoint, address, coefficients);
+    return result;
+}
+void PrepareNativeAXADPCMVoiceInto(NativeAXPreparedVoiceFrame& result,
+    NativeDSPMemoryEndpoint endpoint, std::uint32_t address,
+    const NativeAXCoefficientView& coefficients) {
+    result.parameter_address = address;
+    result.remote_enabled = false; result.decoded_samples = 0; result.loops = 0;
+    result.was_running = false; result.end_reached = false;
     DSPBackendReadMemory(endpoint, address, result.parameters_before.data(), result.parameters_before.size());
     if (Word(result.parameters_before.data() + 4) != address)
         Fail(NativeAXVoiceFailure::InvalidSelfAddress, "AX voice PB has no genuine self address");
@@ -157,7 +166,12 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
         Fail(NativeAXVoiceFailure::SourceChanged, "AX source PB changed while preparing its device frame");
     result.parameters_after = result.parameters_before;
     result.was_running = state.running;
-    if (!state.running) return result;
+    if (!state.running) return;
+    // A running voice starts from zeroed signals, as a new frame does; disabled
+    // buses stay zero. A stopped voice leaves them alone: nobody reads them.
+    for (auto& bus : result.buses) bus.fill(0);
+    result.resampled.fill(0); result.enveloped.fill(0); result.filtered.fill(0);
+    result.remote = {};
     if (state.src_select > 1)
         Fail(NativeAXVoiceFailure::UnsupportedSRC,
              ("AX active SRC selector=" + std::to_string(state.src_select) +
@@ -277,7 +291,6 @@ NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
         result.remote = NativeAXProcessRemoteVoice(result.filtered, after, NativeAXRemoteCoefficientBank(coefficients));
         result.remote_enabled = true;
     }
-    return result;
 }
 NativeAXPreparedVoiceFrame PrepareNativeAXADPCMVoiceFrame(
     NativeDSPMemoryEndpoint endpoint,std::uint32_t address,

@@ -20,6 +20,9 @@ struct Span {
     std::uintptr_t native_address;
     std::uint64_t static_identity;
     NativeDSPMemoryEncoding encoding;
+    // SDK address-map generation at which the whole span was proven to
+    // resolve linearly to native_address (0: not proven).
+    mutable std::uint64_t linear_generation{};
 };
 struct AddressSpace {
     std::mutex mutex;
@@ -28,15 +31,27 @@ struct AddressSpace {
     std::uint32_t bytes{};
     std::uint64_t generation{},next_identity{};
     bool attached{};
+    // SDK address-map generation at which MEM1 was proven to start at start.
+    mutable std::uint64_t live_generation{};
     std::map<std::uint32_t,Span> spans;
 };
 AddressSpace& State() { static AddressSpace state;return state; }
 void RequireLive(const AddressSpace& state) {
     if (!state.attached || !OSGetArenaLo() || !OSGetArenaHi())
         throw std::logic_error("DSP memory endpoint has no live SDK MEM1 owner");
+    // Physical 0 resolves differently only after an SDK address-map change.
+    // While the generation is unchanged it is still state.start, so the boot
+    // size OSGetPhysicalMemSize reads there is read directly.
+    const auto generation=OSNativeAddressGeneration();
+    if (generation==state.live_generation) {
+        if (reinterpret_cast<const OSBootInfo*>(state.start)->memorySize!=state.bytes)
+            throw std::logic_error("DSP memory endpoint no longer matches its SDK MEM1 backing");
+        return;
+    }
     if (reinterpret_cast<std::uintptr_t>(OSPhysicalToCached(0))!=state.start
         || OSGetPhysicalMemSize()!=state.bytes)
         throw std::logic_error("DSP memory endpoint no longer matches its SDK MEM1 backing");
+    state.live_generation=generation;
 }
 void RequireOwner(const AddressSpace& state) {
     RequireLive(state);
@@ -79,9 +94,16 @@ SpanIterator FindSpan(const AddressSpace& state,std::uint32_t address,std::size_
     return it;
 }
 void* SpanPointer(SpanIterator it,std::uint32_t physical) {
-    const auto pointer=reinterpret_cast<void*>(it->second.native_address+physical-it->first);
+    const auto& span=it->second;
+    const auto pointer=reinterpret_cast<void*>(span.native_address+physical-it->first);
+    // Once the whole span is proven to resolve linearly, every address in it
+    // passes this check until the SDK address map changes.
+    const auto generation=OSNativeAddressGeneration();
+    if (span.linear_generation==generation) return pointer;
     if (OSPhysicalToCached(physical)!=pointer)
         throw std::logic_error("DSP physical address no longer resolves to the retained source backing");
+    if (OSNativeResolvePhysicalRange(it->first,span.bytes)==reinterpret_cast<void*>(span.native_address))
+        span.linear_generation=generation;
     return pointer;
 }
 void* NativePointer(const AddressSpace& state,std::uint32_t physical,std::size_t bytes,bool writing) {
@@ -161,12 +183,20 @@ void ConvertFields(NativeDSPMemoryEncoding encoding,unsigned char* native,std::s
     case NativeDSPMemoryEncoding::AXParameterBlocks:
         if (wire%320==0 && bytes%320==0) {
             // Whole parameter blocks: u16 fields, the u32 at 12..15, opaque tail.
+            // Each mapping swaps the bytes of one field, so the copy is a field
+            // byte swap in either direction (the same bytes as the per-byte form).
             for (std::size_t record=0;record<bytes;record+=320) {
-                const auto at=wire+record;
-                for (std::size_t k=0;k<12;++k) move(record+k,(at+k)^std::size_t(1));
-                for (std::size_t k=12;k<16;++k) move(record+k,(at+k)^std::size_t(3));
-                for (std::size_t k=16;k<296;++k) move(record+k,(at+k)^std::size_t(1));
-                for (std::size_t k=296;k<320;++k) move(record+k,at+k);
+                unsigned char* to=Write ? native+wire+record : device+record;
+                const unsigned char* from=Write ? device+record : native+wire+record;
+                const auto swap16=[&](std::size_t begin,std::size_t end) {
+                    for (std::size_t k=begin;k<end;k+=2) {
+                        std::uint16_t v;std::memcpy(&v,from+k,2);v=__builtin_bswap16(v);std::memcpy(to+k,&v,2);
+                    }
+                };
+                swap16(0,12);
+                std::uint32_t word;std::memcpy(&word,from+12,4);word=__builtin_bswap32(word);std::memcpy(to+12,&word,4);
+                swap16(16,296);
+                std::memcpy(to+296,from+296,24);
             }
             return;
         }
@@ -228,7 +258,7 @@ NativeDSPMemoryEndpoint AttachNativeDSPMEM1() {
     if (!start || !bytes || bytes>std::numeric_limits<std::uintptr_t>::max()-start)
         throw std::logic_error("SDK MEM1 backing has an invalid native extent");
     state.start=start;state.bytes=bytes;state.owner=std::this_thread::get_id();
-    ++state.generation;state.attached=true;
+    ++state.generation;state.attached=true;state.live_generation=0;
     return {state.generation};
 }
 void DetachNativeDSPMEM1() {
@@ -238,7 +268,7 @@ void DetachNativeDSPMEM1() {
         throw std::logic_error("DSP memory detach requires its owner thread");
     for (const auto& [physical,span]:state.spans)
         if (span.static_identity) OSNativeUnpinAddress(span.static_identity);
-    state.spans.clear();state.attached=false;state.owner={};state.start=0;state.bytes=0;
+    state.spans.clear();state.attached=false;state.owner={};state.start=0;state.bytes=0;state.live_generation=0;
 }
 NativeDSPMemoryPin PinNativeDSPMEM1(const void* address,std::size_t bytes,bool writable) {
     auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
