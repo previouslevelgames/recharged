@@ -1,0 +1,1087 @@
+From: mscharged-port
+Subject: Share fixed material state for automatic native pipeline preparation
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
++++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
+@@ -14,27 +14,36 @@
+ #include "NL/glx/glxDisplayList.h"
+ #include "NL/nlMath.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ bool glx_RenderBlackTextureAlpha = true;
+ 
+ static nlMatrix4 sBlackTextureAlphaViewMatrix;
+ static int sBlackTextureAlphaLightCount;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>::Activate(GLView* view)
+-{
+-    static_cast<GXBlackTextureAlphaMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    view->m_Interface->GetViewMatrix(sBlackTextureAlphaViewMatrix);
+-    sBlackTextureAlphaLightCount = GetGameObjectLightCount(0, 1);
+-    LoadGameObjectLights(sBlackTextureAlphaLightCount, view, 0);
+-    SetGameObjectLightingEnabled(1, sBlackTextureAlphaLightCount, 0);
+-    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureBlackTextureAlphaPipelineState()
++{    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+     gxSetNumChans(1);
+     gxSetNumTexGens(1);
+     gxSetNumTevStages(1);
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
++}
++
++template <>
++void GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>::Activate(GLView* view)
++{
++
++    static_cast<GXBlackTextureAlphaMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    view->m_Interface->GetViewMatrix(sBlackTextureAlphaViewMatrix);
++    sBlackTextureAlphaLightCount = GetGameObjectLightCount(0, 1);
++    LoadGameObjectLights(sBlackTextureAlphaLightCount, view, 0);
++    SetGameObjectLightingEnabled(1, sBlackTextureAlphaLightCount, 0);
++    ConfigureBlackTextureAlphaPipelineState();
+ }
+ 
+ template <>
+@@ -82,3 +91,21 @@
+ 
+     GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareBlackTextureAlphaPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXBlackTextureAlphaMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    // The original lighting helper has six supported light masks.
++    for (int lights = 1; lights <= 6; ++lights)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        SetGameObjectLightingEnabled(true, lights, false);
++        ConfigureBlackTextureAlphaPipelineState();
++        program->BindVertexArrays(&packet);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
+@@ -5,12 +5,14 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXCompactColourMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureCompactColourPipelineState(GXCompactColourMaterialProgram* program)
+ {
+-    static_cast<GXCompactColourMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumTevStages(1);
+     gxSetNumTexGens(1);
+     gxSetNumChans(1);
+@@ -19,6 +21,13 @@
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
++}
++
++template <>
++void GXMaterialProgramImpl<GXCompactColourMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureCompactColourPipelineState(static_cast<GXCompactColourMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -47,3 +56,15 @@
+     else
+         static_cast<GXCompactColourMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareCompactColourPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXCompactColourMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureCompactColourPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
+@@ -10,6 +10,9 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static inline GXColor MakeGXColour(float r, float g, float b, float a)
+ {
+@@ -21,11 +24,10 @@
+     return colour;
+ }
+ 
+-template <>
+-void GXMaterialProgramImpl<GXConstantColourMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureConstantColourPipelineState(GXConstantColourMaterialProgram* program)
+ {
+-    static_cast<GXConstantColourMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumChans(0);
+     gxSetNumTexGens(1);
+     gxSetNumTevStages(1);
+@@ -34,6 +36,13 @@
+     GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_KONST, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
++}
++
++template <>
++void GXMaterialProgramImpl<GXConstantColourMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureConstantColourPipelineState(static_cast<GXConstantColourMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -69,3 +78,15 @@
+     else
+         static_cast<GXConstantColourMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareConstantColourPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXConstantColourMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureConstantColourPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
++++ b/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
+@@ -7,11 +7,14 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static nlMatrix4 sFixedLightViewMatrix;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXFixedLightMaterialProgram>::Activate(GLView* view)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureFixedLightPipelineState(GXFixedLightMaterialProgram* program)
+ {
+     gxSetNumChans(1);
+     gxSetNumTevStages(1);
+@@ -20,7 +23,13 @@
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_RASC);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
+     GXSetChanCtrl(GX_COLOR0A0, true, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0, GX_DF_CLAMP, GX_AF_NONE);
+-    static_cast<GXFixedLightMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
++}
++
++template <>
++void GXMaterialProgramImpl<GXFixedLightMaterialProgram>::Activate(GLView* view)
++{
++    ConfigureFixedLightPipelineState(static_cast<GXFixedLightMaterialProgram*>(this));
+     view->m_Interface->GetViewMatrix(sFixedLightViewMatrix);
+ }
+ 
+@@ -84,3 +93,15 @@
+     else
+         static_cast<GXFixedLightMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareFixedLightPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXFixedLightMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureFixedLightPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
+@@ -10,21 +10,30 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static bool sUseFloatTexturedColourDisplayLists = true;
+ static bool sAllowFloatTexturedColourUncompiledDraws = true;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXFloatTexturedColourMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureFloatTexturedColourPipelineState(GXFloatTexturedColourMaterialProgram* program)
+ {
+-    static_cast<GXFloatTexturedColourMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumTevStages(1);
+     gxSetNumTexGens(1);
+     gxSetNumChans(1);
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
++}
++
++template <>
++void GXMaterialProgramImpl<GXFloatTexturedColourMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureFloatTexturedColourPipelineState(static_cast<GXFloatTexturedColourMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -61,3 +70,15 @@
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+     }
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareFloatTexturedColourPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXFloatTexturedColourMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureFloatTexturedColourPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
++++ b/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
+@@ -5,14 +5,17 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXFourTextureAddMaterialProgram>::Activate(GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureFourTextureAddPipelineState(GXFourTextureAddMaterialProgram* program)
+ {
+     gxSetNumChans(1);
+     gxSetNumTevStages(4);
+     gxSetNumTexGens(4);
+-    static_cast<GXFourTextureAddMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+ 
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR0A0);
+@@ -26,6 +29,12 @@
+     gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_APREV);
+     gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_APREV);
+     gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_APREV);
++}
++
++template <>
++void GXMaterialProgramImpl<GXFourTextureAddMaterialProgram>::Activate(GLView*)
++{
++    ConfigureFourTextureAddPipelineState(static_cast<GXFourTextureAddMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -54,3 +63,15 @@
+     else
+         static_cast<GXFourTextureAddMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareFourTextureAddPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXFourTextureAddMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureFourTextureAddPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
+@@ -5,11 +5,14 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXMaskedDiffuseBlendMaterialProgram>::Activate(GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureMaskedDiffuseBlendPipelineState(GXMaskedDiffuseBlendMaterialProgram* program)
+ {
+-    static_cast<GXMaskedDiffuseBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumChans(1);
+     gxSetNumTevStages(4);
+     gxSetNumTexGens(3);
+@@ -26,6 +29,12 @@
+     gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
++}
++
++template <>
++void GXMaterialProgramImpl<GXMaskedDiffuseBlendMaterialProgram>::Activate(GLView*)
++{
++    ConfigureMaskedDiffuseBlendPipelineState(static_cast<GXMaskedDiffuseBlendMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -55,3 +64,15 @@
+     else
+         static_cast<GXMaskedDiffuseBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareMaskedDiffuseBlendPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMaskedDiffuseBlendMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureMaskedDiffuseBlendPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXRedColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXRedColourMaterialProgramRender.cpp
+@@ -4,10 +4,12 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXRedColourMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureRedColourPipelineState(GXRedColourMaterialProgram* program)
+ {
+     gxSetNumChans(1);
+     gxSetNumTexGens(0);
+@@ -17,7 +19,14 @@
+     GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_KONST, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_KONST, GX_CA_ZERO);
+-    static_cast<GXRedColourMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
++}
++
++template <>
++void GXMaterialProgramImpl<GXRedColourMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureRedColourPipelineState(static_cast<GXRedColourMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -49,3 +58,15 @@
+     else
+         program->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareRedColourPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXRedColourMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureRedColourPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
+@@ -10,10 +10,12 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXScissoredVertexColourTextureMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureScissoredVertexColourTexturePipelineState(GXScissoredVertexColourTextureMaterialProgram* program)
+ {
+     gxSetNumChans(1);
+     gxSetNumTevStages(1);
+@@ -23,7 +25,14 @@
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
+-    static_cast<GXScissoredVertexColourTextureMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
++}
++
++template <>
++void GXMaterialProgramImpl<GXScissoredVertexColourTextureMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureScissoredVertexColourTexturePipelineState(static_cast<GXScissoredVertexColourTextureMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -75,3 +84,15 @@
+         static_cast<GXScissoredVertexColourTextureMaterialProgram*>(this)->DrawDirect(packet);
+     }
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareScissoredVertexColourTexturePipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXScissoredVertexColourTextureMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureScissoredVertexColourTexturePipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+@@ -13,11 +13,14 @@
+ #include "NL/glx/glxDisplayList.h"
+ #include "NL/platvmath.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static nlMatrix4 sSkinnedUnlitTextureViewMatrix;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXSkinnedUnlitTextureMaterialProgram>::Activate(GLView* view)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureSkinnedUnlitTexturePipelineState(GXSkinnedUnlitTextureMaterialProgram* program)
+ {
+     gxSetTevColourOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
+     gxSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
+@@ -28,7 +31,13 @@
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
+-    static_cast<GXSkinnedUnlitTextureMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
++}
++
++template <>
++void GXMaterialProgramImpl<GXSkinnedUnlitTextureMaterialProgram>::Activate(GLView* view)
++{
++    ConfigureSkinnedUnlitTexturePipelineState(static_cast<GXSkinnedUnlitTextureMaterialProgram*>(this));
+     view->m_Interface->GetViewMatrix(sSkinnedUnlitTextureViewMatrix);
+ }
+ 
+@@ -73,3 +82,16 @@
+     GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+     gxSetCurrentMtx(GX_PNMTX0, true);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareSkinnedUnlitTexturePipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXSkinnedUnlitTextureMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureSkinnedUnlitTexturePipelineState(program);
++    program->BindVertexArrays(&packet);
++    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
+@@ -6,6 +6,9 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static inline GXColor MakeTextureBlendColour(float r, float g, float b, float a)
+ {
+@@ -17,11 +20,10 @@
+     return colour;
+ }
+ 
+-template <>
+-void GXMaterialProgramImpl<GXTextureBlendMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureTextureBlendPipelineState(GXTextureBlendMaterialProgram* program)
+ {
+-    static_cast<GXTextureBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumChans(0);
+     gxSetNumTevStages(2);
+     gxSetNumTexGens(2);
+@@ -35,6 +37,13 @@
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_KONST, GX_CA_ZERO);
+     gxSetTevColourIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_KONST, GX_CC_CPREV);
+     gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_TEXA, GX_CA_KONST, GX_CA_APREV);
++}
++
++template <>
++void GXMaterialProgramImpl<GXTextureBlendMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureTextureBlendPipelineState(static_cast<GXTextureBlendMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -70,3 +79,15 @@
+     else
+         static_cast<GXTextureBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareTextureBlendPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXTextureBlendMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureTextureBlendPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXTextureColourAddMaterialProgramRender.cpp
++++ b/src/NL/glx/GXTextureColourAddMaterialProgramRender.cpp
+@@ -4,6 +4,9 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static inline GXColor MakeTextureAddColour(float r, float g, float b, float a)
+ {
+@@ -15,11 +18,10 @@
+     return colour;
+ }
+ 
+-template <>
+-void GXMaterialProgramImpl<GXTextureColourAddMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureTextureColourAddPipelineState(GXTextureColourAddMaterialProgram* program)
+ {
+-    static_cast<GXTextureColourAddMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumChans(0);
+     gxSetNumTexGens(1);
+     gxSetNumTevStages(1);
+@@ -28,6 +30,13 @@
+     GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_KONST);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_KONST);
++}
++
++template <>
++void GXMaterialProgramImpl<GXTextureColourAddMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureTextureColourAddPipelineState(static_cast<GXTextureColourAddMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -62,3 +71,15 @@
+     else
+         static_cast<GXTextureColourAddMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareTextureColourAddPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXTextureColourAddMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureTextureColourAddPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
+@@ -8,12 +8,14 @@
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXThreeLightDiffuseMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureThreeLightDiffusePipelineState(GXThreeLightDiffuseMaterialProgram* program)
+ {
+-    static_cast<GXThreeLightDiffuseMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumChans(1);
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+@@ -22,6 +24,13 @@
+ 
+     nlColour materialColour = { { 255, 255, 255, 255 } };
+     gxSetChanMatColour(GX_COLOR0, materialColour);
++}
++
++template <>
++void GXMaterialProgramImpl<GXThreeLightDiffuseMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureThreeLightDiffusePipelineState(static_cast<GXThreeLightDiffuseMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -63,3 +72,15 @@
+     else
+         static_cast<GXThreeLightDiffuseMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareThreeLightDiffusePipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXThreeLightDiffuseMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureThreeLightDiffusePipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
+@@ -10,10 +10,12 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXUnlitTextureMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureUnlitTexturePipelineState(GXUnlitTextureMaterialProgram* program)
+ {
+     gxSetNumChans(0);
+     gxSetNumTevStages(1);
+@@ -21,7 +23,14 @@
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
+-    static_cast<GXUnlitTextureMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
++}
++
++template <>
++void GXMaterialProgramImpl<GXUnlitTextureMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureUnlitTexturePipelineState(static_cast<GXUnlitTextureMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -50,3 +59,15 @@
+     else
+         static_cast<GXUnlitTextureMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareUnlitTexturePipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXUnlitTextureMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureUnlitTexturePipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
+@@ -5,6 +5,9 @@
+ #include "NL/nlColour.h"
+ #include "NL/glx/glxGX.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+ static void ConfigureVertexColourDetailBlendStages()
+ {
+@@ -27,13 +30,19 @@
+     gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
+ }
+ 
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureVertexColourDetailBlendPipelineState(GXVertexColourDetailBlendMaterialProgram* program)
++{
++    GXSetChanCtrl(GX_COLOR0A0, false, GX_SRC_REG, GX_SRC_VTX, GX_LIGHT0, GX_DF_NONE, GX_AF_NONE);
++    program->ConfigureVertexFormat(true);
++    ConfigureVertexColourDetailBlendStages();
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXVertexColourDetailBlendMaterialProgram>::Activate(
+     GLView*)
+ {
+-    GXSetChanCtrl(GX_COLOR0A0, false, GX_SRC_REG, GX_SRC_VTX, GX_LIGHT0, GX_DF_NONE, GX_AF_NONE);
+-    static_cast<GXVertexColourDetailBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    ConfigureVertexColourDetailBlendStages();
++    ConfigureVertexColourDetailBlendPipelineState(static_cast<GXVertexColourDetailBlendMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -74,3 +83,15 @@
+         static_cast<GXVertexColourDetailBlendMaterialProgram*>(this)->DrawDirect(
+             packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareVertexColourDetailBlendPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXVertexColourDetailBlendMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureVertexColourDetailBlendPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXVertexColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXVertexColourMaterialProgramRender.cpp
+@@ -4,17 +4,26 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureVertexColourPipelineState(GXVertexColourMaterialProgram* program)
++{
++    program->ConfigureVertexFormat(true);
++    gxSetNumChans(1);
++    gxSetNumTexGens(0);
++    gxSetNumTevStages(1);
++    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
++    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
++}
+ 
+ template <>
+ void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Activate(
+     GLView*)
+ {
+-    static_cast<GXVertexColourMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    gxSetNumChans(1);
+-    gxSetNumTexGens(0);
+-    gxSetNumTevStages(1);
+-    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+-    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
++    ConfigureVertexColourPipelineState(static_cast<GXVertexColourMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -42,3 +51,15 @@
+     else
+         static_cast<GXVertexColourMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareVertexColourPipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXVertexColourMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureVertexColourPipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
+@@ -10,12 +10,14 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxDisplayList.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ 
+-template <>
+-void GXMaterialProgramImpl<GXVertexColourTextureMaterialProgram>::Activate(
+-    GLView*)
++// Shader state is shared by original drawing and native pipeline preparation.
++static void ConfigureVertexColourTexturePipelineState(GXVertexColourTextureMaterialProgram* program)
+ {
+-    static_cast<GXVertexColourTextureMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    program->ConfigureVertexFormat(true);
+     gxSetNumTevStages(1);
+     gxSetNumTexGens(1);
+     gxSetNumChans(1);
+@@ -24,6 +26,13 @@
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
++}
++
++template <>
++void GXMaterialProgramImpl<GXVertexColourTextureMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureVertexColourTexturePipelineState(static_cast<GXVertexColourTextureMaterialProgram*>(this));
+ }
+ 
+ template <>
+@@ -52,3 +61,15 @@
+     else
+         static_cast<GXVertexColourTextureMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxPrepareVertexColourTexturePipeline(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXVertexColourTextureMaterialProgram*>(static_cast<GLMaterialProgram*>(packet.materialProgram));
++    BeginAutomaticMaterialVariant(packet);
++    ConfigureVertexColourTexturePipelineState(program);
++    program->BindVertexArrays(&packet);
++    EmitAutomaticMaterialPipeline(packet);
++}
++#endif
+--- a/src/NL/glx/glxGX.cpp
++++ b/src/NL/glx/glxGX.cpp
+@@ -480,3 +480,118 @@
+     }
+     return prev;
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#include <cstring>
++
++namespace {
++struct AutomaticGXMirrorSnapshot {
++    decltype(::gx_colourArg) gx_colourArg;
++    decltype(::gx_alphaArg) gx_alphaArg;
++    decltype(::gx_kcolourSel) gx_kcolourSel;
++    decltype(::gx_kalphaSel) gx_kalphaSel;
++    decltype(::gx_dither) gx_dither;
++    decltype(::gx_colourupdate) gx_colourupdate;
++    decltype(::gx_alphaupdate) gx_alphaupdate;
++    decltype(::gx_zcomploc) gx_zcomploc;
++    decltype(::gx_ztest) gx_ztest;
++    decltype(::save_ztest) save_ztest;
++    decltype(::gx_zfunc) gx_zfunc;
++    decltype(::save_zfunc) save_zfunc;
++    decltype(::gx_zwrite) gx_zwrite;
++    decltype(::save_zwrite) save_zwrite;
++    decltype(::gx_alphafunc) gx_alphafunc;
++    decltype(::gx_alpharef) gx_alpharef;
++    decltype(::gx_blend) gx_blend;
++    decltype(::gx_blendSubtract) gx_blendSubtract;
++    decltype(::gx_srcfactor) gx_srcfactor;
++    decltype(::gx_dstfactor) gx_dstfactor;
++    decltype(::save_blend) save_blend;
++    decltype(::save_blendSubtract) save_blendSubtract;
++    decltype(::save_srcfactor) save_srcfactor;
++    decltype(::save_dstfactor) save_dstfactor;
++    decltype(::gx_cullmode) gx_cullmode;
++    decltype(::gx_currentmtx) gx_currentmtx;
++    decltype(::gx_numChans) gx_numChans;
++    decltype(::gx_numTEV) gx_numTEV;
++    decltype(::gx_numGens) gx_numGens;
++    decltype(::gx_matColour) gx_matColour;
++    decltype(::gx_ambColour) gx_ambColour;
++    decltype(::gx_coplanar) gx_coplanar;
++};
++AutomaticGXMirrorSnapshot sAutomaticGXMirrors;
++}
++
++void mscharged::platform::SaveAutomaticGXMirrors()
++{
++    std::memcpy(&sAutomaticGXMirrors.gx_colourArg, &gx_colourArg, sizeof(gx_colourArg));
++    std::memcpy(&sAutomaticGXMirrors.gx_alphaArg, &gx_alphaArg, sizeof(gx_alphaArg));
++    std::memcpy(&sAutomaticGXMirrors.gx_kcolourSel, &gx_kcolourSel, sizeof(gx_kcolourSel));
++    std::memcpy(&sAutomaticGXMirrors.gx_kalphaSel, &gx_kalphaSel, sizeof(gx_kalphaSel));
++    std::memcpy(&sAutomaticGXMirrors.gx_dither, &gx_dither, sizeof(gx_dither));
++    std::memcpy(&sAutomaticGXMirrors.gx_colourupdate, &gx_colourupdate, sizeof(gx_colourupdate));
++    std::memcpy(&sAutomaticGXMirrors.gx_alphaupdate, &gx_alphaupdate, sizeof(gx_alphaupdate));
++    std::memcpy(&sAutomaticGXMirrors.gx_zcomploc, &gx_zcomploc, sizeof(gx_zcomploc));
++    std::memcpy(&sAutomaticGXMirrors.gx_ztest, &gx_ztest, sizeof(gx_ztest));
++    std::memcpy(&sAutomaticGXMirrors.save_ztest, &save_ztest, sizeof(save_ztest));
++    std::memcpy(&sAutomaticGXMirrors.gx_zfunc, &gx_zfunc, sizeof(gx_zfunc));
++    std::memcpy(&sAutomaticGXMirrors.save_zfunc, &save_zfunc, sizeof(save_zfunc));
++    std::memcpy(&sAutomaticGXMirrors.gx_zwrite, &gx_zwrite, sizeof(gx_zwrite));
++    std::memcpy(&sAutomaticGXMirrors.save_zwrite, &save_zwrite, sizeof(save_zwrite));
++    std::memcpy(&sAutomaticGXMirrors.gx_alphafunc, &gx_alphafunc, sizeof(gx_alphafunc));
++    std::memcpy(&sAutomaticGXMirrors.gx_alpharef, &gx_alpharef, sizeof(gx_alpharef));
++    std::memcpy(&sAutomaticGXMirrors.gx_blend, &gx_blend, sizeof(gx_blend));
++    std::memcpy(&sAutomaticGXMirrors.gx_blendSubtract, &gx_blendSubtract, sizeof(gx_blendSubtract));
++    std::memcpy(&sAutomaticGXMirrors.gx_srcfactor, &gx_srcfactor, sizeof(gx_srcfactor));
++    std::memcpy(&sAutomaticGXMirrors.gx_dstfactor, &gx_dstfactor, sizeof(gx_dstfactor));
++    std::memcpy(&sAutomaticGXMirrors.save_blend, &save_blend, sizeof(save_blend));
++    std::memcpy(&sAutomaticGXMirrors.save_blendSubtract, &save_blendSubtract, sizeof(save_blendSubtract));
++    std::memcpy(&sAutomaticGXMirrors.save_srcfactor, &save_srcfactor, sizeof(save_srcfactor));
++    std::memcpy(&sAutomaticGXMirrors.save_dstfactor, &save_dstfactor, sizeof(save_dstfactor));
++    std::memcpy(&sAutomaticGXMirrors.gx_cullmode, &gx_cullmode, sizeof(gx_cullmode));
++    std::memcpy(&sAutomaticGXMirrors.gx_currentmtx, &gx_currentmtx, sizeof(gx_currentmtx));
++    std::memcpy(&sAutomaticGXMirrors.gx_numChans, &gx_numChans, sizeof(gx_numChans));
++    std::memcpy(&sAutomaticGXMirrors.gx_numTEV, &gx_numTEV, sizeof(gx_numTEV));
++    std::memcpy(&sAutomaticGXMirrors.gx_numGens, &gx_numGens, sizeof(gx_numGens));
++    std::memcpy(&sAutomaticGXMirrors.gx_matColour, &gx_matColour, sizeof(gx_matColour));
++    std::memcpy(&sAutomaticGXMirrors.gx_ambColour, &gx_ambColour, sizeof(gx_ambColour));
++    std::memcpy(&sAutomaticGXMirrors.gx_coplanar, &gx_coplanar, sizeof(gx_coplanar));
++}
++
++void mscharged::platform::RestoreAutomaticGXMirrors()
++{
++    std::memcpy(&gx_colourArg, &sAutomaticGXMirrors.gx_colourArg, sizeof(gx_colourArg));
++    std::memcpy(&gx_alphaArg, &sAutomaticGXMirrors.gx_alphaArg, sizeof(gx_alphaArg));
++    std::memcpy(&gx_kcolourSel, &sAutomaticGXMirrors.gx_kcolourSel, sizeof(gx_kcolourSel));
++    std::memcpy(&gx_kalphaSel, &sAutomaticGXMirrors.gx_kalphaSel, sizeof(gx_kalphaSel));
++    std::memcpy(&gx_dither, &sAutomaticGXMirrors.gx_dither, sizeof(gx_dither));
++    std::memcpy(&gx_colourupdate, &sAutomaticGXMirrors.gx_colourupdate, sizeof(gx_colourupdate));
++    std::memcpy(&gx_alphaupdate, &sAutomaticGXMirrors.gx_alphaupdate, sizeof(gx_alphaupdate));
++    std::memcpy(&gx_zcomploc, &sAutomaticGXMirrors.gx_zcomploc, sizeof(gx_zcomploc));
++    std::memcpy(&gx_ztest, &sAutomaticGXMirrors.gx_ztest, sizeof(gx_ztest));
++    std::memcpy(&save_ztest, &sAutomaticGXMirrors.save_ztest, sizeof(save_ztest));
++    std::memcpy(&gx_zfunc, &sAutomaticGXMirrors.gx_zfunc, sizeof(gx_zfunc));
++    std::memcpy(&save_zfunc, &sAutomaticGXMirrors.save_zfunc, sizeof(save_zfunc));
++    std::memcpy(&gx_zwrite, &sAutomaticGXMirrors.gx_zwrite, sizeof(gx_zwrite));
++    std::memcpy(&save_zwrite, &sAutomaticGXMirrors.save_zwrite, sizeof(save_zwrite));
++    std::memcpy(&gx_alphafunc, &sAutomaticGXMirrors.gx_alphafunc, sizeof(gx_alphafunc));
++    std::memcpy(&gx_alpharef, &sAutomaticGXMirrors.gx_alpharef, sizeof(gx_alpharef));
++    std::memcpy(&gx_blend, &sAutomaticGXMirrors.gx_blend, sizeof(gx_blend));
++    std::memcpy(&gx_blendSubtract, &sAutomaticGXMirrors.gx_blendSubtract, sizeof(gx_blendSubtract));
++    std::memcpy(&gx_srcfactor, &sAutomaticGXMirrors.gx_srcfactor, sizeof(gx_srcfactor));
++    std::memcpy(&gx_dstfactor, &sAutomaticGXMirrors.gx_dstfactor, sizeof(gx_dstfactor));
++    std::memcpy(&save_blend, &sAutomaticGXMirrors.save_blend, sizeof(save_blend));
++    std::memcpy(&save_blendSubtract, &sAutomaticGXMirrors.save_blendSubtract, sizeof(save_blendSubtract));
++    std::memcpy(&save_srcfactor, &sAutomaticGXMirrors.save_srcfactor, sizeof(save_srcfactor));
++    std::memcpy(&save_dstfactor, &sAutomaticGXMirrors.save_dstfactor, sizeof(save_dstfactor));
++    std::memcpy(&gx_cullmode, &sAutomaticGXMirrors.gx_cullmode, sizeof(gx_cullmode));
++    std::memcpy(&gx_currentmtx, &sAutomaticGXMirrors.gx_currentmtx, sizeof(gx_currentmtx));
++    std::memcpy(&gx_numChans, &sAutomaticGXMirrors.gx_numChans, sizeof(gx_numChans));
++    std::memcpy(&gx_numTEV, &sAutomaticGXMirrors.gx_numTEV, sizeof(gx_numTEV));
++    std::memcpy(&gx_numGens, &sAutomaticGXMirrors.gx_numGens, sizeof(gx_numGens));
++    std::memcpy(&gx_matColour, &sAutomaticGXMirrors.gx_matColour, sizeof(gx_matColour));
++    std::memcpy(&gx_ambColour, &sAutomaticGXMirrors.gx_ambColour, sizeof(gx_ambColour));
++    std::memcpy(&gx_coplanar, &sAutomaticGXMirrors.gx_coplanar, sizeof(gx_coplanar));
++}
++#endif
+--- a/src/NL/glx/glxSend.cpp
++++ b/src/NL/glx/glxSend.cpp
+@@ -65,6 +65,19 @@
+     return false;
+ }
+ 
++static void ResetMaterialPipelineState()
++{
++    gxSetTevColourOp(0, 0, 0, 0, true, 0);
++    gxSetTevAlphaOp(0, 0, 0, 0, true, 0);
++    gxSetTexCoordGen(0, 1, 4, 0x3C);
++    gxSetNumTexGens(1);
++    gxSetNumChans(0);
++    gxSetNumTevStages(1);
++    gxSetTevOrder(0, 0, 0, 0xFF);
++    gxSetTevColourIn(0, 15, 12, 8, 15);
++    gxSetTevAlphaIn(0, 7, 6, 4, 7);
++}
++
+ void glx_SendEnd()
+ {
+     if (glx_program != 0)
+@@ -91,15 +104,7 @@
+             if (glx_program != 0)
+             {
+                 glx_program->Deactivate();
+-                gxSetTevColourOp(0, 0, 0, 0, true, 0);
+-                gxSetTevAlphaOp(0, 0, 0, 0, true, 0);
+-                gxSetTexCoordGen(0, 1, 4, 0x3C);
+-                gxSetNumTexGens(1);
+-                gxSetNumChans(0);
+-                gxSetNumTevStages(1);
+-                gxSetTevOrder(0, 0, 0, 0xFF);
+-                gxSetTevColourIn(0, 15, 12, 8, 15);
+-                gxSetTevAlphaIn(0, 7, 6, 4, 7);
++                ResetMaterialPipelineState();
+             }
+             program->Activate(prev_view);
+             glx_program = program;
+@@ -242,3 +247,21 @@
+         break;
+     }
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++
++void mscharged::platform::ConfigureAutomaticGXState(const glModelPacket& packet)
++{
++    // Preparation has isolated the SDK and saved the GLX mirrors. Use exactly
++    // the normal initialization, material-switch and raster state operations.
++    gxInit();
++    ResetMaterialPipelineState();
++    struct RestoreAlphaUpdate {
++        bool value;
++        ~RestoreAlphaUpdate() { glx_AllowAlphaUpdate = value; }
++    } restore = {glx_AllowAlphaUpdate};
++    glx_AllowAlphaUpdate = true;
++    glx_SwitchRaster(&packet);
++}
++#endif

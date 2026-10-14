@@ -1,0 +1,217 @@
+From: mscharged-port
+Subject: Prepare native CPU-skinned position and normal layouts
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -361,15 +361,15 @@
+             GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha));
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (enabled)
+         {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+@@ -295,18 +295,18 @@
+         glxConfigureSpecularPipelineState(enabled != 0, lightCount, doubled);
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sSpecularDefaultLightingEnabled)
+         {
+             if (sSpecularDepthPrepassEnabled)
+             {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             }
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
+@@ -259,15 +259,15 @@
+         ConfigureMegaSpecularBlendPipeline(mega ? 1.0f : 0.0f);
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (enabled != 0)
+         {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+@@ -288,18 +288,18 @@
+         glxConfigureSpecularFresnelPipelineState(enabled != 0, lightCount, doubled);
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sEnableSpecularFresnelLighting)
+         {
+             if (sSpecularFresnelAlphaDepthPass)
+             {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             }
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+@@ -287,15 +287,15 @@
+         ConfigureMegaSpecularFresnelBlendPipeline(mega ? 1.0f : 0.0f);
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (enabled != 0)
+         {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
+@@ -223,15 +223,15 @@
+         ConfigureMegaDiffuseBlendPipeline(mega ? 1.0f : 0.0f);
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (enabled != 0)
+         {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+@@ -101,7 +101,7 @@
+     for (GXTevKAlphaSel selector : selectors)
+     {
+         GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+     }
+ }
+ #endif
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+@@ -328,7 +328,7 @@
+             GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha / 3));
+             GXSetTevKAlphaSel(GX_TEVSTAGE1, glxAutomaticInheritedAlphaSelector(inheritedAlpha % 3));
+         }
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+     }
+ }
+ #endif
+--- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+@@ -318,18 +318,18 @@
+             localCount, []() {});
+         if (!sColourFresnelLightingEnabled)
+             GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha));
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sColourFresnelLightingEnabled)
+         {
+             if (sColourFresnelAlphaDepthPass)
+             {
+                 const bool colourUpdate = gxSetColourUpdate(false);
+-                EmitAutomaticMaterialPipeline(packet);
++                EmitAutomaticSkinnedMaterialPipeline(packet);
+                 gxSetColourUpdate(colourUpdate);
+                 gxSetZMode(true, GX_EQUAL, true);
+             }
+             glxConfigureMaterialOpacityColourPass(0);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
+@@ -291,18 +291,18 @@
+         glxConfigureCharacterSkinCustomPipelineState(enabled != 0, lightCount, doubled, sUseCharacterLightRamp);
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sEnableCharacterSkinLighting)
+         {
+             if (sDrawAlphaDepthPass)
+             {
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             }
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(packet);
+         }
+     }
+ }
+--- a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
++++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
+@@ -105,7 +105,7 @@
+         SetGameObjectLightingEnabled(true, lights, false);
+         ConfigureBlackTextureAlphaPipelineState();
+         program->BindVertexArrays(&packet);
+-        EmitAutomaticMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(packet);
+     }
+ }
+ #endif

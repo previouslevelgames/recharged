@@ -13,9 +13,9 @@ from disc_fixture import write_disc
 def write_cached_dvd_fixture(path):
     write_disc(path, files={
         'payload.bin': bytes((i * 37 + 11) & 255 for i in range(1024)),
-        'cached.bin': bytes((i * 37 + 11) & 255 for i in range(65536 + 73)),
+        'cached.bin': bytes((i * 37 + 11) & 255 for i in range(262144 + 73)),
         'cold.bin': b'',
-    }, partition_size=0x20000)
+    }, partition_size=0x50000)
     # Keep the existing tiny fixture writer's bounds intact. Extend this one explicit
     # synthetic Wii partition and relocate only its named cold file to sector group 1.
     data = bytearray(path.read_bytes())

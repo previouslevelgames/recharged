@@ -1,0 +1,22 @@
+Subject: Admit medium resident DVD file reads within the existing guards
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Match Nod's 256 KiB resident-read bound for medium frontend texture payloads.
+All existing worker/FIFO, callback, reset, fatal-state and lifetime guards,
+copy/publication ordering and miss fallback remain unchanged. Original game
+loading scripts, resource queue cadence, callbacks and presentation are untouched.
+
+Requires Nod 0004; apply after Aurora 0092.
+
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -446,7 +446,7 @@
+       // Cache misses never block, perform I/O, or modify the destination/cursor.
+       if (m_running && !m_fatalError && m_activeBlock == nullptr && m_queue.empty() &&
+           block->command == DVD_COMMAND_READ && block->callback == cbForReadAsync &&
+-          block->addr != nullptr && block->length != 0 && block->length <= 64 * 1024 &&
++          block->addr != nullptr && block->length != 0 && block->length <= 256 * 1024 &&
+           block->offset <= static_cast<u32>(std::numeric_limits<s32>::max())) {
+         const auto* file = reinterpret_cast<const DVDFileInfo*>(
+             reinterpret_cast<const char*>(block) - offsetof(DVDFileInfo, cb));

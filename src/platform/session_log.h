@@ -29,6 +29,10 @@ std::filesystem::path SessionLogPath();
 // the console). A newline is added.
 void SessionLogLine(const std::string& text);
 
+// Borrowed, null-terminated text from a game module. Any string allocation and
+// destruction stays in the host, which may use a different C++ allocator.
+void SessionLogText(const char* text);
+
 // Displays, the video driver and the window, for the log only.
 void LogSessionDisplays(SDL_Window* window);
 

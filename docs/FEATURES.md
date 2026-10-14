@@ -59,8 +59,9 @@ of the original game are always on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/yannicksuter/mscharged-port/issues/19)),
 electrocuted players flash with the game's lightning texture instead of a
 debug texture ([#33](https://github.com/yannicksuter/mscharged-port/issues/33)),
-and the NK bug (Boo glitch) is gone: a Boo deke into his own goalie or a
-teleport into a goal no longer lets later shots pass through the goalies
+and the NK ("No Kritter") bug is gone: a Boo deke into his own goalie, a
+teleport into a goal or a Chain Chomp hit during a deke no longer lets later
+shots pass through the goalies
 ([#38](https://github.com/yannicksuter/mscharged-port/issues/38)).
 The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them on:
 

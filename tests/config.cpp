@@ -229,36 +229,50 @@ int main()
         // Host presentation/diagnostic settings: defaults keep the previous
         // behaviour, values round trip and out-of-range input is rejected.
         const Settings defaults;
-        Require(defaults.show_fps && !defaults.fps_overlay && defaults.fps_overlay_corner == "top-right"
+        Require(!defaults.fps_overlay && defaults.fps_overlay_corner == "top-right"
             && defaults.monitor == 0 && !defaults.graphics_validation
-            && defaults.log_level == "info" && !defaults.verbose_console && defaults.ui_scale == "auto",
+            && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging
+            && defaults.ui_scale == "auto",
             "Host setting defaults");
         const auto host = directory / "host.ini";
         auto hostFile = LoadConfig(host, true);
         Settings hostSettings;
-        hostSettings.show_fps = false;
         hostSettings.fps_overlay = true;
         hostSettings.fps_overlay_corner = "bottom-left";
         hostSettings.monitor = 2;
         hostSettings.graphics_validation = true;
         hostSettings.log_level = "warning";
         hostSettings.verbose_console = true;
+        hostSettings.frame_logging = true;
         hostSettings.ui_scale = "150";
         SaveConfig(hostFile, hostSettings);
         const auto hostReloaded = LoadConfig(host).settings;
-        Require(!hostReloaded.show_fps && hostReloaded.fps_overlay && hostReloaded.fps_overlay_corner == "bottom-left"
+        Require(hostReloaded.fps_overlay && hostReloaded.fps_overlay_corner == "bottom-left"
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
-            && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.ui_scale == "150",
+            && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
+            && hostReloaded.ui_scale == "150",
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
         Require(hostText.find("[advanced]") != std::string::npos && hostText.find("[launcher]") != std::string::npos
-            && hostText.find("show_fps = false") != std::string::npos
+            && hostText.find("show_fps") == std::string::npos
             && hostText.find("fps_overlay = true") != std::string::npos
-            && hostText.find("fps_overlay_corner = bottom-left") != std::string::npos, "Host settings sections");
-        for (const char* invalid : {"[display]\nmonitor = 16\n", "[display]\nshow_fps = sometimes\n",
+            && hostText.find("fps_overlay_corner = bottom-left") != std::string::npos
+            && hostText.find("frame_logging = true") != std::string::npos, "Host settings sections");
+        hostSettings.frame_logging = false;
+        SaveConfig(hostFile, hostSettings);
+        Require(!LoadConfig(host).settings.frame_logging, "Frame logging can be disabled after enabling");
+        // Old title-bar settings are accepted, ignored and retired on explicit save.
+        std::ofstream(path) << "[display]\nshow_fps = true\nfps_overlay = false\ncustom = preserved\n";
+        auto legacyFps = LoadConfig(path);
+        Require(!legacyFps.settings.fps_overlay, "Old title FPS does not opt into the overlay");
+        SaveConfig(legacyFps, legacyFps.settings);
+        Require(legacyFps.contents.find("show_fps") == std::string::npos
+            && legacyFps.contents.find("custom = preserved") != std::string::npos, "Retired title key is removed alone");
+        for (const char* invalid : {"[display]\nmonitor = 16\n",
                                     "[display]\nfps_overlay = maybe\n", "[display]\nfps_overlay_corner = center\n",
                                     "[advanced]\nlog_level = verbose\n", "[launcher]\nui_scale = 110\n",
-                                    "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n"})
+                                    "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n",
+                                    "[advanced]\nframe_logging = maybe\n"})
         {
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });

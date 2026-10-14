@@ -591,6 +591,11 @@ void SessionLogLine(const std::string& text)
     WriteLog(line.data(), line.size());
 }
 
+void SessionLogText(const char* text)
+{
+    SessionLogLine(std::string(text));
+}
+
 void LogSessionDisplays(SDL_Window* window)
 {
     if (g_log.file < 0) return;

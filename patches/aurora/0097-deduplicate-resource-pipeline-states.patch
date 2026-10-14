@@ -1,0 +1,94 @@
+From: mscharged-port
+Subject: Bound and validate isolated pipeline collection
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+--- a/lib/gx/pipeline_collection.cpp
++++ b/lib/gx/pipeline_collection.cpp
+@@ -3,6 +3,8 @@
+ #include "fifo.hpp"
+ #include "regs.hpp"
+ #include "../gfx/pipeline_cache.hpp"
++#include "../gfx/hash.hpp"
++#include <absl/container/flat_hash_map.h>
+ #include "../dolphin/gx/__gx.h"
+ #include <dolphin/gx/GXAurora.h>
+ #include <dolphin/gd/GDGeometry.h>
+@@ -24,6 +26,7 @@
+   CoPlanarState coplanar;
+   std::vector<u8> bytes = std::vector<u8>(64 * 1024);
+   std::vector<PipelineConfig> configs;
++  absl::flat_hash_map<HashType, std::vector<size_t>> configBuckets;
+   std::thread::id owner = std::this_thread::get_id();
+   bool failed = false;
+ };
+@@ -146,6 +149,25 @@
+   }
+ }
+ 
++void flush_commands(Collection& collection) {
++  if (__gx->dirtyState) __GXSetDirtyState();
++  if (fifo::detail::sCollectionOverflow) throw std::runtime_error("Pipeline state collection overflow");
++  DecodeScope scope(collection);
++  decode_commands(std::span{collection.bytes}.first(fifo::detail::sDlWritePos));
++  fifo::detail::sDlWritePos = 0;
++}
++
++void append_unique_config(Collection& collection, const PipelineConfig& config) {
++  // The production key uses canonical, uniquely represented config bytes. Keep
++  // exact equality within each hash bucket so a hash collision cannot omit work.
++  auto& indices = collection.configBuckets[xxh3_hash(config)];
++  for (const auto index : indices) {
++    if (std::memcmp(&collection.configs[index], &config, sizeof(config)) == 0) return;
++  }
++  indices.push_back(collection.configs.size());
++  collection.configs.push_back(config);
++}
++
+ bool valid_primitive(uint32_t value) {
+   switch (value) {
+   case GX_QUADS: case GX_TRIANGLES: case GX_TRIANGLESTRIP: case GX_TRIANGLEFAN:
+@@ -186,6 +208,9 @@
+ bool reset_pipeline_collection() {
+   if (!owner() || sCollection->failed) return false;
+   try {
++    // Validate trailing commands before discarding a variant. Neither reset nor
++    // end may hide unsupported hardware operations or a capture-buffer overflow.
++    flush_commands(*sCollection);
+     sCollection->state = sCollection->baseline;
+     *__gx = sCollection->sdk;
+     fifo::detail::sDlWritePos = 0;
+@@ -204,17 +229,13 @@
+     return false;
+   }
+   try {
+-    if (__gx->dirtyState) __GXSetDirtyState();
+-    if (fifo::detail::sCollectionOverflow) throw std::runtime_error("Pipeline state collection overflow");
+-    DecodeScope scope(*sCollection);
+-    decode_commands(std::span{sCollection->bytes}.first(fifo::detail::sDlWritePos));
+-    fifo::detail::sDlWritePos = 0;
++    flush_commands(*sCollection);
+     PipelineConfig config{};
+     const char* debugNoFog = std::getenv("AURORA_DEBUG_NO_FOG");
+     const bool noFog = debugNoFog && *debugNoFog && *debugNoFog != '0';
+-    populate_pipeline_config(config, g_gxState, coPlanar, noFog,
++    populate_pipeline_config(config, sCollection->state, coPlanar, noFog,
+                              static_cast<GXPrimitive>(primitive), static_cast<GXVtxFmt>(vertexFormat));
+-    sCollection->configs.push_back(config);
++    append_unique_config(*sCollection, config);
+     return true;
+   } catch (...) {
+     sCollection->failed = true;
+@@ -224,6 +245,13 @@
+ 
+ bool end_pipeline_collection(bool submit) {
+   if (!owner()) return false;
++  if (submit && !sCollection->failed) {
++    try {
++      flush_commands(*sCollection);
++    } catch (...) {
++      sCollection->failed = true;
++    }
++  }
+   auto collection = std::move(sCollection);
+   const bool valid = !collection->failed && !fifo::detail::sCollectionOverflow;
+   // Discard all captured bytes, including trailing state or an aborted draw.

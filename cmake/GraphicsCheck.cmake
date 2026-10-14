@@ -25,13 +25,14 @@ if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN)
     add_test(NAME gx_coplanar_perspective COMMAND gx_completion_tests --coplanar-perspective)
     add_test(NAME gx_coplanar_offscreen COMMAND gx_completion_tests --coplanar-offscreen)
     add_test(NAME gx_position_invariance COMMAND gx_completion_tests --position-invariance)
+    add_test(NAME gx_pipeline_canonicalization COMMAND gx_completion_tests --pipeline-canonicalization)
     add_test(NAME gx_completion_device_loss COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gx_completion_device_loss.py"
         "$<TARGET_FILE:gx_completion_tests>")
     add_test(NAME gx_vulkan COMMAND mscharged-gx-check --frames 180 --resize-test)
     add_test(NAME gx_vulkan_optimized COMMAND mscharged-gx-check --frames 180 --optimized-device)
     # Require the installed layer even if Dawn would otherwise skip an absent one.
-    set_tests_properties(gx_vulkan gx_vulkan_optimized gx_completion gx_completion_device_loss gx_position_invariance
+    set_tests_properties(gx_vulkan gx_vulkan_optimized gx_completion gx_completion_device_loss gx_position_invariance gx_pipeline_canonicalization
         gx_coplanar gx_coplanar_perspective gx_coplanar_offscreen PROPERTIES TIMEOUT 45 LABELS "gpu;vulkan"
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
         RESOURCE_LOCK gx_check
@@ -40,3 +41,5 @@ endif()
 
 # Real native VI display-register/output qualification; no game input required.
 include(cmake/NativeVIDisplayGPU.cmake)
+
+include(cmake/PipelineWarmupGPU.cmake)

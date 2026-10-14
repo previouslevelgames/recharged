@@ -86,3 +86,14 @@
 0090-host-overlay-over-vi-picture.patch
 0091-honor-explicit-graphics-backend.patch
 0092-complete-cached-dvd-reads.patch
+0093-medium-resident-dvd-reads.patch
+0094-prepare-graphics-pipelines.patch
+0095-retain-graphics-compilation-cache.patch
+0096-collect-resource-pipeline-states.patch
+0097-deduplicate-resource-pipeline-states.patch
+0098-select-resource-pipeline-generation.patch
+0099-isolate-borrowed-graphics-resources.patch
+0100-canonicalize-inactive-shader-state.patch
+0101-trace-automatic-pipeline-coverage.patch
+0102-learn-resource-pipeline-scopes.patch
+0103-canonicalize-identity-texture-generators.patch

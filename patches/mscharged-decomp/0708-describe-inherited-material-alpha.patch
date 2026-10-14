@@ -1,0 +1,98 @@
+From: mscharged-port
+Subject: Describe consumed inherited alpha selectors in dynamic materials
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/include/NL/glx/GXPipelinePreparation.h
++++ b/include/NL/glx/GXPipelinePreparation.h
+@@ -11,6 +11,13 @@
+ #if defined(MSCHARGED_AUTOMATIC_PREWARM)
+ int glxAutomaticLightCount(bool character, bool includeEffects, bool maximum);
+ int glxAutomaticEffectLightCount();
++inline GXTevKAlphaSel glxAutomaticInheritedAlphaSelector(int index)
++{
++    static const GXTevKAlphaSel selectors[] = {
++        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
++    };
++    return selectors[index];
++}
+ #endif
+ inline void glxConfigureMaterialOpacityColourPass(int stage)
+ {
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -347,6 +347,7 @@
+     for (int surface = match ? 0 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega);
+          surface <= (match ? 8 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega)); ++surface)
+     for (int shadow = 0; shadow < (match && sCharacterDamageShadowLightingEnabled ? 4 : 1); ++shadow)
++    for (int inheritedAlpha = 0; inheritedAlpha < (surface == 8 ? 3 : 1); ++inheritedAlpha)
+     {
+         BeginAutomaticMaterialVariant(packet);
+         program->ConfigureVertexFormat(true);
+@@ -356,6 +357,8 @@
+         const bool damage[2] = { (surface & 1) != 0, (surface & 2) != 0 };
+         ConfigureCharacterDamageSurfacePipeline(surface == 8, (surface & 4) ? 1.0f : 0.0f,
+             damage, stageCount, sCharacterDamageTexGenCount);
++        if (surface == 8)
++            GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha));
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+         EmitAutomaticMaterialPipeline(packet);
+--- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+@@ -304,6 +304,7 @@
+     const int lastLight = match && sColourFresnelLightingEnabled
+         ? glxAutomaticLightCount(false, true, true) : firstLight;
+     for (int lightCount = firstLight; lightCount <= lastLight; ++lightCount)
++    for (int inheritedAlpha = 0; inheritedAlpha < (sColourFresnelLightingEnabled ? 1 : 3); ++inheritedAlpha)
+     {
+         BeginAutomaticMaterialVariant(packet);
+         program->ConfigureVertexFormat(true);
+@@ -315,6 +316,8 @@
+         ConfigureColourFresnelPipelineState(sColourFresnelLightingEnabled,
+             sColourFresnelLightRampEnabled, sColourFresnelDoubleLighting,
+             localCount, []() {});
++        if (!sColourFresnelLightingEnabled)
++            GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha));
+         EmitAutomaticMaterialPipeline(packet);
+         if (sColourFresnelLightingEnabled)
+         {
+--- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+@@ -240,12 +240,15 @@
+     auto* program = static_cast<GXMovieMaterialProgram*>(packet.materialProgram);
+     for (int yuv = 0; yuv < 2; ++yuv)
+     for (int tint = 0; tint < 2; ++tint)
++    for (int inheritedAlpha = 0; inheritedAlpha < (!yuv && !tint ? 3 : 1); ++inheritedAlpha)
+     {
+         BeginAutomaticMaterialVariant(packet);
+         program->ConfigureVertexFormat(true);
+         program->BindVertexArrays(&packet);
+         ConfigureMoviePipelineState(yuv != 0, tint != 0,
+             [](unsigned long& width, unsigned long& height) { width = height = 1; });
++        if (!yuv && !tint)
++            GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha));
+         EmitAutomaticMaterialPipeline(packet);
+     }
+ }
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+@@ -314,6 +314,7 @@
+          blend <= (match ? 1 : (params.blendAmount >= 0.999f)); ++blend)
+     for (int animateNormal = match ? 0 : (params.animateNormalTexCoords != 0);
+          animateNormal <= (match ? 1 : (params.animateNormalTexCoords != 0)); ++animateNormal)
++    for (int inheritedAlpha = 0; inheritedAlpha < (blend ? 9 : 1); ++inheritedAlpha)
+     {
+         BeginAutomaticMaterialVariant(packet);
+         program->ConfigureVertexFormat(true);
+@@ -322,6 +323,11 @@
+         glxConfigureSkinnedMultiLightBlend(blend ? 1.0f : 0.0f);
+         ConfigureSkinnedMultiLightTexgen(animateNormal != 0);
+         ConfigureSkinnedMultiLightChannels(diffuse, specular);
++        if (blend)
++        {
++            GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha / 3));
++            GXSetTevKAlphaSel(GX_TEVSTAGE1, glxAutomaticInheritedAlphaSelector(inheritedAlpha % 3));
++        }
+         EmitAutomaticMaterialPipeline(packet);
+     }
+ }

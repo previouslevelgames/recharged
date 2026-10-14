@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,16 +37,18 @@ struct FrameTimingRecord {
     std::uint64_t fifo_bytes = 0;
 };
 
-// Opt-in per-frame timing log: MSCHARGED_FRAME_LOG=frames.csv writes one CSV
-// row per original game frame and, on exit, a summary of the frame-interval
-// distribution and the longest frames (frames.csv.summary.txt and stdout).
+// Opt-in per-frame timing log: advanced.frame_logging writes one CSV row per
+// original game frame and, on exit, a summary of the frame-interval distribution
+// and longest frames. Both files live beside the executable, with a new name
+// for each recording. Environment variables do not enable or redirect logging.
 // Bookkeeping only: it never waits, paces frames or touches game state.
 class FrameTimingLog {
 public:
-    static std::unique_ptr<FrameTimingLog> FromEnvironment();
+    static std::unique_ptr<FrameTimingLog> FromSettings(bool enabled,
+        const std::filesystem::path& executable_directory);
 
     // Takes ownership of file; nullptr keeps the records in memory only.
-    FrameTimingLog(std::FILE* file, std::string path);
+    FrameTimingLog(std::FILE* file, std::filesystem::path path);
     ~FrameTimingLog();
     FrameTimingLog(const FrameTimingLog&) = delete;
     FrameTimingLog& operator=(const FrameTimingLog&) = delete;
@@ -55,7 +58,7 @@ public:
     void EndFrame(const FrameTimingCounters& counters);
 
     // Completes the log (pending frame, file, summary) once; the destructor
-    // calls it. FinishForProcessExit completes the environment log before an
+    // calls it. FinishForProcessExit completes the active log before an
     // _Exit that skips destructors, on the thread that runs the frames.
     void Finish();
     static void FinishForProcessExit();
@@ -67,7 +70,7 @@ public:
 
 private:
     std::FILE* file_;
-    std::string path_;
+    std::filesystem::path path_;
     bool finished_ = false;
     std::vector<FrameTimingRecord> records_;
     std::uint64_t next_index_ = 0;

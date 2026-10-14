@@ -1,0 +1,1008 @@
+Subject: Collect pipeline configurations from isolated graphics state
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Allow native resource preparation to reuse source-owned state setup without
+drawing or consuming vertex data. Preserve producer/decoder state and enqueue
+value configurations on the existing compilation worker.
+
+--- a/cmake/aurora_gx.cmake
++++ b/cmake/aurora_gx.cmake
+@@ -26,6 +26,7 @@
+         lib/gx/gx.cpp
+         lib/gx/texture.cpp
+         lib/gx/pipeline.cpp
++        lib/gx/pipeline_collection.cpp
+         lib/gx/shader.cpp
+         lib/gx/shader_info.cpp
+         lib/dolphin/gx/GXBump.cpp
+--- a/include/aurora/pipeline_cache.h
++++ b/include/aurora/pipeline_cache.h
+@@ -35,6 +35,24 @@
+  * Draws still compile and wait for previously unknown configurations normally.
+  */
+ void aurora_prepare_pipelines();
++
++/** Owner-thread, state-only pipeline discovery. Begin requires no open GX
++ * primitive/display list and retires preceding FIFO commands without inventing
++ * a draw-done event. Existing GX state setters target private capture storage.
++ * Emit after each source-owned material pass setup; do not issue draws, copies,
++ * peeks, pokes, resource creation/destruction or hardware waits in this scope.
++ * No vertex/texture memory is read by collection. Original SDK and decoded state
++ * are restored by end, including when submit=false. On a producer exception,
++ * the caller must call end(false). Emit failure latches failure for the batch.
++ * End submits only a valid batch and always restores first. The warmup ready
++ * flag remains false from begin until end and all queued compilation completes.
++ * These functions return false on invalid scope or unsupported commands.
++ */
++bool aurora_begin_pipeline_collection();
++/** Restore the private baseline for another variant; keep collected configs. */
++bool aurora_reset_pipeline_collection();
++bool aurora_collect_pipeline(uint32_t primitive, uint32_t vertexFormat, bool coPlanar);
++bool aurora_end_pipeline_collection(bool submit);
+ /** Thread-safe, nonblocking snapshot. Native Vulkan/D3D12/Metal preparation runs
+  * on the existing worker. WebGPU's synchronous fallback requires regular frame
+  * pumping. Empty caches are ready; failedPipelines is a startup failure. Closing
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -12,6 +12,7 @@
+ #include "gfx/render_worker.hpp"
+ #include "gx/command_processor.hpp"
+ #include "gx/fifo.hpp"
++#include "gx/pipeline_collection.hpp"
+ #include "gx/gx.hpp"
+ #include "gx/texture.hpp"
+ #include "imgui.hpp"
+@@ -511,6 +512,35 @@
+ AuroraInfo aurora_initialize(int argc, char* argv[], const AuroraConfig* config) {
+   return aurora::initialize(argc, argv, *config);
+ }
++bool aurora_begin_pipeline_collection() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::begin_pipeline_collection();
++#else
++  return false;
++#endif
++}
++bool aurora_collect_pipeline(uint32_t primitive, uint32_t vertexFormat, bool coPlanar) {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::collect_pipeline(primitive, vertexFormat, coPlanar);
++#else
++  return false;
++#endif
++}
++bool aurora_reset_pipeline_collection() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::reset_pipeline_collection();
++#else
++  return false;
++#endif
++}
++bool aurora_end_pipeline_collection(bool submit) {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::end_pipeline_collection(submit);
++#else
++  return false;
++#endif
++}
++
+ void aurora_prepare_pipelines() {
+ #ifdef AURORA_ENABLE_GX
+   aurora::gfx::rebuild_pipeline_cache();
+--- a/lib/dolphin/gx/GXAurora.cpp
++++ b/lib/dolphin/gx/GXAurora.cpp
+@@ -1,3 +1,4 @@
++#include "../../gx/pipeline_collection.hpp"
+ #include "dolphin/gx/GXAurora.h"
+ 
+ #include <limits>
+@@ -35,6 +36,7 @@
+ }
+ 
+ void AuroraSetViewportPolicy(AuroraViewportPolicy policy) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   aurora::gx::set_viewport_policy(policy);
+ }
+ 
+@@ -64,6 +66,7 @@
+   return tag;
+ }
+ void AuroraGXEndDrawReceipt() {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   if (!drawReceiptActive) return;
+   GX_WRITE_AURORA(GX_AURORA_DRAW_RECEIPT_TAG);
+   GX_WRITE_U64(0);
+@@ -74,6 +77,7 @@
+ }
+ 
+ void AuroraGXSync() {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   GXFlush();
+   aurora::gx::fifo::drain();
+ }
+--- a/lib/dolphin/gx/GXCpu2Efb.cpp
++++ b/lib/dolphin/gx/GXCpu2Efb.cpp
+@@ -1,3 +1,4 @@
++#include "../../gx/pipeline_collection.hpp"
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -8,6 +9,7 @@
+ #include <dolphin/gx/GXCpu2Efb.h>
+ 
+ void GXPeekZ(u16 x, u16 y, u32* z) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   if (z != nullptr) {
+     u32 value = 0;
+     if (aurora::gfx::depth_peek::read_latest(x, y, value)) {
+--- a/lib/dolphin/gx/GXDispList.cpp
++++ b/lib/dolphin/gx/GXDispList.cpp
+@@ -2,6 +2,7 @@
+ #include "__gx.h"
+ 
+ #include "../../gx/fifo.hpp"
++#include "../../gx/pipeline_collection.hpp"
+ 
+ #include <cstring>
+ 
+@@ -9,6 +10,7 @@
+ 
+ extern "C" {
+ void GXBeginDisplayList(void* list, u32 size) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   CHECK(!aurora::gx::fifo::in_display_list(), "Display list began twice!");
+ 
+   // Flush any pending dirty state before recording
+@@ -28,6 +30,7 @@
+ }
+ 
+ u32 GXEndDisplayList() {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return 0; }
+   // Flush any pending dirty state into the display list
+   if (__gx->dirtyState != 0) {
+     __GXSetDirtyState();
+@@ -47,6 +50,7 @@
+ }
+ 
+ void GXCallDisplayList(const void* data, u32 nbytes) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   // Flush any pending dirty state before calling
+   if (__gx->dirtyState != 0) {
+     __GXSetDirtyState();
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -1,3 +1,4 @@
++#include "../../gx/pipeline_collection.hpp"
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -284,7 +285,10 @@
+   return &sFifoObj;
+ }
+ 
+-void GXWaitDrawDone() { aurora::gx::fifo::wait_draw_done(); }
++void GXWaitDrawDone() {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
++  aurora::gx::fifo::wait_draw_done();
++}
+ 
+ void GXDrawDone() {
+   GXSetDrawDone();
+@@ -292,6 +296,7 @@
+ }
+ 
+ void GXSetDrawDone() {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   // Native safe point for a genuine already-latched PE finish interrupt.
+   // Hardware can deliver it before the original SDK critical section; late
+   // owner polling must not let that old cause satisfy the following reset.
+--- a/lib/dolphin/gx/GXTexture.cpp
++++ b/lib/dolphin/gx/GXTexture.cpp
+@@ -1,3 +1,4 @@
++#include "../../gx/pipeline_collection.hpp"
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -104,12 +105,14 @@
+ extern "C" {
+ void GXInitTexObj(GXTexObj* obj_, const void* data, u16 width, u16 height, GXTexFmt format, GXTexWrapMode wrapS,
+                   GXTexWrapMode wrapT, GXBool mipmap) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   init_texobj_common(*obj, data, width, height, format, wrapS, wrapT, mipmap);
+ }
+ 
+ void GXInitTexObjCI(GXTexObj* obj_, const void* data, u16 width, u16 height, GXCITexFmt format, GXTexWrapMode wrapS,
+                     GXTexWrapMode wrapT, GXBool mipmap, u32 tlut) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   init_texobj_common(*obj, data, width, height, format, wrapS, wrapT, mipmap);
+   obj->tlut = static_cast<GXTlut>(tlut);
+@@ -118,6 +121,7 @@
+ 
+ void GXInitTexObjLOD(GXTexObj* obj_, GXTexFilter minFilt, GXTexFilter magFilt, float minLod, float maxLod,
+                      float lodBias, GXBool biasClamp, GXBool doEdgeLod, GXAnisotropy maxAniso) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   const float clampedBias = std::clamp(lodBias, -4.0f, 3.99f);
+   const auto lbias = static_cast<u8>(32.0f * clampedBias);
+@@ -137,41 +141,48 @@
+ }
+ 
+ void GXInitTexObjData(GXTexObj* obj_, const void* data) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   obj->data = data;
+   ++obj->texDataVersion;
+ }
+ 
+ void GXInitTexObjWrapMode(GXTexObj* obj_, GXTexWrapMode wrapS, GXTexWrapMode wrapT) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   SET_REG_FIELD(0, obj->mode0, 2, 0, wrapS);
+   SET_REG_FIELD(0, obj->mode0, 2, 2, wrapT);
+ }
+ 
+ void GXInitTexObjTlut(GXTexObj* obj_, u32 tlut) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   obj->tlut = static_cast<GXTlut>(tlut);
+ }
+ 
+ void GXInitTexObjFilter(GXTexObj* obj_, GXTexFilter minFilt, GXTexFilter magFilt) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   SET_REG_FIELD(0, obj->mode0, 3, 5, GX2HWFiltConv[minFilt]);
+   SET_REG_FIELD(0, obj->mode0, 1, 4, magFilt == GX_LINEAR ? 1 : 0);
+ }
+ 
+ void GXInitTexObjMaxLOD(GXTexObj* obj_, float maxLod) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   const auto clampedMax = std::clamp(maxLod, 0.0f, 10.0f);
+   SET_REG_FIELD(0, obj->mode1, 8, 8, static_cast<u8>(16.0f * clampedMax));
+ }
+ 
+ void GXInitTexObjMinLOD(GXTexObj* obj_, float minLod) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   const auto clampedMin = std::clamp(minLod, 0.0f, 10.0f);
+   SET_REG_FIELD(0, obj->mode1, 8, 0, static_cast<u8>(16.0f * clampedMin));
+ }
+ 
+ void GXInitTexObjLODBias(GXTexObj* obj_, float lodBias) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   const float clampedBias = std::clamp(lodBias, -4.0f, 3.99f);
+   const auto lbias = static_cast<u8>(32.0f * clampedBias);
+@@ -179,21 +190,25 @@
+ }
+ 
+ void GXInitTexObjBiasClamp(GXTexObj* obj_, GXBool biasClamp) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   SET_REG_FIELD(0, obj->mode0, 1, 21, biasClamp);
+ }
+ 
+ void GXInitTexObjEdgeLOD(GXTexObj* obj_, GXBool doEdgeLod) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   SET_REG_FIELD(0, obj->mode0, 1, 8, doEdgeLod ? 0 : 1);
+ }
+ 
+ void GXInitTexObjMaxAniso(GXTexObj* obj_, GXAnisotropy maxAniso) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   SET_REG_FIELD(0, obj->mode0, 2, 19, maxAniso);
+ }
+ 
+ void GXInitTexObjUserData(GXTexObj* obj_, void* userData) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
+   obj->userData = userData;
+ }
+@@ -306,6 +321,7 @@
+ }
+ 
+ void GXInitTlutObj(GXTlutObj* obj_, const void* data, GXTlutFmt format, u16 entries) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   memset(obj_, 0, sizeof(GXTlutObj));
+   auto* obj = reinterpret_cast<GXTlutObj_*>(obj_);
+   obj->data = data;
+@@ -319,6 +335,7 @@
+ }
+ 
+ void GXInitTlutObjData(GXTlutObj* obj_, const void* data) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   auto* obj = reinterpret_cast<GXTlutObj_*>(obj_);
+   obj->data = data;
+   ++obj->tlutDataVersion;
+--- a/lib/dolphin/gx/GXVert.cpp
++++ b/lib/dolphin/gx/GXVert.cpp
+@@ -1,6 +1,7 @@
+ #include "gx.hpp"
+ #include "__gx.h"
+ #include "../../gx/fifo.hpp"
++#include "../../gx/pipeline_collection.hpp"
+ 
+ namespace {
+ // Track vertex count between GXBegin/GXEnd for mismatch detection
+@@ -32,9 +33,12 @@
+ }
+ } // namespace
+ 
++namespace aurora::gx { bool sdk_primitive_open() noexcept { return sInBegin; } }
++
+ extern "C" {
+ 
+ void GXBegin(GXPrimitive primitive, GXVtxFmt vtxFmt, u16 nVerts) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   pre_begin();
+ 
+   const u8 drawCmd = static_cast<u8>(vtxFmt) | static_cast<u8>(primitive);
+@@ -54,6 +58,7 @@
+ }
+ 
+ void GXBeginIndexed(GXVtxFmt vtxFmt, u16 nVerts, const u16* indices, u32 nIndices) {
++  if (aurora::gx::pipeline_collection_active()) { aurora::gx::fail_pipeline_collection(); return; }
+   pre_begin();
+   AURORA_ASSERT(nVerts != 0, "GXBeginIndexed: vertex count must be nonzero");
+   AURORA_ASSERT(indices != nullptr, "GXBeginIndexed: indices must not be null");
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -95,6 +95,7 @@
+ // and publication/cache maintenance, even after the last queue entry is taken.
+ static bool g_pipelineCacheInitialized = false;
+ static bool g_pipelineCacheScheduling = false;
++static bool g_pipelineDiscoveryOpen = false;
+ static bool g_gpuCachePrunePending = false;
+ static bool g_gpuCachePruning = false;
+ static uint64_t g_activePipelineCompilations = 0;
+@@ -1211,6 +1212,57 @@
+   finish_pipeline_cache_prune();
+ }
+ 
++// This is the automatic-discovery enqueue point. It never resolves a draw
++// with Blocking priority and therefore does not manufacture demand statistics.
++void prepare_pipeline_configs(std::span<const gx::PipelineConfig> configs) {
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    AURORA_ASSERT(g_pipelineCacheInitialized && !g_pipelineThreadEnd,
++                  "Pipeline preparation requires a live initialized cache");
++    AURORA_ASSERT(!g_pipelineCacheScheduling, "Concurrent pipeline preparation is not supported");
++    g_pipelineCacheScheduling = true;
++  }
++  const auto finishScheduling = [] {
++    {
++      std::lock_guard lock{g_pipelineMutex};
++      g_pipelineCacheScheduling = false;
++    }
++    finish_pipeline_cache_prune();
++  };
++  try {
++    const auto scene = scene_render_target_layout();
++    auto offscreen = scene;
++    offscreen.colorAttachmentCount = 1;
++    offscreen.sampleCount = 1;
++    detail::finalize_render_target_layout(offscreen);
++    for (const auto& config : configs) {
++      // The producer invokes the normal key builder; no imported binary ABI.
++      AURORA_ASSERT(config.version == gx::GXPipelineConfigVersion,
++                    "Automatic preparation received an obsolete GX configuration");
++      remember_pipeline_config(ShaderType::GX, config, current_frame(), true);
++      resolve_pipeline(ShaderType::GX, config, scene, PipelinePriority::Background);
++      if (offscreen.key != scene.key) {
++        resolve_pipeline(ShaderType::GX, config, offscreen, PipelinePriority::Background);
++      }
++    }
++  } catch (...) {
++    finishScheduling();
++    throw;
++  }
++  finishScheduling();
++}
++
++bool begin_pipeline_discovery() {
++  std::lock_guard lock{g_pipelineMutex};
++  if (!g_pipelineCacheInitialized || g_pipelineDiscoveryOpen || g_pipelineThreadEnd) return false;
++  g_pipelineDiscoveryOpen = true;
++  return true;
++}
++void end_pipeline_discovery() {
++  std::lock_guard lock{g_pipelineMutex};
++  g_pipelineDiscoveryOpen = false;
++}
++
+ AuroraPipelineWarmupStatus pipeline_warmup_status() {
+   std::lock_guard lock{g_pipelineMutex};
+   return {
+@@ -1223,19 +1275,21 @@
+       .demandHits = g_demandHits,
+       .demandMisses = g_demandMisses,
+       .demandWaitNanoseconds = g_demandWaitNanoseconds,
+-      .ready = g_pipelineCacheInitialized && !g_pipelineCacheScheduling && g_pendingPipelines.empty() &&
++      .ready = g_pipelineCacheInitialized && !g_pipelineDiscoveryOpen && !g_pipelineCacheScheduling && g_pendingPipelines.empty() &&
+                g_activePipelineCompilations == 0 && !g_gpuCachePrunePending && !g_gpuCachePruning &&
+                g_failedPipelines == 0,
+   };
+ }
+ 
+ void initialize_pipeline_cache() {
++  g_pipelineDiscoveryOpen = false;
+   g_pipelineCacheBroken = false;
+   g_pipelineCacheWriterStop = false;
+   g_pipelineThreadEnd = false;
+   {
+     std::lock_guard lock{g_pipelineMutex};
+     g_pipelineCacheInitialized = false;
++    g_pipelineDiscoveryOpen = false;
+     g_gpuCachePrunePending = false;
+     g_gpuCachePruning = false;
+     g_activePipelineCompilations = 0;
+--- a/lib/gfx/pipeline_cache.hpp
++++ b/lib/gfx/pipeline_cache.hpp
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "types.hpp"
++#include <span>
+ #include <aurora/pipeline_cache.h>
+ 
+ namespace aurora::gfx::clear {
+@@ -37,7 +38,12 @@
+ void begin_pipeline_frame();
+ void end_pipeline_frame();
+ void rebuild_pipeline_cache();
++// Owner-thread only; outside recording/layout changes and after cache initialization.
++// Configurations are copied before return. The worker compiles in the background.
++void prepare_pipeline_configs(std::span<const gx::PipelineConfig> configs);
+ AuroraPipelineWarmupStatus pipeline_warmup_status();
++bool begin_pipeline_discovery();
++void end_pipeline_discovery();
+ 
+ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLayout& layout);
+ PipelineRef find_pipeline(const clear::PipelineConfig& config, const RenderTargetLayout& layout);
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -29,6 +29,8 @@
+ uint8_t* sDlBuffer = nullptr;
+ uint32_t sDlSize = 0;
+ uint32_t sDlWritePos = 0;
++bool sCollectionSink = false;
++bool sCollectionOverflow = false;
+ } // namespace detail
+ 
+ namespace {
+@@ -239,6 +241,8 @@
+   }
+ }
+ 
++bool is_owner() noexcept { return sOwner == std::this_thread::get_id() && detail::sBufferData; }
++
+ void require_owner() {
+   AURORA_ASSERT(sOwner == std::this_thread::get_id() && detail::sBufferData,
+       "Native GX PE register/aperture access requires its initialized SDK owner");
+--- a/lib/gx/fifo.hpp
++++ b/lib/gx/fifo.hpp
+@@ -14,6 +14,8 @@
+ extern uint8_t* sDlBuffer;
+ extern uint32_t sDlSize;
+ extern uint32_t sDlWritePos;
++extern bool sCollectionSink;
++extern bool sCollectionOverflow;
+ } // namespace detail
+ 
+ enum class ProcessingMode : uint8_t {
+@@ -35,6 +37,7 @@
+ void prepare_native_efb_resize();
+ // SDK owner, not the worker or a game-side substitute.
+ void require_owner();
++bool is_owner() noexcept;
+ 
+ void begin_frame() noexcept;
+ void end_frame() noexcept;
+@@ -56,6 +59,8 @@
+   else if (length <= detail::sDlSize - detail::sDlWritePos) {
+     std::memcpy(detail::sDlBuffer + detail::sDlWritePos, data, length);
+     detail::sDlWritePos += length;
++  } else if (detail::sCollectionSink) {
++    detail::sCollectionOverflow = true;
+   }
+ }
+ 
+@@ -71,6 +76,8 @@
+     }
+   else if (detail::sDlWritePos < detail::sDlSize) {
+     detail::sDlBuffer[detail::sDlWritePos++] = val;
++  } else if (detail::sCollectionSink) {
++    detail::sCollectionOverflow = true;
+   }
+ }
+ 
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -2,6 +2,7 @@
+ #include "gx.hpp"
+ 
+ #include "pipeline.hpp"
++#include "pipeline_collection.hpp"
+ #include "texture.hpp"
+ #include "../dolphin/vi/vi_internal.hpp"
+ #include "../webgpu/gpu.hpp"
+@@ -51,11 +52,11 @@
+   return static_cast<T>(value < 0.0f ? std::floor(value) : std::ceil(value));
+ }
+ 
+-std::pair<f32, f32> polygon_offset_for_cull_mode(GXCullMode cullMode) noexcept {
++std::pair<f32, f32> polygon_offset_for_cull_mode(const GXState& state, GXCullMode cullMode) noexcept {
+   if (cullMode == GX_CULL_FRONT) {
+-    return {g_gxState.backOffset, g_gxState.backScale};
+-  }
+-  return {g_gxState.frontOffset, g_gxState.frontScale};
++    return {state.backOffset, state.backScale};
++  }
++  return {state.frontOffset, state.frontScale};
+ }
+ 
+ wgpu::BlendFactor to_blend_factor(GXBlendFactor fac, bool isDst) {
+@@ -317,7 +318,7 @@
+     g_gxState.dirty |= DirtyUniform;
+   }
+   g_gxState.renderViewport = viewport;
+-  gfx::set_viewport(viewport);
++  if (!pipeline_collection_decoding()) gfx::set_viewport(viewport);
+ }
+ 
+ void set_logical_scissor(const gfx::ClipRect& scissor) noexcept {
+@@ -327,7 +328,7 @@
+ 
+ void set_render_scissor(const gfx::ClipRect& scissor) noexcept {
+   g_gxState.renderScissor = scissor;
+-  gfx::set_scissor(scissor);
++  if (!pipeline_collection_decoding()) gfx::set_scissor(scissor);
+ }
+ 
+ const gfx::TextureBind& get_texture(GXTexMapID id) noexcept { return g_gxState.textures[static_cast<size_t>(id)]; }
+@@ -385,22 +386,18 @@
+   return g_device.CreateRenderPipeline(&descriptor);
+ }
+ 
+-void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXVtxFmt fmt) noexcept {
++void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool coPlanarActive,
++                              bool noFog, GXPrimitive primitive, GXVtxFmt fmt) noexcept {
+   ZoneScoped;
+ 
+-  const auto& vtxFmt = g_gxState.vtxFmts[fmt];
++  const auto& vtxFmt = state.vtxFmts[fmt];
+   config.shaderConfig = {};
+-  // AURORA_DEBUG_NO_FOG=1 renders without fog (platform comparison only).
+-  static const bool noFog = [] {
+-    const char* value = std::getenv("AURORA_DEBUG_NO_FOG");
+-    return value && *value && *value != '0';
+-  }();
+-  config.shaderConfig.fogType = noFog ? static_cast<u8>(GX_FOG_NONE) : g_gxState.fog.type;
+-  config.shaderConfig.fogRangeEnabled = g_gxState.fog.rangeEnabled;
++  config.shaderConfig.fogType = noFog ? static_cast<u8>(GX_FOG_NONE) : state.fog.type;
++  config.shaderConfig.fogRangeEnabled = state.fog.rangeEnabled;
+   u8 vtxOffset = 0;
+   for (int i = GX_VA_PNMTXIDX; i <= GX_VA_TEX7; ++i) {
+     const auto attr = static_cast<GXAttr>(i);
+-    const auto type = g_gxState.vtxDesc[i];
++    const auto type = state.vtxDesc[i];
+     auto& mapping = config.shaderConfig.attrs[i];
+     if (type == GX_NONE) {
+       mapping = {};
+@@ -425,13 +422,13 @@
+       break;
+     }
+     case GX_INDEX8:
+-      mapping.stride = g_gxState.arrays[i].stride;
+-      mapping.le = g_gxState.arrays[i].le;
++      mapping.stride = state.arrays[i].stride;
++      mapping.le = state.arrays[i].le;
+       vtxOffset += nbt3 ? 3 : 1;
+       break;
+     case GX_INDEX16:
+-      mapping.stride = g_gxState.arrays[i].stride;
+-      mapping.le = g_gxState.arrays[i].le;
++      mapping.stride = state.arrays[i].stride;
++      mapping.le = state.arrays[i].le;
+       vtxOffset += nbt3 ? 6 : 2;
+       break;
+     default:
+@@ -448,18 +445,18 @@
+   } else {
+     config.shaderConfig.lineMode = 0;
+   }
+-  config.shaderConfig.coPlanar = g_coPlanarState.active && config.shaderConfig.lineMode == 0;
+-  config.shaderConfig.tevSwapTable = g_gxState.tevSwapTable;
+-  for (u8 i = 0; i < g_gxState.numTevStages; ++i) {
+-    config.shaderConfig.tevStages[i] = g_gxState.tevStages[i];
+-  }
+-  config.shaderConfig.tevStageCount = g_gxState.numTevStages;
+-  for (u8 i = 0; i < g_gxState.numIndStages; ++i) {
+-    config.shaderConfig.indStages[i] = g_gxState.indStages[i];
+-  }
+-  config.shaderConfig.numIndStages = g_gxState.numIndStages;
++  config.shaderConfig.coPlanar = coPlanarActive && config.shaderConfig.lineMode == 0;
++  config.shaderConfig.tevSwapTable = state.tevSwapTable;
++  for (u8 i = 0; i < state.numTevStages; ++i) {
++    config.shaderConfig.tevStages[i] = state.tevStages[i];
++  }
++  config.shaderConfig.tevStageCount = state.numTevStages;
++  for (u8 i = 0; i < state.numIndStages; ++i) {
++    config.shaderConfig.indStages[i] = state.indStages[i];
++  }
++  config.shaderConfig.numIndStages = state.numIndStages;
+   for (u8 i = 0; i < MaxColorChannels; ++i) {
+-    const auto& cc = g_gxState.colorChannelConfig[i];
++    const auto& cc = state.colorChannelConfig[i];
+     if (cc.lightingEnabled) {
+       config.shaderConfig.colorChannels[i] = cc;
+     } else {
+@@ -469,16 +466,16 @@
+       };
+     }
+   }
+-  for (u8 i = 0; i < g_gxState.numTexGens; ++i) {
+-    config.shaderConfig.tcgs[i] = g_gxState.tcgs[i];
+-  }
+-  if (g_gxState.alphaCompare) {
+-    config.shaderConfig.alphaCompare = g_gxState.alphaCompare;
+-  }
+-  const auto cullMode = config.shaderConfig.lineMode == 0 ? g_gxState.cullMode : GX_CULL_NONE;
+-  const auto [polygonOffset, polygonOffsetScale] = polygon_offset_for_cull_mode(cullMode);
+-  const bool hasAlpha = efb_has_alpha(g_gxState.pixelFmt);
+-  const bool alphaUpdate = hasAlpha && g_gxState.alphaUpdate;
++  for (u8 i = 0; i < state.numTexGens; ++i) {
++    config.shaderConfig.tcgs[i] = state.tcgs[i];
++  }
++  if (state.alphaCompare) {
++    config.shaderConfig.alphaCompare = state.alphaCompare;
++  }
++  const auto cullMode = config.shaderConfig.lineMode == 0 ? state.cullMode : GX_CULL_NONE;
++  const auto [polygonOffset, polygonOffsetScale] = polygon_offset_for_cull_mode(state, cullMode);
++  const bool hasAlpha = efb_has_alpha(state.pixelFmt);
++  const bool alphaUpdate = hasAlpha && state.alphaUpdate;
+   const auto blendFactor = [hasAlpha](GXBlendFactor factor) {
+     if (!hasAlpha) {
+       if (factor == GX_BL_DSTALPHA) {
+@@ -492,21 +489,30 @@
+   };
+   config = {
+       .shaderConfig = config.shaderConfig,
+-      .depthFunc = g_gxState.depthFunc,
++      .depthFunc = state.depthFunc,
+       .cullMode = cullMode,
+-      .blendMode = g_gxState.blendMode,
+-      .blendFacSrc = blendFactor(g_gxState.blendFacSrc),
+-      .blendFacDst = blendFactor(g_gxState.blendFacDst),
+-      .blendOp = g_gxState.blendOp,
+-      .dstAlpha = alphaUpdate ? g_gxState.dstAlpha : UINT32_MAX,
++      .blendMode = state.blendMode,
++      .blendFacSrc = blendFactor(state.blendFacSrc),
++      .blendFacDst = blendFactor(state.blendFacDst),
++      .blendOp = state.blendOp,
++      .dstAlpha = alphaUpdate ? state.dstAlpha : UINT32_MAX,
+       .polygonOffsetBits = std::bit_cast<uint32_t>(polygonOffset),
+       .polygonOffsetScaleBits = std::bit_cast<uint32_t>(polygonOffsetScale),
+-      .polygonOffsetClampBits = std::bit_cast<uint32_t>(g_gxState.clamp),
+-      .depthCompare = g_gxState.depthCompare,
+-      .depthUpdate = g_gxState.depthUpdate,
++      .polygonOffsetClampBits = std::bit_cast<uint32_t>(state.clamp),
++      .depthCompare = state.depthCompare,
++      .depthUpdate = state.depthUpdate,
+       .alphaUpdate = alphaUpdate,
+-      .colorUpdate = g_gxState.colorUpdate,
+-  };
++      .colorUpdate = state.colorUpdate,
++  };
++}
++
++void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXVtxFmt fmt) noexcept {
++  // AURORA_DEBUG_NO_FOG=1 renders without fog (platform comparison only).
++  static const bool noFog = [] {
++    const char* value = std::getenv("AURORA_DEBUG_NO_FOG");
++    return value && *value && *value != '0';
++  }();
++  populate_pipeline_config(config, g_gxState, g_coPlanarState.active, noFog, primitive, fmt);
+ }
+ 
+ GXBindGroups build_bind_groups(const ShaderInfo& info) noexcept {
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -564,6 +564,10 @@
+ struct BindGroupRanges {
+   std::array<gfx::Range, MaxIndexAttr> vaRanges{};
+ };
++// Exact normal-render key construction for an independent state snapshot.
++// No resource reads, uploads, draw submission, or live GX state changes.
++void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool coPlanarActive,
++                              bool noFog, GXPrimitive primitive, GXVtxFmt fmt) noexcept;
+ void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXVtxFmt fmt) noexcept;
+ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
+                                     const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
+--- /dev/null
++++ b/lib/gx/pipeline_collection.cpp
+@@ -0,0 +1,245 @@
++#include "pipeline_collection.hpp"
++#include "pipeline.hpp"
++#include "fifo.hpp"
++#include "regs.hpp"
++#include "../gfx/pipeline_cache.hpp"
++#include "../dolphin/gx/__gx.h"
++#include <dolphin/gx/GXAurora.h>
++#include <dolphin/gd/GDGeometry.h>
++
++#include <cstdlib>
++#include <cstring>
++#include <memory>
++#include <stdexcept>
++#include <thread>
++#include <utility>
++#include <vector>
++
++namespace aurora::gx {
++namespace {
++struct Collection {
++  __GXData_struct sdk;
++  GXState baseline;
++  GXState state;
++  CoPlanarState coplanar;
++  std::vector<u8> bytes = std::vector<u8>(64 * 1024);
++  std::vector<PipelineConfig> configs;
++  std::thread::id owner = std::this_thread::get_id();
++  bool failed = false;
++};
++std::unique_ptr<Collection> sCollection;
++thread_local bool sDecoding = false;
++
++class Reader {
++  std::span<const u8> mBytes;
++public:
++  explicit Reader(std::span<const u8> bytes) : mBytes(bytes) {}
++  bool empty() const { return mBytes.empty(); }
++  std::span<const u8> take(size_t size) {
++    if (size > mBytes.size()) throw std::runtime_error("Truncated collection command");
++    auto result = mBytes.first(size);
++    mBytes = mBytes.subspan(size);
++    return result;
++  }
++  template<class T> T read() {
++    T value;
++    const auto bytes = take(sizeof(T));
++    std::memcpy(&value, bytes.data(), sizeof(T));
++    if constexpr (sizeof(T) > 1) return bswap(value);
++    return value;
++  }
++};
++
++// Only the owner invokes this after drain(), with all SDK publication redirected
++// to the private sink. The FIFO worker has no commands to process while swapped.
++// No decoder called here can submit draws or touch resource lifetime state.
++class DecodeScope {
++  Collection& mCollection;
++public:
++  explicit DecodeScope(Collection& collection) : mCollection(collection) {
++    std::swap(g_gxState, mCollection.state);
++    std::swap(g_coPlanarState, mCollection.coplanar);
++    sDecoding = true;
++  }
++  ~DecodeScope() {
++    sDecoding = false;
++    std::swap(g_coPlanarState, mCollection.coplanar);
++    std::swap(g_gxState, mCollection.state);
++  }
++};
++
++void decode_extension(Reader& reader) {
++  const auto command = reader.read<u16>();
++  if (command >= GX_AURORA_LOAD_ARRAYBASE && command <= (GX_AURORA_LOAD_ARRAYBASE | 15)) {
++    auto& array = g_gxState.arrays[command - GX_AURORA_LOAD_ARRAYBASE + GX_VA_POS];
++    array.data = reinterpret_cast<void*>(reader.read<u64>());
++    array.size = reader.read<u32>();
++    array.le = reader.read<u8>() == 1;
++    array.cachedRange = {};
++  } else if (command == GX2_SET_POLYGON_OFFSET) {
++    g_gxState.frontOffset = reader.read<f32>();
++    g_gxState.frontScale = reader.read<f32>();
++    g_gxState.backOffset = reader.read<f32>();
++    g_gxState.backScale = reader.read<f32>();
++    g_gxState.clamp = reader.read<f32>();
++  } else if (command == GX_AURORA_LOAD_VIEWPORT_RENDER) {
++    // Viewport values are uniforms, not pipeline-key fields. Do not record them.
++    reader.take(6 * sizeof(f32));
++  } else if (command == GX_AURORA_LOAD_SCISSOR_RENDER) {
++    reader.take(4 * sizeof(u32));
++  } else if (command == GX_AURORA_LOAD_PROJECTION_FULL) {
++    reader.take(16 * sizeof(f32));
++  } else if (command == GX_AURORA_LOAD_TEXOBJ) {
++    // Bind metadata has no PipelineConfig fields; no upload or cache mutation.
++    reader.take(1 + 8 + 4 + 4 + 4 + 4 + 1 + 4 + 4);
++  } else if (command == GX_AURORA_LOAD_TLUT) {
++    reader.take(1 + 8 + 4 + 2 + 4 + 4);
++  } else if (command == GX_AURORA_DEBUG_GROUP_PUSH || command == GX_AURORA_DEBUG_MARKER_INSERT) {
++    reader.take(reader.read<u16>());
++  } else if (command == GX_AURORA_DEBUG_GROUP_POP) {
++    // Debug scopes never reach the actual recorder during collection.
++  } else {
++    throw std::runtime_error("Unsupported command in state-only pipeline collection");
++  }
++}
++
++void decode_commands(std::span<const u8> bytes) {
++  Reader reader(bytes);
++  while (!reader.empty()) {
++    const auto command = reader.read<u8>();
++    switch (command) {
++    case GX_NOP: break;
++    case GX_LOAD_CP_REG: {
++      const auto address = reader.read<u8>();
++      fifo::handle_cp(address, reader.read<u32>());
++      break;
++    }
++    case GX_LOAD_XF_REG: {
++      const auto header = reader.read<u32>();
++      const auto count = (header >> 16) + 1;
++      const auto address = static_cast<u16>(header);
++      const auto payload = reader.take(count * sizeof(u32));
++      // Matrix/light memory affects uniforms only; skip it without array reads.
++      if (address >= 0x1000) fifo::handle_xf(address, payload);
++      break;
++    }
++    case GX_LOAD_INDX_A:
++    case GX_LOAD_INDX_B:
++    case GX_LOAD_INDX_C:
++    case GX_LOAD_INDX_D:
++      // Original indexed matrix loads cannot change pipeline-key fields.
++      reader.take(4);
++      break;
++    case GX_LOAD_BP_REG: {
++      const auto value = reader.read<u32>();
++      const auto reg = value >> 24;
++      if (reg == 0x52 || reg == GX_BP_REG_DRAWDONE || reg == 0x47 || reg == 0x48) {
++        throw std::runtime_error("Hardware operation in state-only pipeline collection");
++      }
++      fifo::handle_bp(value);
++      break;
++    }
++    case GX_CMD_INVL_VC: break;
++    case GX_AURORA: decode_extension(reader); break;
++    default: throw std::runtime_error("Draw or unknown opcode in state-only pipeline collection");
++    }
++  }
++}
++
++bool valid_primitive(uint32_t value) {
++  switch (value) {
++  case GX_QUADS: case GX_TRIANGLES: case GX_TRIANGLESTRIP: case GX_TRIANGLEFAN:
++  case GX_LINES: case GX_LINESTRIP: case GX_POINTS: return true;
++  default: return false;
++  }
++}
++bool owner() { return sCollection && sCollection->owner == std::this_thread::get_id(); }
++}
++
++bool pipeline_collection_active() noexcept { return fifo::detail::sCollectionSink; }
++bool pipeline_collection_decoding() noexcept { return sDecoding; }
++void fail_pipeline_collection() noexcept { if (sCollection) sCollection->failed = true; }
++
++bool begin_pipeline_collection() {
++  if (!fifo::is_owner() || sCollection || fifo::in_display_list() || sdk_primitive_open() || !__gx) return false;
++  if (!gfx::begin_pipeline_discovery()) return false;
++  try {
++    // Flush only already-written commands. Preserve pending SDK dirty state;
++    // emit flushes that into the private sink, and end restores it unchanged.
++    fifo::drain();
++    auto collection = std::make_unique<Collection>();
++    collection->sdk = *__gx;
++    collection->baseline = g_gxState;
++    collection->state = collection->baseline;
++    collection->coplanar = g_coPlanarState;
++    fifo::begin_display_list(collection->bytes.data(), static_cast<u32>(collection->bytes.size()));
++    fifo::detail::sCollectionOverflow = false;
++    fifo::detail::sCollectionSink = true;
++    sCollection = std::move(collection);
++    return true;
++  } catch (...) {
++    gfx::end_pipeline_discovery();
++    return false;
++  }
++}
++
++bool reset_pipeline_collection() {
++  if (!owner() || sCollection->failed) return false;
++  try {
++    sCollection->state = sCollection->baseline;
++    *__gx = sCollection->sdk;
++    fifo::detail::sDlWritePos = 0;
++    fifo::detail::sCollectionOverflow = false;
++    return true;
++  } catch (...) {
++    sCollection->failed = true;
++    return false;
++  }
++}
++
++bool collect_pipeline(uint32_t primitive, uint32_t vertexFormat, bool coPlanar) {
++  if (!owner()) return false;
++  if (sCollection->failed || !valid_primitive(primitive) || vertexFormat >= GX_MAX_VTXFMT) {
++    sCollection->failed = true;
++    return false;
++  }
++  try {
++    if (__gx->dirtyState) __GXSetDirtyState();
++    if (fifo::detail::sCollectionOverflow) throw std::runtime_error("Pipeline state collection overflow");
++    DecodeScope scope(*sCollection);
++    decode_commands(std::span{sCollection->bytes}.first(fifo::detail::sDlWritePos));
++    fifo::detail::sDlWritePos = 0;
++    PipelineConfig config{};
++    const char* debugNoFog = std::getenv("AURORA_DEBUG_NO_FOG");
++    const bool noFog = debugNoFog && *debugNoFog && *debugNoFog != '0';
++    populate_pipeline_config(config, g_gxState, coPlanar, noFog,
++                             static_cast<GXPrimitive>(primitive), static_cast<GXVtxFmt>(vertexFormat));
++    sCollection->configs.push_back(config);
++    return true;
++  } catch (...) {
++    sCollection->failed = true;
++    return false;
++  }
++}
++
++bool end_pipeline_collection(bool submit) {
++  if (!owner()) return false;
++  auto collection = std::move(sCollection);
++  const bool valid = !collection->failed && !fifo::detail::sCollectionOverflow;
++  // Discard all captured bytes, including trailing state or an aborted draw.
++  // Do not call GXEndDisplayList: it flushes and modifies SDK bookkeeping.
++  fifo::detail::sInDisplayList = false;
++  fifo::detail::sDlBuffer = nullptr;
++  fifo::detail::sDlSize = fifo::detail::sDlWritePos = 0;
++  fifo::detail::sCollectionSink = fifo::detail::sCollectionOverflow = false;
++  *__gx = collection->sdk;
++  try {
++    if (submit && valid) gfx::prepare_pipeline_configs(collection->configs);
++  } catch (...) {
++    gfx::end_pipeline_discovery();
++    return false;
++  }
++  gfx::end_pipeline_discovery();
++  return valid;
++}
++}
+--- /dev/null
++++ b/lib/gx/pipeline_collection.hpp
+@@ -0,0 +1,12 @@
++#pragma once
++#include <cstdint>
++namespace aurora::gx {
++bool pipeline_collection_active() noexcept;
++bool pipeline_collection_decoding() noexcept;
++void fail_pipeline_collection() noexcept;
++bool sdk_primitive_open() noexcept;
++bool begin_pipeline_collection();
++bool reset_pipeline_collection();
++bool collect_pipeline(uint32_t primitive, uint32_t vertexFormat, bool coPlanar);
++bool end_pipeline_collection(bool submit);
++}
+--- a/lib/gx/poke.cpp
++++ b/lib/gx/poke.cpp
+@@ -1,4 +1,5 @@
+ #include "poke.hpp"
++#include "pipeline_collection.hpp"
+ #include "fifo.hpp"
+ #include "gx.hpp"
+ #include "../gfx/recording.hpp"
+@@ -17,11 +18,13 @@
+   return sRegisters[index];
+ }
+ void write_register(uint32_t index, uint32_t value) {
++  if (pipeline_collection_active()) { fail_pipeline_collection(); return; }
+   fifo::require_owner();
+   AURORA_ASSERT(index < sRegisters.size(), "Invalid PE register {}", index);
+   sRegisters[index] = static_cast<uint16_t>(value); // Actual 16-bit MMIO width.
+ }
+ void store_color(uint32_t aperture, uint32_t argb) {
++  if (pipeline_collection_active()) { fail_pipeline_collection(); return; }
+   fifo::require_owner();
+   AURORA_ASSERT(!fifo::in_display_list(), "PE aperture is not a display-list FIFO command");
+   fifo::write_u8(GX_AURORA);

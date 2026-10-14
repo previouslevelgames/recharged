@@ -1,0 +1,45 @@
+From: mscharged-port
+Subject: Wait for prepared pipelines before publishing frontend models
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/src/Game/FE/feModelManager.cpp
++++ b/src/Game/FE/feModelManager.cpp
+@@ -704,6 +704,19 @@
+     model->mAnimations->AddFile((char*)model->mAnimationFileData,
+         model->mAnimationFileDataSize);
+ 
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++        sAutomaticPreparedFEModels.insert(model);
++        --AllocatorStackDepth;
++        AllocatorStack[AllocatorStackDepth] = 0;
++        CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
++    }
++    if (!mscharged::platform::AutomaticGraphicsPipelinesReady())
++        return;
++    AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
++    CurrentAllocator = &VirtualAllocator;
++    sAutomaticPreparedFEModels.erase(model);
++#endif
++
+     switch (model->mType)
+     {
+     case FE_MODEL_SKINNED:
+@@ -764,18 +777,6 @@
+     }
+     }
+ 
+-#if defined(MSCHARGED_AUTOMATIC_PREWARM)
+-        sAutomaticPreparedFEModels.insert(model);
+-        --AllocatorStackDepth;
+-        AllocatorStack[AllocatorStackDepth] = 0;
+-        CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+-    }
+-    if (!mscharged::platform::AutomaticGraphicsPipelinesReady())
+-        return;
+-    AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
+-    CurrentAllocator = &VirtualAllocator;
+-    sAutomaticPreparedFEModels.erase(model);
+-#endif
+     if (handle->mLoadedCallback != 0)
+     {
+         ((void (*)(FEModelHandle*, void*))handle->mLoadedCallback)(handle, handle->mLoadedCallbackData);

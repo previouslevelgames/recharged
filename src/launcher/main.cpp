@@ -20,6 +20,7 @@
 #include "platform/app_icon.h"
 #include "platform/path.h"
 #include "platform/save_import.h"
+#include "platform/shader_cache.h"
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
 #include "platform/key_bindings.h"
@@ -1481,16 +1482,13 @@ private:
         }
         EndCard();
 
-        BeginCard("##frame_rate", "Frame rate", "The game's frames per second while you play.", Icon::Info);
+        BeginCard("##frame_rate", "Performance overlay", "FPS, system GPU and CPU usage, and network latency.", Icon::Info);
         if (BeginRows("##frame_rate_rows"))
         {
-            Row("In the window title", "Next to the game's name in the title bar; not visible in fullscreen.");
-            if (Toggle("##fps", &draft_.show_fps)) dirty_ = true;
-
-            Row("On screen", "A small counter in a corner of the game window, also in fullscreen.");
+            Row("On screen", "A compact row in a corner, also in fullscreen. Latency shows N/A until online play is available.");
             if (Toggle("##fps_overlay", &draft_.fps_overlay)) dirty_ = true;
 
-            Row("Corner", "Where the on-screen counter sits.");
+            Row("Corner", "Where the performance overlay sits.");
             FpsCornerChoice();
             EndRows();
         }
@@ -2744,8 +2742,26 @@ private:
 
     void GameplayPage()
     {
+        const ImVec2 header = ImGui::GetCursorScreenPos();
+        const float right = header.x + ImGui::GetContentRegionAvail().x;
         PageHeader("Gameplay", "Optional tweaks that change the original game. With all of them off, the game plays "
                                "as on the Wii.");
+        const ImVec2 content = ImGui::GetCursorScreenPos();
+        const auto& fonts = CurrentFonts();
+        const ImVec2 label = TextSize(fonts.body, "All tweaks");
+        DrawLabel(ImGui::GetWindowDrawList(), fonts.body,
+                  {right - Dp(60) - label.x, header.y + (FontSize(fonts.title) - label.y) * 0.5f},
+                  Col(color::muted), "All tweaks");
+        ImGui::SetCursorScreenPos({right - Dp(48), header.y + (FontSize(fonts.title) - Dp(28)) * 0.5f});
+        bool all_enabled = std::all_of(draft_.tweaks.begin(), draft_.tweaks.end(), [](bool enabled) { return enabled; });
+        if (Toggle("##all_tweaks", &all_enabled))
+        {
+            draft_.tweaks.fill(all_enabled);
+            dirty_ = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn all gameplay tweaks on or off.");
+        ImGui::SetCursorScreenPos(content);
+
         BeginCard("##menus", "Menus & startup", nullptr, Icon::Play);
         if (BeginRows("##menus_rows"))
         {
@@ -2818,15 +2834,38 @@ private:
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
             Chip(kGraphicsBackends.front().label, color::info);
 #endif
-            Row("API validation", "Checks every graphics call for errors. Useful for bug reports, but slower.");
-            if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
             EndRows();
         }
         EndCard();
 
-        BeginCard("##diagnostics", "Diagnostics", nullptr, Icon::Info);
+        BeginCard("##diagnostics", "Diagnostics & analytics", "Local tools for investigating performance and graphics issues.", Icon::Info);
         if (BeginRows("##diagnostic_rows"))
         {
+            Row("Frame logging", "Records frame times for each game session. Saves a new CSV and summary beside the executable.");
+            if (Toggle("##frame_logging", &draft_.frame_logging)) dirty_ = true;
+
+            const auto recordingsFolder = PathUtf8(base_);
+            Row("Frame recordings", recordingsFolder.c_str());
+            if (SecondaryButton("open_frame_recordings", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                true, Icon::Folder))
+                OpenPath(base_);
+
+            Row("Shader cache", "Clears prepared shaders and learned variants for all graphics APIs. The next launch prepares them again.");
+            if (SecondaryButton("clear_shader_cache", "Clear shader cache", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                true, Icon::Refresh))
+            {
+                try
+                {
+                    const auto cleared = platform::ClearShaderCache(platform::ShaderCacheDirectory(base_));
+                    Notice(cleared.removed_files ? "Shader cache cleared. Graphics will be prepared again on the next launch."
+                                                : "The shader cache is already empty.", NoticeKind::Success);
+                }
+                catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+            }
+
+            Row("API validation", "Checks every graphics call for errors. Useful for bug reports, but slower.");
+            if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
+
             Row("Log detail", "Which messages reach the console: errors, warnings, info or debug.");
             const char* values[] = {"error", "warning", "info", "debug"};
             int level = 2;
@@ -2837,6 +2876,13 @@ private:
             Row("Verbose console", "Also prints development traces and the game's own debug output. Useful for bug reports.");
             if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;
 
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##configuration", "Configuration", nullptr, Icon::Sliders);
+        if (BeginRows("##configuration_rows"))
+        {
             const std::string settings_path = PathUtf8(file_.path);
             Row("Settings file", settings_path.c_str());
             if (SecondaryButton("open_settings", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},

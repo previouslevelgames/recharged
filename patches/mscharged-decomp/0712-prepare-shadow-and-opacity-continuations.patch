@@ -1,0 +1,247 @@
+From: mscharged-port
+Subject: Prepare source-owned shadow, scorch and retained opacity states
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/src/Game/Render/StadiumLoading.cpp
++++ b/src/Game/Render/StadiumLoading.cpp
+@@ -157,6 +157,30 @@
+ }
+ 
+ #if defined(MSCHARGED_AUTOMATIC_PREWARM)
++namespace {
++struct AutomaticPlanarShadowVisitor
++{
++    void Visit(const unsigned long&, DrawableObject** value)
++    {
++        const DrawableObject* drawable = value ? *value : 0;
++        // PlanarShadowDrawable::Initialize owns this exact source object type.
++        // Its shadow path, DrawablePowerup and DrawableHammer all duplicate
++        // this model before calling DrawPlanarShadow. Do not enumerate every
++        // world/character/UI model as though it could take that path.
++        if (drawable != 0 && drawable->m_uObjectType == 0x1000D && drawable->m_pModel != 0)
++            mscharged::platform::EnumerateAutomaticPlanarShadowModelPipelines(*drawable->m_pModel);
++    }
++};
++}
++
++void mscharged::platform::EnumerateAutomaticPlanarShadowResources()
++{
++    if (pBasicStadiumInstance == 0) return;
++    AutomaticPlanarShadowVisitor visitor;
++    pBasicStadiumInstance->m_registeredDrawables.Walk(&visitor, &AutomaticPlanarShadowVisitor::Visit);
++    pBasicStadiumInstance->m_drawableMap.Walk(&visitor, &AutomaticPlanarShadowVisitor::Visit);
++}
++
+ void mscharged::platform::EnumerateAutomaticNumberResources()
+ {
+     // Invoked only by the completed match-resource census, before gameplay.
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -349,10 +349,16 @@
+     for (int shadow = 0; shadow < (match && sCharacterDamageShadowLightingEnabled ? 4 : 1); ++shadow)
+     for (int inheritedAlpha = 0; inheritedAlpha < (surface == 8 ? 3 : 1); ++inheritedAlpha)
+     for (int inheritedTexgen = 0; inheritedTexgen != 2; ++inheritedTexgen)
+-    {
+-        BeginAutomaticMaterialVariant(packet);
++    for (int scorch = 0; scorch < (match && glGetRasterState(packet.rasterState, GLS_Culling) != 2 ? 2 : 1); ++scorch)
++    {
++        // DrawableCharacter::ApplyDamageEffects uses CullBack for its scorch
++        // pass. Change only a local packet, through the original packed setter.
++        glModelPacket drawPacket = packet;
++        if (scorch != 0)
++            glSetRasterState(drawPacket.rasterState, GLS_Culling, 2);
++        BeginAutomaticMaterialVariant(drawPacket);
+         program->ConfigureVertexFormat(true);
+-        program->BindVertexArrays(&packet);
++        program->BindVertexArrays(&drawPacket);
+         // A view switch can enter this program directly after scrolling material
+         // deactivation, which leaves both texture generators at 3x4 identity.
+         // Keep the ordinary reset recipe and this source-defined transition pair.
+@@ -370,15 +376,19 @@
+             GXSetTevKAlphaSel(GX_TEVSTAGE0, glxAutomaticInheritedAlphaSelector(inheritedAlpha));
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+-        EmitAutomaticSkinnedMaterialPipeline(packet);
++        EmitAutomaticSkinnedMaterialPipeline(drawPacket);
+         if (enabled)
+         {
++            gxSaveZMode();
+             const bool colourUpdate = gxSetColourUpdate(false);
+-            EmitAutomaticSkinnedMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(drawPacket);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+-            EmitAutomaticSkinnedMaterialPipeline(packet);
++            EmitAutomaticSkinnedMaterialPipeline(drawPacket);
++            glxCollectRetainedOpacityPipelineStates(true, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(drawPacket);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+@@ -298,6 +298,7 @@
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sSpecularDefaultLightingEnabled)
+         {
++            gxSaveZMode();
+             if (sSpecularDepthPrepassEnabled)
+             {
+             const bool colourUpdate = gxSetColourUpdate(false);
+@@ -307,6 +308,9 @@
+             }
+             glxConfigureMaterialOpacityColourPass(1);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(sSpecularDepthPrepassEnabled, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+@@ -291,6 +291,7 @@
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sEnableSpecularFresnelLighting)
+         {
++            gxSaveZMode();
+             if (sSpecularFresnelAlphaDepthPass)
+             {
+             const bool colourUpdate = gxSetColourUpdate(false);
+@@ -300,6 +301,9 @@
+             }
+             glxConfigureMaterialOpacityColourPass(1);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(sSpecularFresnelAlphaDepthPass, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
+@@ -260,14 +260,18 @@
+         if (shadow != 0)
+             glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+-        if (enabled != 0)
++        // This family fades regardless of the packet lighting flag.
+         {
++            gxSaveZMode();
+             const bool colourUpdate = gxSetColourUpdate(false);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(true, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+@@ -290,12 +290,16 @@
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (enabled != 0)
+         {
++            gxSaveZMode();
+             const bool colourUpdate = gxSetColourUpdate(false);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(true, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
+@@ -226,12 +226,16 @@
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (enabled != 0)
+         {
++            gxSaveZMode();
+             const bool colourUpdate = gxSetColourUpdate(false);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+             glxConfigureMaterialOpacityColourPass(1);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(true, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+@@ -321,6 +321,7 @@
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sColourFresnelLightingEnabled)
+         {
++            gxSaveZMode();
+             if (sColourFresnelAlphaDepthPass)
+             {
+                 const bool colourUpdate = gxSetColourUpdate(false);
+@@ -330,6 +331,9 @@
+             }
+             glxConfigureMaterialOpacityColourPass(0);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(sColourFresnelAlphaDepthPass, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
+@@ -294,6 +294,7 @@
+         EmitAutomaticSkinnedMaterialPipeline(packet);
+         if (sEnableCharacterSkinLighting)
+         {
++            gxSaveZMode();
+             if (sDrawAlphaDepthPass)
+             {
+             const bool colourUpdate = gxSetColourUpdate(false);
+@@ -303,6 +304,9 @@
+             }
+             glxConfigureMaterialOpacityColourPass(1);
+             EmitAutomaticSkinnedMaterialPipeline(packet);
++            glxCollectRetainedOpacityPipelineStates(sDrawAlphaDepthPass, [&] {
++                EmitAutomaticSkinnedMaterialPipeline(packet);
++            });
+         }
+     }
+ }
+--- a/include/NL/glx/GXPipelinePreparation.h
++++ b/include/NL/glx/GXPipelinePreparation.h
+@@ -26,3 +26,22 @@
+     GXSetTevKAlphaSel(static_cast<GXTevStageID>(stage), GX_TEV_KASEL_K1_A);
+     gxSetTevAlphaIn(stage, 7, 7, 7, 6);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++template <typename Emit>
++inline void glxCollectRetainedOpacityPipelineStates(bool depthPrepass, Emit emit)
++{
++    // Draw restores blend/depth after its opacity colour pass, but leaves the
++    // stage's K1_A alpha input. A following packet of the same material can use
++    // that retained input in its ordinary draw or its next alpha depth prepass.
++    gxRestoreBlendMode();
++    gxRestoreZMode();
++    emit();
++    if (depthPrepass)
++    {
++        const bool colourUpdate = gxSetColourUpdate(false);
++        emit();
++        gxSetColourUpdate(colourUpdate);
++    }
++}
++#endif

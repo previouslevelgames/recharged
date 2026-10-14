@@ -1,7 +1,9 @@
 #pragma once
 
 #include "runtime/fps_overlay_layout.h"
+#include "platform/system_usage.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -11,8 +13,7 @@ struct ImFont;
 
 namespace mscharged::runtime {
 
-// The on-screen frame-rate counter (display.fps_overlay): the whole frames
-// per second in a translucent rounded pill in one corner of the game window,
+// The performance overlay (display.fps_overlay): FPS | GPU % | CPU % | LAT N/A,
 // drawn by Aurora over the presented picture in windowed and fullscreen mode.
 // Host presentation only; the game never sees it. Use it on the presentation
 // owner thread, between game frames.
@@ -27,17 +28,19 @@ public:
 
     // A new measurement, in frames per second.
     void SetRate(double rate);
-    // Lays the counter out again when its number or the window's pixel size
-    // changed; nothing is shown before the first measurement.
+    void Invalidate() { builtSize_ = 0; shownWidth_ = 0; }
+    // Rebuild only when a displayed value or the window's pixel size changes.
+    // Unknown measurements show N/A, including during the first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height);
 
 private:
-    void BuildFonts(const FpsOverlayFonts& sizes);
+    void BuildFonts(float size);
 
+    platform::SystemUsageMonitor usage_;
     std::vector<unsigned char> fontData_;
     OverlayCorner corner_;
     std::optional<int> value_;
-    std::optional<int> shownValue_;
+    std::array<std::optional<int>, 3> shownValues_{};
     std::uint32_t shownWidth_ = 0;
     std::uint32_t shownHeight_ = 0;
     float builtSize_ = 0.0f;

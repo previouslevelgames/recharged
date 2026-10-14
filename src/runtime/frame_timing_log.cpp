@@ -1,9 +1,10 @@
 #include "runtime/frame_timing_log.h"
+#include "platform/path.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cinttypes>
-#include <cstdlib>
+#include <ctime>
 #include <numeric>
 
 #if defined(_WIN32)
@@ -11,7 +12,7 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <ctime>
+#include <unistd.h>
 #endif
 
 namespace mscharged::runtime {
@@ -61,32 +62,60 @@ double Ms(std::int64_t ns) { return static_cast<double>(ns) / 1e6; }
 
 constexpr std::size_t kMaxRecords = 4u << 20; // about 4.5 hours at 60 frames/s
 
-FrameTimingLog* g_environment_log = nullptr;
+FrameTimingLog* g_active_log = nullptr;
+
+std::FILE* OpenLog(const std::filesystem::path& path)
+{
+#if defined(_WIN32)
+    return _wfopen(path.c_str(), L"w");
+#else
+    return std::fopen(path.c_str(), "w");
+#endif
+}
 
 } // namespace
 
-std::unique_ptr<FrameTimingLog> FrameTimingLog::FromEnvironment()
+std::unique_ptr<FrameTimingLog> FrameTimingLog::FromSettings(bool enabled,
+    const std::filesystem::path& executable_directory)
 {
-    const char* path = std::getenv("MSCHARGED_FRAME_LOG");
-    if (!path || !*path) return nullptr;
-    std::FILE* file = std::fopen(path, "w");
+    if (!enabled) return nullptr;
+    const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &now);
+    const auto process = GetCurrentProcessId();
+#else
+    gmtime_r(&now, &utc);
+    const auto process = getpid();
+#endif
+    char timestamp[32]{};
+    std::strftime(timestamp, sizeof timestamp, "%Y%m%d_%H%M%S", &utc);
+    const auto stem = std::string("frame-times_") + timestamp + "_" + std::to_string(process);
+    std::filesystem::path path;
+    std::error_code error;
+    for (unsigned suffix = 0;; ++suffix) {
+        path = executable_directory / (stem + (suffix ? "_" + std::to_string(suffix) : "") + ".csv");
+        if (!std::filesystem::exists(path, error) || error) break;
+    }
+    std::FILE* file = error ? nullptr : OpenLog(path);
     if (!file) {
-        std::fprintf(stderr, "Frame timing log: cannot open %s\n", path);
+        std::fprintf(stderr, "Frame timing log: cannot write %s. Check that the executable folder is writable.\n",
+                     PathUtf8(path).c_str());
         return nullptr;
     }
     std::setvbuf(file, nullptr, _IOFBF, 1 << 16);
-    std::fprintf(stderr, "Frame timing log: writing %s\n", path);
+    std::fprintf(stderr, "Frame timing log: writing %s\n", PathUtf8(path).c_str());
     auto log = std::make_unique<FrameTimingLog>(file, path);
-    g_environment_log = log.get();
+    g_active_log = log.get();
     return log;
 }
 
 void FrameTimingLog::FinishForProcessExit()
 {
-    if (g_environment_log) g_environment_log->Finish();
+    if (g_active_log) g_active_log->Finish();
 }
 
-FrameTimingLog::FrameTimingLog(std::FILE* file, std::string path) : file_(file), path_(std::move(path))
+FrameTimingLog::FrameTimingLog(std::FILE* file, std::filesystem::path path) : file_(file), path_(std::move(path))
 {
     if (file_)
         std::fputs("frame,start_ms,duration_ms,game_ms,game_cpu_ms,process_cpu_ms,vi_fields,presents,draws,"
@@ -97,7 +126,7 @@ FrameTimingLog::FrameTimingLog(std::FILE* file, std::string path) : file_(file),
 FrameTimingLog::~FrameTimingLog()
 {
     Finish();
-    if (g_environment_log == this) g_environment_log = nullptr;
+    if (g_active_log == this) g_active_log = nullptr;
 }
 
 void FrameTimingLog::Finish()
@@ -117,9 +146,13 @@ void FrameTimingLog::Finish()
     const std::string summary = Summary();
     std::fputs(summary.c_str(), stdout);
     std::fflush(stdout);
-    if (std::FILE* out = std::fopen((path_ + ".summary.txt").c_str(), "w")) {
+    auto summaryPath = path_;
+    summaryPath += ".summary.txt";
+    if (std::FILE* out = OpenLog(summaryPath)) {
         std::fputs(summary.c_str(), out);
         std::fclose(out);
+    } else {
+        std::fprintf(stderr, "Frame timing log: cannot write summary %s\n", PathUtf8(summaryPath).c_str());
     }
 }
 

@@ -180,6 +180,7 @@ checksum = "{self.checksum}"
                 self.assertEqual(member.mode, int(item["mode"], 8))
                 self.assertEqual(member.uid, 0)
             self.assertEqual(manifest["files"]["mscharged"]["mode"], "0o755")
+            self.assertFalse(any(name.startswith("assets/graphics/") for name in manifest["files"]))
             self.assertFalse(any("MUST NOT BE PACKAGED" in archive.extractfile(member).read().decode(errors="ignore")
                                  for member in members if member.isfile()))
             extraction = self.root / "extracted"
@@ -342,6 +343,7 @@ checksum = "{self.checksum}"
 
     def test_windows_packages_exe_dlls_runtime_and_notices_as_zip(self):
         _, pin = self.windows_build()
+        self.windows_imports["mscharged.exe"].append("pdh.dll")
         path = self.package()
         self.assertTrue(path.name.endswith("-windows-x86_64.zip"))
         with zipfile.ZipFile(path) as archive:
@@ -354,7 +356,8 @@ checksum = "{self.checksum}"
         self.assertEqual(manifest["modules"], [stem + ".dll" for stem in PACKAGER.MODULES])
         self.assertEqual(manifest["platform"], "windows")
         self.assertEqual(manifest["windows_graphics"], pin)
-        self.assertEqual(manifest["windows_imports"]["mscharged.exe"], ["libc++.dll"])
+        self.assertEqual(manifest["windows_imports"]["mscharged.exe"], ["libc++.dll", "pdh.dll"])
+        self.assertNotIn("pdh.dll", names)  # Performance counters use the Windows OS component.
         for record in PACKAGER.graphics_file_records(pin):
             self.assertIn(record["path"], names)
             self.assertEqual(manifest["files"][record["path"]]["sha256"], record["sha256"])

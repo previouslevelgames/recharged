@@ -53,7 +53,7 @@ function(mscharged_add_original_frontend_diagnostic)
     mscharged_add_original_shutdown_records(mscharged_original_frontend_module)
     foreach(_property IN ITEMS
             COMPILE_FEATURES COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES
-            LINK_LIBRARIES LINK_OPTIONS LINK_DEPENDS)
+            LINK_LIBRARIES LINK_OPTIONS LINK_DEPENDS MSCHARGED_ORIGINAL_EXPORT_MAP)
         get_target_property(_value mscharged_original_main_credits_module ${_property})
         if(_value)
             set_property(TARGET mscharged_original_frontend_module PROPERTY ${_property} "${_value}")
@@ -122,6 +122,30 @@ function(mscharged_add_original_frontend_diagnostic)
     # same original sources keeps their original code unchanged.
     target_compile_definitions(mscharged_original_frontend_module PRIVATE MSCHARGED_TWEAKS=1)
     target_sources(mscharged_original_frontend_module PRIVATE src/platform/game_tweaks.cpp)
+    # Native graphics preparation consumes the original loaded resources and
+    # shared material state; compiler workers receive copied pipeline values.
+    target_compile_definitions(mscharged_original_frontend_module PRIVATE MSCHARGED_AUTOMATIC_PREWARM=1)
+    target_sources(mscharged_original_frontend_module PRIVATE
+        src/platform/automatic_pipeline_prewarm.cpp
+        src/platform/automatic_pipeline_fixed.cpp
+        src/platform/automatic_pipeline_dynamic.cpp
+        src/platform/automatic_pipeline_resources.cpp)
+    # Extend the last selected export map: reduced diagnostic configurations
+    # must not promise SH/audio/boot symbols whose owners were not selected.
+    # Visibility attributes alone do not export these hooks through the lists.
+    get_target_property(_frontend_base_exports mscharged_original_frontend_module
+        MSCHARGED_ORIGINAL_EXPORT_MAP)
+    if(NOT _frontend_base_exports)
+        message(FATAL_ERROR "Original frontend has no selected module export map")
+    endif()
+    file(READ "${_frontend_base_exports}" _frontend_exports)
+    string(REPLACE "local:"
+        "charged_graphics_preparation_pending; charged_graphics_preparation_label;\n  local:"
+        _frontend_exports "${_frontend_exports}")
+    set(_frontend_export_map "${CMAKE_CURRENT_BINARY_DIR}/mscharged_original_frontend.exports.map")
+    file(CONFIGURE OUTPUT "${_frontend_export_map}" CONTENT "${_frontend_exports}" @ONLY)
+    mscharged_set_original_module_exports(mscharged_original_frontend_module
+        "${_frontend_export_map}")
     # dynamic_lookup defers unfinished methods, but missing game vtable/VTT
     # data must be detected before the owner tries to load this module.
     set(_vtable_check "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_original_module_vtables.py")

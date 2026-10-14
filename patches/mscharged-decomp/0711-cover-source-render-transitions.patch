@@ -1,0 +1,73 @@
+From: mscharged-port
+Subject: Prepare source-authored procedural and inherited render variants
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/src/Game/Render/StadiumLoading.cpp
++++ b/src/Game/Render/StadiumLoading.cpp
+@@ -40,6 +40,9 @@
+ #include "NL/gl/glState.h"
+ 
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ extern "C"
+ {
+     extern bool lbl_806DEE60;
+@@ -152,6 +155,21 @@
+ {
+     return gStadiumNumberInstances;
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void mscharged::platform::EnumerateAutomaticNumberResources()
++{
++    // Invoked only by the completed match-resource census, before gameplay.
++    // Skipped gameplay models may leave old slots behind after stadium teardown.
++    if (pBasicStadiumInstance == 0 || gSkipGameplayModels) return;
++    for (unsigned i = 0; i != sizeof(gStadiumNumberInstances) / sizeof(gStadiumNumberInstances[0]); ++i)
++    {
++        const DrawableObject* glyph = gStadiumNumberInstances[i];
++        if (glyph != 0 && glyph->m_pModel != 0)
++            EnumerateAutomaticNumberModelPipelines(*glyph->m_pModel);
++    }
++}
++#endif
+ 
+ DrawableObject* GetBallRenderObject(unsigned int index)
+ {
+--- a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
+@@ -66,5 +66,10 @@
+     ConfigureCompactColourPipelineState(program);
+     program->BindVertexArrays(&packet);
+     EmitAutomaticMaterialPipeline(packet);
++    // A new view deactivates the preceding material without resetting state.
++    // Scrolling detail Deactivate leaves TEX0 as an identity 3x4 generator;
++    // an ordinary material switch resets it to the 2x4 variant emitted above.
++    gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY);
++    EmitAutomaticMaterialPipeline(packet);
+ }
+ #endif
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -348,10 +348,19 @@
+          surface <= (match ? 8 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega)); ++surface)
+     for (int shadow = 0; shadow < (match && sCharacterDamageShadowLightingEnabled ? 4 : 1); ++shadow)
+     for (int inheritedAlpha = 0; inheritedAlpha < (surface == 8 ? 3 : 1); ++inheritedAlpha)
++    for (int inheritedTexgen = 0; inheritedTexgen != 2; ++inheritedTexgen)
+     {
+         BeginAutomaticMaterialVariant(packet);
+         program->ConfigureVertexFormat(true);
+         program->BindVertexArrays(&packet);
++        // A view switch can enter this program directly after scrolling material
++        // deactivation, which leaves both texture generators at 3x4 identity.
++        // Keep the ordinary reset recipe and this source-defined transition pair.
++        if (inheritedTexgen != 0)
++        {
++            gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY);
++            gxSetTexCoordGen(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_TEX2, GX_IDENTITY);
++        }
+         ConfigureCharacterDamagePipelineState(enabled != 0, lightCount, doubled,
+             stageCount, sCharacterDamageTexGenCount);
+         const bool damage[2] = { (surface & 1) != 0, (surface & 2) != 0 };

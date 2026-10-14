@@ -51,13 +51,13 @@ Values Encode(const Settings& s)
             {"controls.mouse_pointer", s.mouse_pointer ? "true" : "false"},
             {"controls.bluetooth_search", s.bluetooth_search ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
-            {"display.show_fps", s.show_fps ? "true" : "false"},
             {"display.fps_overlay", s.fps_overlay ? "true" : "false"},
             {"display.fps_overlay_corner", s.fps_overlay_corner},
             {"display.monitor", std::to_string(s.monitor)},
             {"advanced.graphics_validation", s.graphics_validation ? "true" : "false"},
             {"advanced.log_level", s.log_level},
             {"advanced.verbose_console", s.verbose_console ? "true" : "false"},
+            {"advanced.frame_logging", s.frame_logging ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
@@ -215,13 +215,13 @@ Settings Decode(const Values& values)
     boolean("controls.mouse_pointer", s.mouse_pointer);
     boolean("controls.bluetooth_search", s.bluetooth_search);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
-    boolean("display.show_fps", s.show_fps);
     boolean("display.fps_overlay", s.fps_overlay);
     choice("display.fps_overlay_corner", s.fps_overlay_corner, {"top-left", "top-right", "bottom-left", "bottom-right"});
     number("display.monitor", s.monitor, 0, 15);
     boolean("advanced.graphics_validation", s.graphics_validation);
     choice("advanced.log_level", s.log_level, {"error", "warning", "info", "debug"});
     boolean("advanced.verbose_console", s.verbose_console);
+    boolean("advanced.frame_logging", s.frame_logging);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
     {
@@ -286,7 +286,8 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 if (!values.emplace(full_key, value).second)
                     throw std::runtime_error("Invalid configuration: duplicate " + full_key);
                 key_line = true;
-                drop = updated && OwnedSection(section) && !kept.count(full_key);
+                drop = updated && ((OwnedSection(section) && !kept.count(full_key))
+                    || full_key == "display.show_fps"); // Retired title-bar counter; accept old INIs.
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)

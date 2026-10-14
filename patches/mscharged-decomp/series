@@ -506,3 +506,12 @@
 0702-convert-native-hud-clock-like-mwcc.patch
 0703-read-native-captain-character-by-member.patch
 0704-read-native-bounding-box-positions.patch
+0705-describe-fixed-material-pipelines.patch
+0706-describe-dynamic-material-pipelines.patch
+0707-discover-loaded-resource-pipelines.patch
+0708-describe-inherited-material-alpha.patch
+0709-describe-inherited-fixed-material-state.patch
+0710-prepare-native-skinned-vertex-layouts.patch
+0711-cover-source-render-transitions.patch
+0712-prepare-shadow-and-opacity-continuations.patch
+0713-delay-frontend-model-publication-until-prepared.patch

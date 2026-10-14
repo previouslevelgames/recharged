@@ -101,14 +101,14 @@ struct Settings
     bool bluetooth_search = true;
     std::string sensor_bar = "bottom"; // controls.sensor_bar: bottom | top (sensor bar / DolphinBar position)
     // Host presentation and diagnostics (never game behaviour).
-    bool show_fps = true;             // display.show_fps: frame rate in the game window title
-    bool fps_overlay = false;         // display.fps_overlay: frame-rate counter over the game picture
+    bool fps_overlay = false;         // display.fps_overlay: FPS and system usage over the game picture
     // display.fps_overlay_corner: top-left | top-right | bottom-left | bottom-right
     std::string fps_overlay_corner = "top-right";
     int monitor = 0;                  // display.monitor: 0 = default display, N = Nth connected display
     bool graphics_validation = false; // advanced.graphics_validation: backend graphics debug layers (off: fastest)
     std::string log_level = "info";   // advanced.log_level: error | warning | info | debug
     bool verbose_console = false;     // advanced.verbose_console: development traces and game debug output
+    bool frame_logging = false;       // advanced.frame_logging: CSV timings and summary beside the executable
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
     // [gameplay]: opt-in game tweaks (kGameTweaks order), all off by default.
     std::array<bool, kGameTweaks.size()> tweaks{};

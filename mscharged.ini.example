@@ -31,9 +31,8 @@ antialiasing = 4x
 # 3D render size: window (one pixel per window pixel, default), native (the
 # Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
 resolution = window
-# Frames per second in the game window title.
-show_fps = true
-# Frames per second drawn in a corner of the game window, also in fullscreen.
+# Performance overlay: FPS | GPU % | CPU % | LAT N/A, also in fullscreen.
+# GPU/CPU are total system usage; unavailable driver counters show N/A.
 fps_overlay = false
 # Corner of that counter: top-left, top-right, bottom-left or bottom-right.
 fps_overlay_corner = top-right
@@ -158,6 +157,8 @@ cpu_vs_cpu = false
 graphics_validation = false
 log_level = info
 verbose_console = false
+# Record frame times to a new CSV and summary beside the executable each session.
+frame_logging = false
 
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.

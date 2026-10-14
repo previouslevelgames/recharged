@@ -638,7 +638,8 @@ void CheckFatalDispatch(const char* disc, bool reset_during_callback) {
           "Genuine new media owner failed to admit a fresh physical request");
     CheckNodRead();
 }
-constexpr unsigned CachedFileLength = 65536 + 73;
+constexpr unsigned CachedFileLength = 262144 + 73;
+constexpr unsigned CachedProbeCap = 256 * 1024;
 
 void CheckRealNodCacheAPI(const char* path) {
     // A second actual Nod media lifetime: no shared Aurora or test cache state.
@@ -661,7 +662,7 @@ void CheckRealNodCacheAPI(const char* path) {
     };
     auto file = open("cached.bin");
     auto cold = open("cold.bin");
-    std::array<u8, 65537> bytes{};
+    std::array<u8, 262145> bytes{};
     bytes.fill(0xa5);
     Check(nod_seek(cold.get(), 17, 0) == 17, "Nod cold-file seek failed");
     Check(nod_try_read_cached_at(cold.get(), 5, bytes.data(), 32) == -2 &&
@@ -685,6 +686,40 @@ void CheckRealNodCacheAPI(const char* path) {
     Check(nod_read(file.get(), &following, 1) == 1 && following == Expected(65555) &&
           nod_seek(file.get(), 0, 1) == 65556,
           "Nod cache hit failed to advance both real file/partition cursors");
+    // Real Wii resident bytes at the exact admitted bound; cap+1 must miss.
+    for (const unsigned length : {65537u, 65568u, 131104u, 174784u, 262144u, 262145u}) {
+        Check(nod_seek(file.get(), 23, 0) == 23, "Large Nod probe reset failed");
+        bytes.fill(0xa5);
+        const bool eligible = length <= CachedProbeCap;
+        const auto got = nod_try_read_cached_at(file.get(), 19, bytes.data(), length);
+        Check(got == (eligible ? static_cast<std::int64_t>(length) : -2),
+              "Large resident Nod hit/cap miss disagrees with exact requested bound");
+        for (unsigned i = 0; i < bytes.size(); ++i)
+            Check(bytes[i] == (eligible && i < length ? Expected(i + 19) : u8{0xa5}),
+                  "Large Nod probe changed exact bytes or untouched output tail");
+        const unsigned position = eligible ? 19 + length : 23;
+        Check(nod_read(file.get(), &following, 1) == 1 && following == Expected(position),
+              "Large Nod probe partition cursor differs from the real file cursor");
+        Check(nod_seek(file.get(), 0, 1) == position + 1, "Large Nod probe file cursor changed");
+    }
+    // A true maximum requested read clips a large body at EOF, preserving tail.
+    const auto largeEofOffset = CachedFileLength - CachedProbeCap + 23;
+    const auto largeEofCount = CachedProbeCap - 23;
+    bytes.fill(0xa5);
+    Check(nod_try_read_cached_at(file.get(), largeEofOffset, bytes.data(), CachedProbeCap) == largeEofCount,
+          "Large cached EOF did not return exact clipped bytes");
+    for (unsigned i = 0; i < bytes.size(); ++i)
+        Check(bytes[i] == (i < largeEofCount ? Expected(largeEofOffset + i) : u8{0xa5}),
+              "Large cached EOF changed exact bytes or untouched tail");
+    following = 0x6d;
+    Check(nod_read(file.get(), &following, 1) == 0 && following == 0x6d &&
+          nod_seek(file.get(), 0, 1) == CachedFileLength, "Large EOF did not preserve both real cursors");
+    // Requested length governs admission even when EOF would clip it to 5 bytes.
+    Check(nod_seek(file.get(), 23, 0) == 23, "Oversized EOF reset failed");
+    bytes.fill(0xa5);
+    Check(nod_try_read_cached_at(file.get(), CachedFileLength - 5, bytes.data(), CachedProbeCap + 1) == -2 &&
+          nod_seek(file.get(), 0, 1) == 23, "EOF clipping incorrectly admitted an oversized request");
+    for (const auto byte : bytes) Check(byte == 0xa5, "Oversized EOF miss modified output");
     bytes.fill(0xa5);
     Check(nod_try_read_cached_at(file.get(), CachedFileLength - 5, bytes.data(), 32) == 5,
           "Nod cached EOF did not clip the actual available count");
@@ -697,7 +732,7 @@ void CheckRealNodCacheAPI(const char* path) {
     Check(nod_seek(file.get(), 23, 0) == 23, "Nod miss-fixture seek failed");
     bytes.fill(0xa5);
     const std::array<std::pair<std::uint64_t, std::size_t>, 5> misses{{
-        {0, 0}, {0, 65537}, {UINT64_MAX, 32}, {CachedFileLength, 32}, {CachedFileLength + 1, 1}}};
+        {0, 0}, {0, CachedProbeCap + 1}, {UINT64_MAX, 32}, {CachedFileLength, 32}, {CachedFileLength + 1, 1}}};
     for (const auto [offset, length] : misses) {
         Check(nod_try_read_cached_at(file.get(), offset, bytes.data(), length) == -2 &&
               nod_seek(file.get(), 0, 1) == 23, "Nod guarded miss changed real file cursor");
@@ -722,9 +757,11 @@ void WarmCachedFile() {
 void CheckCachedReadBytes() {
     WarmCachedFile();
     struct Span { unsigned offset, length, expected; };
-    const std::array<Span, 8> spans{{
+    const std::array<Span, 14> spans{{
         {0, 1, 1}, {19, 33, 33}, {0, 65536, 65536},
-        {0, 65537, 65537}, // Strictly above the native cache shortcut limit.
+        {0, 65537, 65537}, // Former 64 KiB bound plus one remains an exact byte case.
+        {0, 65568, 65568}, {0, 131104, 131104}, {0, 174784, 174784},
+        {0, 262144, 262144}, {0, 262145, 262145}, {96, 262144, 262121},
         {CachedFileLength - 5, 32, 5},
         {CachedFileLength, 31, 0}, // Real EOF, unchanged worker path.
         {32, 0, 0}, {31, 1, 1}}};
@@ -793,10 +830,10 @@ void CheckNullOverlayWorker() {
         Check(bytes[i] == Expected(i), "Null-callback overlay bytes changed");
 }
 
-void CheckCachedCallbackThread() {
+void CheckCachedCallbackThread(unsigned size = 128) {
     WarmCachedFile();
     DVDFileInfo file{};
-    std::array<u8, 128> bytes{};
+    std::vector<u8> bytes(size);
     CachedCallbackProbe probe;
     CachedCallbackProbe::current = &probe;
     const auto submitter = std::this_thread::get_id();
@@ -815,7 +852,7 @@ void CheckCachedCallbackThread() {
 
 // Cached bytes must not bypass an older active worker or any original lifecycle
 // barrier. Record observations while blocked; assert only after real drain.
-void CheckCachedBehindWorker(unsigned action) {
+void CheckCachedBehindWorker(unsigned action, unsigned size = 128) {
     WarmCachedFile();
     Overlay active;
     active.blocked = true;
@@ -824,8 +861,9 @@ void CheckCachedBehindWorker(unsigned action) {
     const AuroraOverlayFile overlay{"/cached-predecessor.bin", &active, 128};
     aurora_dvd_overlay_files(&overlay, 1, nullptr);
     DVDFileInfo predecessor{}, cached{}, rejected{};
-    std::array<u8, 128> first{}, output{}, rejectedOutput{};
-    output.fill(0x7b); rejectedOutput.fill(0x7c);
+    std::array<u8, 128> first{}, rejectedOutput{};
+    std::vector<u8> output(size, 0x7b);
+    rejectedOutput.fill(0x7c);
     Check(DVDOpen(overlay.fileName, &predecessor) && DVDOpen("/cached.bin", &cached) &&
           DVDOpen("/cached.bin", &rejected), "Cached FIFO fixture handles did not open");
     callbacks = 0;
@@ -935,6 +973,8 @@ int main(int argc,char** argv) {
         CheckRealNodCacheAPI(argv[1]);
         CheckCachedReadBytes(); CheckCachedCallbackThread(); CheckNullOverlayWorker();
         for (unsigned action : {0u, 1u, 2u}) CheckCachedBehindWorker(action);
+        CheckCachedCallbackThread(262144);
+        for (unsigned action : {0u, 1u, 2u}) CheckCachedBehindWorker(action, 262144);
         CheckCachedFatalLatch(argv[1]);
         CheckNodRead();ResetBlockedRead();ResetStartedCallback();CheckReentrant();
         CheckCancelAllCompletion();

@@ -1,0 +1,143 @@
+From: mscharged-port
+Subject: Prepare only configurations selected by current resources
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -117,6 +117,14 @@
+    * This can be set to 0 to disable allocating this region.
+    */
+   uint32_t mem2Size;
++
++  /**
++   * Let resource discovery select configurations for the current loading
++   * generation. Retained descriptions remain available, but are not all compiled
++   * at startup and a bundled initial catalog is not imported. Zero preserves
++   * legacy preparation of every remembered/bundled configuration.
++   */
++  bool automaticPipelinePreparation;
+ } AuroraConfig;
+ 
+ typedef struct {
+--- a/include/aurora/pipeline_cache.h
++++ b/include/aurora/pipeline_cache.h
+@@ -28,7 +28,18 @@
+   bool ready;
+ } AuroraPipelineWarmupStatus;
+ 
+-/** Schedule known configurations for the current scene/offscreen layouts.
++/** Start a new resource-loading selection in automaticPipelinePreparation mode.
++ * Owner-thread only, outside a collection. Previously compiled handles and all
++ * persistent descriptions/blobs remain valid. Subsequent collections and real
++ * draws select configurations for this generation; layout changes prepare only
++ * those selected configurations. Republish common/loading-screen resources too.
++ * Already queued compilation is allowed to finish, and readiness still covers
++ * all queued work. Returns false for invalid mode/scope or a stopped cache.
++ */
++bool aurora_begin_pipeline_generation();
++
++/** Schedule selected configurations for the current scene/offscreen layouts.
++ * With automaticPipelinePreparation disabled, selects every known configuration.
+  * Call on the host thread after graphics settings are applied, before starting
+  * source gameplay; do not call concurrently with frame recording or settings
+  * changes. Initialization already starts the first preparation pass.
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -512,6 +512,13 @@
+ AuroraInfo aurora_initialize(int argc, char* argv[], const AuroraConfig* config) {
+   return aurora::initialize(argc, argv, *config);
+ }
++bool aurora_begin_pipeline_generation() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::fifo::is_owner() && aurora::gfx::begin_pipeline_generation();
++#else
++  return false;
++#endif
++}
+ bool aurora_begin_pipeline_collection() {
+ #ifdef AURORA_ENABLE_GX
+   return aurora::gx::begin_pipeline_collection();
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -87,6 +87,9 @@
+ static std::condition_variable g_pipelineReadyCv;
+ static absl::flat_hash_map<PipelineRef, CompiledPipeline> g_pipelines;
+ static absl::flat_hash_map<HashType, KnownPipeline> g_knownPipelines;
++// A generation selects descriptions, never owns GPU handles. Previously loaded
++// matches/backends stay durable and existing handles remain usable after reset.
++static absl::flat_hash_set<HashType> g_activePipelineConfigs;
+ static std::optional<uint64_t> g_pipelineLayoutKey;
+ static std::deque<PendingPipeline> g_pipelineQueue;
+ static std::deque<PendingPipeline> g_backgroundPipelineQueue;
+@@ -479,6 +482,9 @@
+     auto [it, inserted] = g_knownPipelines.try_emplace(cacheKey, KnownPipeline{type, config, firstFrameUsed});
+     changed = inserted || firstFrameUsed < it->second.firstFrameUsed;
+     it->second.firstFrameUsed = std::min(it->second.firstFrameUsed, firstFrameUsed);
++    // Only resource collection or an actual draw activates a retained config.
++    // Loading the on-disk descriptions uses persist=false and selects nothing.
++    if (persist && g_config.automaticPipelinePreparation) g_activePipelineConfigs.insert(cacheKey);
+   }
+   if (persist && changed) {
+     enqueue_pipeline_cache_write(make_pipeline_cache_write(type, cacheKey, config, firstFrameUsed));
+@@ -876,7 +882,7 @@
+     return false;
+   }
+ 
+-  seed_pipeline_cache();
++  if (!g_config.automaticPipelinePreparation) seed_pipeline_cache();
+   if (g_pipelineCacheBroken) {
+     return false;
+   }
+@@ -1189,9 +1195,17 @@
+   std::vector<KnownPipeline> known;
+   {
+     std::lock_guard lock{g_pipelineMutex};
+-    known.reserve(g_knownPipelines.size());
+-    for (const auto& pipeline : g_knownPipelines | std::views::values) {
+-      known.push_back(pipeline);
++    if (g_config.automaticPipelinePreparation) {
++      known.reserve(g_activePipelineConfigs.size());
++      for (const auto key : g_activePipelineConfigs) {
++        const auto it = g_knownPipelines.find(key);
++        if (it != g_knownPipelines.end()) known.push_back(it->second);
++      }
++    } else {
++      known.reserve(g_knownPipelines.size());
++      for (const auto& pipeline : g_knownPipelines | std::views::values) {
++        known.push_back(pipeline);
++      }
+     }
+   }
+   std::ranges::sort(known, {}, &KnownPipeline::firstFrameUsed);
+@@ -1252,6 +1266,14 @@
+   finishScheduling();
+ }
+ 
++bool begin_pipeline_generation() {
++  std::lock_guard lock{g_pipelineMutex};
++  if (!g_config.automaticPipelinePreparation || !g_pipelineCacheInitialized ||
++      g_pipelineDiscoveryOpen || g_pipelineCacheScheduling || g_pipelineThreadEnd) return false;
++  g_activePipelineConfigs.clear();
++  return true;
++}
++
+ bool begin_pipeline_discovery() {
+   std::lock_guard lock{g_pipelineMutex};
+   if (!g_pipelineCacheInitialized || g_pipelineDiscoveryOpen || g_pipelineThreadEnd) return false;
+@@ -1349,6 +1371,7 @@
+     g_demandHits = g_demandMisses = g_demandWaitNanoseconds = 0;
+     g_pipelines.clear();
+     g_knownPipelines.clear();
++    g_activePipelineConfigs.clear();
+     g_pipelineLayoutKey.reset();
+     g_pipelineQueue.clear();
+     g_backgroundPipelineQueue.clear();
+--- a/lib/gfx/pipeline_cache.hpp
++++ b/lib/gfx/pipeline_cache.hpp
+@@ -42,5 +42,6 @@
+ // Configurations are copied before return. The worker compiles in the background.
+ void prepare_pipeline_configs(std::span<const gx::PipelineConfig> configs);
+ AuroraPipelineWarmupStatus pipeline_warmup_status();
++bool begin_pipeline_generation();
+ bool begin_pipeline_discovery();
+ void end_pipeline_discovery();

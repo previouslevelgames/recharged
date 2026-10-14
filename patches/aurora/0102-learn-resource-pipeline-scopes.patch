@@ -1,0 +1,463 @@
+From: mscharged-port
+Subject: Retain observed pipeline variants by stable resource selection
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+--- a/include/aurora/pipeline_cache.h
++++ b/include/aurora/pipeline_cache.h
+@@ -37,6 +37,26 @@
+  * all queued work. Returns false for invalid mode/scope or a stopped cache.
+  */
+ bool aurora_begin_pipeline_generation();
++/** Begin/restart the final selected-resource census used for learned-state
++ * identity. Keeps compiled/active configs; only the fingerprint input is reset.
++ * Re-enumerate common and selected resources before sealing. Loader hooks before
++ * this boundary never affect the scope fingerprint. Requires an open generation.
++ */
++bool aurora_begin_pipeline_scope_census();
++/** Seal final discovery and prepare exact states learned from real draws of the
++ * same generated-key scope on prior runs. Prefer the resource-ID overload below
++ * when producer keys can inherit live render state. Readiness remains
++ * false during the final census until successful seal plus queued completion.
++ * Earlier incremental loader publications may become ready before the census.
++ */
++bool aurora_seal_pipeline_generation();
++/** Seal using a host-defined stable resource identity, independent of emitted
++ * pipeline variants. Include the producer revision and loading phase in the
++ * sorted original resource-ID hash; never include pointers or runtime values.
++ * Aurora mixes its config versions into this identity. Repeated sealing is
++ * successful only for the same identity kind and value. Requires a final census.
++ */
++bool aurora_seal_pipeline_generation_for_resources(uint64_t resourceScope);
+ 
+ /** Schedule selected configurations for the current scene/offscreen layouts.
+  * With automaticPipelinePreparation disabled, selects every known configuration.
+--- a/lib/gfx/pipeline_cache.hpp
++++ b/lib/gfx/pipeline_cache.hpp
+@@ -43,6 +43,9 @@
+ void prepare_pipeline_configs(std::span<const gx::PipelineConfig> configs);
+ AuroraPipelineWarmupStatus pipeline_warmup_status();
+ bool begin_pipeline_generation();
++bool begin_pipeline_scope_census();
++bool seal_pipeline_generation();
++bool seal_pipeline_generation_for_resources(uint64_t resourceScope);
+ bool begin_pipeline_discovery();
+ void end_pipeline_discovery();
+ 
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -519,6 +519,27 @@
+   return false;
+ #endif
+ }
++bool aurora_begin_pipeline_scope_census() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::fifo::is_owner() && aurora::gfx::begin_pipeline_scope_census();
++#else
++  return false;
++#endif
++}
++bool aurora_seal_pipeline_generation() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::fifo::is_owner() && aurora::gfx::seal_pipeline_generation();
++#else
++  return false;
++#endif
++}
++bool aurora_seal_pipeline_generation_for_resources(uint64_t resourceScope) {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gx::fifo::is_owner() && aurora::gfx::seal_pipeline_generation_for_resources(resourceScope);
++#else
++  return false;
++#endif
++}
+ bool aurora_begin_pipeline_collection() {
+ #ifdef AURORA_ENABLE_GX
+   return aurora::gx::begin_pipeline_collection();
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -13,6 +13,7 @@
+ #include "../webgpu/gpu.hpp"
+ 
+ #include <algorithm>
++#include <array>
+ #include <atomic>
+ #include <chrono>
+ #include <condition_variable>
+@@ -48,12 +49,15 @@
+   NewPipelineCallback create;
+ };
+ 
++using PipelineScope = std::array<uint8_t, 16>;
++
+ struct PipelineCacheWrite {
+   ShaderType type;
+   PipelineRef hash;
+   uint32_t configVersion;
+   ByteBuffer config;
+   uint32_t firstFrameUsed = UINT32_MAX;
++  std::optional<PipelineScope> scope; // association-only record when set
+ };
+ 
+ using SavedPipelineConfig = std::variant<gx::PipelineConfig, clear::PipelineConfig
+@@ -92,6 +96,12 @@
+ // A generation selects descriptions, never owns GPU handles. Previously loaded
+ // matches/backends stay durable and existing handles remain usable after reset.
+ static absl::flat_hash_set<HashType> g_activePipelineConfigs;
++static absl::flat_hash_set<HashType> g_scopeGeneratedConfigs;
++static absl::flat_hash_set<HashType> g_scopeObservedConfigs;
++static std::optional<PipelineScope> g_pipelineScope;
++static std::optional<uint64_t> g_pipelineResourceScope;
++static bool g_pipelineGenerationOpen = false;
++static bool g_scopeCensusOpen = false;
+ static std::optional<uint64_t> g_pipelineLayoutKey;
+ static std::deque<PendingPipeline> g_pipelineQueue;
+ static std::deque<PendingPipeline> g_backgroundPipelineQueue;
+@@ -166,7 +176,9 @@
+ static sqlite3* g_pipelineCacheDb = nullptr;
+ static sqlite3_stmt* g_pipelineCacheLoadStmt = nullptr;
+ static sqlite3_stmt* g_pipelineCacheUpsertStmt = nullptr;
+-static bool g_pipelineCacheBroken = false;
++static std::atomic_bool g_pipelineCacheBroken = false;
++static sqlite3_stmt* g_scopeUpsertStmt = nullptr;
++static std::atomic_bool g_scopePersistenceAvailable = false;
+ static std::thread g_pipelineCacheWriterThread;
+ static std::condition_variable g_pipelineCacheWriterCv;
+ static std::mutex g_pipelineCacheWriterMutex;
+@@ -438,9 +450,7 @@
+ }
+ 
+ static void enqueue_pipeline_cache_write(PipelineCacheWrite write) {
+-  if (g_pipelineCacheBroken || g_pipelineCacheDb == nullptr) {
+-    return;
+-  }
++  if (g_pipelineCacheBroken) return;
+ 
+   {
+     std::lock_guard lock{g_pipelineCacheWriterMutex};
+@@ -541,10 +551,32 @@
+     // Only resource collection or an actual draw activates a retained config.
+     // Loading the on-disk descriptions uses persist=false and selects nothing.
+     if (persist && g_config.automaticPipelinePreparation) g_activePipelineConfigs.insert(cacheKey);
+-  }
+-  if (persist && changed) {
+-    enqueue_pipeline_cache_write(make_pipeline_cache_write(type, cacheKey, config, firstFrameUsed));
+-  }
++    // Publish the durable config record before another demand can associate it
++    // with a scope. The writer never takes g_pipelineMutex (one-way lock order).
++    if (persist && changed)
++      enqueue_pipeline_cache_write(make_pipeline_cache_write(type, cacheKey, config, firstFrameUsed));
++  }
++}
++
++static PipelineCacheWrite make_scope_write(const PipelineScope& scope, HashType hash,
++                                           const KnownPipeline& pipeline) {
++  return {.type = pipeline.type, .hash = hash,
++          .configVersion = std::visit([](const auto& config) { return config.version; }, pipeline.config),
++          .scope = scope};
++}
++
++static void observe_pipeline_config(ShaderType type, HashType hash) {
++  if (!g_config.automaticPipelinePreparation) return;
++  std::optional<PipelineCacheWrite> write;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    if (!g_pipelineGenerationOpen && !g_pipelineScope) return;
++    if (!g_scopeObservedConfigs.insert(hash).second) return;
++    const auto it = g_knownPipelines.find(hash);
++    if (g_pipelineScope && it != g_knownPipelines.end() && it->second.type == type)
++      write.emplace(make_scope_write(*g_pipelineScope, hash, it->second));
++  }
++  if (write && g_scopePersistenceAvailable) enqueue_pipeline_cache_write(std::move(*write));
+ }
+ 
+ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallback&& cb,
+@@ -693,6 +725,11 @@
+ 
+ static void pipeline_cache_abort() {
+   g_pipelineCacheBroken = true;
++  g_scopePersistenceAvailable = false;
++  if (g_scopeUpsertStmt != nullptr) {
++    sqlite3_finalize(g_scopeUpsertStmt);
++    g_scopeUpsertStmt = nullptr;
++  }
+   if (g_pipelineCacheLoadStmt != nullptr) {
+     sqlite3_finalize(g_pipelineCacheLoadStmt);
+     g_pipelineCacheLoadStmt = nullptr;
+@@ -964,6 +1001,21 @@
+     return false;
+   }
+ 
++  if (g_config.automaticPipelinePreparation) {
++    ret = sqlite::exec(g_pipelineCacheDb,
++        "CREATE TABLE IF NOT EXISTS pipeline_scope_config ("
++        "scope BLOB NOT NULL CHECK(length(scope)=16), type INTEGER NOT NULL, "
++        "config_version INTEGER NOT NULL, config_hash INTEGER NOT NULL, "
++        "PRIMARY KEY(scope,type,config_version,config_hash));");
++    if (ret == SQLITE_OK) {
++      ret = sqlite3_prepare_v3(g_pipelineCacheDb,
++          "INSERT OR IGNORE INTO pipeline_scope_config(scope,type,config_version,config_hash) VALUES(?,?,?,?)",
++          -1, SQLITE_PREPARE_PERSISTENT, &g_scopeUpsertStmt, nullptr);
++    }
++    g_scopePersistenceAvailable = ret == SQLITE_OK;
++    if (!g_scopePersistenceAvailable)
++      Log.warn("Learned pipeline scopes unavailable: {}", sqlite3_errmsg(g_pipelineCacheDb));
++  }
+   if (!g_config.automaticPipelinePreparation) seed_pipeline_cache();
+   if (g_pipelineCacheBroken) {
+     return false;
+@@ -1007,6 +1059,21 @@
+ }
+ 
+ static bool write_pipeline_cache_record(const PipelineCacheWrite& write) {
++  if (write.scope) {
++    if (!g_scopePersistenceAvailable || !g_scopeUpsertStmt) return true;
++    auto ret = sqlite3_bind_blob(g_scopeUpsertStmt, 1, write.scope->data(), write.scope->size(), SQLITE_TRANSIENT);
++    if (ret == SQLITE_OK) ret = sqlite3_bind_int(g_scopeUpsertStmt, 2, underlying(write.type));
++    if (ret == SQLITE_OK) ret = sqlite3_bind_int(g_scopeUpsertStmt, 3, static_cast<int>(write.configVersion));
++    if (ret == SQLITE_OK) ret = sqlite3_bind_int64(g_scopeUpsertStmt, 4, static_cast<sqlite3_int64>(write.hash));
++    if (ret == SQLITE_OK) ret = sqlite3_step(g_scopeUpsertStmt);
++    sqlite3_reset(g_scopeUpsertStmt);
++    sqlite3_clear_bindings(g_scopeUpsertStmt);
++    if (ret != SQLITE_DONE) {
++      Log.warn("Cannot retain learned pipeline scope: {}", sqlite3_errmsg(g_pipelineCacheDb));
++      g_scopePersistenceAvailable = false;
++    }
++    return true; // an optional learning failure must not discard config writes
++  }
+   const auto fail = [&]() {
+     sqlite3_reset(g_pipelineCacheUpsertStmt);
+     sqlite3_clear_bindings(g_pipelineCacheUpsertStmt);
+@@ -1235,6 +1302,7 @@
+ 
+ PipelineRef find_pipeline(const clear::PipelineConfig& config, const RenderTargetLayout& layout) {
+   remember_pipeline_config(ShaderType::Clear, config, current_frame(), true);
++  observe_pipeline_config(ShaderType::Clear, xxh3_hash(config, static_cast<HashType>(ShaderType::Clear)));
+   // A hardware draw/clear must execute at this FIFO position. An unfinished
+   // native pipeline is a compilation wait, never permission to drop the draw.
+   const auto ref = resolve_pipeline(ShaderType::Clear, config, layout, PipelinePriority::Blocking);
+@@ -1245,6 +1313,7 @@
+ 
+ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLayout& layout) {
+   remember_pipeline_config(ShaderType::GX, config, current_frame(), true);
++  observe_pipeline_config(ShaderType::GX, xxh3_hash(config, static_cast<HashType>(ShaderType::GX)));
+   // A hardware draw/clear must execute at this FIFO position. An unfinished
+   // native pipeline is a compilation wait, never permission to drop the draw.
+   const auto ref = resolve_pipeline(ShaderType::GX, config, layout, PipelinePriority::Blocking);
+@@ -1256,6 +1325,7 @@
+ #ifdef AURORA_ENABLE_RMLUI
+ PipelineRef find_pipeline(const rmlui::PipelineConfig& config) {
+   remember_pipeline_config(ShaderType::Rml, config, 0, true);
++  observe_pipeline_config(ShaderType::Rml, xxh3_hash(config, static_cast<HashType>(ShaderType::Rml)));
+   return resolve_pipeline(ShaderType::Rml, config, {}, PipelinePriority::Blocking);
+ }
+ #endif
+@@ -1336,6 +1406,11 @@
+       AURORA_ASSERT(config.version == gx::GXPipelineConfigVersion,
+                     "Automatic preparation received an obsolete GX configuration");
+       remember_pipeline_config(ShaderType::GX, config, current_frame(), true);
++      if (g_config.automaticPipelinePreparation) {
++        std::lock_guard lock{g_pipelineMutex};
++        if (g_scopeCensusOpen)
++          g_scopeGeneratedConfigs.insert(xxh3_hash(config, static_cast<HashType>(ShaderType::GX)));
++      }
+       resolve_pipeline(ShaderType::GX, config, scene, PipelinePriority::Background);
+       if (offscreen.key != scene.key) {
+         resolve_pipeline(ShaderType::GX, config, offscreen, PipelinePriority::Background);
+@@ -1357,11 +1432,162 @@
+         g_pipelineDiscoveryOpen || g_pipelineCacheScheduling || g_pipelineThreadEnd) return false;
+     previousConfigs = g_activePipelineConfigs.size();
+     g_activePipelineConfigs.clear();
++    g_scopeGeneratedConfigs.clear();
++    g_scopeObservedConfigs.clear();
++    g_pipelineScope.reset();
++    g_pipelineResourceScope.reset();
++    g_pipelineGenerationOpen = true;
++    g_scopeCensusOpen = false;
+     generation = ++g_pipelineGeneration;
+   }
+   pipeline_trace("event=generation-reset generation={} frame={} previous_configs={}",
+                  generation, current_frame(), previousConfigs);
+   return true;
++}
++
++bool begin_pipeline_scope_census() {
++  std::lock_guard lock{g_pipelineMutex};
++  if (!g_config.automaticPipelinePreparation || !g_pipelineCacheInitialized || !g_pipelineGenerationOpen ||
++      g_pipelineDiscoveryOpen || g_pipelineCacheScheduling || g_pipelineThreadEnd) return false;
++  g_scopeGeneratedConfigs.clear();
++  g_scopeCensusOpen = true;
++  return true;
++}
++
++static PipelineScope fingerprint_pipeline_scope(std::vector<HashType>& keys,
++                                                std::optional<uint64_t> resourceScope) {
++  std::ranges::sort(keys);
++  // Canonical bytes, independent of backend, AA and host integer byte order.
++  // A stable resource-ID identity also excludes inherited producer render state.
++  // Sorted generated keys remain a fallback for deterministic producers/tests.
++  std::vector<uint8_t> bytes;
++  const auto append = [&](uint64_t value) {
++    for (unsigned shift = 0; shift < 64; shift += 8) bytes.push_back(static_cast<uint8_t>(value >> shift));
++  };
++  append(0x41555253434f5045ull); // AURSCOPE
++  append(2); // scope fingerprint recipe version
++  append(gx::GXPipelineConfigVersion);
++  append(clear::ClearPipelineConfigVersion);
++  append(resourceScope.has_value() ? 1 : 0); // independent identity domains
++  if (resourceScope) {
++    append(*resourceScope);
++  } else {
++    append(keys.size());
++    for (const auto key : keys) append(key);
++  }
++  XXH128_canonical_t canonical;
++  XXH128_canonicalFromHash(&canonical, XXH3_128bits(bytes.data(), bytes.size()));
++  PipelineScope result;
++  std::memcpy(result.data(), canonical.digest, result.size());
++  return result;
++}
++
++static std::vector<KnownPipeline> load_scope_pipelines(const PipelineScope& scope) {
++  std::vector<KnownPipeline> result;
++  if (!g_scopePersistenceAvailable || g_pipelineCacheBroken) return result;
++  // The writer owns its connection after initialization. A separate read-only
++  // WAL snapshot avoids sharing statements or transactions with that thread.
++  struct ReadDb {
++    sqlite3* db = nullptr;
++    sqlite3_stmt* stmt = nullptr;
++    ~ReadDb() { if (stmt) sqlite3_finalize(stmt); if (db) sqlite3_close(db); }
++  } read;
++  const auto path = io::fs_path_to_string(io::fs_path_from_string(g_config.cachePath) / "pipeline_cache.db");
++  auto ret = sqlite3_open_v2(path.c_str(), &read.db, SQLITE_OPEN_READONLY | SQLITE_OPEN_PRIVATECACHE, nullptr);
++  if (ret == SQLITE_OK) ret = sqlite3_prepare_v2(read.db,
++      "SELECT type,config_version,config_hash FROM pipeline_scope_config WHERE scope=?", -1, &read.stmt, nullptr);
++  if (ret == SQLITE_OK) ret = sqlite3_bind_blob(read.stmt, 1, scope.data(), scope.size(), SQLITE_TRANSIENT);
++  if (ret != SQLITE_OK) {
++    Log.warn("Cannot read learned pipeline scope: {}", read.db ? sqlite3_errmsg(read.db) : "open failed");
++    return result;
++  }
++  while ((ret = sqlite3_step(read.stmt)) == SQLITE_ROW) {
++    const auto type = sqlite3_column_int(read.stmt, 0);
++    const auto version = sqlite3_column_int64(read.stmt, 1);
++    const auto hash = static_cast<HashType>(sqlite3_column_int64(read.stmt, 2));
++    std::lock_guard lock{g_pipelineMutex};
++    const auto it = g_knownPipelines.find(hash);
++    if (it != g_knownPipelines.end() && static_cast<int>(it->second.type) == type &&
++        std::visit([&](const auto& config) { return config.version == version; }, it->second.config)) {
++      result.push_back(it->second); // validated, value-only description
++    }
++  }
++  if (ret != SQLITE_DONE) {
++    Log.warn("Incomplete learned pipeline scope read: {}", sqlite3_errmsg(read.db));
++    result.clear();
++  }
++  return result;
++}
++
++static bool seal_pipeline_generation_impl(std::optional<uint64_t> resourceScope) {
++  std::vector<HashType> generated;
++  uint64_t generation;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    if (!g_config.automaticPipelinePreparation || !g_pipelineCacheInitialized ||
++        g_pipelineDiscoveryOpen || g_pipelineCacheScheduling || g_pipelineThreadEnd) return false;
++    if (g_pipelineScope && !g_pipelineGenerationOpen) return g_pipelineResourceScope == resourceScope;
++    if (!g_pipelineGenerationOpen || !g_scopeCensusOpen) return false;
++    generated.assign(g_scopeGeneratedConfigs.begin(), g_scopeGeneratedConfigs.end());
++    generation = g_pipelineGeneration;
++    g_pipelineCacheScheduling = true;
++  }
++  try {
++    const auto scope = fingerprint_pipeline_scope(generated, resourceScope);
++    auto learned = load_scope_pipelines(scope);
++    const auto scene = scene_render_target_layout();
++    auto offscreen = scene;
++    offscreen.colorAttachmentCount = 1;
++    offscreen.sampleCount = 1;
++    detail::finalize_render_target_layout(offscreen);
++    for (const auto& pipeline : learned) {
++      std::visit([&](const auto& config) {
++        remember_pipeline_config(pipeline.type, config, current_frame(), true);
++        resolve_pipeline(pipeline.type, config, scene, PipelinePriority::Background);
++        if (offscreen.key != scene.key)
++          resolve_pipeline(pipeline.type, config, offscreen, PipelinePriority::Background);
++      }, pipeline.config);
++    }
++    std::vector<PipelineCacheWrite> writes;
++    {
++      std::lock_guard lock{g_pipelineMutex};
++      // Demands arriving during the lookup/queueing phase are included here.
++      for (const auto hash : g_scopeObservedConfigs) {
++        const auto it = g_knownPipelines.find(hash);
++        if (it != g_knownPipelines.end()) writes.push_back(make_scope_write(scope, hash, it->second));
++      }
++      // Queue before sealing: an allocation failure can retry this generation;
++      // duplicate association records are harmless. Writer never takes this lock.
++      if (g_scopePersistenceAvailable)
++        for (auto& write : writes) enqueue_pipeline_cache_write(std::move(write));
++      g_pipelineScope = scope;
++      g_pipelineResourceScope = resourceScope;
++      g_scopeCensusOpen = false;
++      g_pipelineGenerationOpen = false;
++      g_pipelineCacheScheduling = false;
++    }
++    try { if (g_pipelineTraceEnabled) {
++      std::string scopeText;
++      for (const auto byte : scope) scopeText += fmt::format("{:02x}", byte);
++      pipeline_trace("event=scope-seal generation={} frame={} scope={} identity={} resource={} generated={} learned={} observed={}",
++                     generation, current_frame(), scopeText, resourceScope ? "resources" : "generated",
++                     resourceScope.value_or(0), generated.size(), learned.size(), writes.size());
++    } } catch (...) {} // diagnostics cannot turn a successful seal into failure
++    finish_pipeline_cache_prune();
++    return true;
++  } catch (...) {
++    std::lock_guard lock{g_pipelineMutex};
++    g_pipelineCacheScheduling = false;
++    return false;
++  }
++}
++
++bool seal_pipeline_generation() {
++  return seal_pipeline_generation_impl(std::nullopt);
++}
++
++bool seal_pipeline_generation_for_resources(uint64_t resourceScope) {
++  return seal_pipeline_generation_impl(resourceScope);
+ }
+ 
+ bool begin_pipeline_discovery() {
+@@ -1387,7 +1613,7 @@
+       .demandHits = g_demandHits,
+       .demandMisses = g_demandMisses,
+       .demandWaitNanoseconds = g_demandWaitNanoseconds,
+-      .ready = g_pipelineCacheInitialized && !g_pipelineDiscoveryOpen && !g_pipelineCacheScheduling && g_pendingPipelines.empty() &&
++      .ready = g_pipelineCacheInitialized && !g_scopeCensusOpen && !g_pipelineDiscoveryOpen && !g_pipelineCacheScheduling && g_pendingPipelines.empty() &&
+                g_activePipelineCompilations == 0 && !g_gpuCachePrunePending && !g_gpuCachePruning &&
+                g_failedPipelines == 0,
+   };
+@@ -1403,6 +1629,13 @@
+     std::lock_guard lock{g_pipelineMutex};
+     g_pipelineCacheInitialized = false;
+     g_pipelineGeneration = 0;
++    // Startup is generation zero: initial resource hooks have no reset call.
++    g_pipelineGenerationOpen = g_config.automaticPipelinePreparation;
++    g_scopeCensusOpen = false;
++    g_pipelineScope.reset();
++    g_pipelineResourceScope.reset();
++    g_scopeGeneratedConfigs.clear();
++    g_scopeObservedConfigs.clear();
+     g_pipelineDiscoveryOpen = false;
+     g_gpuCachePrunePending = false;
+     g_gpuCachePruning = false;
+@@ -1464,6 +1697,11 @@
+     g_pipelines.clear();
+     g_knownPipelines.clear();
+     g_activePipelineConfigs.clear();
++    g_scopeGeneratedConfigs.clear();
++    g_scopeObservedConfigs.clear();
++    g_pipelineScope.reset();
++    g_pipelineResourceScope.reset();
++    g_pipelineGenerationOpen = g_scopeCensusOpen = false;
+     g_pipelineLayoutKey.reset();
+     g_pipelineQueue.clear();
+     g_backgroundPipelineQueue.clear();

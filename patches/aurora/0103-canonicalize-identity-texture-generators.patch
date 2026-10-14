@@ -1,0 +1,58 @@
+From: mscharged-port
+Subject: Unify equivalent identity texture-coordinate pipeline states
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -387,6 +387,21 @@
+   return g_device.CreateRenderPipeline(&descriptor);
+ }
+ 
++void canonicalize_identity_texgens(ShaderConfig& config) noexcept {
++  for (size_t i = 0; i < config.tcgs.size(); ++i) {
++    auto& tcg = config.tcgs[i];
++    // A TEXn source is vec4(uv, 1, 1). With both identity selectors and no
++    // normalization, q stays 1 through the vertex shader (line/point offsets
++    // change only x/y), so the 3x4 fragment projection is redundant. A per-
++    // vertex matrix index overrides GX_IDENTITY and must remain distinct.
++    if (tcg.type == GX_TG_MTX3x4 && tcg.src >= GX_TG_TEX0 && tcg.src <= GX_TG_TEX7 &&
++        tcg.mtx == GX_IDENTITY && tcg.postMtx == GX_PTIDENTITY && !tcg.normalize &&
++        config.attrs[GX_VA_TEX0MTXIDX + i].attrType == GX_NONE) {
++      tcg.type = GX_TG_MTX2x4;
++    }
++  }
++}
++
+ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool coPlanarActive,
+                               bool noFog, GXPrimitive primitive, GXVtxFmt fmt, ShaderInfo* infoOut) noexcept {
+   ZoneScoped;
+@@ -470,6 +485,7 @@
+   for (u8 i = 0; i < state.numTexGens; ++i) {
+     config.shaderConfig.tcgs[i] = state.tcgs[i];
+   }
++  canonicalize_identity_texgens(config.shaderConfig);
+   if (state.alphaCompare) {
+     config.shaderConfig.alphaCompare = state.alphaCompare;
+   }
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -566,6 +566,8 @@
+ };
+ // Exact normal-render key construction for an independent state snapshot.
+ // No resource reads, uploads, draw submission, or live GX state changes.
++// Pure semantic key normalization; never changes SDK registers or live GX state.
++void canonicalize_identity_texgens(ShaderConfig& config) noexcept;
+ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool coPlanarActive,
+                               bool noFog, GXPrimitive primitive, GXVtxFmt fmt, ShaderInfo* info = nullptr) noexcept;
+ void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXVtxFmt fmt,
+--- a/lib/gx/pipeline.hpp
++++ b/lib/gx/pipeline.hpp
+@@ -20,7 +20,7 @@
+   uint64_t receiptTag;
+ };
+ 
+-constexpr uint32_t GXPipelineConfigVersion = 14;
++constexpr uint32_t GXPipelineConfigVersion = 15;
+ struct PipelineConfig {
+   uint32_t version = GXPipelineConfigVersion;
+   uint32_t msaaSamples = 1; // deprecated

@@ -412,6 +412,88 @@ EqualitySample EqualityPass(float variant, bool prepass, bool wrongDepth) {
   return result;
 }
 
+// Real GX state changes, draw completion and readback. The positive compares
+// identical shader behavior after unrelated material history; the negatives
+// ensure channel/selector values that are consumed still affect keys and pixels.
+struct CanonicalSample {
+  aurora::gx::PipelineConfig config{};
+  std::array<u8, 4> pixel{};
+};
+CanonicalSample CanonicalKeySample(unsigned variant) {
+  Require(aurora::gfx::create_pass(64, 64), "canonical-key pass creation failed");
+  SetState(64, 64);
+  GXSetCoPlanar(GX_FALSE);
+  GXSetPixelFmt(variant >= 5 ? GX_PF_RGBA6_Z24 : GX_PF_RGB8_Z24, GX_ZC_LINEAR);
+  GXSetDstAlpha(GX_FALSE, 0);
+  GXSetFog(GX_FOG_NONE, 0, 1, 0, 1, {0, 0, 0, 0});
+  GXSetNumIndStages(0);
+  GXSetTevDirect(GX_TEVSTAGE0);
+  GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+  GXSetChanCtrl(GX_COLOR1A1, variant == 1 ? GX_ENABLE : GX_DISABLE,
+                GX_SRC_REG, variant == 1 ? GX_SRC_REG : GX_SRC_VTX,
+                GX_LIGHT7, GX_DF_CLAMP, GX_AF_SPOT);
+  GXSetTevKColorSel(GX_TEVSTAGE0, variant == 1 ? GX_TEV_KCSEL_K3_R : GX_TEV_KCSEL_K0);
+  GXSetTevKAlphaSel(GX_TEVSTAGE0, variant == 1 ? GX_TEV_KASEL_K2_A : GX_TEV_KASEL_K0_A);
+  GXSetTevKColor(GX_KCOLOR0, {255, 0, 0, 0});
+  GXSetTevKColor(GX_KCOLOR1, {0, 0, 255, 255});
+  if (variant == 2) {
+    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL,
+                  GX_DF_NONE, GX_AF_NONE);
+    GXSetChanMatColor(GX_COLOR0A0, {0, 255, 0, 255});
+  } else if (variant == 3 || variant == 4) {
+    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_KONST);
+    GXSetTevKColorSel(GX_TEVSTAGE0, variant == 3 ? GX_TEV_KCSEL_K0 : GX_TEV_KCSEL_K1);
+  } else if (variant == 5 || variant == 6) {
+    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
+    GXSetTevKAlphaSel(GX_TEVSTAGE0, variant == 5 ? GX_TEV_KASEL_K0_A : GX_TEV_KASEL_K1_A);
+  }
+  GXFlush();
+  aurora::gx::fifo::drain();
+  CanonicalSample sample;
+  aurora::gx::populate_pipeline_config(sample.config, GX_QUADS, GX_VTXFMT0);
+  // Independently restore the exact inherited fields to the candidate key and
+  // require identical WGSL. These fields are read from real consumed registers.
+  auto unnormalized = sample.config;
+  for (const auto channel : {GX_COLOR1, GX_ALPHA1}) {
+    unnormalized.shaderConfig.colorChannels[channel] = aurora::gx::g_gxState.colorChannelConfig[channel];
+  }
+  unnormalized.shaderConfig.tevStages[0].kcSel = aurora::gx::g_gxState.tevStages[0].kcSel;
+  unnormalized.shaderConfig.tevStages[0].kaSel = aurora::gx::g_gxState.tevStages[0].kaSel;
+  Require(aurora::gx::build_shader_source(unnormalized.shaderConfig, aurora::gx::DstAlphaMode::None) ==
+              aurora::gx::build_shader_source(sample.config.shaderConfig, aurora::gx::DstAlphaMode::None),
+          "Key canonicalization changed generated shader source");
+  Rect(-1, 1, .5f, {255, 0, 0, 255});
+  GXDrawDone();
+  aurora::gfx::ResolvedTargets target;
+  Require(aurora::gfx::resolve_pass({true, true, false}, target), "canonical-key snapshot failed");
+  GXDrawDone();
+  const auto bytes = ReadTexture(target.colorTexture, target.colorFormat, 32, 32);
+  std::copy(bytes.begin(), bytes.end(), sample.pixel.begin());
+  return sample;
+}
+void CanonicalPipelineKeyProbe() {
+  std::array<CanonicalSample, 7> samples;
+  for (unsigned i = 0; i < samples.size(); ++i) samples[i] = CanonicalKeySample(i);
+  const auto equal = [&](unsigned a, unsigned b) {
+    return std::memcmp(&samples[a].config, &samples[b].config, sizeof samples[a].config) == 0;
+  };
+  Require(equal(0, 1), "Unused material history still changes pipeline keys");
+  Require(samples[0].pixel == samples[1].pixel && samples[0].pixel[0] == 255 &&
+              samples[0].pixel[1] == 0 && samples[0].pixel[2] == 0,
+          "Unused channel/selector history changed the actual red draw");
+  Require(!equal(0, 2) && samples[2].pixel[0] == 0 && samples[2].pixel[1] == 255 &&
+              samples[2].pixel[2] == 0,
+          "Consumed channel source was incorrectly canonicalized");
+  Require(!equal(3, 4) && samples[3].pixel[0] == 255 && samples[3].pixel[2] == 0 &&
+              samples[4].pixel[0] == 0 && samples[4].pixel[2] == 255,
+          "Consumed color constant selector lost its distinct key/pixels");
+  Require(!equal(5, 6) && samples[5].pixel[0] == 255 && samples[6].pixel[0] == 255 &&
+              samples[5].pixel[3] == 0 && samples[6].pixel[3] == 255,
+          "Consumed alpha constant selector lost its distinct key/pixels");
+  GXSetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
+  std::cout << "Canonical pipeline keys: unused history merged; consumed channels/color/alpha preserved in pixels\n";
+}
+
 void PositionInvarianceProbe() {
   // Current real GX draws wait for their exact native pipelines. Independent
   // physical pixel checks below decide acceptance; no readiness is fabricated.
@@ -595,6 +677,8 @@ int main(int argc, char **argv) {
             "midframe completion changed frame identity");
     if (argc > 1 && std::string_view(argv[1]) == "--position-invariance")
       PositionInvarianceProbe();
+    if (argc > 1 && std::string_view(argv[1]) == "--pipeline-canonicalization")
+      CanonicalPipelineKeyProbe();
     aurora_end_frame();
     Require(aurora::gfx::current_frame() == frame + 1,
             "source frame end did not advance once");

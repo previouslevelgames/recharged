@@ -1,0 +1,35 @@
+From: mscharged-port
+Subject: Keep borrowed resources immutable during pipeline discovery
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+--- a/lib/dolphin/gx/GXTexture.cpp
++++ b/lib/dolphin/gx/GXTexture.cpp
+@@ -220,6 +220,13 @@
+ 
+ void GXLoadTexObj(GXTexObj* obj_, GXTexMapID id) {
+   auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  // Loading patches register IDs into the object in the normal SDK. Collection
++  // must retain those exact command values without changing the borrowed object.
++  GXTexObj_ collectedObject;
++  if (aurora::gx::pipeline_collection_active()) {
++    collectedObject = *obj;
++    obj = &collectedObject;
++  }
+   SET_REG_FIELD(0, obj->mode0, 8, 24, GXTexMode0Ids[id]);
+   SET_REG_FIELD(0, obj->mode1, 8, 24, GXTexMode1Ids[id]);
+   SET_REG_FIELD(0, obj->image0, 8, 24, GXTexImage0Ids[id]);
+--- a/lib/gx/pipeline_collection.cpp
++++ b/lib/gx/pipeline_collection.cpp
+@@ -192,6 +192,12 @@
+     auto collection = std::make_unique<Collection>();
+     collection->sdk = *__gx;
+     collection->baseline = g_gxState;
++    // Resource caches are never consulted by register decoding/key construction.
++    // Keep them only in the real state: each variant reset then copies fixed-size
++    // register metadata instead of every live EFB-copy map/texture reference.
++    collection->baseline.copyTextures = {};
++    collection->baseline.copyTextureCache = {};
++    collection->baseline.textures = {};
+     collection->state = collection->baseline;
+     collection->coplanar = g_coPlanarState;
+     fifo::begin_display_list(collection->bytes.data(), static_cast<u32>(collection->bytes.size()));

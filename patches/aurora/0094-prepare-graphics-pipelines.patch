@@ -1,0 +1,378 @@
+Subject: Prepare known graphics pipelines before original game entry
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Expose coherent startup preparation status and request known configurations for
+current render targets using the existing compiler worker. Readiness includes
+queued work, active compilation and final publication/cache maintenance. Set
+cache-prune readiness before scheduling, so a hot worker cannot finish before
+the flag is armed. Record demanded cache hits, misses and miss-resolution time.
+Preserve draw ordering, first-use blocking, rendering and original game logic.
+
+diff --git a/include/aurora/pipeline_cache.h b/include/aurora/pipeline_cache.h
+new file mode 100644
+index 0000000..be0e398
+--- /dev/null
++++ b/include/aurora/pipeline_cache.h
+@@ -0,0 +1,49 @@
++#ifndef AURORA_PIPELINE_CACHE_H
++#define AURORA_PIPELINE_CACHE_H
++
++#ifdef __cplusplus
++#include <cstdint>
++extern "C" {
++#else
++#include <stdbool.h>
++#include <stdint.h>
++#endif
++
++/** Pipeline preparation snapshot. Counts are runtime pipeline configurations (a
++ * configuration may produce multiple native pipelines), not draw calls.
++ * pendingPipelines includes queued/in-flight configurations until publication.
++ * compilingPipelines also covers final publication/cache maintenance, so a full
++ * progress bar alone does not mean ready. Counters reset at initialization.
++ */
++typedef struct {
++  uint64_t knownConfigs;
++  uint64_t totalPipelines;
++  uint64_t readyPipelines;
++  uint64_t pendingPipelines;
++  uint64_t compilingPipelines;
++  uint64_t failedPipelines;
++  uint64_t demandHits;
++  uint64_t demandMisses;
++  uint64_t demandWaitNanoseconds;
++  bool ready;
++} AuroraPipelineWarmupStatus;
++
++/** Schedule known configurations for the current scene/offscreen layouts.
++ * Call on the host thread after graphics settings are applied, before starting
++ * source gameplay; do not call concurrently with frame recording or settings
++ * changes. Initialization already starts the first preparation pass.
++ * Draws still compile and wait for previously unknown configurations normally.
++ */
++void aurora_prepare_pipelines();
++/** Thread-safe, nonblocking snapshot. Native Vulkan/D3D12/Metal preparation runs
++ * on the existing worker. WebGPU's synchronous fallback requires regular frame
++ * pumping. Empty caches are ready; failedPipelines is a startup failure. Closing
++ * uses normal aurora_shutdown: abandon queued work and join the current compile.
++ */
++AuroraPipelineWarmupStatus aurora_pipeline_warmup_status();
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+index a37fd6b..a642694 100644
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -1,4 +1,5 @@
+ #include <aurora/aurora.h>
++#include <aurora/pipeline_cache.h>
+ #include <aurora/hardware.h>
+ #include <aurora/video.h>
+ #include <aurora/time.hpp>
+@@ -6,6 +7,7 @@
+ #ifdef AURORA_ENABLE_GX
+ #include "gfx/resources.hpp"
+ #include "gfx/frame.hpp"
++#include "gfx/pipeline_cache.hpp"
+ #include "gfx/recording.hpp"
+ #include "gfx/render_worker.hpp"
+ #include "gx/command_processor.hpp"
+@@ -509,6 +511,18 @@ void end_frame(bool present = true) noexcept {
+ AuroraInfo aurora_initialize(int argc, char* argv[], const AuroraConfig* config) {
+   return aurora::initialize(argc, argv, *config);
+ }
++void aurora_prepare_pipelines() {
++#ifdef AURORA_ENABLE_GX
++  aurora::gfx::rebuild_pipeline_cache();
++#endif
++}
++AuroraPipelineWarmupStatus aurora_pipeline_warmup_status() {
++#ifdef AURORA_ENABLE_GX
++  return aurora::gfx::pipeline_warmup_status();
++#else
++  return {.ready = true};
++#endif
++}
+ void aurora_shutdown() { aurora::shutdown(); }
+ const AuroraEvent* aurora_update() { return aurora::update(); }
+ bool aurora_begin_frame() { return aurora::begin_frame(); }
+diff --git a/lib/gfx/pipeline_cache.cpp b/lib/gfx/pipeline_cache.cpp
+index 363e4e4..c26d087 100644
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -14,6 +14,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <chrono>
+ #include <condition_variable>
+ #include <deque>
+ #include <filesystem>
+@@ -90,7 +91,17 @@ static std::optional<uint64_t> g_pipelineLayoutKey;
+ static std::deque<PendingPipeline> g_pipelineQueue;
+ static std::deque<PendingPipeline> g_backgroundPipelineQueue;
+ static absl::flat_hash_set<PipelineRef> g_pendingPipelines;
+-static std::atomic_bool g_gpuCachePrunePending = false;
++// Protected by g_pipelineMutex. Keep readiness false through both scheduling
++// and publication/cache maintenance, even after the last queue entry is taken.
++static bool g_pipelineCacheInitialized = false;
++static bool g_pipelineCacheScheduling = false;
++static bool g_gpuCachePrunePending = false;
++static bool g_gpuCachePruning = false;
++static uint64_t g_activePipelineCompilations = 0;
++static uint64_t g_failedPipelines = 0;
++static uint64_t g_demandHits = 0;
++static uint64_t g_demandMisses = 0;
++static uint64_t g_demandWaitNanoseconds = 0;
+ 
+ static sqlite3* g_pipelineCacheDb = nullptr;
+ static sqlite3_stmt* g_pipelineCacheLoadStmt = nullptr;
+@@ -426,12 +437,35 @@ static std::optional<PendingPipeline> take_pending_pipeline(PipelineRef hash) {
+   return std::nullopt;
+ }
+ 
++static void finish_pipeline_cache_prune() {
++  bool prune = false;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    if (g_gpuCachePrunePending && !g_pipelineCacheScheduling && g_pendingPipelines.empty() &&
++        g_activePipelineCompilations == 0 && !g_pipelineThreadEnd) {
++      g_gpuCachePrunePending = false;
++      g_gpuCachePruning = true;
++      prune = true;
++    }
++  }
++  if (prune) {
++    // Prune only after every scheduled configuration has published its result.
++    webgpu::cache_prune();
++    std::lock_guard lock{g_pipelineMutex};
++    g_gpuCachePruning = false;
++  }
++}
++
+ static void notify_pipeline_ready(bool queued, uint32_t pipelineCount) {
+   createdPipelines += pipelineCount;
+-  if (queued && --queuedPipelines == 0 && g_gpuCachePrunePending.exchange(false, std::memory_order_acq_rel)) {
+-    // Prune GPU cache entries after fully loading the pipeline cache.
+-    webgpu::cache_prune();
++  if (queued) {
++    --queuedPipelines;
++  }
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    --g_activePipelineCompilations;
+   }
++  finish_pipeline_cache_prune();
+   g_pipelineReadyCv.notify_all();
+ }
+ 
+@@ -460,16 +494,29 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+   bool createdPipeline = false;
+   uint32_t pipelineCount = 0;
+   bool queued = false;
++  bool demandMiss = false;
++  std::chrono::steady_clock::time_point demandStart{};
+   {
+     std::scoped_lock guard{g_pipelineMutex};
+     auto pipelineIt = g_pipelines.find(runtimeKey);
++    if (blocking) {
++      if (pipelineIt != g_pipelines.end()) {
++        ++g_demandHits;
++      } else {
++        ++g_demandMisses;
++        demandMiss = true;
++        demandStart = std::chrono::steady_clock::now();
++      }
++    }
+     if (pipelineIt != g_pipelines.end()) {
+       pipelineReady = true;
+     } else if (g_pendingPipelines.contains(runtimeKey)) {
+       if (blocking && !g_hasPipelineThread) {
+         auto pending = take_pending_pipeline(runtimeKey);
+         if (pending) {
++          ++g_activePipelineCompilations;
+           auto result = pending->create();
++          g_failedPipelines += !result.main;
+           pipelineCount = result.pipeline_count();
+           g_pipelines.try_emplace(runtimeKey, std::move(result));
+           pipelineReady = true;
+@@ -482,7 +529,9 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+         notifyWorker = priority != PipelinePriority::Background;
+       }
+     } else if (!g_hasPipelineThread && (blocking || g_pipelinesPerFrame < BuildPipelinesPerFrame)) {
++      ++g_activePipelineCompilations;
+       auto result = cb();
++      g_failedPipelines += !result.main;
+       pipelineCount = result.pipeline_count();
+       g_pipelines.try_emplace(runtimeKey, std::move(result));
+       pipelineReady = true;
+@@ -522,6 +571,12 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+     std::unique_lock lock{g_pipelineMutex};
+     g_pipelineReadyCv.wait(lock, [=] { return g_pipelines.contains(runtimeKey) || g_pipelineThreadEnd; });
+   }
++  if (demandMiss) {
++    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
++        std::chrono::steady_clock::now() - demandStart).count();
++    std::lock_guard lock{g_pipelineMutex};
++    g_demandWaitNanoseconds += static_cast<uint64_t>(elapsed);
++  }
+   return runtimeKey;
+ }
+ 
+@@ -980,11 +1035,13 @@ static void pipeline_worker() {
+       auto& source = !g_pipelineQueue.empty() ? g_pipelineQueue : g_backgroundPipelineQueue;
+       pending = std::move(source.front());
+       source.pop_front();
++      ++g_activePipelineCompilations;
+     }
+     auto result = pending.create();
+     const auto pipelineCount = result.pipeline_count();
+     {
+       std::lock_guard lock{g_pipelineMutex};
++      g_failedPipelines += !result.main;
+       g_pipelines.try_emplace(pending.hash, std::move(result));
+       g_pendingPipelines.erase(pending.hash);
+       hasMore = !g_pipelineQueue.empty() || !g_backgroundPipelineQueue.empty();
+@@ -1116,6 +1173,11 @@ PipelineRef find_pipeline(const rmlui::PipelineConfig& config) {
+ 
+ void rebuild_pipeline_cache() {
+   ZoneScoped;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    AURORA_ASSERT(!g_pipelineCacheScheduling, "Concurrent pipeline preparation is not supported");
++    g_pipelineCacheScheduling = true;
++  }
+   const auto scene = scene_render_target_layout();
+   auto offscreen = scene;
+   offscreen.colorAttachmentCount = 1;
+@@ -1142,13 +1204,44 @@ void rebuild_pipeline_cache() {
+         },
+         pipeline.config);
+   }
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    g_pipelineCacheScheduling = false;
++  }
++  finish_pipeline_cache_prune();
++}
++
++AuroraPipelineWarmupStatus pipeline_warmup_status() {
++  std::lock_guard lock{g_pipelineMutex};
++  return {
++      .knownConfigs = g_knownPipelines.size(),
++      .totalPipelines = g_pipelines.size() + g_pendingPipelines.size(),
++      .readyPipelines = g_pipelines.size() - g_failedPipelines,
++      .pendingPipelines = g_pendingPipelines.size(),
++      .compilingPipelines = g_activePipelineCompilations + static_cast<uint64_t>(g_gpuCachePruning),
++      .failedPipelines = g_failedPipelines,
++      .demandHits = g_demandHits,
++      .demandMisses = g_demandMisses,
++      .demandWaitNanoseconds = g_demandWaitNanoseconds,
++      .ready = g_pipelineCacheInitialized && !g_pipelineCacheScheduling && g_pendingPipelines.empty() &&
++               g_activePipelineCompilations == 0 && !g_gpuCachePrunePending && !g_gpuCachePruning &&
++               g_failedPipelines == 0,
++  };
+ }
+ 
+ void initialize_pipeline_cache() {
+   g_pipelineCacheBroken = false;
+   g_pipelineCacheWriterStop = false;
+   g_pipelineThreadEnd = false;
+-  g_gpuCachePrunePending = false;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    g_pipelineCacheInitialized = false;
++    g_gpuCachePrunePending = false;
++    g_gpuCachePruning = false;
++    g_activePipelineCompilations = 0;
++    g_failedPipelines = 0;
++    g_demandHits = g_demandMisses = g_demandWaitNanoseconds = 0;
++  }
+ 
+   if (webgpu::g_backendType == wgpu::BackendType::WebGPU) {
+     g_hasPipelineThread = false;
+@@ -1158,17 +1251,28 @@ void initialize_pipeline_cache() {
+   }
+ 
+   const size_t loadedCount = load_pipeline_cache();
+-  rebuild_pipeline_cache();
+-  if (!g_pipelineCacheBroken && loadedCount > 0) {
+-    g_gpuCachePrunePending = true;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    // Set before queueing: the worker can finish even the final job before
++    // rebuild_pipeline_cache returns, including with a hot driver cache.
++    g_gpuCachePrunePending = !g_pipelineCacheBroken && loadedCount > 0;
+   }
++  rebuild_pipeline_cache();
+ 
+   if (!g_pipelineCacheBroken) {
+     start_pipeline_cache_writer();
+   }
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    g_pipelineCacheInitialized = true;
++  }
+ }
+ 
+ void shutdown_pipeline_cache() {
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    g_pipelineCacheInitialized = false;
++  }
+   if (g_hasPipelineThread) {
+     g_pipelineThreadEnd = true;
+     g_pipelineQueueCv.notify_all();
+@@ -1181,13 +1285,21 @@ void shutdown_pipeline_cache() {
+   pipeline_cache_abort();
+   g_pipelineCacheBroken = false;
+   g_pipelinesPerFrame = 0;
+-  g_gpuCachePrunePending = false;
+-  g_pipelines.clear();
+-  g_knownPipelines.clear();
+-  g_pipelineLayoutKey.reset();
+-  g_pipelineQueue.clear();
+-  g_backgroundPipelineQueue.clear();
+-  g_pendingPipelines.clear();
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    g_pipelineCacheScheduling = false;
++    g_gpuCachePrunePending = false;
++    g_gpuCachePruning = false;
++    g_activePipelineCompilations = 0;
++    g_failedPipelines = 0;
++    g_demandHits = g_demandMisses = g_demandWaitNanoseconds = 0;
++    g_pipelines.clear();
++    g_knownPipelines.clear();
++    g_pipelineLayoutKey.reset();
++    g_pipelineQueue.clear();
++    g_backgroundPipelineQueue.clear();
++    g_pendingPipelines.clear();
++  }
+ 
+   queuedPipelines = 0;
+   createdPipelines = 0;
+diff --git a/lib/gfx/pipeline_cache.hpp b/lib/gfx/pipeline_cache.hpp
+index 0801a22..8566363 100644
+--- a/lib/gfx/pipeline_cache.hpp
++++ b/lib/gfx/pipeline_cache.hpp
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "types.hpp"
++#include <aurora/pipeline_cache.h>
+ 
+ namespace aurora::gfx::clear {
+ struct PipelineConfig;
+@@ -36,6 +37,7 @@ void shutdown_pipeline_cache();
+ void begin_pipeline_frame();
+ void end_pipeline_frame();
+ void rebuild_pipeline_cache();
++AuroraPipelineWarmupStatus pipeline_warmup_status();
+ 
+ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLayout& layout);
+ PipelineRef find_pipeline(const clear::PipelineConfig& config, const RenderTargetLayout& layout);

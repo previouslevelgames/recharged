@@ -85,6 +85,9 @@ function(mscharged_set_original_module_exports target export_map)
     else()
         target_link_options("${target}" PRIVATE "-Wl,--version-script=${export_map}")
     endif()
+    # Remember the final selection so a later feature can extend only the
+    # exports whose source owners were actually selected for this target.
+    set_property(TARGET "${target}" PROPERTY MSCHARGED_ORIGINAL_EXPORT_MAP "${export_map}")
     set_property(TARGET "${target}" APPEND PROPERTY LINK_DEPENDS "${export_map}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${export_map}")
 endfunction()

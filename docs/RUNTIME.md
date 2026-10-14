@@ -13,6 +13,23 @@ next game launch (`display.backend = vulkan` or `d3d12` in the INI). Existing
 `auto` settings keep Vulkan. A failed selection reports an error without
 switching APIs. Keep the three shader compiler DLLs included in the Windows ZIP
 beside `mscharged.exe`.
+
+Graphics preparation discovers drawing and effect variants from the original
+resources as they load. Startup prepares the frontend; selecting teams and a
+stadium prepares their match resources on the background compiler worker.
+**Preparing graphics** and **Preparing match** keep the loading screen visible
+until the queued pipelines are ready. No captured gameplay catalogue is required.
+
+Each graphics API retains its own compatible compiled data across launches and
+matches, including when switching away from that API and back.
+Variants first encountered during play are also learned for the loaded resource
+selection and queued during its next preparation. A previously unseen variant
+can still compile on its first use. The first preparation can take longer;
+driver, GPU or renderer changes may require compilation again. The session log
+records loading-gate time and pipeline cache hits, misses and time spent
+resolving misses. This targets compilation hitches; resource loading and other
+causes of frame-time spikes are separate.
+
 Install the [build prerequisites](BUILDING.md#requirements), then initialize the
 required pinned sources from the repository root:
 
@@ -136,10 +153,20 @@ in the save folder. Dolphin's encrypted `data.bin` exports are not supported.
 
 ## Performance log
 
-`MSCHARGED_FRAME_LOG=frames.csv` writes one row per original game frame (frame
-time, game-thread and process CPU, VI fields, presents, draws, pipeline creations)
-and, on exit, `frames.csv.summary.txt` with the frame-time distribution and the
-longest frames.
+Enable **Advanced → Diagnostics & analytics → Frame logging** to record frame
+times (`advanced.frame_logging = true` in the INI; off by default). Each game
+session writes a new `frame-times_<timestamp>_<process>.csv` directly beside the
+executable, with one row per original game frame: frame time, game-thread and
+process CPU, VI fields, presents, draws and pipeline creations. On exit, an
+adjacent `.csv.summary.txt` reports the distribution and longest frames.
+**Frame recordings → Open folder** opens that location. It must be writable;
+logging failures are reported in the session log. The old `MSCHARGED_FRAME_LOG`
+environment variable no longer enables logging or selects its output path.
+
+The same card includes **Clear shader cache**, which removes cached shaders and
+learned variants for all graphics APIs. The next launch prepares them again.
+Clearing is refused while a game is using the cache. Saves, settings and frame
+recordings are kept.
 
 ## Run options
 
@@ -147,8 +174,14 @@ Both tests accept `--config FILE`, `--disc FILE` (also `--disk`), `--window`,
 `--fullscreen`, `--size WIDTHxHEIGHT`, `--aspect auto|4:3|16:9` and `--no-tweaks`
 (the `[gameplay]` tweaks off). These override INI settings for this run without saving. The default layout is 16:9; resizing
 preserves the selected layout and fills unused space with bars. The launcher also
-saves the start display, VSync, the frame rate counter (window title or on
-screen), speaker volume, graphics validation and log detail in `mscharged.ini`.
+saves the start display, VSync, the performance overlay, speaker volume,
+graphics validation and log detail in `mscharged.ini`.
+
+**Display → Performance overlay** shows `FPS | GPU | CPU | LAT` in the selected
+corner, including in fullscreen. GPU and CPU show total system usage, including
+other apps, sampled twice per second. GPU shows the busiest reported device or
+engine; drivers or permissions that hide usage counters show `N/A`. LAT stays
+`N/A` until networking is available. The window title contains no FPS counter.
 
 ## Other checks
 

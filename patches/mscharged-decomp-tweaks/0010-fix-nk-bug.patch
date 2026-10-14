@@ -4,29 +4,34 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 A fix of the original game, always on and without a switch (owner decision,
 2026-10-12). It lives in the tweak series so the faithful series stays retail.
 
-The NK bug, or Boo glitch: a fielder who turns intangible while he carries the
-ball (Boo's deke and Skillshot, the teleport dekes of Waluigi, Daisy and Dry
-Bones, Monty Mole and Yoshi, a Peach photo) also switches off the ball's
-collisions with players and goalies (cFielder::SetTangible). Turning tangible
-again switches them back on only if he still carries the ball. If he loses it
-while intangible they stay off: the ball goes through the players and through
-both goalies, whose contacts and through-goalie check need them, so every shot
-and chip on goal scores. That lasts until the next kickoff (ResetBall), the end
-of a Skillshot or Mega Strike, or another intangible carrier who still has the
-ball when he turns tangible (another Boo deke). The original code does the same.
+The NK ("No Kritter") bug, or Boo glitch: a fielder who turns intangible while
+he carries the ball (Boo's deke and Skillshot, the teleport dekes of Waluigi,
+Daisy and Dry Bones, Monty Mole and Yoshi, a Peach photo) also switches off the
+ball's collisions with players and goalies (cFielder::SetTangible). Turning
+tangible again switches them back on only if he still carries the ball. If he
+loses it while intangible they stay off: the ball goes through the players and
+through both goalies, whose contacts and through-goalie check need them, so
+every shot and chip on goal scores. That lasts until the next kickoff
+(ResetBall), the end of a Skillshot or Mega Strike, or another intangible
+carrier who still has the ball when he turns tangible (another Boo deke). The
+original code does the same.
 
-The two known triggers: Boo dekes next to his own goalie with the ball. The
-goalie takes the ball from a teammate who hoards it beside him
+The known triggers: Boo dekes next to his own goalie with the ball. The goalie
+takes the ball from a teammate who hoards it beside him
 (Goalie::IsTeammateHoardingBall, ActionGrabBall) without checking that he is
-intangible, and the steal ends Boo's deke without the ball. Or a teleport deke
-ends in a goal: the deker is lifted above it, to be electrocuted on the fence,
-and the ball is dropped in front of the goal line.
+intangible, and the steal ends Boo's deke without the ball. A teleport deke ends
+in a goal: the deker is lifted above it, to be electrocuted on the fence, and
+the ball is dropped in front of the goal line. Or a Chain Chomp lands on a
+deking ball carrier: while it arrives (CHAIN_STATE_RECOVER) it hits players
+whether or not they are intangible, and cFielder::CollideWithChainCallback
+knocks the ball loose.
 
 cPlayer::ReleaseBall now gives a ball released by an intangible fielder its
 player and goalie collisions back, as it already gives back its visibility.
-That covers every way an intangible carrier loses the ball. The goalie also no
-longer takes the ball from an intangible teammate, as he does not touch
-intangible opponents either: a deking Boo keeps it. Boo's and Monty Mole's
+That covers every way an intangible carrier loses the ball; the Chain Chomp
+still knocks it off a deking player as it lands, as in the original game. The
+goalie no longer takes the ball from an intangible teammate, as he does not
+touch intangible opponents either: a deking Boo keeps it. Boo's and Monty Mole's
 Skillshots and Mega Strikes, which keep the ball off the goalie on purpose, are
 unchanged: they switch the collisions off after the shot's release, or the
 shooter is tangible when he shoots.

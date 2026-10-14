@@ -1,0 +1,2798 @@
+From: mscharged-port
+Subject: Share dynamic material state for automatic native pipeline preparation
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+--- a/src/NL/glx/GXDetailModulateMaterialProgramRender.cpp
++++ b/src/NL/glx/GXDetailModulateMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #include <revolution/gx.h>
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+@@ -27,20 +31,19 @@
+ int sDetailModulateLightCount;
+ int sDetailModulateLightingMode;
+ 
+-extern "C" void glxConfigureDetailModulateLighting(int mode, GXDetailModulateMaterialProgram*)
+-{
+-    sDetailModulateLightingMode = mode;
++static void glxConfigureDetailModulatePipelineState(int mode, int lightCount, bool doubleLighting)
++{
+     gxSetNumChans(1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sDetailModulateLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+ 
+     if (mode == LIGHTING_TEXTURE)
+     {
+         gxSetNumTexGens(3);
+         gxSetNumTevStages(4);
+ 
+-        GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
++        GXTevScale colourScale = doubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR0A0);
+         gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+         gxSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
+@@ -80,6 +83,12 @@
+         gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
+         gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
+     }
++}
++
++extern "C" void glxConfigureDetailModulateLighting(int mode, GXDetailModulateMaterialProgram*)
++{
++    sDetailModulateLightingMode = mode;
++    glxConfigureDetailModulatePipelineState(mode, sDetailModulateLightCount, ShouldDoubleGameObjectLighting() != 0);
+ }
+ 
+ template <>
+@@ -208,3 +217,37 @@
+     else
+         static_cast<GXDetailModulateMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectDetailModulatePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXDetailModulateMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXDetailModulateParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : (doubled ? LIGHTING_VERTEX_DOUBLE : LIGHTING_VERTEX);
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureDetailModulatePipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -33,22 +37,20 @@
+ int sMaskedDetailBlendLightCount;
+ int sMaskedDetailBlendLightingMode;
+ 
+-extern "C" void glxConfigureMaskedDetailBlendLighting(
+-    int mode, GXMaskedDetailBlendMaterialProgram*)
+-{
+-    sMaskedDetailBlendLightingMode = mode;
++static void glxConfigureMaskedDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++{
+ 
+     if (mode == LIGHTING_VERTEX)
+         SetGameObjectAmbientLightingEnabled(1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sMaskedDetailBlendLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+ 
+     if (mode == LIGHTING_TEXTURE)
+     {
+         gxSetNumTevStages(5);
+         gxSetNumTexGens(4);
+-        GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
++        GXTevScale colourScale = doubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
+ 
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
+         gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
+@@ -97,6 +99,13 @@
+         gxSetTevColourIn(GX_TEVSTAGE3, GX_CC_ZERO, GX_CC_CPREV, GX_CC_RASC, GX_CC_ZERO);
+         gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
+     }
++}
++
++extern "C" void glxConfigureMaskedDetailBlendLighting(
++    int mode, GXMaskedDetailBlendMaterialProgram*)
++{
++    sMaskedDetailBlendLightingMode = mode;
++    glxConfigureMaskedDetailBlendPipelineState(mode, sMaskedDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
+ }
+ 
+ template <>
+@@ -228,3 +237,37 @@
+     else
+         static_cast<GXMaskedDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectMaskedDetailBlendPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMaskedDetailBlendMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXMaskedDetailBlendParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : LIGHTING_VERTEX;
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.receiveShadows == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureMaskedDetailBlendPipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -63,18 +67,14 @@
+ int sMaskedSpecularFresnelLightingMode;
+ unsigned long sMaskedSpecularFresnelBoundTexture;
+ 
+-extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
+-{
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+-    mscharged::RequireMaterialPreview();
+-#endif
+-    sMaskedSpecularFresnelLightingMode = mode;
++static void glxConfigureMaskedSpecularFresnelPipelineState(int mode, int lightCount, bool doubleLighting)
++{
+     gxSetNumChans(1);
+     GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, GX_TRUE, GX_PTTEXMTX0);
+     GXSetTexCoordGen2(GX_TEXCOORD3, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, GX_TRUE, GX_PTTEXMTX1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sMaskedSpecularFresnelLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+     if (mode == LIGHTING_VERTEX || mode == LIGHTING_VERTEX_DOUBLE)
+         SetGameObjectAmbientLightingEnabled(1);
+     if (mode == LIGHTING_VERTEX_DOUBLE)
+@@ -120,7 +120,7 @@
+     }
+     else if (mode == LIGHTING_TEXTURE)
+     {
+-        GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
++        GXTevScale colourScale = doubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
+         gxSetNumTexGens(5);
+         gxSetNumTevStages(6);
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD4, GX_TEXMAP4, GX_COLOR0A0);
+@@ -150,6 +150,15 @@
+ 
+ }
+ 
++extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
++{
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++    mscharged::RequireMaterialPreview();
++#endif
++    sMaskedSpecularFresnelLightingMode = mode;
++    glxConfigureMaskedSpecularFresnelPipelineState(mode, sMaskedSpecularFresnelLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Activate(GLView* view)
+ {
+@@ -352,3 +361,37 @@
+     else
+         program->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectMaskedSpecularFresnelPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMaskedSpecularFresnelMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXMaskedSpecularFresnelParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : (doubled ? LIGHTING_VERTEX_DOUBLE : LIGHTING_VERTEX);
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureMaskedSpecularFresnelPipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -39,23 +43,19 @@
+ int sScrollingDiffuseLightingMode;
+ float sScrollingDiffuseActivationValues[2];
+ 
+-extern "C" void glxConfigureScrollingDiffuseLighting(int mode)
+-{
+-#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+-    mscharged::RequireMaterialPreview();
+-#endif
+-    sScrollingDiffuseLightingMode = mode;
++static void glxConfigureScrollingDiffusePipelineState(int mode, int lightCount, bool doubleLighting)
++{
+     gxSetNumChans(1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sScrollingDiffuseLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+     gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_TEXMTX0);
+ 
+     if (mode == LIGHTING_TEXTURE)
+     {
+         gxSetNumTexGens(2);
+         gxSetNumTevStages(2);
+-        GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
++        GXTevScale colourScale = doubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
+ 
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR0A0);
+         gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+@@ -82,6 +82,15 @@
+     }
+ }
+ 
++extern "C" void glxConfigureScrollingDiffuseLighting(int mode)
++{
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
++    mscharged::RequireMaterialPreview();
++#endif
++    sScrollingDiffuseLightingMode = mode;
++    glxConfigureScrollingDiffusePipelineState(mode, sScrollingDiffuseLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Activate(GLView* view)
+ {
+@@ -227,3 +236,37 @@
+     else
+         program->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectScrollingDiffusePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXScrollingDiffuseMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXScrollingDiffuseParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : (doubled ? LIGHTING_VERTEX_DOUBLE : LIGHTING_VERTEX);
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureScrollingDiffusePipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -33,22 +37,20 @@
+ int sScrollingMaskedDetailBlendLightCount;
+ int sScrollingMaskedDetailBlendLightingMode;
+ 
+-extern "C" void glxConfigureScrollingMaskedDetailBlendLighting(
+-    int mode, GXScrollingMaskedDetailBlendMaterialProgram*)
+-{
+-    sScrollingMaskedDetailBlendLightingMode = mode;
++static void glxConfigureScrollingMaskedDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++{
+ 
+     if (mode == LIGHTING_VERTEX)
+         SetGameObjectAmbientLightingEnabled(1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sScrollingMaskedDetailBlendLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+ 
+     if (mode == LIGHTING_TEXTURE)
+     {
+         gxSetNumTevStages(5);
+         gxSetNumTexGens(4);
+-        GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
++        GXTevScale colourScale = doubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
+ 
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
+         gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
+@@ -97,6 +99,13 @@
+     gxSetTexCoordGen(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_TEX2, GX_TEXMTX2);
+ }
+ 
++extern "C" void glxConfigureScrollingMaskedDetailBlendLighting(
++    int mode, GXScrollingMaskedDetailBlendMaterialProgram*)
++{
++    sScrollingMaskedDetailBlendLightingMode = mode;
++    glxConfigureScrollingMaskedDetailBlendPipelineState(mode, sScrollingMaskedDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXScrollingMaskedDetailBlendMaterialProgram>::Activate(GLView* view)
+ {
+@@ -242,3 +251,37 @@
+     else
+         static_cast<GXScrollingMaskedDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectScrollingMaskedDetailBlendPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXScrollingMaskedDetailBlendMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXScrollingMaskedDetailBlendParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : LIGHTING_VERTEX;
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureScrollingMaskedDetailBlendPipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXScrollingShadowedDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingShadowedDetailBlendMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #include <revolution/gx.h>
+ #include "Game/Render/StadiumLoading.h"
+ #include "Game/GameObjectLighting.h"
+@@ -30,22 +34,20 @@
+ int sScrollingShadowedDetailBlendLightCount;
+ int sScrollingShadowedDetailBlendLightingMode;
+ 
+-extern "C" void glxConfigureScrollingShadowedDetailBlendLighting(
+-    int mode, GXScrollingShadowedDetailBlendMaterialProgram*)
+-{
+-    sScrollingShadowedDetailBlendLightingMode = mode;
++static void glxConfigureScrollingShadowedDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++{
+ 
+     if (mode == LIGHTING_VERTEX)
+         SetGameObjectAmbientLightingEnabled(1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sScrollingShadowedDetailBlendLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+ 
+     if (mode == LIGHTING_TEXTURE)
+     {
+         gxSetNumTevStages(7);
+         gxSetNumTexGens(5);
+-        ShouldDoubleGameObjectLighting();
++        doubleLighting;
+ 
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
+         gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
+@@ -111,6 +113,13 @@
+     gxSetTexCoordGen(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_TEX2, GX_TEXMTX2);
+ }
+ 
++extern "C" void glxConfigureScrollingShadowedDetailBlendLighting(
++    int mode, GXScrollingShadowedDetailBlendMaterialProgram*)
++{
++    sScrollingShadowedDetailBlendLightingMode = mode;
++    glxConfigureScrollingShadowedDetailBlendPipelineState(mode, sScrollingShadowedDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXScrollingShadowedDetailBlendMaterialProgram>::Activate(GLView* view)
+ {
+@@ -250,3 +259,37 @@
+     else
+         static_cast<GXScrollingShadowedDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectScrollingShadowedDetailBlendPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXScrollingShadowedDetailBlendMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXScrollingShadowedDetailBlendParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : LIGHTING_VERTEX;
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureScrollingShadowedDetailBlendPipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -40,23 +44,22 @@
+ nlVector2 sScrollingSpecularResetValues;
+ int sScrollingSpecularLightingMode;
+ 
+-extern "C" void glxConfigureScrollingSpecularLighting(int mode)
+-{
+-    sScrollingSpecularLightingMode = mode;
++static void glxConfigureScrollingSpecularPipelineState(int mode, int lightCount, bool doubleLighting)
++{
+     gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_TEXMTX0);
+-    SetGameObjectSpecularLightingEnabled(1, sScrollingSpecularLightCount);
++    SetGameObjectSpecularLightingEnabled(1, lightCount);
+     if (mode == DIFFUSE_LIGHTING_DISABLED)
+     {
+-        SetGameObjectLightingEnabled(0, sScrollingSpecularLightCount, 1);
+-    }
+-    else
+-    {
+-        SetGameObjectLightingEnabled(1, sScrollingSpecularLightCount, 1);
++        SetGameObjectLightingEnabled(0, lightCount, 1);
++    }
++    else
++    {
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+     }
+ 
+     if (mode == TEXTURE_LIGHTING)
+     {
+-        int diffuseLightingScale = ShouldDoubleGameObjectLighting() != 0;
++        int diffuseLightingScale = doubleLighting != 0;
+         gxSetNumChans(2);
+         gxSetNumTexGens(3);
+         gxSetNumTevStages(5);
+@@ -134,6 +137,12 @@
+     }
+ }
+ 
++extern "C" void glxConfigureScrollingSpecularLighting(int mode)
++{
++    sScrollingSpecularLightingMode = mode;
++    glxConfigureScrollingSpecularPipelineState(mode, sScrollingSpecularLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXScrollingSpecularMaterialProgram>::Activate(GLView* view)
+ {
+@@ -190,6 +199,14 @@
+     glModelPacket* packet)
+ {
+     glSetMaterialTextureAlphaState(this, packet, static_cast<const GXScrollingSpecularParameters*>(packet->materialParameters)->diffuseTexture.texture);
++}
++
++static void ConfigureScrollingSpecularTexgen(int scrollSpecularTexture)
++{
++    if (scrollSpecularTexture == 1)
++        gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, GX_TEXMTX0);
++    else
++        gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, GX_IDENTITY);
+ }
+ 
+ template <>
+@@ -264,10 +281,7 @@
+         : 0.0f;
+     glxLoadScrollingTextureMatrix(GX_TEXMTX0, scrollSpeed);
+ 
+-    if (scrollSpecularTexture == 1)
+-        gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, GX_TEXMTX0);
+-    else
+-        gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, GX_IDENTITY);
++    ConfigureScrollingSpecularTexgen(scrollSpecularTexture);
+ 
+     if (sScrollingSpecularExponent != specularExponent && specularLevel != 0.0f)
+     {
+@@ -307,3 +321,40 @@
+     else
+         program->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectScrollingSpecularPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXScrollingSpecularMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXScrollingSpecularParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? TEXTURE_LIGHTING
++        : (doubled ? DOUBLED_VERTEX_LIGHTING : VERTEX_LIGHTING);
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : DIFFUSE_LIGHTING_DISABLED;
++    const int modes[] = { DIFFUSE_LIGHTING_DISABLED, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != DIFFUSE_LIGHTING_DISABLED ? lastLight : firstLight); ++lightCount)
++    for (int scroll = match ? 0 : (params.scrollSpecularTexture == 1);
++         scroll <= (match ? 1 : (params.scrollSpecularTexture == 1)); ++scroll)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureScrollingSpecularPipelineState(mode, lightCount, doubled);
++        ConfigureScrollingSpecularTexgen(scroll);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXShadowedDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXShadowedDetailBlendMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #include <revolution/gx.h>
+ #include "Game/GameObjectLighting.h"
+ #include "NL/gl/glMaterialParameters.h"
+@@ -27,22 +31,20 @@
+ int sShadowedDetailBlendLightCount;
+ int sShadowedDetailBlendLightingMode;
+ 
+-extern "C" void glxConfigureShadowedDetailBlendLighting(
+-    int mode, GXShadowedDetailBlendMaterialProgram*)
+-{
+-    sShadowedDetailBlendLightingMode = mode;
++static void glxConfigureShadowedDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++{
+ 
+     if (mode == LIGHTING_VERTEX)
+         SetGameObjectAmbientLightingEnabled(1);
+ 
+     if (mode != LIGHTING_NONE)
+-        SetGameObjectLightingEnabled(1, sShadowedDetailBlendLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+ 
+     if (mode == LIGHTING_TEXTURE)
+     {
+         gxSetNumTevStages(7);
+         gxSetNumTexGens(5);
+-        ShouldDoubleGameObjectLighting();
++        doubleLighting;
+ 
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
+         gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
+@@ -104,6 +106,13 @@
+     }
+ }
+ 
++extern "C" void glxConfigureShadowedDetailBlendLighting(
++    int mode, GXShadowedDetailBlendMaterialProgram*)
++{
++    sShadowedDetailBlendLightingMode = mode;
++    glxConfigureShadowedDetailBlendPipelineState(mode, sShadowedDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXShadowedDetailBlendMaterialProgram>::Activate(GLView* view)
+ {
+@@ -228,3 +237,37 @@
+     else
+         static_cast<GXShadowedDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectShadowedDetailBlendPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXShadowedDetailBlendMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXShadowedDetailBlendParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
++        : LIGHTING_VERTEX;
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : LIGHTING_NONE;
++    const int modes[] = { LIGHTING_NONE, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != LIGHTING_NONE ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureShadowedDetailBlendPipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -33,15 +37,14 @@
+ float sSpecularDetailBlendSpecularExponent;
+ int sSpecularDetailBlendLightingMode;
+ 
+-extern "C" void glxConfigureSpecularDetailBlendLighting(int mode)
+-{
+-    sSpecularDetailBlendLightingMode = mode;
+-    SetGameObjectSpecularLightingEnabled(1, sSpecularDetailBlendLightCount);
++static void glxConfigureSpecularDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++{
++    SetGameObjectSpecularLightingEnabled(1, lightCount);
+ 
+     if (mode == DIFFUSE_LIGHTING_ENABLED)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+-        SetGameObjectLightingEnabled(1, sSpecularDetailBlendLightCount, 1);
++        SetGameObjectLightingEnabled(1, lightCount, 1);
+     }
+ 
+     gxSetNumChans(2);
+@@ -82,6 +85,12 @@
+     gxSetTevAlphaIn(GX_TEVSTAGE7, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
+ }
+ 
++extern "C" void glxConfigureSpecularDetailBlendLighting(int mode)
++{
++    sSpecularDetailBlendLightingMode = mode;
++    glxConfigureSpecularDetailBlendPipelineState(mode, sSpecularDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXSpecularDetailBlendMaterialProgram>::Activate(GLView* view)
+ {
+@@ -203,3 +212,36 @@
+     else
+         static_cast<GXSpecularDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectSpecularDetailBlendPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXSpecularDetailBlendMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXSpecularDetailBlendParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int activeMode = DIFFUSE_LIGHTING_ENABLED;
++    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
++        ? activeMode : DIFFUSE_LIGHTING_DISABLED;
++    const int modes[] = { DIFFUSE_LIGHTING_DISABLED, activeMode };
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int modeIndex = 0; modeIndex < (match ? 2 : 1); ++modeIndex)
++    {
++        const int mode = match ? modes[modeIndex] : authoredMode;
++    for (int lightCount = firstLight; lightCount <= (mode != DIFFUSE_LIGHTING_DISABLED ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetNumChans(1);
++        glxConfigureSpecularDetailBlendPipelineState(mode, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++    }
++}
++#endif
+--- a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -20,7 +24,7 @@
+ static int sMegaDiffuseLightCount;
+ static bool sMegaDiffuseLightingEnabled;
+ 
+-extern "C" void glxConfigureMegaDiffuseLighting(bool enabled)
++static void glxConfigureMegaDiffusePipelineState(bool enabled, int lightCount, bool doubleLighting)
+ {
+     unsigned int numChans;
+     unsigned int numTexGens;
+@@ -28,7 +32,7 @@
+ 
+     if (enabled)
+     {
+-        SetGameObjectLightingEnabled(1, sMegaDiffuseLightCount, 0);
++        SetGameObjectLightingEnabled(1, lightCount, 0);
+         SetGameObjectAmbientLightingEnabled(1);
+         numChans = 1;
+         numTexGens = 3;
+@@ -41,7 +45,7 @@
+         GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
+         GXSetTevKColorSel(GX_TEVSTAGE3, GX_TEV_KCSEL_K2);
+ 
+-        if (ShouldDoubleGameObjectLighting() != 0)
++        if (doubleLighting != 0)
+             gxSetTevColourOp(2, 0, 0, 1, true, 0);
+ 
+         gxSetTevColourIn(0, 15, 12, 8, 14);
+@@ -82,6 +86,11 @@
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+ }
+ 
++extern "C" void glxConfigureMegaDiffuseLighting(bool enabled)
++{
++    glxConfigureMegaDiffusePipelineState(enabled, sMegaDiffuseLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMegaDiffuseMaterialProgram>::Activate(GLView* view)
+ {
+@@ -111,6 +120,11 @@
+     glSetMaterialTextureAlphaState(this, packet, static_cast<const GXMegaDiffuseParameters*>(packet->materialParameters)->diffuseTexture.texture);
+ }
+ 
++static void ConfigureMegaDiffuseBlendPipeline(float megaBlend)
++{
++    gxSetNumTevStages(megaBlend == 0.0f ? 3 : 4);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMegaDiffuseMaterialProgram>::Draw(
+     const glModelPacket* packet)
+@@ -145,7 +159,7 @@
+         glxConfigureMegaDiffuseLighting(enabled);
+     }
+ 
+-    gxSetNumTevStages(megaBlend == 0.0f ? 3 : 4);
++    ConfigureMegaDiffuseBlendPipeline(megaBlend);
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
+@@ -172,10 +186,7 @@
+         gxSetColourUpdate(colourUpdate);
+ 
+         gxSetZMode(true, GX_EQUAL, true);
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+@@ -187,3 +198,41 @@
+ 
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectMegaDiffusePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMegaDiffuseMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXMegaDiffuseParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int mega = match ? 0 : (params.megaBlend != 0.0f);
++         mega <= (match ? 1 : (params.megaBlend != 0.0f)); ++mega)
++    for (int shadow = 0; shadow < (match || IsShadowLookupActive() ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureMegaDiffusePipelineState(enabled != 0, lightCount, doubled);
++        ConfigureMegaDiffuseBlendPipeline(mega ? 1.0f : 0.0f);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (enabled != 0)
++        {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -21,19 +25,19 @@
+ static float sMegaSpecularExponent;
+ static bool sMegaSpecularLightingEnabled;
+ 
+-extern "C" void glxConfigureMegaSpecularLighting(bool enabled)
++static void glxConfigureMegaSpecularPipelineState(bool enabled, int lightCount, bool doubleLighting)
+ {
+     bool subtract;
+     unsigned int numChans;
+     unsigned int numTexGens;
+     unsigned int numTevStages;
+ 
+-    SetGameObjectSpecularLightingEnabled(1, sMegaSpecularLightCount);
++    SetGameObjectSpecularLightingEnabled(1, lightCount);
+     if (enabled)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+-        SetGameObjectLightingEnabled(enabled, sMegaSpecularLightCount, 0);
+-        subtract = ShouldDoubleGameObjectLighting() != 0;
++        SetGameObjectLightingEnabled(enabled, lightCount, 0);
++        subtract = doubleLighting != 0;
+         numChans = 2;
+         numTexGens = 4;
+         numTevStages = 6;
+@@ -97,6 +101,11 @@
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+ }
+ 
++extern "C" void glxConfigureMegaSpecularLighting(bool enabled)
++{
++    glxConfigureMegaSpecularPipelineState(enabled, sMegaSpecularLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMegaSpecularMaterialProgram>::Activate(GLView* view)
+ {
+@@ -128,6 +137,11 @@
+     glSetMaterialTextureAlphaState(this, packet, static_cast<const GXMegaSpecularParameters*>(packet->materialParameters)->diffuseTexture.texture);
+ }
+ 
++static void ConfigureMegaSpecularBlendPipeline(float megaBlend)
++{
++    gxSetNumTevStages(megaBlend == 0.0f ? 5 : 6);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMegaSpecularMaterialProgram>::Draw(
+     const glModelPacket* packet)
+@@ -182,7 +196,7 @@
+         glxConfigureMegaSpecularLighting(enabled);
+     }
+ 
+-    gxSetNumTevStages(megaBlend == 0.0f ? 5 : 6);
++    ConfigureMegaSpecularBlendPipeline(megaBlend);
+ 
+     nlMatrix4 model;
+     nlMatrix4 modelview;
+@@ -208,10 +222,7 @@
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxSetColourUpdate(colourUpdate);
+         gxSetZMode(true, GX_EQUAL, true);
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+@@ -223,3 +234,41 @@
+ 
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectMegaSpecularPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMegaSpecularMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXMegaSpecularParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int mega = match ? 0 : (params.megaBlend != 0.0f);
++         mega <= (match ? 1 : (params.megaBlend != 0.0f)); ++mega)
++    for (int shadow = 0; shadow < (match || IsShadowLookupActive() ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureMegaSpecularPipelineState(enabled != 0, lightCount, doubled);
++        ConfigureMegaSpecularBlendPipeline(mega ? 1.0f : 0.0f);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (enabled != 0)
++        {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -51,12 +55,12 @@
+ static bool sMegaSpecularFresnelIndicesInitialized;
+ static unsigned long sMegaSpecularFresnelBoundTexture;
+ 
+-extern "C" void glxConfigureMegaSpecularFresnelLighting(bool enabled)
++static void glxConfigureMegaSpecularFresnelPipelineState(bool enabled, int lightCount, bool doubleLighting)
+ {
+     if (enabled)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+-        SetGameObjectLightingEnabled(1, sMegaSpecularFresnelLightCount, 0);
++        SetGameObjectLightingEnabled(1, lightCount, 0);
+     }
+ 
+     gxSetNumChans(1);
+@@ -72,7 +76,7 @@
+     GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, GX_TRUE, GX_PTTEXMTX0);
+     GXSetTexCoordGen2(GX_TEXCOORD5, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, GX_TRUE, GX_PTTEXMTX1);
+     gxSetTevColourOp(2, 0, 0, 0, true, 1);
+-    if (enabled && ShouldDoubleGameObjectLighting() != 0)
++    if (enabled && doubleLighting != 0)
+         gxSetTevColourOp(1, 0, 0, 1, true, 0);
+     GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
+     GXSetTevKColorSel(GX_TEVSTAGE3, GX_TEV_KCSEL_K2);
+@@ -94,6 +98,11 @@
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+ }
+ 
++extern "C" void glxConfigureMegaSpecularFresnelLighting(bool enabled)
++{
++    glxConfigureMegaSpecularFresnelPipelineState(enabled, sMegaSpecularFresnelLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMegaSpecularFresnelMaterialProgram>::Activate(GLView* view)
+ {
+@@ -131,6 +140,11 @@
+     glSetMaterialTextureAlphaState(this, packet, static_cast<const GXMegaSpecularFresnelParameters*>(packet->materialParameters)->diffuseTexture.texture);
+ }
+ 
++static void ConfigureMegaSpecularFresnelBlendPipeline(float megaBlend)
++{
++    gxSetNumTevStages(megaBlend == 0.0f ? 6 : 7);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXMegaSpecularFresnelMaterialProgram>::Draw(
+     const glModelPacket* packet)
+@@ -140,7 +154,7 @@
+     program->BindParameters(packet);
+ 
+     float megaBlend = static_cast<const GXMegaSpecularFresnelParameters*>(packet->materialParameters)->megaBlend;
+-    gxSetNumTevStages(megaBlend == 0.0f ? 6 : 7);
++    ConfigureMegaSpecularFresnelBlendPipeline(megaBlend);
+     const GXMegaSpecularFresnelParameters* parameters = static_cast<const GXMegaSpecularFresnelParameters*>(packet->materialParameters);
+     float blendAmount = parameters->blendAmount;
+     float alphaValue = parameters->alphaValue;
+@@ -237,10 +251,7 @@
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxSetColourUpdate(colourUpdate);
+         gxSetZMode(true, GX_EQUAL, true);
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+@@ -251,3 +262,41 @@
+     }
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectMegaSpecularFresnelPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMegaSpecularFresnelMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXMegaSpecularFresnelParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int mega = match ? 0 : (params.megaBlend != 0.0f);
++         mega <= (match ? 1 : (params.megaBlend != 0.0f)); ++mega)
++    for (int shadow = 0; shadow < (match || IsShadowLookupActive() ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureMegaSpecularFresnelPipelineState(enabled != 0, lightCount, doubled);
++        ConfigureMegaSpecularFresnelBlendPipeline(mega ? 1.0f : 0.0f);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (enabled != 0)
++        {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -32,19 +36,19 @@
+ static float sSpecularExponent;
+ static bool sSpecularLightingEnabled;
+ 
+-extern "C" void glxConfigureSpecularLighting(bool enabled)
++static void glxConfigureSpecularPipelineState(bool enabled, int lightCount, bool doubleLighting)
+ {
+     bool subtract;
+     unsigned int numChans;
+     unsigned int numTexGens;
+     unsigned int numTevStages;
+ 
+-    SetGameObjectSpecularLightingEnabled(1, sSpecularLightCount);
++    SetGameObjectSpecularLightingEnabled(1, lightCount);
+     if (enabled)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+-        SetGameObjectLightingEnabled(enabled, sSpecularLightCount, 0);
+-        subtract = ShouldDoubleGameObjectLighting() != 0;
++        SetGameObjectLightingEnabled(enabled, lightCount, 0);
++        subtract = doubleLighting != 0;
+         numChans = 2;
+         numTexGens = 3;
+         numTevStages = 5;
+@@ -100,6 +104,11 @@
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+ }
+ 
++extern "C" void glxConfigureSpecularLighting(bool enabled)
++{
++    glxConfigureSpecularPipelineState(enabled, sSpecularLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
+ {
+@@ -244,10 +253,7 @@
+             gxSetZMode(true, GX_EQUAL, true);
+         }
+ 
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+ #if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         mscharged::DrawNativeSpecularPacket(*packet);
+ #else
+@@ -267,3 +273,41 @@
+ 
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectSpecularPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXSpecularMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXSpecularParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || IsShadowLookupActive() ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureSpecularPipelineState(enabled != 0, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (sSpecularDefaultLightingEnabled)
++        {
++            if (sSpecularDepthPrepassEnabled)
++            {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            }
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -62,12 +66,12 @@
+ static bool sSpecularFresnelIndicesInitialized;
+ static unsigned long sSpecularFresnelBoundTexture;
+ 
+-extern "C" void glxConfigureSpecularFresnelLighting(bool enabled)
++static void glxConfigureSpecularFresnelPipelineState(bool enabled, int lightCount, bool doubleLighting)
+ {
+     if (enabled)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+-        SetGameObjectLightingEnabled(1, sSpecularFresnelLightCount, 0);
++        SetGameObjectLightingEnabled(1, lightCount, 0);
+     }
+ 
+     gxSetNumChans(1);
+@@ -82,7 +86,7 @@
+     GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, GX_TRUE, GX_PTTEXMTX0);
+     GXSetTexCoordGen2(GX_TEXCOORD4, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, GX_TRUE, GX_PTTEXMTX1);
+     gxSetTevColourOp(2, 0, 0, 0, true, 1);
+-    if (enabled && ShouldDoubleGameObjectLighting() != 0)
++    if (enabled && doubleLighting != 0)
+         gxSetTevColourOp(1, 0, 0, 1, true, 0);
+     GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
+     GXSetTevKColorSel(GX_TEVSTAGE3, GX_TEV_KCSEL_K2);
+@@ -101,6 +105,11 @@
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+ }
+ 
++extern "C" void glxConfigureSpecularFresnelLighting(bool enabled)
++{
++    glxConfigureSpecularFresnelPipelineState(enabled, sSpecularFresnelLightCount, ShouldDoubleGameObjectLighting() != 0);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXSpecularFresnelMaterialProgram>::Activate(GLView* view)
+ {
+@@ -246,10 +255,7 @@
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+         }
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+@@ -260,3 +266,41 @@
+     }
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectSpecularFresnelPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXSpecularFresnelMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXSpecularFresnelParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || IsShadowLookupActive() ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureSpecularFresnelPipelineState(enabled != 0, lightCount, doubled);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (sEnableSpecularFresnelLighting)
++        {
++            if (sSpecularFresnelAlphaDepthPass)
++            {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            }
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #if !defined(MSCHARGED_GAME_MODULE)
+@@ -34,7 +38,7 @@
+ static int sCharacterLightCount;
+ static bool sCharacterSkinLightingEnabled;
+ 
+-extern "C" void glxConfigureCharacterSkinCustomLighting(bool enabled)
++static void glxConfigureCharacterSkinCustomPipelineState(bool enabled, int lightCount, bool doubleLighting, bool useLightRamp)
+ {
+     bool doubleLightRampColour;
+     unsigned int numChans;
+@@ -42,9 +46,9 @@
+     unsigned int numTevStages;
+ 
+     if (enabled)
+-        SetGameObjectLightingEnabled(1, sCharacterLightCount, 0);
+-
+-    if (enabled && sUseCharacterLightRamp)
++        SetGameObjectLightingEnabled(1, lightCount, 0);
++
++    if (enabled && useLightRamp)
+     {
+         numChans = 1;
+         numTexGens = 3;
+@@ -75,7 +79,7 @@
+         gxSetTevOrder(1, 0, 0, 255);
+         gxSetTevOrder(2, 255, 255, 4);
+         GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
+-        if (ShouldDoubleGameObjectLighting() != 0)
++        if (doubleLighting != 0)
+             gxSetTevColourOp(2, 0, 0, 1, true, 0);
+         gxSetTevColourIn(0, 15, 12, 8, 14);
+         gxSetTevColourIn(1, 15, 0, 8, 15);
+@@ -106,6 +110,11 @@
+     gxSetNumTexGens(numTexGens);
+     gxSetNumTevStages(numTevStages);
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
++}
++
++extern "C" void glxConfigureCharacterSkinCustomLighting(bool enabled)
++{
++    glxConfigureCharacterSkinCustomPipelineState(enabled, sCharacterLightCount, ShouldDoubleGameObjectLighting() != 0, sUseCharacterLightRamp);
+ }
+ 
+ template <>
+@@ -240,10 +249,7 @@
+             gxSetZMode(true, GX_EQUAL, true);
+         }
+ 
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+ #if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         mscharged::DrawNativeSkinPacket(*packet);
+ #else
+@@ -263,3 +269,41 @@
+ 
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectCharacterSkinCustomPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXCharacterSkinCustomMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXCharacterSkinCustomParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(true, false, false);
++    const int lastLight = match ? glxAutomaticLightCount(true, false, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || IsShadowLookupActive() ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureCharacterSkinCustomPipelineState(enabled != 0, lightCount, doubled, sUseCharacterLightRamp);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (sEnableCharacterSkinLighting)
++        {
++            if (sDrawAlphaDepthPass)
++            {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            }
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/include/NL/glx/GXPipelinePreparation.h
++++ b/include/NL/glx/GXPipelinePreparation.h
+@@ -0,0 +1,21 @@
++#pragma once
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
++#include <revolution/gx.h>
++#endif
++#include "NL/glx/glxGX.h"
++
++// Shared source stage setup. No resources, vertices, frame state or game objects.
++void glxConfigureProjectedShadowPipeline(bool skinned, bool fixedColour, bool inverseView);
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++int glxAutomaticLightCount(bool character, bool includeEffects, bool maximum);
++int glxAutomaticEffectLightCount();
++#endif
++inline void glxConfigureMaterialOpacityColourPass(int stage)
++{
++    gxSaveBlendMode();
++    gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
++    GXSetTevKAlphaSel(static_cast<GXTevStageID>(stage), GX_TEV_KASEL_K1_A);
++    gxSetTevAlphaIn(stage, 7, 7, 7, 6);
++}
+--- a/src/Game/GameObjectLighting.cpp
++++ b/src/Game/GameObjectLighting.cpp
+@@ -1,3 +1,4 @@
++#include "NL/glx/GXPipelinePreparation.h"
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
+ #if defined(MSCHARGED_NATIVE)
+@@ -825,24 +826,43 @@
+     }
+ }
+ 
+-void ApplyGameObjectShadowLighting(int skinned, unsigned long shadowLevel)
+-{
+-    if (!IsShadowLookupActive())
+-        return;
+-
+-    u32 numTevStages;
+-    u32 numTexGens;
+-    numTexGens = gxGetNumTexGens();
+-    numTevStages = gxGetNumTevStages();
++void glxConfigureProjectedShadowPipeline(bool skinned, bool fixedColour, bool inverseView)
++{
++    const u32 numTexGens = gxGetNumTexGens();
++    const u32 numTevStages = gxGetNumTevStages();
+     gxSetNumTexGens(numTexGens + 1);
+     gxSetNumTevStages(numTevStages + 1);
+-    gShadowTexGen = numTexGens;
+-
+-    if (shadowLevel != 0)
++    if (fixedColour)
+     {
+         gxSetTevOrder(numTevStages, 0xFF, 0xFF, 0xFF);
+         gxSetTevColourIn(numTevStages, 15, 0, 6, 15);
+         gxSetTevAlphaIn(numTevStages, 7, 7, 7, 0);
++    }
++    else
++    {
++        gxSetTevOrder(numTevStages, numTexGens, numTexGens, 0xFF);
++        if (skinned && inverseView)
++            gxSetTexCoordGen(numTexGens, 1, 0, 0, false, 0x76);
++        else
++            gxSetTexCoordGen(numTexGens, 1, 0, 0x36, false, 0x76);
++
++        gxSetTevColourIn(numTevStages, 15, 0, 8, 15);
++        gxSetTevAlphaIn(numTevStages, 7, 7, 7, 0);
++    }
++}
++
++void ApplyGameObjectShadowLighting(int skinned, unsigned long shadowLevel)
++{
++    if (!IsShadowLookupActive())
++        return;
++
++    u32 numTexGens = gxGetNumTexGens();
++    glxConfigureProjectedShadowPipeline(skinned != 0, shadowLevel != 0,
++        gShadowLookupSkinnedUsesInverseView);
++    gShadowTexGen = numTexGens;
++
++    if (shadowLevel != 0)
++    {
+ 
+ #if defined(MSCHARGED_NATIVE)
+         GXColor colour = mscharged::platform::ColourFromWiiWord(shadowLevel);
+@@ -853,14 +873,6 @@
+     }
+     else
+     {
+-        gxSetTevOrder(numTevStages, numTexGens, numTexGens, 0xFF);
+-        if (skinned && gShadowLookupSkinnedUsesInverseView)
+-            gxSetTexCoordGen(numTexGens, 1, 0, 0, false, 0x76);
+-        else
+-            gxSetTexCoordGen(numTexGens, 1, 0, 0x36, false, 0x76);
+-
+-        gxSetTevColourIn(numTevStages, 15, 0, 8, 15);
+-        gxSetTevAlphaIn(numTevStages, 7, 7, 7, 0);
+ 
+         glTextureBinding textureState(gShadowLookupTexture, !gShadowLookupClampWrap, !gShadowLookupClampWrap);
+         glx_BindTexture(numTexGens, &textureState);
+@@ -1048,3 +1060,43 @@
+     useColour = false;
+     isPointLight = false;
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++int glxAutomaticLightCount(bool character, bool includeEffects, bool maximum)
++{
++    int count;
++    if (maximum)
++    {
++        // EmissionManager::AddLight admits at most three effects lights.
++        // Camera-relative and ordinary in-game modes share the two base lights;
++        // Shoot-to-Score is represented by the producer's first count (one).
++        count = character && gNumCharacterInGameLights.mValue > gNumInGameLights
++            ? gNumCharacterInGameLights.mValue : gNumInGameLights;
++        if (includeEffects && gEffectsLightsEnabled)
++            count += 3;
++    }
++    else
++    {
++        const int effects = includeEffects && gEffectsLightsEnabled
++            ? glxAutomaticEffectLightCount() : 0;
++        switch (gGameObjectLightingMode)
++        {
++        case OBJECT_LIGHTING_IN_GAME:
++            count = (character ? gNumCharacterInGameLights.mValue : gNumInGameLights) + effects;
++            break;
++        case OBJECT_LIGHTING_CAMERA_RELATIVE:
++            count = gNumInGameLights + effects;
++            break;
++        case OBJECT_LIGHTING_SHOOT_TO_SCORE:
++            count = 1;
++            break;
++        default:
++            count = 2;
++            break;
++        }
++    }
++    // The channel-mask table has six entries. Original light counts in normal
++    // gameplay are one through five; keep debug values inside that API domain.
++    return count < 1 ? 1 : (count > 6 ? 6 : count);
++}
++#endif
+--- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #include <dolphin/mtx.h>
+@@ -198,3 +202,30 @@
+     else
+         static_cast<GXCameraScrolledOverlayMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectCameraScrolledOverlayPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXCameraScrolledOverlayMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXCameraScrolledOverlayParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureCameraScrolledOverlay();
++        SetGameObjectLightingEnabled(enabled != 0, lightCount, true);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #include <dolphin/mtx.h>
+@@ -210,3 +214,30 @@
+     else
+         static_cast<GXScrollingCameraOverlayMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectScrollingCameraOverlayPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXScrollingCameraOverlayMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXScrollingCameraOverlayParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    for (int shadow = 0; shadow < (match || (params.shadowEnabled == 1 && IsShadowLookupActive()) ? 2 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        glxConfigureScrollingCameraOverlay();
++        SetGameObjectLightingEnabled(enabled != 0, lightCount, true);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXShadowedDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXShadowedDiffuseMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #include <revolution/gx.h>
+ #include "NL/gl/glMaterialParameters.h"
+ 
+@@ -9,12 +13,8 @@
+ 
+ static bool sShadowedDiffuseShadowStageEnabled;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXShadowedDiffuseMaterialProgram>::Activate(GLView*)
++static void ConfigureShadowedDiffusePipelineState()
+ {
+-    static_cast<GXShadowedDiffuseMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    SetGameObjectShadowModelMatrix(-1);
+-    sShadowedDiffuseShadowStageEnabled = false;
+     gxSetNumTevStages(1);
+     gxSetNumTexGens(1);
+     gxSetNumChans(1);
+@@ -23,6 +23,15 @@
+     gxSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
++}
++
++template <>
++void GXMaterialProgramImpl<GXShadowedDiffuseMaterialProgram>::Activate(GLView*)
++{
++    static_cast<GXShadowedDiffuseMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    SetGameObjectShadowModelMatrix(-1);
++    sShadowedDiffuseShadowStageEnabled = false;
++    ConfigureShadowedDiffusePipelineState();
+ }
+ 
+ template <>
+@@ -71,3 +80,21 @@
+     else
+         static_cast<GXShadowedDiffuseMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectShadowedDiffusePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXShadowedDiffuseMaterialProgram*>(packet.materialProgram);
++    for (int shadow = 0; shadow < 2; ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureShadowedDiffusePipelineState();
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(false, false, false);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXCrystalMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCrystalMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/mtx.h>
+ #endif
+@@ -156,3 +160,18 @@
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+     }
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectCrystalPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXCrystalMaterialProgram*>(packet.materialProgram);
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureCrystalStages();
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #include <revolution/gx.h>
+ #include <revolution/mtx.h>
+ #include "NL/gl/glMaterialParameters.h"
+@@ -20,16 +24,14 @@
+ static nlMatrix4 sSpecularLookupViewMatrix;
+ static glMatrixHandle sSpecularLookupModelMatrix;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXSpecularLookupMaterialProgram>::Activate(GLView* view)
++static void ConfigureSpecularLookupTexgen()
+ {
+-    static_cast<GXSpecularLookupMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    view->m_Interface->GetViewMatrix(sSpecularLookupViewMatrix);
+-    GXLoadTexMtxImm(glx_SpecularLookupTextureMatrix, GX_PTTEXMTX0, GX_MTX3x4);
+     GXSetTexCoordGen2(
+         GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0, true, GX_PTTEXMTX0);
+-    sSpecularLookupModelMatrix = -1;
++}
+ 
++static void ConfigureSpecularLookupPipelineState()
++{
+     gxSetNumChans(0);
+     gxSetNumTexGens(2);
+     gxSetNumTevStages(3);
+@@ -42,6 +44,18 @@
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
++}
++
++template <>
++void GXMaterialProgramImpl<GXSpecularLookupMaterialProgram>::Activate(GLView* view)
++{
++    static_cast<GXSpecularLookupMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    view->m_Interface->GetViewMatrix(sSpecularLookupViewMatrix);
++    GXLoadTexMtxImm(glx_SpecularLookupTextureMatrix, GX_PTTEXMTX0, GX_MTX3x4);
++    ConfigureSpecularLookupTexgen();
++    sSpecularLookupModelMatrix = -1;
++
++    ConfigureSpecularLookupPipelineState();
+ }
+ 
+ template <>
+@@ -85,3 +99,19 @@
+     else
+         static_cast<GXSpecularLookupMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectSpecularLookupPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXSpecularLookupMaterialProgram*>(packet.materialProgram);
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureSpecularLookupTexgen();
++        ConfigureSpecularLookupPipelineState();
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
++++ b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #include <stdexcept>
+@@ -35,10 +39,8 @@
+ }
+ #endif
+ 
+-static void SetShadowVolumeMode(int mode)
++static void ConfigureShadowVolumePipelineState(int mode)
+ {
+-    if (sShadowVolumeMode == mode)
+-        return;
+ 
+     gxSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+@@ -63,6 +65,13 @@
+         break;
+     }
+ 
++}
++
++static void SetShadowVolumeMode(int mode)
++{
++    if (sShadowVolumeMode == mode)
++        return;
++    ConfigureShadowVolumePipelineState(mode);
+     sShadowVolumeMode = mode;
+ }
+ 
+@@ -101,6 +110,14 @@
+     GXSetTevColor(GX_TEVREG1, colour);
+ }
+ 
++static void ConfigureShadowVolumeBasePipeline()
++{
++    gxSetNumChans(0);
++    gxSetNumTexGens(1);
++    gxSetNumTevStages(1);
++    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXShadowVolumeMaterialProgram>::Activate(GLView*)
+ {
+@@ -108,10 +125,7 @@
+     SetShadowVolumeConstantColour();
+ 
+     static_cast<GXShadowVolumeMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    gxSetNumChans(0);
+-    gxSetNumTexGens(1);
+-    gxSetNumTevStages(1);
+-    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
++    ConfigureShadowVolumeBasePipeline();
+     SetShadowVolumeMode(SHADOW_VOLUME_FIXED_COLOUR);
+ }
+ 
+@@ -159,3 +173,21 @@
+     "Alpha", "/Rendering/ShadowVolume");
+ 
+ #endif
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectShadowVolumePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXShadowVolumeMaterialProgram*>(packet.materialProgram);
++    const int modes[] = { SHADOW_VOLUME_FIXED_COLOUR, SHADOW_VOLUME_TEXTURE_MASK };
++    for (int mode : modes)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureShadowVolumeBasePipeline();
++        ConfigureShadowVolumePipelineState(mode);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXWarbleMaterialProgramRender.cpp
++++ b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -18,6 +22,23 @@
+ 
+ bool glx_UseSolidWarbleTexture;
+ bool glx_UseBlackWarbleTexture;
++
++static void ConfigureWarbleIndirectPipeline(bool enabled)
++{
++    if (enabled)
++    {
++        GXSetNumIndStages(1);
++        GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD0, GX_TEXMAP1);
++        GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_4, GX_ITS_4);
++        GXSetTevIndWarp(GX_TEVSTAGE0, GX_INDTEXSTAGE0, true, false, GX_ITM_0);
++        GXSetIndTexMtx(GX_ITM_0, glx_WarbleMatrix, 1);
++    }
++    else
++    {
++        GXSetNumIndStages(0);
++        GXSetTevDirect(GX_TEVSTAGE0);
++    }
++}
+ 
+ void glx_EnableWarble(bool enabled)
+ {
+@@ -41,23 +62,16 @@
+         textureState.unknown07 = 0;
+         glx_BindTexture(1, &textureState);
+ 
+-        GXSetNumIndStages(1);
+-        GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD0, GX_TEXMAP1);
+-        GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_4, GX_ITS_4);
+-        GXSetTevIndWarp(GX_TEVSTAGE0, GX_INDTEXSTAGE0, true, false, GX_ITM_0);
+-        GXSetIndTexMtx(GX_ITM_0, glx_WarbleMatrix, 1);
++        ConfigureWarbleIndirectPipeline(true);
+     }
+     else
+     {
+-        GXSetNumIndStages(0);
+-        GXSetTevDirect(GX_TEVSTAGE0);
++        ConfigureWarbleIndirectPipeline(false);
+     }
+ }
+ 
+-template <>
+-void GXMaterialProgramImpl<GXWarbleMaterialProgram>::Activate(GLView*)
++static void ConfigureWarbleBasePipeline()
+ {
+-    static_cast<GXWarbleMaterialProgram*>(this)->ConfigureVertexFormat(true);
+     gxSetNumTevStages(1);
+     gxSetNumTexGens(1);
+     gxSetNumChans(1);
+@@ -66,6 +80,13 @@
+     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
++}
++
++template <>
++void GXMaterialProgramImpl<GXWarbleMaterialProgram>::Activate(GLView*)
++{
++    static_cast<GXWarbleMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    ConfigureWarbleBasePipeline();
+     glx_EnableWarble(true);
+ }
+ 
+@@ -100,3 +121,19 @@
+     else
+         static_cast<GXWarbleMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectWarblePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXWarbleMaterialProgram*>(packet.materialProgram);
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureWarbleBasePipeline();
++        ConfigureWarbleIndirectPipeline(true);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
++++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #ifdef MSCHARGED_NATIVE
+ #include <dolphin/gx.h>
+ #ifdef MSCHARGED_DIAGNOSTIC_MOVIES
+@@ -27,18 +31,18 @@
+ unsigned long sMovieTextureV = glGetTexture("movie_v");
+ unsigned char sMovieTexturesLoaded;
+ 
+-void glxConfigureMovie()
++template <typename Dimensions>
++static void ConfigureMoviePipelineState(bool yuv, bool tint, Dimensions dimensions)
+ {
+     gxSetNumChans(0);
+ 
+-    if (gMovieYUVEnabled)
++    if (yuv)
+     {
+         gxSetNumTexGens(2);
+         gxSetNumTevStages(4);
+ 
+-        glTextureLoad(sMovieTextureU);
+-        unsigned long width = glTextureGetWidth();
+-        unsigned long height = glTextureGetHeight();
++        unsigned long width, height;
++        dimensions(width, height);
+         gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+         GXSetTexCoordScaleManually(GX_TEXCOORD1, GX_TRUE, width, height);
+ 
+@@ -88,7 +92,7 @@
+         gxSetNumTevStages(1);
+         gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+ 
+-        if (gMovieTintEnabled)
++        if (tint)
+         {
+             GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
+             GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
+@@ -101,6 +105,16 @@
+             gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
+         }
+     }
++}
++
++void glxConfigureMovie()
++{
++    ConfigureMoviePipelineState(gMovieYUVEnabled, gMovieTintEnabled,
++        [](unsigned long& width, unsigned long& height) {
++            glTextureLoad(sMovieTextureU);
++            width = glTextureGetWidth();
++            height = glTextureGetHeight();
++        });
+ }
+ 
+ template <>
+@@ -218,3 +232,21 @@
+     else
+         static_cast<GXMovieMaterialProgram*>(this)->DrawDirect(packet);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectMoviePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXMovieMaterialProgram*>(packet.materialProgram);
++    for (int yuv = 0; yuv < 2; ++yuv)
++    for (int tint = 0; tint < 2; ++tint)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureMoviePipelineState(yuv != 0, tint != 0,
++            [](unsigned long& width, unsigned long& height) { width = height = 1; });
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif
+--- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -64,7 +68,7 @@
+ static bool sCharacterDamageFresnelIndicesInitialized;
+ static unsigned long sCharacterDamageBoundTexture;
+ 
+-extern "C" void glxConfigureCharacterDamageLighting(bool enabled, GXCharacterDamageMaterialProgram*)
++static void ConfigureCharacterDamagePipelineState(bool enabled, int lightCount, bool doubleLighting, int stageCount, int texGenCount)
+ {
+     if (!sCharacterDamageEnabled)
+         return;
+@@ -72,24 +76,20 @@
+     if (enabled)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+-        SetGameObjectLightingEnabled(1, sCharacterDamageLightCount, 0);
+-    }
+-
+-    sCharacterDamageFresnelTextureSlot = 3;
+-    sCharacterDamageFresnelTexCoord = 3;
++        SetGameObjectLightingEnabled(1, lightCount, 0);
++    }
++
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+-    if (sCharacterDamageLightingOnly)
+-        sCharacterDamageStageCount = 2;
+ 
+     gxSetNumChans(1);
+-    gxSetNumTexGens(sCharacterDamageTexGenCount);
+-    gxSetNumTevStages(sCharacterDamageStageCount);
++    gxSetNumTexGens(texGenCount);
++    gxSetNumTevStages(stageCount);
+     gxSetTevOrder(0, 0, 0, 255);
+     gxSetTevColourIn(0, 15, 12, 8, 15);
+     if (sCharacterDamageHideDiffuse)
+         gxSetTevColourIn(0, 15, 15, 15, 15);
+     gxSetTevAlphaIn(0, 7, 7, 7, 4);
+-    if (enabled && ShouldDoubleGameObjectLighting() != 0)
++    if (enabled && doubleLighting != 0)
+         gxSetTevColourOp(0, 0, 0, 1, true, 0);
+ 
+     gxSetTevOrder(1, 255, 255, enabled ? 4 : 255);
+@@ -108,14 +108,27 @@
+     gxSetTevColourIn(3, 15, 0, 8, 15);
+     gxSetTevAlphaIn(3, 7, 7, 7, 0);
+ 
+-    gxSetTevOrder(4, sCharacterDamageFresnelTexCoord, sCharacterDamageFresnelTextureSlot, 255);
+-    GXSetTexCoordGen2((GXTexCoordID)sCharacterDamageFresnelTexCoord, GX_TG_MTX2x4, GX_TG_NRM, GX_TEXMTX1, GX_FALSE, GX_PTIDENTITY);
++    gxSetTevOrder(4, 3, 3, 255);
++    GXSetTexCoordGen2((GXTexCoordID)3, GX_TG_MTX2x4, GX_TG_NRM, GX_TEXMTX1, GX_FALSE, GX_PTIDENTITY);
+     gxSetTevColourIn(4, 15, 0, 8, 2);
+     if (sCharacterDamageFresnelOnly)
+         gxSetTevColourIn(4, 15, 12, 8, 15);
+     if (sCharacterDamageSpecularOnly)
+         gxSetTevColourIn(4, 15, 0, 8, 15);
+     gxSetTevAlphaIn(4, 7, 7, 7, 0);
++}
++
++extern "C" void glxConfigureCharacterDamageLighting(bool enabled, GXCharacterDamageMaterialProgram*)
++{
++    if (!sCharacterDamageEnabled)
++        return;
++    sCharacterDamageFresnelTextureSlot = 3;
++    sCharacterDamageFresnelTexCoord = 3;
++    if (sCharacterDamageLightingOnly)
++        sCharacterDamageStageCount = 2;
++    ConfigureCharacterDamagePipelineState(enabled, sCharacterDamageLightCount,
++        ShouldDoubleGameObjectLighting() != 0, sCharacterDamageStageCount,
++        sCharacterDamageTexGenCount);
+ }
+ 
+ template <>
+@@ -159,6 +172,23 @@
+     glSetMaterialTextureAlphaState(this, packet, static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->diffuseTexture.texture);
+ }
+ 
++static void ConfigureCharacterDamageSurfacePipeline(bool blackOnly, float megaBlend, const bool* damageEnabled, int stageCount, int texGenCount)
++{
++    if (blackOnly)
++    {
++        gxSetNumTevStages(1);
++        gxSetTevColourIn(0, 15, 15, 15, 15);
++        gxSetTevAlphaIn(0, 7, 7, 7, 6);
++    }
++    else
++    {
++        gxSetNumTevStages(stageCount);
++        gxSetTevColourIn(0, 15, 12, 8, 15);
++        glxConfigureCharacterDamage(megaBlend, damageEnabled, stageCount, texGenCount, 4, 5, 3, 4, 5, 3);
++    }
++
++}
++
+ template <>
+ void GXMaterialProgramImpl<GXCharacterDamageMaterialProgram>::Draw(
+     const glModelPacket* packet)
+@@ -174,22 +204,13 @@
+     if (sCharacterDamageMegaBlendOverride > 0.0f)
+         megaBlend = sCharacterDamageMegaBlendOverride;
+ 
+-    int stageCount = sCharacterDamageStageCount;
+-    if (static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->blackOnly != 0)
+-    {
+-        gxSetNumTevStages(1);
+-        gxSetTevColourIn(0, 15, 15, 15, 15);
+-        gxSetTevAlphaIn(0, 7, 7, 7, 6);
+-    }
+-    else
+-    {
+-        gxSetNumTevStages(stageCount);
+-        gxSetTevColourIn(0, 15, 12, 8, 15);
+-        bool damageEnabled[2];
+-        damageEnabled[0] = sCharacterDamageForceDamage1 || static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->damage1Enabled != 0;
+-        damageEnabled[1] = sCharacterDamageForceDamage2 || static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->damage2Enabled != 0;
+-        glxConfigureCharacterDamage(megaBlend, damageEnabled, stageCount, sCharacterDamageTexGenCount, 4, 5, 3, 4, 5, 3);
+-    }
++    const bool damageEnabled[2] = {
++        sCharacterDamageForceDamage1 || static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->damage1Enabled != 0,
++        sCharacterDamageForceDamage2 || static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->damage2Enabled != 0,
++    };
++    ConfigureCharacterDamageSurfacePipeline(
++        static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->blackOnly != 0,
++        megaBlend, damageEnabled, sCharacterDamageStageCount, sCharacterDamageTexGenCount);
+ 
+     float alphaValue = static_cast<const GXCharacterDamageParameters*>(packet->materialParameters)->alphaValue;
+     if (alphaValue == 0.0f)
+@@ -290,10 +311,7 @@
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxSetColourUpdate(colourUpdate);
+         gxSetZMode(true, GX_EQUAL, true);
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(1, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(1);
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+@@ -304,3 +322,52 @@
+     }
+     RestoreGameObjectShadowLighting();
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectCharacterDamagePipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXCharacterDamageMaterialProgram*>(packet.materialProgram);
++    if (!sCharacterDamageEnabled)
++        return;
++    const auto& params = *static_cast<const GXCharacterDamageParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
++    const int authoredEnabled = params.lightingEnabled == 1;
++    const int currentDamage = (sCharacterDamageForceDamage1 || params.damage1Enabled != 0)
++        | ((sCharacterDamageForceDamage2 || params.damage2Enabled != 0) << 1);
++    const int currentMega = (sCharacterDamageMegaBlendOverride > 0.0f
++        ? sCharacterDamageMegaBlendOverride : params.megaBlend) != 0.0f;
++    const int stageCount = sCharacterDamageLightingOnly ? 2 : sCharacterDamageStageCount;
++    const int firstLight = match ? 1 : glxAutomaticLightCount(true, true, false);
++    const int lastLight = match ? glxAutomaticLightCount(true, true, true) : firstLight;
++    for (int enabled = match ? 0 : authoredEnabled; enabled <= (match ? 1 : authoredEnabled); ++enabled)
++    for (int lightCount = firstLight; lightCount <= (enabled ? lastLight : firstLight); ++lightCount)
++    // Black-only ignores both damage layers and mega blending: one case, not eight.
++    for (int surface = match ? 0 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega);
++         surface <= (match ? 8 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega)); ++surface)
++    for (int shadow = 0; shadow < (match && sCharacterDamageShadowLightingEnabled ? 4 : 1); ++shadow)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        ConfigureCharacterDamagePipelineState(enabled != 0, lightCount, doubled,
++            stageCount, sCharacterDamageTexGenCount);
++        const bool damage[2] = { (surface & 1) != 0, (surface & 2) != 0 };
++        ConfigureCharacterDamageSurfacePipeline(surface == 8, (surface & 4) ? 1.0f : 0.0f,
++            damage, stageCount, sCharacterDamageTexGenCount);
++        if (shadow != 0)
++            glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
++        EmitAutomaticMaterialPipeline(packet);
++        if (enabled)
++        {
++            const bool colourUpdate = gxSetColourUpdate(false);
++            EmitAutomaticMaterialPipeline(packet);
++            gxSetColourUpdate(colourUpdate);
++            gxSetZMode(true, GX_EQUAL, true);
++            glxConfigureMaterialOpacityColourPass(1);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
++++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -53,41 +57,21 @@
+ static int sColourFresnelLightCount;
+ static unsigned long sColourFresnelBoundTexture;
+ 
+-template <>
+-void GXMaterialProgramImpl<GXColourFresnelMaterialProgram>::Activate(GLView* view)
+-{
+-    static_cast<GXColourFresnelMaterialProgram*>(this)->ConfigureVertexFormat(true);
+-    view->m_Interface->GetViewMatrix(sColourFresnelViewMatrix);
+-    sColourFresnelModelMatrix = -1;
+-    sColourFresnelBoundTexture = -1;
+-    GXLoadTexMtxImm(sColourFresnelLookupMatrix, 67, GX_MTX3x4);
+-    gxSetTexCoordGen(3, 0, 1, 30, true, 67);
+-
+-    if (sColourFresnelLightingEnabled)
+-    {
+-        sColourFresnelLightCount = GetGameObjectLightCount(0, 1);
+-        LoadGameObjectLights(sColourFresnelLightCount, view, 0);
+-        SetGameObjectLightingEnabled(1, sColourFresnelLightCount, 0);
+-    }
+-
++template <typename BindRamp>
++static void ConfigureColourFresnelPipelineState(bool enabled, bool ramp, bool doubleLighting, int& lightCount, BindRamp bindRamp)
++{
+     GXTevScale lightingScale;
+     unsigned int numChans;
+     unsigned int numTexGens;
+     unsigned int numTevStages;
+-    if (sColourFresnelLightingEnabled && sColourFresnelLightRampEnabled)
+-    {
+-        glTextureBinding lightBinding(GetGameObjectLightTexture());
+-        lightBinding.textureIndex = 0xFFFF;
+-        lightBinding.flags = 0;
+-        lightBinding.SetWrapS(true);
+-        lightBinding.SetWrapT(true);
+-        lightBinding.unknown07 = 0;
+-        glx_BindTexture(4, &lightBinding);
++    if (enabled && ramp)
++    {
++        bindRamp();
+ 
+         numChans = 1;
+         numTexGens = 5;
+         numTevStages = 6;
+-        lightingScale = sColourFresnelDoubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
++        lightingScale = doubleLighting ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
+         gxSetTevOrder(0, 0, 0, 255);
+         gxSetTevOrder(1, 3, 3, 255);
+         gxSetTevOrder(2, 2, 2, 255);
+@@ -112,7 +96,7 @@
+         gxSetTevAlphaIn(4, 7, 7, 7, 0);
+         gxSetTevAlphaIn(5, 7, 7, 7, 0);
+     }
+-    else if (sColourFresnelLightingEnabled)
++    else if (enabled)
+     {
+         SetGameObjectAmbientLightingEnabled(1);
+         numChans = 1;
+@@ -144,7 +128,7 @@
+     {
+         numChans = 0;
+         numTexGens = 1;
+-        sColourFresnelLightCount = 0;
++        lightCount = 0;
+         numTevStages = 1;
+         gxSetTevOrder(0, 0, 0, 255);
+         gxSetTevColourIn(0, 15, 12, 8, 15);
+@@ -155,6 +139,36 @@
+     gxSetNumTexGens(numTexGens);
+     gxSetNumTevStages(numTevStages);
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
++}
++
++template <>
++void GXMaterialProgramImpl<GXColourFresnelMaterialProgram>::Activate(GLView* view)
++{
++    static_cast<GXColourFresnelMaterialProgram*>(this)->ConfigureVertexFormat(true);
++    view->m_Interface->GetViewMatrix(sColourFresnelViewMatrix);
++    sColourFresnelModelMatrix = -1;
++    sColourFresnelBoundTexture = -1;
++    GXLoadTexMtxImm(sColourFresnelLookupMatrix, 67, GX_MTX3x4);
++    gxSetTexCoordGen(3, 0, 1, 30, true, 67);
++
++    if (sColourFresnelLightingEnabled)
++    {
++        sColourFresnelLightCount = GetGameObjectLightCount(0, 1);
++        LoadGameObjectLights(sColourFresnelLightCount, view, 0);
++        SetGameObjectLightingEnabled(1, sColourFresnelLightCount, 0);
++    }
++
++    ConfigureColourFresnelPipelineState(sColourFresnelLightingEnabled,
++        sColourFresnelLightRampEnabled, sColourFresnelDoubleLighting,
++        sColourFresnelLightCount, []() {
++        glTextureBinding lightBinding(GetGameObjectLightTexture());
++        lightBinding.textureIndex = 0xFFFF;
++        lightBinding.flags = 0;
++        lightBinding.SetWrapS(true);
++        lightBinding.SetWrapT(true);
++        lightBinding.unknown07 = 0;
++        glx_BindTexture(4, &lightBinding);
++        });
+ }
+ 
+ template <>
+@@ -265,10 +279,7 @@
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+         }
+-        gxSaveBlendMode();
+-        gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+-        GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K1_A);
+-        gxSetTevAlphaIn(0, 7, 7, 7, 6);
++        glxConfigureMaterialOpacityColourPass(0);
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+@@ -280,3 +291,43 @@
+ 
+     gxSetCurrentMtx(0, true);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectColourFresnelPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXColourFresnelMaterialProgram*>(packet.materialProgram);
++    if (!sRenderColourFresnel)
++        return;
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    const int firstLight = match ? 1 : glxAutomaticLightCount(false, true, false);
++    const int lastLight = match && sColourFresnelLightingEnabled
++        ? glxAutomaticLightCount(false, true, true) : firstLight;
++    for (int lightCount = firstLight; lightCount <= lastLight; ++lightCount)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        gxSetTexCoordGen(3, 0, 1, 30, true, 67);
++        if (sColourFresnelLightingEnabled)
++            SetGameObjectLightingEnabled(1, lightCount, 0);
++        int localCount = lightCount;
++        ConfigureColourFresnelPipelineState(sColourFresnelLightingEnabled,
++            sColourFresnelLightRampEnabled, sColourFresnelDoubleLighting,
++            localCount, []() {});
++        EmitAutomaticMaterialPipeline(packet);
++        if (sColourFresnelLightingEnabled)
++        {
++            if (sColourFresnelAlphaDepthPass)
++            {
++                const bool colourUpdate = gxSetColourUpdate(false);
++                EmitAutomaticMaterialPipeline(packet);
++                gxSetColourUpdate(colourUpdate);
++                gxSetZMode(true, GX_EQUAL, true);
++            }
++            glxConfigureMaterialOpacityColourPass(0);
++            EmitAutomaticMaterialPipeline(packet);
++        }
++    }
++}
++#endif
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+@@ -1,3 +1,7 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
++#include "NL/glx/GXPipelinePreparation.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #else
+@@ -131,105 +135,8 @@
+     glx_LoadSpecular(index + 4, &transformed, &colour, exponent);
+ }
+ 
+-template <>
+-void GXMaterialProgramImpl<GXSkinnedMultiLightMaterialProgram>::Draw(
+-    const glModelPacket* packet)
+-{
+-    static_cast<GXSkinnedMultiLightMaterialProgram*>(this)->BindVertexArrays(packet);
+-    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+-
+-    nlMatrix4 model;
+-    nlMatrix4 modelview;
+-    glGetMatrix(packet->matrix, model);
+-    nlMultMatrices(modelview, model, sSkinnedMultiLightViewMatrix);
+-
+-    int diffuseLightCount = static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->diffuseLightCount;
+-    int specularLightCount = static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->specularLightCount;
+-
+-    glxConfigureSkinnedMultiLightBlend(static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount);
+-    nlFloatColour floatColour = { { static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount,
+-        static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount,
+-        static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount,
+-        static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount } };
+-    GXColor gxColour = gxConvertColour(floatColour);
+-    GXSetTevKColor(GX_KCOLOR0, gxColour);
+-    GXSetTevKColor(GX_KCOLOR1, gxColour);
+-    GXSetTevKColor(GX_KCOLOR2, gxColour);
+-
+-    if (static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->animateNormalTexCoords != 0)
+-    {
+-        Mtx textureMatrix;
+-        Mtx scaleMatrix;
+-        Mtx translationMatrix;
+-        glxCopyMatrix(textureMatrix, modelview);
+-        gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX9);
+-        PSMTXScale(scaleMatrix, 0.5f, -0.5f, 0.0f);
+-        PSMTXTrans(translationMatrix, 0.5f, 0.5f, 1.0f);
+-        PSMTXConcat(scaleMatrix, textureMatrix, textureMatrix);
+-        PSMTXConcat(translationMatrix, textureMatrix, textureMatrix);
+-
+-        float translationScale = 1.0f / (float)sSkinnedMultiLightAnimationFrames;
+-        unsigned long frame = glGetCurrentFrame();
+-        unsigned long frameDiv = frame / sSkinnedMultiLightAnimationFrames;
+-        unsigned long frameMod = frame - frameDiv * sSkinnedMultiLightAnimationFrames;
+-        float translation = translationScale * frameMod;
+-        translation = 2.0f * translation - 1.0f;
+-        textureMatrix[0][2] = translation;
+-        textureMatrix[1][2] = translation;
+-        GXLoadTexMtxImm(textureMatrix, GX_TEXMTX9, GX_MTX3x4);
+-    }
+-    else
+-    {
+-        gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+-    }
+-
+-    GXSkinnedMultiLightParameters* parameters;
+-    if (diffuseLightCount > 0)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialDiffuseLight(0, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-    if (diffuseLightCount > 1)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialDiffuseLight(1, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-    if (diffuseLightCount > 2)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialDiffuseLight(2, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-    if (diffuseLightCount > 3)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialDiffuseLight(3, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-
+-    if (specularLightCount > 0)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialSpecularLight(0, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-    if (specularLightCount > 1)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialSpecularLight(1, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-    if (specularLightCount > 2)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialSpecularLight(2, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-    if (specularLightCount > 3)
+-    {
+-        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
+-        LoadMaterialSpecularLight(3, parameters, sSkinnedMultiLightViewMatrix);
+-    }
+-
+-    static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters)->rampTexture.SetWrapS(true);
+-    static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters)->rampTexture.SetWrapT(true);
+-    static_cast<GXSkinnedMultiLightMaterialProgram*>(this)->BindParameters(packet);
+-
++static void ConfigureSkinnedMultiLightChannels(int diffuseLightCount, int specularLightCount)
++{
+     if (specularLightCount > 0)
+     {
+         gxSetNumChans(2);
+@@ -268,6 +175,117 @@
+         GXSetChanCtrl(GX_COLOR0, false, GX_SRC_REG, GX_SRC_VTX, (GXLightID)(GX_LIGHT0 | GX_LIGHT1 | GX_LIGHT2 | GX_LIGHT3), GX_DF_NONE, GX_AF_NONE);
+     }
+ 
++}
++
++static void ConfigureSkinnedMultiLightTexgen(bool animateNormal)
++{
++    if (animateNormal)
++        gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX9);
++    else
++        gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
++}
++
++template <>
++void GXMaterialProgramImpl<GXSkinnedMultiLightMaterialProgram>::Draw(
++    const glModelPacket* packet)
++{
++    static_cast<GXSkinnedMultiLightMaterialProgram*>(this)->BindVertexArrays(packet);
++    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
++
++    nlMatrix4 model;
++    nlMatrix4 modelview;
++    glGetMatrix(packet->matrix, model);
++    nlMultMatrices(modelview, model, sSkinnedMultiLightViewMatrix);
++
++    int diffuseLightCount = static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->diffuseLightCount;
++    int specularLightCount = static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->specularLightCount;
++
++    glxConfigureSkinnedMultiLightBlend(static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount);
++    nlFloatColour floatColour = { { static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount,
++        static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount,
++        static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount,
++        static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->blendAmount } };
++    GXColor gxColour = gxConvertColour(floatColour);
++    GXSetTevKColor(GX_KCOLOR0, gxColour);
++    GXSetTevKColor(GX_KCOLOR1, gxColour);
++    GXSetTevKColor(GX_KCOLOR2, gxColour);
++
++    if (static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->animateNormalTexCoords != 0)
++    {
++        Mtx textureMatrix;
++        Mtx scaleMatrix;
++        Mtx translationMatrix;
++        glxCopyMatrix(textureMatrix, modelview);
++        ConfigureSkinnedMultiLightTexgen(true);
++        PSMTXScale(scaleMatrix, 0.5f, -0.5f, 0.0f);
++        PSMTXTrans(translationMatrix, 0.5f, 0.5f, 1.0f);
++        PSMTXConcat(scaleMatrix, textureMatrix, textureMatrix);
++        PSMTXConcat(translationMatrix, textureMatrix, textureMatrix);
++
++        float translationScale = 1.0f / (float)sSkinnedMultiLightAnimationFrames;
++        unsigned long frame = glGetCurrentFrame();
++        unsigned long frameDiv = frame / sSkinnedMultiLightAnimationFrames;
++        unsigned long frameMod = frame - frameDiv * sSkinnedMultiLightAnimationFrames;
++        float translation = translationScale * frameMod;
++        translation = 2.0f * translation - 1.0f;
++        textureMatrix[0][2] = translation;
++        textureMatrix[1][2] = translation;
++        GXLoadTexMtxImm(textureMatrix, GX_TEXMTX9, GX_MTX3x4);
++    }
++    else
++    {
++        ConfigureSkinnedMultiLightTexgen(false);
++    }
++
++    GXSkinnedMultiLightParameters* parameters;
++    if (diffuseLightCount > 0)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialDiffuseLight(0, parameters, sSkinnedMultiLightViewMatrix);
++    }
++    if (diffuseLightCount > 1)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialDiffuseLight(1, parameters, sSkinnedMultiLightViewMatrix);
++    }
++    if (diffuseLightCount > 2)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialDiffuseLight(2, parameters, sSkinnedMultiLightViewMatrix);
++    }
++    if (diffuseLightCount > 3)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialDiffuseLight(3, parameters, sSkinnedMultiLightViewMatrix);
++    }
++
++    if (specularLightCount > 0)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialSpecularLight(0, parameters, sSkinnedMultiLightViewMatrix);
++    }
++    if (specularLightCount > 1)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialSpecularLight(1, parameters, sSkinnedMultiLightViewMatrix);
++    }
++    if (specularLightCount > 2)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialSpecularLight(2, parameters, sSkinnedMultiLightViewMatrix);
++    }
++    if (specularLightCount > 3)
++    {
++        parameters = static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters);
++        LoadMaterialSpecularLight(3, parameters, sSkinnedMultiLightViewMatrix);
++    }
++
++    static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters)->rampTexture.SetWrapS(true);
++    static_cast<GXSkinnedMultiLightParameters*>(packet->materialParameters)->rampTexture.SetWrapT(true);
++    static_cast<GXSkinnedMultiLightMaterialProgram*>(this)->BindParameters(packet);
++
++    ConfigureSkinnedMultiLightChannels(diffuseLightCount, specularLightCount);
++
+     if (packet->skinnedVertices == 0)
+     {
+         glx_LoadSkinMatrices(static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSkinnedMultiLightParameters*>(packet->materialParameters)->skinMatrixBytes / 48, &modelview, 0);
+@@ -280,3 +298,31 @@
+     GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+     gxSetCurrentMtx(0, true);
+ }
++
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++void glxCollectSkinnedMultiLightPipelineVariants(const glModelPacket& packet)
++{
++    using namespace mscharged::platform;
++    auto* program = static_cast<GXSkinnedMultiLightMaterialProgram*>(packet.materialProgram);
++    const auto& params = *static_cast<const GXSkinnedMultiLightParameters*>(packet.materialParameters);
++    const bool match = AutomaticGraphicsPreparationForMatch();
++    for (int diffuse = match ? 0 : params.diffuseLightCount;
++         diffuse <= (match ? 4 : params.diffuseLightCount); ++diffuse)
++    for (int specular = match ? 0 : params.specularLightCount;
++         specular <= (match ? 4 : params.specularLightCount); ++specular)
++    for (int blend = match ? 0 : (params.blendAmount >= 0.999f);
++         blend <= (match ? 1 : (params.blendAmount >= 0.999f)); ++blend)
++    for (int animateNormal = match ? 0 : (params.animateNormalTexCoords != 0);
++         animateNormal <= (match ? 1 : (params.animateNormalTexCoords != 0)); ++animateNormal)
++    {
++        BeginAutomaticMaterialVariant(packet);
++        program->ConfigureVertexFormat(true);
++        program->BindVertexArrays(&packet);
++        GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
++        glxConfigureSkinnedMultiLightBlend(blend ? 1.0f : 0.0f);
++        ConfigureSkinnedMultiLightTexgen(animateNormal != 0);
++        ConfigureSkinnedMultiLightChannels(diffuse, specular);
++        EmitAutomaticMaterialPipeline(packet);
++    }
++}
++#endif

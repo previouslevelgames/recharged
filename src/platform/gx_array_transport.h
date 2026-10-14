@@ -4,6 +4,9 @@
 #include <dolphin/gx/GXGeometry.h>
 #include <limits>
 #include <stdexcept>
+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
+#include "platform/automatic_pipeline_prewarm.h"
+#endif
 
 namespace mscharged::platform
 {
@@ -11,6 +14,9 @@ namespace mscharged::platform
 // host API additionally requires a genuinely owned completed extent/endian.
 inline void SetGameGraphicsArray(GXAttr attribute, const void* data, u8 stride)
 {
+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
+    if (RecordAutomaticGraphicsArray(attribute, data, stride)) return;
+#endif
     const auto span = ResolveGameGraphicsArray(data);
     if (span.bytes > std::numeric_limits<u32>::max())
         throw std::invalid_argument("Actual GX array extent exceeds the native SDK u32 size ABI");

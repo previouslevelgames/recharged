@@ -1,0 +1,218 @@
+From: mscharged-port
+Subject: Add opt-in pipeline preparation coverage tracing
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -19,6 +19,8 @@
+ #include <deque>
+ #include <filesystem>
+ #include <functional>
++#include <fstream>
++#include <cstdlib>
+ #include <limits>
+ #include <mutex>
+ #include <optional>
+@@ -106,6 +108,60 @@
+ static uint64_t g_demandHits = 0;
+ static uint64_t g_demandMisses = 0;
+ static uint64_t g_demandWaitNanoseconds = 0;
++static uint64_t g_pipelineGeneration = 0; // protected by g_pipelineMutex
++
++// Explicit forensic opt-in: AURORA_PIPELINE_TRACE is a UTF-8 output file path.
++// Text contains keys/metadata only; full config values remain in pipeline_cache.db.
++// The independent trace lock never encloses pipeline-cache or driver operations.
++static std::atomic_bool g_pipelineTraceEnabled = false;
++static std::mutex g_pipelineTraceMutex;
++static std::ofstream g_pipelineTraceFile;
++
++template <typename... Args>
++static void pipeline_trace(fmt::format_string<Args...> format, Args&&... args) noexcept {
++  if (!g_pipelineTraceEnabled.load(std::memory_order_relaxed)) return;
++  try {
++    std::lock_guard lock{g_pipelineTraceMutex};
++    g_pipelineTraceFile << fmt::format(format, std::forward<Args>(args)...) << '\n';
++    g_pipelineTraceFile.flush(); // preserve evidence if a child exits abnormally
++    if (!g_pipelineTraceFile) g_pipelineTraceEnabled = false;
++  } catch (...) {
++    g_pipelineTraceEnabled = false; // diagnostics must never change game behavior
++  }
++}
++
++static void initialize_pipeline_trace() noexcept {
++  const char* path = std::getenv("AURORA_PIPELINE_TRACE");
++  if (!path || !*path) return;
++  try {
++    std::lock_guard lock{g_pipelineTraceMutex};
++    g_pipelineTraceFile.clear();
++    g_pipelineTraceFile.open(io::fs_path_from_string(path), std::ios::out | std::ios::app);
++    g_pipelineTraceEnabled = static_cast<bool>(g_pipelineTraceFile);
++  } catch (...) {
++    g_pipelineTraceEnabled = false;
++  }
++  if (!g_pipelineTraceEnabled) {
++    Log.warn("Cannot open requested pipeline trace file '{}'; tracing disabled", path);
++  }
++  pipeline_trace("event=session backend={} automatic={}", static_cast<uint32_t>(webgpu::g_backendType),
++                 g_config.automaticPipelinePreparation);
++}
++
++static void shutdown_pipeline_trace() noexcept {
++  g_pipelineTraceEnabled = false;
++  try {
++    std::lock_guard lock{g_pipelineTraceMutex};
++    g_pipelineTraceFile.close();
++  } catch (...) {}
++}
++
++struct PipelineTraceIdentity {
++  ShaderType type;
++  HashType configKey;
++  uint32_t version;
++  uint64_t layoutKey;
++};
+ 
+ static sqlite3* g_pipelineCacheDb = nullptr;
+ static sqlite3_stmt* g_pipelineCacheLoadStmt = nullptr;
+@@ -492,6 +548,7 @@
+ }
+ 
+ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallback&& cb,
++                                      const PipelineTraceIdentity& identity,
+                                       PipelinePriority priority = PipelinePriority::Normal) {
+   ZoneScoped;
+ 
+@@ -502,10 +559,16 @@
+   uint32_t pipelineCount = 0;
+   bool queued = false;
+   bool demandMiss = false;
++  bool previouslyPending = false;
++  bool scheduled = false;
++  uint64_t generation = 0;
++  const auto traceFrame = g_pipelineTraceEnabled ? current_frame() : 0;
+   std::chrono::steady_clock::time_point demandStart{};
+   {
+     std::scoped_lock guard{g_pipelineMutex};
+     auto pipelineIt = g_pipelines.find(runtimeKey);
++    generation = g_pipelineGeneration;
++    previouslyPending = g_pendingPipelines.contains(runtimeKey);
+     if (blocking) {
+       if (pipelineIt != g_pipelines.end()) {
+         ++g_demandHits;
+@@ -561,9 +624,17 @@
+         break;
+       }
+       g_pendingPipelines.insert(runtimeKey);
++      scheduled = true;
+       ++queuedPipelines;
+       notifyWorker = true;
+     }
++  }
++
++  if (priority == PipelinePriority::Background) {
++    pipeline_trace("event=prepared generation={} frame={} type={} version={} config={:016x} runtime={:016x} "
++                   "layout={:016x} state={}", generation, traceFrame, static_cast<uint32_t>(identity.type),
++                   identity.version, identity.configKey, runtimeKey, identity.layoutKey,
++                   pipelineReady ? "ready" : (scheduled ? "queued" : "pending"));
+   }
+ 
+   if (createdPipeline) {
+@@ -581,31 +652,42 @@
+   if (demandMiss) {
+     const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+         std::chrono::steady_clock::now() - demandStart).count();
+-    std::lock_guard lock{g_pipelineMutex};
+-    g_demandWaitNanoseconds += static_cast<uint64_t>(elapsed);
++    {
++      std::lock_guard lock{g_pipelineMutex};
++      g_demandWaitNanoseconds += static_cast<uint64_t>(elapsed);
++    }
++    pipeline_trace("event=demand-miss generation={} frame={} type={} version={} config={:016x} runtime={:016x} "
++                   "layout={:016x} prequeued={} wait_ns={}", generation, traceFrame,
++                   static_cast<uint32_t>(identity.type), identity.version, identity.configKey,
++                   runtimeKey, identity.layoutKey, previouslyPending, elapsed);
+   }
+   return runtimeKey;
+ }
+ 
+ static PipelineRef resolve_pipeline(ShaderType type, const gx::PipelineConfig& config, const RenderTargetLayout& layout,
+                                     PipelinePriority priority) {
+-  const auto runtimeKey = xxh3_hash(layout.key, xxh3_hash(config, static_cast<HashType>(type)));
+-  return find_pipeline_impl(runtimeKey, [config, layout] { return create_pipeline(config, layout); }, priority);
++  const auto configKey = xxh3_hash(config, static_cast<HashType>(type));
++  const auto runtimeKey = xxh3_hash(layout.key, configKey);
++  return find_pipeline_impl(runtimeKey, [config, layout] { return create_pipeline(config, layout); },
++                            {type, configKey, config.version, layout.key}, priority);
+ }
+ 
+ static PipelineRef resolve_pipeline(ShaderType type, const clear::PipelineConfig& config,
+                                     const RenderTargetLayout& layout, PipelinePriority priority) {
+-  const auto runtimeKey = xxh3_hash(layout.key, xxh3_hash(config, static_cast<HashType>(type)));
++  const auto configKey = xxh3_hash(config, static_cast<HashType>(type));
++  const auto runtimeKey = xxh3_hash(layout.key, configKey);
+   return find_pipeline_impl(
+-      runtimeKey, [config, layout] { return CompiledPipeline{.main = create_pipeline(config, layout)}; }, priority);
++      runtimeKey, [config, layout] { return CompiledPipeline{.main = create_pipeline(config, layout)}; },
++      {type, configKey, config.version, layout.key}, priority);
+ }
+ 
+ #ifdef AURORA_ENABLE_RMLUI
+ static PipelineRef resolve_pipeline(ShaderType type, const rmlui::PipelineConfig& config, const RenderTargetLayout&,
+                                     PipelinePriority priority) {
++  const auto configKey = xxh3_hash(config, static_cast<HashType>(type));
+   return find_pipeline_impl(
+-      xxh3_hash(config, static_cast<HashType>(type)),
+-      [config] { return CompiledPipeline{.main = rmlui::create_pipeline(config)}; }, priority);
++      configKey, [config] { return CompiledPipeline{.main = rmlui::create_pipeline(config)}; },
++      {type, configKey, config.version, 0}, priority);
+ }
+ #endif
+ 
+@@ -1267,10 +1349,18 @@
+ }
+ 
+ bool begin_pipeline_generation() {
+-  std::lock_guard lock{g_pipelineMutex};
+-  if (!g_config.automaticPipelinePreparation || !g_pipelineCacheInitialized ||
+-      g_pipelineDiscoveryOpen || g_pipelineCacheScheduling || g_pipelineThreadEnd) return false;
+-  g_activePipelineConfigs.clear();
++  uint64_t generation;
++  size_t previousConfigs;
++  {
++    std::lock_guard lock{g_pipelineMutex};
++    if (!g_config.automaticPipelinePreparation || !g_pipelineCacheInitialized ||
++        g_pipelineDiscoveryOpen || g_pipelineCacheScheduling || g_pipelineThreadEnd) return false;
++    previousConfigs = g_activePipelineConfigs.size();
++    g_activePipelineConfigs.clear();
++    generation = ++g_pipelineGeneration;
++  }
++  pipeline_trace("event=generation-reset generation={} frame={} previous_configs={}",
++                 generation, current_frame(), previousConfigs);
+   return true;
+ }
+ 
+@@ -1304,6 +1394,7 @@
+ }
+ 
+ void initialize_pipeline_cache() {
++  initialize_pipeline_trace();
+   g_pipelineDiscoveryOpen = false;
+   g_pipelineCacheBroken = false;
+   g_pipelineCacheWriterStop = false;
+@@ -1311,6 +1402,7 @@
+   {
+     std::lock_guard lock{g_pipelineMutex};
+     g_pipelineCacheInitialized = false;
++    g_pipelineGeneration = 0;
+     g_pipelineDiscoveryOpen = false;
+     g_gpuCachePrunePending = false;
+     g_gpuCachePruning = false;
+@@ -1380,6 +1472,8 @@
+ 
+   queuedPipelines = 0;
+   createdPipelines = 0;
++  pipeline_trace("event=shutdown");
++  shutdown_pipeline_trace();
+ }
+ 
+ void begin_pipeline_frame() {
