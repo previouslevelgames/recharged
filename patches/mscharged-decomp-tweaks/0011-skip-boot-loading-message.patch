@@ -1,0 +1,33 @@
+Subject: Port: start without the boot loading message
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+A presentation change of the port, always on and without a switch (owner
+decision, 2026-10-14). It lives in the tweak series so the faithful series
+stays retail.
+
+Right after glStartup, original main calls DisplayLoadingMessageFast
+(LidOpenMessage.cpp). It turns the video output black, pokes the localized
+128x32 one-bit "Loading" bitmap into both external frame buffers and shows it
+until the boot scene's first frame. On a desktop display those are a few large
+white pixels on black, right after the port's graphics preparation screen.
+Main now skips that call. The output stays black, and the boot scene's first
+swap turns it on, as glxSwap already does after every black interval. The disc
+error messages in the same file are unchanged.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -559,7 +559,13 @@
+ #endif // DVD/reset registration remains outside this selected loading gate
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE) \
+     || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_INITIAL_LOADING_MESSAGE))
++#if defined(MSCHARGED_TWEAKS)
++    // Port change, always on: no "Loading" bitmap between the port's graphics
++    // preparation and the boot scene. The output stays black until the boot
++    // scene's first swap turns it on (glxSwap).
++    if (false)
++#endif
+     DisplayLoadingMessageFast();
+ #endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     InitializeODEAllocators();

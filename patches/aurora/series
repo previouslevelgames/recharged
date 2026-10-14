@@ -97,3 +97,4 @@
 0101-trace-automatic-pipeline-coverage.patch
 0102-learn-resource-pipeline-scopes.patch
 0103-canonicalize-identity-texture-generators.patch
+0104-forget-resource-discovered-pipelines.patch

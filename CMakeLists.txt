@@ -381,3 +381,5 @@ message(STATUS "Configured development tools (launcher: ${MSCHARGED_BUILD_LAUNCH
 include(cmake/OriginalSourceWarnings.cmake)
 mscharged_apply_gnu_original_warning_policy()
 mscharged_apply_macos_original_warning_policy()
+include(cmake/GameModulePortOptimization.cmake)
+mscharged_optimize_game_module_port_sources()

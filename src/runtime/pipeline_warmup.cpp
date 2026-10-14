@@ -21,8 +21,11 @@
 
 namespace mscharged::runtime {
 namespace {
+enum class Finish { Done, Closed, TargetsChanged };
+
 struct WarmupHost {
     GraphicsLoadingView view;
+    std::chrono::steady_clock::time_point next{};
     explicit WarmupHost(const std::filesystem::path& font) : view(font) {}
     detail::PipelineWarmupEvents PollEvents()
     {
@@ -37,14 +40,28 @@ struct WarmupHost {
 
     void Prepare() { aurora_prepare_pipelines(); }
     AuroraPipelineWarmupStatus Status() { return aurora_pipeline_warmup_status(); }
+    void Draw(const AuroraPipelineWarmupStatus& status) { view.Draw(status); }
 
-    void Draw(const AuroraPipelineWarmupStatus& status)
+    // About 60 frames per second; the compiler worker keeps the rest.
+    void Pause()
     {
-        const auto size = aurora_get_window_size();
-        view.Draw(size.native_fb_width, size.native_fb_height, "Preparing graphics", status, false);
+        const auto now = std::chrono::steady_clock::now();
+        next = std::max(now, next + std::chrono::microseconds(16667));
+        std::this_thread::sleep_until(next);
     }
 
-    void Pause() { std::this_thread::sleep_for(std::chrono::milliseconds(16)); }
+    // Completes the bar and fades out, ending on the black the game starts
+    // from: a single black frame when nothing was shown.
+    Finish FinishView()
+    {
+        for (;;) {
+            const auto events = PollEvents();
+            if (events.closeRequested) return Finish::Closed;
+            if (events.targetsChanged) return Finish::TargetsChanged;
+            if (!view.DrawFinished()) return Finish::Done;
+            Pause();
+        }
+    }
 };
 } // namespace
 
@@ -65,7 +82,16 @@ bool PrepareGraphicsForGame(const std::filesystem::path& font)
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     WarmupHost host(font);
-    const auto result = detail::RunPipelineWarmup(host);
+    auto result = detail::RunPipelineWarmup(host);
+    auto ready = std::chrono::steady_clock::now();
+    // A resize during the fade-out prepares the new targets first.
+    while (result == detail::PipelineWarmupResult::Ready) {
+        const auto finish = host.FinishView();
+        if (finish == Finish::Done) break;
+        result = finish == Finish::Closed ? detail::PipelineWarmupResult::Cancelled
+                                          : detail::RunPipelineWarmup(host);
+        ready = std::chrono::steady_clock::now();
+    }
     // Retire all startup draws before original GX acquires its FIFO and EFB.
     aurora::gfx::synchronize();
     if (result == detail::PipelineWarmupResult::Cancelled) {
@@ -75,8 +101,7 @@ bool PrepareGraphicsForGame(const std::filesystem::path& font)
     if (result == detail::PipelineWarmupResult::Failed)
         throw std::runtime_error("Graphics preparation failed; see the session log for the graphics error");
     const auto status = host.Status();
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - started).count();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(ready - started).count();
     platform::SessionLogLine("Startup: graphics ready, " + std::to_string(status.readyPipelines) +
         " pipelines from " + std::to_string(status.knownConfigs) + " configurations in " +
         std::to_string(elapsed) + " ms");

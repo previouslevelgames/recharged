@@ -142,11 +142,15 @@ shake_nunchuk = Q
 # unlock_all: all characters, stadiums and cheats; the save is not changed.
 # cpu_vs_cpu: in Domination, Done on Choose Sides also works with no side
 # picked; the CPU then plays both teams (from the pause menu too).
+# fast_terrain: every stadium plays like Bowser Stadium's fast, dry field
+# (speed, ball roll and bounce; no sliding, no slow sand in the Sand Tomb);
+# looks and hazards stay, online matches unchanged.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
 unlock_all = false
 cpu_vs_cpu = false
+fast_terrain = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU

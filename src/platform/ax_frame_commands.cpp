@@ -245,7 +245,10 @@ NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     std::vector<unsigned char> pcm(384);
     for(unsigned i=0;i<192;++i)PutHalf(pcm.data()+i*2,std::uint16_t(packed[i]));
     Stage(f,memory,Address(output,3),std::move(pcm));
-    ValidateNativeAXCommandCommit(memory,f,history);return f;
+    // CommitNativeAXCommandFrame runs the whole-frame validation before it
+    // writes anything; checking the same snapshot here as well doubled the
+    // per-frame audio cost without guarding any write.
+    return f;
 }
 NativeAXPreparedCommandFrame PrepareNativeAXCommandFrame(
     NativeDSPMemoryEndpoint memory,std::uint32_t address,std::size_t bytes,

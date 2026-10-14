@@ -52,7 +52,6 @@
 #include "credits_movie_hardware.h"
 #include "runtime/fps_overlay.h"
 #include "runtime/pipeline_warmup.h"
-#include "runtime/graphics_loading_view.h"
 #include "runtime/frame_rate.h"
 #include "runtime/frame_timing_log.h"
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -354,7 +353,6 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         config.userPath=config.cachePath=dataPath.c_str();
         const auto graphicsResourcesPath=mscharged::PathUtf8(executableDirectory/"assets"/"graphics");
         config.resourcesPath=graphicsResourcesPath.c_str();
-        config.automaticPipelinePreparation=frontend;
         const auto& graphics=mscharged::ResolveGraphicsBackend(launch.settings.backend);
         config.desiredBackend=mscharged::platform::AuroraGraphicsBackend(graphics.backend);
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
@@ -737,14 +735,6 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             fpsOverlay.emplace(executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf",
                 mscharged::runtime::ParseOverlayCorner(launch.settings.fps_overlay_corner)
                     .value_or(mscharged::runtime::OverlayCorner::TopRight));
-        mscharged::runtime::GraphicsLoadingView graphicsLoading(
-            executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf");
-        auto graphicsPending=reinterpret_cast<bool(*)()>(
-            mscharged::platform::FindNativeModuleSymbol(module,"charged_graphics_preparation_pending"));
-        auto graphicsLabel=reinterpret_cast<const char*(*)()>(
-            mscharged::platform::FindNativeModuleSymbol(module,"charged_graphics_preparation_label"));
-        Check(!frontend || (graphicsPending && graphicsLabel),
-              "Original frontend graphics preparation hooks are missing");
         // The persisted launcher toggle is authoritative; recordings always
         // live beside this executable, independently of the working directory.
         const auto frameTiming=mscharged::runtime::FrameTimingLog::FromSettings(
@@ -775,17 +765,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             const auto now=std::chrono::steady_clock::now();
             if(fpsOverlay)
                 if(const auto rate=frameRate.Sample(frames,now)) fpsOverlay->SetRate(*rate);
-            if(nativeSend && graphicsPending && graphicsPending()) {
+            if(fpsOverlay) {
                 const auto size=aurora_get_window_size();
-                graphicsLoading.Draw(size.native_fb_width,size.native_fb_height,
-                    graphicsLabel ? graphicsLabel() : "Preparing graphics",
-                    aurora_pipeline_warmup_status(),true);
-            } else {
-                if(graphicsLoading.Hide() && fpsOverlay) fpsOverlay->Invalidate();
-                if(fpsOverlay) {
-                    const auto size=aurora_get_window_size();
-                    fpsOverlay->Update(size.native_fb_width,size.native_fb_height);
-                }
+                fpsOverlay->Update(size.native_fb_width,size.native_fb_height);
             }
             Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {

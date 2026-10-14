@@ -39,7 +39,9 @@ unless their tweak is enabled; a fix is always on there and has no switch
 overlay's texture, which the disc keeps only in an unused debug bundle, is
 loaded, issue #33; 0010: a ball lost by an intangible player gets its player
 and goalie collisions back, and the goalie no longer takes the ball from an
-intangible teammate, issue #38). Every other target compiles the original code. The game module receives the enabled set from the
+intangible teammate, issue #38). 0011, an owner-approved presentation change,
+is always on as well: main skips the original "Loading" bitmap shown between
+the port's graphics preparation and the boot scene. Every other target compiles the original code. The game module receives the enabled set from the
 host before original main (`src/platform/game_tweaks.cpp`). Keep these patches
 apart from the faithful series and refresh them on every pin update.
 

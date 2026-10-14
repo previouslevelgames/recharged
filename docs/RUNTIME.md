@@ -14,21 +14,17 @@ next game launch (`display.backend = vulkan` or `d3d12` in the INI). Existing
 switching APIs. Keep the three shader compiler DLLs included in the Windows ZIP
 beside `mscharged.exe`.
 
-Graphics preparation discovers drawing and effect variants from the original
-resources as they load. Startup prepares the frontend; selecting teams and a
-stadium prepares their match resources on the background compiler worker.
-**Preparing graphics** and **Preparing match** keep the loading screen visible
-until the queued pipelines are ready. No captured gameplay catalogue is required.
+Before the game starts, **Preparing graphics** builds every drawing and effect
+pipeline the game has used on this PC, for the selected graphics API and GPU.
+Nothing is prepared once the game runs: a pipeline the game has not used before
+compiles when it is first drawn, which can cause a brief stutter, and is
+prepared from the next launch on. Driver, GPU or renderer changes may require
+compilation again.
 
-Each graphics API retains its own compatible compiled data across launches and
-matches, including when switching away from that API and back.
-Variants first encountered during play are also learned for the loaded resource
-selection and queued during its next preparation. A previously unseen variant
-can still compile on its first use. The first preparation can take longer;
-driver, GPU or renderer changes may require compilation again. The session log
-records loading-gate time and pipeline cache hits, misses and time spent
-resolving misses. This targets compilation hitches; resource loading and other
-causes of frame-time spikes are separate.
+Each graphics API retains its own compatible compiled data across launches,
+including when switching away from that API and back. The session log records
+the preparation time and pipeline cache hits, misses and time spent resolving
+misses.
 
 Install the [build prerequisites](BUILDING.md#requirements), then initialize the
 required pinned sources from the repository root:
@@ -163,8 +159,9 @@ adjacent `.csv.summary.txt` reports the distribution and longest frames.
 logging failures are reported in the session log. The old `MSCHARGED_FRAME_LOG`
 environment variable no longer enables logging or selects its output path.
 
-The same card includes **Clear shader cache**, which removes cached shaders and
-learned variants for all graphics APIs. The next launch prepares them again.
+The same card includes **Clear shader cache**, which removes compiled shaders and
+the list of known pipelines for all graphics APIs. The game compiles them again
+as it uses them.
 Clearing is refused while a game is using the cache. Saves, settings and frame
 recordings are kept.
 

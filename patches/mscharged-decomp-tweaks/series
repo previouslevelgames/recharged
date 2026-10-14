@@ -7,3 +7,5 @@
 0008-tweak-cpu-vs-cpu.patch
 0009-fix-electrocution-texture.patch
 0010-fix-nk-bug.patch
+0011-skip-boot-loading-message.patch
+0012-tweak-fast-terrain.patch

@@ -1,0 +1,79 @@
+Subject: Tweak: fast terrain
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+Each stadium names one of six terrain profiles (StadiumInfo, read by
+InitializeGameTweaks once per match): ini/Terrain/DryTerrain.ini,
+NormalTerrain, SlowTerrain, WetTerrain, SlipperyTerrain or ThunderTerrain.
+A profile's four values (Speed, Slipperyness, Friction, Bounce) hold for the
+whole field, and everything that reads them follows: the players' running
+speed and sliding, the ball's rolling friction, the ball's and shells'
+bounce and the Chain Chomp item's speed. The Sand Tomb's field is dry, but
+its weather lays eight permanent sand patches over the outer sand at
+kickoff; a player inside one runs and moves at 0.6 times the speed (the
+gooey state that Petey's muck holes also cause, with sand values).
+
+With "Fast terrain" enabled, every stadium loads the dry profile, which
+Bowser Stadium, Crystal Canyon, Lava Pit, the Sand Tomb and the tutorial
+field use: the highest player speed and no sliding. The Sand Tomb creates no
+sand patches, so its sand runs like its stone centre (issue #43). Online
+matches keep the original ground. The stadium's surface name (cement, sand,
+ice...), which selects its particle effects, its other hazards (Thwomps,
+lava, lightning), tilt and wind, and the muck holes of Petey's Super
+Ability are left alone.
+
+diff --git a/src/Game/GameTweaksManager.cpp b/src/Game/GameTweaksManager.cpp
+index 842ab79..2885bfc 100644
+--- a/src/Game/GameTweaksManager.cpp
++++ b/src/Game/GameTweaksManager.cpp
+@@ -5,6 +5,7 @@
+ #include "Game/TweakFileLoader.h"
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/DB/StadiumInfo.h"
++#include "mscharged_tweaks.h"
+ #include "NL/nlConfig.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+@@ -24,6 +25,15 @@ void InitializeGameTweaks(GameTweaksManager* state)
+ 
+     int stadium = GameInfoManager::Instance()->GetStadium();
+     int terrain = GetStadiumUnknown0x08(stadium);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fast terrain": every stadium gets the dry terrain profile
++    // (ini/Terrain/DryTerrain.ini, as in Bowser Stadium): its field speed,
++    // slide, ball friction and bounce. Online matches keep the stadium's own.
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_FAST_TERRAIN) && !GameInfoManager::Instance()->IsOnline())
++    {
++        terrain = 0;
++    }
++#endif
+     state->mTerrainType = terrain;
+ 
+     char terrainName[100];
+diff --git a/src/Game/Weather.cpp b/src/Game/Weather.cpp
+index ffa8e47..e28986f 100644
+--- a/src/Game/Weather.cpp
++++ b/src/Game/Weather.cpp
+@@ -36,6 +36,7 @@
+ #include "Game/DebugWriteCache.h"
+ #include "Game/Game.h"
+ #include "Game/GameInfo.h"
++#include "mscharged_tweaks.h"
+ #include "NL/nlMath.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlFunctionMemory.h"
+@@ -1629,6 +1630,15 @@ void SandTombWeather::Stop(bool initialize)
+ 
+ void SandTombWeather::CreateSandPatches()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fast terrain": no sand patches, so the Sand Tomb's sand
++    // slows nobody down. As the tweak never creates them, none need removing.
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_FAST_TERRAIN) && !GameInfoManager::Instance()->IsOnline())
++    {
++        m_bSandPatchesCreated = true;
++        return;
++    }
++#endif
+     if (lbl_806E12C8)
+     {
+         for (int i = 0; i < 60; i++)

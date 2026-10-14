@@ -1,0 +1,23 @@
+From: mscharged-port
+Subject: Forget pipeline configurations recorded by resource discovery
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+1.0.9 development builds recorded every pipeline configuration that resource
+discovery derived from loaded menus and matches: more than 10,000 for a single
+match, most of which the game never draws. The port now prepares every known
+configuration before the game starts, so these records would add seconds to
+each launch. A new configuration version drops them, and configurations are
+learned from real draws again. The compiled-pipeline cache is kept, so known
+pipelines are not compiled again.
+
+--- a/lib/gx/pipeline.hpp
++++ b/lib/gx/pipeline.hpp
+@@ -20,7 +20,7 @@
+   uint64_t receiptTag;
+ };
+ 
+-constexpr uint32_t GXPipelineConfigVersion = 15;
++constexpr uint32_t GXPipelineConfigVersion = 16;
+ struct PipelineConfig {
+   uint32_t version = GXPipelineConfigVersion;
+   uint32_t msaaSamples = 1; // deprecated

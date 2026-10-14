@@ -2,40 +2,44 @@
 
 #include <aurora/pipeline_cache.h>
 #include <chrono>
-#include <cstdint>
 #include <filesystem>
-#include <string>
 #include <vector>
 
 struct ImFont;
 
 namespace mscharged::runtime {
 
-// Presentation only. Native mode publishes an overlay through the existing VI
-// presenter; it never starts a diagnostic GX frame or advances the game.
+// The graphics preparation screen shown before the game starts: a label and
+// percentage over a thin progress bar, centred on black. It fades in only when
+// preparation takes longer than a moment and fades out to the black the game
+// starts from. Presentation only: Aurora frames before original GX exists.
 class GraphicsLoadingView {
 public:
     explicit GraphicsLoadingView(const std::filesystem::path& font);
-    void Draw(std::uint32_t width, std::uint32_t height, const char* label,
-              const AuroraPipelineWarmupStatus& status, bool native);
-    // Returns true when an overlay was retired. Other overlay owners must then
-    // rebuild their fonts, because ImGui has one shared atlas.
-    bool Hide();
+    // One frame while the renderer prepares pipelines.
+    void Draw(const AuroraPipelineWarmupStatus& status);
+    // One frame after preparation: completes the bar, then fades out. Returns
+    // false once a black frame has been presented and nothing remains shown.
+    bool DrawFinished();
 
 private:
-    void BuildFonts(float scale, float density);
+    using Clock = std::chrono::steady_clock;
+    void Frame(bool finished, const AuroraPipelineWarmupStatus* status);
+    void BuildFont(float size, float density);
+
     std::vector<unsigned char> fontData_;
-    ImFont* title_ = nullptr;
-    ImFont* body_ = nullptr;
-    ImFont* caption_ = nullptr;
-    float fontScale_ = 0;
+    ImFont* font_ = nullptr;
+    float fontSize_ = 0;
     float fontDensity_ = 0;
-    float fraction_ = 0;
-    bool active_ = false;
-    bool native_ = false;
-    std::string label_;
-    std::chrono::steady_clock::time_point last_{};
-    std::chrono::steady_clock::time_point started_{};
+    bool started_ = false;
+    Clock::time_point start_{};
+    Clock::time_point last_{};
+    Clock::time_point finishStart_{};
+    bool finishing_ = false;
+    bool determinate_ = false;
+    float target_ = 0;    // ready share of the known total
+    float progress_ = 0;  // displayed share, eased and never decreasing
+    float opacity_ = 0;   // of everything drawn over the black background
 };
 
 } // namespace mscharged::runtime

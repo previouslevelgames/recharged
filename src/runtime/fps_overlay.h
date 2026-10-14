@@ -28,7 +28,6 @@ public:
 
     // A new measurement, in frames per second.
     void SetRate(double rate);
-    void Invalidate() { builtSize_ = 0; shownWidth_ = 0; }
     // Rebuild only when a displayed value or the window's pixel size changes.
     // Unknown measurements show N/A, including during the first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height);

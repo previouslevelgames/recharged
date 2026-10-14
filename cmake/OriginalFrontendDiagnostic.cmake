@@ -122,30 +122,12 @@ function(mscharged_add_original_frontend_diagnostic)
     # same original sources keeps their original code unchanged.
     target_compile_definitions(mscharged_original_frontend_module PRIVATE MSCHARGED_TWEAKS=1)
     target_sources(mscharged_original_frontend_module PRIVATE src/platform/game_tweaks.cpp)
-    # Native graphics preparation consumes the original loaded resources and
-    # shared material state; compiler workers receive copied pipeline values.
-    target_compile_definitions(mscharged_original_frontend_module PRIVATE MSCHARGED_AUTOMATIC_PREWARM=1)
-    target_sources(mscharged_original_frontend_module PRIVATE
-        src/platform/automatic_pipeline_prewarm.cpp
-        src/platform/automatic_pipeline_fixed.cpp
-        src/platform/automatic_pipeline_dynamic.cpp
-        src/platform/automatic_pipeline_resources.cpp)
-    # Extend the last selected export map: reduced diagnostic configurations
-    # must not promise SH/audio/boot symbols whose owners were not selected.
-    # Visibility attributes alone do not export these hooks through the lists.
-    get_target_property(_frontend_base_exports mscharged_original_frontend_module
-        MSCHARGED_ORIGINAL_EXPORT_MAP)
-    if(NOT _frontend_base_exports)
-        message(FATAL_ERROR "Original frontend has no selected module export map")
-    endif()
-    file(READ "${_frontend_base_exports}" _frontend_exports)
-    string(REPLACE "local:"
-        "charged_graphics_preparation_pending; charged_graphics_preparation_label;\n  local:"
-        _frontend_exports "${_frontend_exports}")
-    set(_frontend_export_map "${CMAKE_CURRENT_BINARY_DIR}/mscharged_original_frontend.exports.map")
-    file(CONFIGURE OUTPUT "${_frontend_export_map}" CONTENT "${_frontend_exports}" @ONLY)
-    mscharged_set_original_module_exports(mscharged_original_frontend_module
-        "${_frontend_export_map}")
+    # Graphics preparation happens only before the game starts (all known
+    # pipelines, runtime/pipeline_warmup.cpp). The resource-driven variant
+    # (MSCHARGED_AUTOMATIC_PREWARM, src/platform/automatic_pipeline_*.cpp,
+    # decomp patches 0705-0713) stays off: its loading gates stopped menus and
+    # matches until compilation finished, and holding frontend models back left
+    # their impostors unset while scene scripts animated them (a crash).
     # dynamic_lookup defers unfinished methods, but missing game vtable/VTT
     # data must be detected before the owner tries to load this module.
     set(_vtable_check "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_original_module_vtables.py")

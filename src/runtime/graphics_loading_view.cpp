@@ -1,17 +1,36 @@
 #include "runtime/graphics_loading_view.h"
 
 #include <aurora/aurora.h>
-#include <aurora/gfx.h>
 #include <aurora/imgui.h>
 #include <imgui.h>
 #include <misc/freetype/imgui_freetype.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <iterator>
 
 namespace mscharged::runtime {
+namespace {
+// Nothing is drawn over black before this, so a quick preparation never flashes.
+constexpr float kGrace = 0.3f;
+constexpr float kFadeIn = 0.35f;
+constexpr float kFadeOut = 0.3f;
+// After readiness the bar may take this long to complete before fading out.
+constexpr float kComplete = 0.25f;
+// One way across the track while the total is unknown.
+constexpr float kSweep = 1.1f;
+
+ImU32 White(float alpha) { return IM_COL32(255, 255, 255, int(std::lround(255.0f * std::clamp(alpha, 0.0f, 1.0f)))); }
+
+float Smooth(float t) { return t * t * (3.0f - 2.0f * t); }
+
+float EaseInOut(float t)
+{
+    return t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+}
+} // namespace
 
 GraphicsLoadingView::GraphicsLoadingView(const std::filesystem::path& font)
 {
@@ -19,7 +38,7 @@ GraphicsLoadingView::GraphicsLoadingView(const std::filesystem::path& font)
     if (input) fontData_.assign(std::istreambuf_iterator<char>(input), {});
 }
 
-void GraphicsLoadingView::BuildFonts(float scale, float density)
+void GraphicsLoadingView::BuildFont(float size, float density)
 {
     auto& io = ImGui::GetIO();
     for (;;) {
@@ -29,113 +48,110 @@ void GraphicsLoadingView::BuildFonts(float scale, float density)
         config.FontDataOwnedByAtlas = false;
         config.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
         config.RasterizerDensity = density;
-        const auto add = [&](float size) {
-            config.SizePixels = std::round(size * scale);
-            return fontData_.empty() ? io.Fonts->AddFontDefault(&config)
-                : io.Fonts->AddFontFromMemoryTTF(fontData_.data(), int(fontData_.size()),
-                    config.SizePixels, &config, io.Fonts->GetGlyphRangesDefault());
-        };
-        title_ = add(36);
-        body_ = add(15);
-        caption_ = add(11);
+        config.SizePixels = size;
+        font_ = fontData_.empty() ? io.Fonts->AddFontDefault(&config)
+            : io.Fonts->AddFontFromMemoryTTF(fontData_.data(), int(fontData_.size()), size, &config,
+                                             io.Fonts->GetGlyphRangesDefault());
         if (io.Fonts->Build() || fontData_.empty()) break;
         fontData_.clear();
     }
     aurora_imgui_update_overlay_fonts();
-    fontScale_ = scale;
+    fontSize_ = size;
     fontDensity_ = density;
 }
 
-void GraphicsLoadingView::Draw(std::uint32_t width, std::uint32_t height, const char* label,
-                              const AuroraPipelineWarmupStatus& status, bool native)
+void GraphicsLoadingView::Draw(const AuroraPipelineWarmupStatus& status) { Frame(false, &status); }
+
+bool GraphicsLoadingView::DrawFinished()
 {
-    if (!width || !height) return;
-    float density = 1.0f;
-    if (!native) {
-        // Diagnostic frames use logical window coordinates and apply their
-        // framebuffer scale at presentation. Keep the layout in that space;
-        // rasterize the atlas at physical density without scaling its metrics.
-        const auto size = aurora_get_window_size();
-        if (!size.width || !size.height) return;
-        density = std::max(float(width) / float(size.width), float(height) / float(size.height));
-        width = size.width;
-        height = size.height;
-    }
-    const auto now = std::chrono::steady_clock::now();
-    if (!active_ || label_ != label) {
-        started_ = last_ = now;
-        fraction_ = 0;
-        label_ = label;
-    }
-    active_ = true;
-    native_ = native;
-    const float scale = std::clamp(std::min(width / 960.0f, height / 540.0f), 0.35f, 4.0f);
-    if (scale != fontScale_ || density != fontDensity_) BuildFonts(scale, density);
-    const double dt = std::chrono::duration<double>(now - last_).count();
-    last_ = now;
-    const float target = status.totalPipelines
-        ? std::clamp(float(double(status.readyPipelines) / status.totalPipelines), 0.0f, 1.0f) : 0.0f;
-    fraction_ += (target - fraction_) * float(1.0 - std::exp(-dt * 9.0));
-    const float elapsed = std::chrono::duration<float>(now - started_).count();
-
-    if (native) aurora_imgui_begin_overlay(width, height);
-    else if (!aurora_begin_frame()) return;
-    auto* draw = ImGui::GetForegroundDrawList();
-    const float w = float(width), h = float(height);
-    draw->AddRectFilledMultiColor({0, 0}, {w, h}, IM_COL32(13, 22, 29, 255),
-        IM_COL32(13, 33, 38, 255), IM_COL32(7, 17, 25, 255), IM_COL32(9, 15, 24, 255));
-
-    // Quiet pitch markings make the screen belong to the game without adding
-    // an illustration or any resource loading of its own.
-    const float pitchW = 510 * scale, pitchH = 325 * scale;
-    const ImVec2 centre{w * 0.76f, h * 0.36f};
-    const ImVec2 a{centre.x - pitchW / 2, centre.y - pitchH / 2};
-    const ImVec2 b{centre.x + pitchW / 2, centre.y + pitchH / 2};
-    const ImU32 line = IM_COL32(151, 214, 211, 14);
-    draw->AddRect(a, b, line, 3 * scale, 0, scale);
-    draw->AddLine({centre.x, a.y}, {centre.x, b.y}, line, scale);
-    draw->AddCircle(centre, 55 * scale, line, 72, scale);
-    draw->AddCircleFilled(centre, 2 * scale, line);
-    draw->AddRect({a.x, centre.y - 86 * scale}, {a.x + 73 * scale, centre.y + 86 * scale}, line, 0, 0, scale);
-    draw->AddRect({b.x - 73 * scale, centre.y - 86 * scale}, {b.x, centre.y + 86 * scale}, line, 0, 0, scale);
-
-    const float left = std::round(std::max(32 * scale, (w - 800 * scale) / 2));
-    const float right = w - left;
-    const float top = h * 0.56f;
-    const auto text = [&](ImFont* font, float x, float y, ImU32 color, const char* value) {
-        draw->AddText(font, font->FontSize, {std::round(x), std::round(y)}, color, value);
-    };
-    const ImU32 accent = IM_COL32(117, 231, 206, 255);
-    draw->AddRectFilled({left, top - 26 * scale}, {left + 22 * scale, top - 24 * scale}, accent, scale);
-    text(caption_, left + 32 * scale, top - 31 * scale, IM_COL32(161, 188, 195, 255), "GETTING READY");
-    text(title_, left, top, IM_COL32(242, 248, 249, 255), label);
-    text(body_, left, top + 51 * scale, IM_COL32(151, 172, 182, 255), "Getting everything ready for kick-off.");
-    const float barY = top + 98 * scale;
-    draw->AddRectFilled({left, barY}, {right, barY + 3 * scale}, IM_COL32(48, 66, 76, 255), 2 * scale);
-    if (status.totalPipelines && fraction_ > 0) {
-        draw->AddRectFilled({left, barY}, {left + (right - left) * fraction_, barY + 3 * scale}, accent, 2 * scale);
-    } else {
-        // Discovery has no total yet. Show activity without inventing a percent.
-        const float travel = (std::sin(elapsed * 1.5f) + 1) / 2;
-        const float segment = (right - left) * 0.13f;
-        const float x = left + (right - left - segment) * travel;
-        draw->AddRectFilled({x, barY}, {x + segment, barY + 3 * scale}, accent, 2 * scale);
-    }
-    text(caption_, left, h - 41 * scale, IM_COL32(100, 126, 139, 255), "MARIO STRIKERS CHARGED");
-    const float pulse = 0.65f + 0.35f * std::sin(elapsed * 2.6f);
-    draw->AddCircleFilled({right - 3 * scale, h - 34 * scale}, 2.5f * scale,
-                         IM_COL32(117, 231, 206, int(180 * pulse)));
-    if (native) aurora_imgui_end_overlay();
-    else aurora_end_frame();
+    Frame(true, nullptr);
+    return opacity_ > 0;
 }
 
-bool GraphicsLoadingView::Hide()
+void GraphicsLoadingView::Frame(bool finished, const AuroraPipelineWarmupStatus* status)
 {
-    if (!active_) return false;
-    if (native_) aurora_imgui_clear_overlay();
-    active_ = false;
-    fontScale_ = 0;
-    return true;
+    const auto now = Clock::now();
+    if (!started_) {
+        started_ = true;
+        start_ = last_ = now;
+    }
+    const float dt = std::min(std::chrono::duration<float>(now - last_).count(), 0.1f);
+    last_ = now;
+    const float elapsed = std::chrono::duration<float>(now - start_).count();
+
+    if (status) {
+        // A resize during the fade-out prepares new targets: resume preparing.
+        finishing_ = false;
+        // A larger total (another layout) may lower the share; the bar waits.
+        determinate_ = status->totalPipelines != 0;
+        target_ = determinate_ ? std::clamp(float(double(status->readyPipelines) / double(status->totalPipelines)),
+                                            0.0f, 1.0f) : 0.0f;
+        if (elapsed >= kGrace) opacity_ = std::min(1.0f, opacity_ + dt / kFadeIn);
+    }
+    if (finished) {
+        if (!finishing_) {
+            finishing_ = true;
+            finishStart_ = now;
+        }
+        target_ = 1;
+        const float since = std::chrono::duration<float>(now - finishStart_).count();
+        if (!determinate_ || progress_ > 0.995f || since >= kComplete)
+            opacity_ = std::max(0.0f, opacity_ - dt / kFadeOut);
+    }
+    const float rate = finishing_ ? 14.0f : 6.0f;
+    progress_ = std::max(progress_, progress_ + (target_ - progress_) * (1.0f - std::exp(-dt * rate)));
+
+    // Layout in logical window units; the font rasterizes at physical density.
+    const auto size = aurora_get_window_size();
+    if (!size.width || !size.height || !size.native_fb_width || !size.native_fb_height) return;
+    const float w = float(size.width), h = float(size.height);
+    const float density = std::max(1.0f, std::max(float(size.native_fb_width) / w, float(size.native_fb_height) / h));
+    const auto snap = [density](float value) { return std::round(value * density) / density; };
+    const float scale = std::min(w / 1920.0f, h / 1080.0f);
+    const float text = std::clamp(std::round(22.0f * scale), 14.0f, 52.0f);
+    if (text != fontSize_ || density != fontDensity_) BuildFont(text, density);
+
+    if (!aurora_begin_frame()) return;
+    auto* draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilled({0, 0}, {w, h}, IM_COL32(0, 0, 0, 255));
+    if (opacity_ > 0) {
+        const float alpha = Smooth(opacity_);
+        const float barWidth = std::min(std::round(text * 20.0f), w - 32.0f);
+        const float barHeight = std::max(2.0f, std::round(text * 0.14f));
+        const float gap = std::round(text * 0.8f);
+        const float line = font_->FontSize;
+        const float top = snap((h - (line + gap + barHeight)) / 2.0f);
+        const float left = snap((w - barWidth) / 2.0f);
+        const float right = left + barWidth;
+        const float barTop = snap(top + line + gap);
+        const float barBottom = barTop + barHeight;
+        const float radius = barHeight / 2.0f;
+
+        draw->AddText(font_, line, {left, top}, White(0.88f * alpha), "Preparing graphics");
+        if (determinate_) {
+            // 100 only once the renderer is ready; publication can follow the last compile.
+            const int percent = finishing_ ? int(std::lround(progress_ * 100.0f))
+                                           : std::min(99, int(progress_ * 100.0f));
+            char value[8];
+            std::snprintf(value, sizeof(value), "%d%%", percent);
+            const float valueWidth = font_->CalcTextSizeA(line, w, 0.0f, value).x;
+            draw->AddText(font_, line, {snap(right - valueWidth), top}, White(0.45f * alpha), value);
+        }
+        draw->AddRectFilled({left, barTop}, {right, barBottom}, White(0.12f * alpha), radius);
+        if (determinate_) {
+            const float fill = snap(barWidth * std::clamp(progress_, 0.0f, 1.0f));
+            if (fill > 0)
+                draw->AddRectFilled({left, barTop}, {left + fill, barBottom}, White(0.92f * alpha),
+                                    std::min(radius, fill / 2.0f));
+        } else {
+            // The total is not known yet: a short segment glides back and forth.
+            const float segment = std::round(barWidth * 0.28f);
+            const float phase = std::fmod(elapsed, 2.0f * kSweep) / kSweep;
+            const float from = snap(left + (barWidth - segment) * EaseInOut(phase < 1.0f ? phase : 2.0f - phase));
+            draw->AddRectFilled({from, barTop}, {from + segment, barBottom}, White(0.92f * alpha), radius);
+        }
+    }
+    aurora_end_frame();
 }
 
 } // namespace mscharged::runtime
