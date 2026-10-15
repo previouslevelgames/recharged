@@ -37,6 +37,21 @@ the reconstructed source, unchanged.
 - **Mouse beside a controller**: a single player on a Wii Remote or gamepad
   can also point and press A/B with the mouse.
 
+### Default bindings
+
+| Wii input | Keyboard / mouse | Gamepad (Xbox names) |
+| --- | --- | --- |
+| Pointer | Mouse | Right stick |
+| A / B | Enter or left click / Esc or right click | A / B |
+| D-pad | Arrow keys | D-pad |
+| Nunchuk stick | W A S D | Left stick |
+| Nunchuk C / Z | C / V | LB / LT |
+| 1 / 2 | Z / X | X / Y |
+| + / − / HOME | Tab / - / Home | Start / Back / Guide |
+| Shake Remote / Nunchuk | E / Q | RT / RB |
+
+Press **P** for a screenshot.
+
 ## Picture and sound
 
 - Vulkan on Linux; a Vulkan / DirectX 12 choice on Windows (Advanced → Graphics API);

@@ -1,7 +1,8 @@
 # Mario Strikers Charged — Native Port
 
 [![Build stable](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml/badge.svg?branch=stable)](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable)
-[![Version 1.0.9](https://img.shields.io/badge/version-1.0.9-blue)](CMakeLists.txt)
+[![Version 1.0.10](https://img.shields.io/badge/version-1.0.10-blue)](CMakeLists.txt)
+[![License CC0 1.0](https://img.shields.io/badge/license-CC0%201.0-lightgrey)](LICENSE)
 
 Play **Mario Strikers Charged** natively on your PC. The port compiles the
 fully reconstructed game source of
@@ -11,59 +12,52 @@ hardware. It is not an emulator and not a recompilation of the PowerPC binary:
 the original game runs unchanged, modern systems provide the rest.
 
 > [!IMPORTANT]
-> Only the **USA version** of the game (**R4QE01**, revision 1) is supported.
-> European and Japanese discs need their own complete decompilation before they
-> can run glitch free.
+> **The downloads contain no game files.** To play you need your own copy of
+> **Mario Strikers Charged, USA version (game ID `R4QE01`, revision 1)** as an
+> ISO or RVZ disc image. European and Japanese discs are not supported.
 
-## Download and play
+## Download
 
-You don't need to build anything: ready-made builds for **Windows, Linux and
-macOS** are available.
+Pick your system on the [**latest release**](https://github.com/yannicksuter/mscharged-port/releases/latest)
+page. Unpack the package, start `mscharged` (`mscharged.exe` on Windows), choose
+your disc image in the launcher and press **Play**.
 
-1. Open the [**latest release**](https://github.com/yannicksuter/mscharged-port/releases/latest)
-   and download the package for your system:
+<table>
+<tr>
+<td align="center" width="20%">
+<a href="https://github.com/yannicksuter/mscharged-port/releases/latest"><img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%2F%2011%20%C2%B7%20x64-0078D4?logo=windows&logoColor=white"></a><br>
+<code>windows-x86_64.zip</code><br>
+Playable, tested
+</td>
+<td align="center" width="20%">
+<a href="https://github.com/yannicksuter/mscharged-port/releases/latest"><img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64%20%C2%B7%20Vulkan-FCC624?logo=linux&logoColor=black"></a><br>
+<code>linux-x86_64.tar.gz</code><br>
+Playable, tested
+</td>
+<td align="center" width="20%">
+<a href="docs/STEAM_DECK.md"><img alt="Steam Deck" src="https://img.shields.io/badge/Steam%20Deck-SteamOS%203.7%2B-1A9FFF?logo=steam&logoColor=white"></a><br>
+<code>steamdeck-x86_64.tar.gz</code><br>
+<a href="docs/STEAM_DECK.md">Guide</a> · not yet tested on a Deck
+</td>
+<td align="center" width="20%">
+<a href="https://github.com/yannicksuter/mscharged-port/releases/latest"><img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-0A84FF?logo=apple&logoColor=white"></a><br>
+<code>macos-arm64.tar.gz</code><br>
+Playable, tested
+</td>
+<td align="center" width="20%">
+<a href="https://github.com/yannicksuter/mscharged-port/releases/latest"><img alt="macOS Intel" src="https://img.shields.io/badge/macOS-Intel%20%C2%B7%2015%2B-0A84FF?logo=apple&logoColor=white"></a><br>
+<code>macos-x86_64.tar.gz</code><br>
+Not yet tested
+</td>
+</tr>
+</table>
 
-   | System | Package |
-   | --- | --- |
-   | Windows 10/11, 64-bit | `mscharged-<version>-windows-x86_64.zip` |
-   | Linux, x86_64 | `mscharged-<version>-linux-x86_64.tar.gz` |
-   | Steam Deck (SteamOS 3.7 or newer) | `mscharged-<version>-steamdeck-x86_64.tar.gz` |
-   | macOS, Apple Silicon (M1 or newer) | `mscharged-<version>-macos-arm64.tar.gz` |
-   | macOS 15 or newer, Intel | `mscharged-<version>-macos-x86_64.tar.gz` |
-
-2. Unpack it into a folder of your choice and keep all its files together.
-3. Start **`mscharged.exe`** (Windows) or **`mscharged`** (Linux, macOS).
-4. In the launcher, choose your own **USA disc image** (ISO or RVZ, see
-   [game data](#game-data)) and press **Play**.
-
-The builds are not signed, so the system asks once on the first start:
-
-- **Windows:** if SmartScreen warns, choose *More info → Run anyway*.
-- **macOS:** allow the app under *System Settings → Privacy & Security*, or run
-  `xattr -dr com.apple.quarantine <unpacked folder>`. Controllers also need
-  the **Input Monitoring** permission
-  ([details](docs/BUILDING_MACOS.md#controllers)).
-- **Linux:** a current distribution (the package is built on Ubuntu 26.04)
-  and a Vulkan driver (Mesa or your GPU vendor's driver) are needed.
-- **Steam Deck:** add `mscharged` to Steam as a non-Steam game
-  ([steps](docs/RUNTIME.md#steam-deck)).
-
-Settings and saves are kept beside the program, so the folder can live anywhere
-you like. The launcher's **Game** page can move the saves to another folder and
-import a save from the Dolphin emulator ([saves](docs/RUNTIME.md#saves)). `SHA256SUMS` in the release lists the packages' checksums. Builds of
-changes not yet released are under the
-[**Build binaries** runs of `stable`](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml?query=branch%3Astable+is%3Asuccess)
-(*Artifacts*, signed-in users); see [GitHub builds](docs/BUILDING_GITHUB.md).
-
-**Something went wrong?** Each run writes `logs/mscharged.log` beside the
-program (the run before is kept as `mscharged.previous.log`). It records your
-system, displays, graphics settings and what happened; after a crash it also
-holds a crash report, and on Windows `mscharged-crash.dmp` is saved next to it.
-A brief stutter the first time an effect appears is logged as well, with what
-we need to prepare that effect before the game starts. Please attach these
-files to an
-[issue](https://github.com/yannicksuter/mscharged-port/issues). The log shows
-the command line and folder names, which can include your user name.
+All packages are built by the
+[Build binaries](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml)
+workflow; `SHA256SUMS` on the release lists their checksums. Step-by-step
+instructions, including the first-start prompts of Windows and macOS, are in
+the **[install guide](docs/INSTALL.md)**; Steam Deck owners should follow the
+**[Steam Deck guide](docs/STEAM_DECK.md)**.
 
 ## Status
 
@@ -71,94 +65,21 @@ the command line and folder names, which can include your user name.
 players, saves, movies, music and sound. What remains is polishing and testing.
 Online play is not available, since Nintendo Wi-Fi Connection has shut down.
 
-Highlights:
-
-- Keyboard & mouse with freely assignable keys
-- Xbox, PlayStation and other gamepads
-- Real Wii Remotes with Nunchuk and pointer, paired over Bluetooth or through
-  a Mayflash DolphinBar
-- Sharp picture, 4:3 or 16:9, optional antialiasing, any window size or
-  fullscreen
+- Keyboard & mouse, Xbox, PlayStation and other gamepads, and real Wii Remotes
+  with Nunchuk (Bluetooth or Mayflash DolphinBar)
+- Sharp picture, 4:3 or 16:9, optional antialiasing, any window size or fullscreen
 - High frame rates: 120, 144, your display's rate or unlimited
-- A launcher for disc, players, controls, display and audio
+- A launcher for disc, players, controls, display and audio, with in-place updates
 
-See the full **[feature list](docs/FEATURES.md)**.
+See the full **[feature list](docs/FEATURES.md)** and the
+[default controls](docs/FEATURES.md#default-bindings). If something goes wrong,
+attach `logs/mscharged.log` (beside the program) to an
+[issue](https://github.com/yannicksuter/mscharged-port/issues).
 
-### Builds
+## Build it yourself
 
-All platforms are built and packaged by the
-[**Build binaries**](https://github.com/yannicksuter/mscharged-port/actions/workflows/build.yml)
-workflow (badge above: latest `stable` build).
-
-| Platform | Build | Package | State |
-| --- | --- | --- | --- |
-| Linux x86_64 | Ubuntu 26.04, GCC 15, Vulkan | `.tar.gz` | Tested, playable |
-| Steam Deck (SteamOS 3.7+) | Ubuntu 24.04, GCC 14, Vulkan | `.tar.gz` | Not yet tested on a Steam Deck |
-| Windows x86_64 | Cross-compiled with LLVM-MinGW, Vulkan | `.zip` | Playable; tested on Windows |
-| macOS Apple Silicon | macOS 15, Apple Clang, Metal | `.tar.gz` | Playable; tested on Apple Silicon |
-| macOS Intel | Cross-compiled on Apple Silicon, macOS 15, Apple Clang, Metal | `.tar.gz` | Not yet tested on an Intel Mac |
-
-## Game data
-
-Supply an **ISO or RVZ from your own copy** of the USA disc. Game data is not
-included. Choose the file in the launcher or see
-[disc setup](docs/BUILDING.md#configure-your-disc).
-
-## Controls
-
-The game is played with a Wii Remote and Nunchuk. Keyboard & mouse and
-gamepads (Xbox, PlayStation, Switch, GameCube adapter) stand in for them, and
-real Wii Remotes work too; assign them to players 1–4 in the launcher. Keys
-and gamepad buttons can be changed there; gamepads use named profiles, so each
-player can keep their own layout. Nintendo and GameCube controllers get
-defaults that follow their own button labels. Defaults:
-
-| Wii input | Keyboard / mouse | Gamepad (Xbox names) |
-| --- | --- | --- |
-| Pointer | Mouse | Right stick |
-| A / B | Enter or left click / Esc or right click | A / B |
-| D-pad | Arrow keys | D-pad |
-| Nunchuk stick | W A S D | Left stick |
-| Nunchuk C / Z | C / V | LB / LT |
-| 1 / 2 | Z / X | X / Y |
-| + / − / HOME | Tab / - / Home | Start / Back / Guide |
-| Shake Remote / Nunchuk | E / Q | RT / RB |
-
-Press **P** for a screenshot.
-
-### Wii Remotes
-
-Real Wii Remotes (with Nunchuk) work in two ways:
-
-- **Bluetooth:** on Windows, open the launcher's **Controls** page and press
-  **1+2** or the red **SYNC** button (under the battery cover) on the Remote; the
-  launcher connects it. Elsewhere, press SYNC and connect *Nintendo RVL-CNT-01*
-  in your system's Bluetooth settings (no PIN). The pointer needs a separate
-  Wii sensor bar.
-- **Mayflash DolphinBar** in mode 4: press SYNC on the bar, then on the Remote.
-  The bar is also the sensor bar.
-
-Connected Remotes appear on the launcher's **Controls** page with their battery
-level. Assign them to players there; the pointer works without any setup.
-
-**Linux:** if the launcher says a Wii Remote is connected but can't be opened,
-allow your user to access Wii Remotes once (the launcher's **Copy commands**
-button copies the same commands), then turn the Remote off and on:
-
-```sh
-sudo tee /etc/udev/rules.d/60-mscharged-wiimote.rules >/dev/null <<'EOF'
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="*057E:0306*", TAG+="uaccess"
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="*057E:0330*", TAG+="uaccess"
-EOF
-sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
-```
-
-More in [Wii Remote setup](docs/RUNTIME.md#wii-remote).
-
-## Build from source
-
-Install the [build prerequisites](docs/BUILDING.md#requirements) first; Mac users
-can follow [macOS tool setup](docs/BUILDING_MACOS.md#install-tools). Then:
+Install the [build prerequisites](docs/BUILDING.md#requirements) (Mac users:
+[macOS tool setup](docs/BUILDING_MACOS.md#install-tools)), then:
 
 ```sh
 git clone --branch main --no-recurse-submodules https://github.com/yannicksuter/mscharged-port.git && cd mscharged-port
@@ -166,41 +87,31 @@ python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --work
 ./build/release/mscharged
 ```
 
-`main` is the development branch; `stable` holds reviewed snapshots. See the
-[build guide](docs/BUILDING.md) for updates and options.
+`main` is the development branch; `stable` holds reviewed snapshots. You still
+need your own disc image ([disc setup](docs/BUILDING.md#configure-your-disc)).
 
-## Porting approach
+## Documentation
 
-Original source plus reviewed patches becomes the compiled game:
+| I want to… | Read |
+| --- | --- |
+| Install and play | [Install guide](docs/INSTALL.md) |
+| Play on a Steam Deck | [Steam Deck guide](docs/STEAM_DECK.md) |
+| See what is supported | [Features](docs/FEATURES.md) |
+| Set up Wii Remotes, saves, updates, run options | [Runtime guide](docs/RUNTIME.md) |
+| Build from source | [Build guide](docs/BUILDING.md), [macOS](docs/BUILDING_MACOS.md) |
+| Get test builds and CI packages | [GitHub builds](docs/BUILDING_GITHUB.md) |
+| Understand how the port works | [Port strategy](docs/PORTING.md), [patch workflow](patches/README.md) |
+| Contribute | [Contributing](CONTRIBUTING.md) |
+| Check licences | [License scope and notices](LICENSES/README.md) |
 
-1. **Pin.** The decomp and every dependency stay clean submodules at reviewed
-   commits; upstream changes enter only through explicit updates.
-2. **Patch.** The build exports the decomp's complete `include/`, `libs/`, and
-   `src/` trees and applies the ordered [patch series](patches/README.md):
-   compiler compatibility, native replacements for Wii hardware and platform
-   services, and data/ABI adaptation.
-3. **Format.** clang-format 16+ gives the patched tree one readable layout
-   ([definition](tools/formatting/prepared-sources.clang-format)). It changes
-   whitespace only and is verified token by token; files whose program depends
-   on their layout (`__LINE__`, stringified macro arguments) stay as patched.
-4. **Compile.** Original game code controls the game flow from `main(...)`;
-   native adapters replace Wii hardware services while preserving retail behavior.
+## How it works
 
-Steps 1–3 run during CMake configuration. To produce the source without
-configuring or building:
-
-```sh
-git submodule update --init extern/mscharged-decomp
-python3 tools/prepare_sources.py --build-dir build/release
-```
-
-This writes `build/release/prepared/mscharged-decomp/patched/` (pinned decomp
-plus patches, byte-exact; patches are developed here) and `source/` (the
-formatted tree that is compiled). A later `cmake --preset release` reuses it.
-Without clang-format, `source/` is an unformatted copy.
-
-See the short [port strategy](docs/PORTING.md), [patch workflow](patches/README.md),
-and [contributing guide](CONTRIBUTING.md).
+Original source plus reviewed patches becomes the compiled game: the decomp
+and dependencies are pinned, the decomp's `include/`, `libs/` and `src/` are
+exported and patched for modern compilers and native platform services,
+formatted for readability and compiled. The original code controls the game
+from `main(...)`. Details, including how to prepare the source without
+building, are in the [port strategy](docs/PORTING.md).
 
 ## License
 

@@ -1,9 +1,9 @@
 # Runtime
 
-The Release build runs the whole original game on Linux/Vulkan; macOS/Metal is
-being tested and Windows is in progress. It requires a USA `R4QE01` revision 1
-ISO/RVZ. See [Building](BUILDING.md) for the Release build and disc
-configuration, and the [feature list](FEATURES.md) for what is supported.
+Technical notes on running the port: graphics, Wii Remotes, saves, updates,
+diagnostics and run options. To install it, see the [install guide](INSTALL.md);
+to build it, the [build guide](BUILDING.md); for what it supports, the
+[feature list](FEATURES.md). It requires a USA `R4QE01` revision 1 ISO/RVZ.
 
 ## Graphics prerequisites
 
@@ -126,19 +126,7 @@ HID devices the launcher sees and how each Remote answers (also in
 
 ## Steam Deck
 
-Use the `steamdeck-x86_64` package (SteamOS 3.7 or newer).
-
-1. In Desktop Mode, unpack it to a folder you can write to, such as
-   `~/Games/mscharged`, and start `mscharged`. Choose the disc on the
-   **Game** page; on **Controls**, set player 1 to `gamepad1` (Steam presents
-   the Deck's buttons and sticks as a gamepad).
-2. In Steam, choose *Games → Add a Non-Steam Game to My Library* and add
-   `mscharged` from that folder.
-3. Start it from the library in Game Mode and press **Play** in the launcher.
-
-In Game Mode (gamescope) the game opens fullscreen; `--window` in the
-shortcut's launch options keeps a window. The Steam Deck build has not been
-tested on a Deck yet.
+See the step-by-step [Steam Deck guide](STEAM_DECK.md).
 
 ## Saves
 

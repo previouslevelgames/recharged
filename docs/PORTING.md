@@ -43,3 +43,18 @@ native services remain explicit rather than being bypassed.
 
 See [building](BUILDING.md), [runtime checks](RUNTIME.md), and the
 [patch workflow](../patches/README.md).
+
+## Preparing the source without building
+
+Steps 1-3 run during CMake configuration. To produce the source without
+configuring or building:
+
+```sh
+git submodule update --init extern/mscharged-decomp
+python3 tools/prepare_sources.py --build-dir build/release
+```
+
+This writes `build/release/prepared/mscharged-decomp/patched/` (pinned decomp
+plus patches, byte-exact; patches are developed here) and `source/` (the
+formatted tree that is compiled). A later `cmake --preset release` reuses it.
+Without clang-format, `source/` is an unformatted copy.

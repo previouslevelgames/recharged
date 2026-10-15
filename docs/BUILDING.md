@@ -1,8 +1,9 @@
 # Building
 
-Release includes the incomplete original-source frontend runtime. Linux startup
-and menus have been tested; macOS runtime validation is in progress. Windows
-runtime support remains in development. **A complete playable game is not available.**
+This guide is for building the port yourself. If you only want to play, use the
+[ready-made packages](INSTALL.md) instead. The Release build runs the whole
+original game; you need your own USA `R4QE01` revision 1 disc image, since no
+game files are included.
 
 On a Mac, follow the [macOS tool setup](BUILDING_MACOS.md#install-tools) first.
 
