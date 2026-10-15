@@ -22,7 +22,7 @@ export PATH="$(brew --prefix tcl-tk)/bin:$PATH"
 
 Tcl 8.6+ is required; older macOS system Tcl is insufficient. If you use rustup,
 keep that installation instead of installing Rust twice; Cargo 1.85+ is required.
-Use native tools and a native terminal on Apple Silicon. SDL and graphics libraries are built from pinned source.
+Use native tools and a native terminal (not Rosetta on Apple Silicon); Intel Macs build the same way. SDL and graphics libraries are built from pinned source.
 
 ## Clone and initialize dependencies
 

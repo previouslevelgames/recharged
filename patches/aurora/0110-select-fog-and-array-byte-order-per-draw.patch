@@ -1,0 +1,458 @@
+From: mscharged-port
+Subject: Select fog and vertex array byte order per draw
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The fog type, fog range adjustment and each vertex array's byte order were
+part of the shader configuration, so the same draw state needed a separate
+pipeline for every fog type a stadium uses and for each byte order of its
+arrays. A pipeline catalogue had to list every one of these variants, and an
+effect first seen under another stadium's fog compiled while drawing.
+
+They are now per-draw state in DrawImmediateData::drawFlags (the spare
+immediate word): bits 0-11 mark little-endian arrays, bits 16-19 hold the
+fog type and bit 20 enables range adjustment. Every shader carries the fog
+uniforms and selects the original fog equation at runtime; vertex fetches
+pass the byte order bit to the existing fetch helpers, which already took it
+as a runtime argument. An invalid fog type still stops at the draw. The
+shader configuration keeps its layout with the former fields reserved (zero),
+and GXPipelineConfigVersion becomes 17, so earlier cache records are not
+loaded. Fog type and range changes no longer invalidate the pipeline.
+
+diff --git a/lib/gx/command_processor.cpp b/lib/gx/command_processor.cpp
+index ad62cca..b2e9c23 100644
+--- a/lib/gx/command_processor.cpp
++++ b/lib/gx/command_processor.cpp
+@@ -614,7 +614,8 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
+     sUniformCoPlanarGeneration = g_coPlanarState.generation;
+     state.dirty &= ~DirtyUniform;
+   }
+-  if (cache.config.shaderConfig.fogRangeEnabled) {
++  immediates.drawFlags = draw_flags(state);
++  if ((immediates.drawFlags & DrawFlagFogRange) != 0) {
+     const auto key = fog_range_lut_key();
+     if (!cache.hasFogRange || cache.fogRangeKey != key) {
+       cache.fogRange = push_fog_range_lut(key);
+@@ -793,10 +794,6 @@ void handle_aurora(ByteReader& reader) noexcept {
+     auto& array = g_gxState.arrays[attrIdx];
+     const auto newData = reinterpret_cast<void*>(arrayAddr);
+     if (array.data != newData || array.size != arraySize || array.le != le) {
+-      if (array.le != le) {
+-        // Endianness is baked into the shader
+-        g_gxState.dirty |= DirtyPipeline;
+-      }
+       array.data = newData;
+       array.size = arraySize;
+       array.le = le;
+diff --git a/lib/gx/draw_dump.cpp b/lib/gx/draw_dump.cpp
+index 8e8496a..18b9d9b 100644
+--- a/lib/gx/draw_dump.cpp
++++ b/lib/gx/draw_dump.cpp
+@@ -79,7 +79,7 @@ void draw_dump_draw(GXPrimitive prim, u16 vtxCount, const PipelineConfig& config
+       static_cast<int>(config.blendFacSrc), static_cast<int>(config.blendFacDst), static_cast<int>(config.blendOp),
+       config.depthCompare, config.depthUpdate, static_cast<int>(config.depthFunc), config.colorUpdate,
+       config.alphaUpdate, config.dstAlpha, static_cast<int>(config.cullMode), static_cast<int>(s.pixelFmt),
+-      sc.tevStageCount, s.numChans, s.numTexGens, sc.numIndStages, static_cast<int>(sc.fogType),
++      sc.tevStageCount, s.numChans, s.numTexGens, sc.numIndStages, static_cast<int>(s.fog.type),
+       static_cast<int>(sc.coPlanar));
+   for (u32 i = 0; i < sc.tevStageCount; ++i) {
+     const auto& t = sc.tevStages[i];
+diff --git a/lib/gx/gx.cpp b/lib/gx/gx.cpp
+index affbc5b..31fdcfe 100644
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -432,13 +432,11 @@ void canonicalize_identity_texgens(ShaderConfig& config) noexcept {
+ }
+ 
+ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool coPlanarActive,
+-                              bool noFog, GXPrimitive primitive, GXVtxFmt fmt, ShaderInfo* infoOut) noexcept {
++                              GXPrimitive primitive, GXVtxFmt fmt, ShaderInfo* infoOut) noexcept {
+   ZoneScoped;
+ 
+   const auto& vtxFmt = state.vtxFmts[fmt];
+   config.shaderConfig = {};
+-  config.shaderConfig.fogType = noFog ? static_cast<u8>(GX_FOG_NONE) : state.fog.type;
+-  config.shaderConfig.fogRangeEnabled = state.fog.rangeEnabled;
+   u8 vtxOffset = 0;
+   for (int i = GX_VA_PNMTXIDX; i <= GX_VA_TEX7; ++i) {
+     const auto attr = static_cast<GXAttr>(i);
+@@ -458,7 +456,6 @@ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool
+         .offset = vtxOffset,
+         .stride = 0,
+         .frac = attrFmt.frac,
+-        .le = false,
+         .nbt3 = nbt3,
+     };
+     switch (type) {
+@@ -468,12 +465,10 @@ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool
+     }
+     case GX_INDEX8:
+       mapping.stride = state.arrays[i].stride;
+-      mapping.le = state.arrays[i].le;
+       vtxOffset += nbt3 ? 3 : 1;
+       break;
+     case GX_INDEX16:
+       mapping.stride = state.arrays[i].stride;
+-      mapping.le = state.arrays[i].le;
+       vtxOffset += nbt3 ? 6 : 2;
+       break;
+     default:
+@@ -576,12 +571,43 @@ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool
+ 
+ void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXVtxFmt fmt,
+                               ShaderInfo* info) noexcept {
++  populate_pipeline_config(config, g_gxState, g_coPlanarState.active, primitive, fmt, info);
++}
++
++u32 draw_flags(const GXState& state) noexcept {
++  u32 flags = 0;
++  for (u32 i = 0; i < MaxIndexAttr; ++i) {
++    if (state.arrays[GX_VA_POS + i].le) {
++      flags |= 1u << i;
++    }
++  }
+   // AURORA_DEBUG_NO_FOG=1 renders without fog (platform comparison only).
+   static const bool noFog = [] {
+     const char* value = std::getenv("AURORA_DEBUG_NO_FOG");
+     return value && *value && *value != '0';
+   }();
+-  populate_pipeline_config(config, g_gxState, g_coPlanarState.active, noFog, primitive, fmt, info);
++  const u32 fogType = noFog ? GX_FOG_NONE : state.fog.type;
++  switch (fogType) {
++    DEFAULT_FATAL("invalid fog type {}", fogType);
++  case GX_FOG_NONE:
++    return flags;
++  case GX_FOG_PERSP_LIN:
++  case GX_FOG_PERSP_EXP:
++  case GX_FOG_PERSP_EXP2:
++  case GX_FOG_PERSP_REVEXP:
++  case GX_FOG_PERSP_REVEXP2:
++  case GX_FOG_ORTHO_LIN:
++  case GX_FOG_ORTHO_EXP:
++  case GX_FOG_ORTHO_EXP2:
++  case GX_FOG_ORTHO_REVEXP:
++  case GX_FOG_ORTHO_REVEXP2:
++    break;
++  }
++  flags |= fogType << DrawFlagFogTypeShift;
++  if (state.fog.rangeEnabled) {
++    flags |= DrawFlagFogRange;
++  }
++  return flags;
+ }
+ 
+ GXBindGroups build_bind_groups(const ShaderInfo& info) noexcept {
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+index c579a34..64a5417 100644
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -78,11 +78,18 @@ enum DirtyFlag : u8 {
+   DirtyAll = DirtyPipeline | DirtyTextures | DirtyUniform | DirtyImmediates,
+ };
+ 
++// DrawImmediateData::drawFlags holds draw state the shaders select at runtime
++// (GX configuration v17), so it never needs a pipeline of its own: the vertex
++// arrays' byte order and the fog equation.
++constexpr u32 DrawFlagArrayLittleEndian = 0xFFF; // bit (attribute - GX_VA_POS) per vertex array
++constexpr u32 DrawFlagFogTypeShift = 16;          // GXFogType, 4 bits
++constexpr u32 DrawFlagFogRange = 1u << 20;        // fog range adjustment
++
+ struct DrawImmediateData {
+   u32 vtxStart = 0;
+   u32 currentPnMtx = 0;
+   u32 fogRangeBase = 0;
+-  u32 _pad = 0;
++  u32 drawFlags = 0;
+   std::array<u32, MaxIndexAttr> arrayStart{};
+ };
+ static_assert(std::has_unique_object_representations_v<DrawImmediateData>);
+@@ -509,17 +516,17 @@ struct AttrConfig {
+   u8 offset = 0;         // Offset within vertex
+   u8 stride = 0;         // Array stride
+   u8 frac = 0;
+-  bool le = true;
++  u8 reserved = 0;   // array byte order before v17; now DrawFlagArrayLittleEndian
+   bool nbt3 = false; // GX_NRM_NBT3
+ };
+ 
+ enum class DstAlphaMode : u8 { None, Replace, DualSource };
+ 
+ struct ShaderConfig {
+-  u8 fogType = GX_FOG_NONE;
++  u8 reserved0 = 0; // fog type before v17; now per-draw state (DrawImmediateData::drawFlags)
+   u8 vtxStride = 0;
+   u8 lineMode : 2 = 0; // 1 = GX_LINES, 2 = GX_LINESTRIP, 3 = GX_POINTS
+-  u8 fogRangeEnabled : 1 = false;
++  u8 reserved1 : 1 = 0; // fog range adjustment before v17
+   u8 coPlanar : 1 = false;
+   u8 pad1 : 4 = 0;
+   u8 pad2 = 0;
+@@ -557,7 +564,6 @@ struct ShaderInfo {
+   std::bitset<MaxTextures> sampledIndTextures;
+   std::bitset<MaxIndTexMtxs> usedIndTexMtxs;
+   u32 uniformSize = 0;
+-  bool usesFog : 1 = false;
+   bool lightingEnabled : 1 = false;
+   u8 lineMode : 2 = 0;
+   u8 coPlanar : 1 = false;
+@@ -570,7 +576,9 @@ struct BindGroupRanges {
+ // Pure semantic key normalization; never changes SDK registers or live GX state.
+ void canonicalize_identity_texgens(ShaderConfig& config) noexcept;
+ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool coPlanarActive,
+-                              bool noFog, GXPrimitive primitive, GXVtxFmt fmt, ShaderInfo* info = nullptr) noexcept;
++                              GXPrimitive primitive, GXVtxFmt fmt, ShaderInfo* info = nullptr) noexcept;
++// DrawImmediateData::drawFlags for a draw with this state.
++u32 draw_flags(const GXState& state) noexcept;
+ void populate_pipeline_config(PipelineConfig& config, GXPrimitive primitive, GXVtxFmt fmt,
+                               ShaderInfo* info = nullptr) noexcept;
+ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, const gfx::RenderTargetLayout& layout,
+diff --git a/lib/gx/pipeline.hpp b/lib/gx/pipeline.hpp
+index bd31c6e..49b6ba9 100644
+--- a/lib/gx/pipeline.hpp
++++ b/lib/gx/pipeline.hpp
+@@ -22,7 +22,7 @@ struct DrawData {
+   uint64_t receiptTag;
+ };
+ 
+-constexpr uint32_t GXPipelineConfigVersion = 16;
++constexpr uint32_t GXPipelineConfigVersion = 17;
+ struct PipelineConfig {
+   uint32_t version = GXPipelineConfigVersion;
+   uint32_t msaaSamples = 1; // deprecated
+diff --git a/lib/gx/pipeline_collection.cpp b/lib/gx/pipeline_collection.cpp
+index d659b70..5a7e908 100644
+--- a/lib/gx/pipeline_collection.cpp
++++ b/lib/gx/pipeline_collection.cpp
+@@ -237,10 +237,8 @@ bool collect_pipeline(uint32_t primitive, uint32_t vertexFormat, bool coPlanar)
+   try {
+     flush_commands(*sCollection);
+     PipelineConfig config{};
+-    const char* debugNoFog = std::getenv("AURORA_DEBUG_NO_FOG");
+-    const bool noFog = debugNoFog && *debugNoFog && *debugNoFog != '0';
+-    populate_pipeline_config(config, sCollection->state, coPlanar, noFog,
+-                             static_cast<GXPrimitive>(primitive), static_cast<GXVtxFmt>(vertexFormat));
++    populate_pipeline_config(config, sCollection->state, coPlanar, static_cast<GXPrimitive>(primitive),
++                             static_cast<GXVtxFmt>(vertexFormat));
+     append_unique_config(*sCollection, config);
+     return true;
+   } catch (...) {
+diff --git a/lib/gx/regs.cpp b/lib/gx/regs.cpp
+index 0513225..80577da 100644
+--- a/lib/gx/regs.cpp
++++ b/lib/gx/regs.cpp
+@@ -387,11 +387,7 @@ void bp_tev_reg(u8 reg, u32 value) noexcept {
+ // Fog range adjustment (0xE8-0xED)
+ void bp_fog_range_base(u8, u32 value) noexcept {
+   g_gxState.fog.rangeCenter = static_cast<s16>(reg_get(value, 10, 0)) - 342;
+-  const bool rangeEnabled = reg_get(value, 1, 10) != 0;
+-  if (g_gxState.fog.rangeEnabled != rangeEnabled) {
+-    g_gxState.dirty |= DirtyPipeline;
+-  }
+-  g_gxState.fog.rangeEnabled = rangeEnabled;
++  g_gxState.fog.rangeEnabled = reg_get(value, 1, 10) != 0;
+ }
+ 
+ void bp_fog_range_k(u8 reg, u32 value) noexcept {
+@@ -582,7 +578,7 @@ constexpr auto kBpRegs = [] {
+   regs[0xEE] = {bp_fog0, DirtyUniform};
+   regs[0xEF] = {bp_fog1, DirtyUniform};
+   regs[0xF0] = {bp_fog2, DirtyUniform};
+-  regs[0xF1] = {bp_fog3, DirtyPipeline | DirtyUniform}; // fog.type affects shader
++  regs[0xF1] = {bp_fog3, DirtyUniform};
+   regs[0xF2] = {bp_fog_color, DirtyUniform};
+   regs[0xF3] = {bp_alpha_compare, DirtyPipeline};
+   for (u8 r = 0xF6; r <= 0xFD; ++r) {
+diff --git a/lib/gx/shader.cpp b/lib/gx/shader.cpp
+index 7c39f26..802b4b0 100644
+--- a/lib/gx/shader.cpp
++++ b/lib/gx/shader.cpp
+@@ -603,7 +603,7 @@ constexpr std::array<std::string_view, GX_CA_ZERO + 1> TevAlphaArgNames{
+ };
+ 
+ auto fetch_fixed16_attr(std::string_view fetchFn, const AttrConfig& mapping, std::string_view buf,
+-                        std::string_view offs, bool le) -> std::string {
++                        std::string_view offs, std::string_view le) -> std::string {
+   // Some Adreno drivers appear sensitive to generated shaders that route 2- and
+   // 3-component fixed-16 vertex attributes through reusable vector fetch helpers.
+   // Emitting scalar component fetches at the call site avoids observed artifacts.
+@@ -621,7 +621,8 @@ auto fetch_fixed16_attr(std::string_view fetchFn, const AttrConfig& mapping, std
+   return fmt::format("{}_{}(&{}, {}, {}u, {})", fetchFn, mapping.cnt, buf, offs, mapping.frac, le);
+ }
+ 
+-auto fetch_attr(const AttrConfig& mapping, std::string_view buf, std::string_view offs, bool le) -> std::string {
++auto fetch_attr(const AttrConfig& mapping, std::string_view buf, std::string_view offs, std::string_view le)
++    -> std::string {
+   switch (mapping.compType) {
+   case GX_U8:
+     return fmt::format("fetch_u8_{}(&{}, {}, {}, {})", mapping.cnt, buf, offs, mapping.frac, le);
+@@ -640,7 +641,8 @@ auto fetch_attr(const AttrConfig& mapping, std::string_view buf, std::string_vie
+   }
+ }
+ 
+-auto fetch_color_attr(const AttrConfig& mapping, std::string_view buf, std::string_view offs, bool le) -> std::string {
++auto fetch_color_attr(const AttrConfig& mapping, std::string_view buf, std::string_view offs, std::string_view le)
++    -> std::string {
+   switch (mapping.compType) {
+   case GX_RGB565:
+     return fmt::format("fetch_rgb565(&{}, {}, {})", buf, offs, le);
+@@ -662,9 +664,14 @@ auto fetch_color_attr(const AttrConfig& mapping, std::string_view buf, std::stri
+ struct AttrAddress {
+   std::string offs;
+   std::string_view buf;
+-  bool le;
++  std::string le; // WGSL bool: whether the data is little-endian
+ };
+ 
++// An array's byte order is per-draw state since GX configuration v17.
++std::string array_little_endian(GXAttr attr) noexcept {
++  return fmt::format("((imm.draw_flags & {}u) != 0u)", 1u << (attr - GX_VA_POS));
++}
++
+ // Immediates cannot contain arrays, so array_start is packed as three vec4u.
+ std::string imm_array_start(GXAttr attr) noexcept {
+   const u32 idx = attr - GX_VA_POS;
+@@ -677,14 +684,14 @@ auto attr_address(const AttrConfig& mapping, GXAttr attr, std::string_view vidx,
+   if (mapping.attrType == GX_INDEX8) {
+     return {fmt::format("{} + raw_fetch_u8_1(&vbuf, imm.vtx_start + {} * {}u + {}u) * {}u + {}u", imm_array_start(attr),
+                         vidx, vtxStride, dlOffset, mapping.stride, within),
+-            "abuf"sv, mapping.le};
++            "abuf"sv, array_little_endian(attr)};
+   }
+   if (mapping.attrType == GX_INDEX16) {
+     return {fmt::format("{} + raw_fetch_u16_1(&vbuf, imm.vtx_start + {} * {}u + {}u, false) * {}u + {}u",
+                         imm_array_start(attr), vidx, vtxStride, dlOffset, mapping.stride, within),
+-            "abuf"sv, mapping.le};
++            "abuf"sv, array_little_endian(attr)};
+   }
+-  return {fmt::format("imm.vtx_start + {} * {}u + {}u", vidx, vtxStride, dlOffset + within), "vbuf"sv, false};
++  return {fmt::format("imm.vtx_start + {} * {}u + {}u", vidx, vtxStride, dlOffset + within), "vbuf"sv, "false"};
+ }
+ 
+ auto attr_load(const ShaderConfig& config, GXAttr attr, std::string_view vidx) -> std::string {
+@@ -943,8 +950,6 @@ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlph
+       }
+       Log.info("  alphaCompare: comp0 {} ref0 {} op {} comp1 {} ref1 {}", config.alphaCompare.comp0,
+                config.alphaCompare.ref0, config.alphaCompare.op, config.alphaCompare.comp1, config.alphaCompare.ref1);
+-      Log.info("  fogType: {}", config.fogType);
+-      Log.info("  fogRangeEnabled: {}", config.fogRangeEnabled);
+     }
+   }
+ 
+@@ -1533,7 +1538,7 @@ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlph
+   if (info.usesPTTexMtx.any()) {
+     uniBufAttrs += fmt::format("\n    postmtx: array<mat3x4f, {}>,", MaxPTTexMtx);
+   }
+-  if (info.usesFog) {
++  {
+     uniformPre +=
+         "\n"
+         "struct Fog {\n"
+@@ -1546,43 +1551,38 @@ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlph
+         "}";
+     uniBufAttrs += "\n    fog: Fog,";
+ 
++    // The fog type is per-draw state since GX configuration v17 (drawFlags), so
++    // one pipeline serves every type. Each type runs its original equation.
+     const std::string_view fogDepth = UseReversedZ ? "(1.0 - in.pos.z)" : "in.pos.z";
+-    if ((config.fogType & 0x08) != 0) {
+-      fragmentFn += fmt::format("\n    // Orthographic fog\n    var fogBase = ubuf.fog.a * {};", fogDepth);
+-    } else {
+-      fragmentFn +=
+-          fmt::format("\n    // Perspective fog\n    var fogBase = ubuf.fog.a / (ubuf.fog.b - {});", fogDepth);
+-    }
+-    if (config.fogRangeEnabled) {
+-      fragmentFn += "\n        fogBase *= bitcast<f32>(abuf[imm.fog_range_base + u32(in.pos.x)]);";
+-    }
+-    fragmentFn += "\n    var fogF = clamp(fogBase - ubuf.fog.c, 0.0, 1.0);";
+-    switch (config.fogType) {
+-      DEFAULT_FATAL("invalid fog type {}", config.fogType);
+-    case GX_FOG_PERSP_LIN:
+-    case GX_FOG_ORTHO_LIN:
+-      fragmentFn += "\n    var fogZ = fogF;";
+-      break;
+-    case GX_FOG_PERSP_EXP:
+-    case GX_FOG_ORTHO_EXP:
+-      fragmentFn += "\n    var fogZ = 1.0 - exp2(-8.0 * fogF);";
+-      break;
+-    case GX_FOG_PERSP_EXP2:
+-    case GX_FOG_ORTHO_EXP2:
+-      fragmentFn += "\n    var fogZ = 1.0 - exp2(-8.0 * fogF * fogF);";
+-      break;
+-    case GX_FOG_PERSP_REVEXP:
+-    case GX_FOG_ORTHO_REVEXP:
+-      fragmentFn += "\n    var fogZ = exp2(-8.0 * (1.0 - fogF));";
+-      break;
+-    case GX_FOG_PERSP_REVEXP2:
+-    case GX_FOG_ORTHO_REVEXP2:
+-      fragmentFn +=
+-          "\n    fogF = 1.0 - fogF;"
+-          "\n    var fogZ = exp2(-8.0 * fogF * fogF);";
+-      break;
+-    }
+-    fragmentFn += "\n    prev = vec4f(mix(prev.rgb, ubuf.fog.color.rgb, clamp(fogZ, 0.0, 1.0)), prev.a);";
++    fragmentFn += fmt::format(
++        "\n    let fog_type = (imm.draw_flags >> {0}u) & 15u;"
++        "\n    if (fog_type != 0u) {{"
++        "\n        var fogBase: f32;"
++        "\n        if ((fog_type & 8u) != 0u) {{"
++        "\n            // Orthographic fog"
++        "\n            fogBase = ubuf.fog.a * {1};"
++        "\n        }} else {{"
++        "\n            // Perspective fog"
++        "\n            fogBase = ubuf.fog.a / (ubuf.fog.b - {1});"
++        "\n        }}"
++        "\n        if ((imm.draw_flags & {2}u) != 0u) {{"
++        "\n            fogBase *= bitcast<f32>(abuf[imm.fog_range_base + u32(in.pos.x)]);"
++        "\n        }}"
++        "\n        var fogF = clamp(fogBase - ubuf.fog.c, 0.0, 1.0);"
++        "\n        var fogZ: f32;"
++        "\n        switch (fog_type & 7u) {{"
++        "\n            case 2u: {{ fogZ = fogF; }}"
++        "\n            case 4u: {{ fogZ = 1.0 - exp2(-8.0 * fogF); }}"
++        "\n            case 5u: {{ fogZ = 1.0 - exp2(-8.0 * fogF * fogF); }}"
++        "\n            case 6u: {{ fogZ = exp2(-8.0 * (1.0 - fogF)); }}"
++        "\n            case 7u, default: {{"
++        "\n                fogF = 1.0 - fogF;"
++        "\n                fogZ = exp2(-8.0 * fogF * fogF);"
++        "\n            }}"
++        "\n        }}"
++        "\n        prev = vec4f(mix(prev.rgb, ubuf.fog.color.rgb, clamp(fogZ, 0.0, 1.0)), prev.a);"
++        "\n    }}",
++        DrawFlagFogTypeShift, fogDepth, DrawFlagFogRange);
+   }
+   uniBufAttrs += fmt::format("\n    texcoord_scale: array<vec4f, {}>,", MaxTexCoord);
+   if (info.usedIndTexMtxs.any()) {
+@@ -2030,7 +2030,7 @@ struct Immediate {{
+     vtx_start: u32,
+     current_pnmtx: u32,
+     fog_range_base: u32,
+-    _pad: u32,
++    draw_flags: u32,
+     array_start0: vec4u,
+     array_start1: vec4u,
+     array_start2: vec4u,
+diff --git a/lib/gx/shader_info.cpp b/lib/gx/shader_info.cpp
+index c21cdd1..555ea7f 100644
+--- a/lib/gx/shader_info.cpp
++++ b/lib/gx/shader_info.cpp
+@@ -358,10 +358,8 @@ ShaderInfo build_shader_info(const ShaderConfig& config) noexcept {
+   if (info.usesPTTexMtx.any()) {
+     info.uniformSize += sizeof(Mat3x4<float>) * MaxPTTexMtx;
+   }
+-  if (config.fogType != GX_FOG_NONE) {
+-    info.usesFog = true;
+-    info.uniformSize += sizeof(Fog);
+-  }
++  // Fog is per-draw state since v17: every shader carries its parameters.
++  info.uniformSize += sizeof(Fog);
+   info.uniformSize += MaxTexCoord * sizeof(Vec4<float>);
+   if (info.usedIndTexMtxs.any()) {
+     info.uniformSize += MaxIndTexMtxs * sizeof(Mat2x4<float>);
+@@ -457,7 +455,7 @@ static void fill_uniform(ByteBuffer& buf, const ShaderInfo& info) noexcept {
+       buf.append(g_gxState.ptTexMtxs[i]);
+     }
+   }
+-  if (info.usesFog) {
++  {
+     const auto& state = g_gxState.fog;
+     const float logicalWidth = std::max(g_gxState.logicalViewport.width, 1.f);
+     const float renderWidth = std::max(g_gxState.renderViewport.width, 1.f);

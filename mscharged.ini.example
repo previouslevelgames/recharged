@@ -17,6 +17,11 @@ width = 1280
 height = 720
 fullscreen = false
 vsync = true
+# Frame rate: original (the console's 60 FPS), display (your display's refresh
+# rate), unlimited, or a cap from 30 to 1000 FPS. Higher rates draw more frames
+# for smoother motion; the game keeps its own speed. VSync holds any rate to
+# the display's.
+frame_rate = original
 # Windows: vulkan or d3d12. macOS: metal. Linux: vulkan.
 # auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS).
 backend = auto

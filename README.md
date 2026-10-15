@@ -29,6 +29,7 @@ macOS** are available.
    | Linux, x86_64 | `mscharged-<version>-linux-x86_64.tar.gz` |
    | Steam Deck (SteamOS 3.7 or newer) | `mscharged-<version>-steamdeck-x86_64.tar.gz` |
    | macOS, Apple Silicon (M1 or newer) | `mscharged-<version>-macos-arm64.tar.gz` |
+   | macOS 15 or newer, Intel | `mscharged-<version>-macos-x86_64.tar.gz` |
 
 2. Unpack it into a folder of your choice and keep all its files together.
 3. Start **`mscharged.exe`** (Windows) or **`mscharged`** (Linux, macOS).
@@ -58,7 +59,9 @@ changes not yet released are under the
 program (the run before is kept as `mscharged.previous.log`). It records your
 system, displays, graphics settings and what happened; after a crash it also
 holds a crash report, and on Windows `mscharged-crash.dmp` is saved next to it.
-Please attach these files to an
+A brief stutter the first time an effect appears is logged as well, with what
+we need to prepare that effect before the game starts. Please attach these
+files to an
 [issue](https://github.com/yannicksuter/mscharged-port/issues). The log shows
 the command line and folder names, which can include your user name.
 
@@ -76,6 +79,7 @@ Highlights:
   a Mayflash DolphinBar
 - Sharp picture, 4:3 or 16:9, optional antialiasing, any window size or
   fullscreen
+- High frame rates: 120, 144, your display's rate or unlimited
 - A launcher for disc, players, controls, display and audio
 
 See the full **[feature list](docs/FEATURES.md)**.
@@ -92,6 +96,7 @@ workflow (badge above: latest `stable` build).
 | Steam Deck (SteamOS 3.7+) | Ubuntu 24.04, GCC 14, Vulkan | `.tar.gz` | Not yet tested on a Steam Deck |
 | Windows x86_64 | Cross-compiled with LLVM-MinGW, Vulkan | `.zip` | Playable; tested on Windows |
 | macOS Apple Silicon | macOS 15, Apple Clang, Metal | `.tar.gz` | Playable; tested on Apple Silicon |
+| macOS Intel | macOS 15, Apple Clang, Metal | `.tar.gz` | Not yet tested on an Intel Mac |
 
 ## Game data
 

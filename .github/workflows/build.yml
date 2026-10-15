@@ -40,6 +40,13 @@ jobs:
           - platform: macos-arm64
             runner: macos-15
             jobs: 3
+            arch: arm64
+          # Intel Macs: GitHub's last x86_64 macOS image, same Xcode and
+          # deployment target as the Apple Silicon build.
+          - platform: macos-x86_64
+            runner: macos-15-intel
+            jobs: 4
+            arch: x86_64
     defaults:
       run:
         shell: bash
@@ -81,8 +88,10 @@ jobs:
           "g++-$GCC_VERSION" --version
       - name: Install macOS tools
         if: runner.os == 'macOS'
+        env:
+          MACOS_ARCH: ${{ matrix.arch }}
         run: |
-          test "$(uname -m)" = arm64
+          test "$(uname -m)" = "$MACOS_ARCH"
           # Aurora needs std::jthread (Apple Clang 17). Xcode 26 on the macOS 15
           # image keeps the deployment target at macOS 15.
           sudo xcode-select -s /Applications/Xcode_26.3.app
@@ -102,8 +111,11 @@ jobs:
       # (The runner context is not available in job-level env.)
       - name: Place compiler cache
         run: echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+      # Restored and saved in separate steps: a failure after the build (such
+      # as an upload error) must not discard a cold build's cache.
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        id: ccache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/ccache
           key: ccache-${{ matrix.platform }}-${{ github.sha }}
@@ -123,6 +135,13 @@ jobs:
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
+      # Also after a failed or timed-out build: the next run resumes from it.
+      - name: Save compiler cache
+        if: always() && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
       - name: Check executable
         run: |
           ./build/release/mscharged --version | tee build/release/ci-version.txt
@@ -202,8 +221,11 @@ jobs:
       # (The runner context is not available in job-level env.)
       - name: Place compiler cache
         run: echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+      # Restored and saved in separate steps: a failure after the build (such
+      # as an upload error) must not discard a cold build's cache.
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        id: ccache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/ccache
           key: ccache-windows-x86_64-${{ github.sha }}
@@ -227,6 +249,13 @@ jobs:
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
+      # Also after a failed or timed-out build: the next run resumes from it.
+      - name: Save compiler cache
+        if: always() && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
       - name: Check executable
         run: |
           test -f build/windows/mscharged.exe
@@ -351,7 +380,7 @@ jobs:
         working-directory: release
         run: |
           ls -la
-          test "$(ls *.tar.gz *.zip | wc -l)" -eq 4
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
           sha256sum *.tar.gz *.zip > SHA256SUMS
           cat SHA256SUMS
       - name: Draft the release

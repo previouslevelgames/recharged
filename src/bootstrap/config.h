@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bootstrap/frame_rate.h"
 #include "bootstrap/game_tweaks.h"
 #include "bootstrap/gamepad_actions.h"
 #include "bootstrap/key_actions.h"
@@ -25,6 +26,10 @@ struct Settings
     int height = 720;
     bool fullscreen = false;
     bool vsync = true;
+    // display.frame_rate: original, display, unlimited or 30-1000 frames per
+    // second (bootstrap/frame_rate.h). Above the original the host paces and
+    // presents every frame; the game keeps its own speed.
+    std::string frame_rate = "original";
     std::string backend = "auto";
     std::string aspect = "16:9";
     // display.picture: soft (the TV signal, as on a Wii), clean (one smooth

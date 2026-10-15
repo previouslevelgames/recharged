@@ -28,6 +28,13 @@ void ValidateAspect(std::string_view value)
     if (value != "auto" && value != "4:3" && value != "16:9")
         throw std::invalid_argument("Aspect requires auto, 4:3 or 16:9");
 }
+
+void ValidateFrameRate(std::string_view value)
+{
+    if (!ParseFrameRate(value))
+        throw std::invalid_argument("Frame rate requires original, display, unlimited or "
+            + std::to_string(kMinFrameRate) + " to " + std::to_string(kMaxFrameRate) + " frames per second");
+}
 }
 
 bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOptions& options)
@@ -39,7 +46,7 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     const auto equals = token.find('=');
     const auto argument = token.substr(0, equals);
     if (argument != "--config" && argument != "--disc" && argument != "--disk"
-        && argument != "--size" && argument != "--aspect")
+        && argument != "--size" && argument != "--aspect" && argument != "--frame-rate")
         return false;
     std::string_view value;
     if (equals != std::string_view::npos)
@@ -55,6 +62,7 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     if (argument == "--config") { options.config = PathFromUtf8(value); options.explicit_config = true; }
     else if (argument == "--disc" || argument == "--disk") options.disc = PathFromUtf8(value);
     else if (argument == "--aspect") { ValidateAspect(value); options.aspect = value; }
+    else if (argument == "--frame-rate") { ValidateFrameRate(value); options.frame_rate = value; }
     else
     {
         const auto separator = value.find('x');
@@ -88,6 +96,7 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
     result.height_source = Source(config, "display.height");
     result.fullscreen_source = Source(config, "display.fullscreen");
     result.aspect_source = Source(config, "display.aspect");
+    result.frame_rate_source = Source(config, "display.frame_rate");
     for (const auto& info : kGameTweaks)
         if (Source(config, ("gameplay." + std::string(info.key)).c_str()) == SettingSource::Config)
             result.tweaks_source = SettingSource::Config;
@@ -98,6 +107,8 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         if (launcher_settings->height != config.settings.height) result.height_source = SettingSource::Launcher;
         if (launcher_settings->fullscreen != config.settings.fullscreen) result.fullscreen_source = SettingSource::Launcher;
         if (launcher_settings->aspect != config.settings.aspect) result.aspect_source = SettingSource::Launcher;
+        if (launcher_settings->frame_rate != config.settings.frame_rate)
+            result.frame_rate_source = SettingSource::Launcher;
         if (launcher_settings->tweaks != config.settings.tweaks) result.tweaks_source = SettingSource::Launcher;
     }
     if (options.disc)
@@ -128,6 +139,12 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         ValidateAspect(*options.aspect);
         result.settings.aspect = *options.aspect;
         result.aspect_source = SettingSource::CommandLine;
+    }
+    if (options.frame_rate)
+    {
+        ValidateFrameRate(*options.frame_rate);
+        result.settings.frame_rate = *options.frame_rate;
+        result.frame_rate_source = SettingSource::CommandLine;
     }
     if (options.no_tweaks)
     {
@@ -176,7 +193,8 @@ std::string DescribeLaunch(const ResolvedLaunch& launch)
         + " (" + SettingSourceName(launch.width_source) + "/" + SettingSourceName(launch.height_source)
         + "), " + (launch.settings.fullscreen ? "fullscreen" : "windowed")
         + " (" + SettingSourceName(launch.fullscreen_source) + "); aspect: "
-        + launch.settings.aspect + " (" + SettingSourceName(launch.aspect_source) + "); tweaks: "
+        + launch.settings.aspect + " (" + SettingSourceName(launch.aspect_source) + "); frame rate: "
+        + launch.settings.frame_rate + " (" + SettingSourceName(launch.frame_rate_source) + "); tweaks: "
         + DescribeGameTweaks(launch.settings.GameTweakMask()) + " (" + SettingSourceName(launch.tweaks_source) + ")";
 }
 }

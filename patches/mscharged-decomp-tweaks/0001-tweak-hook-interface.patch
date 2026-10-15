@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..ad7fec0
+index 0000000..df94716
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,75 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -61,6 +61,30 @@ index 0000000..ad7fec0
 +// Slides reset (Update(0)) this frame keep their first frame.
 +void mscharged_tweak_note_slide_reset(const void* slide);
 +bool mscharged_tweak_slide_reset_this_frame(const void* slide);
++
++// Frame rate above the original ([display] frame_rate). The host then
++// presents every frame as the game swaps and paces the next one itself
++// (glxSwap.cpp); VI retraces keep their real rate for what counts them.
++// The swap mode no original state uses: the host's swap.
++enum
++{
++    MSCHARGED_SWAP_HOST = 16,
++};
++bool mscharged_tweak_host_frames(void);
++// The swap mode a task state draws with; the original's mode also tells the
++// original frame (two VI fields in mode 2, else one).
++int mscharged_tweak_swap_mode(unsigned taskState, int swapMode);
++void mscharged_tweak_host_swap(void);
++// Once a frame, at its start: the frame's real duration. Steps the original
++// makes once per frame keep its pace through these: the frame's length in
++// original frames (1 at the original rate, 0.5 at twice it), whether this
++// frame starts a new original frame (about as many a second as the original
++// drew), and the number of original frames so far for a rendered frame count.
++// Without a raised frame rate they are 1, true and the rendered count.
++void mscharged_tweak_begin_frame(float realSeconds);
++float mscharged_tweak_original_frames(void);
++bool mscharged_tweak_original_frame(void);
++unsigned long mscharged_tweak_frame_number(unsigned long renderedFrame);
 +
 +#ifdef __cplusplus
 +}

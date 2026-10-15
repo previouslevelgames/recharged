@@ -4,7 +4,7 @@
 through a `main` → `stable` pull request.
 
 The **Build binaries** workflow builds Linux x86_64, Steam Deck, Windows x86_64
-and macOS Apple Silicon packages for PRs targeting `stable` and for pushes to `stable`.
+and macOS (Apple Silicon and Intel) packages for PRs targeting `stable` and for pushes to `stable`.
 Packages appear under **Actions → Build binaries → run → Artifacts**: a PR's
 for 7 days (to test before merging), `stable`'s for 14 days. Failed checks may
 attach configuration logs. A `stable` build of a new version also drafts its

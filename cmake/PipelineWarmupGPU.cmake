@@ -39,3 +39,19 @@ if(MSCHARGED_TEST_VULKAN)
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
         FAIL_REGULAR_EXPRESSION "VUID-|Error:|Validation Error|Identity texgen GPU failure")
 endif()
+
+# Fog and vertex array byte order are per-draw state (GX configuration v17).
+add_executable(gx_draw_state_gpu_tests tests/gx_draw_state_gpu.cpp)
+add_dependencies(gx_draw_state_gpu_tests verify_prepared)
+target_include_directories(gx_draw_state_gpu_tests PRIVATE
+    "${MSCHARGED_AURORA_PREPARED}/lib")
+target_compile_features(gx_draw_state_gpu_tests PRIVATE cxx_std_20)
+target_link_libraries(gx_draw_state_gpu_tests PRIVATE
+    aurora::gx aurora::mtx aurora::os aurora::vi aurora::core Threads::Threads sqlite3 absl::flat_hash_map)
+if(MSCHARGED_TEST_VULKAN)
+    add_test(NAME gx_draw_state_gpu COMMAND gx_draw_state_gpu_tests --backend vulkan)
+    set_tests_properties(gx_draw_state_gpu PROPERTIES TIMEOUT 180
+        LABELS "gpu;vulkan" RESOURCE_LOCK gx_check
+        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
+        FAIL_REGULAR_EXPRESSION "VUID-|Error:|Validation Error|GX draw state GPU failure")
+endif()

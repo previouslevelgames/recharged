@@ -1,6 +1,7 @@
 #include "runtime/pipeline_warmup.h"
 #include "runtime/pipeline_warmup_loop.h"
 #include "runtime/pipeline_catalog_layout.h"
+#include "runtime/pipeline_demand_log.h"
 #include "runtime/graphics_loading_view.h"
 
 #include "platform/session_log.h"
@@ -64,6 +65,15 @@ struct WarmupHost {
         }
     }
 };
+
+// Runs on the drawing thread; a log failure must not reach the renderer.
+void LogDemandMiss(const AuroraPipelineDemandMiss* miss, void*) noexcept
+{
+    try {
+        platform::SessionLogLine(PipelineDemandMissLine(*miss));
+    } catch (...) {
+    }
+}
 } // namespace
 
 bool PrepareGraphicsForGame(const std::filesystem::path& font)
@@ -106,6 +116,9 @@ bool PrepareGraphicsForGame(const std::filesystem::path& font)
     platform::SessionLogLine("Startup: graphics ready, " + std::to_string(status.readyPipelines) +
         " pipelines from " + std::to_string(status.knownConfigs) + " configurations in " +
         std::to_string(elapsed) + " ms");
+    // Everything known is prepared: a draw that still waits for a compile is a
+    // stutter in play. Log it; a new configuration's line completes the catalogue.
+    aurora_set_pipeline_demand_miss_callback(LogDemandMiss, nullptr);
     return true;
 }
 
@@ -116,7 +129,7 @@ void LogGraphicsPipelineStats()
         " configurations, " + std::to_string(status.readyPipelines) + " ready, " +
         std::to_string(status.demandHits) + " demand hits, " +
         std::to_string(status.demandMisses) + " demand misses, " +
-        std::to_string(status.demandWaitNanoseconds / 1000000) + " ms resolving misses");
+        std::to_string(status.demandWaitNanoseconds / 1000000) + " ms waiting for them");
 }
 
 } // namespace mscharged::runtime

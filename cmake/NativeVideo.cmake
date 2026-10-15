@@ -49,4 +49,25 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME native_vi_display COMMAND native_vi_display_tests)
     set_tests_properties(native_vi_display PROPERTIES TIMEOUT 10)
+
+    # Host frame pacing above the VI rate (Aurora 0109), with a recording endpoint.
+    add_executable(native_vi_pacing_tests
+        tests/native_vi_pacing.cpp
+        "${MSCHARGED_AURORA_PREPARED}/lib/dolphin/vi/vi.cpp")
+    add_dependencies(native_vi_pacing_tests verify_prepared)
+    target_include_directories(native_vi_pacing_tests PRIVATE
+        src "${MSCHARGED_AURORA_PREPARED}/include")
+    target_compile_definitions(native_vi_pacing_tests PRIVATE AURORA_NATIVE_VIDEO=1 TARGET_PC=1)
+    target_compile_features(native_vi_pacing_tests PRIVATE cxx_std_20)
+    target_link_libraries(native_vi_pacing_tests PRIVATE charged_native_video_device)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+        target_compile_options(native_vi_pacing_tests PRIVATE -ffunction-sections -fdata-sections)
+        if(APPLE)
+            target_link_options(native_vi_pacing_tests PRIVATE -Wl,-dead_strip)
+        else()
+            target_link_options(native_vi_pacing_tests PRIVATE -Wl,--gc-sections)
+        endif()
+    endif()
+    add_test(NAME native_vi_pacing COMMAND native_vi_pacing_tests)
+    set_tests_properties(native_vi_pacing PROPERTIES TIMEOUT 10)
 endif()

@@ -1,0 +1,276 @@
+From: mscharged-port
+Subject: Pace and present frames from the host above the VI rate
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+The native VI presents at genuine retraces only: a retrace latches the
+flushed XFB, commits it to the output and the owner's next service presents
+it. A game that draws above the console's field rate needs each finished
+frame shown as it swaps, while the retraces keep their real rate, counts and
+callbacks for everything that counts them.
+
+aurora_configure_video_pacing turns host pacing on with a frame slot (or no
+time limit, where VSync alone holds presentation to the display). The game
+then swaps through aurora_paced_video_swap instead of waiting for a retrace:
+it commits the registers the next retrace would latch and presents them at
+once, unless that flush also changes the TV mode or pan, which keeps the
+retrace boundary. It then waits for the next slot in short sleeps that keep
+servicing hardware interrupts, as VIWaitForRetrace does, with a final yield
+loop for precision. A late frame starts the cadence again from now. A window
+that presents nothing keeps at least the field period.
+
+While pacing is on, the output skips a retrace commit that would show the
+same completed copy with the same signal again; otherwise the latch of an
+already presented frame would cost a second Present and, with VSync, a
+display refresh. Without host pacing nothing changes.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index ed37f22..5b4b090 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -63,6 +63,10 @@ typedef struct {
+   // true is used only by the original cached ENB=1 Mode register flush.
+   // scanout carries actual current/flush geometry, never a new retrace.
+   void (*set_display_enabled)(void* context, bool enabled, const AuroraVIScanout* scanout);
++  // Optional. While host pacing is on (aurora_configure_video_pacing), a commit
++  // that would show the same completed XFB copy with the same signal again is
++  // not presented a second time.
++  void (*set_host_pacing)(void* context, bool paced);
+ } AuroraVIOutputDevice;
+ void aurora_attach_video_output_device(const AuroraVIOutputDevice* device);
+ // Supply the same explicit SC aspect preference to native virtual display
+@@ -147,6 +151,24 @@ typedef struct {
+   uint32_t threshold_tv_format;
+ } AuroraVIDimmingRequestState;
+ bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState* state);
++// Host frame pacing, a desktop option above the console's frame rate. A game
++// that swaps through aurora_paced_video_swap() instead of waiting for a VI
++// retrace has each flushed XFB presented at once and waits for its next frame
++// slot here. Retraces keep their real field timing, counts and callbacks; one
++// that latches an already presented copy does not present it again.
++// interval_ns is the frame slot (0: no time limit; VSync, when on, still holds
++// presentation to the display). A window that presents nothing keeps at least
++// the VI field period. NULL turns host pacing off. Owner thread only, after
++// aurora_configure_video_hardware.
++typedef struct {
++  uint64_t interval_ns;
++} AuroraVideoPacing;
++void aurora_configure_video_pacing(const AuroraVideoPacing* pacing);
++bool aurora_get_video_pacing(AuroraVideoPacing* pacing);
++// Presents the XFB the game just flushed (unless that flush changes the TV
++// mode or pan, which the next retrace commits) and waits for the next slot,
++// servicing hardware interrupts as VIWaitForRetrace does. Requires pacing.
++void aurora_paced_video_swap(void);
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+index 32df98b..09bb4ab 100644
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -111,6 +111,11 @@ struct Device {
+   Timing timing{}, source_timing{};
+   int dimming_request{VI_DM_DEFAULT};
+   uint32_t pending_dimming_threshold{}, dimming_tv_format{};
++  // Host frame pacing (aurora_configure_video_pacing), a desktop option. It
++  // outlives VIInit; the game's paced swaps follow next_frame_slot.
++  bool host_paced{};
++  uint64_t pacing_interval_ns{};
++  Clock::time_point next_frame_slot{};
+ };
+ Device& State() { static Device state; return state; }
+ uint32_t DimmingThreshold(int request, uint32_t tv_format) {
+@@ -334,11 +339,16 @@ void aurora_attach_video_output_device(const AuroraVIOutputDevice* device) {
+   if (!device || !device->prepare || !device->commit || !device->service || !device->shutdown)
+     throw std::invalid_argument("Native VI requires a complete graphics output device");
+   auto& state = State();
+-  std::lock_guard lock(state.mutex);
+-  if (!state.configured || state.owner != std::this_thread::get_id() || state.initialized ||
+-      state.initializing || state.output_attached)
+-    throw std::logic_error("Native output attachment requires staged source owner hardware");
+-  state.output_device = *device; state.output_attached = true;
++  bool paced;
++  {
++    std::lock_guard lock(state.mutex);
++    if (!state.configured || state.owner != std::this_thread::get_id() || state.initialized ||
++        state.initializing || state.output_attached)
++      throw std::logic_error("Native output attachment requires staged source owner hardware");
++    state.output_device = *device; state.output_attached = true; paced = state.host_paced;
++  }
++  // Device callbacks run without the VI mutex held.
++  if (paced && device->set_host_pacing) device->set_host_pacing(device->context, true);
+ }
+ void aurora_service_video_interrupts() {
+   ServiceVideoInterrupts();
+@@ -418,6 +428,7 @@ void aurora_shutdown_video_hardware() {
+     state.output_attached = false; state.output_device = {};
+     state.config = {}; state.owner = {}; state.pre = state.post = nullptr;
+     state.dimming_request = VI_DM_DEFAULT; state.pending_dimming_threshold = state.dimming_tv_format = 0;
++    state.host_paced = false; state.pacing_interval_ns = 0; state.next_frame_slot = {};
+     state.current_buffer = state.next_buffer = nullptr;
+     state.display_disable_completed = false;
+   }
+@@ -445,6 +456,90 @@ bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState* result)
+   *result = {state.dimming_request, state.pending_dimming_threshold, state.dimming_tv_format};
+   return true;
+ }
++void aurora_configure_video_pacing(const AuroraVideoPacing* pacing) {
++  auto& state = State();
++  AuroraVIOutputDevice output{};
++  bool attached;
++  {
++    std::lock_guard lock(state.mutex);
++    if (!state.configured || state.owner != std::this_thread::get_id())
++      throw std::logic_error("Native video pacing requires the configured source owner");
++    if (state.active || state.callback_active)
++      throw std::logic_error("Native video pacing cannot change inside a VI interrupt callback");
++    state.host_paced = pacing != nullptr;
++    state.pacing_interval_ns = pacing ? pacing->interval_ns : 0;
++    state.next_frame_slot = {};
++    output = state.output_device; attached = state.output_attached;
++  }
++  if (attached && output.set_host_pacing) output.set_host_pacing(output.context, pacing != nullptr);
++}
++bool aurora_get_video_pacing(AuroraVideoPacing* pacing) {
++  if (!pacing) return false;
++  auto& state = State(); std::lock_guard lock(state.mutex);
++  *pacing = {state.pacing_interval_ns};
++  return state.host_paced;
++}
++void aurora_paced_video_swap() {
++  auto& state = State();
++  AuroraVIOutputDevice output{};
++  AuroraVIScanout scanout{};
++  bool present, attached;
++  Nanoseconds interval, field;
++  {
++    std::lock_guard lock(state.mutex); RequireOwner(state);
++    if (state.active || state.callback_active)
++      throw std::logic_error("The paced video swap cannot run inside a VI interrupt callback");
++    if (!state.host_paced) throw std::logic_error("The paced video swap requires host video pacing");
++    UpdateClock(state, Clock::now());
++    // What the next retrace latches. A flush that also changes the TV mode or
++    // pan keeps the genuine retrace boundary for its whole commit.
++    present = state.flush && !state.shadow_change_mode && !(state.shadow_dirty & (Mode | Pan));
++    if (present) scanout = Scanout(state, PendingRegisters(state, true), state.retraces);
++    output = state.output_device; attached = state.output_attached;
++    interval = Nanoseconds{static_cast<int64_t>(state.pacing_interval_ns)};
++    field = FieldOffset(1, state.timing);
++  }
++  // Present outside the VI lock and any source IRQ context. A copy whose GPU
++  // work has not completed is left to the retrace, which latches this flush.
++  if (present && attached && output.prepare(output.context, &scanout)) output.commit(output.context, &scanout);
++  InterruptMask mask;
++  OSEnableInterrupts(); aurora_service_hardware(); OSDisableInterrupts();
++  // A window that presents nothing would otherwise run as fast as it can.
++  if (!aurora::window::is_presentable()) interval = std::max(interval, field);
++  if (interval.count() <= 0) {
++    std::lock_guard lock(state.mutex); state.next_frame_slot = {};
++  } else {
++    const auto now = Clock::now();
++    Clock::time_point slot;
++    {
++      std::lock_guard lock(state.mutex);
++      slot = state.next_frame_slot == Clock::time_point{} ? now + interval : state.next_frame_slot + interval;
++      // A late frame starts the cadence again from now instead of rushing to catch up.
++      if (slot < now) slot = now;
++      state.next_frame_slot = slot;
++    }
++    // Sleep in short steps that keep hardware interrupts (audio, alarms, VI)
++    // on time, as VIWaitForRetrace does; the last moment is a yield loop
++    // because a sleep can overshoot it (by up to a millisecond on Windows).
++#if defined(_WIN32)
++    constexpr auto finalSpin = std::chrono::microseconds{1500};
++#else
++    constexpr auto finalSpin = std::chrono::microseconds{250};
++#endif
++    for (auto current = Clock::now(); current < slot; current = Clock::now()) {
++      OSEnableInterrupts(); aurora_service_hardware_interrupts();
++      if (slot - Clock::now() > finalSpin)
++        std::this_thread::sleep_until(std::min(slot - finalSpin, Clock::now() + std::chrono::milliseconds{1}));
++      else std::this_thread::yield();
++      OSDisableInterrupts();
++    }
++    // A retrace that came due during the wait may hold a newer commit.
++    OSEnableInterrupts(); aurora_service_hardware(); OSDisableInterrupts();
++  }
++#ifdef AURORA_ENABLE_GX
++  aurora::gx::fifo::rebase_if_caught_up();
++#endif
++}
+ void VIInit() {
+   auto& state = State();
+   InterruptMask mask;
+@@ -702,5 +797,12 @@ bool aurora_get_video_display_enabled(bool* enabled) {
+ }
+ bool aurora_get_video_hardware_state(AuroraVIHardwareState*) { return false; }
+ bool aurora_get_video_dimming_request_state(AuroraVIDimmingRequestState*) { return false; }
++void aurora_configure_video_pacing(const AuroraVideoPacing*) {
++  throw std::logic_error("Native VI hardware is disabled in this diagnostic build");
++}
++bool aurora_get_video_pacing(AuroraVideoPacing*) { return false; }
++void aurora_paced_video_swap() {
++  throw std::logic_error("Native VI hardware is disabled in this diagnostic build");
++}
+ }
+ #endif
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index 74ead76..b01b61e 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -161,6 +161,9 @@ struct Output {
+   std::mutex display_gate;
+   std::thread::id owner;
+   bool configured{}, widescreen{}, pending{}, servicing{}, display_enabled{true};
++  // Host frame pacing: each flushed XFB is committed as the game swaps, and
++  // the retrace that latches it later must not present it a second time.
++  bool host_paced{};
+   uint8_t desktop_picture{AURORA_DESKTOP_SIGNAL};
+   AuroraVIScanout disabled_scanout{};
+   AuroraVIScanout prepared{}, committed{}, presented{};
+@@ -364,13 +367,29 @@ bool prepare(void*, const AuroraVIScanout* scanout) {
+   }
+   state.prepared = *scanout; return true;
+ }
++// The same picture: copy, signal geometry and black state; the retrace count
++// and physical field differ from retrace to retrace.
++bool same_output(const AuroraVIScanout& a, const AuroraVIScanout& b) {
++  return a.framebuffer == b.framebuffer && a.tv_mode == b.tv_mode && a.xfb_mode == b.xfb_mode &&
++      a.fb_width == b.fb_width && a.xfb_height == b.xfb_height && a.x_origin == b.x_origin &&
++      a.y_origin == b.y_origin && a.vi_width == b.vi_width && a.vi_height == b.vi_height &&
++      a.pan_x == b.pan_x && a.pan_y == b.pan_y && a.pan_width == b.pan_width && a.pan_height == b.pan_height &&
++      a.active_width == b.active_width && a.active_height == b.active_height && a.black == b.black;
++}
+ void commit(void*, const AuroraVIScanout* scanout) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   AURORA_ASSERT(scanout && scanout->retrace_count == state.prepared.retrace_count &&
+       scanout->framebuffer == state.prepared.framebuffer && scanout->black == state.prepared.black,
+       "Native VI output commit does not match its actual prepared source state");
++  if (state.host_paced && state.prepared_snapshot == state.committed_snapshot && same_output(state.committed, *scanout)) {
++    state.prepared_snapshot.reset();
++    return;
++  }
+   state.committed = *scanout; state.committed_snapshot = std::move(state.prepared_snapshot); state.pending = true;
+ }
++void set_host_pacing(void*, bool paced) {
++  auto& state = State(); std::lock_guard lock(state.mutex); state.host_paced = paced;
++}
+ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+   std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop;
+@@ -571,6 +590,7 @@ void shutdown(void*) {
+   state.copy_group = {}; state.copy_view = {}; state.copy_sampler = {};
+   state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.scaled_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
++  state.host_paced = false;
+   state.desktop_picture = AURORA_DESKTOP_SIGNAL; xfb::set_flicker_filter(true);
+   state.presented_geometry = {}; state.display_enabled = true; state.disabled_scanout = {};
+ }
+@@ -616,7 +636,7 @@ void configure(const AuroraVIOutputConfig* config) {
+   scaledPipelineDesc.label = "Full-detail VI desktop signal of a scaled EFB";
+   scaledPipelineDesc.fragment = &scaledFragment;
+   const auto scaledPipeline = webgpu::g_device.CreateRenderPipeline(&scaledPipelineDesc);
+-  const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown, set_display_enabled};
++  const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown, set_display_enabled, set_host_pacing};
+   aurora_attach_video_output_device(&endpoint);
+   state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline;
+   state.scaled_pipeline = scaledPipeline; state.configured = true; state.widescreen = config->widescreen;

@@ -1,0 +1,471 @@
+From: mscharged-port
+Subject: Compile pipelines that recorded draws miss in parallel
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+A draw whose pipeline was not compiled yet waited on the GX FIFO worker until
+the single pipeline thread had compiled it synchronously, so the pipelines a
+new effect needs in one frame compiled one after another (in one recorded
+match, 25 in a single frame took 220 ms, the slowest 16 ms) and the rest of
+the frame could not be recorded meanwhile.
+
+Recorded draws now use a Demand priority: the compile starts at once with
+CreateRenderPipelineAsync on Dawn's worker pool, without the preparation
+limit, and recording continues. get_pipeline waits for a pipeline that is
+still being compiled, so the render worker waits when it encodes the draw:
+the draw keeps its FIFO position and is never dropped. A failed asynchronous
+creation is retried synchronously, as for preparation. Without a pipeline
+thread, draws still compile inline.
+
+The demand miss report (0108) follows the compile: a missed draw registers
+one report per pipeline, made before the pipeline is published, with the time
+from the draw's request until it was ready (compileNanoseconds; pipelines
+missed together overlap). Reports therefore run on the thread that published
+the pipeline. demandWaitNanoseconds now sums how long encoders waited, the
+actual stall. With 25 recorded configurations missed at once on a busy 4-core
+laptop (driver cache off), the wait fell from 0.85-1.04 s one after another
+to 0.23-0.34 s (four runs each).
+
+diff --git a/include/aurora/pipeline_cache.h b/include/aurora/pipeline_cache.h
+index d173f0f..dbbc56e 100644
+--- a/include/aurora/pipeline_cache.h
++++ b/include/aurora/pipeline_cache.h
+@@ -24,7 +24,7 @@ typedef struct {
+   uint64_t failedPipelines;
+   uint64_t demandHits;
+   uint64_t demandMisses;
+-  uint64_t demandWaitNanoseconds;
++  uint64_t demandWaitNanoseconds; /* how long encoders waited for those pipelines */
+   bool ready;
+ } AuroraPipelineWarmupStatus;
+ 
+@@ -63,7 +63,9 @@ bool aurora_seal_pipeline_generation_for_resources(uint64_t resourceScope);
+  * Call on the host thread after graphics settings are applied, before starting
+  * source gameplay; do not call concurrently with frame recording or settings
+  * changes. Initialization already starts the first preparation pass.
+- * Draws still compile and wait for previously unknown configurations normally.
++ * A draw of a configuration that is not compiled yet starts its compile at
++ * once; the frame waits for it when the draw is encoded, while other missing
++ * pipelines compile alongside.
+  */
+ void aurora_prepare_pipelines();
+ 
+@@ -91,7 +93,7 @@ bool aurora_end_pipeline_collection(bool submit);
+  */
+ AuroraPipelineWarmupStatus aurora_pipeline_warmup_status();
+ 
+-/** A draw that waited for its pipeline to compile: one demand miss. */
++/** A draw whose pipeline was not compiled yet: one demand miss. */
+ typedef struct {
+   uint32_t shaderType;    /* 0 clear, 1 GX: the pipeline_cache.db type */
+   uint32_t configVersion;
+@@ -99,18 +101,22 @@ typedef struct {
+   const void* config;     /* the raw configuration, valid during the call */
+   uint32_t configSize;
+   uint32_t frame;         /* frame of the draw */
+-  uint64_t waitNanoseconds;
++  /** From the draw's request until its pipeline was ready, including waiting
++   * for other compiles: pipelines missing together overlap. */
++  uint64_t compileNanoseconds;
+   /** First use of this configuration on this computer: neither the bundled nor
+    * the local cache had it. Otherwise it was known, but not yet compiled for
+    * this render target layout. */
+   bool newConfiguration;
+ } AuroraPipelineDemandMiss;
+ typedef void (*AuroraPipelineDemandMissCallback)(const AuroraPipelineDemandMiss* miss, void* userData);
+-/** Report every draw that waits for a pipeline compile, after the compile, on
+- * the drawing thread, with no pipeline lock held. Set after aurora_initialize;
+- * aurora_shutdown clears it. Returns once a running report has finished, so
+- * userData may be released after a NULL callback is set. The callback must not
+- * call this function.
++/** Report each demand miss once its pipeline has compiled, before the draw is
++ * encoded with it: on the thread that published the pipeline (a pipeline thread
++ * or a GPU driver worker), with no pipeline lock held. Draws that miss the same
++ * pipeline are reported once. Set after aurora_initialize; aurora_shutdown
++ * clears it. Returns once a running report has finished, so userData may be
++ * released after a NULL callback is set. The callback must not call this
++ * function.
+  */
+ void aurora_set_pipeline_demand_miss_callback(AuroraPipelineDemandMissCallback callback, void* userData);
+ 
+diff --git a/lib/gfx/pipeline_cache.cpp b/lib/gfx/pipeline_cache.cpp
+index 3eda79c..89360a6 100644
+--- a/lib/gfx/pipeline_cache.cpp
++++ b/lib/gfx/pipeline_cache.cpp
+@@ -28,6 +28,7 @@
+ #include <ranges>
+ #include <variant>
+ #include <thread>
++#include <vector>
+ 
+ #include <SDL3/SDL_iostream.h>
+ #include <absl/container/flat_hash_map.h>
+@@ -120,7 +121,7 @@ static bool g_gpuCachePrunePending = false;
+ static bool g_gpuCachePruning = false;
+ static uint64_t g_activePipelineCompilations = 0;
+ // Background (preparation) pipelines compile in parallel on Dawn's worker pool,
+-// at most this many at once. Draw demands keep synchronous creation here.
++// at most this many at once. A recorded draw's pipeline starts without a limit.
+ static uint32_t g_asyncPipelineLimit = 0;
+ static uint32_t g_asyncPipelinesInFlight = 0;
+ static uint64_t g_failedPipelines = 0;
+@@ -187,6 +188,69 @@ struct PipelineTraceIdentity {
+   uint64_t layoutKey;
+ };
+ 
++// A recorded draw whose pipeline is not compiled. The draw no longer waits for
++// the compile (the encoder does), so the miss is reported when the pipeline is
++// published, with the time since the draw asked for it.
++struct DemandRequest {
++  ShaderType type;
++  uint32_t configVersion;
++  HashType configKey;
++  const void* config;
++  uint32_t configSize;
++  uint32_t frame;
++  bool learned;
++};
++struct DemandReport {
++  ShaderType type;
++  uint32_t configVersion;
++  HashType configKey;
++  std::vector<uint8_t> config;
++  uint32_t frame;
++  bool learned;
++  bool prequeued;
++  uint64_t generation;
++  uint64_t layoutKey;
++  std::chrono::steady_clock::time_point start;
++};
++static absl::flat_hash_map<PipelineRef, DemandReport> g_demandReports; // protected by g_pipelineMutex
++
++static std::optional<DemandReport> take_demand_report(PipelineRef runtimeKey) {
++  std::lock_guard lock{g_pipelineMutex};
++  const auto it = g_demandReports.find(runtimeKey);
++  if (it == g_demandReports.end()) {
++    return std::nullopt;
++  }
++  auto report = std::move(it->second);
++  g_demandReports.erase(it);
++  return report;
++}
++
++// Trace and host report of a missed draw's now compiled pipeline. The host
++// callback runs under its own lock, never g_pipelineMutex.
++static void finish_demand_report(PipelineRef runtimeKey, const DemandReport& report) {
++  const auto elapsed = static_cast<uint64_t>(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - report.start).count());
++  pipeline_trace("event=demand-miss generation={} frame={} type={} version={} config={:016x} runtime={:016x} "
++                 "layout={:016x} prequeued={} wait_ns={}", report.generation, report.frame,
++                 static_cast<uint32_t>(report.type), report.configVersion, report.configKey, runtimeKey,
++                 report.layoutKey, report.prequeued, elapsed);
++  std::lock_guard lock{g_demandMissCallbackMutex};
++  if (!g_demandMissCallback) {
++    return;
++  }
++  const AuroraPipelineDemandMiss miss{
++      .shaderType = static_cast<uint32_t>(report.type),
++      .configVersion = report.configVersion,
++      .configKey = report.configKey,
++      .config = report.config.data(),
++      .configSize = static_cast<uint32_t>(report.config.size()),
++      .frame = report.frame,
++      .compileNanoseconds = elapsed,
++      .newConfiguration = report.learned,
++  };
++  g_demandMissCallback(&miss, g_demandMissUserData);
++}
++
+ static sqlite3* g_pipelineCacheDb = nullptr;
+ static sqlite3_stmt* g_pipelineCacheLoadStmt = nullptr;
+ static sqlite3_stmt* g_pipelineCacheUpsertStmt = nullptr;
+@@ -481,6 +545,7 @@ static auto find_pending_pipeline(Queue& queue, PipelineRef hash) {
+ enum class PipelinePriority {
+   Background, // cache warmup
+   Normal,     // async skip draw
++  Demand,     // a recorded draw: compile at once; the encoder waits for it
+   Blocking,   // block until compiled
+ };
+ 
+@@ -493,7 +558,7 @@ static void promote_pending_pipeline(PipelineRef hash, PipelinePriority priority
+   if (backgroundIt == g_backgroundPipelineQueue.end()) {
+     return;
+   }
+-  if (priority == PipelinePriority::Blocking) {
++  if (priority == PipelinePriority::Blocking || priority == PipelinePriority::Demand) {
+     g_pipelineQueue.emplace_front(std::move(*backgroundIt));
+   } else {
+     g_pipelineQueue.emplace_back(std::move(*backgroundIt));
+@@ -601,39 +666,52 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+                                       const PipelineTraceIdentity& identity,
+                                       PipelinePriority priority = PipelinePriority::Normal,
+                                       NewPipelineAsyncCallback&& createAsync = {},
+-                                      std::optional<uint64_t>* demandWait = nullptr) {
++                                      const DemandRequest* demand = nullptr) {
+   ZoneScoped;
+ 
+   const bool blocking = priority == PipelinePriority::Blocking;
++  const bool drawn = blocking || priority == PipelinePriority::Demand;
+   bool notifyWorker = false;
+   bool pipelineReady = false;
+   bool createdPipeline = false;
+   uint32_t pipelineCount = 0;
+   bool queued = false;
+-  bool demandMiss = false;
+   bool previouslyPending = false;
+   bool scheduled = false;
+   uint64_t generation = 0;
+   const auto traceFrame = g_pipelineTraceEnabled ? current_frame() : 0;
+-  std::chrono::steady_clock::time_point demandStart{};
+   {
+     std::scoped_lock guard{g_pipelineMutex};
+     auto pipelineIt = g_pipelines.find(runtimeKey);
+     generation = g_pipelineGeneration;
+     previouslyPending = g_pendingPipelines.contains(runtimeKey);
+-    if (blocking) {
++    if (drawn) {
+       if (pipelineIt != g_pipelines.end()) {
+         ++g_demandHits;
+       } else {
+         ++g_demandMisses;
+-        demandMiss = true;
+-        demandStart = std::chrono::steady_clock::now();
++        // One report per compile, whichever draw asked first.
++        if (demand && !g_demandReports.contains(runtimeKey)) {
++          const auto* bytes = static_cast<const uint8_t*>(demand->config);
++          g_demandReports.emplace(runtimeKey, DemandReport{
++                                                  .type = demand->type,
++                                                  .configVersion = demand->configVersion,
++                                                  .configKey = demand->configKey,
++                                                  .config = std::vector<uint8_t>(bytes, bytes + demand->configSize),
++                                                  .frame = demand->frame,
++                                                  .learned = demand->learned,
++                                                  .prequeued = previouslyPending,
++                                                  .generation = generation,
++                                                  .layoutKey = identity.layoutKey,
++                                                  .start = std::chrono::steady_clock::now(),
++                                              });
++        }
+       }
+     }
+     if (pipelineIt != g_pipelines.end()) {
+       pipelineReady = true;
+     } else if (g_pendingPipelines.contains(runtimeKey)) {
+-      if (blocking && !g_hasPipelineThread) {
++      if (drawn && !g_hasPipelineThread) {
+         auto pending = take_pending_pipeline(runtimeKey);
+         if (pending) {
+           ++g_activePipelineCompilations;
+@@ -650,7 +728,7 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+         promote_pending_pipeline(runtimeKey, priority);
+         notifyWorker = priority != PipelinePriority::Background;
+       }
+-    } else if (!g_hasPipelineThread && (blocking || g_pipelinesPerFrame < BuildPipelinesPerFrame)) {
++    } else if (!g_hasPipelineThread && (drawn || g_pipelinesPerFrame < BuildPipelinesPerFrame)) {
+       ++g_activePipelineCompilations;
+       auto result = cb();
+       g_failedPipelines += !result.main;
+@@ -672,6 +750,7 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+       case PipelinePriority::Normal:
+         g_pipelineQueue.emplace_back(std::move(pending));
+         break;
++      case PipelinePriority::Demand:
+       case PipelinePriority::Blocking:
+         g_pipelineQueue.emplace_front(std::move(pending));
+         break;
+@@ -691,6 +770,10 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+   }
+ 
+   if (createdPipeline) {
++    // Compiled on this thread (no pipeline thread): report the miss here.
++    if (auto report = take_demand_report(runtimeKey)) {
++      finish_demand_report(runtimeKey, *report);
++    }
+     notify_pipeline_ready(queued, pipelineCount);
+   }
+ 
+@@ -702,40 +785,27 @@ static PipelineRef find_pipeline_impl(PipelineRef runtimeKey, NewPipelineCallbac
+     std::unique_lock lock{g_pipelineMutex};
+     g_pipelineReadyCv.wait(lock, [=] { return g_pipelines.contains(runtimeKey) || g_pipelineThreadEnd; });
+   }
+-  if (demandMiss) {
+-    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+-        std::chrono::steady_clock::now() - demandStart).count();
+-    {
+-      std::lock_guard lock{g_pipelineMutex};
+-      g_demandWaitNanoseconds += static_cast<uint64_t>(elapsed);
+-    }
+-    if (demandWait) *demandWait = static_cast<uint64_t>(elapsed);
+-    pipeline_trace("event=demand-miss generation={} frame={} type={} version={} config={:016x} runtime={:016x} "
+-                   "layout={:016x} prequeued={} wait_ns={}", generation, traceFrame,
+-                   static_cast<uint32_t>(identity.type), identity.version, identity.configKey,
+-                   runtimeKey, identity.layoutKey, previouslyPending, elapsed);
+-  }
+   return runtimeKey;
+ }
+ 
+ static PipelineRef resolve_pipeline(ShaderType type, const gx::PipelineConfig& config, const RenderTargetLayout& layout,
+-                                    PipelinePriority priority, std::optional<uint64_t>* demandWait = nullptr) {
++                                    PipelinePriority priority, const DemandRequest* demand = nullptr) {
+   const auto configKey = xxh3_hash(config, static_cast<HashType>(type));
+   const auto runtimeKey = xxh3_hash(layout.key, configKey);
+   return find_pipeline_impl(
+       runtimeKey, [config, layout] { return create_pipeline(config, layout); },
+       {type, configKey, config.version, layout.key}, priority,
+-      [config, layout](auto done) { create_pipeline_async(config, layout, std::move(done)); }, demandWait);
++      [config, layout](auto done) { create_pipeline_async(config, layout, std::move(done)); }, demand);
+ }
+ 
+ static PipelineRef resolve_pipeline(ShaderType type, const clear::PipelineConfig& config,
+                                     const RenderTargetLayout& layout, PipelinePriority priority,
+-                                    std::optional<uint64_t>* demandWait = nullptr) {
++                                    const DemandRequest* demand = nullptr) {
+   const auto configKey = xxh3_hash(config, static_cast<HashType>(type));
+   const auto runtimeKey = xxh3_hash(layout.key, configKey);
+   return find_pipeline_impl(
+       runtimeKey, [config, layout] { return CompiledPipeline{.main = create_pipeline(config, layout)}; },
+-      {type, configKey, config.version, layout.key}, priority, {}, demandWait);
++      {type, configKey, config.version, layout.key}, priority, {}, demand);
+ }
+ 
+ #ifdef AURORA_ENABLE_RMLUI
+@@ -1199,12 +1269,17 @@ static bool pipeline_work_available() {
+ }
+ 
+ static void publish_pipeline(PipelineRef hash, CompiledPipeline result, bool async) {
++  // Report a draw's miss before the encoder waiting for the pipeline can use it.
++  if (auto report = take_demand_report(hash)) {
++    finish_demand_report(hash, *report);
++  }
+   const auto pipelineCount = result.pipeline_count();
+   {
+     std::lock_guard lock{g_pipelineMutex};
+     g_failedPipelines += !result.main;
+     g_pipelines.try_emplace(hash, std::move(result));
+     g_pendingPipelines.erase(hash);
++    g_demandReports.erase(hash); // a draw that missed while the report ran
+     g_asyncPipelinesInFlight -= async;
+   }
+   if (!g_hasPipelineThread) {
+@@ -1258,7 +1333,9 @@ static void pipeline_worker() {
+       pending = std::move(source.front());
+       source.pop_front();
+       ++g_activePipelineCompilations;
+-      async = background && g_hasPipelineThread && g_asyncPipelineLimit != 0 && pending.createAsync;
++      // A recorded draw's pipeline starts at once, unlike preparation, so the
++      // pipelines missing in one frame compile in parallel on Dawn's pool.
++      async = g_hasPipelineThread && g_asyncPipelineLimit != 0 && pending.createAsync;
+       g_asyncPipelinesInFlight += async;
+     }
+     if (async) {
+@@ -1366,37 +1443,16 @@ void set_pipeline_demand_miss_callback(AuroraPipelineDemandMissCallback callback
+   g_demandMissUserData = userData;
+ }
+ 
+-template <typename Config>
+-static void report_demand_miss(ShaderType type, const Config& config, HashType configKey, uint32_t frame,
+-                               bool learned, uint64_t waitNanoseconds) {
+-  std::lock_guard lock{g_demandMissCallbackMutex};
+-  if (!g_demandMissCallback) return;
+-  const AuroraPipelineDemandMiss miss{
+-      .shaderType = static_cast<uint32_t>(type),
+-      .configVersion = config.version,
+-      .configKey = configKey,
+-      .config = &config,
+-      .configSize = static_cast<uint32_t>(sizeof(Config)),
+-      .frame = frame,
+-      .waitNanoseconds = waitNanoseconds,
+-      .newConfiguration = learned,
+-  };
+-  g_demandMissCallback(&miss, g_demandMissUserData);
+-}
+-
+ PipelineRef find_pipeline(const clear::PipelineConfig& config, const RenderTargetLayout& layout) {
+   const auto frame = current_frame();
+   const auto configKey = xxh3_hash(config, static_cast<HashType>(ShaderType::Clear));
+   const bool learned = remember_pipeline_config(ShaderType::Clear, config, frame, true);
+   observe_pipeline_config(ShaderType::Clear, configKey);
+   // A hardware draw/clear must execute at this FIFO position. An unfinished
+-  // native pipeline is a compilation wait, never permission to drop the draw.
+-  std::optional<uint64_t> waited;
+-  const auto ref = resolve_pipeline(ShaderType::Clear, config, layout, PipelinePriority::Blocking, &waited);
+-  CompiledPipeline compiled;
+-  AURORA_ASSERT(get_pipeline(ref, compiled), "Native Clear pipeline did not compile");
+-  if (waited) report_demand_miss(ShaderType::Clear, config, configKey, frame, learned, *waited);
+-  return ref;
++  // native pipeline is a compilation wait, never permission to drop the draw:
++  // the compile starts now and the encoder waits for it (get_pipeline).
++  const DemandRequest request{ShaderType::Clear, config.version, configKey, &config, sizeof(config), frame, learned};
++  return resolve_pipeline(ShaderType::Clear, config, layout, PipelinePriority::Demand, &request);
+ }
+ 
+ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLayout& layout) {
+@@ -1405,13 +1461,11 @@ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLa
+   const bool learned = remember_pipeline_config(ShaderType::GX, config, frame, true);
+   observe_pipeline_config(ShaderType::GX, configKey);
+   // A hardware draw/clear must execute at this FIFO position. An unfinished
+-  // native pipeline is a compilation wait, never permission to drop the draw.
+-  std::optional<uint64_t> waited;
+-  const auto ref = resolve_pipeline(ShaderType::GX, config, layout, PipelinePriority::Blocking, &waited);
+-  CompiledPipeline compiled;
+-  AURORA_ASSERT(get_pipeline(ref, compiled), "Native GX pipeline did not compile");
+-  if (waited) report_demand_miss(ShaderType::GX, config, configKey, frame, learned, *waited);
+-  return ref;
++  // native pipeline is a compilation wait, never permission to drop the draw:
++  // the compile starts now and the encoder waits for it (get_pipeline), so
++  // pipelines several draws miss in one frame compile in parallel.
++  const DemandRequest request{ShaderType::GX, config.version, configKey, &config, sizeof(config), frame, learned};
++  return resolve_pipeline(ShaderType::GX, config, layout, PipelinePriority::Demand, &request);
+ }
+ 
+ #ifdef AURORA_ENABLE_RMLUI
+@@ -1734,6 +1788,7 @@ void initialize_pipeline_cache() {
+     g_activePipelineCompilations = 0;
+     g_failedPipelines = 0;
+     g_demandHits = g_demandMisses = g_demandWaitNanoseconds = 0;
++    g_demandReports.clear();
+   }
+ 
+   if (webgpu::g_backendType == wgpu::BackendType::WebGPU) {
+@@ -1795,6 +1850,7 @@ void shutdown_pipeline_cache() {
+     g_activePipelineCompilations = 0;
+     g_failedPipelines = 0;
+     g_demandHits = g_demandMisses = g_demandWaitNanoseconds = 0;
++    g_demandReports.clear();
+     g_pipelines.clear();
+     g_knownPipelines.clear();
+     g_activePipelineConfigs.clear();
+@@ -1831,8 +1887,20 @@ void end_pipeline_frame() {
+ }
+ 
+ bool get_pipeline(PipelineRef ref, CompiledPipeline& pipeline) {
+-  std::lock_guard guard{g_pipelineMutex};
+-  const auto it = g_pipelines.find(ref);
++  std::unique_lock lock{g_pipelineMutex};
++  auto it = g_pipelines.find(ref);
++  if (it == g_pipelines.end() && g_pendingPipelines.contains(ref)) {
++    // A draw recorded before its pipeline compiled: wait here, at encoding,
++    // so the draw keeps its position. This wait is the stutter.
++    const auto waitStart = std::chrono::steady_clock::now();
++    g_pipelineReadyCv.wait(lock, [ref] {
++      return g_pipelines.contains(ref) || !g_pendingPipelines.contains(ref) || g_pipelineThreadEnd;
++    });
++    g_demandWaitNanoseconds += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                                         std::chrono::steady_clock::now() - waitStart)
++                                                         .count());
++    it = g_pipelines.find(ref);
++  }
+   if (it == g_pipelines.end() || !it->second.main) {
+     return false;
+   }
+diff --git a/lib/gfx/pipeline_cache.hpp b/lib/gfx/pipeline_cache.hpp
+index 3ca2841..ea41772 100644
+--- a/lib/gfx/pipeline_cache.hpp
++++ b/lib/gfx/pipeline_cache.hpp
+@@ -54,6 +54,7 @@ PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLa
+ PipelineRef find_pipeline(const clear::PipelineConfig& config, const RenderTargetLayout& layout);
+ PipelineRef find_pipeline(const rmlui::PipelineConfig& config);
+ 
++// Waits for a pipeline that a recorded draw is still compiling (encoder side).
+ bool get_pipeline(PipelineRef ref, CompiledPipeline& pipeline);
+ 
+ } // namespace aurora::gfx

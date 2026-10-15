@@ -47,6 +47,11 @@ the reconstructed source, unchanged.
 - Picture styles: **sharp** (default) or clean fill the window with the game's
   picture; soft keeps the console's TV look, with the TV signal's empty border.
 - Optional **4x antialiasing**.
+- **High frame rates**: the console's 60 FPS by default, or 120, 144, your
+  display's refresh rate or unlimited (Display → Frame rate). The game keeps its
+  own speed: matches still simulate at their fixed 50 Hz and every frame is
+  drawn from the game's own blend of its last two steps, so the extra frames
+  are real motion, not interpolation added by the port.
 - V-sync, an FPS counter (window title, or on screen also in fullscreen),
   master volume and mute; music, effects and voice levels stay in the game's
   own options.

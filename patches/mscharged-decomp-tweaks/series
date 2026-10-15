@@ -9,3 +9,5 @@
 0010-fix-nk-bug.patch
 0011-skip-boot-loading-message.patch
 0012-tweak-fast-terrain.patch
+0013-tweak-frame-rate.patch
+0014-frame-rate-original-steps.patch

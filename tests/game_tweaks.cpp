@@ -1,5 +1,6 @@
 // The game module's tweak state (src/platform/game_tweaks.cpp): with no tweak
 // enabled, every hook gets the original game's answer; each tweak acts alone.
+// A frame rate above the original keeps the original's per-frame steps.
 #include "bootstrap/game_tweaks.h"
 #include "mscharged_tweaks.h"
 
@@ -7,6 +8,11 @@
 #include <stdexcept>
 
 extern "C" void charged_configure_tweaks(unsigned mask);
+extern "C" void charged_configure_frame_pacing(void (*swap)());
+
+// The native VI's TV format (VI_NTSC 0, VI_PAL 1) for the original frame.
+unsigned gTvFormat;
+extern "C" unsigned int VIGetTvFormat(void) { return gTvFormat; }
 
 namespace
 {
@@ -31,6 +37,40 @@ void CheckOriginal(const char* what)
             Check(mscharged_tweak_task_dilation(&task) == 1.0f && mscharged_tweak_task_dilation(&other) == 1.0f, what);
         }
     Check(!mscharged_tweak_title_pending() && !mscharged_tweak_take_title_press(), what);
+}
+
+// The frame-rate hooks' answers at the original pacing.
+void CheckOriginalFrames(const char* what)
+{
+    Check(!mscharged_tweak_host_frames(), what);
+    for (unsigned state : {1u, 2u, 4u, 8u, 16u, 0x2000000u})
+        for (int mode = 0; mode < 4; ++mode)
+            Check(mscharged_tweak_swap_mode(state, mode) == mode, what);
+    for (float seconds : {0.0f, 1.0f / 240.0f, 1.0f / 60.0f, 0.5f})
+    {
+        mscharged_tweak_begin_frame(seconds);
+        Check(mscharged_tweak_original_frames() == 1.0f && mscharged_tweak_original_frame(), what);
+        Check(mscharged_tweak_frame_number(1234) == 1234, what);
+    }
+}
+
+int swaps;
+void Swap() { ++swaps; }
+
+// Original frames begun over `seconds` of frames `frame` seconds long.
+unsigned long OriginalFramesOver(double seconds, float frame, int swapMode = 1)
+{
+    charged_configure_frame_pacing(Swap);
+    Check(mscharged_tweak_swap_mode(2, swapMode) == MSCHARGED_SWAP_HOST, "Raised frame rate kept the VI swap");
+    const unsigned long first = mscharged_tweak_frame_number(0);
+    unsigned long begun = 0;
+    for (double t = 0.0; t < seconds - 1e-9; t += frame)
+    {
+        mscharged_tweak_begin_frame(frame);
+        begun += mscharged_tweak_original_frame() ? 1 : 0;
+    }
+    Check(mscharged_tweak_frame_number(0) - first == begun, "Original frame count and flags disagree");
+    return begun;
 }
 }
 
@@ -92,7 +132,58 @@ int main()
         Check(!mscharged_tweak_slide_reset_this_frame(&slide), "Slide reset kept into the next frame");
         Check(!mscharged_tweak_title_pending(), "Fast menus enabled skip intro");
 
-        // Back to none: the original game again.
+        // Frame rate: the original pacing until the host passes its swap.
+        CheckOriginalFrames("Unconfigured frame pacing changed the original game");
+        charged_configure_frame_pacing(nullptr);
+        CheckOriginalFrames("Original frame rate changed the original game");
+        mscharged_tweak_host_swap();
+
+        // Above the original rate every state but the HOME Button Menu swaps
+        // through the host, which presents and paces each frame.
+        charged_configure_frame_pacing(Swap);
+        Check(mscharged_tweak_host_frames(), "Raised frame rate not active");
+        for (unsigned state : {1u, 2u, 4u, 8u, 16u, 0x10000u, 0x100000u})
+            for (int mode = 0; mode < 4; ++mode)
+                Check(mscharged_tweak_swap_mode(state, mode) == MSCHARGED_SWAP_HOST, "State kept the VI swap");
+        Check(mscharged_tweak_swap_mode(0x2000000u, 3) == 3, "HOME Button Menu lost its VI pacing");
+        mscharged_tweak_host_swap();
+        Check(swaps == 1, "Host swap not called");
+
+        // A frame's length in original frames, and original frames begun at
+        // the original's rate: 59.94 a second (NTSC fields), 50 in PAL, and
+        // half that where the original takes two fields a frame (mode 2).
+        mscharged_tweak_swap_mode(2, 1);
+        mscharged_tweak_begin_frame(1.0f / 120.0f);
+        Check(mscharged_tweak_original_frames() > 0.4994f && mscharged_tweak_original_frames() < 0.4996f,
+            "120 FPS frame length in original frames");
+        for (const float rate : {120.0f, 144.0f, 165.0f, 240.0f, 1000.0f})
+        {
+            const auto begun = OriginalFramesOver(10.0, 1.0f / rate);
+            Check(begun >= 598 && begun <= 600, "Original frames a second at a raised rate");
+        }
+        Check(OriginalFramesOver(1.0, 1.0f / 120.0f) == 60 || OriginalFramesOver(1.0, 1.0f / 120.0f) == 59,
+            "Original frames in a second at 120 FPS");
+        gTvFormat = 1;
+        const auto pal = OriginalFramesOver(10.0, 1.0f / 144.0f);
+        Check(pal >= 499 && pal <= 500, "PAL original frames at 144 FPS");
+        gTvFormat = 0;
+        const auto locked = OriginalFramesOver(10.0, 1.0f / 120.0f, 2);
+        Check(locked >= 298 && locked <= 300, "Two-field original frames at 120 FPS");
+        // Frames longer than the original's each begin one, and the task
+        // manager's 0.1 s bound holds for a stall.
+        Check(OriginalFramesOver(1.0, 1.0f / 30.0f) == 30, "Original frames at 30 FPS");
+        mscharged_tweak_begin_frame(1.0f / 30.0f);
+        Check(mscharged_tweak_original_frames() > 1.99f && mscharged_tweak_original_frames() < 2.0f,
+            "30 FPS frame length in original frames");
+        mscharged_tweak_begin_frame(5.0f);
+        Check(mscharged_tweak_original_frame() && mscharged_tweak_original_frames() < 6.0f,
+            "A stalled frame exceeded the task manager's bound");
+        mscharged_tweak_begin_frame(-1.0f);
+        Check(mscharged_tweak_original_frames() == 0.0f, "Negative frame length");
+
+        // Back to the original rate and to no tweaks: the original game again.
+        charged_configure_frame_pacing(nullptr);
+        CheckOriginalFrames("Frame rate turned off still changes the game");
         charged_configure_tweaks(0);
         CheckOriginal("Tweaks turned off still change the game");
         std::printf("Game tweak state: %u checks passed.\n", checks);

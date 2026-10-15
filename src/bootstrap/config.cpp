@@ -37,7 +37,7 @@ Values Encode(const Settings& s)
     Values values{{"game.disc", s.disc}, {"game.save_folder", s.save_folder}, {"game.language", s.language},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
-            {"display.vsync", s.vsync ? "true" : "false"},
+            {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
             {"display.backend", s.backend}, {"display.aspect", s.aspect}, {"display.picture", s.picture},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
             {"audio.master_volume", std::to_string(s.master_volume)},
@@ -118,6 +118,14 @@ Settings Decode(const Values& values)
     number("display.height", s.height, 1, 16384);
     boolean("display.fullscreen", s.fullscreen);
     boolean("display.vsync", s.vsync);
+    if (const auto it = values.find("display.frame_rate"); it != values.end())
+    {
+        if (!ParseFrameRate(it->second))
+            throw std::runtime_error("Invalid configuration: display.frame_rate must be original, display, unlimited "
+                "or a number of frames per second from " + std::to_string(kMinFrameRate) + " to "
+                + std::to_string(kMaxFrameRate));
+        s.frame_rate = it->second;
+    }
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
     choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "16:10", "21:9"});
     choice("display.picture", s.picture, {"soft", "clean", "sharp"});

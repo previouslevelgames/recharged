@@ -18,14 +18,12 @@ static_assert(static_cast<std::uint8_t>(aurora::gfx::ShaderType::Clear) == 0);
 static_assert(static_cast<std::uint8_t>(aurora::gfx::ShaderType::GX) == 1);
 
 using Gx = aurora::gx::PipelineConfig;
-static_assert(aurora::gx::GXPipelineConfigVersion == 16);
+static_assert(aurora::gx::GXPipelineConfigVersion == 17);
 static_assert(sizeof(Gx) == 2772 && alignof(Gx) == 4);
 static_assert(sizeof(aurora::gx::ShaderConfig) == 2720);
 static_assert(offsetof(Gx, version) == 0);
 static_assert(offsetof(Gx, msaaSamples) == 4);
 static_assert(offsetof(Gx, shaderConfig) == 8);
-// tools/pipeline_catalog.py derives fog variants by rewriting this byte.
-static_assert(offsetof(aurora::gx::ShaderConfig, fogType) == 0 && sizeof(aurora::gx::ShaderConfig::fogType) == 1);
 static_assert(offsetof(Gx, depthFunc) == 2728);
 static_assert(offsetof(Gx, cullMode) == 2732);
 static_assert(offsetof(Gx, blendMode) == 2736);

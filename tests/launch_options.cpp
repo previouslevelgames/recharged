@@ -148,6 +148,37 @@ int main()
             Check(tweakedFile.settings.GameTweakMask() != 0 && Read(tweaked).find("skip_intro = true") != std::string::npos,
                 "--no-tweaks changed the INI");
         }
+        // --frame-rate: this run's display.frame_rate, apart from the tweaks.
+        for (const char* value : {"original", "display", "unlimited", "30", "120", "144", "1000"})
+            Check(*Parse({"test", "--frame-rate", value}).frame_rate == value, "--frame-rate value not parsed");
+        Check(*Parse({"test", "--frame-rate=165"}).frame_rate == "165", "--frame-rate=VALUE not parsed");
+        for (const char* bad : {"--frame-rate=", "--frame-rate=29", "--frame-rate=1001", "--frame-rate=0120",
+                "--frame-rate=60.5", "--frame-rate=Display", "--frame-rate=-120", "--frame-rate=uncapped"})
+            Reject([&] { Parse({"test", bad}); });
+        {
+            const auto paced = root / "config/paced.ini";
+            std::ofstream(paced, std::ios::binary) << "[display]\nframe_rate = 144\n";
+            const auto pacedFile = LoadConfig(paced);
+            const auto played = ResolveLaunch(pacedFile, {});
+            Check(played.settings.frame_rate == "144" && played.frame_rate_source == SettingSource::Config
+                && DescribeLaunch(played).find("frame rate: 144 (INI)") != std::string::npos, "INI frame rate not resolved");
+            LaunchOptions run; run.frame_rate = "display";
+            const auto overridden = ResolveLaunch(pacedFile, run);
+            Check(overridden.settings.frame_rate == "display" && overridden.frame_rate_source == SettingSource::CommandLine,
+                "--frame-rate did not override the INI");
+            LaunchOptions retail; retail.no_tweaks = true;
+            Check(ResolveLaunch(pacedFile, retail).settings.frame_rate == "144", "--no-tweaks changed the frame rate");
+            run.frame_rate = "original";
+            Check(ResolveLaunch(pacedFile, run).settings.frame_rate == "original", "--frame-rate original ignored");
+            Check(pacedFile.settings.frame_rate == "144" && Read(paced).find("frame_rate = 144") != std::string::npos,
+                "--frame-rate changed the INI");
+            Settings draft = pacedFile.settings; draft.frame_rate = "unlimited";
+            const auto launcher = ResolveLaunch(pacedFile, {}, &draft);
+            Check(launcher.settings.frame_rate == "unlimited" && launcher.frame_rate_source == SettingSource::Launcher,
+                "Launcher frame rate draft lost");
+            std::ofstream(paced, std::ios::binary) << "[display]\nframe_rate = 25\n";
+            Reject([&] { LoadConfig(paced); });
+        }
         Settings draft = file.settings; draft.disc = "launcher.rvz"; draft.width = 1111; draft.aspect = "auto"; draft.language = "spanish";
         const auto edited = ResolveLaunch(file, {}, &draft);
         Check(edited.disc_source == SettingSource::Launcher && edited.width_source == SettingSource::Launcher

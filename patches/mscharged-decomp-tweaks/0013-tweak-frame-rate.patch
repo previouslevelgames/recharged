@@ -1,0 +1,85 @@
+Subject: Port option: frame rate above the original
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+The game paces itself on VI retraces: swap_Post (glxSwap.cpp) waits one
+retrace per frame in menus and replays (swap mode 1), one unless the frame
+ran late in matches (mode 3), and two in a cutscene its script locks to
+30 FPS (mode 2, which retail scripts never request). Matches simulate on a
+fixed 50 Hz clock (FixedUpdateTask) and draw every frame from a blend of
+their last two simulation steps (ReplayManager::RenderSnapshotAt); the other
+tasks step by the real time the task manager measures. So the game can draw
+more frames than the console's 59.94 a second without running faster.
+
+With the port option "Frame rate" ([display] frame_rate) above the original,
+SetupRenderInfo selects the host's swap (MSCHARGED_SWAP_HOST) instead of the
+original mode: swap_Post flips to the finished frame as before, then the host
+presents it at once and waits for the next frame's slot. VI retraces keep
+their real rate, so what counts them is unchanged: synced movie decoding,
+screen dimming and the HOME Button Menu, whose own task state keeps its
+original pacing. BeginFrameTask also reports each frame's real length, which
+the next patch uses to keep steps the original makes once per frame.
+
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index 61c3a97..c2b85e2 100644
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -18,6 +18,7 @@
+ #include "Game/TweakValue.h"
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/main.h"
++#include "mscharged_tweaks.h"
+ #include "NL/gl/gl.h"
+ #include "NL/gl/glDraw3.h"
+ #include "NL/gl/glModel.h"
+@@ -199,6 +200,11 @@ static void SetupRenderInfo()
+         break;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port option "Frame rate": above the original rate the host presents
++    // every frame and paces the next one instead of the VI retrace.
++    swapMode = mscharged_tweak_swap_mode(nlTaskManager::m_pInstance->mCurrentState, swapMode);
++#endif
+     glxSetSwapMode(swapMode);
+ }
+ 
+@@ -405,6 +411,11 @@ static void DrawGrid(int spacing)
+ 
+ void BeginFrameTask::Run(float dt)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port option "Frame rate": this frame's real length, from the task
++    // manager's measurement before its bounds and dilation.
++    mscharged_tweak_begin_frame(nlTaskManager::m_pInstance->mRealTimeDelta);
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     if (gpHBMManager != NULL && gpHBMManager->mActive && gpHBMManager->mReady)
+     {
+diff --git a/src/NL/glx/glxSwap.cpp b/src/NL/glx/glxSwap.cpp
+index 557a128..594005b 100644
+--- a/src/NL/glx/glxSwap.cpp
++++ b/src/NL/glx/glxSwap.cpp
+@@ -18,6 +18,7 @@
+ #include "NL/nlPrint.h"
+ #include "NL/nlTicker.h"
+ #include "NL/nlAllocatorStack.h"
++#include "mscharged_tweaks.h"
+ 
+ #pragma push
+ #pragma pack(1)
+@@ -433,6 +434,15 @@ static void swap_Post()
+     {
+         AdvanceFrame();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    else if (glx_SwapMode == MSCHARGED_SWAP_HOST)
++    {
++        // Port option "Frame rate" above the original: the host presents
++        // this frame at once and waits for the next frame's slot.
++        AdvanceFrame();
++        mscharged_tweak_host_swap();
++    }
++#endif
+     else
+     {
+         nlBreak();

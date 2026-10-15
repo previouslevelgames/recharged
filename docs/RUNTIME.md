@@ -21,9 +21,11 @@ every stadium and captain, and any others the game has used on this PC. The
 first launch compiles them all once, on several processor cores; later launches
 load them from the local cache. Nothing is prepared once the game runs: a
 pipeline missing from both compiles when it is first drawn, which can cause a
-brief stutter, and is prepared from the next launch on. Driver, GPU or renderer
-changes may require compilation again. Keep `assets/graphics/initial_pipeline_cache.db`
-in the package.
+brief stutter, and is prepared from the next launch on. The session log records
+each of these (`Graphics: new pipeline compiled while drawing in … ms`) with
+its configuration; attach the log to an issue to get it added to the package's
+list. Driver, GPU or renderer changes may require compilation again. Keep
+`assets/graphics/initial_pipeline_cache.db` in the package.
 
 Each graphics API retains its own compatible compiled data across launches,
 including when switching away from that API and back. The session log records
@@ -172,11 +174,19 @@ recordings are kept.
 ## Run options
 
 Both tests accept `--config FILE`, `--disc FILE` (also `--disk`), `--window`,
-`--fullscreen`, `--size WIDTHxHEIGHT`, `--aspect auto|4:3|16:9` and `--no-tweaks`
+`--fullscreen`, `--size WIDTHxHEIGHT`, `--aspect auto|4:3|16:9`,
+`--frame-rate original|display|unlimited|FPS` and `--no-tweaks`
 (the `[gameplay]` tweaks off). These override INI settings for this run without saving. The default layout is 16:9; resizing
 preserves the selected layout and fills unused space with bars. The launcher also
 saves the start display, VSync, the performance overlay, speaker volume,
 graphics validation and log detail in `mscharged.ini`.
+
+**Display → Frame rate** (`frame_rate` in `[display]`) draws above the console's
+60 FPS: `display` follows the refresh rate of the window's display, `unlimited`
+sets no limit, and a number from 30 to 1000 caps the rate. VSync holds any rate
+to the display's. The game keeps its speed; the VI keeps its real 59.94 Hz for
+movies and everything else that counts it. The session log's `Frame rate:` line
+shows how frames are paced.
 
 **Display → Performance overlay** shows `FPS | GPU | CPU | LAT` in the selected
 corner, including in fullscreen. GPU and CPU show total system usage, including

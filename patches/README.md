@@ -41,7 +41,10 @@ loaded, issue #33; 0010: a ball lost by an intangible player gets its player
 and goalie collisions back, and the goalie no longer takes the ball from an
 intangible teammate, issue #38). 0011, an owner-approved presentation change,
 is always on as well: main skips the original "Loading" bitmap shown between
-the port's graphics preparation and the boot scene. Every other target compiles the original code. The game module receives the enabled set from the
+the port's graphics preparation and the boot scene. 0013 and 0014 are the
+display option "Frame rate" (`[display] frame_rate`) above the original: the
+swap presents each frame through the host instead of waiting for a VI retrace,
+and the few steps the original makes once per drawn frame keep its pace. Every other target compiles the original code. The game module receives the enabled set from the
 host before original main (`src/platform/game_tweaks.cpp`). Keep these patches
 apart from the faithful series and refresh them on every pin update.
 

@@ -17,6 +17,7 @@ struct LaunchOptions
     std::optional<bool> fullscreen;
     std::optional<WindowSize> size;
     std::optional<std::string> aspect;
+    std::optional<std::string> frame_rate;
     bool no_tweaks = false; // --no-tweaks: play without the [gameplay] tweaks
 };
 
@@ -31,6 +32,7 @@ struct ResolvedLaunch
     SettingSource height_source = SettingSource::Defaults;
     SettingSource fullscreen_source = SettingSource::Defaults;
     SettingSource aspect_source = SettingSource::Defaults;
+    SettingSource frame_rate_source = SettingSource::Defaults;
     SettingSource tweaks_source = SettingSource::Defaults;
 };
 
@@ -50,8 +52,9 @@ void ApplyGameModeDisplay(ResolvedLaunch& launch, bool game_mode);
 std::string DescribeLaunch(const ResolvedLaunch& launch);
 const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =
-    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9] [--no-tweaks]\n"
+    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9] [--frame-rate original|display|unlimited|FPS] [--no-tweaks]\n"
     "Command-line settings override the INI for this run only; later options win.\n"
+    "--frame-rate takes original, display, unlimited or 30 to 1000 frames per second.\n"
     "--no-tweaks turns the [gameplay] tweaks off for this run.\n"
     "Options with values accept --option VALUE or --option=VALUE, before or after the runtime mode.\n"
     "INI disc paths are relative to that INI; command-line paths are relative to the working directory.\n";

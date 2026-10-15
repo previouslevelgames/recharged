@@ -303,6 +303,27 @@ int main()
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });
         }
+        // display.frame_rate: the original by default; named rates and 30-1000
+        // round trip, anything else is rejected.
+        Require(defaults.frame_rate == "original", "Frame rate is the original by default");
+        for (const char* rate : {"original", "display", "unlimited", "30", "144", "1000"})
+        {
+            const auto paced = directory / (std::string("rate-") + rate + ".ini");
+            auto rateFile = LoadConfig(paced, true);
+            Settings rateSettings;
+            rateSettings.frame_rate = rate;
+            SaveConfig(rateFile, rateSettings);
+            const auto reloaded = LoadConfig(paced);
+            Require(reloaded.settings.frame_rate == rate
+                && reloaded.contents.find(std::string("frame_rate = ") + rate) != std::string::npos, "Frame rate round trip");
+        }
+        for (const char* invalid : {"[display]\nframe_rate = 29\n", "[display]\nframe_rate = 1001\n",
+                                    "[display]\nframe_rate = uncapped\n", "[display]\nframe_rate = 60.0\n",
+                                    "[display]\nframe_rate =\n"})
+        {
+            std::ofstream(path) << invalid;
+            Reject([&] { LoadConfig(path); });
+        }
         fs::remove_all(directory);
         std::cout << "Configuration round trips, preservation, validation, host settings, tweaks and write protection passed.\n";
         return 0;

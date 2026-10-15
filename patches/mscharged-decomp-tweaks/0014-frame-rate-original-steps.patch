@@ -1,0 +1,241 @@
+Subject: Port option: keep the original's per-frame steps at higher rates
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+A few things outside the fixed simulation advance a fixed step per drawn
+frame, or decide once per frame, instead of following elapsed time. Above the
+original frame rate (previous patch) they would speed up, so each keeps the
+original's pace: a continuous step scales with the frame's real length in
+original frames, and a discrete change happens only on original frames
+(about as many a second as the original drew, 59.94 or 50).
+
+- cCameraManager::Update eases presentation cameras (front-end scripts, the
+  Hall of Fame, the trophy room) by g_fSimulationTick per frame.
+- Presentation::UpdateAndRenderLetterBox moves the cutscene bars 0.05 per
+  frame.
+- The skinned multi-light material steps its animated texture with the
+  rendered frame count.
+- WorldEffect::Update and BasicStadium's cutscene effects roll their emission
+  chance on every frame once they are due.
+- GLTextureAnim::Update and Blinker::Update drop the leftover time when they
+  change image, so each image lasts whole frames of the original rate.
+- FEImpostorCharacter::Render rolls its dimmed flicker on every frame.
+
+Everything else that runs per frame was checked and follows elapsed time or
+the VI retrace. Without a raised frame rate these hooks take the original
+path.
+
+diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
+index a4e608f..2a5b098 100644
+--- a/src/Game/BasicStadium.cpp
++++ b/src/Game/BasicStadium.cpp
+@@ -29,6 +29,7 @@
+ #include "NL/nlTask.h"
+ #include "Game/Render/HighRange.h"
+ #include "Game/TweakValue.inl"
++#include "mscharged_tweaks.h"
+ 
+ #include "Game/SharedStaticStorage.h"
+ 
+@@ -206,7 +207,13 @@ void fn_802785FC(BasicStadium* pStadium, float fDeltaT)
+             }
+ 
+             float fNextTime = pEffect->m_fPreviousEmissionTime - fDeltaT;
+-            if (fNextTime <= 0.0f)
++            if (fNextTime <= 0.0f
++#if defined(MSCHARGED_TWEAKS)
++                // Port option "Frame rate": a due effect rolls once a frame
++                // in the original; above its rate only on original frames.
++                && mscharged_tweak_original_frame()
++#endif
++            )
+             {
+                 if (nlRandom(100, &nlDefaultSeed) < pEffect->m_uProbability)
+                 {
+diff --git a/src/Game/Blinker.cpp b/src/Game/Blinker.cpp
+index e77b8bd..90b9081 100644
+--- a/src/Game/Blinker.cpp
++++ b/src/Game/Blinker.cpp
+@@ -5,6 +5,7 @@
+ #include "Game/NisPlayer.h"
+ #include "NL/gl/glMaterialParameters.h"
+ #include "NL/glx/glxTexture.h"
++#include "mscharged_tweaks.h"
+ 
+ #include <string.h>
+ #include "NL/gl/glTexture.h"
+@@ -52,7 +53,13 @@ void Blinker::Update(float fDeltaT)
+     }
+     m_fTime += fDeltaT;
+ 
+-    if (m_fTime > m_fBlinkTimes[m_State])
++    if (m_fTime > m_fBlinkTimes[m_State]
++#if defined(MSCHARGED_TWEAKS)
++        // Port option "Frame rate": the eyes change on original frames only,
++        // so a blink keeps its original frames.
++        && mscharged_tweak_original_frame()
++#endif
++    )
+     {
+         m_fTime = 0.0f;
+         switch (m_State)
+diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
+index 2b95659..f88f0a9 100644
+--- a/src/Game/Camera/CameraMan.cpp
++++ b/src/Game/Camera/CameraMan.cpp
+@@ -27,6 +27,7 @@
+ #include <string.h>
+ #include "NL/nlPrint.h"
+ #include "Game/Task/FixedUpdateTask.h"
++#include "mscharged_tweaks.h"
+ 
+ eCameraType g_eCurrentCameraType;
+ 
+@@ -394,6 +395,13 @@ void cCameraManager::Update(float fDeltaT)
+         switch (m_transition)
+         {
+         case eCT_EASE_IN:
++#if defined(MSCHARGED_TWEAKS)
++            // Port option "Frame rate": the original eases a fixed step per
++            // frame; above its rate each frame takes its share of the step.
++            if (mscharged_tweak_host_frames())
++                UpdateCameraTransition(g_fSimulationTick * mscharged_tweak_original_frames());
++            else
++#endif
+             UpdateCameraTransition(g_fSimulationTick);
+             nlInvertRotTransMatrix(cameraToWorldMatrix, m_matView);
+             m_cameraPosition = cameraToWorldMatrix.GetTranslation();
+diff --git a/src/Game/FE/feModelManager.cpp b/src/Game/FE/feModelManager.cpp
+index fe9502e..2ecd370 100644
+--- a/src/Game/FE/feModelManager.cpp
++++ b/src/Game/FE/feModelManager.cpp
+@@ -43,6 +43,7 @@ namespace { std::unordered_set<const FEModel*> sAutomaticPreparedFEModels; }
+ 
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/TweakValue.inl"
++#include "mscharged_tweaks.h"
+ 
+ template <>
+ FEModelManager* nlSingleton<FEModelManager>::s_pInstance = 0;
+@@ -1050,6 +1051,11 @@ void FEImpostorCharacter::Render(GLView* target, int texture)
+ {
+     nlDLListIterator<ImpostorSprite*> iterator;
+     iterator = mSprites.Begin();
++#if defined(MSCHARGED_TWEAKS)
++    // Port option "Frame rate": the original rolls the dimmed flicker once a
++    // frame; above its rate the sprites keep their shade between original frames.
++    if (mscharged_tweak_original_frame())
++#endif
+     while (iterator.hasNext())
+     {
+         ImpostorSprite* sprite = *iterator;
+diff --git a/src/Game/GL/GLTextureAnim.cpp b/src/Game/GL/GLTextureAnim.cpp
+index 5315423..e1714a3 100644
+--- a/src/Game/GL/GLTextureAnim.cpp
++++ b/src/Game/GL/GLTextureAnim.cpp
+@@ -4,6 +4,7 @@
+ #include "NL/gl/glMemory.h"
+ #include "NL/gl/glTexture.h"
+ #include "NL/glx/glxTexture.h"
++#include "mscharged_tweaks.h"
+ 
+ #include <string.h>
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_TEXTURES)
+@@ -138,7 +139,13 @@ void GLTextureAnim::Update(float dt)
+     m_fTime += dt;
+     GLAnimTex* frame = m_pAnimTex + m_nFrame;
+ 
+-    if (m_fTime >= frame->m_fTime)
++    if (m_fTime >= frame->m_fTime
++#if defined(MSCHARGED_TWEAKS)
++        // Port option "Frame rate": the original shows each image for whole
++        // frames of its rate; above it images change only on original frames.
++        && mscharged_tweak_original_frame()
++#endif
++    )
+     {
+         m_fTime = 0.0f;
+         switch (m_ePlayMode)
+diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
+index 4a52c60..61a0eaf 100644
+--- a/src/Game/Render/Presentation.cpp
++++ b/src/Game/Render/Presentation.cpp
+@@ -67,6 +67,7 @@
+ #include "NL/nlString.h"
+ #include "NL/nlTask.h"
+ #include "Game/Render/MegastrikeBackgroundOverlay.h"
++#include "mscharged_tweaks.h"
+ 
+ static inline bool IsDuringGamePauseState();
+ static inline bool IsCupWinner();
+@@ -1722,6 +1723,14 @@ void Presentation::UpdateAndRenderLetterBox()
+         letterBoxSizeValid = true;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port option "Frame rate": the bars move 0.05 per original frame.
++    if (mscharged_tweak_host_frames())
++    {
++        mLetterBoxDuration += (mLetterBoxEnabled ? 0.05f : -0.05f) * mscharged_tweak_original_frames();
++    }
++    else
++#endif
+     if (mLetterBoxEnabled)
+     {
+         mLetterBoxDuration += 0.05f;
+diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
+index bf6702f..7e39350 100644
+--- a/src/Game/World/WorldEffect.cpp
++++ b/src/Game/World/WorldEffect.cpp
+@@ -10,6 +10,7 @@
+ #include "Game/World/worldanim.h"
+ #include "NL/gl/glView.h"
+ #include "NL/nlMemory.h"
++#include "mscharged_tweaks.h"
+ 
+ static bool s_drawEffectBounds;
+ 
+@@ -75,6 +76,11 @@ void WorldEffect::Update(float fDeltaT)
+                 fEmissionTime += fDeltaT;
+                 m_fEmissionTime = fEmissionTime;
+                 if (fEmissionInterval <= fEmissionTime
++#if defined(MSCHARGED_TWEAKS)
++                    // Port option "Frame rate": the original rolls once a
++                    // frame; above its rate only on original frames.
++                    && mscharged_tweak_original_frame()
++#endif
+                     && nlRandom(100, &nlDefaultSeed)
+                         < m_uProbability)
+                 {
+@@ -88,6 +94,9 @@ void WorldEffect::Update(float fDeltaT)
+             float fEmissionTime = m_fEmissionTime;
+             float fEmissionInterval = m_fEmissionInterval;
+             if (fEmissionInterval <= fEmissionTime
++#if defined(MSCHARGED_TWEAKS)
++                && mscharged_tweak_original_frame()
++#endif
+                 && nlRandom(100, &nlDefaultSeed)
+                     < m_uProbability)
+             {
+diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+index 63ff056..85755be 100644
+--- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+@@ -27,6 +27,7 @@
+ #include "NL/nlMath.h"
+ #include "NL/platvmath.h"
+ #include "Game/SharedStaticStorage.h"
++#include "mscharged_tweaks.h"
+ 
+ static nlMatrix4 sSkinnedMultiLightViewMatrix;
+ static int sSkinnedMultiLightAnimationFrames = 5;
+@@ -224,6 +225,10 @@ void GXMaterialProgramImpl<GXSkinnedMultiLightMaterialProgram>::Draw(
+ 
+         float translationScale = 1.0f / (float)sSkinnedMultiLightAnimationFrames;
+         unsigned long frame = glGetCurrentFrame();
++#if defined(MSCHARGED_TWEAKS)
++        // Port option "Frame rate": the texture steps once per original frame.
++        frame = mscharged_tweak_frame_number(frame);
++#endif
+         unsigned long frameDiv = frame / sSkinnedMultiLightAnimationFrames;
+         unsigned long frameMod = frame - frameDiv * sSkinnedMultiLightAnimationFrames;
+         float translation = translationScale * frameMod;

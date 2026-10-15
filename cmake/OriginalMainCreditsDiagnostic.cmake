@@ -323,7 +323,8 @@ target_link_libraries(mscharged_original_main_credits_vi PRIVATE aurora::vi)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
 add_library(charged_original_main_credits_host OBJECT
     src/runtime/original_main_credits.cpp src/runtime/frame_timing_log.cpp src/runtime/fps_overlay.cpp
-    src/runtime/pipeline_warmup.cpp src/runtime/graphics_loading_view.cpp
+    src/runtime/host_frame_pacing.cpp
+    src/runtime/pipeline_warmup.cpp src/runtime/pipeline_demand_log.cpp src/runtime/graphics_loading_view.cpp
     src/platform/console.cpp
     src/platform/os.cpp src/platform/host_metadata.cpp src/platform/string_format.cpp
     src/platform/report.cpp src/platform/thread.cpp src/platform/os_version.cpp)
@@ -352,7 +353,7 @@ target_link_libraries(charged_original_main_credits_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_credits_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer charged_original_rtc Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
 function(mscharged_link_original_main_credits target)
     mscharged_link_original_hbm_debug_host("${target}")

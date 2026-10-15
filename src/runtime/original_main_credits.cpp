@@ -53,6 +53,7 @@
 #include "runtime/fps_overlay.h"
 #include "runtime/pipeline_warmup.h"
 #include "runtime/frame_rate.h"
+#include "runtime/host_frame_pacing.h"
 #include "runtime/frame_timing_log.h"
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
 #include "original_game_audio_hardware.h"
@@ -592,6 +593,27 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // display.frame_rate (frontend module only): above the original, Aurora
+        // presents each frame as the game swaps and paces the next; VI retraces
+        // keep their real rate for everything that counts them.
+        std::optional<mscharged::runtime::HostFramePacing> framePacing;
+        {
+            const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
+            auto* configurePacing=reinterpret_cast<void(*)(void(*)())>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_frame_pacing"));
+            std::string line="Frame rate: ";
+            if(rate.kind==mscharged::FrameRate::Kind::Original)
+                line+=mscharged::DescribeFramePacing(rate,{},0.0);
+            else if(!configurePacing || !nativeSend)
+                line+="original (this build's game module has no frame pacing)";
+            else {
+                framePacing.emplace(rate,launch.settings.vsync,host.window);
+                configurePacing(aurora_paced_video_swap);
+                line+=framePacing->Description();
+            }
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
@@ -763,6 +785,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 }
             }
             const auto now=std::chrono::steady_clock::now();
+            if(framePacing) framePacing->Update(now);
             if(fpsOverlay)
                 if(const auto rate=frameRate.Sample(frames,now)) fpsOverlay->SetRate(*rate);
             if(fpsOverlay) {

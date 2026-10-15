@@ -640,6 +640,7 @@ private:
         command += s.fullscreen ? " --fullscreen" : " --window";
         command += " --size " + std::to_string(s.width) + "x" + std::to_string(s.height);
         command += " --aspect " + s.aspect;
+        command += " --frame-rate " + s.frame_rate;
         // Tweaks come from the INI; without any here, keep the INI's off too.
         if (s.GameTweakMask() == 0 && file_.settings.GameTweakMask() != 0) command += " --no-tweaks";
         return command;
@@ -896,8 +897,10 @@ private:
     {
         const auto s = EffectiveLaunch().settings;
         std::string aspect = s.aspect == "auto" ? "Automatic aspect" : s.aspect;
+        std::string detail = aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off");
+        if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
-                aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off"), color::info};
+                detail, color::info};
     }
 
     Summary LanguageSummary() const
@@ -1130,7 +1133,8 @@ private:
     void GamePage()
     {
         PageHeader("Game", "Your Mario Strikers Charged disc image. ISO and RVZ files are read directly; nothing is extracted.");
-        if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
+        if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect
+            || options_.launch.frame_rate)
         {
             Chip("Command-line options apply to this run only", color::info, Icon::Info);
             ImGui::Dummy({0, Dp(2)});
@@ -1407,10 +1411,11 @@ private:
     {
         PageHeader("Display", "How the game window opens and how sharply the game is drawn.");
         const auto run = EffectiveLaunch().settings;
-        if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect)
+        if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect || options_.launch.frame_rate)
         {
             const std::string text = "This run: " + std::to_string(run.width) + " x " + std::to_string(run.height) + ", "
-                + run.aspect + (run.fullscreen ? ", fullscreen" : ", windowed") + " (command line, not saved)";
+                + run.aspect + (run.fullscreen ? ", fullscreen" : ", windowed") + ", " + FrameRateLabel(run.frame_rate)
+                + " (command line, not saved)";
             Chip(text.c_str(), color::info, Icon::Info);
             ImGui::Dummy({0, Dp(2)});
         }
@@ -1478,6 +1483,10 @@ private:
 
             Row("VSync", "Synchronizes frames with your display to prevent tearing.");
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
+
+            Row("Frame rate", "Original is the console's 60 FPS. Higher rates draw more frames for smoother motion "
+                "while the game keeps its own speed; Display follows your display's refresh rate.");
+            FrameRateChoice();
             EndRows();
         }
         EndCard();
@@ -1493,6 +1502,57 @@ private:
             EndRows();
         }
         EndCard();
+    }
+
+    // The refresh rate of the display the game opens on (display.monitor), 0
+    // when unknown.
+    double StartDisplayRefresh() const
+    {
+        SDL_DisplayID display = SDL_GetPrimaryDisplay();
+        if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size()))
+            display = display_ids_[std::size_t(draft_.monitor - 1)];
+        const SDL_DisplayMode* mode = display ? SDL_GetDesktopDisplayMode(display) : nullptr;
+        if (!mode) return 0.0;
+        if (mode->refresh_rate_numerator > 0 && mode->refresh_rate_denominator > 0)
+            return double(mode->refresh_rate_numerator) / double(mode->refresh_rate_denominator);
+        return KnownRefreshRate(mode->refresh_rate) ? double(mode->refresh_rate) : 0.0;
+    }
+
+    static std::string FrameRateLabel(const std::string& value)
+    {
+        if (value == "original") return "original frame rate";
+        if (value == "display") return "display refresh rate";
+        if (value == "unlimited") return "unlimited FPS";
+        return value + " FPS";
+    }
+
+    void FrameRateChoice()
+    {
+        static constexpr const char* values[] = {"original", "display", "120", "144", "unlimited"};
+        int selected = -1;
+        for (int i = 0; i < 5; ++i) if (draft_.frame_rate == values[i]) selected = i;
+        if (Segmented("##frame_rate", &selected, {"Original", "Display", "120", "144", "Unlimited"},
+                      ImGui::GetContentRegionAvail().x))
+        { draft_.frame_rate = values[selected]; dirty_ = true; }
+        const auto rate = ParseFrameRate(draft_.frame_rate);
+        if (!rate) return;
+        std::string note;
+        if (selected < 0) note = "Saved value: " + draft_.frame_rate + " FPS. ";
+        if (rate->kind != FrameRate::Kind::Original)
+        {
+            const double display = StartDisplayRefresh();
+            const auto pacing = DecideFramePacing(*rate, display, draft_.vsync);
+            const auto hz = [](double value) { return std::to_string(int(std::lround(value))); };
+            if (pacing.vsync_paces && KnownRefreshRate(display))
+                note += "VSync holds it to this display's " + hz(display) + " Hz.";
+            else if (KnownRefreshRate(display) && pacing.target_hz > display + 0.5)
+                note += "This display refreshes at " + hz(display) + " Hz, so it cannot show every frame.";
+            else if (pacing.target_hz == 0.0)
+                note += "No limit: the game draws as fast as your computer allows.";
+            else if (KnownRefreshRate(display))
+                note += "This display refreshes at " + hz(display) + " Hz.";
+        }
+        if (!note.empty()) TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
     }
 
     void FpsCornerChoice()
