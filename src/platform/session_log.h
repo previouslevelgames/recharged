@@ -39,6 +39,12 @@ void LogSessionDisplays(SDL_Window* window);
 // Writes everything printed so far to the log; call before TerminateProcessNow.
 void FlushSessionLog();
 
+// Before the program starts itself again (the launcher after an update):
+// writes what is pending and a closing line with `reason`, then gives stdout
+// and stderr back to the console, so the next program does not inherit this
+// run's pipes. Nothing is logged afterwards.
+void EndSessionLog(const char* reason);
+
 // An error that ends the program: printed, logged and, when the player has
 // no console to read it (a Windows game started by double-click), shown in
 // a message box that names the log.

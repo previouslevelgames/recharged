@@ -26,6 +26,31 @@ include(cmake/MacOSDeploymentTarget.cmake)
 mscharged_set_macos_deployment_target()
 # Release version; the build appends +g<commit> and .dirty for local changes.
 set(MSCHARGED_PORT_VERSION "${PROJECT_VERSION}")
+# Where a build comes from, for the launcher's About page and update check.
+# CI sets these; other builds stay "dev". release: a push to stable, whose
+# packages become the GitHub release; test: a pull request's build, published
+# as a prerelease while the pull request is open.
+set(MSCHARGED_BUILD_CHANNEL dev CACHE STRING "Where the build comes from: release, test or dev")
+set_property(CACHE MSCHARGED_BUILD_CHANNEL PROPERTY STRINGS release test dev)
+set(MSCHARGED_BUILD_REPOSITORY yannicksuter/mscharged-port CACHE STRING
+    "GitHub repository (owner/name) whose releases and test builds update this build")
+set(MSCHARGED_BUILD_PULL_REQUEST 0 CACHE STRING "Pull request of a test build")
+set(MSCHARGED_BUILD_RUN 0 CACHE STRING "CI run that made the build (0: none)")
+set(MSCHARGED_BUILD_TIME 0 CACHE STRING "Build time in seconds since 1970, UTC (0: unknown)")
+if(NOT MSCHARGED_BUILD_CHANNEL MATCHES "^(release|test|dev)$")
+    message(FATAL_ERROR "MSCHARGED_BUILD_CHANNEL must be release, test or dev")
+endif()
+if(NOT MSCHARGED_BUILD_REPOSITORY MATCHES "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    message(FATAL_ERROR "MSCHARGED_BUILD_REPOSITORY must be owner/name")
+endif()
+foreach(number IN ITEMS MSCHARGED_BUILD_PULL_REQUEST MSCHARGED_BUILD_RUN MSCHARGED_BUILD_TIME)
+    if(NOT ${number} MATCHES "^(0|[1-9][0-9]*)$")
+        message(FATAL_ERROR "${number} must be a whole number")
+    endif()
+endforeach()
+if(MSCHARGED_BUILD_CHANNEL STREQUAL "test" AND MSCHARGED_BUILD_PULL_REQUEST STREQUAL "0")
+    message(FATAL_ERROR "A test build needs MSCHARGED_BUILD_PULL_REQUEST")
+endif()
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build -G Ninja")
@@ -232,6 +257,11 @@ add_custom_target(update_build_version
             "-DSOURCE_DIR:PATH=${CMAKE_CURRENT_SOURCE_DIR}"
             "-DOUTPUT_DIR:PATH=${MSCHARGED_VERSION_DIR}"
             "-DPORT_VERSION:STRING=${MSCHARGED_PORT_VERSION}"
+            "-DBUILD_CHANNEL:STRING=${MSCHARGED_BUILD_CHANNEL}"
+            "-DBUILD_REPOSITORY:STRING=${MSCHARGED_BUILD_REPOSITORY}"
+            "-DBUILD_PULL_REQUEST:STRING=${MSCHARGED_BUILD_PULL_REQUEST}"
+            "-DBUILD_RUN:STRING=${MSCHARGED_BUILD_RUN}"
+            "-DBUILD_TIME:STRING=${MSCHARGED_BUILD_TIME}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBuildVersion.cmake"
     BYPRODUCTS "${MSCHARGED_VERSION_DIR}/build_version.h"
     COMMENT "Record the port version and current source revision"

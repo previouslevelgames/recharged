@@ -23,6 +23,7 @@ enum class GameTweak : unsigned
     UnlockAll = 3,
     CpuVsCpu = 4,
     FastTerrain = 5,
+    MirrorMatch = 6,
 };
 
 struct GameTweakInfo
@@ -33,7 +34,7 @@ struct GameTweakInfo
     const char* description; // launcher description
 };
 
-inline constexpr std::array<GameTweakInfo, 6> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 7> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -51,6 +52,10 @@ inline constexpr std::array<GameTweakInfo, 6> kGameTweaks{{
     {GameTweak::FastTerrain, "fast_terrain", "Fast terrain",
      "Every stadium plays like the fast, dry field of Bowser Stadium: same running speed, ball roll and bounce, "
      "no sliding on ice or mud, no slow sand in the Sand Tomb. Looks and hazards stay; online matches are unchanged."},
+    {GameTweak::MirrorMatch, "mirror_match", "Mirror match",
+     "Both teams can pick the same captain in Domination. The away team then wears the captain's away kit if the "
+     "game has one (Bowser, Bowser Jr., Daisy, Diddy Kong, DK, Petey, Yoshi); with the others both teams look the "
+     "same. Online matches are unchanged."},
 }};
 
 inline constexpr unsigned GameTweakBit(GameTweak tweak) { return 1u << unsigned(tweak); }

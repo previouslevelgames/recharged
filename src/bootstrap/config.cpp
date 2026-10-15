@@ -58,7 +58,9 @@ Values Encode(const Settings& s)
             {"advanced.log_level", s.log_level},
             {"advanced.verbose_console", s.verbose_console ? "true" : "false"},
             {"advanced.frame_logging", s.frame_logging ? "true" : "false"},
-            {"launcher.ui_scale", s.ui_scale}};
+            {"launcher.ui_scale", s.ui_scale},
+            {"launcher.check_updates", s.check_updates ? "true" : "false"},
+            {"launcher.update_channel", s.update_channel}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
@@ -231,6 +233,8 @@ Settings Decode(const Values& values)
     boolean("advanced.verbose_console", s.verbose_console);
     boolean("advanced.frame_logging", s.frame_logging);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
+    boolean("launcher.check_updates", s.check_updates);
+    choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
     {
         bool value = false;

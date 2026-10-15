@@ -644,6 +644,35 @@ void FlushSessionLog()
     Drain();
 }
 
+void EndSessionLog(const char* reason)
+{
+    if (g_log.file < 0) return;
+    FlushSessionLog();
+    const std::string line = std::string("\n=== Session ended: ") + reason + " ===\n";
+    WriteLog(line.data(), line.size());
+    // The pipes' read ends close on exec: a restarted program writing to them
+    // would end with SIGPIPE. Replacing fds 1 and 2 also ends the readers.
+    for (const auto& [fd, stream] : {std::pair<int, Stream*>{1, &g_log.out}, std::pair<int, Stream*>{2, &g_log.err}})
+    {
+        if (stream->pipe_read < 0) continue;
+#ifdef _WIN32
+        if (stream->console >= 0 && _dup2(stream->console, fd) == 0)
+            SetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE, HANDLE(_get_osfhandle(fd)));
+#else
+        int console = stream->console;
+        if (console < 0) console = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+        if (console >= 0) dup2(console, fd);
+#endif
+    }
+    std::lock_guard lock(g_log.mutex);
+#ifdef _WIN32
+    _close(g_log.file);
+#else
+    ::close(g_log.file);
+#endif
+    g_log.file = -1;
+}
+
 void ReportFatalError(const std::string& message)
 {
     std::fprintf(stderr, "%s\n", message.c_str());

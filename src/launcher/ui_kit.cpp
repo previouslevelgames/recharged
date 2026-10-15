@@ -262,6 +262,16 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddRect(p(-0.40f, -0.30f), p(0.16f, 0.40f), color, 0.08f * s, 0, t);
         draw->AddRect(p(-0.16f, -0.44f), p(0.40f, 0.20f), color, 0.08f * s, 0, t);
         break;
+    case Icon::Download:
+    {
+        // An arrow down into a tray.
+        draw->AddLine(p(0.0f, -0.44f), p(0.0f, 0.14f), color, t * 1.2f);
+        const ImVec2 head[] = {p(-0.22f, -0.06f), p(0.0f, 0.16f), p(0.22f, -0.06f)};
+        draw->AddPolyline(head, 3, color, 0, t * 1.2f);
+        const ImVec2 tray[] = {p(-0.42f, 0.10f), p(-0.42f, 0.40f), p(0.42f, 0.40f), p(0.42f, 0.10f)};
+        draw->AddPolyline(tray, 4, color, 0, t);
+        break;
+    }
     case Icon::Link:
         draw->AddRect(p(-0.42f, -0.30f), p(0.30f, 0.42f), color, 0.08f * s, 0, t);
         draw->AddLine(p(-0.04f, 0.04f), p(0.44f, -0.44f), color, t);

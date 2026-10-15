@@ -27,6 +27,10 @@ bool sTransition; // ... and the presentation runs a transition script
 // on it advanced up to 3 s a frame, too far to be drawn (issue #34), and no
 // script waits for them, so they, audio and pads keep real time.
 const void* sTransitionTask;
+// The running task got transition time. A looping camera, a screen's idle
+// view, takes its real time back: the Strikers Cup hub's orbit of the trophy
+// otherwise ran on through each camera blend into it (issue #49).
+bool sOnTransitionTime;
 unsigned long sFrame;
 // Slides set again this frame (SetActiveSlide resets a slide with Update(0)).
 constexpr int kMaxResets = 256;
@@ -61,7 +65,7 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
 {
     sEnabled = mask;
     sTitlePassed = false;
-    sMenus = sTransition = false;
+    sMenus = sTransition = sOnTransitionTime = false;
 }
 
 bool mscharged_tweak_enabled(int tweak)
@@ -87,6 +91,8 @@ void mscharged_tweak_frontend_frame(bool menus, bool transition)
     ++sFrame;
     sMenus = menus && mscharged_tweak_enabled(MSCHARGED_TWEAK_FAST_MENUS);
     sTransition = sMenus && transition;
+    // The front end's task, which reports this, keeps real time.
+    sOnTransitionTime = false;
 }
 
 bool mscharged_tweak_fast_menus(void)
@@ -106,7 +112,14 @@ void mscharged_tweak_set_transition_task(const void* task)
 
 float mscharged_tweak_task_dilation(const void* task)
 {
-    return sTransition && task != nullptr && task == sTransitionTask ? kTransitionDilation : 1.0f;
+    // Asked right before each time-dilated task runs.
+    sOnTransitionTime = sTransition && task != nullptr && task == sTransitionTask;
+    return sOnTransitionTime ? kTransitionDilation : 1.0f;
+}
+
+float mscharged_tweak_real_time(float deltaTime)
+{
+    return sOnTransitionTime ? deltaTime / kTransitionDilation : deltaTime;
 }
 
 void mscharged_tweak_note_slide_reset(const void* slide)

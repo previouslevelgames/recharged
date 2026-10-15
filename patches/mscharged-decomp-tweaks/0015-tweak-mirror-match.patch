@@ -1,0 +1,512 @@
+Subject: Tweak: mirror match
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+In Domination's captain select, a captain one team has picked is greyed out
+and the other team cannot pick him: OnCaptainPointerEnter and
+OnCaptainPointerPress refuse him, and RefreshCaptainImages shows his
+disabled portrait. The title screen's demo matches avoid the same captain
+too. With "Mirror match" enabled, offline Domination keeps that captain lit
+and available, so both teams can have the same captain. The Road to the
+Striker Cup and online or LAN matches keep the original rule.
+
+CharacterLoader has a branch for one captain on both teams, which the
+retail game never reaches: it dresses the away team's captain and sidekicks
+in the captain's away kit. The tweak completes it:
+
+- Only some captains have an away kit with everything a team wears: those
+  the game dresses in it against a captain of their colours (Bowser, Bowser
+  Jr., Daisy, Diddy Kong, Donkey Kong, Petey and Yoshi). Mario, Luigi,
+  Wario and Waluigi have none on the disc, and Peach's lacks her sidekick
+  portraits and Mega Strike hand. With them both teams wear the home kit;
+  the branch would have asked for sidekick textures that do not exist.
+- With an away kit, the away goalie wears it as well, and the away team
+  takes the away kit's colour and textures wherever the game picks them by
+  the opponent (NeedsAlternateColour, GetTeamColour): captain and sidekick
+  select, Choose Sides, the pointers, the holograms, the player indicators,
+  the defensive play overlay and the Mega Strike hand. Those checks cannot
+  tell two teams of one captain apart, so these hooks pass the team's side.
+- Choose Sides shows both teams' captain as holograms. An impostor's render
+  targets are named after its character (ImpostorCharacter), so the away
+  hologram would draw into the home one's targets, and destroying both
+  would free them twice. A character already shown gets targets of its own.
+
+A captain on both teams otherwise loads like a sidekick kind on both
+teams, which the game allows: one template, and a sound bank slot per team.
+
+diff --git a/include/Game/DB/CharacterInfo.h b/include/Game/DB/CharacterInfo.h
+index 2eec3f5..f56514a 100644
+--- a/include/Game/DB/CharacterInfo.h
++++ b/include/Game/DB/CharacterInfo.h
+@@ -69,4 +69,17 @@ nlColour GetTeamColour(const CharacterInfo& team, const CharacterInfo& opponent,
+ bool NeedsAlternateColour(const CharacterInfo& team, const CharacterInfo& opponent);
+ bool CaptainsNeedAlternateColour(int captain, int opponentCaptain);
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Mirror match": both teams may have the same captain. The away
++// team (side 1) of such a match wears the captain's away kit if the game has
++// one for him, the one he wears against a captain of his colours. Mario,
++// Luigi, Peach, Wario and Waluigi have none, so both teams wear the home kit.
++bool MirrorMatchAwayKit(int side, const CharacterInfo& team, const CharacterInfo& opponent);
++bool MirrorMatchCaptainsAwayKit(int side, int captain, int opponentCaptain);
++// The team colour that goes with the away kit.
++nlColour GetAwayKitColour(const CharacterInfo& team);
++// Whether the away team of such a match keeps the captain's home kit.
++bool MirrorMatchKeepsHomeKit(const CharacterInfo& captain);
++#endif
++
+ #endif // GAME_DB_CHARACTERINFO_H
+diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
+index 2517660..720b8c2 100644
+--- a/src/Game/AI/GoalieActions.cpp
++++ b/src/Game/AI/GoalieActions.cpp
+@@ -6807,7 +6807,13 @@ void Goalie::InitActionMegaStrike(float numBalls, float accuracy)
+     char texture[128];
+     const CharacterInfo& teamInfo = *m_pTeam->GetCaptain()->GetCharacterInfoData();
+     cFielder* opponent = m_pTeam->GetOtherTeam()->GetCaptain();
+-    if (NeedsAlternateColour(teamInfo, *opponent->GetCharacterInfoData()))
++    if (NeedsAlternateColour(teamInfo, *opponent->GetCharacterInfoData())
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Mirror match": with one captain on both teams, the away
++        // team's hand is the away kit's.
++        || MirrorMatchAwayKit(m_pTeam->m_nSide, teamInfo, *opponent->GetCharacterInfoData())
++#endif
++    )
+     {
+         nlSNPrintf(texture, sizeof(texture), "%s/mega_hand_alt", m_pTeam->GetCaptain()->GetCharacterInfoData()->mName);
+     }
+diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+index a11d8c6..057cd36 100644
+--- a/src/Game/CharacterLoader.cpp
++++ b/src/Game/CharacterLoader.cpp
+@@ -44,6 +44,7 @@
+ #include <string.h>
+ #include "NL/nlstring_tmpl.h"
+ #include "NL/nlstring_impl.h"
++#include "mscharged_tweaks.h"
+ 
+ static bool g_bLoadAnimsCached;
+ 
+@@ -793,7 +794,14 @@ bool CharacterLoader::StartLoadingSidekickSwapTexture()
+     captain1 = mCaptain[1];
+     if (captain0 == captain1)
+     {
+-        if (mCurrent->nTeamID == 1)
++        if (mCurrent->nTeamID == 1
++#if defined(MSCHARGED_TWEAKS)
++            // Port tweak "Mirror match": the away team keeps the home kit if
++            // the game has no away kit for the captain (none on the disc for
++            // Mario, Luigi, Wario and Waluigi; no portraits or hand for Peach).
++            && !MirrorMatchKeepsHomeKit(GetCharacterInfo(captain0))
++#endif
++        )
+         {
+             nlSNPrintf(szArtPath, 64, "art/characters/%s/%s_%s_alt.rlt", szName, szTexName, szCaptainName);
+             nlSNPrintf(szPlayerPath, 64, "%s_%s_alt/%s_%s_alt", szTexName, szCaptainName, szTexName, szCaptainName);
+@@ -881,7 +889,12 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
+     altcaptain = mCaptain[1];
+     if (captain0 == altcaptain)
+     {
+-        if (mCurrent->nTeamID == 1)
++        if (mCurrent->nTeamID == 1
++#if defined(MSCHARGED_TWEAKS)
++            // Port tweak "Mirror match": as StartLoadingSidekickSwapTexture.
++            && !MirrorMatchKeepsHomeKit(GetCharacterInfo(captain0))
++#endif
++        )
+         {
+             nlSNPrintf(szPlayerPath, 64, "%s_%s_alt/%s_%s_alt", szTexName, szCaptainName, szTexName, szCaptainName);
+         }
+@@ -1032,6 +1045,22 @@ bool CharacterLoader::HasAlternateSwapTexture()
+         eCharacterClass captain0 = mCaptain[0];
+         eCharacterClass captain1 = mCaptain[1];
+         eCharacterClass altcaptain = CHARACTER_CLASS_INVALID;
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Mirror match": with one captain on both teams, the away
++        // team's captain and goalie wear the away kit if the game has one for
++        // him. (The developers' branch below left the goalie in the home kit.)
++        if (captain0 == captain1 && mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH))
++        {
++            if (pEntry->nTeamID != 1 || MirrorMatchKeepsHomeKit(GetCharacterInfo(captain0)))
++            {
++                return false;
++            }
++            const char* szFilename = pEntry->bCaptain
++                ? GetCharacterTemplateInfo(captain1)->szAlternateTextureFilename
++                : GetGoalieTemplateInfo(pEntry->cc - 20)->szAlternateTextureFilename;
++            return szFilename != 0 && nlFileExists(szFilename);
++        }
++#endif
+         if (captain0 == captain1)
+         {
+             if (pEntry->nTeamID == 1)
+diff --git a/src/Game/DB/BasicGameInfo.cpp b/src/Game/DB/BasicGameInfo.cpp
+index 39355a5..fc01ecd 100644
+--- a/src/Game/DB/BasicGameInfo.cpp
++++ b/src/Game/DB/BasicGameInfo.cpp
+@@ -5,6 +5,7 @@
+ #include "NL/nlString.h"
+ #include "types.h"
+ #include "NL/nlstring_tmpl.h"
++#include "mscharged_tweaks.h"
+ 
+ enum
+ {
+@@ -252,3 +253,46 @@ bool CaptainsNeedAlternateColour(int captain, int opponentCaptain)
+ 
+     return false;
+ }
++
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Mirror match". The game has an away kit for a captain if it
++// dresses him in it against another captain of his colours: only those kits
++// come with everything a team wears (sidekicks, goalie, sidekick portraits,
++// Mega Strike hand). Peach's blue kit has no portraits or hand.
++static bool HasAwayKit(const CharacterInfo& captain)
++{
++    for (int i = 0; i < NUM_CHARACTERS; i++) {
++        if (NeedsAlternateColour(captain, sCharacterInfo[i])) {
++            return true;
++        }
++    }
++    return false;
++}
++
++bool MirrorMatchAwayKit(int side, const CharacterInfo& team, const CharacterInfo& opponent)
++{
++    return side == 1 && team.mIndex == opponent.mIndex && mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH)
++        && HasAwayKit(team);
++}
++
++bool MirrorMatchCaptainsAwayKit(int side, int captain, int opponentCaptain)
++{
++    return MirrorMatchAwayKit(side, GetCharacterInfo(GetCharacterIndexFromCaptain(captain)),
++        GetCharacterInfo(GetCharacterIndexFromCaptain(opponentCaptain)));
++}
++
++nlColour GetAwayKitColour(const CharacterInfo& team)
++{
++    nlColour rgba;
++    rgba.c[0] = (u8)((team.mAlternateColour >> 16) & 0xFF);
++    rgba.c[1] = (u8)((team.mAlternateColour >> 8) & 0xFF);
++    rgba.c[2] = (u8)(team.mAlternateColour & 0xFF);
++    rgba.c[3] = 0xFF;
++    return rgba;
++}
++
++bool MirrorMatchKeepsHomeKit(const CharacterInfo& captain)
++{
++    return mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH) && !HasAwayKit(captain);
++}
++#endif
+diff --git a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
+index dc86883..d347dbc 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
+@@ -69,6 +69,15 @@ void DefensivePlayOverlay::SceneCreated()
+     cFielder* defendingCaptain = mGoalie->GetTeam()->GetCaptain();
+     cFielder* attackingCaptain = mGoalie->GetTeam()->GetOtherTeam()->GetCaptain();
+     nlColour teamColour = GetTeamColour(*defendingCaptain->m_pCharacterInfo, *attackingCaptain->m_pCharacterInfo, true);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": with one captain on both teams, the away
++    // team wears his away kit.
++    if (MirrorMatchAwayKit(mGoalie->GetTeam()->m_nSide, *defendingCaptain->m_pCharacterInfo,
++            *attackingCaptain->m_pCharacterInfo))
++    {
++        teamColour = GetAwayKitColour(*defendingCaptain->m_pCharacterInfo);
++    }
++#endif
+     playerText->SetAssetColour(teamColour);
+ }
+ 
+diff --git a/src/Game/FE/feCaptainComponent.cpp b/src/Game/FE/feCaptainComponent.cpp
+index 5f62102..e84f965 100644
+--- a/src/Game/FE/feCaptainComponent.cpp
++++ b/src/Game/FE/feCaptainComponent.cpp
+@@ -94,6 +94,14 @@ void FECaptainComponent::ApplyTeamColour(TLInstance* instance, int captain, unsi
+         {
+             colour = GetTeamColour(info1, info0, true);
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Mirror match": with one captain on both teams, the side
++        // tells them apart.
++        if (MirrorMatchAwayKit(mSide, info1, info0))
++        {
++            colour = GetAwayKitColour(info1);
++        }
++#endif
+     }
+     nlColour assetColour = { colour.c[0], colour.c[1], colour.c[2], alpha };
+     instance->SetAssetColour(assetColour);
+diff --git a/src/Game/FE/feCharacterPDAComponent.cpp b/src/Game/FE/feCharacterPDAComponent.cpp
+index 05d6d5d..375ad82 100644
+--- a/src/Game/FE/feCharacterPDAComponent.cpp
++++ b/src/Game/FE/feCharacterPDAComponent.cpp
+@@ -699,6 +699,15 @@ void FECharacterPDAComponent::ApplyCaptainColours(int captain, int opponent)
+     nlColour teamColour;
+     teamColour = GetTeamColour(teamInfo, opponentInfo, true);
+     bool alternate = NeedsAlternateColour(teamInfo, opponentInfo);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": with one captain on both teams, the away
++    // team's PDA shows his away kit.
++    if (MirrorMatchAwayKit(mSide, teamInfo, opponentInfo))
++    {
++        teamColour = GetAwayKitColour(teamInfo);
++        alternate = true;
++    }
++#endif
+     nlColour assetColour;
+     nlColourSet(assetColour, teamColour.c[0], teamColour.c[1], teamColour.c[2], 180);
+     for (int i = 0; i < 7; ++i)
+@@ -740,6 +749,14 @@ void FECharacterPDAComponent::TintInstanceForCaptain(TLInstance* instance, int c
+         {
+             colour = GetTeamColour(info1, info0, true);
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Mirror match": with one captain on both teams, the side
++        // tells them apart.
++        if (MirrorMatchAwayKit(mSide, info1, info0))
++        {
++            colour = GetAwayKitColour(info1);
++        }
++#endif
+     }
+     else
+     {
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 62ff16f..b30dd53 100644
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -35,6 +35,14 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+             int captain = GameInfoManager::Instance()->GetTeam((short)side);
+             int opponent = GameInfoManager::Instance()->GetTeam((short)!side);
+             alternate = CaptainsNeedAlternateColour(captain, opponent);
++#if defined(MSCHARGED_TWEAKS)
++            // Port tweak "Mirror match": with one captain on both teams, the
++            // away team's hologram wears his away kit.
++            if (MirrorMatchCaptainsAwayKit(side, captain, opponent))
++            {
++                alternate = true;
++            }
++#endif
+             side = captain;
+         }
+         FEModelManager::Instance()->CreateModel(FE_MODEL_IMPOSTOR, MSCHARGED_FE_VM_STRING(name), side, value, 0, 0, alternate);
+diff --git a/src/Game/Render/ImpostorCharacter.cpp b/src/Game/Render/ImpostorCharacter.cpp
+index f3b12a3..7629a79 100644
+--- a/src/Game/Render/ImpostorCharacter.cpp
++++ b/src/Game/Render/ImpostorCharacter.cpp
+@@ -13,6 +13,13 @@
+ 
+ #include <math.h>
+ #include "Game/TweakValue.inl"
++#include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "NL/nlString.h"
++
++// Port tweak "Mirror match": copies of a character shown at once so far.
++static int sImpostorCopies;
++#endif
+ 
+ u32 gNumImpostorTextureSetsCreated;
+ 
+@@ -46,6 +53,29 @@ ImpostorCharacter::ImpostorCharacter(const char* name, int budget,
+ 
+     glBeginResource("ImpostorCharacter");
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": Choose Sides shows both teams' captain, so
++    // two holograms of one character. Render targets are named after the
++    // character: the second one would draw into the first one's, and
++    // destroying both would free them twice. A character already shown gets
++    // render targets of its own, named apart by a copy number.
++    int copy = 0;
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH))
++    {
++        nlDLListIterator<ImpostorCharacter*> other;
++        other = ImpostorManager::GetInstance()->mCharacters.Begin();
++        while (other.hasNext())
++        {
++            if (nlStrCmp((*other)->mName, mName) == 0)
++            {
++                copy = ++sImpostorCopies;
++                break;
++            }
++            other.Step();
++        }
++    }
++#endif
++
+     float angleDegrees = 360.0f / (float)mNumAngles;
+     u16 angleStep = DegreesToAngle(angleDegrees);
+     int j;
+@@ -62,6 +92,12 @@ ImpostorCharacter::ImpostorCharacter(const char* name, int budget,
+ 
+             char nameBuffer[0x40];
+             nlSNPrintf(nameBuffer, 0x40, "Impostor-%s%d", mName, i * mNumAngles + j);
++#if defined(MSCHARGED_TWEAKS)
++            if (copy != 0)
++            {
++                nlSNPrintf(nameBuffer, 0x40, "Impostor-%s%d-copy%d", mName, i * mNumAngles + j, copy);
++            }
++#endif
+             sprite->Initialize(nameBuffer);
+ 
+             sprite->mAngle = mBaseAngle + j * angleStep;
+diff --git a/src/Game/Render/Indicators.cpp b/src/Game/Render/Indicators.cpp
+index 20d4d0c..e361cc1 100644
+--- a/src/Game/Render/Indicators.cpp
++++ b/src/Game/Render/Indicators.cpp
+@@ -112,6 +112,14 @@ static inline nlColour GetIndicatorColour(cPlayer* pCharacter)
+         = pCharacter->m_pTeam->GetOtherTeam()->GetCaptain();
+     const CharacterInfo* pInfo = pCaptain->m_pCharacterInfo;
+     const CharacterInfo* pOtherInfo = pOtherCaptain->m_pCharacterInfo;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": with one captain on both teams, the away
++    // team wears his away kit.
++    if (MirrorMatchAwayKit(pCharacter->m_pTeam->m_nSide, *pInfo, *pOtherInfo))
++    {
++        return GetAwayKitColour(*pInfo);
++    }
++#endif
+     return GetTeamColour(*pInfo, *pOtherInfo, true);
+ }
+ 
+diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index 622df78..60c387f 100644
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -37,9 +37,20 @@
+ #include "NL/nlstring_tmpl.h"
+ #include "NL/nlBind.h"
+ #include "NL/nlFunction.inl"
++#include "mscharged_tweaks.h"
+ 
+ static int sCaptainButtonSelectionOrder[12] = { 0, 5, 3, 6, 4, 7, 1, 8, 2, 9, 10, 11 };
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Mirror match": in offline Domination the captain one team picked
++// stays available to the other, so both teams may have the same captain.
++static bool MirrorMatchSelection(ChooseCaptainsSceneV2::SceneType sceneType)
++{
++    return mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH) && sceneType != ChooseCaptainsSceneV2::ST_STRIKER_CUP
++        && !GameInfoManager::Instance()->IsOnline();
++}
++#endif
++
+ /**
+  * Offset/Address/Size: 0x0 | 0x80222098 | size: 0x468
+  */
+@@ -134,6 +145,14 @@ ChooseCaptainsSceneV2::ChooseCaptainsSceneV2(SceneType sceneType, ScreenMovement
+             mSelectedCaptains[1] = i;
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": back from sidekick select, the away team's
++    // captain may be the home team's (the loop above matched the home team).
++    if (mSelectedCaptains[1] == -1 && mCaptainIds[1] != -1 && mCaptainIds[1] == mCaptainIds[0])
++    {
++        mSelectedCaptains[1] = mSelectedCaptains[0];
++    }
++#endif
+ }
+ 
+ /**
+@@ -555,7 +574,11 @@ void ChooseCaptainsSceneV2::OnCaptainPointerPress(int index, void* context)
+     {
+         return;
+     }
+-    if (mSelectedCaptains[other] == which && mConfirmed[other])
++    if (mSelectedCaptains[other] == which && mConfirmed[other]
++#if defined(MSCHARGED_TWEAKS)
++        && !MirrorMatchSelection(mSceneType)
++#endif
++    )
+     {
+         return;
+     }
+@@ -637,7 +660,11 @@ void ChooseCaptainsSceneV2::OnCaptainPointerEnter(int index, void* context)
+         return;
+     }
+ 
+-    if (mSelectedCaptains[other] == which && mConfirmed[other])
++    if (mSelectedCaptains[other] == which && mConfirmed[other]
++#if defined(MSCHARGED_TWEAKS)
++        && !MirrorMatchSelection(mSceneType)
++#endif
++    )
+     {
+         return;
+     }
+@@ -1228,6 +1255,15 @@ void ChooseCaptainsSceneV2::RefreshCaptainImages()
+         {
+             mCaptainImages[i]->SetTextureResource(mCaptainTextures[i][1]);
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Mirror match": a picked captain is not greyed out, as
++        // the other team can pick him too.
++        if (MirrorMatchSelection(mSceneType)
++            && ((mConfirmed[0] && mSelectedCaptains[0] == i) || (mConfirmed[1] && mSelectedCaptains[1] == i)))
++        {
++            mCaptainImages[i]->SetTextureResource(mCaptainTextures[i][1]);
++        }
++#endif
+     }
+ }
+ 
+diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
+index 49bbb30..6214206 100644
+--- a/src/Game/SH/SHChooseSidekicks.cpp
++++ b/src/Game/SH/SHChooseSidekicks.cpp
+@@ -1386,6 +1386,14 @@ void ChooseSidekicksSceneV2::LoadSidekickImages(int firstCaptain, int secondCapt
+     {
+         firstAlt = CaptainsNeedAlternateColour(firstCaptain, secondCaptain);
+         secondAlt = CaptainsNeedAlternateColour(secondCaptain, firstCaptain);
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Mirror match": with one captain on both teams, the away
++        // team's portraits show his away kit.
++        if (MirrorMatchCaptainsAwayKit(1, secondCaptain, firstCaptain))
++        {
++            secondAlt = true;
++        }
++#endif
+         TLComponentInstance* right = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(presentation->m_currentSlide, "Layer", "PDA right");
+         TLComponentInstance* attributes = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(right->GetActiveSlide(), "attributes_sidekicks");
+         secondPda = FEFinder<TLComponentInstance, 4>::Find(attributes, "Slide1", "attributes_sidekicks", "sidekicks_pda");
+diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
+index 6cd7774..025d152 100644
+--- a/src/Game/SH/SHChooseSides.cpp
++++ b/src/Game/SH/SHChooseSides.cpp
+@@ -163,6 +163,14 @@ void SHChooseSides2::SceneCreated()
+ 
+     mTeamColours[0] = GetTeamColour(info0, info1, true);
+     mTeamColours[1] = GetTeamColour(info1, info0, true);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": with one captain on both teams, the away
++    // team wears his away kit.
++    if (MirrorMatchAwayKit(1, info1, info0))
++    {
++        mTeamColours[1] = GetAwayKitColour(info1);
++    }
++#endif
+ 
+     TLComponentInstance* screen = 0;
+     SHNavigation* object = GetNavigationScene();
+diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
+index 3a8d01f..75bc592 100644
+--- a/src/Game/SH/SHNavigation.cpp
++++ b/src/Game/SH/SHNavigation.cpp
+@@ -522,6 +522,14 @@ void SHNavigation::SetPointerTeamColours()
+ 
+     teamColours[0] = GetTeamColour(info0, info1, true);
+     teamColours[1] = GetTeamColour(info1, info0, true);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": with one captain on both teams, the away
++    // team wears his away kit.
++    if (MirrorMatchAwayKit(1, info1, info0))
++    {
++        teamColours[1] = GetAwayKitColour(info1);
++    }
++#endif
+ 
+     for (int index = 0; index < 4; ++index)
+     {

@@ -20,7 +20,10 @@ sequence keep their pace.
   their speed advanced up to 3 s a frame, so most particles were removed
   before they were drawn and the rest popped in and out (issue #34).
   Effects, audio, rumble and pads keep real time; a match's tasks never run
-  on transition time.
+  on transition time. A looping camera, a screen's idle view, keeps real
+  time as well: camera blends keep their pace, and the Strikers Cup hub's
+  60 s orbit of the trophy ran on through each 1.5-2 s blend into it and
+  came to rest facing the trophy from another side (issue #49).
 - Popups: the black box behind a popup, which FEPopupMenu grows itself over
   0.75 s rather than through a slide, opens at full size at once. A popup
   whose slide is already past 1 s when its layout hides the text shows it
@@ -29,6 +32,34 @@ sequence keep their pace.
   game returns to the front end at once instead of after the rest of the
   pause menu's 1 s wait (PauseMenuScene::mQuitDelay).
 
+diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+index 5a9d611..c4729fa 100644
+--- a/src/Game/Camera/animcam.cpp
++++ b/src/Game/Camera/animcam.cpp
+@@ -14,6 +14,7 @@
+ #include "NL/platqmath.h"
+ #include "NL/platvmath.h"
+ #include "NL/nlstring_tmpl.h"
++#include "mscharged_tweaks.h"
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/camera_data_transport.h"
+ #endif
+@@ -437,6 +438,15 @@ void cAnimCamera::Update(float dt)
+     {
+         return;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fast menus": a looping camera is a screen's idle view, not
++    // a move a transition script waits for, so it keeps real time. On
++    // transition time the Strikers Cup hub's 60 s orbit of the trophy ran on
++    // through each camera blend into it and came to rest facing the trophy
++    // from another side (issue #49).
++    if (m_bCyclic)
++        dt = mscharged_tweak_real_time(dt);
++#endif
+     ManualUpdate(dt);
+ }
+ 
 diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
 index 818c844..1e37107 100644
 --- a/src/Game/FE/fePopupMenu.cpp

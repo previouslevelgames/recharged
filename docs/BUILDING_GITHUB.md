@@ -11,6 +11,16 @@ attach configuration logs. A `stable` build of a new version also drafts its
 release (below); all builds are unsigned. A separate job compiles the Windows host-service
 tests natively.
 
+A PR from this repository also publishes its packages as the **pre-release**
+`test-pr<N>-<commit>`, which anyone can download and the launcher's **Test**
+channel installs. Each push replaces it; the *Remove test builds* workflow
+deletes it when the PR closes. Pre-releases never count as the latest release.
+PR builds compile the PR's head commit, so their version names a commit of
+`main`. Every build records its origin for the launcher's About page and update
+check: `release` (a push to `stable`), `test` (a PR build, with its number) or
+`dev` (other builds), with the commit, run and build time
+(`MSCHARGED_BUILD_*` in `CMakeLists.txt`).
+
 Windows packages are cross-compiled on Ubuntu with the pinned LLVM-MinGW
 toolchain and include its C++ runtime DLLs (`libc++`, `libunwind`,
 `winpthread`), plus the pinned DirectX shader compilers (`dxcompiler.dll`,

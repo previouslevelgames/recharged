@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..df94716
+index 0000000..1a1099f
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,79 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -39,6 +39,7 @@ index 0000000..df94716
 +    MSCHARGED_TWEAK_UNLOCK_ALL = 3,
 +    MSCHARGED_TWEAK_CPU_VS_CPU = 4,
 +    MSCHARGED_TWEAK_FAST_TERRAIN = 5,
++    MSCHARGED_TWEAK_MIRROR_MATCH = 6,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
@@ -58,6 +59,9 @@ index 0000000..df94716
 +// transition time; every other task (effects, audio, pads) keeps real time.
 +void mscharged_tweak_set_transition_task(const void* task);
 +float mscharged_tweak_task_dilation(const void* task);
++// A time step back on real time: in the camera task during a transition the
++// step without its transition dilation, anywhere else the step itself.
++float mscharged_tweak_real_time(float deltaTime);
 +// Slides reset (Update(0)) this frame keep their first frame.
 +void mscharged_tweak_note_slide_reset(const void* slide);
 +bool mscharged_tweak_slide_reset_this_frame(const void* slide);

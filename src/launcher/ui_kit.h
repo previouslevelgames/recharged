@@ -60,7 +60,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub
+    Gamepad, Copy, Link, Target, Back, GitHub, Download
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 

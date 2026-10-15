@@ -37,6 +37,21 @@ the reconstructed source, unchanged.
 - **Mouse beside a controller**: a single player on a Wii Remote or gamepad
   can also point and press A/B with the mouse.
 
+### Default bindings
+
+| Wii input | Keyboard / mouse | Gamepad (Xbox names) |
+| --- | --- | --- |
+| Pointer | Mouse | Right stick |
+| A / B | Enter or left click / Esc or right click | A / B |
+| D-pad | Arrow keys | D-pad |
+| Nunchuk stick | W A S D | Left stick |
+| Nunchuk C / Z | C / V | LB / LT |
+| 1 / 2 | Z / X | X / Y |
+| + / − / HOME | Tab / - / Home | Start / Back / Guide |
+| Shake Remote / Nunchuk | E / Q | RT / RB |
+
+Press **P** for a screenshot.
+
 ## Picture and sound
 
 - Vulkan on Linux; a Vulkan / DirectX 12 choice on Windows (Advanced → Graphics API);
@@ -85,6 +100,11 @@ The launcher's **Gameplay** page (or `[gameplay]` in `mscharged.ini`) turns them
   Stadium: the same running speed, ball roll and bounce, no sliding on ice or
   mud and no slow sand in the Sand Tomb. Stadium looks and hazards stay;
   online matches are unchanged.
+- **Mirror match**: both teams can pick the same captain in Domination. The
+  away team then wears the captain's away kit if the game has one (Bowser,
+  Bowser Jr., Daisy, Diddy Kong, Donkey Kong, Petey and Yoshi); with Mario,
+  Luigi, Peach, Wario and Waluigi both teams look the same. Online matches
+  are unchanged.
 
 `--no-tweaks` turns them off for one run.
 
@@ -94,6 +114,13 @@ A start window that checks your disc, explains what is missing, and keeps every
 setting in one place: players and controllers, keyboard keys, gamepad
 profiles, display, audio, gameplay tweaks and advanced options. It asks before playing with
 unsaved changes.
+
+It also **updates the port**: it shows when a newer release is out, with its
+release notes, and installs it in place with one click; only the program's
+own files are replaced. **Release / Test** on the Play page chooses between
+official releases and test builds of changes not yet released (with the pull
+request's description as notes). The About page shows where the running build
+comes from: an official release, a test build or a local build.
 
 ## Not supported (yet)
 

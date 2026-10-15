@@ -10,8 +10,12 @@
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/player_lineup.h"
+#include "launcher/release_notes.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
+#include "launcher/update_check.h"
+#include "launcher/update_install.h"
+#include "launcher/update_service.h"
 #include "mscharged/build_version.h"
 #include "platform/parse_float.h"
 #include "platform/window_fit.h"
@@ -61,7 +65,69 @@ using namespace mscharged::launcher;
 namespace
 {
 // Window title of the game and the launcher: the port's name and build.
-std::string GameTitle() { return std::string("MSCharged Port ") + mscharged::build::version; }
+std::string GameTitle()
+{
+    std::string title = std::string("MSCharged Port ") + mscharged::build::version;
+    if (std::string_view(mscharged::build::channel) == "test")
+        title += " - test build of PR #" + std::to_string(mscharged::build::pull_request);
+    return title;
+}
+
+// The running build: where it comes from (MSCHARGED_BUILD_* in CMakeLists.txt)
+// and the package it was made for. The installed package's manifest refines
+// the package (the Steam Deck build of Linux) once the update check runs.
+BuildIdentity CurrentBuild()
+{
+    BuildIdentity identity;
+    identity.version = build::version;
+    const std::string_view channel = build::channel;
+    identity.origin = channel == "release" ? BuildOrigin::Release
+                    : channel == "test"    ? BuildOrigin::Test
+                                           : BuildOrigin::Dev;
+    identity.repository = build::repository;
+    identity.commit = build::commit;
+    identity.pull_request = build::pull_request;
+    identity.run = build::run_id;
+    identity.built = build::build_time;
+    identity.commit_time = build::commit_time;
+#if defined(_WIN32)
+    identity.package = "windows";
+#elif defined(__APPLE__)
+    identity.package = "macos";
+#else
+    identity.package = "linux";
+#endif
+#if defined(__aarch64__) || defined(_M_ARM64)
+    identity.package += "-arm64";
+#else
+    identity.package += "-x86_64";
+#endif
+    return identity;
+}
+
+#ifdef _WIN32
+constexpr const char* kExecutableName = "mscharged.exe";
+#else
+constexpr const char* kExecutableName = "mscharged";
+#endif
+
+// Seconds since 1970 as local date and time.
+std::string LocalTime(std::int64_t seconds)
+{
+    SDL_DateTime time{};
+    if (!SDL_TimeToDateTime(SDL_SECONDS_TO_NS(seconds), &time, true)) return FormatUtcTime(seconds);
+    char text[48];
+    std::snprintf(text, sizeof text, "%04d-%02d-%02d %02d:%02d", time.year, time.month, time.day, time.hour,
+                  time.minute);
+    return text;
+}
+
+std::string Megabytes(std::uint64_t bytes)
+{
+    char text[32];
+    std::snprintf(text, sizeof text, "%.1f MB", double(bytes) / (1024.0 * 1024.0));
+    return text;
+}
 
 enum Page { PagePlay, PageGame, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
 constexpr const char* page_names[] = {"Play", "Game", "Display", "Audio", "Controls", "Gameplay", "Advanced", "About"};
@@ -185,6 +251,9 @@ class Launcher
 {
 public:
     const std::optional<ResolvedLaunch>& FrontendLaunch() const { return frontend_launch_; }
+    // An update was installed: main() starts the updated launcher.
+    bool RestartRequested() const { return restart_; }
+    fs::path RestartExecutable() const { return base_ / kExecutableName; }
 
     ResolvedLaunch EffectiveLaunch() const { return ResolveLaunch(file_, options_.launch, &draft_); }
     std::string DiscSelection() const { return PathUtf8(EffectiveLaunch().disc_path); }
@@ -215,6 +284,7 @@ public:
         Reload();
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
+        StartUpdates();
 
         // Created at the design size, then fitted once the window knows its
         // display's pixel density and content scale.
@@ -325,7 +395,8 @@ public:
             SDL_RenderClear(renderer_);
             RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
-            if (!options_.screenshot.empty() && frame >= 12 && (!pending_ || frame > 600))
+            const bool update_settled = !UpdateBusy() && !(update_capture_install_ && update_.offer);
+            if (!options_.screenshot.empty() && frame >= 12 && ((!pending_ && update_settled) || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
                 auto pixels = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
@@ -439,6 +510,309 @@ private:
         catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); return false; }
     }
 
+    // ------------------------------------------------------------- updates
+    void StartUpdates()
+    {
+        updates_ = std::make_unique<UpdateService>(CurrentBuild(), base_);
+        // Development captures stay offline unless MSCHARGED_CAPTURE_UPDATES
+        // asks for the real check: "dialog" also opens an offered update,
+        // "install" installs it and restarts (the screenshot comes from the
+        // restarted launcher).
+        const char* capture_updates = std::getenv("MSCHARGED_CAPTURE_UPDATES");
+        if (capture_ && !(capture_updates && *capture_updates)) return;
+        if (capture_)
+        {
+            update_capture_dialog_ = std::string_view(capture_updates) == "dialog";
+            update_capture_install_ = std::string_view(capture_updates) == "install";
+        }
+        if (!capture_)
+        {
+            try
+            {
+                // What the last update left behind; say once that it worked.
+                const auto replaced = FinishUpdates(base_);
+                if (!replaced.empty())
+                    Notice("Updated from " + VersionNumber(ParsePortVersion(replaced)) + " to "
+                               + VersionNumber(ParsePortVersion(build::version)) + ".",
+                           NoticeKind::Success);
+            }
+            catch (const std::exception& error) { Notice(error.what(), NoticeKind::Warning); }
+        }
+        if (config_ok_ && (draft_.check_updates || capture_)) updates_->Check(UpdateChannelSetting());
+    }
+
+    bool UpdateBusy() const
+    {
+        using State = UpdateService::State;
+        return update_.state == State::Checking || update_.state == State::Downloading
+            || update_.state == State::Installing || update_.state == State::Installed;
+    }
+
+    UpdateChannel UpdateChannelSetting() const
+    {
+        return ResolveChannel(draft_.update_channel, updates_ ? updates_->Build() : CurrentBuild());
+    }
+
+    // The Play page's Release / Test switch is saved at once, without other
+    // unsaved changes, so it never holds an update back.
+    void SelectUpdateChannel(UpdateChannel channel)
+    {
+        const std::string value = channel == UpdateChannel::Test ? "test" : "release";
+        draft_.update_channel = value;
+        if (config_ok_)
+        {
+            try
+            {
+                Settings saved = file_.settings;
+                saved.update_channel = value;
+                SaveConfig(file_, saved);
+            }
+            catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+        }
+        updates_->Check(channel);
+    }
+
+    struct PillLook
+    {
+        Icon icon = Icon::None;
+        bool spinner = false;
+        std::string text, tooltip;
+        ImVec4 tint = color::muted;
+        bool highlight = false;
+    };
+
+    PillLook UpdatePillLook() const
+    {
+        using State = UpdateService::State;
+        const bool test = update_.channel == UpdateChannel::Test;
+        switch (update_.state)
+        {
+        case State::Idle:
+            return {Icon::Refresh, false, "Check for updates",
+                    draft_.check_updates ? "" : "Automatic checks are off (Advanced page).", color::muted, false};
+        case State::Checking: return {Icon::None, true, "Checking for updates", "", color::info, false};
+        case State::UpToDate:
+            return {Icon::Check, false, "Up to date",
+                    std::string("No newer ") + (test ? "release or test build" : "release")
+                        + " than this build. Click to check again.",
+                    color::accent, false};
+        case State::CheckFailed:
+            // Often just offline: shown quietly, the reason in the tooltip.
+            return {Icon::Refresh, false, "Couldn't check for updates", update_.error + "\nClick to try again.",
+                    color::muted, false};
+        case State::Available:
+            return {Icon::Download, false,
+                    update_.offer->test ? "New test build"
+                                        : "Version " + VersionNumber(update_.offer->version) + " available",
+                    "See what's new and update.", color::accent, true};
+        case State::Downloading:
+        {
+            const auto percent = update_.total ? update_.received * 100 / update_.total : 0;
+            return {Icon::Download, false, "Downloading " + std::to_string(percent) + "%", "", color::info, false};
+        }
+        case State::Installing: return {Icon::None, true, "Installing update", "", color::info, false};
+        case State::Installed: return {Icon::None, true, "Restarting", "", color::accent, false};
+        case State::InstallFailed: return {Icon::Error, false, "Update failed", update_.error, color::danger, false};
+        }
+        return {};
+    }
+
+    bool DrawUpdatePill(const PillLook& look, ImVec2 size)
+    {
+        const auto& fonts = CurrentFonts();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const bool pressed = ImGui::InvisibleButton("##update_status", size);
+        const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 max{pos.x + size.x, pos.y + size.y};
+        const ImVec4 fill = look.highlight ? Mix(color::window, look.tint, 0.18f + 0.10f * hover)
+                                           : Mix(color::window, color::card_hover, 0.55f + 0.45f * hover);
+        draw->AddRectFilled(pos, max, Col(fill, 0.9f), Dp(11));
+        draw->AddRect(pos, max, Col(look.highlight ? look.tint : color::border, look.highlight ? 0.75f : 0.9f), Dp(11),
+                      0, Dp(1));
+        const ImVec2 icon{pos.x + Dp(20), pos.y + size.y * 0.5f};
+        if (look.spinner) Spinner(icon, Dp(7), Col(look.tint));
+        else DrawIcon(draw, look.icon, icon, Dp(16), Col(look.tint));
+        const ImVec2 text = TextSize(fonts.body, look.text.c_str());
+        DrawLabel(draw, fonts.body, {pos.x + Dp(36), pos.y + (size.y - text.y) * 0.5f},
+                  Col(look.highlight ? color::text : Mix(color::muted, color::text, 0.6f + 0.4f * hover)),
+                  look.text.c_str());
+        return pressed;
+    }
+
+    // Top right of the Play page's artwork: the update status and the
+    // Release / Test switch.
+    void DrawUpdateBar(ImVec2 origin, float width, float pad)
+    {
+        if (!updates_) return;
+        using State = UpdateService::State;
+        const auto& fonts = CurrentFonts();
+        const float height = Dp(38), switch_width = Dp(170);
+        const PillLook look = UpdatePillLook();
+        const float pill_width = TextSize(fonts.body, look.text.c_str()).x + Dp(52);
+        const float y = origin.y + Dp(18);
+        float x = origin.x + width - pad - switch_width;
+        ImGui::SetCursorScreenPos({x, y});
+        int channel = UpdateChannelSetting() == UpdateChannel::Test ? 1 : 0;
+        const bool busy = update_.state == State::Downloading || update_.state == State::Installing
+            || update_.state == State::Installed;
+        ImGui::BeginDisabled(busy || !config_ok_);
+        if (Segmented("##update_channel", &channel, {"Release", "Test"}, switch_width))
+            SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Release: official releases.\n"
+                              "Test: also the test builds of pull requests, to try changes before they are released.");
+        x -= Dp(10) + pill_width;
+        ImGui::SetCursorScreenPos({x, y});
+        if (DrawUpdatePill(look, {pill_width, height}))
+        {
+            if (update_.state == State::Idle || update_.state == State::UpToDate || update_.state == State::CheckFailed)
+                updates_->Check(UpdateChannelSetting());
+            else if (update_.offer)
+                update_dialog_ = true;
+        }
+        if (!look.tooltip.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", look.tooltip.c_str());
+    }
+
+    // What's new in the offered build, and its download and installation.
+    void DrawUpdateDialog()
+    {
+        if (update_dialog_)
+        {
+            ImGui::OpenPopup("Update");
+            update_dialog_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        const ImVec2 view = ImGui::GetMainViewport()->Size;
+        const float width = std::min(Dp(700), view.x - Dp(60));
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Update", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            using State = UpdateService::State;
+            const auto& status = update_;
+            if (!status.offer)
+            {
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                ImGui::PopStyleVar();
+                return;
+            }
+            const PublishedBuild& offer = *status.offer;
+            const BuildIdentity self = updates_->Build();
+            const PackageAsset* asset = offer.PackageFor(self.package);
+            const std::string headline = offer.test
+                ? "Test build of pull request #" + std::to_string(offer.pull_request)
+                : "Version " + VersionNumber(offer.version) + " is available";
+            TextColored(fonts.heading, color::text, headline.c_str());
+            const std::string title = offer.test && status.pull && !status.pull->title.empty() ? status.pull->title
+                                                                                               : offer.title;
+            if (!title.empty()) TextWrappedColored(fonts.body, Mix(color::muted, color::text, 0.55f), title.c_str());
+            std::string details;
+            if (offer.published) details = "Published " + LocalTime(offer.published);
+            if (asset && asset->size) details += (details.empty() ? "" : "  -  ") + Megabytes(asset->size);
+            details += (details.empty() ? "" : "  -  ") + std::string("You have ")
+                + VersionNumber(ParsePortVersion(self.version)) + " (" + DescribeOrigin(self) + ")";
+            TextWrappedColored(fonts.caption, color::muted, details.c_str());
+            ImGui::Dummy({0, Dp(6)});
+
+            // The release notes, or the test build's pull request description.
+            const std::string& source = offer.test && status.pull ? status.pull->body : offer.notes;
+            if (source != notes_source_)
+            {
+                notes_source_ = source;
+                notes_ = ParseReleaseNotes(source);
+            }
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, Mix(color::window, color::card, 0.6f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, Dp(12));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(18, 14));
+            ImGui::BeginChild("##notes", {ImGui::GetContentRegionAvail().x, std::clamp(view.y * 0.42f, Dp(140), Dp(420))},
+                              ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
+            if (notes_.empty()) TextWrappedColored(fonts.body, color::muted, "No notes were published for this build.");
+            else DrawReleaseNotes(notes_, ImGui::GetContentRegionAvail().x);
+            ImGui::EndChild();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor();
+            ImGui::Dummy({0, Dp(6)});
+
+            const bool busy = status.state == State::Downloading || status.state == State::Installing
+                || status.state == State::Installed;
+            if (status.state == State::Downloading)
+            {
+                auto* draw = ImGui::GetWindowDrawList();
+                const ImVec2 pos = ImGui::GetCursorScreenPos();
+                const float bar = ImGui::GetContentRegionAvail().x;
+                const float fraction = status.total ? std::min(1.0f, float(double(status.received) / double(status.total))) : 0.0f;
+                draw->AddRectFilled(pos, {pos.x + bar, pos.y + Dp(10)}, Col(color::field), Dp(5));
+                if (fraction > 0.0f)
+                    FillGradient(draw, pos, {pos.x + std::max(Dp(10), bar * fraction), pos.y + Dp(10)},
+                                 Col(Mix(color::accent_dark, color::accent, 0.55f)), Col(color::accent), Dp(5), true);
+                ImGui::Dummy({bar, Dp(10)});
+                const std::string progress = "Downloading  -  " + Megabytes(status.received)
+                    + (status.total ? " of " + Megabytes(status.total) : std::string());
+                TextColored(fonts.caption, color::muted, progress.c_str());
+            }
+            else if (status.state == State::Installing || status.state == State::Installed)
+            {
+                const ImVec2 pos = ImGui::GetCursorScreenPos();
+                Spinner({pos.x + Dp(8), pos.y + Dp(10)}, Dp(7), Col(color::info));
+                ImGui::SetCursorScreenPos({pos.x + Dp(24), pos.y});
+                TextColored(fonts.body, color::text, status.state == State::Installing ? "Installing the update..."
+                                                                                      : "The update is installed.");
+            }
+            else if (status.state == State::InstallFailed)
+                TextWrappedColored(fonts.body, color::danger, status.error.c_str());
+            else if (!status.install_blocker.empty())
+                TextWrappedColored(fonts.caption, color::muted,
+                    (status.install_blocker + " Download the package and unpack it over this folder instead.").c_str());
+            ImGui::Dummy({0, Dp(8)});
+
+            if (status.state == State::Installed && dirty_)
+            {
+                // The launcher restarts into the new version; settings first.
+                TextWrappedColored(fonts.body, color::text, "Save your settings changes before the launcher restarts?");
+                if (PrimaryButton("update_save_restart", "Save and restart", Dp(190, 42), true)) Save();
+                ImGui::SameLine(0, Dp(10));
+                if (SecondaryButton("update_discard_restart", "Discard and restart", Dp(190, 42))) Reload();
+            }
+            else if (status.state == State::Downloading)
+            {
+                if (SecondaryButton("update_cancel", "Cancel download", Dp(190, 42))) updates_->Cancel();
+            }
+            else if (!busy)
+            {
+                if (status.install_blocker.empty())
+                {
+                    if (PrimaryButton("update_now", status.state == State::InstallFailed ? "Try again" : "Update now",
+                                      Dp(180, 42), true, Icon::Download))
+                        updates_->Install();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Downloads %s, replaces the program files and restarts the launcher.\n"
+                                          "Your settings, saves and logs stay.", asset ? asset->name.c_str() : "the package");
+                }
+                else if (asset)
+                {
+                    if (PrimaryButton("update_download", "Download", Dp(180, 42), true, Icon::Download))
+                        SDL_OpenURL(asset->url.c_str());
+                }
+                ImGui::SameLine(0, Dp(10));
+                const std::string page = offer.test && status.pull && !status.pull->page.empty() ? status.pull->page
+                                                                                                 : offer.page;
+                if (SecondaryButton("update_github", offer.test ? "Pull request" : "Release page", Dp(170, 42),
+                                    !page.empty(), Icon::GitHub))
+                    SDL_OpenURL(page.c_str());
+                ImGui::SameLine(0, Dp(10));
+                if (SecondaryButton("update_later", "Later", Dp(110, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                    ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
     void SelectDisc(const std::string& path)
     {
         if (options_.launch.disc)
@@ -498,6 +872,21 @@ private:
 
     void PollResults()
     {
+        if (updates_)
+        {
+            update_ = updates_->Snapshot();
+            if (update_.state == UpdateService::State::Available && update_capture_dialog_)
+            {
+                update_capture_dialog_ = false;
+                update_dialog_ = true;
+            }
+            if (update_.state == UpdateService::State::Available && update_capture_install_)
+            {
+                if (update_.install_blocker.empty()) updates_->Install();
+                else update_capture_install_ = false;
+            }
+            if (update_.state == UpdateService::State::InstallFailed) update_capture_install_ = false;
+        }
         {
             std::lock_guard<std::mutex> lock(dialog_->mutex);
             if (dialog_->ready)
@@ -593,6 +982,9 @@ private:
 #ifndef MSCHARGED_HAS_ORIGINAL_FRONTEND
         return "This launcher build does not include the game. Build the release preset to play.";
 #else
+        // The installed files belong to the next launcher: never start them from this one.
+        if (update_.state == UpdateService::State::Installing || update_.state == UpdateService::State::Installed)
+            return "Finishing the update...";
         if (!config_ok_) return "Fix the settings file problem shown below first.";
         if (pending_) return "Checking your disc...";
         if (DiscSelection().empty()) return "Choose your Mario Strikers Charged disc image (ISO or RVZ).";
@@ -666,6 +1058,14 @@ private:
         DrawPlayPrompt(quit);
         DrawImportPrompt();
         DrawRegionPrompt();
+        DrawUpdateDialog();
+        // The new files are in place: restart into them (unsaved settings are
+        // saved or dropped in the update dialog first).
+        if (update_.state == UpdateService::State::Installed && !dirty_ && !restart_)
+        {
+            restart_ = true;
+            quit = true;
+        }
         ImGui::End();
     }
 
@@ -698,8 +1098,13 @@ private:
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
         }
 
-        // Version at the bottom of the sidebar.
+        // Version at the bottom of the sidebar; test builds say so above it.
         const float badge = height - Dp(40);
+        if (ImGui::GetCursorPosY() < badge - Dp(20) && std::string_view(build::channel) == "test")
+        {
+            const std::string label = "TEST BUILD  -  PR #" + std::to_string(build::pull_request);
+            DrawTracked(draw, fonts.caption, {pad, badge - Dp(20)}, Col(color::warning), label.c_str(), Dp(0.8f));
+        }
         if (ImGui::GetCursorPosY() < badge)
         {
             ImGui::SetCursorPos({pad, badge});
@@ -786,6 +1191,7 @@ private:
         y += FontSize(fonts.hero) + Dp(2);
         DrawLabel(draw, fonts.label, {origin.x + pad, y}, Col(color::text, 0.82f),
                   "The original game, rebuilt to run natively on your PC.");
+        DrawUpdateBar(origin, size.x, pad);
 
         // Play button and status, overlapping the bottom of the artwork.
         const std::string blocker = PlayBlocker();
@@ -2836,6 +3242,7 @@ private:
         {
             TweakRow(GameTweak::NoMegaStrikes);
             TweakRow(GameTweak::CpuVsCpu);
+            TweakRow(GameTweak::MirrorMatch);
             TweakRow(GameTweak::FastTerrain);
             TweakRow(GameTweak::UnlockAll);
             EndRows();
@@ -2870,6 +3277,16 @@ private:
                     if (ImGui::Selectable(names[i], draft_.ui_scale == values[i])) { draft_.ui_scale = values[i]; dirty_ = true; }
                 ImGui::EndCombo();
             }
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##updates", "Updates", nullptr, Icon::Download);
+        if (BeginRows("##update_rows"))
+        {
+            Row("Check for updates", "Looks for a newer release, or test build, each time the launcher starts. "
+                "The Play page shows what it finds and switches between releases and test builds.");
+            if (Toggle("##check_updates", &draft_.check_updates)) dirty_ = true;
             EndRows();
         }
         EndCard();
@@ -2990,6 +3407,17 @@ private:
                 TextWrappedColored(CurrentFonts().body, color::muted, text.c_str());
             };
             value("Version", build::version);
+            const BuildIdentity identity = updates_ ? updates_->Build() : CurrentBuild();
+            value("Origin", DescribeOrigin(identity));
+            if (identity.built) value("Built", LocalTime(identity.built));
+            else if (identity.commit_time) value("Commit time", LocalTime(identity.commit_time));
+            value("Commit", identity.commit.substr(0, 12));
+            Row(identity.origin == BuildOrigin::Test ? "Pull request" : "Release notes");
+            const char* notes = identity.origin == BuildOrigin::Test ? "Open the pull request"
+                              : identity.origin == BuildOrigin::Release ? "Open the release notes"
+                                                                       : "All releases";
+            if (SecondaryButton("build_notes", notes, {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::GitHub))
+                SDL_OpenURL(BuildNotesUrl(identity).c_str());
             value("Configuration", MSCHARGED_BUILD_CONFIG);
             const int sdl = SDL_GetVersion();
             value("Platform", std::string(SDL_GetPlatform()) + "  -  SDL " + std::to_string(SDL_VERSIONNUM_MAJOR(sdl)) + "."
@@ -3127,6 +3555,12 @@ private:
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
     fs::path import_source_;
     bool import_prompt_ = false;
+    // Update check and installation (#50).
+    std::unique_ptr<UpdateService> updates_;
+    UpdateService::Status update_;
+    bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
+    std::string notes_source_;
+    std::vector<NoteBlock> notes_;
 };
 }
 
@@ -3147,6 +3581,7 @@ int main(int argc, char** argv)
 #else
             std::cout << "; launcher)\n";
 #endif
+            std::cout << DescribeBuild(CurrentBuild()) << '\n';
             return 0;
         }
         if (arg == "--help")
@@ -3283,7 +3718,10 @@ int main(int argc, char** argv)
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 2; }
     // logs/mscharged.log for player runs (not the development smoke/screenshot checks).
     if (!options.smoke_test && options.screenshot.empty())
+    {
         mscharged::platform::StartSessionLog(mscharged::build::version, argc, argv);
+        mscharged::platform::SessionLogLine("Build: " + DescribeBuild(CurrentBuild()));
+    }
     options.config = options.launch.config;
     unsigned runtime_modes = unsigned(options.experimental_startup)
         + unsigned(options.experimental_scene) + unsigned(options.experimental_credits)
@@ -3441,11 +3879,23 @@ int main(int argc, char** argv)
         }
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
+        fs::path restart;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
+            if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
+        if (!restart.empty())
+        {
+            // An update replaced the program files: start the new launcher.
+            mscharged::platform::EndSessionLog("restarting after an update");
+            const std::string error = RestartLauncher(restart, argc, argv);
+            if (error.empty()) return 0;
+            mscharged::platform::ReportFatalError("The update is installed, but the launcher could not start again ("
+                + error + "). Please start it again yourself.");
+            return 1;
+        }
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         if (frontend_launch) return RunOriginalMainCredits(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());

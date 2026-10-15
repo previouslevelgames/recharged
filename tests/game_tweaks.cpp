@@ -4,6 +4,7 @@
 #include "bootstrap/game_tweaks.h"
 #include "mscharged_tweaks.h"
 
+#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 
@@ -34,7 +35,8 @@ void CheckOriginal(const char* what)
             mscharged_tweak_frontend_frame(menus, transition);
             mscharged_tweak_note_slide_reset(&slide);
             Check(!mscharged_tweak_fast_menus() && !mscharged_tweak_fast_transition(), what);
-            Check(mscharged_tweak_task_dilation(&task) == 1.0f && mscharged_tweak_task_dilation(&other) == 1.0f, what);
+            Check(mscharged_tweak_task_dilation(&task) == 1.0f && mscharged_tweak_real_time(0.25f) == 0.25f, what);
+            Check(mscharged_tweak_task_dilation(&other) == 1.0f && mscharged_tweak_real_time(0.25f) == 0.25f, what);
         }
     Check(!mscharged_tweak_title_pending() && !mscharged_tweak_take_title_press(), what);
 }
@@ -83,7 +85,8 @@ int main()
             && unsigned(mscharged::GameTweak::NoMegaStrikes) == MSCHARGED_TWEAK_NO_MEGA_STRIKES
             && unsigned(mscharged::GameTweak::UnlockAll) == MSCHARGED_TWEAK_UNLOCK_ALL
             && unsigned(mscharged::GameTweak::CpuVsCpu) == MSCHARGED_TWEAK_CPU_VS_CPU
-            && unsigned(mscharged::GameTweak::FastTerrain) == MSCHARGED_TWEAK_FAST_TERRAIN,
+            && unsigned(mscharged::GameTweak::FastTerrain) == MSCHARGED_TWEAK_FAST_TERRAIN
+            && unsigned(mscharged::GameTweak::MirrorMatch) == MSCHARGED_TWEAK_MIRROR_MATCH,
             "Host tweak bits and the game hooks' IDs must agree");
 
         // Before configuration and with an empty set: the original game.
@@ -125,6 +128,20 @@ int main()
         Check(mscharged_tweak_fast_transition() && mscharged_tweak_task_dilation(&camera) > 1.0f
             && mscharged_tweak_task_dilation(&particles) == 1.0f && mscharged_tweak_task_dilation(&audio) == 1.0f
             && mscharged_tweak_task_dilation(nullptr) == 1.0f, "Fast menus transition time");
+        // A looping camera takes the camera task's real time back (issue #49);
+        // in every other task a step already is real time.
+        const float frame = 1.0f / 60.0f, transition = frame * mscharged_tweak_task_dilation(&camera);
+        Check(transition > frame && std::fabs(mscharged_tweak_real_time(transition) - frame) < 1e-7f,
+            "Fast menus: camera task's real time");
+        Check(mscharged_tweak_task_dilation(&particles) == 1.0f && mscharged_tweak_real_time(frame) == frame,
+            "Fast menus: real time outside the camera task");
+        mscharged_tweak_task_dilation(&camera);
+        mscharged_tweak_frontend_frame(true, true);
+        Check(mscharged_tweak_real_time(frame) == frame, "Fast menus: front end task's real time");
+        mscharged_tweak_frontend_frame(true, false);
+        Check(mscharged_tweak_task_dilation(&camera) == 1.0f && mscharged_tweak_real_time(frame) == frame,
+            "Fast menus: real time without a transition");
+        mscharged_tweak_frontend_frame(true, true);
         mscharged_tweak_note_slide_reset(&slide);
         Check(mscharged_tweak_slide_reset_this_frame(&slide) && !mscharged_tweak_slide_reset_this_frame(&other),
             "Slide reset not recorded for this frame only");

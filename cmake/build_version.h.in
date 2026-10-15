@@ -3,4 +3,14 @@
 namespace mscharged::build
 {
 inline constexpr const char* version = "@PORT_VERSION_STRING@";
+// Where this build comes from (MSCHARGED_BUILD_* in CMakeLists.txt): "release"
+// (the packages of a GitHub release), "test" (a pull request's test build) or
+// "dev" (local and manual builds), with what the launcher's update check needs.
+inline constexpr const char* channel = "@BUILD_CHANNEL@";
+inline constexpr const char* repository = "@BUILD_REPOSITORY@";
+inline constexpr const char* commit = "@PORT_COMMIT@";
+inline constexpr long long commit_time = @PORT_COMMIT_TIME@;
+inline constexpr int pull_request = @BUILD_PULL_REQUEST@;
+inline constexpr long long run_id = @BUILD_RUN@;
+inline constexpr long long build_time = @BUILD_TIME@; // 0: unknown (local builds)
 }

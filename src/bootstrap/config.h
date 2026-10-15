@@ -115,6 +115,11 @@ struct Settings
     bool verbose_console = false;     // advanced.verbose_console: development traces and game debug output
     bool frame_logging = false;       // advanced.frame_logging: CSV timings and summary beside the executable
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
+    // launcher.check_updates: look for a newer build each time the launcher starts.
+    bool check_updates = true;
+    // launcher.update_channel: release (official releases), test (also test
+    // builds of pull requests) or auto (where this build comes from).
+    std::string update_channel = "auto";
     // [gameplay]: opt-in game tweaks (kGameTweaks order), all off by default.
     std::array<bool, kGameTweaks.size()> tweaks{};
     unsigned GameTweakMask() const

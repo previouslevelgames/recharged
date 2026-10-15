@@ -150,12 +150,16 @@ shake_nunchuk = Q
 # fast_terrain: every stadium plays like Bowser Stadium's fast, dry field
 # (speed, ball roll and bounce; no sliding, no slow sand in the Sand Tomb);
 # looks and hazards stay, online matches unchanged.
+# mirror_match: both teams can pick the same captain in Domination; the away
+# team wears his away kit if the game has one (Bowser, Bowser Jr., Daisy,
+# Diddy Kong, DK, Petey, Yoshi). Online matches unchanged.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
 unlock_all = false
 cpu_vs_cpu = false
 fast_terrain = false
+mirror_match = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU
@@ -172,3 +176,8 @@ frame_logging = false
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.
 ui_scale = auto
+# Look for a newer build on GitHub each time the launcher starts.
+check_updates = true
+# Which builds to update to: release (official releases), test (also test
+# builds of open pull requests) or auto (releases, or test builds for a test build).
+update_channel = auto

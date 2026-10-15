@@ -65,8 +65,11 @@ jobs:
       CCACHE_NOHASHDIR: 'true'
       CCACHE_MAXSIZE: 3G
     steps:
+      # A pull request builds its head commit, so the version names a commit
+      # of main (stable requires up-to-date branches: the files are the same).
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           submodules: false
           persist-credentials: false
@@ -133,11 +136,17 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-${{ matrix.platform }}-${{ github.sha }}
           restore-keys: ccache-${{ matrix.platform }}-
+      # The build's origin (release, test or dev) for the launcher's update check.
       - name: Configure original runtime
         run: >-
           cmake --preset release
           -DBUILD_TESTING=OFF
           -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
+          -DMSCHARGED_BUILD_CHANNEL=${{ github.event_name == 'pull_request' && 'test' || github.event_name == 'push' && 'release' || 'dev' }}
+          -DMSCHARGED_BUILD_REPOSITORY=${{ github.repository }}
+          -DMSCHARGED_BUILD_PULL_REQUEST=${{ github.event.pull_request.number || 0 }}
+          -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
+          -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ matrix.cmake_args }}
@@ -215,6 +224,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           submodules: false
           persist-credentials: false
@@ -263,6 +273,11 @@ jobs:
           -DLLVM_MINGW_ROOT="$PWD/build/toolchain/$LLVM_MINGW"
           -DBUILD_TESTING=OFF
           -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
+          -DMSCHARGED_BUILD_CHANNEL=${{ github.event_name == 'pull_request' && 'test' || github.event_name == 'push' && 'release' || 'dev' }}
+          -DMSCHARGED_BUILD_REPOSITORY=${{ github.repository }}
+          -DMSCHARGED_BUILD_PULL_REQUEST=${{ github.event.pull_request.number || 0 }}
+          -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
+          -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       # Only the packaged targets: some Linux-only diagnostics are not portable.
@@ -415,3 +430,64 @@ jobs:
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "Mario Strikers Charged Native Port $VERSION" --generate-notes \
             release/*.tar.gz release/*.zip release/SHA256SUMS
+
+  test-build:
+    # Publishes a pull request's packages as the prerelease test-pr<N>-<commit>,
+    # so testers download them without a GitHub account and the launcher's Test
+    # channel can install them (#50). Each push replaces it; test-builds.yml
+    # removes it when the pull request closes. Prereleases never become the
+    # latest release.
+    name: publish test build
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [build, windows-game]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mscharged-*
+          path: test-build
+          merge-multiple: true
+          skip-decompress: true
+      - name: Write checksums
+        working-directory: test-build
+        run: |
+          ls -la
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+      - name: Publish the prerelease
+        run: |
+          # A pull request closed meanwhile keeps no test build.
+          if [ "$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state)" != OPEN ]; then
+            echo "::notice::Pull request #$PR_NUMBER is no longer open; no test build is published."
+            exit 0
+          fi
+          tag="test-pr$PR_NUMBER-${HEAD_SHA:0:12}"
+          {
+            echo "Test build of [pull request #$PR_NUMBER]($PR_URL) at commit ${HEAD_SHA:0:12}, to try it before it is released."
+            echo "It is replaced by each new push to the pull request and removed when the pull request closes."
+            echo
+            echo "---"
+            echo
+            printf '%s\n' "$PR_BODY"
+          } > notes.md
+          gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$HEAD_SHA" \
+            --title "Test build: $PR_TITLE (#$PR_NUMBER)" --notes-file notes.md \
+            test-build/*.tar.gz test-build/*.zip test-build/SHA256SUMS
+          # Earlier test builds of this pull request.
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' \
+            | { grep -E "^test-pr$PR_NUMBER-[0-9a-f]+$" || true; } | { grep -vx "$tag" || true; } \
+            | while read -r old; do
+                gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              done

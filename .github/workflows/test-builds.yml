@@ -1,0 +1,31 @@
+name: Remove test builds
+
+# A pull request's test builds (prereleases test-pr<N>-<commit>, published by
+# build.yml) end with the pull request: merged into a release or closed.
+on:
+  pull_request:
+    types: [closed]
+    branches: [stable]
+
+permissions:
+  contents: read
+
+jobs:
+  remove:
+    name: remove test builds
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Delete the prereleases and their tags
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' \
+            | { grep -E "^test-pr$PR_NUMBER-[0-9a-f]+$" || true; } \
+            | while read -r tag; do
+                echo "Removing $tag"
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              done

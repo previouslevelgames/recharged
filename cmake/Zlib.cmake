@@ -1,0 +1,17 @@
+# The pinned zlib-ng (zlib API) as ZLIB::ZLIB, unless the graphics providers
+# (cmake/GraphicsProviders.cmake) added it already.
+include_guard(GLOBAL)
+if(NOT TARGET ZLIB::ZLIB)
+    mscharged_prepare_dependency(zlib-ng MSCHARGED_zlib_ng_PREPARED)
+    function(mscharged_add_zlib)
+        set(BUILD_SHARED_LIBS OFF)
+        set(BUILD_TESTING OFF)
+        set(ZLIB_COMPAT ON)
+        set(ZLIB_INSTALL OFF)
+        add_subdirectory("${MSCHARGED_zlib_ng_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/zlib" EXCLUDE_FROM_ALL)
+        get_target_property(zlib_target zlibstatic ALIASED_TARGET)
+        add_library(ZLIB::ZLIB ALIAS ${zlib_target})
+        add_dependencies(${zlib_target} verify_prepared)
+    endfunction()
+    mscharged_add_zlib()
+endif()
