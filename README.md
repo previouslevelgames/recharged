@@ -37,7 +37,7 @@ Playable, tested
 <td align="center" width="20%">
 <a href="docs/STEAM_DECK.md"><img alt="Steam Deck" src="https://img.shields.io/badge/Steam%20Deck-SteamOS%203.7%2B-1A9FFF?logo=steam&logoColor=white"></a><br>
 <code>steamdeck-x86_64.tar.gz</code><br>
-<a href="docs/STEAM_DECK.md">Guide</a> · not yet tested on a Deck
+<a href="docs/STEAM_DECK.md">Guide</a> · tested
 </td>
 <td align="center" width="20%">
 <a href="https://github.com/yannicksuter/mscharged-port/releases/latest"><img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-0A84FF?logo=apple&logoColor=white"></a><br>

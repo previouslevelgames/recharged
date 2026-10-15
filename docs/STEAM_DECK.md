@@ -1,9 +1,8 @@
 # Steam Deck
 
 Use the `steamdeck-x86_64` package (SteamOS 3.7 or newer; check for updates in
-Gaming Mode under *Settings → System*). The Deck build has not been tested on
-an actual Deck yet, so this is the documented setup, not a guaranteed one. You
-do not need to compile anything.
+Gaming Mode under *Settings → System*). The Deck build is tested on a real
+Steam Deck. You do not need to compile anything.
 
 **1. Desktop Mode.** Press the STEAM button, then *Power → Switch to Desktop*.
 In Desktop Mode the right trackpad moves the mouse, R2 left-clicks, L2
