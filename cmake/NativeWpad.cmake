@@ -36,5 +36,6 @@ if(BUILD_TESTING)
         "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
     target_link_libraries(wiimote_hid_tests PRIVATE charged_native_wpad)
     add_test(NAME wiimote_hid COMMAND wiimote_hid_tests)
-    set_tests_properties(wiimote_hid PROPERTIES TIMEOUT 10)
+    set_tests_properties(wiimote_hid PROPERTIES TIMEOUT 10
+        ENVIRONMENT "SDL_HIDAPI_IGNORE_DEVICES=0x057e/0x0306,0x057e/0x0330")
 endif()

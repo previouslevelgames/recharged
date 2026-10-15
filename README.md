@@ -96,7 +96,7 @@ workflow (badge above: latest `stable` build).
 | Steam Deck (SteamOS 3.7+) | Ubuntu 24.04, GCC 14, Vulkan | `.tar.gz` | Not yet tested on a Steam Deck |
 | Windows x86_64 | Cross-compiled with LLVM-MinGW, Vulkan | `.zip` | Playable; tested on Windows |
 | macOS Apple Silicon | macOS 15, Apple Clang, Metal | `.tar.gz` | Playable; tested on Apple Silicon |
-| macOS Intel | macOS 15, Apple Clang, Metal | `.tar.gz` | Not yet tested on an Intel Mac |
+| macOS Intel | Cross-compiled on Apple Silicon, macOS 15, Apple Clang, Metal | `.tar.gz` | Not yet tested on an Intel Mac |
 
 ## Game data
 

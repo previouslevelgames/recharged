@@ -2,16 +2,20 @@
 // conversion: x as sent, y flipped (767 - y), absent objects (0, 767, size 0).
 #include "platform/wiimote_hid.h"
 
+#include <SDL3/SDL.h>
+
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <thread>
 
 namespace {
 unsigned checks{}, failures{};
 void Check(bool value, const char* message) {
     ++checks;
-    if (!value) { ++failures; std::fprintf(stderr, "Wii Remote IR decoding: %s\n", message); }
+    if (!value) { ++failures; std::fprintf(stderr, "Wii Remote HID: %s\n", message); }
 }
 } // namespace
 
@@ -67,6 +71,28 @@ int main() {
     Check(IsBluetoothWiimoteId(unnamed) && unnamed == BluetoothWiimoteId("serial?", "/dev/hidraw7") &&
           unnamed != BluetoothWiimoteId("", "/dev/hidraw8"), "a remote without an address");
 
-    std::printf("Wii Remote IR decoding and ids: %u checks, %u failures\n", checks, failures);
+    // The input cadence (every 10 ms) scans the HID devices only after SDL
+    // reports a device change. A scan every 2 s held a tester's game for about
+    // 70 ms each time on Windows. Real remotes are ignored (CTest environment).
+    InitializeWiimoteHid({});
+    if (!WiimoteHidScans()) {
+        std::printf("Wii Remote HID scans: skipped, SDL HID is unavailable\n");
+    } else {
+        Check(WiimoteHidScans() == 1, "starting the driver did not scan once");
+        unsigned changes = 0;
+        auto counted = SDL_hid_device_change_count();
+        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+        while (std::chrono::steady_clock::now() < end) {
+            ServiceWiimoteHid();
+            const auto count = SDL_hid_device_change_count();
+            if (count != counted) { counted = count; ++changes; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ServiceWiimoteHid(); // takes up a change the last check saw
+        Check(WiimoteHidScans() == 1 + changes, "the driver scanned without a device change");
+        ShutdownWiimoteHid();
+    }
+
+    std::printf("Wii Remote IR decoding, ids and HID scans: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

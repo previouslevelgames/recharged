@@ -114,6 +114,13 @@ class DependencySetupTests(unittest.TestCase):
             self.assertFalse(self.initialized("extern/dawn/" + path))
         self.assert_leaf_pin("extern/freetype/subprojects/dlg")
 
+    def test_shallow_reaches_the_same_recorded_pins(self):
+        self.run_setup(system="Darwin", shallow=True)
+        for path in DAWN_COMMON:
+            self.assert_leaf_pin("extern/dawn/" + path)
+        self.assert_leaf_pin("extern/nod")
+        self.assert_leaf_pin("extern/freetype/subprojects/dlg")
+
     def test_launcher_does_not_initialize_runtime_or_nested_pins(self):
         self.run_setup(launcher=True, system="Windows")
         self.assertTrue(all(self.initialized(path) for path in LAUNCHER))

@@ -17,6 +17,11 @@ toolchain and include its C++ runtime DLLs (`libc++`, `libunwind`,
 `dxil.dll`, `d3dcompiler_47.dll`) with their notices. Packaging verifies the
 shader compiler versions and rejects missing or modified DLLs.
 
+The Intel macOS package is cross-compiled for x86_64 on the Apple Silicon
+runner (GitHub's Intel runner built about three times slower); Rosetta runs its
+executable check. CI fetches each dependency at its pinned commit only
+(`setup_dependencies.py --shallow`).
+
 The Steam Deck package is a Linux x86_64 build made on Ubuntu 24.04 with
 GCC 14, so it needs no newer glibc (2.40) or C++ runtime (GCC 14) than
 SteamOS 3.7. Packaging with `--steamdeck` reads each binary's dynamic

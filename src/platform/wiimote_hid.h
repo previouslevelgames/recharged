@@ -71,6 +71,9 @@ void ShutdownWiimoteHid();
 WiimoteHidStatus GetWiimoteHidStatus();
 // The driver runs and has opened at least one Wii Remote HID device.
 bool WiimoteHidHasDevices();
+// HID device scans since the driver started: one at start, then one per HID
+// device arrival or removal that SDL reports.
+unsigned WiimoteHidScans();
 
 
 // Standalone detection for the launcher (no game input owner): opens each Wii

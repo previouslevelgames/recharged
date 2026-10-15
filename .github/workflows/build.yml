@@ -41,12 +41,18 @@ jobs:
             runner: macos-15
             jobs: 3
             arch: arm64
-          # Intel Macs: GitHub's last x86_64 macOS image, same Xcode and
-          # deployment target as the Apple Silicon build.
+          # Intel Macs: cross-compiled on the Apple Silicon runner (same Xcode
+          # and deployment target); the macos-15-intel runner built about three
+          # times slower. Rosetta runs the x86_64 executable check.
           - platform: macos-x86_64
-            runner: macos-15-intel
-            jobs: 4
+            runner: macos-15
+            jobs: 3
             arch: x86_64
+            rust_target: x86_64-apple-darwin
+            cmake_args: >-
+              -DCMAKE_APPLE_SILICON_PROCESSOR=x86_64
+              -DCMAKE_OSX_ARCHITECTURES=x86_64
+              -DRust_CARGO_TARGET=x86_64-apple-darwin
     defaults:
       run:
         shell: bash
@@ -91,7 +97,11 @@ jobs:
         env:
           MACOS_ARCH: ${{ matrix.arch }}
         run: |
-          test "$(uname -m)" = "$MACOS_ARCH"
+          # Both macOS packages build on Apple Silicon; x86_64 is cross-compiled.
+          test "$(uname -m)" = arm64
+          if [ "$MACOS_ARCH" = x86_64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
           # Aurora needs std::jthread (Apple Clang 17). Xcode 26 on the macOS 15
           # image keeps the deployment target at macOS 15.
           sudo xcode-select -s /Applications/Xcode_26.3.app
@@ -101,12 +111,15 @@ jobs:
           echo 'CC=clang' >> "$GITHUB_ENV"
           echo 'CXX=clang++' >> "$GITHUB_ENV"
       - name: Select Rust toolchain
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          if [ -n "$RUST_TARGET" ]; then rustup target add "$RUST_TARGET"; fi
           cargo --version
       - name: Prepare pinned dependencies
-        run: python tools/setup_dependencies.py
+        run: python tools/setup_dependencies.py --shallow
       # Outside the checkout: an untracked folder there marks the version .dirty.
       # (The runner context is not available in job-level env.)
       - name: Place compiler cache
@@ -127,6 +140,7 @@ jobs:
           -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ${{ matrix.cmake_args }}
       # Only the packaged targets.
       - name: Build original runtime
         run: >-
@@ -143,7 +157,17 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ${{ steps.ccache.outputs.cache-primary-key }}
       - name: Check executable
+        env:
+          MACOS_ARCH: ${{ matrix.arch }}
         run: |
+          if [ -n "$MACOS_ARCH" ]; then
+            for binary in build/release/mscharged \
+                build/release/mscharged_original_{frontend,main_credits}_module.{so,dylib,bundle}; do
+              [ -e "$binary" ] || continue
+              lipo -archs "$binary"
+              test "$(lipo -archs "$binary")" = "$MACOS_ARCH"
+            done
+          fi
           ./build/release/mscharged --version | tee build/release/ci-version.txt
           grep -F 'original frontend runtime' build/release/ci-version.txt
           ./build/release/mscharged --help
@@ -216,7 +240,7 @@ jobs:
           rustup target add x86_64-pc-windows-gnullvm
           cargo --version
       - name: Prepare pinned dependencies
-        run: python tools/setup_dependencies.py
+        run: python tools/setup_dependencies.py --shallow
       # Outside the checkout: an untracked folder there marks the version .dirty.
       # (The runner context is not available in job-level env.)
       - name: Place compiler cache

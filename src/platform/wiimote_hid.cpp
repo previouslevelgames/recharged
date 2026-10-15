@@ -24,8 +24,14 @@ using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 constexpr std::uint16_t kNintendo = 0x057e, kRemote = 0x0306, kRemotePlus = 0x0330;
 constexpr float kGravity = 9.80665f;
-constexpr std::chrono::milliseconds kProbeWait{600}, kProbeInterval{2000}, kEnumerateInterval{2000};
+constexpr std::chrono::milliseconds kProbeWait{600}, kProbeInterval{2000};
 constexpr std::chrono::milliseconds kSilentLimit{1500}, kCommandWait{250};
+// A scan lists every HID device of the system: Windows opens and queries each
+// one, which held the game thread for about 70 ms every 2 s with a Bluetooth
+// remote. Scans therefore follow SDL's device change notifications; a listed
+// remote that could not be opened yet is opened again this often, and a scan
+// slower than kSlowScan is logged.
+constexpr std::chrono::milliseconds kOpenRetry{2000}, kSlowScan{20};
 // Another program can switch a directly connected remote to its own report
 // mode: the Linux hid-wiimote driver answers every status report with buttons
 // only, sent on change. A remote that sends another mode gets its set-up
@@ -84,7 +90,9 @@ struct Driver {
     std::thread::id owner;
     mscharged::platform::WiimoteHidSettings settings;
     std::vector<std::unique_ptr<Remote>> remotes;
-    Clock::time_point next_enumerate{};
+    std::uint32_t device_changes = 0; // SDL_hid_device_change_count() at the last scan
+    unsigned scans = 0;
+    Clock::time_point next_open_retry{};
     bool reported_other_mode = false;
 };
 Driver& State() { static Driver driver; return driver; }
@@ -496,7 +504,15 @@ void UpdateLeds(Remote& remote) {
     Send(remote, {0x11, leds});
 }
 
+bool Open(Remote& remote) {
+    remote.hid = SDL_hid_open_path(remote.path.c_str());
+    if (remote.hid) SDL_hid_set_nonblocking(remote.hid, 1);
+    return remote.hid != nullptr;
+}
+
 void Enumerate(Driver& driver) {
+    const auto start = Clock::now();
+    ++driver.scans;
     SDL_hid_device_info* devices = SDL_hid_enumerate(kNintendo, 0);
     std::vector<std::string> seen;
     int adapter_index = 0;
@@ -508,10 +524,7 @@ void Enumerate(Driver& driver) {
         auto known = std::find_if(driver.remotes.begin(), driver.remotes.end(),
                                   [&](const auto& remote) { return remote->path == info->path; });
         if (known != driver.remotes.end()) {
-            if (!(*known)->hid) {
-                (*known)->hid = SDL_hid_open_path(info->path);
-                if ((*known)->hid) SDL_hid_set_nonblocking((*known)->hid, 1);
-            }
+            if (!(*known)->hid) Open(**known);
             continue;
         }
         auto remote = std::make_unique<Remote>();
@@ -520,15 +533,14 @@ void Enumerate(Driver& driver) {
         remote->adapter = adapter;
         remote->plus = info->product_id == kRemotePlus;
         remote->slot = mscharged::platform::WiimoteDolphinBarSlot(id);
-        remote->hid = SDL_hid_open_path(info->path);
-        if (remote->hid) SDL_hid_set_nonblocking(remote->hid, 1);
-        else SDL_Log("Wii Remote HID %s could not be opened: %s%s", info->path, SDL_GetError(),
+        if (!Open(*remote))
+            SDL_Log("Wii Remote HID %s could not be opened: %s%s", info->path, SDL_GetError(),
 #if defined(__linux__)
-                     " (no permission? Install the udev rule from docs/RUNTIME.md, Wii Remote)"
+                    " (no permission? Install the udev rule from docs/RUNTIME.md, Wii Remote)"
 #else
-                     ""
+                    ""
 #endif
-                     );
+                    );
         driver.remotes.push_back(std::move(remote));
     }
     SDL_hid_free_enumeration(devices);
@@ -549,6 +561,9 @@ void Enumerate(Driver& driver) {
         const int sa = a->slot < 0 ? 100 : a->slot, sb = b->slot < 0 ? 100 : b->slot;
         return sa != sb ? sa < sb : a->id < b->id;
     });
+    const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start);
+    if (Verbose() || took >= kSlowScan)
+        SDL_Log("Wii Remote: scanning the HID devices took %d ms", static_cast<int>(took.count()));
 }
 
 void ServiceRemote(Remote& remote, Clock::time_point now) {
@@ -603,8 +618,10 @@ void InitializeWiimoteHid(WiimoteHidSettings settings) {
     driver.settings = settings;
     driver.owner = std::this_thread::get_id();
     driver.initialized = true;
+    driver.scans = 0;
+    driver.device_changes = SDL_hid_device_change_count();
     Enumerate(driver);
-    driver.next_enumerate = Clock::now() + kEnumerateInterval;
+    driver.next_open_retry = Clock::now() + kOpenRetry;
     // Remotes that are already on answer within a few milliseconds and take
     // the first players before the keyboard device is created.
     const auto deadline = Clock::now() + 1500ms;
@@ -625,9 +642,15 @@ void ServiceWiimoteHid() {
     if (!driver.initialized) return;
     RequireOwner();
     const auto now = Clock::now();
-    if (now >= driver.next_enumerate) {
+    // Read before the scan, so a device that arrives during it brings another.
+    const std::uint32_t changes = SDL_hid_device_change_count();
+    if (changes != driver.device_changes) {
+        driver.device_changes = changes;
         Enumerate(driver);
-        driver.next_enumerate = now + kEnumerateInterval;
+    } else if (now >= driver.next_open_retry) {
+        driver.next_open_retry = now + kOpenRetry;
+        for (auto& remote : driver.remotes)
+            if (!remote->hid) Open(*remote);
     }
     for (auto& remote : driver.remotes) ServiceRemote(*remote, now);
 }
@@ -664,6 +687,8 @@ bool WiimoteHidHasDevices() {
     const auto& driver = State();
     return driver.initialized && !driver.remotes.empty();
 }
+
+unsigned WiimoteHidScans() { return State().scans; }
 
 WiimoteHidStatus GetWiimoteHidStatus() {
     WiimoteHidStatus status{};

@@ -100,9 +100,16 @@ def check_existing(repo: Path) -> None:
         raise SetupError(f"Tracked changes in {repo}; preserve your edits before setup")
 
 
-def update(repo: Path, paths: tuple[str, ...]) -> None:
-    command = ["git", "-C", str(repo), "-c", "submodule.recurse=false",
-               "submodule", "update", "--init", "--checkout", "--", *paths]
+def update_command(repo: Path, paths: tuple[str, ...], shallow: bool) -> list[str]:
+    # Shallow: fetch only each recorded pin, several dependencies at a time.
+    # Source preparation reads only the pinned trees, never their history.
+    options = ["--depth", "1", "--jobs", "4"] if shallow else []
+    return ["git", "-C", str(repo), "-c", "submodule.recurse=false",
+            "submodule", "update", "--init", "--checkout", *options, "--", *paths]
+
+
+def update(repo: Path, paths: tuple[str, ...], shallow: bool) -> None:
+    command = update_command(repo, paths, shallow)
     result = subprocess.run(command)
     if result.returncode:
         raise SetupError("Dependency checkout failed; fix the Git error above and rerun setup")
@@ -116,7 +123,7 @@ def verify(repo: Path, expected: dict[str, str]) -> None:
 
 
 def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
-          dry_run: bool = False) -> None:
+          dry_run: bool = False, shallow: bool = False) -> None:
     repo = repo.resolve()
     if Path(git(repo, "rev-parse", "--show-toplevel").strip()).resolve() != repo:
         raise SetupError("Run the helper from a Git checkout of mscharged-port")
@@ -131,10 +138,9 @@ def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
             check_existing(repo / parent / path)
     if dry_run:
         for parent, paths in (("", direct), *nested):
-            print(shlex.join(["git", "-C", str(repo / parent), "-c", "submodule.recurse=false",
-                              "submodule", "update", "--init", "--checkout", "--", *paths]))
+            print(shlex.join(update_command(repo / parent, paths, shallow)))
         return
-    update(repo, direct)
+    update(repo, direct, shallow)
     verify(repo, expected)
     for parent, paths in nested:
         child = repo / parent
@@ -142,7 +148,7 @@ def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
         check_gitmodules(child, paths)
         for path in paths:
             check_existing(child / path)
-        update(child, paths)
+        update(child, paths, shallow)
         verify(child, expected_nested)
     print(f"Pinned {'launcher' if launcher else 'game runtime'} dependencies are ready.")
 
@@ -150,10 +156,13 @@ def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--launcher", action="store_true", help="Initialize only the smaller launcher build's dependencies")
+    parser.add_argument("--shallow", action="store_true",
+                        help="Fetch only the pinned commits, without history (faster, for CI)")
     parser.add_argument("--dry-run", action="store_true", help="Check existing tracked edits and print the selected Git commands")
     args = parser.parse_args()
     try:
-        setup(Path(__file__).resolve().parents[1], launcher=args.launcher, dry_run=args.dry_run)
+        setup(Path(__file__).resolve().parents[1], launcher=args.launcher, dry_run=args.dry_run,
+              shallow=args.shallow)
     except (SetupError, OSError) as error:
         print(f"Dependency setup failed: {error}", file=sys.stderr)
         return 1
