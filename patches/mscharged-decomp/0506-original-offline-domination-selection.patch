@@ -1,10 +1,12 @@
 # Patch: 0506-original-offline-domination-selection
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Original factory2/3 and VM9 diagnostic admission; native original inline emission and numeric ScrollBar contexts.
+
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index fa58d4f..c6effd9 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -315,14 +315,16 @@
+@@ -348,14 +348,16 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(SHMainMenu), 8, false)) SHMainMenu();
          break;
  #endif
@@ -24,6 +26,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          break;
      case SCENE_CHOOSE_STADIUM:
 diff --git a/src/Game/FE/feCharacterPDAComponent.cpp b/src/Game/FE/feCharacterPDAComponent.cpp
+index 341234a..05d6d5d 100644
 --- a/src/Game/FE/feCharacterPDAComponent.cpp
 +++ b/src/Game/FE/feCharacterPDAComponent.cpp
 @@ -1,3 +1,6 @@
@@ -34,6 +37,7 @@ diff --git a/src/Game/FE/feCharacterPDAComponent.cpp b/src/Game/FE/feCharacterPD
  
  #include "Game/FE/tlComponentInstance.h"
 diff --git a/src/Game/FE/feScrollBar.cpp b/src/Game/FE/feScrollBar.cpp
+index 0ba1047..ed04aa6 100644
 --- a/src/Game/FE/feScrollBar.cpp
 +++ b/src/Game/FE/feScrollBar.cpp
 @@ -1,3 +1,6 @@
@@ -43,92 +47,87 @@ diff --git a/src/Game/FE/feScrollBar.cpp b/src/Game/FE/feScrollBar.cpp
  #include "Game/FE/feScrollBar.h"
  #include "NL/nlFunction.inl"
  #include "NL/nlPrint.h"
-@@ -192,8 +195,12 @@
+@@ -196,8 +199,12 @@ void FEScrollBar::SetValue(int value)
  
  void FEScrollBar::OnPointerEnter(int index, void* context)
  {
--    int direction = (int)context;
--    mButtons[direction].SetPointerState(POINTER_BUTTON_HOVER, index);
 +#if defined(MSCHARGED_NATIVE)
 +    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
-+    int direction = (int)context;
+     int direction = (int)context;
+-    mButtons[direction].SetPointerState(POINTER_BUTTON_HOVER, index);
 +#endif
 +    mButtons[direction].SetPointerState(1, index);
      int other = -1;
      if (context == 0)
      {
-@@ -239,8 +246,12 @@
+@@ -243,8 +250,12 @@ bool FEScrollBar::IsScrolling(int direction, bool value)
  
  void FEScrollBar::OnPointerLeave(int index, void* context)
  {
--    int direction = (int)context;
--    mButtons[direction].SetPointerState(POINTER_BUTTON_NORMAL, index);
 +#if defined(MSCHARGED_NATIVE)
 +    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
-+    int direction = (int)context;
+     int direction = (int)context;
+-    mButtons[direction].SetPointerState(POINTER_BUTTON_NORMAL, index);
 +#endif
 +    mButtons[direction].SetPointerState(0, index);
      if (context == 0)
      {
          if (mCurrentValue <= 0)
-@@ -273,7 +284,11 @@
+@@ -277,7 +288,11 @@ void FEScrollBar::OnPointerPress(int, void* context)
          if (mCurrentValue >= mMaxValue || mPointerPressed[0])
              return;
      }
--    int direction = (int)context;
 +#if defined(MSCHARGED_NATIVE)
 +    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
-+    int direction = (int)context;
+     int direction = (int)context;
 +#endif
      int other = direction == 0 ? 1 : 0;
      mButtonInstances[direction]->SetActiveSlide("slide1", true, false);
      mButtonInstances[other]->SetActiveSlide("off", true, false);
-@@ -292,7 +307,11 @@
+@@ -296,7 +311,11 @@ void FEScrollBar::OnPointerRelease(int index, void* context)
      mScrolling[1] = false;
      mPointerPressed[1] = false;
      mRepeatTimer = 0.0f;
--    int direction = (int)context;
 +#if defined(MSCHARGED_NATIVE)
 +    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
-+    int direction = (int)context;
+     int direction = (int)context;
 +#endif
      if (context == 0)
      {
          if (mCurrentValue <= 0)
-@@ -329,7 +348,11 @@
+@@ -333,7 +352,11 @@ void FEScrollBar::OnPadPress(int, void* context)
          if (mCurrentValue >= mMaxValue || mPadPressed[0])
              return;
      }
--    int direction = (int)context;
 +#if defined(MSCHARGED_NATIVE)
 +    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
-+    int direction = (int)context;
+     int direction = (int)context;
 +#endif
      int other = direction == 0 ? 1 : 0;
      mButtonInstances[direction]->SetActiveSlide("slide1", true, false);
      mButtonInstances[other]->SetActiveSlide("off", true, false);
-@@ -348,7 +371,11 @@
+@@ -352,7 +375,11 @@ void FEScrollBar::OnPadRelease(int index, void* context)
      mScrolling[1] = false;
      mPadPressed[1] = false;
      mRepeatTimer = 0.0f;
--    int direction = (int)context;
 +#if defined(MSCHARGED_NATIVE)
 +    int direction = static_cast<int>(reinterpret_cast<std::intptr_t>(context));
 +#else
-+    int direction = (int)context;
+     int direction = (int)context;
 +#endif
      int other = direction == 0 ? 1 : 0;
      if ((context == 0 && mCurrentValue <= 0) || (context == (void*)1 && mCurrentValue >= mMaxValue))
          mButtonInstances[direction]->SetActiveSlide("off", true, false);
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 8d5d06a..d30c783 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -86,11 +86,13 @@
+@@ -86,11 +86,13 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      case 8:
          StopWithUndo();
          break;
@@ -144,6 +143,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 10:
      {
 diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index bbd11ed..3e4a47b 100644
 --- a/src/Game/SH/SHChooseCaptains.cpp
 +++ b/src/Game/SH/SHChooseCaptains.cpp
 @@ -1,3 +1,7 @@
@@ -155,6 +155,7 @@ diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
  
  #include "Game/BaseGameSceneManager.h"
 diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
+index 2a04567..b28ce34 100644
 --- a/src/Game/SH/SHChooseSidekicks.cpp
 +++ b/src/Game/SH/SHChooseSidekicks.cpp
 @@ -1,3 +1,6 @@

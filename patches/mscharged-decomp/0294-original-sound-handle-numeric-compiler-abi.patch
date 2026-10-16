@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original sound handle numeric carrier and native runtime declarations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: permanent modern compiler and Wii32 numeric carrier adaptation.
 
 XSoundHandle value2 is the original cueIndex encoded by XSoundCueHandle, never
@@ -10,33 +10,8 @@ on original runtime extern declarations, retaining all declared types/symbols.
 No cue/voice, factory, backend or AX initialization decisions change. Static
 pool definitions stay in their complete original TUs with original counts/deltas.
 
-diff --git a/src/Game/Audio/XSoundHandle.cpp b/src/Game/Audio/XSoundHandle.cpp
---- a/src/Game/Audio/XSoundHandle.cpp
-+++ b/src/Game/Audio/XSoundHandle.cpp
-@@ -5,6 +5,10 @@
- 
- #include "NL/nlMemory.h"
- #include "NL/nlPrint.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/native_registry_word.h"
-+#endif
- 
- static char sHitMarkerWarning[]
-     = "Warning: hit marker (%d) with no callback\n";
-@@ -26,7 +30,11 @@
-     , m_Callback(callback)
-     , m_CallbackContext(callbackContext)
- {
-+#if defined(MSCHARGED_NATIVE)
-+    SetCue((u32**)value1, mscharged::platform::ReadWii32RegistryWord(value2));
-+#else
-     SetCue((u32**)value1, (u32)value2);
-+#endif
-     if (m_Owner != 0)
-     {
-         m_Owner->count.references++;
 diff --git a/libs/Runtime/include/NMWException.h b/libs/Runtime/include/NMWException.h
+index d85f880..b469820 100644
 --- a/libs/Runtime/include/NMWException.h
 +++ b/libs/Runtime/include/NMWException.h
 @@ -2,7 +2,11 @@
@@ -52,6 +27,7 @@ diff --git a/libs/Runtime/include/NMWException.h b/libs/Runtime/include/NMWExcep
  typedef void* ctor_dtor_ptr;
  
 diff --git a/libs/Runtime/include/__ppc_eabi_linker.h b/libs/Runtime/include/__ppc_eabi_linker.h
+index 6c9140e..49c03a4 100644
 --- a/libs/Runtime/include/__ppc_eabi_linker.h
 +++ b/libs/Runtime/include/__ppc_eabi_linker.h
 @@ -1,11 +1,17 @@
@@ -76,7 +52,7 @@ diff --git a/libs/Runtime/include/__ppc_eabi_linker.h b/libs/Runtime/include/__p
  
  typedef struct __eti_init_info
  {
-@@ -15,7 +21,7 @@
+@@ -15,7 +21,7 @@ typedef struct __eti_init_info
      unsigned long code_size;
  } __eti_init_info;
  
@@ -85,7 +61,7 @@ diff --git a/libs/Runtime/include/__ppc_eabi_linker.h b/libs/Runtime/include/__p
  
  typedef struct __rom_copy_info
  {
-@@ -24,7 +30,7 @@
+@@ -24,7 +30,7 @@ typedef struct __rom_copy_info
      unsigned int size;
  } __rom_copy_info;
  
@@ -94,7 +70,7 @@ diff --git a/libs/Runtime/include/__ppc_eabi_linker.h b/libs/Runtime/include/__p
  
  typedef struct __bss_init_info
  {
-@@ -32,6 +38,8 @@
+@@ -32,6 +38,8 @@ typedef struct __bss_init_info
      unsigned int size;
  } __bss_init_info;
  
@@ -104,3 +80,30 @@ diff --git a/libs/Runtime/include/__ppc_eabi_linker.h b/libs/Runtime/include/__p
 +#undef CHARGED_RUNTIME_INIT_DECL
  
  #endif // PPC_EABI_LINKER_H
+diff --git a/src/Game/Audio/XSoundHandle.cpp b/src/Game/Audio/XSoundHandle.cpp
+index 6dde2af..554ee56 100644
+--- a/src/Game/Audio/XSoundHandle.cpp
++++ b/src/Game/Audio/XSoundHandle.cpp
+@@ -6,6 +6,10 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlPrint.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_registry_word.h"
++#endif
++
+ static char sHitMarkerWarning[]
+     = "Warning: hit marker (%d) with no callback\n";
+ static char sStateFormat[]
+@@ -26,7 +30,11 @@ XSoundHandle::XSoundHandle(void* value1,
+     , m_Callback(callback)
+     , m_CallbackContext(callbackContext)
+ {
++#if defined(MSCHARGED_NATIVE)
++    SetCue((u32**)value1, mscharged::platform::ReadWii32RegistryWord(value2));
++#else
+     SetCue((u32**)value1, (u32)value2);
++#endif
+     if (m_Owner != 0)
+     {
+         m_Owner->count.references++;

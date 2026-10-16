@@ -1,6 +1,6 @@
 Subject: Preserve the original camera transition fabs expression on native hosts
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Upstream now owns the Thwomp event as ThwompObject* plus eThwompState,
 produces it from thwomp->mState and consumes THWOMP_STATE_FALLING. Retire
@@ -14,9 +14,10 @@ expression on console; no camera transition, timing or behavior is changed.
 This source-only refresh does not establish camera-event/runtime readiness.
 
 diff --git a/src/Game/Camera/GameplayCameraEffects.cpp b/src/Game/Camera/GameplayCameraEffects.cpp
+index 9981102..6b3b0a1 100644
 --- a/src/Game/Camera/GameplayCameraEffects.cpp
 +++ b/src/Game/Camera/GameplayCameraEffects.cpp
-@@ -412,7 +412,11 @@
+@@ -409,7 +409,11 @@ void GameplayCameraEffects::UpdateTransition(float deltaTime)
  
      mTransitionBlend
          = nlMinEquals(nlMaxEquals(mTransitionBlend, 0.0f), 1.0f);

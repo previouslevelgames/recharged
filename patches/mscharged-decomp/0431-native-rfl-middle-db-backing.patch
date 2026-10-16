@@ -1,10 +1,11 @@
 Subject: [PATCH] Reserve actual native backing for the original RFL middle database
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native opaque storage follows the actual unchanged pointer-bearing SDK type.
 The original console declaration and all original SDK method bodies remain.
 
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h
+index 9373fbf..8562077 100644
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h
 @@ -3,6 +3,9 @@
@@ -17,7 +18,7 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h b/libs/RVL_SDK
  #ifdef __cplusplus
  extern "C" {
  #endif
-@@ -16,8 +19,28 @@
+@@ -16,8 +19,28 @@ typedef enum {
      RFLMiddleDBType_Reserved1
  } RFLMiddleDBType;
  
@@ -47,6 +48,7 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_MiddleDatabase.h b/libs/RVL_SDK
  
  u32 RFLGetMiddleDBBufferSize(u16 size);
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h
+index a033498..aca8466 100644
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h
 @@ -8,6 +8,7 @@
@@ -57,7 +59,7 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MiddleDatabase.h b/libs/RVL_SD
  typedef struct RFLiMiddleDB {
      RFLMiddleDBType type;     // at 0x0
      RFLiCallback callback;    // at 0x4
-@@ -17,6 +18,7 @@
+@@ -17,6 +18,7 @@ typedef struct RFLiMiddleDB {
      u32 userData1;            // at 0x10
      u32 userData2;            // at 0x14
  } RFLiMiddleDB;

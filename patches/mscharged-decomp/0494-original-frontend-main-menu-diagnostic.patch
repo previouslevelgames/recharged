@@ -2,9 +2,12 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Default-off native factory admission of the literal original MainMenu case.
 # Original handlers, authored transition, save/HOF/slide/input waits and all other factory scopes are unchanged.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 257d3ad..40bff1a 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -309,10 +309,12 @@
+@@ -343,10 +343,12 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(TitleScene), 8, false)) TitleScene(movement);
          break;
  #endif
@@ -18,6 +21,8 @@
      case SCENE_CHOOSE_CAPTAINS_DOMINATION:
          newHandler = new (nlMalloc(sizeof(ChooseCaptainsSceneV2), 8, false)) ChooseCaptainsSceneV2(ChooseCaptainsSceneV2::ST_DOMINATION, movement);
          break;
+diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
+index 1bd2fb1..6db02dc 100644
 --- a/src/Game/SH/SHMainMenu.cpp
 +++ b/src/Game/SH/SHMainMenu.cpp
 @@ -1,5 +1,9 @@
@@ -29,4 +34,4 @@
 +#include "NL/nlLocalization.inl"
  #endif
  #include <RVLFaceLib/RFL_Database.h>
- 
+ #include <revolution/sc_fwd.h>

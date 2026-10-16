@@ -1,9 +1,11 @@
 # Native Clang diagnostic equivalent of the original exact MWCC return-warning regions.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
+diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
+index b16d5c6..3fd8305 100644
 --- a/src/Game/FE/feHelpFuncs.cpp
 +++ b/src/Game/FE/feHelpFuncs.cpp
-@@ -365,6 +365,10 @@
+@@ -353,6 +353,10 @@ void SetDoneButtonBounds(
  }
  
  // Retail leaves the result unspecified for an invalid cheat ID.
@@ -14,7 +16,7 @@
  #pragma warning off(10184) // return value expected
  const char* GetLOCEnvironmentCheatName(int cheat)
  {
-@@ -500,6 +504,9 @@
+@@ -488,6 +492,9 @@ const char* GetLOCPowerupCheatDescription(int cheat)
      }
  }
  #pragma warning reset(10184)
@@ -24,12 +26,14 @@
  
  bool IsEnvironmentCheatUnlocked(int cheat)
  {
+diff --git a/src/Game/Transitions/ModelTransition.cpp b/src/Game/Transitions/ModelTransition.cpp
+index db265f5..b0e691c 100644
 --- a/src/Game/Transitions/ModelTransition.cpp
 +++ b/src/Game/Transitions/ModelTransition.cpp
-@@ -393,6 +393,10 @@
+@@ -393,6 +393,10 @@ void ModeledScreenTransition::Cancel()
  }
  
- // The original parser does not define a return value; callers discard it.
+ // The current caller discards the result.
 +#if defined(MSCHARGED_NATIVE) && defined(__clang__)
 +#pragma clang diagnostic push
 +#pragma clang diagnostic ignored "-Wreturn-type"
@@ -37,7 +41,7 @@
  #pragma warning off(10184) // return value expected
  ModeledScreenTransition* ModeledScreenTransition::LoadFromParser(
      SimpleParser* parser)
-@@ -450,6 +454,9 @@
+@@ -450,6 +454,9 @@ ModeledScreenTransition* ModeledScreenTransition::LoadFromParser(
      FixupModel();
  }
  #pragma warning reset(10184)

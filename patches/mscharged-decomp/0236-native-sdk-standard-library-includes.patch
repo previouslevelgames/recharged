@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Use standard native SDK size and memory declarations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: permanent modern compiler and native allocation ABI adaptation.
 
 MWCC supplies size_t.h and mem.h; host compilers use stddef.h and string.h.
@@ -8,6 +8,7 @@ Retain original hooks/heap declarations and console includes. No HBM/audio
 initialization, allocation requests or game behavior changes.
 
 diff --git a/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h b/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h
+index 9520574..f0b31fe 100644
 --- a/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h
 +++ b/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h
 @@ -1,7 +1,11 @@
@@ -23,6 +24,7 @@ diff --git a/libs/RVL_SDK/include/revolution/axfx/AXFXHooks.h b/libs/RVL_SDK/inc
  extern "C" {
  #endif
 diff --git a/libs/RVL_SDK/include/revolution/mem/heapCommon.h b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
+index f217b3f..0654eb8 100644
 --- a/libs/RVL_SDK/include/revolution/mem/heapCommon.h
 +++ b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
 @@ -1,7 +1,11 @@

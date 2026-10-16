@@ -1,6 +1,6 @@
 Subject: Select original PreInitFS memory callback
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Select original PreInitFS memory callback
 Add a diagnostic copy of the original callback and global resource requirements
@@ -13,6 +13,7 @@ target/font stages or any game task. Never compile both entry units together.
 
 diff --git a/include/Game/GraphicsMemoryStartup.h b/include/Game/GraphicsMemoryStartup.h
 new file mode 100644
+index 0000000..c0c3e31
 --- /dev/null
 +++ b/include/Game/GraphicsMemoryStartup.h
 @@ -0,0 +1,7 @@
@@ -25,6 +26,7 @@ new file mode 100644
 +#endif
 diff --git a/src/Game/GraphicsMemoryStartup.cpp b/src/Game/GraphicsMemoryStartup.cpp
 new file mode 100644
+index 0000000..f045079
 --- /dev/null
 +++ b/src/Game/GraphicsMemoryStartup.cpp
 @@ -0,0 +1,37 @@

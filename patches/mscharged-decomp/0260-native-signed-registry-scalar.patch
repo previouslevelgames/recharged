@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original signed registry scalar arguments on native hosts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Volume consumes an original pointer-shaped numeric RegistryValue cell.
 Read the checked Wii32 word, preserving its signed32 interpretation before
@@ -8,9 +8,10 @@ the original float conversion. Retain source type branches, selection,
 negation, flags and allocation. Console source remains unchanged.
 
 diff --git a/src/Game/Audio/AudioEffects.cpp b/src/Game/Audio/AudioEffects.cpp
+index d2123aa..65120d0 100644
 --- a/src/Game/Audio/AudioEffects.cpp
 +++ b/src/Game/Audio/AudioEffects.cpp
-@@ -9,6 +9,9 @@
+@@ -20,6 +20,9 @@ inline LowPassFilter::LowPassFilter()
  #include "Game/Audio/Reverb.h"
  #include "Game/Audio/AudioEffects.h"
  #include "Game/Audio/AudioConfig.h"
@@ -20,7 +21,7 @@ diff --git a/src/Game/Audio/AudioEffects.cpp b/src/Game/Audio/AudioEffects.cpp
  #include "Game/Audio/AudioSource.h"
  #include "Game/Audio/XSoundCueHandle.h"
  #include "Game/Audio/SoundInstance.h"
-@@ -208,7 +211,11 @@
+@@ -223,7 +226,11 @@ void Volume::CreateParameter(unsigned int definition, const void* context, bool
          if (type == 1)
              value = *(const float*)&argument->mData;
          else

@@ -1,6 +1,6 @@
 Subject: [PATCH] preserve original emission source and native borrowed address words
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore literal controller/manager decisions, preserve retail numeric word
 overflow, and transport genuine native pointer/callback bits without truncation.
@@ -8,9 +8,10 @@ Native replay uses the native process POD ABI; persisted/Wii replay relocation
 remains unqualified. No extra game ownership, requests or readiness is introduced.
 
 diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
+index 5e90f18..6da374c 100644
 --- a/include/Game/Effects/EffectsBundleData.h
 +++ b/include/Game/Effects/EffectsBundleData.h
-@@ -14,7 +14,7 @@
+@@ -14,7 +14,7 @@ struct EffectsBundleData
          return (id & 0x80FFFFFF) == 0x80024000;
      }
  
@@ -20,6 +21,7 @@ diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/Eff
  #else
      static EffectsBundleData* Initialize(nlChunk* bundle);
 diff --git a/include/Game/Effects/EmissionController.h b/include/Game/Effects/EmissionController.h
+index 5d4aefb..8ff94f1 100644
 --- a/include/Game/Effects/EmissionController.h
 +++ b/include/Game/Effects/EmissionController.h
 @@ -5,6 +5,12 @@
@@ -35,7 +37,7 @@ diff --git a/include/Game/Effects/EmissionController.h b/include/Game/Effects/Em
  
  class cPN_SAnimController;
  class cPoseAccumulator;
-@@ -78,7 +84,12 @@
+@@ -78,7 +84,12 @@ public:
      /* 0x6C */ const cPN_SAnimController* m_pAnimController;
      /* 0x70 */ u16 m_Id;
      /* 0x72 */ u8 unknown_0x72[0x02];
@@ -49,6 +51,7 @@ diff --git a/include/Game/Effects/EmissionController.h b/include/Game/Effects/Em
      /* 0x7C */ int m_nUserEffects;
      /* 0x80 */ UserEffectSpec** m_pUserEffects;
 diff --git a/include/Game/Effects/EmissionControllerSteps.h b/include/Game/Effects/EmissionControllerSteps.h
+index 5b12bd2..d8331d2 100644
 --- a/include/Game/Effects/EmissionControllerSteps.h
 +++ b/include/Game/Effects/EmissionControllerSteps.h
 @@ -1,5 +1,8 @@
@@ -61,9 +64,10 @@ diff --git a/include/Game/Effects/EmissionControllerSteps.h b/include/Game/Effec
  
  // Original controller update prefix. False preserves the original early return
 diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
+index 70333c8..3daf91e 100644
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
-@@ -50,11 +50,11 @@
+@@ -50,11 +50,11 @@ public:
      ParticleSystem(EffectsTemplate* pTemplate,
          nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
          unsigned long resourceID)
@@ -77,7 +81,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
      // Explicit CPU-only construction; m_uTextureIndex stays invalid. The full
      // constructor still requires an actual GL inventory on console.
      struct NativeSimulation {};
-@@ -71,7 +71,7 @@
+@@ -71,7 +71,7 @@ public:
      void UpdateLight(EffectsLight* pLight, Particle* pPart,
          EffectsTemplate* pTemplate, const nlVector3& viewRight,
          const nlVector3& viewUp, const nlMatrix4* pCoordSys)
@@ -86,7 +90,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
          = delete
  #endif
          ;
-@@ -81,7 +81,7 @@
+@@ -81,7 +81,7 @@ public:
          const nlVector3& viewUp, const nlMatrix4* pCoordSys);
      void ClearParticles();
      int RenderAllParticles(GLView* view)
@@ -96,9 +100,10 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
  #endif
          ;
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
+index 55ab0d3..06c7793 100644
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
-@@ -619,7 +619,11 @@
+@@ -619,7 +619,11 @@ void EmitBowserJrShriek(DesireSuperPower* self)
      {
          EmissionController* controller = EmissionManager::Instance()->Create(
              group, 3, true, 0);
@@ -110,7 +115,7 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
          controller->SetPosition(
              self->m_pFielder->m_DetChar.m_v3Position);
          controller->SetVelocity(
-@@ -1563,7 +1567,11 @@
+@@ -1563,7 +1567,11 @@ void DesireSuperPower::UpdateWario(DesireUpdate* update, float fDeltaT)
                      if (group != 0)
                      {
                          EmissionController* emitter = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -123,9 +128,10 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
                          emitter->SetVelocity(m_pFielder->m_DetChar.m_v3Velocity);
                          emitter->SetUpdateCallback(UpdateEmitterFromCharacterBackward);
 diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
+index 10839f2..afc0114 100644
 --- a/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
-@@ -1606,7 +1606,11 @@
+@@ -1625,7 +1625,11 @@ void Goalie::ActionMegaStrike(float deltaTime)
          nlSNPrintf(effectName, sizeof(effectName), "%s_mega_bg", mpShooter->m_pCharacterInfo->mName);
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(effectName);
          EmissionController* effect = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -138,9 +144,10 @@ diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
          nlVec3Set(position, 0.0f, 0.0f, gfMegaBallSpawnHeight);
          nlVector3 velocity = { 0.0f, 0.0f, 1.0f };
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
+index f919c2b..d0271ab 100644
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
-@@ -1714,7 +1714,11 @@
+@@ -1722,7 +1722,11 @@ void PowerupBase::CollisionCallback(PhysicsObject* pObjA,
  
              EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 3, true, 0);
              pController->SetPosition(pObj->m_v3Position);
@@ -152,7 +159,7 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
              Function1<void, EmissionController&> callback(UpdateBobombEmitter);
              pController->SetUpdateCallback(callback);
          }
-@@ -3033,7 +3037,11 @@
+@@ -3041,7 +3045,11 @@ void Bobomb::ThrowInSequence(PowerupBase*, int nThrowOrder)
      nlVector3 pos = m_pPhysicsObject->GetPosition();
      pos.z += ((PhysicsSphere*)m_pPhysicsObject)->GetRadius();
      pController->SetPosition(pos);
@@ -165,9 +172,10 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
          Function1<void, EmissionController&>(UpdateBobombEmitter));
  
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
+index 0ec0b73..73195e8 100644
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -1689,7 +1689,10 @@
+@@ -1695,7 +1695,10 @@ void ChangeBallState(cBall* pBall, int nBallState)
                  = pBall->m_pPhysicsBall->GetDefaultBallAirResistance() * lbl_806DB574;
          }
          break;
@@ -179,7 +187,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
          UpdateBallShotClock(pBall);
          cPlayer* pPrevOwner = pBall->m_pPrevOwner;
          if (pPrevOwner != NULL
-@@ -1703,7 +1706,10 @@
+@@ -1709,7 +1712,10 @@ void ChangeBallState(cBall* pBall, int nBallState)
                      (float)tweaks->fShooting);
          }
          break;
@@ -191,7 +199,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
          UpdateBallShotClock(pBall);
          break;
      case BALL_STATE_GROUND_PASS:
-@@ -3526,7 +3532,11 @@
+@@ -3557,7 +3563,11 @@ void InitializeMegaStrikeBallTrail(
      EmissionController* pController = EmissionManager::Instance()->Create(pEffectsGroup, 0, true, 0);
      pController->m_fGround = 0.02f;
      pController->SetPosition(pBallTrail->position);
@@ -204,9 +212,10 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
          Function1<void, EmissionController&>(UpdateEmitterFromBallTrail));
  
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
+index 100bc8a..5eaf14d 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -435,7 +435,11 @@
+@@ -432,7 +432,11 @@ void cCharacter::InvalidateSkinMeshPoses()
  
  void cCharacter::AttachEffect(EmissionController* pEmissionController)
  {
@@ -219,9 +228,10 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
      pEmissionController->SetAnimController(*m_pCurrentAnimController);
      pEmissionController->m_aFacing = m_DetChar.m_aActualFacingDirection;
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
+index 1b2c631..d447bed 100644
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
-@@ -108,7 +108,11 @@
+@@ -108,7 +108,11 @@ static inline EmissionController* CreateBallEffect(
      EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uEffectHash);
      EmissionController* pControl
          = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -233,7 +243,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
  
      nlVector3 v3Direction = sBallEffectVelocity;
      pControl->SetVelocity(v3Direction);
-@@ -1173,7 +1177,11 @@
+@@ -1173,7 +1177,11 @@ bool EmitWindupAtBall(const char* szEffectName)
              = fxGetGroup(EmissionManager::Instance(), uHash);
          EmissionController* pController
              = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -245,7 +255,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
          nlVector3 vel = sBallEffectVelocity;
          pController->SetVelocity(vel);
          pController->m_fGround = 0.02f;
-@@ -1195,7 +1203,11 @@
+@@ -1195,7 +1203,11 @@ bool EmitBallGlow(const char* szEffectName)
      pBall = g_pBall;
      pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
      pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -257,7 +267,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -1214,7 +1226,11 @@
+@@ -1214,7 +1226,11 @@ void EmitHeaderTarget(cBall* pBall, nlVector3* pPosition, bool bActive)
      EmissionController* pController = EmissionManager::Instance()->Create(
          fxGetGroup(EmissionManager::Instance(), nlStringLowerHash(szName)),
          3, true, 0);
@@ -269,7 +279,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -1979,7 +1995,11 @@
+@@ -1979,7 +1995,11 @@ void EmitLightning(const char* szEffectName, nlVector3 v3Position, bool bStrong)
      unsigned long uHash = nlStringLowerHash(szEffectName);
      EffectsGroup* pGroup = fxGetGroup(EmissionManager::Instance(), uHash);
      EmissionController* pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -281,7 +291,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      nlVector3 vel = sBallEffectVelocity;
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
-@@ -2003,7 +2023,11 @@
+@@ -2003,7 +2023,11 @@ void EmitLightningBall()
      pBall = g_pBall;
      pGroup = fxGetGroup(EmissionManager::Instance(), sHashWeatherLightningBall);
      pController = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
@@ -294,9 +304,10 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      pController->SetVelocity(vel);
      pController->m_fGround = 0.02f;
 diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
+index 0df7312..c5227a1 100644
 --- a/src/Game/CrowdRiot.cpp
 +++ b/src/Game/CrowdRiot.cpp
-@@ -327,7 +327,11 @@
+@@ -327,7 +327,11 @@ void CrowdRiot::Reset(bool preserveActiveRiot)
                      placeholder0));
              controller->SetUpdateCallback(callback);
          }
@@ -309,6 +320,7 @@ diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
      }
  }
 diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
+index 7ece00d..7694981 100644
 --- a/src/Game/Effects/EmissionController.cpp
 +++ b/src/Game/Effects/EmissionController.cpp
 @@ -1,6 +1,4 @@
@@ -318,7 +330,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  #include "Game/Effects/EmissionController.h"
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Effects/ParticleSystem.h"
-@@ -198,7 +196,12 @@
+@@ -198,7 +196,12 @@ void EmissionController::SetAnimController(
  
  void EmissionController::Die()
  {
@@ -332,7 +344,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -317,10 +320,11 @@
+@@ -317,10 +320,11 @@ void EmissionController::ComputePositionAndVelocity(EffectsSpec& spec, nlVector3
          }
      }
  
@@ -348,7 +360,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  }
  
  bool fxUpdateParticleSystem(
-@@ -357,6 +361,29 @@
+@@ -357,6 +361,29 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
          return;
      }
  
@@ -378,7 +390,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
      u32 jointID = pSpec->m_uJointID;
      if (m_pAnimController != 0 && m_pAnimController->m_bMirror)
      {
-@@ -367,15 +394,56 @@
+@@ -367,15 +394,56 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
  
      const nlMatrix4& mat = m_pPose->GetNodeMatrixByHashID(
          m_uJointIDOverride == 0 ? jointID : m_uJointIDOverride);
@@ -439,7 +451,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -394,7 +462,11 @@
+@@ -394,7 +462,11 @@ bool EmissionController::Update(float dt)
          }
      }
  
@@ -453,6 +465,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
      if (m_nUserEffects > 0)
      {
 diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
+index 3b62065..322cd4e 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
 @@ -1,5 +1,7 @@
@@ -464,7 +477,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  #include "Game/Effects/EmissionManager.h"
  
  #include "Game/Effects/EmissionController.h"
-@@ -767,7 +769,14 @@
+@@ -767,7 +769,14 @@ EmissionController* EmissionManager::Create(EffectsGroup* pEffectsGroup, int vie
      AllocatorStack[AllocatorStackDepth++] = allocator;
      CurrentAllocator = allocator;
  
@@ -480,7 +493,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  
      EmissionController* controller = new (nlMalloc(sizeof(EmissionController), 8, false))
          EmissionController(pEffectsGroup, this, id, mContext, view);
-@@ -1153,8 +1162,16 @@
+@@ -1153,8 +1162,16 @@ void EmissionManager::AddError(const char* format, ...)
  // Controller state read by the manager's replay path.
  inline void EmissionController::Replay(LoadFrame& frame)
  {
@@ -497,7 +510,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      frame.Replayable<0>(m_uUserData);
      ::Replayable<0>(frame, m_fGround);
      ::Replayable<0>(frame, m_aFacing);
-@@ -1184,7 +1201,7 @@
+@@ -1184,7 +1201,7 @@ inline void EmissionController::Replay(LoadFrame& frame)
          Die();
      }
  
@@ -506,7 +519,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      frame.Replayable<0>(updateCallback);
      mUpdateCallback.Clear();
      if (updateCallback != 0)
-@@ -1194,7 +1211,7 @@
+@@ -1194,7 +1211,7 @@ inline void EmissionController::Replay(LoadFrame& frame)
  
      // Retail clears the position callback while restoring the finished one,
      // and the finished callback while restoring the position one.
@@ -515,7 +528,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      frame.Replayable<0>(finishedCallback);
      mPositionCallback.Clear();
      if (finishedCallback != 0)
-@@ -1203,8 +1220,8 @@
+@@ -1203,8 +1220,8 @@ inline void EmissionController::Replay(LoadFrame& frame)
              = (void (*)(EmissionController&, int))finishedCallback;
      }
  
@@ -526,7 +539,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      frame.Replayable<0>(positionCallback);
      mFinishedCallback.Clear();
      if (positionCallback != 0)
-@@ -1216,8 +1233,16 @@
+@@ -1216,8 +1233,16 @@ inline void EmissionController::Replay(LoadFrame& frame)
  
  inline void EmissionController::Replay(SaveFrame& frame)
  {
@@ -543,7 +556,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      frame.Replayable<0>(m_uUserData);
      ::Replayable<0>(frame, m_fGround);
      ::Replayable<0>(frame, m_aFacing);
-@@ -1237,15 +1262,15 @@
+@@ -1237,15 +1262,15 @@ inline void EmissionController::Replay(SaveFrame& frame)
      ::Replayable<0>(frame, m_Age);
      ::Replayable<0>(frame, m_bDying);
  
@@ -564,7 +577,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      ::Replayable<0>(frame, positionCallback);
  }
  
-@@ -1281,7 +1306,11 @@
+@@ -1281,7 +1306,11 @@ void EmissionManager::Replay(LoadFrame& frame)
          EffectsGroup* group = 0;
          frame.Replayable<0>(id);
          Replayable<0>(frame, view);
@@ -576,7 +589,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  
          bool found = false;
          nlDLListIterator<EmissionController*> iterator;
-@@ -1410,7 +1439,7 @@
+@@ -1410,7 +1439,7 @@ void EmissionManager::Replay(SaveFrame& frame)
      {
          EmissionController* controller = *iterator;
          unsigned short id = controller->m_Id;
@@ -585,7 +598,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
          Replayable<0>(frame, id);
          Replayable<0>(frame, controller->m_View);
          Replayable<0>(frame, group);
-@@ -1459,7 +1488,11 @@
+@@ -1459,7 +1488,11 @@ void EmissionManager::KillOldest(int num, bool lingeringOnly)
          {
              EmissionController* current = *iterator;
              if ((!lingeringOnly || current->IsLingering())
@@ -598,9 +611,10 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
                  if (bestAge < current->m_Age
                      && (prevBestAge == currentBestAge
 diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.cpp
+index 04d4bbd..84f1f62 100644
 --- a/src/Game/Physics/PhysicsPatch.cpp
 +++ b/src/Game/Physics/PhysicsPatch.cpp
-@@ -152,7 +152,11 @@
+@@ -152,7 +152,11 @@ void PhysicsPatch::InitType(const int* type)
              }
              EmissionController* controller = EmissionManager::Instance()->Create(effects, view, true, 0);
              controller->SetPosition(GetPosition());
@@ -613,9 +627,10 @@ diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.c
                  Function1<void, EmissionController&>(UpdatePatchEffect));
              controller->m_fGround = 0.02f;
 diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsWaluigiWall.cpp
+index cbf9d59..fb642d6 100644
 --- a/src/Game/Physics/PhysicsWaluigiWall.cpp
 +++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
-@@ -449,7 +449,11 @@
+@@ -449,7 +449,11 @@ PhysicsWaluigiWall* WaluigiWallManager::CreateWall(cFielder* owner, float width,
                      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
                      controller->SetPosition(owner->m_DetChar.m_v3Position);
                      controller->SetVelocity(owner->m_DetChar.m_v3Velocity);
@@ -628,9 +643,10 @@ diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsW
                      controller->SetFinishedCallback(Function2<void, EmissionController&, int>(OnWaluigiWallEffectFinished));
                      wall->mEmitter = controller;
 diff --git a/src/Game/Render/BirdoEgg.cpp b/src/Game/Render/BirdoEgg.cpp
+index 9da468e..69dbe24 100644
 --- a/src/Game/Render/BirdoEgg.cpp
 +++ b/src/Game/Render/BirdoEgg.cpp
-@@ -179,7 +179,11 @@
+@@ -179,7 +179,11 @@ void BirdoEggObject::Show(cFielder* shooter)
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
      controller->SetPosition(mPosition);
@@ -643,9 +659,10 @@ diff --git a/src/Game/Render/BirdoEgg.cpp b/src/Game/Render/BirdoEgg.cpp
  
      EmitBirdoEggShow(shooter);
 diff --git a/src/Game/Render/BulletBill.cpp b/src/Game/Render/BulletBill.cpp
+index ac1bb92..09cbd99 100644
 --- a/src/Game/Render/BulletBill.cpp
 +++ b/src/Game/Render/BulletBill.cpp
-@@ -152,7 +152,11 @@
+@@ -152,7 +152,11 @@ void BulletBillObject::Show(cFielder* fielder)
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("bulletbill_trail");
      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
      controller->SetPosition(position);
@@ -658,9 +675,10 @@ diff --git a/src/Game/Render/BulletBill.cpp b/src/Game/Render/BulletBill.cpp
  
      EmitShyGuyBulletStart(fielder);
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
+index 8a74981..658c2ae 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
-@@ -492,7 +492,11 @@
+@@ -492,7 +492,11 @@ void ChainChomp::EmitTrail()
  
      EmissionController* pControl = EmissionManager::Instance()->Create(pGroup, 3, true, 0);
      pControl->SetPosition(mv3Position);
@@ -673,9 +691,10 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
  }
  
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
+index d02a63f..b1597d2 100644
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -402,7 +402,11 @@
+@@ -402,7 +402,11 @@ void EmitElectricFenceCharacterEffect(const nlVector3& pos,
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("electric_fence_character");
          controller = EmissionManager::Instance()->Create(group, 3, true, 0);
@@ -687,7 +706,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
          controller->SetPosition(pos);
  
          float dirX = dir.x;
-@@ -570,7 +574,11 @@
+@@ -570,7 +574,11 @@ void StopDisplayingElectricFence()
  
  void UpdateElectricFence(float fDeltaT)
  {
@@ -700,9 +719,10 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
  
      if (nlTaskManager::m_pInstance->mCurrentState == TASK_PAUSED
 diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellObject.cpp
+index 4bb3a26..93e92f0 100644
 --- a/src/Game/Render/KoopaShellObject.cpp
 +++ b/src/Game/Render/KoopaShellObject.cpp
-@@ -207,7 +207,11 @@
+@@ -207,7 +207,11 @@ void KoopaShellObject::Activate(cFielder* owner)
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(sKoopaShellTrail);
      EmissionController* controller = EmissionManager::Instance()->Create(group, 3, true, 0);
      controller->SetPosition(mPosition);
@@ -715,9 +735,10 @@ diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellOb
          Function1<void, EmissionController&>(UpdateTrailEffect));
  
 diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
+index 0d6cbc2..15d0f1e 100644
 --- a/src/Game/Render/Nis.cpp
 +++ b/src/Game/Render/Nis.cpp
-@@ -537,7 +537,11 @@
+@@ -537,7 +537,11 @@ void Nis::Trigger::FireEffect(const Nis& nis) const
          EmissionController* ctrl = EmissionManager::Instance()->Create(name, 0, true, 0);
          if (ctrl != 0)
          {
@@ -729,7 +750,7 @@ diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
              Function1<void, EmissionController&> update(UpdateEmitterFromBall);
              ctrl->SetUpdateCallback(update);
          }
-@@ -592,7 +596,11 @@
+@@ -592,7 +596,11 @@ void Nis::Trigger::FireEffect(const Nis& nis) const
          if (ctrl == 0)
              return;
          ctrl->SetAnimController(*nis.mCharacterControllers[charIdx]);
@@ -741,7 +762,7 @@ diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
          Function<void(EmissionController&)> callback(
              Bind<void>(UpdateEmitterFromCharacterWithoutAnimController, placeholder0, context));
          ctrl->SetUpdateCallback(callback);
-@@ -609,7 +617,11 @@
+@@ -609,7 +617,11 @@ void Nis::Trigger::FireEffect(const Nis& nis) const
                  if (ctrl == 0)
                      return;
                  ctrl->SetAnimController(*nis.mImpostors[i]->mAnimController);
@@ -754,9 +775,10 @@ diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
                      Function<void(EmissionController&)> callback(
                          Bind<void>(UpdateEmitterFromImpostorModel, placeholder0, (void*)nis.mImpostors[i]));
 diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject.cpp
+index 07e7611..da18576 100644
 --- a/src/Game/Render/YoshiEggObject.cpp
 +++ b/src/Game/Render/YoshiEggObject.cpp
-@@ -77,7 +77,11 @@
+@@ -79,7 +79,11 @@ void YoshiEggObject::Update(float dt)
              EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
              EmissionController* controller = EmissionManager::Instance()->Create(group, 0, true, 0);
              controller->SetPosition(mPosition);
@@ -768,7 +790,7 @@ diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject
              controller->SetUpdateCallback(UpdateTrailEffect);
              mPhysics->EnableCollisions();
          }
-@@ -161,7 +165,11 @@
+@@ -165,7 +169,11 @@ void YoshiEggObject::Activate(cFielder* fielder)
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
      EmissionController* controller = EmissionManager::Instance()->Create(group, 0, true, 0);
      controller->SetPosition(mPosition);
@@ -781,9 +803,10 @@ diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject
      if (fielder->m_pBall != 0)
      {
 diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
+index 72efc85..89a5a1d 100644
 --- a/src/Game/World/WorldEffect.cpp
 +++ b/src/Game/World/WorldEffect.cpp
-@@ -29,7 +29,11 @@
+@@ -29,7 +29,11 @@ void WorldEffect::ReleaseResources()
      while (pCurrent != 0)
      {
          EmissionController* pController = pCurrent->entry;
@@ -795,7 +818,7 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
          {
              pController->ClearParticles();
              pController->mUpdateCallback.Clear();
-@@ -83,14 +87,22 @@
+@@ -83,14 +87,22 @@ void WorldEffect::Emit()
              pController->SetUpdateCallback(
                  Function1<void, EmissionController&>(
                      UpdateAnimatedWorldEffectController));
@@ -819,9 +842,10 @@ diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
          m_nEmissionID = pController->m_Id;
      }
 diff --git a/src/Game/WorldTriggers.cpp b/src/Game/WorldTriggers.cpp
+index 3de6071..68f11aa 100644
 --- a/src/Game/WorldTriggers.cpp
 +++ b/src/Game/WorldTriggers.cpp
-@@ -50,6 +50,10 @@
+@@ -50,6 +50,10 @@ void EmitCameraFlash(const nlVector3& position, void* flyingCamera)
      {
          controller->SetUpdateCallback(
              Function1<void, EmissionController&>(UpdateCameraFlash));

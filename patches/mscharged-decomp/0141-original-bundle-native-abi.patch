@@ -1,5 +1,5 @@
 Subject: Compile original NL bundle flow with native Wii words and callback ownership
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve original bundle selection, search order, seeks, read counts and callback
 sequence. Adapt exact Wii16-byte header/12-byte entries at the data boundary,
@@ -7,6 +7,7 @@ retain pointer-sized contexts and owning game allocations, and drain raw NL
 workers before freeing cancelled metadata. Global host new/delete is unchanged.
 
 diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
+index 765c466..f47a2db 100644
 --- a/include/NL/nlBundleFile.h
 +++ b/include/NL/nlBundleFile.h
 @@ -10,8 +10,16 @@
@@ -28,7 +29,7 @@ diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
  
  extern char gBundleFileNotFoundFormat[];
  
-@@ -25,9 +33,16 @@
+@@ -25,9 +33,16 @@ struct BundleFileHeader
  
  struct BundleFileDirectoryEntry
  {
@@ -45,7 +46,7 @@ diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
  };
  
  class BundleFile
-@@ -36,8 +51,19 @@
+@@ -36,8 +51,19 @@ public:
      BundleFile();
      ~BundleFile();
  
@@ -66,7 +67,7 @@ diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
      void Close();
  
      bool GetFileInfo(const char* filename, BundleFileDirectoryEntry* entry, bool printError);
-@@ -50,9 +76,9 @@
+@@ -50,9 +76,9 @@ public:
      }
  
      void ReadFileByIndex(unsigned long index, void* buffer, unsigned long size);
@@ -79,7 +80,7 @@ diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
  
      static inline u32 HashFilename(const char* filename)
      {
-@@ -122,9 +148,14 @@
+@@ -122,9 +148,14 @@ public:
      u32 nDataOffsetInSectors;
      nlFile* m_pFile;
      FileOpenAsyncCallback m_pOpenCallback;
@@ -96,9 +97,10 @@ diff --git a/include/NL/nlBundleFile.h b/include/NL/nlBundleFile.h
  
  #endif // NL_BUNDLE_FILE_H
 diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
+index 4243c5e..defc599 100644
 --- a/src/NL/nlBundleFile.cpp
 +++ b/src/NL/nlBundleFile.cpp
-@@ -10,33 +10,174 @@
+@@ -10,33 +10,174 @@ char gBundleFileNotFoundFormat[] = "ERROR: Failed to find file with hash ID: %d\
  struct AsyncReadCallbackData
  {
      FileReadAsyncCallback callback;
@@ -114,11 +116,10 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
  
 -static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam);
 -static void cbFileReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam);
--
--static void cbBundleHeaderReadAsyncCallback(nlFile*, void*, unsigned int, unsigned long userParam)
 +static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam);
 +static void cbFileReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam);
-+
+ 
+-static void cbBundleHeaderReadAsyncCallback(nlFile*, void*, unsigned int, unsigned long userParam)
 +#ifdef MSCHARGED_NATIVE
 +#include <limits>
 +#include <stddef.h>
@@ -246,12 +247,10 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
      nlSeek(bundle->m_pFile, bundle->nDirectoryOffsetInSectors * bundle->nSectorSize, 0);
      bundle->m_pDirectory = (BundleFileDirectoryEntry*)nlMalloc(bundle->nNumFiles * sizeof(BundleFileDirectoryEntry), 0x20, true);
 -    nlReadAsync(bundle->m_pFile, bundle->m_pDirectory, bundle->nNumFiles * sizeof(BundleFileDirectoryEntry), cbBundleDirectoryReadAsyncCallback, (unsigned long)bundle, 0);
--}
--
--static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam)
 +    nlReadAsync(bundle->m_pFile, bundle->m_pDirectory, bundle->nNumFiles * sizeof(BundleFileDirectoryEntry), cbBundleDirectoryReadAsyncCallback, (BundleAsyncParam)bundle, 0);
-+}
-+
+ }
+ 
+-static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, unsigned long userParam)
 +static void cbBundleDirectoryReadAsyncCallback(nlFile*, void* buffer, unsigned int size, BundleAsyncParam userParam)
  {
      BundleFile* bundle = (BundleFile*)userParam;
@@ -283,7 +282,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
  }
  
  BundleFile::BundleFile()
-@@ -46,6 +187,9 @@
+@@ -46,6 +187,9 @@ BundleFile::BundleFile()
      m_openUserParam = 0;
      m_pFilename = 0;
      m_pDirectory = 0;
@@ -293,7 +292,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
  }
  
  BundleFile::~BundleFile()
-@@ -55,14 +199,25 @@
+@@ -55,14 +199,25 @@ BundleFile::~BundleFile()
          nlClose(m_pFile);
          m_pFile = 0;
      }
@@ -319,7 +318,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
          m_pFilename = 0;
      }
  }
-@@ -101,9 +256,17 @@
+@@ -101,9 +256,17 @@ bool BundleFile::Open(const char* filename, bool keepFilename)
      }
  
      BundleFileHeader* header = (BundleFileHeader*)nlMalloc(sizeof(BundleFileHeader), 0x20, true);
@@ -337,7 +336,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
  
      if (nNumFiles == 0)
      {
-@@ -114,11 +277,14 @@
+@@ -114,11 +277,14 @@ bool BundleFile::Open(const char* filename, bool keepFilename)
          nlSeek(m_pFile, nDirectoryOffsetInSectors * nSectorSize, 0);
          m_pDirectory = (BundleFileDirectoryEntry*)nlMalloc(nNumFiles * sizeof(BundleFileDirectoryEntry), 0x20, true);
          nlRead(m_pFile, m_pDirectory, nNumFiles * sizeof(BundleFileDirectoryEntry), 0);
@@ -353,7 +352,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
  {
      m_pOpenCallback = callback;
      m_openUserParam = userParam;
-@@ -152,7 +318,7 @@
+@@ -152,7 +318,7 @@ bool BundleFile::OpenAsync(const char* filename, FileOpenAsyncCallback callback,
      copy_done:
          copy[n] = 0;
      }
@@ -362,7 +361,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
      return true;
  }
  
-@@ -163,14 +329,25 @@
+@@ -163,14 +329,25 @@ void BundleFile::Close()
          nlClose(m_pFile);
          m_pFile = 0;
      }
@@ -388,7 +387,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
          m_pFilename = 0;
      }
  }
-@@ -222,7 +399,7 @@
+@@ -222,7 +399,7 @@ void BundleFile::ReadFileByIndex(unsigned long index, void* buffer, unsigned lon
      nlRead(m_pFile, buffer, entry->m_length, 0);
  }
  
@@ -397,7 +396,7 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
  {
      u32 index = FindHashIndex(HashFilename(filename));
      AsyncReadCallbackData* data = (AsyncReadCallbackData*)nlMalloc(sizeof(AsyncReadCallbackData), 8, true);
-@@ -230,10 +407,14 @@
+@@ -230,10 +407,14 @@ void BundleFile::ReadFileAsync(const char* filename, void* buffer, unsigned long
      data->userParam = userParam;
      BundleFileDirectoryEntry* entry = &m_pDirectory[index];
      nlSeek(m_pFile, entry->m_blockNumber * nSectorSize, 0);
@@ -405,17 +404,15 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
 +    NativeSubmitBundleRead(this, buffer, size, data);
 +#else
      nlReadAsync(m_pFile, buffer, size, cbFileReadAsyncCallback, (unsigned long)data, 0);
--}
--
--void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
 +#endif
-+}
-+
+ }
+ 
+-void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
 +void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam)
  {
      u32 index = FindHashIndex(hash);
      AsyncReadCallbackData* data = (AsyncReadCallbackData*)nlMalloc(sizeof(AsyncReadCallbackData), 8, true);
-@@ -241,15 +422,23 @@
+@@ -241,15 +422,23 @@ void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long s
      data->userParam = userParam;
      BundleFileDirectoryEntry* entry = &m_pDirectory[index];
      nlSeek(m_pFile, entry->m_blockNumber * nSectorSize, 0);
@@ -423,12 +420,10 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
 +    NativeSubmitBundleRead(this, buffer, size, data);
 +#else
      nlReadAsync(m_pFile, buffer, size, cbFileReadAsyncCallback, (unsigned long)data, 0);
--}
--
--void BundleFile::ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
 +#endif
-+}
-+
+ }
+ 
+-void BundleFile::ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, unsigned long userParam)
 +void BundleFile::ReadFileAsyncByIndex(unsigned long index, void* buffer, unsigned long size, FileReadAsyncCallback callback, BundleAsyncParam userParam)
  {
      AsyncReadCallbackData* data = (AsyncReadCallbackData*)nlMalloc(sizeof(AsyncReadCallbackData), 8, true);
@@ -440,6 +435,5 @@ diff --git a/src/NL/nlBundleFile.cpp b/src/NL/nlBundleFile.cpp
 +    NativeSubmitBundleRead(this, buffer, size, data);
 +#else
      nlReadAsync(m_pFile, buffer, size, cbFileReadAsyncCallback, (unsigned long)data, 0);
--}
 +#endif
-+}
+ }

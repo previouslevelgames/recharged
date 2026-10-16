@@ -1,6 +1,6 @@
 Subject: Share original graphics startup stages and task priorities
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Provide selected-source diagnostic copies of the original resource callback,
 state/default/matrix and target/view stages without refactoring glStartup.
@@ -12,8 +12,23 @@ Provide the four original frame priorities and world state mask as constants
 for diagnostics. Leave original main.cpp AddTasks calls and constants unchanged.
 The diagnostic scheduler does not establish execution of full game tasks.
 
+diff --git a/include/Game/Task/GraphicsTaskPriorities.h b/include/Game/Task/GraphicsTaskPriorities.h
+new file mode 100644
+index 0000000..9ae377e
+--- /dev/null
++++ b/include/Game/Task/GraphicsTaskPriorities.h
+@@ -0,0 +1,8 @@
++// Original main.cpp AddTasks priorities and world active-state mask.
++#ifndef GAME_GRAPHICS_TASK_PRIORITIES_H
++#define GAME_GRAPHICS_TASK_PRIORITIES_H
++namespace GraphicsTaskPriorities
++{
++enum { Begin = 4, Update = 9, Render = 11, End = 16, WorldStates = 0x0002001B };
++}
++#endif
 diff --git a/include/NL/gl/glStartupStages.h b/include/NL/gl/glStartupStages.h
 new file mode 100644
+index 0000000..7428525
 --- /dev/null
 +++ b/include/NL/gl/glStartupStages.h
 @@ -0,0 +1,36 @@
@@ -54,9 +69,10 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
+index cd8f025..07b602e 100644
 --- a/src/NL/gl/gl.cpp
 +++ b/src/NL/gl/gl.cpp
-@@ -36,7 +36,7 @@
+@@ -36,7 +36,7 @@ bool glStartup(void (*startupCallback)())
      gl_StatStartup();
      gl_StateStartup();
      for (int i = 0; i < GLTT_Num; ++i)
@@ -65,16 +81,3 @@ diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
  
      glSetRasterStateDefaults();
      glSetCurrentRasterState(glHandleizeRasterState());
-diff --git a/include/Game/Task/GraphicsTaskPriorities.h b/include/Game/Task/GraphicsTaskPriorities.h
-new file mode 100644
---- /dev/null
-+++ b/include/Game/Task/GraphicsTaskPriorities.h
-@@ -0,0 +1,8 @@
-+// Original main.cpp AddTasks priorities and world active-state mask.
-+#ifndef GAME_GRAPHICS_TASK_PRIORITIES_H
-+#define GAME_GRAPHICS_TASK_PRIORITIES_H
-+namespace GraphicsTaskPriorities
-+{
-+enum { Begin = 4, Update = 9, Render = 11, End = 16, WorldStates = 0x0002001B };
-+}
-+#endif

@@ -1,12 +1,14 @@
 Subject: Express the read-only native localization filename literals
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Only the native table pointee becomes const. Keep table pointer mutability, all
 original names/indices and both original filename formatting uses unchanged.
 
+diff --git a/include/NL/nlLocalization.h b/include/NL/nlLocalization.h
+index 15ce3fb..e155e18 100644
 --- a/include/NL/nlLocalization.h
 +++ b/include/NL/nlLocalization.h
-@@ -59,7 +59,11 @@
+@@ -62,7 +62,11 @@ public:
      unsigned short* m_FirstString;
      nlLanguage m_CurrentLanguage;
  
@@ -18,9 +20,11 @@ original names/indices and both original filename formatting uses unchanged.
      static const unsigned long LanguageId[];
      static const char Thumbprint[5];
  };
+diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
+index 1f830a4..3ecd462 100644
 --- a/src/NL/nlLocalization.cpp
 +++ b/src/NL/nlLocalization.cpp
-@@ -35,7 +35,11 @@
+@@ -42,7 +42,11 @@ const unsigned long nlLocalization::LanguageId[] = {
      0x00012332,
  };
  

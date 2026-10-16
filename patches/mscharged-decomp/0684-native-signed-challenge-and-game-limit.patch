@@ -1,14 +1,15 @@
 Subject: Preserve signed Wii32 challenge and game-limit values
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native-only declaration transport. Console tokens, numeric constants, source
 branches and serialized data remain unchanged. Apply after the refreshed469
 Charged preparation patches.
 
 diff --git a/include/Game/DB/GameProgress.h b/include/Game/DB/GameProgress.h
+index fbe21f6..866d43a 100644
 --- a/include/Game/DB/GameProgress.h
 +++ b/include/Game/DB/GameProgress.h
-@@ -270,6 +270,9 @@
+@@ -284,6 +284,9 @@ enum eStrikerChallengeID
  };
  
  enum eChallengeCondition
@@ -19,9 +20,10 @@ diff --git a/include/Game/DB/GameProgress.h b/include/Game/DB/GameProgress.h
      CHALLENGE_WIN = 0,
      CHALLENGE_WIN_BY_MARGIN = 1,
 diff --git a/include/Game/DB/UserOptions.h b/include/Game/DB/UserOptions.h
+index 0fa444a..0a9f132 100644
 --- a/include/Game/DB/UserOptions.h
 +++ b/include/Game/DB/UserOptions.h
-@@ -64,6 +64,9 @@
+@@ -64,6 +64,9 @@ public:
  };
  
  enum eGameLimitType

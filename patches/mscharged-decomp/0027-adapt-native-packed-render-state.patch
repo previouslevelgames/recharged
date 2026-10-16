@@ -1,6 +1,6 @@
 Subject: Select portable original render-state packing and lifecycle
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve Wii raster/texture ID widths and the original texture bit ordering:
 logical bits 0-31 occupy the high word of the numeric u64. Replace only the
@@ -12,9 +12,10 @@ diagnostics, leaving the complete original gl.cpp body unchanged. Full
 material/GX state dispatch is separate.
 
 diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
+index 6eb22d9..c34f8cc 100644
 --- a/include/NL/gl/glState.h
 +++ b/include/NL/gl/glState.h
-@@ -62,6 +62,9 @@
+@@ -62,6 +62,9 @@ enum eGLTextureState
  };
  
  void gl_StateStartup();
@@ -25,6 +26,7 @@ diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
  void glStateSave(glStateBundle& state);
  void glStateRestore(const glStateBundle& state);
 diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
+index 956ba4e..e327674 100644
 --- a/include/NL/gl/glStateBundle.h
 +++ b/include/NL/gl/glStateBundle.h
 @@ -7,11 +7,11 @@
@@ -44,6 +46,7 @@ diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
  struct gl_StateBitfield
 diff --git a/src/NL/gl/glHash.cpp b/src/NL/gl/glHash.cpp
 new file mode 100644
+index 0000000..4f62970
 --- /dev/null
 +++ b/src/NL/gl/glHash.cpp
 @@ -0,0 +1,7 @@
@@ -55,6 +58,7 @@ new file mode 100644
 +    return nlStringHash(string);
 +}
 diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+index d1d5e40..6801388 100644
 --- a/src/NL/gl/glMemoryInit.cpp
 +++ b/src/NL/gl/glMemoryInit.cpp
 @@ -6,10 +6,12 @@
@@ -71,6 +75,7 @@ diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
      while (glGetResourcePools()) glDestroyResourcePool(glGetResourcePools());
      glShutdownTextureManager();
 diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
+index 961ca57..9c4115a 100644
 --- a/src/NL/gl/glState.cpp
 +++ b/src/NL/gl/glState.cpp
 @@ -4,11 +4,15 @@
@@ -90,7 +95,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
  }; // total size: 0x4
  
  class glTextureState
-@@ -50,12 +54,18 @@
+@@ -50,12 +54,18 @@ static inline unsigned long glSetCurrentTextureInline(unsigned long texture, eGL
  
  static inline bool glTextureBitIsSet(const unsigned long long* texture, s32 bit)
  {
@@ -109,7 +114,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
  }
  
  static inline unsigned long GetTextureStateImpl(unsigned long long* pTexture, eGLTextureState texturestate)
-@@ -148,8 +158,47 @@
+@@ -148,8 +158,47 @@ static inline void glPackTextureStateBits(s32 bit, gl_StateBitfield* p)
      }
  }
  
@@ -157,7 +162,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      _bundle.texconfig = 0;
  
      glPackStateBits(packed_raster);
-@@ -198,26 +247,44 @@
+@@ -198,26 +247,44 @@ void gl_StateStartup()
  
  glStateBundle* gl_GetCurrentStateBundle()
  {
@@ -202,7 +207,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      unsigned long prev = _bundle.texture[type];
      unsigned long mask = 1u << type;
  
-@@ -236,11 +303,17 @@
+@@ -236,11 +303,17 @@ u32 glSetCurrentTexture(unsigned long texture, eGLTextureType type)
  
  u32 glGetCurrentRasterState()
  {
@@ -220,7 +225,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      unsigned long prev = _bundle.raster;
      _bundle.raster = raster;
      return prev;
-@@ -248,11 +321,17 @@
+@@ -248,11 +321,17 @@ u32 glSetCurrentRasterState(unsigned long raster)
  
  unsigned long long glGetCurrentTextureState()
  {
@@ -238,7 +243,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      unsigned long long prev = _bundle.texturestate;
      _bundle.texturestate = state;
      return prev;
-@@ -260,11 +339,20 @@
+@@ -260,11 +339,20 @@ unsigned long long glSetCurrentTextureState(unsigned long long state)
  
  glMatrixHandle glGetCurrentMatrix()
  {
@@ -259,7 +264,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      glMatrixHandle prev = _bundle.matrix;
      _bundle.matrix = matrix;
      return prev;
-@@ -282,6 +370,9 @@
+@@ -282,6 +370,9 @@ u32 glGetTexture(const char* textureName)
  
  u32 glGetRasterState(unsigned long raster, eGLState state)
  {
@@ -269,7 +274,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      gl_StateBitfield* p = &packed_raster[state];
      s32 numBits = p->numBits;
      unsigned long out = 0;
-@@ -299,6 +390,9 @@
+@@ -299,6 +390,9 @@ u32 glGetRasterState(unsigned long raster, eGLState state)
  
  u32 glSetRasterState(eGLState state, unsigned long value)
  {
@@ -279,7 +284,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
      gl_StateBitfield* p = &packed_raster[state];
      s32* pn = &p->numBits;
      unsigned long out = 0;
-@@ -329,21 +423,47 @@
+@@ -329,21 +423,47 @@ u32 glSetRasterState(eGLState state, unsigned long value)
  
  u32 glSetRasterState(u32& raster, eGLState state, unsigned long value)
  {
@@ -327,7 +332,7 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
  // clang-format off
  asm u32 glSetTextureState(eGLTextureState state, unsigned long value)
  {
-@@ -447,29 +567,48 @@
+@@ -447,29 +567,48 @@ asm u32 glSetTextureState(eGLTextureState state, unsigned long value)
      blr
  }
  // clang-format on

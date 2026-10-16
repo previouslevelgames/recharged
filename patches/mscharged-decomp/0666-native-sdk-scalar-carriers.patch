@@ -1,5 +1,7 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSAlarm.h b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
+index 1846acf..94e7327 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 @@ -2,6 +2,7 @@
@@ -10,7 +12,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #include <dolphin/os/OSAlarm.h>
  // Wii APIs absent from the current native SDK remain explicit providers.
  #ifdef __cplusplus
-@@ -14,7 +15,7 @@
+@@ -14,7 +15,7 @@ void* OSGetAlarmUserData(const OSAlarm* alarm);
  }
  #endif
  #define OSGetAlarmUserDataAny(type_, alarm_) ((type_)(OSGetAlarmUserData(alarm_)))
@@ -19,9 +21,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #else
  
  #include <revolution/os/OSContext.h>
+diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
+index 1f1c6fc..c50a65f 100644
 --- a/src/RVL_SDK/dsp/dsp_task.c
 +++ b/src/RVL_SDK/dsp/dsp_task.c
-@@ -66,7 +66,11 @@
+@@ -66,7 +66,11 @@ void __DSPHandler(s16 intr, OSContext* ctx) {
      while (!DSPCheckMailFromDSP()) {
          ;
      }
@@ -33,7 +37,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
      if ((__DSP_curr_task->flags & DSP_TASK_CANCELED) && ucode == DSP_YIELD) {
          ucode = DSP_DONE;
-@@ -343,7 +347,11 @@
+@@ -343,7 +347,11 @@ void __DSP_add_task(DSPTask* task) {
      }
  
      task->state = DSP_TASK_STATE_0;

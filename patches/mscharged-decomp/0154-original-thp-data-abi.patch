@@ -1,5 +1,5 @@
 Subject: Preserve original THPSimple with native Wii data and scalar ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original initialization, movie selection, NL requests, preload/ring order,
 component dispatch, mixing, callback chaining and retail quirks. Adapt Wii32
@@ -9,12 +9,18 @@ Native decoding calls the actual prepared Aurora SDK interface. AI DMA/address,
 original positive readiness, GPU and decoder quarter-IDCT fidelity remain
 unqualified; no successful SDK or game substitute is supplied by this patch.
 
+Refreshed for decomp 9046e67a: upstream added THPSimpleSetMono and its mono
+mixing (not in EU revision 1) and moved the THP decoder declarations to
+revolution/thp_fwd.h, which gets the native branch (Aurora declares the
+decoder).
+
 diff --git a/include/RVL_SDK/thp/THPSimple.h b/include/RVL_SDK/thp/THPSimple.h
+index 322ad12..cea692d 100644
 --- a/include/RVL_SDK/thp/THPSimple.h
 +++ b/include/RVL_SDK/thp/THPSimple.h
-@@ -4,26 +4,34 @@
- #include <revolution/thp/THPBuffer.h>
+@@ -5,25 +5,33 @@
  #include <revolution/thp/THPInfo.h>
+ #include <revolution/thp_fwd.h>
  
 +#ifdef MSCHARGED_NATIVE
 +typedef s32 THPSimpleLong;
@@ -31,7 +37,9 @@ diff --git a/include/RVL_SDK/thp/THPSimple.h b/include/RVL_SDK/thp/THPSimple.h
  
 -    int THPSimpleInit(long audioSystem);
 +    int THPSimpleInit(THPSimpleLong audioSystem);
-     void fn_80372970(bool mono);
+ #if !defined(VERSION_R4QP01_REV1)
+     void THPSimpleSetMono(bool mono);
+ #endif
      void THPSimpleQuit(void);
      int THPSimpleOpen(const char* fileName);
      int THPSimpleClose(void);
@@ -47,15 +55,42 @@ diff --git a/include/RVL_SDK/thp/THPSimple.h b/include/RVL_SDK/thp/THPSimple.h
 +    THPSimpleLong THPSimpleDecode(THPSimpleLong audioTrack);
      int THPSimpleGetVideoInfo(THPVideoInfo* videoInfo);
      s32 THPSimpleGetTotalFrame(void);
--    int THPSimpleSetVolume(long vol, long time);
-+    int THPSimpleSetVolume(THPSimpleLong vol, THPSimpleLong time);
+ 
+diff --git a/libs/RVL_SDK/include/revolution/thp_fwd.h b/libs/RVL_SDK/include/revolution/thp_fwd.h
+index ed5c5b4..8a80c34 100644
+--- a/libs/RVL_SDK/include/revolution/thp_fwd.h
++++ b/libs/RVL_SDK/include/revolution/thp_fwd.h
+@@ -1,15 +1,25 @@
+ #ifndef REVOLUTION_THP_FWD_H
+ #define REVOLUTION_THP_FWD_H
+ 
++#ifdef MSCHARGED_NATIVE
++#include <revolution/types.h>
++// Aurora owns the canonical THP decoder declarations (fixed-width, const views).
++#include <dolphin/thp.h>
++#endif
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
++#ifdef MSCHARGED_NATIVE
++int THPSimpleSetVolume(s32 volume, s32 time);
++#else
+ int THPInit(void);
+ long THPVideoDecode(void* file, void* tileY, void* tileU, void* tileV, void* work);
+ unsigned long THPAudioDecode(short* buffer, unsigned char* audioFrame, long flag);
+ 
+ int THPSimpleSetVolume(long volume, long time);
++#endif
  
  #ifdef __cplusplus
  }
 diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
+index 818bb40..223ad94 100644
 --- a/src/RVL_SDK/thp/THPSimple.cpp
 +++ b/src/RVL_SDK/thp/THPSimple.cpp
-@@ -12,12 +12,19 @@
+@@ -12,23 +12,28 @@
  #include <revolution/thp/THPFile.h>
  #include <string.h>
  
@@ -64,18 +99,9 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
 +#include <dolphin/thp.h>
 +#endif
 +
-+#ifndef MSCHARGED_NATIVE
- extern "C"
- {
-     BOOL THPInit(void);
-     s32 THPVideoDecode(void* file, void* tileY, void* tileU, void* tileV, void* work);
-     u32 THPAudioDecode(s16* buffer, u8* audioFrame, s32 flag);
- }
-+#endif
- 
  static void THPAudioMixCallback();
  
-@@ -25,17 +32,17 @@
+ struct THPSimpleControlWork
  {
      /* 0x000 */ nlFile* fileInfo;
      /* 0x004 */ char magic[4];
@@ -103,7 +129,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
      /* 0x034 */ THPFrameCompInfo compInfo;
      /* 0x048 */ THPVideoInfo videoInfo;
      /* 0x054 */ THPAudioInfo audioInfo;
-@@ -45,24 +52,30 @@
+@@ -38,27 +43,33 @@ struct THPSimpleControlWork
      /* 0x06D */ unsigned char audioState;
      /* 0x06E */ unsigned char loop;
      /* 0x06F */ unsigned char audioExist;
@@ -132,18 +158,21 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
 -    /* 0x170 */ long audioOutputIndex;
 +    /* 0x16C */ THPSimpleLong audioDecodeIndex;
 +    /* 0x170 */ THPSimpleLong audioOutputIndex;
+ #if !defined(VERSION_R4QP01_REV1)
      /* 0x174 */ unsigned char mono;
+ #endif
  };
-+
+ 
 +#ifdef MSCHARGED_NATIVE
 +static_assert(offsetof(THPSimpleControlWork, compInfo) - offsetof(THPSimpleControlWork, magic) == sizeof(THPHeader));
 +static_assert(sizeof(THPSimpleLong) == 4);
 +static_assert(sizeof(THPSimpleUnsignedLong) == 4);
 +#endif
- 
++
  static THPSimpleControlWork SimpleControl;
  static int Initialized;
-@@ -71,7 +84,10 @@
+ static s32 SoundBufferIndex;
+@@ -66,7 +77,10 @@ static void (*OldAIDCallback)();
  static s16* LastAudioBuffer;
  static s16* CurAudioBuffer;
  static s32 AudioSystem;
@@ -155,24 +184,21 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  static s16 SoundBuffer[2][192] ALIGN(32);
  
  static unsigned short VolumeTable[128] = {
-@@ -205,11 +221,11 @@
+@@ -200,11 +214,11 @@ static unsigned short VolumeTable[128] = {
      0x8000,
  };
  
 -static void __THPAsyncCancelCB(nlFile*, void*, unsigned int, unsigned long, void (*)(nlFile*, void*, unsigned int, unsigned long))
--{
--}
--
--extern "C" int THPSimpleInit(long audioSystem)
 +static void __THPAsyncCancelCB(nlFile*, void*, unsigned int, nlFileAsyncParam, void (*)(nlFile*, void*, unsigned int, nlFileAsyncParam))
-+{
-+}
-+
+ {
+ }
+ 
+-extern "C" int THPSimpleInit(long audioSystem)
 +extern "C" int THPSimpleInit(THPSimpleLong audioSystem)
  {
      memset(&SimpleControl, 0, sizeof(SimpleControl));
      LCEnable();
-@@ -261,8 +277,8 @@
+@@ -256,8 +270,8 @@ extern "C" void THPSimpleQuit()
  
  extern "C" int THPSimpleOpen(const char* fileName)
  {
@@ -183,7 +209,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
      if (!Initialized)
      {
-@@ -284,7 +300,11 @@
+@@ -279,7 +293,11 @@ extern "C" int THPSimpleOpen(const char* fileName)
      }
  
      nlRead(SimpleControl.fileInfo, WorkBuffer, sizeof(WorkBuffer), 0);
@@ -195,7 +221,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
      if (strcmp(SimpleControl.magic, "THP") != 0)
      {
-@@ -303,7 +323,11 @@
+@@ -298,7 +316,11 @@ extern "C" int THPSimpleOpen(const char* fileName)
      offset = SimpleControl.compInfoDataOffsets;
      nlSeek(SimpleControl.fileInfo, offset, 0);
      nlRead(SimpleControl.fileInfo, WorkBuffer, 0x20, 0);
@@ -207,7 +233,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
      offset += sizeof(THPFrameCompInfo);
      SimpleControl.audioExist = 0;
-@@ -315,13 +339,21 @@
+@@ -310,13 +332,21 @@ extern "C" int THPSimpleOpen(const char* fileName)
          case 0:
              nlSeek(SimpleControl.fileInfo, offset, 0);
              nlRead(SimpleControl.fileInfo, WorkBuffer, 0x20, 0);
@@ -229,15 +255,14 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
              offset += sizeof(THPAudioInfo);
              SimpleControl.audioExist = 1;
              break;
-@@ -384,16 +416,16 @@
+@@ -379,16 +409,16 @@ extern "C" int THPSimpleClose()
      return 0;
  }
  
 -extern "C" unsigned long THPSimpleCalcNeedMemory()
--{
--    unsigned long size;
 +extern "C" THPSimpleUnsignedLong THPSimpleCalcNeedMemory()
-+{
+ {
+-    unsigned long size;
 +    THPSimpleUnsignedLong size;
      THPSimpleControlWork* ctrl = &SimpleControl;
  
@@ -250,7 +275,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
          size += (pixels + 31) & ~31;
          size += ((pixels / 4) + 31) & ~31;
          size += ((pixels / 4) + 31) & ~31;
-@@ -411,7 +443,7 @@
+@@ -406,7 +436,7 @@ extern "C" unsigned long THPSimpleCalcNeedMemory()
  
  extern "C" int THPSimpleSetBuffer(unsigned char* buffer)
  {
@@ -259,7 +284,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
      unsigned char* ptr;
      PlatTexture* tex;
  
-@@ -452,7 +484,7 @@
+@@ -447,7 +477,7 @@ extern "C" int THPSimpleSetBuffer(unsigned char* buffer)
      return 1;
  }
  
@@ -268,7 +293,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
  static inline void readFrameAsync()
  {
-@@ -475,14 +507,18 @@
+@@ -470,14 +500,18 @@ static inline void readFrameAsync()
      nlReadAsync(SimpleControl.fileInfo, SimpleControl.readBuffer[SimpleControl.readIndex].ptr, SimpleControl.readSize, __THPSimpleDVDCallback, 0, 0);
  }
  
@@ -288,22 +313,21 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
      SimpleControl.readIndex = (SimpleControl.readIndex + 1 >= 10) ? 0 : SimpleControl.readIndex + 1;
  
-@@ -491,10 +527,10 @@
+@@ -486,10 +520,10 @@ static void __THPSimpleDVDCallback(nlFile*, void*, unsigned int, unsigned long)
      readFrameAsync();
  }
  
 -extern "C" int THPSimplePreLoad(long loop)
--{
++extern "C" int THPSimplePreLoad(THPSimpleLong loop)
+ {
 -    unsigned long i;
 -    unsigned long readNum;
-+extern "C" int THPSimplePreLoad(THPSimpleLong loop)
-+{
 +    THPSimpleUnsignedLong i;
 +    THPSimpleUnsignedLong readNum;
  
      if (SimpleControl.open && SimpleControl.preFetchState == 0)
      {
-@@ -509,15 +545,19 @@
+@@ -504,15 +538,19 @@ extern "C" int THPSimplePreLoad(long loop)
              nlSeek(SimpleControl.fileInfo, SimpleControl.curOffset, 0);
              nlRead(SimpleControl.fileInfo, SimpleControl.readBuffer[SimpleControl.readIndex].ptr, SimpleControl.readSize, 0);
  
@@ -326,7 +350,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
              {
                  if (SimpleControl.loop == 1)
                  {
-@@ -548,7 +588,7 @@
+@@ -543,7 +581,7 @@ extern "C" void THPSimpleAudioStop()
  
  extern "C" int THPSimpleLoadStop()
  {
@@ -335,7 +359,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
      if (SimpleControl.open && SimpleControl.audioState == 0)
      {
-@@ -594,7 +634,7 @@
+@@ -589,7 +627,7 @@ extern "C" int THPSimpleLoadStop()
  
  static inline int VideoDecode(unsigned char* videoFrame)
  {
@@ -344,7 +368,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
      if (ret == 0)
      {
          SimpleControl.textureSet.frameNumber = SimpleControl.readBuffer[SimpleControl.nextDecodeIndex].frameNumber;
-@@ -613,25 +653,33 @@
+@@ -608,25 +646,33 @@ static inline void checkPrefetch()
      OSRestoreInterrupts(old);
  }
  
@@ -384,7 +408,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
                  return 4;
  
              if (SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].validSample == 0)
-@@ -645,7 +693,11 @@
+@@ -640,7 +686,11 @@ extern "C" long THPSimpleDecode(long audioTrack)
                              return 1;
                          break;
                      case 1:
@@ -396,7 +420,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
                          old = OSDisableInterrupts();
                          SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].validSample = sample;
                          SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].curPtr = SimpleControl.audioBuffer[SimpleControl.audioDecodeIndex].buffer;
-@@ -654,8 +706,13 @@
+@@ -649,8 +699,13 @@ extern "C" long THPSimpleDecode(long audioTrack)
                              SimpleControl.audioDecodeIndex = 0;
                          break;
                      }
@@ -410,7 +434,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
                  }
              }
              else
-@@ -674,8 +731,13 @@
+@@ -669,8 +724,13 @@ extern "C" long THPSimpleDecode(long audioTrack)
                          return 1;
                      break;
                  }
@@ -424,16 +448,15 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
              }
          }
  
-@@ -689,12 +751,12 @@
+@@ -684,12 +744,12 @@ extern "C" long THPSimpleDecode(long audioTrack)
      return 2;
  }
  
 -static void MixAudio(short* destination, short* source, unsigned long sample)
--{
++static void MixAudio(short* destination, short* source, THPSimpleUnsignedLong sample)
+ {
 -    unsigned long requestSample;
 -    unsigned long i;
-+static void MixAudio(short* destination, short* source, THPSimpleUnsignedLong sample)
-+{
 +    THPSimpleUnsignedLong requestSample;
 +    THPSimpleUnsignedLong i;
      unsigned short vol;
@@ -442,16 +465,16 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
      short* dst;
      short* libsrc;
      short* thpsrc;
-@@ -729,7 +791,7 @@
+@@ -724,7 +784,7 @@ static void MixAudio(short* destination, short* source, unsigned long sample)
                          SimpleControl.curVolume = SimpleControl.targetVolume;
                      }
  
 -                    vol = VolumeTable[(long)SimpleControl.curVolume];
 +                    vol = VolumeTable[(THPSimpleLong)SimpleControl.curVolume];
+ #if !defined(VERSION_R4QP01_REV1)
                      if (SimpleControl.mono)
                      {
-                         mix = *libsrc++ + ((vol * *thpsrc++) >> 15);
-@@ -808,7 +870,7 @@
+@@ -805,7 +865,7 @@ static void MixAudio(short* destination, short* source, unsigned long sample)
                          SimpleControl.curVolume = SimpleControl.targetVolume;
                      }
  
@@ -460,7 +483,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
                      mix = (vol * thpsrc[0]) >> 15;
                      if (mix < -0x8000)
                          mix = -0x8000;
-@@ -900,14 +962,14 @@
+@@ -897,14 +957,14 @@ static void THPAudioMixCallback()
      }
  }
  
@@ -477,26 +500,3 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
          if (!rate)
              samplePerMs = 0x20;
  
-diff --git a/libs/RVL_SDK/include/revolution/thp_fwd.h b/libs/RVL_SDK/include/revolution/thp_fwd.h
---- a/libs/RVL_SDK/include/revolution/thp_fwd.h
-+++ b/libs/RVL_SDK/include/revolution/thp_fwd.h
-@@ -1,11 +1,19 @@
- #ifndef REVOLUTION_THP_FWD_H
- #define REVOLUTION_THP_FWD_H
-+
-+#ifdef MSCHARGED_NATIVE
-+#include <revolution/types.h>
-+#endif
- 
- #ifdef __cplusplus
- extern "C" {
- #endif
- 
-+#ifdef MSCHARGED_NATIVE
-+int THPSimpleSetVolume(s32 volume, s32 time);
-+#else
- int THPSimpleSetVolume(long volume, long time);
-+#endif
- 
- #ifdef __cplusplus
- }

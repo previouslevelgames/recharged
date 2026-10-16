@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Adapt original audio control data and saved word offsets to native ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original chunk selection, constructor requests, list order, transitions and
 numeric behavior remain authoritative. Native endian/record views are attached
@@ -9,48 +9,8 @@ word identity and32-bit wrapping without treating saved words as live addresses.
 Source updates and all original headers remain unchanged. RPC/factory/AX/full
 resource loading remains separate.
 
-diff --git a/src/Game/Audio/AudioSlider.cpp b/src/Game/Audio/AudioSlider.cpp
---- a/src/Game/Audio/AudioSlider.cpp
-+++ b/src/Game/Audio/AudioSlider.cpp
-@@ -5,19 +5,37 @@
- #include "NL/nlChunk.h"
- #include "NL/nlDebugString.h"
- #include "types.h"
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+#include "platform/native_audio_controls.h"
-+#endif
- 
- AudioSliderTable* ParseAudioSliderTable(nlChunk* outer)
- {
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    const auto nativeView = mscharged::platform::PrepareNativeAudioSliderChunk(outer);
-+#endif
-     nlChunk* header = (nlChunk*)outer->GetData();
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    AudioSliderTable* table = (AudioSliderTable*)mscharged::platform::NativeAudioControlData(nativeView, header);
-+#else
-     AudioSliderTable* table = (AudioSliderTable*)header->GetData();
-+#endif
- 
-     nlChunk* definitions = header->GetNextChunk();
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    table->globalDefinitions = (AudioSliderDefinition*)mscharged::platform::NativeAudioControlData(nativeView, definitions);
-+#else
-     table->globalDefinitions = (AudioSliderDefinition*)definitions->GetData();
-+#endif
-     table->globalDefinitionsCopy = table->globalDefinitions;
-     table->localDefinitions = table->globalDefinitions + table->globalCount;
- 
-     nlChunk* indices = definitions->GetNextChunk();
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    table->localToGlobal = (u32*)mscharged::platform::NativeAudioControlData(nativeView, indices);
-+#else
-     table->localToGlobal = (u32*)indices->GetData();
-+#endif
- 
-     table->CreateGlobalSliders();
-     table->CreateLocalSets();
 diff --git a/src/Game/Audio/AudioCalculation.cpp b/src/Game/Audio/AudioCalculation.cpp
+index 8eaa054..d05c9f6 100644
 --- a/src/Game/Audio/AudioCalculation.cpp
 +++ b/src/Game/Audio/AudioCalculation.cpp
 @@ -1,16 +1,38 @@
@@ -92,14 +52,14 @@ diff --git a/src/Game/Audio/AudioCalculation.cpp b/src/Game/Audio/AudioCalculati
      u32 relocationOffset;
      u32 relocationIndex;
      relocationIndex = 0;
-@@ -22,13 +44,25 @@
+@@ -22,13 +44,25 @@ AudioCalculationTable* ParseAudioCalculationTable(nlChunk* outer)
                  + relocationOffset);
-         if (definition->field_0C != 0)
-             definition->field_0C
+         if (definition->modifierSliderIndex != 0)
+             definition->modifierSliderIndex
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+                = mscharged::platform::RelocateNativeAudioCalculationWord(definition->field_0C, relocationDelta);
++                = mscharged::platform::RelocateNativeAudioCalculationWord(definition->modifierSliderIndex, relocationDelta);
 +#else
-                 = (s32*)((u8*)definition->field_0C - relocationDelta);
+                 = (s32*)((u8*)definition->modifierSliderIndex - relocationDelta);
 +#endif
          if (definition->field_10 != 0)
              definition->field_10
@@ -118,3 +78,45 @@ diff --git a/src/Game/Audio/AudioCalculation.cpp b/src/Game/Audio/AudioCalculati
          relocationOffset += sizeof(AudioCalculationDefinition);
          relocationIndex++;
      }
+diff --git a/src/Game/Audio/AudioSlider.cpp b/src/Game/Audio/AudioSlider.cpp
+index 426483e..0a518ab 100644
+--- a/src/Game/Audio/AudioSlider.cpp
++++ b/src/Game/Audio/AudioSlider.cpp
+@@ -5,19 +5,37 @@
+ #include "NL/nlChunk.h"
+ #include "NL/nlDebugString.h"
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/native_audio_controls.h"
++#endif
+ 
+ AudioSliderTable* ParseAudioSliderTable(nlChunk* outer)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    const auto nativeView = mscharged::platform::PrepareNativeAudioSliderChunk(outer);
++#endif
+     nlChunk* header = (nlChunk*)outer->GetData();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    AudioSliderTable* table = (AudioSliderTable*)mscharged::platform::NativeAudioControlData(nativeView, header);
++#else
+     AudioSliderTable* table = (AudioSliderTable*)header->GetData();
++#endif
+ 
+     nlChunk* definitions = header->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    table->globalDefinitions = (AudioSliderDefinition*)mscharged::platform::NativeAudioControlData(nativeView, definitions);
++#else
+     table->globalDefinitions = (AudioSliderDefinition*)definitions->GetData();
++#endif
+     table->globalDefinitionsCopy = table->globalDefinitions;
+     table->localDefinitions = table->globalDefinitions + table->globalCount;
+ 
+     nlChunk* indices = definitions->GetNextChunk();
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++    table->localToGlobal = (u32*)mscharged::platform::NativeAudioControlData(nativeView, indices);
++#else
+     table->localToGlobal = (u32*)indices->GetData();
++#endif
+ 
+     table->CreateGlobalSliders();
+     table->CreateLocalSets();

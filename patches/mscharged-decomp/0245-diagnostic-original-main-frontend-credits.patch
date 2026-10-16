@@ -1,6 +1,6 @@
 From: Charged native preparation
 Subject: [PATCH] diagnostic: enter source frontend and Credits from original main
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Owner-authorized 2026-10-06 temporary diagnostic selection. Normal main retains
 all original source tokens. Selected frontend keeps initialization positions,
@@ -8,6 +8,7 @@ source loading/callbacks and source manager/handler/rendering behavior; script,
 task, unrelated boot, movie/audio and source VI send remain omitted explicitly.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 1a8833b..698912e 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,25 @@
@@ -36,23 +37,22 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #include "Game/TweakRegistry.h"
  #include "Game/TweakConfig.h"
  
-@@ -488,8 +507,14 @@
+@@ -496,8 +515,14 @@ static void Initialize()
      DisplayLoadingMessageFast();
      InitializeODEAllocators();
      RegisterUserGeomClasses();
 +#endif // physics omitted; logical pads retain their source Initialize position
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
      InitPads();
--
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
-+
+ 
 +#endif // unrelated DVD/loading/physics/input boot prerequisites
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
      unsigned int stringSizes[4];
      stringSizes[1] = 0;
      stringSizes[3] = 0;
-@@ -498,6 +523,8 @@
+@@ -506,6 +531,8 @@ static void Initialize()
      gResetTweakValueStrings = true;
      InitializeTweakRegistry(0, 1, stringSizes);
      glplatInitializeMaterialPrograms();
@@ -61,7 +61,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
      if (!glLoadTextureBundle("art/global.rlt", glGetCurrentResourcePool()))
      {
-@@ -546,12 +573,18 @@
+@@ -554,12 +581,18 @@ static void Initialize()
      g_pGameAudio->Initialize();
      gSwappablePadChanged.Add(Function<void(int)>(ConfigureTweakerButtons), 0, -1);
      g_pPadManager->Update(0.0f);
@@ -80,7 +80,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlLocalization::Initialize();
  
      if (FEResourceManager::s_pInstance == 0)
-@@ -564,6 +597,8 @@
+@@ -572,6 +605,8 @@ static void Initialize()
          FESceneManager::s_pInstance = new (8, false) FESceneManager;
      }
  
@@ -89,7 +89,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      int countryCode;
      if (sCountryCode != 0)
      {
-@@ -608,7 +643,11 @@
+@@ -616,7 +651,11 @@ static void Initialize()
      FrontEndPresentation::GetInstance();
      ExcitementSystem::Instance();
      AddTasks();
@@ -101,7 +101,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      HideLayerView(eCLV_ScreenBlur);
      HideLayerView(eCLV_ScreenBlur2);
      HideLayerView(eCLV_ShadowVolume);
-@@ -627,8 +666,12 @@
+@@ -635,8 +674,12 @@ static void Initialize()
      g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
      InitMaxProjectedShadows();
      SetCharacterShadowView(GetLayerView(eCLV_Characters));
@@ -114,7 +114,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      NisPlayer::Instance();
      ReplayManager::Instance();
      Wiper::Instance().Initialize();
-@@ -801,8 +844,62 @@
+@@ -809,8 +852,62 @@ int main()
      Initialize();
  
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
@@ -152,7 +152,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 +    // is still absent. Original Anark projection and visibility stay source-owned.
 +    nlMatrix4 identity;
 +    identity.SetIdentity();
-+    fn_80273144(identity, identity, 4.0f / 3.0f, 0.4712389f, 4.0f / 3.0f, 0.4712389f);
++    UpdateLayerCameras(identity, identity, 4.0f / 3.0f, 0.4712389f, 4.0f / 3.0f, 0.4712389f);
 +    CreditScene* credits = new (8, false) CreditScene;
 +    FESceneManager* scenes = FESceneManager::Instance();
 +    scenes->QueueScenePush(credits, "art/fe/credits.fen", CurrentAllocator);
@@ -177,7 +177,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #else
  
      while (nlAsyncReadsPending(0))
-@@ -819,3 +916,21 @@
+@@ -827,3 +924,21 @@ int main()
      }
  #endif // original async/music/task loop
  }

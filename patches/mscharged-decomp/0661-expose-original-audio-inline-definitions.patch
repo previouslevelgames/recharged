@@ -1,20 +1,11 @@
 Subject: Expose existing audio inline bodies through their native owning headers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
---- a/include/Game/Audio/AudioSystem.h
-+++ b/include/Game/Audio/AudioSystem.h
-@@ -72,4 +72,8 @@
-     return g_pAudioSystem->GetBundleManager();
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+#include "Game/Audio/AudioSystem.inl"
-+#endif
-+
- #endif // GAME_AUDIO_AUDIO_SYSTEM_H
+diff --git a/include/Game/Audio/AudioScriptInterpreter.h b/include/Game/Audio/AudioScriptInterpreter.h
+index 96a774c..dccbeac 100644
 --- a/include/Game/Audio/AudioScriptInterpreter.h
 +++ b/include/Game/Audio/AudioScriptInterpreter.h
-@@ -15,4 +15,8 @@
+@@ -15,4 +15,8 @@ public:
      virtual inline void DoFunctionCall(unsigned int index);
  };
  
@@ -23,3 +14,16 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +#endif
 +
  #endif // GAME_AUDIO_AUDIO_SCRIPT_INTERPRETER_H
+diff --git a/include/Game/Audio/AudioSystem.h b/include/Game/Audio/AudioSystem.h
+index c426d77..7444b8a 100644
+--- a/include/Game/Audio/AudioSystem.h
++++ b/include/Game/Audio/AudioSystem.h
+@@ -72,4 +72,8 @@ static AudioBundleManager* GetAudioBundleManager()
+     return g_pAudioSystem->GetBundleManager();
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Audio/AudioSystem.inl"
++#endif
++
+ #endif // GAME_AUDIO_AUDIO_SYSTEM_H

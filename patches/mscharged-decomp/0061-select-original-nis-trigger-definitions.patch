@@ -1,6 +1,6 @@
 Subject: Select original NIS trigger-definition services for native collection
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract the original NisPlayer interpreter service bodies, replacing console
 stack/string reads with checked typed arguments and AddTrigger publication with
@@ -11,6 +11,7 @@ console source is unchanged.
 
 diff --git a/src/Game/NisTriggerDefinitionsNative.cpp b/src/Game/NisTriggerDefinitionsNative.cpp
 new file mode 100644
+index 0000000..d407aeb
 --- /dev/null
 +++ b/src/Game/NisTriggerDefinitionsNative.cpp
 @@ -0,0 +1,208 @@

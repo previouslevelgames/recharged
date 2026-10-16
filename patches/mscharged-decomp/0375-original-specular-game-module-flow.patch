@@ -1,6 +1,6 @@
 From: mscharged-port original-source fidelity
 Subject: Retire standalone Specular preview decisions from original game modules
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original game modules use the actual source view, skinnedVertices condition,
 display lists and cached matrix wrapper. Bind the source-selected arrays with
@@ -10,6 +10,7 @@ standalone asset diagnostics. Native parameter layout adaptations are retained.
 No lighting, render ordering, skin, alpha or source visibility redesign.
 
 diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMaterialProgram.cpp
+index c89a951..ef8a20f 100644
 --- a/src/NL/glx/GXSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularMaterialProgram.cpp
 @@ -1,6 +1,10 @@
@@ -23,7 +24,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMat
  #include <stddef.h>
  #else
  #include <revolution/gx.h>
-@@ -102,31 +106,41 @@
+@@ -102,31 +106,41 @@ void GXSpecularMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -71,6 +72,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMat
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
 diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+index ae29974..05667c1 100644
 --- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 @@ -1,7 +1,9 @@
@@ -83,7 +85,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
  #else
  #include <revolution/gx.h>
  #endif
-@@ -103,7 +105,7 @@
+@@ -103,7 +105,7 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
  {
      sSpecularExponent = 0.0f;
      static_cast<GXSpecularMaterialProgram*>(this)->ConfigureVertexFormat(true);
@@ -92,7 +94,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
      sSpecularViewMatrix = mscharged::MaterialPreviewView();
  #else
      view->m_Interface->GetViewMatrix(sSpecularViewMatrix);
-@@ -119,7 +121,7 @@
+@@ -119,7 +121,7 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
  template <>
  void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Deactivate()
  {
@@ -101,7 +103,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
      GXSetCurrentMtx(GX_PNMTX0);
  #else
      gxSetCurrentMtx(0, true);
-@@ -210,7 +212,7 @@
+@@ -210,7 +212,7 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
      nlMultMatrices(modelview, model, sSpecularViewMatrix);
      SetGameObjectShadowModelMatrix(packet->matrix);
  
@@ -110,7 +112,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
      if (!mscharged::SpecularUsesSoftwareSkin(*packet))
  #else
      if (packet->skinnedVertices == 0)
-@@ -231,7 +233,7 @@
+@@ -231,7 +233,7 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
          if (sSpecularDepthPrepassEnabled)
          {
              bool colourUpdate = gxSetColourUpdate(false);
@@ -119,16 +121,16 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
              try { mscharged::DrawNativeSpecularPacket(*packet); }
              catch (...) { gxSetColourUpdate(colourUpdate); throw; }
  #else
-@@ -246,7 +248,7 @@
+@@ -246,7 +248,7 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
          gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
          GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
-         gxSetTevAlphaIn(1, 7, 7, 7, 6);
+         gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
 -#if defined(MSCHARGED_NATIVE)
 +#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
          mscharged::DrawNativeSpecularPacket(*packet);
  #else
          GXCallDisplayList(packet->displayList->list, packet->displayList->size);
-@@ -256,7 +258,7 @@
+@@ -256,7 +258,7 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
      }
      else
      {

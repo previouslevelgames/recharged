@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: Admit original NIS constructor in named frontend diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Classification: owner-authorized temporary diagnostic source admission.
 Default original game and existing Credits selection remain unchanged.
@@ -10,9 +10,10 @@ and state remain authoritative. Playback, secondary FOV/SetupMatrices and
 other owners remain outside this admission. Retire when full startup links.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 8d5742e..cad901a 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -743,8 +743,10 @@
+@@ -752,8 +752,10 @@ static void Initialize()
      FESceneManager::s_pInstance->m_uDefaultRenderView =
          (glViewHandle)GetLayerView(eCLV_Anark);
  #endif

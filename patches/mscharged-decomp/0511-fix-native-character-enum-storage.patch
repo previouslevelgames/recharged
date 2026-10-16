@@ -1,9 +1,12 @@
 # Patch: 0511-fix-native-character-enum-storage
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Fixed signed32 native storage admits literal original unnamed character values; console unchanged.
+
+diff --git a/include/Game/Character.h b/include/Game/Character.h
+index 4a58517..acf9b0c 100644
 --- a/include/Game/Character.h
 +++ b/include/Game/Character.h
-@@ -29,7 +29,11 @@
+@@ -29,7 +29,11 @@ class CharacterPhysicsData;
  class AnimRetargetList;
  struct cCharacterSFX;
  

@@ -1,8 +1,9 @@
 Subject: Native compressed-file header and actual inflater byte ownership
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native serialized byte transport and real file-load ownership.
 
 diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
+index 2fac695..5a59469 100644
 --- a/src/NL/nlFile.cpp
 +++ b/src/NL/nlFile.cpp
 @@ -7,7 +7,9 @@
@@ -15,7 +16,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
  #endif
  
  
-@@ -256,8 +258,48 @@
+@@ -256,8 +258,48 @@ struct CompressedFileLoad
      int fullChunkCount;
      int finalChunkSize;
      InflateStream inflateState;
@@ -64,7 +65,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
  void* AllocateInflateMemory(void*, unsigned int count, unsigned int size)
  {
      return nlMalloc(count * size, 8, false);
-@@ -271,6 +313,11 @@
+@@ -271,6 +313,11 @@ void FreeInflateMemory(void*, void* memory)
  void OnCompressedFileHeaderRead(nlFile*, void*, unsigned int, nlFileAsyncParam userParam)
  {
      CompressedFileLoad* state = (CompressedFileLoad*)userParam;
@@ -76,7 +77,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
      MemoryAllocator* allocator = state->allocator;
  
      AllocatorStack[AllocatorStackDepth++] = allocator;
-@@ -299,11 +346,24 @@
+@@ -299,11 +346,24 @@ void OnCompressedFileHeaderRead(nlFile*, void*, unsigned int, nlFileAsyncParam u
      unsigned int uncompressedSize = state->uncompressedSize;
      state->inflateState.output = state->output;
      state->inflateState.outputSize = uncompressedSize;
@@ -101,7 +102,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
  
      ++state->completedReads;
      state->inflateState.Process(buffer, size);
-@@ -312,7 +372,29 @@
+@@ -312,7 +372,29 @@ void OnCompressedFileDataRead(nlFile* file, void* buffer, unsigned int size, nlF
      if (state->completedReads == state->readCount)
      {
          state->inflateState.Finish();
@@ -131,7 +132,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
          delete state->file;
  
          if (state != 0)
-@@ -324,6 +406,14 @@
+@@ -324,6 +406,14 @@ void OnCompressedFileDataRead(nlFile* file, void* buffer, unsigned int size, nlF
              delete state;
          }
      }
@@ -146,7 +147,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
  }
  
  bool nlLoadCompressedFileAsync(const char* path, LoadAsyncCallback callback,
-@@ -357,6 +447,13 @@
+@@ -357,6 +447,13 @@ bool nlLoadCompressedFileAsync(const char* path, LoadAsyncCallback callback,
          CompressedFileLoad(file, param, compressedSize, callback, userData,
              allocator, allocType, chunkSize, readBuffer0, readBuffer1);
  
@@ -160,7 +161,7 @@ diff --git a/src/NL/nlFile.cpp b/src/NL/nlFile.cpp
      nlReadAsync(file, state, 4, OnCompressedFileHeaderRead, (nlFileAsyncParam)state, 0);
  
      unsigned int payloadSize = compressedSize - 4;
-@@ -370,6 +467,15 @@
+@@ -370,6 +467,15 @@ bool nlLoadCompressedFileAsync(const char* path, LoadAsyncCallback callback,
  
      state->QueueNextRead(file);
      state->QueueNextRead(file);

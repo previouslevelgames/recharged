@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original Specular material with typed native skin transport
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original Specular0x22cadb20 TEV/light/exponent/ramp/shadow/alpha
 decisions. Use native parameter offsets/fixed scalar widths and five bounded
@@ -10,9 +10,10 @@ Missing pose/ramp/shadow services remain genuine failures, not shader aliases.
 Restore depth/colour/blend state during failed native alpha-pass transport.
 
 diff --git a/include/NL/glx/GXSpecularMaterialProgram.h b/include/NL/glx/GXSpecularMaterialProgram.h
+index 462764a..780e6fc 100644
 --- a/include/NL/glx/GXSpecularMaterialProgram.h
 +++ b/include/NL/glx/GXSpecularMaterialProgram.h
-@@ -11,13 +11,21 @@
+@@ -11,13 +11,21 @@ struct GXSpecularParameters
      /* 0x08 */ glTextureBinding detailTexture;
      /* 0x10 */ glTextureBinding glossTexture;
      /* 0x18 */ const float (*skinMatrices)[3][4];
@@ -35,6 +36,7 @@ diff --git a/include/NL/glx/GXSpecularMaterialProgram.h b/include/NL/glx/GXSpecu
  }; // size: 0x48
  
 diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMaterialProgram.cpp
+index 03d385a..c89a951 100644
 --- a/src/NL/glx/GXSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularMaterialProgram.cpp
 @@ -1,4 +1,10 @@
@@ -70,7 +72,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMat
  GXMaterialParameter GXSpecularMaterialProgram::Parameters[11] = {
      { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
      { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
-@@ -21,12 +42,17 @@
+@@ -21,12 +42,17 @@ GXMaterialParameter GXSpecularMaterialProgram::Parameters[11] = {
      { 0x46CCF41D, 0x01010102, 64 }, // shadowLevel
      { 0x8E10B600, 0x01010102, 68 }, // lightingEnabled
  };
@@ -88,7 +90,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMat
      parameterCount = 11;
      glRegisterMaterialProgram(this, programHash);
  }
-@@ -76,11 +102,36 @@
+@@ -76,11 +102,36 @@ void GXSpecularMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -126,6 +128,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgram.cpp b/src/NL/glx/GXSpecularMat
  
  void GXSpecularMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
+index 709c4ca..ae29974 100644
 --- a/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularMaterialProgramRender.cpp
 @@ -1,4 +1,10 @@
@@ -139,7 +142,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
  #include "Game/GameObjectLighting.h"
  #include "NL/gl/glMaterialParameters.h"
  
-@@ -97,7 +103,11 @@
+@@ -97,7 +103,11 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
  {
      sSpecularExponent = 0.0f;
      static_cast<GXSpecularMaterialProgram*>(this)->ConfigureVertexFormat(true);
@@ -151,7 +154,7 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
      SetGameObjectShadowViewMatrix(&sSpecularViewMatrix);
      SetGameObjectShadowModelMatrix(-1);
      sSpecularLightCount = GetGameObjectLightCount(0, 1);
-@@ -109,7 +119,11 @@
+@@ -109,7 +119,11 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Activate(GLView* view)
  template <>
  void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Deactivate()
  {
@@ -160,10 +163,10 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
 +#else
      gxSetCurrentMtx(0, true);
 +#endif
-     gxSetTevColourOp(2, 0, 0, 0, true, 0);
+     gxSetTevColourOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
      SetGameObjectAmbientLightingEnabled(0);
      SetGameObjectLightingEnabled(0, sSpecularLightCount, 1);
-@@ -196,9 +210,13 @@
+@@ -196,9 +210,13 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
      nlMultMatrices(modelview, model, sSpecularViewMatrix);
      SetGameObjectShadowModelMatrix(packet->matrix);
  
@@ -171,15 +174,14 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
 +    if (!mscharged::SpecularUsesSoftwareSkin(*packet))
 +#else
      if (packet->skinnedVertices == 0)
--    {
--        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrixBytes / 48, &modelview, 0);
 +#endif
-+    {
+     {
+-        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrixBytes / 48, &modelview, 0);
 +        glx_LoadSkinMatrices(static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices, static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrixBytes / sizeof(*static_cast<const GXSpecularParameters*>(packet->materialParameters)->skinMatrices), &modelview, 0);
      }
      else
      {
-@@ -213,8 +231,13 @@
+@@ -213,8 +231,13 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
          if (sSpecularDepthPrepassEnabled)
          {
              bool colourUpdate = gxSetColourUpdate(false);
@@ -193,10 +195,10 @@ diff --git a/src/NL/glx/GXSpecularMaterialProgramRender.cpp b/src/NL/glx/GXSpecu
              gxSetColourUpdate(colourUpdate);
              gxSetZMode(true, GX_EQUAL, true);
          }
-@@ -223,13 +246,21 @@
+@@ -223,13 +246,21 @@ void GXMaterialProgramImpl<GXSpecularMaterialProgram>::Draw(
          gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
          GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
-         gxSetTevAlphaIn(1, 7, 7, 7, 6);
+         gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
 +#if defined(MSCHARGED_NATIVE)
 +        mscharged::DrawNativeSpecularPacket(*packet);
 +#else

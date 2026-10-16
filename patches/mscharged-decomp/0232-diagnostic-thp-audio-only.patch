@@ -1,6 +1,6 @@
 Native compiler declaration compatibility and owner-authorized audio-only THP diagnostic.
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 The normal native and console profiles retain every original video request.
 MSCHARGED_DIAGNOSTIC_THP_AUDIO_ONLY omits only the named texture lookups and
 VideoDecode requests for supported standalone mode0 diagnostics. Remove that
@@ -8,9 +8,10 @@ gate when genuine original MovieInit(1)/AX and movie textures are ready.
 The critical-section declarations expose existing genuine native SDK providers.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
+index 4dd0a33..b440f7c 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
-@@ -47,6 +47,10 @@
+@@ -47,6 +47,10 @@ typedef __OSInterruptHandler OSInterruptHandler;
  #ifdef __cplusplus
  extern "C" {
  #endif
@@ -22,9 +23,10 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h b/libs/RVL_SDK/inc
  void __OSDispatchInterrupt(u8 interrupt, OSContext* context);
  void __RAS_OSDisableInterrupts_begin(void);
 diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
+index 72106d9..122cef9 100644
 --- a/src/RVL_SDK/thp/THPSimple.cpp
 +++ b/src/RVL_SDK/thp/THPSimple.cpp
-@@ -455,10 +455,12 @@
+@@ -448,10 +448,12 @@ extern "C" int THPSimpleSetBuffer(unsigned char* buffer)
          }
  
          ptr = buffer;
@@ -37,7 +39,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
  
          for (i = 0; i < 10; i++)
          {
-@@ -689,8 +691,10 @@
+@@ -682,8 +684,10 @@ extern "C" THPSimpleLong THPSimpleDecode(THPSimpleLong audioTrack)
                      switch (SimpleControl.compInfo.frameComp[i])
                      {
                      case 0:
@@ -48,7 +50,7 @@ diff --git a/src/RVL_SDK/thp/THPSimple.cpp b/src/RVL_SDK/thp/THPSimple.cpp
                          break;
                      case 1:
  #ifdef MSCHARGED_NATIVE
-@@ -727,8 +731,10 @@
+@@ -720,8 +724,10 @@ extern "C" THPSimpleLong THPSimpleDecode(THPSimpleLong audioTrack)
                  switch (SimpleControl.compInfo.frameComp[i])
                  {
                  case 0:

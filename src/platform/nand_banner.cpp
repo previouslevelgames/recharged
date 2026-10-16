@@ -32,7 +32,7 @@ struct Free {
 using Snapshot = std::unique_ptr<void, Free>;
 struct Pending {
     void* bytes;
-    void (*callback)(std::int32_t);
+    void (*callback)(long);
 };
 Pending pending{};
 
@@ -41,7 +41,7 @@ void Field(unsigned char* bytes, std::size_t offset, unsigned width) {
         std::swap(bytes[offset + i], bytes[offset + width - 1 - i]);
 }
 
-void Complete(s32 result) {
+void Complete(long result) {
     // Original FlashMemoryTask cleared its callback before reaching here.
     // Retire the actual completed IO snapshot before forwarding to the source
     // callback, which may legitimately submit another banner write.
@@ -59,7 +59,7 @@ bool OriginalNANDBannerWritePending() noexcept { return pending.bytes != nullptr
 
 std::int32_t WriteOriginalNANDBanner(const void* native_banner,
                                    std::uint32_t bytes,
-                                   void (*callback)(std::int32_t)) {
+                                   void (*callback)(long)) {
     if (!native_banner || bytes != SourceBytes)
         throw std::invalid_argument("Unqualified original NAND banner extent");
     if (pending.bytes)

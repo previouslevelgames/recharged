@@ -1,5 +1,5 @@
 Subject: Tweak: unlock everything
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The game answers every character, stadium and cheat unlock query through
 IsUnlockOverrideEnabled, which is true with its own unlock-all switch

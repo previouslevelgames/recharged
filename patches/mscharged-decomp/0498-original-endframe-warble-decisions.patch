@@ -1,7 +1,7 @@
 From: original source diagnostic integration
 Subject: [PATCH] Retain original end-frame warble target and clear decisions
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The full source view creator leaves the warble target/colour clear configured
 for its later original per-frame enable/disable decisions. Admit that literal
@@ -10,32 +10,11 @@ all branches/stores/update calls and order. This retires a diagnostic omission;
 it does not alter the original disabled or enabled warble behavior. Retain
 the preceding literal BeginFrame gWarbleEnabled reset at its original position.
 
-diff --git a/src/Game/Task/EndFrameTask.cpp b/src/Game/Task/EndFrameTask.cpp
---- a/src/Game/Task/EndFrameTask.cpp
-+++ b/src/Game/Task/EndFrameTask.cpp
-@@ -18,7 +18,7 @@
-     if (gpHBMManager == 0 || !gpHBMManager->mActive || !gpHBMManager->mReady)
- #endif // uninitialized HBM frame guard omitted
-     {
--#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
-         bool useWarble = gWarbleEnabled;
- 
-         GLView* view = GetLayerView(eCLV_PreWarble);
-@@ -44,7 +44,7 @@
-             RenderWarbleQuad(&gWarbleEnabled);
-         }
- 
--#endif // warble/prewarble3D views and native effect startup remain unqualified
-+#endif // retain original warble targets/clear/update decisions for full world views
-         glEndFrame();
-         g_FrameCounter.StartTimer(1);
-         glSendFrame();
-
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index 0f90f23..cd6e19b 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -426,7 +426,11 @@
+@@ -427,7 +427,11 @@ void BeginFrameTask::Run(float dt)
          return;
      }
  
@@ -47,3 +26,25 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      if (lbl_806E0FDC)
      {
          cGlobalPad* pad = g_pPadManager->GetPad(0);
+diff --git a/src/Game/Task/EndFrameTask.cpp b/src/Game/Task/EndFrameTask.cpp
+index cd34800..b19d212 100644
+--- a/src/Game/Task/EndFrameTask.cpp
++++ b/src/Game/Task/EndFrameTask.cpp
+@@ -18,7 +18,7 @@ void EndFrameTask::Run(float)
+     if (gpHBMManager == 0 || !gpHBMManager->mActive || !gpHBMManager->mReady)
+ #endif // uninitialized HBM frame guard omitted
+     {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_WORLD_DRAW)
+         bool useWarble = gWarbleEnabled;
+ 
+         GLView* view = GetLayerView(eCLV_PreWarble);
+@@ -44,7 +44,7 @@ void EndFrameTask::Run(float)
+             RenderWarbleQuad(&gWarbleEnabled);
+         }
+ 
+-#endif // warble/prewarble3D views and native effect startup remain unqualified
++#endif // retain original warble targets/clear/update decisions for full world views
+         glEndFrame();
+         g_FrameCounter.StartTimer(1);
+         glSendFrame();

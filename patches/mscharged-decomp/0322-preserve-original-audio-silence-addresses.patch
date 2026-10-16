@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original silence buffer hardware words
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Replace only native pointer submissions with the existing checked cached Wii
 word for the actual 0x500-byte source allocation, then keep original u32 times-two
@@ -8,6 +8,7 @@ nibble arithmetic. Source state/branch/loop/selection and console code stay
 unchanged. No Backend/AX initialization or successful voice state is supplied.
 
 diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+index 9ca17b3..330a453 100644
 --- a/src/Game/Audio/AudioSource.cpp
 +++ b/src/Game/Audio/AudioSource.cpp
 @@ -1,3 +1,6 @@
@@ -17,7 +18,7 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
  #include "revolution/types.h"
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlDLListContainer.inl"
-@@ -219,7 +222,12 @@
+@@ -219,7 +222,12 @@ void AudioSampleSource::Update()
                  if (!canLoop)
                  {
                      AXSetVoiceLoop(m_Voice, false);
@@ -30,7 +31,7 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
                  }
              }
              m_LastVoiceAddress = address;
-@@ -254,7 +262,12 @@
+@@ -254,7 +262,12 @@ void AudioSampleSource::Stop()
          if (m_Voice != 0)
          {
              AXSetVoiceState(m_Voice, AX_VOICE_STOP);
@@ -43,7 +44,7 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
          }
          OSRestoreInterrupts(enabled);
          break;
-@@ -745,7 +758,12 @@
+@@ -745,7 +758,12 @@ void AudioReadState::Update()
              {
                  unsigned int end = GetStreamEndAddress(channel->m_Voice, m_StreamEndPosition);
                  AXSetVoiceLoop(channel->m_Voice, false);

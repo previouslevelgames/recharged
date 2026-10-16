@@ -1,30 +1,14 @@
 Subject: Share Aurora DVD declarations with the original NL file layer
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use the actual native DVD API and its field names while retaining the console
 header branch. Canonical fixed-width 64-bit types permit both SDK headers on
 LP64 hosts. State aliases name Aurora equivalents; they do not implement absent
 Wii services.
 
-diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
---- a/libs/RVL_SDK/include/revolution/types.h
-+++ b/libs/RVL_SDK/include/revolution/types.h
-@@ -7,11 +7,11 @@
- typedef signed char s8;
- typedef signed short s16;
- typedef int32_t s32;
--typedef signed long long s64;
-+typedef int64_t s64;
- typedef unsigned char u8;
- typedef unsigned short u16;
- typedef uint32_t u32;
--typedef unsigned long long u64;
-+typedef uint64_t u64;
- 
- typedef volatile u8 vu8;
- typedef volatile u16 vu16;
 diff --git a/libs/RVL_SDK/include/revolution/dvd/dvd.h b/libs/RVL_SDK/include/revolution/dvd/dvd.h
+index 4aad3f2..f68c3a3 100644
 --- a/libs/RVL_SDK/include/revolution/dvd/dvd.h
 +++ b/libs/RVL_SDK/include/revolution/dvd/dvd.h
 @@ -1,5 +1,14 @@
@@ -42,13 +26,32 @@ diff --git a/libs/RVL_SDK/include/revolution/dvd/dvd.h b/libs/RVL_SDK/include/re
  #include <revolution/types.h>
  #ifdef __cplusplus
  extern "C" {
-@@ -122,4 +131,5 @@
+@@ -122,4 +131,5 @@ void __DVDRestartMotor(void);
  #ifdef __cplusplus
  }
  #endif
 +#endif // MSCHARGED_NATIVE
  #endif
+diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
+index 794b1d9..05b3212 100644
+--- a/libs/RVL_SDK/include/revolution/types.h
++++ b/libs/RVL_SDK/include/revolution/types.h
+@@ -7,11 +7,11 @@
+ typedef signed char s8;
+ typedef signed short s16;
+ typedef int32_t s32;
+-typedef signed long long s64;
++typedef int64_t s64;
+ typedef unsigned char u8;
+ typedef unsigned short u16;
+ typedef uint32_t u32;
+-typedef unsigned long long u64;
++typedef uint64_t u64;
+ 
+ typedef volatile u8 vu8;
+ typedef volatile u16 vu16;
 diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+index 5c75b2e..8c092ab 100644
 --- a/src/NL/nlFileGC.cpp
 +++ b/src/NL/nlFileGC.cpp
 @@ -11,6 +11,15 @@
@@ -67,7 +70,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  class DolphinFile;
  class AsyncManager;
  struct AsyncEntry;
-@@ -32,8 +41,13 @@
+@@ -32,8 +41,13 @@ public:
      {
          DVDFileInfo info;
          DVDFastOpen(entryNum, &info);
@@ -81,7 +84,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
          DVDClose(&info);
      }
  
-@@ -285,7 +299,7 @@
+@@ -285,7 +299,7 @@ void AsyncManager::Service()
  
      while (m_activeEntryList != 0)
      {
@@ -90,7 +93,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
          {
          case DVD_STATE_BUSY:
          case DVD_STATE_WAITING:
-@@ -318,7 +332,7 @@
+@@ -318,7 +332,7 @@ void AsyncManager::Service()
                      --entry->m_pFile->PendingAsync;
                      AsyncEntry* head = entry->m_prev;
                      head->m_uSize += entry->m_uSize;
@@ -99,7 +102,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
                      nlDLRingRemove(&m_activeEntryList, entry);
                      nlDLRingAddEnd(&m_freeEntryList, entry);
                      DVDClose(&entry->mFileInfo);
-@@ -504,7 +518,7 @@
+@@ -504,7 +518,7 @@ void* nlLoadEntireHostFile(const char* fileName, unsigned long* outSize,
  
  bool IsAsyncReadBusy(AsyncEntry* entry)
  {

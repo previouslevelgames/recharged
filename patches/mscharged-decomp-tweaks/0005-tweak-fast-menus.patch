@@ -1,5 +1,5 @@
 Subject: Tweak: fast menus
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 With "Fast menus" enabled menu transitions are skipped, outside matches and
 the boot screens. In a match its menus count too: the pause menu and the
@@ -61,7 +61,7 @@ index 5a9d611..c4729fa 100644
  }
  
 diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
-index 818c844..1e37107 100644
+index 7d1a6c4..06468c2 100644
 --- a/src/Game/FE/fePopupMenu.cpp
 +++ b/src/Game/FE/fePopupMenu.cpp
 @@ -17,6 +17,7 @@
@@ -72,7 +72,7 @@ index 818c844..1e37107 100644
  #include "Game/DB/CharacterInfo.h"
  #include "Game/NetTournManager.h"
  #include "Game/NetworkSession.h"
-@@ -423,6 +424,16 @@ void FEPopupMenu::UpdateBackgroundScale(float fDeltaT)
+@@ -452,6 +453,16 @@ void FEPopupMenu::UpdateBackgroundScale(float fDeltaT)
          TLImageInstance* pImage = FEFinder<TLImageInstance, 2>::FindOrDefault<TLSlide>(
              mPresentation->GetActiveSlide(), "Layer", "blackbox");
          const feVector3 scale = pImage->GetAssetScale();
@@ -89,8 +89,8 @@ index 818c844..1e37107 100644
          if (scale.e[0] >= mBackgroundTargetScaleX && scale.e[1] >= mBackgroundTargetScaleY)
              mBackgroundScaleDone = true;
          else
-@@ -777,6 +788,13 @@ void FEPopupMenu::SetPositions()
-     pImage->SetAssetPosition(position.e[0], position.e[1], position.e[2]);
+@@ -819,6 +830,13 @@ void FEPopupMenu::SetPositions()
+ #endif
      SetMessageAndOptionsVisible(false);
      mMenuDisplayed = true;
 +#if defined(MSCHARGED_TWEAKS)
@@ -104,7 +104,7 @@ index 818c844..1e37107 100644
  
  void FEPopupMenu::SetMessageAndOptionsVisible(bool visible)
 diff --git a/src/Game/FE/fePresentation.cpp b/src/Game/FE/fePresentation.cpp
-index 59a593c..53bdd01 100644
+index a9e2712..317c2b0 100644
 --- a/src/Game/FE/fePresentation.cpp
 +++ b/src/Game/FE/fePresentation.cpp
 @@ -3,6 +3,7 @@
@@ -133,7 +133,7 @@ index 59a593c..53bdd01 100644
          f32 end = m_currentSlide->GetStartTime() + m_currentSlide->GetDuration();
          if (m_fadeDuration > end)
 diff --git a/src/Game/FE/tlSlide.cpp b/src/Game/FE/tlSlide.cpp
-index fb32cfe..eb36fc5 100644
+index 509c851..3126449 100644
 --- a/src/Game/FE/tlSlide.cpp
 +++ b/src/Game/FE/tlSlide.cpp
 @@ -5,6 +5,7 @@
@@ -170,7 +170,7 @@ index fb32cfe..eb36fc5 100644
      m_time += deltaTime;
      float end = GetStartTime() + GetDuration();
 diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
-index b6c4687..7717284 100644
+index 84d6028..a6599c2 100644
 --- a/src/Game/SH/SHPause.cpp
 +++ b/src/Game/SH/SHPause.cpp
 @@ -29,6 +29,7 @@
@@ -181,7 +181,7 @@ index b6c4687..7717284 100644
  #if defined(MSCHARGED_NATIVE)
  #include <cstdint>
  #endif
-@@ -218,6 +219,16 @@ void PauseMenuScene::Update(float fDeltaT)
+@@ -222,6 +223,16 @@ void PauseMenuScene::Update(float fDeltaT)
  {
      if (mQuitDelay > 0.0f)
      {
@@ -199,7 +199,7 @@ index b6c4687..7717284 100644
          if (!g_pOverlayManager->IsOnStack(SCENE_POPUP_MENU))
              glxSwapSetBlack(true);
 diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
-index 2ff6730..a7c8f7f 100644
+index f4c78ec..e4f3dd8 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
 @@ -32,6 +32,10 @@
@@ -241,7 +241,7 @@ index 2ff6730..a7c8f7f 100644
      DrawFrontEndElements(dt);
  
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 0ba7e3a..12c2ab7 100644
+index d8068e9..5814286 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,7 @@
@@ -252,7 +252,7 @@ index 0ba7e3a..12c2ab7 100644
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
  #include <stdexcept>
  #endif
-@@ -809,6 +810,11 @@ static void AddTasks()
+@@ -817,6 +818,11 @@ static void AddTasks()
      nlTaskManager::AddTask(&resetTask, 0, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);

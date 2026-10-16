@@ -1,6 +1,6 @@
 Subject: Adapt original event ownership, delivery and registry lifetime
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original event hashing, AVL registration, listener ordering and callback
 transfer. Native owners retain full addresses; flags/counts use explicit masks
@@ -16,6 +16,7 @@ of Wii input services. Queued dispatch and game task globals remain unselected.
 Runtime support is in src/.
 
 diff --git a/include/Game/Event.h b/include/Game/Event.h
+index be8a162..1b1c386 100644
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
 @@ -4,11 +4,16 @@
@@ -36,19 +37,17 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  void* FindEventConnection(void* event, void* owner);
  void UnregisterEventConnection(void* event, void* connection);
  
-@@ -22,8 +27,30 @@
+@@ -22,8 +27,30 @@ public:
      EventBase(const char* name, int length)
          : mHash(HashEventName(name, length))
      {
--    }
--
 +#ifdef MSCHARGED_NATIVE
 +        CheckNativeEventThread();
 +        mCurrentConnection = 0;
 +        mNativeDelivering = false;
 +#endif
-+    }
-+
+     }
+ 
 +#ifdef MSCHARGED_NATIVE
 +    EventBase(const EventBase&) = delete;
 +    EventBase& operator=(const EventBase&) = delete;
@@ -69,7 +68,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      virtual inline ~EventBase();
      virtual void Disconnect(void* owner) = 0;
  
-@@ -33,6 +60,9 @@
+@@ -33,6 +60,9 @@ public:
  protected:
      unsigned int mHash;
      void* mCurrentConnection;
@@ -79,7 +78,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  };
  
  #include "Game/Task/DispatchEventsTask.h"
-@@ -43,8 +73,14 @@
+@@ -43,8 +73,14 @@ struct EventConnection
          : mOwner(0)
          , mEvent(0)
      {
@@ -94,7 +93,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      }
  
      ~EventConnection();
-@@ -52,6 +88,11 @@
+@@ -52,6 +88,11 @@ struct EventConnection
      // The owner's first word holds the live connection pointer.
      void* mOwner;
      void* mEvent;
@@ -106,7 +105,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      union
      {
          unsigned int mFlags;
-@@ -67,6 +108,7 @@
+@@ -67,6 +108,7 @@ struct EventConnection
              unsigned short mGroupCount : 16;
          };
      };
@@ -114,7 +113,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  };
  
  // Events without a payload use a zero-argument callback signature.
-@@ -142,12 +184,19 @@
+@@ -142,12 +184,19 @@ public:
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
@@ -127,16 +126,15 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  
      virtual void Disconnect(void* owner) = 0;
 -    virtual void Add(const Callback&, unsigned int, int) = 0;
--
 +    virtual void Add(const Callback&, EventOwnerHandle, int) = 0;
-+
+ 
 +#ifdef MSCHARGED_NATIVE
 +    static void* NativeType() { static unsigned char token; return &token; }
 +#endif
  };
  
  template <typename ReturnType>
-@@ -383,13 +432,17 @@
+@@ -383,13 +432,17 @@ public:
  
      void RemoveAll()
      {
@@ -147,17 +145,15 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          {
              Remove(&*mListeners.Begin());
          }
--    }
--
--    virtual void Add(const Callback& callback, unsigned int value, int flags)
 +#endif
-+    }
-+
+     }
+ 
+-    virtual void Add(const Callback& callback, unsigned int value, int flags)
 +    virtual void Add(const Callback& callback, EventOwnerHandle value, int flags)
      {
          AddListener(callback, value, flags);
      }
-@@ -398,6 +451,9 @@
+@@ -398,6 +451,9 @@ public:
  
      void Deliver(T* data)
      {
@@ -167,7 +163,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          nlDLListIterator<Listener> iterator;
          iterator = mListeners.Begin();
          while (iterator.hasNext())
-@@ -424,10 +480,14 @@
+@@ -424,10 +480,14 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -182,7 +178,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          nlDLListIterator<Listener> iterator;
          iterator = mListeners.Begin();
          while (iterator.hasNext())
-@@ -454,18 +514,23 @@
+@@ -454,18 +514,23 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -194,9 +190,8 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      // clear the caller's Function instead of cloning it.
      void AddListener(
 -        const Callback& callback, unsigned int value, int flags)
--    {
 +        const Callback& callback, EventOwnerHandle value, int flags)
-+    {
+     {
 +#ifdef MSCHARGED_NATIVE
 +            mscharged::AddEventListener(*this, mListeners, callback, value, flags);
 +#else
@@ -208,7 +203,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      }
  
      void Remove(Listener* listener);
-@@ -484,6 +549,9 @@
+@@ -484,6 +549,9 @@ public:
  template <typename T>
  Event<T>::~Event()
  {
@@ -218,7 +213,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      RemoveAll();
      UnregisterEvent(this);
  }
-@@ -502,6 +570,9 @@
+@@ -502,6 +570,9 @@ void Event<T>::RestartAt(
  template <typename T>
  void Event<T>::Remove(Listener* listener)
  {
@@ -228,7 +223,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      UnregisterEventConnection(this, listener);
      if (this->mCurrentConnection == listener)
      {
-@@ -510,13 +581,18 @@
+@@ -510,13 +581,18 @@ void Event<T>::Remove(Listener* listener)
      }
  
      DeleteListener(listener);
@@ -247,7 +242,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  }
  
  template <typename T>
-@@ -570,13 +646,20 @@
+@@ -570,13 +646,20 @@ public:
          : EventBase(name, length)
      {
          this->mCurrentConnection = 0;
@@ -261,16 +256,15 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
      virtual ~TypedEvent3() { }
      virtual void Disconnect(void* owner) = 0;
 -    virtual void Add(Callback, unsigned int, int) = 0;
--
 +    virtual void Add(Callback, EventOwnerHandle, int) = 0;
-+
+ 
 +#ifdef MSCHARGED_NATIVE
 +    static void* NativeType() { static unsigned char token; return &token; }
 +#endif
  protected:
      static void* sType;
  
-@@ -604,7 +687,7 @@
+@@ -604,7 +687,7 @@ public:
      typedef typename Event<T>::Callback Callback;
  
      virtual void Add(const typename Event<T>::Callback& callback,
@@ -280,9 +274,10 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          this->AddListener(callback, value, flags);
      }
 diff --git a/include/Game/EventConnection.h b/include/Game/EventConnection.h
+index a07593d..76997b3 100644
 --- a/include/Game/EventConnection.h
 +++ b/include/Game/EventConnection.h
-@@ -10,12 +10,29 @@
+@@ -10,12 +10,29 @@ struct EventConnectionOwner
      {
      }
  
@@ -313,9 +308,10 @@ diff --git a/include/Game/EventConnection.h b/include/Game/EventConnection.h
  
      EventConnection* mConnection;
 diff --git a/include/Game/EventRegistry.h b/include/Game/EventRegistry.h
+index 82ddaad..ad9f538 100644
 --- a/include/Game/EventRegistry.h
 +++ b/include/Game/EventRegistry.h
-@@ -20,9 +20,15 @@
+@@ -20,9 +20,15 @@ extern EventRegistry* g_pEventRegistry;
  template <typename T>
  inline typename EventInterface<T>::Type* FindEvent(const char* name, int length)
  {
@@ -332,9 +328,10 @@ diff --git a/include/Game/EventRegistry.h b/include/Game/EventRegistry.h
  }
  
 diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
+index d211c66..8127cea 100644
 --- a/include/Game/StaticEvent.h
 +++ b/include/Game/StaticEvent.h
-@@ -26,17 +26,24 @@
+@@ -26,17 +26,24 @@ public:
  
      void RemoveAll()
      {
@@ -360,7 +357,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
          nlDLListIterator<Listener> iterator;
          iterator = mListeners.Begin();
          while (iterator.hasNext())
-@@ -63,10 +70,14 @@
+@@ -63,10 +70,14 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -375,7 +372,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
          nlDLListIterator<Listener> iterator;
          iterator = mListeners.Begin();
          while (iterator.hasNext())
-@@ -93,6 +104,7 @@
+@@ -93,6 +104,7 @@ public:
              }
          }
          this->mCurrentConnection = 0;
@@ -383,7 +380,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
      }
  
  protected:
-@@ -104,6 +116,9 @@
+@@ -104,6 +116,9 @@ protected:
  
      void Remove(Listener* listener)
      {
@@ -393,7 +390,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
          UnregisterEventConnection(this, listener);
          if (this->mCurrentConnection == listener)
          {
-@@ -111,12 +126,17 @@
+@@ -111,12 +126,17 @@ protected:
              return;
          }
          DeleteListener(listener);
@@ -411,7 +408,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
      }
  
      void DeleteListener(Listener* listener)
-@@ -132,6 +152,9 @@
+@@ -132,6 +152,9 @@ protected:
  template <typename T, int Count>
  StaticEvent<T, Count>::~StaticEvent()
  {
@@ -421,7 +418,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
      RemoveAll();
      UnregisterEvent(this);
  }
-@@ -145,8 +168,11 @@
+@@ -145,8 +168,11 @@ void StaticEvent<T, Count>::Disconnect(void* owner)
  
  template <typename T, int Count>
  void StaticEvent<T, Count>::Add(
@@ -434,7 +431,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
      ListenerEntry* entry;
      mListeners.m_Allocator.Allocate(entry);
      new (entry) ListenerEntry;
-@@ -155,6 +181,7 @@
+@@ -155,6 +181,7 @@ void StaticEvent<T, Count>::Add(
  
      listener->callback.TransferFrom(callback);
      RegisterEventConnection(this, listener, value, flags);
@@ -444,6 +441,7 @@ diff --git a/include/Game/StaticEvent.h b/include/Game/StaticEvent.h
  #endif // GAME_STATIC_EVENT_H
 diff --git a/include/Game/UnidentifiedStaticEvent3.h b/include/Game/UnidentifiedStaticEvent3.h
 new file mode 100644
+index 0000000..71bacec
 --- /dev/null
 +++ b/include/Game/UnidentifiedStaticEvent3.h
 @@ -0,0 +1,158 @@
@@ -606,9 +604,10 @@ new file mode 100644
 +
 +#endif
 diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
+index dcd6788..09972bc 100644
 --- a/include/NL/nlFunction.h
 +++ b/include/NL/nlFunction.h
-@@ -113,11 +113,20 @@
+@@ -113,11 +113,20 @@ public:
      // holds by const reference while handing over ownership.
      void TransferFrom(const Function0& other)
      {
@@ -629,7 +628,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
      }
  
      operator bool() const
-@@ -140,10 +149,19 @@
+@@ -140,10 +149,19 @@ public:
      }
  
  private:
@@ -649,7 +648,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
          FunctorBase* mFunctor;
      };
  };
-@@ -280,11 +298,20 @@
+@@ -280,11 +298,20 @@ public:
      // holds by const reference while handing over ownership.
      void TransferFrom(const Function1& other)
      {
@@ -670,7 +669,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
      }
  
      operator bool() const
-@@ -317,10 +344,19 @@
+@@ -317,10 +344,19 @@ public:
      }
  
  private:
@@ -690,7 +689,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
          FunctorBase* mFunctor;
      };
  };
-@@ -605,10 +641,19 @@
+@@ -605,10 +641,19 @@ public:
  
      void TransferFrom(Function3& other)
      {
@@ -710,7 +709,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
      }
  
      operator bool() const
-@@ -631,10 +676,19 @@
+@@ -631,10 +676,19 @@ public:
      }
  
  private:
@@ -731,6 +730,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
      };
  };
 diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
+index 8d478d8..3ec1751 100644
 --- a/include/NL/plat/PlatPadManager.h
 +++ b/include/NL/plat/PlatPadManager.h
 @@ -5,142 +5,7 @@
@@ -878,6 +878,7 @@ diff --git a/include/NL/plat/PlatPadManager.h b/include/NL/plat/PlatPadManager.h
  // Device type stored per channel in PlatPadManager::type.
  enum PlatPadType
 diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
+index 7392e23..98e3db9 100644
 --- a/src/NL/nlEvent.cpp
 +++ b/src/NL/nlEvent.cpp
 @@ -9,27 +9,126 @@
@@ -1007,20 +1008,18 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      if (g_pEventRegistry == 0)
      {
          g_pEventRegistry = new (8, false)
-@@ -37,8 +136,10 @@
+@@ -37,8 +136,10 @@ static EventRegistry* GetEventRegistry()
                  DefaultKeyCompare<unsigned int> >;
      }
      return g_pEventRegistry;
--}
--
 +#endif
-+}
-+
+ }
+ 
 +#ifndef MSCHARGED_NATIVE
  class ConnectionPoolStateCallback
  {
  public:
-@@ -72,19 +173,39 @@
+@@ -72,19 +173,39 @@ static inline void RestoreConnectionPoolState()
          &stateCallback, &ConnectionPoolStateCallback::Apply);
  }
  
@@ -1060,14 +1059,13 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      unsigned int value = (unsigned int)length;
      unsigned int middleHigh = (value << 8) & 0x00FF0000;
      unsigned int high = value << 24;
-@@ -95,17 +216,28 @@
+@@ -95,17 +216,28 @@ unsigned int HashEventName(const char* name, int length)
      return ~(swapped ^ hash);
  }
  
 -void* FindEventConnection(void*, void* owner)
--{
 +void* FindEventConnection(void* event, void* owner)
-+{
+ {
 +#ifdef MSCHARGED_NATIVE
 +    CheckNativeEventThread();
 +    if (!owner) return 0;
@@ -1091,7 +1089,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  }
  
  void RegisterEvent(void* eventPtr, void* eventType)
-@@ -116,6 +248,12 @@
+@@ -116,6 +248,12 @@ void RegisterEvent(void* eventPtr, void* eventType)
      value.type = eventType;
      unsigned int key = event->mHash;
  
@@ -1104,7 +1102,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      GetEventRegistry()->Add(key, value);
  }
  
-@@ -123,6 +261,12 @@
+@@ -123,6 +261,12 @@ void UnregisterEvent(void* eventPtr)
  {
      EventBase* event = (EventBase*)eventPtr;
      unsigned int key = event->mHash;
@@ -1117,7 +1115,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      g_pEventRegistry->Remove(key);
  }
  
-@@ -138,7 +282,12 @@
+@@ -138,7 +282,12 @@ static inline void AddConnectionToGroup(
          {
              return;
          }
@@ -1130,7 +1128,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      }
      else
      {
-@@ -147,7 +296,11 @@
+@@ -147,7 +296,11 @@ static inline void AddConnectionToGroup(
  
      if (tree->Add(connection, 0) == 0)
      {
@@ -1142,14 +1140,13 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      }
  }
  
-@@ -162,8 +315,22 @@
+@@ -162,8 +315,22 @@ static inline void RegisterConnectionGroup(
  }
  
  void RegisterEventConnection(void* event, void* connectionPtr,
 -    unsigned int owner, int group)
--{
 +    EventOwnerHandle owner, int group)
-+{
+ {
 +#ifdef MSCHARGED_NATIVE
 +    ValidateNativeEventConnection(event, owner);
 +    EventConnection* connection = (EventConnection*)connectionPtr;
@@ -1167,19 +1164,16 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      EventConnection* connection
          = (EventConnection*)connectionPtr;
      connection->mOwner = (void*)owner;
-@@ -175,10 +342,32 @@
+@@ -175,10 +342,32 @@ void RegisterEventConnection(void* event, void* connectionPtr,
      }
  
      RegisterConnectionGroup(group, connection);
--}
--
--void UnregisterEventConnection(void*, void* connectionPtr)
--{
 +#endif
-+}
-+
+ }
+ 
+-void UnregisterEventConnection(void*, void* connectionPtr)
 +void UnregisterEventConnection(void* event, void* connectionPtr)
-+{
+ {
 +#ifdef MSCHARGED_NATIVE
 +    CheckNativeEventThread();
 +    EventConnection* connection = (EventConnection*)connectionPtr;
@@ -1204,7 +1198,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      EventConnection* connection
          = (EventConnection*)connectionPtr;
      if (connection->mOwner != 0)
-@@ -216,10 +405,15 @@
+@@ -216,10 +405,15 @@ void UnregisterEventConnection(void*, void* connectionPtr)
              *(EventConnection**)connection->mOwner = 0;
          }
      }
@@ -1220,7 +1214,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
      EventConnection* connection = *(EventConnection**)owner;
      if (connection != 0)
      {
-@@ -227,6 +421,7 @@
+@@ -227,6 +421,7 @@ void DisconnectEventOwner(void* owner)
      }
  }
  
@@ -1228,12 +1222,12 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  void ConnectionPoolStateCallback::Apply(
      const unsigned int&, ConnectionTreePtr* tree)
  {
-@@ -243,6 +438,8 @@
- };
+@@ -244,6 +439,8 @@ public:
  
  static EventRegistryInitializer sEventRegistryInitializer;
-+
-+#endif
  
++#endif
++
  template <typename KeyType, typename ValueType, typename AllocatorType, typename CompareType>
  inline void AVLTreeBase<KeyType, ValueType, AllocatorType, CompareType>::DeleteEntry(
+     AVLTreeUntemplated* tree, AVLTreeNode* entry)

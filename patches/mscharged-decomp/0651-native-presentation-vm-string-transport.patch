@@ -1,7 +1,8 @@
 Subject: Decode original Presentation string words through the existing cached-address ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentation_interp.cpp
+index 4e9744b..5b4597b 100644
 --- a/src/Game/Render/Presentation_interp.cpp
 +++ b/src/Game/Render/Presentation_interp.cpp
 @@ -1,4 +1,11 @@
@@ -14,9 +15,9 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
 +#endif
 +
  #include "Game/Game.h"
- /**
-  * Address/Size: 0x80288FF8 | size: 0x1444
-@@ -248,7 +255,7 @@
+ 
+ // Stadium-effect control was inserted at ID 63 after EU rev1, shifting the
+@@ -285,7 +292,7 @@ void Presentation::DoFunctionCall(unsigned int function)
      case 33:
      {
          int variant = m_SP[-1];
@@ -25,7 +26,7 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP -= 2;
          LoadNis(name, variant);
          break;
-@@ -272,7 +279,7 @@
+@@ -309,7 +316,7 @@ void Presentation::DoFunctionCall(unsigned int function)
          NisUseFilter filter = (NisUseFilter)m_SP[-4];
          NisUseStadiumOffset stadiumOffset = (NisUseStadiumOffset)m_SP[-5];
          NisTarget target = (NisTarget)m_SP[-6];
@@ -34,7 +35,7 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP -= 7;
          if (!mByPassing)
          {
-@@ -387,15 +394,15 @@
+@@ -424,15 +431,15 @@ void Presentation::DoFunctionCall(unsigned int function)
      {
          float length = *(float*)&m_SP[-1];
          float delay = *(float*)&m_SP[-2];
@@ -53,7 +54,7 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP -= 2;
          NISData* data = g_NISDataPool.Allocate();
          data->Type = type;
-@@ -418,7 +425,7 @@
+@@ -455,7 +462,7 @@ void Presentation::DoFunctionCall(unsigned int function)
      case 55:
      {
          u32* stack = m_SP;
@@ -62,8 +63,8 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP = stack;
          ScreenTransitionManager::Instance()->m_SelectedTransition = 0;
          ScreenTransitionManager::Instance()->SelectRandomTransition(filter);
-@@ -601,7 +608,7 @@
-     case 81:
+@@ -640,7 +647,7 @@ void Presentation::DoFunctionCall(unsigned int function)
+     case PRESENTATION_WAIT_FOR_AUTO_REPLAY:
      {
          u32* stack = m_SP;
 -        const char* filter = (const char*)*--stack;
@@ -71,8 +72,8 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP = stack;
          if (!mByPassing)
          {
-@@ -639,7 +646,7 @@
-     case 86:
+@@ -678,7 +685,7 @@ void Presentation::DoFunctionCall(unsigned int function)
+     case PRESENTATION_WAIT_FOR_NIS:
      {
          u32* stack = m_SP;
 -        const char* wipe = (const char*)*--stack;
@@ -80,8 +81,8 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP = stack;
          if (!mByPassing)
          {
-@@ -661,7 +668,7 @@
-     case 89:
+@@ -700,7 +707,7 @@ void Presentation::DoFunctionCall(unsigned int function)
+     case PRESENTATION_WIPE:
      {
          u32* stack = m_SP;
 -        const char* wipe = (const char*)*--stack;
@@ -89,7 +90,7 @@ diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentat
          m_SP = stack;
          if (!mByPassing)
          {
-@@ -680,3 +687,5 @@
+@@ -719,3 +726,5 @@ void Presentation::DoFunctionCall(unsigned int function)
          break;
      }
  }

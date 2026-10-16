@@ -1,12 +1,13 @@
 Subject: Restore original Options Done-button bounds in whole source
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retire the historical template extraction at this original call. Restore
 the original two local arrays and complete matching source method; source
 bounds, branch, callers, callbacks and menu decisions are unchanged.
 
 diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
+index 76c8c8e..b16d5c6 100644
 --- a/src/Game/FE/feHelpFuncs.cpp
 +++ b/src/Game/FE/feHelpFuncs.cpp
 @@ -1,6 +1,5 @@
@@ -16,7 +17,7 @@ diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
  
  #include <cmath>
  #include <stdio.h>
-@@ -54,6 +53,8 @@
+@@ -54,6 +53,8 @@ static const char* ModeToStringName[10] = {
      "TOURNAMENT",
  };
  
@@ -25,7 +26,7 @@ diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
  
  void ZeroFloat(float* value)
  {
-@@ -339,7 +340,16 @@
+@@ -339,7 +340,16 @@ void SetPlayButtonBounds(
  void SetDoneButtonBounds(
      FEPointerButton* component, TLComponentInstance*, int value)
  {

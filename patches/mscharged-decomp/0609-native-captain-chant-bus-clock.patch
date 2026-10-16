@@ -1,5 +1,5 @@
 Subject: Read the captain chant's bus clock through the host
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 UpdateTeamCaptainChant converts OSGetTime to milliseconds by reading the Wii OS
 global bus clock at its fixed console address 0x800000F8. That address is not
@@ -10,6 +10,7 @@ window, the chant request and every decision stay original; the console
 expression is unchanged.
 
 diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index 8130845..0216bd4 100644
 --- a/src/Game/Team.cpp
 +++ b/src/Game/Team.cpp
 @@ -48,6 +48,9 @@
@@ -22,7 +23,7 @@ diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
  
  cTeam* g_pTeams[2] = { NULL, NULL };
  cTeam* g_pCurrentlyUpdatingTeam;
-@@ -1211,8 +1214,14 @@
+@@ -1210,8 +1213,14 @@ void UpdateTeamCaptainChant(cTeam* pTeam)
              return;
          }
  

@@ -1,6 +1,6 @@
 Subject: Preserve original allocator with native pointer and block alignment
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original start/end allocation, circular free-list, relative 32-bit trailer,
 coalescing, and free-memory statistics algorithms. Native addresses use uintptr_t;
@@ -10,6 +10,7 @@ instead of using target panic/file-dump paths or looping forever. This does not
 establish exact console allocation layout, full diagnostics, or thread safety.
 
 diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
+index e2a3495..47ba4dd 100644
 --- a/src/NL/MemAlloc.cpp
 +++ b/src/NL/MemAlloc.cpp
 @@ -6,6 +6,26 @@
@@ -39,7 +40,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
  
  bool g_bPrintMemoryNewLowWaterMarks;
  bool g_bActivateMemoryLowWaterMarkChecking;
-@@ -32,6 +52,7 @@
+@@ -32,6 +52,7 @@ public:
      MemoryStats* stats;
  };
  
@@ -47,16 +48,16 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
  class FreeBlockDumpCallback
  {
  public:
-@@ -41,6 +62,8 @@
-     u32 total;
+@@ -42,6 +63,8 @@ public:
      u32 count;
  };
-+
-+#endif
  
++#endif
++
  inline MemoryStats::MemoryStats(MemoryAllocator* allocator)
  {
-@@ -64,6 +87,7 @@
+     MemoryStatsCallback callback;
+@@ -64,6 +87,7 @@ static inline unsigned int GetLargestFreeBlock(MemoryAllocator* allocator)
      return stats.largest;
  }
  
@@ -64,7 +65,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
  static inline void WriteFreeMemoryDump(MemoryAllocator* allocator, FILE* file)
  {
      FreeBlockDumpCallback dump;
-@@ -113,8 +137,13 @@
+@@ -113,8 +137,13 @@ static inline void DumpFreeBlocks(MemoryAllocator* allocator, const char* filena
      WriteFreeMemoryDump(allocator, file);
  }
  
@@ -78,7 +79,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      const char* filename;
      nlPrintf(sTotalFreeMemoryFormat, GetTotalFreeMemory(allocator));
      nlPrintf(sLargestFreeBlockFormat, GetLargestFreeBlock(allocator));
-@@ -122,6 +151,7 @@
+@@ -122,6 +151,7 @@ static inline void ReportAllocationFailure(MemoryAllocator* allocator)
      filename = sFreePanicDumpFilename;
      DumpFreeBlocks(allocator, filename);
      nlBreak();
@@ -86,7 +87,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
  }
  
  static inline void* InitializeAllocation(void* block, unsigned long size, u32 prefixSize, u32 suffixSize)
-@@ -137,7 +167,7 @@
+@@ -137,7 +167,7 @@ static inline void* InitializeAllocation(void* block, unsigned long size, u32 pr
      if (suffixSize != 0)
      {
          header |= 0x40000000;
@@ -95,7 +96,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      }
      *(u32*)((u8*)result - 4) = header;
      return result;
-@@ -145,9 +175,15 @@
+@@ -145,9 +175,15 @@ static inline void* InitializeAllocation(void* block, unsigned long size, u32 pr
  
  void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignment)
  {
@@ -112,7 +113,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      u32 prefix;
      u32 usedSize;
      u32 blockSize;
-@@ -157,8 +193,8 @@
+@@ -157,8 +193,8 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
          blockSize = cur->m_size;
          if (blockSize > alignedSize)
          {
@@ -123,7 +124,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
              usedSize = prefix + alignedSize;
              if (usedSize <= blockSize)
              {
-@@ -191,7 +227,11 @@
+@@ -191,7 +227,11 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
      u32 remaining = cur->m_size - usedSize;
      if (remaining > sizeof(FreeBlockList))
      {
@@ -135,7 +136,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
          newFree->m_size = remaining;
          if (m_free_block_list == 0 || cur == start)
          {
-@@ -230,41 +270,47 @@
+@@ -230,41 +270,47 @@ void* MemoryAllocator::AllocateFromStart(unsigned long size, unsigned int alignm
  }
  
  static inline void* AllocateFromBlockEnd(FreeBlockList** freeBlocks, FreeBlockList* block, unsigned long size,
@@ -194,7 +195,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
              if (requestSize <= blockSize)
              {
                  break;
-@@ -290,12 +336,51 @@
+@@ -290,12 +336,51 @@ void MemoryAllocator::Free(void* p)
          return;
      }
  
@@ -247,23 +248,22 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      if (header & 0x40000000)
      {
          size += *(u32*)((u8*)p + size);
-@@ -312,9 +397,12 @@
+@@ -312,9 +397,12 @@ void MemoryAllocator::Free(void* p)
  
  void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool fromEnd)
  {
 -    if (alignment < 4)
--    {
--        alignment = 4;
 +#ifdef MSCHARGED_NATIVE
 +    ValidateNativeRequest(size, alignment);
 +#endif
 +    if (alignment < kBlockAlignment)
-+    {
+     {
+-        alignment = 4;
 +        alignment = kBlockAlignment;
      }
      if (size < sizeof(FreeBlockList))
      {
-@@ -329,6 +417,12 @@
+@@ -329,6 +417,12 @@ void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool
  
  void MemoryAllocator::Initialize(void* memory, unsigned int size)
  {
@@ -276,7 +276,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      m_free_block_list = 0;
      AddBlock(memory, size);
      m_allocation_count = 0;
-@@ -340,10 +434,17 @@
+@@ -340,10 +434,17 @@ void MemoryAllocator::Initialize(void* memory, unsigned int size)
  
  void MemoryAllocator::AddBlock(void* memory, unsigned int size)
  {
@@ -295,7 +295,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      {
          FreeBlockList* head = m_free_block_list;
          if (head == 0)
-@@ -365,7 +466,7 @@
+@@ -365,7 +466,7 @@ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
          FreeBlockList* iter = start->m_next;
          while (iter != start)
          {
@@ -304,7 +304,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
              {
                  break;
              }
-@@ -383,7 +484,7 @@
+@@ -383,7 +484,7 @@ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
      }
  
      FreeBlockList* next = block->m_next;
@@ -313,7 +313,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      {
          block->m_size += next->m_size;
          if (next->m_next == next)
-@@ -402,7 +503,7 @@
+@@ -402,7 +503,7 @@ void MemoryAllocator::AddBlock(void* memory, unsigned int size)
      }
  
      FreeBlockList* prev = block->m_prev;
@@ -322,7 +322,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
      {
          prev->m_size += block->m_size;
          if (block->m_next == block)
-@@ -445,6 +546,7 @@
+@@ -445,6 +546,7 @@ unsigned int MemoryAllocator::LargestFreeBlock()
      return stats.largest;
  }
  
@@ -330,7 +330,7 @@ diff --git a/src/NL/MemAlloc.cpp b/src/NL/MemAlloc.cpp
  char sFreeMemoryDumpHeader[] = "count   address     size        allocNum    file(line)  description \n";
  char sFreeMemoryDumpTotalFormat[] = "Total free memory: %d\n";
  
-@@ -466,3 +568,5 @@
+@@ -466,3 +568,5 @@ void FreeBlockDumpCallback::Callback(FreeBlockList* block)
      count = newCount;
      total = newTotal;
  }

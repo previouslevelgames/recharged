@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Retain native failed reads through the original DVD-status wait
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: explicit temporary original frontend error-path admission.
 
 At the native command error boundary, admit the original Service default
@@ -12,9 +12,10 @@ DVD_RESULT_CANCELED case, the source handler body and its retail waits.
 The admission defaults off; no status, completion, retry or recovery is supplied.
 
 diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+index 635dba5..71f4b76 100644
 --- a/src/NL/nlFileGC.cpp
 +++ b/src/NL/nlFileGC.cpp
-@@ -476,6 +476,9 @@
+@@ -476,6 +476,9 @@ void AsyncManager::Service()
      {
          auto* entry = nlDLRingGetStart(m_activeEntryList);
          auto* tail = entry->Phase == READ_HEAD ? entry->m_next : 0;
@@ -24,12 +25,11 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
          try
          {
              if (tail && (tail == entry || tail->Phase != READ_TAIL || tail->m_pFile != entry->m_pFile))
-@@ -485,8 +488,24 @@
+@@ -485,8 +488,24 @@ void AsyncManager::Service()
                  if (!part) continue;
                  const auto state = FileCommandStatus(part->mFileInfo);
                  if (state == DVD_STATE_BUSY || state == DVD_STATE_WAITING) return;
 -                if (state != DVD_STATE_IDLE) throw std::runtime_error("NL asynchronous DVD read failed");
--            }
 +                if (state != DVD_STATE_IDLE)
 +                {
 +#ifdef MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS
@@ -42,7 +42,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
 +                    throw std::runtime_error("NL asynchronous DVD read failed");
 +#endif
 +                }
-+            }
+             }
 +#ifdef MSCHARGED_DIAGNOSTIC_FRONTEND_DVD_ERRORS
 +            // The original all-clear callback may service/cancel/reuse these reads.
 +            // Reacquire the live ring after its unchanged source wait returns.

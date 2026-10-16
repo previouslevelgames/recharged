@@ -1,5 +1,7 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/MSL_C/include/wchar_t.h b/libs/MSL_C/include/wchar_t.h
+index 5b1435b..5864f04 100644
 --- a/libs/MSL_C/include/wchar_t.h
 +++ b/libs/MSL_C/include/wchar_t.h
 @@ -5,6 +5,10 @@

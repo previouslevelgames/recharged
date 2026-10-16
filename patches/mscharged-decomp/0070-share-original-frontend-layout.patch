@@ -1,6 +1,6 @@
 Subject: Share original frontend transform and textbox row layout
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share original instance/parent transform and textbox row/offset equations with
 checked native static-layout adapters. Preserve console algorithms and original
@@ -10,6 +10,7 @@ This does not select a timeline, full FE renderer or missing nlFont draw method.
 
 diff --git a/include/Game/FE/FrontendLayoutSteps.h b/include/Game/FE/FrontendLayoutSteps.h
 new file mode 100644
+index 0000000..3352b92
 --- /dev/null
 +++ b/include/Game/FE/FrontendLayoutSteps.h
 @@ -0,0 +1,247 @@
@@ -261,6 +262,7 @@ new file mode 100644
 +
 +#endif // GAME_FE_FRONTEND_LAYOUT_STEPS_H
 diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index ae05c73..4d96926 100644
 --- a/src/Game/FE/feRender.cpp
 +++ b/src/Game/FE/feRender.cpp
 @@ -1,4 +1,5 @@
@@ -269,7 +271,7 @@ diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
  
  #include "Game/SharedStaticStorage.h"
  #include "Game/FE/fePackage.h"
-@@ -44,69 +45,7 @@
+@@ -44,69 +45,7 @@ void FERender::Initialize()
  
  void FERender::PushTransformMatrix(const TLInstance* instance, const nlMatrix4& parentMatrix, nlMatrix4& combinedMatrix)
  {

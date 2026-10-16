@@ -1,29 +1,31 @@
 # Patch: 0513-isolate-native-msl-stdint-guard
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Give native include_next forwarding a private guard before the original console header guard.
+
+diff --git a/libs/MSL_C/include/stdint.h b/libs/MSL_C/include/stdint.h
+index 4e51349..4df6ce4 100644
 --- a/libs/MSL_C/include/stdint.h
 +++ b/libs/MSL_C/include/stdint.h
 @@ -1,9 +1,11 @@
-+#if defined(MSCHARGED_NATIVE)
+-#ifndef _STDINT_H_
+-#define _STDINT_H_
+-
+ #if defined(MSCHARGED_NATIVE)
 +#ifndef MSCHARGED_MSL_STDINT_H
 +#define MSCHARGED_MSL_STDINT_H
-+#include_next <stdint.h>
+ #include_next <stdint.h>
 +#endif
-+#else
- #ifndef _STDINT_H_
- #define _STDINT_H_
--
--#if defined(MSCHARGED_NATIVE)
--#include_next <stdint.h>
--#else
+ #else
++#ifndef _STDINT_H_
++#define _STDINT_H_
  
  #ifdef __cplusplus
  extern "C" {
-@@ -23,6 +25,5 @@
+@@ -23,6 +25,5 @@ typedef unsigned long int uintptr_t;
  }
  #endif
  
-+#endif
- #endif // MSCHARGED_NATIVE
+-#endif // MSCHARGED_NATIVE
 -
--#endif
+ #endif
++#endif // MSCHARGED_NATIVE

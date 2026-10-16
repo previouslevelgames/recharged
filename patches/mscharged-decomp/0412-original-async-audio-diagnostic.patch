@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Admit original Async Splash-bank source requests in explicit audio diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore only unchanged original service12 bank request and service13 wait under
 a named native AUDIO diagnostic. Original branches, callback, ownership and
@@ -8,9 +8,10 @@ completion remain literal; no bank preloading, readiness or sample selection.
 Default/console and all existing selector projections remain unchanged.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index b548c4e..23be75d 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -279,7 +279,8 @@
+@@ -278,7 +278,8 @@ static inline void CreateInstance(T*& instance)
  void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS) \
@@ -20,7 +21,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      (void)functionIndex;
      throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
  #else
-@@ -388,6 +389,9 @@
+@@ -391,6 +392,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          BeginFontLoading(&gLoadInGameFonts);
          FinishLoadingStep(this);
          break;
@@ -30,7 +31,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 12:
          if (!lbl_806E1044)
          {
-@@ -430,6 +434,8 @@
+@@ -433,6 +437,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
          }
          break;

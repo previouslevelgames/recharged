@@ -1,6 +1,6 @@
 Subject: Build the unchanged original graphics pre-startup helper
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The selected helper returns true and performs no graphics initialization.
 Extract it unchanged so the native startup can pass this genuine no-op without
@@ -8,9 +8,10 @@ linking the later, unfinished glplatStartup console GX/VI implementation.
 The full original translation unit includes the same definition.
 
 diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
+index c000a7c..6ed77da 100644
 --- a/src/NL/gl/glPlat.cpp
 +++ b/src/NL/gl/glPlat.cpp
-@@ -125,10 +125,7 @@
+@@ -114,10 +114,7 @@ static void glx_InitGX()
      GXFlush();
  }
  
@@ -24,6 +25,7 @@ diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
  {
 diff --git a/src/NL/gl/glPlatPreStartup.cpp b/src/NL/gl/glPlatPreStartup.cpp
 new file mode 100644
+index 0000000..415a465
 --- /dev/null
 +++ b/src/NL/gl/glPlatPreStartup.cpp
 @@ -0,0 +1,6 @@

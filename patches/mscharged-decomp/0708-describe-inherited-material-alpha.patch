@@ -1,10 +1,12 @@
 From: mscharged-port
 Subject: Describe consumed inherited alpha selectors in dynamic materials
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/include/NL/glx/GXPipelinePreparation.h b/include/NL/glx/GXPipelinePreparation.h
+index f427976..e1e9b50 100644
 --- a/include/NL/glx/GXPipelinePreparation.h
 +++ b/include/NL/glx/GXPipelinePreparation.h
-@@ -11,6 +11,13 @@
+@@ -11,6 +11,13 @@ void glxConfigureProjectedShadowPipeline(bool skinned, bool fixedColour, bool in
  #if defined(MSCHARGED_AUTOMATIC_PREWARM)
  int glxAutomaticLightCount(bool character, bool includeEffects, bool maximum);
  int glxAutomaticEffectLightCount();
@@ -18,9 +20,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #endif
  inline void glxConfigureMaterialOpacityColourPass(int stage)
  {
+diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+index 0cf1db4..bd424d9 100644
 --- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
-@@ -347,6 +347,7 @@
+@@ -347,6 +347,7 @@ void glxCollectCharacterDamagePipelineVariants(const glModelPacket& packet)
      for (int surface = match ? 0 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega);
           surface <= (match ? 8 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega)); ++surface)
      for (int shadow = 0; shadow < (match && sCharacterDamageShadowLightingEnabled ? 4 : 1); ++shadow)
@@ -28,7 +32,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      {
          BeginAutomaticMaterialVariant(packet);
          program->ConfigureVertexFormat(true);
-@@ -356,6 +357,8 @@
+@@ -356,6 +357,8 @@ void glxCollectCharacterDamagePipelineVariants(const glModelPacket& packet)
          const bool damage[2] = { (surface & 1) != 0, (surface & 2) != 0 };
          ConfigureCharacterDamageSurfacePipeline(surface == 8, (surface & 4) ? 1.0f : 0.0f,
              damage, stageCount, sCharacterDamageTexGenCount);
@@ -37,9 +41,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
          if (shadow != 0)
              glxConfigureProjectedShadowPipeline(true, shadow == 3, shadow == 2);
          EmitAutomaticMaterialPipeline(packet);
+diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+index e2fe795..66cc1ff 100644
 --- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
-@@ -304,6 +304,7 @@
+@@ -304,6 +304,7 @@ void glxCollectColourFresnelPipelineVariants(const glModelPacket& packet)
      const int lastLight = match && sColourFresnelLightingEnabled
          ? glxAutomaticLightCount(false, true, true) : firstLight;
      for (int lightCount = firstLight; lightCount <= lastLight; ++lightCount)
@@ -47,7 +53,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      {
          BeginAutomaticMaterialVariant(packet);
          program->ConfigureVertexFormat(true);
-@@ -315,6 +316,8 @@
+@@ -315,6 +316,8 @@ void glxCollectColourFresnelPipelineVariants(const glModelPacket& packet)
          ConfigureColourFresnelPipelineState(sColourFresnelLightingEnabled,
              sColourFresnelLightRampEnabled, sColourFresnelDoubleLighting,
              localCount, []() {});
@@ -56,9 +62,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
          EmitAutomaticMaterialPipeline(packet);
          if (sColourFresnelLightingEnabled)
          {
+diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+index a89e315..a2db6f2 100644
 --- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
-@@ -240,12 +240,15 @@
+@@ -240,12 +240,15 @@ void glxCollectMoviePipelineVariants(const glModelPacket& packet)
      auto* program = static_cast<GXMovieMaterialProgram*>(packet.materialProgram);
      for (int yuv = 0; yuv < 2; ++yuv)
      for (int tint = 0; tint < 2; ++tint)
@@ -74,9 +82,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
          EmitAutomaticMaterialPipeline(packet);
      }
  }
+diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+index 5d4ff63..de29a3e 100644
 --- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
-@@ -314,6 +314,7 @@
+@@ -314,6 +314,7 @@ void glxCollectSkinnedMultiLightPipelineVariants(const glModelPacket& packet)
           blend <= (match ? 1 : (params.blendAmount >= 0.999f)); ++blend)
      for (int animateNormal = match ? 0 : (params.animateNormalTexCoords != 0);
           animateNormal <= (match ? 1 : (params.animateNormalTexCoords != 0)); ++animateNormal)
@@ -84,7 +94,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      {
          BeginAutomaticMaterialVariant(packet);
          program->ConfigureVertexFormat(true);
-@@ -322,6 +323,11 @@
+@@ -322,6 +323,11 @@ void glxCollectSkinnedMultiLightPipelineVariants(const glModelPacket& packet)
          glxConfigureSkinnedMultiLightBlend(blend ? 1.0f : 0.0f);
          ConfigureSkinnedMultiLightTexgen(animateNormal != 0);
          ConfigureSkinnedMultiLightChannels(diffuse, specular);

@@ -1,5 +1,5 @@
 Subject: Select canonical SDK declarations for original GX material providers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The ten paired programs retain every original method, initialization request,
 loop, material state/scroller branch and array operand. Select canonical native
@@ -14,6 +14,7 @@ proves live extent/stride/byte domain. No draw, source lifetime or GPU success
 is implied by compiling the complete original render units.
 
 diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
+index ed2fcff..b523656 100644
 --- a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
 +++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -29,6 +30,7 @@ diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgram.cpp b/src/NL/glx/GXBl
  #include "NL/glx/GXBlackTextureAlphaMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
+index 24c1e7a..8eea9e5 100644
 --- a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
 @@ -1,4 +1,8 @@
@@ -41,6 +43,7 @@ diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp b/src/NL/gl
  
  #include "Game/GameObjectLighting.h"
 diff --git a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp b/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
+index 639fc66..3f66a23 100644
 --- a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
 +++ b/src/NL/glx/GXCharacterDamageMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -56,6 +59,7 @@ diff --git a/src/NL/glx/GXCharacterDamageMaterialProgram.cpp b/src/NL/glx/GXChar
  #include "NL/glx/GXCharacterDamageMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+index ea78b89..35175b5 100644
 --- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
 @@ -1,8 +1,16 @@
@@ -75,7 +79,7 @@ diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/
  #include "NL/glx/GXCharacterDamageMaterialProgram.h"
  
  #include "NL/gl/glMatrix.h"
-@@ -236,7 +244,11 @@
+@@ -236,7 +244,11 @@ void GXMaterialProgramImpl<GXCharacterDamageMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -88,6 +92,7 @@ diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/
      nlMultMatrices(modelview, model, sCharacterDamageViewMatrix);
      if (sCharacterDamageShadowLightingEnabled)
 diff --git a/src/NL/glx/GXColourFresnelMaterialProgram.cpp b/src/NL/glx/GXColourFresnelMaterialProgram.cpp
+index d73986d..aa4010e 100644
 --- a/src/NL/glx/GXColourFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXColourFresnelMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -103,6 +108,7 @@ diff --git a/src/NL/glx/GXColourFresnelMaterialProgram.cpp b/src/NL/glx/GXColour
  #include "NL/glx/GXColourFresnelMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+index 9209702..2367f6d 100644
 --- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
 @@ -1,8 +1,16 @@
@@ -122,7 +128,7 @@ diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GX
  
  #include "NL/gl/glMatrix.h"
  #include "NL/gl/glState.h"
-@@ -216,7 +224,11 @@
+@@ -216,7 +224,11 @@ void GXMaterialProgramImpl<GXColourFresnelMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -135,6 +141,7 @@ diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GX
      nlMultMatrices(modelview, model, sColourFresnelViewMatrix);
  
 diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp b/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
+index 8adc200..7cdfc01 100644
 --- a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
 +++ b/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -150,6 +157,7 @@ diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgram.cpp b/src/NL/glx/GXMegaDiff
  #include "NL/glx/GXMegaDiffuseMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
+index 6180e73..4cf43cf 100644
 --- a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp
 @@ -1,4 +1,8 @@
@@ -162,6 +170,7 @@ diff --git a/src/NL/glx/GXMegaDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXMe
  #include "NL/gl/glMaterialParameters.h"
  
 diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
+index 6b4ceda..fbd77fd 100644
 --- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -177,6 +186,7 @@ diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GX
  #include "NL/glx/GXMegaSpecularFresnelMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+index 02c985b..40210b9 100644
 --- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
 @@ -1,8 +1,16 @@
@@ -196,7 +206,7 @@ diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/
  
  #include "NL/gl/glMatrix.h"
  #include "NL/gl/glState.h"
-@@ -32,7 +40,11 @@
+@@ -32,7 +40,11 @@ static unsigned long sMegaSpecularFresnelTextures[5] = {
  };
  static unsigned long sMegaSpecularFresnelTextureIndices[5];
  
@@ -208,7 +218,7 @@ diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/
  static float sMegaSpecularLookupScale[2];
  static int sMegaSpecularFresnelLightCount;
  static bool sMegaSpecularFresnelLightingEnabled;
-@@ -184,7 +196,11 @@
+@@ -184,7 +196,11 @@ void GXMaterialProgramImpl<GXMegaSpecularFresnelMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -221,6 +231,7 @@ diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/
      nlMultMatrices(modelview, model, sMegaSpecularFresnelViewMatrix);
      SetGameObjectShadowModelMatrix(modelMatrix);
 diff --git a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp b/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
+index ab9f74e..af7269b 100644
 --- a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXMegaSpecularMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -236,6 +247,7 @@ diff --git a/src/NL/glx/GXMegaSpecularMaterialProgram.cpp b/src/NL/glx/GXMegaSpe
  #include "NL/glx/GXMegaSpecularMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
+index 000f9f1..759aee5 100644
 --- a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp
 @@ -1,4 +1,8 @@
@@ -248,6 +260,7 @@ diff --git a/src/NL/glx/GXMegaSpecularMaterialProgramRender.cpp b/src/NL/glx/GXM
  #include "NL/gl/glMaterialParameters.h"
  
 diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
+index a9e8a24..6231935 100644
 --- a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
 +++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -263,6 +276,7 @@ diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgram.cpp b/src/NL/glx/GXSk
  #include "NL/glx/GXSkinnedMultiLightMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
+index 2985384..72382db 100644
 --- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
 @@ -1,6 +1,14 @@
@@ -281,6 +295,7 @@ diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp b/src/NL/gl
  #include "NL/gl/gl.h"
  #include "NL/gl/glMatrix.h"
 diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
+index f462979..f63b728 100644
 --- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -296,6 +311,7 @@ diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgram.cpp b/src/NL/glx/GX
  #include "NL/glx/GXSkinnedUnlitTextureMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+index cea941f..a0271b2 100644
 --- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
 @@ -1,4 +1,8 @@
@@ -308,6 +324,7 @@ diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp b/src/NL/
  
  #include "NL/gl/glMatrix.h"
 diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
+index f0d2497..177da24 100644
 --- a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp
 @@ -1,7 +1,11 @@
@@ -323,6 +340,7 @@ diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXSpec
  #include "NL/glx/GXSpecularFresnelMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
 diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+index f5eddbc..bd85074 100644
 --- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
 @@ -1,8 +1,16 @@
@@ -342,7 +360,7 @@ diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/
  
  #include <string.h>
  
-@@ -43,7 +51,11 @@
+@@ -43,7 +51,11 @@ static unsigned long sSpecularFresnelTextures[5] = {
  };
  static unsigned long sSpecularFresnelTextureIndices[5];
  
@@ -354,7 +372,7 @@ diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/
  static float sSpecularLookupScale[2];
  static int sSpecularFresnelLightCount;
  static bool sSpecularFresnelLightingEnabled;
-@@ -190,7 +202,11 @@
+@@ -190,7 +202,11 @@ void GXMaterialProgramImpl<GXSpecularFresnelMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -367,6 +385,7 @@ diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/
      nlMultMatrices(modelview, model, sSpecularFresnelViewMatrix);
      SetGameObjectShadowModelMatrix(modelMatrix);
 diff --git a/src/NL/glx/GXWarbleMaterialProgram.cpp b/src/NL/glx/GXWarbleMaterialProgram.cpp
+index 0e211fb..7e4f0d9 100644
 --- a/src/NL/glx/GXWarbleMaterialProgram.cpp
 +++ b/src/NL/glx/GXWarbleMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -379,6 +398,7 @@ diff --git a/src/NL/glx/GXWarbleMaterialProgram.cpp b/src/NL/glx/GXWarbleMateria
  #include "NL/glx/GXMaterialProgram.h"
  #include "NL/glx/GXMaterialProgramInternal.h"
 diff --git a/src/NL/glx/GXWarbleMaterialProgramRender.cpp b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
+index a921fef..9668b5f 100644
 --- a/src/NL/glx/GXWarbleMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXWarbleMaterialProgramRender.cpp
 @@ -1,4 +1,8 @@

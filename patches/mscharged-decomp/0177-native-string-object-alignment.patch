@@ -1,6 +1,6 @@
 Subject: Preserve original string algorithms with native temporary Data alignment
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Carry the native pointer field of Vector<T, TempStringPoolAllocator> as byte-safe
 four-byte-aligned storage beneath the original methods. Retain the original
@@ -14,9 +14,10 @@ This is runtime native object ABI, not serialized Wii data. It does not restore
 the separate TempStringAllocator manager or qualify source CRT/static teardown.
 
 diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
+index ba514aa..ffd2f1c 100644
 --- a/include/NL/nlBasicString.h
 +++ b/include/NL/nlBasicString.h
-@@ -406,7 +406,7 @@
+@@ -406,7 +406,7 @@ inline bool operator==(const BasicString<CharT, Allocator>& lhs, const char* rhs
  }
  
  template <typename CharT, typename Allocator>
@@ -25,7 +26,7 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
  inline void BasicString<CharT, Allocator>::erase(const CharT* begin, const CharT* end)
  {
      const auto* original = mData ? mData->begin() : nullptr;
-@@ -424,7 +424,7 @@
+@@ -424,7 +424,7 @@ inline void BasicString<CharT, Allocator>::erase(const CharT* begin, const CharT
  #endif
  
  template <typename CharT, typename Allocator>
@@ -34,7 +35,22 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
  inline void BasicString<CharT, Allocator>::insert(CharT* at, const CharT* begin, const CharT* end)
  {
      const auto* original = mData ? mData->begin() : nullptr;
+diff --git a/include/NL/nlString.h b/include/NL/nlString.h
+index 07d4c02..8352af3 100644
+--- a/include/NL/nlString.h
++++ b/include/NL/nlString.h
+@@ -155,6 +155,9 @@ public:
+     template <typename T>
+     static T* New(int count, const char*)
+     {
++#if defined(MSCHARGED_NATIVE)
++        static_assert(alignof(T) <= 4, "Original temporary string +4 payload requires a reviewed typed alignment");
++#endif
+         void* ptr = sTempStringAllocatorPool.allocator.pool.Allocate(count * sizeof(T) + 4);
+ #if defined(MSCHARGED_NATIVE)
+         u32 size = count * sizeof(T);
 diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
+index 5f537c5..f8ce884 100644
 --- a/include/NL/nlVector.h
 +++ b/include/NL/nlVector.h
 @@ -3,6 +3,7 @@
@@ -45,7 +61,7 @@ diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
  #include <vector>
  #include <limits>
  #include <stdexcept>
-@@ -104,7 +105,7 @@
+@@ -104,7 +105,7 @@ public:
          insert(mData + mSize, &value, &value + 1);
      }
  
@@ -54,7 +70,7 @@ diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
      void insert(T* at, const T* begin, const T* end)
      {
          const auto count = begin == end ? 0 : end - begin;
-@@ -188,7 +189,11 @@
+@@ -188,7 +189,11 @@ public:
          return mData[index];
      }
  
@@ -66,16 +82,3 @@ diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
      int mSize;
      int mCapacity;
  };
-diff --git a/include/NL/nlString.h b/include/NL/nlString.h
---- a/include/NL/nlString.h
-+++ b/include/NL/nlString.h
-@@ -155,6 +155,9 @@
-     template <typename T>
-     static T* New(int count, const char*)
-     {
-+#if defined(MSCHARGED_NATIVE)
-+        static_assert(alignof(T) <= 4, "Original temporary string +4 payload requires a reviewed typed alignment");
-+#endif
-         void* ptr = sTempStringAllocatorPool.allocator.pool.Allocate(count * sizeof(T) + 4);
- #if defined(MSCHARGED_NATIVE)
-         u32 size = count * sizeof(T);

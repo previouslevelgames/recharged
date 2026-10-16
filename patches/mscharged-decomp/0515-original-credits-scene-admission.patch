@@ -1,10 +1,12 @@
 # Patch: 0515-original-credits-scene-admission
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Temporary diagnostic admission of the existing original CreditScene factory case selected by Options item2.
+
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index c6effd9..0a28438 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -382,11 +382,13 @@
+@@ -415,11 +415,13 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_INTRO_MOVIE:
          newHandler = new (nlMalloc(sizeof(IntroMovieScene), 8, false)) IntroMovieScene();
          break;

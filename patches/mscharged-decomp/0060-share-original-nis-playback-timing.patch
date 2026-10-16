@@ -1,5 +1,5 @@
 Subject: [PATCH] share original NIS camera timing and trigger crossing arithmetic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract the original frame product/clamp/carry ordering, positive primary carry
 and half-open trigger crossing into shared inline helpers. The original methods
@@ -7,66 +7,9 @@ and the bounded native camera/trigger scheduler use those exact expressions.
 No actor, asynchronous-loading, audio, overlay or complete NisPlayer service is
 selected by this extraction. Input validation belongs to the native owner.
 
-diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
---- a/src/Game/NisPlayer.cpp
-+++ b/src/Game/NisPlayer.cpp
-@@ -1,6 +1,7 @@
- #include "Game/Task/GameTaskState.h"
- #include "NL/nlDLListContainer.inl"
- #include "Game/NisPlayer.h"
-+#include "Game/NisPlaybackTiming.h"
- #include "Game/Blinker.h"
- #include "NL/nlBasicString.h"
- #include "Game/Render/StadiumLoading.h"
-@@ -427,13 +428,7 @@
- {
-     float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
-     float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
--    deltaT = realTimeDelta * timeDilation;
--    if (deltaT > 0.5f)
--    {
--        deltaT = 0.5f;
--    }
--    deltaT += mCameraOverrun;
--    mCameraOverrun = 0.0f;
-+    deltaT = NisPlaybackTiming::FrameDelta(realTimeDelta, timeDilation, mCameraOverrun);
-     HandleAsyncs();
- 
-     for (int i = 0; i < 8; i++)
-@@ -456,9 +451,9 @@
-             if (mCamera[i].m_pActiveCameraData != 0)
-             {
-                 float overrun = mCamera[i].ManualUpdate(deltaT);
--                if (i == 0 && overrun > 0.0f)
-+                if (i == 0)
-                 {
--                    mCameraOverrun = overrun;
-+                    NisPlaybackTiming::KeepPrimaryOverrun(overrun, mCameraOverrun);
-                 }
-             }
-         }
-diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
---- a/src/Game/Render/Nis.cpp
-+++ b/src/Game/Render/Nis.cpp
-@@ -1,5 +1,6 @@
- #include "Game/Render/Nis.h"
- #include "NL/nlDLListContainer.inl"
-+#include "Game/NisPlaybackTiming.h"
- 
- #include "Game/AI/AIPad.h"
- #include "Game/AnimInventory.h"
-@@ -325,8 +326,7 @@
-     {
-         for (int i = 0; i < mNumTriggers; ++i)
-         {
--            float triggerFrame = (mTriggers[i].frameNumber / 30.0f) / duration;
--            if ((oldTime <= triggerFrame) && (newTime > triggerFrame))
-+            if (NisPlaybackTiming::Crossed(oldTime, newTime, duration, mTriggers[i].frameNumber))
-             {
-                 mTriggers[i].Fire(*this);
-             }
 diff --git a/include/Game/NisPlaybackTiming.h b/include/Game/NisPlaybackTiming.h
 new file mode 100644
+index 0000000..e527a39
 --- /dev/null
 +++ b/include/Game/NisPlaybackTiming.h
 @@ -0,0 +1,39 @@
@@ -109,3 +52,63 @@ new file mode 100644
 +}
 +
 +#endif
+diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
+index f9672fe..344adf7 100644
+--- a/src/Game/NisPlayer.cpp
++++ b/src/Game/NisPlayer.cpp
+@@ -1,6 +1,7 @@
+ #include "Game/Task/GameTaskState.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/NisPlayer.h"
++#include "Game/NisPlaybackTiming.h"
+ #include "Game/Blinker.h"
+ #include "NL/nlBasicString.h"
+ #include "Game/Render/StadiumLoading.h"
+@@ -427,13 +428,7 @@ void NisPlayer::Update(float deltaT)
+ {
+     float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
+     float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
+-    deltaT = realTimeDelta * timeDilation;
+-    if (deltaT > 0.5f)
+-    {
+-        deltaT = 0.5f;
+-    }
+-    deltaT += mCameraOverrun;
+-    mCameraOverrun = 0.0f;
++    deltaT = NisPlaybackTiming::FrameDelta(realTimeDelta, timeDilation, mCameraOverrun);
+     HandleAsyncs();
+ 
+     for (int i = 0; i < 8; i++)
+@@ -456,9 +451,9 @@ void NisPlayer::Update(float deltaT)
+             if (mCamera[i].m_pActiveCameraData != 0)
+             {
+                 float overrun = mCamera[i].ManualUpdate(deltaT);
+-                if (i == 0 && overrun > 0.0f)
++                if (i == 0)
+                 {
+-                    mCameraOverrun = overrun;
++                    NisPlaybackTiming::KeepPrimaryOverrun(overrun, mCameraOverrun);
+                 }
+             }
+         }
+diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
+index b80726f..0d6cbc2 100644
+--- a/src/Game/Render/Nis.cpp
++++ b/src/Game/Render/Nis.cpp
+@@ -1,5 +1,6 @@
+ #include "Game/Render/Nis.h"
+ #include "NL/nlDLListContainer.inl"
++#include "Game/NisPlaybackTiming.h"
+ 
+ #include "Game/AI/AIPad.h"
+ #include "Game/AnimInventory.h"
+@@ -325,8 +326,7 @@ void Nis::UpdateTriggers(float oldTime, float newTime, float duration)
+     {
+         for (int i = 0; i < mNumTriggers; ++i)
+         {
+-            float triggerFrame = (mTriggers[i].frameNumber / 30.0f) / duration;
+-            if ((oldTime <= triggerFrame) && (newTime > triggerFrame))
++            if (NisPlaybackTiming::Crossed(oldTime, newTime, duration, mTriggers[i].frameNumber))
+             {
+                 mTriggers[i].Fire(*this);
+             }

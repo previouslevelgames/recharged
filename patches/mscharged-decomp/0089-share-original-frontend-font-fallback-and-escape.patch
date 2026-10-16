@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original font fallback and bounded text escape parsing
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract the original first-match/first-registered font fallback for native
 lookup without modifying the Matching fontmanager.cpp translation unit.
@@ -10,6 +10,7 @@ prevalidate their qualified grammar; actual source ABI keys are adapted by0143.
 
 diff --git a/include/Game/Font/FontLookupSteps.h b/include/Game/Font/FontLookupSteps.h
 new file mode 100644
+index 0000000..0021fcf
 --- /dev/null
 +++ b/include/Game/Font/FontLookupSteps.h
 @@ -0,0 +1,23 @@
@@ -38,6 +39,7 @@ new file mode 100644
 +#endif
 diff --git a/include/NL/FrontendTextEscapeSteps.h b/include/NL/FrontendTextEscapeSteps.h
 new file mode 100644
+index 0000000..f2133fa
 --- /dev/null
 +++ b/include/NL/FrontendTextEscapeSteps.h
 @@ -0,0 +1,75 @@

@@ -1,6 +1,6 @@
 Subject: Share original font page ordering and slot completion
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract original source page order and slot completion for checked native
 staged file ownership. Leave the Matching fontmanager.cpp translation unit
@@ -9,6 +9,7 @@ registration and manager readiness.
 
 diff --git a/include/Game/Font/FontLoadSteps.h b/include/Game/Font/FontLoadSteps.h
 new file mode 100644
+index 0000000..8c89d75
 --- /dev/null
 +++ b/include/Game/Font/FontLoadSteps.h
 @@ -0,0 +1,26 @@

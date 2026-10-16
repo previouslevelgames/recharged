@@ -1,74 +1,19 @@
 Subject: Share original frontend named slide selection reset predicates
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share the original presentation/component clock reset conditions with retained
 native scene playback. Preserve missing-selection clearing, first hash lookup
 and the component-only Update(0) in their respective callers. No handler or
 scene-manager readiness behavior is selected.
 
-diff --git a/src/Game/FE/fePresentation.cpp b/src/Game/FE/fePresentation.cpp
---- a/src/Game/FE/fePresentation.cpp
-+++ b/src/Game/FE/fePresentation.cpp
-@@ -1,4 +1,5 @@
- #include "Game/FE/fePresentation.h"
-+#include "Game/FE/FrontendSelectionSteps.h"
- #include "Game/FE/FrontendAnimationSteps.h"
- 
- #include "Game/FE/feFinder.h"
-@@ -8,10 +9,7 @@
- void FEPresentation::SetActiveSlide(unsigned long hash, bool resetTime)
- {
-     TLSlide* slide = FindItemByHashID<TLSlide>(m_slides, hash);
--    if (resetTime || m_currentSlide != slide)
--    {
--        m_fadeDuration = 0.0f;
--    }
-+    FrontendSelectPresentationTime(m_fadeDuration, resetTime, m_currentSlide != slide);
-     m_currentSlide = slide;
- }
- 
-diff --git a/src/Game/FE/tlComponent.cpp b/src/Game/FE/tlComponent.cpp
---- a/src/Game/FE/tlComponent.cpp
-+++ b/src/Game/FE/tlComponent.cpp
-@@ -1,4 +1,5 @@
- #include "Game/FE/tlComponent.h"
-+#include "Game/FE/FrontendSelectionSteps.h"
- 
- #include "Game/FE/feFinder.h"
- #include "Game/FE/tlSlide.h"
-@@ -20,13 +21,7 @@
-     TLSlide* slide = FindItemByHashID<TLSlide>(pChildren, hash);
-     if (slide != 0)
-     {
--        if (forceRestart || slide != m_pActiveSlide)
--        {
--            if (!preserveTime)
--            {
--                slide->m_time = 0.0f;
--            }
--        }
-+        FrontendSelectComponentTime(slide->m_time, forceRestart, slide != m_pActiveSlide, preserveTime);
-     }
- 
-     m_pActiveSlide = slide;
-@@ -40,13 +35,7 @@
- {
-     if (slide != 0)
-     {
--        if (forceRestart || slide != m_pActiveSlide)
--        {
--            if (!preserveTime)
--            {
--                slide->m_time = 0.0f;
--            }
--        }
-+        FrontendSelectComponentTime(slide->m_time, forceRestart, slide != m_pActiveSlide, preserveTime);
-     }
- 
-     m_pActiveSlide = slide;
+Refreshed for decomp 9046e67a: fePresentation.cpp and tlComponent.cpp keep
+their upstream text (the series' later restore patches made these edits net
+zero).
+
 diff --git a/include/Game/FE/FrontendSelectionSteps.h b/include/Game/FE/FrontendSelectionSteps.h
 new file mode 100644
+index 0000000..de0e5f2
 --- /dev/null
 +++ b/include/Game/FE/FrontendSelectionSteps.h
 @@ -0,0 +1,22 @@

@@ -1,109 +1,17 @@
 Subject: Share original submenu Done pointer bounds and hover callbacks
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve exact authored absolute bounds and common Audio/Visual hover bodies.
 Press still executes its selected source callback; native host preferences are
 explicitly scoped and do not supply original GameInfo or complete SaveLoad.
 
-diff --git a/src/Game/FE/feOptionsSubMenus.cpp b/src/Game/FE/feOptionsSubMenus.cpp
---- a/src/Game/FE/feOptionsSubMenus.cpp
-+++ b/src/Game/FE/feOptionsSubMenus.cpp
-@@ -3,6 +3,7 @@
- #include "Game/FE/FrontendAudioOptionsSteps.h"
- #include "Game/FE/FEAudio.h"
- #include "Game/FE/FrontendVisualOptionsSteps.h"
-+#include "Game/FE/FrontendDoneButtonSteps.h"
- 
- #include "Game/DB/SaveLoad.h"
- #include "Game/DB/UserOptions.h"
-@@ -199,21 +200,12 @@
- 
- void OptionsAudioMenuV2::OnSaveButtonPointerEnter(int index, void*)
- {
--    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_HOVER, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
--    {
--        mSaveButton->SetActiveSlide("over", true, false);
--        FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
--    }
-+    FrontendDoneButtonEnter(*this,index, [](unsigned long cue,const char* name,void* context,bool restart) { FEAudio::PlayAnimAudioEvent(cue,name,context,restart); });
- }
- 
- void OptionsAudioMenuV2::OnSaveButtonPointerLeave(int index, void*)
- {
--    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_NORMAL, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
--    {
--        mSaveButton->SetActiveSlide("off", true, false);
--    }
-+    FrontendDoneButtonLeave(*this,index);
- }
- 
- void OptionsAudioMenuV2::OnSaveButtonPointerPress(int, void*)
-@@ -433,21 +425,12 @@
- 
- void OptionsVisualMenuV2::OnSaveButtonPointerEnter(int index, void*)
- {
--    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_HOVER, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
--    {
--        mSaveButton->SetActiveSlide("over", true, false);
--        FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
--    }
-+    FrontendDoneButtonEnter(*this,index, [](unsigned long cue,const char* name,void* context,bool restart) { FEAudio::PlayAnimAudioEvent(cue,name,context,restart); });
- }
- 
- void OptionsVisualMenuV2::OnSaveButtonPointerLeave(int index, void*)
- {
--    mSaveButtonComponent.SetPointerState(POINTER_BUTTON_NORMAL, index);
--    if (!mSaveButtonComponent.HasOtherPointerState(POINTER_BUTTON_HOVER, index))
--    {
--        mSaveButton->SetActiveSlide("off", true, false);
--    }
-+    FrontendDoneButtonLeave(*this,index);
- }
- 
- void OptionsVisualMenuV2::OnSaveButtonPointerPress(int, void*)
-diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
---- a/src/Game/FE/feHelpFuncs.cpp
-+++ b/src/Game/FE/feHelpFuncs.cpp
-@@ -1,5 +1,6 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/FE/feHelpFuncs_decl.h"
-+#include "Game/FE/FrontendDoneButtonSteps.h"
- 
- #include <cmath>
- #include <stdio.h>
-@@ -53,8 +54,6 @@
-     "TOURNAMENT",
- };
- 
--static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
--static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
- 
- void ZeroFloat(float* value)
- {
-@@ -340,16 +339,7 @@
- void SetDoneButtonBounds(
-     FEPointerButton* component, TLComponentInstance*, int value)
- {
--    if (value)
--    {
--        component->SetBounds(sPlayButtonBounds[0], sPlayButtonBounds[1],
--            sPlayButtonBounds[2], sPlayButtonBounds[3]);
--    }
--    else
--    {
--        component->SetBounds(sDoneButtonBounds[0], sDoneButtonBounds[1],
--            sDoneButtonBounds[2], sDoneButtonBounds[3]);
--    }
-+    FrontendDoneButtonBounds(component,value);
- }
- 
- // Retail leaves the result unspecified for an invalid cheat ID.
+Refreshed for decomp 9046e67a: feOptionsSubMenus.cpp keep their upstream text
+(the series' later restore patches made these edits net zero).
+
 diff --git a/include/Game/FE/FrontendDoneButtonSteps.h b/include/Game/FE/FrontendDoneButtonSteps.h
 new file mode 100644
+index 0000000..d318b42
 --- /dev/null
 +++ b/include/Game/FE/FrontendDoneButtonSteps.h
 @@ -0,0 +1,39 @@
@@ -146,3 +54,41 @@ new file mode 100644
 +    }
 +}
 +#endif
+diff --git a/src/Game/FE/feHelpFuncs.cpp b/src/Game/FE/feHelpFuncs.cpp
+index b16d5c6..76c8c8e 100644
+--- a/src/Game/FE/feHelpFuncs.cpp
++++ b/src/Game/FE/feHelpFuncs.cpp
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/FE/feHelpFuncs_decl.h"
++#include "Game/FE/FrontendDoneButtonSteps.h"
+ 
+ #include <cmath>
+ #include <stdio.h>
+@@ -53,8 +54,6 @@ static const char* ModeToStringName[10] = {
+     "TOURNAMENT",
+ };
+ 
+-static const float sDoneButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
+-static const float sPlayButtonBounds[4] = { -84.0f, 84.0f, -165.0f, -259.0f };
+ 
+ void ZeroFloat(float* value)
+ {
+@@ -340,16 +339,7 @@ void SetPlayButtonBounds(
+ void SetDoneButtonBounds(
+     FEPointerButton* component, TLComponentInstance*, int value)
+ {
+-    if (value)
+-    {
+-        component->SetBounds(sPlayButtonBounds[0], sPlayButtonBounds[1],
+-            sPlayButtonBounds[2], sPlayButtonBounds[3]);
+-    }
+-    else
+-    {
+-        component->SetBounds(sDoneButtonBounds[0], sDoneButtonBounds[1],
+-            sDoneButtonBounds[2], sDoneButtonBounds[3]);
+-    }
++    FrontendDoneButtonBounds(component,value);
+ }
+ 
+ // Retail leaves the result unspecified for an invalid cheat ID.

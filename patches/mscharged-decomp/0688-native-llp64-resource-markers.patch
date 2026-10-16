@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Carry GL resource markers at full width on LLP64
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility; apply after 0646.
 
 The game keeps GL resource markers in unsigned long variables and fields, and
@@ -75,10 +75,10 @@ index 8d04765..0ad1ada 100644
      /* 0x4C */ u8 mUseRenderCache;
      /* 0x4D */ u8 mPadding04D[3];
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 531d97e..597f545 100644
+index caaeb2a..1a7f8ff 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -1880,7 +1880,7 @@ extern "C" void fn_80119B0C(AsyncLoadingManager* manager)
+@@ -1881,7 +1881,7 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
      g_PendingAnimationRequestPool.FreeBlocks();
  
  #if defined(MSCHARGED_NATIVE)
@@ -87,7 +87,7 @@ index 531d97e..597f545 100644
  #else
      glGetCurrentResourcePool()->ReleaseResource((unsigned long)manager->mPoolResourceMark);
  #endif
-@@ -2242,7 +2242,7 @@ extern "C" void fn_8011A9DC(AsyncLoadingManager* manager)
+@@ -2249,7 +2249,7 @@ void DestroyGameState(AsyncLoadingManager* manager)
      DestroyFEResourcePool();
      ScreenTransitionManager::Instance()->CancelAllTransitions();
  #if defined(MSCHARGED_NATIVE)
@@ -96,7 +96,7 @@ index 531d97e..597f545 100644
  #else
      glGetCurrentResourcePool()->ReleaseResource((unsigned long)manager->mGameResourceMark);
  #endif
-@@ -2273,7 +2273,7 @@ extern "C" void fn_8011A9DC(AsyncLoadingManager* manager)
+@@ -2280,7 +2280,7 @@ void DestroyGameState(AsyncLoadingManager* manager)
      g_PendingAnimationRequestPool.FreeBlocks();
      FreeFunctionMemoryPools();
  #if defined(MSCHARGED_NATIVE)
@@ -128,7 +128,7 @@ index 967e0ba..05ff67c 100644
                  (unsigned long)gNetMeshResourceMarkers[mNetIndex][siResourcePoolIndex[mNetIndex]]);
  #endif
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index b9e2d39..b3ee9ae 100644
+index 73b7a8d..85a7b37 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -82,7 +82,11 @@
@@ -160,10 +160,10 @@ index daa61cf..3681a56 100644
      {
          glGetCurrentResourcePool()->ReleaseResource(resource);
 diff --git a/src/Game/NetTournManager.cpp b/src/Game/NetTournManager.cpp
-index 2341bbf..c7d1431 100644
+index 26aa677..77e3461 100644
 --- a/src/Game/NetTournManager.cpp
 +++ b/src/Game/NetTournManager.cpp
-@@ -1281,7 +1281,7 @@ void NetTournManager::DestroyTournamentTrophy()
+@@ -1285,7 +1285,7 @@ void NetTournManager::DestroyTournamentTrophy()
              (DrawableObject*)mTrophyPresentation);
          glGetCurrentResourcePool()->ReleaseResource(
  #if defined(MSCHARGED_NATIVE)
@@ -173,7 +173,7 @@ index 2341bbf..c7d1431 100644
              (unsigned long)mTrophyResource);
  #endif
 diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
-index e9ea974..a30aca8 100644
+index 2b9d259..23bb416 100644
 --- a/src/Game/Sys/movie.cpp
 +++ b/src/Game/Sys/movie.cpp
 @@ -51,7 +51,11 @@ static unsigned int g_uRenderTickCount;

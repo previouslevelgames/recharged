@@ -1,13 +1,14 @@
 From: native GX array data transport
 Subject: [PATCH] preserve original character skin array bindings with owned byte domains
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original game-module attributes, addresses and literal strides remain source-owned.
 The existing native hardware boundary supplies exact completed extent and endian;
 console and standalone diagnostic projections remain unchanged.
 
 diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
+index e418ff5..7d7e498 100644
 --- a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
 +++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
 @@ -9,6 +9,9 @@
@@ -20,7 +21,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp b/src/NL/glx/GX
  
  GXCharacterSkinCustomMaterialProgram* GXCharacterSkinCustomMaterialProgram::Instance;
  bool GXCharacterSkinCustomMaterialProgram::Initialized;
-@@ -74,25 +77,33 @@
+@@ -74,25 +77,33 @@ void GXCharacterSkinCustomMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXCharacterSkinCustomMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;

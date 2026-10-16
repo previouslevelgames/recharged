@@ -1,96 +1,25 @@
 Subject: Declare actual native singleton specializations and timeline instantiations before use
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
---- a/include/Game/GameInfo.h
-+++ b/include/Game/GameInfo.h
-@@ -6,6 +6,12 @@
- #include "Game/DB/BasicGameInfo.h"
- #include "Game/DB/UserOptions.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class GameInfoManager;
-+template <>
-+GameInfoManager* nlSingleton<GameInfoManager>::s_pInstance;
-+#endif
- #include "types.h"
- 
- #ifdef MSCHARGED_NATIVE
---- a/include/Game/GameSceneManager.h
-+++ b/include/Game/GameSceneManager.h
-@@ -3,6 +3,12 @@
- 
- #include "Game/BaseGameSceneManager.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class GameSceneManager;
-+template <>
-+GameSceneManager* nlSingleton<GameSceneManager>::s_pInstance;
-+#endif
- 
- class GameSceneManager : public BaseGameSceneManager, public nlSingleton<GameSceneManager>
- {
---- a/include/Game/FE/feResourceManager.h
-+++ b/include/Game/FE/feResourceManager.h
-@@ -3,6 +3,12 @@
- 
- #include "NL/nlBundleFile.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class FEResourceManager;
-+template <>
-+FEResourceManager* nlSingleton<FEResourceManager>::s_pInstance;
-+#endif
- #include "NL/nlTask.h"
- #include "types.h"
- 
---- a/include/Game/FE/feSceneManager.h
-+++ b/include/Game/FE/feSceneManager.h
-@@ -7,6 +7,12 @@
- #include "Game/BaseSceneHandler.h"
- #include "NL/nlDLListContainer.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class FESceneManager;
-+template <>
-+FESceneManager* nlSingleton<FESceneManager>::s_pInstance;
-+#endif
- 
- class MemoryAllocator;
- class FEScene;
---- a/include/Game/Font/fontmanager.h
-+++ b/include/Game/Font/fontmanager.h
-@@ -3,6 +3,12 @@
- 
- #include "NL/nlDLListContainer.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class FontManager;
-+template <>
-+FontManager* nlSingleton<FontManager>::s_pInstance;
-+#endif
- #if defined(MSCHARGED_NATIVE)
- #include "NL/nlMemory.h"
- #include <stdint.h>
+diff --git a/include/Game/AI/AISandbox.h b/include/Game/AI/AISandbox.h
+index 496ead4..fd72f77 100644
 --- a/include/Game/AI/AISandbox.h
 +++ b/include/Game/AI/AISandbox.h
-@@ -2,6 +2,12 @@
- #define GAME_AI_AI_SANDBOX_H
+@@ -3,6 +3,12 @@
  
  #include "NL/nlSingleton.h"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +class AISandbox;
 +template <>
 +AISandbox* nlSingleton<AISandbox>::s_pInstance;
 +#endif
- 
++
  class AISandbox : public nlSingleton<AISandbox>
  {
+ public:
+diff --git a/include/Game/Camera/GameplayCameraEffects.h b/include/Game/Camera/GameplayCameraEffects.h
+index ec18072..1b60deb 100644
 --- a/include/Game/Camera/GameplayCameraEffects.h
 +++ b/include/Game/Camera/GameplayCameraEffects.h
 @@ -3,6 +3,12 @@
@@ -106,81 +35,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #include "types.h"
  
  extern float lbl_806E0F20[2];
---- a/include/Game/DB/StatsTracker.h
-+++ b/include/Game/DB/StatsTracker.h
-@@ -7,6 +7,12 @@
- #include "Game/DB/Simmer.h"
- #include "Game/PassBallData.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class StatsTracker;
-+template <>
-+StatsTracker* nlSingleton<StatsTracker>::s_pInstance;
-+#endif
- #include "types.h"
- 
- struct CupSidekicks
---- a/include/Game/Render/TimedObject.h
-+++ b/include/Game/Render/TimedObject.h
-@@ -3,6 +3,12 @@
- 
- #include "NL/nlList.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class TimedObjectManager;
-+template <>
-+TimedObjectManager* nlSingleton<TimedObjectManager>::s_pInstance;
-+#endif
- 
- class TimedObjectManager;
- 
---- a/include/Game/FE/feModelManager.h
-+++ b/include/Game/FE/feModelManager.h
-@@ -7,6 +7,12 @@
- #include "NL/nlDLListContainer.h"
- #include "NL/nlMath.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class FEModelManager;
-+template <>
-+FEModelManager* nlSingleton<FEModelManager>::s_pInstance;
-+#endif
- #include "types.h"
- 
- class FEImpostorCharacter;
---- a/include/Game/MiiManager.h
-+++ b/include/Game/MiiManager.h
-@@ -3,6 +3,12 @@
- 
- #include <RVLFaceLib/RFL_MiddleDatabase.h>
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+struct MiiManager;
-+template <>
-+MiiManager* nlSingleton<MiiManager>::s_pInstance;
-+#endif
- 
- class PlatTexture;
- 
---- a/include/Game/Transitions/ScreenTransitionManager.h
-+++ b/include/Game/Transitions/ScreenTransitionManager.h
-@@ -5,6 +5,12 @@
- #include "NL/nlAVLTree.h"
- #include "NL/nlBasicString.h"
- #include "NL/nlSingleton.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+class ScreenTransitionManager;
-+template <>
-+ScreenTransitionManager* nlSingleton<ScreenTransitionManager>::s_pInstance;
-+#endif
- #include "NL/nlString.h"
- #include "NL/nlVector.h"
- 
+diff --git a/include/Game/DB/GameProgress.h b/include/Game/DB/GameProgress.h
+index 056bd72..fbe21f6 100644
 --- a/include/Game/DB/GameProgress.h
 +++ b/include/Game/DB/GameProgress.h
 @@ -5,6 +5,12 @@
@@ -196,9 +52,79 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #include "types.h"
  
  struct OSCalendarTime;
+diff --git a/include/Game/DB/StatsTracker.h b/include/Game/DB/StatsTracker.h
+index b33c130..99d0826 100644
+--- a/include/Game/DB/StatsTracker.h
++++ b/include/Game/DB/StatsTracker.h
+@@ -7,6 +7,12 @@
+ #include "Game/DB/Simmer.h"
+ #include "Game/PassBallData.h"
+ #include "NL/nlSingleton.h"
++
++#if defined(MSCHARGED_NATIVE)
++class StatsTracker;
++template <>
++StatsTracker* nlSingleton<StatsTracker>::s_pInstance;
++#endif
+ #include "types.h"
+ 
+ struct CupSidekicks
+diff --git a/include/Game/FE/feModelManager.h b/include/Game/FE/feModelManager.h
+index 4d4536b..4e69ab5 100644
+--- a/include/Game/FE/feModelManager.h
++++ b/include/Game/FE/feModelManager.h
+@@ -7,6 +7,12 @@
+ #include "NL/nlDLListContainer.h"
+ #include "NL/nlMath.h"
+ #include "NL/nlSingleton.h"
++
++#if defined(MSCHARGED_NATIVE)
++class FEModelManager;
++template <>
++FEModelManager* nlSingleton<FEModelManager>::s_pInstance;
++#endif
+ #include "types.h"
+ 
+ class FEImpostorCharacter;
+diff --git a/include/Game/FE/feResourceManager.h b/include/Game/FE/feResourceManager.h
+index 1badd2b..1f0cc81 100644
+--- a/include/Game/FE/feResourceManager.h
++++ b/include/Game/FE/feResourceManager.h
+@@ -3,6 +3,12 @@
+ 
+ #include "NL/nlBundleFile.h"
+ #include "NL/nlSingleton.h"
++
++#if defined(MSCHARGED_NATIVE)
++class FEResourceManager;
++template <>
++FEResourceManager* nlSingleton<FEResourceManager>::s_pInstance;
++#endif
+ #include "NL/nlTask.h"
+ #include "types.h"
+ 
+diff --git a/include/Game/FE/feSceneManager.h b/include/Game/FE/feSceneManager.h
+index 5e4ac61..0023cce 100644
+--- a/include/Game/FE/feSceneManager.h
++++ b/include/Game/FE/feSceneManager.h
+@@ -8,6 +8,12 @@
+ #include "NL/nlDLListContainer.h"
+ #include "NL/nlSingleton.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++class FESceneManager;
++template <>
++FESceneManager* nlSingleton<FESceneManager>::s_pInstance;
++#endif
++
+ class MemoryAllocator;
+ class FEScene;
+ 
+diff --git a/include/Game/FE/tlDefault.h b/include/Game/FE/tlDefault.h
+index 63acd36..28e57b3 100644
 --- a/include/Game/FE/tlDefault.h
 +++ b/include/Game/FE/tlDefault.h
-@@ -56,4 +56,16 @@
+@@ -56,4 +56,16 @@ typedef TLDefault<TLLayerInstance, FELayer>
      TLLayerDefault;
  typedef TLDefault<TLTextInstance, FEText> TLTextDefault;
  
@@ -215,3 +141,105 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +#endif
 +
  #endif // GAME_FE_TL_DEFAULT_H
+diff --git a/include/Game/Font/fontmanager.h b/include/Game/Font/fontmanager.h
+index 91dce5f..b5ab2aa 100644
+--- a/include/Game/Font/fontmanager.h
++++ b/include/Game/Font/fontmanager.h
+@@ -3,6 +3,12 @@
+ 
+ #include "NL/nlDLListContainer.h"
+ #include "NL/nlSingleton.h"
++
++#if defined(MSCHARGED_NATIVE)
++class FontManager;
++template <>
++FontManager* nlSingleton<FontManager>::s_pInstance;
++#endif
+ #if defined(MSCHARGED_NATIVE)
+ #include "NL/nlMemory.h"
+ #include <stdint.h>
+diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
+index 54fa204..c80578d 100644
+--- a/include/Game/GameInfo.h
++++ b/include/Game/GameInfo.h
+@@ -6,6 +6,12 @@
+ #include "Game/DB/BasicGameInfo.h"
+ #include "Game/DB/UserOptions.h"
+ #include "NL/nlSingleton.h"
++
++#if defined(MSCHARGED_NATIVE)
++class GameInfoManager;
++template <>
++GameInfoManager* nlSingleton<GameInfoManager>::s_pInstance;
++#endif
+ #include "types.h"
+ 
+ #ifdef MSCHARGED_NATIVE
+diff --git a/include/Game/GameSceneManager.h b/include/Game/GameSceneManager.h
+index e7aceca..14b4099 100644
+--- a/include/Game/GameSceneManager.h
++++ b/include/Game/GameSceneManager.h
+@@ -4,6 +4,12 @@
+ #include "Game/BaseGameSceneManager.h"
+ #include "NL/nlSingleton.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++class GameSceneManager;
++template <>
++GameSceneManager* nlSingleton<GameSceneManager>::s_pInstance;
++#endif
++
+ class GameSceneManager : public BaseGameSceneManager, public nlSingleton<GameSceneManager>
+ {
+ public:
+diff --git a/include/Game/MiiManager.h b/include/Game/MiiManager.h
+index e0fb51d..841baf3 100644
+--- a/include/Game/MiiManager.h
++++ b/include/Game/MiiManager.h
+@@ -4,6 +4,12 @@
+ #include <RVLFaceLib/RFL_MiddleDatabase.h>
+ #include "NL/nlSingleton.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++struct MiiManager;
++template <>
++MiiManager* nlSingleton<MiiManager>::s_pInstance;
++#endif
++
+ class PlatTexture;
+ 
+ struct MiiManager : nlSingleton<MiiManager>
+diff --git a/include/Game/Render/TimedObject.h b/include/Game/Render/TimedObject.h
+index 804dddc..5180ccb 100644
+--- a/include/Game/Render/TimedObject.h
++++ b/include/Game/Render/TimedObject.h
+@@ -4,6 +4,12 @@
+ #include "NL/nlList.h"
+ #include "NL/nlSingleton.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++class TimedObjectManager;
++template <>
++TimedObjectManager* nlSingleton<TimedObjectManager>::s_pInstance;
++#endif
++
+ class TimedObjectManager;
+ 
+ class TimedObject
+diff --git a/include/Game/Transitions/ScreenTransitionManager.h b/include/Game/Transitions/ScreenTransitionManager.h
+index 87ce678..fb2ff86 100644
+--- a/include/Game/Transitions/ScreenTransitionManager.h
++++ b/include/Game/Transitions/ScreenTransitionManager.h
+@@ -5,6 +5,12 @@
+ #include "NL/nlAVLTree.h"
+ #include "NL/nlBasicString.h"
+ #include "NL/nlSingleton.h"
++
++#if defined(MSCHARGED_NATIVE)
++class ScreenTransitionManager;
++template <>
++ScreenTransitionManager* nlSingleton<ScreenTransitionManager>::s_pInstance;
++#endif
+ #include "NL/nlString.h"
+ #include "NL/nlVector.h"
+ 

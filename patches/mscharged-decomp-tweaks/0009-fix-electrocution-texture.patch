@@ -1,5 +1,5 @@
 Subject: Fix: load the electrocution overlay texture (issue #33)
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 A fix of the original game, always on and without a switch (owner decision,
 2026-10-12). It lives in the tweak series so the faithful series stays retail.
@@ -22,10 +22,10 @@ memory left, and the texture takes 5.4 KB. If the disc lacks the bundle, or
 the texture is already loaded, nothing changes.
 
 diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
-index 6e7023f..0e0bfc3 100644
+index 9bccaad..bc0e1f9 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
-@@ -27,6 +27,10 @@
+@@ -35,6 +35,10 @@
  #include "NL/nlstring_tmpl.h"
  #include "Game/SharedStaticStorage.h"
  #include "NL/nlDebugViews.h"
@@ -36,7 +36,7 @@ index 6e7023f..0e0bfc3 100644
  
  class EffectsBundle
  {
-@@ -299,6 +303,52 @@ void LoadNonResidentEffects(bool allocateNonResidentAtStart)
+@@ -310,6 +314,52 @@ void LoadNonResidentEffects(bool allocateNonResidentAtStart)
          allocateNonResidentAtStart ? AllocateStart : AllocateEnd, 0, 0, 0);
  }
  
@@ -89,7 +89,7 @@ index 6e7023f..0e0bfc3 100644
  /**
   * Offset/Address/Size: 0x6BC | 0x802E6620 | size: 0x154
   */
-@@ -331,6 +381,13 @@ void EmissionManager::StartLoading(bool allocateAtStart,
+@@ -342,6 +392,13 @@ void EmissionManager::StartLoading(bool allocateAtStart,
      nlLoadEntireFileAsync("art/objects/effectsgeometrytextures.rlt",
          OnEffectsTexturesLoaded, &gEffectsTextureData, 0x20,
          allocateAtStart ? AllocateStart : AllocateEnd, 0, 0, 0);
@@ -103,7 +103,7 @@ index 6e7023f..0e0bfc3 100644
  
      gEffectsModelInventory = glGetCurrentResourcePool()->m_inventory;
  }
-@@ -348,10 +405,20 @@ bool EmissionManager::FinishLoading(GLResourcePool* context)
+@@ -359,11 +416,21 @@ bool EmissionManager::FinishLoading(GLResourcePool* context)
      {
          return false;
      }
@@ -124,3 +124,4 @@ index 6e7023f..0e0bfc3 100644
 +#endif
      return true;
  }
+ 

@@ -1,6 +1,8 @@
 Subject: Use typed native definitions for the original scalar inflater C providers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/zlib/adler32.c b/src/zlib/adler32.c
+index 624a169..8b1af5a 100644
 --- a/src/zlib/adler32.c
 +++ b/src/zlib/adler32.c
 @@ -44,10 +44,14 @@
@@ -18,9 +20,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      unsigned long s1 = adler & 0xffff;
      unsigned long s2 = (adler >> 16) & 0xffff;
+diff --git a/src/zlib/crc32.c b/src/zlib/crc32.c
+index b39c7e1..4b967f0 100644
 --- a/src/zlib/crc32.c
 +++ b/src/zlib/crc32.c
-@@ -212,10 +212,14 @@
+@@ -212,10 +212,14 @@ const unsigned long FAR * ZEXPORT get_crc_table()
  #define DO8 DO1; DO1; DO1; DO1; DO1; DO1; DO1; DO1
  
  /* ========================================================================= */
@@ -35,7 +39,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      if (buf == Z_NULL) return 0UL;
  
-@@ -255,10 +259,14 @@
+@@ -255,10 +259,14 @@ unsigned long ZEXPORT crc32(crc, buf, len)
  #define DOLIT32 DOLIT4; DOLIT4; DOLIT4; DOLIT4; DOLIT4; DOLIT4; DOLIT4; DOLIT4
  
  /* ========================================================================= */
@@ -50,7 +54,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      register u4 c;
      register const u4 FAR *buf4;
-@@ -295,10 +303,14 @@
+@@ -295,10 +303,14 @@ local unsigned long crc32_little(crc, buf, len)
  #define DOBIG32 DOBIG4; DOBIG4; DOBIG4; DOBIG4; DOBIG4; DOBIG4; DOBIG4; DOBIG4
  
  /* ========================================================================= */
@@ -65,6 +69,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      register u4 c;
      register const u4 FAR *buf4;
+diff --git a/src/zlib/inffast.c b/src/zlib/inffast.c
+index 8c02a17..4eb4a4a 100644
 --- a/src/zlib/inffast.c
 +++ b/src/zlib/inffast.c
 @@ -64,9 +64,13 @@
@@ -81,9 +87,183 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      struct inflate_state FAR *state;
      unsigned char FAR *in;      /* local strm->next_in */
+diff --git a/src/zlib/inflate.c b/src/zlib/inflate.c
+index c6d3826..2672fe4 100644
+--- a/src/zlib/inflate.c
++++ b/src/zlib/inflate.c
+@@ -100,8 +100,12 @@ local int updatewindow OF((z_streamp strm, unsigned out));
+ local unsigned syncsearch OF((unsigned FAR *have, unsigned char FAR *buf,
+                               unsigned len));
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateReset(z_streamp strm)
++#else
+ int ZEXPORT inflateReset(strm)
+ z_streamp strm;
++#endif
+ {
+     struct inflate_state FAR *state;
+ 
+@@ -122,11 +126,15 @@ z_streamp strm;
+     return Z_OK;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateInit2_(z_streamp strm, int windowBits, const char *version, int stream_size)
++#else
+ int ZEXPORT inflateInit2_(strm, windowBits, version, stream_size)
+ z_streamp strm;
+ int windowBits;
+ const char *version;
+ int stream_size;
++#endif
+ {
+     struct inflate_state FAR *state;
+ 
+@@ -165,10 +173,14 @@ int stream_size;
+     return inflateReset(strm);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateInit_(z_streamp strm, const char *version, int stream_size)
++#else
+ int ZEXPORT inflateInit_(strm, version, stream_size)
+ z_streamp strm;
+ const char *version;
+ int stream_size;
++#endif
+ {
+     return inflateInit2_(strm, DEF_WBITS, version, stream_size);
+ }
+@@ -183,8 +195,12 @@ int stream_size;
+    used for threaded applications, since the rewriting of the tables and virgin
+    may not be thread-safe.
+  */
++#if defined(MSCHARGED_NATIVE)
++local void fixedtables(struct inflate_state FAR *state)
++#else
+ local void fixedtables(state)
+ struct inflate_state FAR *state;
++#endif
+ {
+ #ifdef BUILDFIXED
+     static int virgin = 1;
+@@ -301,9 +317,13 @@ void makefixed()
+    output will fall in the output data, making match copies simpler and faster.
+    The advantage may be dependent on the size of the processor's data caches.
+  */
++#if defined(MSCHARGED_NATIVE)
++local int updatewindow(z_streamp strm, unsigned out)
++#else
+ local int updatewindow(strm, out)
+ z_streamp strm;
+ unsigned out;
++#endif
+ {
+     struct inflate_state FAR *state;
+     unsigned copy, dist;
+@@ -532,9 +552,13 @@ unsigned out;
+    will return Z_BUF_ERROR if it has not reached the end of the stream.
+  */
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflate(z_streamp strm, int flush)
++#else
+ int ZEXPORT inflate(strm, flush)
+ z_streamp strm;
+ int flush;
++#endif
+ {
+     struct inflate_state FAR *state;
+     unsigned char FAR *next;    /* next input */
+@@ -1085,8 +1109,12 @@ int flush;
+     return ret;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateEnd(z_streamp strm)
++#else
+ int ZEXPORT inflateEnd(strm)
+ z_streamp strm;
++#endif
+ {
+     struct inflate_state FAR *state;
+     if (strm == Z_NULL || strm->state == Z_NULL || strm->zfree == (free_func)0)
+@@ -1099,10 +1127,14 @@ z_streamp strm;
+     return Z_OK;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateSetDictionary(z_streamp strm, const Bytef *dictionary, uInt dictLength)
++#else
+ int ZEXPORT inflateSetDictionary(strm, dictionary, dictLength)
+ z_streamp strm;
+ const Bytef *dictionary;
+ uInt dictLength;
++#endif
+ {
+     struct inflate_state FAR *state;
+     unsigned long id;
+@@ -1148,10 +1180,14 @@ uInt dictLength;
+    called again with more data and the *have state.  *have is initialized to
+    zero for the first call.
+  */
++#if defined(MSCHARGED_NATIVE)
++local unsigned syncsearch(unsigned FAR *have, unsigned char FAR *buf, unsigned len)
++#else
+ local unsigned syncsearch(have, buf, len)
+ unsigned FAR *have;
+ unsigned char FAR *buf;
+ unsigned len;
++#endif
+ {
+     unsigned got;
+     unsigned next;
+@@ -1171,8 +1207,12 @@ unsigned len;
+     return next;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateSync(z_streamp strm)
++#else
+ int ZEXPORT inflateSync(strm)
+ z_streamp strm;
++#endif
+ {
+     unsigned len;               /* number of bytes to look at or looked at */
+     unsigned long in, out;      /* temporary to save total_in and total_out */
+@@ -1222,8 +1262,12 @@ z_streamp strm;
+    block. When decompressing, PPP checks that at the end of input packet,
+    inflate is waiting for these length bytes.
+  */
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateSyncPoint(z_streamp strm)
++#else
+ int ZEXPORT inflateSyncPoint(strm)
+ z_streamp strm;
++#endif
+ {
+     struct inflate_state FAR *state;
+ 
+@@ -1232,9 +1276,13 @@ z_streamp strm;
+     return state->mode == STORED && state->bits == 0;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++int ZEXPORT inflateCopy(z_streamp dest, z_streamp source)
++#else
+ int ZEXPORT inflateCopy(dest, source)
+ z_streamp dest;
+ z_streamp source;
++#endif
+ {
+     struct inflate_state FAR *state;
+     struct inflate_state FAR *copy;
+diff --git a/src/zlib/inftrees.c b/src/zlib/inftrees.c
+index 8a896b2..5ded044 100644
 --- a/src/zlib/inftrees.c
 +++ b/src/zlib/inftrees.c
-@@ -29,6 +29,9 @@
+@@ -29,6 +29,9 @@ const char inflate_copyright[] =
     table index bits.  It will differ if the request is greater than the
     longest code or if it is less than the shortest code.
   */
@@ -93,7 +273,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  int inflate_table(type, lens, codes, table, bits, work)
  codetype type;
  unsigned short FAR *lens;
-@@ -36,6 +39,7 @@
+@@ -36,6 +39,7 @@ unsigned codes;
  code FAR * FAR *table;
  unsigned FAR *bits;
  unsigned short FAR *work;
@@ -101,9 +281,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      unsigned len;               /* a code's length in bits */
      unsigned sym;               /* index of code symbols */
+diff --git a/src/zlib/zutil.c b/src/zlib/zutil.c
+index 0ef4f99..f428a50 100644
 --- a/src/zlib/zutil.c
 +++ b/src/zlib/zutil.c
-@@ -134,8 +134,12 @@
+@@ -134,8 +134,12 @@ void z_error (m)
  /* exported to allow conversion of error code to string for compress() and
   * uncompress()
   */
@@ -116,7 +298,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      return ERR_MSG(err);
  }
-@@ -298,19 +302,27 @@
+@@ -298,19 +302,27 @@ extern voidp  calloc OF((uInt items, uInt size));
  extern void   free   OF((voidpf ptr));
  #endif
  
@@ -144,173 +326,3 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      free(ptr);
      if (opaque) return; /* make compiler happy */
---- a/src/zlib/inflate.c
-+++ b/src/zlib/inflate.c
-@@ -100,8 +100,12 @@
- local unsigned syncsearch OF((unsigned FAR *have, unsigned char FAR *buf,
-                               unsigned len));
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateReset(z_streamp strm)
-+#else
- int ZEXPORT inflateReset(strm)
- z_streamp strm;
-+#endif
- {
-     struct inflate_state FAR *state;
- 
-@@ -122,11 +126,15 @@
-     return Z_OK;
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateInit2_(z_streamp strm, int windowBits, const char *version, int stream_size)
-+#else
- int ZEXPORT inflateInit2_(strm, windowBits, version, stream_size)
- z_streamp strm;
- int windowBits;
- const char *version;
- int stream_size;
-+#endif
- {
-     struct inflate_state FAR *state;
- 
-@@ -165,10 +173,14 @@
-     return inflateReset(strm);
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateInit_(z_streamp strm, const char *version, int stream_size)
-+#else
- int ZEXPORT inflateInit_(strm, version, stream_size)
- z_streamp strm;
- const char *version;
- int stream_size;
-+#endif
- {
-     return inflateInit2_(strm, DEF_WBITS, version, stream_size);
- }
-@@ -183,8 +195,12 @@
-    used for threaded applications, since the rewriting of the tables and virgin
-    may not be thread-safe.
-  */
-+#if defined(MSCHARGED_NATIVE)
-+local void fixedtables(struct inflate_state FAR *state)
-+#else
- local void fixedtables(state)
- struct inflate_state FAR *state;
-+#endif
- {
- #ifdef BUILDFIXED
-     static int virgin = 1;
-@@ -301,9 +317,13 @@
-    output will fall in the output data, making match copies simpler and faster.
-    The advantage may be dependent on the size of the processor's data caches.
-  */
-+#if defined(MSCHARGED_NATIVE)
-+local int updatewindow(z_streamp strm, unsigned out)
-+#else
- local int updatewindow(strm, out)
- z_streamp strm;
- unsigned out;
-+#endif
- {
-     struct inflate_state FAR *state;
-     unsigned copy, dist;
-@@ -532,9 +552,13 @@
-    will return Z_BUF_ERROR if it has not reached the end of the stream.
-  */
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflate(z_streamp strm, int flush)
-+#else
- int ZEXPORT inflate(strm, flush)
- z_streamp strm;
- int flush;
-+#endif
- {
-     struct inflate_state FAR *state;
-     unsigned char FAR *next;    /* next input */
-@@ -1085,8 +1109,12 @@
-     return ret;
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateEnd(z_streamp strm)
-+#else
- int ZEXPORT inflateEnd(strm)
- z_streamp strm;
-+#endif
- {
-     struct inflate_state FAR *state;
-     if (strm == Z_NULL || strm->state == Z_NULL || strm->zfree == (free_func)0)
-@@ -1099,10 +1127,14 @@
-     return Z_OK;
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateSetDictionary(z_streamp strm, const Bytef *dictionary, uInt dictLength)
-+#else
- int ZEXPORT inflateSetDictionary(strm, dictionary, dictLength)
- z_streamp strm;
- const Bytef *dictionary;
- uInt dictLength;
-+#endif
- {
-     struct inflate_state FAR *state;
-     unsigned long id;
-@@ -1148,10 +1180,14 @@
-    called again with more data and the *have state.  *have is initialized to
-    zero for the first call.
-  */
-+#if defined(MSCHARGED_NATIVE)
-+local unsigned syncsearch(unsigned FAR *have, unsigned char FAR *buf, unsigned len)
-+#else
- local unsigned syncsearch(have, buf, len)
- unsigned FAR *have;
- unsigned char FAR *buf;
- unsigned len;
-+#endif
- {
-     unsigned got;
-     unsigned next;
-@@ -1171,8 +1207,12 @@
-     return next;
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateSync(z_streamp strm)
-+#else
- int ZEXPORT inflateSync(strm)
- z_streamp strm;
-+#endif
- {
-     unsigned len;               /* number of bytes to look at or looked at */
-     unsigned long in, out;      /* temporary to save total_in and total_out */
-@@ -1222,8 +1262,12 @@
-    block. When decompressing, PPP checks that at the end of input packet,
-    inflate is waiting for these length bytes.
-  */
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateSyncPoint(z_streamp strm)
-+#else
- int ZEXPORT inflateSyncPoint(strm)
- z_streamp strm;
-+#endif
- {
-     struct inflate_state FAR *state;
- 
-@@ -1232,9 +1276,13 @@
-     return state->mode == STORED && state->bits == 0;
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+int ZEXPORT inflateCopy(z_streamp dest, z_streamp source)
-+#else
- int ZEXPORT inflateCopy(dest, source)
- z_streamp dest;
- z_streamp source;
-+#endif
- {
-     struct inflate_state FAR *state;
-     struct inflate_state FAR *copy;

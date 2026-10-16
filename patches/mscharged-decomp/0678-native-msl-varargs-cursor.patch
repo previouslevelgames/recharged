@@ -1,8 +1,11 @@
 # Address the actual native va_list cursor without copying or changing format requests.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
+index e9c2c6d..e6505f2 100644
 --- a/src/MSL/wprintf.c
 +++ b/src/MSL/wprintf.c
-@@ -1023,7 +1023,17 @@
+@@ -1016,7 +1016,17 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
          }
  
          format_ptr = curr_format;

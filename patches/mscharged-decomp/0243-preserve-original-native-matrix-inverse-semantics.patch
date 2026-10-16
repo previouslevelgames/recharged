@@ -1,6 +1,6 @@
 Subject: [PATCH] Preserve original native matrix inverse destination semantics
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Prepared-preimage: strict-complete-candidate after reviewed 192-patch series
 
 Confine the inherited singular-matrix exception and temporary destination to
@@ -9,9 +9,10 @@ its direct C_MTX44Inverse call, ignored return result, partial destination
 writes and alias behavior. No extraction or game-side algorithm change.
 
 diff --git a/src/NL/plat/platvmath.cpp b/src/NL/plat/platvmath.cpp
+index ac68f04..9baffb4 100644
 --- a/src/NL/plat/platvmath.cpp
 +++ b/src/NL/plat/platvmath.cpp
-@@ -29,7 +29,7 @@
+@@ -29,7 +29,7 @@ nlMatrix4& nlTransposeMatrix(nlMatrix4& out, const nlMatrix4& in)
  
  nlMatrix4& nlInvertMatrix(nlMatrix4& out, const nlMatrix4& in)
  {

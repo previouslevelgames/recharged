@@ -1,11 +1,12 @@
 Subject: Restore original NIS source flow and retail-compatible native address/stores
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore original timing and overlay bodies. Native-only address casts and exact
 whole-header byte stores preserve the retail overlapping dictionary writes.
 No count, loop, member capacity, request or source selection changes.
 
 diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
+index 344adf7..039a8a5 100644
 --- a/src/Game/NisPlayer.cpp
 +++ b/src/Game/NisPlayer.cpp
 @@ -1,7 +1,6 @@
@@ -27,7 +28,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
  
  #include "Game/AI/Fielder.h"
  #include "Game/Goalie.h"
-@@ -268,7 +271,17 @@
+@@ -268,7 +271,17 @@ void NisPlayer::ParseDictionary(char* data)
                  if (parsedValueCount != 3)
                      break;
                  SkipLine(dictionaryCursor);
@@ -45,7 +46,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
              }
              sscanf(dictionaryCursor, "\tnum_anim_proxies %d", &header.numAnimProxies);
              SkipLine(dictionaryCursor);
-@@ -394,7 +407,11 @@
+@@ -394,7 +407,11 @@ void NisPlayer::HandleAsyncs()
                  int memoryOffset = mLoadingFromBack ? mUsedFromBack : mUsedFromFront;
  
                  char* loadAt = mMemory + memoryOffset;
@@ -57,7 +58,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
                  if (!mLoadingFromBack)
                  {
                      mUsedFromFront += mLoadQueue[i]->size;
-@@ -428,7 +445,13 @@
+@@ -428,7 +445,13 @@ void NisPlayer::Update(float deltaT)
  {
      float realTimeDelta = nlTaskManager::m_pInstance->mRealTimeDelta;
      float timeDilation = nlTaskManager::m_pInstance->mTimeDilation;
@@ -72,7 +73,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
      HandleAsyncs();
  
      for (int i = 0; i < 8; i++)
-@@ -451,9 +474,9 @@
+@@ -451,9 +474,9 @@ void NisPlayer::Update(float deltaT)
              if (mCamera[i].m_pActiveCameraData != 0)
              {
                  float overrun = mCamera[i].ManualUpdate(deltaT);
@@ -85,6 +86,7 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
              }
          }
 diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
+index 15d0f1e..cdf1b09 100644
 --- a/src/Game/Render/Nis.cpp
 +++ b/src/Game/Render/Nis.cpp
 @@ -1,6 +1,5 @@
@@ -94,7 +96,7 @@ diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
  
  #include "Game/AI/AIPad.h"
  #include "Game/AnimInventory.h"
-@@ -326,7 +325,8 @@
+@@ -326,7 +325,8 @@ void Nis::UpdateTriggers(float oldTime, float newTime, float duration)
      {
          for (int i = 0; i < mNumTriggers; ++i)
          {
@@ -105,6 +107,7 @@ diff --git a/src/Game/Render/Nis.cpp b/src/Game/Render/Nis.cpp
                  mTriggers[i].Fire(*this);
              }
 diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOverlay.cpp
+index f33d72b..3098b1e 100644
 --- a/src/Game/Render/NisPlayerOverlay.cpp
 +++ b/src/Game/Render/NisPlayerOverlay.cpp
 @@ -1,5 +1,4 @@
@@ -113,7 +116,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  
  #include "Game/NisPlayer.h"
  #include "Game/Camera/CameraMan.h"
-@@ -85,8 +84,7 @@
+@@ -85,8 +84,7 @@ void NisPlayerPIPOverlay::Render()
      glSetCurrentTextureState(glHandleizeTextureState());
  
      glPoly2 poly;
@@ -123,7 +126,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  
      nlColour colour;
      nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
-@@ -174,10 +172,18 @@
+@@ -174,10 +172,18 @@ void NisPlayerHolotronOverlay::Render()
      {
          quad.SetColour(sHolotronRed, sHolotronGreen, sHolotronBlue, 0x80);
      }
@@ -142,7 +145,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
      }
      glSetDefaultState(false);
  }
-@@ -220,7 +226,8 @@
+@@ -220,7 +226,8 @@ void NisPlayerCameraSwapOverlay::Render()
   */
  int NisPlayerCameraSwapOverlay::Update(float dt)
  {
@@ -152,7 +155,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  }
  
  /**
-@@ -253,9 +260,13 @@
+@@ -253,9 +260,13 @@ void NisPlayerPIPExpandOverlay::Render()
      glSetCurrentRasterState(glHandleizeRasterState());
      glSetCurrentTextureState(glHandleizeTextureState());
  
@@ -168,7 +171,7 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  
      nlColour colour;
      nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
-@@ -268,7 +279,14 @@
+@@ -268,7 +279,14 @@ void NisPlayerPIPExpandOverlay::Render()
   */
  int NisPlayerPIPExpandOverlay::Update(float dt)
  {
@@ -185,9 +188,10 @@ diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOve
  
  /**
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index 4ababe6..129a803 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -70,14 +70,14 @@
+@@ -70,14 +70,14 @@ static TweakValueBool g_bDisplayFrameRate(
  static TweakValueBool g_bDisplayFrameTicker(
      "g_bDisplayFrameTicker", gLastTweakCategory, false);
  

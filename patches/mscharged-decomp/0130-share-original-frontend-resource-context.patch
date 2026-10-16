@@ -1,5 +1,5 @@
 Subject: [PATCH] share original frontend resource context completion
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share original package state5/queue/creation order, resource context switches,
 resource Update removal/completion scheduling and the actual empty completion
@@ -8,119 +8,9 @@ require retained validated registration leases and explicit
 creation services. This does not relocate Wii data, select the complete original
 frontend managers or manufacture full concrete SceneCreated readiness.
 
-diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
---- a/src/Game/FE/feScene.cpp
-+++ b/src/Game/FE/feScene.cpp
-@@ -1,5 +1,8 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/FE/feScene.h"
-+#if defined(MSCHARGED_NATIVE)
-+#include "Game/FE/FrontendResourceSteps.h"
-+#endif
- 
- #include "Game/FE/fePackage.h"
- #include "Game/FE/feSceneManager.h"
-@@ -173,11 +176,17 @@
- 
-     nlFree(m_pPointerTable);
-     m_pPointerTable = 0;
--    mState = FE_SCENE_LOADING_RESOURCES;
-+#if defined(MSCHARGED_NATIVE)
-+    FrontendScenePackageResources(*this,
-+        [this] { LoadPackageResources(m_pFEPackage); },
-+        [this] { FESceneManager::Instance()->InitializeScene(this); });
-+#else
-+    mState = 5;
- 
-     LoadPackageResources(m_pFEPackage);
- 
-     FESceneManager::Instance()->InitializeScene(this);
-+#endif
- 
-     if (m_pAllocator != 0)
-     {
-@@ -208,6 +217,9 @@
- 
- void FEScene::AllResourcesLoadedCallback()
- {
-+#if defined(MSCHARGED_NATIVE)
-+    FrontendSceneResourcesLoadedCallback();
-+#endif
- }
- 
- void FEScene::ReleaseResourceHandles()
-diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.cpp
---- a/src/Game/FE/feResourceManager.cpp
-+++ b/src/Game/FE/feResourceManager.cpp
-@@ -1,5 +1,8 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/FE/feResourceManager.h"
-+#if defined(MSCHARGED_NATIVE)
-+#include "Game/FE/FrontendResourceSteps.h"
-+#endif
- 
- #include <stddef.h>
- 
-@@ -442,6 +445,17 @@
- 
- ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)
- {
-+#if defined(MSCHARGED_NATIVE)
-+    struct ContextServices
-+    {
-+        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
-+        FESceneResource* PermanentContext() { return s_pPermanentBundleSceneResource; }
-+        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
-+        unsigned long MarkResource(FESceneResource*) { return s_pResourcePool->MarkResource(); }
-+    } services;
-+    FrontendIssueResourceContext(services, pFeSceneResource);
-+    return FERR_WaitingForResource;
-+#else
-     if (s_pCurrentFESceneResourceContext != 0
-         && s_pCurrentFESceneResourceContext != pFeSceneResource
-         && s_pPermanentBundleSceneResource != s_pCurrentFESceneResourceContext)
-@@ -454,6 +468,7 @@
-     pFeSceneResource->m_bValid = true;
-     s_pCurrentFESceneResourceContext = pFeSceneResource;
-     return FERR_WaitingForResource;
-+#endif
- }
- 
- ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad pendingResource)
-@@ -481,6 +496,23 @@
- 
- void FEResourceManager::Update(float dt)
- {
-+#if defined(MSCHARGED_NATIVE)
-+    struct QueueServices
-+    {
-+        FEResourceManager& manager;
-+        FEResourceHandle*& CurrentResource() { return s_pCurrentResourceBeingLoaded; }
-+        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
-+        bool Empty() const { return pendingResourceQueue.m_Head == 0; }
-+        void RemoveFirst() { pendingResourceQueue.RemoveStart(0); }
-+        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
-+        bool IssueFirstAlreadyLoaded()
-+        {
-+            return manager.IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry)
-+                == FERR_AlreadyLoaded;
-+        }
-+    } services = {*this};
-+    FrontendResourceQueueUpdate(services);
-+#else
-     ResourceResult result;
-     bool bQueueNextResource = true;
-     while (bQueueNextResource)
-@@ -510,6 +542,7 @@
-         result = IssueResourceLoadRequest(pendingResourceQueue.Begin().m_Curr->entry);
-         bQueueNextResource = result == FERR_AlreadyLoaded;
-     }
-+#endif
- }
- 
- GLResourcePool* FEResourceManager::GetResourcePool()
 diff --git a/include/Game/FE/FrontendResourceSteps.h b/include/Game/FE/FrontendResourceSteps.h
 new file mode 100644
+index 0000000..4253028
 --- /dev/null
 +++ b/include/Game/FE/FrontendResourceSteps.h
 @@ -0,0 +1,61 @@
@@ -185,3 +75,116 @@ new file mode 100644
 +    return pending.empty();
 +}
 +#endif
+diff --git a/src/Game/FE/feResourceManager.cpp b/src/Game/FE/feResourceManager.cpp
+index c42f7c2..d89fe87 100644
+--- a/src/Game/FE/feResourceManager.cpp
++++ b/src/Game/FE/feResourceManager.cpp
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/FE/feResourceManager.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/FE/FrontendResourceSteps.h"
++#endif
+ 
+ #include <stddef.h>
+ 
+@@ -442,6 +445,17 @@ ResourceResult FEResourceManager::IssueTextureLoadRequest(FETextureResource* pFe
+ 
+ ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)
+ {
++#if defined(MSCHARGED_NATIVE)
++    struct ContextServices
++    {
++        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
++        FESceneResource* PermanentContext() { return s_pPermanentBundleSceneResource; }
++        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
++        unsigned long MarkResource(FESceneResource*) { return s_pResourcePool->MarkResource(); }
++    } services;
++    FrontendIssueResourceContext(services, pFeSceneResource);
++    return FERR_WaitingForResource;
++#else
+     if (s_pCurrentFESceneResourceContext != 0
+         && s_pCurrentFESceneResourceContext != pFeSceneResource
+         && s_pPermanentBundleSceneResource != s_pCurrentFESceneResourceContext)
+@@ -454,6 +468,7 @@ ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSc
+     pFeSceneResource->m_bValid = true;
+     s_pCurrentFESceneResourceContext = pFeSceneResource;
+     return FERR_WaitingForResource;
++#endif
+ }
+ 
+ ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad pendingResource)
+@@ -481,6 +496,23 @@ ResourceResult FEResourceManager::IssueResourceLoadRequest(PendingResourceLoad p
+ 
+ void FEResourceManager::Update(float dt)
+ {
++#if defined(MSCHARGED_NATIVE)
++    struct QueueServices
++    {
++        FEResourceManager& manager;
++        FEResourceHandle*& CurrentResource() { return s_pCurrentResourceBeingLoaded; }
++        FESceneResource*& CurrentContext() { return s_pCurrentFESceneResourceContext; }
++        bool Empty() const { return s_pendingResourceQueue.m_Head == 0; }
++        void RemoveFirst() { s_pendingResourceQueue.RemoveStart(0); }
++        void CompleteContext(FESceneResource* context) { FrontendCompleteResourceContext(context); }
++        bool IssueFirstAlreadyLoaded()
++        {
++            return manager.IssueResourceLoadRequest(s_pendingResourceQueue.Begin().m_Curr->entry)
++                == FERR_AlreadyLoaded;
++        }
++    } services = {*this};
++    FrontendResourceQueueUpdate(services);
++#else
+     ResourceResult result;
+     bool bQueueNextResource = true;
+     while (bQueueNextResource)
+@@ -510,6 +542,7 @@ void FEResourceManager::Update(float dt)
+         result = IssueResourceLoadRequest(s_pendingResourceQueue.Begin().m_Curr->entry);
+         bQueueNextResource = result == FERR_AlreadyLoaded;
+     }
++#endif
+ }
+ 
+ GLResourcePool* FEResourceManager::GetResourcePool()
+diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
+index 8cfc89e..c83d056 100644
+--- a/src/Game/FE/feScene.cpp
++++ b/src/Game/FE/feScene.cpp
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/FE/feScene.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/FE/FrontendResourceSteps.h"
++#endif
+ 
+ #include "Game/FE/fePackage.h"
+ #include "Game/FE/feSceneManager.h"
+@@ -173,11 +176,17 @@ void FEScene::LoadPackage(void* pData, unsigned long)
+ 
+     nlFree(m_pPointerTable);
+     m_pPointerTable = 0;
+-    mState = FE_SCENE_LOADING_RESOURCES;
++#if defined(MSCHARGED_NATIVE)
++    FrontendScenePackageResources(*this,
++        [this] { LoadPackageResources(m_pFEPackage); },
++        [this] { FESceneManager::Instance()->InitializeScene(this); });
++#else
++    mState = 5;
+ 
+     LoadPackageResources(m_pFEPackage);
+ 
+     FESceneManager::Instance()->InitializeScene(this);
++#endif
+ 
+     if (m_pAllocator != 0)
+     {
+@@ -208,6 +217,9 @@ void QueueResourceLoadCallback::Callback(FEResourceHandle* pFeResourceHandle)
+ 
+ void FEScene::AllResourcesLoadedCallback()
+ {
++#if defined(MSCHARGED_NATIVE)
++    FrontendSceneResourcesLoadedCallback();
++#endif
+ }
+ 
+ void FEScene::ReleaseResourceHandles()

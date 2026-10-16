@@ -1,10 +1,11 @@
 Subject: [PATCH] Preserve original AX output words and retained storage
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native-only Wii word classification and checked list address transport.
 Expose actual source array extents without initializing AX/DSP state.
 
 diff --git a/src/RVL_SDK/ax/AXOut.c b/src/RVL_SDK/ax/AXOut.c
+index 6a7083d..9a1642e 100644
 --- a/src/RVL_SDK/ax/AXOut.c
 +++ b/src/RVL_SDK/ax/AXOut.c
 @@ -2,6 +2,10 @@
@@ -32,7 +33,7 @@ diff --git a/src/RVL_SDK/ax/AXOut.c b/src/RVL_SDK/ax/AXOut.c
  // DRAM image in DSP memory
  // TODO(kiwi) What does this represent?
  #define DRAM_IMAGE_DSP_ADDR 0x0CD2
-@@ -84,7 +94,11 @@
+@@ -84,7 +94,11 @@ u32 __AXOutNewFrame(void) {
  
      list = __AXGetCommandListAddress();
      DSP_SEND_MAIL_SYNC(DSP_MAIL_CLSIZE(AX_CL_SIZE));
@@ -44,7 +45,7 @@ diff --git a/src/RVL_SDK/ax/AXOut.c b/src/RVL_SDK/ax/AXOut.c
  
      __AXServiceCallbackStack();
  
-@@ -349,3 +363,22 @@
+@@ -349,3 +363,22 @@ s32 AXRmtAdvancePtr(s32 num) {
  
      return actual;
  }

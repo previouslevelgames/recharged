@@ -206,7 +206,7 @@ NativeAudioControlView PrepareNativeAudioCalculationChunk(nlChunk* source) {
         auto* d = new(base + s->records_offset + i * sizeof(AudioCalculationDefinition)) AudioCalculationDefinition{};
         std::memcpy(d->pad_00, p, 8);
         d->initialValue = Float(p + 8);
-        d->field_0C = SavedWord<std::int32_t>(Word(p + 12));
+        d->modifierSliderIndex = SavedWord<std::int32_t>(Word(p + 12));
         d->field_10 = SavedWord<std::int32_t>(Word(p + 16));
         d->field_14 = SavedWord<std::int32_t>(Word(p + 20));
     }

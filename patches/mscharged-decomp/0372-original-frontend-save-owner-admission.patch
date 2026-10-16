@@ -1,6 +1,6 @@
 From: mscharged-port original-source integration
 Subject: Restore original save-owner construction in the frontend diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retire the named bootstrap omission for the literal CupManager, StatsTracker
 and StrikerChallenge construction blocks, retaining their original order and
@@ -9,6 +9,7 @@ No owner pointers, settings, load flags, callbacks or menu readiness are seeded.
 Default native and console projections are unchanged with this option absent.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 7efc393..276aa9b 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,9 @@
@@ -21,7 +22,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
  #error Original flash admission requires the native original frontend diagnostic
  #endif
-@@ -674,7 +677,7 @@
+@@ -682,7 +685,7 @@ static void Initialize()
          GameInfoManager::s_pInstance = new (8, false) GameInfoManager;
      }
  #endif

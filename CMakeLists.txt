@@ -241,7 +241,10 @@ add_library(charged_host STATIC
     src/bootstrap/config.cpp
     src/bootstrap/launch_options.cpp
     src/platform/disc.cpp
+    src/platform/disc_message_images.cpp
+    src/platform/game_release.cpp
     src/platform/save_import.cpp
+    src/platform/sha1.cpp
     src/platform/shader_cache.cpp
 )
 target_include_directories(charged_host PUBLIC src)
@@ -350,6 +353,13 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_disc_title_id.py"
                 "$<TARGET_FILE:disc_title_id_tests>")
     set_tests_properties(disc_title_id PROPERTIES TIMEOUT 120)
+    add_executable(disc_message_images_tests tests/disc_message_images.cpp)
+    target_link_libraries(disc_message_images_tests PRIVATE charged_host)
+    add_test(NAME disc_message_images COMMAND disc_message_images_tests)
+    add_test(NAME disc_message_images_disc
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_disc_message_images.py"
+                "$<TARGET_FILE:disc_message_images_tests>")
+    set_tests_properties(disc_message_images_disc PROPERTIES TIMEOUT 120)
     add_executable(config_tests tests/config.cpp)
     target_link_libraries(config_tests PRIVATE charged_host)
     add_test(NAME configuration COMMAND config_tests)
@@ -360,6 +370,15 @@ if(BUILD_TESTING)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
+    # Known releases: texts, game text languages and per-title save folders.
+    add_executable(game_release_tests tests/game_release.cpp)
+    target_link_libraries(game_release_tests PRIVATE charged_host)
+    if(TARGET SDL3::SDL3)
+        target_link_libraries(game_release_tests PRIVATE SDL3::SDL3)
+        target_compile_definitions(game_release_tests PRIVATE MSCHARGED_TEST_PC_LANGUAGES=1)
+    endif()
+    add_test(NAME game_release COMMAND game_release_tests)
+    set_tests_properties(game_release PROPERTIES TIMEOUT 30)
     add_executable(graphics_backend_tests tests/graphics_backend.cpp)
     target_include_directories(graphics_backend_tests PRIVATE src)
     target_compile_features(graphics_backend_tests PRIVATE cxx_std_17)
@@ -422,3 +441,5 @@ mscharged_apply_gnu_original_warning_policy()
 mscharged_apply_macos_original_warning_policy()
 include(cmake/GameModulePortOptimization.cmake)
 mscharged_optimize_game_module_port_sources()
+include(cmake/GameVersion.cmake)
+mscharged_apply_game_version()

@@ -1,6 +1,6 @@
 Subject: [PATCH] Keep native physical hardware declarations external and route source clock reads
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Prepared-preimage: exact strict 0244 prefix; original time declarations moved to OSTime_fwd
 
 MWCC absolute-address declarations must not become allocated native BSS after
@@ -12,22 +12,23 @@ Unknown physical symbols remain genuine unresolved dependencies. Console
 branches and all time conversion expressions are retained.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/include/revolution/os/OSHardware.h
+index 89ad76d..4339330 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSHardware.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSHardware.h
-@@ -9,6 +9,12 @@
- 
- #ifdef __cplusplus
+@@ -11,6 +11,12 @@
  extern "C" {
-+#endif
-+
+ #endif
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#define MSCHARGED_ADDRESS_STORAGE extern
 +#else
 +#define MSCHARGED_ADDRESS_STORAGE
- #endif
- 
++#endif
++
  #define OS_PHYS_WIFI_AFH_CHANNEL 0x000031A2
-@@ -35,27 +41,27 @@
+ #define OS_PHYS_BOOT_INFO 0x00000000
+ #define OS_PHYS_TV_FORMAT 0x000000CC
+@@ -35,27 +41,27 @@ extern "C" {
  #define OS_PHYS_CURRENT_APP_NAME 0x3180
  #define OS_PHYS_CURRENT_APP_TYPE 0x3184
  
@@ -75,7 +76,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
  
  typedef struct OSBI2 {
      u32 dbgMonitorSize;
-@@ -89,7 +95,7 @@
+@@ -89,7 +95,7 @@ typedef struct OSBootInfo {
      u32 fstSize;
  } OSBootInfo;
  
@@ -84,7 +85,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
  
  extern volatile u32 PI_HW_REGS[] AT_ADDRESS(0xCC003000);
  
-@@ -186,9 +192,11 @@
+@@ -186,9 +192,11 @@ typedef struct OSDebugInterface {
  #define OS_PHYS_DEBUG_INTERFACE 0x40
  #define OS_PHYS_CURRENT_CONTEXT_PHYS 0xC0
  
@@ -100,9 +101,10 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware.h b/libs/RVL_SDK/incl
  #ifdef __cplusplus
  }
 diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+index 16142a5..08a380a 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
-@@ -31,7 +31,11 @@
+@@ -31,7 +31,11 @@ OSTime __OSTimeToSystemTime(OSTime time);
  void OSTicksToCalendarTime(OSTime time, OSCalendarTime* calendar);
  OSTime OSCalendarTimeToTicks(const OSCalendarTime* calendar);
  
@@ -114,7 +116,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/incl
  
  #define OS_TICKS_TO_SEC(x) ((x) / OS_TIME_SPEED)
  #define OS_TICKS_TO_MSEC(x) ((x) / (OS_TIME_SPEED / 1000))
-@@ -50,8 +54,13 @@
+@@ -50,8 +54,13 @@ OSTime OSCalendarTimeToTicks(const OSCalendarTime* calendar);
  #define OSMicrosecondsToTicks(usec) OS_USEC_TO_TICKS(usec)
  #define OSNanosecondsToTicks(nsec) OS_NSEC_TO_TICKS(nsec)
  

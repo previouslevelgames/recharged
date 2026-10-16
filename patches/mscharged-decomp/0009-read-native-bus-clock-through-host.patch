@@ -1,6 +1,6 @@
 Subject: Read the native bus clock without absolute-address definitions
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Upstream now owns the declaration in OSHardware_fwd.h and uses
 OS_BUS_CLOCK_SPEED in both original NL time units. The native forward header
@@ -11,6 +11,7 @@ expand inside full OSHardware physical declarations or conflict with the later
 All original conversion math and clocks remain unchanged.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h b/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
+index acdd78d..cbb205c 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
 @@ -2,12 +2,19 @@
@@ -34,37 +35,40 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h b/libs/RVL_SDK/
  #ifdef __cplusplus
  }
 diff --git a/src/NL/nlTicker.cpp b/src/NL/nlTicker.cpp
+index 0cb949b..bf28243 100644
 --- a/src/NL/nlTicker.cpp
 +++ b/src/NL/nlTicker.cpp
-@@ -2,6 +2,12 @@
- 
+@@ -3,6 +3,12 @@
  #include <revolution/os/OSHardware_fwd.h>
  #include <revolution/os/OSTime_fwd.h>
-+
+ 
 +#ifdef MSCHARGED_NATIVE
 +// Install the read alias only after declarations have been included.
 +#undef OS_BUS_CLOCK_SPEED
 +#define OS_BUS_CLOCK_SPEED ChargedGetBusClock()
 +#endif
- 
++
  void nlInitTicker()
  {
+ }
 diff --git a/src/NL/nlTime.cpp b/src/NL/nlTime.cpp
+index cc7197b..1984a24 100644
 --- a/src/NL/nlTime.cpp
 +++ b/src/NL/nlTime.cpp
-@@ -1,6 +1,15 @@
+@@ -1,7 +1,16 @@
  #include <revolution/os/OSTime.h>
 +#ifdef MSCHARGED_NATIVE
 +#include <revolution/os/OSHardware_fwd.h>
 +#endif
  
  #include "NL/nlTime.h"
-+
+ 
 +#ifdef MSCHARGED_NATIVE
 +// Install the read alias only after declarations have been included.
 +#undef OS_BUS_CLOCK_SPEED
 +#define OS_BUS_CLOCK_SPEED ChargedGetBusClock()
 +#endif
- 
++
  void nlInitTime()
  {
+ }

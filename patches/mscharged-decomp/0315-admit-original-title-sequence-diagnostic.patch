@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Named diagnostic admission of the original Title factory case
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Temporarily admit only the genuine Title case within the existing selected
 frontend sequence. The original Intro abort chooses it; no scene queue,
@@ -8,9 +8,10 @@ transition, handler, readiness, asset or camera behavior is substituted.
 Normal/native default and console retain the original whole factory.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index fabf0a4..2611da3 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -304,10 +304,12 @@
+@@ -338,10 +338,12 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
  
      switch (newscene)
      {

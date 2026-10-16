@@ -1,6 +1,6 @@
 Subject: Adapt original page-control scalar callback contexts for native compilers
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original producer encodes only button index zero or one in void*.
 Native pointer-width casts carry that scalar value without changing unsigned
@@ -8,6 +8,7 @@ source indices, handlers, branch order, allocation or ownership. Wii source
 projection is identical. No callback or control behavior is replaced.
 
 diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
+index 5184b00..d827771 100644
 --- a/src/Game/FE/fePageControls.cpp
 +++ b/src/Game/FE/fePageControls.cpp
 @@ -1,3 +1,6 @@
@@ -17,7 +18,7 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
  #include "Game/FE/fePageControls.h"
  #include "NL/nlFunction.inl"
  #include "NL/nlPrint.h"
-@@ -196,7 +199,11 @@
+@@ -196,7 +199,11 @@ void FEPageControls::InitializeButtons()
          mButtons[i].SetPointerEnterCallback(enterCallback);
          mButtons[i].SetPointerLeaveCallback(leaveCallback);
          mButtons[i].SetPointerPressCallback(pressCallback);
@@ -29,7 +30,7 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
          mButtons[i].SetMaxY(20.0f + mButtons[i].GetMaxY());
          mButtons[i].SetMinY(mButtons[i].GetMinY() - 20.0f);
          if (i == 0)
-@@ -211,8 +218,12 @@
+@@ -211,8 +218,12 @@ void FEPageControls::InitializeButtons()
   */
  void FEPageControls::OnPointerEnter(int index, void* context)
  {
@@ -43,7 +44,7 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
      {
          if (mPointerHeld && (unsigned int)mHeldButton == which)
              mButtonInstances[which]->SetActiveSlide("down", true, false);
-@@ -229,8 +240,12 @@
+@@ -229,8 +240,12 @@ void FEPageControls::OnPointerEnter(int index, void* context)
   */
  void FEPageControls::OnPointerLeave(int index, void* context)
  {
@@ -57,7 +58,7 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
      {
          int button = 49;
          if (which == 0)
-@@ -254,7 +269,11 @@
+@@ -254,7 +269,11 @@ void FEPageControls::OnPointerLeave(int index, void* context)
   */
  void FEPageControls::OnPointerPress(int index, void* context)
  {
@@ -69,7 +70,7 @@ diff --git a/src/Game/FE/fePageControls.cpp b/src/Game/FE/fePageControls.cpp
      mHeldButton = which;
      mPointerHeld = true;
      mRepeatTime = 0.0f;
-@@ -269,7 +288,11 @@
+@@ -269,7 +288,11 @@ void FEPageControls::OnPointerPress(int index, void* context)
   */
  void FEPageControls::OnPadPress(int index, void* context)
  {

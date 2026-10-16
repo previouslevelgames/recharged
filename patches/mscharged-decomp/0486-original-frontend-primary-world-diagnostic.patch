@@ -4,10 +4,12 @@
 # setup and frontend world calls in the named diagnostic. Genuine source NIS
 # initialization is required. Source predicates, fields and algorithms remain
 # unchanged; active NIS playback and other unfinished owners remain separate.
+
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index 129a803..0f90f23 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -491,12 +491,14 @@
+@@ -491,12 +491,14 @@ void BeginFrameTask::Run(float dt)
          DepthOfFieldManager::instance.TurnOff();
      }
  
@@ -24,9 +26,10 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
  
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
 diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index 062c0f5..846acdf 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
-@@ -52,7 +52,7 @@
+@@ -52,7 +52,7 @@ static inline bool IsHBMActive()
  
  static void DrawFrontEndElements(float fDeltaT)
  {
@@ -35,7 +38,7 @@ diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
      UpdateGameObjectLighting();
  #endif // source lighting initialization remains unqualified
  
-@@ -105,7 +105,10 @@
+@@ -105,7 +105,10 @@ static void DrawFrontEndElements(float fDeltaT)
          FEModelManager::Instance()->Render();
      }
  
@@ -47,7 +50,7 @@ diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
          && !IsHBMActive())
      {
          glx_Fog(true);
-@@ -115,6 +118,9 @@
+@@ -115,6 +118,9 @@ static void DrawFrontEndElements(float fDeltaT)
          UpdateHighRange();
      }
  
@@ -58,9 +61,10 @@ diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
  
      if (!(gpHBMManager != 0 && gpHBMManager->mActive && gpHBMManager->mReady))
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index ca18715..ab8b999 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -572,11 +572,15 @@
+@@ -580,11 +580,15 @@ static void Initialize()
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      nlSetRandomSeed(OSGetTick(), &nlDefaultSeed);
@@ -70,9 +74,8 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      {
          nlBreak();
      }
--
 +#endif // original shared material textures; named world draw keeps this exact request
-+
+ 
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      u8 temporaryState = lbl_806E1458;
      ParticleUpdateNoOp(&temporaryState);

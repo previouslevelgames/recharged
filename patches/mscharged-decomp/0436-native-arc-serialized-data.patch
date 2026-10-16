@@ -1,8 +1,9 @@
 From: mscharged-port
 Subject: Read original ARC wire records under native source APIs
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
+index 96d6e53..ef6179a 100644
 --- a/src/RVL_SDK/arc/arc.c
 +++ b/src/RVL_SDK/arc/arc.c
 @@ -3,6 +3,14 @@
@@ -37,7 +38,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
  
  #define ARC_FILE_MAGIC 0x55AA382D
  
-@@ -34,23 +46,33 @@
+@@ -34,23 +46,33 @@ typedef struct FSTEntry {
  
  BOOL ARCInitHandle(void* arcStart, ARCHandle* handle) {
      FSTEntry* FSTEntries;
@@ -67,10 +68,9 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
 +    FSTEntries = (FSTEntry*)ADD_PTR(arcStart, ARC_WORD(arcHeader->fstStart));
      handle->FSTStart = FSTEntries;
 -    handle->fileStart = ADD_PTR(arcStart, arcHeader->fileStart);
--
--    handle->entryNum = FSTEntries[0].nextEntryOrLength;
 +    handle->fileStart = ADD_PTR(arcStart, ARC_WORD(arcHeader->fileStart));
-+
+ 
+-    handle->entryNum = FSTEntries[0].nextEntryOrLength;
 +    handle->entryNum = ARC_WORD(FSTEntries[0].nextEntryOrLength);
      handle->FSTStringStart =
          (char*)ADD_PTR(FSTEntries, handle->entryNum * sizeof(FSTEntry));
@@ -79,7 +79,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
      handle->currDir = 0;
  
      return TRUE;
-@@ -77,8 +99,8 @@
+@@ -77,8 +99,8 @@ BOOL ARCOpen(ARCHandle* handle, const char* fileName, ARCFileInfo* af) {
      }
  
      af->handle = handle;
@@ -90,7 +90,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
  
      return TRUE;
  }
-@@ -92,8 +114,8 @@
+@@ -92,8 +114,8 @@ BOOL ARCFastOpen(ARCHandle* handle, s32 entrynum, ARCFileInfo* af) {
      }
  
      af->handle = handle;
@@ -101,7 +101,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
  
      return TRUE;
  }
-@@ -142,12 +164,12 @@
+@@ -142,12 +164,12 @@ s32 ARCConvertPathToEntrynum(ARCHandle* handle, const char* pathPtr) {
              if (pathPtr[1] == '.') {
                  if (pathPtr[2] == '/') {
                      // Restart at parent directory
@@ -116,7 +116,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
                  }
              } else if (pathPtr[1] == '/') {
                  // Restart at current directory
-@@ -176,8 +198,8 @@
+@@ -176,8 +198,8 @@ s32 ARCConvertPathToEntrynum(ARCHandle* handle, const char* pathPtr) {
          length = ptr - pathPtr;
          ptr = pathPtr; // Why?? There's no writes to pathPtr in the loop
  
@@ -127,7 +127,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
                                         : i + 1) {
              // We need a nested loop with no condition so that we can handle an
              // edgecase. If the directory includes itself, we need to move onto
-@@ -189,7 +211,7 @@
+@@ -189,7 +211,7 @@ s32 ARCConvertPathToEntrynum(ARCHandle* handle, const char* pathPtr) {
                  }
  
                  stringPtr = handle->FSTStringStart +
@@ -136,7 +136,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
                  // The directory includes itself, skip it
                  if (stringPtr[0] == '.' && stringPtr[1] == '\0') {
                      ++i;
-@@ -250,8 +272,8 @@
+@@ -250,8 +272,8 @@ static u32 entryToPath(ARCHandle* handle, u32 entry, char* path, u32 maxlen) {
      }
  
      name = handle->FSTStringStart +
@@ -147,7 +147,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
      if (loc == maxlen) {
          return loc;
      }
-@@ -337,7 +359,7 @@
+@@ -337,7 +359,7 @@ BOOL ARCOpenDir(ARCHandle* handle, const char* dirName, ARCDir* dir) {
      dir->handle = handle;
      dir->entryNum = entry;
      dir->location = entry + 1;
@@ -156,7 +156,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
      return TRUE;
  }
  
-@@ -358,7 +380,7 @@
+@@ -358,7 +380,7 @@ BOOL ARCReadDir(ARCDir* dir, ARCDirEntry* dirent) {
          dirent->entryNum = loc;
          dirent->isDir = IS_DIR(FSTEntries, loc);
          dirent->name = handle->FSTStringStart +
@@ -165,7 +165,7 @@ diff --git a/src/RVL_SDK/arc/arc.c b/src/RVL_SDK/arc/arc.c
          if (dirent->name[0] == '.' && dirent->name[1] == '\0') {
              ++loc;
              continue;
-@@ -368,7 +390,7 @@
+@@ -368,7 +390,7 @@ BOOL ARCReadDir(ARCDir* dir, ARCDirEntry* dirent) {
      }
  
      dir->location =

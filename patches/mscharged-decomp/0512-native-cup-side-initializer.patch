@@ -1,12 +1,15 @@
 # Patch: 0512-native-cup-side-initializer
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Explicit native short conversions for original HOME/AWAY list initialization; console unchanged.
+
+diff --git a/src/Game/DB/CupManager.cpp b/src/Game/DB/CupManager.cpp
+index f097d4d..66eb15b 100644
 --- a/src/Game/DB/CupManager.cpp
 +++ b/src/Game/DB/CupManager.cpp
-@@ -674,7 +674,11 @@
+@@ -689,7 +689,11 @@ void CupManager::SetRoundResult(bool inOvertime, int winningSide)
                  for (unsigned int i = 0; i < 3; i++)
                  {
-                     BasicGameInfo* next = mCurrentCup->GetGameInfo(2, i, 0);
+                     BasicGameInfo* next = mCurrentCup->GetGameInfo(CUP_ROUND_FINALS, i, 0);
 +#if defined(MSCHARGED_NATIVE)
 +                    short sides[2] = { static_cast<short>(i == 1 ? AWAY : HOME), static_cast<short>(i == 1 ? HOME : AWAY) };
 +#else

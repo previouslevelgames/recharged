@@ -1,13 +1,38 @@
 Subject: [PATCH] Preserve native RFL hidden-load borrowed context addresses
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Split native hidden-load pointer contexts from unchanged u32 CRC/retry callbacks.
 Console preprocessing preserves the literal original declarations and bodies.
 
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
+index 0cd4c38..f862bf3 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
+@@ -39,8 +39,8 @@ typedef struct RFLiHDBManager {
+     s16 formatIndex;              // at 0x1C
+     RFLiHiddenCharData* loadDst;  // at 0x20
+     void* loadTmp;                // at 0x24
+-    u32 loadArg;                  // at 0x28
+-    RFLiExCallback loadCb;        // at 0x2C
++    RFLiHiddenLoadArg loadArg;                  // at 0x28
++    RFLiHiddenLoadCallback loadCb;        // at 0x2C
+     u16 loadIndex;                // at 0x30
+     RFLiHiddenCharData* cachedDB; // at 0x34
+     BOOL cached;                  // at 0x38
+@@ -49,7 +49,7 @@ typedef struct RFLiHDBManager {
+ 
+ void RFLiInitHiddenDatabase(void);
+ RFLErrcode RFLiLoadHiddenDataAsync(RFLiHiddenCharData* data, u16 index,
+-                                   RFLiExCallback cb, u32 arg);
++                                   RFLiHiddenLoadCallback cb, RFLiHiddenLoadArg arg);
+ RFLErrcode RFLiLoadCachedHiddenData(RFLiHiddenCharData* data, u16 index);
+ RFLErrcode RFLiWriteCtrlToHiddenDB(const struct RFLiCtrlBuf* buf, BOOL ch);
+ s32 RFLiSearchHiddenData(const RFLCreateID* id);
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
+index 58094e8..b18fb07 100644
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h
-@@ -135,6 +135,15 @@
+@@ -135,6 +135,15 @@ typedef enum {
  typedef void (*RFLiCallback)(void);
  typedef void (*RFLiExCallback)(u32 arg);
  
@@ -23,33 +48,11 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Types.h b/libs/RVL_SDK/include
  /**
   * Common structs
   */
-diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
---- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
-@@ -39,8 +39,8 @@
-     s16 formatIndex;              // at 0x1C
-     RFLiHiddenCharData* loadDst;  // at 0x20
-     void* loadTmp;                // at 0x24
--    u32 loadArg;                  // at 0x28
--    RFLiExCallback loadCb;        // at 0x2C
-+    RFLiHiddenLoadArg loadArg;                  // at 0x28
-+    RFLiHiddenLoadCallback loadCb;        // at 0x2C
-     u16 loadIndex;                // at 0x30
-     RFLiHiddenCharData* cachedDB; // at 0x34
-     BOOL cached;                  // at 0x38
-@@ -49,7 +49,7 @@
- 
- void RFLiInitHiddenDatabase(void);
- RFLErrcode RFLiLoadHiddenDataAsync(RFLiHiddenCharData* data, u16 index,
--                                   RFLiExCallback cb, u32 arg);
-+                                   RFLiHiddenLoadCallback cb, RFLiHiddenLoadArg arg);
- RFLErrcode RFLiLoadCachedHiddenData(RFLiHiddenCharData* data, u16 index);
- RFLErrcode RFLiWriteCtrlToHiddenDB(const struct RFLiCtrlBuf* buf, BOOL ch);
- s32 RFLiSearchHiddenData(const RFLCreateID* id);
 diff --git a/src/RVL_SDK/rfl/RFL_HiddenDatabase.c b/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
+index 97a6d4f..8f7c875 100644
 --- a/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
 +++ b/src/RVL_SDK/rfl/RFL_HiddenDatabase.c
-@@ -78,7 +78,7 @@
+@@ -78,7 +78,7 @@ static void loadopencallback_(void) {
  }
  
  RFLErrcode RFLiLoadHiddenDataAsync(RFLiHiddenCharData* data, u16 index,
@@ -59,9 +62,10 @@ diff --git a/src/RVL_SDK/rfl/RFL_HiddenDatabase.c b/src/RVL_SDK/rfl/RFL_HiddenDa
  
      if (index >= RFLi_HDB_DATA_MAX) {
 diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
+index 5f6eabc..71f9701 100644
 --- a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
 +++ b/src/RVL_SDK/rfl/RFL_MiddleDatabase.c
-@@ -104,7 +104,7 @@
+@@ -104,7 +104,7 @@ static BOOL checkHiddenData_(RFLiHiddenCharData* data) {
      return RFLiCheckValidInfo(&info) ? TRUE : FALSE;
  }
  
@@ -70,7 +74,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDa
      RFLErrcode err;
      HiddenNewOldParam* nparam;
      RFLiMiddleDB* db;
-@@ -132,7 +132,7 @@
+@@ -132,7 +132,7 @@ static void updateHDBcallback_(u32 arg) {
  
              err = RFLiLoadHiddenDataAsync(&db->data[db->storedSize],
                                            nparam->srcIdx, updateHDBcallback_,
@@ -79,7 +83,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDa
  
              if (err != RFLErrcode_Busy) {
                  RFLiEndWorking(err);
-@@ -238,7 +238,7 @@
+@@ -238,7 +238,7 @@ static void updateHiddenOld_(RFLiMiddleDB* db, BOOL oldIsHead, BOOL cache) {
          } else {
              RFLErrcode err = RFLiLoadHiddenDataAsync(
                  &db->data[nparam->dstIdx], nparam->srcIdx, updateHDBcallback_,
@@ -88,7 +92,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDa
  
              if (err != RFLErrcode_Busy) {
                  RFLiEndWorking(err);
-@@ -284,7 +284,7 @@
+@@ -284,7 +284,7 @@ static void loadHiddenRandomSync_(RFLiMiddleDB* db) {
                                               : RFLErrcode_Success);
  }
  
@@ -97,7 +101,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDa
      RFLiMiddleDB* db = (RFLiMiddleDB*)arg;
      HiddenRandomParam* hparam = (HiddenRandomParam*)&db->userData1;
      u32* src;
-@@ -303,7 +303,7 @@
+@@ -303,7 +303,7 @@ static void updateHDBRandcallback_(u32 arg) {
                  u16 srcIdx = *src - 1;
                  RFLErrcode err =
                      RFLiLoadHiddenDataAsync(&db->data[db->storedSize], srcIdx,
@@ -106,7 +110,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_MiddleDatabase.c b/src/RVL_SDK/rfl/RFL_MiddleDa
  
                  if (err != RFLErrcode_Busy) {
                      RFLiEndWorking(err);
-@@ -409,7 +409,7 @@
+@@ -409,7 +409,7 @@ static void updateHiddenRandom_(RFLiMiddleDB* db, BOOL cache) {
              } else {
                  RFLErrcode err =
                      RFLiLoadHiddenDataAsync(&db->data[hparam->dstIdx], srcIdx,

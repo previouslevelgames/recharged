@@ -1,131 +1,14 @@
 From: mscharged-port native compatibility
 Subject: [PATCH] Preserve world wire records beneath original placement factories
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Prepare typed native backing for the source-selected class at its original
 placement expression. Preserve constructors, Initialize, source raw strides,
 parent and object counts, callbacks, flags, factory selection and ownership.
 Console and non-module native projections remain byte-identical.
 
-diff --git a/src/Game/world.cpp b/src/Game/world.cpp
---- a/src/Game/world.cpp
-+++ b/src/Game/world.cpp
-@@ -1,4 +1,7 @@
- #include "NL/nlDLListContainer.inl"
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+#include "platform/world_record_storage.h"
-+#endif
- #include "Game/World/WorldVisibility.h"
- #include "NL/gl/gl.h"
- #include "Game/World.h"
-@@ -299,58 +302,90 @@
-     {
-     case 0xFFFFFFFF:
-         break;
--    case WORLD_OBJECT_DRAWABLE:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x101:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldDrawable>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldDrawable;
-         ((WorldDrawable*)pObject)->Initialize(pContext);
-         pContext->m_pObject += 0x70;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_VISIBILITY:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x102:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldVisibilityDrawable>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldVisibilityDrawable;
-         InitializeWorldVisibilityDrawable(
-             (WorldVisibilityDrawable*)pObject, pContext);
-         pContext->m_pObject += 0x30;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_PHYSICS:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x103:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldPhysicsDrawable>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldPhysicsDrawable;
-         InitializeWorldPhysicsDrawable((WorldPhysicsDrawable*)pObject, pContext);
-         pContext->m_pObject += 0x90;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_HELPER:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x104:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldHelperObject>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldHelperObject;
-         ((WorldHelperObject*)pObject)->Initialize(pContext);
-         pContext->m_pObject += 0x60;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_ANIMATION:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x106:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldAnimObject>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldAnimObject;
-         ((WorldAnimObject*)pObject)->Initialize(pContext);
-         pContext->m_pObject += 0x90;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_CROWD_LAYOUT:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x107:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<CrowdLayoutObject>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) CrowdLayoutObject;
-         ((CrowdLayoutObject*)pObject)->RegisterWithCrowdManager(pContext);
-         pContext->m_pObject += 0x80;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_NPC:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x108:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldNPC>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldNPC;
-         ((WorldNPC*)pObject)->Initialize(pContext);
-         pContext->m_pObject += 0x70;
-         ++pContext->m_uNumObjectsLoaded;
-         break;
--    case WORLD_OBJECT_EFFECT:
--        pObject = (DrawableObject*)pContext->m_pObject;
-+    case 0x109:
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldEffect>(pContext->m_pObject);
-+#else
-+        pObject = (DrawableObject*)pContext->m_pObject;
-+#endif
-         new (pObject) WorldEffect;
-         ((WorldEffect*)pObject)->Initialize(pContext);
-         pContext->m_pObject += 0xA0;
 diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
+index 308241d..0d96a30 100644
 --- a/src/Game/BasicStadium.cpp
 +++ b/src/Game/BasicStadium.cpp
 @@ -1,5 +1,8 @@
@@ -137,7 +20,7 @@ diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
  #include "Game/BasicStadium.h"
  #include "Game/Render/StadiumWorldObjects.h"
  #include "Game/Render/StadiumPhysicsObject.h"
-@@ -39,7 +42,11 @@
+@@ -35,7 +38,11 @@ template <class T>
  static inline DrawableObject* LoadStadiumObject(WorldObjectLoadContext* context,
      unsigned long recordSize)
  {
@@ -149,3 +32,114 @@ diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
      new (object) T;
      object->Initialize(context);
      context->m_pObject += recordSize;
+diff --git a/src/Game/world.cpp b/src/Game/world.cpp
+index 98b85c6..ae45abc 100644
+--- a/src/Game/world.cpp
++++ b/src/Game/world.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++#include "platform/world_record_storage.h"
++#endif
+ #include "Game/World/WorldVisibility.h"
+ #include "NL/gl/gl.h"
+ #include "Game/World.h"
+@@ -299,58 +302,90 @@ DrawableObject* World::CreateObject(
+     {
+     case 0xFFFFFFFF:
+         break;
+-    case WORLD_OBJECT_DRAWABLE:
++    case 0x101:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldDrawable>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldDrawable;
+         ((WorldDrawable*)pObject)->Initialize(pContext);
+         pContext->m_pObject += 0x70;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_VISIBILITY:
++    case 0x102:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldVisibilityDrawable>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldVisibilityDrawable;
+         InitializeWorldVisibilityDrawable(
+             (WorldVisibilityDrawable*)pObject, pContext);
+         pContext->m_pObject += 0x30;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_PHYSICS:
++    case 0x103:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldPhysicsDrawable>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldPhysicsDrawable;
+         InitializeWorldPhysicsDrawable((WorldPhysicsDrawable*)pObject, pContext);
+         pContext->m_pObject += 0x90;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_HELPER:
++    case 0x104:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldHelperObject>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldHelperObject;
+         ((WorldHelperObject*)pObject)->Initialize(pContext);
+         pContext->m_pObject += 0x60;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_ANIMATION:
++    case 0x106:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldAnimObject>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldAnimObject;
+         ((WorldAnimObject*)pObject)->Initialize(pContext);
+         pContext->m_pObject += 0x90;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_CROWD_LAYOUT:
++    case 0x107:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<CrowdLayoutObject>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) CrowdLayoutObject;
+         ((CrowdLayoutObject*)pObject)->RegisterWithCrowdManager(pContext);
+         pContext->m_pObject += 0x80;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_NPC:
++    case 0x108:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldNPC>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldNPC;
+         ((WorldNPC*)pObject)->Initialize(pContext);
+         pContext->m_pObject += 0x70;
+         ++pContext->m_uNumObjectsLoaded;
+         break;
+-    case WORLD_OBJECT_EFFECT:
++    case 0x109:
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        pObject = (DrawableObject*)mscharged::platform::PrepareWorldRecord<WorldEffect>(pContext->m_pObject);
++#else
+         pObject = (DrawableObject*)pContext->m_pObject;
++#endif
+         new (pObject) WorldEffect;
+         ((WorldEffect*)pObject)->Initialize(pContext);
+         pContext->m_pObject += 0xA0;

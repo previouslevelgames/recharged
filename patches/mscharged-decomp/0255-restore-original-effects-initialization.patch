@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Restore original effects loaders and particle flow outside legacy diagnostics
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep matching retail methods, requests and fixed colour sampling. Confine copied
 registration/simulation representations to an explicitly named diagnostic. Native
@@ -8,9 +8,10 @@ fabs and the real matrix carrier are compiler boundaries only; raw effects
 record endian/pointer transport remains an explicit runtime prerequisite.
 
 diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
+index 6da374c..35e8975 100644
 --- a/include/Game/Effects/EffectsBundleData.h
 +++ b/include/Game/Effects/EffectsBundleData.h
-@@ -14,13 +14,14 @@
+@@ -14,13 +14,14 @@ struct EffectsBundleData
          return (id & 0x80FFFFFF) == 0x80024000;
      }
  
@@ -27,7 +28,21 @@ diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/Eff
      void Destroy();
      EffectsGroup* GetGroup(int index) const { return mGroups[index]; }
  
+diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
+index 912bf5b..abf3b0c 100644
+--- a/include/Game/Effects/EffectsGroup.h
++++ b/include/Game/Effects/EffectsGroup.h
+@@ -86,7 +86,7 @@ public:
+     bool IsPersistent() const;
+     unsigned long GetHashID() const { return m_hashID; }
+     UserEffectSpec** GetUserSpecs() const { return m_userSpecsPtr; }
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+     static EffectsGroup* LoadFromChunk(nlChunk* chunk) = delete;
+     void ParseUserSpecs() = delete; // Actual user-effect factories are unselected.
+ #else
 diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
+index 2d37871..1fff630 100644
 --- a/include/Game/Effects/EffectsTemplate.h
 +++ b/include/Game/Effects/EffectsTemplate.h
 @@ -3,7 +3,7 @@
@@ -39,7 +54,7 @@ diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/Effec
  #include <vector>
  #endif
  
-@@ -51,7 +51,7 @@
+@@ -51,7 +51,7 @@ struct fxCurveKey
  class fxAnimatedRange
  {
  public:
@@ -48,7 +63,7 @@ diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/Effec
      static fxAnimatedRange* LoadFromChunk(nlChunk* chunk) = delete;
  #else
      static fxAnimatedRange* LoadFromChunk(nlChunk* chunk);
-@@ -69,7 +69,7 @@
+@@ -69,7 +69,7 @@ public:
  class EffectsTemplate
  {
  public:
@@ -57,7 +72,7 @@ diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/Effec
      static EffectsTemplate* LoadFromChunk(nlChunk* chunk) = delete;
  #else
      static EffectsTemplate* LoadFromChunk(nlChunk* chunk);
-@@ -97,7 +97,7 @@
+@@ -97,7 +97,7 @@ public:
      /* 0x4C */ fxRange m_rFPS;
      /* 0x54 */ unsigned long m_uModelID;
      /* 0x58 */ fxAnimatedRange* mProperties[8];
@@ -66,22 +81,11 @@ diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/Effec
      // Retain the authored count. Wii files may have 25 colours; native consumers
      // must qualify their indices instead of inventing the reconstructed 26th.
      std::vector<nlColour> m_cColour;
-diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
---- a/include/Game/Effects/EffectsGroup.h
-+++ b/include/Game/Effects/EffectsGroup.h
-@@ -86,7 +86,7 @@
-     bool IsPersistent() const;
-     unsigned long GetHashID() const { return m_hashID; }
-     UserEffectSpec** GetUserSpecs() const { return m_userSpecsPtr; }
--#ifdef MSCHARGED_NATIVE
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
-     static EffectsGroup* LoadFromChunk(nlChunk* chunk) = delete;
-     void ParseUserSpecs() = delete; // Actual user-effect factories are unselected.
- #else
 diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
+index 3daf91e..ff5ae57 100644
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
-@@ -50,11 +50,11 @@
+@@ -50,11 +50,11 @@ public:
      ParticleSystem(EffectsTemplate* pTemplate,
          nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
          unsigned long resourceID)
@@ -95,7 +99,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
      // Explicit CPU-only construction; m_uTextureIndex stays invalid. The full
      // constructor still requires an actual GL inventory on console.
      struct NativeSimulation {};
-@@ -71,7 +71,7 @@
+@@ -71,7 +71,7 @@ public:
      void UpdateLight(EffectsLight* pLight, Particle* pPart,
          EffectsTemplate* pTemplate, const nlVector3& viewRight,
          const nlVector3& viewUp, const nlMatrix4* pCoordSys)
@@ -104,7 +108,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
          = delete
  #endif
          ;
-@@ -81,7 +81,7 @@
+@@ -81,7 +81,7 @@ public:
          const nlVector3& viewUp, const nlMatrix4* pCoordSys);
      void ClearParticles();
      int RenderAllParticles(GLView* view)
@@ -114,6 +118,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
  #endif
          ;
 diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBundleData.cpp
+index 1aeaff8..a8118d4 100644
 --- a/src/Game/Effects/EffectsBundleData.cpp
 +++ b/src/Game/Effects/EffectsBundleData.cpp
 @@ -2,11 +2,12 @@
@@ -130,7 +135,7 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
  void EffectsBundleData::ResolveTemplates()
  {
      for (unsigned long i = 0; i < mNumGroups; ++i)
-@@ -14,8 +15,17 @@
+@@ -14,8 +15,17 @@ void EffectsBundleData::ResolveTemplates()
          mGroups[i]->ResolveTemplates(mTemplates);
      }
  }
@@ -149,7 +154,7 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
  EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
  {
      EffectsBundleData* data;
-@@ -41,7 +51,7 @@
+@@ -41,7 +51,7 @@ EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
          data->mGroups[i] = EffectsGroup::LoadFromChunk(chunk);
      }
  
@@ -158,7 +163,42 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
      return data;
  }
  
+diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
+index 1b0c02c..c84e415 100644
+--- a/src/Game/Effects/EffectsGroup.cpp
++++ b/src/Game/Effects/EffectsGroup.cpp
+@@ -1,9 +1,9 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Effects/EffectsGroup.h"
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include <stdexcept>
+ #endif
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ #include "Game/Effects/EmissionManager.h"
+ #include "Game/Sys/simpleparser.h"
+ #include "Game/SharedStaticStorage.h"
+@@ -47,7 +47,7 @@ bool EffectsGroup::IsPersistent() const
+     return false;
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+ EffectsGroup* EffectsGroup::LoadFromChunk(nlChunk* chunk)
+ {
+     nlChunk* groupChunk = chunk->GetFirstChunk();
+@@ -109,7 +109,7 @@ void EffectsGroup::DestroyUserSpecs()
+ {
+     if (m_userSpecs != 0)
+     {
+-#ifdef MSCHARGED_NATIVE
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
+         throw std::logic_error("Native user-effect destruction requires qualified factories");
+ #else
+         for (unsigned long i = 0; i < m_userSpecs; ++i)
 diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
+index b2cd85b..2d9b12f 100644
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
 @@ -1,7 +1,7 @@
@@ -179,7 +219,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
  #include <cmath>
  #include <stdexcept>
  #endif
-@@ -21,7 +21,7 @@
+@@ -21,7 +21,7 @@ float fxAnimatedRange::Evaluate(float value) const
  {
      if (mUseCurve != 0)
      {
@@ -188,7 +228,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
          if (!std::isfinite(value) || value < 0.0f || value > 1.0f
              || mNumKeys == 0 || mKeys == 0 || mKeys[0].mTime > value)
              throw std::domain_error("Unqualified particle curve sample");
-@@ -84,7 +84,7 @@
+@@ -84,7 +84,7 @@ float fxAnimatedRange::GetMaximum() const
      return base + 0.5f * range;
  }
  
@@ -197,40 +237,8 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
  inline fxAnimatedRange* fxAnimatedRange::LoadFromChunk(nlChunk* chunk)
  {
      nlChunk* valueChunk = chunk->GetFirstChunk();
-diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
---- a/src/Game/Effects/EffectsGroup.cpp
-+++ b/src/Game/Effects/EffectsGroup.cpp
-@@ -1,9 +1,9 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/Effects/EffectsGroup.h"
--#ifdef MSCHARGED_NATIVE
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
- #include <stdexcept>
- #endif
--#ifndef MSCHARGED_NATIVE
-+#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
- #include "Game/Effects/EmissionManager.h"
- #include "Game/Sys/simpleparser.h"
- #include "Game/SharedStaticStorage.h"
-@@ -47,7 +47,7 @@
-     return false;
- }
- 
--#ifndef MSCHARGED_NATIVE
-+#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
- EffectsGroup* EffectsGroup::LoadFromChunk(nlChunk* chunk)
- {
-     nlChunk* groupChunk = chunk->GetFirstChunk();
-@@ -109,7 +109,7 @@
- {
-     if (m_userSpecs != 0)
-     {
--#ifdef MSCHARGED_NATIVE
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_EFFECTS)
-         throw std::logic_error("Native user-effect destruction requires qualified factories");
- #else
-         for (unsigned long i = 0; i < m_userSpecs; ++i)
 diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index f4a940a..f22335f 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
 @@ -1,15 +1,16 @@
@@ -262,7 +270,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  #include "Game/SharedStaticStorage.h"
  #else
  #include <cmath>
-@@ -65,7 +66,7 @@
+@@ -65,7 +66,7 @@ int gNumRenderedParticles;
  static unsigned short hackyFacingAngle;
  
  ParticleSystem::ParticleSystem(
@@ -271,7 +279,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      NativeSimulation,
  #endif
      EffectsTemplate* pTemplate,
-@@ -93,7 +94,7 @@
+@@ -93,7 +94,7 @@ ParticleSystem::ParticleSystem(
      m_aFacing = 0;
      m_bAmDying = false;
      m_bVisible = false;
@@ -280,7 +288,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      m_uTextureIndex = 0xFFFFFFFF; // CPU simulation never owns a GL binding.
  #else
      m_uTextureIndex = glGetTextureIndex(m_pTemplate->m_hTexture);
-@@ -104,7 +105,7 @@
+@@ -104,7 +105,7 @@ ParticleSystem::~ParticleSystem()
  {
      if (m_pTemplate->m_uEmitterDeathCode != 0)
      {
@@ -289,7 +297,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
          std::terminate();
  #else
          tDebugPrintManager::Print(DC_RENDER, "OnEmitterDeath: %d\n",
-@@ -127,10 +128,46 @@
+@@ -127,10 +128,46 @@ void ParticleSystem::UpdateCoordSys()
      UpdateCoordSys(m_mCoordSys);
  }
  
@@ -336,7 +344,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
  typedef void (*EmitParticlePosition)(nlVector3&, nlVector3&,
      ParticleSystem*, EffectsSpec*, const nlMatrix4&);
-@@ -413,7 +450,7 @@
+@@ -413,7 +450,7 @@ void ParticleSystem::CreateNewParticles(int numParticles)
  
          if (m_pTemplate->m_uParticleCreationCode != 0)
          {
@@ -345,7 +353,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
          throw std::logic_error("Particle event diagnostics require the game debug service");
  #else
              tDebugPrintManager::Print(DC_RENDER, "OnParticleCreation: %d\n",
-@@ -484,7 +521,7 @@
+@@ -484,7 +521,7 @@ void ParticleSystem::UpdateAllParticles(float dt,
          {
              if (m_pTemplate->m_uParticleDeathCode != 0)
              {
@@ -354,7 +362,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
          throw std::logic_error("Particle event diagnostics require the game debug service");
  #else
                  tDebugPrintManager::Print(DC_RENDER, "OnParticleDeath: %d\n",
-@@ -503,7 +540,7 @@
+@@ -503,7 +540,7 @@ void ParticleSystem::UpdateAllParticles(float dt,
      }
  }
  
@@ -363,7 +371,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
      EffectsTemplate* pTemplate, const nlVector3& viewRight,
      const nlVector3& viewUp,
-@@ -581,12 +618,12 @@
+@@ -581,12 +618,12 @@ static nlColour EvaluateParticleColour(Particle* pPart,
      const EffectsTemplate* pTemplate)
  {
      float frame = 24.0f * (pPart->timeElapsed / pPart->lifeSpan);
@@ -378,7 +386,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      const unsigned required = first >= 24 ? 26 : unsigned(first + 2);
      if (pTemplate->m_cColour.size() < required)
          throw std::domain_error("Authored particle colour channel lacks the requested sample");
-@@ -670,7 +707,7 @@
+@@ -670,7 +707,7 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
          return;
      }
  
@@ -387,7 +395,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      const float nativeFrame = pPart->FPS * pPart->timeElapsed + pPart->frame;
      const float nativeAngle = 65536.0f * rot;
      if (!std::isfinite(nativeFrame) || nativeFrame < -2147483648.0f || nativeFrame >= 2147483648.0f
-@@ -733,7 +770,7 @@
+@@ -733,7 +770,7 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
      pReturn->position[3].z = (position.z + a.z) - b.z;
  }
  
@@ -396,7 +404,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  static void RenderLightOnField(GLView* view, const EffectsLight& light)
  {
      if (light.m_fRadius == 0.0f)
-@@ -781,9 +818,10 @@
+@@ -781,9 +818,10 @@ void ParticleSystem::ClearParticles()
      }
  }
  
@@ -408,7 +416,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      ParticleReturn ret;
  
      if (!m_bVisible)
-@@ -835,9 +873,35 @@
+@@ -835,9 +873,35 @@ int ParticleSystem::RenderAllParticles(GLView* view)
          nlMultDirVectorMatrix(viewRight, rot);
      }
  
@@ -447,7 +455,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
      static unsigned long WhiteTexture = glGetTexture("global/white");
      if (m_pSpec != 0 && m_pSpec->m_bLight)
-@@ -864,8 +928,13 @@
+@@ -864,8 +928,13 @@ int ParticleSystem::RenderAllParticles(GLView* view)
          eEffectsBlend blendType;
  
          nlMatrix4 m;
@@ -462,13 +470,12 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
          switch (m_pTemplate->m_eBlend)
          {
-@@ -891,10 +960,27 @@
+@@ -891,10 +960,27 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                      0);
              }
              UpdateParticle(&ret, pPart, m_pTemplate, viewRight, viewUp, pCoord);
 -            fxModelParticleMatrix(m, mCoord, ret,
 -                m_pTemplate->m_eBillboard, m_aFacing);
--
 +            float rotRad = 3.1415927f * ret.position[1].y / 180.0f;
 +            float size = ret.position[1].x;
 +            if (m_pTemplate->m_eBillboard == EfBill_Billboard)
@@ -484,7 +491,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
 +            m.e[12] = ret.position[0].x;
 +            m.e[13] = ret.position[0].y;
 +            m.e[14] = ret.position[0].z;
-+
+ 
 +#ifdef MSCHARGED_NATIVE
              glMatrixHandle hMatrix = glAllocSetMatrix(m);
 +#else
@@ -493,7 +500,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
              float meshRateScale = 1.0f;
              if (pAnim != 0)
-@@ -903,14 +989,20 @@
+@@ -903,14 +989,20 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                  {
                      meshRateScale = ((float)(int)pAnim->m_nNumFrames
                          / pAnim->m_fFrameRate) / pPart->lifeSpan;
@@ -518,7 +525,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
                  }
              }
  
-@@ -922,12 +1014,21 @@
+@@ -922,12 +1014,21 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                  if (glHasMaterialParameter(pPacket, constantColourHash))
                  {
                      nlVector4 colour;
@@ -543,7 +550,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
                  pPacket->matrix = hMatrix;
                  ++pPacket;
              }
-@@ -959,7 +1060,25 @@
+@@ -959,7 +1060,25 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                  Particle* pPart = *iterator;
                  UpdateParticle(&ret, pPart, m_pTemplate, viewRight,
                      viewUp, pCoord);
@@ -570,7 +577,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
                  iterator.Step();
              }
  
-@@ -1088,7 +1207,7 @@
+@@ -1088,7 +1207,7 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
  {
      TextureFrame* p = (TextureFrame*)nlMalloc(
          numFrames * sizeof(TextureFrame), 8, false);
@@ -579,7 +586,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      if (p == 0) throw std::bad_alloc();
  #endif
      TextureFrame* q = p;
-@@ -1111,7 +1230,7 @@
+@@ -1111,7 +1230,7 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
  
  bool fxParticleStartup(int maxNumParticles)
  {
@@ -588,7 +595,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      for (int i = 0; i < 36; ++i)
          if (textureFrames[i] != 0)
              throw std::logic_error("Particle atlas is already owned");
-@@ -1120,7 +1239,7 @@
+@@ -1120,7 +1239,7 @@ bool fxParticleStartup(int maxNumParticles)
  #endif
      textureFrames[0]
          = (TextureFrame*)nlMalloc(sizeof(TextureFrame), 8, false);
@@ -597,7 +604,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      if (textureFrames[0] == 0) throw std::bad_alloc();
  #endif
      textureFrames[0]->u = 0.0f;
-@@ -1134,7 +1253,7 @@
+@@ -1134,7 +1253,7 @@ bool fxParticleStartup(int maxNumParticles)
      if (MaxNumParticles == 0)
          MaxNumParticles = maxNumParticles;
      return true;
@@ -606,7 +613,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      }
      catch (...) { fxParticleShutdown(); throw; }
  #endif
-@@ -1146,7 +1265,7 @@
+@@ -1146,7 +1265,7 @@ bool fxParticleShutdown()
      {
          if (textureFrames[i] != 0)
          {

@@ -1,6 +1,6 @@
 Subject: Keep original animation decode functions in their whole source TU
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore the original twelve-bit unpack assignments and all four original
 rotation/GQR entry points in SAnimDecode.cpp. Lower only the fixed signed
@@ -9,6 +9,7 @@ The native platform helper has no game types or packing/selection decisions.
 Keep the console instructions and scalar scale/weight bodies unchanged.
 
 diff --git a/src/Game/SAnimDecode.cpp b/src/Game/SAnimDecode.cpp
+index 242f928..f679133 100644
 --- a/src/Game/SAnimDecode.cpp
 +++ b/src/Game/SAnimDecode.cpp
 @@ -2,31 +2,51 @@
@@ -65,7 +66,7 @@ diff --git a/src/Game/SAnimDecode.cpp b/src/Game/SAnimDecode.cpp
  }
  // clang-format on
  
-@@ -46,27 +66,42 @@
+@@ -46,27 +66,42 @@ extern "C" void SAnimDecodeRot12(register nlQuaternion* result, const void* pack
      unpacked[6] = bytes[5];
      unpacked[7] <<= 4;
      register unsigned char* values = unpacked;

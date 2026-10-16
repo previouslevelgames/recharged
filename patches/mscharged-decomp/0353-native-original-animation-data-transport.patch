@@ -1,5 +1,5 @@
 Subject: Transport original SAnim data into allocation-owned native backing
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the full original Initialize/node walk, root/weight/morph sampling,
 callback pool and Destroy/inventory lifetime. Native-only data casts view
@@ -7,9 +7,10 @@ completed compressed NL-owned bytes with exact endian and pointer widths.
 Raw byte channels retain real neighbors; no readiness or source algorithms change.
 
 diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+index f629acc..1c330e0 100644
 --- a/src/Game/SAnim.cpp
 +++ b/src/Game/SAnim.cpp
-@@ -352,49 +352,99 @@
+@@ -352,49 +352,99 @@ float cSAnim::GetMorphWeight(int channel, float fTime) const
  #include "Game/PoseAccumulator.h"
  #include "Game/SHierarchy.h"
  #include "NL/nlSlotPool.h"
@@ -109,7 +110,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
  
      unsigned int nodeIndex = 0;
      unsigned int type;
-@@ -430,23 +480,42 @@
+@@ -430,23 +480,42 @@ cSAnim* cSAnim::Initialize(nlChunk* pChunk)
      }
  
      pRetval->m_pNumMorphKeys
@@ -152,7 +153,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
      nlChunk* subEnd;
      nlChunk* subChunk;
      subEnd = nodeChunk->GetLastChunk();
-@@ -457,23 +526,43 @@
+@@ -457,23 +526,43 @@ void cSAnim::InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex)
          unsigned int type = subChunk->GetID();
          if (type == 0x17101)
          {

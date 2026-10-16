@@ -1,5 +1,5 @@
 Subject: Admit the original Domination world animation and emission cleanup services
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0551 and 0552.
 
 The authored FromGrudgeMatchToStadiumSelect and FromStadiumSelectToGrudgeMatch
@@ -12,9 +12,11 @@ effects group only if EmissionManager has it. Move only services 12 and 16
 under the existing Domination admission; emission disable/enable (14, 43)
 and all other services keep their guards.
 
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 801fa60..4c46b3d 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -133,7 +133,7 @@
+@@ -133,7 +133,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
  
  #endif
@@ -23,7 +25,7 @@ and all other services keep their guards.
      case 12:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -142,6 +142,8 @@
+@@ -142,6 +142,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
      }
  
@@ -32,7 +34,7 @@ and all other services keep their guards.
      case 13:
          BeginLoadTournamentTrophy();
          break;
-@@ -168,7 +170,7 @@
+@@ -168,7 +170,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      }
  
  #endif

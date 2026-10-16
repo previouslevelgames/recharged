@@ -1,5 +1,5 @@
 Subject: Tweak: CPU vs CPU
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Choose Sides offers its Done button only while a controller is on a side:
 UpdateHomeAwayVisibility shows Done for the first one, and hides and disables

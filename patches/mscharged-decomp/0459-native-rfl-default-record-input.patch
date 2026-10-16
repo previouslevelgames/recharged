@@ -3,18 +3,20 @@
 # Requires: 0452 native RFL name cells; native record writers unchanged.
 
 diff --git a/src/RVL_SDK/rfl/RFL_DefaultDatabase.c b/src/RVL_SDK/rfl/RFL_DefaultDatabase.c
+index 0ab2356..92ce21f 100644
 --- a/src/RVL_SDK/rfl/RFL_DefaultDatabase.c
 +++ b/src/RVL_SDK/rfl/RFL_DefaultDatabase.c
-@@ -1,4 +1,8 @@
+@@ -1,5 +1,9 @@
  #include <RVLFaceLib/RVLFaceLibInternal.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <platform/rfl_character_transport.h>
 +#endif
- 
++
  static const u8 scDefaultData[][sizeof(RFLiCharData)] = {
      // "Guest A"
-@@ -59,5 +63,11 @@
+     {0x00, 0x08, 0x00, 0x6E, 0x00, 0x6F, 0x00, 0x20, 0x00, 0x6E, 0x00,
+@@ -59,5 +63,11 @@ RFLiCharData* RFLiGetDefaultDataPtr(u16 index) {
  }
  
  void RFLiGetDefaultData(RFLiCharInfo* info, u16 index) {

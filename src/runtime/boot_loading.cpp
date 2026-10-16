@@ -149,7 +149,7 @@ struct BootLoading::Implementation
         {
             if (pool) throw std::logic_error("Persistent boot resource pool already exists");
             RequireGraphics();
-            fn_80111654(4); // Original empty debug marker, selected from FixedUpdateTask.
+            OnResourceLoadBegin(4); // Original empty debug marker, selected from FixedUpdateTask.
             auto requirements = gPersistentResourceRequirements;
             if(memory.headers)
             {
@@ -183,7 +183,7 @@ struct BootLoading::Implementation
         case 120:
             // Original marker ignores its int argument. Consume a checked
             // retained script string without narrowing its host address.
-            fn_8011165C(0);
+            OnLoadingCheckpoint(0);
             break;
         default:
             throw UnqualifiedService(id, ServiceDescription(id));

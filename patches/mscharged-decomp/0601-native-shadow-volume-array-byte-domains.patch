@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Bind shadow volume arrays through their actual byte domains
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original stadium shadow volumes count faces in EFB alpha: front faces add
 4/255, back faces subtract it, and the blend pass darkens every pixel whose
@@ -17,7 +17,9 @@ native-endian. GLShadowBlendMeshWriter publishes its written native streams as
 the other mesh writers do, so the blend quad resolves through the same path.
 Original vertex formats, counts, strides, raster state and blend arithmetic are
 unchanged; preview builds keep their explicit native arrays.
+
 diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+index 03c9de4..5ded708 100644
 --- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
 +++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
 @@ -13,6 +13,9 @@
@@ -30,19 +32,20 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
  
  GLShadowBlendMeshWriter::GLShadowBlendMeshWriter()
  {
-@@ -146,6 +149,11 @@
+@@ -145,6 +148,11 @@ bool GLShadowBlendMeshWriter::End()
+     NativeCheckLive();
      if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
          throw std::logic_error("Incomplete or already finalized shadow mesh");
- #endif
++#endif
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[0].address, position);
 +    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[1].address, colour);
 +    mscharged::platform::PublishGameGraphicsNativeBytes(model->packets->streams[2].address, texcoord);
-+#endif
+ #endif
      for (int i = 0; i < model->numPackets; ++i)
      {
-         glModelPacket* packet = &model->packets[i];
 diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+index ac17d7f..82754fd 100644
 --- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 @@ -9,6 +9,9 @@
@@ -55,7 +58,7 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowV
  
  GXShadowVolumeMaterialProgram* GXShadowVolumeMaterialProgram::Instance;
  bool GXShadowVolumeMaterialProgram::Initialized;
-@@ -71,19 +74,25 @@
+@@ -71,19 +74,25 @@ void GXShadowVolumeMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXShadowVolumeMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;

@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -9,7 +9,79 @@ decisions. Native pool layouts, typed binding addresses and allocation
 signatures remain ABI adaptations. Extracted value methods are diagnostics
 only; production requires their whole original Game/AIPad providers.
 
+diff --git a/include/Game/TweakIntBinding.inl b/include/Game/TweakIntBinding.inl
+index 94740a1..65eca7e 100644
+--- a/include/Game/TweakIntBinding.inl
++++ b/include/Game/TweakIntBinding.inl
+@@ -26,7 +26,7 @@ TweakValueBase* TweakIntBinding::CreateValue(
+     const char* name, void* entry)
+ {
+     TweakValueInt* created = new (
+-        gTweakValueAllocator->Allocate(sizeof(TweakValueInt)))
++        mscharged::OwnTweakAllocation(gTweakValueAllocator->Allocate(sizeof(TweakValueInt))))
+         TweakValueInt(name, 0);
+     AddTweakValue((TweakEntry*)entry, created);
+     return created;
+@@ -64,7 +64,11 @@ void TweakIntBinding::FormatValue(
+ 
+ void TweakIntBinding::ParseValue(const char* value)
+ {
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++    *m_pValue = mscharged::TweakInteger(value);
++#else
+     *m_pValue = atoi(value);
++#endif
+ }
+ 
+ int TweakIntBinding::IsBound()
+diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
+index bed7965..d90d69a 100644
+--- a/include/Game/TweakRegistry.h
++++ b/include/Game/TweakRegistry.h
+@@ -30,9 +30,18 @@ class TweakNode;
+ struct TweakPendingValue;
+ struct TweakRecycledName;
+ 
++#ifdef MSCHARGED_NATIVE
++constexpr int TweakNameSlotSize = 2*sizeof(void*) + 8;
++constexpr int TweakNodeSlotSize = 4*sizeof(void*) + 16;
++constexpr int TweakEntrySlotSize = 6*sizeof(void*) + 24;
++extern nlSlotPoolFixed<TweakNameSlotSize> gTweakNamePool;
++extern nlSlotPoolFixed<TweakNodeSlotSize> gTweakNodePool;
++extern nlSlotPoolFixed<TweakEntrySlotSize> gTweakEntryPool;
++#else
+ extern nlSlotPoolFixed<0x10> gTweakNamePool;
+ extern nlSlotPoolFixed<0x20> gTweakNodePool;
+ extern nlSlotPoolFixed<0x2C> gTweakEntryPool;
++#endif
+ 
+ extern TweakValueAllocator3* gTweakValueAllocator;
+ extern TweakValueAllocator2* gTweakBindingAllocator;
+@@ -219,7 +228,11 @@ public:
+             m_Value = ((TweakValueString*)other)->m_Value;
+             break;
+         case TWEAK_STORAGE_BINDING:
++#ifdef MSCHARGED_NATIVE
++            m_Value = *static_cast<const char**>(other->GetValueAddress());
++#else
+             m_Value = *(const char**)((TweakFloatBinding*)other)->m_pValue;
++#endif
+             break;
+         }
+     }
+@@ -264,3 +277,10 @@ T* TweakNodeListRemove(T** head, T* node, T** tail)
+ }
+ 
+ #endif // GAME_TWEAK_REGISTRY_H
++
++#ifdef MSCHARGED_NATIVE
++static_assert(sizeof(TweakNode) == TweakNodeSlotSize);
++static_assert(sizeof(TweakEntry) == TweakEntrySlotSize);
++static_assert(sizeof(TweakRecycledName) == TweakNameSlotSize);
++static_assert(sizeof(TweakValueString) <= 4*sizeof(void*));
++#endif
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
+index e8b6979..f73b624 100644
 --- a/include/Game/TweakValue.h
 +++ b/include/Game/TweakValue.h
 @@ -4,6 +4,11 @@
@@ -38,7 +110,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  extern TweakValueAllocator3* gTweakValueAllocator;
  extern TweakValueAllocator2* gTweakBindingAllocator;
  
-@@ -44,7 +54,11 @@
+@@ -44,7 +54,11 @@ public:
  
  inline void* AllocateTweakValue(unsigned long size)
  {
@@ -50,7 +122,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  }
  
  inline bool TweakValueStringEquals(const char* value, const char* expected)
-@@ -81,7 +95,11 @@
+@@ -81,7 +95,11 @@ inline void FormatTweakBindingValue(char* buffer, unsigned long size, float* val
  }
  inline void ParseTweakBindingValue(float*& result, const char* value)
  {
@@ -62,7 +134,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  }
  
  template <typename T>
-@@ -151,7 +169,11 @@
+@@ -151,7 +169,11 @@ public:
  
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -74,7 +146,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
              if (entry != 0)
              {
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
-@@ -301,7 +323,11 @@
+@@ -301,7 +323,11 @@ public:
          mFormatName = formatName;
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -87,9 +159,10 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
              {
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
 diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
+index e01096d..bbf2d82 100644
 --- a/include/Game/TweakValueBool.h
 +++ b/include/Game/TweakValueBool.h
-@@ -41,7 +41,11 @@
+@@ -41,7 +41,11 @@ public:
          mFormatName = formatName;
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -102,6 +175,7 @@ diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
              {
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
 diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
+index 2f02670..4c599aa 100644
 --- a/include/Game/TweakValueFloat.h
 +++ b/include/Game/TweakValueFloat.h
 @@ -3,6 +3,9 @@
@@ -114,7 +188,7 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
  #include "NL/nlFormat.h"
  
  class TweakValueFloat : public TweakValueBase
-@@ -17,7 +20,11 @@
+@@ -17,7 +20,11 @@ public:
  
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -127,7 +201,7 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
              if (entry != 0)
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
          }
-@@ -73,7 +80,11 @@
+@@ -73,7 +80,11 @@ public:
      virtual void ParseValue(
          const char* string)
      {
@@ -139,55 +213,242 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
      }
      virtual void GetFloatParameters(
          float* minimum, float* maximum, float* increment)
-diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
---- a/include/Game/TweakRegistry.h
-+++ b/include/Game/TweakRegistry.h
-@@ -30,9 +30,18 @@
- struct TweakPendingValue;
- struct TweakRecycledName;
+diff --git a/include/Game/TweakValueName.h b/include/Game/TweakValueName.h
+index ef76c3b..3d4f5bb 100644
+--- a/include/Game/TweakValueName.h
++++ b/include/Game/TweakValueName.h
+@@ -3,6 +3,9 @@
  
-+#ifdef MSCHARGED_NATIVE
-+constexpr int TweakNameSlotSize = 2*sizeof(void*) + 8;
-+constexpr int TweakNodeSlotSize = 4*sizeof(void*) + 16;
-+constexpr int TweakEntrySlotSize = 6*sizeof(void*) + 24;
-+extern nlSlotPoolFixed<TweakNameSlotSize> gTweakNamePool;
-+extern nlSlotPoolFixed<TweakNodeSlotSize> gTweakNodePool;
-+extern nlSlotPoolFixed<TweakEntrySlotSize> gTweakEntryPool;
-+#else
- extern nlSlotPoolFixed<0x10> gTweakNamePool;
- extern nlSlotPoolFixed<0x20> gTweakNodePool;
- extern nlSlotPoolFixed<0x2C> gTweakEntryPool;
+ #include "Game/TweakValueBase.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++#include "runtime/tweaks.h"
 +#endif
  
- extern TweakValueAllocator3* gTweakValueAllocator;
- extern TweakValueAllocator2* gTweakBindingAllocator;
-@@ -219,7 +228,11 @@
-             m_Value = ((TweakValueString*)other)->m_Value;
-             break;
-         case TWEAK_STORAGE_BINDING:
-+#ifdef MSCHARGED_NATIVE
-+            m_Value = *static_cast<const char**>(other->GetValueAddress());
-+#else
-             m_Value = *(const char**)((TweakFloatBinding*)other)->m_pValue;
-+#endif
-             break;
-         }
+ // Name-only value attached to folder entries.
+ // The overrides are declared in reverse of their emission order in TweakNode.
+@@ -13,7 +16,19 @@ public:
+     {
+         mName = name;
      }
-@@ -264,3 +277,10 @@
++#ifdef MSCHARGED_NATIVE
++    static void* operator new(size_t size)
++    {
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++        return mscharged::OwnTweakAllocation(nlMalloc(size, 8, false));
++#else
++        return nlMalloc(size, 8, false);
++#endif
++    }
++    static void operator delete(void* pointer) { nlFree(pointer); }
++#else
+     static void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
++#endif
+     virtual int GetValueType() { return TWEAK_TYPE_FOLDER; }
+     virtual int ReservedNameQueryA() { return 1; }
+     virtual int ReservedNameQueryB() { return 0; }
+diff --git a/src/Game/AIPad.cpp b/src/Game/AIPad.cpp
+index 257b5dd..fbb6b0d 100644
+--- a/src/Game/AIPad.cpp
++++ b/src/Game/AIPad.cpp
+@@ -300,7 +300,9 @@ void AIPadManager::UpdateAccelerationHistory()
+     }
  }
  
- #endif // GAME_TWEAK_REGISTRY_H
-+
-+#ifdef MSCHARGED_NATIVE
-+static_assert(sizeof(TweakNode) == TweakNodeSlotSize);
-+static_assert(sizeof(TweakEntry) == TweakEntrySlotSize);
-+static_assert(sizeof(TweakRecycledName) == TweakNameSlotSize);
-+static_assert(sizeof(TweakValueString) <= 4*sizeof(void*));
++#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
+ void* TweakValueBase::ReservedValueQuery()
+ {
+     return 0;
+ }
 +#endif
+diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
+index b348f5b..0ec0b73 100644
+--- a/src/Game/Ball.cpp
++++ b/src/Game/Ball.cpp
+@@ -3310,7 +3310,9 @@ void OnBallStateChange(int previousState, int currentState)
+ }
+ 
+ static unsigned short lbl_806DB5C0 = 0xFFFF;
++#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
+ char gTweakFloatBindingFormat[] __attribute__((aligned(4))) = "%.3f";
++#endif
+ 
+ inline void RegisterBallDebugFields(cBall* ball, DebugWriteCache* cache)
+ {
+diff --git a/src/Game/GameTweaks.cpp b/src/Game/GameTweaks.cpp
+index b15c08f..0444387 100644
+--- a/src/Game/GameTweaks.cpp
++++ b/src/Game/GameTweaks.cpp
+@@ -24,7 +24,9 @@ void GameTweaks::OnGameCreated()
+ {
+ }
+ 
++#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
+ #include "Game/TweakIntBinding.inl"
++#endif
+ 
+ void GameTweaks::Init()
+ {
+diff --git a/src/Game/TweakConfig.cpp b/src/Game/TweakConfig.cpp
+index 504f3f2..838ecb0 100644
+--- a/src/Game/TweakConfig.cpp
++++ b/src/Game/TweakConfig.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/Sys/simpleparser.h"
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++#include "runtime/game_config.h"
++#endif
+ #include "Game/Sys/debug.h"
+ #include "Game/TweakRegistry.h"
+ #include "Game/SharedStaticStorage.h"
+@@ -50,7 +53,11 @@ void TweakConfigParser::Comment(
+     SimpleParser tokens;
+     if (!tokens.StartParsing(copy, size + 1, "# =\t"))
+     {
+-        delete copy;
++        #ifdef MSCHARGED_NATIVE
++nlFree(copy);
++#else
++delete copy;
++#endif
+         return;
+     }
+ 
+@@ -80,7 +87,11 @@ void TweakConfigParser::Comment(
+         token = next;
+     }
+ 
+-    delete copy;
++    #ifdef MSCHARGED_NATIVE
++nlFree(copy);
++#else
++delete copy;
++#endif
+ }
+ 
+ void TweakConfigParser::Section(const BString& section)
+@@ -112,6 +123,10 @@ static char sConfigWhitespace[] = " \t\"\r";
+ void ParseTweakConfigData(
+     char* data, int size, Config::Parser* parser)
+ {
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++    mscharged::ValidateConfigInput(data, size);
++    if (!parser || !IsTweakRegistryInitialized()) throw std::logic_error("Tweak parser requires an initialized registry");
++#endif
+     if (size <= 0)
+     {
+         return;
+@@ -154,6 +169,9 @@ void ParseTweakConfigData(
+         }
+ 
+         char* token = tokens.NextToken(false);
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++        if (!token) { line = lines.GetLine(); continue; }
++#endif
+         tag.erase(tag.begin(), tag.end());
+         tag.insert(tag.begin(), token, token + tokens.GetTokenLength());
+         tag.TrimInPlace(sConfigWhitespace);
+@@ -175,12 +193,22 @@ void ParseTweakConfigData(
+                 }
+             }
+ 
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++            if (!tag.size() || !value.size()) throw std::invalid_argument("Empty tweak tag or value");
++#endif
+             parser->TagValuePair(tag, value);
+         }
+         line = lines.GetLine();
+     }
+ }
+ 
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++char* ReadTweakConfigFile(const char* filename, unsigned long* outSize)
++{
++    if (!filename || !nlFileExists(filename)) throw std::runtime_error("Tweak configuration file is missing");
++    return static_cast<char*>(nlLoadEntireFile(filename, outSize, 0x20, AllocateEnd, nullptr, 0, nullptr));
++}
++#else
+ char* ReadTweakConfigFile(
+     const char* filename, unsigned long* outSize)
+ {
+@@ -212,6 +240,7 @@ char* ReadTweakConfigFile(
+     }
+     return 0;
+ }
++#endif
+ 
+ void LoadTweakConfigFile(
+     const char* filename, const char* category, bool reload)
+@@ -219,6 +248,10 @@ void LoadTweakConfigFile(
+     unsigned long size;
+     int parseSize;
+     char* data = ReadTweakConfigFile(filename, &size);
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++    mscharged::ConfigBuffer owner(data);
++    if (size > 16 * 1024 * 1024) throw std::length_error("Tweak configuration exceeds 16 MiB");
++#endif
+     parseSize = size;
+ 
+     {
+@@ -231,7 +264,11 @@ void LoadTweakConfigFile(
+ 
+         ParseTweakConfigData(data, parseSize, &parser);
+     }
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++    owner.reset();
++#else
+     nlFree(data);
++#endif
+ }
+ 
+ void LoadTweakConfigBuffer(void* context, char* data,
+diff --git a/src/Game/TweakEntry.cpp b/src/Game/TweakEntry.cpp
+index 066d606..4d1cc19 100644
+--- a/src/Game/TweakEntry.cpp
++++ b/src/Game/TweakEntry.cpp
+@@ -4,7 +4,11 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ 
++#ifdef MSCHARGED_NATIVE
++nlSlotPoolFixed<TweakEntrySlotSize> gTweakEntryPool(0x20);
++#else
+ nlSlotPoolFixed<0x2C> gTweakEntryPool(0x20);
++#endif
+ 
+ TweakEntry::TweakEntry()
+ {
+@@ -142,6 +146,9 @@ void ClearTweakChildren(TweakEntry* entry)
+         child = next;
+     }
+     entry->m_ChildHead = 0;
++#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
++    entry->m_ChildTail = 0;
++#endif
+ }
+ 
+ void RemoveDynamicTweakChildren(TweakEntry* entry)
+diff --git a/src/Game/TweakNameRecycler.cpp b/src/Game/TweakNameRecycler.cpp
+index 2a99bf4..56e2d38 100644
+--- a/src/Game/TweakNameRecycler.cpp
++++ b/src/Game/TweakNameRecycler.cpp
+@@ -24,7 +24,11 @@ public:
+     /* 0x14 */ u8 m_pad014[4]; // not accessed by retained code
+ }; // size: 0x18
+ 
++#ifdef MSCHARGED_NATIVE
++nlSlotPoolFixed<TweakNameSlotSize> gTweakNamePool;
++#else
+ nlSlotPoolFixed<0x10> gTweakNamePool;
++#endif
+ TweakRecycledName* gRecycledTweakNameHead;
+ TweakRecycledName* gRecycledTweakNameTail;
+ 
 diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
+index b1fe099..4fa0999 100644
 --- a/src/Game/TweakNode.cpp
 +++ b/src/Game/TweakNode.cpp
-@@ -1,5 +1,8 @@
+@@ -1,12 +1,19 @@
  #include "Game/TweakRegistry.h"
  #include "Game/TweakValueName.h"
 +#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
@@ -196,9 +457,8 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
  #include "NL/nlSlotPoolFixed.inl"
  
  #include "NL/nlMemory.h"
-@@ -7,7 +10,11 @@
+ #include "NL/nlSmallBlockAllocator.h"
  #include "NL/nlString.h"
- #include "NL/nlstring_tmpl.h"
  
 +#ifdef MSCHARGED_NATIVE
 +nlSlotPoolFixed<TweakNodeSlotSize> gTweakNodePool(0x20);
@@ -208,7 +468,7 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
  
  static inline void BuildTweakNodePath(const TweakNode* node, char* buffer, unsigned long size)
  {
-@@ -17,6 +24,10 @@
+@@ -16,6 +23,10 @@ static inline void BuildTweakNodePath(const TweakNode* node, char* buffer, unsig
  
  TweakNode::TweakNode()
  {
@@ -219,7 +479,7 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
      m_Next = 0;
      m_Parent = 0;
      m_Depth = 0;
-@@ -47,6 +58,14 @@
+@@ -46,6 +57,14 @@ TweakStrCmpFunc TweakNodeForceStrCmp()
      return &nlStrCmp<char>;
  }
  
@@ -234,7 +494,7 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
  TweakNode::~TweakNode()
  {
      if (this != GetTweakRoot())
-@@ -61,6 +80,7 @@
+@@ -60,6 +79,7 @@ TweakNode::~TweakNode()
          }
      }
  }
@@ -242,7 +502,7 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
  
  const char* GetTweakNodeName(const TweakNode* node)
  {
-@@ -137,6 +157,10 @@
+@@ -136,6 +156,10 @@ TweakEntry* FindOrCreateTweakPath(TweakEntry* entry, const char* path, int noCre
  {
      char* copy;
      TweakEntry* result = 0;
@@ -253,7 +513,7 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
      const char* start = path;
      if (*path == '/')
      {
-@@ -144,6 +168,9 @@
+@@ -143,6 +167,9 @@ TweakEntry* FindOrCreateTweakPath(TweakEntry* entry, const char* path, int noCre
      }
      unsigned long length = nlStrLen(path) + 1;
      copy = (char*)nlMalloc(length, 8, false);
@@ -263,7 +523,7 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
      nlStrNCpy(copy, start, length);
      const char* copiedPath = copy;
      if (copiedPath[nlStrLen(copiedPath) - 1] == '/')
-@@ -176,7 +203,11 @@
+@@ -175,7 +202,11 @@ TweakEntry* FindOrCreateTweakPath(TweakEntry* entry, const char* path, int noCre
              result = FindOrCreateTweakPath(child, rest, noCreate);
          }
      }
@@ -275,50 +535,11 @@ diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
      return result;
  }
  
-diff --git a/src/Game/TweakEntry.cpp b/src/Game/TweakEntry.cpp
---- a/src/Game/TweakEntry.cpp
-+++ b/src/Game/TweakEntry.cpp
-@@ -5,7 +5,11 @@
- #include "NL/nlString.h"
- #include "NL/nlstring_tmpl.h"
- 
-+#ifdef MSCHARGED_NATIVE
-+nlSlotPoolFixed<TweakEntrySlotSize> gTweakEntryPool(0x20);
-+#else
- nlSlotPoolFixed<0x2C> gTweakEntryPool(0x20);
-+#endif
- 
- TweakEntry::TweakEntry()
- {
-@@ -143,6 +147,9 @@
-         child = next;
-     }
-     entry->m_ChildHead = 0;
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+    entry->m_ChildTail = 0;
-+#endif
- }
- 
- void RemoveDynamicTweakChildren(TweakEntry* entry)
-diff --git a/src/Game/TweakNameRecycler.cpp b/src/Game/TweakNameRecycler.cpp
---- a/src/Game/TweakNameRecycler.cpp
-+++ b/src/Game/TweakNameRecycler.cpp
-@@ -24,7 +24,11 @@
-     /* 0x14 */ u8 m_pad014[4]; // not accessed by retained code
- }; // size: 0x18
- 
-+#ifdef MSCHARGED_NATIVE
-+nlSlotPoolFixed<TweakNameSlotSize> gTweakNamePool;
-+#else
- nlSlotPoolFixed<0x10> gTweakNamePool;
-+#endif
- TweakRecycledName* gRecycledTweakNameHead;
- TweakRecycledName* gRecycledTweakNameTail;
- 
 diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
+index fe8f800..9a87142 100644
 --- a/src/Game/TweakRegistry.cpp
 +++ b/src/Game/TweakRegistry.cpp
-@@ -45,6 +45,9 @@
+@@ -45,6 +45,9 @@ TweakPendingValue* gPendingTweakTail;
  
  void ResetDynamicTweaks(void)
  {
@@ -328,7 +549,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      SharedStaticStorageScope scope;
      RemoveDynamicTweakChildren(&sTweakRootEntry);
      RecycleTweakNames();
-@@ -105,6 +108,9 @@
+@@ -105,6 +108,9 @@ int IsTweakRegistryInitialized(void)
  
  void InitializeTweakRegistry(int fromEnd, u8 flag, unsigned int* sizes)
  {
@@ -338,7 +559,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      gTweakStaticStringCapacity = 0x7800;
      gTweakDynamicStringCapacity = 0x2800;
      gTweakValueStringCapacity = 0x800;
-@@ -258,8 +264,13 @@
+@@ -258,8 +264,13 @@ void RegisterPendingTweaks(void)
  
  void BindPendingTweaks(void)
  {
@@ -352,7 +573,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      {
          TweakValueBase* value = pending->m_Value;
          int type = value->GetValueType();
-@@ -276,6 +287,29 @@
+@@ -276,6 +287,29 @@ void BindPendingTweaks(void)
              if (!((TweakBindingBase*)value)
                      ->Bind(value->mName, pending->m_Category, false, 0.0f, 0.0f, 0.0f))
              {
@@ -382,7 +603,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
                  TweakFloatBinding* impl = (TweakFloatBinding*)value;
                  switch (type)
                  {
-@@ -292,6 +326,7 @@
+@@ -292,6 +326,7 @@ void BindPendingTweaks(void)
                      *(u32*)impl->m_pValue = (u32)pending->m_Default32;
                      break;
                  }
@@ -390,7 +611,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
              }
              pending->m_Registered = true;
          }
-@@ -304,6 +339,10 @@
+@@ -304,6 +339,10 @@ const char* InternTweakString(const char* str, int kind)
      {
          kind = gTweakStatePushed != 0;
      }
@@ -401,7 +622,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      if (kind != kTweakStringValue)
      {
          const char* existing = gTweakStringBuffers[kind];
-@@ -316,6 +355,10 @@
+@@ -316,6 +355,10 @@ const char* InternTweakString(const char* str, int kind)
              existing += nlStrLen(existing) + 2;
          }
      }
@@ -412,7 +633,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      const char* start = gTweakStringNext[kind];
      while (*str != '\0')
      {
-@@ -348,7 +391,11 @@
+@@ -348,7 +391,11 @@ static inline bool IsIntValue(const char* string, int& value)
          }
          current++;
      }
@@ -424,7 +645,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      return true;
  }
  
-@@ -368,7 +415,11 @@
+@@ -368,7 +415,11 @@ static inline bool IsFloatValue(const char* string, float& value)
          }
          current++;
      }
@@ -436,7 +657,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      return seenPeriod;
  }
  
-@@ -378,7 +429,7 @@
+@@ -378,7 +429,7 @@ template <typename T, typename V>
  static T* CreateRegisteredTweakValue(TweakEntry* entry, const char* name, V value)
  {
      const char* interned = InternTweakString(name, kTweakStringCurrent);
@@ -445,7 +666,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      AddTweakValue(entry, created);
      return created;
  }
-@@ -510,6 +561,9 @@
+@@ -510,6 +561,9 @@ int IsTweakNamePrefix(const char* str, unsigned int count, int index)
  
  int NeedsTweakNameFormatting(const char* name, int* outLength)
  {
@@ -455,7 +676,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int found = 0;
      unsigned int i;
  
-@@ -556,6 +610,9 @@
+@@ -556,6 +610,9 @@ int NeedsTweakNameFormatting(const char* name, int* outLength)
  
  const char* FormatTweakName(const char* name, int kind)
  {
@@ -465,7 +686,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int prefix = 0;
      NeedsTweakNameFormatting(name, &prefix);
  
-@@ -588,6 +645,10 @@
+@@ -588,6 +645,10 @@ const char* FormatTweakName(const char* name, int kind)
  
  void UnregisterTweakValue(TweakValueBase* value)
  {
@@ -476,7 +697,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      RemoveTweakValue(&sTweakRootEntry, value);
  }
  
-@@ -598,6 +659,9 @@
+@@ -598,6 +659,9 @@ float GetTweakFloat(const char* path, float defaultValue)
      {
          return defaultValue;
      }
@@ -486,7 +707,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == TWEAK_STORAGE_OWNED)
      {
-@@ -605,7 +669,11 @@
+@@ -605,7 +669,11 @@ float GetTweakFloat(const char* path, float defaultValue)
      }
      if (kind == TWEAK_STORAGE_BINDING)
      {
@@ -498,7 +719,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -617,6 +685,9 @@
+@@ -617,6 +685,9 @@ int GetTweakInt(const char* path, int defaultValue)
      {
          return defaultValue;
      }
@@ -508,7 +729,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == TWEAK_STORAGE_OWNED)
      {
-@@ -624,7 +695,11 @@
+@@ -624,7 +695,11 @@ int GetTweakInt(const char* path, int defaultValue)
      }
      if (kind == TWEAK_STORAGE_BINDING)
      {
@@ -520,7 +741,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -636,6 +711,9 @@
+@@ -636,6 +711,9 @@ bool GetTweakBool(const char* path, bool defaultValue)
      {
          return defaultValue;
      }
@@ -530,7 +751,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == TWEAK_STORAGE_OWNED)
      {
-@@ -643,7 +721,11 @@
+@@ -643,7 +721,11 @@ bool GetTweakBool(const char* path, bool defaultValue)
      }
      if (kind == TWEAK_STORAGE_BINDING)
      {
@@ -542,7 +763,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -655,6 +737,9 @@
+@@ -655,6 +737,9 @@ const char* GetTweakString(const char* path, const char* defaultValue)
      {
          return defaultValue;
      }
@@ -552,7 +773,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      int kind = entry->m_Value->GetStorageKind();
      if (kind == TWEAK_STORAGE_OWNED)
      {
-@@ -662,7 +747,11 @@
+@@ -662,7 +747,11 @@ const char* GetTweakString(const char* path, const char* defaultValue)
      }
      if (kind == TWEAK_STORAGE_BINDING)
      {
@@ -564,7 +785,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      }
      return defaultValue;
  }
-@@ -674,6 +763,10 @@
+@@ -674,6 +763,10 @@ bool TweakExists(const char* path)
  
  void QueueTweakValue(TweakPendingValue* pending, TweakValueBase* value, const char* category)
  {
@@ -575,7 +796,7 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
      pending->m_Value = value;
      pending->m_Category = category;
      pending->m_Unk8 = 0;
-@@ -689,6 +782,9 @@
+@@ -689,6 +782,9 @@ void QueueTweakValue(TweakPendingValue* pending, TweakValueBase* value, const ch
          gPendingTweakTail->m_Next = pending;
          gPendingTweakTail = pending;
      }
@@ -585,15 +806,16 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
  }
  
  int TweakNode::IsEntry()
-@@ -709,4 +805,3 @@
+@@ -709,4 +805,3 @@ static TweakIntBinding sStaticStringCount("Num static strings", "/Registry/Stats
  static TweakIntBinding sDynamicStringCount("Num dynamic strings", gLastTweakCategory, &gTweakStringCounts[kTweakStringDynamic]);
  static TweakIntBinding sValueStringCount("Num value strings", gLastTweakCategory, &gTweakStringCounts[kTweakStringValue]);
  static TweakIntBinding sFolderNameCount("Num folder names", gLastTweakCategory, &gTweakStringCounts[kTweakStringFolder]);
 -
 diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
+index 0fac60a..df811f7 100644
 --- a/src/Game/TweakValueBase.cpp
 +++ b/src/Game/TweakValueBase.cpp
-@@ -9,6 +9,9 @@
+@@ -9,6 +9,9 @@ const char* gLastTweakCategory;
  
  void SplitTweakPath(const char* path, const char** leafName, char* directory)
  {
@@ -603,7 +825,7 @@ diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
      int lastSlash = -1;
      int i = 0;
      nlStrNCpy(directory, path, nlStrLen(path) + 1);
-@@ -20,16 +23,27 @@
+@@ -20,16 +23,27 @@ void SplitTweakPath(const char* path, const char** leafName, char* directory)
          }
          ++i;
      }
@@ -631,7 +853,7 @@ diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
      {
          buffer[length] = '/';
          buffer[length + 1] = '\0';
-@@ -44,12 +58,21 @@
+@@ -44,12 +58,21 @@ void JoinTweakPath(const char* parentPath, const char* childPath, char* buffer)
      }
  }
  
@@ -653,134 +875,9 @@ diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
  
  TweakValueBase::TweakValueBase()
      : mName(0)
-diff --git a/src/Game/TweakConfig.cpp b/src/Game/TweakConfig.cpp
---- a/src/Game/TweakConfig.cpp
-+++ b/src/Game/TweakConfig.cpp
-@@ -1,4 +1,7 @@
- #include "Game/Sys/simpleparser.h"
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+#include "runtime/game_config.h"
-+#endif
- #include "Game/Sys/debug.h"
- #include "Game/TweakRegistry.h"
- #include "Game/SharedStaticStorage.h"
-@@ -50,7 +53,11 @@
-     SimpleParser tokens;
-     if (!tokens.StartParsing(copy, size + 1, "# =\t"))
-     {
--        delete copy;
-+        #ifdef MSCHARGED_NATIVE
-+nlFree(copy);
-+#else
-+delete copy;
-+#endif
-         return;
-     }
- 
-@@ -80,7 +87,11 @@
-         token = next;
-     }
- 
--    delete copy;
-+    #ifdef MSCHARGED_NATIVE
-+nlFree(copy);
-+#else
-+delete copy;
-+#endif
- }
- 
- void TweakConfigParser::Section(const BString& section)
-@@ -113,6 +124,10 @@
- void ParseTweakConfigData(
-     char* data, int size, Config::Parser* parser)
- {
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+    mscharged::ValidateConfigInput(data, size);
-+    if (!parser || !IsTweakRegistryInitialized()) throw std::logic_error("Tweak parser requires an initialized registry");
-+#endif
-     if (size <= 0)
-     {
-         return;
-@@ -155,6 +170,9 @@
-         }
- 
-         char* token = tokens.NextToken(false);
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+        if (!token) { line = lines.GetLine(); continue; }
-+#endif
-         tag.erase(tag.begin(), tag.end());
-         tag.insert(tag.begin(), token, token + tokens.GetTokenLength());
-         tag.TrimInPlace(sConfigWhitespace);
-@@ -176,6 +194,9 @@
-                 }
-             }
- 
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+            if (!tag.size() || !value.size()) throw std::invalid_argument("Empty tweak tag or value");
-+#endif
-             parser->TagValuePair(tag, value);
-         }
-         line = lines.GetLine();
-@@ -183,6 +204,13 @@
- }
- #pragma dont_inline reset
- 
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+char* ReadTweakConfigFile(const char* filename, unsigned long* outSize)
-+{
-+    if (!filename || !nlFileExists(filename)) throw std::runtime_error("Tweak configuration file is missing");
-+    return static_cast<char*>(nlLoadEntireFile(filename, outSize, 0x20, AllocateEnd, nullptr, 0, nullptr));
-+}
-+#else
- char* ReadTweakConfigFile(
-     const char* filename, unsigned long* outSize)
- {
-@@ -214,6 +242,7 @@
-     }
-     return 0;
- }
-+#endif
- 
- void LoadTweakConfigFile(
-     const char* filename, const char* category, bool reload)
-@@ -221,6 +250,10 @@
-     unsigned long size;
-     int parseSize;
-     char* data = ReadTweakConfigFile(filename, &size);
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+    mscharged::ConfigBuffer owner(data);
-+    if (size > 16 * 1024 * 1024) throw std::length_error("Tweak configuration exceeds 16 MiB");
-+#endif
-     parseSize = size;
- 
-     {
-@@ -233,7 +266,11 @@
- 
-         ParseTweakConfigData(data, parseSize, &parser);
-     }
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+    owner.reset();
-+#else
-     nlFree(data);
-+#endif
- }
- 
- void LoadTweakConfigBuffer(void* context, char* data,
-diff --git a/src/Game/AIPad.cpp b/src/Game/AIPad.cpp
---- a/src/Game/AIPad.cpp
-+++ b/src/Game/AIPad.cpp
-@@ -300,7 +300,9 @@
-     }
- }
- 
-+#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
- void* TweakValueBase::ReservedValueQuery()
- {
-     return 0;
- }
-+#endif
 diff --git a/src/Game/TweakValueNative.cpp b/src/Game/TweakValueNative.cpp
 new file mode 100644
+index 0000000..a5e8b1c
 --- /dev/null
 +++ b/src/Game/TweakValueNative.cpp
 @@ -0,0 +1,12 @@
@@ -796,86 +893,3 @@ new file mode 100644
 +{
 +    return 0;
 +}
-diff --git a/src/Game/GameTweaks.cpp b/src/Game/GameTweaks.cpp
---- a/src/Game/GameTweaks.cpp
-+++ b/src/Game/GameTweaks.cpp
-@@ -24,7 +24,9 @@
- {
- }
- 
-+#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
- #include "Game/TweakIntBinding.inl"
-+#endif
- 
- void GameTweaks::Init()
- {
-diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
---- a/src/Game/Ball.cpp
-+++ b/src/Game/Ball.cpp
-@@ -3281,7 +3281,9 @@
- }
- 
- static unsigned short lbl_806DB5C0 = 0xFFFF;
-+#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
- char gTweakFloatBindingFormat[] __attribute__((aligned(4))) = "%.3f";
-+#endif
- 
- inline void RegisterBallDebugFields(cBall* ball, DebugWriteCache* cache)
- {
-diff --git a/include/Game/TweakIntBinding.inl b/include/Game/TweakIntBinding.inl
---- a/include/Game/TweakIntBinding.inl
-+++ b/include/Game/TweakIntBinding.inl
-@@ -26,7 +26,7 @@
-     const char* name, void* entry)
- {
-     TweakValueInt* created = new (
--        gTweakValueAllocator->Allocate(sizeof(TweakValueInt)))
-+        mscharged::OwnTweakAllocation(gTweakValueAllocator->Allocate(sizeof(TweakValueInt))))
-         TweakValueInt(name, 0);
-     AddTweakValue((TweakEntry*)entry, created);
-     return created;
-@@ -64,7 +64,11 @@
- 
- void TweakIntBinding::ParseValue(const char* value)
- {
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+    *m_pValue = mscharged::TweakInteger(value);
-+#else
-     *m_pValue = atoi(value);
-+#endif
- }
- 
- int TweakIntBinding::IsBound()
-diff --git a/include/Game/TweakValueName.h b/include/Game/TweakValueName.h
---- a/include/Game/TweakValueName.h
-+++ b/include/Game/TweakValueName.h
-@@ -3,6 +3,9 @@
- 
- #include "Game/TweakValueBase.h"
- #include "NL/nlMemory.h"
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+#include "runtime/tweaks.h"
-+#endif
- 
- // Name-only value attached to folder entries.
- // The overrides are declared in reverse of their emission order in TweakNode.
-@@ -13,7 +16,19 @@
-     {
-         mName = name;
-     }
-+#ifdef MSCHARGED_NATIVE
-+    static void* operator new(size_t size)
-+    {
-+#ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-+        return mscharged::OwnTweakAllocation(nlMalloc(size, 8, false));
-+#else
-+        return nlMalloc(size, 8, false);
-+#endif
-+    }
-+    static void operator delete(void* pointer) { nlFree(pointer); }
-+#else
-     static void* operator new(unsigned long size) { return nlMalloc(size, 8, false); }
-+#endif
-     virtual int GetValueType() { return TWEAK_TYPE_FOLDER; }
-     virtual int ReservedNameQueryA() { return 1; }
-     virtual int ReservedNameQueryB() { return 0; }

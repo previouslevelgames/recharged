@@ -1,9 +1,11 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Keep GameSpy min/max macros out of native C++ standard-library declarations.
 
+diff --git a/src/RVL_SDK/gamespy/common/gsPlatformUtil.h b/src/RVL_SDK/gamespy/common/gsPlatformUtil.h
+index 2ad225a..631d83e 100644
 --- a/src/RVL_SDK/gamespy/common/gsPlatformUtil.h
 +++ b/src/RVL_SDK/gamespy/common/gsPlatformUtil.h
-@@ -72,7 +72,7 @@
+@@ -72,7 +72,7 @@ gsi_i8* gsXxteaEncrypt(const gsi_i8* iStr, gsi_i32 iLength,
  gsi_i8* gsXxteaDecrypt(const gsi_i8* iStr, gsi_i32 iLength,
                         gsi_i8 key[XXTEA_KEY_SIZE], gsi_i32* oLength);
  

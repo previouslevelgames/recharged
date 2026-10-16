@@ -1,5 +1,5 @@
 Subject: [PATCH] Preserve native world animation numeric fields and parent arrays
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the Wii numeric/common prefix widths. Original Initialize still requests
 its parent twice and computes native array addresses with its original types.
@@ -8,9 +8,10 @@ array backing attaches to the actual source allocation incarnation. No object,
 controller, vtable, world factory or readiness is supplied by this patch.
 
 diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
+index 846fd8b..b383841 100644
 --- a/include/Game/World/worldanim.h
 +++ b/include/Game/World/worldanim.h
-@@ -21,7 +21,11 @@
+@@ -21,7 +21,11 @@ public:
      virtual void SetWorldMatrix(const nlMatrix4& transform);
      virtual void Initialize(WorldObjectLoadContext* context);
  
@@ -22,7 +23,7 @@ diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
      /* 0x08 */ u8 m_pad08[0x08];
      /* 0x10 */ World* m_pWorld;
      /* 0x14 */ int m_nAnimNode;
-@@ -29,7 +33,11 @@
+@@ -29,7 +33,11 @@ public:
      /* 0x1C */ u8 m_pad1C[0x04];
      /* 0x20 */ nlMatrix4 mWorldMatrix;
      /* 0x60 */ int m_nBindings;
@@ -35,6 +36,7 @@ diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
      /* 0x6C */ u8 m_pad6C[0x04];
      /* 0x70 */ int m_nAnimations;
 diff --git a/src/Game/World/worldanimobjects.cpp b/src/Game/World/worldanimobjects.cpp
+index 67e7c33..f75fe5e 100644
 --- a/src/Game/World/worldanimobjects.cpp
 +++ b/src/Game/World/worldanimobjects.cpp
 @@ -23,6 +23,9 @@
@@ -47,7 +49,7 @@ diff --git a/src/Game/World/worldanimobjects.cpp b/src/Game/World/worldanimobjec
  
  void WorldAnimObject::Initialize(WorldObjectLoadContext* pContext)
  {
-@@ -31,6 +34,10 @@
+@@ -31,6 +34,10 @@ void WorldAnimObject::Initialize(WorldObjectLoadContext* pContext)
      m_pAnimController = pManager->GetOrCreateController(m_uHashID);
  
      u8* pData = pContext->GetParentData();
@@ -58,7 +60,7 @@ diff --git a/src/Game/World/worldanimobjects.cpp b/src/Game/World/worldanimobjec
      m_pAnimationHashes = (unsigned long*)(pData
          + m_nBindings * sizeof(WorldAnimBinding));
      m_pAnimController->m_pWorldAnimObject = this;
-@@ -59,7 +66,12 @@
+@@ -59,7 +66,12 @@ void WorldAnimObject::Initialize(WorldObjectLoadContext* pContext)
  
      m_pAnimController->SetAnimationSpeed(m_fAnimationSpeed);
      m_pAnimController->SetAnimationTime(m_fAnimationTime);

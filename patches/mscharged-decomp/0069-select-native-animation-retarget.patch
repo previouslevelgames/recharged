@@ -1,6 +1,6 @@
 Subject: Select original retarget signature lookup on retained native records
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Exclude the in-place Wii pointer loader from native selection. Preserve both
 original signature lookup overloads and first-match ordering unchanged. Native
@@ -8,9 +8,10 @@ retained storage supplies host-width records and checked signed-short maps.
 No controller, pose accumulator or identity fallback is supplied by this patch.
 
 diff --git a/include/Game/SAnim/AnimRetargeter.h b/include/Game/SAnim/AnimRetargeter.h
+index 8b1b7ca..647b6f5 100644
 --- a/include/Game/SAnim/AnimRetargeter.h
 +++ b/include/Game/SAnim/AnimRetargeter.h
-@@ -17,7 +17,11 @@
+@@ -17,7 +17,11 @@ class AnimRetargetList : public cIdentifier
  public:
      typedef char* MemType;
  
@@ -23,6 +24,7 @@ diff --git a/include/Game/SAnim/AnimRetargeter.h b/include/Game/SAnim/AnimRetarg
      {
          return (id & 0x80FFFFFF) == 0x80017104;
 diff --git a/src/Game/SAnim/AnimRetargeter.cpp b/src/Game/SAnim/AnimRetargeter.cpp
+index f431f0b..bbcfe00 100644
 --- a/src/Game/SAnim/AnimRetargeter.cpp
 +++ b/src/Game/SAnim/AnimRetargeter.cpp
 @@ -1,5 +1,6 @@
@@ -32,12 +34,12 @@ diff --git a/src/Game/SAnim/AnimRetargeter.cpp b/src/Game/SAnim/AnimRetargeter.c
  AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
  {
      nlChunk* chunk = chunkData->GetFirstChunk();
-@@ -18,6 +19,8 @@
- 
+@@ -19,6 +20,8 @@ AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
      return data;
  }
-+
-+#endif
  
++#endif
++
  AnimRetarget* AnimRetargetList::GetAnimRetargetWithSignature(
      const cSAnim* anim)
+ {

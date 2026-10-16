@@ -1,5 +1,5 @@
 Subject: [PATCH] Share original checked model-particle and attachment equations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract original coordinates, matrix/frame, colour/raster and joint/ground math
 for the retained native model-particle owner. Caller service validation stays
@@ -8,6 +8,7 @@ unselected boundary; owned DOL confirms its discarded return value.
 
 diff --git a/include/Game/Effects/ParticleModelSteps.h b/include/Game/Effects/ParticleModelSteps.h
 new file mode 100644
+index 0000000..7f7f35c
 --- /dev/null
 +++ b/include/Game/Effects/ParticleModelSteps.h
 @@ -0,0 +1,139 @@
@@ -151,6 +152,7 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
+index bfdf0a6..7ece00d 100644
 --- a/src/Game/Effects/EmissionController.cpp
 +++ b/src/Game/Effects/EmissionController.cpp
 @@ -1,4 +1,5 @@
@@ -159,7 +161,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  #include "Game/Effects/EmissionControllerSteps.h"
  #include "Game/Effects/EmissionController.h"
  #include "Game/Effects/EmissionManager.h"
-@@ -316,11 +317,10 @@
+@@ -316,11 +317,10 @@ void EmissionController::ComputePositionAndVelocity(EffectsSpec& spec, nlVector3
          }
      }
  
@@ -175,7 +177,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  }
  
  bool fxUpdateParticleSystem(
-@@ -357,29 +357,6 @@
+@@ -357,29 +357,6 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
          return;
      }
  
@@ -205,7 +207,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
      u32 jointID = pSpec->m_uJointID;
      if (m_pAnimController != 0 && m_pAnimController->m_bMirror)
      {
-@@ -390,8 +367,7 @@
+@@ -390,8 +367,7 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
  
      const nlMatrix4& mat = m_pPose->GetNodeMatrixByHashID(
          m_uJointIDOverride == 0 ? jointID : m_uJointIDOverride);
@@ -216,6 +218,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  
  bool EmissionController::Update(float dt)
 diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index c9dd84f..f4a940a 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
 @@ -1,4 +1,5 @@
@@ -224,7 +227,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  #include "Game/Effects/ParticleSystem.h"
  #ifndef MSCHARGED_NATIVE
  #include "Game/Sys/debug.h"
-@@ -128,36 +129,7 @@
+@@ -128,36 +129,7 @@ void ParticleSystem::UpdateCoordSys()
  
  void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
  {
@@ -262,7 +265,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  }
  
  typedef void (*EmitParticlePosition)(nlVector3&, nlVector3&,
-@@ -892,13 +864,8 @@
+@@ -892,13 +864,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
          eEffectsBlend blendType;
  
          nlMatrix4 m;
@@ -277,7 +280,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
          switch (m_pTemplate->m_eBlend)
          {
-@@ -924,21 +891,8 @@
+@@ -924,21 +891,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                      0);
              }
              UpdateParticle(&ret, pPart, m_pTemplate, viewRight, viewUp, pCoord);
@@ -301,7 +304,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  
              glMatrixHandle hMatrix = glAllocSetMatrix(m);
  
-@@ -949,20 +903,14 @@
+@@ -949,20 +903,14 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                  {
                      meshRateScale = ((float)(int)pAnim->m_nNumFrames
                          / pAnim->m_fFrameRate) / pPart->lifeSpan;
@@ -326,7 +329,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
                  }
              }
  
-@@ -974,21 +922,12 @@
+@@ -974,21 +922,12 @@ int ParticleSystem::RenderAllParticles(GLView* view)
                  if (glHasMaterialParameter(pPacket, constantColourHash))
                  {
                      nlVector4 colour;

@@ -1,12 +1,14 @@
 Subject: Preserve original file-cache callback context width
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use the actual existing nlFileAsyncParam for both original disc completion callbacks.
 Retain the original cache choice, callback/free/close order and numeric sizes.
 
+diff --git a/src/NL/plat/nlFileCache.cpp b/src/NL/plat/nlFileCache.cpp
+index 67a9e00..ab2d4ff 100644
 --- a/src/NL/plat/nlFileCache.cpp
 +++ b/src/NL/plat/nlFileCache.cpp
-@@ -39,8 +39,16 @@
+@@ -39,8 +39,16 @@ struct CachedFileLoadData
  };
  
  static void AfterReadFromCacheCallback(s32, const char*, void*, u32, void*);
@@ -21,9 +23,9 @@ Retain the original cache choice, callback/free/close order and numeric sizes.
  static void AfterReadFromDiscCallback(nlFile*, void*, unsigned int, unsigned long);
 +#endif
  static void AfterWriteToCacheCallback(s32, const char*, void*, u32, void*);
- static void FlashWriteCallback(s32);
- static void FlashReadCallback(s32);
-@@ -111,7 +119,13 @@
+ static void FlashWriteCallback(long);
+ static void FlashReadCallback(long);
+@@ -111,7 +119,13 @@ bool nlLoadEntireCachedFileAsync(const char* filename, LoadAsyncCallback callbac
      {
          CachedFileLoadData* asyncData = new (8, true)
              CachedFileLoadData(file, filename, alloc_data, datasize, filesize, callback, user_data, 1);
@@ -38,7 +40,7 @@ Retain the original cache choice, callback/free/close order and numeric sizes.
          return true;
      }
  }
-@@ -131,7 +145,11 @@
+@@ -131,7 +145,11 @@ static void AfterReadFromCacheCallback(s32 result, const char*, void*, u32 size,
      }
  }
  
@@ -50,7 +52,7 @@ Retain the original cache choice, callback/free/close order and numeric sizes.
  {
      CachedFileLoadData* data = (CachedFileLoadData*)uParam;
      nlClose(data->file);
-@@ -143,7 +161,11 @@
+@@ -143,7 +161,11 @@ static void AfterReadFromDiscToCacheCallback(nlFile*, void* pBuffer, unsigned in
      }
  }
  

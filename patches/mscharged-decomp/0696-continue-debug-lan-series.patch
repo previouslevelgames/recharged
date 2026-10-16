@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Continue debug LAN series without online services
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission
 
 The LAN session starts ranked matches, but has no stats server or online
@@ -10,10 +10,10 @@ the LAN session and returns to Main Menu instead of pushing the online hub,
 which is not admitted.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 540603a..4cff0a1 100644
+index 1a7f8ff..935bee0 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -1652,6 +1652,15 @@ extern "C" void fn_80119528(AsyncLoadingManager* manager)
+@@ -1664,6 +1664,15 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
              FrontEndPresentation::GetInstance()->Call("TransitionGameToOnlineTournament");
              GameSceneManager::Instance()->Push(SCENE_CUP_KNOCKOUT, SCREEN_NOTHING, false);
          }
@@ -30,10 +30,10 @@ index 540603a..4cff0a1 100644
          {
              FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, true);
 diff --git a/src/Game/SH/SHPausePostGame.cpp b/src/Game/SH/SHPausePostGame.cpp
-index 3cd4e11..43263a9 100644
+index 45403d1..2c62591 100644
 --- a/src/Game/SH/SHPausePostGame.cpp
 +++ b/src/Game/SH/SHPausePostGame.cpp
-@@ -210,6 +210,14 @@ void PausePostGameScene::OnDoneTransitionComplete()
+@@ -216,6 +216,14 @@ void PausePostGameScene::OnDoneTransitionComplete()
                  FEPopupMenu* popup = static_cast<FEPopupMenu*>(g_pOverlayManager->Push(SCENE_POPUP_MENU, SCREEN_NOTHING, false));
                  popup->Create(POPUP_E3_THANKS_FOR_PLAYING, Function<FnVoidVoid>(OnSelectQuit));
              }

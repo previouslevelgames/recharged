@@ -1,6 +1,6 @@
 Subject: Add separately selected frame timing diagnostics
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Add timing/history diagnostic copies selected separately from the complete
 original FrameCounter, Histogram and TimeRegions sources. Preserve all original
@@ -10,6 +10,7 @@ MSCHARGED_DIAGNOSTIC_TIMING is enabled. Pair the original Histogram's allocated
 bins with owning nlFree on the native host; keep its source sampling decisions.
 
 diff --git a/include/Game/Debug/FrameCounter.h b/include/Game/Debug/FrameCounter.h
+index dbe3e5b..dbc8908 100644
 --- a/include/Game/Debug/FrameCounter.h
 +++ b/include/Game/Debug/FrameCounter.h
 @@ -3,10 +3,17 @@
@@ -32,6 +33,7 @@ diff --git a/include/Game/Debug/FrameCounter.h b/include/Game/Debug/FrameCounter
      void FinishTiming();
 diff --git a/src/Game/Debug/FrameTiming.cpp b/src/Game/Debug/FrameTiming.cpp
 new file mode 100644
+index 0000000..9b2bee5
 --- /dev/null
 +++ b/src/Game/Debug/FrameTiming.cpp
 @@ -0,0 +1,197 @@
@@ -233,9 +235,10 @@ new file mode 100644
 +        &sTimeRegionList.m_Head, &sTimeRegionList.m_Tail, entry);
 +}
 diff --git a/src/Game/Debug/Histogram.cpp b/src/Game/Debug/Histogram.cpp
+index 19a0308..11fcd98 100644
 --- a/src/Game/Debug/Histogram.cpp
 +++ b/src/Game/Debug/Histogram.cpp
-@@ -26,7 +26,11 @@
+@@ -26,7 +26,11 @@ Histogram::Histogram(
  
  Histogram::~Histogram()
  {

@@ -1,6 +1,6 @@
 Subject: Select bounded original animation channel sampling on retained native records
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Exclude Wii in-place pointer reconstruction, original pose dependencies and
 callback-pool ownership from this native profile. Keep original root, weight
@@ -11,9 +11,10 @@ weight. Retain unequal-count morph data but reject its currently unqualified
 indexing; no reconstructed loop correction or pose success stub is introduced.
 
 diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
+index 6ec9c5e..4bdad5f 100644
 --- a/include/Game/SAnim.h
 +++ b/include/Game/SAnim.h
-@@ -61,14 +61,26 @@
+@@ -61,14 +61,26 @@ class cSAnim : public cIdentifier
  public:
      typedef char* MemType;
  
@@ -40,7 +41,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
  
      void BlendRot(int accumulatorNode, int animNode, float time, float weight,
          cPoseAccumulator* accumulator, bool mirror) const;
-@@ -81,8 +93,13 @@
+@@ -81,8 +93,13 @@ public:
      void GetRootRot(float time, u16* rootRotation) const;
      void GetRootTrans(float time, nlVector3* rootTranslation) const;
      bool GetChannelWeight(int channel, float time, float* weight) const;
@@ -55,6 +56,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
  
      cSAnimCallback* GetCallbackList() const
 diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+index 8f6ccf9..a4b83ff 100644
 --- a/src/Game/SAnim.cpp
 +++ b/src/Game/SAnim.cpp
 @@ -1,6 +1,18 @@
@@ -76,7 +78,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
  #include "Game/PoseAccumulator.h"
  #include "Game/SHierarchy.h"
  #include "NL/nlSlotPool.h"
-@@ -417,8 +429,13 @@
+@@ -417,8 +429,13 @@ void cSAnim::Destroy()
  }
  
  
@@ -90,7 +92,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
      if (m_nNumRootKeys != 0)
      {
          if (fTime == 1.0f || m_nNumRootKeys == 1)
-@@ -444,6 +461,9 @@
+@@ -444,6 +461,9 @@ void cSAnim::GetRootRot(float fTime, unsigned short* pRootRot) const
  
  void cSAnim::GetRootTrans(float t, nlVector3* out) const
  {
@@ -100,7 +102,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
      if (m_nNumRootKeys != 0)
      {
          if (t == 1.0f || m_nNumRootKeys == 1)
-@@ -466,6 +486,11 @@
+@@ -466,6 +486,11 @@ void cSAnim::GetRootTrans(float t, nlVector3* out) const
  
  bool cSAnim::GetChannelWeight(int channel, float time, float* weight) const
  {
@@ -112,7 +114,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
      if (m_pWeightKeys == 0 || m_pWeightKeys[channel] == 0)
      {
          *weight = 1.0f;
-@@ -473,6 +498,17 @@
+@@ -473,6 +498,17 @@ bool cSAnim::GetChannelWeight(int channel, float time, float* weight) const
      }
  
      unsigned char* keys = m_pWeightKeys[channel];
@@ -130,7 +132,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
      float fRealIndex = time * (float)(m_pNumWeightKeys[channel] - 1);
      int nIndex = (int)fRealIndex;
      float fWeightB = fRealIndex - (float)nIndex;
-@@ -486,6 +522,7 @@
+@@ -486,6 +522,7 @@ bool cSAnim::GetChannelWeight(int channel, float time, float* weight) const
  }
  
  
@@ -138,7 +140,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
  void cSAnim::CreateCallback(float fTime, unsigned int nParam1,
      void (*funcCallback)(cSAnim*, unsigned int))
  {
-@@ -504,8 +541,20 @@
+@@ -504,8 +541,20 @@ void cSAnim::CreateCallback(float fTime, unsigned int nParam1,
  }
  
  

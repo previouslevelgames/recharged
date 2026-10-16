@@ -1,5 +1,5 @@
 Subject: [PATCH] native: original module material array bindings use owned data
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Prepared-predecessor: exact original material format381 and constructor384 successors
 
 Select source addresses and literal strides in the original game module,
@@ -8,6 +8,7 @@ GX array service. Retain the standalone preview and console branches.
 No resource, constructor, format, loop, parameter or game decision changes.
 
 diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
+index 4c83e63..f31c6c4 100644
 --- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -19,7 +20,7 @@ diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/
  #else
  #include <revolution/gx.h>
  #endif
-@@ -102,37 +105,49 @@
+@@ -101,37 +104,49 @@ void GXCameraScrolledOverlayMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXCameraScrolledOverlayMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -76,6 +77,7 @@ diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
 diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+index db9259f..54098c8 100644
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -87,7 +89,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  #else
  #include <revolution/gx.h>
  #endif
-@@ -99,37 +102,49 @@
+@@ -99,37 +102,49 @@ void GXMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -144,6 +146,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+index 53b1e21..a34b6db 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -155,7 +158,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  #else
  #include <revolution/gx.h>
  #endif
-@@ -102,37 +105,49 @@
+@@ -101,37 +104,49 @@ void GXMaskedSpecularFresnelMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXMaskedSpecularFresnelMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -212,6 +215,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
 diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+index ae81899..28ca53e 100644
 --- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -223,7 +227,7 @@ diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx
  #else
  #include <revolution/gx.h>
  #endif
-@@ -105,37 +108,49 @@
+@@ -104,37 +107,49 @@ void GXScrollingCameraOverlayMaterialProgram::ConfigureVertexFormat(bool indexed
  void GXScrollingCameraOverlayMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -280,6 +284,7 @@ diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
 diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+index a0da5f6..af3b178 100644
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -291,7 +296,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  #else
  #include <revolution/gx.h>
  #endif
-@@ -87,25 +90,33 @@
+@@ -87,25 +90,33 @@ void GXScrollingDiffuseMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXScrollingDiffuseMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -330,6 +335,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
          packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
  #else
 diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+index 0c84eaf..9609450 100644
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -341,7 +347,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  #else
  #include <revolution/gx.h>
  #endif
-@@ -105,37 +108,49 @@
+@@ -104,37 +107,49 @@ void GXScrollingMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool ind
  void GXScrollingMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -398,6 +404,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
          packet->numUniqueVertices * streams[4].stride, streams[4].stride, true);
  #else
 diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+index 0b5c5d1..6c50a7e 100644
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -409,7 +416,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  #else
  #include <revolution/gx.h>
  #endif
-@@ -96,31 +99,41 @@
+@@ -96,31 +99,41 @@ void GXScrollingSpecularMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXScrollingSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -457,6 +464,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
          packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
  #else
 diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+index 03c53d4..9b74a45 100644
 --- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 @@ -1,5 +1,8 @@
@@ -468,7 +476,7 @@ diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GX
  #else
  #include <revolution/gx.h>
  #endif
-@@ -110,43 +113,57 @@
+@@ -109,43 +112,57 @@ void GXSpecularDetailBlendMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXSpecularDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;

@@ -1,5 +1,5 @@
 Subject: Select original scrolling masked detail blending with bounded native streams
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the original mask-weighted detail blend, four/five-stage lighting,
 projected shadows, three independently scrolling UV sets and diffuse alpha preparation. Adapt packed vertex data to
@@ -7,6 +7,7 @@ bounded native float arrays and typed FIFO calls; reset registry state on
 teardown and supply the explicit preview view. Console formats/FIFO remain.
 
 diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+index 595f07a..a7cf219 100644
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -18,7 +19,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  
  #include "NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.h"
  #include "NL/glx/GXMaterialProgramInternal.h"
-@@ -26,15 +30,19 @@
+@@ -25,15 +29,19 @@ GXMaterialParameter GXScrollingMaskedDetailBlendMaterialProgram::Parameters[12]
  
  GXScrollingMaskedDetailBlendMaterialProgram::GXScrollingMaskedDetailBlendMaterialProgram()
  {
@@ -39,7 +40,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  }
  
  void GXScrollingMaskedDetailBlendMaterialProgram::Initialize()
-@@ -52,11 +60,27 @@
+@@ -51,11 +59,27 @@ void GXScrollingMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool ind
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -67,7 +68,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  
      if (indexed)
      {
-@@ -81,12 +105,42 @@
+@@ -80,12 +104,42 @@ void GXScrollingMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool ind
  void GXScrollingMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -110,16 +111,10 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  }
  
  void GXScrollingMaskedDetailBlendMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -97,14 +151,26 @@
+@@ -96,14 +150,26 @@ void GXScrollingMaskedDetailBlendMaterialProgram::DrawIndexed(const glModelPacke
  
      while (idxPtr < end)
      {
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
 +#if defined(MSCHARGED_NATIVE)
 +        GXPosition1x16(*idxPtr);
 +        GXNormal1x16(*idxPtr);
@@ -128,12 +123,12 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
 +        GXTexCoord1x16(*idxPtr);
 +        GXTexCoord1x16(*idxPtr);
 +#else
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
 +#endif
          ++idxPtr;
      }
@@ -143,17 +138,10 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  }
  
  void GXScrollingMaskedDetailBlendMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -113,13 +179,25 @@
+@@ -112,13 +178,25 @@ void GXScrollingMaskedDetailBlendMaterialProgram::DrawDirect(const glModelPacket
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--    }
 +#if defined(MSCHARGED_NATIVE)
 +        GXPosition1x16(i);
 +        GXNormal1x16(i);
@@ -162,14 +150,14 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
 +        GXTexCoord1x16(i);
 +        GXTexCoord1x16(i);
 +#else
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
 +#endif
-+    }
+     }
 +#if defined(MSCHARGED_NATIVE)
 +    GXEnd();
 +#endif
@@ -177,6 +165,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  
  void GXScrollingMaskedDetailBlendMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
+index 5bafffe..e83c234 100644
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@
@@ -189,7 +178,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp b/
  #include "Game/Render/StadiumLoading.h"
  #include "Game/GameObjectLighting.h"
  #include "NL/gl/glMaterialParameters.h"
-@@ -95,11 +100,19 @@
+@@ -95,11 +100,19 @@ void GXMaterialProgramImpl<GXScrollingMaskedDetailBlendMaterialProgram>::Activat
  {
      sScrollingMaskedDetailBlendLightingMode = LIGHTING_UNCONFIGURED;
      static_cast<GXScrollingMaskedDetailBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
@@ -209,7 +198,7 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgramRender.cpp b/
      glTextureBinding texture;
      texture.texture = 0;
      texture.textureIndex = 0xFFFF;
-@@ -111,6 +124,9 @@
+@@ -111,6 +124,9 @@ void GXMaterialProgramImpl<GXScrollingMaskedDetailBlendMaterialProgram>::Activat
      texture.SetWrapT(true);
      texture.unknown07 = 0;
      glx_BindTexture(3, &texture);

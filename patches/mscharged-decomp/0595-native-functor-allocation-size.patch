@@ -1,11 +1,13 @@
 Subject: Use the native allocation size type in original functor and controller declarations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native allocation declarations require std::size_t on LLP64 as well as LP64.
 Retain the original allocation/free bodies and the console declarations. The
 active typed functor path keeps its original bounded logical pool categories;
 the controller allocation body still ignores its size and uses its source pool.
 
+diff --git a/include/Game/SAnim/pnSAnimController.h b/include/Game/SAnim/pnSAnimController.h
+index fade19b..fe537e9 100644
 --- a/include/Game/SAnim/pnSAnimController.h
 +++ b/include/Game/SAnim/pnSAnimController.h
 @@ -1,6 +1,9 @@
@@ -18,7 +20,7 @@ the controller allocation body still ignores its size and uses its source pool.
  #include "Game/PoseNode.h"
  #include "Game/SAnim.h"
  #include "Game/SAnim/AnimRetargeter.h"
-@@ -80,7 +83,11 @@
+@@ -80,7 +83,11 @@ public:
  #endif
      }
  
@@ -30,6 +32,8 @@ the controller allocation body still ignores its size and uses its source pool.
      {
          cPN_SAnimController* controller = 0;
          m_SAnimControllerSlotPool.Allocate(controller);
+diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
+index 3715fc3..a130410 100644
 --- a/include/NL/nlFunction.h
 +++ b/include/NL/nlFunction.h
 @@ -1,6 +1,9 @@
@@ -42,7 +46,7 @@ the controller allocation body still ignores its size and uses its source pool.
  #include "NL/nlFunctionCommon.h"
  #include "NL/nlFunctionMemory.h"
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
-@@ -16,8 +19,17 @@
+@@ -16,8 +19,17 @@ class Function0
  public:
      struct FunctorBase
      {
@@ -61,7 +65,7 @@ the controller allocation body still ignores its size and uses its source pool.
          {
              FreeFunctionMemory(ptr, size);
          }
-@@ -213,8 +225,17 @@
+@@ -213,8 +225,17 @@ class Function1
  public:
      struct FunctorBase
      {
@@ -80,7 +84,7 @@ the controller allocation body still ignores its size and uses its source pool.
          {
              FreeFunctionMemory(ptr, size);
          }
-@@ -559,8 +580,17 @@
+@@ -559,8 +580,17 @@ class Function3
  public:
      struct FunctorBase
      {
@@ -99,6 +103,8 @@ the controller allocation body still ignores its size and uses its source pool.
          {
              FreeFunctionMemory(ptr, size);
          }
+diff --git a/include/NL/nlFunction2.h b/include/NL/nlFunction2.h
+index b653895..cb6ad1f 100644
 --- a/include/NL/nlFunction2.h
 +++ b/include/NL/nlFunction2.h
 @@ -1,6 +1,9 @@
@@ -111,7 +117,7 @@ the controller allocation body still ignores its size and uses its source pool.
  #include "NL/nlFunctionCommon.h"
  #include "NL/nlFunctionMemory.h"
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_ORIGINAL_FUNCTION_POOLS)
-@@ -13,8 +16,17 @@
+@@ -13,8 +16,17 @@ class Function2
  public:
      struct FunctorBase
      {

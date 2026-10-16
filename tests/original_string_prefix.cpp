@@ -274,7 +274,7 @@ void Qualify()
     ConcurrentSlots();
     TypedAlignmentBoundary();
     TypedStringObjects();
-    fn_802B467C(&Pool());
+    OnSlotPoolStateRelease(&Pool());
     SlotPoolBase::BaseFreeBlocks(&Pool(), 64);
     Check(Pool().m_BlockList == nullptr && Pool().m_FreeList == nullptr,
         "Actual original slot block release failed");

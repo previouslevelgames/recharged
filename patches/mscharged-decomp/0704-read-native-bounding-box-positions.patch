@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read native float positions for model bounding boxes (issue #18)
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native data transport (Wii byte order), same kind of fix as 0601 and 0617.
 
 GetAABBDimensions builds a model's bounding box from its position stream with
@@ -26,6 +26,7 @@ which turns each float word into host order. Indices, strides, the s8 branch,
 the box cache and the comparisons are unchanged; Wii builds are unchanged.
 
 diff --git a/src/Game/Drawable/DrawableModel.cpp b/src/Game/Drawable/DrawableModel.cpp
+index 4a02034..d912bb6 100644
 --- a/src/Game/Drawable/DrawableModel.cpp
 +++ b/src/Game/Drawable/DrawableModel.cpp
 @@ -5,6 +5,9 @@
@@ -38,7 +39,7 @@ diff --git a/src/Game/Drawable/DrawableModel.cpp b/src/Game/Drawable/DrawableMod
  
  static nlAVLTreeSlotPool<BoundingBoxCacheKey, AABBDimensions,
      DefaultKeyCompare<BoundingBoxCacheKey> >
-@@ -38,6 +41,14 @@
+@@ -38,6 +41,14 @@ void GetAABBDimensions(const glModel* model,
          glModelStream* stream = glModelPacketGetStream(packet, 1);
          pVert = packet->indexBuffer;
          vertexIndex = 0;
@@ -53,7 +54,7 @@ diff --git a/src/Game/Drawable/DrawableModel.cpp b/src/Game/Drawable/DrawableMod
  
          while (vertexIndex < packet->numVertices)
          {
-@@ -46,9 +57,13 @@
+@@ -46,9 +57,13 @@ void GetAABBDimensions(const glModel* model,
  
              if (stream->stride == 12)
              {

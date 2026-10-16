@@ -1,7 +1,9 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Native fixed-width OS record transport after separate0516 compiler includes.
 Original state machines/checksum loops/NAND request arguments retained.
 
+diff --git a/src/RVL_SDK/os/OSPlayRecord.c b/src/RVL_SDK/os/OSPlayRecord.c
+index 93f622d..1a5e376 100644
 --- a/src/RVL_SDK/os/OSPlayRecord.c
 +++ b/src/RVL_SDK/os/OSPlayRecord.c
 @@ -1,5 +1,8 @@
@@ -13,7 +15,7 @@ Original state machines/checksum loops/NAND request arguments retained.
  
  #define MY_SEC_TO_TICKS(x) (x * (s64)OS_SEC_TO_TICKS(1))
  
-@@ -25,6 +28,11 @@
+@@ -25,6 +28,11 @@ typedef struct OSPlayRecord {
      char titleId[6]; // at 0x68
      char UNK_0x6E[0x80 - 0x6E];
  } OSPlayRecord;
@@ -25,7 +27,7 @@ Original state machines/checksum loops/NAND request arguments retained.
  
  static OSPlayRecordState PlayRecordState = PLAY_RECORD_STATE_STOPPED;
  
-@@ -49,7 +57,11 @@
+@@ -49,7 +57,11 @@ static u32 RecordCheckSum(const OSPlayRecord* playRec) {
      u32 checksum = 0;
  
      for (i = 0; i < (sizeof(OSPlayRecord) / sizeof(u32)) - 1; i++) {
@@ -37,7 +39,7 @@ Original state machines/checksum loops/NAND request arguments retained.
      }
  
      return checksum;
-@@ -160,8 +172,13 @@
+@@ -160,8 +172,13 @@ static void PlayRecordCallback(s32 result, NANDCommandBlock* block) {
                                &Block);
          break;
      case PLAY_RECORD_STATE_READ:
@@ -51,7 +53,7 @@ Original state machines/checksum loops/NAND request arguments retained.
          break;
      case PLAY_RECORD_STATE_SEEK:
          error = NANDSeekAsync(&FileInfo, 0, NAND_SEEK_BEG, PlayRecordCallback,
-@@ -175,8 +192,13 @@
+@@ -175,8 +192,13 @@ static void PlayRecordCallback(s32 result, NANDCommandBlock* block) {
      case PLAY_RECORD_STATE_WRITE:
          PlayRecord.stopTime = OSGetTime();
          PlayRecord.checksum = RecordCheckSum(&PlayRecord);
@@ -65,7 +67,7 @@ Original state machines/checksum loops/NAND request arguments retained.
          break;
      case PLAY_RECORD_STATE_CLOSE:
          error = NANDCloseAsync(&FileInfo, PlayRecordCallback, &Block);
-@@ -246,7 +268,11 @@
+@@ -246,7 +268,11 @@ void __OSStopPlayRecord(void) {
          OSRestoreInterrupts(enabled);
          PlayRecord.stopTime = OSGetTime();
          PlayRecord.checksum = RecordCheckSum(&PlayRecord);
@@ -77,6 +79,8 @@ Original state machines/checksum loops/NAND request arguments retained.
          NANDClose(&FileInfo);
      } else {
          if (PlayRecordRetry) {
+diff --git a/src/RVL_SDK/os/OSStateFlags.c b/src/RVL_SDK/os/OSStateFlags.c
+index 61218a4..53ae1e7 100644
 --- a/src/RVL_SDK/os/OSStateFlags.c
 +++ b/src/RVL_SDK/os/OSStateFlags.c
 @@ -3,6 +3,9 @@
@@ -89,7 +93,7 @@ Original state machines/checksum loops/NAND request arguments retained.
  #else
  #include <cstring>
  #include <mem.h>
-@@ -16,7 +19,11 @@
+@@ -16,7 +19,11 @@ static u32 CheckSum(const OSStateFlags* state) {
      u32 checksum = 0;
  
      for (i = 0; i < (sizeof(OSStateFlags) / sizeof(u32)) - 1; i++) {
@@ -101,7 +105,7 @@ Original state machines/checksum loops/NAND request arguments retained.
      }
  
      return checksum;
-@@ -30,8 +37,13 @@
+@@ -30,8 +37,13 @@ BOOL __OSWriteStateFlags(const OSStateFlags* state) {
  
      if (NANDOpen("/title/00000001/00000002/data/state.dat", &file,
                   NAND_ACCESS_WRITE) == NAND_RESULT_OK) {
@@ -115,7 +119,7 @@ Original state machines/checksum loops/NAND request arguments retained.
              NANDClose(&file);
              return FALSE;
          }
-@@ -50,7 +62,11 @@
+@@ -50,7 +62,11 @@ BOOL __OSReadStateFlags(OSStateFlags* state) {
  
      if (NANDOpen("/title/00000001/00000002/data/state.dat", &file,
                   NAND_ACCESS_READ) == NAND_RESULT_OK) {

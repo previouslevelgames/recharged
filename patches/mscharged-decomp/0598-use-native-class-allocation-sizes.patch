@@ -1,5 +1,5 @@
 Subject: Use native allocation size signatures in original class allocators
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use std::size_t in native class operator-new declarations and their matching
 out-of-line definitions, including LLP64 hosts. Retain the original allocation
@@ -7,19 +7,21 @@ bodies, pools, class fields and console declarations. Existing size-bearing
 nlMalloc remains unchanged; measured selected class requests fit its u32 size.
 
 diff --git a/include/Game/Audio/AudioEffects.h b/include/Game/Audio/AudioEffects.h
+index 768f515..830d561 100644
 --- a/include/Game/Audio/AudioEffects.h
 +++ b/include/Game/Audio/AudioEffects.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_AUDIO_EFFECTS_H
  #define GAME_AUDIO_AUDIO_EFFECTS_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlArrayAllocator.h"
-@@ -34,7 +38,12 @@
+ #include "NL/nlSlotPool.h"
+@@ -34,7 +38,12 @@ class VolumeParameter : public AudioEffectParameter
  public:
      virtual ~VolumeParameter() { }
  
@@ -32,7 +34,7 @@ diff --git a/include/Game/Audio/AudioEffects.h b/include/Game/Audio/AudioEffects
      {
          VolumeParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -71,7 +80,12 @@
+@@ -71,7 +80,12 @@ public:
      virtual void OnParameterFinished(AudioEffectParameter*);
      virtual void ApplyToSound(void*);
  
@@ -45,7 +47,7 @@ diff --git a/include/Game/Audio/AudioEffects.h b/include/Game/Audio/AudioEffects
      {
          Volume* effect = 0;
          s_Pool.Allocate(effect);
-@@ -113,7 +127,12 @@
+@@ -115,7 +129,12 @@ public:
      virtual void ApplyToSound(void*);
      virtual void OnSoundStopped(void*);
  
@@ -59,19 +61,21 @@ diff --git a/include/Game/Audio/AudioEffects.h b/include/Game/Audio/AudioEffects
          return s_Allocator.Allocate();
      }
 diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioSequenceEvent.h
+index 33d3d56..20b560c 100644
 --- a/include/Game/Audio/AudioSequenceEvent.h
 +++ b/include/Game/Audio/AudioSequenceEvent.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_AUDIOSEQUENCEEVENT_H
  #define GAME_AUDIO_AUDIOSEQUENCEEVENT_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioSequenceInstance.h"
  #include "NL/nlSlotPool.h"
-@@ -142,7 +146,12 @@
+ #include "types.h"
+@@ -142,7 +146,12 @@ struct SoundPlaybackEvent : AudioSequenceEvent
      void AccumulateRpcModifiers(
          bool* hasVolume, float* volume, bool* hasPitch, float* pitch);
  
@@ -85,7 +89,7 @@ diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioS
      static void operator delete(void* object);
  
      SoundEventDefinition* definition;
-@@ -168,7 +177,12 @@
+@@ -168,7 +177,12 @@ struct HitMarkerEvent : AudioSequenceEvent
      virtual void Resume() { state = AUDIO_EVENT_PLAYING; }
      virtual int Update(float time);
  
@@ -99,7 +103,7 @@ diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioS
      static void operator delete(void* object);
  
      HitMarkerEventDefinition* definition;
-@@ -186,7 +200,12 @@
+@@ -186,7 +200,12 @@ struct ParameterChangeEvent : AudioSequenceEvent
      virtual void Resume() { state = AUDIO_EVENT_PLAYING; }
      virtual int Update(float time);
  
@@ -113,7 +117,7 @@ diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioS
      static void operator delete(void* object);
  
      ParameterChangeEventDefinition* definition;
-@@ -196,17 +215,32 @@
+@@ -196,17 +215,32 @@ extern SlotPool<SoundPlaybackEvent> sSoundPlaybackEventPool;
  extern SlotPool<HitMarkerEvent> sHitMarkerEventPool;
  extern SlotPool<ParameterChangeEvent> sParameterChangeEventPool;
  
@@ -147,19 +151,21 @@ diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioS
      return sParameterChangeEventPool.Allocate();
  }
 diff --git a/include/Game/Audio/AudioSequenceInstance.h b/include/Game/Audio/AudioSequenceInstance.h
+index 0360551..1205239 100644
 --- a/include/Game/Audio/AudioSequenceInstance.h
 +++ b/include/Game/Audio/AudioSequenceInstance.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_AUDIOSEQUENCEINSTANCE_H
  #define GAME_AUDIO_AUDIOSEQUENCEINSTANCE_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "NL/nlSlotPool.h"
  #include "types.h"
-@@ -33,7 +37,12 @@
+ 
+@@ -33,7 +37,12 @@ public:
      void SetVolume(float value);
      void GetSources(AudioSource** results, u32* count);
  
@@ -173,7 +179,7 @@ diff --git a/include/Game/Audio/AudioSequenceInstance.h b/include/Game/Audio/Aud
      static void operator delete(void* instance);
  
      /* 0x00 */ AudioSequenceInstance* next;
-@@ -47,7 +56,12 @@
+@@ -47,7 +56,12 @@ public:
  
  extern SlotPool<AudioSequenceInstance> sAudioSequenceInstancePool;
  
@@ -187,19 +193,21 @@ diff --git a/include/Game/Audio/AudioSequenceInstance.h b/include/Game/Audio/Aud
      return sAudioSequenceInstancePool.Allocate();
  }
 diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
+index 0804746..13546dd 100644
 --- a/include/Game/Audio/AudioSource.h
 +++ b/include/Game/Audio/AudioSource.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_AUDIO_SOURCE_H
  #define GAME_AUDIO_AUDIO_SOURCE_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "revolution/sp.h"
  #include "revolution/os/OSInterrupt.h"
-@@ -118,7 +122,12 @@
+ #include "NL/nlFile.h"
+@@ -119,7 +123,12 @@ public:
      virtual void Initialize(AudioSourceInfo*);
      virtual void Update();
  
@@ -213,7 +221,7 @@ diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
      static void operator delete(void* pointer);
      static void OnVoiceDropped(void*);
  
-@@ -263,7 +272,12 @@
+@@ -219,7 +228,12 @@ void OnAudioReadCancelled(nlFile*, void*, unsigned int, unsigned long, ReadAsync
  
  extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
  
@@ -226,7 +234,7 @@ diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
  {
      return gAudioSampleSourcePool.Allocate();
  }
-@@ -311,7 +325,12 @@
+@@ -267,7 +281,12 @@ public:
      virtual void SetInterauralDelay(int value);
      virtual unsigned int GetStreamHeaderOffset();
  
@@ -240,7 +248,7 @@ diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
      static void operator delete(void*);
  };
  
-@@ -324,14 +343,24 @@
+@@ -280,14 +299,24 @@ public:
      virtual void SetInterauralDelay(int);
      virtual unsigned int GetStreamHeaderOffset();
  
@@ -266,7 +274,7 @@ diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
  {
      return gAudioMonoStreamSourcePool.Allocate();
  }
-@@ -341,7 +370,12 @@
+@@ -297,7 +326,12 @@ inline void AudioMonoStreamSource::operator delete(void* pointer)
      gAudioMonoStreamSourcePool.Free((AudioMonoStreamSource*)pointer);
  }
  
@@ -280,19 +288,21 @@ diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
      return gAudioStereoStreamSourcePool.Allocate();
  }
 diff --git a/include/Game/Audio/CategoryVolume.h b/include/Game/Audio/CategoryVolume.h
+index 0c52076..7c4c957 100644
 --- a/include/Game/Audio/CategoryVolume.h
 +++ b/include/Game/Audio/CategoryVolume.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_CATEGORYVOLUME_H
  #define GAME_AUDIO_CATEGORYVOLUME_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlSlotPool.h"
-@@ -11,7 +15,12 @@
+ 
+@@ -11,7 +15,12 @@ public:
      CategoryVolumeParameter();
      virtual ~CategoryVolumeParameter();
  
@@ -305,7 +315,7 @@ diff --git a/include/Game/Audio/CategoryVolume.h b/include/Game/Audio/CategoryVo
      {
          CategoryVolumeParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -45,7 +54,12 @@
+@@ -45,7 +54,12 @@ public:
      virtual void BlendParameter(AudioEffectParameter* destination,
          AudioEffectParameter* source);
  
@@ -319,19 +329,21 @@ diff --git a/include/Game/Audio/CategoryVolume.h b/include/Game/Audio/CategoryVo
          CategoryVolume* effect = 0;
          s_Pool.Allocate(effect);
 diff --git a/include/Game/Audio/Delay.h b/include/Game/Audio/Delay.h
+index 4855aee..03ece25 100644
 --- a/include/Game/Audio/Delay.h
 +++ b/include/Game/Audio/Delay.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_DELAY_H
  #define GAME_AUDIO_DELAY_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlSlotPool.h"
-@@ -13,7 +17,12 @@
+ 
+@@ -13,7 +17,12 @@ public:
      virtual ~DelayParameter() { }
      void ApplySettings(AXFX_DELAY* delay);
  
@@ -344,7 +356,7 @@ diff --git a/include/Game/Audio/Delay.h b/include/Game/Audio/Delay.h
      {
          DelayParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -50,7 +59,12 @@
+@@ -50,7 +59,12 @@ public:
      virtual void OnSoundStarted(void*);
      virtual void ApplyToSound(void* handle);
  
@@ -358,19 +370,21 @@ diff --git a/include/Game/Audio/Delay.h b/include/Game/Audio/Delay.h
          Delay* effect = 0;
          s_Pool.Allocate(effect);
 diff --git a/include/Game/Audio/LowPassFilter.h b/include/Game/Audio/LowPassFilter.h
+index 7ba94a2..abb7323 100644
 --- a/include/Game/Audio/LowPassFilter.h
 +++ b/include/Game/Audio/LowPassFilter.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_LOWPASSFILTER_H
  #define GAME_AUDIO_LOWPASSFILTER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlSlotPool.h"
-@@ -9,7 +13,12 @@
+ 
+@@ -9,7 +13,12 @@ class LowPassFilterParameter : public AudioEffectParameter
  public:
      LowPassFilterParameter();
  
@@ -383,7 +397,7 @@ diff --git a/include/Game/Audio/LowPassFilter.h b/include/Game/Audio/LowPassFilt
      {
          LowPassFilterParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -41,7 +50,12 @@
+@@ -41,7 +50,12 @@ public:
      virtual void OnParameterFinished(AudioEffectParameter* parameter);
      virtual void ApplyToSound(void* handle);
  
@@ -397,19 +411,21 @@ diff --git a/include/Game/Audio/LowPassFilter.h b/include/Game/Audio/LowPassFilt
          LowPassFilter* effect = 0;
          s_Pool.Allocate(effect);
 diff --git a/include/Game/Audio/Pitch.h b/include/Game/Audio/Pitch.h
+index e90a8cf..6e7815f 100644
 --- a/include/Game/Audio/Pitch.h
 +++ b/include/Game/Audio/Pitch.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_PITCH_H
  #define GAME_AUDIO_PITCH_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlSlotPool.h"
-@@ -10,7 +14,12 @@
+ 
+@@ -10,7 +14,12 @@ public:
      PitchParameter();
      virtual ~PitchParameter();
  
@@ -422,7 +438,7 @@ diff --git a/include/Game/Audio/Pitch.h b/include/Game/Audio/Pitch.h
      {
          PitchParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -47,7 +56,12 @@
+@@ -47,7 +56,12 @@ public:
      virtual void OnParameterFinished(AudioEffectParameter* parameter);
      virtual void ApplyToSound(void* handle);
  
@@ -436,19 +452,21 @@ diff --git a/include/Game/Audio/Pitch.h b/include/Game/Audio/Pitch.h
          Pitch* effect = 0;
          s_Pool.Allocate(effect);
 diff --git a/include/Game/Audio/Reverb.h b/include/Game/Audio/Reverb.h
+index 28618bd..a17c718 100644
 --- a/include/Game/Audio/Reverb.h
 +++ b/include/Game/Audio/Reverb.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_REVERB_H
  #define GAME_AUDIO_REVERB_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioEffect.h"
  #include "NL/nlSlotPool.h"
-@@ -13,7 +17,12 @@
+ 
+@@ -13,7 +17,12 @@ public:
      void ApplySettings(AXFX_REVERBHI* reverb);
      virtual ~ReverbParameter() { }
  
@@ -461,7 +479,7 @@ diff --git a/include/Game/Audio/Reverb.h b/include/Game/Audio/Reverb.h
      {
          ReverbParameter* parameter = 0;
          s_Pool.Allocate(parameter);
-@@ -52,7 +61,12 @@
+@@ -52,7 +61,12 @@ public:
      virtual void OnSoundStarted(void*);
      virtual void ApplyToSound(void*);
  
@@ -475,19 +493,21 @@ diff --git a/include/Game/Audio/Reverb.h b/include/Game/Audio/Reverb.h
          Reverb* effect = 0;
          s_Pool.Allocate(effect);
 diff --git a/include/Game/Audio/XSoundCueHandle.h b/include/Game/Audio/XSoundCueHandle.h
+index 485b240..1084db6 100644
 --- a/include/Game/Audio/XSoundCueHandle.h
 +++ b/include/Game/Audio/XSoundCueHandle.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_AUDIO_XSOUNDCUEHANDLE_H
  #define GAME_AUDIO_XSOUNDCUEHANDLE_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Audio/AudioResourceBundle.h"
  #include "Game/Audio/XSoundHandle.h"
-@@ -33,7 +37,12 @@
+ #include "NL/nlSlotPool.h"
+@@ -33,7 +37,12 @@ public:
      {
          return m_LocalSliders;
      }
@@ -501,7 +521,7 @@ diff --git a/include/Game/Audio/XSoundCueHandle.h b/include/Game/Audio/XSoundCue
      static void operator delete(void* handle);
      AudioCueDefinition* definition;
      SoundInstance* instance;
-@@ -48,7 +57,12 @@
+@@ -48,7 +57,12 @@ public:
      } bits;
  };
  extern SlotPool<XSoundCueHandle> sSoundCueHandlePool;
@@ -515,19 +535,21 @@ diff --git a/include/Game/Audio/XSoundCueHandle.h b/include/Game/Audio/XSoundCue
      return sSoundCueHandlePool.Allocate();
  }
 diff --git a/include/Game/DetermDataEvent.h b/include/Game/DetermDataEvent.h
+index 4f97030..c70aebc 100644
 --- a/include/Game/DetermDataEvent.h
 +++ b/include/Game/DetermDataEvent.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_DETERM_DATA_EVENT_H
  #define GAME_DETERM_DATA_EVENT_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "NL/nlSlotPool.h"
  #include "types.h"
-@@ -18,7 +22,12 @@
+ 
+@@ -18,7 +22,12 @@ struct DetermDataEvent
      DetermDataEvent(const void* data, u32 size);
      ~DetermDataEvent() { }
  
@@ -541,18 +563,20 @@ diff --git a/include/Game/DetermDataEvent.h b/include/Game/DetermDataEvent.h
          return gDetermDataEventPool.Allocate();
      }
 diff --git a/include/Game/InputRouter.h b/include/Game/InputRouter.h
+index 5768c8a..71cc2ee 100644
 --- a/include/Game/InputRouter.h
 +++ b/include/Game/InputRouter.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_NETWORK_INPUT_ROUTER_H
  #define GAME_NETWORK_INPUT_ROUTER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/PackedDetInput.h"
  #include "Game/NetworkSession.h"
+ #include "Game/NetworkRandomSeed.h"
 @@ -12,7 +16,12 @@
  class InputRouter
  {
@@ -567,19 +591,21 @@ diff --git a/include/Game/InputRouter.h b/include/Game/InputRouter.h
          return nlMalloc(size, 8, false);
      }
 diff --git a/include/Game/NetworkLobby.h b/include/Game/NetworkLobby.h
+index 147cdad..720edae 100644
 --- a/include/Game/NetworkLobby.h
 +++ b/include/Game/NetworkLobby.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_NETWORK_LOBBY_H
  #define GAME_NETWORK_LOBBY_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/NetworkSession.h"
  #include <dwc/dwci_error.h>
-@@ -42,7 +46,12 @@
+ #include <dwc/dwc_main_fwd.h>
+@@ -42,7 +46,12 @@ class NetworkLobby : public NetworkMachineRoster,
      void InitializeReceiveBuffers();
  
  public:
@@ -594,19 +620,21 @@ diff --git a/include/Game/NetworkLobby.h b/include/Game/NetworkLobby.h
      NetworkLobby();
  
 diff --git a/include/Game/NetworkMessage.h b/include/Game/NetworkMessage.h
+index d3c98e2..605456a 100644
 --- a/include/Game/NetworkMessage.h
 +++ b/include/Game/NetworkMessage.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_NETWORK_MESSAGE_H
  #define GAME_NETWORK_MESSAGE_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/NetworkMessageSerializer.h"
  
-@@ -42,11 +46,21 @@
+ enum eNetworkMessageType
+@@ -42,11 +46,21 @@ enum eNetworkMessageType
  class NetworkMessage
  {
  public:
@@ -630,19 +658,21 @@ diff --git a/include/Game/NetworkMessage.h b/include/Game/NetworkMessage.h
  
      NetworkMessage()
 diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
+index b92cf56..c34dade 100644
 --- a/include/Game/NetworkSession.h
 +++ b/include/Game/NetworkSession.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_NETWORK_SESSION_H
  #define GAME_NETWORK_SESSION_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/NetworkDebug.h"
  
-@@ -211,7 +215,12 @@
+ #if defined(MSCHARGED_NATIVE)
+@@ -218,7 +222,12 @@ class NetworkSocket : public NetworkSocketInterface,
                                public ReliableSocketCallback
  {
  public:
@@ -656,7 +686,7 @@ diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
  
      NetworkSocket();
  
-@@ -358,7 +367,12 @@
+@@ -365,7 +374,12 @@ class LANLobby : public NetworkTransportInterface,
                                    public NetworkMessageReceiver
  {
  public:
@@ -670,7 +700,7 @@ diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
  
      LANLobby();
  
-@@ -481,7 +495,12 @@
+@@ -488,7 +502,12 @@ class NetworkSession : public NetworkSessionBase,
                                     public NetworkMessageReceiver
  {
  public:
@@ -685,19 +715,21 @@ diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
      NetworkSession()
      {
 diff --git a/include/Game/NetworkStats.h b/include/Game/NetworkStats.h
+index 1c7ba45..69f42ce 100644
 --- a/include/Game/NetworkStats.h
 +++ b/include/Game/NetworkStats.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_NETWORK_STATS_H
  #define GAME_NETWORK_STATS_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "NL/nlMemory.h"
  #include "NL/plat/TransportSocket.h"
-@@ -128,7 +132,12 @@
+ #include "types.h"
+@@ -128,7 +132,12 @@ struct NetworkStatsSocket : public TransportSocket
  class NetworkStatsReporter : public NetworkStatsInterface
  {
  public:
@@ -711,7 +743,7 @@ diff --git a/include/Game/NetworkStats.h b/include/Game/NetworkStats.h
  
      NetworkStatsReporter();
  
-@@ -206,7 +215,12 @@
+@@ -206,7 +215,12 @@ struct NetworkRankingSortRow
  class NetworkRanking : public NetworkStatsInterface
  {
  public:
@@ -726,19 +758,21 @@ diff --git a/include/Game/NetworkStats.h b/include/Game/NetworkStats.h
      NetworkRanking();
  
 diff --git a/include/Game/Physics/PhysicsHammer.h b/include/Game/Physics/PhysicsHammer.h
+index 082c37a..f53cb5b 100644
 --- a/include/Game/Physics/PhysicsHammer.h
 +++ b/include/Game/Physics/PhysicsHammer.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_PHYSICS_PHYSICS_HAMMER_H
  #define GAME_PHYSICS_PHYSICS_HAMMER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Physics/PhysicsSphere.h"
  #include "NL/nlArrayAllocator.h"
-@@ -24,7 +28,12 @@
+ 
+@@ -24,7 +28,12 @@ public:
      void EnableGravity();
      void Freeze();
  
@@ -752,19 +786,21 @@ diff --git a/include/Game/Physics/PhysicsHammer.h b/include/Game/Physics/Physics
          return gPhysicsHammerAllocator.Allocate();
      }
 diff --git a/include/Game/Physics/PhysicsPatch.h b/include/Game/Physics/PhysicsPatch.h
+index a93e4bd..6ee15ae 100644
 --- a/include/Game/Physics/PhysicsPatch.h
 +++ b/include/Game/Physics/PhysicsPatch.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_PHYSICS_PHYSICS_PATCH_H
  #define GAME_PHYSICS_PHYSICS_PATCH_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/DebugWriteCache.h"
  #include "Game/EventConnection.h"
-@@ -49,7 +53,12 @@
+ #include "Game/Physics/PhysicsSphere.h"
+@@ -49,7 +53,12 @@ class PhysicsPatch : public PhysicsSphere
  public:
      PhysicsPatch();
      virtual ~PhysicsPatch();
@@ -778,19 +814,21 @@ diff --git a/include/Game/Physics/PhysicsPatch.h b/include/Game/Physics/PhysicsP
          PhysicsPatch* patch = 0;
          m_PhysicsPatchSlotPool.Allocate(patch);
 diff --git a/include/Game/Physics/PhysicsShockwave.h b/include/Game/Physics/PhysicsShockwave.h
+index 47788c2..1a555ae 100644
 --- a/include/Game/Physics/PhysicsShockwave.h
 +++ b/include/Game/Physics/PhysicsShockwave.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_PHYSICS_PHYSICS_SHOCKWAVE_H
  #define GAME_PHYSICS_PHYSICS_SHOCKWAVE_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/Physics/PhysicsSphere.h"
  #include "NL/nlMath.h"
-@@ -30,7 +34,12 @@
+ #include "NL/nlSlotPool.h"
+@@ -30,7 +34,12 @@ public:
      virtual bool SetContactInfo(dContact*, PhysicsObject*, bool);
      virtual ContactType Contact(PhysicsObject*, dContact*, int);
  
@@ -804,19 +842,21 @@ diff --git a/include/Game/Physics/PhysicsShockwave.h b/include/Game/Physics/Phys
          PhysicsShockwave* object = 0;
          pool.Allocate(object);
 diff --git a/include/Game/Physics/PhysicsWaluigiWall.h b/include/Game/Physics/PhysicsWaluigiWall.h
+index d6fbe01..8838df2 100644
 --- a/include/Game/Physics/PhysicsWaluigiWall.h
 +++ b/include/Game/Physics/PhysicsWaluigiWall.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_PHYSICS_PHYSICS_WALUIGI_WALL_H
  #define GAME_PHYSICS_PHYSICS_WALUIGI_WALL_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/EventConnection.h"
  #include "Game/Physics/PhysicsBox.h"
-@@ -35,7 +39,12 @@
+ #include "NL/nlMath.h"
+@@ -35,7 +39,12 @@ public:
      void Shrink(float dt);
      ContactType FielderContact(cFielder* player);
  
@@ -830,19 +870,21 @@ diff --git a/include/Game/Physics/PhysicsWaluigiWall.h b/include/Game/Physics/Ph
          PhysicsWaluigiWall* pObject = 0;
          pool.Allocate(pObject);
 diff --git a/include/Game/SAnim/pnBlender.h b/include/Game/SAnim/pnBlender.h
+index c9aa1d4..631c351 100644
 --- a/include/Game/SAnim/pnBlender.h
 +++ b/include/Game/SAnim/pnBlender.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_SANIM_PN_BLENDER_H
  #define GAME_SANIM_PN_BLENDER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/PoseNode.h"
  #include "NL/nlSlotPool.h"
-@@ -30,7 +34,12 @@
+ 
+@@ -30,7 +34,12 @@ public:
          Replayable<0>(frame, FloatCompressor<0, 1, 7>(m_fBlendTime));
      }
  
@@ -856,19 +898,21 @@ diff --git a/include/Game/SAnim/pnBlender.h b/include/Game/SAnim/pnBlender.h
          cPN_Blender* blender = 0;
          m_BlenderSlotPool.Allocate(blender);
 diff --git a/include/Game/SAnim/pnFeather.h b/include/Game/SAnim/pnFeather.h
+index b799e23..e716230 100644
 --- a/include/Game/SAnim/pnFeather.h
 +++ b/include/Game/SAnim/pnFeather.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_SANIM_PN_FEATHER_H
  #define GAME_SANIM_PN_FEATHER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/PoseNode.h"
  #include "Game/SHierarchy.h"
-@@ -49,7 +53,12 @@
+ #include "NL/nlSlotPool.h"
+@@ -49,7 +53,12 @@ public:
      void BeginBlendIn(float duration);
      void BeginBlendOut(float duration);
  
@@ -882,19 +926,21 @@ diff --git a/include/Game/SAnim/pnFeather.h b/include/Game/SAnim/pnFeather.h
          cPN_Feather* feather = 0;
          m_FeatherSlotPool.Allocate(feather);
 diff --git a/include/Game/SAnim/pnScaleBlender.h b/include/Game/SAnim/pnScaleBlender.h
+index 6b62815..8373da8 100644
 --- a/include/Game/SAnim/pnScaleBlender.h
 +++ b/include/Game/SAnim/pnScaleBlender.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_SANIM_PN_SCALE_BLENDER_H
  #define GAME_SANIM_PN_SCALE_BLENDER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/PoseNode.h"
  #include "NL/nlSlotPool.h"
-@@ -41,7 +45,12 @@
+ 
+@@ -41,7 +45,12 @@ public:
      void BeginBlendIn(float duration);
      void BeginBlendOut(float duration);
  
@@ -908,19 +954,21 @@ diff --git a/include/Game/SAnim/pnScaleBlender.h b/include/Game/SAnim/pnScaleBle
          cPN_ScaleBlender* node = 0;
          m_ScaleBlenderSlotPool.Allocate(node);
 diff --git a/include/Game/SAnim/pnSingleAxisBlender.h b/include/Game/SAnim/pnSingleAxisBlender.h
+index 824a3a3..2bdc924 100644
 --- a/include/Game/SAnim/pnSingleAxisBlender.h
 +++ b/include/Game/SAnim/pnSingleAxisBlender.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_SANIM_PN_SINGLE_AXIS_BLENDER_H
  #define GAME_SANIM_PN_SINGLE_AXIS_BLENDER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/PoseNode.h"
  #include "NL/nlSlotPool.h"
-@@ -32,7 +36,12 @@
+ 
+@@ -32,7 +36,12 @@ public:
          Replayable<0>(frame, FloatCompressor<0, 1, 7>(m_fSmoothedWeight));
      }
  
@@ -934,28 +982,30 @@ diff --git a/include/Game/SAnim/pnSingleAxisBlender.h b/include/Game/SAnim/pnSin
          cPN_SingleAxisBlender* blender = 0;
          m_SingleAxisBlenderSlotPool.Allocate(blender);
 diff --git a/include/NL/plat/TransportConnection.h b/include/NL/plat/TransportConnection.h
+index 04672fa..21f65a6 100644
 --- a/include/NL/plat/TransportConnection.h
 +++ b/include/NL/plat/TransportConnection.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef NL_PLAT_TRANSPORTCONNECTION_H
  #define NL_PLAT_TRANSPORTCONNECTION_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "NL/CircularQueue.h"
  #include "types.h"
-@@ -29,8 +33,14 @@
+ #include "NL/plat/TransportSocket.h"
+@@ -29,8 +33,14 @@ public:
          STATE_9,
      };
  
 +#if defined(MSCHARGED_NATIVE)
-     static void* operator new(
--        unsigned long size, unsigned int alignment, bool fromEnd);
++    static void* operator new(
 +        std::size_t size, unsigned int alignment, bool fromEnd)
 +#else
-+    static void* operator new(
+     static void* operator new(
+-        unsigned long size, unsigned int alignment, bool fromEnd);
 +        unsigned long size, unsigned int alignment, bool fromEnd)
 +#endif
 +;
@@ -963,26 +1013,27 @@ diff --git a/include/NL/plat/TransportConnection.h b/include/NL/plat/TransportCo
  
      TransportConnection(ReliableSocket* socket,
 diff --git a/include/NL/plat/TransportPacket.h b/include/NL/plat/TransportPacket.h
+index e222a6b..7412c60 100644
 --- a/include/NL/plat/TransportPacket.h
 +++ b/include/NL/plat/TransportPacket.h
 @@ -1,12 +1,22 @@
  #ifndef NL_PLAT_TRANSPORTPACKET_H
  #define NL_PLAT_TRANSPORTPACKET_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "Game/NetworkMessageSerializer.h"
  
  struct TransportPacket
  {
 +#if defined(MSCHARGED_NATIVE)
-     static void* operator new(
--        unsigned long size, unsigned int alignment, bool fromEnd);
++    static void* operator new(
 +        std::size_t size, unsigned int alignment, bool fromEnd)
 +#else
-+    static void* operator new(
+     static void* operator new(
+-        unsigned long size, unsigned int alignment, bool fromEnd);
 +        unsigned long size, unsigned int alignment, bool fromEnd)
 +#endif
 +;
@@ -990,19 +1041,21 @@ diff --git a/include/NL/plat/TransportPacket.h b/include/NL/plat/TransportPacket
      TransportPacket()
          : mSequence(0)
 diff --git a/include/NL/plat/WiiFreestylePad.h b/include/NL/plat/WiiFreestylePad.h
+index 174a572..9f0d96c 100644
 --- a/include/NL/plat/WiiFreestylePad.h
 +++ b/include/NL/plat/WiiFreestylePad.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef NL_PLAT_WII_FREESTYLE_PAD_H
  #define NL_PLAT_WII_FREESTYLE_PAD_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "NL/plat/WiiPad.h"
  #include "NL/plat/PlatPadStatus.h"
-@@ -35,7 +39,12 @@
+ #include "NL/platpad.h"
+@@ -35,7 +39,12 @@ public:
  
      void UpdateState(float dt);
  
@@ -1016,19 +1069,21 @@ diff --git a/include/NL/plat/WiiFreestylePad.h b/include/NL/plat/WiiFreestylePad
          return gWiiFreestylePadAllocator.Allocate();
      }
 diff --git a/include/NL/plat/WiiRemotePad.h b/include/NL/plat/WiiRemotePad.h
+index ed5bad4..b1ad9c5 100644
 --- a/include/NL/plat/WiiRemotePad.h
 +++ b/include/NL/plat/WiiRemotePad.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef NL_PLAT_WII_REMOTE_PAD_H
  #define NL_PLAT_WII_REMOTE_PAD_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstddef>
 +#endif
- 
++
  #include "NL/plat/WiiPad.h"
  #include "NL/plat/PlatPadStatus.h"
-@@ -35,7 +39,12 @@
+ #include "NL/platpad.h"
+@@ -35,7 +39,12 @@ public:
  
      void UpdateState(float dt);
  
@@ -1042,6 +1097,7 @@ diff --git a/include/NL/plat/WiiRemotePad.h b/include/NL/plat/WiiRemotePad.h
          return gWiiRemotePadAllocator.Allocate();
      }
 diff --git a/src/NL/plat/TransportConnection.cpp b/src/NL/plat/TransportConnection.cpp
+index 92950d8..fd3b0c9 100644
 --- a/src/NL/plat/TransportConnection.cpp
 +++ b/src/NL/plat/TransportConnection.cpp
 @@ -19,8 +19,14 @@
@@ -1059,7 +1115,25 @@ diff --git a/src/NL/plat/TransportConnection.cpp b/src/NL/plat/TransportConnecti
  {
      return gTransportConnectionPool.Allocate();
  }
+diff --git a/src/NL/plat/TransportMessage.cpp b/src/NL/plat/TransportMessage.cpp
+index 7b42e93..74ded67 100644
+--- a/src/NL/plat/TransportMessage.cpp
++++ b/src/NL/plat/TransportMessage.cpp
+@@ -489,7 +489,12 @@ bool CompareTransportChallenge(const void* first, const void* second)
+     return memcmp(first, second, 0x20) == 0;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++void* NetworkMessage::operator new(std::size_t, unsigned int, bool)
++#else
+ void* NetworkMessage::operator new(unsigned long, unsigned int, bool)
++#endif
++
+ {
+     return gNetworkMessagePool.Allocate();
+ }
 diff --git a/src/NL/plat/TransportPacket.cpp b/src/NL/plat/TransportPacket.cpp
+index c88d17d..e4ed244 100644
 --- a/src/NL/plat/TransportPacket.cpp
 +++ b/src/NL/plat/TransportPacket.cpp
 @@ -3,8 +3,14 @@
@@ -1076,20 +1150,4 @@ diff --git a/src/NL/plat/TransportPacket.cpp b/src/NL/plat/TransportPacket.cpp
 +
  {
      return gTransportPacketPool.Allocate();
- }
-diff --git a/src/NL/plat/TransportMessage.cpp b/src/NL/plat/TransportMessage.cpp
---- a/src/NL/plat/TransportMessage.cpp
-+++ b/src/NL/plat/TransportMessage.cpp
-@@ -489,7 +489,12 @@
-     return memcmp(first, second, 0x20) == 0;
- }
- 
-+#if defined(MSCHARGED_NATIVE)
-+void* NetworkMessage::operator new(std::size_t, unsigned int, bool)
-+#else
- void* NetworkMessage::operator new(unsigned long, unsigned int, bool)
-+#endif
-+
- {
-     return gNetworkMessagePool.Allocate();
  }

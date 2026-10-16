@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Change debug LAN default ports
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native platform adaptation
 
 Retail's debug LAN code uses UDP port 1000 for connections and 1001 for
@@ -10,7 +10,7 @@ peer expects the original numbers. The broadcast port, a literal in
 retail, becomes a variable next to the direct port.
 
 diff --git a/src/Game/NetworkDebug.cpp b/src/Game/NetworkDebug.cpp
-index 468f935..82d2ba9 100644
+index 468f935..1619acb 100644
 --- a/src/Game/NetworkDebug.cpp
 +++ b/src/Game/NetworkDebug.cpp
 @@ -21,7 +21,11 @@ bool g_bDisplayNetworkVerbose;
@@ -26,7 +26,7 @@ index 468f935..82d2ba9 100644
      "None", "LogIn", "Matchmake", "PreStart", "Loading", "InGame", "GameEnd"
  };
 diff --git a/src/Game/NetworkSocket.cpp b/src/Game/NetworkSocket.cpp
-index 5589862..1ebffeb 100644
+index 5589862..580dcfe 100644
 --- a/src/Game/NetworkSocket.cpp
 +++ b/src/Game/NetworkSocket.cpp
 @@ -11,7 +11,13 @@
@@ -43,7 +43,7 @@ index 5589862..1ebffeb 100644
  static int sLocalAddressColumn = 2;
  static int sLocalAddressRow = 5;
  
-@@ -210,7 +215,7 @@ void NetworkSocket::SetBroadcastEnabled(bool enabled)
+@@ -210,7 +216,7 @@ void NetworkSocket::SetBroadcastEnabled(bool enabled)
          {
              tDebugPrintManager::Print(DC_NETWORK, "Broadcast socket open error\n");
          }
@@ -52,7 +52,7 @@ index 5589862..1ebffeb 100644
          {
              tDebugPrintManager::Print(DC_NETWORK, "Broadcast socket bind failed\n");
          }
-@@ -233,7 +238,7 @@ void NetworkSocket::SendBroadcast(void* buffer, int size)
+@@ -233,7 +239,7 @@ void NetworkSocket::SendBroadcast(void* buffer, int size)
      memcpy(mPacketBuffer, &mVersionWord, sizeof(mVersionWord));
      memcpy(mPacketBuffer + sizeof(mVersionWord), buffer, size);
      TransportSocketBroadcast(&mBroadcastSocket, mPacketBuffer,
@@ -61,4 +61,3 @@ index 5589862..1ebffeb 100644
  }
  
  void NetworkSocket::SetConnectionEnabled(bool enabled)
-

@@ -1,5 +1,8 @@
 # Native HBM sound archive metadata views; original console reader/control flow retained.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_MemorySoundArchive.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_MemorySoundArchive.cpp
+index 4f3c797..d00510b 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_MemorySoundArchive.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_MemorySoundArchive.cpp
 @@ -1,7 +1,11 @@
@@ -14,6 +17,8 @@
  
  #include "revolution/types.h"
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchive.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchive.cpp
+index 91cc195..a7244e6 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchive.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchive.cpp
 @@ -1,7 +1,12 @@
@@ -29,6 +34,8 @@
  
  #include <cstring>
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveFile.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveFile.cpp
+index 445c91c..eef4e7c 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveFile.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchiveFile.cpp
 @@ -2,7 +2,15 @@
@@ -47,7 +54,7 @@
  
  namespace nw4hbm {
  namespace snd {
-@@ -24,11 +32,23 @@
+@@ -24,11 +32,23 @@ void SoundArchiveFileReader::Init(const void* soundArchiveData) {
          return;
      }
  
@@ -73,7 +80,7 @@
  
      NW4HBMAssert_Line(fileHeader->signature == SoundArchiveFile::SIGNATURE_FILE, 72);
      if (fileHeader->signature != SoundArchiveFile::SIGNATURE_FILE) {
-@@ -57,7 +77,13 @@
+@@ -57,7 +77,13 @@ bool SoundArchiveFileReader::IsValidFileHeader(const void* soundArchiveData) {
  
  void SoundArchiveFileReader::SetStringChunk(const void* stringChunk, u32 size) {
      NW4HBMAssertPointerNonnull_Line(stringChunk, 96);
@@ -88,7 +95,7 @@
      NW4HBMAssert_Line(symbolBlock->blockHeader.kind == SoundArchiveFile::SIGNATURE_SYMB_BLOCK, 99);
      const SoundArchiveFile::StringBlock* pStringBlock = &symbolBlock->stringBlock;
  
-@@ -81,7 +107,13 @@
+@@ -81,7 +107,13 @@ void SoundArchiveFileReader::SetStringChunk(const void* stringChunk, u32 size) {
  
  void SoundArchiveFileReader::SetInfoChunk(const void* infoChunk, u32 size) {
      NW4HBMAssertPointerNonnull_Line(infoChunk, 120);

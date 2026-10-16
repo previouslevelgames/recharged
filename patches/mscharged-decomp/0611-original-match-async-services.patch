@@ -1,5 +1,5 @@
 Subject: Admit the original async services of FELoadingToGame and GameLoadingToFE
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0610.
 
 The authored async_loading bytecode's FELoadingToGame and GameLoadingToFE
@@ -17,9 +17,10 @@ for exhibition, the Striker Cup hub (round news, goal trophies, save), the
 challenge listing, or the online/tournament scenes.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 45580ae..44f96c8 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -287,7 +287,7 @@
+@@ -286,7 +286,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  #else
      switch (functionIndex)
      {
@@ -28,7 +29,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 0:
          LoadTrophyTemplates();
          break;
-@@ -317,7 +317,7 @@
+@@ -316,7 +316,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          CreateLargeFEResourcePool();
          break;
  #endif
@@ -37,7 +38,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 3:
          CreateFEResourcePool();
          break;
-@@ -333,7 +333,7 @@
+@@ -332,7 +332,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          break;
      }
  #endif
@@ -46,8 +47,8 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 5:
          m_SP++;
          m_SP[-1] = CharacterLoader::sInstance.ShareDuplicateAnimInventory();
-@@ -502,6 +502,8 @@
-             fn_80116988, (void*)"FE_GEN_SPLASH");
+@@ -510,6 +510,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+             OnAsyncSoundBankLoaded, (void*)"FE_GEN_SPLASH");
          FEAudio::SetSoundCategory(0x15);
          break;
 +#endif
@@ -55,7 +56,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 18:
          lbl_806E1058 += gAudioEnabled ? 1 : 0;
          g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
-@@ -515,15 +517,19 @@
+@@ -523,15 +525,19 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStepOrUndo(this, AsyncFinalizeCameraLoading());
          break;
  #endif
@@ -76,7 +77,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 22:
          SetLoadingComment("AsyncFinalizeLoadingAI");
          FinishLoadingStepOrUndo(this, ApplyFuzzyByteCode());
-@@ -589,7 +595,7 @@
+@@ -597,7 +603,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          break;
  #endif
@@ -85,20 +86,20 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 29:
          CharacterLoader::sInstance.StartLoadingCaptainAudio();
          break;
-@@ -640,15 +646,19 @@
+@@ -648,15 +654,19 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          AsyncStartCameraLoadingForStadiumViewer();
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
      case 38:
-         fn_8011A2E8(this);
+         StartAsyncGameWorldLoading(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 39:
          SetLoadingComment("AsyncStartGameWorldLoadingForStadiumViewer");
-         fn_802772D0(GetStadiumName(GameInfoManager::Instance()->GetStadium()), true);
+         LoadStadium(GetStadiumName(GameInfoManager::Instance()->GetStadium()), true);
          FinishLoadingStep(this);
          break;
 +#endif
@@ -106,7 +107,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 40:
          SetLoadingComment("AsyncStartLoadingAI");
          LoadFuzzyByteCode(GetFuzzyAIScriptFilename(), true);
-@@ -663,7 +673,7 @@
+@@ -671,7 +681,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStep(this);
          break;
  #endif
@@ -115,7 +116,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 42:
          SetLoadingComment("AsyncStartLoadingGameFE");
          lbl_806E1060 = 0;
-@@ -690,7 +700,7 @@
+@@ -698,7 +708,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStepOrUndo(this, FinishLoadFEWorld());
          break;
  #endif
@@ -124,17 +125,16 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 46:
          StopSound(0x7FC13AA3, this);
          break;
-@@ -711,12 +721,16 @@
+@@ -719,12 +729,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          break;
  #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
-+    case 48:
-+        break;
+     case 48:
+         break;
 +#endif
- #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
--    case 48:
--        break;
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 49:
          --m_SP;
          break;
@@ -143,34 +143,34 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 50:
          CharacterLoader::sInstance.BuildCharacterList();
          break;
-@@ -746,18 +760,26 @@
+@@ -754,18 +768,26 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FakeBallWorld::Init(g_pBall);
          FinishLoadingStep(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 57:
-         fn_8011926C(this);
+         DestroyFrontEndFast(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
      case 58:
-         fn_80119B0C(this);
+         DestroyFrontEndState(this);
          break;
      case 59:
-         fn_8011A9DC(this);
+         DestroyGameState(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 60:
-         fn_8011B02C(this);
+         InitializeLegalScreenAndMovies(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
      case 61:
          --m_SP;
          break;
-@@ -840,7 +862,7 @@
+@@ -848,7 +870,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStepOrUndo(this, gNPCManager->FinishLoadNPCTemplate());
          break;
  #endif
@@ -179,43 +179,43 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 77:
          SetLoadingComment("FinalizeLoadingSharedTextures");
          FinishLoadingStepOrUndo(this,
-@@ -914,7 +936,7 @@
-         fn_80119528(this);
+@@ -922,7 +944,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         InitializeFrontEndState2(this);
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
      case 87:
-         fn_80119EC0(this);
+         InitializeGameState1(this);
          break;
-@@ -928,6 +950,8 @@
+@@ -936,6 +958,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 90:
-         fn_8011A800(this);
+         FinalizeGameStateLoading(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 91:
          SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
          BeginFrameTask::s_FramerateLocked = false;
-@@ -936,6 +960,8 @@
+@@ -944,6 +968,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          mLoadingState = ASYNC_RESOURCES_LOADED;
          FinishLoadingStep(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING))
      case 92:
-         fn_8011A570(this);
+         InitializeInGameFrontEnd(this);
          break;
-@@ -974,6 +1000,8 @@
+@@ -982,6 +1008,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          CreatePhysicsWorld();
          FinishLoadingStep(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 98:
-         fn_8011B6E8(this);
+         InitializeStadiumViewer(this);
          break;
-@@ -989,6 +1017,8 @@
+@@ -997,6 +1025,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStep(this);
          break;
      }
@@ -224,7 +224,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 100:
          SetLoadingComment("InitializeWorldNPCTemplates");
          lbl_806E1050->LoadTemplates("ini/WorldNPCs.ini");
-@@ -1051,6 +1081,8 @@
+@@ -1059,6 +1089,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 109:
          gNPCManager->CreateDiddyBanana();
          break;
@@ -233,7 +233,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 110:
          gNPCManager->CreateBirdoEgg();
          break;
-@@ -1075,6 +1107,8 @@
+@@ -1083,6 +1115,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 117:
          gNPCManager->CreateYoshiEgg();
          break;
@@ -242,7 +242,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 118:
          fn_80111664();
          break;
-@@ -1094,7 +1128,7 @@
+@@ -1102,7 +1136,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          break;
      }
  #endif
@@ -251,7 +251,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 121:
          ReplayManager::Instance()->ResetSnapshots();
          break;
-@@ -1190,7 +1224,7 @@
+@@ -1198,7 +1232,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStep(this);
          break;
  #endif
@@ -260,7 +260,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 139:
          SetLoadingComment("StartLoadingSharedTextures");
          CharacterLoader::sInstance.StartLoadingSharedTextures();
-@@ -1592,7 +1626,8 @@
+@@ -1604,7 +1638,8 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
      }
      else
      {

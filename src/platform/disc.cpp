@@ -90,6 +90,21 @@ const char* DiscRegionName(const std::string& game_id)
     }
 }
 
+std::vector<std::uint8_t> ReadDiscMainDol(const std::filesystem::path& path)
+{
+    NodDiscHeader header{};
+    NodDiscMeta metadata{};
+    auto disc = OpenChargedDisc(path, header, metadata);
+    auto partition = OpenGamePartition(disc.get());
+    NodPartitionMeta partition_metadata{};
+    Check(nod_partition_meta(partition.get(), &partition_metadata), "Cannot read the game program");
+    const auto& dol = partition_metadata.raw_dol;
+    if (!dol.data || dol.size < 0x100)
+        throw std::runtime_error("The game data partition has no main.dol.");
+    // Copy while the partition handle still owns the borrowed bytes.
+    return std::vector<std::uint8_t>(dol.data, dol.data + dol.size);
+}
+
 std::uint64_t ReadDiscTitleId(const std::filesystem::path& path)
 {
     NodDiscHeader header{};

@@ -1,6 +1,6 @@
 Subject: Select original effects template resolution on retained native records
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share EffectsBundleData's final template-resolution loop with the original
 initializer. Native storage is decoded and retained separately; prohibit the
@@ -13,9 +13,10 @@ serialized count: owned records have 25 colours while the reconstructed console
 array declares 26. No terminal colour or resource binding is fabricated.
 
 diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/EffectsBundleData.h
+index 30b6e1d..5e90f18 100644
 --- a/include/Game/Effects/EffectsBundleData.h
 +++ b/include/Game/Effects/EffectsBundleData.h
-@@ -14,7 +14,13 @@
+@@ -14,7 +14,13 @@ struct EffectsBundleData
          return (id & 0x80FFFFFF) == 0x80024000;
      }
  
@@ -29,61 +30,11 @@ diff --git a/include/Game/Effects/EffectsBundleData.h b/include/Game/Effects/Eff
      void Destroy();
      EffectsGroup* GetGroup(int index) const { return mGroups[index]; }
  
-diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
---- a/include/Game/Effects/EffectsTemplate.h
-+++ b/include/Game/Effects/EffectsTemplate.h
-@@ -3,6 +3,9 @@
- 
- #include "NL/nlColour.h"
- #include "NL/nlMath.h"
-+#ifdef MSCHARGED_NATIVE
-+#include <vector>
-+#endif
- 
- class nlChunk;
- 
-@@ -48,7 +51,11 @@
- class fxAnimatedRange
- {
- public:
-+#ifdef MSCHARGED_NATIVE
-+    static fxAnimatedRange* LoadFromChunk(nlChunk* chunk) = delete;
-+#else
-     static fxAnimatedRange* LoadFromChunk(nlChunk* chunk);
-+#endif
-     float Evaluate(float value) const;
-     float GetMaximum() const;
- 
-@@ -62,7 +69,11 @@
- class EffectsTemplate
- {
- public:
-+#ifdef MSCHARGED_NATIVE
-+    static EffectsTemplate* LoadFromChunk(nlChunk* chunk) = delete;
-+#else
-     static EffectsTemplate* LoadFromChunk(nlChunk* chunk);
-+#endif
-     void Cleanup();
-     float GetBoundingRadius();
- 
-@@ -86,7 +97,13 @@
-     /* 0x4C */ fxRange m_rFPS;
-     /* 0x54 */ unsigned long m_uModelID;
-     /* 0x58 */ fxAnimatedRange* mProperties[8];
-+#ifdef MSCHARGED_NATIVE
-+    // Retain the authored count. Wii files may have 25 colours; native consumers
-+    // must qualify their indices instead of inventing the reconstructed 26th.
-+    std::vector<nlColour> m_cColour;
-+#else
-     /* 0x78 */ nlColour m_cColour[26];
-+#endif
- 
-     bool IsInFront() const { return (m_uFlags & 1) != 0; }
-     bool IsLocalSpace() const { return (m_uFlags & 2) != 0; }
 diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
+index 0cd8147..912bf5b 100644
 --- a/include/Game/Effects/EffectsGroup.h
 +++ b/include/Game/Effects/EffectsGroup.h
-@@ -86,8 +86,13 @@
+@@ -86,8 +86,13 @@ public:
      bool IsPersistent() const;
      unsigned long GetHashID() const { return m_hashID; }
      UserEffectSpec** GetUserSpecs() const { return m_userSpecsPtr; }
@@ -97,7 +48,60 @@ diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsG
      void DestroyUserSpecs();
      void ResolveTemplates(EffectsTemplate** table);
  
+diff --git a/include/Game/Effects/EffectsTemplate.h b/include/Game/Effects/EffectsTemplate.h
+index e40574a..2d37871 100644
+--- a/include/Game/Effects/EffectsTemplate.h
++++ b/include/Game/Effects/EffectsTemplate.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
++#ifdef MSCHARGED_NATIVE
++#include <vector>
++#endif
+ 
+ class nlChunk;
+ 
+@@ -48,7 +51,11 @@ struct fxCurveKey
+ class fxAnimatedRange
+ {
+ public:
++#ifdef MSCHARGED_NATIVE
++    static fxAnimatedRange* LoadFromChunk(nlChunk* chunk) = delete;
++#else
+     static fxAnimatedRange* LoadFromChunk(nlChunk* chunk);
++#endif
+     float Evaluate(float value) const;
+     float GetMaximum() const;
+ 
+@@ -62,7 +69,11 @@ public:
+ class EffectsTemplate
+ {
+ public:
++#ifdef MSCHARGED_NATIVE
++    static EffectsTemplate* LoadFromChunk(nlChunk* chunk) = delete;
++#else
+     static EffectsTemplate* LoadFromChunk(nlChunk* chunk);
++#endif
+     void Cleanup();
+     float GetBoundingRadius();
+ 
+@@ -86,7 +97,13 @@ public:
+     /* 0x4C */ fxRange m_rFPS;
+     /* 0x54 */ unsigned long m_uModelID;
+     /* 0x58 */ fxAnimatedRange* mProperties[8];
++#ifdef MSCHARGED_NATIVE
++    // Retain the authored count. Wii files may have 25 colours; native consumers
++    // must qualify their indices instead of inventing the reconstructed 26th.
++    std::vector<nlColour> m_cColour;
++#else
+     /* 0x78 */ nlColour m_cColour[26];
++#endif
+ 
+     bool IsInFront() const { return (m_uFlags & 1) != 0; }
+     bool IsLocalSpace() const { return (m_uFlags & 2) != 0; }
 diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBundleData.cpp
+index 4473671..1aeaff8 100644
 --- a/src/Game/Effects/EffectsBundleData.cpp
 +++ b/src/Game/Effects/EffectsBundleData.cpp
 @@ -2,17 +2,20 @@
@@ -124,7 +128,7 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
  EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
  {
      EffectsBundleData* data;
-@@ -38,9 +41,11 @@
+@@ -38,10 +41,12 @@ EffectsBundleData* EffectsBundleData::Initialize(nlChunk* bundle)
          data->mGroups[i] = EffectsGroup::LoadFromChunk(chunk);
      }
  
@@ -132,43 +136,14 @@ diff --git a/src/Game/Effects/EffectsBundleData.cpp b/src/Game/Effects/EffectsBu
 +    data->ResolveTemplates();
      return data;
  }
-+
-+#endif
  
++#endif
++
  void EffectsBundleData::Destroy()
  {
-diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
---- a/src/Game/Effects/EffectsTemplate.cpp
-+++ b/src/Game/Effects/EffectsTemplate.cpp
-@@ -1,6 +1,7 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/Effects/EffectsTemplate.h"
- 
-+#ifndef MSCHARGED_NATIVE
- #include "Game/GL/GLInventory.h"
- #include "Game/Effects/EmissionManager.h"
- #include "NL/nlChunk.h"
-@@ -111,10 +112,13 @@
-     return result;
- }
- 
-+#endif
-+
- void EffectsTemplate::Cleanup()
- {
- }
- 
-+#ifndef MSCHARGED_NATIVE
- float EffectsTemplate::GetBoundingRadius()
- {
-     float maximumParticleLife;
-@@ -140,3 +144,5 @@
-     }
-     return result;
- }
-+
-+#endif // !MSCHARGED_NATIVE
+     for (unsigned long i = 0; i < mNumTemplates; ++i)
 diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.cpp
+index 499deba..1b0c02c 100644
 --- a/src/Game/Effects/EffectsGroup.cpp
 +++ b/src/Game/Effects/EffectsGroup.cpp
 @@ -1,5 +1,9 @@
@@ -181,16 +156,16 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Sys/simpleparser.h"
  #include "Game/SharedStaticStorage.h"
-@@ -18,6 +22,8 @@
- 
+@@ -19,6 +23,8 @@ public:
  static UserEffectFactory* sUserEffectFactories[3];
  static int sNumUserEffectFactories;
-+
-+#endif
  
++#endif
++
  bool EffectsGroup::IsPersistent() const
  {
-@@ -41,6 +47,7 @@
+     unsigned long count = m_numSpecs;
+@@ -41,6 +47,7 @@ bool EffectsGroup::IsPersistent() const
      return false;
  }
  
@@ -198,7 +173,7 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
  EffectsGroup* EffectsGroup::LoadFromChunk(nlChunk* chunk)
  {
      nlChunk* groupChunk = chunk->GetFirstChunk();
-@@ -96,10 +103,15 @@
+@@ -96,10 +103,15 @@ void EffectsGroup::ParseUserSpecs()
      }
  }
  
@@ -214,7 +189,7 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
          for (unsigned long i = 0; i < m_userSpecs; ++i)
          {
              if (m_userSpecsPtr[i] != 0)
-@@ -108,6 +120,7 @@
+@@ -108,6 +120,7 @@ void EffectsGroup::DestroyUserSpecs()
              }
          }
          delete[] m_userSpecsPtr;
@@ -222,3 +197,35 @@ diff --git a/src/Game/Effects/EffectsGroup.cpp b/src/Game/Effects/EffectsGroup.c
      }
  }
  
+diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
+index 965763e..7ec834f 100644
+--- a/src/Game/Effects/EffectsTemplate.cpp
++++ b/src/Game/Effects/EffectsTemplate.cpp
+@@ -1,6 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Effects/EffectsTemplate.h"
+ 
++#ifndef MSCHARGED_NATIVE
+ #include "Game/GL/GLInventory.h"
+ #include "Game/Effects/EmissionManager.h"
+ #include "NL/nlChunk.h"
+@@ -111,10 +112,13 @@ EffectsTemplate* EffectsTemplate::LoadFromChunk(nlChunk* chunk)
+     return result;
+ }
+ 
++#endif
++
+ void EffectsTemplate::Cleanup()
+ {
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ float EffectsTemplate::GetBoundingRadius()
+ {
+     float maximumParticleLife;
+@@ -140,3 +144,5 @@ float EffectsTemplate::GetBoundingRadius()
+     }
+     return result;
+ }
++
++#endif // !MSCHARGED_NATIVE

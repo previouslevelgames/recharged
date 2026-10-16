@@ -1,5 +1,5 @@
 Subject: Restore whole original Options frontend provider and native callback contexts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain all original scene and Options control flow, resource requests, input,
 audio and transition decisions. Restore the whole reconstructed provider rather
@@ -10,6 +10,7 @@ BaseSceneHandler; the bounded qualifier does not establish original main,
 production pre-main/custom allocator ownership or Credits drawing/movie flow.
 
 diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
+index 5f59d79..11a63b0 100644
 --- a/src/Game/SH/SHOptions.cpp
 +++ b/src/Game/SH/SHOptions.cpp
 @@ -1,9 +1,10 @@
@@ -42,7 +43,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  }
  
  OptionsScene::OptionsScene()
-@@ -49,7 +43,13 @@
+@@ -49,7 +43,13 @@ OptionsScene::~OptionsScene()
  
  void OptionsScene::SceneCreated()
  {
@@ -57,7 +58,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  
      TLComponentInstance* screen = 0;
      SHNavigation* object = GetNavigationScene();
-@@ -68,31 +68,45 @@
+@@ -68,31 +68,45 @@ void OptionsScene::SceneCreated()
      FEMusic::StartStreamIfDifferent(1);
  }
  
@@ -124,7 +125,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
      if (!mPointerButtonsInitialized)
      {
          InitializePointerButtons();
-@@ -110,13 +124,22 @@
+@@ -110,13 +124,22 @@ void OptionsScene::Update(float fDeltaT)
  
          pointer->SetActiveSlide("cursor", true, false);
  
@@ -150,7 +151,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
              return;
          }
  
-@@ -129,17 +152,80 @@
+@@ -129,17 +152,80 @@ void OptionsScene::Update(float fDeltaT)
  
  void OptionsScene::OnButtonPointerPress(int, void* context)
  {
@@ -234,7 +235,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  }
  
  void OptionsScene::InitializePointerButtons()
-@@ -156,7 +242,11 @@
+@@ -156,7 +242,11 @@ void OptionsScene::InitializePointerButtons()
  
      for (int i = 0; i < 3; ++i)
      {

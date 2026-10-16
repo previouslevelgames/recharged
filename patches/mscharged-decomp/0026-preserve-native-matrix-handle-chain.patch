@@ -1,6 +1,6 @@
 Subject: Keep the complete matrix-handle chain pointer-sized on native hosts
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Matrix handles address live GL matrix storage. Preserve their width through
 allocation, global state, model packets, draw/text callers, render caches and
@@ -13,6 +13,7 @@ Unselected loaders/materials and missing lighting globals still require their
 own integration; widened declarations do not make those units linkable.
 
 diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting.h
+index a882c88..64e3068 100644
 --- a/include/Game/GameObjectLighting.h
 +++ b/include/Game/GameObjectLighting.h
 @@ -2,6 +2,7 @@
@@ -23,16 +24,17 @@ diff --git a/include/Game/GameObjectLighting.h b/include/Game/GameObjectLighting
  #include "types.h"
  
  enum eGameObjectLightingMode
-@@ -56,7 +57,7 @@
+@@ -56,7 +57,7 @@ void SetGameObjectLightingEnabled(bool enabled, int count, bool useVertexColour)
  void SetGameObjectAmbientLightingEnabled(int enabled);
  void ApplyGameObjectShadowLighting(int skinned, unsigned long shadowLevel);
  void RestoreGameObjectShadowLighting();
 -void SetGameObjectShadowModelMatrix(unsigned long matrix);
 +void SetGameObjectShadowModelMatrix(glMatrixHandle matrix);
  void SetGameObjectShadowViewMatrix(const nlMatrix4* matrix);
- void fn_80182164();
+ void OnStadiumLightingLoad();
  void LoadShadowLightingLookup(unsigned long texture);
 diff --git a/include/NL/gl/glDraw2.h b/include/NL/gl/glDraw2.h
+index 5bc0470..ad0ea01 100644
 --- a/include/NL/gl/glDraw2.h
 +++ b/include/NL/gl/glDraw2.h
 @@ -2,6 +2,7 @@
@@ -43,7 +45,7 @@ diff --git a/include/NL/gl/glDraw2.h b/include/NL/gl/glDraw2.h
  #include "NL/nlMath.h"
  
  class GLView;
-@@ -9,7 +10,7 @@
+@@ -9,7 +10,7 @@ class GLView;
  class glPoly2
  {
  public:
@@ -52,7 +54,7 @@ diff --git a/include/NL/gl/glDraw2.h b/include/NL/gl/glDraw2.h
      void FullCoverage(const nlColour& col, float z);
      void SetupRectangle(float x, float y, float w, float h, float z);
      void SetupRotatedRectangle(float cx, float cy, float w, float h, float angle, float z);
-@@ -22,10 +23,10 @@
+@@ -22,10 +23,10 @@ public:
  }; // size: 0x54
  
  bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
@@ -67,6 +69,7 @@ diff --git a/include/NL/gl/glDraw2.h b/include/NL/gl/glDraw2.h
  
  #endif // NL_GL_GLDRAW2_H
 diff --git a/include/NL/gl/glMatrix.h b/include/NL/gl/glMatrix.h
+index 1654d66..8e04f4f 100644
 --- a/include/NL/gl/glMatrix.h
 +++ b/include/NL/gl/glMatrix.h
 @@ -2,21 +2,25 @@
@@ -104,6 +107,7 @@ diff --git a/include/NL/gl/glMatrix.h b/include/NL/gl/glMatrix.h
      }
 diff --git a/include/NL/gl/glMatrixHandle.h b/include/NL/gl/glMatrixHandle.h
 new file mode 100644
+index 0000000..fef302d
 --- /dev/null
 +++ b/include/NL/gl/glMatrixHandle.h
 @@ -0,0 +1,14 @@
@@ -122,6 +126,7 @@ new file mode 100644
 +
 +#endif // NL_GL_GLMATRIXHANDLE_H
 diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
+index 0c9510f..2fe7eca 100644
 --- a/include/NL/gl/glModel.h
 +++ b/include/NL/gl/glModel.h
 @@ -2,6 +2,7 @@
@@ -132,7 +137,7 @@ diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
  
  struct DisplayList;
  class nlMatrix4;
-@@ -55,7 +56,7 @@
+@@ -55,7 +56,7 @@ struct glModelPacket
      /* 0x0C */ glModelStream* streams;
      /* 0x10 */ void* materialProgram;
      /* 0x14 */ u32 unknown14;
@@ -141,7 +146,7 @@ diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
      /* 0x1C */ unsigned int rasterState;
      /* 0x20 */ void* materialParameters;
      /* 0x24 */ DisplayList* displayList;
-@@ -102,7 +103,7 @@
+@@ -102,7 +103,7 @@ inline glModelStream* glFindModelStream(glModelPacket* pPacket, int id)
  }
  
  void glModelSetMatrix(glModel* model, const nlMatrix4& matrix);
@@ -151,6 +156,7 @@ diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
  void glModelGetMatrix(const glModel* model, nlMatrix4& matrix);
  glModel* glModelDupArrayNoStreams(
 diff --git a/include/NL/gl/glPacketCallback.h b/include/NL/gl/glPacketCallback.h
+index 1d83ae0..4de1d23 100644
 --- a/include/NL/gl/glPacketCallback.h
 +++ b/include/NL/gl/glPacketCallback.h
 @@ -2,6 +2,7 @@
@@ -161,7 +167,7 @@ diff --git a/include/NL/gl/glPacketCallback.h b/include/NL/gl/glPacketCallback.h
  
  class PacketCallbackManager
  {
-@@ -12,7 +13,7 @@
+@@ -12,7 +13,7 @@ public:
      GLView* m_View;
      GLViewPacketCallback m_Cb;
      unsigned long m_LastRaster;
@@ -171,9 +177,10 @@ diff --git a/include/NL/gl/glPacketCallback.h b/include/NL/gl/glPacketCallback.h
  };
  
 diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
+index 04b8860..6eb22d9 100644
 --- a/include/NL/gl/glState.h
 +++ b/include/NL/gl/glState.h
-@@ -74,8 +74,8 @@
+@@ -74,8 +74,8 @@ u32 glGetCurrentRasterState();
  u32 glSetCurrentRasterState(unsigned long raster);
  unsigned long long glGetCurrentTextureState();
  unsigned long long glSetCurrentTextureState(unsigned long long state);
@@ -185,6 +192,7 @@ diff --git a/include/NL/gl/glState.h b/include/NL/gl/glState.h
  u32 glGetRasterState(unsigned long raster, eGLState state);
  unsigned int glSetRasterState(
 diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
+index a296d9b..956ba4e 100644
 --- a/include/NL/gl/glStateBundle.h
 +++ b/include/NL/gl/glStateBundle.h
 @@ -2,12 +2,13 @@
@@ -203,6 +211,7 @@ diff --git a/include/NL/gl/glStateBundle.h b/include/NL/gl/glStateBundle.h
      /* 0x28 */ unsigned char texconfig;
      /* 0x2C */ unsigned long userStateKey;
 diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
+index 6c8f509..5a94d23 100644
 --- a/include/NL/glx/glxMemory.h
 +++ b/include/NL/glx/glxMemory.h
 @@ -7,6 +7,7 @@
@@ -213,7 +222,28 @@ diff --git a/include/NL/glx/glxMemory.h b/include/NL/glx/glxMemory.h
  #else
  typedef unsigned long GLResourceMark;
  #endif
+diff --git a/include/NL/glx/glxModel.h b/include/NL/glx/glxModel.h
+index 128ec9e..eb9e2b9 100644
+--- a/include/NL/glx/glxModel.h
++++ b/include/NL/glx/glxModel.h
+@@ -1,11 +1,13 @@
+ #ifndef NL_GLX_GLXMODEL_H
+ #define NL_GLX_GLXMODEL_H
+ 
++#include "NL/gl/glMatrixHandle.h"
++
+ class nlMatrix4;
+ struct glModelPacket;
+ 
+-void glplatSetMatrix(unsigned long matrix, const nlMatrix4& m);
+-void glplatGetMatrix(unsigned long matrix, nlMatrix4& m);
++void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m);
++void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m);
+ void glplatFinalizePacket(glModelPacket* packet, bool permanent, void* allocator);
+ 
+ // Platform hook applied after a packet and its material data have been cloned.
 diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
+index 613805a..bef1606 100644
 --- a/include/NL/nlFont.h
 +++ b/include/NL/nlFont.h
 @@ -2,6 +2,7 @@
@@ -224,7 +254,7 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
  #include "NL/nlAlgorithm.h"
  #include "NL/nlBasicString.h"
  #include "NL/nlMath.h"
-@@ -120,7 +121,7 @@
+@@ -120,7 +121,7 @@ public:
      unsigned short GetExtendedFontChar(unsigned short Character) const;
      void DisableScissorBox() const;
      void SetScissorBox(const ScissorBox& other) const;
@@ -234,9 +264,10 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
  
      ~nlFont();
 diff --git a/src/Game/Debug/ShapeRender.cpp b/src/Game/Debug/ShapeRender.cpp
+index d5f45ca..63f082f 100644
 --- a/src/Game/Debug/ShapeRender.cpp
 +++ b/src/Game/Debug/ShapeRender.cpp
-@@ -461,8 +461,8 @@
+@@ -461,8 +461,8 @@ void ShapeRender::DrawWireBox(
  void ShapeRender::DrawPrimitive(const PrimitiveShape& prim,
      const nlMatrix4& mat_world, bool, const nlColour& colour) const
  {
@@ -248,9 +279,10 @@ diff --git a/src/Game/Debug/ShapeRender.cpp b/src/Game/Debug/ShapeRender.cpp
          glSetMatrix(matrix, mat_world);
      }
 diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index e0bd704..c284808 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
-@@ -906,7 +906,7 @@
+@@ -906,7 +906,7 @@ int ParticleSystem::RenderAllParticles(GLView* view)
              m.e[13] = ret.position[0].y;
              m.e[14] = ret.position[0].z;
  
@@ -260,9 +292,10 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
              float meshRateScale = 1.0f;
              if (pAnim != 0)
 diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index 8c612da..ae05c73 100644
 --- a/src/Game/FE/feRender.cpp
 +++ b/src/Game/FE/feRender.cpp
-@@ -280,8 +280,8 @@
+@@ -280,8 +280,8 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
      matTM.m41 += view.m41;
      matTM.m42 += view.m42;
      matTM.m43 += view.m43;
@@ -274,9 +307,10 @@ diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
          glSetMatrix(matrixHandle, matTM);
      }
 diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
+index 9527ad9..92579db 100644
 --- a/src/Game/GameObjectLighting.cpp
 +++ b/src/Game/GameObjectLighting.cpp
-@@ -109,7 +109,7 @@
+@@ -109,7 +109,7 @@ u32 gGameObjectLightTexture = (u32)-1;
  s32 gNumInGameLights = 2;
  u8 gCameraRelativeLightingAllowed = 1;
  u32 gShadowLookupTexture = (u32)-1;
@@ -285,7 +319,7 @@ diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
  s32 gShadowTexGen = -1;
  
  bool gUseGameObjectLightTexture;
-@@ -888,14 +888,14 @@
+@@ -888,14 +888,14 @@ void RestoreGameObjectShadowLighting()
      }
  }
  
@@ -296,18 +330,18 @@ diff --git a/src/Game/GameObjectLighting.cpp b/src/Game/GameObjectLighting.cpp
          return;
  
 -    if (matrix == (u32)-1)
--    {
--        gShadowModelMatrix = -1;
 +    if (matrix == GL_INVALID_MATRIX)
-+    {
+     {
+-        gShadowModelMatrix = -1;
 +        gShadowModelMatrix = GL_INVALID_MATRIX;
      }
      else if (matrix != gShadowModelMatrix)
      {
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
+index fc7808b..d02a63f 100644
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -180,8 +180,8 @@
+@@ -180,8 +180,8 @@ static void DrawPrimitive(const ElectricFenceGeometry& prim,
      glSetRasterState(GLS_AlphaBlend, 2);
      glSetCurrentRasterState(glHandleizeRasterState());
  
@@ -319,9 +353,10 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
          glSetMatrix(matrixHandle, objMatrix);
      }
 diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
+index 94e207c..d9c786d 100644
 --- a/src/Game/objectblur.cpp
 +++ b/src/Game/objectblur.cpp
-@@ -142,7 +142,7 @@
+@@ -142,7 +142,7 @@ void BlurHandler::RenderMesh(unsigned long uTexID)
  {
      u32 count;
      u32 uPointIndex;
@@ -330,7 +365,7 @@ diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
      float nonAdditiveAlpha;
      BlurPointEntry* entry;
  
-@@ -174,7 +174,7 @@
+@@ -174,7 +174,7 @@ void BlurHandler::RenderMesh(unsigned long uTexID)
      matWorld.m43 += sBlurZOffset;
  
      matHandle = glAllocMatrix();
@@ -340,9 +375,10 @@ diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
          glSetMatrix(matHandle, matWorld);
      }
 diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
+index d144c08..32343c0 100644
 --- a/src/NL/gl/glDraw2.cpp
 +++ b/src/NL/gl/glDraw2.cpp
-@@ -24,12 +24,12 @@
+@@ -24,12 +24,12 @@ static int TriListMap[6] = { 0, 1, 2, 3, 0, 2 };
  
  
  glModel* glBuildPoly2Model(glPoly2* pPolys,
@@ -358,7 +394,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  {
      if (view == 0)
          return false;
-@@ -42,11 +42,11 @@
+@@ -42,11 +42,11 @@ bool glPoly2::Attach(
  }
  
  glModel* glBuildPoly2Model(glPoly2* pPolys,
@@ -372,7 +408,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
      unsigned long numVerts;
      int* mapArray;
      int primitive;
-@@ -137,7 +137,7 @@
+@@ -137,7 +137,7 @@ glModel* glBuildPoly2Model(glPoly2* pPolys,
  }
  
  bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
@@ -381,7 +417,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  {
      glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
      if (model == 0)
-@@ -147,7 +147,7 @@
+@@ -147,7 +147,7 @@ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
  }
  
  bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
@@ -390,7 +426,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  {
      glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
      if (model == 0)
-@@ -157,7 +157,7 @@
+@@ -157,7 +157,7 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
  }
  
  bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
@@ -399,7 +435,7 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
  {
      static unsigned long scissorbox = nlStringHash("scissorbox");
      glModel* model = glBuildPoly2ModelFloatUV(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
-@@ -177,11 +177,11 @@
+@@ -177,11 +177,11 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
  }
  
  glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
@@ -414,9 +450,10 @@ diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
      int* mapArray;
      int primitive;
 diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+index 1e6a062..2a376cb 100644
 --- a/src/NL/gl/glLoadModel.cpp
 +++ b/src/NL/gl/glLoadModel.cpp
-@@ -125,7 +125,7 @@
+@@ -125,7 +125,7 @@ static void FixupModelData(RLGReader* reader)
                                                 + (unsigned long)pStreamData);
              packet->indexBuffer = (unsigned short*)((unsigned long)packet->indexBuffer
                                                      + (unsigned long)reader->m_pIndexData);
@@ -426,6 +463,7 @@ diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
  
              for (int streamIndex = 0; streamIndex < packet->numStreams;
 diff --git a/src/NL/gl/glMatrix.cpp b/src/NL/gl/glMatrix.cpp
+index 8837428..d79c55f 100644
 --- a/src/NL/gl/glMatrix.cpp
 +++ b/src/NL/gl/glMatrix.cpp
 @@ -5,8 +5,11 @@
@@ -441,7 +479,7 @@ diff --git a/src/NL/gl/glMatrix.cpp b/src/NL/gl/glMatrix.cpp
  
  void GLMatrix::Get(nlMatrix4& m) const
  {
-@@ -20,34 +23,46 @@
+@@ -20,34 +23,46 @@ void GLMatrix::Set(const nlMatrix4& m)
  
  void gl_MatrixStartup()
  {
@@ -497,6 +535,7 @@ diff --git a/src/NL/gl/glMatrix.cpp b/src/NL/gl/glMatrix.cpp
      glplatSetMatrix(matrix, m);
  }
 diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
+index bd6b635..d1d5e40 100644
 --- a/src/NL/gl/glMemoryInit.cpp
 +++ b/src/NL/gl/glMemoryInit.cpp
 @@ -5,10 +5,12 @@
@@ -513,6 +552,7 @@ diff --git a/src/NL/gl/glMemoryInit.cpp b/src/NL/gl/glMemoryInit.cpp
      glShutdownTextureManager();
      glxShutdownMemory();
 diff --git a/src/NL/gl/glModel.cpp b/src/NL/gl/glModel.cpp
+index deea63d..06e5f5d 100644
 --- a/src/NL/gl/glModel.cpp
 +++ b/src/NL/gl/glModel.cpp
 @@ -7,57 +7,7 @@
@@ -576,6 +616,7 @@ diff --git a/src/NL/gl/glModel.cpp b/src/NL/gl/glModel.cpp
      const glModel* pModelArray, unsigned long nModels, bool bPermanent,
 diff --git a/src/NL/gl/glModelMatrix.cpp b/src/NL/gl/glModelMatrix.cpp
 new file mode 100644
+index 0000000..38844eb
 --- /dev/null
 +++ b/src/NL/gl/glModelMatrix.cpp
 @@ -0,0 +1,75 @@
@@ -655,9 +696,10 @@ new file mode 100644
 +    glGetMatrix(model->packets->matrix, matrix);
 +}
 diff --git a/src/NL/gl/glRenderList.cpp b/src/NL/gl/glRenderList.cpp
+index 2a0918e..15a6449 100644
 --- a/src/NL/gl/glRenderList.cpp
 +++ b/src/NL/gl/glRenderList.cpp
-@@ -69,7 +69,7 @@
+@@ -69,7 +69,7 @@ PacketCallbackManager::PacketCallbackManager(
      : m_View(view)
      , m_Cb(cb)
      , m_LastRaster((unsigned long)-1)
@@ -667,9 +709,10 @@ diff --git a/src/NL/gl/glRenderList.cpp b/src/NL/gl/glRenderList.cpp
  {
  }
 diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
+index a5754db..961ca57 100644
 --- a/src/NL/gl/glState.cpp
 +++ b/src/NL/gl/glState.cpp
-@@ -258,14 +258,14 @@
+@@ -258,14 +258,14 @@ unsigned long long glSetCurrentTextureState(unsigned long long state)
      return prev;
  }
  
@@ -680,18 +723,18 @@ diff --git a/src/NL/gl/glState.cpp b/src/NL/gl/glState.cpp
  }
  
 -u32 glSetCurrentMatrix(unsigned long matrix)
--{
--    unsigned long prev = _bundle.matrix;
 +glMatrixHandle glSetCurrentMatrix(glMatrixHandle matrix)
-+{
+ {
+-    unsigned long prev = _bundle.matrix;
 +    glMatrixHandle prev = _bundle.matrix;
      _bundle.matrix = matrix;
      return prev;
  }
 diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+index e866e11..ea78b89 100644
 --- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
-@@ -236,7 +236,7 @@
+@@ -236,7 +236,7 @@ void GXMaterialProgramImpl<GXCharacterDamageMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -701,9 +744,10 @@ diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/
      nlMultMatrices(modelview, model, sCharacterDamageViewMatrix);
      if (sCharacterDamageShadowLightingEnabled)
 diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
+index c369c88..9209702 100644
 --- a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp
-@@ -216,7 +216,7 @@
+@@ -216,7 +216,7 @@ void GXMaterialProgramImpl<GXColourFresnelMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -713,9 +757,10 @@ diff --git a/src/NL/glx/GXColourFresnelMaterialProgramRender.cpp b/src/NL/glx/GX
      nlMultMatrices(modelview, model, sColourFresnelViewMatrix);
  
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
+index 11d5000..9a516be 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
-@@ -46,7 +46,7 @@
+@@ -46,7 +46,7 @@ unsigned long sMaskedSpecularFresnelTextures[5] = {
  
  bool sMaskedSpecularFresnelRampDisabled;
  bool sMaskedSpecularFresnelShadowsActive;
@@ -725,9 +770,10 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
  int sMaskedSpecularFresnelLightCount;
  int sMaskedSpecularFresnelLightingMode;
 diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
+index 8342d75..02c985b 100644
 --- a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp
-@@ -184,7 +184,7 @@
+@@ -184,7 +184,7 @@ void GXMaterialProgramImpl<GXMegaSpecularFresnelMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -737,9 +783,10 @@ diff --git a/src/NL/glx/GXMegaSpecularFresnelMaterialProgramRender.cpp b/src/NL/
      nlMultMatrices(modelview, model, sMegaSpecularFresnelViewMatrix);
      SetGameObjectShadowModelMatrix(modelMatrix);
 diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
+index d0828a8..f5eddbc 100644
 --- a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp
-@@ -190,7 +190,7 @@
+@@ -190,7 +190,7 @@ void GXMaterialProgramImpl<GXSpecularFresnelMaterialProgram>::Draw(
  
      nlMatrix4 model;
      nlMatrix4 modelview;
@@ -749,9 +796,10 @@ diff --git a/src/NL/glx/GXSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/
      nlMultMatrices(modelview, model, sSpecularFresnelViewMatrix);
      SetGameObjectShadowModelMatrix(modelMatrix);
 diff --git a/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp b/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
+index 3fb3608..5e1f458 100644
 --- a/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp
-@@ -18,7 +18,7 @@
+@@ -18,7 +18,7 @@ Mtx glx_SpecularLookupTextureMatrix = {
  };
  
  static nlMatrix4 sSpecularLookupViewMatrix;
@@ -761,9 +809,10 @@ diff --git a/src/NL/glx/GXSpecularLookupMaterialProgramRender.cpp b/src/NL/glx/G
  template <>
  void GXMaterialProgramImpl<GXSpecularLookupMaterialProgram>::Activate(GLView* view)
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index 1492c07..188e2fe 100644
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
-@@ -466,3 +466,37 @@
+@@ -466,3 +466,37 @@ unsigned long glx_GetFreeMemory()
      return glGetCurrentResourcePool()->GetFreeMemory();
  #endif
  }
@@ -776,10 +825,10 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 +    // Active frame handles expire at FrameNext. Resource handles expire when
 +    // their storage is rewound or destroyed. Addresses can be reused later.
 +    const unsigned long size = sizeof(nlMatrix4);
-+    if (sFrameMemoryInitialized && matrix >= p_frame[i_frame][0])
++    if (sFrameMemoryInitialized && matrix >= sFrameMemory[sCurrentFrame][0])
 +    {
-+        glMatrixHandle offset = matrix - p_frame[i_frame][0];
-+        if (offset <= n_frame[i_frame][0] && size <= n_frame[i_frame][0] - offset)
++        glMatrixHandle offset = matrix - sFrameMemory[sCurrentFrame][0];
++        if (offset <= sFrameMemoryUsed[sCurrentFrame][0] && size <= sFrameMemoryUsed[sCurrentFrame][0] - offset)
 +            return;
 +    }
 +    GLResourcePool* first = glGetResourcePools();
@@ -802,6 +851,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
 +}
 +#endif
 diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
+index fb88e7c..80db12e 100644
 --- a/src/NL/glx/glxModel.cpp
 +++ b/src/NL/glx/glxModel.cpp
 @@ -7,17 +7,7 @@
@@ -825,6 +875,7 @@ diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
      glModelPacket* packet, bool permanent, void* allocator)
 diff --git a/src/NL/glx/glxModelMatrix.cpp b/src/NL/glx/glxModelMatrix.cpp
 new file mode 100644
+index 0000000..503841c
 --- /dev/null
 +++ b/src/NL/glx/glxModelMatrix.cpp
 @@ -0,0 +1,20 @@
@@ -849,9 +900,10 @@ new file mode 100644
 +    matrixPtr->Set(m);
 +}
 diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
+index a174f9e..810ab51 100644
 --- a/src/NL/glx/glxSend.cpp
 +++ b/src/NL/glx/glxSend.cpp
-@@ -25,7 +25,7 @@
+@@ -25,7 +25,7 @@ static GXCullMode gx_Culling[] = {
      GX_CULL_ALL,
  };
  
@@ -860,7 +912,7 @@ diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
  static bool glx_AllowAlphaUpdate = true;
  
  static GXCompare gx_AlphaTest[] = {
-@@ -98,7 +98,7 @@
+@@ -98,7 +98,7 @@ void glx_SendFrame_cb(
              }
              program->Activate(prev_view);
              glx_program = program;
@@ -869,7 +921,7 @@ diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
          }
  
          if ((flags & 4) != 0)
-@@ -107,7 +107,7 @@
+@@ -107,7 +107,7 @@ void glx_SendFrame_cb(
              nlMatrix4 matrix;
              Mtx source;
  
@@ -878,7 +930,7 @@ diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
              if (glx_Matrix != Matrix)
              {
                  glx_Matrix = Matrix;
-@@ -168,7 +168,7 @@
+@@ -168,7 +168,7 @@ static void glx_SwitchViews(GLView* view)
          glx_program->Deactivate();
      }
      glx_program = 0;
@@ -888,9 +940,10 @@ diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
  
  static void glx_SwitchRaster(const glModelPacket* p)
 diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
+index 1f8624f..8de6396 100644
 --- a/src/NL/nlTextBox.cpp
 +++ b/src/NL/nlTextBox.cpp
-@@ -174,7 +174,7 @@
+@@ -188,7 +188,7 @@ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVe
      const Row* pIter = DrawInfo.Rows;
      CurrentPos.y += (float)(yDir * (int)pFont->m_Metrics.Ascent - ascentAdj);
      nlColour overridecolour = Color;
@@ -899,7 +952,7 @@ diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
  
      overridecolour.c[3] = 0;
      unsigned long row = 0;
-@@ -184,12 +184,12 @@
+@@ -198,12 +198,12 @@ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVe
          const Row& CurrentRow = *pIter;
          CurrentPos.x = DrawAt.x + (float)CurrentRow.XOffset;
  
@@ -914,7 +967,7 @@ diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
              {
                  glSetMatrix(h, *pMatrix);
              }
-@@ -198,7 +198,7 @@
+@@ -212,7 +212,7 @@ void nlTextBox::DrawString(const nlTextBox::StringDrawInfo& DrawInfo, const nlVe
  
          unsigned short startIdx = CurrentRow.FirstChar;
          const unsigned short* pString = DrawInfo.String + startIdx;
@@ -923,22 +976,3 @@ diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
          {
              FontCharString fontCharStr;
              fontCharStr.m_pString = (unsigned short*)pString;
-diff --git a/include/NL/glx/glxModel.h b/include/NL/glx/glxModel.h
---- a/include/NL/glx/glxModel.h
-+++ b/include/NL/glx/glxModel.h
-@@ -1,11 +1,13 @@
- #ifndef NL_GLX_GLXMODEL_H
- #define NL_GLX_GLXMODEL_H
-+
-+#include "NL/gl/glMatrixHandle.h"
- 
- class nlMatrix4;
- struct glModelPacket;
- 
--void glplatSetMatrix(unsigned long matrix, const nlMatrix4& m);
--void glplatGetMatrix(unsigned long matrix, nlMatrix4& m);
-+void glplatSetMatrix(glMatrixHandle matrix, const nlMatrix4& m);
-+void glplatGetMatrix(glMatrixHandle matrix, nlMatrix4& m);
- void glplatFinalizePacket(glModelPacket* packet, bool permanent, void* allocator);
- 
- // Platform hook applied after a packet and its material data have been cloned.

@@ -1,5 +1,5 @@
 Subject: Port option: keep the original's per-frame steps at higher rates
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 A few things outside the fixed simulation advance a fixed step per drawn
 frame, or decide once per frame, instead of following elapsed time. Above the
@@ -25,10 +25,10 @@ the VI retrace. Without a raised frame rate these hooks take the original
 path.
 
 diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
-index a4e608f..2a5b098 100644
+index 387de29..f6ba025 100644
 --- a/src/Game/BasicStadium.cpp
 +++ b/src/Game/BasicStadium.cpp
-@@ -29,6 +29,7 @@
+@@ -30,6 +30,7 @@
  #include "NL/nlTask.h"
  #include "Game/Render/HighRange.h"
  #include "Game/TweakValue.inl"
@@ -36,7 +36,7 @@ index a4e608f..2a5b098 100644
  
  #include "Game/SharedStaticStorage.h"
  
-@@ -206,7 +207,13 @@ void fn_802785FC(BasicStadium* pStadium, float fDeltaT)
+@@ -202,7 +203,13 @@ void UpdateStadiumWorld(BasicStadium* pStadium, float fDeltaT)
              }
  
              float fNextTime = pEffect->m_fPreviousEmissionTime - fDeltaT;
@@ -79,7 +79,7 @@ index e77b8bd..90b9081 100644
          m_fTime = 0.0f;
          switch (m_State)
 diff --git a/src/Game/Camera/CameraMan.cpp b/src/Game/Camera/CameraMan.cpp
-index 2b95659..f88f0a9 100644
+index c266987..c054003 100644
 --- a/src/Game/Camera/CameraMan.cpp
 +++ b/src/Game/Camera/CameraMan.cpp
 @@ -27,6 +27,7 @@
@@ -156,7 +156,7 @@ index 5315423..e1714a3 100644
          m_fTime = 0.0f;
          switch (m_ePlayMode)
 diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
-index 4a52c60..61a0eaf 100644
+index 493a075..bdfd52d 100644
 --- a/src/Game/Render/Presentation.cpp
 +++ b/src/Game/Render/Presentation.cpp
 @@ -67,6 +67,7 @@
@@ -167,7 +167,7 @@ index 4a52c60..61a0eaf 100644
  
  static inline bool IsDuringGamePauseState();
  static inline bool IsCupWinner();
-@@ -1722,6 +1723,14 @@ void Presentation::UpdateAndRenderLetterBox()
+@@ -1724,6 +1725,14 @@ void Presentation::UpdateAndRenderLetterBox()
          letterBoxSizeValid = true;
      }
  
@@ -217,7 +217,7 @@ index bf6702f..7e39350 100644
                      < m_uProbability)
              {
 diff --git a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
-index 63ff056..85755be 100644
+index 7ddb7ec..7d324de 100644
 --- a/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSkinnedMultiLightMaterialProgramRender.cpp
 @@ -27,6 +27,7 @@

@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original SAnim bone-channel interpolation and fallback
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share the existing rotation, translation, scale and multiplicative scale bodies
 between original console methods and the checked native retained-pose sink.
@@ -10,313 +10,9 @@ use the existing last-key path instead of reading a nonexistent following key.
 Share the controller's unmapped identity blends and direct translation store;
 no controller, morph, root-motion, callback or replay implementation is selected.
 
-diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
---- a/src/Game/SAnim.cpp
-+++ b/src/Game/SAnim.cpp
-@@ -1,4 +1,5 @@
- #include "Game/SAnim.h"
-+#include "Game/SAnimPoseSteps.h"
- #include "Game/SAnimDecode.h"
- 
- #ifdef MSCHARGED_NATIVE
-@@ -148,270 +149,28 @@
- void cSAnim::BlendRot(int nodeIndex, int remappedNodeIndex, float tNorm,
-     float weight, cPoseAccumulator* acc, bool additive) const
- {
--    void* pRawKeys = m_pRotKeys[remappedNodeIndex];
--    if (pRawKeys != 0
--        && (unsigned int)remappedNodeIndex < m_nNumNodes)
--    {
--        unsigned int props = m_pNodeProperties[remappedNodeIndex];
--
--        if (props & 0x2)
--        {
--            if (props & 0x1)
--            {
--                acc->BlendRotAroundZ(
--                    nodeIndex, ((unsigned short*)pRawKeys)[0], weight);
--                return;
--            }
--
--            nlQuaternion q;
--            if (props & 0x10)
--            {
--                SAnimDecodeRot16(&q, pRawKeys);
--            }
--            else if (props & 0x20)
--            {
--                SAnimDecodeRot12(&q, pRawKeys);
--            }
--            else
--            {
--                SAnimDecodeRot8(&q, pRawKeys);
--            }
--            acc->BlendRot(nodeIndex, &q, weight, additive);
--            return;
--        }
--
--        if (1.0f == tNorm)
--        {
--            int lastIndex = m_nNumKeys - 1;
--
--            if (props & 0x1)
--            {
--                acc->BlendRotAroundZ(nodeIndex,
--                    ((unsigned short*)pRawKeys)[lastIndex],
--                    weight);
--                return;
--            }
--
--            nlQuaternion q;
--            if (props & 0x10)
--            {
--                SAnimDecodeRot16(
--                    &q, (unsigned char*)pRawKeys + lastIndex * 8);
--            }
--            else if (props & 0x20)
--            {
--                SAnimDecodeRot12(
--                    &q, (unsigned char*)pRawKeys + lastIndex * 6);
--            }
--            else
--            {
--                SAnimDecodeRot8(
--                    &q, (unsigned char*)pRawKeys + lastIndex * 4);
--            }
--            acc->BlendRot(nodeIndex, &q, weight, additive);
--            return;
--        }
--
--        float fRealIndex = tNorm * (m_nNumKeys - 1);
--        int nKeyIndex = (int)fRealIndex;
--        float fFrac = fRealIndex - nKeyIndex;
--        float fWeight2 = weight * fFrac;
--        float fWeight1 = weight - fWeight2;
--
--        if (props & 0x1)
--        {
--            unsigned short* pKeys = (unsigned short*)pRawKeys;
--            acc->BlendRotAroundZ(
--                nodeIndex, pKeys[nKeyIndex], fWeight1);
--        }
--        else
--        {
--            nlQuaternion q1;
--            if (props & 0x10)
--            {
--                SAnimDecodeRot16(
--                    &q1, (unsigned char*)pRawKeys + nKeyIndex * 8);
--            }
--            else if (props & 0x20)
--            {
--                SAnimDecodeRot12(
--                    &q1, (unsigned char*)pRawKeys + nKeyIndex * 6);
--            }
--            else
--            {
--                SAnimDecodeRot8(
--                    &q1, (unsigned char*)pRawKeys + nKeyIndex * 4);
--            }
--            acc->BlendRot(nodeIndex, &q1, fWeight1, additive);
--        }
--
--        props = m_pNodeProperties[remappedNodeIndex];
--        if (props & 0x1)
--        {
--            unsigned short* pKeys
--                = (unsigned short*)m_pRotKeys[remappedNodeIndex];
--            acc->BlendRotAroundZ(
--                nodeIndex, pKeys[nKeyIndex + 1], fWeight2);
--            return;
--        }
--
--        nlQuaternion q2;
--        if (props & 0x10)
--        {
--            SAnimDecodeRot16(&q2,
--                (unsigned char*)m_pRotKeys[remappedNodeIndex]
--                    + (nKeyIndex + 1) * 8);
--        }
--        else if (props & 0x20)
--        {
--            SAnimDecodeRot12(&q2,
--                (unsigned char*)m_pRotKeys[remappedNodeIndex]
--                    + (nKeyIndex + 1) * 6);
--        }
--        else
--        {
--            SAnimDecodeRot8(&q2,
--                (unsigned char*)m_pRotKeys[remappedNodeIndex]
--                    + (nKeyIndex + 1) * 4);
--        }
--        acc->BlendRot(nodeIndex, &q2, fWeight2, additive);
--        return;
--    }
--
--    acc->BlendRotIdentity(nodeIndex, weight);
-+    SAnimPoseBlendRot(*this, nodeIndex, remappedNodeIndex, tNorm, weight, acc, additive);
- }
- 
- 
- void cSAnim::BlendScale(int nodeIndex, int remappedNodeIndex, float tNorm,
-     float weight, cPoseAccumulator* acc, bool additive) const
- {
--    PackedScale* pKeys = m_pScaleKeys[remappedNodeIndex];
--    if (pKeys != 0
--        && (unsigned int)remappedNodeIndex < m_nNumNodes)
--    {
--        if (m_pNodeProperties[remappedNodeIndex] & 0x8)
--        {
--            nlVector3 v;
--            SAnimDecodeScale(&v, &pKeys[0]);
--            acc->BlendScale(nodeIndex, &v, weight, additive);
--            return;
--        }
--
--        if (1.0f == tNorm)
--        {
--            nlVector3 v;
--            SAnimDecodeScale(&v, &pKeys[m_nNumKeys - 1]);
--            acc->BlendScale(nodeIndex, &v, weight, additive);
--            return;
--        }
--
--        float fRealIndex = tNorm * (m_nNumKeys - 1);
--        int nKeyIndex = (int)fRealIndex;
--        float fFrac = fRealIndex - nKeyIndex;
--        float fWeight2 = weight * fFrac;
--        float fWeight1 = weight - fWeight2;
--
--        nlVector3 v1;
--        SAnimDecodeScale(&v1, &pKeys[nKeyIndex]);
--        acc->BlendScale(nodeIndex, &v1, fWeight1, additive);
--
--        nlVector3 v2;
--        SAnimDecodeScale(
--            &v2, &m_pScaleKeys[remappedNodeIndex][nKeyIndex + 1]);
--        acc->BlendScale(nodeIndex, &v2, fWeight2, additive);
--    }
--    else
--    {
--        acc->BlendScaleIdentity(nodeIndex, weight);
--    }
-+    SAnimPoseBlendScale(*this, nodeIndex, remappedNodeIndex, tNorm, weight, acc, additive);
- }
- 
- 
- void cSAnim::BlendScaleMultiply(int accumulatorNode, int animNode, float time,
-     float weight, cPoseAccumulator* accumulator) const
- {
--    PackedScale* pKeys = m_pScaleKeys[animNode];
--    if (pKeys != 0 && (unsigned int)animNode < m_nNumNodes)
--    {
--        nlVector3 scale;
--        if ((m_pNodeProperties[animNode] & 0x8) || time <= 0.0f)
--        {
--            SAnimDecodeScale(&scale, &pKeys[0]);
--        }
--        else if (time >= 1.0f)
--        {
--            SAnimDecodeScale(&scale, &pKeys[m_nNumKeys - 1]);
--        }
--        else
--        {
--            float fRealIndex = time * (m_nNumKeys - 1);
--            int nKeyIndex = (int)fRealIndex;
--            float fFrac = fRealIndex - nKeyIndex;
--
--            nlVector3 scale1;
--            nlVector3 scale2;
--            SAnimDecodeScale(&scale1, &pKeys[nKeyIndex]);
--            SAnimDecodeScale(
--                &scale2, &m_pScaleKeys[animNode][nKeyIndex + 1]);
--
--            scale.x = (1.0f - fFrac) * scale1.x + fFrac * scale2.x;
--            scale.y = (1.0f - fFrac) * scale1.y + fFrac * scale2.y;
--            scale.z = (1.0f - fFrac) * scale1.z + fFrac * scale2.z;
--        }
--
--        accumulator->MultiplyScale(accumulatorNode, &scale, weight);
--    }
-+    SAnimPoseBlendScaleMultiply(*this, accumulatorNode, animNode, time, weight, accumulator);
- }
- 
- 
- void cSAnim::BlendTrans(int nAccumulatorNode, int nSAnimNode, float fTime,
-     float fWeight, cPoseAccumulator* pAccumulator, bool bMirror) const
- {
--    if (pAccumulator->m_BaseSHierarchy->PreserveBoneLength(nAccumulatorNode))
--    {
--        return;
--    }
--
--    PackedTrans* pKeys = m_pTransKeys[nSAnimNode];
--    if (pKeys != 0 && (unsigned int)nSAnimNode < m_nNumNodes)
--    {
--        if (m_pNodeProperties[nSAnimNode] & 0x4)
--        {
--            pAccumulator->BlendTrans(nAccumulatorNode,
--                (const nlVector3*)&pKeys[0],
--                fWeight,
--                bMirror);
--            return;
--        }
--
--        if (1.0f == fTime)
--        {
--            pAccumulator->BlendTrans(nAccumulatorNode,
--                (const nlVector3*)&pKeys[m_nNumKeys - 1],
--                fWeight,
--                bMirror);
--            return;
--        }
--
--        float fRealIndex = fTime * (float)(m_nNumKeys - 1);
--        int nKeyIndex = (int)fRealIndex;
--        float fFrac = fRealIndex - (float)nKeyIndex;
--        float fWeight2 = fWeight * fFrac;
--        float fWeight1 = fWeight - fWeight2;
--
--        pAccumulator->BlendTrans(nAccumulatorNode,
--            (const nlVector3*)&pKeys[nKeyIndex],
--            fWeight1,
--            bMirror);
--        pAccumulator->BlendTrans(nAccumulatorNode,
--            (const nlVector3*)&m_pTransKeys[nSAnimNode][nKeyIndex + 1],
--            fWeight2,
--            bMirror);
--    }
--    else
--    {
--        pAccumulator->BlendTransIdentity(nAccumulatorNode, fWeight);
--    }
-+    SAnimPoseBlendTrans(*this, nAccumulatorNode, nSAnimNode, fTime, fWeight, pAccumulator, bMirror);
- }
- 
- 
-diff --git a/src/Game/SAnim/pnSAnimController.cpp b/src/Game/SAnim/pnSAnimController.cpp
---- a/src/Game/SAnim/pnSAnimController.cpp
-+++ b/src/Game/SAnim/pnSAnimController.cpp
-@@ -1,3 +1,4 @@
-+#include "Game/SAnimPoseSteps.h"
- #include "Game/SAnim/pnSAnimController.h"
- #include "Game/SHierarchy.h"
- 
-@@ -279,11 +280,7 @@
-         return;
-     }
- 
--    nlVector3& translationOffset
--        = accumulator->m_BaseSHierarchy->GetTranslationOffset(nodeIndex);
--    accumulator->BlendRotIdentity(nodeIndex, weight);
--    accumulator->BlendScaleIdentity(nodeIndex, weight);
--    accumulator->m_trans[nodeIndex].t = translationOffset;
-+    accumulator->m_trans[nodeIndex].t = SAnimPoseUnmapped(nodeIndex, weight, accumulator);
- }
- 
- void cPN_SAnimController::Evaluate(
 diff --git a/include/Game/SAnimPoseSteps.h b/include/Game/SAnimPoseSteps.h
 new file mode 100644
+index 0000000..7bd9153
 --- /dev/null
 +++ b/include/Game/SAnimPoseSteps.h
 @@ -0,0 +1,336 @@
@@ -656,3 +352,310 @@ new file mode 100644
 +    return translationOffset;
 +}
 +#endif
+diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+index a4b83ff..d51c001 100644
+--- a/src/Game/SAnim.cpp
++++ b/src/Game/SAnim.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/SAnim.h"
++#include "Game/SAnimPoseSteps.h"
+ #include "Game/SAnimDecode.h"
+ 
+ #ifdef MSCHARGED_NATIVE
+@@ -148,270 +149,28 @@ void cSAnim::InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex)
+ void cSAnim::BlendRot(int nodeIndex, int remappedNodeIndex, float tNorm,
+     float weight, cPoseAccumulator* acc, bool additive) const
+ {
+-    void* pRawKeys = m_pRotKeys[remappedNodeIndex];
+-    if (pRawKeys != 0
+-        && (unsigned int)remappedNodeIndex < m_nNumNodes)
+-    {
+-        unsigned int props = m_pNodeProperties[remappedNodeIndex];
+-
+-        if (props & 0x2)
+-        {
+-            if (props & 0x1)
+-            {
+-                acc->BlendRotAroundZ(
+-                    nodeIndex, ((unsigned short*)pRawKeys)[0], weight);
+-                return;
+-            }
+-
+-            nlQuaternion q;
+-            if (props & 0x10)
+-            {
+-                SAnimDecodeRot16(&q, pRawKeys);
+-            }
+-            else if (props & 0x20)
+-            {
+-                SAnimDecodeRot12(&q, pRawKeys);
+-            }
+-            else
+-            {
+-                SAnimDecodeRot8(&q, pRawKeys);
+-            }
+-            acc->BlendRot(nodeIndex, &q, weight, additive);
+-            return;
+-        }
+-
+-        if (1.0f == tNorm)
+-        {
+-            int lastIndex = m_nNumKeys - 1;
+-
+-            if (props & 0x1)
+-            {
+-                acc->BlendRotAroundZ(nodeIndex,
+-                    ((unsigned short*)pRawKeys)[lastIndex],
+-                    weight);
+-                return;
+-            }
+-
+-            nlQuaternion q;
+-            if (props & 0x10)
+-            {
+-                SAnimDecodeRot16(
+-                    &q, (unsigned char*)pRawKeys + lastIndex * 8);
+-            }
+-            else if (props & 0x20)
+-            {
+-                SAnimDecodeRot12(
+-                    &q, (unsigned char*)pRawKeys + lastIndex * 6);
+-            }
+-            else
+-            {
+-                SAnimDecodeRot8(
+-                    &q, (unsigned char*)pRawKeys + lastIndex * 4);
+-            }
+-            acc->BlendRot(nodeIndex, &q, weight, additive);
+-            return;
+-        }
+-
+-        float fRealIndex = tNorm * (m_nNumKeys - 1);
+-        int nKeyIndex = (int)fRealIndex;
+-        float fFrac = fRealIndex - nKeyIndex;
+-        float fWeight2 = weight * fFrac;
+-        float fWeight1 = weight - fWeight2;
+-
+-        if (props & 0x1)
+-        {
+-            unsigned short* pKeys = (unsigned short*)pRawKeys;
+-            acc->BlendRotAroundZ(
+-                nodeIndex, pKeys[nKeyIndex], fWeight1);
+-        }
+-        else
+-        {
+-            nlQuaternion q1;
+-            if (props & 0x10)
+-            {
+-                SAnimDecodeRot16(
+-                    &q1, (unsigned char*)pRawKeys + nKeyIndex * 8);
+-            }
+-            else if (props & 0x20)
+-            {
+-                SAnimDecodeRot12(
+-                    &q1, (unsigned char*)pRawKeys + nKeyIndex * 6);
+-            }
+-            else
+-            {
+-                SAnimDecodeRot8(
+-                    &q1, (unsigned char*)pRawKeys + nKeyIndex * 4);
+-            }
+-            acc->BlendRot(nodeIndex, &q1, fWeight1, additive);
+-        }
+-
+-        props = m_pNodeProperties[remappedNodeIndex];
+-        if (props & 0x1)
+-        {
+-            unsigned short* pKeys
+-                = (unsigned short*)m_pRotKeys[remappedNodeIndex];
+-            acc->BlendRotAroundZ(
+-                nodeIndex, pKeys[nKeyIndex + 1], fWeight2);
+-            return;
+-        }
+-
+-        nlQuaternion q2;
+-        if (props & 0x10)
+-        {
+-            SAnimDecodeRot16(&q2,
+-                (unsigned char*)m_pRotKeys[remappedNodeIndex]
+-                    + (nKeyIndex + 1) * 8);
+-        }
+-        else if (props & 0x20)
+-        {
+-            SAnimDecodeRot12(&q2,
+-                (unsigned char*)m_pRotKeys[remappedNodeIndex]
+-                    + (nKeyIndex + 1) * 6);
+-        }
+-        else
+-        {
+-            SAnimDecodeRot8(&q2,
+-                (unsigned char*)m_pRotKeys[remappedNodeIndex]
+-                    + (nKeyIndex + 1) * 4);
+-        }
+-        acc->BlendRot(nodeIndex, &q2, fWeight2, additive);
+-        return;
+-    }
+-
+-    acc->BlendRotIdentity(nodeIndex, weight);
++    SAnimPoseBlendRot(*this, nodeIndex, remappedNodeIndex, tNorm, weight, acc, additive);
+ }
+ 
+ 
+ void cSAnim::BlendScale(int nodeIndex, int remappedNodeIndex, float tNorm,
+     float weight, cPoseAccumulator* acc, bool additive) const
+ {
+-    PackedScale* pKeys = m_pScaleKeys[remappedNodeIndex];
+-    if (pKeys != 0
+-        && (unsigned int)remappedNodeIndex < m_nNumNodes)
+-    {
+-        if (m_pNodeProperties[remappedNodeIndex] & 0x8)
+-        {
+-            nlVector3 v;
+-            SAnimDecodeScale(&v, &pKeys[0]);
+-            acc->BlendScale(nodeIndex, &v, weight, additive);
+-            return;
+-        }
+-
+-        if (1.0f == tNorm)
+-        {
+-            nlVector3 v;
+-            SAnimDecodeScale(&v, &pKeys[m_nNumKeys - 1]);
+-            acc->BlendScale(nodeIndex, &v, weight, additive);
+-            return;
+-        }
+-
+-        float fRealIndex = tNorm * (m_nNumKeys - 1);
+-        int nKeyIndex = (int)fRealIndex;
+-        float fFrac = fRealIndex - nKeyIndex;
+-        float fWeight2 = weight * fFrac;
+-        float fWeight1 = weight - fWeight2;
+-
+-        nlVector3 v1;
+-        SAnimDecodeScale(&v1, &pKeys[nKeyIndex]);
+-        acc->BlendScale(nodeIndex, &v1, fWeight1, additive);
+-
+-        nlVector3 v2;
+-        SAnimDecodeScale(
+-            &v2, &m_pScaleKeys[remappedNodeIndex][nKeyIndex + 1]);
+-        acc->BlendScale(nodeIndex, &v2, fWeight2, additive);
+-    }
+-    else
+-    {
+-        acc->BlendScaleIdentity(nodeIndex, weight);
+-    }
++    SAnimPoseBlendScale(*this, nodeIndex, remappedNodeIndex, tNorm, weight, acc, additive);
+ }
+ 
+ 
+ void cSAnim::BlendScaleMultiply(int accumulatorNode, int animNode, float time,
+     float weight, cPoseAccumulator* accumulator) const
+ {
+-    PackedScale* pKeys = m_pScaleKeys[animNode];
+-    if (pKeys != 0 && (unsigned int)animNode < m_nNumNodes)
+-    {
+-        nlVector3 scale;
+-        if ((m_pNodeProperties[animNode] & 0x8) || time <= 0.0f)
+-        {
+-            SAnimDecodeScale(&scale, &pKeys[0]);
+-        }
+-        else if (time >= 1.0f)
+-        {
+-            SAnimDecodeScale(&scale, &pKeys[m_nNumKeys - 1]);
+-        }
+-        else
+-        {
+-            float fRealIndex = time * (m_nNumKeys - 1);
+-            int nKeyIndex = (int)fRealIndex;
+-            float fFrac = fRealIndex - nKeyIndex;
+-
+-            nlVector3 scale1;
+-            nlVector3 scale2;
+-            SAnimDecodeScale(&scale1, &pKeys[nKeyIndex]);
+-            SAnimDecodeScale(
+-                &scale2, &m_pScaleKeys[animNode][nKeyIndex + 1]);
+-
+-            scale.x = (1.0f - fFrac) * scale1.x + fFrac * scale2.x;
+-            scale.y = (1.0f - fFrac) * scale1.y + fFrac * scale2.y;
+-            scale.z = (1.0f - fFrac) * scale1.z + fFrac * scale2.z;
+-        }
+-
+-        accumulator->MultiplyScale(accumulatorNode, &scale, weight);
+-    }
++    SAnimPoseBlendScaleMultiply(*this, accumulatorNode, animNode, time, weight, accumulator);
+ }
+ 
+ 
+ void cSAnim::BlendTrans(int nAccumulatorNode, int nSAnimNode, float fTime,
+     float fWeight, cPoseAccumulator* pAccumulator, bool bMirror) const
+ {
+-    if (pAccumulator->m_BaseSHierarchy->PreserveBoneLength(nAccumulatorNode))
+-    {
+-        return;
+-    }
+-
+-    PackedTrans* pKeys = m_pTransKeys[nSAnimNode];
+-    if (pKeys != 0 && (unsigned int)nSAnimNode < m_nNumNodes)
+-    {
+-        if (m_pNodeProperties[nSAnimNode] & 0x4)
+-        {
+-            pAccumulator->BlendTrans(nAccumulatorNode,
+-                (const nlVector3*)&pKeys[0],
+-                fWeight,
+-                bMirror);
+-            return;
+-        }
+-
+-        if (1.0f == fTime)
+-        {
+-            pAccumulator->BlendTrans(nAccumulatorNode,
+-                (const nlVector3*)&pKeys[m_nNumKeys - 1],
+-                fWeight,
+-                bMirror);
+-            return;
+-        }
+-
+-        float fRealIndex = fTime * (float)(m_nNumKeys - 1);
+-        int nKeyIndex = (int)fRealIndex;
+-        float fFrac = fRealIndex - (float)nKeyIndex;
+-        float fWeight2 = fWeight * fFrac;
+-        float fWeight1 = fWeight - fWeight2;
+-
+-        pAccumulator->BlendTrans(nAccumulatorNode,
+-            (const nlVector3*)&pKeys[nKeyIndex],
+-            fWeight1,
+-            bMirror);
+-        pAccumulator->BlendTrans(nAccumulatorNode,
+-            (const nlVector3*)&m_pTransKeys[nSAnimNode][nKeyIndex + 1],
+-            fWeight2,
+-            bMirror);
+-    }
+-    else
+-    {
+-        pAccumulator->BlendTransIdentity(nAccumulatorNode, fWeight);
+-    }
++    SAnimPoseBlendTrans(*this, nAccumulatorNode, nSAnimNode, fTime, fWeight, pAccumulator, bMirror);
+ }
+ 
+ 
+diff --git a/src/Game/SAnim/pnSAnimController.cpp b/src/Game/SAnim/pnSAnimController.cpp
+index 5e8e045..7c6b8c0 100644
+--- a/src/Game/SAnim/pnSAnimController.cpp
++++ b/src/Game/SAnim/pnSAnimController.cpp
+@@ -1,3 +1,4 @@
++#include "Game/SAnimPoseSteps.h"
+ #include "Game/SAnim/pnSAnimController.h"
+ #include "Game/SHierarchy.h"
+ 
+@@ -279,11 +280,7 @@ void cPN_SAnimController::Evaluate(
+         return;
+     }
+ 
+-    nlVector3& translationOffset
+-        = accumulator->m_BaseSHierarchy->GetTranslationOffset(nodeIndex);
+-    accumulator->BlendRotIdentity(nodeIndex, weight);
+-    accumulator->BlendScaleIdentity(nodeIndex, weight);
+-    accumulator->m_trans[nodeIndex].t = translationOffset;
++    accumulator->m_trans[nodeIndex].t = SAnimPoseUnmapped(nodeIndex, weight, accumulator);
+ }
+ 
+ void cPN_SAnimController::Evaluate(

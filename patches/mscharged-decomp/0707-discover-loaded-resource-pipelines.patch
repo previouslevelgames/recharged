@@ -1,45 +1,123 @@
 From: mscharged-port
 Subject: Discover graphics pipelines from selected original resources
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
---- a/src/NL/glx/glxLoadModel.cpp
-+++ b/src/NL/glx/glxLoadModel.cpp
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 935bee0..f859bab 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
 @@ -1,3 +1,6 @@
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
 +#include "platform/automatic_pipeline_prewarm.h"
 +#endif
- #include <revolution/os/OSCache_fwd.h>
- 
- #include "NL/glx/glxLoadModel.h"
-@@ -151,6 +154,9 @@
-             loaded->m_pModel = model;
-         }
-     }
+ #include "revolution/types.h"
+ #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+ #include <stdexcept>
+@@ -968,6 +971,13 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
+     case 91:
+         SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    mscharged::platform::PrepareAutomaticModelPipelines(m_pModels, m_nModels);
++        if (!mscharged::platform::PollAutomaticGraphicsPreparation(true))
++        {
++            StopWithUndo();
++            break;
++        }
 +#endif
- }
- 
- glModel* glplatEndLoadModel(
---- a/src/NL/gl/gl.cpp
-+++ b/src/NL/gl/gl.cpp
-@@ -1,3 +1,6 @@
+         BeginFrameTask::s_FramerateLocked = false;
+         InitializeGameObjectLighting();
+         UseDefaultFreestyleButtonRemap(IsNetworkOrRecordedGame());
+@@ -1362,9 +1372,19 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+         result = ASYNC_LOADING_RUNNING;
+         break;
+     case ASYNC_LOADING_BOOT_TO_FE_RUN:
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+#include "platform/automatic_pipeline_prewarm.h"
++        if (!manager->IsFinished())
 +#endif
- #include "NL/gl/gl.h"
- #include "NL/gl/glFont.h"
- 
-@@ -50,6 +53,9 @@
-         return false;
- 
-     gl_FontStartup();
+         manager->Run();
+         if (manager->IsFinished())
+         {
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    mscharged::platform::InitializeAutomaticGraphicsPreparation();
++            if (!mscharged::platform::PollAutomaticGraphicsPreparation(false))
++            {
++                result = ASYNC_LOADING_RUNNING;
++                break;
++            }
 +#endif
-     return true;
- }
+             manager->mSequenceState = ASYNC_LOADING_IDLE;
+             result = ASYNC_LOADING_FE_READY;
+             completed = true;
+@@ -1380,9 +1400,19 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+         result = ASYNC_LOADING_RUNNING;
+         break;
+     case ASYNC_LOADING_CLEAN_BOOT_RUN:
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++        if (!manager->IsFinished())
++#endif
+         manager->Run();
+         if (manager->IsFinished())
+         {
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++            if (!mscharged::platform::PollAutomaticGraphicsPreparation(false))
++            {
++                result = ASYNC_LOADING_RUNNING;
++                break;
++            }
++#endif
+             manager->mSequenceState = ASYNC_LOADING_IDLE;
+             result = ASYNC_LOADING_CLEAN_BOOT_COMPLETE;
+             completed = true;
+@@ -1501,6 +1531,9 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
  
+ static inline void BeginLoadingSequence(AsyncLoadingManager* manager, u32 state)
+ {
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    mscharged::platform::ResetAutomaticGraphicsPreparation();
++#endif
+     manager->mSequenceState = state;
+     lbl_806E103C = 0;
+     manager->mPreviousStageTick = nlGetTicker();
+@@ -1611,6 +1644,14 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
+ 
+ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+ {
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    if (!mscharged::platform::PollAutomaticGraphicsPreparation(false))
++    {
++        manager->StopWithUndo();
++        return;
++    }
++#endif
++
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
+     || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
+     static GLMemoryRequirement requirements[] = {
+@@ -1903,6 +1944,9 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
+ 
+ void InitializeGameState1(AsyncLoadingManager* manager)
+ {
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    mscharged::platform::SetAutomaticGraphicsPreparationForMatch(true);
++#endif
+     manager->mLoadingState = ASYNC_RESOURCES_LOADING;
+     manager->SetLoadingComment("InitializeGameState1");
+     OnResourceLoadBegin(1);
+@@ -2086,6 +2130,13 @@ void InitializeInGameFrontEnd(AsyncLoadingManager* manager)
+ void FinalizeGameStateLoading(AsyncLoadingManager* manager)
+ {
+     manager->SetLoadingComment("GameStateFinalize");
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    if (!mscharged::platform::PollAutomaticGraphicsPreparation(true))
++    {
++        manager->StopWithUndo();
++        return;
++    }
++#endif
+ 
+     PauseMenuScene::mLastSelectedIndex = 0;
+     InitializeElectricFence(GetLayerView(eCLV_ElectricFence));
+diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
+index 4ffc7ea..9bccaad 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
 @@ -1,3 +1,11 @@
@@ -54,7 +132,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #include "NL/nlDLListContainer.inl"
  #if defined(MSCHARGED_NATIVE)
  #include "platform/replay_address_abi.h"
-@@ -231,6 +239,9 @@
+@@ -227,6 +235,9 @@ void EffectsBundleManager::Load(void* data, void* nonResidentData,
      {
          mResourcePool = context;
      }
@@ -64,7 +142,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  
-@@ -696,6 +707,9 @@
+@@ -629,6 +640,9 @@ void EmissionManager::Update(float dt)
  
  static EffectsLight g_EffectsLights[3];
  static int g_nNumLights;
@@ -74,7 +152,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  /**
   * Offset/Address/Size: 0x0 | 0x802E7A90 | size: 0x8
-@@ -1745,3 +1759,66 @@
+@@ -1678,3 +1692,66 @@ void EmissionManager::RecordRenderedParticles(
          *highWaterMark = maximum;
      }
  }
@@ -141,137 +219,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +}
 +} // namespace mscharged::platform
 +#endif
---- a/src/Game/AsyncLoading.cpp
-+++ b/src/Game/AsyncLoading.cpp
-@@ -1,3 +1,6 @@
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+#include "platform/automatic_pipeline_prewarm.h"
-+#endif
- #include "revolution/types.h"
- #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
- #include <stdexcept>
-@@ -971,6 +974,13 @@
- #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
-     case 91:
-         SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+        if (!mscharged::platform::PollAutomaticGraphicsPreparation(true))
-+        {
-+            StopWithUndo();
-+            break;
-+        }
-+#endif
-         BeginFrameTask::s_FramerateLocked = false;
-         InitializeGameObjectLighting();
-         UseDefaultFreestyleButtonRemap(IsNetworkOrRecordedGame());
-@@ -1365,9 +1375,19 @@
-         result = ASYNC_LOADING_RUNNING;
-         break;
-     case ASYNC_LOADING_BOOT_TO_FE_RUN:
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+        if (!manager->IsFinished())
-+#endif
-         manager->Run();
-         if (manager->IsFinished())
-         {
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+            if (!mscharged::platform::PollAutomaticGraphicsPreparation(false))
-+            {
-+                result = ASYNC_LOADING_RUNNING;
-+                break;
-+            }
-+#endif
-             manager->mSequenceState = ASYNC_LOADING_IDLE;
-             result = ASYNC_LOADING_FE_READY;
-             completed = true;
-@@ -1383,9 +1403,19 @@
-         result = ASYNC_LOADING_RUNNING;
-         break;
-     case ASYNC_LOADING_CLEAN_BOOT_RUN:
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+        if (!manager->IsFinished())
-+#endif
-         manager->Run();
-         if (manager->IsFinished())
-         {
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+            if (!mscharged::platform::PollAutomaticGraphicsPreparation(false))
-+            {
-+                result = ASYNC_LOADING_RUNNING;
-+                break;
-+            }
-+#endif
-             manager->mSequenceState = ASYNC_LOADING_IDLE;
-             result = ASYNC_LOADING_CLEAN_BOOT_COMPLETE;
-             completed = true;
-@@ -1504,6 +1534,9 @@
- 
- static inline void BeginLoadingSequence(AsyncLoadingManager* manager, u32 state)
- {
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    mscharged::platform::ResetAutomaticGraphicsPreparation();
-+#endif
-     manager->mSequenceState = state;
-     lbl_806E103C = 0;
-     manager->mPreviousStageTick = nlGetTicker();
-@@ -1610,6 +1643,14 @@
- 
- extern "C" void fn_80119528(AsyncLoadingManager* manager)
- {
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    if (!mscharged::platform::PollAutomaticGraphicsPreparation(false))
-+    {
-+        manager->StopWithUndo();
-+        return;
-+    }
-+#endif
-+
- #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
-     || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
-     static GLMemoryRequirement requirements[] = {
-@@ -1902,6 +1943,9 @@
- 
- extern "C" void fn_80119EC0(AsyncLoadingManager* manager)
- {
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    mscharged::platform::SetAutomaticGraphicsPreparationForMatch(true);
-+#endif
-     manager->mLoadingState = ASYNC_RESOURCES_LOADING;
-     manager->SetLoadingComment("InitializeGameState1");
-     fn_80111654(1);
-@@ -2079,6 +2123,13 @@
- extern "C" void fn_8011A800(AsyncLoadingManager* manager)
- {
-     manager->SetLoadingComment("GameStateFinalize");
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    if (!mscharged::platform::PollAutomaticGraphicsPreparation(true))
-+    {
-+        manager->StopWithUndo();
-+        return;
-+    }
-+#endif
- 
-     PauseMenuScene::mLastSelectedIndex = 0;
-     InitializeElectricFence(GetLayerView(eCLV_ElectricFence));
---- a/src/Game/Transitions/ModelTransition.cpp
-+++ b/src/Game/Transitions/ModelTransition.cpp
-@@ -1,3 +1,6 @@
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+#include "platform/automatic_pipeline_prewarm.h"
-+#endif
- #include "NL/nlDLListContainer.inl"
- #include "Game/Transitions/ModelTransition.h"
- #include "NL/gl/glTexture.h"
-@@ -551,6 +554,9 @@
-     }
- 
-     glStateRestore(savedState);
-+#if defined(MSCHARGED_AUTOMATIC_PREWARM)
-+    mscharged::platform::PrepareAutomaticModelPipelines(m_pModels, m_nModels);
-+#endif
- }
- 
- float ModeledScreenTransition::GetTransitionLength()
+diff --git a/src/Game/FE/feModelManager.cpp b/src/Game/FE/feModelManager.cpp
+index 3681a56..84bb924 100644
 --- a/src/Game/FE/feModelManager.cpp
 +++ b/src/Game/FE/feModelManager.cpp
 @@ -1,3 +1,11 @@
@@ -286,7 +235,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #include "NL/nlDLListContainer.inl"
  #include "Game/FE/feImpostorCharacter.h"
  #include "Game/FE/feModelManager.h"
-@@ -108,6 +116,9 @@
+@@ -108,6 +116,9 @@ FEModel::FEModel(tCharacterTemplateInfo* modelData)
  
  FEModel::~FEModel()
  {
@@ -296,7 +245,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      if (mTextureFileData != 0)
      {
          ::operator delete(mTextureFileData);
-@@ -378,6 +389,9 @@
+@@ -378,6 +389,9 @@ FESkinnedModel::~FESkinnedModel()
  
  void FESkinnedModel::Initialize()
  {
@@ -306,7 +255,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      if (mTextureFileData != 0)
      {
          ::operator delete(mTextureFileData);
-@@ -615,6 +629,13 @@
+@@ -615,6 +629,13 @@ void FEModelManager::Update(float dt)
              if (entry->entry->mModel->mPendingLoads == 0)
              {
                  FinishLoadModel(entry->entry);
@@ -320,7 +269,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
                  if (entry->entry->mModel->GetCurrentAnimation() == 0)
                  {
                      entry->entry->PlayAnimation(entry->entry->mDefaultAnimation,
-@@ -652,6 +673,10 @@
+@@ -652,6 +673,10 @@ void FEModelManager::FinishLoadModel(FEModelHandle* handle)
          return;
      }
  
@@ -331,7 +280,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
      CurrentAllocator = &VirtualAllocator;
      glEndLoadTextureBundle(model->mTextureFileData,
-@@ -739,6 +764,18 @@
+@@ -739,6 +764,18 @@ void FEModelManager::FinishLoadModel(FEModelHandle* handle)
      }
      }
  
@@ -350,3 +299,66 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      if (handle->mLoadedCallback != 0)
      {
          ((void (*)(FEModelHandle*, void*))handle->mLoadedCallback)(handle, handle->mLoadedCallbackData);
+diff --git a/src/Game/Transitions/ModelTransition.cpp b/src/Game/Transitions/ModelTransition.cpp
+index 2133c2e..21e862b 100644
+--- a/src/Game/Transitions/ModelTransition.cpp
++++ b/src/Game/Transitions/ModelTransition.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Transitions/ModelTransition.h"
+ #include "NL/gl/glTexture.h"
+@@ -551,6 +554,9 @@ void ModeledScreenTransition::FixupModel()
+     }
+ 
+     glStateRestore(savedState);
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    mscharged::platform::PrepareAutomaticModelPipelines(m_pModels, m_nModels);
++#endif
+ }
+ 
+ float ModeledScreenTransition::GetTransitionLength()
+diff --git a/src/NL/gl/gl.cpp b/src/NL/gl/gl.cpp
+index 07b602e..fb75946 100644
+--- a/src/NL/gl/gl.cpp
++++ b/src/NL/gl/gl.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ #include "NL/gl/gl.h"
+ #include "NL/gl/glFont.h"
+ 
+@@ -50,6 +53,9 @@ bool glStartup(void (*startupCallback)())
+         return false;
+ 
+     gl_FontStartup();
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    mscharged::platform::InitializeAutomaticGraphicsPreparation();
++#endif
+     return true;
+ }
+ 
+diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
+index 46f5730..5feb771 100644
+--- a/src/NL/glx/glxLoadModel.cpp
++++ b/src/NL/glx/glxLoadModel.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++#include "platform/automatic_pipeline_prewarm.h"
++#endif
+ #include <revolution/os/OSCache_fwd.h>
+ 
+ #include "NL/glx/glxLoadModel.h"
+@@ -151,6 +154,9 @@ void GLXRLGReader::FinalizeModels()
+             loaded->m_pModel = model;
+         }
+     }
++#if defined(MSCHARGED_AUTOMATIC_PREWARM)
++    mscharged::platform::PrepareAutomaticModelPipelines(m_pModels, m_nModels);
++#endif
+ }
+ 
+ glModel* glplatEndLoadModel(

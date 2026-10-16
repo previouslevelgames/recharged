@@ -1,7 +1,59 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Whole original Hall of Fame Cup owner; native numeric context casts and
 # temporary diagnostic admission of existing factories62..64/service11.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 40bff1a..fa58d4f 100644
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -533,8 +533,10 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case SCENE_HOF_CHALLENGE_SUMMARY:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameSummary), 8, false)) SHHallOfFameSummary(HOF_CHALLENGE_SUMMARY);
+         break;
+-    case SCENE_HOF_FIRE_CUP:
+-        newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_FIRE_CUP);
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME))
++    case (SceneList)62:
++        newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(0);
+         break;
+     case SCENE_HOF_STRIKER_CUP:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_STRIKER_CUP);
+@@ -542,8 +544,10 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+     case SCENE_HOF_CRYSTAL_CUP:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_CRYSTAL_CUP);
+         break;
+-    case SCENE_HOF_PLAYER_CARDS:
+-        newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(HOF_PLAYER_CARD);
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++    case (SceneList)65:
++        newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(13);
+         break;
+     case SCENE_HOF_FIRE_CUP_HISTORY:
+         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(HOF_FIRE_CUP_HISTORY);
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 6eb688d..8d5d06a 100644
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -119,11 +119,15 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+         break;
+     }
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME))
+     case 11:
+         ++m_SP;
+         m_SP[-1] = IsWidescreen();
+         break;
+ 
++#endif
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
+     case 12:
+     {
+         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
 diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
+index 73b0f90..20faa64 100644
 --- a/src/Game/SH/SHHallOfFameRoom.cpp
 +++ b/src/Game/SH/SHHallOfFameRoom.cpp
 @@ -1,3 +1,6 @@
@@ -11,7 +63,7 @@ diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
  #include "NL/nlDLListContainer.inl"
  #include "Game/SH/SHHallOfFameRoom.h"
  #include "NL/nlFunction.inl"
-@@ -222,20 +225,36 @@
+@@ -226,20 +229,36 @@ SHHallOfFameCup::SHHallOfFameCup(int mode)
      unsigned int nextItem = 0;
      mMode = mode;
      mTrophyTimers[nextItem] = 0.0f;
@@ -38,9 +90,8 @@ diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
 +        mPlayerCardButtons[i].mContext = reinterpret_cast<void*>(static_cast<std::uintptr_t>(item));
 +#else
          mPlayerCardButtons[i].mContext = (void*)item;
--    }
 +#endif
-+    }
+     }
 +#if defined(MSCHARGED_NATIVE)
 +    mProgressButton.mContext = reinterpret_cast<void*>(static_cast<std::uintptr_t>(nextItem));
 +#else
@@ -49,7 +100,7 @@ diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
  }
  
  void SHHallOfFameCup::SceneCreated()
-@@ -338,7 +357,11 @@
+@@ -342,7 +361,11 @@ void SHHallOfFameCup::OnItemPointerInside(unsigned int, void*)
  
  void SHHallOfFameCup::OnItemPointerEnter(unsigned int index, void* context)
  {
@@ -61,7 +112,7 @@ diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
  
      ++mPointerHoverCounts[index];
      if (mTrophyTimers[item] == 0.0f)
-@@ -387,7 +410,11 @@
+@@ -391,7 +414,11 @@ void SHHallOfFameCup::OnItemPointerEnter(unsigned int index, void* context)
  
  void SHHallOfFameCup::OnItemPointerLeave(unsigned int index, void* context)
  {
@@ -73,7 +124,7 @@ diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
  
      --mPointerHoverCounts[index];
      mTrophyTimers[item] = 0.1f;
-@@ -409,7 +436,11 @@
+@@ -413,7 +440,11 @@ void SHHallOfFameCup::OnItemPointerLeave(unsigned int index, void* context)
  void SHHallOfFameCup::OnItemPointerPress(unsigned int index, void* context)
  {
      int i;
@@ -85,51 +136,3 @@ diff --git a/src/Game/SH/SHHallOfFameRoom.cpp b/src/Game/SH/SHHallOfFameRoom.cpp
  
      mPlayerCardButtons[item].SetPointerState(POINTER_BUTTON_SELECTED, index);
      StopHallOfFameTrophyEffects();
-diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
---- a/src/Game/FE/BaseGameSceneManager.cpp
-+++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -500,8 +500,10 @@
-     case SCENE_HOF_CHALLENGE_SUMMARY:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameSummary), 8, false)) SHHallOfFameSummary(HOF_CHALLENGE_SUMMARY);
-         break;
--    case SCENE_HOF_FIRE_CUP:
--        newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_FIRE_CUP);
-+#endif
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME))
-+    case (SceneList)62:
-+        newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(0);
-         break;
-     case SCENE_HOF_STRIKER_CUP:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_STRIKER_CUP);
-@@ -509,8 +511,10 @@
-     case SCENE_HOF_CRYSTAL_CUP:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_CRYSTAL_CUP);
-         break;
--    case SCENE_HOF_PLAYER_CARDS:
--        newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(HOF_PLAYER_CARD);
-+#endif
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-+    case (SceneList)65:
-+        newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(13);
-         break;
-     case SCENE_HOF_FIRE_CUP_HISTORY:
-         newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(HOF_FIRE_CUP_HISTORY);
-diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
---- a/src/Game/Render/FrontEndPresentation_interp.cpp
-+++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -119,11 +119,15 @@
-         break;
-     }
- 
-+#endif
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HALL_OF_FAME))
-     case 11:
-         ++m_SP;
-         m_SP[-1] = IsWidescreen();
-         break;
- 
-+#endif
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     case 12:
-     {
-         const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);

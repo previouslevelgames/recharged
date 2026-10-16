@@ -1,11 +1,12 @@
 From: mscharged-port
 Subject: Preserve Wii32 skin records under the original native factory
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
+index a0d796b..d4af8b0 100644
 --- a/src/NL/glx/glxLoadModel.cpp
 +++ b/src/NL/glx/glxLoadModel.cpp
-@@ -219,10 +219,19 @@
+@@ -219,10 +219,19 @@ GLSkinMesh* glx_MakeSkinMesh(
              num = chunkSize / 0x44;
              for (i = 0; i < num; ++i)
              {
@@ -26,7 +27,7 @@ diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
                  pData += 0x44;
                  SkinInverseBind(m1, m0);
                  int nodeIndex = hierarchy->GetNodeIndexByID(boneid);
-@@ -246,8 +255,14 @@
+@@ -246,8 +255,14 @@ GLSkinMesh* glx_MakeSkinMesh(
  
              for (i = 0; i < num; ++i)
              {
@@ -42,7 +43,7 @@ diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
                  node->m_pBoneIndices[i] =
                      hierarchy->GetNodeIndexByID(boneid);
              }
-@@ -256,19 +271,38 @@
+@@ -256,19 +271,38 @@ GLSkinMesh* glx_MakeSkinMesh(
          }
          case 0x1B00C:
          {
@@ -64,17 +65,15 @@ diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
              for (unsigned long i = 0; i < numMorphs; ++i)
              {
 -                mesh->SetMorphID(i, morphIDs[i]);
--            }
--
--            unsigned long elementSize = *(unsigned long*)pData;
 +                mesh->SetMorphID(i,
 +#if defined(MSCHARGED_NATIVE)
 +                    mscharged::platform::ReadRLGSkinWord(morphIDs + i));
 +#else
 +                    morphIDs[i]);
 +#endif
-+            }
-+
+             }
+ 
+-            unsigned long elementSize = *(unsigned long*)pData;
 +            unsigned long elementSize =
 +#if defined(MSCHARGED_NATIVE)
 +                mscharged::platform::ReadRLGSkinWord(pData);
@@ -86,7 +85,7 @@ diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
              pData += 8;
              mesh->SetNumMorphs(numMorphs);
              mesh->SetNumMorphPackets(numPackets);
-@@ -277,9 +311,16 @@
+@@ -277,9 +311,16 @@ GLSkinMesh* glx_MakeSkinMesh(
              {
                  for (unsigned long morph = 0; morph < numMorphs; ++morph)
                  {

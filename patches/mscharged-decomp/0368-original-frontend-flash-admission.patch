@@ -1,6 +1,6 @@
 From: mscharged-port original-source integration
 Subject: Admit original flash initialization and task in the frontend diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retire three named diagnostic omissions at their literal original source
 positions: the FlashMemoryTask static, nlFlashInitialize and AddTask with
@@ -10,6 +10,7 @@ No save data, handler, user choice or readiness is substituted. Defaults
 and console source projections remain unchanged with this option absent.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 72b79f7..7efc393 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,9 @@
@@ -22,7 +23,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
  #error The selected source task cadence requires the native original frontend sequence module
  #endif
-@@ -231,7 +234,7 @@
+@@ -239,7 +242,7 @@ static TextWindowTask textWindowTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
  static FEDPDTask feDPDTask;
  #endif
@@ -31,7 +32,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static FlashMemoryTask flashMemoryTask;
  
  
-@@ -685,7 +688,11 @@
+@@ -693,7 +696,11 @@ static void Initialize()
          g_pStrikerChallenge = new (8, false) StrikerChallenge;
      }
  
@@ -43,7 +44,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlInitFileCache();
      ReplayChoreo::Instance();
      GetPresentation();
-@@ -786,7 +793,7 @@
+@@ -794,7 +801,7 @@ static void AddTasks()
      nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&feDPDTask, 13, 5);

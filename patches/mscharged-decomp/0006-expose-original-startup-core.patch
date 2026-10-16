@@ -1,6 +1,6 @@
 Subject: Expose the original initialization prefix for incremental native startup
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the entire original main.cpp initialization, task priorities and game
 loop. Only native builds omit MWCC PowerPC GQR assembly; native animation
@@ -8,6 +8,9 @@ decoders are selected separately by patch0019. Add a separate selected-source
 diagnostic prefix without modifying the original entry's game logic or globals.
 The diagnostic prefix and full entry must not be linked together.
 
+diff --git a/include/Game/Startup.h b/include/Game/Startup.h
+new file mode 100644
+index 0000000..e011b24
 --- /dev/null
 +++ b/include/Game/Startup.h
 @@ -0,0 +1,7 @@
@@ -18,6 +21,9 @@ The diagnostic prefix and full entry must not be linked together.
 +void InitializeCore();
 +
 +#endif // GAME_STARTUP_H
+diff --git a/src/Game/Startup.cpp b/src/Game/Startup.cpp
+new file mode 100644
+index 0000000..a99d790
 --- /dev/null
 +++ b/src/Game/Startup.cpp
 @@ -0,0 +1,85 @@
@@ -107,9 +113,10 @@ The diagnostic prefix and full entry must not be linked together.
 +    nlInit();
 +}
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index d63901e..b569fc0 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -400,6 +400,7 @@
+@@ -409,6 +409,7 @@ void OnCommonConfigLoaded(Config*)
  
  static void Initialize()
  {
@@ -117,7 +124,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      // GQR setup follows the platform OSInitFastCast implementation.
      // clang-format off
      asm {
-@@ -417,6 +418,7 @@
+@@ -426,6 +427,7 @@ static void Initialize()
          mtspr 0x395, r3
      }
      // clang-format on

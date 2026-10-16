@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original clipped text polygons and GX scissor material
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Connect the existing float-UV writer, glAttachPoly2 scissorbox overload and
 original GXScissoredVertexColourTextureMaterialProgram. Preserve the original
@@ -11,85 +11,8 @@ console branches, text visibility and Credits scrolling rules are unchanged.
 Polygon restrictions require MSCHARGED_DIAGNOSTIC_POLYGONS; complete original
 glDraw2 keeps untextured/utility paths. Generic parameter providers remain open.
 
-diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
---- a/src/NL/gl/glDraw2.cpp
-+++ b/src/NL/gl/glDraw2.cpp
-@@ -2,9 +2,7 @@
- #include "NL/gl/glTexture.h"
- 
- #include "Game/GL/GLTexturedColourMeshWriter.h"
--#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
- #include "Game/GL/GLFloatTexturedColourMeshWriter.h"
--#endif
- #ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
- #include <stdexcept>
- #endif
-@@ -182,10 +180,13 @@
-     return true;
- }
- 
--#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
- bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
-     glPoly2* pPolys, const void* pUserData, glMatrixHandle* pMatrixHandle)
- {
-+#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
-+    if (!view || !pUserData || view->m_NativeIterating || glNativeViewDispatchActive())
-+        throw std::logic_error("Native clipped glPoly2 requires data and a non-dispatching view");
-+#endif
-     static unsigned long scissorbox = nlStringHash("scissorbox");
-     glModel* model = glBuildPoly2ModelFloatUV(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
-     if (model == 0)
-@@ -206,6 +207,10 @@
- glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
-     unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
- {
-+#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
-+    if (!pPolys || numPolys == 0 || numPolys > 65535 / 6 || !textured)
-+        throw std::invalid_argument("Native float glPoly2 requires bounded textured quads");
-+#endif
-     GLFloatTexturedColourMeshWriter writer;
- 
-     glMatrixHandle oldMatrix;
-@@ -227,6 +232,13 @@
- 
-     oldMatrix = glSetCurrentMatrix(
-         pMatrixHandle != 0 ? *pMatrixHandle : glGetIdentityMatrix());
-+#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
-+    struct MatrixRestore
-+    {
-+        glMatrixHandle value;
-+        ~MatrixRestore() { glSetCurrentMatrix(value); }
-+    } restore{oldMatrix};
-+#endif
- 
-     if (textured)
-     {
-@@ -262,6 +274,7 @@
-             state->unknown07 = 0;
-         }
-     }
-+#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
-     else
-     {
-         if (writer.Begin(numVerts * numPolys, primitive, 0))
-@@ -288,6 +301,8 @@
-         }
-     }
- 
-+#endif
-+
-     if (!writer.End())
-     {
-         return 0;
-@@ -298,6 +313,7 @@
-     return model;
- }
- 
-+#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
- void glPoly2::FullCoverage(const nlColour& col, float z)
- {
-     const float width = glGetOrthographicWidth() + 1.0f;
 diff --git a/include/Game/GL/GLFloatTexturedColourMeshWriter.h b/include/Game/GL/GLFloatTexturedColourMeshWriter.h
+index 6ef4892..39fefd6 100644
 --- a/include/Game/GL/GLFloatTexturedColourMeshWriter.h
 +++ b/include/Game/GL/GLFloatTexturedColourMeshWriter.h
 @@ -4,6 +4,12 @@
@@ -105,7 +28,7 @@ diff --git a/include/Game/GL/GLFloatTexturedColourMeshWriter.h b/include/Game/GL
  
  class GLFloatTexturedColourMeshWriter
  {
-@@ -15,12 +21,22 @@
+@@ -15,12 +21,22 @@ public:
  
      glModel* GetModel() const
      {
@@ -128,7 +51,7 @@ diff --git a/include/Game/GL/GLFloatTexturedColourMeshWriter.h b/include/Game/GL
      }
  
      void Texcoord(const nlVector2& uv)
-@@ -30,23 +46,53 @@
+@@ -30,23 +46,53 @@ public:
  
      void Texcoord(float u, float v)
      {
@@ -183,6 +106,7 @@ diff --git a/include/Game/GL/GLFloatTexturedColourMeshWriter.h b/include/Game/GL
      glModel* model;
      void* resource;
 diff --git a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp b/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp
+index d449f0c..ac6462b 100644
 --- a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp
 +++ b/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp
 @@ -1,5 +1,7 @@
@@ -193,7 +117,7 @@ diff --git a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp b/src/Game/GL/GLFlo
  
  #include "Game/GL/GLFloatTexturedColourMeshWriter.h"
  
-@@ -25,6 +27,18 @@
+@@ -25,6 +27,18 @@ GLFloatTexturedColourMeshWriter::~GLFloatTexturedColourMeshWriter()
  bool GLFloatTexturedColourMeshWriter::Begin(
      int vertexCount, int primitive, void* allocator)
  {
@@ -212,7 +136,7 @@ diff --git a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp b/src/Game/GL/GLFlo
      glModel* newModel;
      resource = allocator;
      count = vertexCount;
-@@ -112,19 +126,35 @@
+@@ -112,19 +126,35 @@ bool GLFloatTexturedColourMeshWriter::Begin(
          streams + 2, 2, colour, sizeof(u32), 3);
  
      return true;
@@ -248,123 +172,88 @@ diff --git a/src/Game/GL/GLFloatTexturedColourMeshWriter.cpp b/src/Game/GL/GLFlo
 +#endif
      return true;
  }
-diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
---- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
-+++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
-@@ -1,4 +1,8 @@
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#else
- #include <revolution/gx.h>
-+#endif
+diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
+index fa31054..1c3669a 100644
+--- a/src/NL/gl/glDraw2.cpp
++++ b/src/NL/gl/glDraw2.cpp
+@@ -2,9 +2,7 @@
+ #include "NL/gl/glTexture.h"
  
- #include "NL/glx/GXScissoredVertexColourTextureMaterialProgram.h"
- #include "NL/glx/glxTexture.h"
-@@ -16,15 +20,24 @@
- 
- GXScissoredVertexColourTextureMaterialProgram::GXScissoredVertexColourTextureMaterialProgram()
- {
-+#if !defined(MSCHARGED_NATIVE)
-     Instance = this;
-+#endif
-     programHash = 0x0027BCF6;
-     parameterDataSize = sizeof(GXScissoredTextureParameters);
-     parameterCount = 2;
-     glRegisterMaterialProgram(this, programHash);
-+#if defined(MSCHARGED_NATIVE)
-+    Instance = this;
-+#endif
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+-#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
+ #include "Game/GL/GLFloatTexturedColourMeshWriter.h"
+-#endif
+ #ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
+ #include <stdexcept>
+ #endif
+@@ -182,10 +180,13 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+     return true;
  }
  
- GXScissoredVertexColourTextureMaterialProgram::~GXScissoredVertexColourTextureMaterialProgram()
+-#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
+ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+     glPoly2* pPolys, const void* pUserData, glMatrixHandle* pMatrixHandle)
  {
-+#if defined(MSCHARGED_NATIVE)
-+    Instance = 0;
-+    Initialized = false;
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
++    if (!view || !pUserData || view->m_NativeIterating || glNativeViewDispatchActive())
++        throw std::logic_error("Native clipped glPoly2 requires data and a non-dispatching view");
 +#endif
- }
- 
- void GXScissoredVertexColourTextureMaterialProgram::Initialize()
-@@ -62,9 +75,24 @@
- void GXScissoredVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+     static unsigned long scissorbox = nlStringHash("scissorbox");
+     glModel* model = glBuildPoly2ModelFloatUV(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     if (model == 0)
+@@ -206,6 +207,10 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
+     unsigned long numPolys, glMatrixHandle* pMatrixHandle, bool textured)
  {
-     glModelStream* streams = packet->streams;
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_POS, streams[0].address,
-+        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
-+#else
-     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
++    if (!pPolys || numPolys == 0 || numPolys > 65535 / 6 || !textured)
++        throw std::invalid_argument("Native float glPoly2 requires bounded textured quads");
 +#endif
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_CLR0, streams[2].address,
-+        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
-+#else
-     GXSetArray(GX_VA_CLR0, streams[2].address, 4);
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_TEX0, streams[1].address,
-+        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
-+#else
-     GXSetArray(GX_VA_TEX0, streams[1].address, 8);
-+#endif
- }
+     GLFloatTexturedColourMeshWriter writer;
  
- void GXScissoredVertexColourTextureMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -75,11 +103,20 @@
+     glMatrixHandle oldMatrix;
+@@ -227,6 +232,13 @@ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
  
-     while (index < end)
+     oldMatrix = glSetCurrentMatrix(
+         pMatrixHandle != 0 ? *pMatrixHandle : glGetIdentityMatrix());
++#ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
++    struct MatrixRestore
++    {
++        glMatrixHandle value;
++        ~MatrixRestore() { glSetCurrentMatrix(value); }
++    } restore{oldMatrix};
++#endif
+ 
+     if (textured)
      {
-+#if defined(MSCHARGED_NATIVE)
-+        GXPosition1x16(*index);
-+        GXColor1x16(*index);
-+        GXTexCoord1x16(*index);
-+#else
-         WGPIPE.us = *index;
-         WGPIPE.us = *index;
-         WGPIPE.us = *index;
-+#endif
-         ++index;
+@@ -262,6 +274,7 @@ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
+             state->unknown07 = 0;
+         }
      }
-+#if defined(MSCHARGED_NATIVE)
-+    GXEnd();
-+#endif
- }
- 
- void GXScissoredVertexColourTextureMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -88,10 +125,19 @@
- 
-     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
++#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
+     else
      {
-+#if defined(MSCHARGED_NATIVE)
-+        GXPosition1x16(i);
-+        GXColor1x16(i);
-+        GXTexCoord1x16(i);
-+#else
-         WGPIPE.us = i;
-         WGPIPE.us = i;
-         WGPIPE.us = i;
-+#endif
+         if (writer.Begin(numVerts * numPolys, primitive, 0))
+@@ -288,6 +301,8 @@ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
+         }
      }
-+#if defined(MSCHARGED_NATIVE)
-+    GXEnd();
+ 
 +#endif
++
+     if (!writer.End())
+     {
+         return 0;
+@@ -298,6 +313,7 @@ glModel* glBuildPoly2ModelFloatUV(glPoly2* pPolys,
+     return model;
  }
  
- void GXScissoredVertexColourTextureMaterialProgram::BindParameters(const glModelPacket* packet)
-diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
---- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
-@@ -1,4 +1,8 @@
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#else
- #include <revolution/gx.h>
-+#endif
- #include "NL/gl/glMaterialParameters.h"
- 
- #include "NL/gl/glPlat.h"
++#ifndef MSCHARGED_DIAGNOSTIC_POLYGONS
+ void glPoly2::FullCoverage(const nlColour& col, float z)
+ {
+     const float width = glGetOrthographicWidth() + 1.0f;
 diff --git a/src/NL/gl/glMaterialParameterArray.cpp b/src/NL/gl/glMaterialParameterArray.cpp
 new file mode 100644
+index 0000000..f8bf52e
 --- /dev/null
 +++ b/src/NL/gl/glMaterialParameterArray.cpp
 @@ -0,0 +1,50 @@
@@ -418,3 +307,120 @@ new file mode 100644
 +    memcpy(GetParameterData(packet, parameter), value,
 +        count * sizeof(u32));
 +}
+diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
+index f7b2528..82d2cbe 100644
+--- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
++++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgram.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXScissoredVertexColourTextureMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
+@@ -16,15 +20,24 @@ GXMaterialParameter GXScissoredVertexColourTextureMaterialProgram::Parameters[2]
+ 
+ GXScissoredVertexColourTextureMaterialProgram::GXScissoredVertexColourTextureMaterialProgram()
+ {
++#if !defined(MSCHARGED_NATIVE)
+     Instance = this;
++#endif
+     programHash = 0x0027BCF6;
+     parameterDataSize = sizeof(GXScissoredTextureParameters);
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
++#if defined(MSCHARGED_NATIVE)
++    Instance = this;
++#endif
+ }
+ 
+ GXScissoredVertexColourTextureMaterialProgram::~GXScissoredVertexColourTextureMaterialProgram()
+ {
++#if defined(MSCHARGED_NATIVE)
++    Instance = 0;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXScissoredVertexColourTextureMaterialProgram::Initialize()
+@@ -62,9 +75,24 @@ void GXScissoredVertexColourTextureMaterialProgram::ConfigureVertexFormat(bool i
+ void GXScissoredVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_CLR0, streams[2].address,
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_CLR0, streams[2].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[1].address, 8);
++#endif
+ }
+ 
+ void GXScissoredVertexColourTextureMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -75,11 +103,20 @@ void GXScissoredVertexColourTextureMaterialProgram::DrawIndexed(const glModelPac
+ 
+     while (index < end)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(*index);
++        GXColor1x16(*index);
++        GXTexCoord1x16(*index);
++#else
+         WGPIPE.us = *index;
+         WGPIPE.us = *index;
+         WGPIPE.us = *index;
++#endif
+         ++index;
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXScissoredVertexColourTextureMaterialProgram::DrawDirect(const glModelPacket* packet)
+@@ -88,10 +125,19 @@ void GXScissoredVertexColourTextureMaterialProgram::DrawDirect(const glModelPack
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(i);
++        GXColor1x16(i);
++        GXTexCoord1x16(i);
++#else
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
++#endif
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXScissoredVertexColourTextureMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
+index 57e8f85..394ed3f 100644
+--- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
+@@ -1,4 +1,8 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ 
+ #include "NL/gl/glPlat.h"

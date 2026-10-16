@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Preserve original FS alignment and zero-length IPC arguments
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the complete original FS request/callback flow. Native pointers use
 uintptr_t only for the original 32-byte alignment tests. Numeric IPC output
@@ -8,13 +8,13 @@ length zero uses an integer on modern C; console expressions are unchanged.
 No filesystem or successful IOS service is supplied by this compiler patch.
 
 diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
+index 8e23d4c..06b0927 100644
 --- a/src/RVL_SDK/fs/fs.c
 +++ b/src/RVL_SDK/fs/fs.c
-@@ -3,6 +3,15 @@
- #include <revolution/os.h>
+@@ -4,6 +4,15 @@
  
  #include <string.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <stdint.h>
 +#define FS_BUFFER_ADDRESS uintptr_t
@@ -23,10 +23,11 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
 +#define FS_BUFFER_ADDRESS u32
 +#define FS_NULL_OUTPUT_SIZE NULL
 +#endif
- 
++
  #define FS_HEAP_SIZE 0x1500
  
-@@ -328,7 +337,7 @@
+ // Longest name obtainable from ReadDir ioctl
+@@ -328,7 +337,7 @@ s32 ISFS_ReadDir(const char* path, char* filesOut, u32* fileCountOut) {
      block = NULL;
  
      if (path == NULL || fileCountOut == NULL || __fsFd < 0 ||
@@ -35,7 +36,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          (len = strnlen(path, FS_MAX_PATH)) == FS_MAX_PATH) {
          ret = IPC_RESULT_INVALID;
          goto end;
-@@ -409,7 +418,7 @@
+@@ -409,7 +418,7 @@ s32 ISFS_ReadDirAsync(const char* path, char* filesOut, u32* fileCountOut,
      block = NULL;
  
      if (path == NULL || fileCountOut == NULL || __fsFd < 0 ||
@@ -44,7 +45,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          (len = strnlen(path, FS_MAX_PATH)) == FS_MAX_PATH) {
          return IPC_RESULT_INVALID;
      }
-@@ -587,7 +596,7 @@
+@@ -587,7 +596,7 @@ s32 ISFS_Delete(const char* path) {
      memcpy(block->ioctlWork, path, len + 1);
  
      ret = IOS_Ioctl(__fsFd, FS_IOCTL_DELETE_PATH, block->ioctlWork, FS_MAX_PATH,
@@ -53,7 +54,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
  
  end:
      if (block != NULL) {
-@@ -620,7 +629,7 @@
+@@ -620,7 +629,7 @@ s32 ISFS_DeleteAsync(const char* path, FSAsyncCallback callback,
      block->callbackState = CB_STATE_NONE;
  
      return IOS_IoctlAsync(__fsFd, FS_IOCTL_DELETE_PATH, block->ioctlWork,
@@ -62,7 +63,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
  }
  
  s32 ISFS_Rename(const char* from, const char* to) {
-@@ -648,7 +657,7 @@
+@@ -648,7 +657,7 @@ s32 ISFS_Rename(const char* from, const char* to) {
      memcpy(block->renameIoctl.to, to, lenTo + 1);
  
      ret = IOS_Ioctl(__fsFd, FS_IOCTL_RENAME_PATH, &block->renameIoctl,
@@ -71,7 +72,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
  
  end:
      if (block != NULL) {
-@@ -685,7 +694,7 @@
+@@ -685,7 +694,7 @@ s32 ISFS_RenameAsync(const char* from, const char* to, FSAsyncCallback callback,
      memcpy(block->renameIoctl.to, to, lenTo + 1);
  
      return IOS_IoctlAsync(__fsFd, FS_IOCTL_RENAME_PATH, &block->renameIoctl,
@@ -80,7 +81,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
  }
  
  s32 ISFS_GetUsage(const char* path, s32* blockCountOut, s32* fileCountOut) {
-@@ -941,7 +950,7 @@
+@@ -941,7 +950,7 @@ s32 ISFS_OpenAsync(const char* path, IPCOpenMode mode, FSAsyncCallback callback,
  }
  
  s32 ISFS_GetFileStats(s32 fd, FSFileStats* statsOut) {
@@ -89,7 +90,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          return IPC_RESULT_INVALID;
      }
  
-@@ -953,7 +962,7 @@
+@@ -953,7 +962,7 @@ s32 ISFS_GetFileStatsAsync(s32 fd, FSFileStats* statsOut,
                             FSAsyncCallback callback, void* callbackArg) {
      FSCommandBlock* block;
  
@@ -98,7 +99,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          return IPC_RESULT_INVALID;
      }
  
-@@ -991,7 +1000,7 @@
+@@ -991,7 +1000,7 @@ s32 ISFS_SeekAsync(s32 fd, s32 offset, IPCSeekMode mode,
  }
  
  s32 ISFS_Read(s32 fd, void* dst, s32 len) {
@@ -107,7 +108,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          return IPC_RESULT_INVALID;
      }
  
-@@ -1002,7 +1011,7 @@
+@@ -1002,7 +1011,7 @@ s32 ISFS_ReadAsync(s32 fd, void* dst, s32 len, FSAsyncCallback callback,
                     void* callbackArg) {
      FSCommandBlock* block;
  
@@ -116,7 +117,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          return IPC_RESULT_INVALID;
      }
  
-@@ -1019,7 +1028,7 @@
+@@ -1019,7 +1028,7 @@ s32 ISFS_ReadAsync(s32 fd, void* dst, s32 len, FSAsyncCallback callback,
  }
  
  s32 ISFS_Write(s32 fd, const void* src, s32 len) {
@@ -125,7 +126,7 @@ diff --git a/src/RVL_SDK/fs/fs.c b/src/RVL_SDK/fs/fs.c
          return IPC_RESULT_INVALID;
      }
  
-@@ -1030,7 +1039,7 @@
+@@ -1030,7 +1039,7 @@ s32 ISFS_WriteAsync(s32 fd, const void* src, s32 len, FSAsyncCallback callback,
                      void* callbackArg) {
      FSCommandBlock* block;
  

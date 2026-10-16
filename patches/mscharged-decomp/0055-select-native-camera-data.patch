@@ -1,33 +1,14 @@
 Subject: Select camera data lifetime independently of unfinished playback
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract original cCameraData initialization and pair owned arrays with nlFree
 on native hosts. Initialize the ownership flag for partial allocation rollback.
 Camera playback and the original registry remain unselected.
 
-diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
---- a/src/Game/Camera/animcam.cpp
-+++ b/src/Game/Camera/animcam.cpp
-@@ -61,6 +61,7 @@
-     return name;
- }
- 
-+#ifndef MSCHARGED_NATIVE
- cCameraData::cCameraData()
- {
-     next = NULL;
-@@ -86,6 +87,8 @@
-         delete[] m_szName;
-     }
- }
-+
-+#endif
- 
- bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
- {
 diff --git a/src/Game/Camera/CameraData.cpp b/src/Game/Camera/CameraData.cpp
 new file mode 100644
+index 0000000..8d54b50
 --- /dev/null
 +++ b/src/Game/Camera/CameraData.cpp
 @@ -0,0 +1,30 @@
@@ -61,3 +42,24 @@ new file mode 100644
 +        nlFree(m_szName);
 +    }
 +}
+diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+index d484a46..f1669d1 100644
+--- a/src/Game/Camera/animcam.cpp
++++ b/src/Game/Camera/animcam.cpp
+@@ -61,6 +61,7 @@ static inline const char* GetCameraName(nlChunk* chunk)
+     return name;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ cCameraData::cCameraData()
+ {
+     next = NULL;
+@@ -87,6 +88,8 @@ cCameraData::~cCameraData()
+     }
+ }
+ 
++#endif
++
+ bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
+ {
+     pAnimCameraData->ownsKeyData = ownsKeyData;

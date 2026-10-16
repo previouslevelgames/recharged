@@ -1,12 +1,13 @@
 Purpose: admit the literal source transition into CleanBoot and its original FE pool/bank endpoints.
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Predecessor: exact actual prepared313, fa1e053, SDK46.
 Scope: native selected diagnostic only; world/Mii/later frontend services remain explicitly held.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 79225a2..7c4f86b 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -380,6 +380,9 @@
+@@ -379,6 +379,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
          }
          break;
@@ -16,7 +17,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 10:
          g_pAudioSystem->GetBundleManager()->GetSoundMap()->SelectGroup(1);
          lbl_806E1058 += gAudioEnabled ? 2 : 0;
-@@ -886,9 +889,14 @@
+@@ -894,9 +897,14 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          mLoadingState = ASYNC_RESOURCES_LOADED;
          break;
@@ -24,17 +25,18 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
 +    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT))
      case 85:
-         fn_80119454(this);
+         InitializeFrontEndState1(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 86:
-         fn_80119528(this);
+         InitializeFrontEndState2(this);
          break;
 diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
+index f52f8dd..5b2a406 100644
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
-@@ -74,9 +74,15 @@
+@@ -74,9 +74,15 @@ void LoadingTask::Run(float dt)
  void LoadingTask::StateTransition(unsigned int from, unsigned int to)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)

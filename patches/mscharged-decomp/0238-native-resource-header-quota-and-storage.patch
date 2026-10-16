@@ -1,9 +1,10 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve Wii resource header quotas with pool-owned native storage
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: permanent native record ABI/storage adaptation; original quota/control flow retained.
 
 diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
+index bb2c8b5..9806205 100644
 --- a/src/NL/gl/glMemory.cpp
 +++ b/src/NL/gl/glMemory.cpp
 @@ -1,3 +1,6 @@
@@ -13,7 +14,7 @@ diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
  #include "NL/gl/glMemory.h"
  
  #include "Game/GL/GLInventory.h"
-@@ -63,6 +66,9 @@
+@@ -63,6 +66,9 @@ GLResourcePool::~GLResourcePool()
      {
          sCurrentResourcePool = 0;
      }
@@ -24,6 +25,7 @@ diff --git a/src/NL/gl/glMemory.cpp b/src/NL/gl/glMemory.cpp
  
  GLResourcePool* glCreateResourcePool(
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index d54512a..6f890f4 100644
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
 @@ -1,3 +1,6 @@
@@ -33,7 +35,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
  #if defined(MSCHARGED_NATIVE)
  #include "runtime/graphics_memory.h"
  #include <dolphin/gx.h>
-@@ -345,9 +348,14 @@
+@@ -345,9 +348,14 @@ GLResourceMark GLXResourcePool::MarkResource()
  #else
      unsigned long value0 = mUsedMemory[0];
      unsigned long value1 = mUsedMemory[1];
@@ -48,7 +50,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
      marker->mUsedMemory[0] = value0;
      marker->mUsedMemory[1] = value1;
      marker->mLevel = m_level;
-@@ -385,6 +393,8 @@
+@@ -385,6 +393,8 @@ void GLXResourcePool::ReleaseResource(
      mUsedMemory[1] = marker->mUsedMemory[1];
      m_level = level;
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
@@ -58,6 +60,7 @@ diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
          nativeRetirement[pool].Commit((void*)(mPoolMemory[pool] + mUsedMemory[pool]),
              mPoolSizes[pool] - mUsedMemory[pool]);
 diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
+index 03d7cb3..79f3191 100644
 --- a/src/NL/glx/glxTexture.cpp
 +++ b/src/NL/glx/glxTexture.cpp
 @@ -1,3 +1,6 @@
@@ -67,7 +70,7 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
  #include "NL/glx/glxTexture.h"
  #include "Game/Sys/debug.h"
  #include "Game/TweakValue.h"
-@@ -187,7 +190,12 @@
+@@ -153,7 +156,12 @@ PlatTexture* glx_MakeTexture(GXTextureHeader* header,
  
      textureSize = GCTextureSize(
          header->format, width, height, numLevels, texhandle);
@@ -80,7 +83,7 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
  
      format = header->format;
      pTex->Create(width, height, format, allocator, numLevels, false, false);
-@@ -314,7 +322,12 @@
+@@ -280,7 +288,12 @@ int glplatTextureGetNumBits(int component)
  
  PlatTexture* glx_CreatePlatTexture(void* allocator)
  {

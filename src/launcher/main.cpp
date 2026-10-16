@@ -21,6 +21,8 @@
 #include "platform/parse_float.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
+#include "platform/game_release.h"
+#include "platform/pc_languages.h"
 #include "platform/console_verbosity.h"
 #include "platform/app_icon.h"
 #include "platform/path.h"
@@ -227,14 +229,20 @@ struct DiscCheck
 enum class NoticeKind { Info, Success, Warning, Error };
 enum class FolderPurpose { SaveFolder, DolphinSave };
 
-// The save the game keeps (USA release, the one this port runs): its title,
-// and the identity the runtime gives its storage (original_main_credits.cpp).
-constexpr mscharged::platform::SaveTitle kSaveTitle{0x0001000052345145ull, 0x1001, 0x3031};
+// The save a release keeps: its title and the identity the runtime gives its
+// storage (InitializeNativeFilesystemForDisc in original_main_credits.cpp).
+mscharged::platform::SaveTitle SaveTitleOf(const GameRelease& release)
+{
+    return {release.title_id, 0x1001, release.title_group};
+}
 constexpr const char* kSaveFile = "Strikers2";
 
-// Region branches follow original Game/main.cpp; the native runtime currently
-// supports the USA release only.
-const char* RegionName(const std::string& id) { return DiscRegionName(id); }
+// "Europe, revision 2" for a known release, else the region of the disc ID.
+std::string ReleaseOrRegion(const DiscInfo& info)
+{
+    const auto* release = FindRelease(info);
+    return release ? ReleaseLabel(*release) : std::string(DiscRegionName(info.game_id));
+}
 
 std::string FileUrl(const fs::path& path)
 {
@@ -1329,10 +1337,12 @@ private:
         if (result.disc.empty())
         {
             if (!result.other.empty())
-                Notice("Found Mario Strikers Charged for " + std::string(RegionName(result.other_id)) + " ("
-                           + result.other_id + ") at " + PathUtf8(result.other)
-                           + ". Only the USA version (R4QE01) runs for now.",
+            {
+                const DiscInfo other{"", result.other_id, "", result.other_revision, 0};
+                Notice("Found Mario Strikers Charged at " + PathUtf8(result.other) + ". " + UnplayableReason(other)
+                           + " This build runs " + PlayableReleasesText() + ".",
                        NoticeKind::Warning);
+            }
             return;
         }
         const bool replaced = !draft_.disc.empty(), clean = !dirty_;
@@ -1495,16 +1505,13 @@ private:
         if (DiscSelection().empty()) return "Choose your Mario Strikers Charged disc image (ISO or RVZ).";
         if (!check_.info || check_.selection != DiscSelection())
             return check_.error.empty() ? "Check your disc on the Game page." : check_.error;
-        if (!SupportedRelease(*check_.info))
-            return "Only the USA version of Mario Strikers Charged (R4QE01) is supported for now.";
+        if (!SupportedRelease(*check_.info)) return UnplayableReason(*check_.info);
         const auto settings = EffectiveLaunch().settings;
         try { ResolveGraphicsBackend(settings.backend); }
         catch (const std::invalid_argument& error) { return error.what(); }
         if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
             return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
-        if (settings.language != "auto" && settings.language != "english" && settings.language != "french"
-            && settings.language != "spanish")
-            return "Choose a language this release supports on the Game page.";
+        // A language this release does not have starts as Automatic (the Game page says so).
         return {};
 #endif
     }
@@ -1806,7 +1813,7 @@ private:
             detail = blocker;
         }
         else if (check_.info)
-            detail = "Mario Strikers Charged  -  " + std::string(RegionName(check_.info->game_id)) + "  -  "
+            detail = "Mario Strikers Charged  -  " + ReleaseOrRegion(*check_.info) + "  -  "
                 + check_.info->game_id + " rev " + std::to_string(unsigned(check_.info->revision));
         // A player's controller that is not connected: say what the game does
         // instead (the disc line moves out of the way; the disc card has it).
@@ -1852,7 +1859,7 @@ private:
         if (check_.info && check_.selection == DiscSelection())
         {
             const auto& info = *check_.info;
-            return {info.game_id + "  -  " + RegionName(info.game_id),
+            return {info.game_id + "  -  " + ReleaseOrRegion(info),
                     "Revision " + std::to_string(unsigned(info.revision)) + "  -  " + info.format + "  -  "
                         + std::to_string(info.file_count) + " files",
                     SupportedRelease(info) ? color::accent : color::warning};
@@ -1875,8 +1882,9 @@ private:
     Summary LanguageSummary() const
     {
         const auto s = EffectiveLaunch().settings;
-        const std::string language = s.language == "auto" ? "Automatic" :
-            std::string(1, char(std::toupper(static_cast<unsigned char>(s.language[0])))) + s.language.substr(1);
+        const auto choice = ChooseLanguage(Release(), s.language, pc_languages_);
+        const std::string language = choice.automatic ? "Automatic (" + std::string(choice.language->label) + ")"
+                                                      : std::string(choice.language->label);
         return {language + " text", s.mute ? "Audio muted" : "Volume " + std::to_string(s.master_volume) + "%",
                 color::info};
     }
@@ -1996,12 +2004,6 @@ private:
         if (text.x > limit && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", notice_.c_str());
     }
 
-    // Why a readable Charged disc cannot play yet.
-    std::string UnsupportedDiscReason(const DiscInfo& info) const
-    {
-        return std::string("Your disc is the ") + RegionName(info.game_id) + " version (" + info.game_id + ").";
-    }
-
     // Shown once after a check finds a readable but unsupported disc.
     void DrawRegionPrompt()
     {
@@ -2017,13 +2019,13 @@ private:
         if (ImGui::BeginPopupModal("Unsupported version", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
             | ImGuiWindowFlags_AlwaysAutoResize))
         {
-            TextColored(fonts.heading, color::text, "Only the USA version is supported for now");
+            TextColored(fonts.heading, color::text, "This version cannot be played yet");
             ImGui::Dummy({0, Dp(4)});
-            if (check_.info) TextWrappedColored(fonts.body, color::muted, UnsupportedDiscReason(*check_.info).c_str());
+            if (check_.info) TextWrappedColored(fonts.body, color::muted, UnplayableReason(*check_.info).c_str());
             ImGui::Dummy({0, Dp(4)});
-            TextWrappedColored(fonts.body, color::text,
-                "The port currently runs Mario Strikers Charged for the USA (R4QE01). The European, "
-                "Japanese and Korean versions need their own decompilation work and should follow soon.");
+            const std::string runs = "This build runs " + PlayableReleasesText()
+                + ". The other versions follow as the port supports them.";
+            TextWrappedColored(fonts.body, color::text, runs.c_str());
             ImGui::Dummy({0, Dp(10)});
             if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || CancelPressed()
                 || ImGui::IsKeyPressed(ImGuiKey_Enter))
@@ -2121,7 +2123,7 @@ private:
             ImGui::InputText("##disc_path", &selected);
             ImGui::EndDisabled();
         }
-        else if (ImGui::InputTextWithHint("##disc_path", "Path to R4QE01 .iso or .rvz", &draft_.disc))
+        else if (ImGui::InputTextWithHint("##disc_path", "Path to your .iso or .rvz image", &draft_.disc))
         { dirty_ = true; check_ = {}; }
         ImGui::SameLine(0, Dp(10));
         if (SecondaryButton("browse", "Browse...", {Dp(118), ImGui::GetFrameHeight()},
@@ -2138,7 +2140,8 @@ private:
         BeginCard("##language", "Game language", "Menus and on-screen text follow the Wii system language.", Icon::Info);
         if (BeginRows("##language_rows"))
         {
-            Row("Text language", "Automatic currently selects English. Saved with your settings.");
+            Row("Text language", "Automatic uses your computer's language when this version has it, otherwise "
+                                 "English. Saved with your settings.");
             LanguageControl();
             EndRows();
         }
@@ -2189,7 +2192,7 @@ private:
             if (!fs::exists(folder) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Created when you first play.");
 
-            const auto found = mscharged::platform::FindDolphinSaves(kSaveTitle.title_id);
+            const auto found = mscharged::platform::FindDolphinSaves(Release().title_id);
             const std::string description = found.empty()
                 ? "Copies a save from the Dolphin emulator. Choose Dolphin's user folder or the game's save folder in it."
                 : "Copies the save Dolphin keeps in " + PathUtf8(found.front()) + ".";
@@ -2209,7 +2212,19 @@ private:
         EndCard();
     }
 
-    fs::path SaveFolder() const { return ResolveSaveFolder(draft_, file_.path, base_); }
+    // The checked disc's release, or the USA one before a disc is known.
+    const GameRelease& Release() const
+    {
+        const auto* release = check_.info ? FindRelease(*check_.info) : nullptr;
+        return release ? *release : DefaultRelease();
+    }
+
+    // The Wii storage of the release's title in the save folder (the USA
+    // title uses the folder itself, others a subfolder such as R4QP).
+    fs::path SaveFolder() const
+    {
+        return TitleSaveFolder(ResolveSaveFolder(draft_, file_.path, base_), Release().title_id);
+    }
 
     void BrowseFolder(FolderPurpose purpose)
     {
@@ -2230,7 +2245,7 @@ private:
             dirty_ = true;
             return;
         }
-        const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), kSaveTitle.title_id,
+        const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
                                                                     kSaveFile);
         if (save.empty())
             Notice("No Mario Strikers Charged save found in " + chosen + ".", NoticeKind::Warning);
@@ -2248,8 +2263,8 @@ private:
         try
         {
             const auto folder = SaveFolder();
-            const auto result = mscharged::platform::ImportDolphinSave(import_source_, folder, kSaveTitle, kSaveFile,
-                                                                       folder / "backups");
+            const auto result = mscharged::platform::ImportDolphinSave(import_source_, folder, SaveTitleOf(Release()),
+                                                                       kSaveFile, folder / "backups");
             std::string files;
             for (const auto& name : result.files) files += (files.empty() ? "" : ", ") + name;
             Notice("Dolphin save imported (" + files + ")."
@@ -2326,12 +2341,15 @@ private:
             draw->AddCircleFilled(icon_center, Dp(22), Col(supported ? color::accent : color::warning, 0.15f));
             DrawIcon(draw, supported ? Icon::Check : Icon::Warning, icon_center, Dp(22),
                      Col(supported ? color::accent : color::warning));
-            line(fonts.label, Dp(14), color::text, "Mario Strikers Charged  -  " + std::string(RegionName(info.game_id)));
+            const auto* release = FindRelease(info);
+            line(fonts.label, Dp(14), color::text, std::string(release ? release->title : "Mario Strikers Charged")
+                + "  -  " + ReleaseOrRegion(info));
             line(fonts.caption, Dp(40), color::muted, info.game_id + "  -  Revision " + std::to_string(unsigned(info.revision))
                 + "  -  " + info.format + "  -  " + std::to_string(info.file_count) + " files");
+            const std::string note = release ? ReleaseNote(*release) : std::string();
             line(fonts.caption, Dp(60), supported ? color::accent : color::warning,
-                 supported ? "Supported release. Ready to play."
-                           : "Not supported yet: only the USA release (R4QE01) runs for now.");
+                 supported ? "Supported release. " + (note.empty() ? std::string() : note + " ") + "Ready to play."
+                           : UnplayableReason(info, release));
         }
         else if (!check_.error.empty())
         {
@@ -2351,36 +2369,25 @@ private:
 
     void LanguageControl()
     {
-        const std::string id = check_.info ? check_.info->game_id : "R4QE01";
-        const float width = ImGui::GetContentRegionAvail().x;
-        if (id == "R4QE01")
+        const auto& release = Release();
+        std::vector<const char*> values{"auto"}, labels{"Auto"};
+        for (std::size_t i = 0; i < release.language_count; ++i)
         {
-            const char* values[] = {"auto", "english", "french", "spanish"};
-            int selected = -1;
-            for (int i = 0; i < 4; ++i) if (draft_.language == values[i]) selected = i;
-            if (Segmented("##language_choice", &selected, {"Auto", "English", "French", "Spanish"}, width))
-            { draft_.language = values[selected]; dirty_ = true; }
-            if (selected < 0)
-                TextWrappedColored(CurrentFonts().caption, color::warning,
-                                   "The saved language is not available in this release. Choose one above.");
-            return;
+            values.push_back(release.languages[i].value);
+            labels.push_back(release.languages[i].label);
         }
-        struct Entry { const char* value; const char* name; };
-        std::vector<Entry> entries{{"auto", "Automatic"}};
-        if (id == "R4QP01")
-            entries.insert(entries.end(), {{"english", "English"}, {"french", "French"}, {"spanish", "Spanish"},
-                                           {"german", "German"}, {"italian", "Italian"}});
-        else if (id == "R4QJ01") entries.push_back({"japanese", "Japanese"});
-        const char* preview = draft_.language.c_str();
-        for (const auto& entry : entries) if (draft_.language == entry.value) preview = entry.name;
-        ImGui::SetNextItemWidth(width);
-        if (ImGui::BeginCombo("##language_combo", preview))
-        {
-            for (const auto& entry : entries)
-                if (ImGui::Selectable(entry.name, draft_.language == entry.value))
-                { draft_.language = entry.value; dirty_ = true; }
-            ImGui::EndCombo();
-        }
+        int selected = -1;
+        for (std::size_t i = 0; i < values.size(); ++i) if (draft_.language == values[i]) selected = int(i);
+        if (Segmented("##language_choice", &selected, labels, ImGui::GetContentRegionAvail().x))
+        { draft_.language = values[selected]; dirty_ = true; }
+        const auto choice = ChooseLanguage(release, draft_.language, pc_languages_);
+        if (selected < 0)
+            TextWrappedColored(CurrentFonts().caption, color::warning,
+                               ("The saved language is not available in this version; the game uses Automatic ("
+                                + std::string(choice.language->label) + "). Choose one above.").c_str());
+        else if (choice.automatic)
+            TextWrappedColored(CurrentFonts().caption, color::muted,
+                               ("Automatic: " + std::string(choice.language->label) + ".").c_str());
     }
 
     void DisplayPage()
@@ -4184,6 +4191,8 @@ private:
     bool pending_ = false;
     bool region_prompt_ = false;
     DiscCheck check_;
+    // The PC's languages, for Automatic (read once).
+    std::vector<std::string> pc_languages_ = mscharged::platform::PcLanguages();
     std::future<DiscCheck> future_;
     // The background search for a disc image when none is chosen.
     std::future<launcher::DiscSearchResult> search_;

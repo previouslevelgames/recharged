@@ -1,21 +1,24 @@
 From: mscharged-port native preparation
 Subject: [PATCH] Preserve original retail HBM assertions and lower native debug hardware
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp b/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp
+index bce1a33..21ad96e 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp
 +++ b/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp
-@@ -1,5 +1,11 @@
+@@ -1,6 +1,12 @@
  #ifndef REVOLUTION_HBM_ASSERT_HPP
  #define REVOLUTION_HBM_ASSERT_HPP
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/hbm_debug_abi.h"
 +#include <cstdint>
 +#include <cinttypes>
 +#endif
- 
++
  /*******************************************************************************
   * NW4HBMAssert/NW4HBMCheck base macros
+  */
 @@ -49,26 +55,49 @@
  #define NW4HBMWarningMessage(...) NW4HBMCheckMessage_FileLine(__FILE__, __LINE__, false, __VA_ARGS__)
  
@@ -82,6 +85,38 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  // PointerValid
  #define NW4HBMAssertPointerValid_Line(ptr_, line_)                          \
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
+index bb4d0ee..bb8bc00 100644
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
+@@ -18,8 +18,13 @@ public:
+     void Set(const char* stream) {
+         NW4HBMAssertPointerValid_Line(this, 49);
+         NW4HBMAssertPointerValid_Line(stream, 50);
++#if defined(MSCHARGED_NATIVE)
++        NW4HBMAssert_Line(
++            mReadFunc == &CharStrmReader::ReadNextCharUTF8 || mReadFunc == &CharStrmReader::ReadNextCharCP1252 || mReadFunc == &CharStrmReader::ReadNextCharSJIS, 53);
++#else
+         NW4HBMAssert_Line(
+             mReadFunc == ReadNextCharUTF8 || mReadFunc == ReadNextCharCP1252 || mReadFunc == ReadNextCharSJIS, 53);
++#endif
+         mCharStrm = stream;
+     }
+ 
+@@ -27,7 +32,11 @@ public:
+         NW4HBMAssertPointerValid_Line(this, 59);
+         NW4HBMAlign2_Line(stream, 60);
+         NW4HBMAssertPointerValid_Line(stream, 61);
++#if defined(MSCHARGED_NATIVE)
++        NW4HBMAssert_Line(mReadFunc == &CharStrmReader::ReadNextCharUTF16, 62);
++#else
+         NW4HBMAssert_Line(mReadFunc == ReadNextCharUTF16, 62);
++#endif
+         mCharStrm = stream;
+     }
+ 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSLink.h b/libs/RVL_SDK/include/revolution/os/OSLink.h
+index 20c5e68..af1bb65 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSLink.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSLink.h
 @@ -7,6 +7,9 @@
@@ -94,7 +129,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  typedef u32 OSModuleID;
  typedef struct OSModuleLink OSModuleLink;
  typedef struct OSModuleInfo OSModuleInfo;
-@@ -34,6 +37,8 @@
+@@ -34,6 +37,8 @@ struct OSSectionInfo {
  
  #define OSGetSectionInfo(module) ((OSSectionInfo*)(((OSModuleInfo*)(module))->sectionInfoOffset))
  
@@ -103,6 +138,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  void __OSModuleInit(void);
  
  #ifdef __cplusplus
+diff --git a/src/RVL_SDK/hbm/nw4hbm/db/db_assert.cpp b/src/RVL_SDK/hbm/nw4hbm/db/db_assert.cpp
+index 685cd9c..be07001 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/db/db_assert.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/db/db_assert.cpp
 @@ -10,12 +10,21 @@
@@ -127,7 +164,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  static void WarningAlarmFunc_(OSAlarm* alarm, OSContext* ctx);
  
  static u32 sWarningTime;
-@@ -58,6 +67,25 @@
+@@ -58,6 +67,25 @@ static bool ShowMapInfoSubroutine_(u32 address, bool preCRFlag) {
      return false;
  }
  
@@ -153,7 +190,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  static void ShowStack_(register_t sp) {
      u32 i;
      register_t* p;
-@@ -89,14 +117,19 @@
+@@ -89,14 +117,19 @@ static void ShowStack_(register_t sp) {
          p = reinterpret_cast<register_t*>(*p);
      }
  }
@@ -173,7 +210,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
      OSDisableInterrupts();
  
-@@ -123,7 +156,11 @@
+@@ -123,7 +156,11 @@ DECL_WEAK void VPanic(const char* file, int line, const char* fmt, va_list vlist
          OSReport("\n");
      }
  
@@ -185,20 +222,22 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  // clang-format on
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/db/db_directPrint.cpp b/src/RVL_SDK/hbm/nw4hbm/db/db_directPrint.cpp
+index 1f4fcd7..45efb90 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/db/db_directPrint.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/db/db_directPrint.cpp
-@@ -7,6 +7,10 @@
- 
+@@ -8,6 +8,10 @@
  #include <stdio.h>
  #include "string.h"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstdint>
 +#endif
- 
++
  typedef struct FrameBufferInfo {
      /* 0x00 */ u8* frameMemory;
-@@ -380,9 +384,17 @@
+     /* 0x04 */ u32 frameSize;
+@@ -380,9 +384,17 @@ static void detail::WaitVIRetrace_(void) {
  }
  
  static void* detail::CreateFB_(GXRenderModeObj const* rmode) {
@@ -216,21 +255,23 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
      VIConfigure(rmode);
      VISetNextFrameBuffer(reinterpret_cast<void*>(frameBuf));
+diff --git a/src/RVL_SDK/hbm/nw4hbm/db/db_mapFile.cpp b/src/RVL_SDK/hbm/nw4hbm/db/db_mapFile.cpp
+index 9386ad1..3f062b9 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/db/db_mapFile.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/db/db_mapFile.cpp
-@@ -2,6 +2,11 @@
- 
+@@ -3,6 +3,11 @@
  #include "revolution/dvd.h"
  #include "revolution/os.h"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/hbm_debug_abi.h"
 +#include <cstdint>
 +#endif
- 
++
  #include "revolution/hbm/HBMAssert.hpp"
  
-@@ -101,7 +106,11 @@
+ typedef u8 GetCharFunc(u8 const* buf);
+@@ -101,7 +106,11 @@ static u8 GetCharOnDvd_(u8 const* buf) {
      u32 endOffset;
      s32 blockOffset;
      const s32 bufferOffset = sMapBufOffset;
@@ -242,7 +283,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      s32 offset = address - bufferOffset;
  
      if ((u32)address < sFileLength == false) {
-@@ -127,7 +136,11 @@
+@@ -127,7 +136,11 @@ static u8 GetCharOnDvd_(u8 const* buf) {
  
          len = DVDReadAsyncPrio(&sFileInfo, sMapBuf, size, sMapBufOffset, NULL, 2);
  
@@ -254,7 +295,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
          }
  
          OSRestoreInterrupts(intrStatus);
-@@ -371,10 +384,21 @@
+@@ -371,10 +384,21 @@ static bool QuerySymbolToSingleMapFile_(MapFile* pMapFile, u32 address, u8* strB
          bool ret;
  
          if (DVDFastOpen(pMapFile->fileEntry, &sFileInfo)) {
@@ -276,38 +317,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
              DVDClose(&sFileInfo);
              return ret;
-
---- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
-+++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/CharStrmReader.h
-@@ -18,8 +18,13 @@
-     void Set(const char* stream) {
-         NW4HBMAssertPointerValid_Line(this, 49);
-         NW4HBMAssertPointerValid_Line(stream, 50);
-+#if defined(MSCHARGED_NATIVE)
-+        NW4HBMAssert_Line(
-+            mReadFunc == &CharStrmReader::ReadNextCharUTF8 || mReadFunc == &CharStrmReader::ReadNextCharCP1252 || mReadFunc == &CharStrmReader::ReadNextCharSJIS, 53);
-+#else
-         NW4HBMAssert_Line(
-             mReadFunc == ReadNextCharUTF8 || mReadFunc == ReadNextCharCP1252 || mReadFunc == ReadNextCharSJIS, 53);
-+#endif
-         mCharStrm = stream;
-     }
- 
-@@ -27,7 +32,11 @@
-         NW4HBMAssertPointerValid_Line(this, 59);
-         NW4HBMAlign2_Line(stream, 60);
-         NW4HBMAssertPointerValid_Line(stream, 61);
-+#if defined(MSCHARGED_NATIVE)
-+        NW4HBMAssert_Line(mReadFunc == &CharStrmReader::ReadNextCharUTF16, 62);
-+#else
-         NW4HBMAssert_Line(mReadFunc == ReadNextCharUTF16, 62);
-+#endif
-         mCharStrm = stream;
-     }
- 
+diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
+index 9fa3a45..9d60765 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
-@@ -4,5 +4,8 @@
+@@ -4,6 +4,9 @@
  #include "revolution/hbm/nw4hbm/ut.h"
  
  #include "string.h"
@@ -315,4 +329,5 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +#include <cstring>
 +#endif
  
- extern "C" int stricmp(const char*, const char*);
+ #include "extras.h"
+ 

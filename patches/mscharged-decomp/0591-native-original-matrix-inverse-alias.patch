@@ -1,5 +1,5 @@
 Subject: Map original paired-single matrix inverse to the sole native SDK
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original HOME GUI requests PSMTXInverse during Init. The actual native
 SDK already owns C_MTXInverse; expose its matching u32 signature through
@@ -7,9 +7,11 @@ the existing native-only aliases. Preserve all source algorithms, callers
 and console declarations. Native float arithmetic does not claim exact
 paired-single rounding.
 
+diff --git a/libs/RVL_SDK/include/revolution/mtx/mtx.h b/libs/RVL_SDK/include/revolution/mtx/mtx.h
+index fb1d1ce..0045eca 100644
 --- a/libs/RVL_SDK/include/revolution/mtx/mtx.h
 +++ b/libs/RVL_SDK/include/revolution/mtx/mtx.h
-@@ -44,6 +44,7 @@
+@@ -44,6 +44,7 @@ void C_MTXConcat(const Mtx, const Mtx, Mtx);
  void C_MTXTransApply(const Mtx, Mtx, f32, f32, f32);
  void C_MTXCopy(const Mtx, Mtx);
  u32 C_MTXInvXpose(const Mtx, Mtx);
@@ -17,7 +19,7 @@ paired-single rounding.
  #ifndef PSMTXIdentity
  #define PSMTXIdentity C_MTXIdentity
  #endif
-@@ -65,6 +66,9 @@
+@@ -65,6 +66,9 @@ u32 C_MTXInvXpose(const Mtx, Mtx);
  #ifndef PSMTXCopy
  #define PSMTXCopy C_MTXCopy
  #endif

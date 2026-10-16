@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original font startup and native texture address ABI
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Prepared-preimage: reviewed strict185 source
 
 Default original-module glFont owns its original globals, glyph method and
@@ -10,7 +10,30 @@ order. The sole platform font texture address producer/header/caller uses
 uintptr_t on native hosts, preserving all pointer bits on LP64 and LLP64.
 No game font/resource request, budget, ordering or glyph loop changes.
 
+diff --git a/include/NL/glx/glxFont.h b/include/NL/glx/glxFont.h
+index af8c1bd..d918052 100644
+--- a/include/NL/glx/glxFont.h
++++ b/include/NL/glx/glxFont.h
+@@ -2,10 +2,17 @@
+ #define NL_GLX_GLXFONT_H
+ 
+ #include "types.h"
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#endif
+ 
+ class MemoryAllocator;
+ 
++#if defined(MSCHARGED_NATIVE)
++uintptr_t glplatCreateFont(
++#else
+ u32 glplatCreateFont(
++#endif
+     unsigned long width, unsigned long height, const unsigned short* data,
+     unsigned long handle, MemoryAllocator* allocator);
+ 
 diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
+index 8005b44..79bfd54 100644
 --- a/src/NL/gl/glFont.cpp
 +++ b/src/NL/gl/glFont.cpp
 @@ -15,9 +15,17 @@
@@ -33,11 +56,10 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
  #endif
  
  char sLargeFontName[] __attribute__((aligned(4))) = "font/fixedWidthLarge";
-@@ -30,6 +38,19 @@
+@@ -31,6 +39,19 @@ const char* sSmallFontTextureName = sSmallFontName;
  
  
  
-+
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
 +#include "NL/gl/font_data.h"
 +
@@ -50,10 +72,11 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
 +int sFontCharactersPerRow[4] = { 14, 12, 10, 0 };
 +
 +#endif
- 
++
  const char* sFontTextureNames[4] = { sSmallFontTextureName, sMediumFontTextureName, sLargeFontTextureName };
  glPoly2 sFontPolys[128];
-@@ -49,6 +70,62 @@
+ 
+@@ -49,6 +70,62 @@ bool sFontEnabled;
  bool sFontVirtualCoords;
  
  
@@ -116,14 +139,12 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
  void gl_FontStartup()
  {
      glBeginResource(sFontResourceName);
-@@ -62,9 +139,29 @@
+@@ -62,9 +139,29 @@ void gl_FontStartup()
          unsigned short* image = (unsigned short*)nlMalloc(imageSize, 8, false);
          nlZeroMemory(image, imageSize);
  
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FONT_ATLAS)
          glBuildFixedFontImage(font, image);
--
--        unsigned long platformTexture = glplatCreateFont(width, height, image,
 +#else
 +        int x = 0;
 +        int y = 0;
@@ -138,7 +159,8 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
 +            }
 +        }
 +#endif
-+
+ 
+-        unsigned long platformTexture = glplatCreateFont(width, height, image,
 +#if defined(MSCHARGED_NATIVE)
 +        uintptr_t platformTexture = glplatCreateFont
 +#else
@@ -148,28 +170,8 @@ diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
              texture, (MemoryAllocator*)glGetCurrentResourcePool());
          glRegisterTexture(texture, (PlatTexture*)platformTexture,
              (MemoryAllocator*)glGetCurrentResourcePool());
-diff --git a/include/NL/glx/glxFont.h b/include/NL/glx/glxFont.h
---- a/include/NL/glx/glxFont.h
-+++ b/include/NL/glx/glxFont.h
-@@ -2,10 +2,17 @@
- #define NL_GLX_GLXFONT_H
- 
- #include "types.h"
-+#if defined(MSCHARGED_NATIVE)
-+#include <stdint.h>
-+#endif
- 
- class MemoryAllocator;
- 
-+#if defined(MSCHARGED_NATIVE)
-+uintptr_t glplatCreateFont(
-+#else
- u32 glplatCreateFont(
-+#endif
-     unsigned long width, unsigned long height, const unsigned short* data,
-     unsigned long handle, MemoryAllocator* allocator);
- 
 diff --git a/src/NL/glx/glxFont.cpp b/src/NL/glx/glxFont.cpp
+index 131e84c..dce8909 100644
 --- a/src/NL/glx/glxFont.cpp
 +++ b/src/NL/glx/glxFont.cpp
 @@ -3,7 +3,11 @@
@@ -184,7 +186,7 @@ diff --git a/src/NL/glx/glxFont.cpp b/src/NL/glx/glxFont.cpp
      unsigned long width, unsigned long height, const unsigned short* data,
      unsigned long handle, MemoryAllocator* allocator)
  {
-@@ -12,5 +16,9 @@
+@@ -12,5 +16,9 @@ u32 glplatCreateFont(
      memcpy(pTex->m_LinearData, data, height * (width * 2));
      pTex->Swizzle(true);
      pTex->Prepare();

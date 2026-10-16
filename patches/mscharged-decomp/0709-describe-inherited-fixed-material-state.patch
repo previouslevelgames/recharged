@@ -1,10 +1,12 @@
 From: mscharged-port
 Subject: Describe source-retained fixed material state variants
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/NL/glx/GXFixedLightMaterialProgramRender.cpp b/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
+index 320bb4e..d2755aa 100644
 --- a/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
-@@ -102,6 +102,16 @@
+@@ -102,6 +102,16 @@ void glxPrepareFixedLightPipeline(const glModelPacket& packet)
      BeginAutomaticMaterialVariant(packet);
      ConfigureFixedLightPipelineState(program);
      program->BindVertexArrays(&packet);
@@ -22,96 +24,13 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    }
  }
  #endif
---- a/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
-@@ -81,6 +81,16 @@
+diff --git a/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp b/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
+index 9b83159..22e80a2 100644
+--- a/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
++++ b/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
+@@ -72,6 +72,36 @@ void glxPrepareFourTextureAddPipeline(const glModelPacket& packet)
      BeginAutomaticMaterialVariant(packet);
-     ConfigureThreeLightDiffusePipelineState(program);
-     program->BindVertexArrays(&packet);
--    EmitAutomaticMaterialPipeline(packet);
-+    // These selectors are retained by the source material switch: GXInit
-+    // starts at 1, colour/movie materials leave K0_A, and opacity leaves K1_A.
-+    // They are consumed here, so describe each instead of discarding key state.
-+    const GXTevKAlphaSel selectors[] = {
-+        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
-+    };
-+    for (GXTevKAlphaSel selector : selectors)
-+    {
-+        GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
-+        EmitAutomaticMaterialPipeline(packet);
-+    }
- }
- #endif
---- a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
-@@ -68,6 +68,16 @@
-     BeginAutomaticMaterialVariant(packet);
-     ConfigureUnlitTexturePipelineState(program);
-     program->BindVertexArrays(&packet);
--    EmitAutomaticMaterialPipeline(packet);
-+    // These selectors are retained by the source material switch: GXInit
-+    // starts at 1, colour/movie materials leave K0_A, and opacity leaves K1_A.
-+    // They are consumed here, so describe each instead of discarding key state.
-+    const GXTevKAlphaSel selectors[] = {
-+        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
-+    };
-+    for (GXTevKAlphaSel selector : selectors)
-+    {
-+        GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
-+        EmitAutomaticMaterialPipeline(packet);
-+    }
- }
- #endif
---- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
-@@ -92,6 +92,16 @@
-     ConfigureSkinnedUnlitTexturePipelineState(program);
-     program->BindVertexArrays(&packet);
-     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
--    EmitAutomaticMaterialPipeline(packet);
-+    // These selectors are retained by the source material switch: GXInit
-+    // starts at 1, colour/movie materials leave K0_A, and opacity leaves K1_A.
-+    // They are consumed here, so describe each instead of discarding key state.
-+    const GXTevKAlphaSel selectors[] = {
-+        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
-+    };
-+    for (GXTevKAlphaSel selector : selectors)
-+    {
-+        GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
-+        EmitAutomaticMaterialPipeline(packet);
-+    }
- }
- #endif
---- a/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
-@@ -92,6 +92,21 @@
-     BeginAutomaticMaterialVariant(packet);
-     ConfigureVertexColourDetailBlendPipelineState(program);
-     program->BindVertexArrays(&packet);
--    EmitAutomaticMaterialPipeline(packet);
-+    // The source does not assign these consumed alpha selectors. Crystal
-+    // writes (K0_A,K1_A); TextureBlend and Movie/opacity then change stage 1.
-+    // Nothing restores stage 1 to 1 after Crystal, so there are five pairs.
-+    const GXTevKAlphaSel selectors[][2] = {
-+        {GX_TEV_KASEL_1, GX_TEV_KASEL_1},
-+        {GX_TEV_KASEL_K0_A, GX_TEV_KASEL_1},
-+        {GX_TEV_KASEL_K1_A, GX_TEV_KASEL_1},
-+        {GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A},
-+        {GX_TEV_KASEL_K1_A, GX_TEV_KASEL_K1_A},
-+    };
-+    for (const auto& pair : selectors)
-+    {
-+        GXSetTevKAlphaSel(GX_TEVSTAGE1, pair[0]);
-+        GXSetTevKAlphaSel(GX_TEVSTAGE2, pair[1]);
-+        EmitAutomaticMaterialPipeline(packet);
-+    }
- }
- #endif
---- a/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
-@@ -88,6 +88,19 @@
-     BeginAutomaticMaterialVariant(packet);
-     ConfigureTextureBlendPipelineState(program);
+     ConfigureFourTextureAddPipelineState(program);
      program->BindVertexArrays(&packet);
 -    EmitAutomaticMaterialPipeline(packet);
 +    // Source material switches retain these consumed generators. Scrolling
@@ -123,16 +42,35 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +        {GX_TG_MTX3x4, GX_TG_TEX1},
 +        {GX_TG_SRTG, GX_TG_COLOR0},
 +    };
-+    for (const auto& first : tex1)
++    const InheritedTexGen tex2[] = {
++        {GX_TG_MTX2x4, GX_TG_TEX2},
++        {GX_TG_MTX3x4, GX_TG_TEX2},
++        {GX_TG_MTX2x4, GX_TG_TEX1},
++        {GX_TG_SRTG, GX_TG_COLOR0},
++    };
++    gxSetTexCoordGen(GX_TEXCOORD3, GX_TG_MTX2x4, GX_TG_TEX3, GX_IDENTITY);
++    // Only scrolling detail writes 3x4 and only SkinnedMultiLight writes SRTG;
++    // each writes both generators. Single-generator restores cannot create
++    // (3x4,SRTG) or (SRTG,3x4), so omit those two impossible combinations.
++    const unsigned char pairs[][2] = {
++        {0,0}, {0,1}, {0,2}, {0,3}, {1,0}, {1,1}, {1,2},
++        {2,0}, {2,2}, {2,3},
++    };
++    for (const auto& pair : pairs)
 +    {
++        const auto& first = tex1[pair[0]];
++        const auto& second = tex2[pair[1]];
 +        gxSetTexCoordGen(GX_TEXCOORD1, first.type, first.source, GX_IDENTITY);
++        gxSetTexCoordGen(GX_TEXCOORD2, second.type, second.source, GX_IDENTITY);
 +        EmitAutomaticMaterialPipeline(packet);
 +    }
  }
  #endif
+diff --git a/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp b/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
+index 4f1a11e..07ce1aa 100644
 --- a/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
-@@ -73,6 +73,35 @@
+@@ -73,6 +73,35 @@ void glxPrepareMaskedDiffuseBlendPipeline(const glModelPacket& packet)
      BeginAutomaticMaterialVariant(packet);
      ConfigureMaskedDiffuseBlendPipelineState(program);
      program->BindVertexArrays(&packet);
@@ -169,11 +107,35 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    }
  }
  #endif
---- a/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
-@@ -72,6 +72,36 @@
+diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+index cf429ca..9437507 100644
+--- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+@@ -92,6 +92,16 @@ void glxPrepareSkinnedUnlitTexturePipeline(const glModelPacket& packet)
+     ConfigureSkinnedUnlitTexturePipelineState(program);
+     program->BindVertexArrays(&packet);
+     GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+-    EmitAutomaticMaterialPipeline(packet);
++    // These selectors are retained by the source material switch: GXInit
++    // starts at 1, colour/movie materials leave K0_A, and opacity leaves K1_A.
++    // They are consumed here, so describe each instead of discarding key state.
++    const GXTevKAlphaSel selectors[] = {
++        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
++    };
++    for (GXTevKAlphaSel selector : selectors)
++    {
++        GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
++        EmitAutomaticMaterialPipeline(packet);
++    }
+ }
+ #endif
+diff --git a/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp b/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
+index 98f2cdc..f1a7301 100644
+--- a/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
+@@ -88,6 +88,19 @@ void glxPrepareTextureBlendPipeline(const glModelPacket& packet)
      BeginAutomaticMaterialVariant(packet);
-     ConfigureFourTextureAddPipelineState(program);
+     ConfigureTextureBlendPipelineState(program);
      program->BindVertexArrays(&packet);
 -    EmitAutomaticMaterialPipeline(packet);
 +    // Source material switches retain these consumed generators. Scrolling
@@ -185,26 +147,80 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +        {GX_TG_MTX3x4, GX_TG_TEX1},
 +        {GX_TG_SRTG, GX_TG_COLOR0},
 +    };
-+    const InheritedTexGen tex2[] = {
-+        {GX_TG_MTX2x4, GX_TG_TEX2},
-+        {GX_TG_MTX3x4, GX_TG_TEX2},
-+        {GX_TG_MTX2x4, GX_TG_TEX1},
-+        {GX_TG_SRTG, GX_TG_COLOR0},
-+    };
-+    gxSetTexCoordGen(GX_TEXCOORD3, GX_TG_MTX2x4, GX_TG_TEX3, GX_IDENTITY);
-+    // Only scrolling detail writes 3x4 and only SkinnedMultiLight writes SRTG;
-+    // each writes both generators. Single-generator restores cannot create
-+    // (3x4,SRTG) or (SRTG,3x4), so omit those two impossible combinations.
-+    const unsigned char pairs[][2] = {
-+        {0,0}, {0,1}, {0,2}, {0,3}, {1,0}, {1,1}, {1,2},
-+        {2,0}, {2,2}, {2,3},
-+    };
-+    for (const auto& pair : pairs)
++    for (const auto& first : tex1)
 +    {
-+        const auto& first = tex1[pair[0]];
-+        const auto& second = tex2[pair[1]];
 +        gxSetTexCoordGen(GX_TEXCOORD1, first.type, first.source, GX_IDENTITY);
-+        gxSetTexCoordGen(GX_TEXCOORD2, second.type, second.source, GX_IDENTITY);
++        EmitAutomaticMaterialPipeline(packet);
++    }
+ }
+ #endif
+diff --git a/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
+index cf8cb92..a78773e 100644
+--- a/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
++++ b/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
+@@ -81,6 +81,16 @@ void glxPrepareThreeLightDiffusePipeline(const glModelPacket& packet)
+     BeginAutomaticMaterialVariant(packet);
+     ConfigureThreeLightDiffusePipelineState(program);
+     program->BindVertexArrays(&packet);
+-    EmitAutomaticMaterialPipeline(packet);
++    // These selectors are retained by the source material switch: GXInit
++    // starts at 1, colour/movie materials leave K0_A, and opacity leaves K1_A.
++    // They are consumed here, so describe each instead of discarding key state.
++    const GXTevKAlphaSel selectors[] = {
++        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
++    };
++    for (GXTevKAlphaSel selector : selectors)
++    {
++        GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
++        EmitAutomaticMaterialPipeline(packet);
++    }
+ }
+ #endif
+diff --git a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
+index a6573f0..b59c69f 100644
+--- a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
++++ b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
+@@ -68,6 +68,16 @@ void glxPrepareUnlitTexturePipeline(const glModelPacket& packet)
+     BeginAutomaticMaterialVariant(packet);
+     ConfigureUnlitTexturePipelineState(program);
+     program->BindVertexArrays(&packet);
+-    EmitAutomaticMaterialPipeline(packet);
++    // These selectors are retained by the source material switch: GXInit
++    // starts at 1, colour/movie materials leave K0_A, and opacity leaves K1_A.
++    // They are consumed here, so describe each instead of discarding key state.
++    const GXTevKAlphaSel selectors[] = {
++        GX_TEV_KASEL_1, GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A,
++    };
++    for (GXTevKAlphaSel selector : selectors)
++    {
++        GXSetTevKAlphaSel(GX_TEVSTAGE0, selector);
++        EmitAutomaticMaterialPipeline(packet);
++    }
+ }
+ #endif
+diff --git a/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
+index eb0261c..780f7b9 100644
+--- a/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
++++ b/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
+@@ -92,6 +92,21 @@ void glxPrepareVertexColourDetailBlendPipeline(const glModelPacket& packet)
+     BeginAutomaticMaterialVariant(packet);
+     ConfigureVertexColourDetailBlendPipelineState(program);
+     program->BindVertexArrays(&packet);
+-    EmitAutomaticMaterialPipeline(packet);
++    // The source does not assign these consumed alpha selectors. Crystal
++    // writes (K0_A,K1_A); TextureBlend and Movie/opacity then change stage 1.
++    // Nothing restores stage 1 to 1 after Crystal, so there are five pairs.
++    const GXTevKAlphaSel selectors[][2] = {
++        {GX_TEV_KASEL_1, GX_TEV_KASEL_1},
++        {GX_TEV_KASEL_K0_A, GX_TEV_KASEL_1},
++        {GX_TEV_KASEL_K1_A, GX_TEV_KASEL_1},
++        {GX_TEV_KASEL_K0_A, GX_TEV_KASEL_K1_A},
++        {GX_TEV_KASEL_K1_A, GX_TEV_KASEL_K1_A},
++    };
++    for (const auto& pair : selectors)
++    {
++        GXSetTevKAlphaSel(GX_TEVSTAGE1, pair[0]);
++        GXSetTevKAlphaSel(GX_TEVSTAGE2, pair[1]);
 +        EmitAutomaticMaterialPipeline(packet);
 +    }
  }

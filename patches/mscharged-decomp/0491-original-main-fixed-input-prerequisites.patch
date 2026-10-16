@@ -1,9 +1,11 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Default-off native diagnostic admission of the literal original Flick initializer, StartupAIPads and Fixed task registration at their existing main positions. Requires genuine original network/presentation/pad owners; original algorithms, task priority/mask and source state decisions remain unchanged.
 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 15ec9cc..9adae79 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -651,13 +651,17 @@
+@@ -660,13 +660,17 @@ static void Initialize()
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      gSwappablePadChanged.Add(Function<void(int)>(OnSwappablePadChanged), 0, -1);
@@ -22,7 +24,7 @@ Purpose: Default-off native diagnostic admission of the literal original Flick i
      gTransitionTask.Initialize();
  #endif // unrelated config/script/tasks/audio/world prerequisites
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
-@@ -800,9 +804,9 @@
+@@ -809,9 +813,9 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      nlTaskManager::AddTask(&platPadUpdateTask, 5, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted

@@ -1,6 +1,6 @@
 Subject: Select original animated camera playback with bounded native services
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Compile original interpolation/cuts, transforms, timing and FOV independently
 of the full camera factory. Native owners retain decoded data and provide
@@ -8,92 +8,11 @@ presentation flags, simulation time and focal-distance output explicitly.
 Validate sample indices, deltas and look-at inputs before unsafe arithmetic.
 Raw registry/loading and gameplay service singletons remain unselected.
 
-diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
---- a/src/Game/Camera/animcam.cpp
-+++ b/src/Game/Camera/animcam.cpp
-@@ -256,6 +256,7 @@
-     m_cameraDataList = NULL;
- }
- 
-+#ifndef MSCHARGED_NATIVE
- cAnimCamera::cAnimCamera()
- {
-     m_bUseSimulationTime = false;
-@@ -274,11 +275,15 @@
-     m_bCyclic = true;
-     m_matView.SetIdentity();
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- cAnimCamera::~cAnimCamera()
- {
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
- {
-     m_fAnimationTime = fTime;
-@@ -287,14 +292,18 @@
-         BuildAnimViewMatrix(m_matView);
-     }
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- static inline float CameraKeyDistanceSquared(const nlVector3& first, const nlVector3& second)
- {
-     nlVector3 delta;
-     nlVec3Sub(delta, first, second);
-     return delta.GetLengthSq3D();
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
- {
-     float fRealIndex = m_fAnimationTime * (float)(m_pActiveCameraData->m_uKeyCount - 1);
-@@ -402,6 +411,7 @@
-     m_FocalLength = dofBehindTarget * fScale + focalLength;
-     DepthOfFieldManager::instance.m_fDistanceFromCamera = m_FocalLength;
- }
-+#endif
- 
- void cAnimCamera::UnselectCameraAnimation()
- {
-@@ -428,6 +438,7 @@
-     BuildAnimViewMatrix(m_matView);
- }
- 
-+#ifndef MSCHARGED_NATIVE
- void cAnimCamera::Update(float dt)
- {
-     if (!m_LetManagerDoUpdate)
-@@ -436,7 +447,9 @@
-     }
-     ManualUpdate(dt);
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- float cAnimCamera::ManualUpdate(float dt)
- {
-     float overrun = 0.0f;
-@@ -483,3 +496,4 @@
-     BuildAnimViewMatrix(m_matView);
-     return overrun;
- }
-+#endif
 diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
+index 159428b..5ef2752 100644
 --- a/src/Game/AI/AiUtil.cpp
 +++ b/src/Game/AI/AiUtil.cpp
-@@ -308,6 +308,7 @@
+@@ -308,6 +308,7 @@ float GetClosingSpeed(const nlVector3& pos1, const nlVector3& vel1, const nlVect
      return nlVec3DotProduct(delta, vel1) - nlVec3DotProduct(delta, vel2);
  }
  
@@ -101,18 +20,17 @@ diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
  void GetLocalPoint(nlVector3& v3LocalPointOut, const nlVector3& v3WorldPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
  {
      float fSin; // r1+0xC
-@@ -321,7 +322,9 @@
+@@ -321,7 +322,9 @@ void GetLocalPoint(nlVector3& v3LocalPointOut, const nlVector3& v3WorldPointIn,
      v3LocalPointOut.y = (fCos * dy) - (fSin * dx);
      v3LocalPointOut.z = v3WorldPointIn.z;
  }
--
 +#endif
-+
+ 
 +#ifndef MSCHARGED_NATIVE
  void GetWorldPoint(nlVector3& v3WorldPointOut, const nlVector3& v3LocalPointIn, const nlVector3& v3RefPosition, unsigned short aRefAngle)
  {
      f32 fSin;
-@@ -336,6 +339,7 @@
+@@ -336,6 +339,7 @@ void GetWorldPoint(nlVector3& v3WorldPointOut, const nlVector3& v3LocalPointIn,
      v3WorldPointOut.y = v3RefPosition.y + ((fCos * localY) + (fSin * localX));
      v3WorldPointOut.z = v3LocalPointIn.z;
  }
@@ -122,6 +40,7 @@ diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
  {
 diff --git a/src/Game/Camera/AnimatedCameraNative.cpp b/src/Game/Camera/AnimatedCameraNative.cpp
 new file mode 100644
+index 0000000..e4a257d
 --- /dev/null
 +++ b/src/Game/Camera/AnimatedCameraNative.cpp
 @@ -0,0 +1,245 @@
@@ -370,3 +289,81 @@ new file mode 100644
 +    BuildAnimViewMatrix(m_matView);
 +    return overrun;
 +}
+diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+index f1669d1..82bb98c 100644
+--- a/src/Game/Camera/animcam.cpp
++++ b/src/Game/Camera/animcam.cpp
+@@ -256,6 +256,7 @@ void cAnimCamera::FreeCameraAnimations()
+     m_cameraDataList = NULL;
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ cAnimCamera::cAnimCamera()
+ {
+     m_bUseSimulationTime = false;
+@@ -274,11 +275,15 @@ cAnimCamera::cAnimCamera()
+     m_bCyclic = true;
+     m_matView.SetIdentity();
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ cAnimCamera::~cAnimCamera()
+ {
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
+ {
+     m_fAnimationTime = fTime;
+@@ -287,14 +292,18 @@ void cAnimCamera::SetAnimationTime(float fTime, bool bUpdateView)
+         BuildAnimViewMatrix(m_matView);
+     }
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ static inline float CameraKeyDistanceSquared(const nlVector3& first, const nlVector3& second)
+ {
+     nlVector3 delta;
+     nlVec3Sub(delta, first, second);
+     return delta.GetLengthSq3D();
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
+ {
+     float fRealIndex = m_fAnimationTime * (float)(m_pActiveCameraData->m_uKeyCount - 1);
+@@ -402,6 +411,7 @@ void cAnimCamera::BuildAnimViewMatrix(nlMatrix4& mView)
+     m_FocalLength = dofBehindTarget * fScale + focalLength;
+     DepthOfFieldManager::instance.m_fDistanceFromCamera = m_FocalLength;
+ }
++#endif
+ 
+ void cAnimCamera::UnselectCameraAnimation()
+ {
+@@ -428,6 +438,7 @@ void cAnimCamera::SelectCameraAnimation(const char* name)
+     BuildAnimViewMatrix(m_matView);
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void cAnimCamera::Update(float dt)
+ {
+     if (!m_LetManagerDoUpdate)
+@@ -436,7 +447,9 @@ void cAnimCamera::Update(float dt)
+     }
+     ManualUpdate(dt);
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ float cAnimCamera::ManualUpdate(float dt)
+ {
+     float overrun = 0.0f;
+@@ -483,3 +496,4 @@ float cAnimCamera::ManualUpdate(float dt)
+     BuildAnimViewMatrix(m_matView);
+     return overrun;
+ }
++#endif

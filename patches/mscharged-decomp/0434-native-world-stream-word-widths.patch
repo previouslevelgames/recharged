@@ -1,11 +1,12 @@
 Subject: Read original world-stream scalar words as four-byte big endian
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Adapt only three original serialized word expressions beneath LoadObjects.
 Preserve all branches, callbacks, class selection, raw cursor increments,
 counters and native object/context members. Native placement remains held.
 
 diff --git a/src/Game/world.cpp b/src/Game/world.cpp
+index 129bcb2..98b85c6 100644
 --- a/src/Game/world.cpp
 +++ b/src/Game/world.cpp
 @@ -17,6 +17,9 @@
@@ -18,7 +19,7 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
  
  class WorldUpdateObject
  {
-@@ -237,13 +240,25 @@
+@@ -237,13 +240,25 @@ bool World::LoadObjects(
      context.m_uNumObjectsLoaded = 0;
      context.m_pParent = 0;
  
@@ -26,9 +27,8 @@ diff --git a/src/Game/world.cpp b/src/Game/world.cpp
 +    for (; i < mscharged::platform::ReadWorldRecordWireWord(pData); ++i)
 +#else
      for (; i < *(unsigned long*)pData; ++i)
--    {
 +#endif
-+    {
+     {
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +        unsigned long uType = mscharged::platform::ReadWorldRecordWireWord(context.m_pObject + 8);
 +#else

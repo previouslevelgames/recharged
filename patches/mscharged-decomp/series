@@ -216,7 +216,6 @@
 0262-native-registry-offset-words.patch
 0263-restore-original-camera-scalar-providers.patch
 0267-restore-original-animation-controller-provider.patch
-0279-restore-original-loading-scene-handlers.patch
 0276-restore-original-front-end-buttons.patch
 0280-retain-original-vertex-animation-native-records.patch
 0281-native-stadium-singleton-declaration.patch
@@ -225,7 +224,6 @@
 0283-transport-original-rlg-geometry-bytes.patch
 0286-native-page-control-scalar-context.patch
 0288-restore-original-save-provider.patch
-0290-restore-whole-original-user-options.patch
 0287-restore-original-effects-material-parameters.patch
 0289-native-save-icon-data.patch
 0271-preserve-original-audio-script-word-and-endian-abi.patch
@@ -266,7 +264,6 @@
 0334-native-original-audio-owner-fields-and-emission.patch
 0340-native-original-audio-pool-teardown-strides.patch
 0335-native-original-network-thread-backing.patch
-0343-original-npc-template-flow-and-native-allocation.patch
 0344-original-frontend-camera-services-diagnostic.patch
 0347-native-original-hierarchy-data-transport.patch
 0348-native-world-effect-size-assertion-scope.patch
@@ -315,7 +312,6 @@
 0422-original-clean-boot-source-admission.patch
 0427-native-skin-bind-records.patch
 0429-adapt-original-multi-and-shadowed-writer-streams.patch
-0430-native-system-simple-address-api.patch
 0431-native-rfl-middle-db-backing.patch
 0433-native-rfl-wait-owner-progress.patch
 0438-native-rfl-character-model-backing.patch
@@ -491,7 +487,6 @@
 0687-seed-and-physics-setup.patch
 0688-native-llp64-resource-markers.patch
 0689-native-resource-pool-header-headroom.patch
-0690-temporary-desire-update-result-codes.patch
 0691-so-header-ostime-fwd.patch
 0692-change-debug-lan-ports.patch
 0693-native-online-player-count-context-words.patch
@@ -516,3 +511,6 @@
 0712-prepare-shadow-and-opacity-continuations.patch
 0713-delay-frontend-model-publication-until-prepared.patch
 0714-release-destroyed-target-copies.patch
+0715-native-disc-message-image-storage.patch
+0716-native-eu-goalie-launch-scale.patch
+0717-native-flash-widths-and-c-library-declarations.patch

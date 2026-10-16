@@ -1,15 +1,16 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve RFL fog arguments and MSL float constant on native compilers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use the canonical native GX fog argument order without changing values.
 Retain the original MSL float M_PI rather than the host double constant.
 The original console source expansion remains exact.
 
 diff --git a/src/RVL_SDK/rfl/RFL_MakeTex.c b/src/RVL_SDK/rfl/RFL_MakeTex.c
+index bb062d8..07a3426 100644
 --- a/src/RVL_SDK/rfl/RFL_MakeTex.c
 +++ b/src/RVL_SDK/rfl/RFL_MakeTex.c
-@@ -1,10 +1,19 @@
+@@ -1,12 +1,21 @@
  #include <RVLFaceLib/RVLFaceLibInternal.h>
  
  #include <math.h>
@@ -21,10 +22,12 @@ diff --git a/src/RVL_SDK/rfl/RFL_MakeTex.c b/src/RVL_SDK/rfl/RFL_MakeTex.c
  
  void RFLiSetupCopyTex(GXTexFmt fmt, u16 width, u16 height, void* buffer,
                        GXColor clearColor) {
+     GXColor fogColor = {0, 0, 0, 0};
+ 
 +#if defined(MSCHARGED_NATIVE)
-+    GXSetFog(GX_FOG_NONE, 1.0f, 1.0f, 0.0f, 0.0f, (GXColor){0, 0, 0, 0});
++    GXSetFog(GX_FOG_NONE, 1.0f, 1.0f, 0.0f, 0.0f, fogColor);
 +#else
-     GXSetFog(GX_FOG_NONE, (GXColor){0, 0, 0, 0}, 1.0f, 1.0f, 0.0f, 0.0f);
+     GXSetFog(GX_FOG_NONE, fogColor, 1.0f, 1.0f, 0.0f, 0.0f);
 +#endif
      GXSetColorUpdate(TRUE);
      GXSetAlphaUpdate(TRUE);

@@ -1,28 +1,28 @@
 Subject: Preserve native list entry handles at pointer width
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Project native node-address carriers to uintptr_t, including pointer outputs.
 Retain the original unsigned-long spelling in the console projection and all
 original ring, list, allocator, null-output and destruction decisions.
 
 diff --git a/include/NL/nlDLListContainer.h b/include/NL/nlDLListContainer.h
+index d8f92b4..79b3700 100644
 --- a/include/NL/nlDLListContainer.h
 +++ b/include/NL/nlDLListContainer.h
-@@ -59,9 +59,9 @@
+@@ -59,9 +59,9 @@ public:
  
      inline DLListEntry<T>* Allocate(const T& data);
  
 -    inline unsigned long AddEnd(const T& data);
--
--    inline unsigned long AddAfter(nlDLListIterator<T>& position, const T& data);
 +    inline NL_LIST_ENTRY_HANDLE AddEnd(const T& data);
-+
+ 
+-    inline unsigned long AddAfter(nlDLListIterator<T>& position, const T& data);
 +    inline NL_LIST_ENTRY_HANDLE AddAfter(nlDLListIterator<T>& position, const T& data);
  
      inline void AddStart(const T& data);
  
-@@ -87,7 +87,7 @@
+@@ -87,7 +87,7 @@ public:
  
      inline u32 CountElements() const;
  
@@ -31,20 +31,19 @@ diff --git a/include/NL/nlDLListContainer.h b/include/NL/nlDLListContainer.h
  
      struct WalkCallback
      {
-@@ -123,9 +123,9 @@
+@@ -123,9 +123,9 @@ public:
  
      inline DLListEntry<T>* Allocate(const T& data);
  
 -    inline unsigned long AddEnd(const T& data);
--
--    inline unsigned long AddAfter(nlDLListIterator<T>& position, const T& data);
 +    inline NL_LIST_ENTRY_HANDLE AddEnd(const T& data);
-+
+ 
+-    inline unsigned long AddAfter(nlDLListIterator<T>& position, const T& data);
 +    inline NL_LIST_ENTRY_HANDLE AddAfter(nlDLListIterator<T>& position, const T& data);
  
      inline void AddStart(const T& data);
  
-@@ -143,7 +143,7 @@
+@@ -143,7 +143,7 @@ public:
  
      inline bool IsEmpty() const;
  
@@ -54,9 +53,10 @@ diff --git a/include/NL/nlDLListContainer.h b/include/NL/nlDLListContainer.h
      struct WalkCallback
      {
 diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
+index 22f0116..56b5bcc 100644
 --- a/include/NL/nlDLListContainer.inl
 +++ b/include/NL/nlDLListContainer.inl
-@@ -128,19 +128,19 @@
+@@ -128,19 +128,19 @@ inline DLListEntry<T>* DLListContainerBase<T, Adapter>::Allocate(const T& data)
  }
  
  template <typename T, typename Adapter>
@@ -66,14 +66,11 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
      DLListEntry<T>* entry = Allocate(data);
      nlDLRingAddEnd(&m_Head, entry);
 -    return (unsigned long)entry;
--}
--
--template <typename T, typename Adapter>
--inline unsigned long DLListContainerBase<T, Adapter>::AddAfter(nlDLListIterator<T>& position, const T& data)
 +    return (NL_LIST_ENTRY_HANDLE)entry;
-+}
-+
-+template <typename T, typename Adapter>
+ }
+ 
+ template <typename T, typename Adapter>
+-inline unsigned long DLListContainerBase<T, Adapter>::AddAfter(nlDLListIterator<T>& position, const T& data)
 +inline NL_LIST_ENTRY_HANDLE DLListContainerBase<T, Adapter>::AddAfter(nlDLListIterator<T>& position, const T& data)
  {
      DLListEntry<T>* entry = Allocate(data);
@@ -83,7 +80,7 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
  }
  
  template <typename T, typename Adapter>
-@@ -276,19 +276,19 @@
+@@ -276,19 +276,19 @@ inline DLListEntry<T>* DLListContainerBase<T, Adapter&>::Allocate(const T& data)
  }
  
  template <typename T, typename Adapter>
@@ -93,14 +90,11 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
      DLListEntry<T>* entry = Allocate(data);
      nlDLRingAddEnd(&m_Head, entry);
 -    return (unsigned long)entry;
--}
--
--template <typename T, typename Adapter>
--inline unsigned long DLListContainerBase<T, Adapter&>::AddAfter(nlDLListIterator<T>& position, const T& data)
 +    return (NL_LIST_ENTRY_HANDLE)entry;
-+}
-+
-+template <typename T, typename Adapter>
+ }
+ 
+ template <typename T, typename Adapter>
+-inline unsigned long DLListContainerBase<T, Adapter&>::AddAfter(nlDLListIterator<T>& position, const T& data)
 +inline NL_LIST_ENTRY_HANDLE DLListContainerBase<T, Adapter&>::AddAfter(nlDLListIterator<T>& position, const T& data)
  {
      DLListEntry<T>* entry = Allocate(data);
@@ -110,7 +104,7 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
  }
  
  template <typename T, typename Adapter>
-@@ -357,7 +357,7 @@
+@@ -357,7 +357,7 @@ inline bool DLListContainerBase<T, Adapter&>::IsEmpty() const
  }
  
  template <typename T, typename Adapter>
@@ -119,7 +113,7 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
  {
      DLListEntry<T>* result;
      m_Allocator->Allocate(result);
-@@ -366,7 +366,7 @@
+@@ -366,7 +366,7 @@ inline T* DLListContainerBase<T, Adapter&>::AllocateAtEnd(unsigned long* outEntr
  
      if (outEntry != 0)
      {
@@ -128,7 +122,7 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
      }
  
      return &result->entry;
-@@ -444,7 +444,7 @@
+@@ -444,7 +444,7 @@ inline BorrowedDLListSlotPool<T>::BorrowedDLListSlotPool(BasicSlotPool<DLListEnt
  
  template <typename T, typename Adapter>
  inline T* DLListContainerBase<T, Adapter>::AllocateAtEnd(
@@ -137,7 +131,7 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
  {
      DLListEntry<T>* result;
      m_Allocator.Allocate(result);
-@@ -453,7 +453,7 @@
+@@ -453,7 +453,7 @@ inline T* DLListContainerBase<T, Adapter>::AllocateAtEnd(
  
      if (outEntry != 0)
      {
@@ -147,12 +141,13 @@ diff --git a/include/NL/nlDLListContainer.inl b/include/NL/nlDLListContainer.inl
  
      return &result->entry;
 diff --git a/include/NL/nlListContainer.h b/include/NL/nlListContainer.h
+index e4d4d43..177d2c3 100644
 --- a/include/NL/nlListContainer.h
 +++ b/include/NL/nlListContainer.h
-@@ -1,5 +1,13 @@
+@@ -1,6 +1,14 @@
  #ifndef NL_NL_LIST_CONTAINER_H
  #define NL_NL_LIST_CONTAINER_H
-+
+ 
 +// Entry handles are native node addresses, not serialized Wii words.
 +#if defined(MSCHARGED_NATIVE)
 +#include <stdint.h>
@@ -160,10 +155,11 @@ diff --git a/include/NL/nlListContainer.h b/include/NL/nlListContainer.h
 +#else
 +#define NL_LIST_ENTRY_HANDLE unsigned long
 +#endif
- 
++
  template <typename T>
  class nlListConstIterator;
-@@ -158,7 +166,7 @@
+ 
+@@ -158,7 +166,7 @@ public:
          return &m_Head->entry;
      }
  
@@ -172,7 +168,7 @@ diff --git a/include/NL/nlListContainer.h b/include/NL/nlListContainer.h
  
      /* 0x00 */ Adapter m_Allocator;
      /* 0x04 */ ListEntry<T>* m_Head;
-@@ -245,7 +253,7 @@
+@@ -245,7 +253,7 @@ inline nlListConstIterator<T> ListContainerBase<T, Adapter>::Begin() const
  
  template <typename T, typename Adapter>
  inline T* ListContainerBase<T, Adapter>::AllocateAtEnd(
@@ -181,7 +177,7 @@ diff --git a/include/NL/nlListContainer.h b/include/NL/nlListContainer.h
  {
      ListEntry<T> value;
      ListEntry<T>* result = m_Allocator.Allocate();
-@@ -254,7 +262,7 @@
+@@ -254,7 +262,7 @@ inline T* ListContainerBase<T, Adapter>::AllocateAtEnd(
  
      if (outEntry != 0)
      {

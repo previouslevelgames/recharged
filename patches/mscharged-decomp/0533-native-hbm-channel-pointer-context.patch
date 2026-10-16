@@ -1,6 +1,8 @@
 # Native original Channel pointer callback carrier; serialized/audio IDs remain u32.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Channel.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Channel.h
+index f82d4d5..7571463 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Channel.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Channel.h
 @@ -17,6 +17,13 @@
@@ -17,7 +19,7 @@
  namespace nw4hbm {
  namespace snd {
  namespace detail {
-@@ -29,7 +36,7 @@
+@@ -29,7 +36,7 @@ public:
          CALLBACK_STATUS_CANCEL
      } ChannelCallbackStatus;
  
@@ -26,7 +28,7 @@
  
      typedef enum LfoTarget {
          LFO_TARGET_PITCH = 0,
-@@ -41,7 +48,7 @@
+@@ -41,7 +48,7 @@ public:
      Channel();
      ~Channel();
  
@@ -35,7 +37,7 @@
      void Update(bool doPeriodicProc);
      void Start(const WaveData& waveData, s32 length);
      void Release();
-@@ -120,7 +127,7 @@
+@@ -120,7 +127,7 @@ public:
      void SetNextTrackChannel(Channel* channel) { mNextLink = channel; }
  
      static void UpdateAllChannel();
@@ -44,7 +46,7 @@
      static void FreeChannel(Channel* channel);
  
      static void VoiceCallback(AxVoice* voice, AxVoice::CallbackStatus status, void* arg);
-@@ -167,7 +174,7 @@
+@@ -167,7 +174,7 @@ private:
      /* 0xD0 */ int mOriginalKey;
      /* 0xD4 */ s32 mLength;
      /* 0xD8 */ ChannelCallback mCallback;
@@ -53,9 +55,11 @@
      /* 0xE0 */ AxVoice* mVoice;
      /* 0xE4 */ Channel* mNextLink;
  
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
+index 4c7c310..e10d3ca 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
-@@ -18,7 +18,7 @@
+@@ -18,7 +18,7 @@ typedef struct NoteOnInfo {
      /* 0x14 */ int priority;
      /* 0x18 */ int voiceOutCount;
      /* 0x1C */ Channel::ChannelCallback channelCallback;
@@ -64,9 +68,11 @@
  };
  
  class SeqPlayer;
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqTrack.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqTrack.h
+index 1ac5a72..ddbde77 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqTrack.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqTrack.h
-@@ -129,7 +129,7 @@
+@@ -129,7 +129,7 @@ private:
      static const int DEFAULT_VARIABLE_VALUE = -1;
  
  private:
@@ -75,9 +81,11 @@
  
  private:
      /* 0x04 */ u8 mPlayerTrackNo;
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
+index 01432d0..5ca6519 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
-@@ -48,7 +48,7 @@
+@@ -48,7 +48,7 @@ public:
      int Parse(const WsdCallback* callback, u32 callbackData, bool doNoteOn);
      int ParseNextTick(const WsdCallback* callback, u32 callbackData, bool doNoteOn);
  
@@ -86,9 +94,11 @@
  
      const void* GetWsdDataAddress() const { return mWsdData; }
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
+index f7eda8e..67b95a3 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
-@@ -23,7 +23,7 @@
+@@ -23,7 +23,7 @@ Channel::Channel() :
  
  Channel::~Channel() { ChannelManager::GetInstance().Remove(this); }
  
@@ -97,7 +107,7 @@
      mNextLink = NULL;
  
      mCallback = callback;
-@@ -329,7 +329,7 @@
+@@ -329,7 +329,7 @@ void Channel::VoiceCallback(AxVoice* voice, AxVoice::CallbackStatus status, void
      ChannelManager::GetInstance().Free(channel);
  }
  
@@ -106,9 +116,11 @@
      NW4HBMAssertHeaderClampedLRValue_Line(priority, 0, 255, 505);
      ut::AutoInterruptLock lock;
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
+index e56f679..e3f9472 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
-@@ -295,7 +295,7 @@
+@@ -295,7 +295,7 @@ void SeqTrack::FreeAllChannel() {
      mChannelList = NULL;
  }
  
@@ -117,7 +129,7 @@
      SeqTrack* track = reinterpret_cast<SeqTrack*>(arg);
      NW4HBMAssertPointerNonnull_Line(dropChannel, 521);
      NW4HBMAssertPointerNonnull_Line(track, 522);
-@@ -472,7 +472,7 @@
+@@ -472,7 +472,7 @@ Channel* SeqTrack::NoteOn(int key, int velocity, s32 portatime, bool tie) {
                  GetParserTrackParam().priority,
              mSeqPlayer->GetVoiceOutCount(), // voiceOuCount
              ChannelCallbackFunc, // channelCallback
@@ -126,9 +138,11 @@
          };
  
          channel = mSeqPlayer->NoteOn(mParserTrackParam.bankNo, info);
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
+index cfc6791..5a89d94 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
-@@ -215,7 +215,7 @@
+@@ -215,7 +215,7 @@ int WsdTrack::Parse(const WsdCallback* callback, u32 callbackData, bool doNoteOn
          Channel* channel;
          channel =
              Channel::AllocChannel(ut::Min(static_cast<int>(waveData.numChannels), 2), mWsdPlayer->GetVoiceOutCount(),
@@ -137,7 +151,7 @@
          if (channel == NULL) {
              return -1;
          }
-@@ -238,7 +238,7 @@
+@@ -238,7 +238,7 @@ int WsdTrack::Parse(const WsdCallback* callback, u32 callbackData, bool doNoteOn
      return 0;
  }
  

@@ -1,5 +1,5 @@
 Subject: Key native GL inventories by the Wii 32-bit handle value
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native ABI adaptation (integer width); no game decision changes.
 
 GLInventory keys its model/texture/animation/skin trees by unsigned long,
@@ -12,6 +12,7 @@ handles, but natively an int hash passed as a key sign-extends while a
 builds; each console statement is unchanged.
 
 diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
+index 3aa1dea..9a62144 100644
 --- a/src/Game/GL/GLInventory.cpp
 +++ b/src/Game/GL/GLInventory.cpp
 @@ -16,6 +16,17 @@
@@ -32,7 +33,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
  GLResourceChunkLoader::GLResourceChunkLoader(
      GLResourcePool* pResource, int textureBundleMode)
  {
-@@ -200,7 +211,11 @@
+@@ -200,7 +211,11 @@ void GLInventory::ResourceRelease(int nLevel)
  void GLInventory::AddModel(
      unsigned long key, glModel* model)
  {
@@ -44,7 +45,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
      glModel* value = model;
      clearing_GLInventory<glModel>::Tree* pTree = m_pModels[m_nLevel]->m_pItems;
      pTree->Add(k, value);
-@@ -210,7 +225,11 @@
+@@ -210,7 +225,11 @@ glModel* GLInventory::GetModel(unsigned long id)
  {
      for (int i = m_nLevel; i >= 0; i--)
      {
@@ -56,7 +57,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
          glModel** pResult;
          bool found = m_pModels[i]->m_pItems->FindGet(key, &pResult);
          glModel* result;
-@@ -226,7 +245,11 @@
+@@ -226,7 +245,11 @@ glModel* GLInventory::GetModel(unsigned long id)
  
  void GLInventory::AddTexture(unsigned long key, PlatTexture* texture)
  {
@@ -68,7 +69,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
      PlatTexture* value = texture;
      clearing_GLInventory<PlatTexture>::Tree* pTree = m_pTextures[m_nLevel]->m_pItems;
      pTree->Add(k, value);
-@@ -236,7 +259,11 @@
+@@ -236,7 +259,11 @@ PlatTexture* GLInventory::GetTexture(unsigned long id)
  {
      for (int i = m_nLevel; i >= 0; i--)
      {
@@ -80,7 +81,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
          PlatTexture** pResult;
          bool found = m_pTextures[i]->m_pItems->FindGet(key, &pResult);
          PlatTexture* result;
-@@ -252,7 +279,11 @@
+@@ -252,7 +279,11 @@ PlatTexture* GLInventory::GetTexture(unsigned long id)
  
  void GLInventory::AddTextureAnim(unsigned long key, GLTextureAnim* anim)
  {
@@ -92,7 +93,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
      GLTextureAnim* value = anim;
      clearing_GLInventory<GLTextureAnim>::Tree* pTree = m_pTextureAnims[m_nLevel]->m_pItems;
      pTree->Add(k, value);
-@@ -262,7 +293,11 @@
+@@ -262,7 +293,11 @@ GLTextureAnim* GLInventory::GetTextureAnim(unsigned long id)
  {
      for (int i = m_nLevel; i >= 0; i--)
      {
@@ -104,7 +105,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
          GLTextureAnim** foundValue;
          bool found =
              m_pTextureAnims[i]->m_pItems->FindGet(key, &foundValue);
-@@ -292,7 +327,11 @@
+@@ -292,7 +327,11 @@ void UpdateTextureAnimCallback::Update(
  
  void GLInventory::AddVertexAnim(unsigned long key, GLVertexAnim* vertexAnim)
  {
@@ -116,7 +117,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
      GLVertexAnim* value = vertexAnim;
      deleting_GLInventoryContainer<GLVertexAnim>::Tree* pTree =
          m_pVertexAnims[m_nLevel]->m_pItems;
-@@ -303,7 +342,11 @@
+@@ -303,7 +342,11 @@ GLVertexAnim* GLInventory::GetVertexAnim(unsigned long id)
  {
      for (int i = m_nLevel; i >= 0; i--)
      {
@@ -128,7 +129,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
          GLVertexAnim** pResult;
          bool found = m_pVertexAnims[i]->m_pItems->FindGet(key, &pResult);
          GLVertexAnim* result;
-@@ -332,7 +375,11 @@
+@@ -332,7 +375,11 @@ void UpdateVertexAnimCallback::Update(
  
  void GLInventory::AddSkinData(unsigned long key, nlChunk* skinData)
  {
@@ -140,7 +141,7 @@ diff --git a/src/Game/GL/GLInventory.cpp b/src/Game/GL/GLInventory.cpp
      nlChunk* skinData2 = skinData;
      freeing_GLInventoryContainer<nlChunk>* pSkinData =
          m_pSkinData[m_nLevel];
-@@ -351,7 +398,11 @@
+@@ -351,7 +398,11 @@ GLSkinMesh* GLInventory::MakeSkinMesh(
              int i;
              for (i = self->m_nLevel; i >= 0; i--)
              {

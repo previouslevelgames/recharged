@@ -1,14 +1,15 @@
 Subject: [PATCH] Retain original authored game material vertex formats
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Game modules consume the original raw S8/6 normals and S16/10 UV streams.
 Earlier float-format alternatives remain scoped to standalone diagnostics.
 Source descriptor choice/order, fields, indices and material behavior are unchanged.
 
 diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
+index 748480b..363f803 100644
 --- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
-@@ -57,23 +57,23 @@
+@@ -56,23 +56,23 @@ void GXCameraScrolledOverlayMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -37,9 +38,10 @@ diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+index c42a415..302564c 100644
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
-@@ -54,23 +54,23 @@
+@@ -54,23 +54,23 @@ void GXMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -68,9 +70,10 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+index da72092..02f42a1 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
-@@ -57,23 +57,23 @@
+@@ -56,23 +56,23 @@ void GXMaskedSpecularFresnelMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -99,9 +102,10 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+index 7a6e6e3..4574915 100644
 --- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
-@@ -60,23 +60,23 @@
+@@ -59,23 +59,23 @@ void GXScrollingCameraOverlayMaterialProgram::ConfigureVertexFormat(bool indexed
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -130,9 +134,10 @@ diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+index d37c6b4..2a4b550 100644
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
-@@ -56,13 +56,13 @@
+@@ -56,13 +56,13 @@ void GXScrollingDiffuseMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -149,9 +154,10 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+index a7cf219..fbc8a75 100644
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
-@@ -60,23 +60,23 @@
+@@ -59,23 +59,23 @@ void GXScrollingMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool ind
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -180,9 +186,10 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+index 483924d..276a194 100644
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
-@@ -58,18 +58,18 @@
+@@ -58,18 +58,18 @@ void GXScrollingSpecularMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -205,9 +212,10 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_S16, 10);
 diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+index 34a203b..68da012 100644
 --- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
-@@ -58,28 +58,28 @@
+@@ -57,28 +57,28 @@ void GXSpecularDetailBlendMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);

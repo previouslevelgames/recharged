@@ -1,6 +1,8 @@
 Subject: Map the original do-not-inline annotation to the supported native attribute
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/include/decomp.h b/include/decomp.h
+index 7001f0b..a8fb05e 100644
 --- a/include/decomp.h
 +++ b/include/decomp.h
 @@ -45,7 +45,11 @@

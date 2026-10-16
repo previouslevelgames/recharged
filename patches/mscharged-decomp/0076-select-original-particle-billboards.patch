@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original particle raster/quad writing and select native procedural streams
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share the original renderer's raster and per-quad stream order. Select the original
 textured-colour mesh writer with native width, bounds, frame-lifetime and coherent
@@ -9,93 +9,9 @@ vertex-colour material's direct draw branch. Static asset float UV streams remai
 supported through their actual stride. This does not select full particle manager,
 model/light/user callbacks, or synthetic texture handles.
 
-diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
---- a/src/Game/Effects/ParticleSystem.cpp
-+++ b/src/Game/Effects/ParticleSystem.cpp
-@@ -8,6 +8,7 @@
- 
- #ifndef MSCHARGED_NATIVE
- #include "Game/Effects/EmissionManager.h"
-+#include "Game/Effects/ParticleBillboard.h"
- #include "Game/GL/GLInventory.h"
- #include "Game/GL/GLTexturedColourMeshWriter.h"
- #include "Game/GL/GLVertexAnim.h"
-@@ -811,7 +812,6 @@
- #ifndef MSCHARGED_NATIVE
- int ParticleSystem::RenderAllParticles(GLView* view)
- {
--    static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
-     ParticleReturn ret;
- 
-     if (!m_bVisible)
-@@ -863,35 +863,9 @@
-         nlMultDirVectorMatrix(viewRight, rot);
-     }
- 
--    glSetDefaultState(true);
--    glSetRasterState(GLS_DepthWrite, 0);
--    glSetRasterState(GLS_Culling, cullBackFaces ? 1 : 0);
--    if (sDisableParticleDepthTest)
--        glSetRasterState(GLS_DepthTest, 0);
--    if (m_AllowInFront
--        && (m_pTemplate->IsInFront()
--            || (m_pSpec != 0 && m_pSpec->m_bInFront)))
--    {
--        glSetRasterState(GLS_DepthTest, 0);
--    }
--    if (sUseWhiteParticleTexture)
--    {
--        glSetRasterState(GLS_AlphaBlend, 3);
--    }
--    else
--    {
--        switch (m_pTemplate->m_eBlend)
--        {
--        case EfBlend_Normal:
--            glSetRasterState(GLS_AlphaBlend, 1);
--            break;
--        case EfBlend_Additive:
--            glSetRasterState(GLS_AlphaBlend, 3);
--            break;
--        }
--    }
--    glSetRasterState(GLS_AlphaTest, 1);
--    glSetCurrentRasterState(glHandleizeRasterState());
-+    fxSetParticleRasterState(cullBackFaces, sDisableParticleDepthTest,
-+        m_AllowInFront && (m_pTemplate->IsInFront() || (m_pSpec != 0 && m_pSpec->m_bInFront)),
-+        sUseWhiteParticleTexture, m_pTemplate->m_eBlend);
- 
-     static unsigned long WhiteTexture = glGetTexture("global/white");
-     if (m_pSpec != 0 && m_pSpec->m_bLight)
-@@ -1046,25 +1020,7 @@
-                 Particle* pPart = *iterator;
-                 UpdateParticle(&ret, pPart, m_pTemplate, viewRight,
-                     viewUp, pCoord);
--                int i;
--                if (bQuads)
--                {
--                    for (i = 0; i < 4; i++)
--                    {
--                        mesh.Texcoord(ret.texcoord[i]);
--                        mesh.Colour(ret.c);
--                        mesh.Vertex(ret.position[i]);
--                    }
--                }
--                else
--                {
--                    for (i = 0; i < 6; i++)
--                    {
--                        mesh.Texcoord(ret.texcoord[_tris[i]]);
--                        mesh.Colour(ret.c);
--                        mesh.Vertex(ret.position[_tris[i]]);
--                    }
--                }
-+                fxWriteParticleQuad(mesh, ret, bQuads);
-                 iterator.Step();
-             }
- 
 diff --git a/include/Game/Effects/ParticleBillboard.h b/include/Game/Effects/ParticleBillboard.h
 new file mode 100644
+index 0000000..efc5e36
 --- /dev/null
 +++ b/include/Game/Effects/ParticleBillboard.h
 @@ -0,0 +1,66 @@
@@ -166,6 +82,7 @@ new file mode 100644
 +}
 +#endif
 diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTexturedColourMeshWriter.h
+index ba3956d..4c63ded 100644
 --- a/include/Game/GL/GLTexturedColourMeshWriter.h
 +++ b/include/Game/GL/GLTexturedColourMeshWriter.h
 @@ -4,6 +4,12 @@
@@ -181,7 +98,7 @@ diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTe
  
  class GLTexturedColourMeshWriter
  {
-@@ -16,21 +22,40 @@
+@@ -16,21 +22,40 @@ public:
  
      glModel* GetModel() const
      {
@@ -222,7 +139,7 @@ diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTe
          short u = (short)(uv.x * 1024.0f);
          short v = (short)(uv.y * 1024.0f);
          *texcoord++ = u;
-@@ -39,12 +64,20 @@
+@@ -39,12 +64,20 @@ public:
  
      void Texcoord(int u, int v)
      {
@@ -243,7 +160,7 @@ diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTe
          *texcoord++ = 0;
          *texcoord++ = 0;
      }
-@@ -56,11 +89,32 @@
+@@ -56,11 +89,32 @@ public:
  
      void Vertex(float x, float y, float z)
      {
@@ -276,7 +193,94 @@ diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTe
      int count;
      glModel* model;
      void* resource;
+diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index 131b17e..c9dd84f 100644
+--- a/src/Game/Effects/ParticleSystem.cpp
++++ b/src/Game/Effects/ParticleSystem.cpp
+@@ -8,6 +8,7 @@
+ 
+ #ifndef MSCHARGED_NATIVE
+ #include "Game/Effects/EmissionManager.h"
++#include "Game/Effects/ParticleBillboard.h"
+ #include "Game/GL/GLInventory.h"
+ #include "Game/GL/GLTexturedColourMeshWriter.h"
+ #include "Game/GL/GLVertexAnim.h"
+@@ -811,7 +812,6 @@ void ParticleSystem::ClearParticles()
+ #ifndef MSCHARGED_NATIVE
+ int ParticleSystem::RenderAllParticles(GLView* view)
+ {
+-    static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
+     ParticleReturn ret;
+ 
+     if (!m_bVisible)
+@@ -863,35 +863,9 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+         nlMultDirVectorMatrix(viewRight, rot);
+     }
+ 
+-    glSetDefaultState(true);
+-    glSetRasterState(GLS_DepthWrite, 0);
+-    glSetRasterState(GLS_Culling, cullBackFaces ? 1 : 0);
+-    if (sDisableParticleDepthTest)
+-        glSetRasterState(GLS_DepthTest, 0);
+-    if (m_AllowInFront
+-        && (m_pTemplate->IsInFront()
+-            || (m_pSpec != 0 && m_pSpec->m_bInFront)))
+-    {
+-        glSetRasterState(GLS_DepthTest, 0);
+-    }
+-    if (sUseWhiteParticleTexture)
+-    {
+-        glSetRasterState(GLS_AlphaBlend, 3);
+-    }
+-    else
+-    {
+-        switch (m_pTemplate->m_eBlend)
+-        {
+-        case EfBlend_Normal:
+-            glSetRasterState(GLS_AlphaBlend, 1);
+-            break;
+-        case EfBlend_Additive:
+-            glSetRasterState(GLS_AlphaBlend, 3);
+-            break;
+-        }
+-    }
+-    glSetRasterState(GLS_AlphaTest, 1);
+-    glSetCurrentRasterState(glHandleizeRasterState());
++    fxSetParticleRasterState(cullBackFaces, sDisableParticleDepthTest,
++        m_AllowInFront && (m_pTemplate->IsInFront() || (m_pSpec != 0 && m_pSpec->m_bInFront)),
++        sUseWhiteParticleTexture, m_pTemplate->m_eBlend);
+ 
+     static unsigned long WhiteTexture = glGetTexture("global/white");
+     if (m_pSpec != 0 && m_pSpec->m_bLight)
+@@ -1046,25 +1020,7 @@ int ParticleSystem::RenderAllParticles(GLView* view)
+                 Particle* pPart = *iterator;
+                 UpdateParticle(&ret, pPart, m_pTemplate, viewRight,
+                     viewUp, pCoord);
+-                int i;
+-                if (bQuads)
+-                {
+-                    for (i = 0; i < 4; i++)
+-                    {
+-                        mesh.Texcoord(ret.texcoord[i]);
+-                        mesh.Colour(ret.c);
+-                        mesh.Vertex(ret.position[i]);
+-                    }
+-                }
+-                else
+-                {
+-                    for (i = 0; i < 6; i++)
+-                    {
+-                        mesh.Texcoord(ret.texcoord[_tris[i]]);
+-                        mesh.Colour(ret.c);
+-                        mesh.Vertex(ret.position[_tris[i]]);
+-                    }
+-                }
++                fxWriteParticleQuad(mesh, ret, bQuads);
+                 iterator.Step();
+             }
+ 
 diff --git a/src/Game/GL/GLTexturedColourMeshWriter.cpp b/src/Game/GL/GLTexturedColourMeshWriter.cpp
+index c134d00..b02861a 100644
 --- a/src/Game/GL/GLTexturedColourMeshWriter.cpp
 +++ b/src/Game/GL/GLTexturedColourMeshWriter.cpp
 @@ -1,5 +1,7 @@
@@ -287,7 +291,7 @@ diff --git a/src/Game/GL/GLTexturedColourMeshWriter.cpp b/src/Game/GL/GLTextured
  
  #include "Game/GL/GLTexturedColourMeshWriter.h"
  #include "NL/nlMemory.h"
-@@ -26,6 +28,18 @@
+@@ -26,6 +28,18 @@ GLTexturedColourMeshWriter::~GLTexturedColourMeshWriter()
  bool GLTexturedColourMeshWriter::Begin(
      int numVerts, int prim, void* pResource)
  {
@@ -306,7 +310,7 @@ diff --git a/src/Game/GL/GLTexturedColourMeshWriter.cpp b/src/Game/GL/GLTextured
      glModel* newModel;
      resource = pResource;
      count = numVerts;
-@@ -106,19 +120,35 @@
+@@ -106,19 +120,35 @@ bool GLTexturedColourMeshWriter::Begin(
      glSetModelStream(streams + 2, 2, colour, sizeof(u32), 3);
  
      return true;
@@ -343,18 +347,19 @@ diff --git a/src/Game/GL/GLTexturedColourMeshWriter.cpp b/src/Game/GL/GLTextured
      return true;
  }
 diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
+index de8bf92..19803a8 100644
 --- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
-@@ -74,6 +74,12 @@
+@@ -73,6 +73,12 @@ void GXVertexColourTextureMaterialProgram::ConfigureVertexFormat(bool indexed)
+ void GXVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
- #if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE)
 +    // Static asset adapters retain float UVs; the original procedural mesh
 +    // writer retains the Wii signed16 / 1024 stream. Select its actual format.
 +    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST,
 +        streams[1].stride == 4 ? GX_S16 : GX_F32, streams[1].stride == 4 ? 10 : 0);
 +#endif
-+#if defined(MSCHARGED_NATIVE)
+ #if defined(MSCHARGED_NATIVE)
      GXSetArray(GX_VA_POS, streams[0].address,
          packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
- #else

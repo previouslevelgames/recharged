@@ -1,6 +1,6 @@
 From: mscharged-port source integration
 Subject: [PATCH] Restore original system aspect selection in the frontend diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary diagnostic source selection; ordinary native/console code unchanged.
 
 Admit the original SCGetAspectRatio/rlSetWidescreen block already present in
@@ -10,9 +10,10 @@ selects its 640/854 projection and authored Credits slide. No text positions,
 font requests, scrolling, game algorithms or source branches are changed.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 44070fe..f2a9750 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -670,12 +670,16 @@
+@@ -679,12 +679,16 @@ static void Initialize()
      ModeledScreenTransition::s_3DView = GetLayerView(eCLV_Transitions3D);
      SetDebugFontView(GetLayerView(eCLV_Debug));
      SetDebugSquareView(GetLayerView(eCLV_DebugSquare));

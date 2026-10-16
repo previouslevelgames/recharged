@@ -1,5 +1,5 @@
 Subject: Admit the original 101 lesson and Striker Challenge in-game scenes
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0610.
 
 Under the named MSCHARGED_DIAGNOSTIC_FRONTEND_CHALLENGE_PLAY admission, the
@@ -12,9 +12,10 @@ it is queued without a handler there, so the diagnostic's default-case stop
 is skipped for that scene only. Allocation and constructors are literal.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index a392351..cf1763e 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -595,7 +595,7 @@
+@@ -628,7 +628,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_PAUSE);
          break;
  #endif
@@ -23,7 +24,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case (SceneList)84:
          newHandler = new (nlMalloc(sizeof(PauseMenuScene), 8, false)) PauseMenuScene();
          break;
-@@ -651,7 +651,7 @@
+@@ -684,7 +684,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(SuperAbilityOverlay), 8, false)) SuperAbilityOverlay();
          break;
  #endif
@@ -32,7 +33,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case (SceneList)103:
          newHandler = new (nlMalloc(sizeof(ChallengePreviewOverlay), 8, false)) ChallengePreviewOverlay(movement);
          break;
-@@ -666,6 +666,13 @@
+@@ -699,6 +699,13 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
  #endif
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      default:

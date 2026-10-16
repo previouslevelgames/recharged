@@ -1,6 +1,6 @@
 Subject: Select original task scheduling and explicit movie service boundary
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore the complete original task algorithm for production. Borrowed-task
 registration, constructor zeroing, extra scheduler checks and absent-service
@@ -8,9 +8,10 @@ movie boundaries remain explicitly selected diagnostics. The original movie
 implementation compiles under native platform interfaces separately.
 
 diff --git a/include/NL/nlTask.h b/include/NL/nlTask.h
+index f0a9e74..3cd29f7 100644
 --- a/include/NL/nlTask.h
 +++ b/include/NL/nlTask.h
-@@ -7,10 +7,21 @@
+@@ -7,10 +7,21 @@ class nlTask
  {
  public:
      nlTask()
@@ -33,6 +34,7 @@ diff --git a/include/NL/nlTask.h b/include/NL/nlTask.h
      virtual const char* GetName() = 0;
      // Spelled out so the mangled name stays ...FUiUi even in translation
 diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+index bb56695..0d50d6b 100644
 --- a/src/Game/Sys/movie.cpp
 +++ b/src/Game/Sys/movie.cpp
 @@ -1,4 +1,7 @@
@@ -43,16 +45,16 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
  #include "Game/Sys/debug.h"
  
  #include "RVL_SDK/thp/THPSimple.h"
-@@ -24,6 +27,8 @@
- 
+@@ -25,6 +28,8 @@
  static THPVideoInfo videoInfo;
  static PlatTexture* pTex[4];
-+
-+#endif
  
++#endif
++
  static unsigned int g_uLastDecodeRenderTick = -1;
  static bool g_bSyncedDecode = true;
-@@ -45,6 +50,10 @@
+ 
+@@ -45,6 +50,10 @@ static unsigned int g_uLastPlayFrame;
  
  bool MovieInit()
  {
@@ -63,7 +65,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
      if (g_bTHPInitialized)
      {
          return true;
-@@ -53,13 +62,19 @@
+@@ -53,13 +62,19 @@ bool MovieInit()
      THPSimpleInit(1);
      g_bTHPInitialized = true;
      return true;
@@ -83,9 +85,9 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
  }
  
  void SetSyncedDecode(bool value)
-@@ -70,6 +85,10 @@
- bool MovieStart(
-     const char* szFilename, bool bSound, bool bLoopMovie, bool bMono)
+@@ -73,6 +88,10 @@ bool MovieStart(const char* szFilename, bool bSound, bool bLoopMovie)
+ bool MovieStart(const char* szFilename, bool bSound, bool bLoopMovie, bool bMono)
+ #endif
  {
 +#ifdef MSCHARGED_DIAGNOSTIC_MOVIES
 +    mscharged::MissingStartupService("MovieStart",
@@ -94,7 +96,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
      if (g_bActive)
      {
          return false;
-@@ -146,6 +165,7 @@
+@@ -151,6 +170,7 @@ bool MovieStart(const char* szFilename, bool bSound, bool bLoopMovie, bool bMono
      g_bActive = true;
      g_uCurrentFrame = 0;
      return true;
@@ -102,7 +104,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
  }
  
  bool MovieStop()
-@@ -154,7 +174,10 @@
+@@ -159,7 +179,10 @@ bool MovieStop()
      {
          return false;
      }
@@ -114,7 +116,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
      g_bActive = false;
      lbl_806E2419 = false;
  
-@@ -182,6 +205,7 @@
+@@ -187,6 +210,7 @@ bool MovieStop()
  
      glGetCurrentResourcePool()->ReleaseResource(resourceMarker);
      return true;
@@ -122,7 +124,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
  }
  
  void MovieRenderTick()
-@@ -195,7 +219,10 @@
+@@ -200,7 +224,10 @@ bool MoviePlay()
      {
          return false;
      }
@@ -134,7 +136,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
      if (g_bMovieMustStop)
      {
          g_bFinished = true;
-@@ -266,6 +293,7 @@
+@@ -271,6 +298,7 @@ bool MoviePlay()
      }
  
      return true;
@@ -143,6 +145,7 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
  
  bool IsMovieActive()
 diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
+index f543a3e..c7d138d 100644
 --- a/src/NL/TaskBase.cpp
 +++ b/src/NL/TaskBase.cpp
 @@ -1,2 +1,6 @@
@@ -153,6 +156,7 @@ diff --git a/src/NL/TaskBase.cpp b/src/NL/TaskBase.cpp
 +nlTask::~nlTask() { mscharged::DestroyNativeTask(this); }
 +#endif
 diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
+index 0085536..3211342 100644
 --- a/src/NL/nlTask.cpp
 +++ b/src/NL/nlTask.cpp
 @@ -1,4 +1,7 @@
@@ -163,7 +167,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
  
  #include "NL/nlDLRing.h"
  #include "NL/nlMemory.h"
-@@ -13,7 +16,14 @@
+@@ -13,7 +16,14 @@ float g_fTaskTimeLowerBound;
  
  void nlTaskManager::Startup(u32 initialState)
  {
@@ -178,7 +182,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
      m_pInstance->mPreviousState = initialState;
      m_pInstance->mCurrentState = initialState;
      m_pInstance->mPendingState = initialState;
-@@ -24,9 +34,16 @@
+@@ -24,9 +34,16 @@ void nlTaskManager::Startup(u32 initialState)
  
  void nlTaskManager::AddTask(nlTask* task, u32 priority, u32 activeStates)
  {
@@ -195,7 +199,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
  
      if (m_pInstance->mTaskList == 0)
      {
-@@ -57,6 +74,9 @@
+@@ -57,6 +74,9 @@ void nlTaskManager::AddTask(nlTask* task, u32 priority, u32 activeStates)
  
  void nlTaskManager::RunAllTasks()
  {
@@ -205,7 +209,7 @@ diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
      nlTask* currentTask = nlDLRingGetStart<nlTask>(m_pInstance->mTaskList);
      if (currentTask != 0)
      {
-@@ -110,10 +130,16 @@
+@@ -110,10 +130,16 @@ void nlTaskManager::RunAllTasks()
  
  void nlTaskManager::SetNextState(unsigned int nextState)
  {

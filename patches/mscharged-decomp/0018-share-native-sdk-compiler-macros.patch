@@ -1,6 +1,6 @@
 Subject: Share native compiler macros across Wii, Aurora, and host headers
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve the host concatenation macro when present, use the native weak
 declaration spelling, and keep address/alignment macro definitions compatible
@@ -9,6 +9,7 @@ one translation unit without conflicting compiler attribute definitions.
 Console attribute branches stay unchanged.
 
 diff --git a/include/decomp.h b/include/decomp.h
+index 4679a2b..7001f0b 100644
 --- a/include/decomp.h
 +++ b/include/decomp.h
 @@ -16,7 +16,9 @@
@@ -53,9 +54,10 @@ diff --git a/include/decomp.h b/include/decomp.h
  #else
  #define AT_ADDRESS(address)
 diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
+index 05b3212..879cad5 100644
 --- a/libs/RVL_SDK/include/revolution/types.h
 +++ b/libs/RVL_SDK/include/revolution/types.h
-@@ -72,7 +72,13 @@
+@@ -72,7 +72,13 @@ typedef unsigned short char16_t;
  #endif
  
  #define ALIGN(x) __attribute__((aligned(x)))

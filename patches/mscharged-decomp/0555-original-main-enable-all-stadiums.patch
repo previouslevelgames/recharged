@@ -1,5 +1,5 @@
 Subject: Admit original main's EnableAllStadiums for the Domination route
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0551.
 
 Every StadiumInfo entry starts with mEnabled false; original main enables all
@@ -12,9 +12,11 @@ its original position under the Domination admission; the configuration,
 datetime, build-number and remaining statements keep their omission. Stadium
 locks still come from the original IsStadiumUnlocked rules.
 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index bbc29d6..5eb9850 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -605,7 +605,11 @@
+@@ -614,7 +614,11 @@ static void Initialize()
          OSYieldThread();
      }
  

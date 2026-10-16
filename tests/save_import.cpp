@@ -1,6 +1,7 @@
 // Dolphin save import: the imported files must be what the game's own IOS
 // filesystem device then opens, with the permissions the game gives its saves.
 #include "platform/filesystem_device.h"
+#include "platform/game_release.h"
 #include "platform/ios_device.h"
 #include "platform/save_import.h"
 #include <revolution/ipc.h>
@@ -122,12 +123,46 @@ void Run(const fs::path& root) {
     Reject([&] { ImportDolphinSave(source, orphan, kTitle, "Strikers2", backups); },
            "Backing without a catalog accepted");
 }
+
+// A European save lives beside the USA one: in the save folder's R4QP
+// subfolder (TitleSaveFolder), under the European title, and leaves the USA
+// catalog alone. Both European revisions share that title.
+void RunEurope(const fs::path& root) {
+    constexpr SaveTitle kEurope{0x0001000052345150ULL, 0x1001, 0x3031};
+    const std::string home = "/title/00010000/52345150/data";
+    const auto source = DolphinSaveFolder(root / "dolphin-user", kEurope.title_id);
+    Check(source == root / "dolphin-user" / "Wii" / "title" / "00010000" / "52345150" / "data",
+          "European Dolphin save folder layout");
+    const auto save = Pattern(4, 35616);
+    Put(source / "Strikers2", save);
+    const auto nand = root / "nand", europe = mscharged::TitleSaveFolder(nand, kEurope.title_id);
+    Check(europe == nand / "R4QP" && mscharged::TitleSaveFolder(nand, kTitle.title_id) == nand,
+          "Europe keeps its storage in R4QP; the USA title keeps the save folder");
+    const auto usa_catalog = Bytes(nand / "metadata.txt");
+    Reject([&] { ImportDolphinSave(source, nand, kEurope, "Strikers2", root / "backups"); },
+           "A European save was accepted into the USA catalog");
+    Reject([&] { InitializeNativeFilesystem({nand, kEurope.title_id, kEurope.uid, kEurope.gid}); },
+           "The USA storage opened under the European title");
+    const auto result = ImportDolphinSave(source, europe, kEurope, "Strikers2", europe / "backups");
+    Check(result.backup.empty() && result.files == std::vector<std::string>{"Strikers2"}, "European import result");
+    InitializeNativeFilesystem({europe, kEurope.title_id, kEurope.uid, kEurope.gid});
+    Check(IosRead(home + "/Strikers2") == save, "European save differs through the IOS device");
+    const auto attr = Attr(home + "/Strikers2");
+    Check(attr.uid == kEurope.uid && attr.gid == kEurope.gid && attr.owner == 3, "European save permissions");
+    ShutdownNativeFilesystem();
+    // The USA storage still opens with its own save, the European folder inside it.
+    InitializeNativeFilesystem({nand, kTitle.title_id, kTitle.uid, kTitle.gid});
+    Check(IosRead(kHome + "/Strikers2") == Pattern(3, 35616), "The USA save no longer opens beside Europe's");
+    ShutdownNativeFilesystem();
+    Check(Bytes(nand / "metadata.txt") == usa_catalog, "The European import changed the USA catalog");
+}
 } // namespace
 
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("usage: save_import_tests DATA_DIRECTORY");
         Run(fs::path(argv[1]));
+        RunEurope(fs::path(argv[1]));
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& e) {

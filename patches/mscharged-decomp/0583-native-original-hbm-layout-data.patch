@@ -1,5 +1,5 @@
 Subject: Adapt original HOME layout resources to native byte order
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Convert authored BRLYT0.8 scalar/relative-offset records beneath the original
 Layout::Build. Preserve original header predicates, block walk, constructors,
@@ -8,31 +8,11 @@ ABI; actual GXColor byte records remain unchanged. Add the existing native
 C_MTXScale alias for original paired-single matrix calls. No HOME initialization
 or successful readiness is supplied by this transport.
 
---- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
-+++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
-@@ -1,4 +1,8 @@
- #include "revolution/hbm/nw4hbm/lyt/layout.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/native_hbm_layout.h"
-+#endif
- 
- #include "revolution/hbm/nw4hbm/lyt/bounding.h"
- #include "revolution/hbm/nw4hbm/lyt/picture.h"
-@@ -113,6 +117,10 @@
- bool Layout::Build(const void* lytResBuf, ResourceAccessor* pResAcsr) {
-     NW4HBMAssertPointerNonnull_Line(mspAllocator, 171);
-     NW4HBMAssertPointerNonnull_Line(lytResBuf, 172);
-+
-+#if defined(MSCHARGED_NATIVE)
-+    lytResBuf = mscharged::platform::NativeHBMLayoutHeader(lytResBuf);
-+#endif
- 
-     const res::BinaryFileHeader* fileHead = static_cast<const res::BinaryFileHeader*>(lytResBuf);
- 
+diff --git a/libs/RVL_SDK/include/revolution/mtx/mtx.h b/libs/RVL_SDK/include/revolution/mtx/mtx.h
+index 735cd99..fb1d1ce 100644
 --- a/libs/RVL_SDK/include/revolution/mtx/mtx.h
 +++ b/libs/RVL_SDK/include/revolution/mtx/mtx.h
-@@ -37,6 +37,7 @@
+@@ -37,6 +37,7 @@ void C_MTXLightOrtho(Mtx, f32, f32, f32, f32, f32, f32, f32, f32);
  #if defined(MSCHARGED_NATIVE)
  // The sole native SDK supplies the C matrix services behind its PS aliases.
  void C_MTXIdentity(Mtx);
@@ -40,13 +20,38 @@ or successful readiness is supplied by this transport.
  void C_MTXScaleApply(const Mtx, Mtx, f32, f32, f32);
  void C_MTXRotRad(Mtx, char, f32);
  void C_MTXConcat(const Mtx, const Mtx, Mtx);
-@@ -45,6 +46,9 @@
- u32 C_MTXInvXpose(const Mtx, Mtx);
+@@ -46,6 +47,9 @@ u32 C_MTXInvXpose(const Mtx, Mtx);
  #ifndef PSMTXIdentity
  #define PSMTXIdentity C_MTXIdentity
-+#endif
+ #endif
 +#ifndef PSMTXScale
 +#define PSMTXScale C_MTXScale
- #endif
++#endif
  #ifndef PSMTXScaleApply
  #define PSMTXScaleApply C_MTXScaleApply
+ #endif
+diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
+index 9e95187..5bd3690 100644
+--- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
+@@ -1,5 +1,9 @@
+ #include "revolution/hbm/nw4hbm/lyt/layout.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_hbm_layout.h"
++#endif
++
+ #include "revolution/hbm/nw4hbm/lyt/bounding.h"
+ #include "revolution/hbm/nw4hbm/lyt/picture.h"
+ #include "revolution/hbm/nw4hbm/lyt/textBox.h"
+@@ -114,6 +118,10 @@ bool Layout::Build(const void* lytResBuf, ResourceAccessor* pResAcsr) {
+     NW4HBMAssertPointerNonnull_Line(mspAllocator, 171);
+     NW4HBMAssertPointerNonnull_Line(lytResBuf, 172);
+ 
++#if defined(MSCHARGED_NATIVE)
++    lytResBuf = mscharged::platform::NativeHBMLayoutHeader(lytResBuf);
++#endif
++
+     const res::BinaryFileHeader* fileHead = static_cast<const res::BinaryFileHeader*>(lytResBuf);
+ 
+     if (!detail::TestFileHeader(*fileHead, res::FILE_HEADER_SIGNATURE_LAYOUT)) {

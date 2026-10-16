@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read native physics event data by member
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility
 
 The PhysicsEventQueue handlers read their event data and objects through
@@ -23,11 +23,11 @@ On native builds every handler reads these through the declared members.
 Wii builds are unchanged.
 
 diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEventQueue.cpp
-index c75cd7d..896976c 100644
+index c16dd72..e3b4d1a 100644
 --- a/src/Game/Physics/PhysicsEventQueue.cpp
 +++ b/src/Game/Physics/PhysicsEventQueue.cpp
-@@ -278,24 +278,44 @@ extern "C" void fn_800156F8(cBall* pBall, cPlayer* pShooter);
- extern "C" void fn_80015B38(cBall* pBall, bool bParam);
+@@ -276,24 +276,44 @@ void RegisterPhysicsEventHandlers()
+ 
  void HandleCollisionFireballPowerup(void* object)
  {
 +#if defined(MSCHARGED_NATIVE)
@@ -71,7 +71,7 @@ index c75cd7d..896976c 100644
  }
  
  void HandleDestroyHammer(void* object)
-@@ -308,11 +328,19 @@ void HandleDestroyHammer(void* object)
+@@ -306,11 +326,19 @@ void HandleDestroyHammer(void* object)
  
  void HandleCollisionHammerPowerup(void* object)
  {
@@ -91,7 +91,7 @@ index c75cd7d..896976c 100644
  }
  
  void HandleCollisionPatchPowerup(void*)
-@@ -321,15 +349,36 @@ void HandleCollisionPatchPowerup(void*)
+@@ -319,15 +347,36 @@ void HandleCollisionPatchPowerup(void*)
  
  void HandleCollisionCrackEgg(void* data)
  {
@@ -117,19 +117,19 @@ index c75cd7d..896976c 100644
 +    KoopaShellObject* shell = (KoopaShellObject*)event->shell;
 +    if (event->cracked != false)
 +    {
-+        fn_800156F8(g_pBall, shell->mOwner);
++        DeflectSkillshotBall(g_pBall, shell->mOwner);
 +    }
 +    else
 +    {
-+        fn_80015B38(g_pBall, 0);
++        CancelBallShot(g_pBall, 0);
 +    }
 +    shell->Deactivate(false);
 +#else
      unsigned char* bytes = (unsigned char*)data;
      if (bytes[4] != false)
      {
-@@ -341,10 +390,23 @@ void HandleCollisionKoopaShellEnd(void* data)
-         fn_80015B38(g_pBall, 0);
+@@ -339,10 +388,23 @@ void HandleCollisionKoopaShellEnd(void* data)
+         CancelBallShot(g_pBall, 0);
      }
      (*(KoopaShellObject**)bytes)->Deactivate(false);
 +#endif
@@ -141,26 +141,26 @@ index c75cd7d..896976c 100644
 +    CollisionBirdoEggEndData* event = (CollisionBirdoEggEndData*)data;
 +    if (event->cracked != false)
 +    {
-+        fn_800156F8(g_pBall, event->egg->mShooter);
++        DeflectSkillshotBall(g_pBall, event->egg->mShooter);
 +    }
 +    else
 +    {
-+        fn_80015B38(g_pBall, 0);
++        CancelBallShot(g_pBall, 0);
 +    }
 +    event->egg->Hide(false);
 +#else
      unsigned char* bytes = (unsigned char*)data;
      if (bytes[4] != false)
      {
-@@ -356,6 +425,7 @@ void HandleCollisionBirdoEggEnd(void* data)
-         fn_80015B38(g_pBall, 0);
+@@ -354,6 +416,7 @@ void HandleCollisionBirdoEggEnd(void* data)
+         CancelBallShot(g_pBall, 0);
      }
      (*(BirdoEggObject**)bytes)->Hide(false);
 +#endif
  }
  
  void HandleCollisionShockwave(CollisionShockwaveData* data)
-@@ -643,12 +706,21 @@ void HandleCollisionShockwave(CollisionShockwaveData* data)
+@@ -641,12 +704,21 @@ void HandleCollisionShockwave(CollisionShockwaveData* data)
  
  void HandleCollisionPatchPatch(void* data)
  {

@@ -1,5 +1,5 @@
 Subject: [PATCH] Restore original material registration order and destructor flow
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore eight constructors exactly to pinned source assignment/registration order.
 Original game-module destructors retain the source empty bodies. Prior native
@@ -7,9 +7,10 @@ preview global/cache resets remain scoped to standalone diagnostics. No resource
 selection, parameters, shader decisions or successful readiness are introduced.
 
 diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
+index 363f803..4c83e63 100644
 --- a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp
-@@ -27,16 +27,16 @@
+@@ -26,16 +26,16 @@ GXMaterialParameter GXCameraScrolledOverlayMaterialProgram::Parameters[9] = {
  
  GXCameraScrolledOverlayMaterialProgram::GXCameraScrolledOverlayMaterialProgram()
  {
@@ -29,9 +30,10 @@ diff --git a/src/NL/glx/GXCameraScrolledOverlayMaterialProgram.cpp b/src/NL/glx/
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+index 302564c..db9259f 100644
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
-@@ -24,16 +24,16 @@
+@@ -24,16 +24,16 @@ GXMaterialParameter GXMaskedDetailBlendMaterialProgram::Parameters[6] = {
  
  GXMaskedDetailBlendMaterialProgram::GXMaskedDetailBlendMaterialProgram()
  {
@@ -51,9 +53,10 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+index 02f42a1..53b1e21 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
-@@ -27,16 +27,16 @@
+@@ -26,16 +26,16 @@ GXMaterialParameter GXMaskedSpecularFresnelMaterialProgram::Parameters[9] = {
  
  GXMaskedSpecularFresnelMaterialProgram::GXMaskedSpecularFresnelMaterialProgram()
  {
@@ -73,9 +76,10 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
+index 4574915..ae81899 100644
 --- a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp
-@@ -30,16 +30,16 @@
+@@ -29,16 +29,16 @@ GXMaterialParameter GXScrollingCameraOverlayMaterialProgram::Parameters[12] = {
  
  GXScrollingCameraOverlayMaterialProgram::GXScrollingCameraOverlayMaterialProgram()
  {
@@ -95,9 +99,10 @@ diff --git a/src/NL/glx/GXScrollingCameraOverlayMaterialProgram.cpp b/src/NL/glx
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+index 2a4b550..a0da5f6 100644
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
-@@ -26,16 +26,16 @@
+@@ -26,16 +26,16 @@ GXMaterialParameter GXScrollingDiffuseMaterialProgram::Parameters[8] = {
  
  GXScrollingDiffuseMaterialProgram::GXScrollingDiffuseMaterialProgram()
  {
@@ -117,9 +122,10 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
+index fbc8a75..0c84eaf 100644
 --- a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp
-@@ -30,16 +30,16 @@
+@@ -29,16 +29,16 @@ GXMaterialParameter GXScrollingMaskedDetailBlendMaterialProgram::Parameters[12]
  
  GXScrollingMaskedDetailBlendMaterialProgram::GXScrollingMaskedDetailBlendMaterialProgram()
  {
@@ -139,9 +145,10 @@ diff --git a/src/NL/glx/GXScrollingMaskedDetailBlendMaterialProgram.cpp b/src/NL
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+index 276a194..0b5c5d1 100644
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
-@@ -28,16 +28,16 @@
+@@ -28,16 +28,16 @@ GXMaterialParameter GXScrollingSpecularMaterialProgram::Parameters[10] = {
  
  GXScrollingSpecularMaterialProgram::GXScrollingSpecularMaterialProgram()
  {
@@ -161,9 +168,10 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
+index 5fa1613..ac17d7f 100644
 --- a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgram.cpp
-@@ -29,7 +29,7 @@
+@@ -29,7 +29,7 @@ GXShadowVolumeMaterialProgram::GXShadowVolumeMaterialProgram()
  
  GXShadowVolumeMaterialProgram::~GXShadowVolumeMaterialProgram()
  {
@@ -173,9 +181,10 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgram.cpp b/src/NL/glx/GXShadowV
      Instance = nullptr;
      Initialized = false;
 diff --git a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
+index 68da012..03c53d4 100644
 --- a/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXSpecularDetailBlendMaterialProgram.cpp
-@@ -28,16 +28,16 @@
+@@ -27,16 +27,16 @@ GXMaterialParameter GXSpecularDetailBlendMaterialProgram::Parameters[10] = {
  
  GXSpecularDetailBlendMaterialProgram::GXSpecularDetailBlendMaterialProgram()
  {

@@ -1,9 +1,11 @@
 Subject: Preserve native audio-resource callback and report words
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use nlFileAsyncParam for the original bank read; retain all sample/table publication.
 Project only the report string-pointer arm to native uintptr_t; formats and numeric operands stay original.
 
+diff --git a/src/Game/Audio/AudioResourcePlatform.cpp b/src/Game/Audio/AudioResourcePlatform.cpp
+index 65516a7..db51d10 100644
 --- a/src/Game/Audio/AudioResourcePlatform.cpp
 +++ b/src/Game/Audio/AudioResourcePlatform.cpp
 @@ -16,13 +16,21 @@
@@ -28,7 +30,7 @@ Project only the report string-pointer arm to native uintptr_t; formats and nume
  
  struct AudioBankValue
  {
-@@ -51,12 +59,24 @@
+@@ -51,12 +59,24 @@ public:
          if (m_File != 0)
          {
              char buffer[256];
@@ -55,7 +57,7 @@ Project only the report string-pointer arm to native uintptr_t; formats and nume
          }
      }
  
-@@ -134,7 +154,13 @@
+@@ -134,7 +154,13 @@ void AudioMemoryLoader::Load(const char* name)
          sCurrentStreamBytes += size;
      }
  
@@ -70,7 +72,7 @@ Project only the report string-pointer arm to native uintptr_t; formats and nume
  }
  
  void AudioMemoryLoader::Unload()
-@@ -169,7 +195,12 @@
+@@ -169,7 +195,12 @@ void OnAudioBankReadComplete(
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
          size
  #endif

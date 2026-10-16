@@ -1,6 +1,6 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Preserve PPC Warble texture bitfields and raw palette reads natively
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original palette bytes for GX. Adapt only the CPU BE16 scalar read
 and the MWCC/PPC two-bit packed-row field, whose native allocation order differs.
@@ -8,9 +8,10 @@ Original texture selection, algorithms, channel bytes and ownership are retained
 The console preprocessor projection is byte-identical to the upstream source.
 
 diff --git a/src/Game/Render/Warble.cpp b/src/Game/Render/Warble.cpp
+index 7bbc277..1a21939 100644
 --- a/src/Game/Render/Warble.cpp
 +++ b/src/Game/Render/Warble.cpp
-@@ -68,10 +68,20 @@
+@@ -68,10 +68,20 @@ static inline WarbleCI8Column WarbleColumn(const PlatTexture* texture, int x)
  struct WarblePalette
  {
      u16* data;
@@ -31,7 +32,7 @@ diff --git a/src/Game/Render/Warble.cpp b/src/Game/Render/Warble.cpp
  };
  
  static inline WarblePalette BlobPalette(const PlatTexture* texture)
-@@ -165,7 +175,13 @@
+@@ -165,7 +175,13 @@ static inline int IA8RowBits(int y)
  {
      IA8PackedRow row;
      row.word = (y & ~3) << 6;

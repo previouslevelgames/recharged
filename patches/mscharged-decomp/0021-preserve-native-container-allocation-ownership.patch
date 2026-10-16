@@ -1,6 +1,6 @@
 Subject: Preserve native container allocation ownership
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve native container allocation ownership
 Add explicit destruction followed by owning-arena free for NewAdapter nodes
@@ -9,9 +9,10 @@ aligned placement deletes reclaim failed constructions. Select the native
 compiler's stack-allocation spelling for the original AVL implementation.
 
 diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
+index fe45fd6..5235c40 100644
 --- a/include/Game/GL/GLInventory.h
 +++ b/include/Game/GL/GLInventory.h
-@@ -38,7 +38,11 @@
+@@ -38,7 +38,11 @@ public:
      ~freeing_GLInventoryContainer()
      {
          Release();
@@ -23,7 +24,7 @@ diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
      }
  
      void Release()
-@@ -58,7 +62,11 @@
+@@ -58,7 +62,11 @@ class deleting_GLInventory
  public:
      void DeleteItem(const unsigned long&, ValueType** value)
      {
@@ -35,7 +36,7 @@ diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
      }
  };
  
-@@ -77,7 +85,11 @@
+@@ -77,7 +85,11 @@ public:
      ~deleting_GLInventoryContainer()
      {
          Release();
@@ -47,7 +48,7 @@ diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
      }
  
      void Release()
-@@ -124,7 +136,11 @@
+@@ -124,7 +136,11 @@ public:
      ~clearing_GLInventory()
      {
          m_pItems->Clear();
@@ -60,9 +61,10 @@ diff --git a/include/Game/GL/GLInventory.h b/include/Game/GL/GLInventory.h
  
      void Release(void (*fn)(ValueType*))
 diff --git a/include/NL/nlList.h b/include/NL/nlList.h
+index ef7c1a7..7eb233f 100644
 --- a/include/NL/nlList.h
 +++ b/include/NL/nlList.h
-@@ -57,17 +57,29 @@
+@@ -57,17 +57,29 @@ public:
  
      static void DeleteEntry(T* entry)
      {
@@ -93,9 +95,10 @@ diff --git a/include/NL/nlList.h b/include/NL/nlList.h
  };
  
 diff --git a/include/NL/nlMemory.h b/include/NL/nlMemory.h
+index 8da38b1..ed2528c 100644
 --- a/include/NL/nlMemory.h
 +++ b/include/NL/nlMemory.h
-@@ -42,6 +42,24 @@
+@@ -42,6 +42,24 @@ inline void* operator new[](size_t size, unsigned int alignment, bool fromEnd, c
      return nlMalloc(size, alignment, fromEnd);
  }
  
@@ -121,6 +124,7 @@ diff --git a/include/NL/nlMemory.h b/include/NL/nlMemory.h
  void* nlAllocateAlignedMemory(unsigned long size, bool atEnd);
  extern u8 gMemoryInitialized;
 diff --git a/src/NL/nlAVLTree.cpp b/src/NL/nlAVLTree.cpp
+index 72c9fbf..ecc7bb1 100644
 --- a/src/NL/nlAVLTree.cpp
 +++ b/src/NL/nlAVLTree.cpp
 @@ -1,4 +1,12 @@

@@ -20,7 +20,7 @@ struct SaveTitle {
 };
 
 // The title's save folder below a Dolphin user directory:
-// <user>/Wii/title/00010000/52345145/data for R4QE.
+// <user>/Wii/title/00010000/52345145/data for R4QE, .../52345150/data for R4QP.
 std::filesystem::path DolphinSaveFolder(const std::filesystem::path& dolphin_user, std::uint64_t title_id);
 
 // Dolphin save folders of this title that exist on this computer, in

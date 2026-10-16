@@ -3,6 +3,7 @@
 #include "imgui.h"
 
 #include <initializer_list>
+#include <vector>
 #include <string>
 
 // Visual building blocks of the launcher: palette, fonts, theme and custom
@@ -111,6 +112,7 @@ void MenuSeparator(float width);
 bool GhostButton(const char* id, const char* label, ImVec2 size, bool enabled = true, Icon icon = Icon::None);
 bool Toggle(const char* id, bool* value);
 bool Segmented(const char* id, int* selected, std::initializer_list<const char*> items, float width);
+bool Segmented(const char* id, int* selected, const std::vector<const char*>& items, float width);
 // Segments with an icon each; the selected one takes its item's tint. `glass`
 // draws a translucent track for use over artwork.
 struct SegmentItem

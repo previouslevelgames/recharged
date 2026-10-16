@@ -1,6 +1,6 @@
 Subject: Connect four original static material programs to native GX
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use typed Aurora headers, bounded native float vertex arrays, indexed FIFO API
 calls and GXEnd. Retain original TEV recipes, parameters and alpha preparation.
@@ -10,6 +10,7 @@ are ported. Use the preview camera/time and safe quantized texture scrolling.
 Reset class lifecycle state and resolve scrolling wrap before texture binding.
 
 diff --git a/include/NL/glx/GXMaterialProgramInternal.h b/include/NL/glx/GXMaterialProgramInternal.h
+index ee947fc..568dcc6 100644
 --- a/include/NL/glx/GXMaterialProgramInternal.h
 +++ b/include/NL/glx/GXMaterialProgramInternal.h
 @@ -1,7 +1,11 @@
@@ -25,6 +26,7 @@ diff --git a/include/NL/glx/GXMaterialProgramInternal.h b/include/NL/glx/GXMater
  inline GXPrimitive glxGetPrimitiveType(unsigned char primType)
  {
 diff --git a/include/NL/glx/GXMaterialProgramTextureAnimation.h b/include/NL/glx/GXMaterialProgramTextureAnimation.h
+index 29609e3..34fb087 100644
 --- a/include/NL/glx/GXMaterialProgramTextureAnimation.h
 +++ b/include/NL/glx/GXMaterialProgramTextureAnimation.h
 @@ -1,18 +1,33 @@
@@ -62,6 +64,7 @@ diff --git a/include/NL/glx/GXMaterialProgramTextureAnimation.h b/include/NL/glx
      offset.x = glxWrapTextureOffset(time * speed.x);
      offset.y = glxWrapTextureOffset(time * speed.y);
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
+index 60c8947..da72092 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -73,7 +76,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  
  #include "NL/glx/GXMaskedSpecularFresnelMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -23,15 +27,19 @@
+@@ -22,15 +26,19 @@ GXMaterialParameter GXMaskedSpecularFresnelMaterialProgram::Parameters[9] = {
  
  GXMaskedSpecularFresnelMaterialProgram::GXMaskedSpecularFresnelMaterialProgram()
  {
@@ -94,7 +97,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  }
  
  void GXMaskedSpecularFresnelMaterialProgram::Initialize()
-@@ -49,11 +57,27 @@
+@@ -48,11 +56,27 @@ void GXMaskedSpecularFresnelMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -122,7 +125,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  
      if (indexed)
      {
-@@ -78,12 +102,42 @@
+@@ -77,12 +101,42 @@ void GXMaskedSpecularFresnelMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXMaskedSpecularFresnelMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -165,16 +168,10 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  }
  
  void GXMaskedSpecularFresnelMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -94,14 +148,26 @@
+@@ -93,14 +147,26 @@ void GXMaskedSpecularFresnelMaterialProgram::DrawIndexed(const glModelPacket* pa
  
      while (idxPtr < end)
      {
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
 +#if defined(MSCHARGED_NATIVE)
 +        GXPosition1x16(*idxPtr);
 +        GXNormal1x16(*idxPtr);
@@ -183,12 +180,12 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
 +        GXTexCoord1x16(*idxPtr);
 +        GXTexCoord1x16(*idxPtr);
 +#else
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
 +#endif
          ++idxPtr;
      }
@@ -198,17 +195,10 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  }
  
  void GXMaskedSpecularFresnelMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -110,13 +176,25 @@
+@@ -109,13 +175,25 @@ void GXMaskedSpecularFresnelMaterialProgram::DrawDirect(const glModelPacket* pac
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--    }
 +#if defined(MSCHARGED_NATIVE)
 +        GXPosition1x16(i);
 +        GXNormal1x16(i);
@@ -217,14 +207,14 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
 +        GXTexCoord1x16(i);
 +        GXTexCoord1x16(i);
 +#else
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
 +#endif
-+    }
+     }
 +#if defined(MSCHARGED_NATIVE)
 +    GXEnd();
 +#endif
@@ -232,6 +222,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgram.cpp b/src/NL/glx/
  
  void GXMaskedSpecularFresnelMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
+index 9a516be..fef6be0 100644
 --- a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp
 @@ -1,8 +1,19 @@
@@ -254,9 +245,9 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
  #include "Game/SharedStaticStorage.h"
  #include "NL/nlColour.h"
  
-@@ -54,16 +65,21 @@
+@@ -54,16 +65,21 @@ unsigned long sMaskedSpecularFresnelBoundTexture;
  
- extern "C" void glxConfigureMaskedSpecularFresnelLighting(int mode)
+ void glxConfigureMaskedSpecularFresnelLighting(int mode)
  {
 +#if defined(MSCHARGED_NATIVE)
 +    mscharged::RequireUnlitMaterialPreview(mode == LIGHTING_NONE);
@@ -277,7 +268,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      if (mode == LIGHTING_VERTEX_DOUBLE)
      {
          gxSetNumTexGens(4);
-@@ -88,6 +104,7 @@
+@@ -88,6 +104,7 @@ void glxConfigureMaskedSpecularFresnelLighting(int mode)
          gxSetTevAlphaIn(GX_TEVSTAGE4, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
      }
      else if (mode == LIGHTING_NONE || mode == LIGHTING_VERTEX)
@@ -285,7 +276,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      {
          gxSetNumTexGens(4);
          gxSetNumTevStages(4);
-@@ -105,6 +122,7 @@
+@@ -105,6 +122,7 @@ void glxConfigureMaskedSpecularFresnelLighting(int mode)
          gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
          gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
      }
@@ -293,7 +284,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      else if (mode == LIGHTING_TEXTURE)
      {
          GXTevScale colourScale = ShouldDoubleGameObjectLighting() ? GX_CS_SCALE_2 : GX_CS_SCALE_1;
-@@ -134,6 +152,8 @@
+@@ -134,6 +152,8 @@ void glxConfigureMaskedSpecularFresnelLighting(int mode)
          gxSetTevAlphaIn(GX_TEVSTAGE4, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
          gxSetTevAlphaIn(GX_TEVSTAGE5, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
      }
@@ -302,7 +293,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
  }
  
  template <>
-@@ -141,11 +161,16 @@
+@@ -141,11 +161,16 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Activate(GLV
  {
      sMaskedSpecularFresnelLightingMode = LIGHTING_UNCONFIGURED;
      static_cast<GXMaskedSpecularFresnelMaterialProgram*>(this)->ConfigureVertexFormat(true);
@@ -319,7 +310,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      sMaskedSpecularFresnelLightCount = GetGameObjectLightCount(0, 1);
      LoadGameObjectLights(sMaskedSpecularFresnelLightCount, view, 0);
  
-@@ -156,19 +181,23 @@
+@@ -156,19 +181,23 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Activate(GLV
      texture.SetWrapT(true);
      texture.unknown07 = 0;
      glx_BindTexture(4, &texture);
@@ -344,7 +335,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      gxSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, GX_IDENTITY);
      gxSetTexCoordGen(GX_TEXCOORD3, GX_TG_MTX2x4, GX_TG_TEX3, GX_IDENTITY);
  
-@@ -185,7 +214,9 @@
+@@ -185,7 +214,9 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Deactivate()
          gxSetTevColourOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
      }
  
@@ -354,7 +345,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
  }
  
  template <>
-@@ -236,6 +267,10 @@
+@@ -236,6 +267,10 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
          sMaskedSpecularLookupScale.y = specularScaleY;
      }
  
@@ -365,7 +356,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      int mode;
      if (static_cast<const GXMaskedSpecularFresnelParameters*>(packet->materialParameters)->lightingEnabled == 0 || IsGameObjectLightingEnabled() == 0)
      {
-@@ -252,7 +287,7 @@
+@@ -252,7 +287,7 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
          if (doubleLighting != 0)
              mode = LIGHTING_VERTEX_DOUBLE;
      }
@@ -374,7 +365,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      if (mode != sMaskedSpecularFresnelLightingMode)
      {
          Deactivate();
-@@ -294,10 +329,15 @@
+@@ -294,10 +329,15 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
          glGetMatrix(packet->matrix, model);
          nlMultMatrices(modelview, model, sMaskedSpecularFresnelViewMatrix);
          glxCopyMatrix(modelViewMatrix, modelview);
@@ -390,7 +381,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
      SetGameObjectShadowModelMatrix(packet->matrix);
  
      bool enableShadows = false;
-@@ -317,7 +357,7 @@
+@@ -317,7 +357,7 @@ void GXMaterialProgramImpl<GXMaskedSpecularFresnelMaterialProgram>::Draw(
          RestoreGameObjectShadowLighting();
          sMaskedSpecularFresnelShadowsActive = false;
      }
@@ -400,6 +391,7 @@ diff --git a/src/NL/glx/GXMaskedSpecularFresnelMaterialProgramRender.cpp b/src/N
          GXCallDisplayList(packet->displayList->list, packet->displayList->size);
      else if (packet->indexBuffer != 0)
 diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
+index 50f33ad..d37c6b4 100644
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -411,7 +403,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  
  #include "NL/glx/GXScrollingDiffuseMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -22,15 +26,19 @@
+@@ -22,15 +26,19 @@ GXMaterialParameter GXScrollingDiffuseMaterialProgram::Parameters[8] = {
  
  GXScrollingDiffuseMaterialProgram::GXScrollingDiffuseMaterialProgram()
  {
@@ -432,7 +424,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  }
  
  void GXScrollingDiffuseMaterialProgram::Initialize()
-@@ -48,9 +56,17 @@
+@@ -48,9 +56,17 @@ void GXScrollingDiffuseMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -450,7 +442,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  
      if (indexed)
      {
-@@ -71,10 +87,30 @@
+@@ -71,10 +87,30 @@ void GXScrollingDiffuseMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXScrollingDiffuseMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -481,7 +473,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  }
  
  void GXScrollingDiffuseMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -85,12 +121,22 @@
+@@ -85,12 +121,22 @@ void GXScrollingDiffuseMaterialProgram::DrawIndexed(const glModelPacket* packet)
  
      while (idxPtr < end)
      {
@@ -504,7 +496,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  }
  
  void GXScrollingDiffuseMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -99,11 +145,21 @@
+@@ -99,11 +145,21 @@ void GXScrollingDiffuseMaterialProgram::DrawDirect(const glModelPacket* packet)
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
@@ -527,6 +519,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgram.cpp b/src/NL/glx/GXScr
  
  void GXScrollingDiffuseMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
+index 2f99e96..ca664c3 100644
 --- a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp
 @@ -1,6 +1,13 @@
@@ -543,9 +536,9 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
  #include "NL/gl/glMaterialParameters.h"
  
  #include "NL/gl/glState.h"
-@@ -34,14 +41,19 @@
+@@ -34,14 +41,19 @@ float sScrollingDiffuseActivationValues[2];
  
- extern "C" void glxConfigureScrollingDiffuseLighting(int mode)
+ void glxConfigureScrollingDiffuseLighting(int mode)
  {
 +#if defined(MSCHARGED_NATIVE)
 +    mscharged::RequireUnlitMaterialPreview(mode == LIGHTING_NONE);
@@ -564,13 +557,12 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
      if (mode == LIGHTING_TEXTURE)
      {
          gxSetNumTexGens(2);
-@@ -58,14 +70,16 @@
+@@ -58,14 +70,16 @@ void glxConfigureScrollingDiffuseLighting(int mode)
          gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
      }
      else
--    {
 +#endif
-+    {
+     {
 +#if !defined(MSCHARGED_NATIVE)
          if (mode != LIGHTING_NONE)
          {
@@ -583,7 +575,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
          gxSetNumTexGens(1);
          gxSetNumTevStages(1);
          gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-@@ -81,20 +95,28 @@
+@@ -81,20 +95,28 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Activate(GLView*
      sScrollingDiffuseActivationValues[0] = 10000000000.0f;
      sScrollingDiffuseActivationValues[1] = 10000000000.0f;
      static_cast<GXScrollingDiffuseMaterialProgram*>(this)->ConfigureVertexFormat(true);
@@ -613,7 +605,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
      gxSetNumTexGens(1);
      gxSetNumTevStages(1);
      gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
-@@ -106,12 +128,16 @@
+@@ -106,12 +128,16 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Deactivate()
      }
      else if (sScrollingDiffuseLightingMode != LIGHTING_NONE)
      {
@@ -631,7 +623,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
  }
  
  template <>
-@@ -136,7 +162,6 @@
+@@ -136,7 +162,6 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
  
      GXScrollingDiffuseMaterialProgram* program = static_cast<GXScrollingDiffuseMaterialProgram*>(this);
      program->BindVertexArrays(packet);
@@ -639,7 +631,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
  
      if (static_cast<const GXScrollingDiffuseParameters*>(packet->materialParameters)->textureWrapEnabled == 1)
      {
-@@ -145,6 +170,12 @@
+@@ -145,6 +170,12 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
          texture->SetWrapT(true);
      }
  
@@ -652,7 +644,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
      int mode;
      if (static_cast<const GXScrollingDiffuseParameters*>(packet->materialParameters)->lightingEnabled == 0 || IsGameObjectLightingEnabled() == 0)
      {
-@@ -161,13 +192,14 @@
+@@ -161,13 +192,14 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
          if (doubleLighting != 0)
              mode = LIGHTING_VERTEX_DOUBLE;
      }
@@ -668,7 +660,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
      SetGameObjectShadowModelMatrix(packet->matrix);
  
      bool enableShadows = false;
-@@ -202,7 +234,7 @@
+@@ -202,7 +234,7 @@ void GXMaterialProgramImpl<GXScrollingDiffuseMaterialProgram>::Draw(
          texture.unknown07 = 0;
          glx_BindTexture(1, &texture);
      }
@@ -678,6 +670,7 @@ diff --git a/src/NL/glx/GXScrollingDiffuseMaterialProgramRender.cpp b/src/NL/glx
      scrollSpeed.x = gScrollingDiffuseScrollingEnabled ? static_cast<const GXScrollingDiffuseParameters*>(packet->materialParameters)->scrollSpeedX : 0.0f;
      scrollSpeed.y = gScrollingDiffuseScrollingEnabled ? static_cast<const GXScrollingDiffuseParameters*>(packet->materialParameters)->scrollSpeedY : 0.0f;
 diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
+index 8cc8463..c54a7f5 100644
 --- a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXUnlitTextureMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -689,7 +682,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTe
  
  #include "NL/glx/GXUnlitTextureMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -15,15 +19,19 @@
+@@ -15,15 +19,19 @@ GXMaterialParameter GXUnlitTextureMaterialProgram::Parameters[1] = {
  
  GXUnlitTextureMaterialProgram::GXUnlitTextureMaterialProgram()
  {
@@ -710,7 +703,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTe
  }
  
  void GXUnlitTextureMaterialProgram::Initialize()
-@@ -58,8 +66,18 @@
+@@ -58,8 +66,18 @@ void GXUnlitTextureMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXUnlitTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -729,7 +722,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTe
  }
  
  void GXUnlitTextureMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -70,10 +88,18 @@
+@@ -70,10 +88,18 @@ void GXUnlitTextureMaterialProgram::DrawIndexed(const glModelPacket* packet)
  
      while (idxPtr < end)
      {
@@ -748,7 +741,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTe
  }
  
  void GXUnlitTextureMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -82,9 +108,17 @@
+@@ -82,9 +108,17 @@ void GXUnlitTextureMaterialProgram::DrawDirect(const glModelPacket* packet)
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
@@ -767,6 +760,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgram.cpp b/src/NL/glx/GXUnlitTe
  
  void GXUnlitTextureMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
+index 883a2fc..425d78d 100644
 --- a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@
@@ -780,6 +774,7 @@ diff --git a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXU
  
  #include "NL/glx/GXUnlitTextureMaterialProgram.h"
 diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
+index 45b48ee..de8bf92 100644
 --- a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 +++ b/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -791,7 +786,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
  
  #include "NL/glx/GXVertexColourTextureMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -15,15 +19,19 @@
+@@ -15,15 +19,19 @@ GXMaterialParameter GXVertexColourTextureMaterialProgram::Parameters[1] = {
  
  GXVertexColourTextureMaterialProgram::GXVertexColourTextureMaterialProgram()
  {
@@ -812,7 +807,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
  }
  
  void GXVertexColourTextureMaterialProgram::Initialize()
-@@ -42,7 +50,11 @@
+@@ -42,7 +50,11 @@ void GXVertexColourTextureMaterialProgram::ConfigureVertexFormat(bool indexed)
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
@@ -824,7 +819,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
  
      if (indexed)
      {
-@@ -61,9 +73,24 @@
+@@ -61,9 +73,24 @@ void GXVertexColourTextureMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXVertexColourTextureMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -849,7 +844,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
  }
  
  void GXVertexColourTextureMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -74,11 +101,20 @@
+@@ -74,11 +101,20 @@ void GXVertexColourTextureMaterialProgram::DrawIndexed(const glModelPacket* pack
  
      while (index < end)
      {
@@ -870,7 +865,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
  }
  
  void GXVertexColourTextureMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -87,10 +123,19 @@
+@@ -87,10 +123,19 @@ void GXVertexColourTextureMaterialProgram::DrawDirect(const glModelPacket* packe
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
@@ -891,6 +886,7 @@ diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgram.cpp b/src/NL/glx/GX
  
  void GXVertexColourTextureMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp b/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
+index 8de2c40..37712b2 100644
 --- a/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@

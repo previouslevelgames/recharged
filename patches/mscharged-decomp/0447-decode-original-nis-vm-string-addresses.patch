@@ -1,7 +1,7 @@
 From: native port compatibility
 Subject: [PATCH] Decode original NIS string address words on native hosts
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the original VM32 stack and six original string consumers. Native calls
 resolve the existing cached Wii address words using the same transport as the
@@ -9,30 +9,11 @@ original interpreter and frontend bindings. Numeric operands, stack movement,
 requests, dispatch order, arguments and source algorithms stay unchanged.
 Console text projections are identical; no native host dispatcher is added.
 
-diff --git a/src/Game/Render/Nis_interp.cpp b/src/Game/Render/Nis_interp.cpp
---- a/src/Game/Render/Nis_interp.cpp
-+++ b/src/Game/Render/Nis_interp.cpp
-@@ -23,8 +23,16 @@
-         bool force = m_SP[-1] != 0;
-         NisWinnerType winnerType = (NisWinnerType)m_SP[-2];
-         NisTarget target = (NisTarget)m_SP[-3];
-+#if defined(MSCHARGED_NATIVE)
-+        const char* proxyName = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-4]));
-+#else
-         const char* proxyName = (const char*)m_SP[-4];
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+        const char* animName = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-5]));
-+#else
-         const char* animName = (const char*)m_SP[-5];
-+#endif
-         m_SP -= 5;
-         PlayAnimProxy(animName, proxyName, target, winnerType, force);
-         break;
 diff --git a/src/Game/NisPlayer_interp.cpp b/src/Game/NisPlayer_interp.cpp
+index ca8150b..7f97f04 100644
 --- a/src/Game/NisPlayer_interp.cpp
 +++ b/src/Game/NisPlayer_interp.cpp
-@@ -35,8 +35,16 @@
+@@ -35,8 +35,16 @@ void NisPlayer::DoFunctionCall(unsigned int functionId)
      case 2:
      {
          unsigned long triggerParam1 = m_SP[-1];
@@ -49,7 +30,7 @@ diff --git a/src/Game/NisPlayer_interp.cpp b/src/Game/NisPlayer_interp.cpp
          float frame = ((float*)m_SP)[-4];
          m_SP -= 4;
  
-@@ -70,8 +78,16 @@
+@@ -70,8 +78,16 @@ void NisPlayer::DoFunctionCall(unsigned int functionId)
      }
      case 4:
      {
@@ -66,3 +47,24 @@ diff --git a/src/Game/NisPlayer_interp.cpp b/src/Game/NisPlayer_interp.cpp
          float frame = ((float*)m_SP)[-3];
          m_SP -= 3;
  
+diff --git a/src/Game/Render/Nis_interp.cpp b/src/Game/Render/Nis_interp.cpp
+index b73c2a2..7a4a49a 100644
+--- a/src/Game/Render/Nis_interp.cpp
++++ b/src/Game/Render/Nis_interp.cpp
+@@ -23,8 +23,16 @@ void Nis::DoFunctionCall(unsigned int function)
+         bool force = m_SP[-1] != 0;
+         NisWinnerType winnerType = (NisWinnerType)m_SP[-2];
+         NisTarget target = (NisTarget)m_SP[-3];
++#if defined(MSCHARGED_NATIVE)
++        const char* proxyName = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-4]));
++#else
+         const char* proxyName = (const char*)m_SP[-4];
++#endif
++#if defined(MSCHARGED_NATIVE)
++        const char* animName = static_cast<const char*>(mscharged::platform::DecodeVMAddress(m_SP[-5]));
++#else
+         const char* animName = (const char*)m_SP[-5];
++#endif
+         m_SP -= 5;
+         PlayAnimProxy(animName, proxyName, target, winnerType, force);
+         break;

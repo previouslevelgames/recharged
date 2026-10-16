@@ -1,5 +1,5 @@
 Subject: Port: start without the boot loading message
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 A presentation change of the port, always on and without a switch (owner
 decision, 2026-10-14). It lives in the tweak series so the faithful series
@@ -15,9 +15,10 @@ swap turns it on, as glxSwap already does after every black interval. The disc
 error messages in the same file are unchanged.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 5814286..3f603a3 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -559,7 +559,13 @@
+@@ -567,6 +567,12 @@ static void Initialize()
  #endif // DVD/reset registration remains outside this selected loading gate
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE) \
      || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_INITIAL_LOADING_MESSAGE))
@@ -30,4 +31,3 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      DisplayLoadingMessageFast();
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-     InitializeODEAllocators();

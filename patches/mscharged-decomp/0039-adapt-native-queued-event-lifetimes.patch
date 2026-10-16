@@ -1,6 +1,6 @@
 Subject: Adapt original queued dispatch and payload lifetimes
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain original callback order and one-batch/full-drain modes with native
 counter widths, transactional callback insertion, exception/cancellation cleanup,
@@ -11,22 +11,20 @@ Runtime helpers implement checked bounds and exactly-once disposal in src/.
 Full game task/frame wiring and pre-main event construction remain unselected.
 
 diff --git a/include/Game/Event.h b/include/Game/Event.h
+index 1b1c386..964a472 100644
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
-@@ -679,10 +679,22 @@
+@@ -679,10 +679,22 @@ public:
          EventDispatcher* dispatcher, const char* name, int length)
          : Event<T>(name, length)
          , mDispatcher(dispatcher)
--    {
--    }
--
--    virtual ~QueuedEventBase() { }
 +#ifdef MSCHARGED_NATIVE
 +        , mNativeQueue(mscharged::CreateQueuedEventLifetime(dispatcher, this))
 +#endif
-+    {
-+    }
-+
+     {
+     }
+ 
+-    virtual ~QueuedEventBase() { }
 +    virtual ~QueuedEventBase()
 +    {
 +#ifdef MSCHARGED_NATIVE
@@ -40,7 +38,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  
      typedef typename Event<T>::Callback Callback;
  
-@@ -694,6 +706,10 @@
+@@ -694,6 +706,10 @@ public:
  
      void Dispatch(T* data, Function<T*> disposer, unsigned char deliver)
      {
@@ -51,7 +49,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          if (deliver)
          {
              this->Deliver(data);
-@@ -703,10 +719,15 @@
+@@ -703,10 +719,15 @@ public:
          {
              disposer(data);
          }
@@ -67,7 +65,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
          if (deliver)
          {
              this->Deliver();
-@@ -716,10 +737,14 @@
+@@ -716,10 +737,14 @@ public:
          {
              disposer();
          }
@@ -82,7 +80,7 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  };
  
  template <typename T>
-@@ -743,23 +768,35 @@
+@@ -743,23 +768,35 @@ public:
  template <typename T>
  void QueuedEvent<T>::Queue(T* data, const Function<T*>& disposer)
  {
@@ -119,9 +117,10 @@ diff --git a/include/Game/Event.h b/include/Game/Event.h
  
  template <typename P1, typename P2>
 diff --git a/include/Game/EventDispatcher.inl b/include/Game/EventDispatcher.inl
+index 85c30ac..a75837f 100644
 --- a/include/Game/EventDispatcher.inl
 +++ b/include/Game/EventDispatcher.inl
-@@ -22,19 +22,30 @@
+@@ -22,19 +22,30 @@ struct DispatcherInlineScope
  
  inline EventDispatcher::~EventDispatcher()
  {
@@ -152,7 +151,7 @@ diff --git a/include/Game/EventDispatcher.inl b/include/Game/EventDispatcher.inl
      state.fields.dispatching = 1;
      int count;
      do
-@@ -57,11 +68,15 @@
+@@ -57,11 +68,15 @@ void EventDispatcherBase<T>::Dispatch(bool flag)
  
      state.fields.dispatching = 0;
      state.fields.stopDispatch = 0;
@@ -168,7 +167,7 @@ diff --git a/include/Game/EventDispatcher.inl b/include/Game/EventDispatcher.inl
      if (!state.fields.dispatching)
      {
          nlDLListIterator<T> iterator;
-@@ -75,13 +90,18 @@
+@@ -75,13 +90,18 @@ void EventDispatcherBase<T>::Clear()
          callbacks.Clear();
          state.fields.callbackCount = 0;
      }
@@ -188,6 +187,7 @@ diff --git a/include/Game/EventDispatcher.inl b/include/Game/EventDispatcher.inl
  
  #endif // GAME_EVENT_DISPATCHER_INL
 diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/DispatchEventsTask.h
+index bdabfc9..86f05a3 100644
 --- a/include/Game/Task/DispatchEventsTask.h
 +++ b/include/Game/Task/DispatchEventsTask.h
 @@ -9,7 +9,16 @@
@@ -207,7 +207,7 @@ diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/Dispatch
  union EventDispatcherState
  {
      struct
-@@ -27,6 +36,8 @@
+@@ -27,6 +36,8 @@ union EventDispatcherState
      }
  };
  
@@ -216,7 +216,7 @@ diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/Dispatch
  // A class template: retail compiles Dispatch, Clear and Add after the vtables
  // of the unit that instantiates them (in Game/Task/FixedUpdateTask.cpp the
  // pointer-to-member constant of Clear, 0x80507D20, follows all four), which
-@@ -36,9 +47,14 @@
+@@ -36,9 +47,14 @@ template <typename T>
  class EventDispatcherBase
  {
  public:
@@ -231,7 +231,7 @@ diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/Dispatch
      {
      }
  
-@@ -46,11 +62,21 @@
+@@ -46,11 +62,21 @@ public:
      virtual void Clear();
      virtual ~EventDispatcherBase()
      {
@@ -254,6 +254,7 @@ diff --git a/include/Game/Task/DispatchEventsTask.h b/include/Game/Task/Dispatch
  
  class EventDispatcher : public EventDispatcherBase<EventCallback>
 diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
+index 98e3db9..f790699 100644
 --- a/src/NL/nlEvent.cpp
 +++ b/src/NL/nlEvent.cpp
 @@ -11,6 +11,7 @@
@@ -264,7 +265,7 @@ diff --git a/src/NL/nlEvent.cpp b/src/NL/nlEvent.cpp
  #endif
  
  typedef EventConnection* ConnectionKey;
-@@ -103,6 +104,7 @@
+@@ -103,6 +104,7 @@ void ShutdownNativeEventRegistry()
          throw std::logic_error("Destroy events and pop their states before shutdown");
      for (unsigned int count : sConnections)
          if (count) throw std::logic_error("Event connections survived shutdown");

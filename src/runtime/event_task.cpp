@@ -48,7 +48,7 @@ std::string VerifyStartupQueuedEvents()
             queue(7);
             gDispatchEventsTask->Run(0.02f);
             queue(100);
-            fn_80115FB4(); // Diagnostic unload/reset: dispose without delivering.
+            ClearDeferredEvents(); // Diagnostic unload/reset: dispose without delivering.
             queue(3);
             gDispatchEventsTask->Run(0.02f);
             queue(100); // Event destruction cancels this payload immediately.

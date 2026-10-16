@@ -1,5 +1,5 @@
 Subject: Port option: frame rate above the original
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The game paces itself on VI retraces: swap_Post (glxSwap.cpp) waits one
 retrace per frame in menus and replays (swap mode 1), one unless the frame
@@ -20,7 +20,7 @@ original pacing. BeginFrameTask also reports each frame's real length, which
 the next patch uses to keep steps the original makes once per frame.
 
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
-index 61c3a97..c2b85e2 100644
+index 1754240..7cd7dcb 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
 @@ -18,6 +18,7 @@

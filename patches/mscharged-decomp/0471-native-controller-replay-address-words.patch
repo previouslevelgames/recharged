@@ -1,8 +1,10 @@
 Purpose: Preserve the original controller Replay four-byte animation/mirror and retarget words through typed live-owner native address boundaries.
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Requires: finalized0465 and0468 typed original animation/retarget backing with sole ownership registry.
 Console projection, source order, compression, mode, mirror, null and incoming default-field behavior are preserved.
 
+diff --git a/include/Game/SAnim/pnSAnimController.h b/include/Game/SAnim/pnSAnimController.h
+index 248bfb1..fade19b 100644
 --- a/include/Game/SAnim/pnSAnimController.h
 +++ b/include/Game/SAnim/pnSAnimController.h
 @@ -5,6 +5,10 @@
@@ -16,7 +18,7 @@ Console projection, source order, compression, mode, mirror, null and incoming d
  
  class cPN_SAnimController : public cPoseNode
  {
-@@ -46,7 +50,11 @@
+@@ -46,7 +50,11 @@ public:
          unsigned int animPtr = 0;
          if (!ReplayFrameTraits<T>::IsLoadFrame)
          {
@@ -28,7 +30,7 @@ Console projection, source order, compression, mode, mirror, null and incoming d
              if (m_bMirror)
                  animPtr |= 1;
          }
-@@ -54,9 +62,22 @@
+@@ -54,9 +62,22 @@ public:
          if (ReplayFrameTraits<T>::IsLoadFrame)
          {
              m_bMirror = animPtr & 1;

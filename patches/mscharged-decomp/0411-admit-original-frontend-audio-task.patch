@@ -1,6 +1,6 @@
 From: mscharged native integration
 Subject: [PATCH] admit original audio task in explicit initialized frontend scope
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the original AudioUpdateTask static and priority15/all-state AddTask
 statement only in the named default-OFF audio task diagnostic. Its literal
@@ -8,9 +8,10 @@ GameAudio::Update body and normal source are unchanged. Requires actual loaded
 source owner plus native device/AI lifecycle; no host tick or cue selection.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 734332f..8d5742e 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -220,7 +220,7 @@
+@@ -229,7 +229,7 @@ static ParticleUpdateTask particleUpdateTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
  static BeginFrameTask beginFrameTask;
  #endif
@@ -19,7 +20,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static AudioUpdateTask audioUpdateTask;
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -788,7 +788,7 @@
+@@ -797,7 +797,7 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      nlTaskManager::AddTask(&particleUpdateTask, 12, 0x0002001F);
  #endif // unqualified unrelated task registration remains omitted

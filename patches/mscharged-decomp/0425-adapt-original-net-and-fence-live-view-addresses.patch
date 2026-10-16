@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original net/fence live view addresses and compiler syntax
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve original weak symbols, live view choices, quad submission and
 secondary-NIS save/restore. Use the existing pointer-width view carrier
@@ -7,6 +7,7 @@ for native live addresses and the genuine double fabs compiler intrinsic.
 Original console declarations, expressions and bodies remain unchanged.
 
 diff --git a/include/Game/Drawable/DrawableNetMesh.h b/include/Game/Drawable/DrawableNetMesh.h
+index 13ae75b..2bcae66 100644
 --- a/include/Game/Drawable/DrawableNetMesh.h
 +++ b/include/Game/Drawable/DrawableNetMesh.h
 @@ -2,6 +2,9 @@
@@ -19,7 +20,7 @@ diff --git a/include/Game/Drawable/DrawableNetMesh.h b/include/Game/Drawable/Dra
  #include "NL/nlMath.h"
  
  class NetMesh;
-@@ -40,6 +43,10 @@
+@@ -40,6 +43,10 @@ public:
  class GLView;
  
  extern GLView* g_pNetMeshView;
@@ -31,6 +32,7 @@ diff --git a/include/Game/Drawable/DrawableNetMesh.h b/include/Game/Drawable/Dra
  
  #endif // _DRAWABLENETMESH_H_
 diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableNetMesh.cpp
+index 62b350f..5486ac6 100644
 --- a/src/Game/Drawable/DrawableNetMesh.cpp
 +++ b/src/Game/Drawable/DrawableNetMesh.cpp
 @@ -1,4 +1,5 @@
@@ -56,7 +58,7 @@ diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableN
  
  static u32 LightTexture = glGetTexture(LightTextureName);
  static u32 BlackTexture = glGetTexture(BlackTextureName);
-@@ -38,7 +39,11 @@
+@@ -38,7 +39,11 @@ u8 sbRenderAnimatedNetMesh = 1;
  char gNetMeshResourcePoolName[8] = "NetMesh";
  
  GLView* g_pNetMeshView;
@@ -68,7 +70,7 @@ diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableN
  shortVector2* spTexcoord[2];
  u32* spColour[2];
  u16* spTriIndices[2];
-@@ -68,7 +73,11 @@
+@@ -68,7 +73,11 @@ DrawableNetMesh::DrawableNetMesh(bool isPositiveXNet)
      , mVisible(false)
  {
      g_pNetMeshView = GetLayerView(eCLV_UnsortedPerspective);
@@ -81,6 +83,7 @@ diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableN
  
  DrawableNetMesh::~DrawableNetMesh()
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
+index b1597d2..4a957f0 100644
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
 @@ -16,6 +16,10 @@
@@ -94,7 +97,7 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
  
  static float sfGridTextureSize = 7.0f;
  static float sfNumGridSquares = 9.48f;
-@@ -258,7 +262,11 @@
+@@ -258,7 +262,11 @@ static void RenderElectricFenceFlat(const nlVector3& position,
      u8 lightenAmount = (u8)(255.0f * intensity);
      quad.SetColour(
          lightenAmount, lightenAmount, lightenAmount, 0xFF);
@@ -107,9 +110,10 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
  }
  
 diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
+index 0d12a6c..5872e85 100644
 --- a/src/Game/Task/GameRenderTask.cpp
 +++ b/src/Game/Task/GameRenderTask.cpp
-@@ -222,7 +222,11 @@
+@@ -222,7 +222,11 @@ void GameRenderTask::Run(float fDeltaT)
          GLView* saveStadiumAlphaView;
          GLView* saveShapeView;
          GLView* save132C;

@@ -1,5 +1,5 @@
 Subject: Preserve Wii numeric world fields and shared native object prefix
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native-only fixed-width declarations preserve the original numeric hash,
 type/layer, creation flags, effect hash and probability words. Keep full-width
@@ -7,9 +7,10 @@ world/animation pointers and all original source bodies. This does not activate
 world record placement, ownership, callbacks, or readiness.
 
 diff --git a/include/Game/World/WorldDrawable.h b/include/Game/World/WorldDrawable.h
+index ea0681c..bc039e7 100644
 --- a/include/Game/World/WorldDrawable.h
 +++ b/include/Game/World/WorldDrawable.h
-@@ -32,9 +32,15 @@
+@@ -32,9 +32,15 @@ public:
      unsigned long GetHashID() const { return m_uHashID; }
      glModel* GetModel() const { return m_pModel; }
  
@@ -26,9 +27,10 @@ diff --git a/include/Game/World/WorldDrawable.h b/include/Game/World/WorldDrawab
      /* 0x14 */ int m_nAnimNode;
      /* 0x18 */ WorldAnimController* m_pAnimController;
 diff --git a/include/Game/World/WorldEffect.h b/include/Game/World/WorldEffect.h
+index a5a2c11..43b52b5 100644
 --- a/include/Game/World/WorldEffect.h
 +++ b/include/Game/World/WorldEffect.h
-@@ -30,8 +30,13 @@
+@@ -30,8 +30,13 @@ public:
      /* 0x64 */ float m_fEmissionIntervalOffset;
      /* 0x68 */ float m_fEmissionRadius;
      /* 0x6C */ u8 m_pad6C[0x04];

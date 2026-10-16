@@ -2,9 +2,12 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: Admit only literal original services41/42/47 under existing native MAIN_MENU diagnostic.
 # Save wait, original Navigation transition and original music/pointer requests remain unchanged.
+
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 062f36c..6eb688d 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -434,6 +434,9 @@
+@@ -434,6 +434,9 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          ShowCupGoldenBootNews();
          break;
  
@@ -14,7 +17,7 @@
      case 41:
          if (SHNavigation* scene = GetNavigationScene())
          {
-@@ -445,6 +448,8 @@
+@@ -445,6 +448,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          StartFrontEndPresentationMusic();
          break;
  
@@ -23,7 +26,7 @@
      case 43:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -486,7 +491,8 @@
+@@ -486,7 +491,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
  
  #endif

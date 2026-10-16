@@ -1,13 +1,30 @@
 From: mscharged-port
 Subject: Preserve original CharacterLoader scalar callback contexts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use pointer-width compiler casts only for the existing integer model-index
 and audio-count callback contexts. Preserve all source decisions/requests.
 Restore whole original AnimRetargeter declarations and implementation after
 the historical 0069 native exclusions; packed retarget ABI runtime remains held.
 
+diff --git a/include/Game/SAnim/AnimRetargeter.h b/include/Game/SAnim/AnimRetargeter.h
+index 647b6f5..8b1b7ca 100644
+--- a/include/Game/SAnim/AnimRetargeter.h
++++ b/include/Game/SAnim/AnimRetargeter.h
+@@ -17,11 +17,7 @@ class AnimRetargetList : public cIdentifier
+ public:
+     typedef char* MemType;
+ 
+-#if defined(MSCHARGED_NATIVE)
+-    static AnimRetargetList* Initialize(nlChunk* chunkData) = delete;
+-#else
+     static AnimRetargetList* Initialize(nlChunk* chunkData);
+-#endif
+     static bool IsValidChunkID(u32 id)
+     {
+         return (id & 0x80FFFFFF) == 0x80017104;
 diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+index ce98593..cf22bda 100644
 --- a/src/Game/CharacterLoader.cpp
 +++ b/src/Game/CharacterLoader.cpp
 @@ -1,4 +1,8 @@
@@ -19,7 +36,7 @@ diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
  #include "Game/AI/Fielder.h"
  #include "Game/Player.h"
  #include "Game/FE/feHelpFuncs_decl.h"
-@@ -467,8 +471,13 @@
+@@ -467,8 +471,13 @@ bool CharacterLoader::AcquireCurrentTemplate()
  
  static void ModelLoaded_cb(void* data, unsigned long size, void* param)
  {
@@ -33,7 +50,7 @@ diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
  }
  
  void CharacterLoader::StartLoadingCharacterModel(int nModel)
-@@ -493,7 +502,11 @@
+@@ -493,7 +502,11 @@ void CharacterLoader::StartLoadingCharacterModel(int nModel)
      }
      if (szFilename != 0)
      {
@@ -45,7 +62,7 @@ diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
      }
  }
  
-@@ -1112,14 +1125,22 @@
+@@ -1120,14 +1133,22 @@ bool CharacterLoader::FinalizeLoadingCaptainOrGoalieAlternateSwapTexture()
  
  static void AudioBankLoaded_cb(AudioResourceLoadOwner* handle, void* context)
  {
@@ -68,7 +85,7 @@ diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
  }
  
  bool CharacterLoader::NeedsCaptainAudio()
-@@ -1132,7 +1153,11 @@
+@@ -1140,7 +1161,11 @@ void CharacterLoader::StartLoadingCaptainAudio()
      int nBank = GetCharacterInfo(mCurrent->cc).mSoundBankId;
      mAudioRequestCount += gAudioEnabled;
      LoadSoundBank((GameAudio*)g_pAudioSystem, nBank,
@@ -80,7 +97,7 @@ diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
  }
  
  bool CharacterLoader::NeedsSidekickAudio()
-@@ -1148,14 +1173,22 @@
+@@ -1156,14 +1181,22 @@ void CharacterLoader::StartLoadingSidekickAudio()
      int nSlot = (pEntry->nTeamID == 0) ? 1 : 5;
      nSlot += pEntry->nPlayerID;
      LoadSoundBank((GameAudio*)g_pAudioSystem, nBank, nSlot, AudioBankLoaded_cb,
@@ -103,22 +120,8 @@ diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
  }
  
  bool CharacterLoader::FinalizeAudio()
-diff --git a/include/Game/SAnim/AnimRetargeter.h b/include/Game/SAnim/AnimRetargeter.h
---- a/include/Game/SAnim/AnimRetargeter.h
-+++ b/include/Game/SAnim/AnimRetargeter.h
-@@ -17,11 +17,7 @@
- public:
-     typedef char* MemType;
- 
--#if defined(MSCHARGED_NATIVE)
--    static AnimRetargetList* Initialize(nlChunk* chunkData) = delete;
--#else
-     static AnimRetargetList* Initialize(nlChunk* chunkData);
--#endif
-     static bool IsValidChunkID(u32 id)
-     {
-         return (id & 0x80FFFFFF) == 0x80017104;
 diff --git a/src/Game/SAnim/AnimRetargeter.cpp b/src/Game/SAnim/AnimRetargeter.cpp
+index bbcfe00..f431f0b 100644
 --- a/src/Game/SAnim/AnimRetargeter.cpp
 +++ b/src/Game/SAnim/AnimRetargeter.cpp
 @@ -1,6 +1,5 @@
@@ -128,12 +131,12 @@ diff --git a/src/Game/SAnim/AnimRetargeter.cpp b/src/Game/SAnim/AnimRetargeter.c
  AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
  {
      nlChunk* chunk = chunkData->GetFirstChunk();
-@@ -19,8 +18,6 @@
- 
+@@ -20,8 +19,6 @@ AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
      return data;
  }
--
--#endif
  
+-#endif
+-
  AnimRetarget* AnimRetargetList::GetAnimRetargetWithSignature(
      const cSAnim* anim)
+ {

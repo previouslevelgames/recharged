@@ -1,6 +1,6 @@
 Subject: Connect original effects geometry materials to native GX
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the original FloatTexturedColour and ConstantColour TEV/alpha recipes.
 Use typed Aurora state, bounded host vertex arrays, indexed FIFO writes and
@@ -8,7 +8,126 @@ GXEnd. The checked decoder expands ConstantColour's signed 12-fraction UVs
 into floats; console vertex formats remain unchanged. Native direct/display
 list packets stay unsupported. Reset native singleton state at teardown.
 
+diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConstantColourMaterialProgram.cpp
+index 1c343bf..5c500d8 100644
+--- a/src/NL/glx/GXConstantColourMaterialProgram.cpp
++++ b/src/NL/glx/GXConstantColourMaterialProgram.cpp
+@@ -1,4 +1,9 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <stdexcept>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXConstantColourMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramInternal.h"
+@@ -16,15 +21,24 @@ GXMaterialParameter GXConstantColourMaterialProgram::Parameters[2] = {
+ 
+ GXConstantColourMaterialProgram::GXConstantColourMaterialProgram()
+ {
++#if !defined(MSCHARGED_NATIVE)
+     Instance = this;
++#endif
+     programHash = 0xEE9D919D;
+     parameterDataSize = 24;
+     parameterCount = 2;
+     glRegisterMaterialProgram(this, programHash);
++#if defined(MSCHARGED_NATIVE)
++    Instance = this;
++#endif
+ }
+ 
+ GXConstantColourMaterialProgram::~GXConstantColourMaterialProgram()
+ {
++#if defined(MSCHARGED_NATIVE)
++    Instance = 0;
++    Initialized = false;
++#endif
+ }
+ 
+ void GXConstantColourMaterialProgram::Initialize()
+@@ -42,7 +56,11 @@ void GXConstantColourMaterialProgram::ConfigureVertexFormat(bool indexed)
+ {
+     GXClearVtxDesc();
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
++#if defined(MSCHARGED_NATIVE)
++    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
++#else
+     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 12);
++#endif
+ 
+     if (indexed)
+     {
+@@ -59,8 +77,18 @@ void GXConstantColourMaterialProgram::ConfigureVertexFormat(bool indexed)
+ void GXConstantColourMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[1].address, 4);
++#endif
+ }
+ 
+ void GXConstantColourMaterialProgram::DrawIndexed(const glModelPacket* packet)
+@@ -71,14 +99,25 @@ void GXConstantColourMaterialProgram::DrawIndexed(const glModelPacket* packet)
+ 
+     while (idxPtr < end)
+     {
++#if defined(MSCHARGED_NATIVE)
++        GXPosition1x16(*idxPtr);
++        GXTexCoord1x16(*idxPtr);
++#else
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
++#endif
+         ++idxPtr;
+     }
++#if defined(MSCHARGED_NATIVE)
++    GXEnd();
++#endif
+ }
+ 
+ void GXConstantColourMaterialProgram::DrawDirect(const glModelPacket* packet)
+ {
++#if defined(MSCHARGED_NATIVE)
++    throw std::logic_error("Native effects materials require retained indexed geometry");
++#else
+     GXBegin(glxGetPrimitiveType((unsigned char)packet->primType), GX_VTXFMT0, packet->numUniqueVertices);
+ 
+     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
+@@ -86,6 +125,7 @@ void GXConstantColourMaterialProgram::DrawDirect(const glModelPacket* packet)
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+     }
++#endif
+ }
+ 
+ void GXConstantColourMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
+index 5ea1d8b..5e0ad1d 100644
+--- a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
+@@ -1,4 +1,9 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <stdexcept>
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ 
+ #include "NL/glx/GXConstantColourMaterialProgram.h"
 diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
+index 4c14dff..9f40fc9 100644
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 @@ -1,4 +1,9 @@
@@ -21,7 +140,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
  
  #include "NL/glx/GXFloatTexturedColourMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -15,15 +20,24 @@
+@@ -15,15 +20,24 @@ GXMaterialParameter GXFloatTexturedColourMaterialProgram::Parameters[1] = {
  
  GXFloatTexturedColourMaterialProgram::GXFloatTexturedColourMaterialProgram()
  {
@@ -46,7 +165,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
  }
  
  void GXFloatTexturedColourMaterialProgram::Initialize()
-@@ -61,9 +75,24 @@
+@@ -61,9 +75,24 @@ void GXFloatTexturedColourMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXFloatTexturedColourMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -71,7 +190,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
  }
  
  void GXFloatTexturedColourMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -74,15 +103,27 @@
+@@ -74,15 +103,27 @@ void GXFloatTexturedColourMaterialProgram::DrawIndexed(const glModelPacket* pack
  
      while (index < end)
      {
@@ -99,7 +218,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
      GXBegin(glxGetPrimitiveType((unsigned char)packet->primType), GX_VTXFMT0, packet->numUniqueVertices);
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
-@@ -91,6 +132,7 @@
+@@ -91,6 +132,7 @@ void GXFloatTexturedColourMaterialProgram::DrawDirect(const glModelPacket* packe
          WGPIPE.us = i;
          WGPIPE.us = i;
      }
@@ -108,6 +227,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
  
  void GXFloatTexturedColourMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
+index cb43007..e844430 100644
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@
@@ -120,119 +240,3 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp b/src/NL/
  #include "NL/gl/glMaterialParameters.h"
  
  #include "NL/glx/GXFloatTexturedColourMaterialProgram.h"
-diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConstantColourMaterialProgram.cpp
---- a/src/NL/glx/GXConstantColourMaterialProgram.cpp
-+++ b/src/NL/glx/GXConstantColourMaterialProgram.cpp
-@@ -1,4 +1,9 @@
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#include <stdexcept>
-+#else
- #include <revolution/gx.h>
-+#endif
- 
- #include "NL/glx/GXConstantColourMaterialProgram.h"
- #include "NL/glx/GXMaterialProgramInternal.h"
-@@ -16,15 +21,24 @@
- 
- GXConstantColourMaterialProgram::GXConstantColourMaterialProgram()
- {
-+#if !defined(MSCHARGED_NATIVE)
-     Instance = this;
-+#endif
-     programHash = 0xEE9D919D;
-     parameterDataSize = 24;
-     parameterCount = 2;
-     glRegisterMaterialProgram(this, programHash);
-+#if defined(MSCHARGED_NATIVE)
-+    Instance = this;
-+#endif
- }
- 
- GXConstantColourMaterialProgram::~GXConstantColourMaterialProgram()
- {
-+#if defined(MSCHARGED_NATIVE)
-+    Instance = 0;
-+    Initialized = false;
-+#endif
- }
- 
- void GXConstantColourMaterialProgram::Initialize()
-@@ -42,7 +56,11 @@
- {
-     GXClearVtxDesc();
-     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-+#else
-     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 12);
-+#endif
- 
-     if (indexed)
-     {
-@@ -59,8 +77,18 @@
- void GXConstantColourMaterialProgram::BindVertexArrays(const glModelPacket* packet)
- {
-     glModelStream* streams = packet->streams;
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_POS, streams[0].address,
-+        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
-+#else
-     GXSetArray(GX_VA_POS, streams[0].address, 12);
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_TEX0, streams[1].address,
-+        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
-+#else
-     GXSetArray(GX_VA_TEX0, streams[1].address, 4);
-+#endif
- }
- 
- void GXConstantColourMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -71,14 +99,25 @@
- 
-     while (idxPtr < end)
-     {
-+#if defined(MSCHARGED_NATIVE)
-+        GXPosition1x16(*idxPtr);
-+        GXTexCoord1x16(*idxPtr);
-+#else
-         WGPIPE.us = *idxPtr;
-         WGPIPE.us = *idxPtr;
-+#endif
-         ++idxPtr;
-     }
-+#if defined(MSCHARGED_NATIVE)
-+    GXEnd();
-+#endif
- }
- 
- void GXConstantColourMaterialProgram::DrawDirect(const glModelPacket* packet)
- {
-+#if defined(MSCHARGED_NATIVE)
-+    throw std::logic_error("Native effects materials require retained indexed geometry");
-+#else
-     GXBegin(glxGetPrimitiveType((unsigned char)packet->primType), GX_VTXFMT0, packet->numUniqueVertices);
- 
-     for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
-@@ -86,6 +125,7 @@
-         WGPIPE.us = i;
-         WGPIPE.us = i;
-     }
-+#endif
- }
- 
- void GXConstantColourMaterialProgram::BindParameters(const glModelPacket* packet)
-diff --git a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
---- a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
-@@ -1,4 +1,9 @@
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#include <stdexcept>
-+#else
- #include <revolution/gx.h>
-+#endif
- #include "NL/gl/glMaterialParameters.h"
- 
- #include "NL/glx/GXConstantColourMaterialProgram.h"

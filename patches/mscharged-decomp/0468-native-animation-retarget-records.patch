@@ -1,8 +1,26 @@
 Purpose: Original AnimRetargetList serialized/native record boundary and actual native animation pointer-array allocation.
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Requires: finalized0451/0461/0465 sole ownership registry and qualified original NL completed WiiSerialized bytes.
 Original console projection, algorithms, count loops, signatures, resource selection and destruction preserved.
 
+diff --git a/src/Game/AnimInventory.cpp b/src/Game/AnimInventory.cpp
+index cb7f651..423d69c 100644
+--- a/src/Game/AnimInventory.cpp
++++ b/src/Game/AnimInventory.cpp
+@@ -21,7 +21,11 @@ cAnimInventory::cAnimInventory(const AnimProperties* props, int count)
+     }
+ 
+     m_pSAnims
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
++        = (cSAnim**)nlMalloc((unsigned long)m_nNumProperties * sizeof(cSAnim*), 8, false);
++#else
+         = (cSAnim**)nlMalloc((unsigned long)(m_nNumProperties << 2), 8, false);
++#endif
+ }
+ 
+ cAnimInventory::~cAnimInventory()
+diff --git a/src/Game/SAnim/AnimRetargeter.cpp b/src/Game/SAnim/AnimRetargeter.cpp
+index f431f0b..8a6bc66 100644
 --- a/src/Game/SAnim/AnimRetargeter.cpp
 +++ b/src/Game/SAnim/AnimRetargeter.cpp
 @@ -1,19 +1,37 @@
@@ -43,17 +61,3 @@ Original console projection, algorithms, count loops, signatures, resource selec
      }
  
      return data;
---- a/src/Game/AnimInventory.cpp
-+++ b/src/Game/AnimInventory.cpp
-@@ -21,7 +21,11 @@
-     }
- 
-     m_pSAnims
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+        = (cSAnim**)nlMalloc((unsigned long)m_nNumProperties * sizeof(cSAnim*), 8, false);
-+#else
-         = (cSAnim**)nlMalloc((unsigned long)(m_nNumProperties << 2), 8, false);
-+#endif
- }
- 
- cAnimInventory::~cAnimInventory()

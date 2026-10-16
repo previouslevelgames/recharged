@@ -1,5 +1,7 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/include/Game/Audio/AudioSystem.h b/include/Game/Audio/AudioSystem.h
+index 7444b8a..5b52821 100644
 --- a/include/Game/Audio/AudioSystem.h
 +++ b/include/Game/Audio/AudioSystem.h
 @@ -8,6 +8,9 @@
@@ -12,7 +14,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  class XSoundHandle;
  class XSoundCueHandle;
-@@ -57,9 +60,15 @@
+@@ -57,9 +60,15 @@ public:
      /* 0x2E0 */ unsigned int m_OwnedSoundCount;
  };
  
@@ -28,9 +30,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  void UpdateAudioSystem(AudioSystem* audio, float dt);
  void PrintAudioSystem(AudioSystem* audio);
  void DumpAudioSystem(AudioSystem* audio, const char* path);
+diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+index 48106a2..239de6b 100644
 --- a/src/Game/Audio/AudioSystem.cpp
 +++ b/src/Game/Audio/AudioSystem.cpp
-@@ -61,8 +61,13 @@
+@@ -62,8 +62,13 @@ void AudioSystem::Shutdown()
      owners->FreeBlocks();
  }
  

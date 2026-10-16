@@ -1,5 +1,5 @@
 Subject: Tweak: fast terrain
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Each stadium names one of six terrain profiles (StadiumInfo, read by
 InitializeGameTweaks once per match): ini/Terrain/DryTerrain.ini,
@@ -50,7 +50,7 @@ index 842ab79..2885bfc 100644
  
      char terrainName[100];
 diff --git a/src/Game/Weather.cpp b/src/Game/Weather.cpp
-index ffa8e47..e28986f 100644
+index 632c9e8..945f042 100644
 --- a/src/Game/Weather.cpp
 +++ b/src/Game/Weather.cpp
 @@ -36,6 +36,7 @@

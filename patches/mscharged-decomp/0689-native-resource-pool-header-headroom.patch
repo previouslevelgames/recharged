@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Give native GL resource pools room for native header sizes
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native data-size adaptation; apply after 0688.
 
 Records loaded from disc keep their Wii header quotas (0180, 0238), but
@@ -14,11 +14,11 @@ The game never reads pool sizes for decisions (only a debug print and a
 discarded query), so behaviour is unchanged.
 
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
-index d690ec0..feb9928 100644
+index 59fbfa9..ebf1e9a 100644
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
 @@ -463,6 +463,11 @@ GLResourcePool* glplatCreateResourcePool(
-         int pool = RealOrVirtual(requirements[i].mType);
+         int pool = GetMemoryPoolIndex(requirements[i].mType);
          sizes[pool] += requirements[i].mSize;
      }
 +#if defined(MSCHARGED_NATIVE)

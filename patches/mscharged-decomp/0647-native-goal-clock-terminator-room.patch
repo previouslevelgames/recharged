@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native room for the goal clock's out-of-bounds terminator
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native memory-safety adaptation of a retail out-of-bounds write; apply after 0644.
 
 GoalOverlay::UpdateGoalInfo formats minutes and seconds into 16-character wide
@@ -12,10 +12,10 @@ after a Mega Strike. Natively the arrays get room for that write. The original
 calls, sizes and the displayed text are unchanged.
 
 diff --git a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
-index d18bb9c..5b274ef 100644
+index c01da18..29c1120 100644
 --- a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
 +++ b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
-@@ -187,8 +187,17 @@ void GoalOverlay::UpdateGoalInfo(int homeAway, int playerIndex, bool isCaptainS2
+@@ -190,8 +190,17 @@ void GoalOverlay::UpdateGoalInfo(int homeAway, int playerIndex, bool isCaptainS2
      }
  
      BasicString<unsigned short, Detail::TempStringAllocator> formatted;

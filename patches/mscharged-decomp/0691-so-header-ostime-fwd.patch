@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Declare only the OS time types in so.h
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility
 
 so.h needs OSTime only for the SOPoll timeout. OSTime.h also includes
@@ -12,7 +12,7 @@ not found). OSTime_fwd.h declares the time types alone; the SO
 declarations are unchanged.
 
 diff --git a/libs/RVL_SDK/include/revolution/so.h b/libs/RVL_SDK/include/revolution/so.h
-index 6a7dbdd..18cacb2 100644
+index 61cd4b5..0b7d228 100644
 --- a/libs/RVL_SDK/include/revolution/so.h
 +++ b/libs/RVL_SDK/include/revolution/so.h
 @@ -3,7 +3,7 @@

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LP64 layout of the posed ball drawable
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility; apply after 0648.
 
 DrawableBall poses the ball and its trails through DrawableModel, a view of
@@ -35,7 +35,7 @@ index 384d338..e0f2266 100644
      /* 0x8C */ nlVector3 translation;
      /* 0x98 */ float modelScale;
 diff --git a/src/Game/Render/ChargeShadowDrawable.cpp b/src/Game/Render/ChargeShadowDrawable.cpp
-index 9e2b3b2..247362c 100644
+index cdfbc9a..8d49424 100644
 --- a/src/Game/Render/ChargeShadowDrawable.cpp
 +++ b/src/Game/Render/ChargeShadowDrawable.cpp
 @@ -22,6 +22,20 @@

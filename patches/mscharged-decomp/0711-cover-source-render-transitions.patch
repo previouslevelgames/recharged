@@ -1,24 +1,25 @@
 From: mscharged-port
 Subject: Prepare source-authored procedural and inherited render variants
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
+index 9a7da4e..67d0adc 100644
 --- a/src/Game/Render/StadiumLoading.cpp
 +++ b/src/Game/Render/StadiumLoading.cpp
-@@ -40,6 +40,9 @@
- #include "NL/gl/glState.h"
+@@ -41,6 +41,9 @@
  
  #include "Game/SharedStaticStorage.h"
+ #include "Game/Render/RLViewLayers.h"
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
 +#include "platform/automatic_pipeline_prewarm.h"
 +#endif
  extern "C"
  {
      extern bool lbl_806DEE60;
-@@ -152,6 +155,21 @@
- {
+@@ -148,6 +151,21 @@ DrawableObject** GetNumberRenderObjects()
      return gStadiumNumberInstances;
  }
-+
+ 
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
 +void mscharged::platform::EnumerateAutomaticNumberResources()
 +{
@@ -33,25 +34,15 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    }
 +}
 +#endif
- 
++
  DrawableObject* GetBallRenderObject(unsigned int index)
  {
---- a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
-@@ -66,5 +66,10 @@
-     ConfigureCompactColourPipelineState(program);
-     program->BindVertexArrays(&packet);
-     EmitAutomaticMaterialPipeline(packet);
-+    // A new view deactivates the preceding material without resetting state.
-+    // Scrolling detail Deactivate leaves TEX0 as an identity 3x4 generator;
-+    // an ordinary material switch resets it to the 2x4 variant emitted above.
-+    gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY);
-+    EmitAutomaticMaterialPipeline(packet);
- }
- #endif
+     return gStadiumModelEntries[0].mInstances[index];
+diff --git a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
+index 85d0cc3..d05630b 100644
 --- a/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCharacterDamageMaterialProgramRender.cpp
-@@ -348,10 +348,19 @@
+@@ -348,10 +348,19 @@ void glxCollectCharacterDamagePipelineVariants(const glModelPacket& packet)
           surface <= (match ? 8 : (params.blackOnly ? 8 : currentDamage + 4 * currentMega)); ++surface)
      for (int shadow = 0; shadow < (match && sCharacterDamageShadowLightingEnabled ? 4 : 1); ++shadow)
      for (int inheritedAlpha = 0; inheritedAlpha < (surface == 8 ? 3 : 1); ++inheritedAlpha)
@@ -71,3 +62,18 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
          ConfigureCharacterDamagePipelineState(enabled != 0, lightCount, doubled,
              stageCount, sCharacterDamageTexGenCount);
          const bool damage[2] = { (surface & 1) != 0, (surface & 2) != 0 };
+diff --git a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
+index 6fe6446..7b9d432 100644
+--- a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
+@@ -66,5 +66,10 @@ void glxPrepareCompactColourPipeline(const glModelPacket& packet)
+     ConfigureCompactColourPipelineState(program);
+     program->BindVertexArrays(&packet);
+     EmitAutomaticMaterialPipeline(packet);
++    // A new view deactivates the preceding material without resetting state.
++    // Scrolling detail Deactivate leaves TEX0 as an identity 3x4 generator;
++    // an ordinary material switch resets it to the 2x4 variant emitted above.
++    gxSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY);
++    EmitAutomaticMaterialPipeline(packet);
+ }
+ #endif

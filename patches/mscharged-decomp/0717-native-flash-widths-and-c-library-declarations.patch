@@ -1,0 +1,187 @@
+From: mscharged-port
+Subject: Keep the Wii widths of the flash API and declare C library calls natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility.
+
+Decomp 9046e67a spells the nlFlash API and its users (SaveLoad, the file cache,
+replays) with long and unsigned long, while nlFlash.cpp still defines it with
+s32/u32/u8. On the Wii these are the same types; natively s32/u32 are 32-bit
+and long may be 64-bit, so the header and the definitions disagree. Natively
+the header declares the API with the source's own widths. The callbacks keep
+their long result (a NAND result fits), and the five variables the API writes
+a size or answer through are u32, as before upstream respelled them.
+
+ODE's column and rounded-corner classes and the HOME button layout now take
+sqrt and stricmp from MSL's internal/fdlibm.h and extras.h, which native
+builds do not have on their path. Natively they keep the former extern "C"
+declarations; the functions themselves come from the host C library (sqrt) and
+the module's MSL extras.c (stricmp).
+
+diff --git a/include/NL/plat/nlFileCache.h b/include/NL/plat/nlFileCache.h
+index 378dd71..34a850c 100644
+--- a/include/NL/plat/nlFileCache.h
++++ b/include/NL/plat/nlFileCache.h
+@@ -53,7 +53,11 @@ struct CacheRequest
+     void* mBuffer;
+     FileCacheCallback mWriteCallback;
+     FileCacheCallback mReadCallback;
++#if defined(MSCHARGED_NATIVE)
++    u32 mBufferSize; // nlFlashRead writes the Wii 32-bit size here
++#else
+     unsigned long mBufferSize;
++#endif
+     void* mUserData;
+     CachedFile* mFile;
+ };
+diff --git a/include/NL/plat/nlFlash.h b/include/NL/plat/nlFlash.h
+index 5567054..bd85595 100644
+--- a/include/NL/plat/nlFlash.h
++++ b/include/NL/plat/nlFlash.h
+@@ -2,6 +2,9 @@
+ #define NL_PLAT_NL_FLASH_H
+ 
+ #include "NL/nlTask.h"
++#if defined(MSCHARGED_NATIVE)
++#include "types.h"
++#endif
+ 
+ struct NANDCommandBlock;
+ 
+@@ -19,6 +22,22 @@ public:
+ 
+ extern "C"
+ {
++#if defined(MSCHARGED_NATIVE)
++// nlFlash.cpp defines the API with the Wii's s32/u32, which are long and
++// unsigned long only on the Wii. Callbacks keep their long result.
++void nlFlashAsyncCallback(s32 result, NANDCommandBlock* block);
++void nlFlashInitialize();
++s32 nlFlashChangeDirectory(s32 directory, NANDResultCallback callback);
++s32 nlFlashCreateDirectory(const char* name, u8 permissions, NANDResultCallback callback);
++s32 nlFlashCreate(const char* name, u8 permissions, NANDResultCallback callback);
++s32 nlFlashCheck(u32 blocks, u32 files, u32* answer, NANDResultCallback callback);
++s32 nlFlashDelete(const char* name, NANDResultCallback callback);
++s32 nlFlashWrite(const void* data, u32 size, NANDResultCallback callback);
++s32 nlFlashGetLength(u32* size, NANDResultCallback callback);
++s32 nlFlashRead(void** data, u32* size, NANDResultCallback callback, bool bufferProvided);
++s32 nlFlashOpen(const char* name, u8 mode, NANDResultCallback callback);
++s32 nlFlashClose(NANDResultCallback callback);
++#else
+ void nlFlashAsyncCallback(long result, NANDCommandBlock* block);
+ void nlFlashInitialize();
+ long nlFlashChangeDirectory(long directory, NANDResultCallback callback);
+@@ -37,6 +56,7 @@ long nlFlashRead(
+ long nlFlashOpen(
+     const char* name, unsigned char mode, NANDResultCallback callback);
+ long nlFlashClose(NANDResultCallback callback);
++#endif
+ bool nlFlashCallbackPending();
+ }
+ 
+diff --git a/src/Game/DB/SaveLoad.cpp b/src/Game/DB/SaveLoad.cpp
+index ab0406b..faa4b5e 100644
+--- a/src/Game/DB/SaveLoad.cpp
++++ b/src/Game/DB/SaveLoad.cpp
+@@ -65,8 +65,14 @@ static void* SaveBuffer;
+ static NANDBanner* BannerBuffer;
+ static TPLPalette* RegionBannerTPL;
+ static bool IconDataLoaded;
++#if defined(MSCHARGED_NATIVE)
++// nlFlashCheck and nlFlashGetLength write Wii 32-bit values through these.
++static u32 CheckAnswer;
++static u32 BannerFileLength;
++#else
+ static unsigned long CheckAnswer;
+ static unsigned long BannerFileLength;
++#endif
+ static bool BannerFileExists;
+ enum eSaveLoadMode
+ {
+@@ -280,7 +286,11 @@ void SaveLoad::OpenSaveForReadCallback(long result)
+     if (result == 0)
+     {
+         SaveBuffer = 0;
++#if defined(MSCHARGED_NATIVE)
++        u32 size;
++#else
+         unsigned long size;
++#endif
+         if (OnlineMode)
+         {
+             size = GameInfoManager::GetInstance()->GetMemoryCardDataSize() + sizeof(SaveFileHeader);
+diff --git a/src/Game/ReplayManager.cpp b/src/Game/ReplayManager.cpp
+index 597c04b..7798b71 100644
+--- a/src/Game/ReplayManager.cpp
++++ b/src/Game/ReplayManager.cpp
+@@ -700,7 +700,11 @@ bool ReplayManager::LoadReplay(int index)
+     }
+ 
+     gbLoadingReplay = true;
++#if defined(MSCHARGED_NATIVE)
++    u32 size = 0x100000; // nlFlashRead writes the Wii 32-bit size here
++#else
+     unsigned long size = 0x100000;
++#endif
+     if (nlFlashRead((void**)&mMemory, &size, OnReplayRead, true) != 0)
+     {
+         GetPresentation()->SendSkipNis();
+diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
+index 9d60765..1dbd315 100644
+--- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_arcResourceAccessor.cpp
+@@ -8,7 +8,13 @@
+ #include <cstring>
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++// MSL's stricmp (src/MSL/extras.c) is in the module; native builds do not put
++// the MSL include folder on their path.
++extern "C" int stricmp(const char*, const char*);
++#else
+ #include "extras.h"
++#endif
+ 
+ namespace {
+ 
+diff --git a/src/ode/ext/dColumn.cpp b/src/ode/ext/dColumn.cpp
+index efd0f2e..8914a15 100644
+--- a/src/ode/ext/dColumn.cpp
++++ b/src/ode/ext/dColumn.cpp
+@@ -27,10 +27,16 @@
+ #define __fabs(value) __builtin_fabs(static_cast<double>(value))
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++// The host C library's sqrt, declared as before; <math.h> would add C++
++// float overloads and change which sqrt the original calls take.
++extern "C" double sqrt(double);
++#else
+ extern "C"
+ {
+ #include <internal/fdlibm.h>
+ }
++#endif
+ 
+ static inline double odeFabs(double value)
+ {
+diff --git a/src/ode/ext/dRoundedCorner.cpp b/src/ode/ext/dRoundedCorner.cpp
+index 10ef6f6..a9ded22 100644
+--- a/src/ode/ext/dRoundedCorner.cpp
++++ b/src/ode/ext/dRoundedCorner.cpp
+@@ -1,10 +1,16 @@
+ #include <ode/ext/dRoundedCorner.h>
+ #include <ode/ext/dColumn.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++// The host C library's sqrt, declared as before; <math.h> would add C++
++// float overloads and change which sqrt the original calls take.
++extern "C" double sqrt(double);
++#else
+ extern "C"
+ {
+ #include <internal/fdlibm.h>
+ }
++#endif
+ int dRoundedCornerClassUser = -1;
+ 
+ struct RoundedCornerData

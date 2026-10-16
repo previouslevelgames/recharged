@@ -1,5 +1,5 @@
 Subject: Tweak: skip the intro
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 With "Skip intro" enabled the game starts at the main menu, once per launch:
 
@@ -13,10 +13,10 @@ With "Skip intro" enabled the game starts at the main menu, once per launch:
   of A through its own handler. Back on the title later, it waits for A.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 540603a..531d97e 100644
+index f859bab..d1bfd4d 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -138,6 +138,7 @@
+@@ -143,6 +143,7 @@
  
  #if defined(MSCHARGED_NATIVE)
  #include <revolution/os/OSTime.h>
@@ -24,7 +24,7 @@ index 540603a..531d97e 100644
  #else
  #define OS_BUS_CLOCK_SPEED           (*(volatile u32*)0x800000F8)
  #define OS_TIME_SPEED                (OS_BUS_CLOCK_SPEED / 4)
-@@ -437,6 +438,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -443,6 +444,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 13:
          if (!lbl_806E1044)
          {
@@ -42,7 +42,7 @@ index 540603a..531d97e 100644
          }
          else if (lbl_806E106A)
 diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
-index 961b65f..8524fd2 100644
+index 2773638..6fc0f45 100644
 --- a/src/Game/SH/SHBootLoading.cpp
 +++ b/src/Game/SH/SHBootLoading.cpp
 @@ -20,6 +20,7 @@
@@ -53,7 +53,7 @@ index 961b65f..8524fd2 100644
  #include "NL/nlColour.h"
  #include "NL/nlLocalization.h"
  #include "NL/nlString.h"
-@@ -158,6 +159,18 @@ void BootLoadingScene::SceneCreated()
+@@ -181,6 +182,18 @@ void BootLoadingScene::SceneCreated()
  void BootLoadingScene::Update(float fDeltaT)
  {
      BaseSceneHandler::Update(fDeltaT);
@@ -73,7 +73,7 @@ index 961b65f..8524fd2 100644
      {
          TLSlide* slide = mPresentation->m_currentSlide;
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
-index cfac012..d086675 100644
+index d7bfd3d..b4efac2 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
 @@ -25,6 +25,7 @@
@@ -84,7 +84,7 @@ index cfac012..d086675 100644
  
  #if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
  Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
-@@ -156,6 +157,12 @@ bool MoviePlayerScene::CheckMoviePlayerAbort()
+@@ -160,6 +161,12 @@ bool MoviePlayerScene::CheckMoviePlayerAbort()
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) && !defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
      throw std::logic_error("Credits diagnostic attempted excluded input/movie flow");
  #else
@@ -98,7 +98,7 @@ index cfac012..d086675 100644
  #endif
  }
 diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
-index 4c424ba..8054edd 100644
+index b72248a..f942307 100644
 --- a/src/Game/SH/SHTitleScreen.cpp
 +++ b/src/Game/SH/SHTitleScreen.cpp
 @@ -31,6 +31,7 @@
@@ -109,7 +109,7 @@ index 4c424ba..8054edd 100644
  
  static bool sTitleDimmingTimeSet;
  
-@@ -137,6 +138,12 @@ void TitleScene::Update(float dt)
+@@ -139,6 +140,12 @@ void TitleScene::Update(float dt)
  {
      BaseSceneHandler::Update(dt);
      m_fTimeElapsed += dt;
@@ -122,7 +122,7 @@ index 4c424ba..8054edd 100644
      if (m_fTimeElapsed < 1.5f)
          return;
  
-@@ -201,7 +208,11 @@ void TitleScene::Update(float dt)
+@@ -203,7 +210,11 @@ void TitleScene::Update(float dt)
          }
  
          pointer->SetActiveSlide("A", true, false);

@@ -1,12 +1,13 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Restore original ConstantColour and authored native RLG parameter fields
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve original source initialization, lookup, allocation, parameter selection
 and Configure/Prepare order. Adapt only the two owned qualified scalar layouts;
 retain historical material behavior only under an explicit legacy flag.
 
 diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+index 1cfbd2b..5d4c965 100644
 --- a/src/NL/gl/glLoadModel.cpp
 +++ b/src/NL/gl/glLoadModel.cpp
 @@ -13,6 +13,7 @@
@@ -17,7 +18,7 @@ diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
  #include "platform/game_allocation_ownership.h"
  #include <stdint.h>
  #endif
-@@ -85,7 +86,11 @@
+@@ -85,7 +86,11 @@ void RLGReader::LoadVertexAnimData(nlChunk* chunk)
  void RLGReader::LoadPacketData(void* data, unsigned long size)
  {
      m_pParameterData = glResourceAlloc(size, GLM_Header, m_pResource);
@@ -30,20 +31,22 @@ diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
  
  void RLGReader::LoadStreams(void* data, unsigned long size)
 diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConstantColourMaterialProgram.cpp
+index 5c500d8..6bb467b 100644
 --- a/src/NL/glx/GXConstantColourMaterialProgram.cpp
 +++ b/src/NL/glx/GXConstantColourMaterialProgram.cpp
-@@ -1,6 +1,10 @@
+@@ -1,7 +1,11 @@
  #if defined(MSCHARGED_NATIVE)
  #include <dolphin/gx.h>
 +#if defined(MSCHARGED_DIAGNOSTIC_EFFECTS_MATERIALS)
  #include <stdexcept>
-+#else
+ #else
 +#include "platform/gx_array_transport.h"
 +#endif
- #else
++#else
  #include <revolution/gx.h>
  #endif
-@@ -21,21 +25,21 @@
+ 
+@@ -21,21 +25,21 @@ GXMaterialParameter GXConstantColourMaterialProgram::Parameters[2] = {
  
  GXConstantColourMaterialProgram::GXConstantColourMaterialProgram()
  {
@@ -68,7 +71,7 @@ diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConst
      Instance = 0;
      Initialized = false;
  #endif
-@@ -56,7 +60,7 @@
+@@ -56,7 +60,7 @@ void GXConstantColourMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -77,7 +80,7 @@ diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConst
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
  #else
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_S16, 12);
-@@ -77,13 +81,17 @@
+@@ -77,13 +81,17 @@ void GXConstantColourMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXConstantColourMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -97,7 +100,7 @@ diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConst
      GXSetArray(GX_VA_TEX0, streams[1].address,
          packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
  #else
-@@ -115,16 +123,24 @@
+@@ -115,16 +123,24 @@ void GXConstantColourMaterialProgram::DrawIndexed(const glModelPacket* packet)
  
  void GXConstantColourMaterialProgram::DrawDirect(const glModelPacket* packet)
  {
@@ -124,6 +127,7 @@ diff --git a/src/NL/glx/GXConstantColourMaterialProgram.cpp b/src/NL/glx/GXConst
  }
  
 diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
+index 6f3838d..062d25a 100644
 --- a/src/NL/glx/glxLoadModel.cpp
 +++ b/src/NL/glx/glxLoadModel.cpp
 @@ -21,6 +21,7 @@
@@ -134,7 +138,7 @@ diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
  #endif
  
  
-@@ -123,6 +124,9 @@
+@@ -123,6 +124,9 @@ void GLXRLGReader::FinalizeModels()
                  MoveLargestBoneWeightFirst(packet);
              }
  

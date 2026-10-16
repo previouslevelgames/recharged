@@ -1,6 +1,6 @@
 Subject: Share selected original Options visual and callback steps
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain console delegates for authored lookup, pointer callbacks and in/out
 state timing. Native callers own retained resources and report unsupported
@@ -8,6 +8,7 @@ NAV, global DPD, music and scene-manager services explicitly.
 
 diff --git a/include/Game/FE/FrontendOptionsSteps.h b/include/Game/FE/FrontendOptionsSteps.h
 new file mode 100644
+index 0000000..c46fc6a
 --- /dev/null
 +++ b/include/Game/FE/FrontendOptionsSteps.h
 @@ -0,0 +1,125 @@
@@ -137,6 +138,7 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
+index 3276496..5f59d79 100644
 --- a/src/Game/SH/SHOptions.cpp
 +++ b/src/Game/SH/SHOptions.cpp
 @@ -2,6 +2,7 @@
@@ -147,7 +149,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  #include "Game/FE/FrontendHandlerSteps.h"
  #include "Game/BaseSceneHandler.inl"
  #include "Game/FE/FEAudio.h"
-@@ -48,13 +49,7 @@
+@@ -48,13 +49,7 @@ OptionsScene::~OptionsScene()
  
  void OptionsScene::SceneCreated()
  {
@@ -162,7 +164,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  
      TLComponentInstance* screen = 0;
      SHNavigation* object = GetNavigationScene();
-@@ -91,41 +86,13 @@
+@@ -91,41 +86,13 @@ void OptionsScene::Update(float fDeltaT)
  {
      BaseSceneHandler::Update(fDeltaT);
  
@@ -211,7 +213,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
      if (!mPointerButtonsInitialized)
      {
          InitializePointerButtons();
-@@ -149,14 +116,7 @@
+@@ -149,14 +116,7 @@ void OptionsScene::Update(float fDeltaT)
  
          if (mBackButton.UpdateBackButton(event, fDeltaT))
          {
@@ -227,7 +229,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
              return;
          }
  
-@@ -169,64 +129,17 @@
+@@ -169,64 +129,17 @@ void OptionsScene::Update(float fDeltaT)
  
  void OptionsScene::OnButtonPointerPress(int, void* context)
  {
@@ -295,7 +297,7 @@ diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
  }
  
  void OptionsScene::InitializePointerButtons()
-@@ -243,11 +156,7 @@
+@@ -243,11 +156,7 @@ void OptionsScene::InitializePointerButtons()
  
      for (int i = 0; i < 3; ++i)
      {

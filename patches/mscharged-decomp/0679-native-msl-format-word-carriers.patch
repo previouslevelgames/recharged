@@ -1,8 +1,11 @@
 # Retain full native numeric carriers while preserving the original conversion helpers and argument types.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
+index e6505f2..f729798 100644
 --- a/src/MSL/wprintf.c
 +++ b/src/MSL/wprintf.c
-@@ -311,8 +311,18 @@
+@@ -304,8 +304,18 @@ static const wchar_t* parse_format(const wchar_t* format_string, va_list* arg, p
      return ((const wchar_t*)s + 1);
  }
  
@@ -23,7 +26,7 @@
      wchar_t* p;
      int n, digits;
      int minus = 0;
-@@ -333,7 +343,11 @@
+@@ -326,7 +336,11 @@ static wchar_t* long2str(long num, wchar_t* buff, print_format format) {
          base = 10;
  
          if (num < 0) {
@@ -35,7 +38,7 @@
                  unsigned_num = -num;
              }
  
-@@ -990,7 +1004,7 @@
+@@ -983,7 +997,7 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
      const wchar_t* format_ptr;
      const wchar_t* curr_format;
      print_format format;
@@ -44,7 +47,7 @@
      long long long_long_num;
      long double long_double_num;
      wchar_t buff[512];
-@@ -1339,3 +1353,6 @@
+@@ -1332,3 +1346,6 @@ int vswprintf(wchar_t* s, size_t n, const wchar_t* format, va_list arg) {
  
      return count;
  }

@@ -1,5 +1,5 @@
 Subject: Keep Mersenne Twister seed state at the console width
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The Wii unsigned long is 32 bits; LP64 hosts make it 64 bits. Preserve
 the 624-word state width and modulo-2^32 recurrence with the existing u32
@@ -7,6 +7,7 @@ type, and update the public seed signature consistently. The MT generator
 is not complete in this snapshot; this patch covers its available seed code.
 
 diff --git a/include/Game/Core/mtRandom.h b/include/Game/Core/mtRandom.h
+index f60c721..592dbe3 100644
 --- a/include/Game/Core/mtRandom.h
 +++ b/include/Game/Core/mtRandom.h
 @@ -1,6 +1,8 @@
@@ -20,6 +21,7 @@ diff --git a/include/Game/Core/mtRandom.h b/include/Game/Core/mtRandom.h
  
  #endif // GAME_CORE_MTRANDOM_H
 diff --git a/src/Game/Core/mtRandom.cpp b/src/Game/Core/mtRandom.cpp
+index ccca61d..7d65133 100644
 --- a/src/Game/Core/mtRandom.cpp
 +++ b/src/Game/Core/mtRandom.cpp
 @@ -1,14 +1,14 @@

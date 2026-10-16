@@ -1,14 +1,15 @@
 From: mscharged-port
 Subject: [PATCH] transport packed Wii registries into native owned backing
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve original Load/Relocate/Get and owner decisions. Decode only raw data
 width/endian/alignment into a backing twin tied to actual allocation lifetime.
 
 diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
+index 0a3b2b4..cc61121 100644
 --- a/include/NL/nlRegistry.h
 +++ b/include/NL/nlRegistry.h
-@@ -72,8 +72,15 @@
+@@ -72,8 +72,15 @@ inline const u32* RegistryUnnamedTypes(const u32* words, u32 namedCount)
  inline const PackedRegistryEntry* RegistryNamedEntries(
      const u32* words, u32 namedCount, u32 unnamedCount)
  {
@@ -25,6 +26,7 @@ diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
  
  // Circular sibling link; it precedes the node's virtual table.
 diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
+index fbd5341..2b5dee4 100644
 --- a/src/NL/nlRegistryOwner.cpp
 +++ b/src/NL/nlRegistryOwner.cpp
 @@ -1,6 +1,7 @@
@@ -35,7 +37,7 @@ diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
  #endif
  
  RegistryOwner::~RegistryOwner()
-@@ -25,6 +26,9 @@
+@@ -25,6 +26,9 @@ bool RegistryOwner::AlwaysTrue()
  
  bool RegistryOwner::Load(void* data, unsigned int size, bool loadFlag)
  {

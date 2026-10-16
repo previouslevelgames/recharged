@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Keep original IPC heap alignment checks native pointer wide
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original IPC allocator owns live CPU chunks, not serialized device records.
 Retain its best-fit, split, alignment helper, free-list and coalescing flow.
@@ -9,22 +9,24 @@ allocation lengths and handles remain the original 32-bit values. Console
 expressions are unchanged. No IPC arena or IOS filesystem readiness is supplied.
 
 diff --git a/src/RVL_SDK/ipc/memory.c b/src/RVL_SDK/ipc/memory.c
+index 330a667..2245ba5 100644
 --- a/src/RVL_SDK/ipc/memory.c
 +++ b/src/RVL_SDK/ipc/memory.c
-@@ -1,5 +1,12 @@
+@@ -1,6 +1,13 @@
  #include <revolution/ipc.h>
  #include <revolution/os.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <stdint.h>
 +#define IPC_HEAP_ADDRESS uintptr_t
 +#else
 +#define IPC_HEAP_ADDRESS u32
 +#endif
- 
++
  #define IPC_HEAP_MAX 8
  
-@@ -52,7 +59,7 @@
+ typedef enum {
+@@ -52,7 +59,7 @@ s32 iosCreateHeap(void* base, u32 size) {
      IPCHeapDesc* desc;
      s32 i;
  
@@ -33,7 +35,7 @@ diff --git a/src/RVL_SDK/ipc/memory.c b/src/RVL_SDK/ipc/memory.c
          goto _exit;
      }
  
-@@ -122,7 +129,7 @@
+@@ -122,7 +129,7 @@ void* __iosAlloc(s32 handle, u32 size, u32 align) {
      for (chunk = desc->head; chunk != NULL; chunk = chunk->next) {
          u8* chunkMem = (u8*)chunk + sizeof(IPCHeapChunk);
          u32 chunkUnalign =
@@ -42,7 +44,7 @@ diff --git a/src/RVL_SDK/ipc/memory.c b/src/RVL_SDK/ipc/memory.c
  
          if (chunk->size == size && chunkUnalign == 0) {
              best = chunk;
-@@ -143,7 +150,7 @@
+@@ -143,7 +150,7 @@ void* __iosAlloc(s32 handle, u32 size, u32 align) {
      }
  
      bestMem = (u8*)best + sizeof(IPCHeapChunk);

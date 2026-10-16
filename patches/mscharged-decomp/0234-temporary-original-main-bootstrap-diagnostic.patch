@@ -1,6 +1,6 @@
 Subject: [PATCH] add explicit temporary original-main bootstrap diagnostic
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Owner-authorization: 2026-10-06 temporary flow gates for scene/audio diagnosis
 
 Only MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP omits the documented source statics,
@@ -11,9 +11,10 @@ Normal production/default source retains every original statement/static.
 Remove when original mandatory construction and startup permit the same run.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 5e22b90..1a8833b 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -157,6 +157,7 @@
+@@ -166,6 +166,7 @@ int g_BuildNumber;
  
  FrameCounter g_FrameCounter("frame", "send");
  
@@ -21,7 +22,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static TweakBoolBinding sDisableWriteOutTweak(
      "g_bDisableWriteOut", "/General", &g_bDisableWriteOut, true);
  static TweakBoolBinding sMemoryLowWaterMarkCheckingTweak(
-@@ -186,18 +187,25 @@
+@@ -195,12 +196,16 @@ static TextWindowTask textWindowTask;
  static FEDPDTask feDPDTask;
  static FlashMemoryTask flashMemoryTask;
  
@@ -38,16 +39,17 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static TweakValueBool sAllowWarble(
      "sbAllowWarble", "/Rendering/Effects/Warble", true);
  static TweakValueBool sRenderWarbleToParticleView(
-     "sbRenderWarbleToParticleView", gLastTweakCategory, false);
+@@ -208,6 +213,9 @@ static TweakValueBool sRenderWarbleToParticleView(
  static TweakValueBool sUseCheckerTextureForWarble(
      "sbUseCheckerTextureForWarble", gLastTweakCategory, false);
-+
+ 
 +
 +#endif // temporary diagnostic bootstrap exclusions
- 
++
  static void PreInitFS();
  static void Initialize();
-@@ -468,6 +476,7 @@
+ static void AddTasks();
+@@ -477,6 +485,7 @@ static void Initialize()
          nlBreak();
      }
  
@@ -55,22 +57,20 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlRegHandleDVDMessageCB(Function<void(int)>(DisplayDVDMessageSebring));
      nlRegHandleDVDRetryingCB(Function<void(int)>(DisplayDVDMessageSebring));
      nlRegHandleDVDAllClearCB(Function<void(int)>(DVDAllClearSebring));
-@@ -628,8 +637,12 @@
+@@ -637,8 +646,12 @@ static void Initialize()
      BeginFrameTask::s_ReplaySkin = eModelSkin_Blend;
      InitializeParticleUpdateCallbacks();
      Detail::sTempStringAllocatorPool.allocator.pool.PushState();
--}
--
 +#endif // temporary diagnostic bootstrap exclusions
 +
 +
-+}
-+
+ }
+ 
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
  static void AddTasks()
  {
      nlTaskManager::AddTask(&resetTask, 0, (u32)-1);
-@@ -779,9 +792,17 @@
+@@ -788,10 +801,18 @@ void BuildParticleQuads(glShadowedTexturedColourModelWriter* writer,
      }
  }
  
@@ -80,18 +80,18 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  int main()
  {
      Initialize();
-+
+ 
 +#if defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
 +    // Owner-authorized diagnostic checkpoint: full game startup has not run.
 +    return 81;
 +#else
- 
++
      while (nlAsyncReadsPending(0))
      {
-@@ -795,4 +816,5 @@
+         nlServiceFileSystem();
+@@ -804,4 +825,5 @@ int main()
      {
          nlTaskManager::RunAllTasks();
      }
--}
 +#endif // original async/music/task loop
-+}
+ }

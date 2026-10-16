@@ -3,6 +3,7 @@
 #include "platform/disc.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -42,12 +43,15 @@ struct DiscSearchResult
 {
     std::filesystem::path disc;  // the first supported image; empty when none
     std::size_t supported = 0;   // how many supported images were found
-    std::filesystem::path other; // the first Mario Strikers Charged image of another region
+    std::filesystem::path other; // the first Mario Strikers Charged image this build cannot play
     std::string other_id;        // its game ID
+    std::uint8_t other_revision = 0;
 };
 
-// Checks the images in order and picks the first supported release.
-// `inspect` throws for anything that is not Mario Strikers Charged.
+// Checks the images in order and picks the first playable release.
+// `inspect` throws for anything that is not Mario Strikers Charged;
+// `playable` defaults to SupportedRelease (platform/game_release.h).
 DiscSearchResult PickDisc(const std::vector<std::filesystem::path>& images,
-                          const std::function<DiscInfo(const std::filesystem::path&)>& inspect);
+                          const std::function<DiscInfo(const std::filesystem::path&)>& inspect,
+                          const std::function<bool(const DiscInfo&)>& playable = SupportedRelease);
 }

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Lower the original nonzero-morph software skin positions natively
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 ShaderSkinMesh::SoftwareSkinModel's nonzero-morph branch is paired-single
 assembly: ps_add adds the morph delta to the input position (one rounded single
@@ -12,9 +12,10 @@ the same transform; original weights, ordering, morph buffer and normals are
 unchanged.
 
 diff --git a/include/Game/GL/SkinSoftwareSteps.h b/include/Game/GL/SkinSoftwareSteps.h
+index b324ead..5811cf5 100644
 --- a/include/Game/GL/SkinSoftwareSteps.h
 +++ b/include/Game/GL/SkinSoftwareSteps.h
-@@ -20,6 +20,19 @@
+@@ -20,6 +20,19 @@ inline void SkinSoftwarePosition(nlVector3& output, const nlVector3& input,
      }
  }
  
@@ -35,9 +36,10 @@ diff --git a/include/Game/GL/SkinSoftwareSteps.h b/include/Game/GL/SkinSoftwareS
      const nlMatrix4& matrix, float weight)
  {
 diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+index 1868f07..dfab05f 100644
 --- a/src/Game/GL/ShaderSkinMesh.cpp
 +++ b/src/Game/GL/ShaderSkinMesh.cpp
-@@ -384,7 +384,16 @@
+@@ -384,7 +384,16 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
              if (numActiveMorphs != 0)
              {
  #if defined(MSCHARGED_NATIVE)

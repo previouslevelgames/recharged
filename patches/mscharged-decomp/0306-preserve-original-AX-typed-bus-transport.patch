@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Transport original AX memory through checked native DSP backing
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original command and voice producers, list selection, arithmetic and all
 source method bodies. Native address operands use the live SDK physical
@@ -9,7 +9,28 @@ actual source static extents so the platform can retain and pin their backing
 before source arena capture. DSP byte order is handled at the device boundary;
 this patch does not initialize AX, execute DSP tasks or supply a mixer.
 
+diff --git a/src/RVL_SDK/ax/AXAux.c b/src/RVL_SDK/ax/AXAux.c
+index a8a4377..29d8db1 100644
+--- a/src/RVL_SDK/ax/AXAux.c
++++ b/src/RVL_SDK/ax/AXAux.c
+@@ -322,3 +322,15 @@ void AXGetAuxCCallback(AXAuxCallback* callback, void** context) {
+     *callback = __AXCallbackAuxC;
+     *context = __AXContextAuxC;
+ }
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_storage_abi.h"
++void ChargedAXGetAuxStorage(ChargedAXStorage output[3]) {
++    output[0].address = __AXBufferAuxA;
++    output[0].bytes = sizeof(__AXBufferAuxA);
++    output[1].address = __AXBufferAuxB;
++    output[1].bytes = sizeof(__AXBufferAuxB);
++    output[2].address = __AXBufferAuxC;
++    output[2].bytes = sizeof(__AXBufferAuxC);
++}
++#endif
 diff --git a/src/RVL_SDK/ax/AXCL.c b/src/RVL_SDK/ax/AXCL.c
+index 645fca5..21bba17 100644
 --- a/src/RVL_SDK/ax/AXCL.c
 +++ b/src/RVL_SDK/ax/AXCL.c
 @@ -14,11 +14,24 @@
@@ -37,7 +58,7 @@ diff --git a/src/RVL_SDK/ax/AXCL.c b/src/RVL_SDK/ax/AXCL.c
  
  /**
   * Command list opcodes (from Dolphin Emulator)
-@@ -287,3 +300,10 @@
+@@ -287,3 +300,10 @@ void AXSetAuxBReturnVolume(u16 volume) {
  void AXSetAuxCReturnVolume(u16 volume) {
      __AXAuxCVolume = volume;
  }
@@ -48,7 +69,24 @@ diff --git a/src/RVL_SDK/ax/AXCL.c b/src/RVL_SDK/ax/AXCL.c
 +    return result;
 +}
 +#endif
+diff --git a/src/RVL_SDK/ax/AXComp.c b/src/RVL_SDK/ax/AXComp.c
+index 97fcbd0..c5323ac 100644
+--- a/src/RVL_SDK/ax/AXComp.c
++++ b/src/RVL_SDK/ax/AXComp.c
+@@ -185,3 +185,11 @@ u16 __AXCompressorTable[] ALIGN(32) = {
+     21401, 21412, 21422, 21432, 21442, 21453, 21463, 21473, 21484, 21494, 21504,
+     21515, 21525, 21535, 21545, 21556, 21566, 21577, 21587, 21597, 21608, 21618,
+     21628, 21639, 21649};
++
++#ifdef MSCHARGED_NATIVE
++#include "platform/ax_storage_abi.h"
++ChargedAXStorage ChargedAXGetCompressorStorage(void) {
++    ChargedAXStorage result = {__AXCompressorTable, sizeof(__AXCompressorTable)};
++    return result;
++}
++#endif
 diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
+index c301608..6fe9404 100644
 --- a/src/RVL_SDK/ax/AXVPB.c
 +++ b/src/RVL_SDK/ax/AXVPB.c
 @@ -37,8 +37,15 @@
@@ -67,7 +105,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
  
  typedef struct _AXITD {
      u8 UNK_0x0[0x40];
-@@ -922,3 +929,12 @@
+@@ -922,3 +929,12 @@ static u32 __AXGetSrcCycles(u16 select, const AXPBSRC* src) {
  s32 AXGetMaxVoices(void) {
      return __AXMaxVoices;
  }
@@ -78,39 +116,5 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
 +    output[0].bytes = sizeof(__s_AXPB);
 +    output[1].address = __s_AXITD;
 +    output[1].bytes = sizeof(__s_AXITD);
-+}
-+#endif
-diff --git a/src/RVL_SDK/ax/AXAux.c b/src/RVL_SDK/ax/AXAux.c
---- a/src/RVL_SDK/ax/AXAux.c
-+++ b/src/RVL_SDK/ax/AXAux.c
-@@ -322,3 +322,15 @@
-     *callback = __AXCallbackAuxC;
-     *context = __AXContextAuxC;
- }
-+
-+#ifdef MSCHARGED_NATIVE
-+#include "platform/ax_storage_abi.h"
-+void ChargedAXGetAuxStorage(ChargedAXStorage output[3]) {
-+    output[0].address = __AXBufferAuxA;
-+    output[0].bytes = sizeof(__AXBufferAuxA);
-+    output[1].address = __AXBufferAuxB;
-+    output[1].bytes = sizeof(__AXBufferAuxB);
-+    output[2].address = __AXBufferAuxC;
-+    output[2].bytes = sizeof(__AXBufferAuxC);
-+}
-+#endif
-diff --git a/src/RVL_SDK/ax/AXComp.c b/src/RVL_SDK/ax/AXComp.c
---- a/src/RVL_SDK/ax/AXComp.c
-+++ b/src/RVL_SDK/ax/AXComp.c
-@@ -185,3 +185,11 @@
-     21401, 21412, 21422, 21432, 21442, 21453, 21463, 21473, 21484, 21494, 21504,
-     21515, 21525, 21535, 21545, 21556, 21566, 21577, 21587, 21597, 21608, 21618,
-     21628, 21639, 21649};
-+
-+#ifdef MSCHARGED_NATIVE
-+#include "platform/ax_storage_abi.h"
-+ChargedAXStorage ChargedAXGetCompressorStorage(void) {
-+    ChargedAXStorage result = {__AXCompressorTable, sizeof(__AXCompressorTable)};
-+    return result;
 +}
 +#endif

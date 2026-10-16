@@ -1,6 +1,6 @@
 Subject: Adapt original tweak pending storage and current-thread stack
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original registry/constructor decisions and allocator. A pending
 record is sizeof its native layout, including full-width string defaults;
@@ -11,7 +11,28 @@ default writers: preserve that source gap without inventing defaults.
 Query actual host current-thread stack limits and retain the original
 inclusive range test; path algorithms stay original outside diagnostics.
 
+diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
+index d90d69a..5f5c7c5 100644
+--- a/include/Game/TweakRegistry.h
++++ b/include/Game/TweakRegistry.h
+@@ -163,8 +163,15 @@ struct TweakPendingValue
+         u8 m_Default8;
+         int m_Default32;
+         float m_DefaultFloat;
++#ifdef MSCHARGED_NATIVE
++        const char* m_DefaultPointer;
++#endif
+     };
+ 
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_TWEAKS)
++    static void operator delete(void* pointer) { nlFree(pointer); }
++#endif
++
+     static TweakPendingValue* PopHead()
+     {
+         TweakPendingValue* head = gPendingTweakHead;
 diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
+index f73b624..047a650 100644
 --- a/include/Game/TweakValue.h
 +++ b/include/Game/TweakValue.h
 @@ -4,6 +4,9 @@
@@ -24,7 +45,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
  #include "runtime/tweaks.h"
  #else
-@@ -171,6 +174,8 @@
+@@ -171,6 +174,8 @@ public:
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();
@@ -33,7 +54,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
  #else
              void* entry = nlMalloc(0x18, 8, true);
  #endif
-@@ -325,6 +330,8 @@
+@@ -325,6 +330,8 @@ public:
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();
@@ -43,6 +64,7 @@ diff --git a/include/Game/TweakValue.h b/include/Game/TweakValue.h
              void* entry = nlMalloc(0x18, 8, true);
  #endif
 diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
+index bbf2d82..92f198e 100644
 --- a/include/Game/TweakValueBool.h
 +++ b/include/Game/TweakValueBool.h
 @@ -1,6 +1,9 @@
@@ -55,7 +77,7 @@ diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
  inline void ParseOwnedTweakValue(bool& result, const char* value)
  {
      if (TweakValueStringEquals(value, "true") || TweakValueStringEquals(value, "triggered")
-@@ -43,6 +46,8 @@
+@@ -43,6 +46,8 @@ public:
          {
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
              void* entry = mscharged::AllocatePendingTweak();
@@ -64,7 +86,7 @@ diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
  #else
              void* entry = nlMalloc(0x18, 8, true);
  #endif
-@@ -72,7 +77,13 @@
+@@ -72,7 +77,13 @@ public:
  
          if (IsTweakRegistryInitialized() == 0)
          {
@@ -79,6 +101,7 @@ diff --git a/include/Game/TweakValueBool.h b/include/Game/TweakValueBool.h
                  QueueTweakValue((TweakPendingValue*)entry, this, category);
          }
 diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
+index 4c599aa..b6e0977 100644
 --- a/include/Game/TweakValueFloat.h
 +++ b/include/Game/TweakValueFloat.h
 @@ -3,6 +3,9 @@
@@ -91,7 +114,7 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
  #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
  #include "runtime/tweaks.h"
  #endif
-@@ -22,6 +25,8 @@
+@@ -22,6 +25,8 @@ public:
          {
              #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
  void* entry = mscharged::AllocatePendingTweak();
@@ -100,32 +123,27 @@ diff --git a/include/Game/TweakValueFloat.h b/include/Game/TweakValueFloat.h
  #else
  void* entry = nlMalloc(0x18, 8, true);
  #endif
-diff --git a/include/Game/TweakRegistry.h b/include/Game/TweakRegistry.h
---- a/include/Game/TweakRegistry.h
-+++ b/include/Game/TweakRegistry.h
-@@ -156,7 +156,14 @@
-         u8 m_Default8;
-         int m_Default32;
-         float m_DefaultFloat;
-+#ifdef MSCHARGED_NATIVE
-+        const char* m_DefaultPointer;
-+#endif
-     };
-+
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_TWEAKS)
-+    static void operator delete(void* pointer) { nlFree(pointer); }
-+#endif
- 
-     static TweakPendingValue* PopHead()
-     {
+diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
+index 4fa0999..b04db3e 100644
+--- a/src/Game/TweakNode.cpp
++++ b/src/Game/TweakNode.cpp
+@@ -204,6 +204,8 @@ TweakEntry* FindOrCreateTweakPath(TweakEntry* entry, const char* path, int noCre
+     }
+ #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
+     copyOwner.reset();
++#elif defined(MSCHARGED_NATIVE)
++    nlFree(copy);
+ #else
+     delete copy;
+ #endif
 diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
+index c5ddb0f..3cbd31f 100644
 --- a/src/Game/TweakRegistry.cpp
 +++ b/src/Game/TweakRegistry.cpp
-@@ -311,6 +311,23 @@
-                     break;
+@@ -312,6 +312,23 @@ void BindPendingTweaks(void)
                  default:
                      throw std::logic_error("Unsupported native tweak default type");
-+                }
+                 }
 +#elif defined(MSCHARGED_NATIVE)
 +                void* address = value->GetValueAddress();
 +                switch (type)
@@ -142,22 +160,12 @@ diff --git a/src/Game/TweakRegistry.cpp b/src/Game/TweakRegistry.cpp
 +                case 8:
 +                    *static_cast<const char**>(address) = pending->m_DefaultPointer;
 +                    break;
-                 }
++                }
  #else
                  TweakFloatBinding* impl = (TweakFloatBinding*)value;
-diff --git a/src/Game/TweakNode.cpp b/src/Game/TweakNode.cpp
---- a/src/Game/TweakNode.cpp
-+++ b/src/Game/TweakNode.cpp
-@@ -205,6 +205,8 @@
-     }
- #ifdef MSCHARGED_DIAGNOSTIC_TWEAKS
-     copyOwner.reset();
-+#elif defined(MSCHARGED_NATIVE)
-+    nlFree(copy);
- #else
-     delete copy;
- #endif
+                 switch (type)
 diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
+index df811f7..d79fcb4 100644
 --- a/src/Game/TweakValueBase.cpp
 +++ b/src/Game/TweakValueBase.cpp
 @@ -1,4 +1,8 @@
@@ -169,7 +177,7 @@ diff --git a/src/Game/TweakValueBase.cpp b/src/Game/TweakValueBase.cpp
  
  #include "Game/TweakValueBase.h"
  #include "Game/TweakRegistry.h"
-@@ -68,9 +72,17 @@
+@@ -68,9 +72,17 @@ int IsTweakNameOnStack(const char*)
  #else
  int IsTweakNameOnStack(const char* name)
  {

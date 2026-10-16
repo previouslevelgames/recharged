@@ -1,6 +1,6 @@
 Subject: Select original hierarchy queries and traversal on owned native records
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original accessors and BuildPushPopFlags unchanged. Exclude the Wii-only
 in-place Initialize routine and reject its use from native source at compile
@@ -10,9 +10,10 @@ separate native storage before calling the original traversal. Console code
 and hierarchy equations are unchanged.
 
 diff --git a/include/Game/SHierarchy.h b/include/Game/SHierarchy.h
+index 63c4b94..1812b1f 100644
 --- a/include/Game/SHierarchy.h
 +++ b/include/Game/SHierarchy.h
-@@ -10,7 +10,13 @@
+@@ -10,7 +10,13 @@ class cSHierarchy : public cIdentifier
  public:
      typedef char* MemType;
  
@@ -27,9 +28,10 @@ diff --git a/include/Game/SHierarchy.h b/include/Game/SHierarchy.h
      {
          return (id & 0x80FFFFFF) == 0x80018000;
 diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
+index 42a4380..eef7ed4 100644
 --- a/src/Game/SHierarchy.cpp
 +++ b/src/Game/SHierarchy.cpp
-@@ -82,6 +82,7 @@
+@@ -82,6 +82,7 @@ void cSHierarchy::BuildPushPopFlags(
      }
  }
  
@@ -37,7 +39,7 @@ diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
  cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
  {
      nlChunk* pFirst = (nlChunk*)pChunk->GetUnalignedData();
-@@ -141,3 +142,5 @@
+@@ -141,3 +142,5 @@ cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
  
      return pRetval;
  }

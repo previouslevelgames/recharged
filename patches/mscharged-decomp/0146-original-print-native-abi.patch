@@ -1,5 +1,5 @@
 Subject: Compile complete original NL print and isolated Wii16 MSL formatter with native ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the Matching NL wrapper body, including final-byte termination and the
 original nlVSNPrintf(size-1) rule. Adapt underlying host formatting aliasing,
@@ -9,6 +9,7 @@ conversion, locale, writing and truncation flow remains in prepared source.
 This is not a font readiness or full game link claim.
 
 diff --git a/include/NL/nlPrint.h b/include/NL/nlPrint.h
+index b495765..86f3654 100644
 --- a/include/NL/nlPrint.h
 +++ b/include/NL/nlPrint.h
 @@ -1,7 +1,11 @@
@@ -23,7 +24,7 @@ diff --git a/include/NL/nlPrint.h b/include/NL/nlPrint.h
  
  #ifdef MSCHARGED_NATIVE
  int nlPrintf(const char* format, ...);
-@@ -13,7 +17,11 @@
+@@ -13,7 +17,11 @@ inline int nlPrintf(const char* format, ...)
  
  #endif
  
@@ -36,9 +37,10 @@ diff --git a/include/NL/nlPrint.h b/include/NL/nlPrint.h
  int nlSNPrintf(unsigned short* buffer, unsigned long size, const unsigned short* format, ...);
  
 diff --git a/libs/MSL_C/include/math.h b/libs/MSL_C/include/math.h
+index af3b865..bba5cfe 100644
 --- a/libs/MSL_C/include/math.h
 +++ b/libs/MSL_C/include/math.h
-@@ -66,15 +66,27 @@
+@@ -67,15 +67,27 @@ extern "C"
  #else
  int abs(int n);
  long labs(long n);
@@ -67,6 +69,7 @@ diff --git a/libs/MSL_C/include/math.h b/libs/MSL_C/include/math.h
  
      extern _INT32 __float_huge[];
 diff --git a/libs/MSL_C/include/size_t.h b/libs/MSL_C/include/size_t.h
+index 6121047..157d3cf 100644
 --- a/libs/MSL_C/include/size_t.h
 +++ b/libs/MSL_C/include/size_t.h
 @@ -1,6 +1,8 @@
@@ -80,6 +83,7 @@ diff --git a/libs/MSL_C/include/size_t.h b/libs/MSL_C/include/size_t.h
  #else
  typedef unsigned int size_t;
 diff --git a/libs/MSL_C/include/stdarg.h b/libs/MSL_C/include/stdarg.h
+index 3f60cfe..a7091c3 100644
 --- a/libs/MSL_C/include/stdarg.h
 +++ b/libs/MSL_C/include/stdarg.h
 @@ -1,6 +1,13 @@
@@ -96,7 +100,7 @@ diff --git a/libs/MSL_C/include/stdarg.h b/libs/MSL_C/include/stdarg.h
  typedef struct __va_list_struct
  {
      char gpr;
-@@ -23,4 +30,6 @@
+@@ -23,4 +30,6 @@ void* __va_arg(va_list v_list, unsigned char type);
  #define va_arg(ap, t)     (*((t*)__va_arg(ap, _var_arg_typeof(t))))
  #define va_end(ap)        (void)0
  
@@ -104,19 +108,21 @@ diff --git a/libs/MSL_C/include/stdarg.h b/libs/MSL_C/include/stdarg.h
 +
  #endif
 diff --git a/libs/MSL_C/include/stdint.h b/libs/MSL_C/include/stdint.h
+index 4d0acca..4e51349 100644
 --- a/libs/MSL_C/include/stdint.h
 +++ b/libs/MSL_C/include/stdint.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef _STDINT_H_
  #define _STDINT_H_
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include_next <stdint.h>
 +#else
- 
++
  #ifdef __cplusplus
  extern "C" {
-@@ -19,4 +23,6 @@
+ #endif
+@@ -19,4 +23,6 @@ typedef unsigned long int uintptr_t;
  }
  #endif
  
@@ -124,6 +130,7 @@ diff --git a/libs/MSL_C/include/stdint.h b/libs/MSL_C/include/stdint.h
 +
  #endif
 diff --git a/src/MSL/ansi_fp.c b/src/MSL/ansi_fp.c
+index 455d22b..5287102 100644
 --- a/src/MSL/ansi_fp.c
 +++ b/src/MSL/ansi_fp.c
 @@ -3,13 +3,23 @@
@@ -151,6 +158,7 @@ diff --git a/src/MSL/ansi_fp.c b/src/MSL/ansi_fp.c
  
      if (lo == 0) {
 diff --git a/src/MSL/ctype.c b/src/MSL/ctype.c
+index 0306d18..0729616 100644
 --- a/src/MSL/ctype.c
 +++ b/src/MSL/ctype.c
 @@ -1,4 +1,9 @@
@@ -164,6 +172,7 @@ diff --git a/src/MSL/ctype.c b/src/MSL/ctype.c
  const unsigned short __ctype_map[256] = {
      ctype_cntrl,
 diff --git a/src/MSL/math_api.c b/src/MSL/math_api.c
+index 0c32f3d..24a784f 100644
 --- a/src/MSL/math_api.c
 +++ b/src/MSL/math_api.c
 @@ -1,5 +1,18 @@
@@ -185,7 +194,7 @@ diff --git a/src/MSL/math_api.c b/src/MSL/math_api.c
  
  int __fpclassifyf(float x) {
      int val = (*(int*)&x);
-@@ -25,13 +38,26 @@
+@@ -25,13 +38,26 @@ int __fpclassifyf(float x) {
  }
  
  int __signbitd(double x) {
@@ -214,7 +223,7 @@ diff --git a/src/MSL/math_api.c b/src/MSL/math_api.c
                  return 1;
              } else {
                  return 2;
-@@ -39,7 +65,7 @@
+@@ -39,7 +65,7 @@ int __fpclassifyd(double x) {
  
              break;
          case 0:
@@ -223,7 +232,7 @@ diff --git a/src/MSL/math_api.c b/src/MSL/math_api.c
                  return 5;
              } else {
                  return 3;
-@@ -50,3 +76,6 @@
+@@ -50,3 +76,6 @@ int __fpclassifyd(double x) {
  
      return 4;
  }
@@ -231,6 +240,7 @@ diff --git a/src/MSL/math_api.c b/src/MSL/math_api.c
 +#undef MSL_DOUBLE_HIGH
 +#undef MSL_DOUBLE_LOW
 diff --git a/src/MSL/mbstring.c b/src/MSL/mbstring.c
+index 3d3afd5..7eec0b9 100644
 --- a/src/MSL/mbstring.c
 +++ b/src/MSL/mbstring.c
 @@ -1,6 +1,9 @@
@@ -244,9 +254,10 @@ diff --git a/src/MSL/mbstring.c b/src/MSL/mbstring.c
  #pragma exceptions on
  
 diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
+index 4b1d4bf..3e774c6 100644
 --- a/src/MSL/wprintf.c
 +++ b/src/MSL/wprintf.c
-@@ -16,15 +16,26 @@
+@@ -17,13 +17,18 @@
  #define TARGET_FLOAT_MANT_BITS (TARGET_FLOAT_MANT_DIG - TARGET_FLOAT_IMPLICIT_J_BIT)
  #define TARGET_FLOAT_EXP_BITS (TARGET_FLOAT_BITS - TARGET_FLOAT_MANT_BITS - 1)
  
@@ -258,14 +269,6 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
  typedef PTRDIFF ptrdiff_t;
  
  wchar_t* wcscpy(wchar_t* pDest, const wchar_t* pSrc);
-+#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
-+extern "C" {
-+#endif
- size_t strlen(const char* pStr);
- void* memchr(const void*, int, size_t);
-+#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
-+}
-+#endif
  int mbtowc(wchar_t* pDest, const char* s, size_t num);
 +#if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
 +extern "C"
@@ -273,7 +276,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
  int vswprintf(wchar_t* s, size_t n, const wchar_t* format, va_list arg);
  
  enum justification_options { left_justification, right_justification, zero_fill };
-@@ -517,7 +528,11 @@
+@@ -516,7 +521,11 @@ static wchar_t* double2hex(long double num, wchar_t* buff, print_format format)
      long double ld;
      int expbits, expmask;
      unsigned snum;
@@ -285,7 +288,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
      print_format exp_format;
      int hex_precision;
      int mantissa_bit;
-@@ -525,6 +540,16 @@
+@@ -524,6 +533,16 @@ static wchar_t* double2hex(long double num, wchar_t* buff, print_format format)
      decimal dec;
      int radix_marker;
  
@@ -302,7 +305,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
      radix_marker = *(unsigned char*)(__lconv).decimal_point;
      p = buff;
      ld = num;
-@@ -588,13 +613,18 @@
+@@ -587,13 +606,18 @@ static wchar_t* double2hex(long double num, wchar_t* buff, print_format format)
      expbits = 11;
      expmask = 0x7FF;
  
@@ -325,7 +328,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
  
      snum = (snum >> (32 - expbits)) & expmask;
      exp = snum - 0x3FF;
-@@ -604,7 +634,12 @@
+@@ -603,7 +627,12 @@ static wchar_t* double2hex(long double num, wchar_t* buff, print_format format)
          *--p = L'p';
      else
          *--p = L'P';
@@ -338,7 +341,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
  
      if (TARGET_FLOAT_IMPLICIT_J_BIT) {
          mantissa_bit = (1 + expbits + format.precision * 4) - 1;
-@@ -1066,7 +1101,11 @@
+@@ -1065,7 +1094,11 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
          case L'g':
          case L'G':
              if (format.argument_options == long_double_argument) {
@@ -350,7 +353,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
              } else {
                  long_double_num = va_arg(arg, double);
              }
-@@ -1081,7 +1120,11 @@
+@@ -1080,7 +1113,11 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
          case 'a':
          case 'A':
              if (format.argument_options == long_double_argument) {
@@ -363,6 +366,7 @@ diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
                  long_double_num = va_arg(arg, double);
              }
 diff --git a/src/NL/nlPrint.cpp b/src/NL/nlPrint.cpp
+index 8bde223..1cd2871 100644
 --- a/src/NL/nlPrint.cpp
 +++ b/src/NL/nlPrint.cpp
 @@ -2,12 +2,19 @@
@@ -385,7 +389,7 @@ diff --git a/src/NL/nlPrint.cpp b/src/NL/nlPrint.cpp
      va_end(args);
      buffer[size - 1] = '\0';
      return result;
-@@ -17,8 +24,12 @@
+@@ -17,8 +24,12 @@ int nlSNPrintf(unsigned short* buffer, unsigned long size, const unsigned short*
  {
      va_list args;
      va_start(args, format);
@@ -398,7 +402,7 @@ diff --git a/src/NL/nlPrint.cpp b/src/NL/nlPrint.cpp
      va_end(args);
      buffer[size - 1] = '\0';
      return result;
-@@ -26,7 +37,11 @@
+@@ -26,7 +37,11 @@ int nlSNPrintf(unsigned short* buffer, unsigned long size, const unsigned short*
  
  int nlVSNPrintf(char* buffer, unsigned long size, const char* format, va_list args)
  {

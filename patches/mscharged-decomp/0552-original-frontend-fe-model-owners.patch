@@ -1,5 +1,5 @@
 Subject: Admit original frontend FE model owners and their presentation services
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0543.
 
 The Domination Choose Sides constructor calls the authored presentation
@@ -17,9 +17,11 @@ the FEModelManager-only VM services 1, 2, 10, 17, 18, 22, 30, 31, 33, 34, 45,
 49 and 50. Every other service keeps its current guard, including world
 animation (16), emissions (12, 14, 43), trophies and cup cameras.
 
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 071bd1a..801fa60 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -17,6 +17,8 @@
+@@ -17,6 +17,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          NetTournManager::Instance()->DetachTournamentTrophy();
          break;
  
@@ -28,7 +30,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 1:
      {
          bool value = m_SP[-1] != 0;
-@@ -43,6 +45,8 @@
+@@ -43,6 +45,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          FEModelManager::Instance()->ReleaseImpostors();
          break;
  
@@ -37,7 +39,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 3:
          NetTournManager::Instance()->DestroyTournamentTrophy();
          break;
-@@ -92,7 +96,7 @@
+@@ -92,7 +96,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          m_SP[-1] = g_e3_Build;
          break;
  #endif
@@ -46,7 +48,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
  
      case 10:
      {
-@@ -175,6 +179,8 @@
+@@ -175,6 +179,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
      }
  
@@ -55,7 +57,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 17:
      {
          float value = *(float*)&m_SP[-1];
-@@ -204,6 +210,8 @@
+@@ -204,6 +210,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
      }
  
@@ -64,7 +66,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 19:
          FEAudio::PlayAnimAudioEvent(0xB60A9CC0, 0, 0, true);
          break;
-@@ -228,7 +236,7 @@
+@@ -228,7 +236,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      }
  
  #endif
@@ -73,7 +75,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 22:
      {
          unsigned int childName = m_SP[-1];
-@@ -338,7 +346,7 @@
+@@ -338,7 +346,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      }
  
  #endif
@@ -82,7 +84,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 30:
      {
          unsigned int value = m_SP[-1];
-@@ -380,7 +388,7 @@
+@@ -380,7 +388,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      }
  
  #endif
@@ -91,7 +93,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 33:
      {
          bool value = m_SP[-1] != 0;
-@@ -476,7 +484,7 @@
+@@ -476,7 +484,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
  
  #endif
@@ -100,7 +102,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 45:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -519,7 +527,7 @@
+@@ -519,7 +527,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
  
  #endif
@@ -109,7 +111,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 49:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -550,6 +558,8 @@
+@@ -550,6 +558,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          break;
      }
  
@@ -118,9 +120,11 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      case 51:
          if (IsTournamentTrophyLoaded())
              FinishLoadTournamentTrophy();
+diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index 846acdf..34662c5 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
-@@ -96,7 +96,7 @@
+@@ -97,7 +97,7 @@ static void DrawFrontEndElements(float fDeltaT)
          }
      }
  
@@ -129,7 +133,7 @@ animation (16), emissions (12, 14, 43), trophies and cup cameras.
      if (FEModelManager::Instance() != 0
          && !IsHBMActive())
      {
-@@ -104,7 +104,7 @@
+@@ -105,7 +105,7 @@ static void DrawFrontEndElements(float fDeltaT)
          FEModelManager::Instance()->Render();
      }
  

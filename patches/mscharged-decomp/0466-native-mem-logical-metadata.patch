@@ -1,8 +1,9 @@
 From: mscharged-port
 Subject: Preserve original MEM logical capacity with native metadata backing
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
+index d0ee90e..f432400 100644
 --- a/src/RVL_SDK/mem/mem_expHeap.c
 +++ b/src/RVL_SDK/mem/mem_expHeap.c
 @@ -2,10 +2,16 @@
@@ -10,22 +11,21 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  #if defined(MSCHARGED_NATIVE)
  #define __abs(value) __builtin_abs(value)
 -#define MEM_EXP_ALIGNMENT ((_Alignof(MEMiHeapHead) > _Alignof(MEMiExpHeapMBlockHead)) ? _Alignof(MEMiHeapHead) : _Alignof(MEMiExpHeapMBlockHead))
--#else
 +#include "platform/mem_logical_heap.h"
 +#define MEM_EXP_BLOCK_SIZE 16
 +#define MEM_EXP_HEAP_SIZE 80
 +#define MEM_EXP_BLOCK_ADDRESS(block) ChargedMEMBlockAddress(block)
-+#else
+ #else
+-#define MEM_EXP_ALIGNMENT 4
 +#define MEM_EXP_BLOCK_SIZE sizeof(MEMiExpHeapMBlockHead)
 +#define MEM_EXP_HEAP_SIZE sizeof(MEMiHeapHead) + sizeof(MEMiExpHeapHead)
 +#define MEM_EXP_BLOCK_ADDRESS(block) block
-+#endif
- #define MEM_EXP_ALIGNMENT 4
--#endif
+ #endif
++#define MEM_EXP_ALIGNMENT 4
  
  #define FillFreeMemory(heap, address, size) ((void)0)
  #define FillNoUseMemory(heap, address, size) ((void)0)
-@@ -16,7 +22,7 @@
+@@ -16,7 +22,7 @@ typedef struct MemRegion {
  } MemRegion;
  
  static inline void* GetMemPtrForMBlock_(MEMiExpHeapMBlockHead* block) {
@@ -34,7 +34,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  }
  
  static inline void* GetMBlockEndAddr_(MEMiExpHeapMBlockHead* block) {
-@@ -28,7 +34,11 @@
+@@ -28,7 +34,11 @@ static inline u16 GetAllocMode_(MEMiExpHeapHead* heap) {
  }
  
  static MEMiExpHeapMBlockHead* InitMBlock_(MemRegion* region, u16 signature) {
@@ -46,7 +46,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  
      block->signature = signature;
      block->attribute.val = 0;
-@@ -56,7 +66,7 @@
+@@ -56,7 +66,7 @@ static inline void SetGroupIDForMBlock_(MEMiExpHeapMBlockHead* block, u16 id) {
  }
  
  static void GetRegionOfMBlock_(MemRegion* region, MEMiExpHeapMBlockHead* block) {
@@ -55,7 +55,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
      region->end = GetMBlockEndAddr_(block);
  }
  
-@@ -123,10 +133,18 @@
+@@ -123,10 +133,18 @@ static inline void SetAllocMode_(MEMiExpHeapHead* heap, u16 mode) {
  }
  
  static MEMiHeapHead* InitExpHeap_(void* startAddress, void* endAddress, u16 optFlag) {
@@ -74,7 +74,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  
      expHeap->groupID = 0;
      expHeap->feature.val = 0;
-@@ -156,17 +174,17 @@
+@@ -156,17 +174,17 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
      GetRegionOfMBlock_(&freeRgnT, pMBHeadFree);
      freeRgnB.end = freeRgnT.end;
      freeRgnB.start = AddU32ToPtr(mblock, size);
@@ -95,7 +95,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
          freeRgnB.start = freeRgnB.end;
      } else {
          (void)InsertMBlock_(&pEHHead->mbFreeList, InitFreeMBlock_(&freeRgnB), pMBHeadFreePrev);
-@@ -178,12 +196,12 @@
+@@ -178,12 +196,12 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
          MEMiExpHeapMBlockHead* pMBHeadNewUsed;
          MemRegion region;
  
@@ -110,7 +110,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
          SetGroupIDForMBlock_(pMBHeadNewUsed, pEHHead->groupID);
          AppendMBlock_(&pEHHead->mbUsedList, pMBHeadNewUsed);
      }
-@@ -261,26 +279,26 @@
+@@ -261,26 +279,26 @@ static BOOL RecycleRegion_(MEMiExpHeapHead* expHeap, const MemRegion* region) {
          MEMiExpHeapMBlockHead* block;
  
          for (block = expHeap->mbFreeList.head; block; block = block->next) {
@@ -142,7 +142,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
          return FALSE;
      }
  
-@@ -299,7 +317,7 @@
+@@ -299,7 +317,7 @@ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
  
      if (GetUIntPtr(startAddress) > GetUIntPtr(endAddress) ||
          GetOffsetFromPtr(startAddress, endAddress) <
@@ -151,7 +151,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
          return NULL;
      }
  
-@@ -310,12 +328,24 @@
+@@ -310,12 +328,24 @@ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
  }
  
  void* MEMDestroyExpHeap(MEMHeapHandle heap) {
@@ -176,7 +176,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  
      if (size == 0) {
          size = 1;
-@@ -334,8 +364,16 @@
+@@ -334,8 +364,16 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, u32 size, int alignment) {
      return memory;
  }
  
@@ -195,7 +195,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  }
  
  static inline MEMiExpHeapHead* GetExpHeapHeadPtrFromHandle_(MEMHeapHandle heap) {
-@@ -354,7 +392,14 @@
+@@ -354,7 +392,14 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* memBlock) {
  
      pHeapHd = heap;
      pExpHeapHd = GetExpHeapHeadPtrFromHandle_(pHeapHd);
@@ -211,7 +211,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
  
      LockHeap(heap);
  
-@@ -366,6 +411,9 @@
+@@ -366,6 +411,9 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* memBlock) {
  }
  
  u32 MEMGetAllocatableSizeForExpHeapEx(MEMHeapHandle heap, int alignment) {
@@ -222,6 +222,7 @@ diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
      LockHeap(heap);
  
 diff --git a/src/RVL_SDK/mem/mem_heapCommon.c b/src/RVL_SDK/mem/mem_heapCommon.c
+index b208b77..2d8b709 100644
 --- a/src/RVL_SDK/mem/mem_heapCommon.c
 +++ b/src/RVL_SDK/mem/mem_heapCommon.c
 @@ -1,6 +1,9 @@
@@ -234,7 +235,7 @@ diff --git a/src/RVL_SDK/mem/mem_heapCommon.c b/src/RVL_SDK/mem/mem_heapCommon.c
  
  static MEMList sRootList;
  static BOOL sRootListInitialized = FALSE;
-@@ -23,7 +26,13 @@
+@@ -23,7 +26,13 @@ static MEMiHeapHead* FindContainHeap_(MEMList* list, const void* memBlock) {
  
  static MEMList* FindListContainHeap_(const MEMiHeapHead* heap) {
      MEMList* list = &sRootList;

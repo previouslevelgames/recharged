@@ -1,6 +1,6 @@
 Subject: Select original graphics frame state and lifecycle
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Add separately selected diagnostic copies of the begin/end/send/discard/finish
 entry points and frame state. Leave the complete original gl.cpp state and
@@ -11,6 +11,7 @@ This diagnostic does not execute original BeginFrameTask/EndFrameTask flow.
 
 diff --git a/src/NL/gl/glFrame.cpp b/src/NL/gl/glFrame.cpp
 new file mode 100644
+index 0000000..c0adaf1
 --- /dev/null
 +++ b/src/NL/gl/glFrame.cpp
 @@ -0,0 +1,74 @@

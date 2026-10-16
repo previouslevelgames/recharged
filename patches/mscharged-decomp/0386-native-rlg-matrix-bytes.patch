@@ -1,5 +1,5 @@
 Subject: [PATCH] Decode original RLG matrix float bits at the native byte boundary
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original LoadMatrices retains its 64-byte size mask, GLM_Matrix request and
 reader order. Native CPU GLMatrix reads require numeric BE32 float-bit conversion
@@ -7,6 +7,7 @@ from genuinely completed Wii bytes into original-owned storage. Console copy
 and all model/material/resource decisions are unchanged.
 
 diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+index 5d4c965..d68cc18 100644
 --- a/src/NL/gl/glLoadModel.cpp
 +++ b/src/NL/gl/glLoadModel.cpp
 @@ -13,6 +13,7 @@
@@ -17,7 +18,7 @@ diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
  #include "platform/rlg_material_parameters.h"
  #include "platform/game_allocation_ownership.h"
  #include <stdint.h>
-@@ -143,7 +144,11 @@
+@@ -143,7 +144,11 @@ void RLGReader::LoadMatrices(void* data, unsigned long size)
  {
      size &= ~0x3F;
      m_pMatrices = glResourceAlloc(size, GLM_Matrix, m_pResource);

@@ -1,6 +1,6 @@
 From: mscharged-port native compiler compatibility
 Subject: [PATCH] Preserve console network class assertions on native hosts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Scope seven Wii-only native-class size checks to the console branch;
 retain field declarations, payload records, source allocations and
@@ -9,9 +9,10 @@ No network initializer,
 wire/factory/pool storage or readiness is supplied by this patch.
 
 diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
+index 9698521..14e2acd 100644
 --- a/src/Game/InputRouter.cpp
 +++ b/src/Game/InputRouter.cpp
-@@ -829,6 +829,7 @@
+@@ -829,6 +829,7 @@ static TweakIntBinding sDumpSyncTextAt(
      "g_nDumpSyncTextAt", "Network", &g_nDumpSyncTextAt, true);
  
  typedef char VerifyDetermDataEventSize[(sizeof(DetermDataEvent) == 0x24) ? 1 : -1];
@@ -19,7 +20,7 @@ diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
  typedef char VerifyNetworkMessageType0Size[
      (sizeof(NetMessageInput) == 0xF0) ? 1 : -1];
  typedef char VerifyNetworkMessageType8Size[
-@@ -839,6 +840,7 @@
+@@ -839,6 +840,7 @@ typedef char VerifyInputQueueSize[
      (sizeof(NetworkInputMessageQueue) == 0x3850) ? 1 : -1];
  typedef char VerifyNetworkInputRouterSize[
      (sizeof(NetworkInputRouter) == 0xE5C8) ? 1 : -1];
@@ -28,9 +29,10 @@ diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
  #include "Game/InputRouter.inl"
  #include "NL/nlBind_impl.h"
 diff --git a/src/Game/NetworkInput.cpp b/src/Game/NetworkInput.cpp
+index d0607b0..5327c1f 100644
 --- a/src/Game/NetworkInput.cpp
 +++ b/src/Game/NetworkInput.cpp
-@@ -390,7 +390,9 @@
+@@ -390,7 +390,9 @@ int NetMessageInput::GetType()
      return NETMSG_INPUT;
  }
  

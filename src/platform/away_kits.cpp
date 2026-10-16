@@ -61,7 +61,7 @@ namespace
 // Luigi's, Wario's, Waluigi's and Peach's newspaper photos have grass, crowds
 // or stands in their colours behind them.
 const AwayKit kKits[] = {
-    {"mario", 0xBBFFCF5Eu, 0x2B5FE3u, {345.0f, 12.0f, 0.55f, 0.55f, 0.25f}, {335.0f, 10.0f, 0.22f, 0.45f, 0.18f},
+    {"mario", 0xBBFFCF5Eu, 0x2B5FE3u, {345.0f, 12.0f, 0.55f, 0.55f, 0.25f}, {335.0f, 10.0f, 0.22f, 0.25f, 0.04f},
         {"luigi", "waluigi"}, true},
     {"luigi", 0x4442532Du, 0x3D9BE9u, {95.0f, 150.0f, 0.45f, 0.45f, 0.15f}, {80.0f, 165.0f, 0.15f, 0.15f, 0.05f},
         {"mario", "wario"}, false},
@@ -514,6 +514,40 @@ void KitMask(const AwayKit& kit, const Level& level, const HostVector<Texel>& te
     }
 }
 
+// A painting's dark kit shading is only a few bits deep: its hue jumps around
+// and some texels drop out of the kit's bands, leaving specks of the home
+// colour under a cap's brim. A dark texel mostly surrounded by kit texels
+// belongs to the kit.
+void FillDarkHoles(const Level& level, const HostVector<Texel>& texels, HostVector<std::uint8_t>& mask)
+{
+    const int w = level.width, h = level.height;
+    HostVector<std::uint8_t> next;
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        next = mask;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+            {
+                std::size_t i = std::size_t(y) * w + x;
+                if (mask[i] == kKit || texels[i].alpha <= 0.0f) continue;
+                float hue, s, v;
+                ToHsv(texels[i].colour, hue, s, v);
+                if (v >= 0.3f) continue;
+                int kit = 0;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx)
+                    {
+                        int nx = x + dx, ny = y + dy;
+                        if ((dx != 0 || dy != 0) && nx >= 0 && ny >= 0 && nx < w && ny < h
+                            && mask[std::size_t(ny) * w + nx] == kKit)
+                            ++kit;
+                    }
+                if (kit >= 5) next[i] = kKit;
+            }
+        mask.swap(next);
+    }
+}
+
 // Pictures are paintings: single texels and thin lines of hair and skin
 // shading have the kit's hue as well, kits are areas. Keeps the kit texels next
 // to one whose 3x3 neighbourhood is all kit (a morphological opening).
@@ -721,6 +755,7 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
         if (kind != AwayKitTexture::Team)
         {
             KitMask(kit, level, texels, mask);
+            if (kind == AwayKitTexture::Picture) FillDarkHoles(level, texels, mask);
             // Small mip levels have no room for the opening's 3x3 cores.
             if (kind == AwayKitTexture::Picture && level.width >= 16 && level.height >= 16) OpenMask(level, mask);
         }

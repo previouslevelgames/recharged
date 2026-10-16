@@ -1,6 +1,6 @@
 Subject: Transport original camera serialized words
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original camera loading, owning/borrowed records, copying, list and
 callback algorithms. Before the original direct word reads, ask the native
@@ -15,6 +15,7 @@ Platform byte domains require the reviewed allocation/completion metadata.
 This does not establish original file request, camera runtime or scene startup.
 
 diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
+index d484a46..5a9d611 100644
 --- a/src/Game/Camera/animcam.cpp
 +++ b/src/Game/Camera/animcam.cpp
 @@ -14,6 +14,9 @@
@@ -27,7 +28,7 @@ diff --git a/src/Game/Camera/animcam.cpp b/src/Game/Camera/animcam.cpp
  
  static float dofBehindTarget = 2.0f;
  static float dofReferenceFOV = 45.0f;
-@@ -89,6 +92,9 @@
+@@ -89,6 +92,9 @@ cCameraData::~cCameraData()
  
  bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraData* pAnimCameraData, bool ownsKeyData)
  {

@@ -1,5 +1,5 @@
 Subject: Restore original shadow mesh writer outside explicit preview profile
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 R02 fidelity correction: retain literal original Begin/End/write decisions and
 class layout for the isolated game module and ordinary native source profile.
@@ -9,26 +9,28 @@ Keep the actual native four-byte colour copy and coherent-host cache boundary.
 Console projection remains unchanged. Mixed game/diagnostic profile rejected.
 
 diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShadowBlendMeshWriter.h
+index 7e2d238..3329adc 100644
 --- a/include/Game/GL/GLShadowBlendMeshWriter.h
 +++ b/include/Game/GL/GLShadowBlendMeshWriter.h
-@@ -6,10 +6,15 @@
+@@ -6,11 +6,16 @@
  
  #include "types.h"
  #if defined(MSCHARGED_NATIVE)
-+#include <cstring>
+-#include "NL/glx/glxMemory.h"
+ #include <cstring>
 +#if defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
 +#error "Original game shadow writer cannot use the diagnostic mesh-writer profile"
 +#endif
 +#if defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
- #include "NL/glx/glxMemory.h"
--#include <cstring>
++#include "NL/glx/glxMemory.h"
  #include <cmath>
  #include <stdexcept>
-+#endif
  #endif
++#endif
  
  class GLShadowBlendMeshWriter
-@@ -23,7 +28,7 @@
+ {
+@@ -23,7 +28,7 @@ public:
  
      glModel* GetModel() const
      {
@@ -37,7 +39,7 @@ diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShado
          NativeCheckLive();
  #endif
          return model;
-@@ -32,7 +37,9 @@
+@@ -32,7 +37,9 @@ public:
      void Colour(const nlColour& value)
      {
  #if defined(MSCHARGED_NATIVE)
@@ -47,7 +49,7 @@ diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShado
          std::memcpy(colour++, &value, sizeof(value));
  #else
          *colour++ = *(const u32*)&value;
-@@ -41,7 +48,7 @@
+@@ -41,7 +48,7 @@ public:
  
      void Texcoord(float u, float v)
      {
@@ -56,7 +58,7 @@ diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShado
          if (!std::isfinite(u) || !std::isfinite(v)) throw std::invalid_argument("Invalid shadow UV");
          NativeCheckWrite(writtenUV);
  #endif
-@@ -51,7 +58,7 @@
+@@ -51,7 +58,7 @@ public:
  
      void Vertex(float x, float y, float z)
      {
@@ -65,7 +67,7 @@ diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShado
          if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) throw std::invalid_argument("Invalid shadow vertex");
          NativeCheckWrite(writtenPosition);
  #endif
-@@ -60,7 +67,7 @@
+@@ -60,7 +67,7 @@ public:
          *position++ = z;
      }
  
@@ -75,6 +77,7 @@ diff --git a/include/Game/GL/GLShadowBlendMeshWriter.h b/include/Game/GL/GLShado
      {
          if (!model || generation != glNativeFrameGeneration())
 diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlendMeshWriter.cpp
+index 68ec34c..03c9de4 100644
 --- a/src/Game/GL/GLShadowBlendMeshWriter.cpp
 +++ b/src/Game/GL/GLShadowBlendMeshWriter.cpp
 @@ -6,7 +6,7 @@
@@ -86,7 +89,7 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
  #include "NL/glx/GXShadowVolumeMaterialProgram.h"
  #include <new>
  #endif
-@@ -31,7 +31,7 @@
+@@ -31,7 +31,7 @@ GLShadowBlendMeshWriter::~GLShadowBlendMeshWriter()
  bool GLShadowBlendMeshWriter::Begin(
      int vertexCount, int primitive, void* allocator)
  {
@@ -95,7 +98,7 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
      if (model && !finished && generation == glNativeFrameGeneration())
          throw std::logic_error("Shadow mesh Begin before End");
      if (allocator || vertexCount <= 0 || vertexCount > 65535 || primitive < 0 || primitive >= 6)
-@@ -59,7 +59,7 @@
+@@ -59,7 +59,7 @@ bool GLShadowBlendMeshWriter::Begin(
  
      glCreateModel(
          model, vertexCount, primitive, allocator, 3, 0x386ECBDD);
@@ -104,7 +107,7 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
      new (model->packets->materialParameters) GXShadowVolumeParameters{};
  #endif
  
-@@ -133,7 +133,7 @@
+@@ -133,7 +133,7 @@ bool GLShadowBlendMeshWriter::Begin(
          sizeof(float) * 2, 4);
  
      return true;
@@ -113,7 +116,7 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
      }
      catch (...) { model = nullptr; position = nullptr; colour = nullptr; texcoord = nullptr; throw; }
  #endif
-@@ -141,7 +141,7 @@
+@@ -141,7 +141,7 @@ bool GLShadowBlendMeshWriter::Begin(
  
  bool GLShadowBlendMeshWriter::End()
  {
@@ -122,7 +125,7 @@ diff --git a/src/Game/GL/GLShadowBlendMeshWriter.cpp b/src/Game/GL/GLShadowBlend
      NativeCheckLive();
      if (finished || writtenPosition != unsigned(count) || writtenColour != unsigned(count) || writtenUV != unsigned(count))
          throw std::logic_error("Incomplete or already finalized shadow mesh");
-@@ -161,7 +161,7 @@
+@@ -161,7 +161,7 @@ bool GLShadowBlendMeshWriter::End()
      }
  
      PPCSync();

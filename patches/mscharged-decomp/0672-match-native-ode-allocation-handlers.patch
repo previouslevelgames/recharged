@@ -1,10 +1,12 @@
 Subject: Match native ODE allocation handler size types
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native ODE uses size_t. Keep console declarations and allocator bodies unchanged.
 The native host preflights allocation/copy operands against the actual unsigned-long NL carrier
 before any request. Requires src/platform/native_ode_allocation_size.h from this proposal.
 
+diff --git a/include/Game/Physics/Physics.h b/include/Game/Physics/Physics.h
+index 68b8292..5365c3c 100644
 --- a/include/Game/Physics/Physics.h
 +++ b/include/Game/Physics/Physics.h
 @@ -1,6 +1,9 @@
@@ -17,7 +19,7 @@ before any request. Requires src/platform/native_ode_allocation_size.h from this
  #include "Game/Physics/PhysicsWorld.h"
  #include "NL/nlListContainer.h"
  
-@@ -15,9 +18,15 @@
+@@ -16,9 +19,15 @@ void CreateStaticPhysicsPrimitives();
  void DestroyStaticPhysicsPrimitives();
  void DestroyPhysicsWorld();
  void PhysicsUpdate(PhysicsWorld*, float);
@@ -33,6 +35,8 @@ before any request. Requires src/platform/native_ode_allocation_size.h from this
  
  extern PhysicsMesh* g_TerrainMesh;
  extern PhysicsWorld* g_PhysicsWorld;
+diff --git a/src/Game/Physics.cpp b/src/Game/Physics.cpp
+index 8650fbb..221c17c 100644
 --- a/src/Game/Physics.cpp
 +++ b/src/Game/Physics.cpp
 @@ -1,4 +1,7 @@
@@ -43,7 +47,7 @@ before any request. Requires src/platform/native_ode_allocation_size.h from this
  #include <cstring>
  #include "Game/Physics/PhysicsEventQueue.h"
  
-@@ -34,13 +37,28 @@
+@@ -32,13 +35,28 @@ nlListContainer<PhysicsObject*> g_NetPhysicsObjects;
  static cInventory<LoadablePhysicsMesh> s_PhysicsMeshes;
  static PhysicsRoundedCorner* corners[4];
  
@@ -51,9 +55,8 @@ before any request. Requires src/platform/native_ode_allocation_size.h from this
 +void* ODEAlloc(size_t size)
 +#else
  void* ODEAlloc(unsigned long size)
--{
 +#endif
-+{
+ {
 +#if defined(MSCHARGED_NATIVE)
 +    size = mscharged::platform::NativeODEAllocationSize(size);
 +#endif
@@ -64,9 +67,8 @@ before any request. Requires src/platform/native_ode_allocation_size.h from this
 +void* ODERealloc(void* oldPtr, size_t oldSize, size_t newSize)
 +#else
  void* ODERealloc(void* oldPtr, unsigned long oldSize, unsigned long newSize)
--{
 +#endif
-+{
+ {
 +#if defined(MSCHARGED_NATIVE)
 +    oldSize = mscharged::platform::NativeODEAllocationSize(oldSize);
 +    newSize = mscharged::platform::NativeODEAllocationSize(newSize);
@@ -74,7 +76,7 @@ before any request. Requires src/platform/native_ode_allocation_size.h from this
      void* newPtr = nlMalloc(newSize, 8, false);
      if (oldSize != 0)
      {
-@@ -50,7 +68,11 @@
+@@ -48,7 +66,11 @@ void* ODERealloc(void* oldPtr, unsigned long oldSize, unsigned long newSize)
      return newPtr;
  }
  

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] original main GameAudio owner diagnostic admission
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Admit only the original placement-new owner request at its original main
 Initialize position under an explicit selected-source macro. Initialization,
@@ -8,9 +8,10 @@ bundle loading, audio tasks and playback remain outside this owner-only gate.
 Console, ordinary native and prior diagnostics keep identical tokens.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 276aa9b..93dcb02 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -617,9 +617,11 @@
+@@ -626,9 +626,11 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
      InitPlatPad();
  #endif

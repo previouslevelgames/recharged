@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Adapt original SP serialized metadata and audio address words
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain whole Matching AudioResourcePlatform and unchanged original SP source.
 Decode allocation-owned Wii32/BE16 metadata into a native POD backing.
@@ -9,6 +9,7 @@ to unchanged SP address arithmetic instead of truncating host pointers.
 No callback, factory, backend, AX initialization or playback bypass.
 
 diff --git a/src/Game/Audio/AudioResourcePlatform.cpp b/src/Game/Audio/AudioResourcePlatform.cpp
+index 09945ed..65516a7 100644
 --- a/src/Game/Audio/AudioResourcePlatform.cpp
 +++ b/src/Game/Audio/AudioResourcePlatform.cpp
 @@ -1,3 +1,6 @@
@@ -18,7 +19,7 @@ diff --git a/src/Game/Audio/AudioResourcePlatform.cpp b/src/Game/Audio/AudioReso
  #include "revolution/types.h"
  #include "NL/nlDLListContainer.inl"
  #include "Game/Audio/AudioBackend.h"
-@@ -149,7 +152,11 @@
+@@ -149,7 +152,11 @@ void AudioMemoryLoader::ParseChunk(nlChunk* chunk)
      switch ((int)chunk->GetID())
      {
      case 0x23703:
@@ -30,7 +31,7 @@ diff --git a/src/Game/Audio/AudioResourcePlatform.cpp b/src/Game/Audio/AudioReso
          break;
      default:
          AudioBankLoader::ParseChunk(chunk);
-@@ -158,13 +165,22 @@
+@@ -158,13 +165,22 @@ void AudioMemoryLoader::ParseChunk(nlChunk* chunk)
  }
  
  void OnAudioBankReadComplete(

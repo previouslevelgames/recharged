@@ -1,100 +1,14 @@
 Subject: Share original frontend image quad and UV equations
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share the original fixed quad positions, V orientation and half-texel equations
 with checked native static image layout. Console callback and ordinary paths
 retain the same values. Native drawing does not select movie/grab callbacks.
 
-diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
---- a/src/Game/FE/feRender.cpp
-+++ b/src/Game/FE/feRender.cpp
-@@ -1,4 +1,5 @@
- #include "Game/FE/feRender.h"
-+#include "Game/FE/FrontendImageSteps.h"
- #include "Game/FE/FrontendLayoutSteps.h"
- 
- #include "Game/SharedStaticStorage.h"
-@@ -19,12 +20,6 @@
- #include "NL/platvmath.h"
- 
- static nlFloatColour s_currentAssetColour;
--static const nlVector3 s_quadPositions[4] = {
--    { -50.0f, 50.0f, 0.0f },
--    { -50.0f, -50.0f, 0.0f },
--    { 50.0f, -50.0f, 0.0f },
--    { 50.0f, 50.0f, 0.0f },
--};
- FEScene* FERender::m_pRenderScene;
- 
- RenderImageCallback g_pfnRenderImage;
-@@ -195,15 +190,8 @@
-     }
- 
-     unsigned long textureHandle = pTexRes->GetTextureHandle();
--    float halfPixelU = 0.5f / (float)(s32)pTexRes->m_uWidth;
--    float halfPixelV = 0.5f / (float)(s32)pTexRes->m_uHeight;
--    float left = pTLImageInstance->GetUVX();
--    float uvY = pTLImageInstance->GetUVY();
--    float uvH = pTLImageInstance->GetUVHeight();
--    float bottom = 1.0f - (uvH + uvY);
--    float right = left + pTLImageInstance->GetUVWidth();
--    float top = 1.0f - pTLImageInstance->GetUVY();
--
-+    nlVector2 uv[4];
-+    FrontendImageUV(pTLImageInstance, pTexRes->m_uWidth, pTexRes->m_uHeight, uv);
-     glSetDefaultState(false);
-     glSetRasterState(GLS_Culling, 0);
-     if (textureHandle != grabTex && textureHandle != movieTex)
-@@ -228,18 +216,8 @@
- 
-     if (textureHandle == movieTex && g_pfnRenderImage != 0)
-     {
--        nlVector2 uv[4];
-         nlVector2 pos[4];
--        uv[0].x = left + halfPixelU;
--        uv[0].y = bottom + halfPixelV;
--        uv[1].x = left + halfPixelU;
--        uv[1].y = top - halfPixelV;
--        uv[2].x = right - halfPixelU;
--        uv[2].y = top - halfPixelV;
--        uv[3].x = right - halfPixelU;
--        uv[3].y = bottom + halfPixelV;
--
--        const nlVector3* pSrc = s_quadPositions;
-+        const nlVector3* pSrc = FrontendImageQuadPositions;
-         nlVector2* pDst = pos;
-         unsigned int count = 4;
-         while (count--)
-@@ -254,18 +232,14 @@
-     {
-         glSetCurrentTexture(textureHandle, GLTT_Diffuse);
-         glQuad3 quad;
--        quad.m_pos[0] = s_quadPositions[0];
--        quad.m_pos[1] = s_quadPositions[1];
--        quad.m_pos[2] = s_quadPositions[2];
--        quad.m_pos[3] = s_quadPositions[3];
--        quad.m_uv[0].x = left + halfPixelU;
--        quad.m_uv[0].y = bottom + halfPixelV;
--        quad.m_uv[1].x = left + halfPixelU;
--        quad.m_uv[1].y = top - halfPixelV;
--        quad.m_uv[2].x = right - halfPixelU;
--        quad.m_uv[2].y = top - halfPixelV;
--        quad.m_uv[3].x = right - halfPixelU;
--        quad.m_uv[3].y = bottom + halfPixelV;
-+        quad.m_pos[0] = FrontendImageQuadPositions[0];
-+        quad.m_pos[1] = FrontendImageQuadPositions[1];
-+        quad.m_pos[2] = FrontendImageQuadPositions[2];
-+        quad.m_pos[3] = FrontendImageQuadPositions[3];
-+        quad.m_uv[0] = uv[0];
-+        quad.m_uv[1] = uv[1];
-+        quad.m_uv[2] = uv[2];
-+        quad.m_uv[3] = uv[3];
-         quad.SetColour(colour);
-         glAttachQuad3((eGLView)m_pRenderScene->m_uRenderView, 0, 1, &quad);
-     }
 diff --git a/include/Game/FE/FrontendImageSteps.h b/include/Game/FE/FrontendImageSteps.h
 new file mode 100644
+index 0000000..b4146ef
 --- /dev/null
 +++ b/include/Game/FE/FrontendImageSteps.h
 @@ -0,0 +1,36 @@
@@ -134,3 +48,91 @@ new file mode 100644
 +    uv[3].y = bottom + halfPixelV;
 +}
 +#endif
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index 4d96926..24223ea 100644
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -1,4 +1,5 @@
+ #include "Game/FE/feRender.h"
++#include "Game/FE/FrontendImageSteps.h"
+ #include "Game/FE/FrontendLayoutSteps.h"
+ 
+ #include "Game/SharedStaticStorage.h"
+@@ -19,12 +20,6 @@
+ #include "NL/platvmath.h"
+ 
+ static nlFloatColour s_currentAssetColour;
+-static const nlVector3 s_quadPositions[4] = {
+-    { -50.0f, 50.0f, 0.0f },
+-    { -50.0f, -50.0f, 0.0f },
+-    { 50.0f, -50.0f, 0.0f },
+-    { 50.0f, 50.0f, 0.0f },
+-};
+ FEScene* FERender::m_pRenderScene;
+ 
+ RenderImageCallback g_pfnRenderImage;
+@@ -195,15 +190,8 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
+     }
+ 
+     unsigned long textureHandle = pTexRes->GetTextureHandle();
+-    float halfPixelU = 0.5f / (float)(s32)pTexRes->m_uWidth;
+-    float halfPixelV = 0.5f / (float)(s32)pTexRes->m_uHeight;
+-    float left = pTLImageInstance->GetUVX();
+-    float uvY = pTLImageInstance->GetUVY();
+-    float uvH = pTLImageInstance->GetUVHeight();
+-    float bottom = 1.0f - (uvH + uvY);
+-    float right = left + pTLImageInstance->GetUVWidth();
+-    float top = 1.0f - pTLImageInstance->GetUVY();
+-
++    nlVector2 uv[4];
++    FrontendImageUV(pTLImageInstance, pTexRes->m_uWidth, pTexRes->m_uHeight, uv);
+     glSetDefaultState(false);
+     glSetRasterState(GLS_Culling, 0);
+     if (textureHandle != grabTex && textureHandle != movieTex)
+@@ -228,18 +216,8 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
+ 
+     if (textureHandle == movieTex && g_pfnRenderImage != 0)
+     {
+-        nlVector2 uv[4];
+         nlVector2 pos[4];
+-        uv[0].x = left + halfPixelU;
+-        uv[0].y = bottom + halfPixelV;
+-        uv[1].x = left + halfPixelU;
+-        uv[1].y = top - halfPixelV;
+-        uv[2].x = right - halfPixelU;
+-        uv[2].y = top - halfPixelV;
+-        uv[3].x = right - halfPixelU;
+-        uv[3].y = bottom + halfPixelV;
+-
+-        const nlVector3* pSrc = s_quadPositions;
++        const nlVector3* pSrc = FrontendImageQuadPositions;
+         nlVector2* pDst = pos;
+         unsigned int count = 4;
+         while (count--)
+@@ -254,18 +232,14 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
+     {
+         glSetCurrentTexture(textureHandle, GLTT_Diffuse);
+         glQuad3 quad;
+-        quad.m_pos[0] = s_quadPositions[0];
+-        quad.m_pos[1] = s_quadPositions[1];
+-        quad.m_pos[2] = s_quadPositions[2];
+-        quad.m_pos[3] = s_quadPositions[3];
+-        quad.m_uv[0].x = left + halfPixelU;
+-        quad.m_uv[0].y = bottom + halfPixelV;
+-        quad.m_uv[1].x = left + halfPixelU;
+-        quad.m_uv[1].y = top - halfPixelV;
+-        quad.m_uv[2].x = right - halfPixelU;
+-        quad.m_uv[2].y = top - halfPixelV;
+-        quad.m_uv[3].x = right - halfPixelU;
+-        quad.m_uv[3].y = bottom + halfPixelV;
++        quad.m_pos[0] = FrontendImageQuadPositions[0];
++        quad.m_pos[1] = FrontendImageQuadPositions[1];
++        quad.m_pos[2] = FrontendImageQuadPositions[2];
++        quad.m_pos[3] = FrontendImageQuadPositions[3];
++        quad.m_uv[0] = uv[0];
++        quad.m_uv[1] = uv[1];
++        quad.m_uv[2] = uv[2];
++        quad.m_uv[3] = uv[3];
+         quad.SetColour(colour);
+         glAttachQuad3((eGLView)m_pRenderScene->m_uRenderView, 0, 1, &quad);
+     }

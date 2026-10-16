@@ -1,9 +1,11 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Admit only the original GetPresentation request at its existing main position under a default-off selected-source diagnostic. Normal/native-default/console logic is unchanged. Depends on genuine source network/registry initialization (0481); no function/script selection, ReplayChoreo, Fixed task, readiness or game-body change.
 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 3c7eb4c..ca18715 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -718,8 +718,10 @@
+@@ -727,8 +727,10 @@ static void Initialize()
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      ReplayChoreo::Instance();

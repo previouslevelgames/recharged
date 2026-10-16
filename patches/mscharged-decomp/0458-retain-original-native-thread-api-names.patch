@@ -1,7 +1,8 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Retain original native thread entry typedef and state API names using canonical types/values; no context or scheduler implementation. Requires0455 owning declarations.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
+index 486bd94..d55c26d 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
 @@ -3,6 +3,10 @@
@@ -16,6 +17,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/includ
  // the canonical native OSThread owner. Declarations grant no scheduler service.
  #ifdef __cplusplus
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
+index 1e51252..b0c1da0 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
 @@ -3,6 +3,7 @@

@@ -1,6 +1,6 @@
 From: Charged native preparation
 Subject: [PATCH] diagnostic: send original-main Credits through original frame swap
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Owner-authorized 2026-10-06 temporary diagnostic. Add a selected frontend
 frame export beside the accepted original-main scene gate. Original glSendFrame
@@ -8,9 +8,10 @@ owns view submission, framebuffer copy, swap and VI delivery. The normal game
 source is unchanged; the complete original task loop remains pending.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 698912e..73f9ca3 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -933,3 +933,19 @@
+@@ -942,3 +942,19 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      glx_SendEnd();
  }
  #endif

@@ -1,5 +1,7 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/MSL/locale.c b/src/MSL/locale.c
+index 28b01a1..c970af1 100644
 --- a/src/MSL/locale.c
 +++ b/src/MSL/locale.c
 @@ -4,16 +4,23 @@
@@ -35,7 +37,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      CHAR_MAX, // frac_digits
      CHAR_MAX, // p_cs_precedes
      CHAR_MAX, // n_cs_precedes
-@@ -21,7 +28,7 @@
+@@ -21,7 +28,7 @@ struct lconv __lconv = {
      CHAR_MAX, // n_sep_by_space
      CHAR_MAX, // p_sign_posn
      CHAR_MAX, // n_sign_posn
@@ -44,7 +46,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      CHAR_MAX, // int_frac_digits
      CHAR_MAX, // int_p_cs_precedes
      CHAR_MAX, // int_n_cs_precedes
-@@ -61,12 +68,12 @@
+@@ -61,12 +68,12 @@ struct _loc_coll_cmpt __coll_cmpt = {
  
  struct _loc_mon_cmpt __mon_cmpt = {
      "C", // CmptName
@@ -63,7 +65,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      CHAR_MAX, // frac_digits
      CHAR_MAX, // p_cs_precedes
      CHAR_MAX, // n_cs_precedes
-@@ -74,7 +81,7 @@
+@@ -74,7 +81,7 @@ struct _loc_mon_cmpt __mon_cmpt = {
      CHAR_MAX, // n_sep_by_space
      CHAR_MAX, // p_sign_posn
      CHAR_MAX, // n_sign_posn
@@ -72,7 +74,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      CHAR_MAX, // int_frac_digits
      CHAR_MAX, // int_p_cs_precedes
      CHAR_MAX, // int_n_cs_precedes
-@@ -86,22 +93,22 @@
+@@ -86,22 +93,22 @@ struct _loc_mon_cmpt __mon_cmpt = {
  
  struct _loc_num_cmpt __num_cmpt = {
      "C", // CmptName
@@ -107,7 +109,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  };
  
  struct __locale _current_locale = {
-@@ -113,3 +120,5 @@
+@@ -113,3 +120,5 @@ struct __locale _current_locale = {
      &__num_cmpt, // num_cmpt_ptr
      &__time_cmpt // time_cmpt_ptr
  };

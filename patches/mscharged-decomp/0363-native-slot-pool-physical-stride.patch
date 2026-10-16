@@ -1,6 +1,6 @@
 From: mscharged-port native data ABI compatibility
 Subject: [PATCH] Align physical source slot strides for native intrusive pointers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Round only physical slot storage to the native intrusive free-list alignment
 in both whole original block allocation and block retirement. Preserve payload
@@ -11,6 +11,7 @@ Console preprocessing is unchanged. Small payloads and unrelated caller
 payload-size mismatches retain their existing explicit holds.
 
 diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
+index 1fb535f..8513cc3 100644
 --- a/src/NL/nlSlotPool.cpp
 +++ b/src/NL/nlSlotPool.cpp
 @@ -7,6 +7,18 @@
@@ -32,7 +33,7 @@ diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
  #endif
  
  
-@@ -61,6 +73,10 @@
+@@ -61,6 +73,10 @@ void SlotPoolBase::BaseFreeBlocks(SlotPoolBase* slotPool, unsigned int slotSize)
      size_t blockOffset;
  
      currentBlock = slotPool->m_BlockList;
@@ -43,7 +44,7 @@ diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
      blockOffset = size_t(slotSize) * slotPool->m_Delta;
      while (currentBlock != 0)
      {
-@@ -94,7 +110,8 @@
+@@ -94,7 +110,8 @@ void SlotPoolBase::BaseAddNewBlock(SlotPoolBase* slotPool, unsigned int slotSize
          }
  
  #if defined(MSCHARGED_NATIVE)

@@ -1,7 +1,7 @@
 From: native port compatibility
 Subject: [PATCH] retain original software skin live pointers and numeric vertex bytes
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native GAME_MODULE only: full-width live frame output pointers remain separate
 from the existing48-byte Wii RLG wire records. Scoped owned Float3 CPU views
@@ -10,9 +10,10 @@ the unchanged original loops/cache calls. Console/standalone projections are
 unchanged. No source morph/control flow restriction is added.
 
 diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
+index 41b1c7d..79d8666 100644
 --- a/include/NL/gl/glModel.h
 +++ b/include/NL/gl/glModel.h
-@@ -64,8 +64,15 @@
+@@ -64,8 +64,15 @@ struct glModelPacket
      /* 0x1C */ unsigned int rasterState;
      /* 0x20 */ void* materialParameters;
      /* 0x24 */ DisplayList* displayList;
@@ -29,6 +30,7 @@ diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
  
  struct glModel
 diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+index 027a3f9..1868f07 100644
 --- a/src/Game/GL/ShaderSkinMesh.cpp
 +++ b/src/Game/GL/ShaderSkinMesh.cpp
 @@ -8,6 +8,9 @@
@@ -41,7 +43,7 @@ diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
  #endif
  
  #include "Game/SHierarchy.h"
-@@ -311,21 +314,44 @@
+@@ -311,21 +314,44 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
          size = numVertices * sizeof(nlVector3);
          nlVector3* outVertices = (nlVector3*)glFrameAlloc(size, GLM_VertexData);
          nlZeroMemory(outVertices, size);
@@ -86,7 +88,7 @@ diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
          const float (*pMatrices)[3][4] =
              *(const float (**)[3][4])glGetMaterialParameterData(pPacket, SkinMatricesHash);
          nlMatrix4* pTempMatrix = tempMatrices;
-@@ -469,9 +495,15 @@
+@@ -469,9 +495,15 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
              }
          }
  

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Admit original authored Boot script0 services and logo cue in a named diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore unchanged original services2/11/33/15/16 alongside qualified412
 services12/13, plus the genuine Boot handler cue/unload, only under an
@@ -11,9 +11,10 @@ Normal BootLoadingToFE/script6 and CleanBootShutdown/script13/7 remain
 separate prerequisites; this is selected function0 integration only.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 23be75d..3274018 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -280,7 +280,8 @@
+@@ -279,7 +279,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS) \
      && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM)) \
@@ -23,7 +24,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      (void)functionIndex;
      throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
  #else
-@@ -306,9 +307,14 @@
+@@ -305,9 +306,14 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          gNPCManager->CreateNPCTemplate(name, persistent);
          break;
      }
@@ -38,7 +39,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 3:
          CreateFEResourcePool();
          break;
-@@ -378,6 +384,9 @@
+@@ -381,6 +387,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FEAudio::SetSoundCategory(0x15);
          FEMusic::SetInGame(false);
          break;
@@ -48,7 +49,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 11:
          SetLoadingComment("AsyncFELocalizationBegin");
          if (FontManager::Instance() == 0)
-@@ -440,6 +449,9 @@
+@@ -443,6 +452,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          StopSound(0x6AF33AC2, this);
          g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
          break;
@@ -56,9 +57,9 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
 +    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
      case 15:
-         fn_8011B178(this);
+         BeginAsyncFrontEndResourceLoad(this);
          break;
-@@ -468,6 +480,8 @@
+@@ -476,6 +488,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          break;
      }
@@ -67,7 +68,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 17:
          lbl_806E1058 += gAudioEnabled ? 1 : 0;
          lbl_806E1048 = nlGetTicker();
-@@ -571,10 +585,15 @@
+@@ -579,10 +593,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 32:
          CharacterLoader::sInstance.StartLoadingSidekickAudio();
          break;
@@ -84,9 +85,10 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
          SetLoadingComment("AsyncMiiLoadingBegin");
          if (MiiManager::s_pInstance == 0)
 diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
+index de58837..2773638 100644
 --- a/src/Game/SH/SHBootLoading.cpp
 +++ b/src/Game/SH/SHBootLoading.cpp
-@@ -225,7 +225,8 @@
+@@ -279,7 +279,8 @@ void BootLoadingScene::Update(float fDeltaT)
          {
              mPhase = PhaseFinished;
              mElapsedTime = 0.0f;
@@ -96,7 +98,7 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
              g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
  #endif // normal AX NLG sound bank is omitted in this diagnostic
          }
-@@ -271,7 +272,8 @@
+@@ -325,7 +326,8 @@ void BootLoadingScene::SetPhaseSlide()
          break;
      case PhaseDeveloperLogo:
          mPresentation->SetActiveSlide("NLG", true);

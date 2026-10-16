@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Drive selected authored Boot script0 through original main/loading endpoints
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Named default-OFF BOOT_SCRIPT integration restores the actual LoadingTask
 bytecode request/callback, original CallFunctionAt(0)/Run and source-owned
@@ -10,7 +10,40 @@ diagnostic Nav advancement stays excluded while the genuine script runs.
 No original algorithm, IP, stack, source readiness or cue selection changes.
 Prior BootLoadingToFE and complete CleanBoot13/7 remain separate holds.
 
+diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
+index ba4936a..41ce41c 100644
+--- a/src/Game/Task/LoadingTask.cpp
++++ b/src/Game/Task/LoadingTask.cpp
+@@ -17,7 +17,8 @@ extern "C" void ChargedDiagnosticAdvanceFrontendOwner();
+ void LoadingTask::Start()
+ {
+     mElapsed = 0.0f;
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) \
++    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
+     LoadAsyncLoadingByteCode(AsyncLoadingManager::Instance());
+ #endif // full bytecode-load/start prerequisite remains explicit
+ }
+@@ -33,7 +34,16 @@ void LoadingTask::Run(float dt)
+     FlickDetection::Update();
+ #endif // motion/flick startup remains unqualified
+ 
+-#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
++    // Explicit selected function0, not a completed normal sequence.
++    // Original source owns the stage ticker and every VM resume/wait.
++    AsyncLoadingManager* loading = AsyncLoadingManager::Instance();
++    if (loading->mByteCode == 0 || loading->m_Header != loading->mByteCode
++        || UpdateAsyncLoadingSequence(loading) != ASYNC_LOADING_NO_TRANSITION)
++        throw std::logic_error("Selected Boot script0 reached an unqualified original loading owner/sequence");
++    if (!loading->IsFinished())
++        loading->Run();
++#elif defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
+     // Same qualified original loader-owned Boot flags/predicate/initialization
+     // endpoint used by284; no VM completion or replacement manager result.
+     ChargedDiagnosticAdvanceFrontendOwner();
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index cad901a..dfe48e9 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,9 @@
@@ -23,7 +56,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SAVE_OWNERS) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
  #error Original save-owner admission requires the native original frontend diagnostic
  #endif
-@@ -954,6 +957,36 @@
+@@ -962,6 +965,36 @@ int main()
      // remain omitted. These are real source methods, with no FinishLoadingStep
      // or invented interpreter state; normal main remains unchanged.
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
@@ -44,14 +77,14 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 +        throw std::logic_error("Authored Boot script0 requires its actual NL bytecode callback and idle source owner");
 +    // The genuine idle dispatcher owns stage ticker/comment writes.
 +    // It does not select or report a completed normal boot sequence.
-+    if (fn_80118B7C(loading) != ASYNC_LOADING_NO_TRANSITION)
++    if (UpdateAsyncLoadingSequence(loading) != ASYNC_LOADING_NO_TRANSITION)
 +        throw std::logic_error("Selected Boot script0 reached an unqualified normal loading sequence");
 +    loading->CallFunctionAt(0);
 +    // Retain the existing selected Anark view and exact original
 +    // main state request. Full camera/world bootstrap remains held.
 +    nlMatrix4 identity;
 +    identity.SetIdentity();
-+    fn_80273144(identity, identity, 4.0f / 3.0f, 0.4712389f,
++    UpdateLayerCameras(identity, identity, 4.0f / 3.0f, 0.4712389f,
 +        4.0f / 3.0f, 0.4712389f);
 +    nlTaskManager::SetNextState(0x00100000);
 +    nlPrintf("Original authored Boot script0 diagnostic: real bytecode loaded; source VM/font/Splash/Boot waits remain live\n");
@@ -60,7 +93,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      CreateLargeFEResourcePool();
      if (FontManager::Instance() == 0)
      {
-@@ -1045,6 +1078,7 @@
+@@ -1053,6 +1086,7 @@ int main()
  #else
      return 83;
  #endif
@@ -68,7 +101,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #else
      // Owner-authorized diagnostic checkpoint: full game startup has not run.
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_LOADING_MESSAGE)
-@@ -1073,6 +1107,10 @@
+@@ -1081,6 +1115,10 @@ int main()
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
  extern "C" __attribute__((visibility("default"))) void charged_original_scene_frame(float delta)
  {
@@ -79,7 +112,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      // Explicit source-frame diagnostic, with original task/VI swap/send omitted.
      // The host supplies elapsed owner time and ends/drains the previous frame.
      gl_ViewReset();
-@@ -1088,7 +1126,8 @@
+@@ -1096,7 +1134,8 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);
@@ -89,7 +122,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ChargedDiagnosticAdvanceFrontendOwner();
  #endif
      FESceneManager::Instance()->Update(delta);
-@@ -1101,6 +1140,7 @@
+@@ -1109,6 +1148,7 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      glEndFrame();
      GetLayerView(eCLV_Anark)->Iterate(glx_SendFrame_cb);
      glx_SendEnd();
@@ -97,7 +130,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  }
  #endif
  
-@@ -1126,7 +1166,8 @@
+@@ -1134,7 +1174,8 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);
@@ -107,34 +140,3 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ChargedDiagnosticAdvanceFrontendOwner();
  #endif
      FESceneManager::Instance()->Update(delta);
-diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
---- a/src/Game/Task/LoadingTask.cpp
-+++ b/src/Game/Task/LoadingTask.cpp
-@@ -17,7 +17,8 @@
- void LoadingTask::Start()
- {
-     mElapsed = 0.0f;
--#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-+#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) \
-+    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT))
-     fn_80118B50(AsyncLoadingManager::Instance());
- #endif // full bytecode-load/start prerequisite remains explicit
- }
-@@ -33,7 +34,16 @@
-     FlickDetection::Update();
- #endif // motion/flick startup remains unqualified
- 
--#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)
-+    // Explicit selected function0, not a completed normal sequence.
-+    // Original source owns the stage ticker and every VM resume/wait.
-+    AsyncLoadingManager* loading = AsyncLoadingManager::Instance();
-+    if (loading->mByteCode == 0 || loading->m_Header != loading->mByteCode
-+        || fn_80118B7C(loading) != ASYNC_LOADING_NO_TRANSITION)
-+        throw std::logic_error("Selected Boot script0 reached an unqualified original loading owner/sequence");
-+    if (!loading->IsFinished())
-+        loading->Run();
-+#elif defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-     // Same qualified original loader-owned Boot flags/predicate/initialization
-     // endpoint used by284; no VM completion or replacement manager result.
-     ChargedDiagnosticAdvanceFrontendOwner();

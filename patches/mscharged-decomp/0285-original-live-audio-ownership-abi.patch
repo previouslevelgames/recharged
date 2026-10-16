@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original live audio ownership on native ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Adapt live sound-handle notification/tree keys without widening any authored
 hash, serialized field or script word. Use authoritative native owning fields
@@ -9,13 +9,17 @@ constructor/factory boundary, tree/ring traversal and algorithms are unchanged.
 Whole AudioSystem supplies its real globals; this is not audio/AX readiness.
 Depends on reviewed native registry/script/control transport0265/0271/0278.
 
+Refreshed for decomp 9046e67a: AudioRpc.cpp needs no change: upstream reads the
+bundle manager through GetBundleManager() itself.
+
 diff --git a/include/Game/Audio/AudioGlobals.h b/include/Game/Audio/AudioGlobals.h
+index 177e366..78ef561 100644
 --- a/include/Game/Audio/AudioGlobals.h
 +++ b/include/Game/Audio/AudioGlobals.h
-@@ -1,5 +1,14 @@
+@@ -1,6 +1,15 @@
  #ifndef GAME_AUDIO_AUDIO_GLOBALS_H
  #define GAME_AUDIO_AUDIO_GLOBALS_H
-+
+ 
 +#include "types.h"
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +#include <cstdint>
@@ -24,10 +28,35 @@ diff --git a/include/Game/Audio/AudioGlobals.h b/include/Game/Audio/AudioGlobals
 +#else
 +typedef u32 AudioInstanceKey;
 +#endif
- 
++
  class AudioSystem;
  class AudioBackend;
+ 
+diff --git a/include/Game/Audio/AudioResourceRuntime.h b/include/Game/Audio/AudioResourceRuntime.h
+index 6b36060..e340aaf 100644
+--- a/include/Game/Audio/AudioResourceRuntime.h
++++ b/include/Game/Audio/AudioResourceRuntime.h
+@@ -2,6 +2,7 @@
+ #define GAME_AUDIO_AUDIO_RESOURCE_RUNTIME_H
+ 
+ #include "types.h"
++#include "Game/Audio/AudioGlobals.h"
+ #include "Game/Audio/AudioRegistryOwner.h"
+ 
+ #if defined(MSCHARGED_NATIVE)
+@@ -37,8 +38,8 @@ extern AudioResourceRuntime* g_pAudioResourceRuntime;
+ 
+ void UpdateAudioResourceRuntime(AudioResourceRuntime* runtime, float deltaTime);
+ void ShutdownAudioResourceRuntime(AudioResourceRuntime* runtime);
+-void NotifyAudioSoundStarted(AudioResourceRuntime* runtime, u32 hash, u32 instance);
+-void NotifyAudioSoundStopped(AudioResourceRuntime* runtime, u32 instance);
++void NotifyAudioSoundStarted(AudioResourceRuntime* runtime, u32 hash, AudioInstanceKey instance);
++void NotifyAudioSoundStopped(AudioResourceRuntime* runtime, AudioInstanceKey instance);
+ // Numeric source audio keys retain the Wii32 width on native LP64/LLP64.
+ #if defined(MSCHARGED_NATIVE)
+ bool StartAudioEffect(const u32* bindingKey, const u32* definitionKey,
 diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioScriptRuntime.h
+index 016335f..5c28c59 100644
 --- a/include/Game/Audio/AudioScriptRuntime.h
 +++ b/include/Game/Audio/AudioScriptRuntime.h
 @@ -5,6 +5,7 @@
@@ -38,7 +67,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
  
  // Selects effect bindings for sound instances from the audio bundle script.
  
-@@ -13,7 +14,7 @@
+@@ -13,7 +14,7 @@ class AudioBindingNode;
  
  // Callback used when an effect is first created for a binding. The middle
  // field is left uninitialised by the construction retail emits.
@@ -47,7 +76,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
  {
      effect->OnSoundStarted((void*)key);
      return true;
-@@ -27,12 +28,12 @@
+@@ -27,12 +28,12 @@ struct AudioEffectSoundStartedVisitor
      {
      }
  
@@ -62,7 +91,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
      /* 0x04 */ bool m_pad04;
      /* 0x08 */ AudioEffectBase* mEffect;
  }; // size: 0x0C
-@@ -75,15 +76,15 @@
+@@ -75,15 +76,15 @@ public:
          void* owner);
      void ApplyEffectSet(u32 effectSetKey, bool inverted,
          float blendTime);
@@ -81,7 +110,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
      /* 0x24 */ nlAVLTreeSlotPool<u32, AudioEffectBase*,
          DefaultKeyCompare<u32> > mEffects;
  }; // size: 0x48
-@@ -166,8 +167,8 @@
+@@ -166,8 +167,8 @@ public:
      void DestroyBinding(const u32&, AudioEffectBinding*);
      bool LoadScriptData(void* data, unsigned int size);
      int SetEffectContext(u32 hash, int value);
@@ -92,7 +121,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
      void Update(float deltaTime);
  
      AudioEffectBinding* GetBinding(const u32& key)
-@@ -186,8 +187,8 @@
+@@ -186,8 +187,8 @@ public:
      /* 0x08 */ AudioScriptBindingList* mDefaultBindings;
      /* 0x0C */ nlAVLTreeSlotPool<u32, AudioEffectBinding,
          DefaultKeyCompare<u32> > mBindings;
@@ -103,68 +132,8 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
      /* 0x54 */ nlAVLTreeSlotPool<u32, int,
          DefaultKeyCompare<u32> > mContextValues;
      /* 0x78 */ AudioScriptInterpreter mInterpreter;
-diff --git a/include/Game/Audio/AudioResourceRuntime.h b/include/Game/Audio/AudioResourceRuntime.h
---- a/include/Game/Audio/AudioResourceRuntime.h
-+++ b/include/Game/Audio/AudioResourceRuntime.h
-@@ -2,6 +2,7 @@
- #define GAME_AUDIO_AUDIO_RESOURCE_RUNTIME_H
- 
- #include "types.h"
-+#include "Game/Audio/AudioGlobals.h"
- #include "Game/Audio/AudioRegistryOwner.h"
- 
- #if defined(MSCHARGED_NATIVE)
-@@ -37,8 +38,8 @@
- 
- void UpdateAudioResourceRuntime(AudioResourceRuntime* runtime, float deltaTime);
- void ShutdownAudioResourceRuntime(AudioResourceRuntime* runtime);
--void NotifyAudioSoundStarted(AudioResourceRuntime* runtime, u32 hash, u32 instance);
--void NotifyAudioSoundStopped(AudioResourceRuntime* runtime, u32 instance);
-+void NotifyAudioSoundStarted(AudioResourceRuntime* runtime, u32 hash, AudioInstanceKey instance);
-+void NotifyAudioSoundStopped(AudioResourceRuntime* runtime, AudioInstanceKey instance);
- // Numeric source audio keys retain the Wii32 width on native LP64/LLP64.
- #if defined(MSCHARGED_NATIVE)
- bool StartAudioEffect(const u32* bindingKey, const u32* definitionKey,
-diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptRuntime.cpp
---- a/src/Game/Audio/AudioScriptRuntime.cpp
-+++ b/src/Game/Audio/AudioScriptRuntime.cpp
-@@ -63,7 +63,7 @@
- }
- 
- static inline void AddInstanceBinding(AudioScriptRuntime* script,
--    const u32& instance, AudioEffectBinding* binding)
-+    const AudioInstanceKey& instance, AudioEffectBinding* binding)
- {
-     AudioBindingNode* entry = 0;
-     sBindingNodes.Allocate(entry);
-@@ -76,7 +76,7 @@
- }
- 
- static inline void AddSoundBinding(AudioScriptRuntime* script,
--    u32 instance, u32 key)
-+    AudioInstanceKey instance, u32 key)
- {
-     bool added;
-     AudioEffectBinding* binding = script->mBindings.AddOrGet(key, added);
-@@ -105,7 +105,7 @@
-     return hasValue;
- }
- 
--void AudioScriptRuntime::OnSoundStarted(u32 hash, u32 instance)
-+void AudioScriptRuntime::OnSoundStarted(u32 hash, AudioInstanceKey instance)
- {
-     AddSoundBinding(this, instance, 0x8CE35E27);
-     AudioScriptEntry* entry =
-@@ -185,7 +185,7 @@
-     }
- }
- 
--bool AudioScriptRuntime::OnSoundStopped(u32 instance)
-+bool AudioScriptRuntime::OnSoundStopped(AudioInstanceKey instance)
- {
-     AudioBindingNode** found;
-     bool exists = mInstanceBindings.FindGet(instance, &found);
 diff --git a/src/Game/Audio/AudioEffectBinding.cpp b/src/Game/Audio/AudioEffectBinding.cpp
+index f1027a9..6b1f897 100644
 --- a/src/Game/Audio/AudioEffectBinding.cpp
 +++ b/src/Game/Audio/AudioEffectBinding.cpp
 @@ -6,35 +6,35 @@
@@ -210,7 +179,7 @@ diff --git a/src/Game/Audio/AudioEffectBinding.cpp b/src/Game/Audio/AudioEffectB
  {
      (*effect)->OnSoundStopped((void*)instance);
      return true;
-@@ -82,13 +82,13 @@
+@@ -82,13 +82,13 @@ bool AudioEffectBinding::UpdateEffect(const u32& key,
      }
      else
      {
@@ -227,9 +196,10 @@ diff --git a/src/Game/Audio/AudioEffectBinding.cpp b/src/Game/Audio/AudioEffectB
      effect->ApplyToSound((void*)key);
      return true;
 diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResourceRuntime.cpp
+index 1840761..1614ef5 100644
 --- a/src/Game/Audio/AudioResourceRuntime.cpp
 +++ b/src/Game/Audio/AudioResourceRuntime.cpp
-@@ -86,7 +86,7 @@
+@@ -86,7 +86,7 @@ inline bool AudioEffectBinding::StartEffect(u32 definition,
          effect = g_pAudioResourceRuntime->m_EffectFactory->CreateEffect(effectId);
          mEffects.Add(effectId, effect);
          mInstances.Walk(
@@ -238,7 +208,7 @@ diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResou
                  AudioEffectSoundStartedVisitor(effect)));
      }
  
-@@ -108,7 +108,7 @@
+@@ -108,7 +108,7 @@ inline bool AudioEffectBinding::StartEffect(u32 definition,
          effect = g_pAudioResourceRuntime->m_EffectFactory->CreateEffect(effectId);
          mEffects.Add(effectId, effect);
          mInstances.Walk(
@@ -247,7 +217,7 @@ diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResou
                  AudioEffectSoundStartedVisitor(effect)));
      }
  
-@@ -160,7 +160,7 @@
+@@ -160,7 +160,7 @@ void ShutdownAudioResourceRuntime(AudioResourceRuntime* runtime)
  /**
   * Address/Size: 0x802F499C | size: 0x8
   */
@@ -256,7 +226,7 @@ diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResou
  {
      runtime->m_Script->OnSoundStarted(hash, instance);
  }
-@@ -168,7 +168,7 @@
+@@ -168,7 +168,7 @@ void NotifyAudioSoundStarted(AudioResourceRuntime* runtime, u32 hash, u32 instan
  /**
   * Address/Size: 0x802F49A4 | size: 0x8
   */
@@ -265,10 +235,51 @@ diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResou
  {
      runtime->m_Script->OnSoundStopped(instance);
  }
+diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptRuntime.cpp
+index 3d737c9..95ec578 100644
+--- a/src/Game/Audio/AudioScriptRuntime.cpp
++++ b/src/Game/Audio/AudioScriptRuntime.cpp
+@@ -63,7 +63,7 @@ int AudioScriptRuntime::SetEffectContext(u32 hash, int value)
+ }
+ 
+ static inline void AddInstanceBinding(AudioScriptRuntime* script,
+-    const u32& instance, AudioEffectBinding* binding)
++    const AudioInstanceKey& instance, AudioEffectBinding* binding)
+ {
+     AudioBindingNode* entry = 0;
+     sBindingNodes.Allocate(entry);
+@@ -76,7 +76,7 @@ static inline void AddInstanceBinding(AudioScriptRuntime* script,
+ }
+ 
+ static inline void AddSoundBinding(AudioScriptRuntime* script,
+-    u32 instance, u32 key)
++    AudioInstanceKey instance, u32 key)
+ {
+     bool added;
+     AudioEffectBinding* binding = script->mBindings.AddOrGet(key, added);
+@@ -105,7 +105,7 @@ static inline bool GetContextValue(AudioScriptRuntime* script,
+     return hasValue;
+ }
+ 
+-void AudioScriptRuntime::OnSoundStarted(u32 hash, u32 instance)
++void AudioScriptRuntime::OnSoundStarted(u32 hash, AudioInstanceKey instance)
+ {
+     AddSoundBinding(this, instance, 0x8CE35E27);
+     AudioScriptEntry* entry =
+@@ -185,7 +185,7 @@ void AudioScriptRuntime::OnSoundStarted(u32 hash, u32 instance)
+     }
+ }
+ 
+-bool AudioScriptRuntime::OnSoundStopped(u32 instance)
++bool AudioScriptRuntime::OnSoundStopped(AudioInstanceKey instance)
+ {
+     AudioBindingNode** found;
+     bool exists = mInstanceBindings.FindGet(instance, &found);
 diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+index 44f5dbc..ad0ba4b 100644
 --- a/src/Game/Audio/AudioSystem.cpp
 +++ b/src/Game/Audio/AudioSystem.cpp
-@@ -81,7 +81,7 @@
+@@ -81,7 +81,7 @@ XSoundCueHandle* CreateAudioSoundHandle(AudioSystem* audio, int slotId, XSoundOw
      if (handle != 0)
          NotifyAudioSoundStarted(audio->GetBundleManager()->GetResourceRuntime(),
              (value3 ^ value1) ^ (value2 ^ cueId),
@@ -277,7 +288,7 @@ diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
      return handle;
  }
  
-@@ -139,7 +139,7 @@
+@@ -139,7 +139,7 @@ void UpdateAudioSystem(AudioSystem* audio, float dt)
          handle->Update(dt);
          if (handle->m_State == SOUND_HANDLE_RELEASED)
          {
@@ -286,33 +297,3 @@ diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
              if (handle->m_Owner != 0)
                  --audio->m_OwnedSoundCount;
              audio->m_ActiveSoundList.Remove(&it);
-diff --git a/src/Game/Audio/AudioRpc.cpp b/src/Game/Audio/AudioRpc.cpp
---- a/src/Game/Audio/AudioRpc.cpp
-+++ b/src/Game/Audio/AudioRpc.cpp
-@@ -13,18 +13,26 @@
- #include "NL/nlSlotPool.h"
- #include "types.h"
- 
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+#include "Game/Audio/AudioSystem.h"
-+#else
- struct AudioSystemRpcView
- {
-     u8 pad_00[0xCC];
-     AudioBundleManager* bundleManager;
- };
-+#endif
- 
- char sAudioRpcValueFormat[] = "RpcController: %s %f\n";
- 
- static inline AudioSliderTable* GetAudioSliderTable()
- {
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
-+    return (AudioSliderTable*)g_pAudioSystem->GetBundleManager()->GetSliderTable();
-+#else
-     return (AudioSliderTable*)((AudioSystemRpcView*)g_pAudioSystem)
-         ->bundleManager->GetSliderTable();
-+#endif
- }
- 
- static inline float EvaluateAudioRpcCurve(

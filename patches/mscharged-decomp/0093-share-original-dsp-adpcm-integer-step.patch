@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original DSP ADPCM integer sample arithmetic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share the three identical THPAudio sample equations without selecting its
 unchecked container decoder. Native negative sample arithmetic uses defined
@@ -8,6 +8,7 @@ unchecked container decoder. Native negative sample arithmetic uses defined
 
 diff --git a/libs/RVL_SDK/include/revolution/thp/THPAdpcmStep.h b/libs/RVL_SDK/include/revolution/thp/THPAdpcmStep.h
 new file mode 100644
+index 0000000..9630df6
 --- /dev/null
 +++ b/libs/RVL_SDK/include/revolution/thp/THPAdpcmStep.h
 @@ -0,0 +1,30 @@
@@ -42,6 +43,7 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/RVL_SDK/thp/THPAudio.c b/src/RVL_SDK/thp/THPAudio.c
+index 3296f84..cc610e6 100644
 --- a/src/RVL_SDK/thp/THPAudio.c
 +++ b/src/RVL_SDK/thp/THPAudio.c
 @@ -1,4 +1,5 @@
@@ -50,7 +52,7 @@ diff --git a/src/RVL_SDK/thp/THPAudio.c b/src/RVL_SDK/thp/THPAudio.c
  
  u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
      THPAudioRecordHeader *header;
-@@ -38,19 +39,8 @@
+@@ -38,19 +39,8 @@ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
  
          for (i = 0; i < header->sampleSize; i++) {
              sample = __THPAudioGetNewSample(&decInfo);
@@ -72,7 +74,7 @@ diff --git a/src/RVL_SDK/thp/THPAudio.c b/src/RVL_SDK/thp/THPAudio.c
  
              *decLeftPtr = (s16)(yn >> 16);
              decLeftPtr += step;
-@@ -68,19 +58,8 @@
+@@ -68,19 +58,8 @@ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
  
          for (i = 0 ; i < header->sampleSize ; i++) {
              sample = __THPAudioGetNewSample(&decInfo);
@@ -94,7 +96,7 @@ diff --git a/src/RVL_SDK/thp/THPAudio.c b/src/RVL_SDK/thp/THPAudio.c
  
              *decLeftPtr = (s16)(yn >> 16);
              decLeftPtr += step;
-@@ -95,19 +74,8 @@
+@@ -95,19 +74,8 @@ u32 THPAudioDecode(s16 *audioBuffer, u8 *audioFrame, s32 flag) {
  
          for (i = 0 ; i < header->sampleSize ; i++) {
              sample = __THPAudioGetNewSample(&decInfo);

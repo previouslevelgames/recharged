@@ -1,11 +1,13 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Only original RFL InitRFLTexture BE16 dimensions/signedbias and rawimage offset; no choices/requests/pixels/budgets changed.
 
+diff --git a/src/RVL_SDK/rfl/RFL_MakeTex.c b/src/RVL_SDK/rfl/RFL_MakeTex.c
+index 07a3426..790b477 100644
 --- a/src/RVL_SDK/rfl/RFL_MakeTex.c
 +++ b/src/RVL_SDK/rfl/RFL_MakeTex.c
-@@ -1,4 +1,15 @@
+@@ -1,5 +1,16 @@
  #include <RVLFaceLib/RVLFaceLibInternal.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/rfl_texture_transport.h"
 +#define RFL_FACE_TEXTURE_HALF(texture, field) ChargedReadRFLTextureHalf(&(texture)->field)
@@ -16,10 +18,11 @@ Purpose: Only original RFL InitRFLTexture BE16 dimensions/signedbias and rawimag
 +#define RFL_FACE_TEXTURE_SIGNED_HALF(texture, field) texture->field
 +#define RFL_FACE_TEXTURE_IMAGE(texture) RFLiGetTexImage(texture)
 +#endif
- 
++
  #include <math.h>
  #if defined(MSCHARGED_NATIVE)
-@@ -473,10 +484,10 @@
+ /* Preserve the original MSL math.h constant and its float expression type. */
+@@ -495,10 +506,10 @@ void RFLiMakeTexture(const RFLiCharInfo* info, u8** buffers,
  void RFLiInitRFLTexture(RFLiTexObj* tobj) {
      RFLiTexture* tex = tobj->texture;
  

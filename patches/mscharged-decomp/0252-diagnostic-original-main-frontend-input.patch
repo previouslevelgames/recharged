@@ -1,13 +1,14 @@
 From: mscharged-port source integration
 Subject: [PATCH] Select original platform and frontend input in main diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
 Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index eb9da3b..44070fe 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -577,7 +577,11 @@
+@@ -586,7 +586,11 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      GLResourcePool* resourcePool = glGetCurrentResourcePool();
      resourcePool->MarkResource();
@@ -19,7 +20,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      g_pGameAudio = new (nlMalloc(sizeof(GameAudio), 8, false))
          GameAudio;
      g_pGameAudio->Initialize();
-@@ -885,6 +889,14 @@
+@@ -894,6 +898,14 @@ int main()
      // pools, fonts and graphics established above; never initialize them twice.
      FEResourceManager* resources = FEResourceManager::Instance();
      resources->LoadPermanentResourceBundle("art/fe/MainUI.Dmn", DiagnosticPermanentComplete);
@@ -34,7 +35,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      while (!sDiagnosticPermanentComplete)
      {
          nlServiceFileSystem();
-@@ -946,6 +958,14 @@
+@@ -955,6 +967,14 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      glplatFrameAllocNextFrame();
      glBeginFrame();
      nlServiceFileSystem();
@@ -49,7 +50,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      FEResourceManager::Instance()->Run(delta);
      FESceneManager::Instance()->Update(delta);
      FESceneManager::Instance()->RenderActiveScenes();
-@@ -968,6 +988,13 @@
+@@ -977,6 +997,13 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
      // The complete original task manager remains omitted by the main gate.
      glBeginFrame();
      nlServiceFileSystem();

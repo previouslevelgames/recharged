@@ -1,12 +1,40 @@
 Subject: [PATCH] Share canonical native cache declarations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Permanent hardware/compiler ABI adaptation: the native C declarations come
 from Aurora's canonical cache API with Wii-width byte counts. Const source
 views forward by pointer qualification only. Original console declarations
 and all original loader/pool bodies remain unchanged.
 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSCache.h b/libs/RVL_SDK/include/revolution/os/OSCache.h
+index 123218f..1be515e 100644
+--- a/libs/RVL_SDK/include/revolution/os/OSCache.h
++++ b/libs/RVL_SDK/include/revolution/os/OSCache.h
+@@ -1,6 +1,15 @@
+ #ifndef REVOLUTION_OS_CACHE_H
+ #define REVOLUTION_OS_CACHE_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <revolution/os/OSCache_fwd.h>
++#ifdef __cplusplus
++inline void LCLoadBlocks(void* d, const void* s, u32 n) { LCLoadBlocks(d, const_cast<void*>(s), n); }
++inline void LCStoreBlocks(void* d, const void* s, u32 n) { LCStoreBlocks(d, const_cast<void*>(s), n); }
++inline u32 LCStoreData(void* d, const void* s, u32 n) { return LCStoreData(d, const_cast<void*>(s), n); }
++#endif
++#else
++
+ #include <revolution/os/OSCache_fwd.h>
+ #include <revolution/types.h>
+ 
+@@ -30,4 +39,6 @@ void __OSCacheInit(void);
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif  // REVOLUTION_OS_CACHE_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h b/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h
+index 689e65f..bc5c54b 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h
 @@ -1,6 +1,20 @@
@@ -30,35 +58,10 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSCache_fwd.h b/libs/RVL_SDK/inc
  #ifdef __cplusplus
  extern "C" {
  #endif
-@@ -17,4 +31,6 @@
+@@ -17,4 +31,6 @@ void ICInvalidateRange(const void* address, unsigned long length);
  }
  #endif
  
 +#endif // MSCHARGED_NATIVE
 +
  #endif // REVOLUTION_OS_CACHE_FWD_H
-diff --git a/libs/RVL_SDK/include/revolution/os/OSCache.h b/libs/RVL_SDK/include/revolution/os/OSCache.h
---- a/libs/RVL_SDK/include/revolution/os/OSCache.h
-+++ b/libs/RVL_SDK/include/revolution/os/OSCache.h
-@@ -1,5 +1,14 @@
- #ifndef REVOLUTION_OS_CACHE_H
- #define REVOLUTION_OS_CACHE_H
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include <revolution/os/OSCache_fwd.h>
-+#ifdef __cplusplus
-+inline void LCLoadBlocks(void* d, const void* s, u32 n) { LCLoadBlocks(d, const_cast<void*>(s), n); }
-+inline void LCStoreBlocks(void* d, const void* s, u32 n) { LCStoreBlocks(d, const_cast<void*>(s), n); }
-+inline u32 LCStoreData(void* d, const void* s, u32 n) { return LCStoreData(d, const_cast<void*>(s), n); }
-+#endif
-+#else
- 
- #include <revolution/os/OSCache_fwd.h>
- #include <revolution/types.h>
-@@ -30,4 +39,6 @@
- }
- #endif
- 
-+#endif // MSCHARGED_NATIVE
-+
- #endif  // REVOLUTION_OS_CACHE_H

@@ -1,15 +1,16 @@
 From: mscharged native port
 Subject: [PATCH] Retain genuine NetworkSession event-owner pointer width
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The two original session fields are real event owner addresses. Use the
 existing native EventOwnerHandle ABI before original Add, preserving all
 source callbacks/arguments and the console uint casts.
 
 diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index a369e29..f2b9e86 100644
 --- a/src/Game/NetworkSession.cpp
 +++ b/src/Game/NetworkSession.cpp
-@@ -1917,12 +1917,20 @@
+@@ -2002,12 +2002,20 @@ static inline void RegisterLoadedGameActions(NetworkSession* session)
      Function<FnVoidVoid> first(BindMember(session, &NetworkSession::OnPauseGame));
      TypedEvent0<void>* pauseEvent
          = &g_pGame->mEventQueue.mPauseGameEvent;

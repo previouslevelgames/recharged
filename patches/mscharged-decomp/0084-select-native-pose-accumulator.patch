@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select matched original pose accumulation with native ownership
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Select original Init/Blend/BuildNodeMatrices equations from the matching unit.
 Pair native arrays with game-arena allocation/free, define scratch storage and
@@ -12,9 +12,10 @@ unselected. Keep mirrored translation temporaries alive through consumption.
 The port validates hierarchy, numeric domains and publication before execution.
 
 diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
+index 2145a59..00fcf8f 100644
 --- a/include/Game/PoseAccumulator.h
 +++ b/include/Game/PoseAccumulator.h
-@@ -64,11 +64,19 @@
+@@ -64,11 +64,19 @@ class cPoseAccumulator
  {
  public:
      cPoseAccumulator(cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices);
@@ -34,7 +35,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
      void SetScale(float fScale)
      {
          m_Scale = fScale;
-@@ -98,11 +106,13 @@
+@@ -98,11 +106,13 @@ public:
      }
      nlMatrix4& GetNodeMatrixByHashID(unsigned int nHashID) const;
      s32 GetNumNodes() const;
@@ -48,7 +49,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
  
      cSHierarchy* m_BaseSHierarchy;
      nlMatrix4* m_NodeMatrices;
-@@ -119,6 +129,7 @@
+@@ -119,6 +129,7 @@ public:
      u8 m_Padding[3];
  };
  
@@ -56,7 +57,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
  template <typename T>
  inline void cPoseAccumulator::Replay(T& frame)
  {
-@@ -152,4 +163,6 @@
+@@ -152,4 +163,6 @@ inline void cPoseAccumulator::Replay(T& frame)
      }
  }
  
@@ -64,6 +65,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
 +
  #endif // GAME_POSE_ACCUMULATOR_H
 diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
+index 3a64ef6..c2fbb74 100644
 --- a/src/Game/PoseAccumulator.cpp
 +++ b/src/Game/PoseAccumulator.cpp
 @@ -7,6 +7,37 @@
@@ -104,7 +106,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  static nlQuaternion qRotIdentity = { 0.0f, 0.0f, 0.0f, 1.0f };
  static nlVector3 v3ScaleIdentity = { 1.0f, 1.0f, 1.0f };
  static nlVector3 v3TransIdentity = { 0.0f, 0.0f, 0.0f };
-@@ -25,6 +56,15 @@
+@@ -25,6 +56,15 @@ static inline void PoseAccumulatorMultiplyScale(
  cPoseAccumulator::cPoseAccumulator(
      cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices)
  {
@@ -120,7 +122,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
      m_BaseSHierarchy = pSHierarchy;
      m_Scale = 1.0f;
      m_bUseObject = false;
-@@ -32,19 +72,47 @@
+@@ -32,19 +72,47 @@ cPoseAccumulator::cPoseAccumulator(
  
      if (bStorePrevNodeMatrices)
      {
@@ -168,12 +170,10 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  
      for (int i = 0; i < m_BaseSHierarchy->m_nNumNodes; ++i)
      {
-@@ -66,8 +134,17 @@
+@@ -66,8 +134,17 @@ cPoseAccumulator::cPoseAccumulator(
              m_trans[i].bIdentity = false;
          }
      }
--}
--
 +#if defined(MSCHARGED_NATIVE)
 +        // Original i+1 scratch slots also have defined native object storage.
 +        m_NodeMatrices[m_nNumNodes].SetIdentity();
@@ -182,13 +182,13 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
 +    }
 +    catch (...) { PoseAccumulatorFreeArrays(this); throw; }
 +#endif
-+}
-+
+ }
+ 
 +#if !defined(MSCHARGED_NATIVE)
  /**
   * Offset/Address/Size: 0x228 | 0x8030ABF8 | size: 0x11C
   */
-@@ -124,11 +201,16 @@
+@@ -124,11 +201,16 @@ cPoseAccumulator& cPoseAccumulator::operator=(const cPoseAccumulator& other)
      return *this;
  }
  
@@ -205,20 +205,18 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
      if (m_PrevNodeMatrices != NULL)
      {
          delete[] m_PrevNodeMatrices;
-@@ -139,8 +221,10 @@
+@@ -139,8 +221,10 @@ cPoseAccumulator::~cPoseAccumulator()
      delete[] m_scale;
      delete[] m_trans;
      delete[] m_cb;
--}
--
 +#endif
-+}
-+
+ }
+ 
 +#if !defined(MSCHARGED_NATIVE)
  static inline void PoseAccumulatorInitNodeAccumulators(cPoseAccumulator* pose)
  {
      for (int i = 0; i < pose->m_BaseSHierarchy->m_nNumNodes; ++i)
-@@ -207,6 +291,8 @@
+@@ -207,6 +291,8 @@ void cPoseAccumulator::Pose(
      BuildNodeMatrices(*pWorldMatrix);
  }
  
@@ -227,7 +225,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  /**
   * Offset/Address/Size: 0x7F0 | 0x8030B1C0 | size: 0x158
   */
-@@ -253,11 +339,17 @@
+@@ -253,11 +339,17 @@ void cPoseAccumulator::InitAccumulators()
   * Offset/Address/Size: 0x948 | 0x8030B318 | size: 0x6B0
   */
  // Preserve the shared scalar lifetimes used to remove world scale.
@@ -245,7 +243,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
      float scaleUpper, scaleLower, weightEpsilon;
  
      if (m_PrevNodeMatrices != NULL)
-@@ -386,6 +478,11 @@
+@@ -386,6 +478,11 @@ void cPoseAccumulator::BuildNodeMatrices(const nlMatrix4& pWorldMatrix)
                  || v3WorldScaleSquared.y < scaleLower || v3WorldScaleSquared.y > scaleUpper
                  || v3WorldScaleSquared.z < scaleLower || v3WorldScaleSquared.z > scaleUpper)
              {
@@ -257,7 +255,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
                  // Capture the floating-point return value before the next call.
                  nlSqrt(v3WorldScaleSquared.x, true);
                  // clang-format off
-@@ -395,6 +492,7 @@
+@@ -395,6 +492,7 @@ void cPoseAccumulator::BuildNodeMatrices(const nlMatrix4& pWorldMatrix)
                  // clang-format off
                  asm { fmr fWorldScaleY, f1; }
                  // clang-format on
@@ -265,7 +263,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
                  float fWorldScaleZ = nlSqrt(v3WorldScaleSquared.z, true);
  
                  nlMatrix4 mWorldNoScale;
-@@ -491,7 +589,9 @@
+@@ -491,7 +589,9 @@ void cPoseAccumulator::BuildNodeMatrices(const nlMatrix4& pWorldMatrix)
      }
  }
  
@@ -275,7 +273,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  
  
  /**
-@@ -682,10 +782,15 @@
+@@ -682,10 +782,15 @@ void cPoseAccumulator::BlendTrans(int nNode, const nlVector3* pTrans,
      if (bNegligibleWeight)
          return;
  
@@ -291,7 +289,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
          if (nNode <= h->m_nPelvisNodeIndex
              || nNode == h->m_nSpineNodeIndex)
          {
-@@ -832,6 +937,7 @@
+@@ -832,6 +937,7 @@ s32 cPoseAccumulator::GetNumNodes() const
      return m_BaseSHierarchy->m_nNumNodes;
  }
  
@@ -299,7 +297,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  /**
   * Offset/Address/Size: 0x19B0 | 0x8030C380 | size: 0x28
   */
-@@ -843,3 +949,5 @@
+@@ -843,3 +949,5 @@ void cPoseAccumulator::SetBuildNodeMatrixCallback(int nNode,
      m_cb[nNode].nParam1 = nParam1;
      m_cb[nNode].nParam2 = nParam2;
  }

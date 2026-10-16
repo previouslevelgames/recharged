@@ -1,12 +1,14 @@
 Subject: Preserve original AsyncImage bundle callback contexts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use the existing BundleAsyncParam at the original OpenAsync/ReadFileAsync boundaries.
 Retain original load states, buffer ownership, texture hashes and request order.
 
+diff --git a/include/Game/FE/feAsyncImage.h b/include/Game/FE/feAsyncImage.h
+index d80718f..ed13a5f 100644
 --- a/include/Game/FE/feAsyncImage.h
 +++ b/include/Game/FE/feAsyncImage.h
-@@ -33,8 +33,13 @@
+@@ -33,8 +33,13 @@ public:
      void SwapTextures();
      void FreeLoadBuffer();
  
@@ -20,9 +22,11 @@ Retain original load states, buffer ownership, texture hashes and request order.
  
      /* 0x04 */ BundleFile* mBundleFile;
      /* 0x08 */ TLImageInstance* mImageInstance;
+diff --git a/src/Game/FE/feAsyncImage.cpp b/src/Game/FE/feAsyncImage.cpp
+index 8eae1ea..a3170f0 100644
 --- a/src/Game/FE/feAsyncImage.cpp
 +++ b/src/Game/FE/feAsyncImage.cpp
-@@ -66,13 +66,21 @@
+@@ -66,13 +66,21 @@ inline void AsyncImage::FreeLoadBuffer()
      }
  }
  
@@ -44,7 +48,7 @@ Retain original load states, buffer ownership, texture hashes and request order.
  {
      AsyncImage* self = (AsyncImage*)userData;
      self->mLoadState = LS_READY_TO_LOAD;
-@@ -102,7 +110,12 @@
+@@ -102,7 +110,12 @@ bool AsyncImage::Update(bool autoswap)
              mTextureSize = info.m_length;
          }
  
@@ -58,7 +62,7 @@ Retain original load states, buffer ownership, texture hashes and request order.
          mLoadState = LS_ISSUED_LOAD;
      }
  
-@@ -169,7 +182,13 @@
+@@ -169,7 +182,13 @@ AsyncImage::AsyncImage(const char* filename, const char* texturename)
      mLoadState = LS_OPENING_BUNDLE;
  
      mBundleFile = new (nlMalloc(sizeof(BundleFile), 0x20, 1)) BundleFile();

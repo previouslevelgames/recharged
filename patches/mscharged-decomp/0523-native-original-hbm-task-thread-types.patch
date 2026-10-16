@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Compile original HBM task thread with native live message types
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native LP64 compiler and owning-header compatibility only.
 
 Keep original TaskThread construction, message loop, literal values, returns
@@ -14,6 +14,7 @@ original console includes. GetIntPtr uses the actual native live pointer width;
 no serialized record or source task allocation request changes.
 
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
+index 5cd710f..fae6482 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h
 @@ -1,7 +1,11 @@
@@ -29,6 +30,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/Task.h b/libs/RVL_SD
  
  namespace nw4hbm {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+index e78768b..9ff09a0 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 @@ -2,6 +2,9 @@
@@ -42,6 +44,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs
  #include "revolution/mem.h"
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h
+index f804b12..d0d74ec 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h
 @@ -2,7 +2,12 @@
@@ -58,6 +61,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskThread.h b/libs/
  
  namespace nw4hbm {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
+index 65234c6..886cc47 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
 @@ -2,6 +2,9 @@
@@ -70,7 +74,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h b/libs/RVL_
  
  namespace nw4hbm {
  namespace ut {
-@@ -37,7 +40,11 @@
+@@ -37,7 +40,11 @@ inline byte4_t ReverseEndian(byte4_t x) {
  
  inline byte2_t ReverseEndian(byte2_t x) { return BitExtract(x, 0, 8) << 8 | BitExtract(x, 8, 8); }
  
@@ -83,6 +87,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h b/libs/RVL_
  template <typename T> inline const void* AddOffsetToPtr(const void* base, T offset) {
      return reinterpret_cast<const void*>(GetIntPtr(base) + offset);
 diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp
+index 0d2b3a2..93e5b1e 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp
 @@ -1,5 +1,8 @@
@@ -94,7 +99,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskThread.cpp b/src/RVL_SDK/hbm/nw4
  
  namespace nw4hbm
  {
-@@ -77,11 +80,19 @@
+@@ -77,11 +80,19 @@ void TaskThread::ThreadProc()
      {
          OSReceiveMessage(&mMsgQueue, &msg, 1);
  

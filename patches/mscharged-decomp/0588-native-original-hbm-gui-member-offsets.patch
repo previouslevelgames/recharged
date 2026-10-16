@@ -1,10 +1,12 @@
 Subject: Preserve original HOME GUI member offsets on native hosts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use the actual native link-member offsets in the two original GUI list
 initializers. Preserve their u16 offset contract, source algorithms and console
 literal8 calls. No GUI owner, state or readiness is supplied.
 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMGUIManager.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMGUIManager.hpp
+index 8701f85..02c6c5a 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMGUIManager.hpp
 +++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMGUIManager.hpp
 @@ -2,6 +2,9 @@
@@ -17,7 +19,7 @@ literal8 calls. No GUI owner, state or readiness is supplied.
  #include "revolution/hbm/nw4hbm/lyt/pane.h"
  #include "revolution/hbm/nw4hbm/ut/list.h"
  #include "revolution/kpad/KPAD.h"
-@@ -128,7 +131,12 @@
+@@ -128,7 +131,12 @@ public:
              mpEventHandler->setManager(this);
          }
  
@@ -30,7 +32,7 @@ literal8 calls. No GUI owner, state or readiness is supplied.
      }
  
      /* 0x0C */ virtual void init();
-@@ -184,7 +192,12 @@
+@@ -184,7 +192,12 @@ public:
      PaneManager(EventHandler* pEventHandler, const nw4hbm::lyt::DrawInfo* pDrawInfo, MEMAllocator* pAllocator) :
          Manager(pEventHandler, pAllocator),
          mpDrawInfo(pDrawInfo) {

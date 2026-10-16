@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Preserve original SDK message ring with native pointer cells
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Compile the complete Matching OSMessage TU. Native CPU messages use canonical
 pointer-width cells while msgCount/firstIndex/usedCount remain signed32. Retain
@@ -8,10 +8,35 @@ all source ring math, flags, waits/wakes, initialization and console statements.
 The direct revolution header selects the same native canonical type facade.
 No thread creation, source readiness, OSJam body or audio initializer is added.
 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSMessage.h b/libs/RVL_SDK/include/revolution/os/OSMessage.h
+index bf2f360..150b172 100644
+--- a/libs/RVL_SDK/include/revolution/os/OSMessage.h
++++ b/libs/RVL_SDK/include/revolution/os/OSMessage.h
+@@ -1,6 +1,12 @@
+ #ifndef REVOLUTION_OS_MESSAGE_H
+ #define REVOLUTION_OS_MESSAGE_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSMessage.h>
++#define OS_MESSAGE_NO_FLAGS OS_MESSAGE_NOBLOCK
++#define OSSendMessageAny(msgQueue_, msg_, flags_) OSSendMessage(msgQueue_, (OSMessage)(msg_), flags_)
++#else
++
+ #include <revolution/os/OSThread.h>
+ #include <revolution/types.h>
+ 
+@@ -32,4 +38,6 @@ BOOL OSReceiveMessage(OSMessageQueue* queue, OSMessage* msg, s32 flags);
+ }
+ #endif
+ 
++#endif  // MSCHARGED_NATIVE
++
+ #endif  // REVOLUTION_OS_MESSAGE_H
 diff --git a/src/RVL_SDK/os/OSMessage.c b/src/RVL_SDK/os/OSMessage.c
+index ce16a3e..e12fb4f 100644
 --- a/src/RVL_SDK/os/OSMessage.c
 +++ b/src/RVL_SDK/os/OSMessage.c
-@@ -24,7 +24,11 @@
+@@ -24,7 +24,11 @@ BOOL OSSendMessage(OSMessageQueue* queue, OSMessage msg, s32 flags) {
          OSSleepThread(&queue->queueSend);
      }
      lastIndex = (queue->firstIndex + queue->usedCount) % queue->msgCount;
@@ -23,7 +48,7 @@ diff --git a/src/RVL_SDK/os/OSMessage.c b/src/RVL_SDK/os/OSMessage.c
      queue->usedCount++;
  
      OSWakeupThread(&queue->queueReceive);
-@@ -44,7 +48,11 @@
+@@ -44,7 +48,11 @@ BOOL OSReceiveMessage(OSMessageQueue* queue, OSMessage* msg, s32 flags) {
          OSSleepThread(&queue->queueReceive);
      }
      if (msg != NULL) {
@@ -35,25 +60,3 @@ diff --git a/src/RVL_SDK/os/OSMessage.c b/src/RVL_SDK/os/OSMessage.c
      }
  
      queue->firstIndex = (queue->firstIndex + 1) % queue->msgCount;
-diff --git a/libs/RVL_SDK/include/revolution/os/OSMessage.h b/libs/RVL_SDK/include/revolution/os/OSMessage.h
---- a/libs/RVL_SDK/include/revolution/os/OSMessage.h
-+++ b/libs/RVL_SDK/include/revolution/os/OSMessage.h
-@@ -1,5 +1,11 @@
- #ifndef REVOLUTION_OS_MESSAGE_H
- #define REVOLUTION_OS_MESSAGE_H
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/os/OSMessage.h>
-+#define OS_MESSAGE_NO_FLAGS OS_MESSAGE_NOBLOCK
-+#define OSSendMessageAny(msgQueue_, msg_, flags_) OSSendMessage(msgQueue_, (OSMessage)(msg_), flags_)
-+#else
- 
- #include <revolution/os/OSThread.h>
- #include <revolution/types.h>
-@@ -32,4 +38,6 @@
- }
- #endif
- 
-+#endif  // MSCHARGED_NATIVE
-+
- #endif  // REVOLUTION_OS_MESSAGE_H

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve native original audio source providers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Upstream now owns the typed AudioResourceLoadOwner/AudioBankLoader selection
 boundary. Retain the remaining original source-provider compiler adaptations.
@@ -9,9 +9,10 @@ cross-TU linkage without changing either body. Console projection is unchanged.
 No effect factory, Backend/AX readiness, source state or voice is supplied.
 
 diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoundSrc.h
+index e5ceafb..3f4c58a 100644
 --- a/include/Game/Audio/Plat3dSoundSrc.h
 +++ b/include/Game/Audio/Plat3dSoundSrc.h
-@@ -11,7 +11,11 @@
+@@ -11,7 +11,11 @@ extern float sSpeedOfSound;
  class Plat3dSoundSrc : public XSoundOwner
  {
  public:
@@ -24,9 +25,10 @@ diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoun
  
      /* 0x20 */ float m_Pan;
 diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+index 330a453..a475a62 100644
 --- a/src/Game/Audio/AudioSource.cpp
 +++ b/src/Game/Audio/AudioSource.cpp
-@@ -177,7 +177,11 @@
+@@ -177,7 +177,11 @@ void AudioSampleSource::Initialize(AudioSourceInfo* info)
      m_State = AUDIO_SOURCE_IDLE;
  }
  
@@ -39,9 +41,10 @@ diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
      gAudioSampleSourcePool.Free((AudioSampleSource*)pointer);
  }
 diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+index ad0ba4b..48106a2 100644
 --- a/src/Game/Audio/AudioSystem.cpp
 +++ b/src/Game/Audio/AudioSystem.cpp
-@@ -252,6 +252,10 @@
+@@ -252,6 +252,10 @@ void XSoundHandle::Update(float dt)
  
  int XSoundHandle::IsCallbackEnabled() { return m_CallbackEnabled; }
  
@@ -49,8 +52,6 @@ diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
 +Plat3dSoundSrc::~Plat3dSoundSrc()
 +#else
  inline Plat3dSoundSrc::~Plat3dSoundSrc()
--{
--}
 +#endif
-+{
-+}
+ {
+ }

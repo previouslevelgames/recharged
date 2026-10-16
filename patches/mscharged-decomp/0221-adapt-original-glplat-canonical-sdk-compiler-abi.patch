@@ -1,12 +1,52 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Adapt original glPlat canonical SDK compiler ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: permanent host compiler/platform/data ABI adaptation.
 
+Refreshed for decomp 9046e67a: upstream replaced glPlat.cpp's local SDK
+declarations with the canonical forward headers. revolution/sc_fwd.h gets a
+native branch with the widths of the port's SC services (32-bit status and ID).
+
+It also keeps the 32-bit SCGetSimpleAddressID that 0430 shared before; the
+native sc.h now includes this header, so 0430 is retired.
+
+diff --git a/libs/RVL_SDK/include/revolution/sc_fwd.h b/libs/RVL_SDK/include/revolution/sc_fwd.h
+index bb6982b..dddea72 100644
+--- a/libs/RVL_SDK/include/revolution/sc_fwd.h
++++ b/libs/RVL_SDK/include/revolution/sc_fwd.h
+@@ -5,6 +5,19 @@
+ extern "C" {
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++// Native SC services keep the Wii widths: 32-bit status/ID, 8-bit settings.
++void SCInit(void);
++unsigned int SCCheckStatus(void);
++unsigned char SCGetProgressiveMode(void);
++unsigned char SCGetEuRgb60Mode(void);
++
++unsigned char SCGetAspectRatio(void);
++unsigned char SCGetLanguage(void);
++unsigned char SCGetSoundMode(void);
++unsigned int SCGetSimpleAddressID(void);
++int SCCheckPCMessageRestriction(void);
++#else
+ void SCInit(void);
+ unsigned long SCCheckStatus(void);
+ unsigned char SCGetProgressiveMode(void);
+@@ -15,6 +28,7 @@ unsigned char SCGetLanguage(void);
+ unsigned char SCGetSoundMode(void);
+ unsigned long SCGetSimpleAddressID(void);
+ int SCCheckPCMessageRestriction(void);
++#endif
+ 
+ #ifdef __cplusplus
+ }
 diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
+index 6ed77da..a9b2dd3 100644
 --- a/src/NL/gl/glPlat.cpp
 +++ b/src/NL/gl/glPlat.cpp
-@@ -1,9 +1,15 @@
+@@ -1,3 +1,8 @@
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/gx.h>
 +#include <dolphin/vi.h>
@@ -15,31 +55,16 @@ diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
  #include <revolution/gx/GXPixel.h>
  #include <revolution/gx/GXFrameBuf.h>
  #include <revolution/vi/vi_fwd.h>
- #include <revolution/gx/GXMisc_fwd.h>
+@@ -5,6 +10,7 @@
  #include <revolution/os/OSError_fwd.h>
  #include <revolution/gx/GXTransform.h>
+ #include <revolution/gx/GXInit_fwd.h>
 +#endif
+ #include <revolution/os/OSCache_fwd.h>
+ #include <revolution/sc_fwd.h>
  
- #include "Game/TweakQuery.h"
- #include "NL/nlDebug.h"
-@@ -28,8 +33,10 @@
- extern "C"
- {
-     void DCFlushRange(void* address, u32 length);
-+#if !defined(MSCHARGED_NATIVE)
-     void GXSetMisc(s32 token, s32 value);
-     void* GXInit(void* fifo, u32 size);
-+#endif
- 
-     void SCInit();
-     u32 SCCheckStatus();
-@@ -37,10 +44,16 @@
-     u8 SCGetEuRgb60Mode();
- 
-+#if !defined(MSCHARGED_NATIVE)
-     void GXInitFifoLimits(void* fifo, u32 highWatermark, u32 lowWatermark);
-+#endif
- }
+@@ -28,7 +34,11 @@
+ #include "NL/nlMemory.h"
  
  static GXRenderModeObj glPal480IntDf = {
 +#if defined(MSCHARGED_NATIVE)
@@ -50,7 +75,7 @@ diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
      640,
      480,
      542,
-@@ -48,7 +61,11 @@
+@@ -36,7 +46,11 @@ static GXRenderModeObj glPal480IntDf = {
      16,
      640,
      542,
@@ -62,7 +87,7 @@ diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
      0,
      0,
      { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 },
-@@ -96,7 +113,11 @@
+@@ -84,7 +98,11 @@ void glx_ClearXFB(void* xfb)
  {
      for (int i = 0; i < glx_FBSize; i += 4)
      {
@@ -74,19 +99,19 @@ diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
      }
      DCFlushRange(xfb, glx_FBSize);
  }
-@@ -104,7 +125,11 @@
+@@ -92,7 +110,11 @@ void glx_ClearXFB(void* xfb)
  static void glx_InitGX()
  {
      gxInit();
 +#if defined(MSCHARGED_NATIVE)
 +    GXSetMisc(static_cast<GXMiscToken>(1), 8);
 +#else
-     GXSetMisc(1, 8);
+     GXSetMisc(GX_MT_XF_FLUSH, 8);
 +#endif
      GXRenderModeObj& mode = glx_rmode;
      GXSetViewport(0.0f, 0.0f, (f32)mode.fbWidth, (f32)mode.efbHeight, 0.0f, 1.0f);
      GXSetScissor(0, 0, mode.fbWidth, mode.efbHeight);
-@@ -234,7 +259,11 @@
+@@ -226,7 +248,11 @@ bool glplatStartup(gl_ScreenInfo* screenInfo)
          return false;
      }
      glx_FIFO = GXInit(glx_FIFOMem, glx_FIFOSize);
@@ -98,7 +123,7 @@ diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
  
      u32 fbSize = ((glx_rmode.fbWidth + 15) & 0xFFF0) * glx_rmode.xfbHeight * 2;
      if (fbSize < 0x9F600)
-@@ -255,7 +284,11 @@
+@@ -247,7 +273,11 @@ bool glplatStartup(gl_ScreenInfo* screenInfo)
      glxSwapSetBlack(true);
      VIFlush();
      VIWaitForRetrace();

@@ -1,6 +1,8 @@
 # Native owning includes for whole original sound readers.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmFile.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmFile.cpp
+index 1a6f8ed..b270606 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmFile.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmFile.cpp
 @@ -1,7 +1,13 @@
@@ -17,6 +19,8 @@
  
  namespace nw4hbm
  {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WaveFile.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WaveFile.cpp
+index fd2acb3..84114a5 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WaveFile.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WaveFile.cpp
 @@ -1,5 +1,10 @@
@@ -30,6 +34,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdFile.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdFile.cpp
+index a628df4..c97e0ba 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdFile.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdFile.cpp
 @@ -1,5 +1,10 @@

@@ -1,6 +1,6 @@
 Subject: Make original disc reads and asynchronous lifecycle safe on hosts
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the console branches and original NL API while adapting native reads to
 Aurora's threaded DVD service. Keep callback state pointer-sized, reserve both
@@ -11,10 +11,25 @@ Synchronous whole-file loading retains original allocator selection with scoped
 restoration and cleanup. Custom-heap ownership and host-file loading fail
 explicitly; advanced whole-file async and decompression are not in this subset.
 
+diff --git a/include/NL/nlArrayAllocator.h b/include/NL/nlArrayAllocator.h
+index bea19de..6689671 100644
+--- a/include/NL/nlArrayAllocator.h
++++ b/include/NL/nlArrayAllocator.h
+@@ -84,6 +84,9 @@ public:
+         this->Init(reinterpret_cast<T*>(m_Memory), N);
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    alignas(T)
++#endif
+     unsigned char m_Memory[sizeof(T) * N];
+ };
+ 
 diff --git a/include/NL/nlFile.h b/include/NL/nlFile.h
+index aba8316..57cc6ec 100644
 --- a/include/NL/nlFile.h
 +++ b/include/NL/nlFile.h
-@@ -7,7 +7,14 @@
+@@ -7,7 +7,14 @@ class MemoryAllocator;
  class nlFile;
  struct AsyncEntry;
  
@@ -30,7 +45,7 @@ diff --git a/include/NL/nlFile.h b/include/NL/nlFile.h
  typedef void (*LoadAsyncCallback)(void*, unsigned long, void*);
  
  enum eAllocType
-@@ -33,7 +40,7 @@
+@@ -33,7 +40,7 @@ inline unsigned long AlignUp32(unsigned long value)
  }
  
  nlFile* nlOpen(const char* filename);
@@ -40,6 +55,7 @@ diff --git a/include/NL/nlFile.h b/include/NL/nlFile.h
  unsigned int nlFileSize(nlFile* file, unsigned int* size);
  void nlRead(nlFile* file, void* buffer, unsigned int size, unsigned long bufferSize);
 diff --git a/include/NL/nlFileGC.h b/include/NL/nlFileGC.h
+index 32d95b2..7a748a9 100644
 --- a/include/NL/nlFileGC.h
 +++ b/include/NL/nlFileGC.h
 @@ -7,7 +7,11 @@
@@ -55,7 +71,7 @@ diff --git a/include/NL/nlFileGC.h b/include/NL/nlFileGC.h
  bool nlAsyncReadsPending(nlFile* file);
  void nlSeek(nlFile* file, unsigned int offset, unsigned long origin);
  void* nlLoadEntireHostFile(const char* fileName, unsigned long* outSize,
-@@ -18,7 +22,7 @@
+@@ -18,7 +22,7 @@ AsyncEntry* nlGetCurrentAsyncRead();
  
  bool nlAsyncReadBusy(AsyncEntry* entry);
  bool nlCancelAsyncRead(AsyncEntry* entry,
@@ -64,20 +80,76 @@ diff --git a/include/NL/nlFileGC.h b/include/NL/nlFileGC.h
  
  void nlRegHandleDVDMessageCB(const Function<void(int)>& cb);
  void nlRegHandleDVDAllClearCB(const Function<void(int)>& cb);
-diff --git a/include/NL/nlArrayAllocator.h b/include/NL/nlArrayAllocator.h
---- a/include/NL/nlArrayAllocator.h
-+++ b/include/NL/nlArrayAllocator.h
-@@ -84,6 +84,9 @@
-         this->Init(reinterpret_cast<T*>(m_Memory), N);
-     }
+diff --git a/src/NL/nlFileBasic.cpp b/src/NL/nlFileBasic.cpp
+index ec6ad66..bbf0088 100644
+--- a/src/NL/nlFileBasic.cpp
++++ b/src/NL/nlFileBasic.cpp
+@@ -2,6 +2,10 @@
+ #include "NL/MemAlloc.h"
+ #include "NL/nlFileGC.h"
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_NATIVE
++#include <memory>
++#include <stdexcept>
++#endif
+ 
+ nlFile::nlFile()
+ {
+@@ -47,7 +51,14 @@ void* nlLoadEntireFile(const char* filename, unsigned long* outSize, unsigned in
+     file = nlOpen(filename);
+     if (file != 0)
+     {
++#ifdef MSCHARGED_NATIVE
++        std::unique_ptr<nlFile> owner(file);
++#endif
+         datasize = file->FileSize(&filesize);
++#ifdef MSCHARGED_NATIVE
++        if (buffer && bufferSize && bufferSize < datasize)
++            throw std::length_error("NL whole-file destination is too small");
++#endif
+         if (datasize != 0)
+         {
+             if (buffer != 0)
+@@ -61,6 +72,17 @@ void* nlLoadEntireFile(const char* filename, unsigned long* outSize, unsigned in
+                 {
+                     allocator = CurrentAllocator;
+                 }
++#ifdef MSCHARGED_NATIVE
++                if (allocator != &StandardAllocator && allocator != &VirtualAllocator)
++                    throw std::runtime_error("NL whole-file custom allocator ownership is not connected");
++                if (AllocatorStackDepth >= 16) throw std::overflow_error("NL allocator stack is full");
++                struct RestoreAllocator
++                {
++                    MemoryAllocator* old;
++                    unsigned depth;
++                    ~RestoreAllocator() { AllocatorStack[depth] = 0; AllocatorStackDepth = depth; CurrentAllocator = old; }
++                } restore{CurrentAllocator, AllocatorStackDepth};
++#endif
+                 CurrentAllocator = allocator;
+                 AllocatorStack[AllocatorStackDepth++] = allocator;
+ 
+@@ -77,10 +99,19 @@ void* nlLoadEntireFile(const char* filename, unsigned long* outSize, unsigned in
+                 AllocatorStack[AllocatorStackDepth] = 0;
+                 CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
+             }
++#ifdef MSCHARGED_NATIVE
++            try { file->Read(alloc_data, datasize, bufferSize); }
++            catch (...) { if (!buffer) nlFree(alloc_data); throw; }
++#else
+             file->Read(alloc_data, datasize, bufferSize);
++#endif
+         }
  
 +#ifdef MSCHARGED_NATIVE
-+    alignas(T)
++        owner.reset();
++#else
+         delete file;
 +#endif
-     unsigned char m_Memory[sizeof(T) * N];
- };
  
+         if (outSize != 0)
+         {
 diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+index 8c092ab..ba8d67a 100644
 --- a/src/NL/nlFileGC.cpp
 +++ b/src/NL/nlFileGC.cpp
 @@ -10,6 +10,12 @@
@@ -93,7 +165,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  
  static s32 FileCommandStatus(const DVDFileInfo& info)
  {
-@@ -24,7 +30,7 @@
+@@ -24,7 +30,7 @@ class DolphinFile;
  class AsyncManager;
  struct AsyncEntry;
  
@@ -102,7 +174,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  
  static Function<void(int)> g_HandleDVDMessageCallback;
  static Function<void(int)> g_HandleDVDAllClearCallback;
-@@ -40,7 +46,11 @@
+@@ -40,7 +46,11 @@ public:
          , mEntryNum(entryNum)
      {
          DVDFileInfo info;
@@ -114,7 +186,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  #ifdef MSCHARGED_NATIVE
          mLength = info.length;
          mStartAddress = info.startAddr;
-@@ -49,13 +59,17 @@
+@@ -49,13 +59,17 @@ public:
          mStartAddress = info.offset;
  #endif
          DVDClose(&info);
@@ -133,14 +205,13 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      void operator delete(void* ptr);
  
      /* 0x04 */ unsigned long m_Position;
-@@ -67,9 +81,15 @@
+@@ -67,9 +81,15 @@ public:
      static nlStaticArrayAllocator<DolphinFile, 96> sAllocator;
  };
  
 -inline void* DolphinFile::operator new(unsigned long)
--{
 +inline void* DolphinFile::operator new(size_t)
-+{
+ {
 +#ifdef MSCHARGED_NATIVE
 +    auto* entry = sAllocator.Allocate();
 +    if (!entry) throw std::bad_alloc();
@@ -151,7 +222,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  }
  
  inline void DolphinFile::operator delete(void* ptr)
-@@ -95,11 +115,16 @@
+@@ -95,11 +115,16 @@ struct AsyncEntry
      /* 0x0C */ DVDFileInfo mFileInfo;
      /* 0x48 */ void* m_pBuffer;
      /* 0x4C */ unsigned long m_uSize;
@@ -169,7 +240,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  };
  
  class AsyncManager
-@@ -119,10 +144,14 @@
+@@ -119,10 +144,14 @@ public:
      }
  
      AsyncEntry* AddEntry(DolphinFile* pFile, ReadAsyncCallback pFunc, void* pBuffer,
@@ -185,7 +256,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  
      /* 0x0000 */ AsyncEntry* mCurrent;
      /* 0x0004 */ AsyncEntry* m_freeEntryList;
-@@ -134,6 +163,88 @@
+@@ -134,6 +163,88 @@ public:
  static AsyncManager* s_pAsyncManager;
  static bool sServicingReads;
  
@@ -274,7 +345,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  bool IsAsyncReadBusy(AsyncEntry* entry);
  
  static unsigned char CheckDVDStatus();
-@@ -177,6 +288,10 @@
+@@ -177,6 +288,10 @@ nlFile* nlOpen(const char* fileName)
  
  DolphinFile::~DolphinFile()
  {
@@ -285,7 +356,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  }
  
  u32 DolphinFile::FileSize(unsigned int* size)
-@@ -190,6 +305,14 @@
+@@ -190,6 +305,14 @@ u32 DolphinFile::FileSize(unsigned int* size)
  
  void DolphinFile::Read(void* buffer, unsigned int size, unsigned long bufferSize)
  {
@@ -300,7 +371,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      AsyncEntry* finalEntry;
      unsigned long tailSize;
      unsigned long alignedSize;
-@@ -225,10 +348,29 @@
+@@ -225,10 +348,29 @@ void DolphinFile::Read(void* buffer, unsigned int size, unsigned long bufferSize
          OSYieldThread();
          s_pAsyncManager->Service();
      }
@@ -330,7 +401,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      if (pFile->PendingAsync == 0)
      {
          return;
-@@ -263,15 +405,20 @@
+@@ -263,15 +405,20 @@ void AsyncManager::CancelPendingReads(DolphinFile* pFile, CancelAsyncCallback ca
          }
          entry = next;
      }
@@ -352,7 +423,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      }
  
      AsyncEntry* pEntry = nlDLRingRemoveStart(&m_freeEntryList);
-@@ -284,16 +431,86 @@
+@@ -284,16 +431,86 @@ AsyncEntry* AsyncManager::AddEntry(DolphinFile* pFile, ReadAsyncCallback pFunc,
      pEntry->m_uPosition = position;
      pEntry->Phase = phase;
  
@@ -439,7 +510,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      AsyncEntry* entry = m_activeEntryList == 0 ? 0 : m_activeEntryList->m_next;
      bool stop = false;
  
-@@ -374,6 +591,7 @@
+@@ -374,6 +591,7 @@ void AsyncManager::Service()
              break;
          }
      }
@@ -447,7 +518,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  }
  
  bool AsyncManager::Contains(AsyncEntry* wanted)
-@@ -399,11 +617,21 @@
+@@ -399,11 +617,21 @@ bool AsyncManager::Contains(AsyncEntry* wanted)
  
  AsyncEntry* nlGetCurrentAsyncRead()
  {
@@ -470,7 +541,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      DVDInit();
      if (s_pAsyncManager == 0)
      {
-@@ -417,16 +645,28 @@
+@@ -417,16 +645,28 @@ void nlInitFileSystem()
  
          s_pAsyncManager = pManager;
      }
@@ -487,9 +558,8 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  
  AsyncEntry* nlReadAsync(nlFile* file, void* buffer, unsigned int size,
 -    ReadAsyncCallback callback, unsigned long uParam, unsigned long bufferSize)
--{
 +    ReadAsyncCallback callback, nlFileAsyncParam uParam, unsigned long bufferSize)
-+{
+ {
 +#ifdef MSCHARGED_NATIVE
 +    ValidateNativeRead(static_cast<DolphinFile*>(file), buffer, size, bufferSize);
 +    if (!size)
@@ -501,7 +571,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      unsigned long position;
      unsigned long alignedSize;
      unsigned long tailSize;
-@@ -443,7 +683,11 @@
+@@ -443,7 +683,11 @@ AsyncEntry* nlReadAsync(nlFile* file, void* buffer, unsigned int size,
      }
  
      position = ((DolphinFile*)file)->m_Position;
@@ -514,7 +584,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      if (alignedSize != 0)
      {
          firstEntry = s_pAsyncManager->AddEntry((DolphinFile*)file, callback, buffer, position, alignedSize, uParam, tailSize == 0 ? READ_COMPLETE : READ_HEAD);
-@@ -457,6 +701,10 @@
+@@ -457,6 +701,10 @@ AsyncEntry* nlReadAsync(nlFile* file, void* buffer, unsigned int size,
          firstEntry = s_pAsyncManager->AddEntry((DolphinFile*)file, callback, buffer, position, tailSize, uParam, READ_TAIL_ONLY);
      }
  
@@ -525,7 +595,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      ((DolphinFile*)file)->m_Position += size;
      return firstEntry;
  }
-@@ -464,6 +712,13 @@
+@@ -464,6 +712,13 @@ AsyncEntry* nlReadAsync(nlFile* file, void* buffer, unsigned int size,
  void nlSeek(nlFile* file, unsigned int offset, unsigned long origin)
  {
      DolphinFile* gcFile = (DolphinFile*)file;
@@ -539,7 +609,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      switch (origin)
      {
      case 0:
-@@ -482,6 +737,9 @@
+@@ -482,6 +737,9 @@ void* nlLoadEntireHostFile(const char* fileName, unsigned long* outSize,
      unsigned int alignment, eAllocType type, void* target,
      unsigned long bufferSize)
  {
@@ -549,7 +619,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      void* buffer = 0;
      FILE* file = fopen(fileName, "rb");
      if (file != 0)
-@@ -514,6 +772,7 @@
+@@ -514,6 +772,7 @@ void* nlLoadEntireHostFile(const char* fileName, unsigned long* outSize,
          }
      }
      return buffer;
@@ -557,7 +627,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  }
  
  bool IsAsyncReadBusy(AsyncEntry* entry)
-@@ -540,12 +799,12 @@
+@@ -540,12 +799,12 @@ bool nlAsyncReadsPending(nlFile* file)
      {
          return ((DolphinFile*)file)->PendingAsync != 0;
      }
@@ -572,7 +642,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      {
          return false;
      }
-@@ -554,7 +813,7 @@
+@@ -554,7 +813,7 @@ bool nlAsyncReadBusy(AsyncEntry* entry)
  
  void nlCancelPendingAsyncReads(nlFile* pFile, CancelAsyncCallback callback)
  {
@@ -581,7 +651,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      {
          s_pAsyncManager->CancelPendingReads((DolphinFile*)pFile, callback);
      }
-@@ -562,6 +821,9 @@
+@@ -562,6 +821,9 @@ void nlCancelPendingAsyncReads(nlFile* pFile, CancelAsyncCallback callback)
  
  bool nlCancelAsyncRead(AsyncEntry* entry, CancelAsyncCallback callback)
  {
@@ -591,7 +661,7 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
      AsyncManager* pMgr = s_pAsyncManager;
      if (!pMgr->Contains(entry))
      {
-@@ -578,6 +840,7 @@
+@@ -578,6 +840,7 @@ bool nlCancelAsyncRead(AsyncEntry* entry, CancelAsyncCallback callback)
      nlDLRingAddEnd(&pMgr->m_freeEntryList, entry);
      DVDClose(&entry->mFileInfo);
      return true;
@@ -599,70 +669,3 @@ diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
  }
  
  static unsigned char CheckDVDStatus()
-diff --git a/src/NL/nlFileBasic.cpp b/src/NL/nlFileBasic.cpp
---- a/src/NL/nlFileBasic.cpp
-+++ b/src/NL/nlFileBasic.cpp
-@@ -2,6 +2,10 @@
- #include "NL/MemAlloc.h"
- #include "NL/nlFileGC.h"
- #include "NL/nlMemory.h"
-+#ifdef MSCHARGED_NATIVE
-+#include <memory>
-+#include <stdexcept>
-+#endif
- 
- nlFile::nlFile()
- {
-@@ -47,7 +51,14 @@
-     file = nlOpen(filename);
-     if (file != 0)
-     {
-+#ifdef MSCHARGED_NATIVE
-+        std::unique_ptr<nlFile> owner(file);
-+#endif
-         datasize = file->FileSize(&filesize);
-+#ifdef MSCHARGED_NATIVE
-+        if (buffer && bufferSize && bufferSize < datasize)
-+            throw std::length_error("NL whole-file destination is too small");
-+#endif
-         if (datasize != 0)
-         {
-             if (buffer != 0)
-@@ -61,6 +72,17 @@
-                 {
-                     allocator = CurrentAllocator;
-                 }
-+#ifdef MSCHARGED_NATIVE
-+                if (allocator != &StandardAllocator && allocator != &VirtualAllocator)
-+                    throw std::runtime_error("NL whole-file custom allocator ownership is not connected");
-+                if (AllocatorStackDepth >= 16) throw std::overflow_error("NL allocator stack is full");
-+                struct RestoreAllocator
-+                {
-+                    MemoryAllocator* old;
-+                    unsigned depth;
-+                    ~RestoreAllocator() { AllocatorStack[depth] = 0; AllocatorStackDepth = depth; CurrentAllocator = old; }
-+                } restore{CurrentAllocator, AllocatorStackDepth};
-+#endif
-                 CurrentAllocator = allocator;
-                 AllocatorStack[AllocatorStackDepth++] = allocator;
- 
-@@ -77,10 +99,19 @@
-                 AllocatorStack[AllocatorStackDepth] = 0;
-                 CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
-             }
-+#ifdef MSCHARGED_NATIVE
-+            try { file->Read(alloc_data, datasize, bufferSize); }
-+            catch (...) { if (!buffer) nlFree(alloc_data); throw; }
-+#else
-             file->Read(alloc_data, datasize, bufferSize);
-+#endif
-         }
- 
-+#ifdef MSCHARGED_NATIVE
-+        owner.reset();
-+#else
-         delete file;
-+#endif
- 
-         if (outSize != 0)
-         {

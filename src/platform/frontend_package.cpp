@@ -313,7 +313,7 @@ Node Describe(Profile profile)
     case Profile::ImageInstance:
         n.kind=Kind::Instance;
         Shape<TLImageInstance>(n,0x98);FPTR(n,TLImageInstance,m_pTextureResource,0x90,Kind::Resource);
-        FWORD(n,TLImageInstance,field_0x94,0x94);
+        FWORD(n,TLImageInstance,m_uAlphaBlendMode,0x94);
         InstanceBase(n);break;
     case Profile::TextInstance:
     {

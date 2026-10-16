@@ -1,6 +1,6 @@
 Subject: Select the material registry and original alpha preparation
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep descriptor/scalar widths at 32 bits, reject duplicate native registrations,
 and expose explicit registry teardown before allocator shutdown. Extract only
@@ -9,14 +9,15 @@ native texture metadata and fail on missing textures. The remaining generic
 parameter API and pointer-bearing parameter kinds are not selected.
 
 diff --git a/include/NL/gl/glMaterialProgram.h b/include/NL/gl/glMaterialProgram.h
+index f9de9f2..697b7d1 100644
 --- a/include/NL/gl/glMaterialProgram.h
 +++ b/include/NL/gl/glMaterialProgram.h
 @@ -1,13 +1,15 @@
  #ifndef NL_GL_GLMATERIALPROGRAM_H
  #define NL_GL_GLMATERIALPROGRAM_H
-+
-+#include "types.h"
  
++#include "types.h"
++
  class GLView;
  struct glModelPacket;
  struct GXMaterialParameter
@@ -30,7 +31,7 @@ diff --git a/include/NL/gl/glMaterialProgram.h b/include/NL/gl/glMaterialProgram
  }; // size: 0xC
  
  class GLMaterialProgram
-@@ -21,9 +23,9 @@
+@@ -21,9 +23,9 @@ public:
      virtual const GXMaterialParameter* GetParameters() = 0;
      virtual void Initialize() = 0;
  
@@ -43,7 +44,7 @@ diff --git a/include/NL/gl/glMaterialProgram.h b/include/NL/gl/glMaterialProgram
  }; // size: 0x10
  
  template <typename R, typename A0, typename A1>
-@@ -33,6 +35,9 @@
+@@ -33,6 +35,9 @@ typedef Function2<bool, unsigned long&, void*&> MaterialProgramCallback;
  
  void glRegisterMaterialProgram(void* program, unsigned long hash);
  void* glGetMaterialProgram(unsigned long hash);
@@ -55,6 +56,7 @@ diff --git a/include/NL/gl/glMaterialProgram.h b/include/NL/gl/glMaterialProgram
  #endif // NL_GL_GLMATERIALPROGRAM_H
 diff --git a/src/NL/gl/glMaterialAlphaState.cpp b/src/NL/gl/glMaterialAlphaState.cpp
 new file mode 100644
+index 0000000..90e5bf2
 --- /dev/null
 +++ b/src/NL/gl/glMaterialAlphaState.cpp
 @@ -0,0 +1,40 @@
@@ -99,6 +101,7 @@ new file mode 100644
 +    }
 +}
 diff --git a/src/NL/gl/glMaterialProgram.cpp b/src/NL/gl/glMaterialProgram.cpp
+index 9aedc26..1aebf1b 100644
 --- a/src/NL/gl/glMaterialProgram.cpp
 +++ b/src/NL/gl/glMaterialProgram.cpp
 @@ -1,4 +1,7 @@
@@ -109,7 +112,7 @@ diff --git a/src/NL/gl/glMaterialProgram.cpp b/src/NL/gl/glMaterialProgram.cpp
  #define NL_AVL_TREE_DEFER_DELETE_ENTRY
  #include "NL/nlAVLTree.h"
  #undef NL_AVL_TREE_DEFER_DELETE_ENTRY
-@@ -17,6 +20,10 @@
+@@ -17,6 +20,10 @@ inline void AVLTreeBase<KeyType, ValueType, AllocatorType, CompareType>::DeleteE
  
  void glRegisterMaterialProgram(void* program, unsigned long hash)
  {
@@ -120,7 +123,7 @@ diff --git a/src/NL/gl/glMaterialProgram.cpp b/src/NL/gl/glMaterialProgram.cpp
      sMaterialPrograms.Add(hash, program);
  }
  
-@@ -32,3 +39,7 @@
+@@ -32,3 +39,7 @@ void glForEachMaterialProgram(MaterialProgramCallback* callback)
  {
      sMaterialPrograms.Walk(callback);
  }

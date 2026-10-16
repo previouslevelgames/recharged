@@ -1,8 +1,11 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Requires: reviewed 0654 native debug-string word carrier.
+
+diff --git a/src/Game/Audio/AudioRpc.cpp b/src/Game/Audio/AudioRpc.cpp
+index 6bedee8..7b5d270 100644
 --- a/src/Game/Audio/AudioRpc.cpp
 +++ b/src/Game/Audio/AudioRpc.cpp
-@@ -77,7 +77,7 @@
+@@ -63,7 +63,7 @@ static inline void UpdateAudioRpcRuntimeNode(AudioRpcRuntimeNode* node)
  
      node->value = EvaluateAudioRpcCurve(node, slider->value);
      node->valid = true;
@@ -11,9 +14,11 @@
  }
  
  extern "C" AudioRpcController* ParseAudioRpcController(nlChunk* outer)
+diff --git a/src/Game/Audio/AudioSlider.cpp b/src/Game/Audio/AudioSlider.cpp
+index 0a518ab..e81717b 100644
 --- a/src/Game/Audio/AudioSlider.cpp
 +++ b/src/Game/Audio/AudioSlider.cpp
-@@ -74,7 +74,7 @@
+@@ -74,7 +74,7 @@ AudioSliderSet* AllocateLocalAudioSliders(AudioSliderTable* table, XSoundCueHand
  
      AudioSliderDefinition* definition = table->globalDefinitions + table->localToGlobal[0];
      AudioSlider* slider = set->sliders + definition->index;

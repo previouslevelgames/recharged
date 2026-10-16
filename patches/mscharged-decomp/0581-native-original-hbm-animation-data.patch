@@ -1,35 +1,11 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Native RLAN scalar/offset representation at the original Layout ingress.
 
---- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
-+++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
-@@ -4,6 +4,10 @@
- #include "revolution/hbm/nw4hbm/lyt/picture.h"
- #include "revolution/hbm/nw4hbm/lyt/textBox.h"
- #include "revolution/hbm/nw4hbm/lyt/window.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/native_hbm_animation.h"
-+#endif
- 
- #if defined(MSCHARGED_NATIVE)
- #include <new>
-@@ -215,7 +219,12 @@
-     NW4HBMAssertPointerNonnull_Line(mspAllocator, 295);
-     NW4HBMAssertPointerNonnull_Line(anmResBuf, 296);
- 
-+#if defined(MSCHARGED_NATIVE)
-+    const res::BinaryFileHeader* pFileHead = static_cast<const res::BinaryFileHeader*>(
-+        mscharged::platform::NativeHBMAnimationHeader(anmResBuf));
-+#else
-     const res::BinaryFileHeader* pFileHead = static_cast<const res::BinaryFileHeader*>(anmResBuf);
-+#endif
- 
-     if (!detail::TestFileHeader(*pFileHead)) {
-         return NULL;
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/common.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/common.h
+index 7d5ebfc..28dc140 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/common.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/common.h
-@@ -64,7 +64,15 @@
+@@ -64,7 +64,15 @@ void DrawLine(const math::VEC2& pos, const Size& size, ut::Color color);
  
  void InitGXTexObjFromTPL(GXTexObj* to, TPLPalette* pal, u32 id);
  
@@ -45,3 +21,31 @@ Purpose: Native RLAN scalar/offset representation at the original Layout ingress
  
  inline const char* GetStrTableStr(const void* pStrTable, int index) {
      const u32* offsets = static_cast<const u32*>(pStrTable);
+diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
+index 1eb385a..9e95187 100644
+--- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
++++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
+@@ -5,6 +5,10 @@
+ #include "revolution/hbm/nw4hbm/lyt/textBox.h"
+ #include "revolution/hbm/nw4hbm/lyt/window.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/native_hbm_animation.h"
++#endif
++
+ #if defined(MSCHARGED_NATIVE)
+ #include <new>
+ #include <cstdint>
+@@ -215,7 +219,12 @@ AnimTransform* Layout::CreateAnimTransform(const void* anmResBuf, ResourceAccess
+     NW4HBMAssertPointerNonnull_Line(mspAllocator, 295);
+     NW4HBMAssertPointerNonnull_Line(anmResBuf, 296);
+ 
++#if defined(MSCHARGED_NATIVE)
++    const res::BinaryFileHeader* pFileHead = static_cast<const res::BinaryFileHeader*>(
++        mscharged::platform::NativeHBMAnimationHeader(anmResBuf));
++#else
+     const res::BinaryFileHeader* pFileHead = static_cast<const res::BinaryFileHeader*>(anmResBuf);
++#endif
+ 
+     if (!detail::TestFileHeader(*pFileHead)) {
+         return NULL;

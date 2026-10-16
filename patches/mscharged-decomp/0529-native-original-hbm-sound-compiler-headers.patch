@@ -2,6 +2,8 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Prerequisite source523; composed compiler proof also uses frozen524/527/528/530/531/533.
 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h
+index 3d469f8..24108a1 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BankFile.h
 @@ -6,7 +6,11 @@
@@ -16,9 +18,11 @@
  
  #include "revolution/hbm/HBMCommon.h"
  
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
+index 152eccf..b934bb9 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
-@@ -15,11 +15,15 @@
+@@ -15,11 +15,15 @@ public:
      BasicPlayer() :
          mId(-1) {}
  
@@ -34,7 +38,7 @@
  
      /* 0x0C */ virtual bool Start() = 0;
      /* 0x10 */ virtual void Stop() = 0;
-@@ -64,6 +68,10 @@
+@@ -64,6 +68,10 @@ private:
      /* 0x04 */ u32 mId;
  };
  
@@ -45,6 +49,8 @@
  } // namespace
  
  } // namespace detail
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
+index db21dd7..5e19aff 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
 @@ -2,6 +2,9 @@
@@ -57,6 +63,8 @@
  
  #include "revolution/hbm/nw4hbm/snd/BasicPlayer.h"
  
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSoundHandle.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSoundHandle.h
+index 4ef8942..988c76d 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSoundHandle.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqSoundHandle.h
 @@ -7,7 +7,11 @@
@@ -71,6 +79,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchiveLoader.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchiveLoader.h
+index ac1c50d..44b0b80 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchiveLoader.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchiveLoader.h
 @@ -2,7 +2,12 @@
@@ -86,23 +96,25 @@
  #include "revolution/os.h"
  
  namespace nw4hbm {
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/FileStream.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/FileStream.h
+index 5b32402..578bfd0 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/FileStream.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/FileStream.h
-@@ -5,6 +5,13 @@
- 
+@@ -6,6 +6,13 @@
  namespace nw4hbm {
  namespace ut {
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#pragma push_macro("SEEK_CUR")
 +#pragma push_macro("SEEK_END")
 +#undef SEEK_CUR
 +#undef SEEK_END
 +#endif
- 
++
  class FileStream : public IOStream {
  public:
-@@ -49,6 +56,11 @@
+     enum SeekOrigin {
+@@ -49,6 +56,11 @@ protected:
      }; // size = 0x08
  }; // size = 0x14
  
@@ -114,9 +126,11 @@
  } // namespace ut
  } // namespace nw4hbm
  
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
+index 886cc47..421a3bf 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/inlines.h
-@@ -64,16 +64,26 @@
+@@ -64,16 +64,26 @@ inline int ComparePtr(const void* pPtr1, const void* pPtr2) {
  template <typename T> inline T RoundUp(T t, u32 alignment) { return (alignment + t - 1) & ~(alignment - 1); }
  
  template <typename T> inline void* RoundUp(T* pPtr, u32 alignment) {
@@ -143,6 +157,8 @@
      return reinterpret_cast<void*>(rounded);
  }
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
+index 763cfcc..f7eda8e 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Channel.cpp
 @@ -1,3 +1,6 @@
@@ -152,6 +168,8 @@
  #include "revolution/hbm/nw4hbm/snd/Channel.h"
  
  #include "revolution/ax.h"
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
+index e80dbd5..97c29dc 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
 @@ -1,6 +1,11 @@
@@ -166,6 +184,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_EnvGenerator.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_EnvGenerator.cpp
+index 75ac319..590520c 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_EnvGenerator.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_EnvGenerator.cpp
 @@ -1,4 +1,10 @@
@@ -179,6 +199,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_RemoteSpeaker.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_RemoteSpeaker.cpp
+index 6ffc941..57a8e2d 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_RemoteSpeaker.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_RemoteSpeaker.cpp
 @@ -1,4 +1,9 @@
@@ -191,6 +213,8 @@
  #include "revolution/hbm/nw4hbm/snd/RemoteSpeaker.h"
  
  #include "revolution/os.h"
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqPlayer.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqPlayer.cpp
+index abc0b3c..9bf2afc 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqPlayer.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqPlayer.cpp
 @@ -4,7 +4,12 @@
@@ -206,6 +230,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
+index 54c3f5e..c675333 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqSound.cpp
 @@ -1,6 +1,19 @@
@@ -228,6 +254,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
+index 3f2c116..e56f679 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SeqTrack.cpp
 @@ -1,6 +1,17 @@
@@ -248,6 +276,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
+index dc08b12..2f66291 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_SoundArchivePlayer.cpp
 @@ -1,3 +1,7 @@
@@ -258,6 +288,8 @@
  
  
  #include "revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h"
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmChannel.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmChannel.cpp
+index b1a26e6..18243bb 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmChannel.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmChannel.cpp
 @@ -1,5 +1,14 @@
@@ -275,6 +307,8 @@
  
  #include <string.h>
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
+index 8caf49d..9bbbceb 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_StrmPlayer.cpp
 @@ -3,7 +3,12 @@
@@ -290,6 +324,8 @@
  
  #include <string.h>
  #include <limits.h>
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Util.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Util.cpp
+index 37eebc5..4441ba7 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_Util.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_Util.cpp
 @@ -1,7 +1,14 @@
@@ -307,6 +343,8 @@
  
  namespace nw4hbm {
  namespace snd {
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
+index a0709c6..94cf717 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
 @@ -6,7 +6,12 @@
@@ -322,6 +360,8 @@
  
  #include "decomp.h"
  
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
+index 56ab174..cfc6791 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdTrack.cpp
 @@ -3,7 +3,12 @@

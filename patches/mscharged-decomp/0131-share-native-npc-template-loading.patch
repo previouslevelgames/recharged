@@ -1,12 +1,16 @@
 Subject: Share original NPC template resource selection and readiness
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original ordered template selection, resource paths and completion predicate
 shared with a checked native owner. Actor constructors and console in-place
 loaders remain unchanged and are not selected by this native resource profile.
 
+Refreshed for decomp 9046e67a: NPCManager.cpp keeps its upstream text (patch
+0343, now retired, restored it anyway); this patch only adds NPCLoadSteps.h.
+
 diff --git a/include/Game/Render/NPCLoadSteps.h b/include/Game/Render/NPCLoadSteps.h
 new file mode 100644
+index 0000000..46722e9
 --- /dev/null
 +++ b/include/Game/Render/NPCLoadSteps.h
 @@ -0,0 +1,45 @@
@@ -55,81 +59,3 @@ new file mode 100644
 +    return true;
 +}
 +#endif
-diff --git a/src/Game/Render/NPCManager.cpp b/src/Game/Render/NPCManager.cpp
---- a/src/Game/Render/NPCManager.cpp
-+++ b/src/Game/Render/NPCManager.cpp
-@@ -1,6 +1,7 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/Render/KoopaShellObject.h"
- #include "Game/Render/NPCManager.h"
-+#include "Game/Render/NPCLoadSteps.h"
- #include "Game/Render/FlyingCamera.h"
- #include "Game/Render/WindDebris.h"
- #include "Game/Render/WindDebrisConfig.h"
-@@ -115,14 +116,9 @@
-         nlDLListIterator<NPCTemplate*> iterator;
-         iterator = i == 0 ? mPersistentTemplates.Begin()
-                      : mTransientTemplates.Begin();
--        while (iterator.hasNext())
--        {
--            if (!(*iterator)->loaded)
--            {
--                mPendingTemplate = *iterator;
--                return true;
--            }
--            iterator.next();
-+        if (SelectPendingNPCFromList(iterator, mPendingTemplate))
-+        {
-+            return true;
-         }
-     }
-     return false;
-@@ -379,41 +375,30 @@
-     }
- 
-     char path[256];
--    nlSNPrintf(path, sizeof(path), "art/animation/%s.sanim.zlib", mPendingTemplate->mName, mPendingTemplate->mName);
-+    nlSNPrintf(path, sizeof(path), NPCAnimationPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
-     if (nlLoadCompressedFileAsync(path, OnNPCAnimationsLoaded, &mPendingTemplate->mInventorySAnim, 0x20, AllocateStart, 0x40000, 0, 0, 0, 0, &StandardAllocator))
-     {
-         mPendingTemplate->mAnimationLoadStarted = true;
-     }
- 
--    nlSNPrintf(path, sizeof(path), "art/animation/%s.shier", mPendingTemplate->mName, mPendingTemplate->mName);
-+    nlSNPrintf(path, sizeof(path), NPCHierarchyPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
-     cInventory<cSHierarchy>* pInventory = mPendingTemplate->mPersistent
-                                             ? mPersistentHierarchies
-                                             : mTransientHierarchies;
-     nlLoadEntireFileAsync(path, OnNPCHierarchyLoaded, pInventory, 0x20, AllocateStart, 0, 0, &StandardAllocator);
- 
--    nlSNPrintf(path, sizeof(path), "art/characters/npcs/%s/%s.rlt", mPendingTemplate->mName, mPendingTemplate->mName);
-+    nlSNPrintf(path, sizeof(path), NPCTexturesPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
-     glBeginLoadTextureBundle(path, OnNPCTexturesLoaded, mPendingTemplate, pContext);
- 
--    nlSNPrintf(path, sizeof(path), "art/characters/npcs/%s/%s.rlg", mPendingTemplate->mName, mPendingTemplate->mName);
-+    nlSNPrintf(path, sizeof(path), NPCModelsPathFormat(), mPendingTemplate->mName, mPendingTemplate->mName);
-     glBeginLoadModel(path, OnNPCModelLoaded, mPendingTemplate, pContext);
- }
- 
- bool NPCManager::FinishLoadNPCTemplate()
- {
--    if (mPendingTemplate->mAnimationLoadStarted
--        && !mPendingTemplate->mAnimationsLoaded)
--    {
--        return false;
--    }
--    if (!mPendingTemplate->mHierarchyLoaded)
--    {
--        return false;
--    }
--    if (!mPendingTemplate->mTexturesLoaded)
--    {
--        return false;
--    }
--    if (mPendingTemplate->modelID == -1)
-+    if (!NPCResourcesFinished(mPendingTemplate->mAnimationLoadStarted,
-+            mPendingTemplate->mAnimationsLoaded, mPendingTemplate->mHierarchyLoaded,
-+            mPendingTemplate->mTexturesLoaded, mPendingTemplate->modelID))
-     {
-         return false;
-     }

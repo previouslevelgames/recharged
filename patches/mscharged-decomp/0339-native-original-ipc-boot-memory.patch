@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Supply original SDK IPC initialization with native boot memory
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve the original OSIpc and IPCInit state and advancing arena cursor. Native
 bootloader metadata contains host-width pointer endpoints instead of Wii32 RAM
@@ -9,41 +9,14 @@ before source initialization. Direct Wii ARM mailbox accesses remain explicit
 unsupported hardware operations; this patch does not initialize IOS or NAND.
 The console macro expansions preserve the original expressions and flow.
 
-diff --git a/src/RVL_SDK/os/OSIpc.c b/src/RVL_SDK/os/OSIpc.c
---- a/src/RVL_SDK/os/OSIpc.c
-+++ b/src/RVL_SDK/os/OSIpc.c
-@@ -1,6 +1,15 @@
- #include <revolution/os.h>
- 
- #include <private/bus.h>
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/ipc_hardware_abi.h"
-+#define IPC_BOOT_START() ChargedNativeIPCBufferStart()
-+#define IPC_BOOT_END() ChargedNativeIPCBufferEnd()
-+#else
-+#define IPC_BOOT_START() RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_START))
-+#define IPC_BOOT_END() RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_END))
-+#endif
- 
- static void* IpcBufferHi;
- static void* IpcBufferLo = (void*)-1;
-@@ -14,6 +23,6 @@
- }
- 
- void __OSInitIPCBuffer() {
--    IpcBufferLo = RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_START));
--    IpcBufferHi = RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_END));
-+    IpcBufferLo = IPC_BOOT_START();
-+    IpcBufferHi = IPC_BOOT_END();
- }
 diff --git a/src/RVL_SDK/ipc/ipcMain.c b/src/RVL_SDK/ipc/ipcMain.c
+index 45bd6a9..494958e 100644
 --- a/src/RVL_SDK/ipc/ipcMain.c
 +++ b/src/RVL_SDK/ipc/ipcMain.c
-@@ -1,5 +1,15 @@
+@@ -1,6 +1,16 @@
  #include <revolution/ipc.h>
  #include <revolution/os.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/ipc_hardware_abi.h"
 +#include <revolution/os/OSIpc.h>
@@ -53,10 +26,11 @@ diff --git a/src/RVL_SDK/ipc/ipcMain.c b/src/RVL_SDK/ipc/ipcMain.c
 +#define IPC_REGISTER_READ(index) IPC_HW_REGS_PPC[index]
 +#define IPC_REGISTER_WRITE(index, value) IPC_HW_REGS_PPC[index] = value
 +#endif
- 
++
  static u8 Initialized = FALSE;
  static void* IPCCurrentBufferLo = NULL;
-@@ -18,11 +28,11 @@
+ static void* IPCCurrentBufferHi = NULL;
+@@ -18,11 +28,11 @@ void IPCInit(void) {
  }
  
  u32 IPCReadReg(s32 index) {
@@ -70,3 +44,32 @@ diff --git a/src/RVL_SDK/ipc/ipcMain.c b/src/RVL_SDK/ipc/ipcMain.c
  }
  
  void* IPCGetBufferHi(void) {
+diff --git a/src/RVL_SDK/os/OSIpc.c b/src/RVL_SDK/os/OSIpc.c
+index 4023953..d6e2b50 100644
+--- a/src/RVL_SDK/os/OSIpc.c
++++ b/src/RVL_SDK/os/OSIpc.c
+@@ -2,6 +2,15 @@
+ 
+ #include <private/bus.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "platform/ipc_hardware_abi.h"
++#define IPC_BOOT_START() ChargedNativeIPCBufferStart()
++#define IPC_BOOT_END() ChargedNativeIPCBufferEnd()
++#else
++#define IPC_BOOT_START() RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_START))
++#define IPC_BOOT_END() RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_END))
++#endif
++
+ static void* IpcBufferHi;
+ static void* IpcBufferLo = (void*)-1;
+ 
+@@ -14,6 +23,6 @@ void* __OSGetIPCBufferLo() {
+ }
+ 
+ void __OSInitIPCBuffer() {
+-    IpcBufferLo = RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_START));
+-    IpcBufferHi = RAMReadPtr(OSPhysicalToCached(OS_ADDR_IPC_BUFFER_END));
++    IpcBufferLo = IPC_BOOT_START();
++    IpcBufferHi = IPC_BOOT_END();
+ }

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Print the network debug channel under the LAN admission
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission
 
 Retail compiles tDebugPrintManager::Print to nothing. Under
@@ -9,7 +9,7 @@ channel to stderr with a "[net] " prefix, so the original session, lobby
 and connection messages reach the terminal. Other channels stay silent.
 
 diff --git a/include/Game/Sys/debug.h b/include/Game/Sys/debug.h
-index 11f42ad..8b3a9c2 100644
+index 11f42ad..ffdf868 100644
 --- a/include/Game/Sys/debug.h
 +++ b/include/Game/Sys/debug.h
 @@ -1,6 +1,11 @@

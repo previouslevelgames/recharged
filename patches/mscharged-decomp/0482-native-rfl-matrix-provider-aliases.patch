@@ -1,9 +1,11 @@
 Subject: [PATCH] Route original RFL PS matrix requests to the sole native SDK
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/RVL_SDK/include/revolution/mtx/mtx.h b/libs/RVL_SDK/include/revolution/mtx/mtx.h
+index 066ebb9..735cd99 100644
 --- a/libs/RVL_SDK/include/revolution/mtx/mtx.h
 +++ b/libs/RVL_SDK/include/revolution/mtx/mtx.h
-@@ -34,6 +34,38 @@
+@@ -34,6 +34,38 @@ void C_MTXLightFrustum(Mtx, f32, f32, f32, f32, f32, f32, f32, f32, f32);
  void C_MTXLightPerspective(Mtx, f32, f32, f32, f32, f32, f32);
  void C_MTXLightOrtho(Mtx, f32, f32, f32, f32, f32, f32, f32, f32);
  
@@ -42,9 +44,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #ifdef __cplusplus
  }
  #endif
+diff --git a/libs/RVL_SDK/include/revolution/mtx/mtxvec.h b/libs/RVL_SDK/include/revolution/mtx/mtxvec.h
+index d566a76..6df06c3 100644
 --- a/libs/RVL_SDK/include/revolution/mtx/mtxvec.h
 +++ b/libs/RVL_SDK/include/revolution/mtx/mtxvec.h
-@@ -9,6 +9,14 @@
+@@ -9,6 +9,14 @@ extern "C" {
  
  void PSMTXMultVec(const Mtx mtx, const Vec* vec, Vec* out);
  

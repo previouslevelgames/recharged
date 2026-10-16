@@ -1,6 +1,6 @@
 Subject: Select checked original interpreter execution for native bytecode
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract the original execution methods, retaining their instruction dispatch,
 control flow and numeric equations. Native owner hooks validate each access and
@@ -10,8 +10,148 @@ unselected. Original operation bodies retain arithmetic and case-insensitive
 string comparisons, resolving checked native strings through an explicit hook.
 Console InterpreterCore and string pointer behavior remain unchanged.
 
+diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
+index b3c47b8..a1773c4 100644
+--- a/src/Game/InterpreterCore.cpp
++++ b/src/Game/InterpreterCore.cpp
+@@ -56,6 +56,7 @@ struct InterpreterTweakStorage
+     /* 0x14 */ TweakBoolBinding* boolBindings;
+ };
+ 
++#ifndef MSCHARGED_NATIVE
+ InterpreterCore::InterpreterCore(unsigned int size)
+ {
+     m_StackSegment = (u32*)nlMalloc(size * sizeof(*m_StackSegment), 8, false);
+@@ -63,7 +64,9 @@ InterpreterCore::InterpreterCore(unsigned int size)
+     m_Globals = 0;
+     m_TweakStorage = 0;
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ InterpreterCore::~InterpreterCore()
+ {
+     if (m_Globals != 0)
+@@ -83,7 +86,9 @@ InterpreterCore::~InterpreterCore()
+     }
+     nlFree(m_StackSegment);
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::Reset()
+ {
+     m_RunState = INTERPRETER_FINISHED;
+@@ -92,6 +97,7 @@ void InterpreterCore::Reset()
+     m_BP = 0;
+     m_IP = 0;
+ }
++#endif
+ 
+ void InterpreterCore::InitializeTweaks()
+ {
+@@ -210,6 +216,7 @@ void InterpreterCore::LoadByteCode(void* data)
+     Reset();
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
+ {
+     m_SP[0] = 0;
+@@ -240,7 +247,9 @@ void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
+         }
+     }
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
+ {
+     if (m_RunState == INTERPRETER_SUSPENDED)
+@@ -279,7 +288,9 @@ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int co
+     RunFunction(entry, count);
+     return true;
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
+ {
+     if (m_RunState == INTERPRETER_SUSPENDED)
+@@ -302,6 +313,7 @@ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int co
+     RunFunction(entry, count);
+     return true;
+ }
++#endif
+ 
+ void InterpreterCore::RegisterTweak(unsigned int index, unsigned int type, const char* name, u8 flags, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
+ {
+@@ -394,22 +406,29 @@ void InterpreterCore::RegisterTweak(unsigned int index, unsigned int type, const
+     }
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int& hash)
+ {
+     unsigned long value = hash;
+     return nlBSearch<FunctionEntryPoint, unsigned long>(value, m_Header->m_FunctionTable, m_Header->numFunctions);
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ FunctionEntryPoint* InterpreterCore::GetFunctionEntryPoint(unsigned int index)
+ {
+     return &m_Header->m_FunctionTable[index];
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::Run()
+ {
+     Step();
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::Step()
+ {
+     unsigned int wasNotRunning = m_RunState != INTERPRETER_RUNNING;
+@@ -629,13 +648,17 @@ void InterpreterCore::Step()
+         m_RunState = INTERPRETER_FINISHED;
+     }
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::StopWithoutUndo()
+ {
+     m_Stop = 1;
+     m_RunState = INTERPRETER_SUSPENDED;
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ void InterpreterCore::StopWithUndo()
+ {
+     m_IP--;
+@@ -643,11 +666,14 @@ void InterpreterCore::StopWithUndo()
+     m_Stop = 1;
+     m_RunState = INTERPRETER_SUSPENDED;
+ }
++#endif
+ 
++#ifndef MSCHARGED_NATIVE
+ int InterpreterCore::GetInstructionOffset()
+ {
+     return (m_IP - m_Header->m_CodeSegment);
+ }
++#endif
+ 
+ void InterpreterCore::AllocateTweaks(unsigned int)
+ {
 diff --git a/src/Game/InterpreterNative.cpp b/src/Game/InterpreterNative.cpp
 new file mode 100644
+index 0000000..b9efd82
 --- /dev/null
 +++ b/src/Game/InterpreterNative.cpp
 @@ -0,0 +1,331 @@
@@ -347,6 +487,7 @@ new file mode 100644
 +    return (m_IP - m_Header->m_CodeSegment);
 +}
 diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations.cpp
+index 66ddca3..a26f404 100644
 --- a/src/Game/InterpreterOperations.cpp
 +++ b/src/Game/InterpreterOperations.cpp
 @@ -2,6 +2,19 @@
@@ -369,7 +510,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
  
  static inline float& StackFloat(u32* value)
  {
-@@ -175,8 +188,8 @@
+@@ -175,8 +188,8 @@ void InterpreterOpAddInt(InterpreterCore* core)
  void InterpreterOpGreaterEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -380,7 +521,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) >= 0;
  }
  
-@@ -197,8 +210,8 @@
+@@ -197,8 +210,8 @@ void InterpreterOpGreaterEqualInt(InterpreterCore* core)
  void InterpreterOpGreaterString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -391,7 +532,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) > 0;
  }
  
-@@ -219,8 +232,8 @@
+@@ -219,8 +232,8 @@ void InterpreterOpGreaterInt(InterpreterCore* core)
  void InterpreterOpLessEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -402,7 +543,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) <= 0;
  }
  
-@@ -241,8 +254,8 @@
+@@ -241,8 +254,8 @@ void InterpreterOpLessEqualInt(InterpreterCore* core)
  void InterpreterOpLessString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -413,7 +554,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) < 0;
  }
  
-@@ -263,8 +276,8 @@
+@@ -263,8 +276,8 @@ void InterpreterOpLessInt(InterpreterCore* core)
  void InterpreterOpNotEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -424,7 +565,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
  
      if (lhs == rhs)
      {
-@@ -296,8 +309,8 @@
+@@ -296,8 +309,8 @@ void InterpreterOpNotEqualInt(InterpreterCore* core)
  void InterpreterOpEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -435,151 +576,3 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
  
      if (lhs == rhs)
      {
-diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
---- a/src/Game/InterpreterCore.cpp
-+++ b/src/Game/InterpreterCore.cpp
-@@ -56,6 +56,7 @@
-     /* 0x14 */ TweakBoolBinding* boolBindings;
- };
- 
-+#ifndef MSCHARGED_NATIVE
- InterpreterCore::InterpreterCore(unsigned int size)
- {
-     m_StackSegment = (u32*)nlMalloc(size * 4, 8, false);
-@@ -63,7 +64,9 @@
-     m_Globals = 0;
-     m_TweakStorage = 0;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- InterpreterCore::~InterpreterCore()
- {
-     if (m_Globals != 0)
-@@ -83,7 +86,9 @@
-     }
-     nlFree(m_StackSegment);
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void InterpreterCore::Reset()
- {
-     m_RunState = INTERPRETER_FINISHED;
-@@ -92,6 +97,7 @@
-     m_BP = 0;
-     m_IP = 0;
- }
-+#endif
- 
- void InterpreterCore::InitializeTweaks()
- {
-@@ -210,6 +216,7 @@
-     Reset();
- }
- 
-+#ifndef MSCHARGED_NATIVE
- void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
- {
-     m_SP[0] = 0;
-@@ -240,7 +247,9 @@
-         }
-     }
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
- {
-     if (m_RunState == INTERPRETER_SUSPENDED)
-@@ -279,7 +288,9 @@
-     RunFunction(entry, count);
-     return true;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
- {
-     if (m_RunState == INTERPRETER_SUSPENDED)
-@@ -302,6 +313,7 @@
-     RunFunction(entry, count);
-     return true;
- }
-+#endif
- 
- void InterpreterCore::RegisterTweak(unsigned int index, unsigned int type, const char* name, u8 flags, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
- {
-@@ -394,22 +406,29 @@
-     }
- }
- 
-+#ifndef MSCHARGED_NATIVE
- FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int& hash)
- {
-     unsigned long value = hash;
-     return nlBSearch<FunctionEntryPoint, unsigned long>(value, m_Header->m_FunctionTable, m_Header->numFunctions);
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- FunctionEntryPoint* InterpreterCore::GetFunctionEntryPoint(unsigned int index)
- {
-     return &m_Header->m_FunctionTable[index];
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void InterpreterCore::Run()
- {
-     Step();
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void InterpreterCore::Step()
- {
-     unsigned int wasNotRunning = m_RunState != INTERPRETER_RUNNING;
-@@ -629,13 +648,17 @@
-         m_RunState = INTERPRETER_FINISHED;
-     }
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void InterpreterCore::StopWithoutUndo()
- {
-     m_Stop = 1;
-     m_RunState = INTERPRETER_SUSPENDED;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- void InterpreterCore::StopWithUndo()
- {
-     m_IP--;
-@@ -643,11 +666,14 @@
-     m_Stop = 1;
-     m_RunState = INTERPRETER_SUSPENDED;
- }
--
-+#endif
-+
-+#ifndef MSCHARGED_NATIVE
- int InterpreterCore::GetInstructionOffset()
- {
-     return (m_IP - m_Header->m_CodeSegment);
- }
-+#endif
- 
- void InterpreterCore::AllocateTweaks(unsigned int)
- {

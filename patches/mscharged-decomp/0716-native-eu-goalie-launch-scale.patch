@@ -1,0 +1,27 @@
+From: mscharged-port
+Subject: Give the European goalie tackle launch a defined scale
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+In the European builds Goalie::HitAttackTarget leaves the impact scale unset
+for the pursue-deke types it skips (4, 7 and a stale type): retail scales the
+launch by whatever register f3 held (EU revision 2 at 0x80080620). Natively
+that read is undefined, so it takes the USA value 1.0 (owner decision). The
+European code keeps its own deke-type handling; only the USA build resets a
+stale type.
+
+diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
+index 8ff4bfc..d8b199b 100644
+--- a/src/Game/Goalie.cpp
++++ b/src/Game/Goalie.cpp
+@@ -4135,6 +4135,11 @@ void Goalie::HitAttackTarget(cFielder* pFielder, bool bParam)
+             nlVec3Set(v3Velocity, m_m4WorldMatrix.m11, m_m4WorldMatrix.m12, m_m4WorldMatrix.m13);
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+             float fScale = 1.0f;
++#elif defined(MSCHARGED_NATIVE)
++            // EU leaves the impact scale unset for the skipped deke types:
++            // retail scales the launch by whatever f3 held. Natively that read
++            // is undefined, so it takes the USA value.
++            float fScale = 1.0f;
+ #else
+             // EU leaves the impact scale unset for the skipped deke types.
+             float fScale;

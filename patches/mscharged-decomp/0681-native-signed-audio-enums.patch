@@ -1,27 +1,15 @@
 Subject: Preserve signed Wii32 audio enum representation
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native-only declaration transport. Console tokens, numeric constants, source
 branches and serialized data remain unchanged. Apply after the refreshed469
 Charged preparation patches.
 
-diff --git a/include/Game/Audio/AudioRpc.h b/include/Game/Audio/AudioRpc.h
---- a/include/Game/Audio/AudioRpc.h
-+++ b/include/Game/Audio/AudioRpc.h
-@@ -15,6 +15,9 @@
- struct AudioRpcRuntimeNode;
- 
- enum eAudioRpcKind
-+#if defined(MSCHARGED_NATIVE)
-+    : s32
-+#endif
- {
-     AUDIO_RPC_VOLUME = 0,
-     AUDIO_RPC_PITCH = 1,
 diff --git a/include/Game/Audio/AudioResourceBundle.h b/include/Game/Audio/AudioResourceBundle.h
+index 88bfc84..2a3114d 100644
 --- a/include/Game/Audio/AudioResourceBundle.h
 +++ b/include/Game/Audio/AudioResourceBundle.h
-@@ -23,6 +23,9 @@
+@@ -23,6 +23,9 @@ struct AudioCueEntry
  };
  
  enum eAudioCueSelection
@@ -31,10 +19,25 @@ diff --git a/include/Game/Audio/AudioResourceBundle.h b/include/Game/Audio/Audio
  {
      AUDIO_CUE_DISABLED = -1,
      AUDIO_CUE_SEQUENTIAL = 0,
+diff --git a/include/Game/Audio/AudioRpc.h b/include/Game/Audio/AudioRpc.h
+index ea2f3e0..9132265 100644
+--- a/include/Game/Audio/AudioRpc.h
++++ b/include/Game/Audio/AudioRpc.h
+@@ -15,6 +15,9 @@ struct AudioRpcCurvePoint
+ struct AudioRpcRuntimeNode;
+ 
+ enum eAudioRpcKind
++#if defined(MSCHARGED_NATIVE)
++    : s32
++#endif
+ {
+     AUDIO_RPC_VOLUME = 0,
+     AUDIO_RPC_PITCH = 1,
 diff --git a/include/Game/Audio/AudioSequenceEvent.h b/include/Game/Audio/AudioSequenceEvent.h
+index 20b560c..7172074 100644
 --- a/include/Game/Audio/AudioSequenceEvent.h
 +++ b/include/Game/Audio/AudioSequenceEvent.h
-@@ -16,6 +16,9 @@
+@@ -16,6 +16,9 @@ struct AudioSourceInfo;
  struct AudioSequenceEvent;
  
  enum eAudioSequenceEventType

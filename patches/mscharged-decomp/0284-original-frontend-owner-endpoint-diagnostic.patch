@@ -1,10 +1,14 @@
 Subject: Select temporary original Boot/Nav/Intro diagnostic endpoints
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Named diagnostic-only omissions retain default native and console game flow.
 Full Async/camera/world/AX services remain unqualified.
 
+Refreshed for decomp 9046e67a: the endpoint predicate follows the original
+case 16 of each version; the European versions have no boot-screen check.
+
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 3726253..34cf201 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -1,4 +1,7 @@
@@ -15,7 +19,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  #include "NL/nlDLListContainer.inl"
  #include "Game/Font/FontLoading.h"
  #include "Game/MiiManager.h"
-@@ -275,6 +278,10 @@
+@@ -274,6 +277,10 @@ static inline void CreateInstance(T*& instance)
  
  void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  {
@@ -26,7 +30,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      switch (functionIndex)
      {
      case 0:
-@@ -1124,6 +1131,7 @@
+@@ -1132,6 +1139,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          nlBreak();
          break;
      }
@@ -34,15 +38,15 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  }
  
  AsyncLoadingManager::AsyncLoadingManager()
-@@ -1433,6 +1441,7 @@
+@@ -1445,6 +1453,7 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
  
- extern "C" void fn_80119528(AsyncLoadingManager* manager)
+ void InitializeFrontEndState2(AsyncLoadingManager* manager)
  {
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      static GLMemoryRequirement requirements[] = {
          { GLM_Header, 0x400 },
          { GLM_VertexData, 0x800 },
-@@ -1440,22 +1449,32 @@
+@@ -1452,22 +1461,32 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
      GLView* view = GetLayerView(eCLV_ImpostorTexture);
      ImpostorManager::GetInstance()->Initialize(view, 30, requirements, 2, true);
      ImpostorManager::GetInstance()->SetEnabled(true);
@@ -78,7 +82,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
          SetPointerEnabled(true);
          if (g_e3_Build)
          {
-@@ -1541,7 +1560,10 @@
+@@ -1553,7 +1572,10 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
                  FrontEndPresentation::GetInstance()->Call("StartMainMenuSequence");
              }
          }
@@ -90,7 +94,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      StopSound(0x7FC13AA3, manager);
      g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
      {
-@@ -1585,6 +1607,7 @@
+@@ -1597,6 +1619,7 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
          StartAudioEffect(&binding, &definition, parameter, false, 0.0f);
      }
  
@@ -98,7 +102,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      GameInfoManager::Instance()->unknown_0x71C8 = 0;
      manager->mLoadingState = ASYNC_RESOURCES_LOADED;
      lbl_806E1040->SetVisible(false);
-@@ -2271,3 +2294,22 @@
+@@ -2289,3 +2312,26 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
  PersistentResourceRequirements gPersistentResourceRequirements = {
      { { GLM_Header, 0x3C00 }, { GLM_TextureData, 0x390800 } },
  };
@@ -116,12 +120,17 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 +        GameSceneManager::Instance()->GetScene(
 +            g_pLocalization->m_CurrentLanguage == nlLocalization::LangJapanese
 +                ? SCENE_BOOT_LOADING_JPN : SCENE_BOOT_LOADING));
-+    if (lbl_806E1068 && lbl_806E1069 && scene != 0
-+        && scene->mPhase == 4 && !scene->IsBootScreenPending())
-+        fn_80119528(AsyncLoadingManager::Instance());
++    // The European versions have no boot-screen check (original case 16).
++    if (lbl_806E1068 && lbl_806E1069 && scene != 0 && scene->mPhase == 4
++#if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
++        && !scene->IsBootScreenPending()
++#endif
++    )
++        InitializeFrontEndState2(AsyncLoadingManager::Instance());
 +}
 +#endif
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 4551312..fabf0a4 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -1,5 +1,8 @@
@@ -133,7 +142,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
  #include "NL/nlDLListContainer.inl"
  #include "Game/SH/SHOnlineMiiSelectOverlay.h"
  #include "Game/BaseGameSceneManager.h"
-@@ -302,6 +305,7 @@
+@@ -335,6 +338,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
  
      switch (newscene)
      {
@@ -141,7 +150,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_TITLE:
          newHandler = new (nlMalloc(sizeof(TitleScene), 8, false)) TitleScene(movement);
          break;
-@@ -350,21 +354,25 @@
+@@ -383,21 +387,25 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_SUPER_LOADING:
          newHandler = new (nlMalloc(sizeof(SuperLoadingScene), 8, false)) SuperLoadingScene();
          break;
@@ -168,7 +177,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_CREDITS:
          newHandler = new (nlMalloc(sizeof(CreditScene), 8, false)) CreditScene();
          break;
-@@ -383,10 +391,12 @@
+@@ -416,10 +424,12 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_OPTIONS_CHEATS_LIST:
          newHandler = new (nlMalloc(sizeof(SHOptionsCheatsList), 8, false)) SHOptionsCheatsList();
          break;
@@ -183,7 +192,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(SHNavigation), 8, false)) SHNavigation();
          break;
      case SCENE_ROAD_TO_STRIKERS_CUP:
-@@ -599,6 +609,11 @@
+@@ -632,6 +642,11 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case OVERLAY_DEFENSIVE_PLAY:
          newHandler = new (nlMalloc(sizeof(DefensivePlayOverlay), 8, false)) DefensivePlayOverlay();
          break;
@@ -196,9 +205,10 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
  
      FESceneManager::Instance()->QueueScenePush(newHandler, filename, &VirtualAllocator);
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 94ae69c..d61992c 100644
 --- a/src/Game/GameInfo.cpp
 +++ b/src/Game/GameInfo.cpp
-@@ -429,7 +429,9 @@
+@@ -429,7 +429,9 @@ void GameInfoManager::SetupGameFromConfig()
  void GameInfoManager::ResetUnknown0xA0()
  {
      mUseCurGameSettings = 0;
@@ -209,6 +219,7 @@ diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
  
  void GameInfoManager::ApplyDifficultySettings()
 diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
+index 038bdb4..3042379 100644
 --- a/src/Game/Render/FrontEndPresentation.cpp
 +++ b/src/Game/Render/FrontEndPresentation.cpp
 @@ -1,4 +1,7 @@
@@ -220,9 +231,10 @@ diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEnd
  
  #include "Game/GameSceneManager.h"
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index ceb3bd9..303c679 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -12,9 +12,11 @@
+@@ -12,9 +12,11 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
  {
      switch (function)
      {
@@ -234,7 +246,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 1:
      {
          bool value = m_SP[-1] != 0;
-@@ -36,15 +38,19 @@
+@@ -36,15 +38,19 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          FEModelManager::Instance()->CreateModel(FE_MODEL_IMPOSTOR, MSCHARGED_FE_VM_STRING(name), side, value, 0, 0, alternate);
          break;
      }
@@ -254,7 +266,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 5:
      {
          unsigned int value = m_SP[-1];
-@@ -56,6 +62,7 @@
+@@ -56,6 +62,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -262,7 +274,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 6:
      {
          unsigned int value = m_SP[-1];
-@@ -66,16 +73,21 @@
+@@ -66,16 +73,21 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -284,7 +296,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 10:
      {
          const char* animationName;
-@@ -102,10 +114,12 @@
+@@ -102,10 +114,12 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -297,7 +309,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 12:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -113,9 +127,11 @@
+@@ -113,9 +127,11 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          DestroyFrontEndPresentationEmission(name);
          break;
      }
@@ -309,7 +321,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 14:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -123,6 +139,7 @@
+@@ -123,6 +139,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          DisableFrontEndPresentationEmission(name);
          break;
      }
@@ -317,7 +329,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 15:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -133,6 +150,7 @@
+@@ -133,6 +150,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          camera->m_EndOfAnimationCallback = OnCameraAnimationFinished;
          break;
      }
@@ -325,7 +337,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 16:
      {
          ePlayMode playMode = (ePlayMode)m_SP[-1];
-@@ -142,6 +160,7 @@
+@@ -142,6 +160,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          SetWorldAnimation(objectName, animationName, playMode);
          break;
      }
@@ -333,7 +345,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 17:
      {
          float value = *(float*)&m_SP[-1];
-@@ -156,6 +175,7 @@
+@@ -156,6 +175,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -341,7 +353,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 18:
      {
          unsigned int argument1 = m_SP[-1];
-@@ -169,9 +189,11 @@
+@@ -169,9 +189,11 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -353,7 +365,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 20:
      {
          unsigned int event = m_SP[-1];
-@@ -179,6 +201,7 @@
+@@ -179,6 +201,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          FEAudio::PlayAnimAudioEvent(event, 0, 0, true);
          break;
      }
@@ -361,7 +373,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 21:
      {
          float duration = *(float*)&m_SP[-1];
-@@ -187,6 +210,7 @@
+@@ -187,6 +210,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          mCameraTransitionFinished = false;
          break;
      }
@@ -369,7 +381,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 22:
      {
          unsigned int childName = m_SP[-1];
-@@ -203,6 +227,7 @@
+@@ -203,6 +227,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -377,7 +389,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 23:
      {
          bool value = m_SP[-1] != 0;
-@@ -217,6 +242,7 @@
+@@ -217,6 +242,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          mCameraTransitionFinished = false;
          break;
      }
@@ -385,7 +397,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 24:
      {
          bool value = m_SP[-1] != 0;
-@@ -239,6 +265,7 @@
+@@ -239,6 +265,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          mCameraTransitionFinished = false;
          break;
      }
@@ -393,7 +405,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 25:
      {
          int value1 = (int)m_SP[-1];
-@@ -247,9 +274,11 @@
+@@ -247,9 +274,11 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          GameSceneManager::Instance()->Push((SceneList)value0, (ScreenMovement)value1, false);
          break;
      }
@@ -405,7 +417,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 27:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -261,6 +290,7 @@
+@@ -261,6 +290,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -413,7 +425,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 28:
      {
          float time = *(float*)&m_SP[-1];
-@@ -268,6 +298,7 @@
+@@ -268,6 +298,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          GetCurrentAnimatedCamera()->SetAnimationTime(time, true);
          break;
      }
@@ -421,7 +433,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 29:
      {
          cAnimCamera* camera = GetCurrentAnimatedCamera();
-@@ -275,6 +306,7 @@
+@@ -275,6 +306,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          camera->SetAnimationTime(time, true);
          break;
      }
@@ -429,7 +441,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 30:
      {
          unsigned int value = m_SP[-1];
-@@ -287,6 +319,7 @@
+@@ -287,6 +319,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -437,7 +449,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 31:
      {
          unsigned int childName = m_SP[-1];
-@@ -303,6 +336,7 @@
+@@ -303,6 +336,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -445,7 +457,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 32:
      {
          float time = *(float*)&m_SP[-1];
-@@ -310,6 +344,7 @@
+@@ -310,6 +344,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          mWaitTime = time;
          break;
      }
@@ -453,7 +465,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 33:
      {
          bool value = m_SP[-1] != 0;
-@@ -322,6 +357,7 @@
+@@ -322,6 +357,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -461,7 +473,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 34:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -333,6 +369,7 @@
+@@ -333,6 +369,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -469,7 +481,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 35:
      {
          bool cyclic = m_SP[-1] != 0;
-@@ -344,30 +381,38 @@
+@@ -344,30 +381,38 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -508,7 +520,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 43:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -375,12 +420,14 @@
+@@ -375,12 +420,14 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          EnableFrontEndPresentationEmission(name);
          break;
      }
@@ -523,7 +535,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 45:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -392,18 +439,21 @@
+@@ -392,18 +439,21 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -545,7 +557,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 48:
          mWaitTime -= mDeltaTime;
          if (mWaitTime > 0.0f)
-@@ -411,6 +461,7 @@
+@@ -411,6 +461,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          else
              mWaitTime = 0.0f;
          break;
@@ -553,7 +565,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 49:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -421,6 +472,7 @@
+@@ -421,6 +472,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -561,7 +573,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 50:
      {
          const char* name = MSCHARGED_FE_VM_STRING(m_SP[-1]);
-@@ -439,6 +491,7 @@
+@@ -439,6 +491,7 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          }
          break;
      }
@@ -569,7 +581,7 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
      case 51:
          if (IsTournamentTrophyLoaded())
              FinishLoadTournamentTrophy();
-@@ -448,6 +501,13 @@
+@@ -448,6 +501,13 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      default:
          nlBreak();
          break;
@@ -584,9 +596,10 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
  }
  
 diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
+index bdb7026..de58837 100644
 --- a/src/Game/SH/SHBootLoading.cpp
 +++ b/src/Game/SH/SHBootLoading.cpp
-@@ -225,7 +225,9 @@
+@@ -279,7 +279,9 @@ void BootLoadingScene::Update(float fDeltaT)
          {
              mPhase = PhaseFinished;
              mElapsedTime = 0.0f;
@@ -596,7 +609,7 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
          }
      }
      else if (mPhase == PhaseFinished)
-@@ -269,7 +271,9 @@
+@@ -323,7 +325,9 @@ void BootLoadingScene::SetPhaseSlide()
          break;
      case PhaseDeveloperLogo:
          mPresentation->SetActiveSlide("NLG", true);
@@ -607,35 +620,28 @@ diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
      }
      if (mHomeButtonWarning != 0)
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index 94e7074..2718acf 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -42,15 +42,17 @@
+@@ -42,7 +42,7 @@ MoviePlayerScene::MoviePlayerScene()
      typedef Detail::MemFunImpl<void, void (MoviePlayerScene::*)()> MemFunImpl_MoviePlayerScene_v;
      typedef BindExp1<void, MemFunImpl_MoviePlayerScene_v, MoviePlayerScene*> BindExp1_MoviePlayerScene_v;
      mMovieFilename[0] = 0;
+-#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
-+    if (GameSceneManager::s_pInstance)
-+    {
-+        mGameSceneManager = GameSceneManager::s_pInstance;
-+    }
-+    else
-+    {
-+        mGameSceneManager = g_pOverlayManager;
-+    }
+     if (GameSceneManager::s_pInstance)
+     {
+         mGameSceneManager = GameSceneManager::s_pInstance;
+@@ -51,6 +51,8 @@ MoviePlayerScene::MoviePlayerScene()
+     {
+         mGameSceneManager = g_pOverlayManager;
+     }
 +#endif // actual scene-manager selection is retained
- #if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
--    if (GameSceneManager::s_pInstance)
--    {
--        mGameSceneManager = GameSceneManager::s_pInstance;
--    }
--    else
--    {
--        mGameSceneManager = g_pOverlayManager;
--    }
++#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
      FindEvent<NoEventData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
  #endif
  }
-@@ -252,8 +254,10 @@
+@@ -256,8 +258,10 @@ void IntroMovieScene::ResetMoviePlayer()
          MovieStop();
          mMovieStarted = false;
      }
@@ -646,7 +652,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      m_padB4 = 0.0f;
      mMovieFinished = false;
      mTransitionPending = false;
-@@ -262,8 +266,10 @@
+@@ -266,8 +270,10 @@ void IntroMovieScene::ResetMoviePlayer()
  void IntroMovieScene::OnMoviePlaybackEnded()
  {
      GameSceneManager::s_pInstance->Push(mNextScene, SCREEN_NOTHING, true);
@@ -657,7 +663,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      SetSyncedDecode(false);
  }
  
-@@ -288,7 +294,9 @@
+@@ -292,7 +298,9 @@ void IntroMovieScene::Update(float fDeltaT)
                  mMovieFinished = true;
                  FrontEndPresentation::GetInstance()->Call("TransitionFromMovieToTitleScreen");
                  mTransitionPending = true;
@@ -668,6 +674,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
              }
          }
 diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
+index e023826..3a8d01f 100644
 --- a/src/Game/SH/SHNavigation.cpp
 +++ b/src/Game/SH/SHNavigation.cpp
 @@ -4,6 +4,10 @@
@@ -682,6 +689,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
  #include "Game/DB/CharacterInfo.h"
  #include "Game/FE/feFinder.h"
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index f2a9750..c02aad3 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -8,6 +8,11 @@
@@ -696,7 +704,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
  #include "Game/Sys/movie.h"
  #endif
-@@ -207,7 +212,11 @@
+@@ -215,7 +220,11 @@ static ProfilerTask profilerTask;
  static ResetTask resetTask;
  static MemCheckTask memCheckTask;
  static TextWindowTask textWindowTask;
@@ -708,7 +716,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static FlashMemoryTask flashMemoryTask;
  
  
-@@ -563,7 +572,11 @@
+@@ -571,7 +580,11 @@ static void Initialize()
  
      glxSetDrawSyncTimeout(1000.0f);
      InitializeDispatchEventsTask();
@@ -720,7 +728,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      sLoadingTask.Start();
      GetEmissionManager();
      EmissionManager::SetResourceBudget(1, 250);
-@@ -634,10 +647,14 @@
+@@ -642,10 +655,14 @@ static void Initialize()
      }
      tDebugPrintManager::Print(DC_NETWORK, "CountryCode = %d\n", countryCode);
  
@@ -735,7 +743,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      if (CupManager::s_pInstance == 0)
      {
          CupManager::s_pInstance = new (8, false) CupManager;
-@@ -655,7 +672,11 @@
+@@ -663,7 +680,11 @@ static void Initialize()
      nlInitFileCache();
      ReplayChoreo::Instance();
      GetPresentation();
@@ -747,7 +755,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ExcitementSystem::Instance();
      AddTasks();
  #endif // unrelated country/game/save/replay/task prerequisites
-@@ -892,6 +913,28 @@
+@@ -900,6 +921,28 @@ int main()
      // The original loading bytecode and GameSceneManager dispatch are omitted
      // by this temporary diagnostic. Retain the same source-owned managers,
      // pools, fonts and graphics established above; never initialize them twice.
@@ -758,7 +766,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 +    // genuine GameAudio/effect-factory/AX predecessor. Use its real control
 +    // method; THP mode0 movie PCM is independent and remains enabled.
 +    FEAudio::EnableSounds(false);
-+    fn_8011B178(AsyncLoadingManager::Instance());
++    BeginAsyncFrontEndResourceLoad(AsyncLoadingManager::Instance());
 +    FESceneManager::Instance()->ForceImmediateStackProcessing();
 +    while (!FESceneManager::Instance()->AreAllScenesValid())
 +    {
@@ -768,7 +776,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 +    }
 +    nlMatrix4 identity;
 +    identity.SetIdentity();
-+    fn_80273144(identity, identity, 4.0f / 3.0f, 0.4712389f,
++    UpdateLayerCameras(identity, identity, 4.0f / 3.0f, 0.4712389f,
 +        4.0f / 3.0f, 0.4712389f);
 +    nlPrintf("Original frontend endpoint diagnostic: boot handler ready; Intro waits on original Boot predicates\n");
 +    return 85;
@@ -776,7 +784,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      FEResourceManager* resources = FEResourceManager::Instance();
      resources->LoadPermanentResourceBundle("art/fe/MainUI.Dmn", DiagnosticPermanentComplete);
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
-@@ -926,6 +969,7 @@
+@@ -934,6 +977,7 @@ int main()
      // SceneCreated/credits.txt/resource completion owns all scene readiness.
      nlPrintf("Original main selected Credits ready: state%d, phase%d.\n", credits->mFEScene->mState, credits->mPhase);
      return 85;
@@ -784,7 +792,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #else
      return 83;
  #endif
-@@ -972,6 +1016,9 @@
+@@ -980,6 +1024,9 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);
@@ -794,7 +802,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      FESceneManager::Instance()->Update(delta);
      FESceneManager::Instance()->RenderActiveScenes();
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
-@@ -1001,6 +1048,9 @@
+@@ -1009,6 +1056,9 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);

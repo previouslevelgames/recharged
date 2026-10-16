@@ -1,6 +1,6 @@
 Subject: [PATCH] retain original fixed task source methods in native modules
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain both actual source empty ABI helpers in the original module. Their
 unchanged retail bodies are not a fabricated successful provider. Keep the
@@ -8,31 +8,11 @@ whole source task and all constructor, data and update decisions. Expose the
 actual runtime helper declarations without MWCC asm syntax on native compilers;
 this does not supply any missing helper implementation.
 
-diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
---- a/src/Game/Task/FixedUpdateTask.cpp
-+++ b/src/Game/Task/FixedUpdateTask.cpp
-@@ -48,7 +48,7 @@
- static u16 sSimulationTimeType = 0xFFFF;
- static u16 sTimeScaleType = 0xFFFF;
- 
--#ifndef MSCHARGED_NATIVE
-+#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
- void fn_80111654(int)
- {
- }
-@@ -58,7 +58,7 @@
- {
- }
- 
--#ifndef MSCHARGED_NATIVE
-+#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
- void fn_8011165C(int)
- {
- }
 diff --git a/libs/Runtime/include/runtime.h b/libs/Runtime/include/runtime.h
+index 193d2a7..71da76a 100644
 --- a/libs/Runtime/include/runtime.h
 +++ b/libs/Runtime/include/runtime.h
-@@ -45,14 +45,21 @@
+@@ -45,14 +45,21 @@ DECLARE_REGISTER_HELPERS(31);
  #undef DECLARE_REGISTER_HELPERS
  
  unsigned long __cvt_fp2unsigned(double);
@@ -61,4 +41,26 @@ diff --git a/libs/Runtime/include/runtime.h b/libs/Runtime/include/runtime.h
 +#undef MSCHARGED_RUNTIME_ASM
  
  #ifdef __cplusplus
+ }
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index 67701e0..5ccf801 100644
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -50,7 +50,7 @@ bool g_bRunSimAndRenderInLockStep;
+ static u16 sSimulationTimeType = 0xFFFF;
+ static u16 sTimeScaleType = 0xFFFF;
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ void OnResourceLoadBegin(int)
+ {
+ }
+@@ -60,7 +60,7 @@ void OnResourceUnloadEnd(int)
+ {
+ }
+ 
+-#ifndef MSCHARGED_NATIVE
++#if !defined(MSCHARGED_NATIVE) || defined(MSCHARGED_GAME_MODULE)
+ void OnLoadingCheckpoint(const char*)
+ {
  }

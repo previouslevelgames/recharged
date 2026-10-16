@@ -1,5 +1,5 @@
 Subject: Preserve native compiler interfaces for the original Game source
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use authoritative audio header linkage, an explicit full-width encoded Terrain
 index cast, and emit available original nlStrNCat<char> for native linking.
@@ -8,6 +8,7 @@ Upstream now uses matched float and string literals directly; no temporary nativ
 data provider is added. Complete original game linking/startup remain separate gates.
 
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index b32dd4b..7423ec6 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -1,6 +1,9 @@
@@ -20,7 +21,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
  #include "Game/Game.h"
  #include "Game/MathHelpers.h"
  #include "Game/Weather.h"
-@@ -280,7 +283,11 @@
+@@ -279,7 +282,11 @@ void CreateGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
  {
      ++lbl_806E2130;
  
@@ -32,7 +33,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
      g_pGame = game;
  
      cTeam* team = new (8, false) cTeam(0);
-@@ -313,7 +320,11 @@
+@@ -312,7 +319,11 @@ void CreateGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
      {
          NumberDisplay* numberDisplay
              = static_cast<NumberDisplay*>(
@@ -44,7 +45,7 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
          numberDisplay
              = new (numberDisplay) NumberDisplay();
          gpNumberDisplay = numberDisplay;
-@@ -391,7 +402,11 @@
+@@ -390,7 +401,11 @@ cGame::cGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
      m_pPostResetClock->m_uParam1 = (unsigned long)this;
  
      mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
@@ -57,9 +58,10 @@ diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
      mpWeatherManager = new (nlMalloc(sizeof(WeatherManager), 8, false)) WeatherManager();
  
 diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
+index 5856200..1a8f298 100644
 --- a/src/NL/nlString.cpp
 +++ b/src/NL/nlString.cpp
-@@ -61,3 +61,8 @@
+@@ -61,3 +61,8 @@ void nlZeroMemory(void* ptr, unsigned long numBytes)
      }
  #endif
  }

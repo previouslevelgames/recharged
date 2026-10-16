@@ -1,6 +1,8 @@
 Subject: [PATCH] Preserve original cipher words and PowerPC byte ABI natively
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/include/NL/blowfish.h b/include/NL/blowfish.h
+index c3ea603..28a9b47 100644
 --- a/include/NL/blowfish.h
 +++ b/include/NL/blowfish.h
 @@ -10,7 +10,12 @@
@@ -16,7 +18,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  #define WORD  unsigned short
  #define BYTE  unsigned char
  
-@@ -22,6 +27,9 @@
+@@ -22,6 +27,9 @@ private:
      [256];
      void Blowfish_encipher(DWORD* xl, DWORD* xr);
      void Blowfish_decipher(DWORD* xl, DWORD* xr);
@@ -26,7 +28,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  public:
      CBlowFish();
-@@ -39,11 +47,25 @@
+@@ -39,11 +47,25 @@ union aword
      BYTE byte[4];
      struct
      {
@@ -52,9 +54,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +#endif
 +
  #endif // NL_BLOWFISH_H
+diff --git a/src/NL/blowfish.cpp b/src/NL/blowfish.cpp
+index 522d64f..a85ab74 100644
 --- a/src/NL/blowfish.cpp
 +++ b/src/NL/blowfish.cpp
-@@ -98,6 +98,24 @@
+@@ -98,6 +98,24 @@ void CBlowFish::Initialize(BYTE key[], int keybytes)
      }
  }
  
@@ -79,7 +83,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  DWORD CBlowFish::GetOutputLength(DWORD lInputLong)
  {
      DWORD lVal;
-@@ -123,7 +141,11 @@
+@@ -123,7 +141,11 @@ DWORD CBlowFish::Encode(BYTE* pInput, BYTE* pOutput, DWORD lSize)
          {
              if (lCount < lSize - 7)
              {
@@ -91,7 +95,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
              }
              else
              {
-@@ -131,7 +153,11 @@
+@@ -131,7 +153,11 @@ DWORD CBlowFish::Encode(BYTE* pInput, BYTE* pOutput, DWORD lSize)
                  j = (int)(lOutSize - lSize);
                  for (i = 0; i < j; i++)
                      *po++ = 0;
@@ -103,7 +107,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
              }
              pInput += 8;
          }
-@@ -143,7 +169,11 @@
+@@ -143,7 +169,11 @@ DWORD CBlowFish::Encode(BYTE* pInput, BYTE* pOutput, DWORD lSize)
                  po = pOutput;
                  for (i = 0; i < 8; i++)
                      *po++ = *pi++;
@@ -115,7 +119,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
              }
              else
              {
-@@ -153,7 +183,11 @@
+@@ -153,7 +183,11 @@ DWORD CBlowFish::Encode(BYTE* pInput, BYTE* pOutput, DWORD lSize)
                      *po++ = *pInput++;
                  for (j = i; j < 8; j++)
                      *po++ = 0;

@@ -1,5 +1,5 @@
 Subject: Admit original Hall of Fame progress pages in the existing named diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0506.
 
 Move the existing original factory cases 59-61 (SHHallOfFameSummary modes
@@ -8,9 +8,10 @@ Fame guard beside Cup cases 62-64. Placement allocation and constructors stay
 literal; every other factory case keeps its current guard.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 0a28438..55fa2e4 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -495,8 +495,10 @@
+@@ -528,8 +528,10 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_HOF_PROFILE:
          newHandler = new (nlMalloc(sizeof(SHHallOfFameProfile), 8, false)) SHHallOfFameProfile();
          break;
@@ -23,7 +24,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          break;
      case SCENE_HOF_UNLOCK_SUMMARY:
          newHandler = new (nlMalloc(sizeof(SHHallOfFameSummary), 8, false)) SHHallOfFameSummary(HOF_UNLOCK_SUMMARY);
-@@ -504,8 +506,6 @@
+@@ -537,8 +539,6 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_HOF_CHALLENGE_SUMMARY:
          newHandler = new (nlMalloc(sizeof(SHHallOfFameSummary), 8, false)) SHHallOfFameSummary(HOF_CHALLENGE_SUMMARY);
          break;

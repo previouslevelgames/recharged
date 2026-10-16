@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Release a destroyed target's EFB copies in native GX
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 On the console a target's EFB copies are written into the target's memory, so
 destroying a target needs no GX call. Native GX keeps copies in host textures
@@ -10,10 +10,10 @@ A later texture at the same address could also be drawn from a stale copy.
 DestroyTexture now tells native GX to release them (GXDestroyCopyTex).
 
 diff --git a/src/NL/glx/glxTarget.cpp b/src/NL/glx/glxTarget.cpp
-index d8c77fe..0487a0b 100644
+index bd42d9a..76a3da9 100644
 --- a/src/NL/glx/glxTarget.cpp
 +++ b/src/NL/glx/glxTarget.cpp
-@@ -117,6 +117,13 @@ void GLXTarget::ReservedTargetHookB()
+@@ -115,6 +115,13 @@ void GLXTarget::ReservedTargetHookB()
  
  void GLXTarget::DestroyTexture(unsigned long hash)
  {

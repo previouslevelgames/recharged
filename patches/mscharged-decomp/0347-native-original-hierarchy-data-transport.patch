@@ -1,5 +1,5 @@
 Subject: Transport original hierarchy data into allocation-owned native backing
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the complete original chunk walk, field assignments and BuildPushPopFlags.
 Native data casts view exact completed NL-owned Wii bytes with pointer-width and
@@ -7,6 +7,7 @@ endian transport; source free/overwrite retires backing. No request, callback,
 readiness, node ordering, tree normalization or actor algorithm changes.
 
 diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
+index 281b621..529e62b 100644
 --- a/src/Game/SHierarchy.cpp
 +++ b/src/Game/SHierarchy.cpp
 @@ -1,4 +1,7 @@
@@ -17,7 +18,7 @@ diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
  
  bool cSHierarchy::PreserveBoneLength(int i) const
  {
-@@ -85,6 +88,9 @@
+@@ -85,6 +88,9 @@ void cSHierarchy::BuildPushPopFlags(
  #ifndef MSCHARGED_DIAGNOSTIC_SKELETON
  cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
  {
@@ -27,7 +28,7 @@ diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
      nlChunk* pFirst = (nlChunk*)pChunk->GetUnalignedData();
      if (pChunk->IsAlignedChunk())
      {
-@@ -92,28 +98,60 @@
+@@ -92,28 +98,60 @@ cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
      }
  
      pChunk = pFirst;
@@ -88,7 +89,7 @@ diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
  
      for (int i = 0; i < pRetval->m_nNumNodes; i++)
      {
-@@ -132,13 +170,25 @@
+@@ -132,13 +170,25 @@ cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
      pRetval->BuildPushPopFlags(0, 0, nCurrentDepth);
  
      pChunk = pChunk->GetNextChunk();

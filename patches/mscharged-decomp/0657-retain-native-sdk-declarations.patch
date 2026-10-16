@@ -1,9 +1,123 @@
 Subject: Retain unnamed SDK declarations without useless native typedef keywords
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
+index bc7e540..e4fbda0 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
+@@ -14,7 +14,10 @@ extern "C" {
+ #endif
+ 
+ // Forward declarations
+-typedef struct RFLMiddleDB;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct RFLMiddleDB;
+ 
+ typedef struct RFLAdditionalInfo {
+     RFL_WCHAR name[RFL_NAME_LEN + 1];       // at 0x0
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
+index e758cd8..9b22f70 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
+@@ -11,7 +11,10 @@ extern "C" {
+ #endif
+ 
+ // Forward declarations
+-typedef struct RFLMiddleDB;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct RFLMiddleDB;
+ 
+ typedef enum {
+     RFLCoordinateType_X = 0x01000000,
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_NWC24.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_NWC24.h
+index 7db65a6..6249f1f 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFL_NWC24.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_NWC24.h
+@@ -8,7 +8,10 @@ extern "C" {
+ #endif
+ 
+ // Forward declarations
+-typedef struct NWC24MsgObj;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct NWC24MsgObj;
+ 
+ RFLErrcode RFLCommitNWC24Msg(struct NWC24MsgObj* msg, u16 index);
+ 
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_DataUtility.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_DataUtility.h
+index 6ee5365..82b2506 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_DataUtility.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_DataUtility.h
+@@ -8,7 +8,10 @@ extern "C" {
+ #endif
+ 
+ // Forward declarations
+-typedef struct RFLMiddleDB;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct RFLMiddleDB;
+ 
+ BOOL RFLiCheckValidInfo(const RFLiCharInfo* info);
+ BOOL RFLiIsValidOnNAND(const RFLiCharInfo* info);
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
+index f862bf3..cc921d8 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
+@@ -11,7 +11,10 @@ extern "C" {
+ #define RFLi_HDB_DATA_MAX 10000
+ 
+ // Forward declarations
+-typedef struct RFLiCtrlBuf;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct RFLiCtrlBuf;
+ 
+ typedef struct RFLiHiddenDB {
+     u32 identifier;                        // at 0x0
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MakeTex.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MakeTex.h
+index 111474d..0a92fc1 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MakeTex.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MakeTex.h
+@@ -10,7 +10,10 @@ extern "C" {
+ #endif
+ 
+ // Forward declarations
+-typedef struct RFLiTexture;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct RFLiTexture;
+ 
+ typedef enum {
+     RFL_ORIGIN_CENTER,
+diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_NANDLoader.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_NANDLoader.h
+index b58ae80..1074b4b 100644
+--- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_NANDLoader.h
++++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_NANDLoader.h
+@@ -9,7 +9,10 @@ extern "C" {
+ #endif
+ 
+ // Forward declarations
+-typedef struct RFLiTexture;
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct RFLiTexture;
+ 
+ typedef struct RFLiArchive {
+     u16 numFiles;    // at 0x0
+diff --git a/libs/RVL_SDK/include/revolution/ax/AXPB.h b/libs/RVL_SDK/include/revolution/ax/AXPB.h
+index c5165bd..e684c5f 100644
 --- a/libs/RVL_SDK/include/revolution/ax/AXPB.h
 +++ b/libs/RVL_SDK/include/revolution/ax/AXPB.h
-@@ -34,7 +34,10 @@
+@@ -34,7 +34,10 @@ typedef enum {
  } AXSAMPLETYPE;
  
  // For rmtIIR union I think? From NW4R asserts, but fits well in __AXSyncPBs
@@ -15,7 +129,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      AX_PB_LPF_ON = 1,
      AX_PB_BIQUAD_ON,
  };
-@@ -48,7 +51,10 @@
+@@ -48,7 +51,10 @@ typedef enum {
      AX_SRC_TYPE_4TAP_AUTO
  } AXPBSRCTYPE;
  
@@ -27,7 +141,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      AX_MIXER_CTRL_L = (1 << 0),
      AX_MIXER_CTRL_R = (1 << 1),
      AX_MIXER_CTRL_DELTA = (1 << 2),
-@@ -74,7 +80,10 @@
+@@ -74,7 +80,10 @@ typedef enum {
      AX_MIXER_CTRL_DELTA_CS = (1 << 30)
  };
  
@@ -39,9 +153,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      AX_MIXER_CTRL_RMT_M0 = (1 << 0),
      AX_MIXER_CTRL_RMT_DELTA_M0 = (1 << 1),
      AX_MIXER_CTRL_RMT_A0 = (1 << 2),
+diff --git a/libs/RVL_SDK/include/revolution/ax/AXVPB.h b/libs/RVL_SDK/include/revolution/ax/AXVPB.h
+index 4a302cb..181cce8 100644
 --- a/libs/RVL_SDK/include/revolution/ax/AXVPB.h
 +++ b/libs/RVL_SDK/include/revolution/ax/AXVPB.h
-@@ -10,7 +10,10 @@
+@@ -10,7 +10,10 @@ extern "C" {
  #define AX_SAMPLE_RATE 32000
  #define AX_VOICE_MAX 96
  
@@ -53,6 +169,24 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      AX_PBSYNC_SELECT = (1 << 0),
      AX_PBSYNC_MIXER_CTRL = (1 << 1),
      AX_PBSYNC_STATE = (1 << 2),
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
+index e10d3ca..1c55013 100644
+--- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
++++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
+@@ -9,7 +9,10 @@ namespace nw4hbm {
+ namespace snd {
+ namespace detail {
+ 
+-typedef struct NoteOnInfo {
++#if !defined(MSCHARGED_NATIVE)
++typedef
++#endif
++struct NoteOnInfo {
+     /* 0x00 */ int prgNo;
+     /* 0x04 */ int key;
+     /* 0x08 */ int velocity;
+diff --git a/src/RVL_SDK/ipc/memory.c b/src/RVL_SDK/ipc/memory.c
+index 2245ba5..8956ed7 100644
 --- a/src/RVL_SDK/ipc/memory.c
 +++ b/src/RVL_SDK/ipc/memory.c
 @@ -10,7 +10,10 @@
@@ -67,114 +201,3 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      IPC_HEAP_CHUNK_FREE = 0xBABE0000,
      IPC_HEAP_CHUNK_USED = 0xBABE0001,
      IPC_HEAP_CHUNK_FORALIGN = 0xBABE0002
---- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
-+++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/NoteOnCallback.h
-@@ -9,7 +9,10 @@
- namespace snd {
- namespace detail {
- 
--typedef struct NoteOnInfo {
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct NoteOnInfo {
-     /* 0x00 */ int prgNo;
-     /* 0x04 */ int key;
-     /* 0x08 */ int velocity;
---- a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
-@@ -14,7 +14,10 @@
- #endif
- 
- // Forward declarations
--typedef struct RFLMiddleDB;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct RFLMiddleDB;
- 
- typedef struct RFLAdditionalInfo {
-     RFL_WCHAR name[RFL_NAME_LEN + 1];       // at 0x0
---- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_DataUtility.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_DataUtility.h
-@@ -8,7 +8,10 @@
- #endif
- 
- // Forward declarations
--typedef struct RFLMiddleDB;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct RFLMiddleDB;
- 
- BOOL RFLiCheckValidInfo(const RFLiCharInfo* info);
- BOOL RFLiIsValidOnNAND(const RFLiCharInfo* info);
---- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_HiddenDatabase.h
-@@ -11,7 +11,10 @@
- #define RFLi_HDB_DATA_MAX 10000
- 
- // Forward declarations
--typedef struct RFLiCtrlBuf;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct RFLiCtrlBuf;
- 
- typedef struct RFLiHiddenDB {
-     u32 identifier;                        // at 0x0
---- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_MakeTex.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_MakeTex.h
-@@ -10,7 +10,10 @@
- #endif
- 
- // Forward declarations
--typedef struct RFLiTexture;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct RFLiTexture;
- 
- typedef enum {
-     RFL_ORIGIN_CENTER,
---- a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
-@@ -11,7 +11,10 @@
- #endif
- 
- // Forward declarations
--typedef struct RFLMiddleDB;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct RFLMiddleDB;
- 
- typedef enum {
-     RFLCoordinateType_X = 0x01000000,
---- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_NANDLoader.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_NANDLoader.h
-@@ -9,7 +9,10 @@
- #endif
- 
- // Forward declarations
--typedef struct RFLiTexture;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct RFLiTexture;
- 
- typedef struct RFLiArchive {
-     u16 numFiles;    // at 0x0
---- a/libs/RVL_SDK/include/RVLFaceLib/RFL_NWC24.h
-+++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_NWC24.h
-@@ -8,6 +8,9 @@
- #endif
- 
- // Forward declarations
--typedef struct NWC24MsgObj;
-+#if !defined(MSCHARGED_NATIVE)
-+typedef
-+#endif
-+struct NWC24MsgObj;
- 
- RFLErrcode RFLCommitNWC24Msg(struct NWC24MsgObj* msg, u16 index);

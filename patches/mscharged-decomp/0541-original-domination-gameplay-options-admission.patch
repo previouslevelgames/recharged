@@ -1,5 +1,5 @@
 Subject: Admit original Domination gameplay options before captain selection
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0506.
 
 The authored MainMenu-to-Grudge-Match transition pushes SCENE_GAMEPLAY_OPTIONS
@@ -14,9 +14,10 @@ contexts. Native builds transport those genuine numeric 0..n values at native
 pointer width; each console statement is kept unchanged.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index f86dea0..12f2370 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -397,9 +397,13 @@
+@@ -430,9 +430,13 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_WIDESCREEN_LOADING:
          newHandler = new (nlMalloc(sizeof(MatchLoadingScene), 8, false)) MatchLoadingScene();
          break;
@@ -31,6 +32,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(SHOptionsCheatsList), 8, false)) SHOptionsCheatsList();
          break;
 diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.cpp
+index ef3bff3..f8e70ce 100644
 --- a/src/Game/SH/SHGameplayOptions.cpp
 +++ b/src/Game/SH/SHGameplayOptions.cpp
 @@ -1,3 +1,6 @@
@@ -40,7 +42,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
  #include "Game/SH/SHGameplayOptions.h"
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
-@@ -547,8 +550,12 @@
+@@ -555,8 +558,12 @@ void SHGameplayOptions::InitializePointerButtons()
  
  void SHGameplayOptions::OnOptionPointerEnter(unsigned int index, void* context)
  {
@@ -54,7 +56,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
      {
          ++mPointerInsideCounts[index];
          mOptionButtons[item].PlayHoverFeedback(index);
-@@ -563,8 +570,12 @@
+@@ -571,8 +578,12 @@ void SHGameplayOptions::OnOptionPointerEnter(unsigned int index, void* context)
  
  void SHGameplayOptions::OnOptionPointerLeave(unsigned int index, void* context)
  {
@@ -68,7 +70,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
      {
          --mPointerInsideCounts[index];
          if (!mOptionButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
-@@ -577,8 +588,12 @@
+@@ -585,8 +596,12 @@ void SHGameplayOptions::OnOptionPointerLeave(unsigned int index, void* context)
  
  void SHGameplayOptions::OnOptionPointerPress(unsigned int index, void* context)
  {
@@ -82,7 +84,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
          return;
      mOptionInstances[item]->SetActiveSlide("down", true, false);
      for (int j = 0; j < 4; ++j)
-@@ -624,7 +639,11 @@
+@@ -632,7 +647,11 @@ void SHGameplayOptions::OnOptionPointerPress(unsigned int index, void* context)
  
  void SHGameplayOptions::OnCheatPointerEnter(unsigned int index, void* context)
  {
@@ -94,7 +96,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
      ++mPointerInsideCounts[index];
      mCheatButtons[item].PlayHoverFeedback(index);
      if (!mCheatButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
-@@ -637,7 +656,11 @@
+@@ -645,7 +664,11 @@ void SHGameplayOptions::OnCheatPointerEnter(unsigned int index, void* context)
  
  void SHGameplayOptions::OnCheatPointerLeave(unsigned int index, void* context)
  {
@@ -106,7 +108,7 @@ diff --git a/src/Game/SH/SHGameplayOptions.cpp b/src/Game/SH/SHGameplayOptions.c
      --mPointerInsideCounts[index];
      if (!mCheatButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
      {
-@@ -649,7 +672,11 @@
+@@ -657,7 +680,11 @@ void SHGameplayOptions::OnCheatPointerLeave(unsigned int index, void* context)
  void SHGameplayOptions::OnCheatPointerPress(unsigned int index, void* context)
  {
      SHOptionsCheatsList* scene = (SHOptionsCheatsList*)GameSceneManager::Instance()->Push(SCENE_OPTIONS_CHEATS_LIST, SCREEN_NOTHING, false);

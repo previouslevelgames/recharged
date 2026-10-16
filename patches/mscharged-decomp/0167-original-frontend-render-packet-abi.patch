@@ -1,5 +1,5 @@
 Subject: Restore original frontend quad providers and native packet ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore all reconstructed GLDraw3 methods beneath the unchanged original
 frontend decisions. Retain legacy validation only in explicitly diagnostic
@@ -11,6 +11,7 @@ four-byte material array words. Full original finalizer/material providers
 remain required; this does not establish game main, image readiness or GPU.
 
 diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
+index 09f5619..82a0943 100644
 --- a/include/Game/FE/feScene.h
 +++ b/include/Game/FE/feScene.h
 @@ -5,6 +5,7 @@
@@ -21,7 +22,7 @@ diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
  
  #if defined(MSCHARGED_NATIVE)
  #include <cstdint>
-@@ -45,7 +46,7 @@
+@@ -45,7 +46,7 @@ public:
      /* 0x00 */ FEPackage* m_pFEPackage;
      /* 0x04 */ unsigned long m_uHashID;
      /* 0x08 */ nlMatrix4 m_matView;
@@ -31,6 +32,7 @@ diff --git a/include/Game/FE/feScene.h b/include/Game/FE/feScene.h
      /* 0x50 */ FEPointerWord* m_pPointerTable;
      /* 0x54 */ FESceneResource m_feSceneResourceHandle;
 diff --git a/include/Game/FE/feSceneManager.h b/include/Game/FE/feSceneManager.h
+index 4af88d2..5e4ac61 100644
 --- a/include/Game/FE/feSceneManager.h
 +++ b/include/Game/FE/feSceneManager.h
 @@ -2,6 +2,7 @@
@@ -41,7 +43,7 @@ diff --git a/include/Game/FE/feSceneManager.h b/include/Game/FE/feSceneManager.h
  
  #include "Game/BaseSceneHandler.h"
  #include "NL/nlDLListContainer.h"
-@@ -44,7 +45,7 @@
+@@ -44,7 +45,7 @@ public:
  
      /* 0x00 */ nlDLListSlotPool<BaseSceneHandler*> m_sceneHandlerStack;
      /* 0x1C */ BaseSceneHandler* m_topMostScene;
@@ -51,6 +53,7 @@ diff --git a/include/Game/FE/feSceneManager.h b/include/Game/FE/feSceneManager.h
  
  #endif // GAME_FE_SCENE_MANAGER_H
 diff --git a/include/NL/gl/gl.h b/include/NL/gl/gl.h
+index b6f7eb4..413af83 100644
 --- a/include/NL/gl/gl.h
 +++ b/include/NL/gl/gl.h
 @@ -1,7 +1,15 @@
@@ -70,9 +73,10 @@ diff --git a/include/NL/gl/gl.h b/include/NL/gl/gl.h
      GLV_ShadowTexture = 0,
      GLV_GrabTexture = 1,
 diff --git a/src/Game/Drawable/DrawableBirdoEgg.cpp b/src/Game/Drawable/DrawableBirdoEgg.cpp
+index f60feed..87fe0e2 100644
 --- a/src/Game/Drawable/DrawableBirdoEgg.cpp
 +++ b/src/Game/Drawable/DrawableBirdoEgg.cpp
-@@ -111,7 +111,7 @@
+@@ -111,7 +111,7 @@ static void DrawShadow(const nlMatrix4& matrix, float scale)
      glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -82,9 +86,10 @@ diff --git a/src/Game/Drawable/DrawableBirdoEgg.cpp b/src/Game/Drawable/Drawable
  
  DrawableBirdoEgg::DrawableBirdoEgg()
 diff --git a/src/Game/Drawable/DrawableBulletBill.cpp b/src/Game/Drawable/DrawableBulletBill.cpp
+index bed6012..2fea3cf 100644
 --- a/src/Game/Drawable/DrawableBulletBill.cpp
 +++ b/src/Game/Drawable/DrawableBulletBill.cpp
-@@ -97,7 +97,7 @@
+@@ -97,7 +97,7 @@ static void DrawShadow(const nlMatrix4& matrix, float scale)
      glSetCurrentTexture(glGetTexture("global/bulletbillshadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -94,9 +99,10 @@ diff --git a/src/Game/Drawable/DrawableBulletBill.cpp b/src/Game/Drawable/Drawab
  
  DrawableBulletBill::DrawableBulletBill()
 diff --git a/src/Game/Drawable/DrawableFlyingCamera.cpp b/src/Game/Drawable/DrawableFlyingCamera.cpp
+index e0bb8d1..a884dbb 100644
 --- a/src/Game/Drawable/DrawableFlyingCamera.cpp
 +++ b/src/Game/Drawable/DrawableFlyingCamera.cpp
-@@ -98,7 +98,7 @@
+@@ -98,7 +98,7 @@ static void DrawShadow(const nlMatrix4& matrix, float scale)
      glSetCurrentTexture(glGetTexture("global/camera_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -106,9 +112,10 @@ diff --git a/src/Game/Drawable/DrawableFlyingCamera.cpp b/src/Game/Drawable/Draw
  
  DrawableFlyingCamera::DrawableFlyingCamera()
 diff --git a/src/Game/Drawable/DrawableKoopaShell.cpp b/src/Game/Drawable/DrawableKoopaShell.cpp
+index eb8b707..c02a5fc 100644
 --- a/src/Game/Drawable/DrawableKoopaShell.cpp
 +++ b/src/Game/Drawable/DrawableKoopaShell.cpp
-@@ -117,7 +117,7 @@
+@@ -109,7 +109,7 @@ static void DrawShadow(const nlMatrix4& matrix, float scale)
      glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -118,9 +125,10 @@ diff --git a/src/Game/Drawable/DrawableKoopaShell.cpp b/src/Game/Drawable/Drawab
  
  DrawableKoopaShell::DrawableKoopaShell()
 diff --git a/src/Game/Drawable/DrawablePowerup.cpp b/src/Game/Drawable/DrawablePowerup.cpp
+index 1d07deb..9e8abea 100644
 --- a/src/Game/Drawable/DrawablePowerup.cpp
 +++ b/src/Game/Drawable/DrawablePowerup.cpp
-@@ -136,7 +136,7 @@
+@@ -136,7 +136,7 @@ static void DrawShadow(float radius, float x, float y, float z)
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
  
@@ -130,9 +138,10 @@ diff --git a/src/Game/Drawable/DrawablePowerup.cpp b/src/Game/Drawable/DrawableP
  
  void DrawablePowerup::Grab(int idx)
 diff --git a/src/Game/Drawable/DrawableThwomp.cpp b/src/Game/Drawable/DrawableThwomp.cpp
+index 9f6d917..602926d 100644
 --- a/src/Game/Drawable/DrawableThwomp.cpp
 +++ b/src/Game/Drawable/DrawableThwomp.cpp
-@@ -110,7 +110,7 @@
+@@ -110,7 +110,7 @@ static void DrawShadow(ThwompObject* object, const nlMatrix4& matrix, void* view
      {
          view = GetUnshadowedView();
      }
@@ -142,9 +151,10 @@ diff --git a/src/Game/Drawable/DrawableThwomp.cpp b/src/Game/Drawable/DrawableTh
  
  DrawableThwomp::DrawableThwomp()
 diff --git a/src/Game/Drawable/DrawableYoshiEgg.cpp b/src/Game/Drawable/DrawableYoshiEgg.cpp
+index 70b5eb4..31d3afb 100644
 --- a/src/Game/Drawable/DrawableYoshiEgg.cpp
 +++ b/src/Game/Drawable/DrawableYoshiEgg.cpp
-@@ -111,7 +111,7 @@
+@@ -111,7 +111,7 @@ static void DrawShadow(const nlMatrix4& matrix, float scale)
      glSetCurrentTexture(glGetTexture("global/ball_shadow"), GLTT_Diffuse);
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
@@ -154,9 +164,10 @@ diff --git a/src/Game/Drawable/DrawableYoshiEgg.cpp b/src/Game/Drawable/Drawable
  
  DrawableYoshiEgg::DrawableYoshiEgg()
 diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index 8c612da..ae05c73 100644
 --- a/src/Game/FE/feRender.cpp
 +++ b/src/Game/FE/feRender.cpp
-@@ -280,8 +280,8 @@
+@@ -280,8 +280,8 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
      matTM.m41 += view.m41;
      matTM.m42 += view.m42;
      matTM.m43 += view.m43;
@@ -168,6 +179,7 @@ diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
          glSetMatrix(matrixHandle, matTM);
      }
 diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
+index 6f0ea8a..b3536ed 100644
 --- a/src/Game/GL/glModelBuilder.cpp
 +++ b/src/Game/GL/glModelBuilder.cpp
 @@ -15,7 +15,7 @@
@@ -179,7 +191,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
      if (!pModel || numVerts <= 0 || numVerts > 65535 || prim < 0 || prim >= 6
          || numStreams <= 0 || numStreams > 255 || !glGetMaterialProgram(programHash))
          throw std::invalid_argument("Invalid native procedural model description");
-@@ -33,7 +33,12 @@
+@@ -33,7 +33,12 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
      }
  
  #if defined(MSCHARGED_NATIVE)
@@ -192,7 +204,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
  #endif
      pModel->id = 0;
      pModel->numPackets = 1;
-@@ -63,7 +68,12 @@
+@@ -63,7 +68,12 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
              numStreams * sizeof(glModelStream), GLM_Header);
      }
  #if defined(MSCHARGED_NATIVE)
@@ -206,7 +218,7 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
  #endif
      pPacket->streams = pPktStreams;
  
-@@ -84,7 +94,7 @@
+@@ -84,7 +94,7 @@ void glCreateModel(glModel* pModel, int numVerts, int prim,
      {
          data = glFrameAlloc(dataSize, GLM_Header);
      }
@@ -216,9 +228,10 @@ diff --git a/src/Game/GL/glModelBuilder.cpp b/src/Game/GL/glModelBuilder.cpp
  #endif
      pPacket->materialParameters = data;
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
+index 8124df5..8a74981 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
-@@ -857,7 +857,7 @@
+@@ -857,7 +857,7 @@ void ChainChomp::DrawShadow(
          {
              view = gpChainChompShadowView;
          }
@@ -228,9 +241,10 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
      }
      case CHAIN_STATE_HIDDEN:
 diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScoreMeter.cpp
+index c5d61f3..923913a 100644
 --- a/src/Game/Render/ShootToScoreMeter.cpp
 +++ b/src/Game/Render/ShootToScoreMeter.cpp
-@@ -265,7 +265,7 @@
+@@ -265,7 +265,7 @@ void ShootToScoreMeter::DrawColouredRegion(float startAngle,
          barQuad.m_colour[3] = barQuad.m_colour[2];
  
          glAttachQuad3(
@@ -239,7 +253,7 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
              &barQuad);
      }
  }
-@@ -309,7 +309,7 @@
+@@ -309,7 +309,7 @@ void ShootToScoreMeter::DrawIndicatorBar(float angle,
      barQuad.SetupRotatedRectangle(scaledWhiteBarWidth,
          scaledWhiteBarHeight, barMatrix, false, false);
      barQuad.SetColour(colour);
@@ -248,7 +262,7 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
          &barQuad);
  }
  
-@@ -391,7 +391,7 @@
+@@ -391,7 +391,7 @@ void ShootToScoreMeter::DrawMeter()
      glQuad3 quad;
      quad.SetupRotatedRectangle(
          scaledMeterWidth, scaledMeterWidth, matrix, true, false);
@@ -258,9 +272,10 @@ diff --git a/src/Game/Render/ShootToScoreMeter.cpp b/src/Game/Render/ShootToScor
  
      nlColour green = sGreenRegionColour;
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index b569fc0..5e22b90 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -619,7 +619,7 @@
+@@ -627,7 +627,7 @@ static void Initialize()
      InitMaxProjectedShadows();
      SetCharacterShadowView(GetLayerView(eCLV_Characters));
      FESceneManager::s_pInstance->m_uDefaultRenderView =
@@ -270,6 +285,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ReplayManager::Instance();
      Wiper::Instance().Initialize();
 diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
+index 80bfc99..8315351 100644
 --- a/src/NL/gl/glDraw3.cpp
 +++ b/src/NL/gl/glDraw3.cpp
 @@ -1,5 +1,5 @@
@@ -279,7 +295,7 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
  #include <stdexcept>
  #endif
  #include "NL/gl/glTexture.h"
-@@ -12,7 +12,7 @@
+@@ -11,7 +11,7 @@
  #include "Game/SharedStaticStorage.h"
  
  
@@ -288,7 +304,7 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
  bool glAttachQuad3(eGLView view, unsigned long count, glQuad3* quads)
  {
      int i = 0;
-@@ -43,7 +43,7 @@
+@@ -42,7 +42,7 @@ const glModel* glQuad3::GetModel() const
      glModel* newModel = 0;
      GLTexturedColourMeshWriter writer;
      unsigned long texconfig = gl_GetCurrentStateBundle()->texconfig;
@@ -297,7 +313,7 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
      if (!glIsFrameActive() || glNativeViewDispatchActive() || texconfig != 1)
          throw std::logic_error("Native glQuad3 requires a collecting frame and an ordinary texture");
  #endif
-@@ -79,7 +79,7 @@
+@@ -78,7 +78,7 @@ const glModel* glQuad3::GetModel() const
          }
      }
  
@@ -306,7 +322,7 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
      if (texconfig == 0)
      {
          glTextureBinding* state =
-@@ -127,7 +127,7 @@
+@@ -126,7 +126,7 @@ const glModel* glQuad3::GetModel() const
      return newModel;
  }
  
@@ -316,22 +332,23 @@ diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
  {
      ((GLView*)view)->AttachModel(GetModel(), stream);
 diff --git a/src/NL/gl/glMaterialParameters.cpp b/src/NL/gl/glMaterialParameters.cpp
+index 1ccba90..e779f3f 100644
 --- a/src/NL/gl/glMaterialParameters.cpp
 +++ b/src/NL/gl/glMaterialParameters.cpp
-@@ -7,6 +7,12 @@
- #include "NL/gl/glTexture.h"
+@@ -8,6 +8,12 @@
  
  #include <string.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +typedef u32 MaterialArrayWord;
 +#else
 +typedef unsigned long MaterialArrayWord;
 +#endif
- 
++
  namespace
  {
-@@ -51,7 +57,7 @@
+ inline const GXMaterialParameter* FindParameter(
+@@ -51,7 +57,7 @@ void glSetMaterialParameterArray(glModelPacket* packet, unsigned long hash,
  {
      const GXMaterialParameter* parameter = FindParameter(packet, hash);
      memcpy(GetParameterData(packet, parameter), value,
@@ -341,9 +358,10 @@ diff --git a/src/NL/gl/glMaterialParameters.cpp b/src/NL/gl/glMaterialParameters
  
  void glSetMaterialTextureParameter(
 diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
+index 9f40fc9..f13c248 100644
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp
-@@ -121,17 +121,22 @@
+@@ -121,17 +121,22 @@ void GXFloatTexturedColourMaterialProgram::DrawIndexed(const glModelPacket* pack
  
  void GXFloatTexturedColourMaterialProgram::DrawDirect(const glModelPacket* packet)
  {
@@ -370,6 +388,7 @@ diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgram.cpp b/src/NL/glx/GX
  }
  
 diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
+index fbe4ab5..3c29af4 100644
 --- a/src/NL/glx/glxDisplayList.cpp
 +++ b/src/NL/glx/glxDisplayList.cpp
 @@ -1,5 +1,9 @@
@@ -382,11 +401,10 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
  
  #include "NL/glx/glxDisplayList.h"
  #include "NL/glx/glxSkinMatrix.h"
-@@ -10,6 +14,17 @@
- #include "NL/nlString.h"
+@@ -11,6 +15,17 @@
  
  #define DISPLAY_LIST_HEADER 0xBA7EF00D
-+
+ 
 +static inline void StoreDisplayListU16(unsigned char* destination, unsigned short value)
 +{
 +#if defined(MSCHARGED_NATIVE)
@@ -397,10 +415,11 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
 +    *(unsigned short*)destination = value;
 +#endif
 +}
- 
++
  static unsigned char opcodes[6] = {
      0x90,
-@@ -46,7 +61,11 @@
+     0x98,
+@@ -46,7 +61,11 @@ DisplayList* dlMakeDisplayList(
          ++streamIndex, i += sizeof(glModelStream))
      {
          unsigned char* stream = (unsigned char*)packet->streams + i;
@@ -412,7 +431,7 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
          if ((unsigned long)(streamID - 1) <= 3)
          {
              ++numStreams;
-@@ -54,7 +73,11 @@
+@@ -54,7 +73,11 @@ DisplayList* dlMakeDisplayList(
          else if (streamID == 7)
          {
              bStitch = 1;
@@ -424,7 +443,7 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
          }
      }
  
-@@ -81,7 +104,7 @@
+@@ -81,7 +104,7 @@ DisplayList* dlMakeDisplayList(
      nlZeroMemory(p + actualSize, size - actualSize);
  
      p[0] = opcodes[(unsigned char)packet->primType];
@@ -433,7 +452,7 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
  
      unsigned char* p8 = p + 3;
      unsigned char hasColor = bStitch;
-@@ -97,7 +120,7 @@
+@@ -97,7 +120,7 @@ DisplayList* dlMakeDisplayList(
  
              for (unsigned long j = 0; j < numStreams; ++j)
              {
@@ -442,7 +461,7 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
                  p8 += 2;
              }
  
-@@ -112,7 +135,7 @@
+@@ -112,7 +135,7 @@ DisplayList* dlMakeDisplayList(
          {
              for (unsigned long j = 0; j < numStreams; ++j)
              {
@@ -451,7 +470,7 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
                  p8 += 2;
              }
  
-@@ -138,8 +161,13 @@
+@@ -138,8 +161,13 @@ DisplayList* dlMakeDisplayList(
      pList->numStreams = (unsigned short)numStreams;
      pList->hasColorStream = bStitch;
  
@@ -466,9 +485,10 @@ diff --git a/src/NL/glx/glxDisplayList.cpp b/src/NL/glx/glxDisplayList.cpp
      return pList;
  }
 diff --git a/src/NL/glx/glxGX.cpp b/src/NL/glx/glxGX.cpp
+index 1f326cc..7cefa24 100644
 --- a/src/NL/glx/glxGX.cpp
 +++ b/src/NL/glx/glxGX.cpp
-@@ -12,7 +12,9 @@
+@@ -12,7 +12,9 @@ extern "C"
      void GXSetCullMode(s32 mode);
      void GXSetCoPlanar(u8 enable);
      void GXSetNumChans(u8 nChans);
@@ -478,7 +498,7 @@ diff --git a/src/NL/glx/glxGX.cpp b/src/NL/glx/glxGX.cpp
      void GXSetTevColorIn(s32 stage, s32 a, s32 b, s32 c, s32 d);
      void GXSetTevAlphaIn(s32 stage, s32 a, s32 b, s32 c, s32 d);
      void GXSetTevColorOp(s32 stage, s32 op, s32 bias, s32 scale, u8 clamp, s32 out_reg);
-@@ -34,6 +36,7 @@
+@@ -34,6 +36,7 @@ extern "C"
  
  }
  
@@ -486,7 +506,7 @@ diff --git a/src/NL/glx/glxGX.cpp b/src/NL/glx/glxGX.cpp
  enum
  {
      GX_CULL_BACK = 2,
-@@ -68,6 +71,10 @@
+@@ -68,6 +71,10 @@ enum
  
      GX_MAX_TEVSTAGE = 16
  };

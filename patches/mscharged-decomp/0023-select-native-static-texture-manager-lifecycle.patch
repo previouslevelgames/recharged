@@ -1,6 +1,6 @@
 Subject: Select native static texture manager lifecycle
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Select native static texture manager lifecycle
 Select original static texture lookup, binding resolution, registration and
@@ -12,9 +12,10 @@ Select glTextureManagerStatic.cpp alone for this native subset. Texture GPU
 objects are not reinterpreted as Aurora objects; native GX upload is external.
 
 diff --git a/include/NL/gl/glTexture.h b/include/NL/gl/glTexture.h
+index 225d1bd..158dc7f 100644
 --- a/include/NL/gl/glTexture.h
 +++ b/include/NL/gl/glTexture.h
-@@ -17,6 +17,9 @@
+@@ -17,6 +17,9 @@ bool glEndLoadTextureBundle(
  unsigned long glGetTextureIndex(unsigned long texture);
  
  void glInitTextureManager(unsigned long count);
@@ -25,6 +26,7 @@ diff --git a/include/NL/gl/glTexture.h b/include/NL/gl/glTexture.h
  void glReleaseTexture(PlatTexture* texture);
  
 diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
+index 6dc5dfb..838653f 100644
 --- a/include/NL/gl/glTextureManager.h
 +++ b/include/NL/gl/glTextureManager.h
 @@ -2,6 +2,9 @@
@@ -37,7 +39,7 @@ diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
  
  class GLTextureAnim;
  class PlatTexture;
-@@ -11,6 +14,10 @@
+@@ -11,6 +14,10 @@ struct glTextureIndexQueue
  {
      glTextureIndexQueue(u16* data, unsigned long capacity)
      {
@@ -48,7 +50,7 @@ diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
          mHead = 0;
          mCount = 0;
          mCapacity = capacity;
-@@ -19,6 +26,9 @@
+@@ -19,6 +26,9 @@ struct glTextureIndexQueue
  
      void AddEnd(const u16& value)
      {
@@ -58,7 +60,7 @@ diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
          u16* entry;
          if (mCount >= mCapacity)
          {
-@@ -34,6 +44,9 @@
+@@ -34,6 +44,9 @@ struct glTextureIndexQueue
  
      u16 RemoveStart()
      {
@@ -68,7 +70,7 @@ diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
          u16* entry;
          if (mCount == 0)
          {
-@@ -62,6 +75,9 @@
+@@ -62,6 +75,9 @@ class glTextureManager
  {
  public:
      explicit glTextureManager(unsigned long count);
@@ -80,6 +82,7 @@ diff --git a/include/NL/gl/glTextureManager.h b/include/NL/gl/glTextureManager.h
      PlatTexture* GetTextureAtIndex(const unsigned long* texture);
 diff --git a/src/NL/gl/glTextureManagerStatic.cpp b/src/NL/gl/glTextureManagerStatic.cpp
 new file mode 100644
+index 0000000..348409d
 --- /dev/null
 +++ b/src/NL/gl/glTextureManagerStatic.cpp
 @@ -0,0 +1,156 @@

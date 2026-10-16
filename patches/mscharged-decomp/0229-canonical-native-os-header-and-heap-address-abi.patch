@@ -1,6 +1,6 @@
 Subject: [PATCH] share canonical native OS types and heap address width
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native compilation uses the actual SDK context/alarm/thread/mutex ABI. Preserve
 console declarations and missing Wii services as explicit imports. Heap pointer
@@ -8,9 +8,10 @@ arithmetic retains native addresses while original32-bit offsets remain fixed.
 No HBM source behavior or successful platform provider is added.
 
 diff --git a/libs/RVL_SDK/include/revolution/mem/heapCommon.h b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
+index f660b89..f217b3f 100644
 --- a/libs/RVL_SDK/include/revolution/mem/heapCommon.h
 +++ b/libs/RVL_SDK/include/revolution/mem/heapCommon.h
-@@ -33,7 +33,12 @@
+@@ -33,7 +33,12 @@ struct MEMiHeapHead {
  typedef MEMiHeapHead* MEMHeapHandle;
  
  #define MEM_HEAP_INVALID_HANDLE 0
@@ -24,12 +25,13 @@ diff --git a/libs/RVL_SDK/include/revolution/mem/heapCommon.h b/libs/RVL_SDK/inc
  static inline UIntPtr GetUIntPtr(const void* ptr) {
      return (UIntPtr)ptr;
 diff --git a/libs/RVL_SDK/include/revolution/os/OSAlarm.h b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
+index 25e2ed1..1846acf 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
-@@ -1,5 +1,21 @@
+@@ -1,6 +1,22 @@
  #ifndef REVOLUTION_OS_ALARM_H
  #define REVOLUTION_OS_ALARM_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/os/OSAlarm.h>
 +// Wii APIs absent from the current native SDK remain explicit providers.
@@ -45,10 +47,11 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSAlarm.h b/libs/RVL_SDK/include
 +#define OSGetAlarmUserDataAny(type_, alarm_) ((type_)(OSGetAlarmUserData(alarm_)))
 +#define OSSetAlarmUserDataAny(alarm_, data_) OSSetAlarmUserData(alarm_, (void*)(data_))
 +#else
- 
++
  #include <revolution/os/OSContext.h>
  #include <revolution/types.h>
-@@ -43,4 +59,6 @@
+ 
+@@ -43,4 +59,6 @@ void* OSGetAlarmUserData(const OSAlarm* alarm);
  }
  #endif
  
@@ -56,6 +59,7 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSAlarm.h b/libs/RVL_SDK/include
 +
  #endif  // REVOLUTION_OS_ALARM_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSContext.h b/libs/RVL_SDK/include/revolution/os/OSContext.h
+index 899a385..1057b3b 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSContext.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSContext.h
 @@ -7,7 +7,7 @@
@@ -68,19 +72,21 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSContext.h b/libs/RVL_SDK/inclu
  #ifdef __cplusplus
  }
 diff --git a/libs/RVL_SDK/include/revolution/os/OSMutex.h b/libs/RVL_SDK/include/revolution/os/OSMutex.h
+index 7fcdbaa..0748458 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSMutex.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSMutex.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef REVOLUTION_OS_MUTEX_H
  #define REVOLUTION_OS_MUTEX_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/os/OSMutex.h>
 +#else
- 
++
  #include <revolution/os/OSThread.h>
  
-@@ -31,4 +35,6 @@
+ #ifdef __cplusplus
+@@ -31,4 +35,6 @@ void OSSignalCond(OSCond* cond);
  }
  #endif
  
@@ -88,19 +94,21 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSMutex.h b/libs/RVL_SDK/include
 +
  #endif  // REVOLUTION_OS_MUTEX_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
+index 9d040dc..97ad08e 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef REVOLUTION_OS_THREAD_H
  #define REVOLUTION_OS_THREAD_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/os/OSThread.h>
 +#else
- 
++
  #include <revolution/os/OSContext.h>
  #include <revolution/os/OSThread_fwd.h>
-@@ -98,4 +102,6 @@
+ #include <revolution/types.h>
+@@ -98,4 +102,6 @@ void OSSleepTicks(s64 ticks);
  }
  #endif
  
@@ -108,19 +116,21 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/includ
 +
  #endif  // REVOLUTION_OS_THREAD_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
+index 463f57f..1e51252 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread_fwd.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef REVOLUTION_OS_THREAD_FWD_H
  #define REVOLUTION_OS_THREAD_FWD_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <dolphin/os/OSThread.h>
 +#else
- 
++
  #ifdef __cplusplus
  extern "C" {
-@@ -19,4 +23,6 @@
+ #endif
+@@ -19,4 +23,6 @@ void OSYieldThread(void);
  }
  #endif
  

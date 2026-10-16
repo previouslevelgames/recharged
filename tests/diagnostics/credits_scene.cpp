@@ -128,7 +128,7 @@ unsigned DrawActualCredits231(FontManager& fonts, GLResourcePool* fontPool)
     gl_TargetStartup();
     SetupViews(); // Named diagnostic creates the genuine source Anark only.
     nlMatrix4 identity; identity.SetIdentity();
-    fn_80273144(identity, identity, 4.0f/3.0f, 0.4712389f, 4.0f/3.0f, 0.4712389f);
+    UpdateLayerCameras(identity, identity, 4.0f/3.0f, 0.4712389f, 4.0f/3.0f, 0.4712389f);
     RLView* sourceView = GetLayerView(eCLV_Anark);
     Check(sourceView && sourceView->m_Interface == &sOrthoCenteredCamera,
           "Original SetupViews omitted actual Anark camera");

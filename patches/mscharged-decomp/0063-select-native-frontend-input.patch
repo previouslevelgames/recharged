@@ -1,5 +1,5 @@
 Subject: Select original frontend input with an explicit native pad backend
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Make the native pad base abstract where console method bodies are unavailable;
 a real desktop backend supplies every query. Native owners supply bounded pad
@@ -8,10 +8,20 @@ Initialize polar state, define signed angle wrapping, and share the original
 51-action table. Original FE repeat, edge and focus logic remains unchanged.
 Gameplay motion/DPD, rumble and complete FE scene startup remain separate work.
 
+diff --git a/include/Game/PadActionMap.inc b/include/Game/PadActionMap.inc
+new file mode 100644
+index 0000000..70e7a4f
+--- /dev/null
++++ b/include/Game/PadActionMap.inc
+@@ -0,0 +1,3 @@
++int gGameCubeButtonRemap[51] = {
++    0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
++};
 diff --git a/include/NL/platpad.h b/include/NL/platpad.h
+index c59abea..6359107 100644
 --- a/include/NL/platpad.h
 +++ b/include/NL/platpad.h
-@@ -19,11 +19,36 @@
+@@ -19,11 +19,36 @@ class PadBackend
  public:
      PadBackend(int padIndex)
          : m_padIndex(padIndex)
@@ -48,16 +58,16 @@ diff --git a/include/NL/platpad.h b/include/NL/platpad.h
      virtual bool IsConnected();
      virtual bool IsPressed(int button, bool remap);
      virtual float GetPressure(int button, bool remap);
-@@ -42,6 +67,8 @@
-     virtual void StopRumble();
+@@ -43,6 +68,8 @@ public:
      virtual void Update(float deltaTime);
      virtual int GetClassID();
-+
-+#endif
  
++#endif
++
      void DisableLeftAnalogToDPadMap()
      {
-@@ -91,7 +118,11 @@
+         m_isLeftAnalogToDPadMapEnabled = false;
+@@ -91,7 +118,11 @@ public:
      virtual void Update(float dt);
      virtual int GetClassID() { return gPlatPadClassID; }
  
@@ -69,76 +79,11 @@ diff --git a/include/NL/platpad.h b/include/NL/platpad.h
      {
          return gPlatPadAllocator.Allocate();
      }
-diff --git a/src/NL/plat/PadBackend.cpp b/src/NL/plat/PadBackend.cpp
---- a/src/NL/plat/PadBackend.cpp
-+++ b/src/NL/plat/PadBackend.cpp
-@@ -1,4 +1,7 @@
- #include "NL/platpad.h"
-+#ifdef MSCHARGED_NATIVE
-+#include <stdexcept>
-+#endif
- 
- int gNextPadClassID;
- 
-@@ -13,7 +16,11 @@
- 
-     if ((0.f != x) || (0.f != y))
-     {
-+#ifdef MSCHARGED_NATIVE
-+        m_polarAnalogLeft.a = (u16)(s32)(10430.378f * nlATan2f(y, x));
-+#else
-         m_polarAnalogLeft.a = (u16)(10430.378f * nlATan2f(y, x));
-+#endif
-     }
- 
-     x = this->AnalogRightX();
-@@ -21,7 +28,11 @@
-     m_polarAnalogRight.r = nlSqrt((x * x) + (y * y), 1);
-     if ((0.f != x) || (0.f != y))
-     {
-+#ifdef MSCHARGED_NATIVE
-+        m_polarAnalogRight.a = (u16)(s32)(10430.378f * nlATan2f(y, x));
-+#else
-         m_polarAnalogRight.a = (u16)(10430.378f * nlATan2f(y, x));
-+#endif
-     }
- }
- 
-@@ -100,5 +111,10 @@
- 
- int GetPadButtonMask(int buttonIndex)
- {
-+#ifdef MSCHARGED_NATIVE
-+    if (buttonIndex < 0 || buttonIndex > 31) throw std::out_of_range("Pad button index");
-+    return (int)(1u << buttonIndex);
-+#else
-     return 1 << buttonIndex;
-+#endif
- }
-diff --git a/src/NL/plat/globalpad.cpp b/src/NL/plat/globalpad.cpp
---- a/src/NL/plat/globalpad.cpp
-+++ b/src/NL/plat/globalpad.cpp
-@@ -7,6 +7,7 @@
- {
- }
- 
-+#ifndef MSCHARGED_NATIVE
- void PadManager::Initialize(int padCount, int padSetCount)
- {
-     mPadCount = padCount;
-@@ -23,6 +24,8 @@
-         }
-     }
- }
-+
-+#endif
- 
- void PadManager::Update(float deltaTime)
- {
 diff --git a/src/Game/FE/feInput.cpp b/src/Game/FE/feInput.cpp
+index a8e231d..145dab1 100644
 --- a/src/Game/FE/feInput.cpp
 +++ b/src/Game/FE/feInput.cpp
-@@ -19,10 +19,13 @@
+@@ -18,11 +18,14 @@ struct FEPadData
  FEInput* g_pFEInput = 0;
  FEPadData g_aFEPadData[4];
  
@@ -147,12 +92,14 @@ diff --git a/src/Game/FE/feInput.cpp b/src/Game/FE/feInput.cpp
  {
      g_pFEInput = new ((u8*)nlMalloc(sizeof(FEInput), 8, false)) FEInput();
  }
-+
-+#endif
  
- void FEInput::Reset(bool arg0)
++#endif
++
+ void FEInput::Reset(bool resetInputLocks)
  {
+     for (int i = 0; i < 4; i++)
 diff --git a/src/Game/PadActions.cpp b/src/Game/PadActions.cpp
+index 14f1e7c..1c3a8c8 100644
 --- a/src/Game/PadActions.cpp
 +++ b/src/Game/PadActions.cpp
 @@ -20,9 +20,9 @@
@@ -168,11 +115,71 @@ diff --git a/src/Game/PadActions.cpp b/src/Game/PadActions.cpp
  
  static int sWiiRemoteButtonRemap[51] = {
      0x00000000, 0x00000000, 0x00000100, 0x00000200, 0x00000010, 0x00000000, 0x00000000, 0x00000800, 0x00001000, 0x00000200, 0x00000100, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000800, 0x00000400, 0x00000200, 0x00000100, 0x00000010, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000800, 0x00000800, 0x00000400, 0x00000000, 0x00000800, 0x00000400, 0x00000010, 0x00000100, 0x00000100, 0x00000100, 0x00000400, 0x00000200, 0x00002000, 0x00004000, 0x00000200, 0x00000100, 0x00004000, 0x00002000, 0x00002000, 0x00004000, 0x00008000, 0x00000200, 0x00000010, 0x00001000, 0x00000010
-diff --git a/include/Game/PadActionMap.inc b/include/Game/PadActionMap.inc
-new file mode 100644
---- /dev/null
-+++ b/include/Game/PadActionMap.inc
-@@ -0,0 +1,3 @@
-+int gGameCubeButtonRemap[51] = {
-+    0x00000020, 0x00000040, 0x00000800, 0x00000400, 0x00000001, 0x00000040, 0x00000020, 0x00000100, 0x00000010, 0x00000100, 0x00000200, 0x00000001, 0x00000002, 0x00000008, 0x00000004, 0x00000100, 0x00000200, 0x00000400, 0x00000800, 0x00001000, 0x00000020, 0x00000400, 0x00000010, 0x00000040, 0x00000800, 0x00000200, 0x00000100, 0x00000100, 0x00000200, 0x00000800, 0x00000100, 0x00000200, 0x00001000, 0x00000800, 0x00000800, 0x00000800, 0x00000200, 0x00000800, 0x00000040, 0x00000020, 0x00000800, 0x00000400, 0x00000040, 0x00000020, 0x00000040, 0x00000020, 0x00000010, 0x00001000, 0x00000020, 0x00000040, 0x00001000
-+};
+diff --git a/src/NL/plat/PadBackend.cpp b/src/NL/plat/PadBackend.cpp
+index fd5e575..25937ca 100644
+--- a/src/NL/plat/PadBackend.cpp
++++ b/src/NL/plat/PadBackend.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/platpad.h"
++#ifdef MSCHARGED_NATIVE
++#include <stdexcept>
++#endif
+ 
+ int gNextPadClassID;
+ 
+@@ -13,7 +16,11 @@ void PadBackend::Update(float deltaTime)
+ 
+     if ((0.f != x) || (0.f != y))
+     {
++#ifdef MSCHARGED_NATIVE
++        m_polarAnalogLeft.a = (u16)(s32)(10430.378f * nlATan2f(y, x));
++#else
+         m_polarAnalogLeft.a = (u16)(10430.378f * nlATan2f(y, x));
++#endif
+     }
+ 
+     x = this->AnalogRightX();
+@@ -21,7 +28,11 @@ void PadBackend::Update(float deltaTime)
+     m_polarAnalogRight.r = nlSqrt((x * x) + (y * y), 1);
+     if ((0.f != x) || (0.f != y))
+     {
++#ifdef MSCHARGED_NATIVE
++        m_polarAnalogRight.a = (u16)(s32)(10430.378f * nlATan2f(y, x));
++#else
+         m_polarAnalogRight.a = (u16)(10430.378f * nlATan2f(y, x));
++#endif
+     }
+ }
+ 
+@@ -100,5 +111,10 @@ int GetPadButtonIndex(int button)
+ 
+ int GetPadButtonMask(int buttonIndex)
+ {
++#ifdef MSCHARGED_NATIVE
++    if (buttonIndex < 0 || buttonIndex > 31) throw std::out_of_range("Pad button index");
++    return (int)(1u << buttonIndex);
++#else
+     return 1 << buttonIndex;
++#endif
+ }
+diff --git a/src/NL/plat/globalpad.cpp b/src/NL/plat/globalpad.cpp
+index 7e18b94..878ec2c 100644
+--- a/src/NL/plat/globalpad.cpp
++++ b/src/NL/plat/globalpad.cpp
+@@ -7,6 +7,7 @@ PadManager::PadManager()
+ {
+ }
+ 
++#ifndef MSCHARGED_NATIVE
+ void PadManager::Initialize(int padCount, int padSetCount)
+ {
+     mPadCount = padCount;
+@@ -24,6 +25,8 @@ void PadManager::Initialize(int padCount, int padSetCount)
+     }
+ }
+ 
++#endif
++
+ void PadManager::Update(float deltaTime)
+ {
+     for (int i = 0; i < mPadCount; ++i)

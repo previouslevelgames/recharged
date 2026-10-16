@@ -1,8 +1,10 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
+index 3e774c6..e9c2c6d 100644
 --- a/src/MSL/wprintf.c
 +++ b/src/MSL/wprintf.c
-@@ -1141,7 +1141,11 @@
+@@ -1134,7 +1134,11 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
                  buff_ptr = va_arg(arg, wchar_t*);
  
                  if (buff_ptr == 0) {
@@ -14,7 +16,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
                  }
  
                  if (format.alternate_form) {
-@@ -1160,7 +1164,11 @@
+@@ -1153,7 +1157,11 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
              } else {
                  strptr = va_arg(arg, char*);
                  if (strptr == 0) {

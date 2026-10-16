@@ -1,6 +1,6 @@
 From: mscharged-port native compatibility
 Subject: [PATCH] explicit live MEM1 DSP task address words
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Encode only the original four native pointer mail positions through a live
 MEM1 extent and canonical physical address. Preserve all lengths, mailbox
@@ -8,6 +8,7 @@ commands, waits, task selection, callbacks and console branches. Module static
 DSP data and MEM2 remain explicit unsupported address domains, not tokens.
 
 diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
+index 76fdfb9..4a186fe 100644
 --- a/src/RVL_SDK/dsp/dsp_task.c
 +++ b/src/RVL_SDK/dsp/dsp_task.c
 @@ -1,5 +1,8 @@
@@ -19,7 +20,7 @@ diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
  
  /**
   * Commands to the DSP sent via the mailbox.
-@@ -192,7 +195,11 @@
+@@ -192,7 +195,11 @@ void __DSPHandler(s16 intr, OSContext* ctx) {
  
  void __DSP_exec_task(DSPTask* task1, DSPTask* task2) {
      if (task1 != NULL) {
@@ -31,7 +32,7 @@ diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
          DSP_SEND_MAIL_SYNC(task1->dramMmemLen);
          DSP_SEND_MAIL_SYNC(task1->dramDspAddr);
      } else {
-@@ -201,7 +208,11 @@
+@@ -201,7 +208,11 @@ void __DSP_exec_task(DSPTask* task1, DSPTask* task2) {
          DSP_SEND_MAIL_SYNC(0);
      }
  
@@ -43,7 +44,7 @@ diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
      DSP_SEND_MAIL_SYNC(task2->iramMmemLen);
      DSP_SEND_MAIL_SYNC(task2->iramDspAddr);
  
-@@ -212,7 +223,11 @@
+@@ -212,7 +223,11 @@ void __DSP_exec_task(DSPTask* task1, DSPTask* task2) {
          DSP_SEND_MAIL_SYNC(0);
      } else {
          DSP_SEND_MAIL_SYNC(task2->resumeVector);
@@ -55,7 +56,7 @@ diff --git a/src/RVL_SDK/dsp/dsp_task.c b/src/RVL_SDK/dsp/dsp_task.c
          DSP_SEND_MAIL_SYNC(task2->dramMmemLen);
          DSP_SEND_MAIL_SYNC(task2->dramDspAddr);
      }
-@@ -229,7 +244,11 @@
+@@ -229,7 +244,11 @@ void __DSP_boot_task(DSPTask* task) {
  
      // Send IRAM MMEM address
      DSP_SEND_MAIL_SYNC(MAIL_SET_IRAM_MMEM_ADDR);

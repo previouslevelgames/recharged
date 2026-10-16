@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original in-game frame updates under the match-loading diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 E13 admission of original BeginFrameTask::Run blocks that the frontend task
 diagnostic omits, under the explicit MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING
@@ -22,24 +22,61 @@ OverlayManager countdown that slides the HUD in after each presentation, the
 pause menu on Plus, controller loss and the end-of-game transition. Without it
 the HUD stayed on its "out" slide for the whole match.
 
-diff --git a/src/Game/Render/depthoffield.cpp b/src/Game/Render/depthoffield.cpp
---- a/src/Game/Render/depthoffield.cpp
-+++ b/src/Game/Render/depthoffield.cpp
-@@ -21,6 +21,10 @@
-     void GXProject(float x, float y, float z, const Mtx matrix,
-         const float* projection, const float* viewport, float* screenX,
-         float* screenY, float* screenZ);
+Refreshed for decomp 9046e67a: upstream replaced depthoffield.cpp's local
+declarations with revolution/mtx_fwd.h and gx/GXTransform_fwd.h. Both new
+headers get native branches (PSMTXIdentity as C_MTXIdentity, Aurora's transform
+declarations).
+
+diff --git a/libs/RVL_SDK/include/revolution/gx/GXTransform_fwd.h b/libs/RVL_SDK/include/revolution/gx/GXTransform_fwd.h
+index 6d943f7..7979e35 100644
+--- a/libs/RVL_SDK/include/revolution/gx/GXTransform_fwd.h
++++ b/libs/RVL_SDK/include/revolution/gx/GXTransform_fwd.h
+@@ -1,6 +1,12 @@
+ #ifndef RVL_SDK_GX_TRANSFORM_FWD_H
+ #define RVL_SDK_GX_TRANSFORM_FWD_H
+ 
 +#if defined(MSCHARGED_NATIVE)
-+// As in revolution/mtx/mtx.h, the native SDK supplies the C matrix routine.
++// Aurora owns the canonical native GX transform and query declarations.
++#include <dolphin/gx/GXGet.h>
++#include <dolphin/gx/GXTransform.h>
++#else
++
+ #include <revolution/gx/GXProjectionTypes.h>
+ 
+ #ifdef __cplusplus
+@@ -19,4 +25,6 @@ void GXProject(float x, float y, float z, const float matrix[3][4],
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif // RVL_SDK_GX_TRANSFORM_FWD_H
+diff --git a/libs/RVL_SDK/include/revolution/mtx_fwd.h b/libs/RVL_SDK/include/revolution/mtx_fwd.h
+index 1c51ec9..ee8c4ca 100644
+--- a/libs/RVL_SDK/include/revolution/mtx_fwd.h
++++ b/libs/RVL_SDK/include/revolution/mtx_fwd.h
+@@ -5,7 +5,16 @@
+ extern "C" {
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++// As in revolution/mtx/mtx.h, the native SDK supplies the C matrix routine
++// behind the paired-single name.
++void C_MTXIdentity(float matrix[3][4]);
++#ifndef PSMTXIdentity
 +#define PSMTXIdentity C_MTXIdentity
 +#endif
-     void PSMTXIdentity(Mtx matrix);
-     void* memcpy(void* destination, const void* source, u32 size);
- }
++#else
+ void PSMTXIdentity(float matrix[3][4]);
++#endif
+ void C_MTXPerspective(float matrix[4][4], float fovY, float aspect, float near, float far);
+ void C_MTXOrtho(float matrix[4][4], float top, float bottom, float left, float right, float near, float far);
+ 
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index 4e034c1..1754240 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
-@@ -441,7 +441,7 @@
+@@ -442,7 +442,7 @@ void BeginFrameTask::Run(float dt)
      }
  
  #endif // uninitialized HBM/warble/screenshot endpoints omitted
@@ -48,7 +85,7 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      HideLayerView(eCLV_ShadowVolume);
      HideLayerView(eCLV_ShadowVolumeBlend);
  #endif // both3D shadow views are omitted by existing Anark-only setup
-@@ -465,7 +465,7 @@
+@@ -466,7 +466,7 @@ void BeginFrameTask::Run(float dt)
          g_FrameCounter.DisplayFrameTicker();
      }
  
@@ -57,7 +94,7 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      if (nlTaskManager::m_pInstance->mCurrentState & 0x2001B)
      {
          GetPresentation()->Update(dt);
-@@ -475,7 +475,7 @@
+@@ -476,7 +476,7 @@ void BeginFrameTask::Run(float dt)
  #endif // normal Presentation/NIS startup omitted
      glBeginFrame();
  
@@ -66,7 +103,7 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      for (int i = 0; i < 10; i++)
      {
          if (g_pCharacters[i] != NULL)
-@@ -488,7 +488,7 @@
+@@ -489,7 +489,7 @@ void BeginFrameTask::Run(float dt)
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
      cCameraManager::Update(dt);
  #endif
@@ -75,7 +112,7 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      if (!(nlTaskManager::m_pInstance->mCurrentState & 0x18))
      {
          DepthOfFieldManager::instance.TurnOff();
-@@ -504,7 +504,7 @@
+@@ -505,7 +505,7 @@ void BeginFrameTask::Run(float dt)
  #endif // full original primary and secondary setup, with the genuine NIS owner
      SetupRenderInfo();
  
@@ -85,9 +122,10 @@ diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
      {
          DrawCoPlanarReference();
 diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index e1ef7bc..f4c78ec 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
-@@ -55,7 +55,8 @@
+@@ -56,7 +56,8 @@ static void DrawFrontEndElements(float fDeltaT)
      UpdateGameObjectLighting();
  #endif // source lighting initialization remains unqualified
  

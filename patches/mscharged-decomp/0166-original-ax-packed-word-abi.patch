@@ -1,5 +1,5 @@
 Subject: Preserve AX native packed stores and retail u16 word fields
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep all original AX voice-format decisions, synchronization flags,
 depop arithmetic and studio call/update order. Native packed records
@@ -10,9 +10,10 @@ record footprints remain intact. This does not export DSP wire data,
 provide a DSP engine or satisfy original AX/THP audio initialization.
 
 diff --git a/libs/RVL_SDK/include/revolution/ax/AXSPB.h b/libs/RVL_SDK/include/revolution/ax/AXSPB.h
+index f3b80ce..59752a8 100644
 --- a/libs/RVL_SDK/include/revolution/ax/AXSPB.h
 +++ b/libs/RVL_SDK/include/revolution/ax/AXSPB.h
-@@ -70,8 +70,13 @@
+@@ -70,8 +70,13 @@ typedef struct _AXSTUDIO {
  #pragma pack(pop)
  
  AXSTUDIO* __AXGetStudio(void);
@@ -27,19 +28,21 @@ diff --git a/libs/RVL_SDK/include/revolution/ax/AXSPB.h b/libs/RVL_SDK/include/r
  void __AXSPBInit(void);
  void __AXDepopVoice(AXPB* pb);
 diff --git a/src/RVL_SDK/ax/AXSPB.c b/src/RVL_SDK/ax/AXSPB.c
+index 115806e..9c292bf 100644
 --- a/src/RVL_SDK/ax/AXSPB.c
 +++ b/src/RVL_SDK/ax/AXSPB.c
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #include <revolution/ax.h>
  #include <revolution/os.h>
-+
+ 
 +#ifdef MSCHARGED_NATIVE
 +#include "platform/ax_data_abi.h"
 +#endif
- 
++
  #define DEPOP_MIN (-20)
  #define DEPOP_MAX 20
-@@ -36,7 +40,11 @@
+ 
+@@ -36,7 +40,11 @@ AXSTUDIO* __AXGetStudio(void) {
      return &__AXStudio;
  }
  
@@ -51,7 +54,7 @@ diff --git a/src/RVL_SDK/ax/AXSPB.c b/src/RVL_SDK/ax/AXSPB.c
      if (*all / AX_SAMPLES_PER_FRAME != 0) {
          // Average depop across the channel?
          s32 avg = *all / AX_SAMPLES_PER_FRAME;
-@@ -49,17 +57,29 @@
+@@ -49,17 +57,29 @@ void __AXDepopFadeMain(s32* all, s32* value, s16* depop) {
              avg = DEPOP_MIN;
          }
  
@@ -81,7 +84,7 @@ diff --git a/src/RVL_SDK/ax/AXSPB.c b/src/RVL_SDK/ax/AXSPB.c
      if (*all / AX_SAMPLES_PER_FRAME_RMT != 0) {
          // Average depop across the channel?
          s32 avg = *all / AX_SAMPLES_PER_FRAME_RMT;
-@@ -72,12 +92,20 @@
+@@ -72,12 +92,20 @@ void __AXDepopFadeRmt(s32* all, s32* value, s16* depop) {
              avg = DEPOP_MIN;
          }
  
@@ -103,6 +106,7 @@ diff --git a/src/RVL_SDK/ax/AXSPB.c b/src/RVL_SDK/ax/AXSPB.c
      }
  }
 diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
+index 8620746..c301608 100644
 --- a/src/RVL_SDK/ax/AXVPB.c
 +++ b/src/RVL_SDK/ax/AXVPB.c
 @@ -6,6 +6,10 @@
@@ -116,7 +120,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
  #include <string.h>
  
  
-@@ -578,6 +582,24 @@
+@@ -578,6 +582,24 @@ void AXSetVoiceVe(AXVPB* vpb, AXPBVE* ve) {
  void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
      BOOL enabled = OSDisableInterrupts();
  
@@ -141,7 +145,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
      u32* dst = (u32*)&vpb->pb.addr;
      const u32* src = (u32*)addr;
  
-@@ -595,9 +617,23 @@
+@@ -595,9 +617,23 @@ void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
      src++;
  
      *dst = *src;
@@ -165,7 +169,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
          dst++;
          *dst++ = 0;
          *dst++ = 0;
-@@ -609,8 +645,22 @@
+@@ -609,8 +645,22 @@ void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
          *dst++ = 0;
          *dst++ = 0x08000000;
          *dst = 0;
@@ -188,7 +192,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
          dst++;
          *dst++ = 0;
          *dst++ = 0;
-@@ -622,6 +672,7 @@
+@@ -622,6 +672,7 @@ void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
          *dst++ = 0;
          *dst++ = 0x01000000;
          *dst = 0;

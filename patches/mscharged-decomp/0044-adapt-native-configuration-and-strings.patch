@@ -1,6 +1,6 @@
 Subject: Adapt original configuration parsing and string ownership
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain original sections, hashing and typed parsing. Replace Wii array-cookie
 and fixed temporary-string storage assumptions, correct native copy-on-write
@@ -10,59 +10,11 @@ not initialize the tweak registry or select the complete original startup.
 Keep native logging routed to the host adapter instead of the console inline
 no-op now supplied by the upstream header.
 
-diff --git a/include/NL/nlString.h b/include/NL/nlString.h
---- a/include/NL/nlString.h
-+++ b/include/NL/nlString.h
-@@ -7,6 +7,11 @@
- #include "types.h"
- 
- #include <cstring>
-+#ifdef MSCHARGED_NATIVE
-+#include <limits>
-+#include <stdexcept>
-+#include <type_traits>
-+#endif
- 
- 
- namespace Detail
-@@ -101,6 +106,11 @@
-     template <typename T>
-     static T* New(int count, const char*)
-     {
-+#ifdef MSCHARGED_NATIVE
-+        static_assert(std::is_trivial<T>::value, "Temporary strings require trivial elements");
-+        if (count < 0 || static_cast<size_t>(count) > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(T))
-+            throw std::length_error("Temporary string allocation overflow");
-+#endif
-         return (T*)Alloc(count * sizeof(T));
-     }
- 
-@@ -112,12 +122,21 @@
- 
-     static void* Alloc(int size)
-     {
-+#ifdef MSCHARGED_NATIVE
-+        if (size <= 0) throw std::length_error("Invalid temporary string size");
-+        return nlMalloc(size, alignof(max_align_t), false);
-+#else
-         return sStringBlockAllocator.Allocate(size);
-+#endif
-     }
- 
-     static void Free(void* ptr)
-     {
-+#ifdef MSCHARGED_NATIVE
-+        nlFree(ptr);
-+#else
-         sStringBlockAllocator.Free(ptr);
-+#endif
-     }
- };
- 
 diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
+index 4c6a53a..ba514aa 100644
 --- a/include/NL/nlBasicString.h
 +++ b/include/NL/nlBasicString.h
-@@ -21,7 +21,7 @@
+@@ -21,7 +21,7 @@ public:
          }
  
          Data(const CharT* begin, const CharT* end)
@@ -71,7 +23,7 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
              , mRefCount(1)
          {
              for (int i = 0; i < mData.mSize - 1; ++i)
-@@ -66,7 +66,7 @@
+@@ -66,7 +66,7 @@ public:
              return this;
          }
  
@@ -80,7 +32,7 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
          {
              return Allocator::Alloc(size);
          }
-@@ -406,13 +406,36 @@
+@@ -406,13 +406,36 @@ inline bool operator==(const BasicString<CharT, Allocator>& lhs, const char* rhs
  }
  
  template <typename CharT, typename Allocator>
@@ -99,11 +51,9 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
      Cow();
      GetData().erase(begin, end);
  }
--
--template <typename CharT, typename Allocator>
 +#endif
-+
-+template <typename CharT, typename Allocator>
+ 
+ template <typename CharT, typename Allocator>
 +#ifdef MSCHARGED_NATIVE
 +inline void BasicString<CharT, Allocator>::insert(CharT* at, const CharT* begin, const CharT* end)
 +{
@@ -119,7 +69,7 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
  inline void BasicString<CharT, Allocator>::insert(CharT* at, const CharT* begin, const CharT* end)
  {
      CharT* oldData = this->begin();
-@@ -421,6 +444,7 @@
+@@ -421,6 +444,7 @@ inline void BasicString<CharT, Allocator>::insert(CharT* at, const CharT* begin,
      CharT* dataPtr = this->begin();
      mData->insertRange(dataPtr + offset, begin, end);
  }
@@ -127,55 +77,11 @@ diff --git a/include/NL/nlBasicString.h b/include/NL/nlBasicString.h
  
  typedef BasicString<char, Detail::TempStringAllocator> NLString;
  
-diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
---- a/include/NL/nlVector.h
-+++ b/include/NL/nlVector.h
-@@ -2,6 +2,11 @@
- #define NL_VECTOR_H
- 
- #include "NL/nlMemory.h"
-+#ifdef MSCHARGED_NATIVE
-+#include <vector>
-+#include <limits>
-+#include <stdexcept>
-+#endif
- 
- class DefaultAllocator
- {
-@@ -99,6 +104,21 @@
-         insert(mData + mSize, &value, &value + 1);
-     }
- 
-+#ifdef MSCHARGED_NATIVE
-+    void insert(T* at, const T* begin, const T* end)
-+    {
-+        const auto count = begin == end ? 0 : end - begin;
-+        const auto offset = at == mData ? 0 : at - mData;
-+        if (count < 0 || count > std::numeric_limits<int>::max() - mSize || offset < 0 || offset > mSize)
-+            throw std::length_error("Invalid native vector insertion");
-+        if (!count) return;
-+        std::vector<T> input(begin, end);
-+        reserve(mSize + static_cast<int>(count));
-+        for (int i = mSize; i > offset; --i) mData[i - 1 + count] = mData[i - 1];
-+        for (int i = 0; i < count; ++i) mData[offset + i] = input[i];
-+        mSize += static_cast<int>(count);
-+    }
-+#else
-     void insert(T* at, const T* begin, const T* end)
-     {
-         int size = end - begin;
-@@ -119,6 +139,7 @@
-         }
-         mSize += size;
-     }
-+#endif
- 
-     void reserve(int capacity)
-     {
 diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
+index 202b940..1b11af1 100644
 --- a/include/NL/nlConfig.h
 +++ b/include/NL/nlConfig.h
-@@ -7,10 +7,22 @@
+@@ -7,8 +7,20 @@
  #include "NL/nlLexicalCast.h"
  #include "types.h"
  
@@ -196,9 +102,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  
  void* ConfigParserAllocate(unsigned long size, unsigned int alignment, bool fromEnd);
  
- namespace Detail
- {
-@@ -23,7 +35,11 @@
+@@ -23,7 +35,11 @@ struct LexicalCastImpl<bool, const char*>
  template <>
  struct LexicalCastImpl<int, const char*>
  {
@@ -210,7 +114,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  };
  
  template <>
-@@ -77,6 +93,11 @@
+@@ -77,6 +93,11 @@ inline To LexicalCastImpl<To, bool>::Do(bool t)
      return t;
  }
  
@@ -222,7 +126,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  template <>
  inline const char* LexicalCastImpl<const char*, bool>::Do(bool value)
  {
-@@ -86,15 +107,23 @@
+@@ -86,15 +107,23 @@ inline const char* LexicalCastImpl<const char*, bool>::Do(bool value)
  template <>
  inline const char* LexicalCastImpl<const char*, int>::Do(int)
  {
@@ -246,7 +150,7 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  }
  } // namespace Detail
  
-@@ -147,6 +176,12 @@
+@@ -147,6 +176,12 @@ public:
  
      Config(AllocateWhere where, unsigned int stringCapacity, unsigned int slotCount);
      ~Config();
@@ -259,7 +163,125 @@ diff --git a/include/NL/nlConfig.h b/include/NL/nlConfig.h
  
      static Config& Global();
  
+diff --git a/include/NL/nlPrint.h b/include/NL/nlPrint.h
+index b928352..b495765 100644
+--- a/include/NL/nlPrint.h
++++ b/include/NL/nlPrint.h
+@@ -3,11 +3,16 @@
+ 
+ struct __va_list_struct;
+ 
++#ifdef MSCHARGED_NATIVE
++int nlPrintf(const char* format, ...);
++#else
+ inline int nlPrintf(const char* format, ...)
+ {
+     return 0;
+ }
+ 
++#endif
++
+ int nlVSNPrintf(char* buffer, unsigned long size, const char* format, __va_list_struct* args);
+ int nlSNPrintf(char* buffer, unsigned long size, const char* format, ...);
+ int nlSNPrintf(unsigned short* buffer, unsigned long size, const unsigned short* format, ...);
+diff --git a/include/NL/nlString.h b/include/NL/nlString.h
+index 7ad6a6b..51201d2 100644
+--- a/include/NL/nlString.h
++++ b/include/NL/nlString.h
+@@ -7,6 +7,11 @@
+ #include "types.h"
+ 
+ #include <cstring>
++#ifdef MSCHARGED_NATIVE
++#include <limits>
++#include <stdexcept>
++#include <type_traits>
++#endif
+ 
+ 
+ namespace Detail
+@@ -101,6 +106,11 @@ public:
+     template <typename T>
+     static T* New(int count, const char*)
+     {
++#ifdef MSCHARGED_NATIVE
++        static_assert(std::is_trivial<T>::value, "Temporary strings require trivial elements");
++        if (count < 0 || static_cast<size_t>(count) > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(T))
++            throw std::length_error("Temporary string allocation overflow");
++#endif
+         return (T*)Alloc(count * sizeof(T));
+     }
+ 
+@@ -112,12 +122,21 @@ public:
+ 
+     static void* Alloc(int size)
+     {
++#ifdef MSCHARGED_NATIVE
++        if (size <= 0) throw std::length_error("Invalid temporary string size");
++        return nlMalloc(size, alignof(max_align_t), false);
++#else
+         return sStringBlockAllocator.Allocate(size);
++#endif
+     }
+ 
+     static void Free(void* ptr)
+     {
++#ifdef MSCHARGED_NATIVE
++        nlFree(ptr);
++#else
+         sStringBlockAllocator.Free(ptr);
++#endif
+     }
+ };
+ 
+diff --git a/include/NL/nlVector.h b/include/NL/nlVector.h
+index e4a6e15..5f537c5 100644
+--- a/include/NL/nlVector.h
++++ b/include/NL/nlVector.h
+@@ -2,6 +2,11 @@
+ #define NL_VECTOR_H
+ 
+ #include "NL/nlMemory.h"
++#ifdef MSCHARGED_NATIVE
++#include <vector>
++#include <limits>
++#include <stdexcept>
++#endif
+ 
+ class DefaultAllocator
+ {
+@@ -99,6 +104,21 @@ public:
+         insert(mData + mSize, &value, &value + 1);
+     }
+ 
++#ifdef MSCHARGED_NATIVE
++    void insert(T* at, const T* begin, const T* end)
++    {
++        const auto count = begin == end ? 0 : end - begin;
++        const auto offset = at == mData ? 0 : at - mData;
++        if (count < 0 || count > std::numeric_limits<int>::max() - mSize || offset < 0 || offset > mSize)
++            throw std::length_error("Invalid native vector insertion");
++        if (!count) return;
++        std::vector<T> input(begin, end);
++        reserve(mSize + static_cast<int>(count));
++        for (int i = mSize; i > offset; --i) mData[i - 1 + count] = mData[i - 1];
++        for (int i = 0; i < count; ++i) mData[offset + i] = input[i];
++        mSize += static_cast<int>(count);
++    }
++#else
+     void insert(T* at, const T* begin, const T* end)
+     {
+         int size = end - begin;
+@@ -119,6 +139,7 @@ public:
+         }
+         mSize += size;
+     }
++#endif
+ 
+     void reserve(int capacity)
+     {
 diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
+index 047c769..f6ee97f 100644
 --- a/src/NL/nlConfig.cpp
 +++ b/src/NL/nlConfig.cpp
 @@ -1,4 +1,10 @@
@@ -273,7 +295,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  #include "Game/Sys/debug.h"
  
  #include "Game/Sys/simpleparser.h"
-@@ -89,8 +95,15 @@
+@@ -89,8 +95,15 @@ static inline Config::TagValuePair* FindConfigTvp(Config* config, const char* ta
      }
      table = config->mTvpHash;
      index = hash % config->mTvpCapacity;
@@ -289,7 +311,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          stored = table[index].tag;
          pair = &table[index];
          if (stored == 0)
-@@ -141,8 +154,15 @@
+@@ -141,8 +154,15 @@ static inline Config::TagValuePair* FindParsedConfigTvp(Config* config, const ch
      }
      table = config->mTvpHash;
      index = hash % config->mTvpCapacity;
@@ -305,7 +327,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          stored = table[index].tag;
          pair = &table[index];
          if (stored == 0)
-@@ -174,6 +194,24 @@
+@@ -174,6 +194,24 @@ found:
      return pair;
  }
  
@@ -330,26 +352,24 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  Config::Config(AllocateWhere where, unsigned int stringCapacity, unsigned int slotCount)
  {
      mLoaded = false;
-@@ -196,22 +234,42 @@
+@@ -196,7 +234,16 @@ Config::Config(AllocateWhere where, unsigned int stringCapacity, unsigned int sl
      mStringEnd = mStringMemory;
      mStringMemory[mStringCapacity - 1] = 0;
  }
--
 +#endif
-+
+ 
 +#ifdef MSCHARGED_NATIVE
- Config::~Config()
- {
++Config::~Config()
++{
 +    mscharged::CancelConfigLoad(*this);
 +    nlFree(mTvpHash);
 +    nlFree(mStringMemory);
 +}
 +#else
-+Config::~Config()
-+{
+ Config::~Config()
+ {
      if (mTvpHash != 0)
-     {
-         ::operator delete[]((char*)mTvpHash - 0x10);
+@@ -205,13 +252,24 @@ Config::~Config()
      }
      ::operator delete[](mStringMemory);
  }
@@ -362,11 +382,9 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
 +#else
      static Config global(ALLOCATE_LOW, 0x2800, 0x400);
      return global;
--}
--
 +#endif
-+}
-+
+ }
+ 
 +#ifdef MSCHARGED_NATIVE
 +void Config::LoadFromFile(const char* filename)
 +{
@@ -376,7 +394,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  void Config::LoadFromFile(const char* filename)
  {
      tDebugPrintManager::Print(DC_CONFIG_SYSTEM, "reading config file: %s\n", filename);
-@@ -235,16 +293,25 @@
+@@ -235,16 +293,25 @@ void Config::LoadFromFile(const char* filename)
      }
      nlFree(buffer);
  }
@@ -396,14 +414,13 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      ConfigLoadCallback* data = ::new (storage) ConfigLoadCallback(this, callback);
      nlLoadEntireFileAsync(filename, ConfigLoadComplete, data, 0x20, AllocateEnd, 0, 0, 0);
  }
--
 +#endif
-+
+ 
 +#ifndef MSCHARGED_NATIVE
  static void ConfigLoadComplete(void* buffer, unsigned long size, void* userData)
  {
      Config* config = ((ConfigLoadCallback*)userData)->config;
-@@ -262,6 +329,7 @@
+@@ -262,6 +329,7 @@ static void ConfigLoadComplete(void* buffer, unsigned long size, void* userData)
      }
      delete data;
  }
@@ -411,7 +428,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  
  bool Config::Exists(const char* tag) const
  {
-@@ -312,8 +380,15 @@
+@@ -312,8 +380,15 @@ Config::TagValuePair& Config::FindTvp(const char* tag)
      TagValuePair* pair;
      const char* storedTag;
      unsigned int index = Hash(tag) % mTvpCapacity;
@@ -427,7 +444,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          pair = &mTvpHash[index];
          storedTag = pair->tag;
          if (storedTag == 0 || nlStrICmp<char>(storedTag, tag) == 0)
-@@ -327,13 +402,21 @@
+@@ -327,13 +402,21 @@ Config::TagValuePair& Config::FindTvp(const char* tag)
  
  char* Config::CopyString(const char* string, bool makeUpperCase)
  {
@@ -449,7 +466,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  
          if (makeUpperCase)
          {
-@@ -357,6 +440,9 @@
+@@ -357,6 +440,9 @@ char* Config::CopyString(const char* string, bool makeUpperCase)
  void Config::Set(const char* tag, int value)
  {
      TagValuePair* pair = FindConfigTvp(this, tag);
@@ -459,7 +476,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      pair->type = CONFIG_INT;
      pair->value.intValue = value;
      if (pair->tag == 0)
-@@ -368,6 +454,9 @@
+@@ -368,6 +454,9 @@ void Config::Set(const char* tag, int value)
  void Config::Set(const char* tag, bool value)
  {
      TagValuePair* pair = FindConfigTvp(this, tag);
@@ -469,7 +486,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      pair->type = CONFIG_BOOL;
      pair->value.boolValue = value;
      if (pair->tag == 0)
-@@ -379,6 +468,9 @@
+@@ -379,6 +468,9 @@ void Config::Set(const char* tag, bool value)
  void Config::Set(const char* tag, float value)
  {
      TagValuePair* pair = FindConfigTvp(this, tag);
@@ -479,7 +496,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      pair->type = CONFIG_FLOAT;
      pair->value.floatValue = value;
      if (pair->tag == 0)
-@@ -399,6 +491,11 @@
+@@ -399,6 +491,11 @@ static inline bool IsIntegerValue(const char* string, int& value)
          }
          current++;
      }
@@ -491,7 +508,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      value = (int)atof(string);
      return true;
  }
-@@ -433,6 +530,9 @@
+@@ -433,6 +530,9 @@ void Config::Set(const char* tag, const char* value)
      if (IsIntegerValue(value, intValue))
      {
          pair = FindParsedConfigTvp(this, tag);
@@ -501,7 +518,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          pair->type = CONFIG_INT;
          pair->value.intValue = intValue;
          if (pair->tag == 0)
-@@ -443,6 +543,9 @@
+@@ -443,6 +543,9 @@ void Config::Set(const char* tag, const char* value)
      else if (IsFloatValue(value, floatValue))
      {
          pair = FindParsedConfigTvp(this, tag);
@@ -511,7 +528,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          pair->type = CONFIG_FLOAT;
          pair->value.floatValue = floatValue;
          if (pair->tag == 0)
-@@ -454,6 +557,9 @@
+@@ -454,6 +557,9 @@ void Config::Set(const char* tag, const char* value)
      {
          const bool parsedValue = boolValue;
          pair = FindParsedConfigTvp(this, tag);
@@ -521,7 +538,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          pair->type = CONFIG_BOOL;
          pair->value.boolValue = parsedValue;
          if (pair->tag == 0)
-@@ -464,6 +570,9 @@
+@@ -464,6 +570,9 @@ void Config::Set(const char* tag, const char* value)
      else
      {
          pair = FindConfigTvp(this, tag);
@@ -531,7 +548,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          pair->type = CONFIG_STRING;
          pair->value.stringValue = CopyString(value, false);
          if (pair->tag == 0)
-@@ -480,12 +589,18 @@
+@@ -480,12 +589,18 @@ void Config::Set(const char* tag, const String& value)
  
  void Config::Parse(const char* data, int size, Parser& parser)
  {
@@ -550,7 +567,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
      memcpy(copy, data, size);
      copy[size] = 0;
  
-@@ -502,7 +617,11 @@
+@@ -502,7 +617,11 @@ void Config::Parse(const char* data, int size, Parser& parser)
      {
          if (pairCount == (int)mTvpCapacity)
          {
@@ -562,7 +579,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          }
  
          if (line[0] == '#')
-@@ -532,6 +651,9 @@
+@@ -532,6 +651,9 @@ void Config::Parse(const char* data, int size, Parser& parser)
          }
  
          char* token = tokens.NextToken(false);
@@ -572,7 +589,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
          tag.erase(tag.begin(), tag.end());
          tag.insert(tag.begin(), token, token + tokens.GetTokenLength());
          tag.TrimInPlace(sConfigWhitespace);
-@@ -562,7 +684,9 @@
+@@ -562,7 +684,9 @@ void Config::Parse(const char* data, int size, Parser& parser)
          line = lines.GetLine();
      }
  
@@ -582,7 +599,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  }
  
  void SetTagValuePair::TagValuePair(const BString& tag, const BString& value)
-@@ -592,6 +716,9 @@
+@@ -592,6 +716,9 @@ void* ConfigParserAllocate(unsigned long size, unsigned int alignment, bool from
  
  inline Config::TagValuePair::TagValuePair()
      : tag(0)
@@ -592,7 +609,7 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
  {
  }
  
-@@ -626,3 +753,13 @@
+@@ -626,3 +753,13 @@ bool Config::IsBool(const char* str, bool& b) const
      }
      return false;
  }
@@ -606,22 +623,3 @@ diff --git a/src/NL/nlConfig.cpp b/src/NL/nlConfig.cpp
 +    mLoaded = true;
 +}
 +#endif
-diff --git a/include/NL/nlPrint.h b/include/NL/nlPrint.h
---- a/include/NL/nlPrint.h
-+++ b/include/NL/nlPrint.h
-@@ -3,10 +3,15 @@
- 
- struct __va_list_struct;
- 
-+#ifdef MSCHARGED_NATIVE
-+int nlPrintf(const char* format, ...);
-+#else
- inline int nlPrintf(const char* format, ...)
- {
-     return 0;
- }
-+
-+#endif
- 
- int nlVSNPrintf(char* buffer, unsigned long size, const char* format, __va_list_struct* args);
- int nlSNPrintf(char* buffer, unsigned long size, const char* format, ...);

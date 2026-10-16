@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep rewound GL resource-pool storage for original writers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native ownership contract (shared graphics-storage tracker); depends on 0213 and 0238.
 
 GLXResourcePool::ReleaseResource only moves the pool top on the Wii; the
@@ -17,9 +17,10 @@ evicts it or its backing is freed. Frame-memory retirement still ends storage
 lifetime. Pool, marker and renderer code are unchanged.
 
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index 6f890f4..59fbfa9 100644
 --- a/src/NL/glx/glxMemory.cpp
 +++ b/src/NL/glx/glxMemory.cpp
-@@ -395,8 +395,10 @@
+@@ -395,8 +395,10 @@ void GLXResourcePool::ReleaseResource(
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
      mscharged::platform::RetireGameResourceRecords(this,
          (void*)(mPoolMemory[0] + mUsedMemory[0]), mPoolSizes[0] - mUsedMemory[0]);

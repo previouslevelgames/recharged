@@ -1,6 +1,6 @@
 Subject: Select original debug-camera desktop controls with explicit native inputs
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Select matching orbit/pan/radius/height, input-toggle and view math independently
 of global pad/task/tweak initialization. The port owner supplies checked desktop
@@ -12,6 +12,7 @@ Reject a degenerate float look-at direction before its original normalization.
 Console source remains unchanged outside its native selection guard.
 
 diff --git a/src/Game/Camera/DebugCam.cpp b/src/Game/Camera/DebugCam.cpp
+index 394b76b..d33a9b4 100644
 --- a/src/Game/Camera/DebugCam.cpp
 +++ b/src/Game/Camera/DebugCam.cpp
 @@ -1,4 +1,5 @@
@@ -20,13 +21,14 @@ diff --git a/src/Game/Camera/DebugCam.cpp b/src/Game/Camera/DebugCam.cpp
  #include "revolution/types.h"
  #include "NL/nlDLListContainer.inl"
  #include "NL/plat/PlatPadManager.h"
-@@ -399,3 +400,4 @@
+@@ -399,3 +400,4 @@ void cDebugCamera::Update(float dt)
  
      glMatrixLookAt(m_matView, m_vecCamera, m_vecTarget, vecUp);
  }
 +#endif // !MSCHARGED_NATIVE
 diff --git a/src/Game/Camera/DebugCameraNative.cpp b/src/Game/Camera/DebugCameraNative.cpp
 new file mode 100644
+index 0000000..7b58dee
 --- /dev/null
 +++ b/src/Game/Camera/DebugCameraNative.cpp
 @@ -0,0 +1,236 @@

@@ -1,6 +1,6 @@
 Subject: [PATCH] supply native standard memory declarations to original KPAD
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Whole Matching KPAD source remains authoritative for filtering, sampling,
 repeat, acceleration and IR decisions. Modern C99 compilers require the actual
@@ -8,15 +8,27 @@ memcpy/memset declarations. Add only the native standard header; console source
 and every original method body remain unchanged. WPAD hardware is supplied below
 this SDK code by a separate bounded native provider.
 
+Refreshed for decomp 9046e67a: upstream declares sqrt through MSL's
+internal/fdlibm.h, which native builds do not have on their path; the native
+branch takes it from the host <math.h>, as the former local declaration did.
+
 diff --git a/src/RVL_SDK/kpad/KPAD.c b/src/RVL_SDK/kpad/KPAD.c
+index ac2e40f..0ace788 100644
 --- a/src/RVL_SDK/kpad/KPAD.c
 +++ b/src/RVL_SDK/kpad/KPAD.c
-@@ -1,4 +1,8 @@
+@@ -1,6 +1,15 @@
  #include <revolution/kpad.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <string.h>
 +#endif
++
++#if defined(MSCHARGED_NATIVE)
++// The host C library supplies sqrt, as the earlier local declaration did.
++#include <math.h>
++#else
+ #include <internal/fdlibm.h>
++#endif
  
- double sqrt(double x);
- 
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01)
+ static const char* __KPADVersion = "<< RVL_SDK - KPAD \trelease build: May 17 2007 15:52:00 (0x4199_60831) >>";

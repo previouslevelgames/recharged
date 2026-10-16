@@ -1,8 +1,11 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Scope: native default-OFF original source endpoint admissions only
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 9adae79..13f2059 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -212,7 +212,7 @@
+@@ -221,7 +221,7 @@ static PingerUpdateTask pingerUpdateTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_NETWORK_OWNER))
  static NetworkUpdateTask networkUpdateTask;
  #endif
@@ -11,7 +14,7 @@
  static PlatPadUpdateTask platPadUpdateTask;
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -649,7 +649,7 @@
+@@ -658,7 +658,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
      FEInput::Initialize();
  #endif
@@ -20,7 +23,7 @@
      gSwappablePadChanged.Add(Function<void(int)>(OnSwappablePadChanged), 0, -1);
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
-@@ -801,7 +801,7 @@
+@@ -810,7 +810,7 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
  #endif // unqualified unrelated task registration remains omitted

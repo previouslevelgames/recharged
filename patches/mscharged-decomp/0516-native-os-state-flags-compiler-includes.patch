@@ -1,10 +1,12 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Native-only owning declarations and C libc includes; original bodies unchanged.
 Persistent record endian transport remains unqualified.
 
+diff --git a/src/RVL_SDK/os/OSStateFlags.c b/src/RVL_SDK/os/OSStateFlags.c
+index 033514d..61218a4 100644
 --- a/src/RVL_SDK/os/OSStateFlags.c
 +++ b/src/RVL_SDK/os/OSStateFlags.c
-@@ -1,6 +1,11 @@
+@@ -1,7 +1,12 @@
  #include <revolution/nand.h>
  #include <revolution/os.h>
 +#if defined(MSCHARGED_NATIVE)
@@ -16,3 +18,4 @@ Persistent record endian transport remains unqualified.
 +#endif
  
  static OSStateFlags StateFlags __attribute__((aligned(32)));
+ 

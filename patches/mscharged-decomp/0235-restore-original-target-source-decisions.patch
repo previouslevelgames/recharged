@@ -1,9 +1,10 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Restore original target source decisions outside diagnostics
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: original-source fidelity correction; legacy checks diagnostic-only.
 
 diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
+index d5f4715..297f0ab 100644
 --- a/include/NL/gl/glTarget.h
 +++ b/include/NL/gl/glTarget.h
 @@ -4,7 +4,7 @@
@@ -15,7 +16,7 @@ diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
  #include <stdint.h>
  uint64_t glNativeTargetGeneration(const GLXTarget* target);
  #endif
-@@ -30,7 +30,7 @@
+@@ -30,7 +30,7 @@ struct GLTargetInfo
          : unknown08(0)
          , unknown0C(0)
      {
@@ -24,7 +25,7 @@ diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
          height = width = clearFlags = clearDepthSetting = unknown20 = 0;
          unknown10 = GLTargetInfoMode10_0;
          format = GLTargetFormat_RGB5A3;
-@@ -55,7 +55,7 @@
+@@ -55,7 +55,7 @@ struct GLRenderPair
      u32 hash;
      GLXTarget* target;
  
@@ -33,7 +34,7 @@ diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
      uint64_t nativeGeneration = 0;
  #endif
      GLRenderPair()
-@@ -67,7 +67,7 @@
+@@ -67,7 +67,7 @@ struct GLRenderPair
      GLRenderPair(u32 targetHash, GLXTarget* platformTarget)
          : hash(targetHash)
          , target(platformTarget)
@@ -42,7 +43,7 @@ diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
          , nativeGeneration(platformTarget ? glNativeTargetGeneration(platformTarget) : 0)
  #endif
      {
-@@ -80,7 +80,7 @@
+@@ -80,7 +80,7 @@ struct GLRenderPair
  };
  
  void gl_TargetStartup();
@@ -52,6 +53,7 @@ diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h
  void glValidateTarget(GLRenderPair target);
  #endif
 diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
+index 5e7fa35..813e85f 100644
 --- a/src/NL/gl/glTarget.cpp
 +++ b/src/NL/gl/glTarget.cpp
 @@ -6,7 +6,7 @@
@@ -63,7 +65,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
  #include <cstring>
  #include <stdexcept>
  static bool nativeTargetsLive = false;
-@@ -39,7 +39,7 @@
+@@ -39,7 +39,7 @@ static inline GLRenderPair FindOrCreateTarget(unsigned long& hash, const GLTarge
      GLRenderPair result = FindTarget(hash);
      if (result)
      {
@@ -72,7 +74,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
          if (result.target->mWidth != targetInfo->width || result.target->mHeight != targetInfo->height
              || result.target->mFormat != targetInfo->format)
              throw std::invalid_argument("Existing GL target has a different size or format");
-@@ -50,13 +50,13 @@
+@@ -50,13 +50,13 @@ static inline GLRenderPair FindOrCreateTarget(unsigned long& hash, const GLTarge
      GLXTarget* platformTarget = glplatCreateTarget(targetInfo);
      if (platformTarget != 0)
      {
@@ -88,7 +90,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
          }
          catch (...) { delete platformTarget; throw; }
  #endif
-@@ -70,7 +70,7 @@
+@@ -70,7 +70,7 @@ static inline GLRenderPair FindOrCreateTarget(unsigned long& hash, const GLTarge
  
  void gl_TargetStartup()
  {
@@ -97,7 +99,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
      if (nativeTargetsLive || !glplatGetBackBufferTarget())
          throw std::logic_error("Invalid GL target startup order");
  #endif
-@@ -80,7 +80,7 @@
+@@ -80,7 +80,7 @@ void gl_TargetStartup()
      platformTarget = target.target;
      hash = glHash("target/backbuffer");
      targets.Add(hash, platformTarget);
@@ -106,7 +108,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
      nativeTargetsLive = true;
  #endif
  }
-@@ -92,7 +92,7 @@
+@@ -92,7 +92,7 @@ GLRenderPair glGetBackBufferTarget()
  
  GLRenderPair glCreateTarget(const char* name, const GLTargetInfo* targetInfo)
  {
@@ -115,7 +117,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
      if (!nativeTargetsLive || !name || !*name || !targetInfo || strlen(name) > 120 || !strcmp(name, "backbuffer"))
          throw std::invalid_argument("Invalid GL target name, description or lifetime");
  #else
-@@ -105,15 +105,15 @@
+@@ -105,15 +105,15 @@ GLRenderPair glCreateTarget(const char* name, const GLTargetInfo* targetInfo)
  
      GLRenderPair result = FindOrCreateTarget(hash, targetInfo);
  
@@ -134,7 +136,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
      if (glNativeViewDispatchActive()) throw std::logic_error("Cannot destroy GL targets during view dispatch");
      if (!target) throw std::invalid_argument("Null GL target handle");
      if (!target->hash && !target->target && !target->nativeGeneration) return;
-@@ -134,14 +134,14 @@
+@@ -134,14 +134,14 @@ void glDestroyTarget(GLRenderPair* target)
      delete target->target;
      target->hash = 0;
      target->target = 0;
@@ -151,7 +153,7 @@ diff --git a/src/NL/gl/glTarget.cpp b/src/NL/gl/glTarget.cpp
      glValidateTarget(target);
      if (target.target == glplatGetBackBufferTarget())
          throw std::invalid_argument("The backbuffer has no registered texture");
-@@ -149,7 +149,7 @@
+@@ -149,7 +149,7 @@ unsigned long glGetTargetTexture(GLRenderPair target)
      return target.hash;
  }
  

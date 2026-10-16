@@ -135,7 +135,7 @@ public:
         Attributes(at+60,v.m_overloadedAttributes);Word(at+132,v.m_overloadFlags);Word(at+136,v.m_type);Half(at+140,v.m_priority);Bytes(at+142,&v.m_bVisible,1);
         if (v.m_type==TLAT_IMAGE)
         {
-            auto& t=static_cast<TLImageInstance&>(v);Pointer(at+144,t.m_pTextureResource,&t.m_pTextureResource);Word(at+148,t.field_0x94);
+            auto& t=static_cast<TLImageInstance&>(v);Pointer(at+144,t.m_pTextureResource,&t.m_pTextureResource);Word(at+148,t.m_uAlphaBlendMode);
         }
         if (v.m_type==TLAT_TEXT)
         {

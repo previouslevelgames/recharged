@@ -1,13 +1,15 @@
 Subject: Match original unsigned-long lexical formatting to the native variadic ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The native specialization passes an actual unsigned long to libc formatting.
 Use its matching format without narrowing live pointer/scalar callers. The
 console format and all original allocation/string decisions remain unchanged.
 
+diff --git a/include/NL/nlLexicalCast.h b/include/NL/nlLexicalCast.h
+index 1e5dfe1..68f606e 100644
 --- a/include/NL/nlLexicalCast.h
 +++ b/include/NL/nlLexicalCast.h
-@@ -73,7 +73,11 @@
+@@ -73,7 +73,11 @@ template <typename Allocator>
  inline BasicString<char, Allocator> LexicalCastImpl<BasicString<char, Allocator>, unsigned long>::Do(unsigned long t)
  {
      char s[0x40];

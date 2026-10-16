@@ -1,5 +1,5 @@
 Subject: [PATCH] Transport genuine original movie writer streams to native GX
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: permanent host allocation/data/GX ABI adaptation
 
 Publish the actual source writer cursors into existing allocation-owned graphics
@@ -9,6 +9,7 @@ loops are unchanged. Do not infer an array extent from packet vertex counts.
 Legacy nonmodule diagnostics retain their old unqualified array route.
 
 diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.cpp
+index 79b70a7..139a06b 100644
 --- a/src/Game/GL/GLMovieMeshWriter.cpp
 +++ b/src/Game/GL/GLMovieMeshWriter.cpp
 @@ -8,6 +8,9 @@
@@ -21,7 +22,7 @@ diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.c
  
  GLMovieMeshWriter::GLMovieMeshWriter()
      : count(0)
-@@ -94,6 +97,10 @@
+@@ -94,6 +97,10 @@ bool GLMovieMeshWriter::Begin(
  
  bool GLMovieMeshWriter::End()
  {
@@ -33,6 +34,7 @@ diff --git a/src/Game/GL/GLMovieMeshWriter.cpp b/src/Game/GL/GLMovieMeshWriter.c
      {
          glplatFinalizePacket(&model->packets[i], resource != 0, resource);
 diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialProgram.cpp
+index aa29c46..a0125da 100644
 --- a/src/NL/glx/GXMovieMaterialProgram.cpp
 +++ b/src/NL/glx/GXMovieMaterialProgram.cpp
 @@ -8,6 +8,9 @@
@@ -45,7 +47,7 @@ diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialP
  
  GXMovieMaterialProgram* GXMovieMaterialProgram::Instance;
  bool GXMovieMaterialProgram::Initialized;
-@@ -71,12 +74,16 @@
+@@ -71,12 +74,16 @@ void GXMovieMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXMovieMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;

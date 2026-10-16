@@ -1,5 +1,5 @@
 Subject: Admit the original Domination return model cleanup service
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0506 and 0541.
 
 Back from the Domination gameplay options page calls the authored presentation
@@ -14,9 +14,10 @@ the whole original unit, created by original BeginLoadFEWorld. Service 26 and
 every other model, impostor, trophy and animation service keep their guards.
 
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index d30c783..071bd1a 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -305,6 +305,8 @@
+@@ -305,6 +305,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
          GameSceneManager::Instance()->Push(SCENE_CHOOSE_SIDES_STRIKER_CUP, SCREEN_FORWARD, false);
          break;
  

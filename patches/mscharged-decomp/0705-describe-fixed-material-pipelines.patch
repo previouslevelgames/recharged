@@ -1,7 +1,9 @@
 From: mscharged-port
 Subject: Share fixed material state for automatic native pipeline preparation
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
+index 8eea9e5..c0e276f 100644
 --- a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
 @@ -14,27 +14,36 @@
@@ -17,40 +19,38 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  static nlMatrix4 sBlackTextureAlphaViewMatrix;
  static int sBlackTextureAlphaLightCount;
  
--template <>
--void GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>::Activate(GLView* view)
--{
--    static_cast<GXBlackTextureAlphaMaterialProgram*>(this)->ConfigureVertexFormat(true);
--    view->m_Interface->GetViewMatrix(sBlackTextureAlphaViewMatrix);
--    sBlackTextureAlphaLightCount = GetGameObjectLightCount(0, 1);
--    LoadGameObjectLights(sBlackTextureAlphaLightCount, view, 0);
--    SetGameObjectLightingEnabled(1, sBlackTextureAlphaLightCount, 0);
--    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
 +// Shader state is shared by original drawing and native pipeline preparation.
 +static void ConfigureBlackTextureAlphaPipelineState()
 +{    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
-     gxSetNumChans(1);
-     gxSetNumTexGens(1);
-     gxSetNumTevStages(1);
-     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
-     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
++    gxSetNumChans(1);
++    gxSetNumTexGens(1);
++    gxSetNumTevStages(1);
++    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
++    gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
++    gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
 +}
 +
-+template <>
-+void GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>::Activate(GLView* view)
-+{
+ template <>
+ void GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>::Activate(GLView* view)
+ {
 +
-+    static_cast<GXBlackTextureAlphaMaterialProgram*>(this)->ConfigureVertexFormat(true);
-+    view->m_Interface->GetViewMatrix(sBlackTextureAlphaViewMatrix);
-+    sBlackTextureAlphaLightCount = GetGameObjectLightCount(0, 1);
-+    LoadGameObjectLights(sBlackTextureAlphaLightCount, view, 0);
-+    SetGameObjectLightingEnabled(1, sBlackTextureAlphaLightCount, 0);
+     static_cast<GXBlackTextureAlphaMaterialProgram*>(this)->ConfigureVertexFormat(true);
+     view->m_Interface->GetViewMatrix(sBlackTextureAlphaViewMatrix);
+     sBlackTextureAlphaLightCount = GetGameObjectLightCount(0, 1);
+     LoadGameObjectLights(sBlackTextureAlphaLightCount, view, 0);
+     SetGameObjectLightingEnabled(1, sBlackTextureAlphaLightCount, 0);
+-    GXSetVtxDesc(GX_VA_PNMTXIDX, GX_DIRECT);
+-    gxSetNumChans(1);
+-    gxSetNumTexGens(1);
+-    gxSetNumTevStages(1);
+-    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+-    gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+-    gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
 +    ConfigureBlackTextureAlphaPipelineState();
  }
  
  template <>
-@@ -82,3 +91,21 @@
+@@ -82,3 +91,21 @@ void GXMaterialProgramImpl<GXBlackTextureAlphaMaterialProgram>::Draw(
  
      GXCallDisplayList(packet->displayList->list, packet->displayList->size);
  }
@@ -72,6 +72,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    }
 +}
 +#endif
+diff --git a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
+index 3cc5ee6..6fe6446 100644
 --- a/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCompactColourMaterialProgramRender.cpp
 @@ -5,12 +5,14 @@
@@ -93,21 +95,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumTevStages(1);
      gxSetNumTexGens(1);
      gxSetNumChans(1);
-@@ -19,6 +21,13 @@
-     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+@@ -21,6 +23,13 @@ void GXMaterialProgramImpl<GXCompactColourMaterialProgram>::Activate(
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXCompactColourMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureCompactColourPipelineState(static_cast<GXCompactColourMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -47,3 +56,15 @@
+ void GXMaterialProgramImpl<GXCompactColourMaterialProgram>::Deactivate()
+ {
+@@ -47,3 +56,15 @@ void GXMaterialProgramImpl<GXCompactColourMaterialProgram>::Draw(
      else
          static_cast<GXCompactColourMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -123,6 +125,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
+index 5e0ad1d..5df49b3 100644
 --- a/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXConstantColourMaterialProgramRender.cpp
 @@ -10,6 +10,9 @@
@@ -135,7 +139,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  static inline GXColor MakeGXColour(float r, float g, float b, float a)
  {
-@@ -21,11 +24,10 @@
+@@ -21,11 +24,10 @@ static inline GXColor MakeGXColour(float r, float g, float b, float a)
      return colour;
  }
  
@@ -150,21 +154,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumChans(0);
      gxSetNumTexGens(1);
      gxSetNumTevStages(1);
-@@ -34,6 +36,13 @@
-     GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
-     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_KONST, GX_CC_TEXC, GX_CC_ZERO);
+@@ -36,6 +38,13 @@ void GXMaterialProgramImpl<GXConstantColourMaterialProgram>::Activate(
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXConstantColourMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureConstantColourPipelineState(static_cast<GXConstantColourMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -69,3 +78,15 @@
+ void GXMaterialProgramImpl<GXConstantColourMaterialProgram>::Deactivate()
+ {
+@@ -69,3 +78,15 @@ void GXMaterialProgramImpl<GXConstantColourMaterialProgram>::Draw(
      else
          static_cast<GXConstantColourMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -180,6 +184,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXFixedLightMaterialProgramRender.cpp b/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
+index 57ff92b..320bb4e 100644
 --- a/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXFixedLightMaterialProgramRender.cpp
 @@ -7,11 +7,14 @@
@@ -199,7 +205,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      gxSetNumChans(1);
      gxSetNumTevStages(1);
-@@ -20,7 +23,13 @@
+@@ -20,7 +23,13 @@ void GXMaterialProgramImpl<GXFixedLightMaterialProgram>::Activate(GLView* view)
      gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_RASC);
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
      GXSetChanCtrl(GX_COLOR0A0, true, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0, GX_DF_CLAMP, GX_AF_NONE);
@@ -214,7 +220,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      view->m_Interface->GetViewMatrix(sFixedLightViewMatrix);
  }
  
-@@ -84,3 +93,15 @@
+@@ -84,3 +93,15 @@ void GXMaterialProgramImpl<GXFixedLightMaterialProgram>::Draw(
      else
          static_cast<GXFixedLightMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -230,9 +236,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
+index e844430..04faff1 100644
 --- a/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXFloatTexturedColourMaterialProgramRender.cpp
-@@ -10,21 +10,30 @@
+@@ -10,15 +10,17 @@
  #include "NL/glx/glxGX.h"
  #include "NL/glx/glxDisplayList.h"
  #include "Game/SharedStaticStorage.h"
@@ -254,20 +262,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumTevStages(1);
      gxSetNumTexGens(1);
      gxSetNumChans(1);
-     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+@@ -27,6 +29,13 @@ void GXMaterialProgramImpl<GXFloatTexturedColourMaterialProgram>::Activate(
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXFloatTexturedColourMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureFloatTexturedColourPipelineState(static_cast<GXFloatTexturedColourMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -61,3 +70,15 @@
+ void GXMaterialProgramImpl<GXFloatTexturedColourMaterialProgram>::Deactivate()
+ {
+@@ -61,3 +70,15 @@ void GXMaterialProgramImpl<GXFloatTexturedColourMaterialProgram>::Draw(
          GXCallDisplayList(packet->displayList->list, packet->displayList->size);
      }
  }
@@ -283,6 +292,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp b/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
+index 38d5db3..9b83159 100644
 --- a/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXFourTextureAddMaterialProgramRender.cpp
 @@ -5,14 +5,17 @@
@@ -306,20 +317,20 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
      gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
      gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR0A0);
-@@ -26,6 +29,12 @@
-     gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_APREV);
-     gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_APREV);
+@@ -28,6 +31,12 @@ void GXMaterialProgramImpl<GXFourTextureAddMaterialProgram>::Activate(GLView*)
      gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_APREV);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXFourTextureAddMaterialProgram>::Activate(GLView*)
 +{
 +    ConfigureFourTextureAddPipelineState(static_cast<GXFourTextureAddMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -54,3 +63,15 @@
+ void GXMaterialProgramImpl<GXFourTextureAddMaterialProgram>::Deactivate()
+ {
+@@ -54,3 +63,15 @@ void GXMaterialProgramImpl<GXFourTextureAddMaterialProgram>::Draw(
      else
          static_cast<GXFourTextureAddMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -335,6 +346,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp b/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
+index 0ce963c..4f1a11e 100644
 --- a/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedDiffuseBlendMaterialProgramRender.cpp
 @@ -5,11 +5,14 @@
@@ -355,20 +368,20 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumChans(1);
      gxSetNumTevStages(4);
      gxSetNumTexGens(3);
-@@ -26,6 +29,12 @@
-     gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-     gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+@@ -28,6 +31,12 @@ void GXMaterialProgramImpl<GXMaskedDiffuseBlendMaterialProgram>::Activate(GLView
      gxSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXMaskedDiffuseBlendMaterialProgram>::Activate(GLView*)
 +{
 +    ConfigureMaskedDiffuseBlendPipelineState(static_cast<GXMaskedDiffuseBlendMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -55,3 +64,15 @@
+ void GXMaterialProgramImpl<GXMaskedDiffuseBlendMaterialProgram>::Deactivate()
+ {
+@@ -55,3 +64,15 @@ void GXMaterialProgramImpl<GXMaskedDiffuseBlendMaterialProgram>::Draw(
      else
          static_cast<GXMaskedDiffuseBlendMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -384,6 +397,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXRedColourMaterialProgramRender.cpp b/src/NL/glx/GXRedColourMaterialProgramRender.cpp
+index b58f7ff..1f17fd0 100644
 --- a/src/NL/glx/GXRedColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXRedColourMaterialProgramRender.cpp
 @@ -4,10 +4,12 @@
@@ -402,7 +417,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      gxSetNumChans(1);
      gxSetNumTexGens(0);
-@@ -17,7 +19,14 @@
+@@ -17,7 +19,14 @@ void GXMaterialProgramImpl<GXRedColourMaterialProgram>::Activate(
      GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
      gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_KONST, GX_CC_ZERO);
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_KONST, GX_CA_ZERO);
@@ -418,7 +433,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  template <>
-@@ -49,3 +58,15 @@
+@@ -49,3 +58,15 @@ void GXMaterialProgramImpl<GXRedColourMaterialProgram>::Draw(
      else
          program->DrawDirect(packet);
  }
@@ -434,6 +449,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
+index 394ed3f..c34a390 100644
 --- a/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScissoredVertexColourTextureMaterialProgramRender.cpp
 @@ -10,10 +10,12 @@
@@ -452,7 +469,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      gxSetNumChans(1);
      gxSetNumTevStages(1);
-@@ -23,7 +25,14 @@
+@@ -23,7 +25,14 @@ void GXMaterialProgramImpl<GXScissoredVertexColourTextureMaterialProgram>::Activ
      gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
      gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
@@ -468,7 +485,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  template <>
-@@ -75,3 +84,15 @@
+@@ -75,3 +84,15 @@ void GXMaterialProgramImpl<GXScissoredVertexColourTextureMaterialProgram>::Draw(
          static_cast<GXScissoredVertexColourTextureMaterialProgram*>(this)->DrawDirect(packet);
      }
  }
@@ -484,6 +501,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
+index a0271b2..cf429ca 100644
 --- a/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXSkinnedUnlitTextureMaterialProgramRender.cpp
 @@ -13,11 +13,14 @@
@@ -503,7 +522,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      gxSetTevColourOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
      gxSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
-@@ -28,7 +31,13 @@
+@@ -28,7 +31,13 @@ void GXMaterialProgramImpl<GXSkinnedUnlitTextureMaterialProgram>::Activate(GLVie
      gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
      gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
@@ -518,7 +537,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      view->m_Interface->GetViewMatrix(sSkinnedUnlitTextureViewMatrix);
  }
  
-@@ -73,3 +82,16 @@
+@@ -73,3 +82,16 @@ void GXMaterialProgramImpl<GXSkinnedUnlitTextureMaterialProgram>::Draw(
      GXCallDisplayList(packet->displayList->list, packet->displayList->size);
      gxSetCurrentMtx(GX_PNMTX0, true);
  }
@@ -535,6 +554,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp b/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
+index c82dbee..98f2cdc 100644
 --- a/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXTextureBlendMaterialProgramRender.cpp
 @@ -6,6 +6,9 @@
@@ -547,7 +568,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  static inline GXColor MakeTextureBlendColour(float r, float g, float b, float a)
  {
-@@ -17,11 +20,10 @@
+@@ -17,11 +20,10 @@ static inline GXColor MakeTextureBlendColour(float r, float g, float b, float a)
      return colour;
  }
  
@@ -562,21 +583,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumChans(0);
      gxSetNumTevStages(2);
      gxSetNumTexGens(2);
-@@ -35,6 +37,13 @@
-     gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_KONST, GX_CA_ZERO);
-     gxSetTevColourIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_KONST, GX_CC_CPREV);
+@@ -37,6 +39,13 @@ void GXMaterialProgramImpl<GXTextureBlendMaterialProgram>::Activate(
      gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_TEXA, GX_CA_KONST, GX_CA_APREV);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXTextureBlendMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureTextureBlendPipelineState(static_cast<GXTextureBlendMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -70,3 +79,15 @@
+ void GXMaterialProgramImpl<GXTextureBlendMaterialProgram>::Deactivate()
+ {
+@@ -70,3 +79,15 @@ void GXMaterialProgramImpl<GXTextureBlendMaterialProgram>::Draw(
      else
          static_cast<GXTextureBlendMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -592,6 +613,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXTextureColourAddMaterialProgramRender.cpp b/src/NL/glx/GXTextureColourAddMaterialProgramRender.cpp
+index 536090c..109d35e 100644
 --- a/src/NL/glx/GXTextureColourAddMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXTextureColourAddMaterialProgramRender.cpp
 @@ -4,6 +4,9 @@
@@ -604,7 +627,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  static inline GXColor MakeTextureAddColour(float r, float g, float b, float a)
  {
-@@ -15,11 +18,10 @@
+@@ -15,11 +18,10 @@ static inline GXColor MakeTextureAddColour(float r, float g, float b, float a)
      return colour;
  }
  
@@ -619,21 +642,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumChans(0);
      gxSetNumTexGens(1);
      gxSetNumTevStages(1);
-@@ -28,6 +30,13 @@
-     GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
-     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_KONST);
+@@ -30,6 +32,13 @@ void GXMaterialProgramImpl<GXTextureColourAddMaterialProgram>::Activate(
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_KONST);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXTextureColourAddMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureTextureColourAddPipelineState(static_cast<GXTextureColourAddMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -62,3 +71,15 @@
+ void GXMaterialProgramImpl<GXTextureColourAddMaterialProgram>::Deactivate()
+ {
+@@ -62,3 +71,15 @@ void GXMaterialProgramImpl<GXTextureColourAddMaterialProgram>::Draw(
      else
          static_cast<GXTextureColourAddMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -649,6 +672,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp b/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
+index 255f6dd..cf8cb92 100644
 --- a/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXThreeLightDiffuseMaterialProgramRender.cpp
 @@ -8,12 +8,14 @@
@@ -670,21 +695,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumChans(1);
      gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
      gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
-@@ -22,6 +24,13 @@
- 
-     nlColour materialColour = { { 255, 255, 255, 255 } };
+@@ -24,6 +26,13 @@ void GXMaterialProgramImpl<GXThreeLightDiffuseMaterialProgram>::Activate(
      gxSetChanMatColour(GX_COLOR0, materialColour);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXThreeLightDiffuseMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureThreeLightDiffusePipelineState(static_cast<GXThreeLightDiffuseMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -63,3 +72,15 @@
+ void GXMaterialProgramImpl<GXThreeLightDiffuseMaterialProgram>::Deactivate()
+ {
+@@ -63,3 +72,15 @@ void GXMaterialProgramImpl<GXThreeLightDiffuseMaterialProgram>::Draw(
      else
          static_cast<GXThreeLightDiffuseMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -700,6 +725,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
+index 425d78d..a6573f0 100644
 --- a/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXUnlitTextureMaterialProgramRender.cpp
 @@ -10,10 +10,12 @@
@@ -718,7 +745,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  {
      gxSetNumChans(0);
      gxSetNumTevStages(1);
-@@ -21,7 +23,14 @@
+@@ -21,7 +23,14 @@ void GXMaterialProgramImpl<GXUnlitTextureMaterialProgram>::Activate(
      gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
      gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_KONST, GX_CA_TEXA, GX_CA_ZERO);
@@ -734,7 +761,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  template <>
-@@ -50,3 +59,15 @@
+@@ -50,3 +59,15 @@ void GXMaterialProgramImpl<GXUnlitTextureMaterialProgram>::Draw(
      else
          static_cast<GXUnlitTextureMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -750,6 +777,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
+index b8ba227..eb0261c 100644
 --- a/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXVertexColourDetailBlendMaterialProgramRender.cpp
 @@ -5,6 +5,9 @@
@@ -762,7 +791,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  
  static void ConfigureVertexColourDetailBlendStages()
  {
-@@ -27,13 +30,19 @@
+@@ -27,13 +30,19 @@ static void ConfigureVertexColourDetailBlendStages()
      gxSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
  }
  
@@ -785,7 +814,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  template <>
-@@ -74,3 +83,15 @@
+@@ -74,3 +83,15 @@ void GXMaterialProgramImpl<GXVertexColourDetailBlendMaterialProgram>::Draw(
          static_cast<GXVertexColourDetailBlendMaterialProgram*>(this)->DrawDirect(
              packet);
  }
@@ -801,42 +830,44 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXVertexColourMaterialProgramRender.cpp b/src/NL/glx/GXVertexColourMaterialProgramRender.cpp
+index d1ba61c..91332fb 100644
 --- a/src/NL/glx/GXVertexColourMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXVertexColourMaterialProgramRender.cpp
-@@ -4,17 +4,26 @@
+@@ -4,12 +4,14 @@
  #include "NL/glx/glxGX.h"
  #include "NL/glx/glxDisplayList.h"
  #include "Game/SharedStaticStorage.h"
 +#if defined(MSCHARGED_AUTOMATIC_PREWARM)
 +#include "platform/automatic_pipeline_prewarm.h"
 +#endif
-+
+ 
+-template <>
+-void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Activate(
+-    GLView*)
 +// Shader state is shared by original drawing and native pipeline preparation.
 +static void ConfigureVertexColourPipelineState(GXVertexColourMaterialProgram* program)
-+{
-+    program->ConfigureVertexFormat(true);
-+    gxSetNumChans(1);
-+    gxSetNumTexGens(0);
-+    gxSetNumTevStages(1);
-+    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-+}
- 
- template <>
- void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Activate(
-     GLView*)
  {
 -    static_cast<GXVertexColourMaterialProgram*>(this)->ConfigureVertexFormat(true);
--    gxSetNumChans(1);
--    gxSetNumTexGens(0);
--    gxSetNumTevStages(1);
--    gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
--    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-+    ConfigureVertexColourPipelineState(static_cast<GXVertexColourMaterialProgram*>(this));
++    program->ConfigureVertexFormat(true);
+     gxSetNumChans(1);
+     gxSetNumTexGens(0);
+     gxSetNumTevStages(1);
+@@ -17,6 +19,13 @@ void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Activate(
+     GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
  }
  
++template <>
++void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Activate(
++    GLView*)
++{
++    ConfigureVertexColourPipelineState(static_cast<GXVertexColourMaterialProgram*>(this));
++}
++
  template <>
-@@ -42,3 +51,15 @@
+ void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Deactivate()
+ {
+@@ -42,3 +51,15 @@ void GXMaterialProgramImpl<GXVertexColourMaterialProgram>::Draw(
      else
          static_cast<GXVertexColourMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -852,6 +883,8 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp b/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
+index 37712b2..b9ee54f 100644
 --- a/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXVertexColourTextureMaterialProgramRender.cpp
 @@ -10,12 +10,14 @@
@@ -873,21 +906,21 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
      gxSetNumTevStages(1);
      gxSetNumTexGens(1);
      gxSetNumChans(1);
-@@ -24,6 +26,13 @@
-     gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-     gxSetTevColourIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
+@@ -26,6 +28,13 @@ void GXMaterialProgramImpl<GXVertexColourTextureMaterialProgram>::Activate(
      gxSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
-+}
-+
+ }
+ 
 +template <>
 +void GXMaterialProgramImpl<GXVertexColourTextureMaterialProgram>::Activate(
 +    GLView*)
 +{
 +    ConfigureVertexColourTexturePipelineState(static_cast<GXVertexColourTextureMaterialProgram*>(this));
- }
- 
++}
++
  template <>
-@@ -52,3 +61,15 @@
+ void GXMaterialProgramImpl<GXVertexColourTextureMaterialProgram>::Deactivate()
+ {
+@@ -52,3 +61,15 @@ void GXMaterialProgramImpl<GXVertexColourTextureMaterialProgram>::Draw(
      else
          static_cast<GXVertexColourTextureMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -903,9 +936,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    EmitAutomaticMaterialPipeline(packet);
 +}
 +#endif
+diff --git a/src/NL/glx/glxGX.cpp b/src/NL/glx/glxGX.cpp
+index 7cefa24..623885e 100644
 --- a/src/NL/glx/glxGX.cpp
 +++ b/src/NL/glx/glxGX.cpp
-@@ -480,3 +480,118 @@
+@@ -480,3 +480,118 @@ bool gxSetCoPlanar(bool coplanar)
      }
      return prev;
  }
@@ -1024,9 +1059,11 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +    std::memcpy(&gx_coplanar, &sAutomaticGXMirrors.gx_coplanar, sizeof(gx_coplanar));
 +}
 +#endif
+diff --git a/src/NL/glx/glxSend.cpp b/src/NL/glx/glxSend.cpp
+index 0d7311d..7aeaf90 100644
 --- a/src/NL/glx/glxSend.cpp
 +++ b/src/NL/glx/glxSend.cpp
-@@ -65,6 +65,19 @@
+@@ -65,6 +65,19 @@ static inline bool glx_HasNormals(const glModelPacket* p)
      return false;
  }
  
@@ -1046,7 +1083,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  void glx_SendEnd()
  {
      if (glx_program != 0)
-@@ -91,15 +104,7 @@
+@@ -91,15 +104,7 @@ void glx_SendFrame_cb(
              if (glx_program != 0)
              {
                  glx_program->Deactivate();
@@ -1063,7 +1100,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
              }
              program->Activate(prev_view);
              glx_program = program;
-@@ -242,3 +247,21 @@
+@@ -242,3 +247,21 @@ static void glx_SwitchRaster(const glModelPacket* p)
          break;
      }
  }

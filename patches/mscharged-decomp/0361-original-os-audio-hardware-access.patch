@@ -1,5 +1,7 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
 diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
+index a2aace8..0f56481 100644
 --- a/src/RVL_SDK/os/OSAudioSystem.c
 +++ b/src/RVL_SDK/os/OSAudioSystem.c
 @@ -4,7 +4,35 @@
@@ -38,7 +40,7 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
  #define DSP_CODE_WORK_MEM_BACKUP ((u8*)OSGetArenaHi() - sizeof(DSPInitCode))
  
  static u8 DSPInitCode[128] = {
-@@ -30,44 +58,42 @@
+@@ -30,44 +58,42 @@ static void waitMicroSec(u32 usec) {
  static void __AIClockInit(BOOL arg0) {
      u32 tmp;
  
@@ -48,10 +50,9 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
      tmp |= (arg0 << 8);
      tmp &= ~0x80;
 -    IPC_HW_REGS[IPC_DIFLAGS] = tmp;
--
--    IPC_HW_REGS[IPC_GPIO2IN] &= ~0xC0000000;
 +    AUDIO_IPC_WRITE(IPC_DIFLAGS, tmp);
-+
+ 
+-    IPC_HW_REGS[IPC_GPIO2IN] &= ~0xC0000000;
 +    AUDIO_IPC_AND(IPC_GPIO2IN, ~0xC0000000);
      waitMicroSec(100);
  
@@ -94,7 +95,7 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
      waitMicroSec(1000);
  }
  
-@@ -76,7 +102,7 @@
+@@ -76,7 +102,7 @@ void __OSInitAudioSystem(void) {
      u32 start;
      u16 ctrl;
  
@@ -103,7 +104,7 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
          __AIClockInit(TRUE);
      }
  
-@@ -86,72 +112,72 @@
+@@ -86,72 +112,72 @@ void __OSInitAudioSystem(void) {
      memcpy(DSP_CODE_WORK_MEM, DSPInitCode, sizeof(DSPInitCode));
      DCFlushRange(DSP_CODE_WORK_MEM, sizeof(DSPInitCode));
  
@@ -117,15 +118,12 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
      // Reset DSP
 -    DSP_HW_REGS[DSP_CSR] |= 0x1;
 -    while (DSP_HW_REGS[DSP_CSR] & 0x1) {
--        ;
--    }
--
--    DSP_HW_REGS[DSP_DSPMBOX_H] = 0;
 +    AUDIO_DSP_OR(DSP_CSR, 0x1);
 +    while (AUDIO_DSP_READ(DSP_CSR) & 0x1) {
-+        ;
-+    }
-+
+         ;
+     }
+ 
+-    DSP_HW_REGS[DSP_DSPMBOX_H] = 0;
 +    AUDIO_DSP_WRITE(DSP_DSPMBOX_H, 0);
      // Wait for mail delivery
 -    while (((DSP_HW_REGS[DSP_CPUMBOX_H] << 16) | DSP_HW_REGS[DSP_CPUMBOX_L]) &
@@ -144,13 +142,11 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
      // Wait for ARAM interrupt
 -    for (ctrl = DSP_HW_REGS[DSP_CSR]; !(ctrl & DSP_CSR_ARINT);
 -         ctrl = DSP_HW_REGS[DSP_CSR]) {
--        ;
--    }
--    DSP_HW_REGS[DSP_CSR] = ctrl;
 +    for (ctrl = AUDIO_DSP_READ(DSP_CSR); !(ctrl & DSP_CSR_ARINT);
 +         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
-+        ;
-+    }
+         ;
+     }
+-    DSP_HW_REGS[DSP_CSR] = ctrl;
 +    AUDIO_DSP_WRITE(DSP_CSR, ctrl);
  
      start = OSGetTick();
@@ -168,28 +164,22 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
      // Wait for ARAM interrupt
 -    for (ctrl = DSP_HW_REGS[DSP_CSR]; !(ctrl & DSP_CSR_ARINT);
 -         ctrl = DSP_HW_REGS[DSP_CSR]) {
--        ;
--    }
--    DSP_HW_REGS[DSP_CSR] = ctrl;
--
--    DSP_HW_REGS[DSP_CSR] &= ~DSP_CSR_RES;
--    while (DSP_HW_REGS[DSP_CSR] & 0x400) {
--        ;
--    }
--
--    DSP_HW_REGS[DSP_CSR] &= ~DSP_CSR_HALT;
--    for (cpuMboxHi = DSP_HW_REGS[DSP_CPUMBOX_H];
 +    for (ctrl = AUDIO_DSP_READ(DSP_CSR); !(ctrl & DSP_CSR_ARINT);
 +         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
-+        ;
-+    }
+         ;
+     }
+-    DSP_HW_REGS[DSP_CSR] = ctrl;
 +    AUDIO_DSP_WRITE(DSP_CSR, ctrl);
-+
+ 
+-    DSP_HW_REGS[DSP_CSR] &= ~DSP_CSR_RES;
+-    while (DSP_HW_REGS[DSP_CSR] & 0x400) {
 +    AUDIO_DSP_AND(DSP_CSR, ~DSP_CSR_RES);
 +    while (AUDIO_DSP_READ(DSP_CSR) & 0x400) {
-+        ;
-+    }
-+
+         ;
+     }
+ 
+-    DSP_HW_REGS[DSP_CSR] &= ~DSP_CSR_HALT;
+-    for (cpuMboxHi = DSP_HW_REGS[DSP_CPUMBOX_H];
 +    AUDIO_DSP_AND(DSP_CSR, ~DSP_CSR_HALT);
 +    for (cpuMboxHi = AUDIO_DSP_READ(DSP_CPUMBOX_H);
           !(cpuMboxHi & DSP_CPUMBOX_H_STATUS);
@@ -200,12 +190,11 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
  
      // ?????
 -    DSP_HW_REGS[DSP_CPUMBOX_L];
--
++    AUDIO_DSP_READ(DSP_CPUMBOX_L);
+ 
 -    DSP_HW_REGS[DSP_CSR] |= DSP_CSR_HALT;
 -    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
 -                           DSP_CSR_DSPINT | DSP_CSR_RES;
-+    AUDIO_DSP_READ(DSP_CPUMBOX_L);
-+
 +    AUDIO_DSP_OR(DSP_CSR, DSP_CSR_HALT);
 +    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
 +                           DSP_CSR_DSPINT | DSP_CSR_RES);
@@ -218,7 +207,7 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
          ;
      }
  
-@@ -163,27 +189,27 @@
+@@ -163,27 +189,27 @@ void __OSStopAudioSystem(void) {
      u32 start;
      u16 ctrl;
  
@@ -226,11 +215,10 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
 +    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_RES);
      // Clear sample control
 -    DSP_HW_REGS[DSP_AI_DMA_CSR] &= ~DSP_AI_DMA_CSR_PLAY;
--
++    AUDIO_DSP_AND(DSP_AI_DMA_CSR, ~DSP_AI_DMA_CSR_PLAY);
+ 
 -    for (ctrl = DSP_HW_REGS[DSP_CSR]; ctrl & 0x400;
 -         ctrl = DSP_HW_REGS[DSP_CSR]) {
-+    AUDIO_DSP_AND(DSP_AI_DMA_CSR, ~DSP_AI_DMA_CSR_PLAY);
-+
 +    for (ctrl = AUDIO_DSP_READ(DSP_CSR); ctrl & 0x400;
 +         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
          ;
@@ -239,21 +227,17 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
      // Wait for DMA interrupt to end
 -    for (ctrl = DSP_HW_REGS[DSP_CSR]; ctrl & DSP_CSR_DMAINT;
 -         ctrl = DSP_HW_REGS[DSP_CSR]) {
--        ;
--    }
--
--    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
--                           DSP_CSR_DSPINT | DSP_CSR_RES;
--
--    DSP_HW_REGS[DSP_DSPMBOX_H] = 0;
 +    for (ctrl = AUDIO_DSP_READ(DSP_CSR); ctrl & DSP_CSR_DMAINT;
 +         ctrl = AUDIO_DSP_READ(DSP_CSR)) {
-+        ;
-+    }
-+
+         ;
+     }
+ 
+-    DSP_HW_REGS[DSP_CSR] = DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
+-                           DSP_CSR_DSPINT | DSP_CSR_RES;
 +    AUDIO_DSP_WRITE(DSP_CSR, DSP_CSR_HALT | DSP_CSR_AIDINT | DSP_CSR_ARINT |
 +                           DSP_CSR_DSPINT | DSP_CSR_RES);
-+
+ 
+-    DSP_HW_REGS[DSP_DSPMBOX_H] = 0;
 +    AUDIO_DSP_WRITE(DSP_DSPMBOX_H, 0);
      // Wait for mail delivery
 -    while (((DSP_HW_REGS[DSP_CPUMBOX_H] << 16) | DSP_HW_REGS[DSP_CPUMBOX_L]) &
@@ -261,17 +245,14 @@ diff --git a/src/RVL_SDK/os/OSAudioSystem.c b/src/RVL_SDK/os/OSAudioSystem.c
             (DSP_CPUMBOX_H_STATUS << 16)) {
          ;
      }
-@@ -194,8 +220,8 @@
+@@ -194,8 +220,8 @@ void __OSStopAudioSystem(void) {
      } while (OS_TICKS_DELTA(OSGetTick(), start) < 44);
  
      // Reset DSP
 -    DSP_HW_REGS[DSP_CSR] |= 0x1;
 -    for (ctrl = DSP_HW_REGS[DSP_CSR]; ctrl & 0x1; ctrl = DSP_HW_REGS[DSP_CSR]) {
--        ;
--    }
--}
 +    AUDIO_DSP_OR(DSP_CSR, 0x1);
 +    for (ctrl = AUDIO_DSP_READ(DSP_CSR); ctrl & 0x1; ctrl = AUDIO_DSP_READ(DSP_CSR)) {
-+        ;
-+    }
-+}
+         ;
+     }
+ }

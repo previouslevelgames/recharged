@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the remaining original offline scene factory cases
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; apply after 0601.
 
 The frontend sequence diagnostic still threw for every offline factory case it
@@ -13,10 +13,10 @@ under MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES. Online scenes (24, 39-57,
 93) stay gated until the native network services exist.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index 67a0b24..b9e2d39 100644
+index a13ce74..73b7a8d 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -340,7 +340,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -373,7 +373,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::CUP, movement);
          break;
  #endif
@@ -25,7 +25,7 @@ index 67a0b24..b9e2d39 100644
      case (SceneList)9:
          newHandler = new (nlMalloc(sizeof(CupCheaterScene), 8, false)) CupCheaterScene();
          break;
-@@ -359,7 +359,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -392,7 +392,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_FRONTEND);
          break;
  #endif
@@ -34,7 +34,7 @@ index 67a0b24..b9e2d39 100644
      case (SceneList)16:
          newHandler = new (nlMalloc(sizeof(CrossFaderScene), 8, false)) CrossFaderScene();
          break;
-@@ -375,7 +375,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -408,7 +408,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_BOOT_LOADING_JPN:
          newHandler = new (nlMalloc(sizeof(BootLoadingScene), 8, false)) BootLoadingScene();
          break;
@@ -43,7 +43,7 @@ index 67a0b24..b9e2d39 100644
      case (SceneList)20:
          newHandler = new (nlMalloc(sizeof(MoviePlayerScene), 8, false)) MoviePlayerScene();
          break;
-@@ -510,6 +510,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -543,6 +543,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_ONLINE_CONNECTION_QUALITY:
          newHandler = new (nlMalloc(sizeof(OnlineConnectionQualityScene), 8, false)) OnlineConnectionQualityScene();
          break;
@@ -52,7 +52,7 @@ index 67a0b24..b9e2d39 100644
      case SCENE_HOF_PROFILE:
          newHandler = new (nlMalloc(sizeof(SHHallOfFameProfile), 8, false)) SHHallOfFameProfile();
          break;
-@@ -582,7 +584,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -615,7 +617,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::TOURNAMENT, movement);
          break;
  #endif
@@ -61,7 +61,7 @@ index 67a0b24..b9e2d39 100644
      case (SceneList)79:
          newHandler = new (nlMalloc(sizeof(HealthWarningSceneV2), 8, false)) HealthWarningSceneV2();
          break;
-@@ -631,6 +633,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -664,6 +666,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case (SceneList)93:
          newHandler = new (nlMalloc(sizeof(OnlineRankingOverlay), 8, false)) OnlineRankingOverlay();
          break;
@@ -70,7 +70,7 @@ index 67a0b24..b9e2d39 100644
      case OVERLAY_STRIKER_TIMES:
          newHandler = new (nlMalloc(sizeof(StrikerTimesOverlay), 8, false)) StrikerTimesOverlay();
          break;
-@@ -640,7 +644,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -673,7 +677,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(GoalOverlay), 8, false)) GoalOverlay();
          break;
  #endif

@@ -1,5 +1,5 @@
 Subject: Select original masked detail blending with bounded native streams
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the original mask-weighted detail blend, four/five-stage lighting,
 projected shadows and diffuse alpha preparation. Adapt packed vertex data to
@@ -7,6 +7,7 @@ bounded native float arrays and typed FIFO calls; reset registry state on
 teardown and supply the explicit preview view. Console formats/FIFO remain.
 
 diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
+index e2442df..c42a415 100644
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -18,7 +19,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  
  #include "NL/glx/GXMaskedDetailBlendMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -20,15 +24,19 @@
+@@ -20,15 +24,19 @@ GXMaterialParameter GXMaskedDetailBlendMaterialProgram::Parameters[6] = {
  
  GXMaskedDetailBlendMaterialProgram::GXMaskedDetailBlendMaterialProgram()
  {
@@ -39,7 +40,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  }
  
  void GXMaskedDetailBlendMaterialProgram::Initialize()
-@@ -46,11 +54,27 @@
+@@ -46,11 +54,27 @@ void GXMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -67,7 +68,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  
      if (indexed)
      {
-@@ -75,12 +99,42 @@
+@@ -75,12 +99,42 @@ void GXMaskedDetailBlendMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXMaskedDetailBlendMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -110,16 +111,10 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  }
  
  void GXMaskedDetailBlendMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -91,14 +145,26 @@
+@@ -91,14 +145,26 @@ void GXMaskedDetailBlendMaterialProgram::DrawIndexed(const glModelPacket* packet
  
      while (idxPtr < end)
      {
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
--        WGPIPE.us = *idxPtr;
 +#if defined(MSCHARGED_NATIVE)
 +        GXPosition1x16(*idxPtr);
 +        GXNormal1x16(*idxPtr);
@@ -128,12 +123,12 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
 +        GXTexCoord1x16(*idxPtr);
 +        GXTexCoord1x16(*idxPtr);
 +#else
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
-+        WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
+         WGPIPE.us = *idxPtr;
 +#endif
          ++idxPtr;
      }
@@ -143,17 +138,10 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  }
  
  void GXMaskedDetailBlendMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -107,13 +173,25 @@
+@@ -107,13 +173,25 @@ void GXMaskedDetailBlendMaterialProgram::DrawDirect(const glModelPacket* packet)
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--        WGPIPE.us = i;
--    }
 +#if defined(MSCHARGED_NATIVE)
 +        GXPosition1x16(i);
 +        GXNormal1x16(i);
@@ -162,14 +150,14 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
 +        GXTexCoord1x16(i);
 +        GXTexCoord1x16(i);
 +#else
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
-+        WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
+         WGPIPE.us = i;
 +#endif
-+    }
+     }
 +#if defined(MSCHARGED_NATIVE)
 +    GXEnd();
 +#endif
@@ -177,6 +165,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgram.cpp b/src/NL/glx/GXMa
  
  void GXMaskedDetailBlendMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
+index 6fdf203..e3b0d5b 100644
 --- a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@
@@ -189,7 +178,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/gl
  #include "Game/GameObjectLighting.h"
  #include "NL/gl/glMaterialParameters.h"
  
-@@ -97,11 +102,19 @@
+@@ -97,11 +102,19 @@ void GXMaterialProgramImpl<GXMaskedDetailBlendMaterialProgram>::Activate(GLView*
  {
      sMaskedDetailBlendLightingMode = LIGHTING_UNCONFIGURED;
      static_cast<GXMaskedDetailBlendMaterialProgram*>(this)->ConfigureVertexFormat(true);
@@ -209,7 +198,7 @@ diff --git a/src/NL/glx/GXMaskedDetailBlendMaterialProgramRender.cpp b/src/NL/gl
      glTextureBinding texture;
      texture.texture = 0;
      texture.textureIndex = 0xFFFF;
-@@ -113,6 +126,9 @@
+@@ -113,6 +126,9 @@ void GXMaterialProgramImpl<GXMaskedDetailBlendMaterialProgram>::Activate(GLView*
      texture.SetWrapT(true);
      texture.unknown07 = 0;
      glx_BindTexture(3, &texture);

@@ -1,32 +1,16 @@
 Subject: Share original inherited empty frontend subhandler stage
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Selected Main/Options native visual owners call the same inherited stage;
 full SceneCreated and FEScene state6 remain separate dependencies.
 
-diff --git a/include/Game/BaseSceneHandler.h b/include/Game/BaseSceneHandler.h
---- a/include/Game/BaseSceneHandler.h
-+++ b/include/Game/BaseSceneHandler.h
-@@ -3,6 +3,7 @@
- 
- #include "types.h"
- #include "Game/FE/feScene.h"
-+#include "Game/FE/FrontendSubhandlerSteps.h"
- 
- class FEPresentation;
- class FEScene;
-@@ -36,7 +37,7 @@
- 
-     virtual ~BaseSceneHandler() { }
-     virtual void Update(float dt);
--    virtual void InitializeSubHandlers() { }
-+    virtual void InitializeSubHandlers() { FrontendBaseHandlerInitializeSubHandlers(); }
-     virtual void AddScreenHandler(BaseScreenHandler* handler);
-     virtual void RemoveScreenHandler(BaseScreenHandler* handler);
-     virtual void SetPresentation(FEPresentation* presentation) { mPresentation = presentation; }
+Refreshed for decomp 9046e67a: BaseSceneHandler.h keep their upstream text (the
+series' later restore patches made these edits net zero).
+
 diff --git a/include/Game/FE/FrontendSubhandlerSteps.h b/include/Game/FE/FrontendSubhandlerSteps.h
 new file mode 100644
+index 0000000..9bac399
 --- /dev/null
 +++ b/include/Game/FE/FrontendSubhandlerSteps.h
 @@ -0,0 +1,6 @@

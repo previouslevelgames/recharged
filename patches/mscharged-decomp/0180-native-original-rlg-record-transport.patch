@@ -1,5 +1,5 @@
 Subject: Transport Wii32 RLG records beneath the complete original loader
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Decode raw model12/stream8/packet48 bytes into the actual native declared
 records. Retain all source scalar/unknown words and encoded offsets/hash IDs.
@@ -16,6 +16,7 @@ suballocation/frame/pop ownership still need qualification before actual
 Read, array registration or rendering. No readiness or alternate loader.
 
 diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+index 2a376cb..1ac1eac 100644
 --- a/src/NL/gl/glLoadModel.cpp
 +++ b/src/NL/gl/glLoadModel.cpp
 @@ -11,6 +11,10 @@
@@ -29,7 +30,7 @@ diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
  
  
  static bool glIgnoreDuplicateModels;
-@@ -58,24 +62,47 @@
+@@ -58,24 +62,47 @@ void RLGReader::LoadPacketData(void* data, unsigned long size)
  void RLGReader::LoadStreams(void* data, unsigned long size)
  {
      m_numStreamEntries = size >> 3;
@@ -77,7 +78,7 @@ diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
  }
  
  void RLGReader::LoadMatrices(void* data, unsigned long size)
-@@ -119,21 +146,40 @@
+@@ -119,21 +146,40 @@ static void FixupModelData(RLGReader* reader)
              ++packetIndex)
          {
              glModelPacket* packet = &model->packets[packetIndex];

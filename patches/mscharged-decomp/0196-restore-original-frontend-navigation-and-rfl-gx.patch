@@ -1,13 +1,40 @@
 Subject: [PATCH] restore original frontend navigation and canonical Mii GX declaration
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore whole original SHNavigation.cpp exactly, preserving original UI, pointer
 and transition decisions. Retained extracted helper headers cannot enter the
 original game module. Native RFL declarations use the canonical host GX header;
 the console include and all game/factory/Credits/font methods stay unchanged.
 
+diff --git a/include/Game/FE/FrontendNavigationSteps.h b/include/Game/FE/FrontendNavigationSteps.h
+index 32ae9e6..b2ee767 100644
+--- a/include/Game/FE/FrontendNavigationSteps.h
++++ b/include/Game/FE/FrontendNavigationSteps.h
+@@ -1,5 +1,8 @@
+ #ifndef GAME_FE_FRONTEND_NAVIGATION_STEPS_H
+ #define GAME_FE_FRONTEND_NAVIGATION_STEPS_H
++#if defined(MSCHARGED_GAME_MODULE)
++#error Retained frontend navigation helpers are diagnostic-only; compile original SHNavigation.cpp.
++#endif
+ // Selected original visual/listener kernels. Platform/global services remain caller-owned.
+ template<class TLInstance,class TLComponentInstance,template<class,int>class FEFinder,class Scene,class Wide,class Name,class Publish>
+ TLComponentInstance* FrontendNavigationCreated(Scene& scene,Wide widescreen,Name namePointer,Publish publishPointer)
+diff --git a/include/Game/FE/FrontendNavigationTransitionSteps.h b/include/Game/FE/FrontendNavigationTransitionSteps.h
+index 59fa88b..c3760e4 100644
+--- a/include/Game/FE/FrontendNavigationTransitionSteps.h
++++ b/include/Game/FE/FrontendNavigationTransitionSteps.h
+@@ -1,5 +1,8 @@
+ #ifndef GAME_FE_FRONTEND_NAVIGATION_TRANSITION_STEPS_H
+ #define GAME_FE_FRONTEND_NAVIGATION_TRANSITION_STEPS_H
++#if defined(MSCHARGED_GAME_MODULE)
++#error Retained frontend navigation helpers are diagnostic-only; compile original SHNavigation.cpp.
++#endif
+ // Original eight-door reset and transition update fragments. The command call
+ // belongs between Show and Finish, exactly as in SHNavigation::Update.
+ template<class TLComponentInstance,class TLSlide,template<class,int>class FEFinder,class Scene>
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
+index 5b0248b..ec533ff 100644
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h
 @@ -4,7 +4,11 @@
@@ -23,6 +50,7 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_DataUtility.h b/libs/RVL_SDK/in
  extern "C" {
  #endif
 diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
+index 2226208..e023826 100644
 --- a/src/Game/SH/SHNavigation.cpp
 +++ b/src/Game/SH/SHNavigation.cpp
 @@ -1,8 +1,6 @@
@@ -34,7 +62,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
  #include "NL/plat/PlatPadStatus.h"
  #include "Game/SH/SHNavigation.h"
  #include "Game/BaseGameSceneManager.h"
-@@ -67,10 +65,48 @@
+@@ -67,10 +65,48 @@ SHNavigation::~SHNavigation()
  
  void SHNavigation::SceneCreated()
  {
@@ -87,7 +115,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
      mPageControls.SetMinusButton(mMinusButton);
      mPageControls.SetPlusButton(mPlusButton);
  
-@@ -100,20 +136,31 @@
+@@ -100,20 +136,31 @@ void SHNavigation::Update(float fDeltaT)
          u16 angle;
          u8 valid = true;
          nlVector2 position = GetPointerPosition(index, &angle, &valid);
@@ -123,7 +151,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
      }
  
      if (mHomeWarningPlaying)
-@@ -171,27 +218,87 @@
+@@ -171,27 +218,87 @@ void SetPointerEnabled(bool value)
  
  void SHNavigation::SetButtonVisibility(int mask, bool visible)
  {
@@ -216,7 +244,7 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
  }
  
  TLComponentInstance* SHNavigation::GetButton(int value)
-@@ -234,22 +341,133 @@
+@@ -234,22 +341,133 @@ SHNavigation* GetNavigationScene()
  
  void SHNavigation::SetPlayButtonText(int value)
  {
@@ -354,27 +382,3 @@ diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
  }
  
  void SHNavigation::ShowHomeButtonWarning()
-diff --git a/include/Game/FE/FrontendNavigationSteps.h b/include/Game/FE/FrontendNavigationSteps.h
---- a/include/Game/FE/FrontendNavigationSteps.h
-+++ b/include/Game/FE/FrontendNavigationSteps.h
-@@ -1,5 +1,8 @@
- #ifndef GAME_FE_FRONTEND_NAVIGATION_STEPS_H
- #define GAME_FE_FRONTEND_NAVIGATION_STEPS_H
-+#if defined(MSCHARGED_GAME_MODULE)
-+#error Retained frontend navigation helpers are diagnostic-only; compile original SHNavigation.cpp.
-+#endif
- // Selected original visual/listener kernels. Platform/global services remain caller-owned.
- template<class TLInstance,class TLComponentInstance,template<class,int>class FEFinder,class Scene,class Wide,class Name,class Publish>
- TLComponentInstance* FrontendNavigationCreated(Scene& scene,Wide widescreen,Name namePointer,Publish publishPointer)
-diff --git a/include/Game/FE/FrontendNavigationTransitionSteps.h b/include/Game/FE/FrontendNavigationTransitionSteps.h
---- a/include/Game/FE/FrontendNavigationTransitionSteps.h
-+++ b/include/Game/FE/FrontendNavigationTransitionSteps.h
-@@ -1,5 +1,8 @@
- #ifndef GAME_FE_FRONTEND_NAVIGATION_TRANSITION_STEPS_H
- #define GAME_FE_FRONTEND_NAVIGATION_TRANSITION_STEPS_H
-+#if defined(MSCHARGED_GAME_MODULE)
-+#error Retained frontend navigation helpers are diagnostic-only; compile original SHNavigation.cpp.
-+#endif
- // Original eight-door reset and transition update fragments. The command call
- // belongs between Show and Finish, exactly as in SHNavigation::Update.
- template<class TLComponentInstance,class TLSlide,template<class,int>class FEFinder,class Scene>

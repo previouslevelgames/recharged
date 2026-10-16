@@ -1,14 +1,15 @@
 Subject: Preserve the signed Wii32 effects forward-axis representation
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native-only declaration transport. Console tokens, numeric constants, source
 branches and serialized data remain unchanged. Apply after the refreshed469
 Charged preparation patches.
 
 diff --git a/include/Game/Effects/EffectsGroup.h b/include/Game/Effects/EffectsGroup.h
+index 3995361..a46c5af 100644
 --- a/include/Game/Effects/EffectsGroup.h
 +++ b/include/Game/Effects/EffectsGroup.h
-@@ -23,6 +23,9 @@
+@@ -23,6 +23,9 @@ enum eJointBinding
  };
  
  enum eFXForwardAxis

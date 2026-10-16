@@ -1,11 +1,12 @@
 Subject: [PATCH] Share original bounded controller time, completion and identity steps
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain original console effects/system/manager services. Native port adapters
 reuse only these state equations while qualifying retained emitter-only groups.
 
 diff --git a/include/Game/Effects/EmissionControllerSteps.h b/include/Game/Effects/EmissionControllerSteps.h
 new file mode 100644
+index 0000000..5b12bd2
 --- /dev/null
 +++ b/include/Game/Effects/EmissionControllerSteps.h
 @@ -0,0 +1,74 @@
@@ -84,6 +85,7 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
+index 6a11b32..bfdf0a6 100644
 --- a/src/Game/Effects/EmissionController.cpp
 +++ b/src/Game/Effects/EmissionController.cpp
 @@ -1,4 +1,5 @@
@@ -92,7 +94,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  #include "Game/Effects/EmissionController.h"
  #include "Game/Effects/EmissionManager.h"
  #include "Game/Effects/ParticleSystem.h"
-@@ -196,12 +197,7 @@
+@@ -196,12 +197,7 @@ void EmissionController::SetAnimController(
  
  void EmissionController::Die()
  {
@@ -106,7 +108,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -400,50 +396,10 @@
+@@ -400,50 +396,10 @@ void EmissionController::UpdateParticleSystemDirection(EffectsSpec* pSpec, Parti
  
  bool EmissionController::Update(float dt)
  {
@@ -160,7 +162,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
  
      nlDLListIterator<ParticleSystem*> iterator;
      iterator = m_Systems.Begin();
-@@ -462,11 +418,7 @@
+@@ -462,11 +418,7 @@ bool EmissionController::Update(float dt)
          }
      }
  
@@ -174,6 +176,7 @@ diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/Emission
      if (m_nUserEffects > 0)
      {
 diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
+index d517b15..3b62065 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
 @@ -1,4 +1,5 @@
@@ -182,7 +185,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  #include "Game/Effects/EmissionManager.h"
  
  #include "Game/Effects/EmissionController.h"
-@@ -766,14 +767,7 @@
+@@ -766,14 +767,7 @@ EmissionController* EmissionManager::Create(EffectsGroup* pEffectsGroup, int vie
      AllocatorStack[AllocatorStackDepth++] = allocator;
      CurrentAllocator = allocator;
  

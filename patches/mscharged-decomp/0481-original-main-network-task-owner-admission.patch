@@ -3,9 +3,12 @@
 # Scope: Explicit native selected-source diagnostic; literal original task static and Initialize call only.
 # Qualification: Original unchanged initializer CPU source-owner leaf on captured source340/SDK48 plus0473/0476/0477.
 # Default/console flow unchanged. No Fixed/online/source-loop admission or initialized-field seeding.
+
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 3cee628..3c7eb4c 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -208,7 +208,11 @@
+@@ -217,7 +217,11 @@ static TweakBoolBinding sPrintMemoryLowWaterMarksTweak(
  
  static ComUpdateTask comUpdateTask;
  static PingerUpdateTask pingerUpdateTask;
@@ -17,7 +20,7 @@
  static PlatPadUpdateTask platPadUpdateTask;
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -641,7 +645,11 @@
+@@ -650,7 +654,11 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
      gSwappablePadChanged.Add(Function<void(int)>(OnSwappablePadChanged), 0, -1);
      FlickDetection::Initialize();

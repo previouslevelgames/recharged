@@ -1,44 +1,14 @@
 From: native source fidelity
 Subject: [PATCH] restore original game-module character skin render calls
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Game-module bodies retain original lighting/marker/matrix/display-list decisions.
 The existing canonical SDK lowers original hardware operations; preview-only
 finite/rigid/matrix restrictions stay outside the original game module.
 
-diff --git a/src/NL/glx/glxSkinMatrix.cpp b/src/NL/glx/glxSkinMatrix.cpp
---- a/src/NL/glx/glxSkinMatrix.cpp
-+++ b/src/NL/glx/glxSkinMatrix.cpp
-@@ -1,7 +1,9 @@
- #if defined(MSCHARGED_NATIVE)
- #include <dolphin/gx.h>
- #include <dolphin/mtx.h>
-+#if !defined(MSCHARGED_GAME_MODULE)
- #include "runtime/skin_material.h"
-+#endif
- #else
- #include <revolution/gx.h>
- #include <revolution/mtx.h>
-@@ -19,7 +21,7 @@
-     Mtx matrix0;
-     Mtx matrix1;
-     glxCopyMatrix(matrix0, *matrix);
--#if defined(MSCHARGED_NATIVE)
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
-     mscharged::SkinNormalMatrix(matrix0, matrix1);
- #else
-     PSMTXInvXpose(matrix0, matrix1);
-@@ -40,7 +42,7 @@
-     for (int i = 0; i < count; ++i)
-     {
-         PSMTXConcat(matrix0, matrices[i], matrix1);
--#if defined(MSCHARGED_NATIVE)
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
-         mscharged::SkinNormalMatrix(matrix1, matrix2);
- #else
-         PSMTXInvXpose(matrix1, matrix2);
 diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
+index 49cf0f6..0fd7aea 100644
 --- a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
 @@ -1,7 +1,9 @@
@@ -51,7 +21,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
  #else
  #include <revolution/gx.h>
  #endif
-@@ -115,18 +117,19 @@
+@@ -115,18 +117,19 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Activate(GLVie
      SetGameObjectShadowModelMatrix(-1);
      sCharacterLightCount = GetGameObjectLightCount(1, 0);
      LoadGameObjectLights(sCharacterLightCount, view, 1);
@@ -61,10 +31,9 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
 +    glxConfigureCharacterSkinCustomLighting(sCharacterSkinLightingEnabled);
  #else
      sCharacterSkinLightingEnabled = sEnableCharacterSkinLighting;
--#endif
--    glxConfigureCharacterSkinCustomLighting(sCharacterSkinLightingEnabled);
 +    glxConfigureCharacterSkinCustomLighting(sEnableCharacterSkinLighting);
-+#endif
+ #endif
+-    glxConfigureCharacterSkinCustomLighting(sCharacterSkinLightingEnabled);
  }
  
  template <>
@@ -75,7 +44,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
      GXSetCurrentMtx(GX_PNMTX0);
  #else
      gxSetCurrentMtx(0, true);
-@@ -170,7 +173,7 @@
+@@ -170,7 +173,7 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
      static_cast<GXCharacterSkinCustomMaterialProgram*>(this)->BindParameters(packet);
  
      bool enabled = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters)->lightingEnabled == 1;
@@ -84,7 +53,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
      enabled = enabled && sEnableCharacterSkinLighting && IsGameObjectLightingEnabled();
  #endif
      if (enabled != sCharacterSkinLightingEnabled)
-@@ -206,11 +209,11 @@
+@@ -206,11 +209,11 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
          unsigned int numSkinMatrices;
          const GXCharacterSkinCustomParameters* parameters = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters);
          numSkinMatrices = parameters->skinMatrixBytes / sizeof(*parameters->skinMatrices);
@@ -98,7 +67,7 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
          glGetDrawSyncLog()->AddMarker("CharacterSkinCustom - After RLXLoadSkinMatrices");
  #endif
      }
-@@ -227,7 +230,7 @@
+@@ -227,7 +230,7 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
          if (sDrawAlphaDepthPass)
          {
              bool colourUpdate = gxSetColourUpdate(false);
@@ -107,16 +76,16 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
              mscharged::DrawNativeSkinPacket(*packet);
  #else
              GXCallDisplayList(
-@@ -241,7 +244,7 @@
+@@ -241,7 +244,7 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
          gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
          GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
-         gxSetTevAlphaIn(1, 7, 7, 7, 6);
+         gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
 -#if defined(MSCHARGED_NATIVE)
 +#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
          mscharged::DrawNativeSkinPacket(*packet);
  #else
          GXCallDisplayList(packet->displayList->list, packet->displayList->size);
-@@ -251,7 +254,7 @@
+@@ -251,7 +254,7 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
      }
      else
      {
@@ -125,3 +94,35 @@ diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/
          mscharged::DrawNativeSkinPacket(*packet);
  #else
          GXCallDisplayList(packet->displayList->list, packet->displayList->size);
+diff --git a/src/NL/glx/glxSkinMatrix.cpp b/src/NL/glx/glxSkinMatrix.cpp
+index 8402caf..ec379ac 100644
+--- a/src/NL/glx/glxSkinMatrix.cpp
++++ b/src/NL/glx/glxSkinMatrix.cpp
+@@ -1,7 +1,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <dolphin/gx.h>
+ #include <dolphin/mtx.h>
++#if !defined(MSCHARGED_GAME_MODULE)
+ #include "runtime/skin_material.h"
++#endif
+ #else
+ #include <revolution/gx.h>
+ #include <revolution/mtx.h>
+@@ -19,7 +21,7 @@ void glx_LoadDefaultSkinMatrices(const nlMatrix4* matrix)
+     Mtx matrix0;
+     Mtx matrix1;
+     glxCopyMatrix(matrix0, *matrix);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+     mscharged::SkinNormalMatrix(matrix0, matrix1);
+ #else
+     PSMTXInvXpose(matrix0, matrix1);
+@@ -40,7 +42,7 @@ void glx_LoadSkinMatrices(const Mtx* matrices, int count, const nlMatrix4* matri
+     for (int i = 0; i < count; ++i)
+     {
+         PSMTXConcat(matrix0, matrices[i], matrix1);
+-#if defined(MSCHARGED_NATIVE)
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_GAME_MODULE)
+         mscharged::SkinNormalMatrix(matrix1, matrix2);
+ #else
+         PSMTXInvXpose(matrix1, matrix2);

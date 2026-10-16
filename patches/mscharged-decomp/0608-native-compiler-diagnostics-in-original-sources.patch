@@ -1,5 +1,5 @@
 Subject: Express four original source constructs in host-valid C++
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native-only spellings of original constructs that host compilers reject or
 diagnose without a flag. Every value, linkage and call stays the same; the
@@ -16,10 +16,14 @@ console branches are unchanged.
   64-bit host that conflicts with the C library's size_t declaration; use
   <string.h> instead. The call is unchanged.
 
+Refreshed for decomp 9046e67a: lbl_806DEE60 keeps upstream's per-version value
+(false only in EU revision 1) in the native C-linkage form.
+
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
+index 6cde434..0f01874 100644
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
-@@ -1211,7 +1211,13 @@
+@@ -1211,7 +1211,13 @@ void DesireSuperPower::UpdateWaluigiAI(DesireUpdate*, float)
              nlVector2 direction;
              nlVec2Set(direction, x, 0.0f);
              unsigned short facing = m_pFielder->m_DetChar.m_aActualFacingDirection;
@@ -33,7 +37,7 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
              float score = 0.0f;
              unsigned short angle = angles[ChooseRunDirection(m_pFielder, angles, 4, &direction, &score)];
              if (score > 0.0f)
-@@ -1383,7 +1389,13 @@
+@@ -1383,7 +1389,13 @@ DesireUpdate DesireSuperPower::ChooseDirectionTransition(
              nlVector2 direction;
              nlVec2Set(direction, x, 0.0f);
              unsigned short facing = fielder.mFielder->m_DetChar.m_aActualFacingDirection;
@@ -48,9 +52,10 @@ diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
              unsigned short angle = angles[ChooseRunDirection(fielder.mFielder, angles, 3, &direction, &score)];
              if (score == 0.0f && fielder.mFielder->m_pBall != 0 && InOffensiveZone(fielder.mFielder) > 0.0f)
 diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
+index 8e3582b..9a7da4e 100644
 --- a/src/Game/Render/StadiumLoading.cpp
 +++ b/src/Game/Render/StadiumLoading.cpp
-@@ -530,7 +530,15 @@
+@@ -525,7 +525,17 @@ void DestroyStadium()
      }
  }
  
@@ -58,18 +63,21 @@ diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading
 +// The same C-linkage definition; GCC rejects an initializer on the one-line form.
 +extern "C"
 +{
-+bool lbl_806DEE60 = true;
-+}
+ #if defined(VERSION_R4QP01_REV1)
++bool lbl_806DEE60 = false;
 +#else
- extern "C" bool lbl_806DEE60 = true;
++bool lbl_806DEE60 = true;
 +#endif
- 
- void UpdateStadium(float fDeltaT)
- {
++}
++#elif defined(VERSION_R4QP01_REV1)
+ extern "C" bool lbl_806DEE60 = false;
+ #else
+ extern "C" bool lbl_806DEE60 = true;
 diff --git a/src/Game/Render/depthoffield.cpp b/src/Game/Render/depthoffield.cpp
+index 628c486..da4356d 100644
 --- a/src/Game/Render/depthoffield.cpp
 +++ b/src/Game/Render/depthoffield.cpp
-@@ -8,6 +8,10 @@
+@@ -12,6 +12,10 @@
  #include "NL/gl/glView.h"
  #include "NL/nlColour.h"
  #include "NL/nlMath.h"
@@ -78,19 +86,10 @@ diff --git a/src/Game/Render/depthoffield.cpp b/src/Game/Render/depthoffield.cpp
 +#include <string.h>
 +#endif
  
- typedef float Mtx[3][4];
- typedef float Mtx44[4][4];
-@@ -26,7 +30,9 @@
- #define PSMTXIdentity C_MTXIdentity
- #endif
-     void PSMTXIdentity(Mtx matrix);
-+#if !defined(MSCHARGED_NATIVE)
-     void* memcpy(void* destination, const void* source, u32 size);
-+#endif
- }
+ u8 gDepthOfFieldEnabled = true;
  
- u8 lbl_806DCDE0 = true;
 diff --git a/src/ode/dCylinder.cpp b/src/ode/dCylinder.cpp
+index ec551d2..0773a6f 100644
 --- a/src/ode/dCylinder.cpp
 +++ b/src/ode/dCylinder.cpp
 @@ -6,6 +6,10 @@

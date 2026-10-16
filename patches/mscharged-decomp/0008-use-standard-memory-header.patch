@@ -1,12 +1,13 @@
 Subject: Use the standard memory/string header in native source
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The CodeWarrior MSL mem.h dependency is not supplied by the host toolchain.
 Use string.h for its standard memory/string declarations. No MSL compatibility
 shim is needed for these include sites.
 
 diff --git a/include/Game/DB/BasicGameInfo.h b/include/Game/DB/BasicGameInfo.h
+index d7ec97f..300c575 100644
 --- a/include/Game/DB/BasicGameInfo.h
 +++ b/include/Game/DB/BasicGameInfo.h
 @@ -1,7 +1,7 @@
@@ -19,6 +20,7 @@ diff --git a/include/Game/DB/BasicGameInfo.h b/include/Game/DB/BasicGameInfo.h
  #include "Game/DB/StatsTracker.h"
  #include "types.h"
 diff --git a/include/Game/DB/StatsTracker.h b/include/Game/DB/StatsTracker.h
+index c9c233d..b33c130 100644
 --- a/include/Game/DB/StatsTracker.h
 +++ b/include/Game/DB/StatsTracker.h
 @@ -1,7 +1,7 @@
@@ -31,6 +33,7 @@ diff --git a/include/Game/DB/StatsTracker.h b/include/Game/DB/StatsTracker.h
  #include "Game/DB/PlayerStats.h"
  #include "Game/DB/Simmer.h"
 diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
+index b6445f3..62d77e8 100644
 --- a/src/Game/Formation.cpp
 +++ b/src/Game/Formation.cpp
 @@ -20,7 +20,7 @@
@@ -43,6 +46,7 @@ diff --git a/src/Game/Formation.cpp b/src/Game/Formation.cpp
  
  static const nlVector3 v3Zero = { 0.0f, 0.0f, 0.0f };
 diff --git a/src/NL/nlString.cpp b/src/NL/nlString.cpp
+index 4a980af..97907c8 100644
 --- a/src/NL/nlString.cpp
 +++ b/src/NL/nlString.cpp
 @@ -2,7 +2,7 @@

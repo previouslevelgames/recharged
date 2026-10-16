@@ -1,5 +1,5 @@
 Subject: Fix: redraw resting goal nets (issue #19)
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 A fix of the original game, always on and without a switch (owner decision,
 2026-10-12). It lives in the tweak series so the faithful series stays retail.
@@ -20,12 +20,12 @@ are unchanged. A resting net now also follows the world darkening, which the
 original applied only when it rebuilt the mesh.
 
 diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableNetMesh.cpp
-index 05ff67c..05841eb 100644
+index 05ff67c..e3a75ec 100644
 --- a/src/Game/Drawable/DrawableNetMesh.cpp
 +++ b/src/Game/Drawable/DrawableNetMesh.cpp
 @@ -174,7 +174,15 @@ void DrawableNetMesh::Render() const
      glSetCurrentTexture(texture, (eGLTextureType)0);
-
+ 
      u16* indices = spTriIndices[mNetIndex];
 -    if ((!sbNetModelValid[mNetIndex] || mVisible == true)
 +    if ((!sbNetModelValid[mNetIndex] || mVisible == true

@@ -1,12 +1,13 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original audio script serialized words and callback byte order
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native module data/ABI compatibility only. Original script selection, VM conditions,
 bindings, update and source-owned cleanup remain unchanged. This does not establish
 the effect factory, voices, normal AX initialization or complete startup.
 
 diff --git a/include/Game/Audio/AudioScriptInterpreter.inl b/include/Game/Audio/AudioScriptInterpreter.inl
+index 991f3e3..5896482 100644
 --- a/include/Game/Audio/AudioScriptInterpreter.inl
 +++ b/include/Game/Audio/AudioScriptInterpreter.inl
 @@ -6,8 +6,13 @@
@@ -25,9 +26,10 @@ diff --git a/include/Game/Audio/AudioScriptInterpreter.inl b/include/Game/Audio/
  }
  
 diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioScriptRuntime.h
+index 3c4416a..016335f 100644
 --- a/include/Game/Audio/AudioScriptRuntime.h
 +++ b/include/Game/Audio/AudioScriptRuntime.h
-@@ -99,7 +99,11 @@
+@@ -99,7 +99,11 @@ public:
  struct AudioScriptEntry
  {
      u32 mHash;
@@ -39,7 +41,7 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
  
      operator u32() const { return mHash; }
      bool operator==(const u32& key) const { return mHash == key; }
-@@ -111,8 +115,17 @@
+@@ -111,9 +115,18 @@ struct AudioScriptBindingList
  
      u16 mCount;
      u16 m_pad02;
@@ -49,15 +51,17 @@ diff --git a/include/Game/Audio/AudioScriptRuntime.h b/include/Game/Audio/AudioS
      u32* mValues;
 +#endif
  };
-+
+ 
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
 +static_assert(sizeof(AudioScriptEntry) == 8);
 +static_assert(sizeof(AudioScriptBindingList) == 8);
 +#endif
- 
++
  struct AudioScriptSelection
  {
+     u16 mCount;
 diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptRuntime.cpp
+index 33d2466..3d737c9 100644
 --- a/src/Game/Audio/AudioScriptRuntime.cpp
 +++ b/src/Game/Audio/AudioScriptRuntime.cpp
 @@ -1,6 +1,9 @@
@@ -70,7 +74,7 @@ diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptR
  
  #include "NL/nlAlgorithm.h"
  #include "NL/nlBind.h"
-@@ -28,13 +31,24 @@
+@@ -28,13 +31,24 @@ void AudioScriptRuntime::DestroyBinding(
  
  bool AudioScriptRuntime::LoadScriptData(void* data, unsigned int size)
  {
@@ -95,7 +99,7 @@ diff --git a/src/Game/Audio/AudioScriptRuntime.cpp b/src/Game/Audio/AudioScriptR
      if (header[3] != 0)
          mInterpreter.LoadByteCode((u8*)data + header[3]);
      return true;
-@@ -106,7 +120,11 @@
+@@ -106,7 +120,11 @@ void AudioScriptRuntime::OnSoundStarted(u32 hash, u32 instance)
          return;
      }
  

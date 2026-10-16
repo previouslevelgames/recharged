@@ -1,5 +1,5 @@
 Subject: Preserve original localization with native Wii32 and UTF16 storage
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original Load language/filename/allocator requests, callback validation,
 lookup/fallback and backing lifetime. Use fixed Wii20/8-byte scalar geometry
@@ -9,6 +9,7 @@ API. Preserve the original retained-file and empty-search quirks. The console
 branch remains original.
 
 diff --git a/include/NL/nlLocalization.h b/include/NL/nlLocalization.h
+index fd49ea9..15ce3fb 100644
 --- a/include/NL/nlLocalization.h
 +++ b/include/NL/nlLocalization.h
 @@ -3,13 +3,19 @@
@@ -35,7 +36,7 @@ diff --git a/include/NL/nlLocalization.h b/include/NL/nlLocalization.h
  };
  
  class nlLocalization
-@@ -17,8 +23,8 @@
+@@ -17,8 +23,8 @@ class nlLocalization
  public:
      struct StringLookup
      {
@@ -47,17 +48,20 @@ diff --git a/include/NL/nlLocalization.h b/include/NL/nlLocalization.h
          operator unsigned long() const { return hash; }
          bool operator==(const unsigned long& key) const { return hash == key; }
 diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
+index 3b1b202..1f830a4 100644
 --- a/src/NL/nlLocalization.cpp
 +++ b/src/NL/nlLocalization.cpp
-@@ -1,4 +1,7 @@
- #include "NL/nlLocalization.h"
+@@ -3,6 +3,9 @@
+ #include "NL/nlKoreanParticle.h"
+ #include "NL/nlString.h"
+ #endif
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/localization_data.h"
 +#endif
  
  #include <string.h>
  
-@@ -6,8 +9,17 @@
+@@ -10,8 +13,17 @@
  #include "NL/nlMemory.h"
  #include "NL/nlPrint.h"
  
@@ -75,7 +79,7 @@ diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
  
  const unsigned long nlLocalization::LanguageId[] = {
      0x7A947B29,
-@@ -42,8 +54,18 @@
+@@ -52,8 +64,18 @@ const char nlLocalization::Thumbprint[5] = "NLOC";
  
  nlLocalization* g_pLocalization;
  
@@ -95,7 +99,7 @@ diff --git a/src/NL/nlLocalization.cpp b/src/NL/nlLocalization.cpp
      pLocalization->m_pFile = pFile;
  
      if (memcmp(pFile, nlLocalization::Thumbprint, 4) != 0 || pFile->Version != 1
-@@ -56,6 +78,9 @@
+@@ -66,6 +88,9 @@ static void OnTableLoaded(LOCHeader* pFile, unsigned long, nlLocalization* pLoca
          return;
      }
  

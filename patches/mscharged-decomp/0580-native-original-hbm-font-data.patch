@@ -1,20 +1,23 @@
 # Native RFNT1.4 typed representation beneath whole original ResFont.
 # Preserve the original already-attached Warning/false before ingress.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+diff --git a/src/RVL_SDK/hbm/nw4hbm/ut/ut_ResFont.cpp b/src/RVL_SDK/hbm/nw4hbm/ut/ut_ResFont.cpp
+index 2eb040f..c144999 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/ut/ut_ResFont.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/ut/ut_ResFont.cpp
-@@ -4,6 +4,11 @@
- #include "revolution/hbm/nw4hbm/db.h"
+@@ -5,6 +5,11 @@
  
  #include "decomp.h"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/native_hbm_font.h"
 +#include <cstdint>
 +#endif
- 
++
  #define MAGIC_FONT 'RFNT' // Revolution Font
  #define MAGIC_FONT_UNPACKED 'RFNU' // Revolution Font, unpacked
+ 
 @@ -14,14 +19,22 @@
  #define MAGIC_FONT_CODE_MAP 'CMAP' // FontCodeMap
  #define MAGIC_FONT_GLGR 'GLGR' // Glyph Group?
@@ -38,7 +41,7 @@
  }
  } // namespace
  
-@@ -42,6 +55,9 @@
+@@ -42,6 +55,9 @@ bool ResFont::SetResource(void* brfnt) {
          return false;
      }
  

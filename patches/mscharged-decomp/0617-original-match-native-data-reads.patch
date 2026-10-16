@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Decode native Wii data read by original match-loading consumers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 E13 native data transport for Matching units that read big-endian Wii data
 directly during match loading. On the Wii these are plain big-endian loads; on
@@ -32,6 +32,7 @@ native branches decode the data.
   existing ColourToWiiWord, as GameObjectLighting's impostor producer does.
 
 diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
+index 439e836..973fbc7 100644
 --- a/src/Game/Drawable/DrawableCharacter.cpp
 +++ b/src/Game/Drawable/DrawableCharacter.cpp
 @@ -33,6 +33,9 @@
@@ -44,7 +45,7 @@ diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/Drawabl
  
  static int g_nOnscreenUpdate[3] = { 2, 2, 2 };
  static int g_nOffscreenUpdate[3] = { 4, 4, 4 };
-@@ -934,7 +937,12 @@
+@@ -936,7 +939,12 @@ void DrawableCharacter::ApplyDamageEffects(const cCharacter& source, glModel* mo
      shadowColour.c[0] = channel;
      shadowColour.c[1] = channel;
      shadowColour.c[2] = channel;
@@ -58,6 +59,7 @@ diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/Drawabl
      pPacket = model->packets;
      while (pPacket < model->packets + model->numPackets)
 diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
+index e7c6178..ab61bc7 100644
 --- a/src/Game/NetMeshEdge.cpp
 +++ b/src/Game/NetMeshEdge.cpp
 @@ -1,4 +1,7 @@
@@ -68,7 +70,7 @@ diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
  
  static inline bool HasStream(const glModelPacket* packet, int streamID)
  {
-@@ -21,11 +24,27 @@
+@@ -21,11 +24,27 @@ static inline const glModelStream* GetStream(
      return packet->streams;
  }
  
@@ -96,7 +98,7 @@ diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
      return (const nlVector3*)(base + mIndex * stride);
  }
  
-@@ -59,6 +78,12 @@
+@@ -59,6 +78,12 @@ void NetMeshModelLoader::NetMeshVertex::GetNormal(nlVector3& normal) const
      else if (layout->stride == 12)
      {
          float f = 1.0f;
@@ -109,7 +111,7 @@ diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
          normal.x = *(const float*)((const u8*)layout->address
                                     + mIndex * layout->stride)
                   / f;
-@@ -68,6 +93,7 @@
+@@ -68,6 +93,7 @@ void NetMeshModelLoader::NetMeshVertex::GetNormal(nlVector3& normal) const
          normal.z = *(const float*)((const u8*)layout->address
                                     + mIndex * layout->stride + 8)
                   / f;
@@ -117,7 +119,7 @@ diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
      }
  }
  
-@@ -78,23 +104,38 @@
+@@ -78,23 +104,38 @@ void NetMeshModelLoader::NetMeshVertex::GetTextureCoord(
  
      if (layout->stride == 4)
      {
@@ -157,9 +159,10 @@ diff --git a/src/Game/NetMeshEdge.cpp b/src/Game/NetMeshEdge.cpp
      }
  }
 diff --git a/src/Game/NetMeshModelLoader.cpp b/src/Game/NetMeshModelLoader.cpp
+index 4015064..bbd22b2 100644
 --- a/src/Game/NetMeshModelLoader.cpp
 +++ b/src/Game/NetMeshModelLoader.cpp
-@@ -22,6 +22,16 @@
+@@ -22,6 +22,16 @@ typedef nlAVLTreeIterator<NetMeshEdge, int,
      EdgeIterator;
  
  
@@ -176,7 +179,7 @@ diff --git a/src/Game/NetMeshModelLoader.cpp b/src/Game/NetMeshModelLoader.cpp
  static int s_initialEdgeCount = 1;
  static int s_initialVertexCount = 1;
  static unsigned char sbPullGoalsOut;
-@@ -116,7 +126,11 @@
+@@ -116,7 +126,11 @@ void NetMeshModelLoader::ReadVerticesFromGeometryPacket(
              ptr = (u16*)((u8*)pList->list + 3 + i * stride);
          }
  
@@ -188,7 +191,7 @@ diff --git a/src/Game/NetMeshModelLoader.cpp b/src/Game/NetMeshModelLoader.cpp
          m_TriStripIndices[m_CurrentTriStripIndex] = vertexIndex + baseIndex;
          ++m_CurrentTriStripIndex;
          ++i;
-@@ -240,7 +254,11 @@
+@@ -240,7 +254,11 @@ void NetMeshModelLoader::ReadEdgesFromGeometryPacket(
                  ptr = (u16*)ptr8;
              }
  
@@ -201,6 +204,7 @@ diff --git a/src/Game/NetMeshModelLoader.cpp b/src/Game/NetMeshModelLoader.cpp
                  maxVertex = *pVtx;
              ++pVtx;
 diff --git a/src/Game/Physics/CharacterPhysicsElement.cpp b/src/Game/Physics/CharacterPhysicsElement.cpp
+index 498c506..bb54fb8 100644
 --- a/src/Game/Physics/CharacterPhysicsElement.cpp
 +++ b/src/Game/Physics/CharacterPhysicsElement.cpp
 @@ -2,6 +2,9 @@
@@ -212,8 +216,8 @@ diff --git a/src/Game/Physics/CharacterPhysicsElement.cpp b/src/Game/Physics/Cha
 +#endif
  
  bool LoadCharacterPhysicsElements(void* pFileData, unsigned long nFileSize,
-     CharacterPhysicsData* pPhysicsData, bool arg3)
-@@ -24,7 +27,12 @@
+     CharacterPhysicsData* pPhysicsData, bool freeFileData)
+@@ -24,7 +27,12 @@ bool LoadCharacterPhysicsElements(void* pFileData, unsigned long nFileSize,
          {
          case 0x0001D001:
          {
@@ -226,7 +230,7 @@ diff --git a/src/Game/Physics/CharacterPhysicsElement.cpp b/src/Game/Physics/Cha
              pPhysicsData->pPhysicsElements = (CharacterPhysicsElement*)nlMalloc(
                  pPhysicsData->physicsElementCount * sizeof(CharacterPhysicsElement), 8, false);
              break;
-@@ -34,7 +42,12 @@
+@@ -34,7 +42,12 @@ bool LoadCharacterPhysicsElements(void* pFileData, unsigned long nFileSize,
              CharacterPhysicsElement* pPhysicsElements = (CharacterPhysicsElement*)outerChunk->GetData();
              for (i = 0; i < pPhysicsData->physicsElementCount; i++)
              {
@@ -240,6 +244,7 @@ diff --git a/src/Game/Physics/CharacterPhysicsElement.cpp b/src/Game/Physics/Cha
              break;
          }
 diff --git a/src/Game/Render/SkinAnimatedNPC.cpp b/src/Game/Render/SkinAnimatedNPC.cpp
+index 2964717..7156e12 100644
 --- a/src/Game/Render/SkinAnimatedNPC.cpp
 +++ b/src/Game/Render/SkinAnimatedNPC.cpp
 @@ -21,6 +21,9 @@
@@ -252,7 +257,7 @@ diff --git a/src/Game/Render/SkinAnimatedNPC.cpp b/src/Game/Render/SkinAnimatedN
  
  static char ShadowLevelName[] = "shadowLevel";
  static char AlphaValueName[] = "alphaValue";
-@@ -146,7 +149,12 @@
+@@ -146,7 +149,12 @@ void SkinAnimatedNPC::SendToGL() const
              &mWorldMatrix.GetTranslation()),
          true);
      glModelPacket* pPacket = pModel->packets;

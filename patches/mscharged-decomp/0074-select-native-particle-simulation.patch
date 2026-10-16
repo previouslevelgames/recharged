@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original bounded CPU particle simulation and own atlas allocations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native simulation uses an explicit constructor tag and shares the original field
 initialization, emission, RNG, update, motion and quad bodies. It never registers
@@ -12,12 +12,14 @@ frame/angle conversions before the original accesses. Native atlas allocations
 are transactional and freed through their owning game arenas.
 
 diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/ParticleSystem.h
+index ff81a19..70333c8 100644
 --- a/include/Game/Effects/ParticleSystem.h
 +++ b/include/Game/Effects/ParticleSystem.h
-@@ -49,7 +49,19 @@
+@@ -48,8 +48,20 @@ class ParticleSystem
+ {
  public:
      ParticleSystem(EffectsTemplate* pTemplate,
-         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
++        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
 +        unsigned long resourceID)
 +#ifdef MSCHARGED_NATIVE
 +        = delete
@@ -28,13 +30,13 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
 +    // constructor still requires an actual GL inventory on console.
 +    struct NativeSimulation {};
 +    ParticleSystem(NativeSimulation, EffectsTemplate* pTemplate,
-+        nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
+         nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
          unsigned long resourceID);
 +#endif
      ~ParticleSystem();
  
      void UpdateCoordSys();
-@@ -58,13 +70,21 @@
+@@ -58,13 +70,21 @@ public:
      void UpdateAllParticles(float dt, const nlMatrix4* pCoordSys);
      void UpdateLight(EffectsLight* pLight, Particle* pPart,
          EffectsTemplate* pTemplate, const nlVector3& viewRight,
@@ -59,6 +61,7 @@ diff --git a/include/Game/Effects/ParticleSystem.h b/include/Game/Effects/Partic
      bool Update(float dt);
      float GetRemainingTime() const;
 diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
+index 7ec834f..9bdf041 100644
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
 @@ -8,12 +8,24 @@
@@ -86,7 +89,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
          unsigned long i = 0;
          for (; i < mNumKeys; ++i)
          {
-@@ -72,6 +84,7 @@
+@@ -72,6 +84,7 @@ float fxAnimatedRange::GetMaximum() const
      return base + 0.5f * range;
  }
  
@@ -95,6 +98,7 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
  {
      nlChunk* valueChunk = chunk->GetFirstChunk();
 diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSystem.cpp
+index c284808..131b17e 100644
 --- a/src/Game/Effects/ParticleSystem.cpp
 +++ b/src/Game/Effects/ParticleSystem.cpp
 @@ -1,9 +1,12 @@
@@ -126,7 +130,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  #include "NL/nlMemory.h"
  #include "NL/nlString.h"
  #include "NL/platvmath.h"
-@@ -52,7 +62,11 @@
+@@ -52,7 +62,11 @@ static int MaxNumParticles;
  int gNumRenderedParticles;
  static unsigned short hackyFacingAngle;
  
@@ -139,7 +143,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      nlDLListSlotPool<Particle*>* pFreeParticles, EffectsSpec* spec,
      unsigned long resourceID)
      : m_uResourceID(resourceID)
-@@ -77,15 +91,23 @@
+@@ -77,15 +91,23 @@ ParticleSystem::ParticleSystem(EffectsTemplate* pTemplate,
      m_aFacing = 0;
      m_bAmDying = false;
      m_bVisible = false;
@@ -163,7 +167,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      }
  
      --m_NumInstances;
-@@ -111,7 +133,11 @@
+@@ -111,7 +133,11 @@ void ParticleSystem::UpdateCoordSys(nlMatrix4& mCoordSys)
      nlVector3 right;
      nlVector3 ref;
      nlVec3Set(ref, 0.0f, 0.0f, 1.0f);
@@ -175,7 +179,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      {
          nlVec3Set(ref, 0.0f, 1.0f, 0.0f);
      }
-@@ -414,8 +440,12 @@
+@@ -414,8 +440,12 @@ void ParticleSystem::CreateNewParticles(int numParticles)
  
          if (m_pTemplate->m_uParticleCreationCode != 0)
          {
@@ -188,7 +192,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
          }
  
          m_Particles.AddStart(pPart);
-@@ -481,8 +511,12 @@
+@@ -481,8 +511,12 @@ void ParticleSystem::UpdateAllParticles(float dt,
          {
              if (m_pTemplate->m_uParticleDeathCode != 0)
              {
@@ -201,7 +205,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
              }
              m_Particles.Remove(&iterator, 0);
              --m_NumParticles;
-@@ -496,6 +530,7 @@
+@@ -496,6 +530,7 @@ void ParticleSystem::UpdateAllParticles(float dt,
      }
  }
  
@@ -209,16 +213,16 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
      EffectsTemplate* pTemplate, const nlVector3& viewRight,
      const nlVector3& viewUp,
-@@ -526,6 +561,8 @@
-         pLight->m_v3Position = position;
+@@ -527,6 +562,8 @@ void ParticleSystem::UpdateLight(EffectsLight* pLight, Particle* pPart,
      }
  }
-+
-+#endif
  
++#endif
++
  void ParticleSystem::UpdateParticleMotion(Particle* pPart,
      const nlMatrix4* pCoordSys)
-@@ -571,7 +608,16 @@
+ {
+@@ -571,7 +608,16 @@ static nlColour EvaluateParticleColour(Particle* pPart,
      const EffectsTemplate* pTemplate)
  {
      float frame = 24.0f * (pPart->timeElapsed / pPart->lifeSpan);
@@ -235,7 +239,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      int second = first + 1;
      nlColour colour;
      if (first >= 24)
-@@ -651,6 +697,16 @@
+@@ -651,6 +697,16 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
          return;
      }
  
@@ -252,7 +256,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      unsigned int animFrame
          = (int)(pPart->FPS * pPart->timeElapsed + pPart->frame);
      animFrame %= pTemplate->m_nFrames;
-@@ -704,6 +760,7 @@
+@@ -704,6 +760,7 @@ void ParticleSystem::UpdateParticle(ParticleReturn* pReturn,
      pReturn->position[3].z = (position.z + a.z) - b.z;
  }
  
@@ -260,7 +264,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  static void RenderLightOnField(GLView* view, const EffectsLight& light)
  {
      if (light.m_fRadius == 0.0f)
-@@ -736,6 +793,8 @@
+@@ -736,6 +793,8 @@ static void RenderLightOnField(GLView* view, const EffectsLight& light)
      view->AttachModel(q.GetModel(), 0);
  }
  
@@ -269,7 +273,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  void ParticleSystem::ClearParticles()
  {
      nlDLListIterator<Particle*> iterator;
-@@ -749,6 +808,7 @@
+@@ -749,6 +808,7 @@ void ParticleSystem::ClearParticles()
      }
  }
  
@@ -277,7 +281,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  int ParticleSystem::RenderAllParticles(GLView* view)
  {
      static int _tris[6] = { 0, 1, 2, 0, 2, 3 };
-@@ -1055,6 +1115,8 @@
+@@ -1055,6 +1115,8 @@ int ParticleSystem::RenderAllParticles(GLView* view)
      return numParticles;
  }
  
@@ -286,7 +290,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  void ParticleSystem::Die()
  {
      m_fDelay = 0.0f;
-@@ -1131,6 +1193,9 @@
+@@ -1131,6 +1193,9 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
  {
      TextureFrame* p = (TextureFrame*)nlMalloc(
          numFrames * sizeof(TextureFrame), 8, false);
@@ -296,7 +300,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      TextureFrame* q = p;
      float u = 0.0f;
      float v = 0.0f;
-@@ -1151,8 +1216,18 @@
+@@ -1151,8 +1216,18 @@ static TextureFrame* BuildFrameLookup(int numFrames, float inc)
  
  bool fxParticleStartup(int maxNumParticles)
  {
@@ -315,7 +319,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
      textureFrames[0]->u = 0.0f;
      textureFrames[0]->v = 0.0f;
      textureFrames[0]->increment = 1.0f;
-@@ -1164,6 +1239,10 @@
+@@ -1164,6 +1239,10 @@ bool fxParticleStartup(int maxNumParticles)
      if (MaxNumParticles == 0)
          MaxNumParticles = maxNumParticles;
      return true;
@@ -326,7 +330,7 @@ diff --git a/src/Game/Effects/ParticleSystem.cpp b/src/Game/Effects/ParticleSyst
  }
  
  bool fxParticleShutdown()
-@@ -1172,7 +1251,11 @@
+@@ -1172,7 +1251,11 @@ bool fxParticleShutdown()
      {
          if (textureFrames[i] != 0)
          {

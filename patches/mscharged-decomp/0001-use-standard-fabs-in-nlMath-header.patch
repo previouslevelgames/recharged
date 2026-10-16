@@ -1,5 +1,5 @@
 Subject: Use the host standard absolute-value overload in nlMath
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Clang cannot compile nlRandom.cpp because the shared math header uses the
 CodeWarrior __fabs intrinsic without a host declaration. Use the float
@@ -7,18 +7,19 @@ overload of std::fabs. This does not adapt the separate nlMath.cpp reciprocal
 square-root implementation or establish floating-point gameplay parity.
 
 diff --git a/include/NL/nlMath.h b/include/NL/nlMath.h
+index ca81723..0201982 100644
 --- a/include/NL/nlMath.h
 +++ b/include/NL/nlMath.h
-@@ -2,6 +2,8 @@
- #define _NLMATH_H_
+@@ -3,6 +3,8 @@
  
  #include "types.h"
-+
-+#include <cmath>
  
++#include <cmath>
++
  float nlBezier(float* fControlPoints, int nNumPoints, float fMu);
  float nlATan(float x);
-@@ -41,7 +43,7 @@
+ float nlATan2f(float y, float x);
+@@ -41,7 +43,7 @@ inline unsigned int nlAlignUp(unsigned int value, unsigned int alignment)
  
  inline float nlAbs(float value)
  {

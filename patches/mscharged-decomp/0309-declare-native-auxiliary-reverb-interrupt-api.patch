@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Declare native interrupt APIs in original auxiliary reverb
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Modern C requires the declarations for the original interrupt calls. Native
 mem.h no longer supplies the console's transitive OS include. Include the
@@ -8,6 +8,7 @@ canonical SDK facade explicitly without changing any reverb method or request.
 The original console preprocessing remains unchanged.
 
 diff --git a/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c b/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c
+index 57cee76..f5885a8 100644
 --- a/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c
 +++ b/src/RVL_SDK/axfx/AXFXReverbHiExpDpl2.c
 @@ -1,6 +1,9 @@

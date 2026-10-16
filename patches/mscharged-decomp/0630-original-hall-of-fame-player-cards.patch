@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original Hall of Fame player cards
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0505 and 0571.
 
 E15 admission of factory case 65 (SHHallOfFamePlayerCard(13), whole Matching
@@ -10,9 +10,10 @@ the original handler selects the character, text, model and transitions. The
 trophy history cases 66-74 open only for claimed trophies and stay gated.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index cf1763e..4f56d7b 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -525,13 +525,13 @@
+@@ -558,13 +558,13 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_HOF_CRYSTAL_CUP:
          newHandler = new (nlMalloc(sizeof(SHHallOfFameCup), 8, false)) SHHallOfFameCup(HOF_CRYSTAL_CUP);
          break;

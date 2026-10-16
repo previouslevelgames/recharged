@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Admit the literal original initial loading message in frontend main
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: explicit temporary original frontend loading-message admission.
 
 At its original post-glStartup position, admit DisplayLoadingMessageFast
@@ -10,9 +10,10 @@ MAIN_LOADING_MESSAGE definition or alter its other diagnostic exit branch.
 No game request, screen content, timing, frame logic or resource owner changes.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index cd98096..bbc29d6 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -555,7 +555,8 @@
+@@ -564,7 +564,8 @@ static void Initialize()
              &resetTask)));
  
  #endif // DVD/reset registration remains outside this selected loading gate

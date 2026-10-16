@@ -1,159 +1,8 @@
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 # Native cached32 transport for actual source connection slots; original callback/message widths unchanged.
-diff --git a/src/NL/plat/TransportConnection.cpp b/src/NL/plat/TransportConnection.cpp
---- a/src/NL/plat/TransportConnection.cpp
-+++ b/src/NL/plat/TransportConnection.cpp
-@@ -1,4 +1,13 @@
- #include "NL/plat/TransportConnection.h"
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/transport_connection_address.h"
-+#define TRANSPORT_CONNECTION_WORD(pointer) mscharged::platform::EncodeTransportConnectionAddress(pointer)
-+#define TRANSPORT_CONNECTION_POINTER(word) mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
-+#else
-+#define TRANSPORT_CONNECTION_WORD(pointer) (u32)pointer
-+#define TRANSPORT_CONNECTION_POINTER(word) (TransportConnection*)word
-+#endif
-+
- #include "Game/Sys/debug.h"
- 
- #include "NL/nlPrint.h"
-@@ -16,7 +25,10 @@
-     return gTransportConnectionPool.Allocate();
- }
- 
--inline void TransportConnection::operator delete(void* connection)
-+#if !defined(MSCHARGED_NATIVE)
-+inline
-+#endif
-+void TransportConnection::operator delete(void* connection)
- {
-     gTransportConnectionPool.Free((TransportConnection*)connection);
- }
-@@ -91,13 +103,13 @@
-             if (!mIncoming)                                             \
-             {                                                                  \
-                 GetCallback()->OnConnectionAttempted(              \
--                    (u32)this, nResult);                                       \
-+                    TRANSPORT_CONNECTION_WORD(this), nResult);                                       \
-             }                                                                  \
-         }                                                                      \
-         else if (!IsClosed())                                      \
-         {                                                                      \
-             SetClosed();                                           \
--            GetCallback()->OnConnectionClosed((u32)this, nReason); \
-+            GetCallback()->OnConnectionClosed(TRANSPORT_CONNECTION_WORD(this), nReason); \
-         }                                                                      \
-     } while (0)
- 
-@@ -807,7 +819,7 @@
-         {
-             TransportPacket* packet = message->GetUnreliablePacket(i);
-             GetCallback()->OnMessageReceived(
--                (u32)this, packet->mPayload, packet->mSize, false);
-+                TRANSPORT_CONNECTION_WORD(this), packet->mPayload, packet->mSize, false);
-             delete packet;
-         }
-     }
-@@ -818,7 +830,7 @@
-         {
-             TransportPacket* packet = message->GetVoicePacket(i);
-             GetCallback()->OnVoiceReceived(
--                (u32)this, packet->mPayload, packet->mSize);
-+                TRANSPORT_CONNECTION_WORD(this), packet->mPayload, packet->mSize);
-             delete packet;
-         }
-     }
-@@ -887,7 +899,7 @@
-     if (packet->mType == 0)
-     {
-         GetCallback()->OnMessageReceived(
--            (u32)this, packet->mPayload, packet->mSize, true);
-+            TRANSPORT_CONNECTION_WORD(this), packet->mPayload, packet->mSize, true);
-         return;
-     }
- 
-@@ -926,7 +938,7 @@
-         {
-             mState = STATE_5;
-             GetCallback()->OnConnectionRequest(
--                (u32)this, mAddress.bytes, 0, 0, 0);
-+                TRANSPORT_CONNECTION_WORD(this), mAddress.bytes, 0, 0, 0);
-         }
-         break;
-     }
-@@ -941,13 +953,13 @@
-         else if (payload.mAccepted)
-         {
-             mState = STATE_6;
--            GetCallback()->OnConnectionAttempted((u32)this, 0);
-+            GetCallback()->OnConnectionAttempted(TRANSPORT_CONNECTION_WORD(this), 0);
-         }
-         else
-         {
-             mPendingClosedCount += 3;
-             SetClosed();
--            GetCallback()->OnConnectionAttempted((u32)this, 2);
-+            GetCallback()->OnConnectionAttempted(TRANSPORT_CONNECTION_WORD(this), 2);
-         }
-         break;
-     }
-@@ -1245,7 +1257,7 @@
-         {
-             mPendingClosedCount += 3;
-             SetClosed();
--            GetCallback()->OnConnectionClosed((u32)this, 0);
-+            GetCallback()->OnConnectionClosed(TRANSPORT_CONNECTION_WORD(this), 0);
-         }
-     }
-     else if (mState != STATE_7 && !IsClosed())
-diff --git a/src/NL/plat/ReliableSocket.cpp b/src/NL/plat/ReliableSocket.cpp
---- a/src/NL/plat/ReliableSocket.cpp
-+++ b/src/NL/plat/ReliableSocket.cpp
-@@ -1,4 +1,13 @@
- #include "NL/plat/ReliableSocket.h"
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/transport_connection_address.h"
-+#define TRANSPORT_CONNECTION_WORD(pointer) mscharged::platform::EncodeTransportConnectionAddress(pointer)
-+#define TRANSPORT_CONNECTION_POINTER(word) mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
-+#else
-+#define TRANSPORT_CONNECTION_WORD(pointer) (u32)pointer
-+#define TRANSPORT_CONNECTION_POINTER(word) (TransportConnection*)word
-+#endif
-+
- #include "Game/Sys/debug.h"
- #include "NL/plat/TransportConnection.h"
- 
-@@ -203,12 +212,12 @@
- {
-     if (reliable)
-     {
--        ((TransportConnection*)connection)
-+        (TRANSPORT_CONNECTION_POINTER(connection))
-             ->SubmitReliable(0, buffer, size);
-     }
-     else
-     {
--        ((TransportConnection*)connection)
-+        (TRANSPORT_CONNECTION_POINTER(connection))
-             ->SubmitUnreliable(buffer, size);
-     }
- }
-@@ -474,12 +483,12 @@
- 
- void ReliableSocket::AcceptConnection(unsigned int connection)
- {
--    ((TransportConnection*)connection)->Accept();
-+    (TRANSPORT_CONNECTION_POINTER(connection))->Accept();
- }
- 
- void ReliableSocket::RejectConnection(unsigned int connection)
- {
--    ((TransportConnection*)connection)->Reject();
-+    (TRANSPORT_CONNECTION_POINTER(connection))->Reject();
- }
- 
- static TweakIntBinding sTransportLayerLogTweak(
+
 diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
+index 0c4ffcf..9d3785e 100644
 --- a/src/Game/LANLobby.cpp
 +++ b/src/Game/LANLobby.cpp
 @@ -1,4 +1,13 @@
@@ -170,7 +19,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
  #include "Game/NetworkSession.h"
  #include "Game/OnlinePlayer.h"
  #include "Game/Sys/debug.h"
-@@ -310,8 +319,8 @@
+@@ -310,8 +319,8 @@ unsigned int LANLobby::GetMachineAid(int index)
      if (index == mLocalMachineIndex)
          return (u32)-1;
      int connectionIndex = mPeerInfoList[index].mConnectionIndex;
@@ -181,7 +30,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
      return 0;
  }
  
-@@ -323,7 +332,7 @@
+@@ -323,7 +332,7 @@ int LANLobby::MachineIdxFromConnection(unsigned int connection)
          return -1;
      if (connection == (u32)-1)
          return mLocalMachineIndex;
@@ -190,7 +39,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
      int connectionIndex = GetConnectionIndex(entry);
      if (connectionIndex == -1)
      {
-@@ -352,7 +361,7 @@
+@@ -352,7 +361,7 @@ void LANLobby::SetPlayerListener(LANLobbyPlayerListener* listener)
  
  void LANLobby::OnConnected(unsigned int connection, int result)
  {
@@ -199,7 +48,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
      if (!mIsHost)
      {
          if (mJoinState == LAN_JOIN_CONNECTING)
-@@ -432,8 +441,8 @@
+@@ -432,8 +441,8 @@ int LANLobby::ShouldAcceptConnection(unsigned int connection, u8* address)
      if (mIsHost)
      {
          tDebugPrintManager::Print(DC_NETWORK, "Connection attempt accepted by host.  Address %d.%d.%d.%d assigned to connection pool %d\n", address[0], address[1], address[2], address[3], index);
@@ -210,7 +59,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
          return 1;
      }
      if (mTopology == 0)
-@@ -444,8 +453,8 @@
+@@ -444,8 +453,8 @@ int LANLobby::ShouldAcceptConnection(unsigned int connection, u8* address)
              if (memcmp(mPeerInfoList[peer].mAddress.bytes, address, 4) == 0)
              {
                  tDebugPrintManager::Print(DC_NETWORK, "Connection attempt accepted by client.  Address %d.%d.%d.%d assigned to connection pool %d\n", address[0], address[1], address[2], address[3], index);
@@ -221,7 +70,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
                  mPeerInfoList[peer].mConnectionIndex = index;
                  return 1;
              }
-@@ -466,7 +475,7 @@
+@@ -466,7 +475,7 @@ void LANLobby::OnConnectionClosed(unsigned int connection, int)
      for (int index = 0; index < 8; ++index)
      {
          if (m_ConnectionPool[index].m_Connection != 0
@@ -230,7 +79,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
          {
              for (int peer = 0; peer < mPeerCount; ++peer)
              {
-@@ -641,7 +650,7 @@
+@@ -641,7 +650,7 @@ void LANLobby::SendReadyToLaunchRequest()
          {
              if (m_ConnectionPool[index].mStatus != LAN_CONNECTION_FREE)
              {
@@ -239,7 +88,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
                  tDebugPrintManager::Print(DC_NETWORK, "Sent ready to launch request to peer %d\n", peer);
              }
              else
-@@ -710,7 +719,7 @@
+@@ -710,7 +719,7 @@ void LANLobby::SendReadyToLaunchConfirm()
      {
          if (m_ConnectionPool[index].m_Connection != 0)
          {
@@ -248,7 +97,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
              tDebugPrintManager::Print(DC_NETWORK, "Sent ready to launch confirm\n");
          }
          else
-@@ -764,7 +773,7 @@
+@@ -764,7 +773,7 @@ void LANLobby::SendGamePeerAdded(int index)
      int size = gNetworkMessageRegistry->Serialize(&message, buffer, sizeof(buffer));
      for (int peer = 1; peer < index; ++peer)
      {
@@ -257,7 +106,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
              buffer,
              size,
              true);
-@@ -796,7 +805,7 @@
+@@ -796,7 +805,7 @@ void LANLobby::SendJoinResponse(TransportConnection* connection, bool accepted)
      }
      u8 buffer[250];
      int size = gNetworkMessageRegistry->Serialize(&message, buffer, sizeof(buffer));
@@ -266,7 +115,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
  }
  
  void LANLobby::ProcessJoinRequest(int index, NetMessageJoinRequest* message)
-@@ -959,7 +968,7 @@
+@@ -959,7 +968,7 @@ int LANLobby::ProcessMessage(NetworkMessage* message)
      case NETMSG_JOIN_REQUEST:
          if (mIsHost)
          {
@@ -275,7 +124,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
              if (index >= 0 && index < 8)
                  ProcessJoinRequest(index, static_cast<NetMessageJoinRequest*>(message));
              else
-@@ -969,7 +978,7 @@
+@@ -969,7 +978,7 @@ int LANLobby::ProcessMessage(NetworkMessage* message)
      case NETMSG_JOIN_RESPONSE:
          if (!mIsHost)
          {
@@ -284,7 +133,7 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
              if (index >= 0 && index < 8)
                  ProcessJoinResponse(index, static_cast<NetMessageJoinResponse*>(message));
              else
-@@ -979,7 +988,7 @@
+@@ -979,7 +988,7 @@ int LANLobby::ProcessMessage(NetworkMessage* message)
      case NETMSG_GAME_PEER_ADDED:
          if (!mIsHost)
          {
@@ -293,3 +142,158 @@ diff --git a/src/Game/LANLobby.cpp b/src/Game/LANLobby.cpp
              if (index >= 0 && index < 8)
                  ProcessGamePeerAdded(static_cast<NetMessageGamePeerAdded*>(message));
              else
+diff --git a/src/NL/plat/ReliableSocket.cpp b/src/NL/plat/ReliableSocket.cpp
+index ada0ace..7941d07 100644
+--- a/src/NL/plat/ReliableSocket.cpp
++++ b/src/NL/plat/ReliableSocket.cpp
+@@ -1,4 +1,13 @@
+ #include "NL/plat/ReliableSocket.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/transport_connection_address.h"
++#define TRANSPORT_CONNECTION_WORD(pointer) mscharged::platform::EncodeTransportConnectionAddress(pointer)
++#define TRANSPORT_CONNECTION_POINTER(word) mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
++#else
++#define TRANSPORT_CONNECTION_WORD(pointer) (u32)pointer
++#define TRANSPORT_CONNECTION_POINTER(word) (TransportConnection*)word
++#endif
++
+ #include "Game/Sys/debug.h"
+ #include "NL/plat/TransportConnection.h"
+ 
+@@ -203,12 +212,12 @@ void ReliableSocket::Send(int connection,
+ {
+     if (reliable)
+     {
+-        ((TransportConnection*)connection)
++        (TRANSPORT_CONNECTION_POINTER(connection))
+             ->SubmitReliable(0, buffer, size);
+     }
+     else
+     {
+-        ((TransportConnection*)connection)
++        (TRANSPORT_CONNECTION_POINTER(connection))
+             ->SubmitUnreliable(buffer, size);
+     }
+ }
+@@ -474,12 +483,12 @@ void* ReliableSocket::FindConnection(const u8* address)
+ 
+ void ReliableSocket::AcceptConnection(unsigned int connection)
+ {
+-    ((TransportConnection*)connection)->Accept();
++    (TRANSPORT_CONNECTION_POINTER(connection))->Accept();
+ }
+ 
+ void ReliableSocket::RejectConnection(unsigned int connection)
+ {
+-    ((TransportConnection*)connection)->Reject();
++    (TRANSPORT_CONNECTION_POINTER(connection))->Reject();
+ }
+ 
+ static TweakIntBinding sTransportLayerLogTweak(
+diff --git a/src/NL/plat/TransportConnection.cpp b/src/NL/plat/TransportConnection.cpp
+index 2df7ca7..92950d8 100644
+--- a/src/NL/plat/TransportConnection.cpp
++++ b/src/NL/plat/TransportConnection.cpp
+@@ -1,4 +1,13 @@
+ #include "NL/plat/TransportConnection.h"
++#if defined(MSCHARGED_NATIVE)
++#include "platform/transport_connection_address.h"
++#define TRANSPORT_CONNECTION_WORD(pointer) mscharged::platform::EncodeTransportConnectionAddress(pointer)
++#define TRANSPORT_CONNECTION_POINTER(word) mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
++#else
++#define TRANSPORT_CONNECTION_WORD(pointer) (u32)pointer
++#define TRANSPORT_CONNECTION_POINTER(word) (TransportConnection*)word
++#endif
++
+ #include "Game/Sys/debug.h"
+ 
+ #include "NL/nlPrint.h"
+@@ -16,7 +25,10 @@ void* TransportConnection::operator new(
+     return gTransportConnectionPool.Allocate();
+ }
+ 
+-inline void TransportConnection::operator delete(void* connection)
++#if !defined(MSCHARGED_NATIVE)
++inline
++#endif
++void TransportConnection::operator delete(void* connection)
+ {
+     gTransportConnectionPool.Free((TransportConnection*)connection);
+ }
+@@ -91,13 +103,13 @@ inline void TransportConnection::SetClosed()
+             if (!mIncoming)                                             \
+             {                                                                  \
+                 GetCallback()->OnConnectionAttempted(              \
+-                    (u32)this, nResult);                                       \
++                    TRANSPORT_CONNECTION_WORD(this), nResult);                                       \
+             }                                                                  \
+         }                                                                      \
+         else if (!IsClosed())                                      \
+         {                                                                      \
+             SetClosed();                                           \
+-            GetCallback()->OnConnectionClosed((u32)this, nReason); \
++            GetCallback()->OnConnectionClosed(TRANSPORT_CONNECTION_WORD(this), nReason); \
+         }                                                                      \
+     } while (0)
+ 
+@@ -807,7 +819,7 @@ void TransportConnection::HandleTransportMessage(
+         {
+             TransportPacket* packet = message->GetUnreliablePacket(i);
+             GetCallback()->OnMessageReceived(
+-                (u32)this, packet->mPayload, packet->mSize, false);
++                TRANSPORT_CONNECTION_WORD(this), packet->mPayload, packet->mSize, false);
+             delete packet;
+         }
+     }
+@@ -818,7 +830,7 @@ void TransportConnection::HandleTransportMessage(
+         {
+             TransportPacket* packet = message->GetVoicePacket(i);
+             GetCallback()->OnVoiceReceived(
+-                (u32)this, packet->mPayload, packet->mSize);
++                TRANSPORT_CONNECTION_WORD(this), packet->mPayload, packet->mSize);
+             delete packet;
+         }
+     }
+@@ -887,7 +899,7 @@ void TransportConnection::Deliver(
+     if (packet->mType == 0)
+     {
+         GetCallback()->OnMessageReceived(
+-            (u32)this, packet->mPayload, packet->mSize, true);
++            TRANSPORT_CONNECTION_WORD(this), packet->mPayload, packet->mSize, true);
+         return;
+     }
+ 
+@@ -926,7 +938,7 @@ void TransportConnection::Deliver(
+         {
+             mState = STATE_5;
+             GetCallback()->OnConnectionRequest(
+-                (u32)this, mAddress.bytes, 0, 0, 0);
++                TRANSPORT_CONNECTION_WORD(this), mAddress.bytes, 0, 0, 0);
+         }
+         break;
+     }
+@@ -941,13 +953,13 @@ void TransportConnection::Deliver(
+         else if (payload.mAccepted)
+         {
+             mState = STATE_6;
+-            GetCallback()->OnConnectionAttempted((u32)this, 0);
++            GetCallback()->OnConnectionAttempted(TRANSPORT_CONNECTION_WORD(this), 0);
+         }
+         else
+         {
+             mPendingClosedCount += 3;
+             SetClosed();
+-            GetCallback()->OnConnectionAttempted((u32)this, 2);
++            GetCallback()->OnConnectionAttempted(TRANSPORT_CONNECTION_WORD(this), 2);
+         }
+         break;
+     }
+@@ -1245,7 +1257,7 @@ void TransportConnection::Disconnect(bool immediate)
+         {
+             mPendingClosedCount += 3;
+             SetClosed();
+-            GetCallback()->OnConnectionClosed((u32)this, 0);
++            GetCallback()->OnConnectionClosed(TRANSPORT_CONNECTION_WORD(this), 0);
+         }
+     }
+     else if (mState != STATE_7 && !IsClosed())

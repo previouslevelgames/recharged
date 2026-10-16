@@ -1,12 +1,13 @@
 Subject: Align chunk addresses without truncating native pointers
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Native main.cpp includes inline chunk traversal. Keep addresses pointer-sized
 while retaining 32-bit file fields. Bounds/endian validation belongs in loaders;
 this patch establishes pointer-safe alignment only.
 
 diff --git a/include/NL/nlChunk.h b/include/NL/nlChunk.h
+index 37253fe..29d739f 100644
 --- a/include/NL/nlChunk.h
 +++ b/include/NL/nlChunk.h
 @@ -3,6 +3,7 @@
@@ -17,7 +18,7 @@ diff --git a/include/NL/nlChunk.h b/include/NL/nlChunk.h
  
  class nlChunk
  {
-@@ -26,7 +27,7 @@
+@@ -26,7 +27,7 @@ public:
  inline nlChunk* nlChunk::GetNextChunk()
  {
      u8* address = (u8*)GetUnalignedData() + GetSize();
@@ -26,7 +27,7 @@ diff --git a/include/NL/nlChunk.h b/include/NL/nlChunk.h
      return (nlChunk*)(address + (offset != 0) * (4 - offset));
  }
  
-@@ -34,7 +35,7 @@
+@@ -34,7 +35,7 @@ inline nlChunk* nlChunk::GetLastChunk()
  {
      unsigned int offset;
      u8* address = (u8*)GetUnalignedData() + GetSize();
@@ -35,7 +36,7 @@ diff --git a/include/NL/nlChunk.h b/include/NL/nlChunk.h
      return (nlChunk*)(address + (offset != 0) * (4 - offset));
  }
  
-@@ -66,7 +67,9 @@
+@@ -66,7 +67,9 @@ inline void* nlChunk::GetAlignedData()
          return GetUnalignedData();
      }
  

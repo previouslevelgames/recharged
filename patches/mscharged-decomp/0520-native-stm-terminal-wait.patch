@@ -1,15 +1,17 @@
 From: native port preparation
 Subject: Preserve original STM terminal wait through native power removal
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original caller still disables interrupts, synchronizes instruction fetch,
 and waits forever until real power removal. Only native builds service that
 hardware wait through the retained native STM owner. Default configuration and
 hot reset remain unsupported; no source flags or callbacks are fabricated.
 
+diff --git a/src/RVL_SDK/os/OSStateTM.c b/src/RVL_SDK/os/OSStateTM.c
+index f047590..e683586 100644
 --- a/src/RVL_SDK/os/OSStateTM.c
 +++ b/src/RVL_SDK/os/OSStateTM.c
-@@ -74,6 +74,9 @@
+@@ -74,6 +74,9 @@ static inline void LockUp(void)
  
      while (true)
      {

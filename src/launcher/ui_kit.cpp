@@ -698,6 +698,11 @@ void MenuSeparator(float width)
 
 bool Segmented(const char* id, int* selected, std::initializer_list<const char*> items, float width)
 {
+    return Segmented(id, selected, std::vector<const char*>(items), width);
+}
+
+bool Segmented(const char* id, int* selected, const std::vector<const char*>& items, float width)
+{
     ImGui::PushID(id);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const float height = Dp(38);

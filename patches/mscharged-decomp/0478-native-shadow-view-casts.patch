@@ -1,9 +1,11 @@
 Subject: [PATCH] native: lower source shadow view pointers through the owning view carrier
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/src/Game/Render/RenderShadow.cpp b/src/Game/Render/RenderShadow.cpp
+index ad7bb14..dfbb1bc 100644
 --- a/src/Game/Render/RenderShadow.cpp
 +++ b/src/Game/Render/RenderShadow.cpp
-@@ -261,7 +261,11 @@
+@@ -261,7 +261,11 @@ void RenderShadowProjectionQuad(
      quad.m_pos[2] = p[2];
      quad.m_pos[3] = p[3];
      quad.SetColour(colour);
@@ -15,7 +17,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  void RenderCharacterIntoTexture(const ProjectedShadowParams& params)
-@@ -490,7 +494,11 @@
+@@ -490,7 +494,11 @@ static void RenderBlobShadow(const nlVector3& vPosition,
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
  
@@ -27,7 +29,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  }
  
  void RenderProjectedShadow(const ProjectedShadowParams& params)
-@@ -934,7 +942,11 @@
+@@ -934,7 +942,11 @@ void DrawPlanarShadowBounds(eCLV layer, const glModel* model,
      quad.m_uv[3].x = 0.0f;
      quad.m_uv[3].y = 0.0f;
      quad.SetColour(0xAA, 0xAA, 0xAA, 0xFF);

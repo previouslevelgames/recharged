@@ -1,11 +1,12 @@
 Subject: Preserve original emission owner keys across native pointer ABIs
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use full-width native address transport through the original manager and
 mixed electric-fence ball helper. Keep original numeric IDs, controller
 fields, algorithms, and console type/cast tokens. No ownership is added.
 
 diff --git a/include/Game/Effects/EmissionManager.h b/include/Game/Effects/EmissionManager.h
+index 7c84cda..499c65f 100644
 --- a/include/Game/Effects/EmissionManager.h
 +++ b/include/Game/Effects/EmissionManager.h
 @@ -1,6 +1,7 @@
@@ -16,7 +17,7 @@ diff --git a/include/Game/Effects/EmissionManager.h b/include/Game/Effects/Emiss
  #include "NL/nlDLListContainer.h"
  #include "NL/nlFunction.h"
  #include "NL/nlColour.h"
-@@ -83,22 +84,22 @@
+@@ -83,22 +84,22 @@ public:
      void Render();
      nlDLListContainer<EmissionController*>* GetContainer();
      bool IsStillAlive(EmissionController* controller);
@@ -46,6 +47,7 @@ diff --git a/include/Game/Effects/EmissionManager.h b/include/Game/Effects/Emiss
      static void SetResourceBudget(int resource, int budget);
 diff --git a/include/Game/Effects/EmissionOwnerKey.h b/include/Game/Effects/EmissionOwnerKey.h
 new file mode 100644
+index 0000000..d81497e
 --- /dev/null
 +++ b/include/Game/Effects/EmissionOwnerKey.h
 @@ -0,0 +1,15 @@
@@ -65,6 +67,7 @@ new file mode 100644
 +
 +#endif // GAME_EFFECTS_EMISSION_OWNER_KEY_H
 diff --git a/include/Game/Render/ElectricFence.h b/include/Game/Render/ElectricFence.h
+index 455dad0..da3e043 100644
 --- a/include/Game/Render/ElectricFence.h
 +++ b/include/Game/Render/ElectricFence.h
 @@ -1,6 +1,7 @@
@@ -75,7 +78,7 @@ diff --git a/include/Game/Render/ElectricFence.h b/include/Game/Render/ElectricF
  #include "Game/Effects/EmissionController.h"
  #include "NL/nlList.h"
  #include "NL/nlMath.h"
-@@ -45,6 +46,6 @@
+@@ -45,6 +46,6 @@ void InitializeElectricFence(GLView* view);
  void EmitElectricFenceCharacterEffect(const nlVector3& pos,
      const nlVector3& dir, unsigned long emitterID);
  bool EmitElectricFenceBallEffect(const nlVector3& pos,
@@ -84,9 +87,10 @@ diff --git a/include/Game/Render/ElectricFence.h b/include/Game/Render/ElectricF
  
  #endif // GAME_RENDER_ELECTRIC_FENCE_H
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
+index d0271ab..b87e97f 100644
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
-@@ -3073,7 +3073,7 @@
+@@ -3081,7 +3081,7 @@ void Bobomb::ThrowAt(cFielder* pThrower)
  void Bobomb::Destroy(bool bSilent)
  {
      EffectsGroup* pEffectsGroup = EmissionManager::Instance()->GetEffectsGroup("bobomb_tick");
@@ -96,9 +100,10 @@ diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
      if (gBobombAnticipationVoiceID != -1)
      {
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
+index 73195e8..aa321bc 100644
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
-@@ -1083,7 +1083,7 @@
+@@ -1089,7 +1089,7 @@ bool IsBallEffectPlaying(
      cBall* pBall, const EffectsGroup* pEffectsGroup)
  {
      return EmissionManager::Instance()->IsPlaying(
@@ -107,7 +112,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
  }
  
  static inline cFielder* GetOwnerFielderImpl(cBall* pBall)
-@@ -2742,7 +2742,7 @@
+@@ -2771,7 +2771,7 @@ void RegisterBallEventCallbacks()
          if (!pBallTrail->visible)
          {
              EmissionManager::Instance()->Destroy(
@@ -116,7 +121,7 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
              if (pBallTrail->blurHandler != NULL)
              {
                  pBallTrail->blurHandler->Die(lbl_806DB54C);
-@@ -3446,7 +3446,7 @@
+@@ -3477,7 +3477,7 @@ void SetBallTrailVisible(LiveBallTrail* pBallTrail, bool bParam)
      if (!pBallTrail->visible)
      {
          EmissionManager::Instance()->Destroy(
@@ -126,9 +131,10 @@ diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
          {
              pBallTrail->blurHandler->Die(lbl_806DB54C);
 diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
+index 0d96a30..387de29 100644
 --- a/src/Game/BasicStadium.cpp
 +++ b/src/Game/BasicStadium.cpp
-@@ -315,7 +315,7 @@
+@@ -311,7 +311,7 @@ void KillStadiumEffects(BasicStadium* pStadium, const char* effects, unsigned lo
          WorldEffect* pEffect = iterator.Current();
          if (uType == (unsigned long)pEffect->m_nTimingMode && pGroup != 0)
          {
@@ -138,9 +144,10 @@ diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
      }
  }
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
+index 5eaf14d..bbea176 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -374,7 +374,7 @@
+@@ -371,7 +371,7 @@ cCharacter::cCharacter(eCharacterClass cc, const int* nModelID,
  
  cCharacter::~cCharacter()
  {
@@ -149,7 +156,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
      m_pEffectsTexturing = 0;
      if (m_pPhysicsData != 0)
      {
-@@ -878,7 +878,7 @@
+@@ -875,7 +875,7 @@ void cCharacter::ResetAnimState()
  
  void cCharacter::ResetEffects()
  {
@@ -158,7 +165,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
      m_pEffectsTexturing = 0;
  }
  
-@@ -1058,7 +1058,7 @@
+@@ -1055,7 +1055,7 @@ void cCharacter::Update(float fDeltaT)
      if (m_bIsUsingElectrocutionTexture)
      {
          EmissionManager* unidentifiedManager = EmissionManager::Instance();
@@ -167,7 +174,7 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
                  unidentifiedManager->GetEffectsGroup("electrocution")))
          {
              if (m_bIsUsingElectrocutionTexture)
-@@ -1125,24 +1125,24 @@
+@@ -1122,24 +1122,24 @@ bool cCharacter::IsInsideScreenMargin()
  void cCharacter::KillEffect(const EffectsGroup* effectGroup)
  {
      EmissionManager::Instance()->Destroy(
@@ -195,8 +202,8 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
 +        MSCHARGED_EMISSION_OWNER_ADDRESS(this), effectGroup);
  }
  
- void cCharacter::fn_8001E304(float fSpeed, float fDeltaT)
-@@ -2362,7 +2362,7 @@
+ void cCharacter::SeekMovementSpeed(float fSpeed, float fDeltaT)
+@@ -2359,7 +2359,7 @@ void OnCollisionBallWall(CollisionBallWallData* pEventData)
          if (GameInfoManager::Instance()->GetStadium() != STAD_THUNDER_ISLAND
              || fabsf(pEventData->pBall->m_v3Position.x) > cField::GetGoalLineX(1U) - 2.5f)
          {
@@ -206,9 +213,10 @@ diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
                  PlaySound(10, 0x2AA0C2A9UL, NULL, NULL);
              }
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
+index d447bed..cb8aaab 100644
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
-@@ -1244,7 +1244,7 @@
+@@ -1244,7 +1244,7 @@ void KillHeaderTarget(cBall* pBall, bool bActive)
  {
      const char* szEffectName = bActive ? s_szHeaderTargetActive : s_szHeaderTarget;
  
@@ -217,7 +225,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
          EmissionManager::Instance()->GetEffectsGroup(szEffectName));
  }
  
-@@ -1806,7 +1806,7 @@
+@@ -1806,7 +1806,7 @@ void EmitSkillshotPlayerOnFire(cCharacter* pCharacter)
      EffectsGroup* pGroup = EmissionManager::Instance()->GetEffectsGroup("skillshot_player_on_fire");
      if (pCharacter->IsEffectDying(pGroup))
      {
@@ -226,7 +234,7 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      }
  
      if (!pCharacter->IsPlayingEffect(pGroup))
-@@ -1898,7 +1898,7 @@
+@@ -1898,7 +1898,7 @@ void EndDeke(cFielder* pFielder)
      if (pFielder->m_DetChar.m_eCharacterClass == DONKEYKONG)
      {
          EffectsGroup* pGroup = EmissionManager::Instance()->GetEffectsGroup("dk_deke");
@@ -236,9 +244,10 @@ diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
      else if (pFielder->m_eActionState == ACTION_DEKE)
      {
 diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
+index c5227a1..70aa2af 100644
 --- a/src/Game/CrowdRiot.cpp
 +++ b/src/Game/CrowdRiot.cpp
-@@ -280,13 +280,13 @@
+@@ -280,13 +280,13 @@ void CrowdRiot::Reset(bool preserveActiveRiot)
      mv3Target.z = 0.0f;
  
      group = GetCrowdRiotEffectGroup(GENERATOR_BROKEN);
@@ -257,9 +266,10 @@ diff --git a/src/Game/CrowdRiot.cpp b/src/Game/CrowdRiot.cpp
  
      if (resumeRiot && meState != STATE_DISABLED && meState == STATE_READY)
 diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
+index 322cd4e..4ffc7ea 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
-@@ -798,7 +798,7 @@
+@@ -798,7 +798,7 @@ EmissionController* EmissionManager::Create(EffectsGroup* pEffectsGroup, int vie
  /**
   * Offset/Address/Size: 0x0 | 0x802E81A0 | size: 0xAC
   */
@@ -268,7 +278,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  {
      nlDLListIterator<EmissionController*> iterator;
      iterator = static_cast<const nlDLListContainer<EmissionController*>&>(mControllers).Begin();
-@@ -855,7 +855,7 @@
+@@ -855,7 +855,7 @@ bool EmissionManager::IsStillAlive(EmissionController* controller)
   * Offset/Address/Size: 0x0 | 0x802E82E4 | size: 0xE0
   */
  void EmissionManager::Kill(
@@ -277,7 +287,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  {
      nlDLListIterator<EmissionController*> iterator;
      iterator = static_cast<const nlDLListContainer<EmissionController*>&>(mControllers).Begin();
-@@ -907,7 +907,7 @@
+@@ -907,7 +907,7 @@ void EmissionManager::Kill(const EffectsGroup* pEffectsGroup)
   * Offset/Address/Size: 0x0 | 0x802E848C | size: 0xB8
   */
  bool EmissionManager::IsPlaying(
@@ -286,7 +296,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  {
      if (pEffectsGroup != 0)
      {
-@@ -939,7 +939,7 @@
+@@ -939,7 +939,7 @@ bool EmissionManager::IsPlaying(
  /**
   * Offset/Address/Size: 0x0 | 0x802E8544 | size: 0xB8
   */
@@ -295,7 +305,7 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
  {
      if (pEffectsGroup != 0)
      {
-@@ -1060,7 +1060,7 @@
+@@ -1060,7 +1060,7 @@ void EmissionManager::DestroyAll(bool exceptPersistent)
   * Offset/Address/Size: 0x0 | 0x802E88CC | size: 0x160
   */
  void EmissionManager::Destroy(
@@ -305,9 +315,10 @@ diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionMan
      nlDLListIterator<EmissionController*> iterator;
      iterator = static_cast<const nlDLListContainer<EmissionController*>&>(mControllers).Begin();
 diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
+index 039a8a5..361e857 100644
 --- a/src/Game/NisPlayer.cpp
 +++ b/src/Game/NisPlayer.cpp
-@@ -1056,7 +1056,7 @@
+@@ -1056,7 +1056,7 @@ bool NisPlayer::IsMirrored(NisTarget target, const char* name, NisWinnerType win
  
  void NisPlayer::ResetEffects()
  {
@@ -317,9 +328,10 @@ diff --git a/src/Game/NisPlayer.cpp b/src/Game/NisPlayer.cpp
      EmissionManager::Instance()->DestroyAll(3, true);
  }
 diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.cpp
+index 587273b..b138597 100644
 --- a/src/Game/Physics/PhysicsPatch.cpp
 +++ b/src/Game/Physics/PhysicsPatch.cpp
-@@ -60,8 +60,8 @@
+@@ -60,8 +60,8 @@ inline void PhysicsPatch::KillEffect()
              EffectsGroup* effects = EmissionManager::Instance()->GetEffectsGroup(info->mEffectName);
              if (effects != 0)
              {
@@ -330,7 +342,7 @@ diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.c
                  if (controller != 0)
                  {
                      controller->mUpdateCallback.Clear();
-@@ -81,8 +81,8 @@
+@@ -81,8 +81,8 @@ inline void PhysicsPatch::DestroyEffect()
              EffectsGroup* effects = EmissionManager::Instance()->GetEffectsGroup(info->mEffectName);
              if (effects != 0)
              {
@@ -342,9 +354,10 @@ diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.c
                  {
                      controller->mUpdateCallback.Clear();
 diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsWaluigiWall.cpp
+index fb642d6..7ec939c 100644
 --- a/src/Game/Physics/PhysicsWaluigiWall.cpp
 +++ b/src/Game/Physics/PhysicsWaluigiWall.cpp
-@@ -350,8 +350,8 @@
+@@ -350,8 +350,8 @@ void PhysicsWaluigiWall::ApplyDamage(float damage)
  inline void WaluigiWallManager::EndWall()
  {
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup(gWaluigiWallEffectName);
@@ -356,9 +369,10 @@ diff --git a/src/Game/Physics/PhysicsWaluigiWall.cpp b/src/Game/Physics/PhysicsW
      mCurrentWall->mAge = 0.0f;
      PhysicsWaluigiWall* wall = mCurrentWall;
 diff --git a/src/Game/Render/BirdoEgg.cpp b/src/Game/Render/BirdoEgg.cpp
+index 69dbe24..26b47fb 100644
 --- a/src/Game/Render/BirdoEgg.cpp
 +++ b/src/Game/Render/BirdoEgg.cpp
-@@ -120,7 +120,7 @@
+@@ -120,7 +120,7 @@ void BirdoEggObject::Update(float deltaTime)
      if (fabsf(mPosition.y) > cField::GetSidelineY(1))
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
@@ -367,7 +381,7 @@ diff --git a/src/Game/Render/BirdoEgg.cpp b/src/Game/Render/BirdoEgg.cpp
      }
  }
  
-@@ -205,11 +205,11 @@
+@@ -205,11 +205,11 @@ void BirdoEggObject::Hide(bool destroyEffect)
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("birdo_egg_trail");
          if (!destroyEffect)
          {
@@ -382,9 +396,10 @@ diff --git a/src/Game/Render/BirdoEgg.cpp b/src/Game/Render/BirdoEgg.cpp
          if (!destroyEffect)
          {
 diff --git a/src/Game/Render/BulletBill.cpp b/src/Game/Render/BulletBill.cpp
+index 09cbd99..bcb7ddd 100644
 --- a/src/Game/Render/BulletBill.cpp
 +++ b/src/Game/Render/BulletBill.cpp
-@@ -193,11 +193,11 @@
+@@ -193,11 +193,11 @@ void BulletBillObject::Hide(bool destroyEffect)
      EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("bulletbill_trail");
      if (!destroyEffect)
      {
@@ -399,9 +414,10 @@ diff --git a/src/Game/Render/BulletBill.cpp b/src/Game/Render/BulletBill.cpp
      physics->DisableCollisions();
  }
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
+index 658c2ae..6d638b1 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
-@@ -84,9 +84,9 @@
+@@ -84,9 +84,9 @@ ChainChomp::ChainChomp(cSHierarchy& pHierarchy, int nModelID,
      {
          mpInEffectSFX = 0;
      }
@@ -413,7 +429,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
          EmissionManager::Instance()->GetEffectsGroup("freeze"));
      meChainChompState = CHAIN_STATE_HIDDEN;
      mfDesiredSpeed = 0.0f;
-@@ -151,7 +151,7 @@
+@@ -151,7 +151,7 @@ void ChainChomp::Update(float fDeltaT)
          if (mtStateTimer.Countdown(fDeltaT, 0.0f))
          {
              pGroup = EmissionManager::Instance()->GetEffectsGroup("freeze");
@@ -422,7 +438,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
              mpPhysObj->EnableCollisions();
  
              EmitTrail();
-@@ -177,10 +177,10 @@
+@@ -177,10 +177,10 @@ void ChainChomp::Update(float fDeltaT)
                  mpInEffectSFX = 0;
              }
              pGroup = EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail");
@@ -435,7 +451,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
  
              meChainChompState = CHAIN_STATE_HIDDEN;
              mfDesiredSpeed = 0.0f;
-@@ -359,10 +359,10 @@
+@@ -359,10 +359,10 @@ void ChainChomp::Update(float fDeltaT)
                  mpInEffectSFX = 0;
              }
              pGroup = EmissionManager::Instance()->GetEffectsGroup("chainchomp_trail");
@@ -448,7 +464,7 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
  
              meChainChompState = CHAIN_STATE_HIDDEN;
              mfDesiredSpeed = 0.0f;
-@@ -585,7 +585,7 @@
+@@ -585,7 +585,7 @@ void ChainChomp::Fall()
      mv3Velocity = v3FallVelocity;
      mtStateTimer.SetSeconds(1.5f);
      mpPhysObj->DisableCollisions();
@@ -458,9 +474,10 @@ diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
  }
  
 diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.cpp
+index 4a957f0..0ff493b 100644
 --- a/src/Game/Render/ElectricFence.cpp
 +++ b/src/Game/Render/ElectricFence.cpp
-@@ -351,7 +351,7 @@
+@@ -351,7 +351,7 @@ static void RenderElectricFence(EmissionController& ec)
  }
  
  bool EmitElectricFenceBallEffect(const nlVector3& v3Position,
@@ -470,9 +487,10 @@ diff --git a/src/Game/Render/ElectricFence.cpp b/src/Game/Render/ElectricFence.c
      ElectricFenceData* data;
      const char* groupName;
 diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellObject.cpp
+index 93e92f0..0bd9514 100644
 --- a/src/Game/Render/KoopaShellObject.cpp
 +++ b/src/Game/Render/KoopaShellObject.cpp
-@@ -53,12 +53,12 @@
+@@ -53,12 +53,12 @@ static inline void Deactivate(KoopaShellObject* object, bool destroyEffect)
          if (!destroyEffect)
          {
              EmissionManager::Instance()->Kill(
@@ -487,7 +505,7 @@ diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellOb
          }
  
          if (!destroyEffect)
-@@ -157,7 +157,7 @@
+@@ -157,7 +157,7 @@ void KoopaShellObject::Update(float deltaTime)
      if (fabsf(mPosition.y) > cField::GetSidelineY(1))
      {
          EmissionManager::Instance()->Kill(
@@ -497,9 +515,10 @@ diff --git a/src/Game/Render/KoopaShellObject.cpp b/src/Game/Render/KoopaShellOb
      }
  }
 diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject.cpp
+index da18576..de40ae6 100644
 --- a/src/Game/Render/YoshiEggObject.cpp
 +++ b/src/Game/Render/YoshiEggObject.cpp
-@@ -54,7 +54,7 @@
+@@ -56,7 +56,7 @@ void YoshiEggObject::Suspend(bool, float delay)
      {
          mDelay = delay;
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
@@ -508,7 +527,7 @@ diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject
          mPhysics->EnableCollisions();
          if (mFielder != 0 && mFielder->m_pBall != 0)
          {
-@@ -127,7 +127,7 @@
+@@ -131,7 +131,7 @@ void YoshiEggObject::Update(float dt)
      if (fabsf(mPosition.y) > cField::GetSidelineY(1))
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
@@ -517,7 +536,7 @@ diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject
      }
  }
  
-@@ -157,7 +157,7 @@
+@@ -161,7 +161,7 @@ void YoshiEggObject::Activate(cFielder* fielder)
      if (mActive)
      {
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
@@ -526,7 +545,7 @@ diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject
      }
      mActive = true;
      mPhysics->EnableCollisions();
-@@ -196,15 +196,15 @@
+@@ -200,15 +200,15 @@ void YoshiEggObject::Deactivate(bool destroyEffects)
          }
          EffectsGroup* group = EmissionManager::Instance()->GetEffectsGroup("yoshi_egg_trail");
          if (!destroyEffects)

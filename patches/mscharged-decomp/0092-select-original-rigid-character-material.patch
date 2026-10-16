@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Select original rigid character material and fixed-font fallback
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve original CharacterSkinCustom TEV/light/raster order and skin matrix
 composition. Native packets emit original PNMTXIDX/position/normal/two-UV index
@@ -9,10 +9,35 @@ Select original fixed-font atlas construction for the real missing-binding
 fallback, retaining Wii glyph word byte order on native hosts. Full character,
 shadow manager, software multiweight/morph and GL font startup remain separate.
 
+diff --git a/include/NL/gl/GLFontAtlas.h b/include/NL/gl/GLFontAtlas.h
+new file mode 100644
+index 0000000..c5b317e
+--- /dev/null
++++ b/include/NL/gl/GLFontAtlas.h
+@@ -0,0 +1,18 @@
++#ifndef NL_GL_FONT_ATLAS_H
++#define NL_GL_FONT_ATLAS_H
++enum eGLFont
++{
++    GLFONT_Small,
++    GLFONT_Medium,
++    GLFONT_Large,
++    GLFONT_Count,
++};
++
++extern int sFontCharacterWidth[3], sFontCharacterHeight[3];
++extern int sFontCellWidth[3], sFontCellHeight[3];
++extern int sFontTextureWidth[3], sFontTextureHeight[3];
++extern int sFontCharactersPerRow[4];
++void glFontBlitCharacter(int x, int y, char character, unsigned short* image, int imageWidth, int font);
++// Caller supplies a zeroed width*height image. Original placement and glyph bits.
++void glBuildFixedFontImage(int font, unsigned short* image);
++#endif
 diff --git a/include/NL/glx/GXCharacterSkinCustomMaterialProgram.h b/include/NL/glx/GXCharacterSkinCustomMaterialProgram.h
+index d59eb0f..80bbddc 100644
 --- a/include/NL/glx/GXCharacterSkinCustomMaterialProgram.h
 +++ b/include/NL/glx/GXCharacterSkinCustomMaterialProgram.h
-@@ -9,10 +9,10 @@
+@@ -9,10 +9,10 @@ struct GXCharacterSkinCustomParameters
      /* 0x00 */ glTextureBinding diffuseTexture;
      /* 0x08 */ glTextureBinding detailTexture;
      /* 0x10 */ const float (*skinMatrices)[3][4];
@@ -25,330 +50,9 @@ diff --git a/include/NL/glx/GXCharacterSkinCustomMaterialProgram.h b/include/NL/
      /* 0x24 */ int lightingEnabled;
  }; // size: 0x28
  
-diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
---- a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
-+++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
-@@ -1,4 +1,9 @@
-+#include <stddef.h>
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#else
- #include <revolution/gx.h>
-+#endif
- 
- #include "NL/glx/GXCharacterSkinCustomMaterialProgram.h"
- #include "NL/glx/GXMaterialProgramInternal.h"
-@@ -9,20 +14,20 @@
- bool GXCharacterSkinCustomMaterialProgram::Initialized;
- 
- GXMaterialParameter GXCharacterSkinCustomMaterialProgram::Parameters[7] = {
--    { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
--    { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
--    { 0xFB3B01EC, 0x02030411, 16 }, // SkinMatrices
--    { 0x0658BB38, 0x01010101, 24 }, // blendAmount
--    { 0xB46C81A2, 0x01010101, 28 }, // alphaValue
--    { 0x46CCF41D, 0x01010102, 32 }, // shadowLevel
--    { 0x8E10B600, 0x01010102, 36 }, // lightingEnabled
-+    { 0x69F44DC5, 0x01010103, offsetof(GXCharacterSkinCustomParameters, diffuseTexture) }, // NLG_DIFFUSE
-+    { 0xEBAF55D2, 0x01010103, offsetof(GXCharacterSkinCustomParameters, detailTexture) }, // NLG_DETAIL
-+    { 0xFB3B01EC, 0x02030411, offsetof(GXCharacterSkinCustomParameters, skinMatrices) }, // SkinMatrices
-+    { 0x0658BB38, 0x01010101, offsetof(GXCharacterSkinCustomParameters, blendAmount) }, // blendAmount
-+    { 0xB46C81A2, 0x01010101, offsetof(GXCharacterSkinCustomParameters, alphaValue) }, // alphaValue
-+    { 0x46CCF41D, 0x01010102, offsetof(GXCharacterSkinCustomParameters, shadowLevel) }, // shadowLevel
-+    { 0x8E10B600, 0x01010102, offsetof(GXCharacterSkinCustomParameters, lightingEnabled) }, // lightingEnabled
- };
- 
- GXCharacterSkinCustomMaterialProgram::GXCharacterSkinCustomMaterialProgram()
- {
-     Instance = this;
-     programHash = 0x041C3281;
--    parameterDataSize = 40;
-+    parameterDataSize = sizeof(GXCharacterSkinCustomParameters);
-     parameterCount = 7;
-     glRegisterMaterialProgram(this, programHash);
- }
-@@ -69,10 +74,30 @@
- void GXCharacterSkinCustomMaterialProgram::BindVertexArrays(const glModelPacket* packet)
- {
-     glModelStream* streams = packet->streams;
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_POS, streams[0].address,
-+        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
-+#else
-     GXSetArray(GX_VA_POS, streams[0].address, 12);
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_NRM, streams[1].address,
-+        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
-+#else
-     GXSetArray(GX_VA_NRM, streams[1].address, 12);
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_TEX0, streams[2].address,
-+        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
-+#else
-     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
-+#endif
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetArray(GX_VA_TEX1, streams[3].address,
-+        packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
-+#else
-     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
-+#endif
- }
- 
- void GXCharacterSkinCustomMaterialProgram::BindParameters(const glModelPacket* packet)
-diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
---- a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
-+++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
-@@ -1,4 +1,10 @@
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#include "runtime/material_environment.h"
-+#include "runtime/skin_material.h"
-+#else
- #include <revolution/gx.h>
-+#endif
- #include "NL/gl/glMaterialParameters.h"
- #include "Game/GameObjectLighting.h"
- 
-@@ -109,14 +115,22 @@
-     SetGameObjectShadowModelMatrix(-1);
-     sCharacterLightCount = GetGameObjectLightCount(1, 0);
-     LoadGameObjectLights(sCharacterLightCount, view, 1);
-+#if defined(MSCHARGED_NATIVE)
-+    sCharacterSkinLightingEnabled = sEnableCharacterSkinLighting && IsGameObjectLightingEnabled();
-+#else
-     sCharacterSkinLightingEnabled = sEnableCharacterSkinLighting;
--    glxConfigureCharacterSkinCustomLighting(sEnableCharacterSkinLighting);
-+#endif
-+    glxConfigureCharacterSkinCustomLighting(sCharacterSkinLightingEnabled);
- }
- 
- template <>
- void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Deactivate()
- {
-+#if defined(MSCHARGED_NATIVE)
-+    GXSetCurrentMtx(GX_PNMTX0);
-+#else
-     gxSetCurrentMtx(0, true);
-+#endif
-     SetGameObjectAmbientLightingEnabled(0);
-     SetGameObjectLightingEnabled(0, sCharacterLightCount, 1);
-     gxSetTevColourOp(2, 0, 0, 0, true, 0);
-@@ -156,6 +170,9 @@
-     static_cast<GXCharacterSkinCustomMaterialProgram*>(this)->BindParameters(packet);
- 
-     bool enabled = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters)->lightingEnabled == 1;
-+#if defined(MSCHARGED_NATIVE)
-+    enabled = enabled && sEnableCharacterSkinLighting && IsGameObjectLightingEnabled();
-+#endif
-     if (enabled != sCharacterSkinLightingEnabled)
-     {
-         sCharacterSkinLightingEnabled = enabled;
-@@ -189,9 +206,13 @@
-         unsigned int numSkinMatrices;
-         const GXCharacterSkinCustomParameters* parameters = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters);
-         numSkinMatrices = parameters->skinMatrixBytes / sizeof(*parameters->skinMatrices);
-+#if !defined(MSCHARGED_NATIVE)
-         glGetDrawSyncLog()->AddMarker("CharacterSkinCustom - RLXLoadSkinMatrices");
-+#endif
-         glx_LoadSkinMatrices(parameters->skinMatrices, numSkinMatrices, &modelview, 1);
-+#if !defined(MSCHARGED_NATIVE)
-         glGetDrawSyncLog()->AddMarker("CharacterSkinCustom - After RLXLoadSkinMatrices");
-+#endif
-     }
-     else
-     {
-@@ -206,8 +227,12 @@
-         if (sDrawAlphaDepthPass)
-         {
-             bool colourUpdate = gxSetColourUpdate(false);
-+#if defined(MSCHARGED_NATIVE)
-+            mscharged::DrawNativeSkinPacket(*packet);
-+#else
-             GXCallDisplayList(
-                 packet->displayList->list, packet->displayList->size);
-+#endif
-             gxSetColourUpdate(colourUpdate);
-             gxSetZMode(true, GX_EQUAL, true);
-         }
-@@ -216,13 +241,21 @@
-         gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
-         GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
-         gxSetTevAlphaIn(1, 7, 7, 7, 6);
-+#if defined(MSCHARGED_NATIVE)
-+        mscharged::DrawNativeSkinPacket(*packet);
-+#else
-         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
-+#endif
-         gxRestoreBlendMode();
-         gxRestoreZMode();
-     }
-     else
-     {
-+#if defined(MSCHARGED_NATIVE)
-+        mscharged::DrawNativeSkinPacket(*packet);
-+#else
-         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
-+#endif
-     }
- 
-     RestoreGameObjectShadowLighting();
-diff --git a/src/NL/glx/glxSkinMatrix.cpp b/src/NL/glx/glxSkinMatrix.cpp
---- a/src/NL/glx/glxSkinMatrix.cpp
-+++ b/src/NL/glx/glxSkinMatrix.cpp
-@@ -1,5 +1,11 @@
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/gx.h>
-+#include <dolphin/mtx.h>
-+#include "runtime/skin_material.h"
-+#else
- #include <revolution/gx.h>
- #include <revolution/mtx.h>
-+#endif
- 
- #include "NL/glx/glxSkinMatrix.h"
- #include "NL/glx/glxMatrix.h"
-@@ -13,7 +19,11 @@
-     Mtx matrix0;
-     Mtx matrix1;
-     glxCopyMatrix(matrix0, *matrix);
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::SkinNormalMatrix(matrix0, matrix1);
-+#else
-     PSMTXInvXpose(matrix0, matrix1);
-+#endif
-     for (int i = 0; i < 9; ++i)
-     {
-         GXLoadPosMtxImm(matrix0, glx_SkinMatrixSlots[i]);
-@@ -30,7 +40,11 @@
-     for (int i = 0; i < count; ++i)
-     {
-         PSMTXConcat(matrix0, matrices[i], matrix1);
-+#if defined(MSCHARGED_NATIVE)
-+        mscharged::SkinNormalMatrix(matrix1, matrix2);
-+#else
-         PSMTXInvXpose(matrix1, matrix2);
-+#endif
-         GXLoadPosMtxImm(matrix1, glx_SkinMatrixSlots[i]);
-         GXLoadNrmMtxImm(matrix2, glx_SkinMatrixSlots[i]);
-     }
-diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
---- a/src/NL/gl/glFont.cpp
-+++ b/src/NL/gl/glFont.cpp
-@@ -15,13 +15,10 @@
- #include "NL/nlstring_tmpl.h"
- #include "Game/SharedStaticStorage.h"
- 
--enum eGLFont
--{
--    GLFONT_Small,
--    GLFONT_Medium,
--    GLFONT_Large,
--    GLFONT_Count,
--};
-+#include "NL/gl/GLFontAtlas.h"
-+#if !defined(MSCHARGED_NATIVE)
-+#include "GLFontAtlas.cpp"
-+#endif
- 
- char sLargeFontName[] __attribute__((aligned(4))) = "font/fixedWidthLarge";
- char sMediumFontName[] __attribute__((aligned(4))) = "font/fixedWidthMedium";
-@@ -31,15 +28,8 @@
- const char* sMediumFontTextureName = sMediumFontName;
- const char* sSmallFontTextureName = sSmallFontName;
- 
--#include "NL/gl/font_data.h"
--
--int sFontCharacterWidth[3] = { 8, 9, 11 };
--int sFontCharacterHeight[3] = { 12, 15, 18 };
--int sFontCellWidth[3] = { 9, 10, 12 };
--int sFontCellHeight[3] = { 13, 16, 20 };
--int sFontTextureWidth[3] = { 128, 128, 128 };
--int sFontTextureHeight[3] = { 256, 256, 256 };
--int sFontCharactersPerRow[4] = { 14, 12, 10, 0 };
-+
-+
- 
- const char* sFontTextureNames[4] = { sSmallFontTextureName, sMediumFontTextureName, sLargeFontTextureName };
- glPoly2 sFontPolys[128];
-@@ -58,53 +48,6 @@
- bool sFontEnabled;
- bool sFontVirtualCoords;
- 
--void glFontBlitCharacter(int x, int y, char character, unsigned short* image, int imageWidth, int font)
--{
--    unsigned short* characterData;
--
--    switch (font)
--    {
--    case 0:
--        characterData = (unsigned short*)((unsigned char*)sSmallFontData + (character - 0x20) * 0x18);
--        break;
--    case 1:
--        characterData = (unsigned short*)((unsigned char*)sMediumFontData + (character - 0x20) * 0x1E);
--        break;
--    case 2:
--        characterData = (unsigned short*)((unsigned char*)sLargeFontData + (character - 0x20) * 0x24);
--        break;
--    default:
--        characterData = 0;
--        break;
--    }
--
--    const int endX = x + sFontCharacterWidth[font];
--    const int endY = y + sFontCharacterHeight[font];
--
--    for (int imageY = y; imageY < endY; ++imageY)
--    {
--        unsigned char* row = (unsigned char*)(characterData + (imageY - y));
--
--        for (int imageX = x; imageX < endX; ++imageX)
--        {
--            const int bit = imageX - x;
--            bool set;
--            if (bit < 8)
--            {
--                set = ((row[0] << bit) >> 7) & 1;
--            }
--            else
--            {
--                set = ((row[1] << (bit - 8)) >> 7) & 1;
--            }
--
--            if (set)
--            {
--                image[imageY * imageWidth + imageX] = 0xFFFF;
--            }
--        }
--    }
--}
- 
- void gl_FontStartup()
- {
-@@ -119,18 +62,7 @@
-         unsigned short* image = (unsigned short*)nlMalloc(imageSize, 8, false);
-         nlZeroMemory(image, imageSize);
- 
--        int x = 0;
--        int y = 0;
--        for (int character = 0; character < 0x5E; ++character)
--        {
--            glFontBlitCharacter(x, y, character + 0x20, image, width, font);
--            x += sFontCellWidth[font];
--            if (x + sFontCellWidth[font] >= width)
--            {
--                x = 0;
--                y += sFontCellHeight[font];
--            }
--        }
-+        glBuildFixedFontImage(font, image);
- 
-         unsigned long platformTexture = glplatCreateFont(width, height, image,
-             texture, (MemoryAllocator*)glGetCurrentResourcePool());
 diff --git a/src/NL/gl/GLFontAtlas.cpp b/src/NL/gl/GLFontAtlas.cpp
 new file mode 100644
+index 0000000..0dfe0ad
 --- /dev/null
 +++ b/src/NL/gl/GLFontAtlas.cpp
 @@ -0,0 +1,97 @@
@@ -449,26 +153,328 @@ new file mode 100644
 +        }
 +    }
 +}
-diff --git a/include/NL/gl/GLFontAtlas.h b/include/NL/gl/GLFontAtlas.h
-new file mode 100644
---- /dev/null
-+++ b/include/NL/gl/GLFontAtlas.h
-@@ -0,0 +1,18 @@
-+#ifndef NL_GL_FONT_ATLAS_H
-+#define NL_GL_FONT_ATLAS_H
-+enum eGLFont
-+{
-+    GLFONT_Small,
-+    GLFONT_Medium,
-+    GLFONT_Large,
-+    GLFONT_Count,
-+};
-+
-+extern int sFontCharacterWidth[3], sFontCharacterHeight[3];
-+extern int sFontCellWidth[3], sFontCellHeight[3];
-+extern int sFontTextureWidth[3], sFontTextureHeight[3];
-+extern int sFontCharactersPerRow[4];
-+void glFontBlitCharacter(int x, int y, char character, unsigned short* image, int imageWidth, int font);
-+// Caller supplies a zeroed width*height image. Original placement and glyph bits.
-+void glBuildFixedFontImage(int font, unsigned short* image);
+diff --git a/src/NL/gl/glFont.cpp b/src/NL/gl/glFont.cpp
+index 358076a..8005b44 100644
+--- a/src/NL/gl/glFont.cpp
++++ b/src/NL/gl/glFont.cpp
+@@ -15,13 +15,10 @@
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/SharedStaticStorage.h"
+ 
+-enum eGLFont
+-{
+-    GLFONT_Small,
+-    GLFONT_Medium,
+-    GLFONT_Large,
+-    GLFONT_Count,
+-};
++#include "NL/gl/GLFontAtlas.h"
++#if !defined(MSCHARGED_NATIVE)
++#include "GLFontAtlas.cpp"
 +#endif
+ 
+ char sLargeFontName[] __attribute__((aligned(4))) = "font/fixedWidthLarge";
+ char sMediumFontName[] __attribute__((aligned(4))) = "font/fixedWidthMedium";
+@@ -31,15 +28,8 @@ const char* sLargeFontTextureName = sLargeFontName;
+ const char* sMediumFontTextureName = sMediumFontName;
+ const char* sSmallFontTextureName = sSmallFontName;
+ 
+-#include "NL/gl/font_data.h"
+ 
+-int sFontCharacterWidth[3] = { 8, 9, 11 };
+-int sFontCharacterHeight[3] = { 12, 15, 18 };
+-int sFontCellWidth[3] = { 9, 10, 12 };
+-int sFontCellHeight[3] = { 13, 16, 20 };
+-int sFontTextureWidth[3] = { 128, 128, 128 };
+-int sFontTextureHeight[3] = { 256, 256, 256 };
+-int sFontCharactersPerRow[4] = { 14, 12, 10, 0 };
++
+ 
+ const char* sFontTextureNames[4] = { sSmallFontTextureName, sMediumFontTextureName, sLargeFontTextureName };
+ glPoly2 sFontPolys[128];
+@@ -58,53 +48,6 @@ bool sFontDropShadow;
+ bool sFontEnabled;
+ bool sFontVirtualCoords;
+ 
+-void glFontBlitCharacter(int x, int y, char character, unsigned short* image, int imageWidth, int font)
+-{
+-    unsigned short* characterData;
+-
+-    switch (font)
+-    {
+-    case 0:
+-        characterData = (unsigned short*)((unsigned char*)sSmallFontData + (character - 0x20) * 0x18);
+-        break;
+-    case 1:
+-        characterData = (unsigned short*)((unsigned char*)sMediumFontData + (character - 0x20) * 0x1E);
+-        break;
+-    case 2:
+-        characterData = (unsigned short*)((unsigned char*)sLargeFontData + (character - 0x20) * 0x24);
+-        break;
+-    default:
+-        characterData = 0;
+-        break;
+-    }
+-
+-    const int endX = x + sFontCharacterWidth[font];
+-    const int endY = y + sFontCharacterHeight[font];
+-
+-    for (int imageY = y; imageY < endY; ++imageY)
+-    {
+-        unsigned char* row = (unsigned char*)(characterData + (imageY - y));
+-
+-        for (int imageX = x; imageX < endX; ++imageX)
+-        {
+-            const int bit = imageX - x;
+-            bool set;
+-            if (bit < 8)
+-            {
+-                set = ((row[0] << bit) >> 7) & 1;
+-            }
+-            else
+-            {
+-                set = ((row[1] << (bit - 8)) >> 7) & 1;
+-            }
+-
+-            if (set)
+-            {
+-                image[imageY * imageWidth + imageX] = 0xFFFF;
+-            }
+-        }
+-    }
+-}
+ 
+ void gl_FontStartup()
+ {
+@@ -119,18 +62,7 @@ void gl_FontStartup()
+         unsigned short* image = (unsigned short*)nlMalloc(imageSize, 8, false);
+         nlZeroMemory(image, imageSize);
+ 
+-        int x = 0;
+-        int y = 0;
+-        for (int character = 0; character < 0x5E; ++character)
+-        {
+-            glFontBlitCharacter(x, y, character + 0x20, image, width, font);
+-            x += sFontCellWidth[font];
+-            if (x + sFontCellWidth[font] >= width)
+-            {
+-                x = 0;
+-                y += sFontCellHeight[font];
+-            }
+-        }
++        glBuildFixedFontImage(font, image);
+ 
+         unsigned long platformTexture = glplatCreateFont(width, height, image,
+             texture, (MemoryAllocator*)glGetCurrentResourcePool());
+diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
+index 334b75e..e418ff5 100644
+--- a/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
++++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgram.cpp
+@@ -1,4 +1,9 @@
++#include <stddef.h>
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#else
+ #include <revolution/gx.h>
++#endif
+ 
+ #include "NL/glx/GXCharacterSkinCustomMaterialProgram.h"
+ #include "NL/glx/GXMaterialProgramInternal.h"
+@@ -9,20 +14,20 @@ GXCharacterSkinCustomMaterialProgram* GXCharacterSkinCustomMaterialProgram::Inst
+ bool GXCharacterSkinCustomMaterialProgram::Initialized;
+ 
+ GXMaterialParameter GXCharacterSkinCustomMaterialProgram::Parameters[7] = {
+-    { 0x69F44DC5, 0x01010103, 0 }, // NLG_DIFFUSE
+-    { 0xEBAF55D2, 0x01010103, 8 }, // NLG_DETAIL
+-    { 0xFB3B01EC, 0x02030411, 16 }, // SkinMatrices
+-    { 0x0658BB38, 0x01010101, 24 }, // blendAmount
+-    { 0xB46C81A2, 0x01010101, 28 }, // alphaValue
+-    { 0x46CCF41D, 0x01010102, 32 }, // shadowLevel
+-    { 0x8E10B600, 0x01010102, 36 }, // lightingEnabled
++    { 0x69F44DC5, 0x01010103, offsetof(GXCharacterSkinCustomParameters, diffuseTexture) }, // NLG_DIFFUSE
++    { 0xEBAF55D2, 0x01010103, offsetof(GXCharacterSkinCustomParameters, detailTexture) }, // NLG_DETAIL
++    { 0xFB3B01EC, 0x02030411, offsetof(GXCharacterSkinCustomParameters, skinMatrices) }, // SkinMatrices
++    { 0x0658BB38, 0x01010101, offsetof(GXCharacterSkinCustomParameters, blendAmount) }, // blendAmount
++    { 0xB46C81A2, 0x01010101, offsetof(GXCharacterSkinCustomParameters, alphaValue) }, // alphaValue
++    { 0x46CCF41D, 0x01010102, offsetof(GXCharacterSkinCustomParameters, shadowLevel) }, // shadowLevel
++    { 0x8E10B600, 0x01010102, offsetof(GXCharacterSkinCustomParameters, lightingEnabled) }, // lightingEnabled
+ };
+ 
+ GXCharacterSkinCustomMaterialProgram::GXCharacterSkinCustomMaterialProgram()
+ {
+     Instance = this;
+     programHash = 0x041C3281;
+-    parameterDataSize = 40;
++    parameterDataSize = sizeof(GXCharacterSkinCustomParameters);
+     parameterCount = 7;
+     glRegisterMaterialProgram(this, programHash);
+ }
+@@ -69,10 +74,30 @@ void GXCharacterSkinCustomMaterialProgram::ConfigureVertexFormat(bool indexed)
+ void GXCharacterSkinCustomMaterialProgram::BindVertexArrays(const glModelPacket* packet)
+ {
+     glModelStream* streams = packet->streams;
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_POS, streams[0].address,
++        packet->numUniqueVertices * streams[0].stride, streams[0].stride, true);
++#else
+     GXSetArray(GX_VA_POS, streams[0].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_NRM, streams[1].address,
++        packet->numUniqueVertices * streams[1].stride, streams[1].stride, true);
++#else
+     GXSetArray(GX_VA_NRM, streams[1].address, 12);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX0, streams[2].address,
++        packet->numUniqueVertices * streams[2].stride, streams[2].stride, true);
++#else
+     GXSetArray(GX_VA_TEX0, streams[2].address, 4);
++#endif
++#if defined(MSCHARGED_NATIVE)
++    GXSetArray(GX_VA_TEX1, streams[3].address,
++        packet->numUniqueVertices * streams[3].stride, streams[3].stride, true);
++#else
+     GXSetArray(GX_VA_TEX1, streams[3].address, 4);
++#endif
+ }
+ 
+ void GXCharacterSkinCustomMaterialProgram::BindParameters(const glModelPacket* packet)
+diff --git a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
+index 179a98d..49cf0f6 100644
+--- a/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
++++ b/src/NL/glx/GXCharacterSkinCustomMaterialProgramRender.cpp
+@@ -1,4 +1,10 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include "runtime/material_environment.h"
++#include "runtime/skin_material.h"
++#else
+ #include <revolution/gx.h>
++#endif
+ #include "NL/gl/glMaterialParameters.h"
+ #include "Game/GameObjectLighting.h"
+ 
+@@ -109,14 +115,22 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Activate(GLVie
+     SetGameObjectShadowModelMatrix(-1);
+     sCharacterLightCount = GetGameObjectLightCount(1, 0);
+     LoadGameObjectLights(sCharacterLightCount, view, 1);
++#if defined(MSCHARGED_NATIVE)
++    sCharacterSkinLightingEnabled = sEnableCharacterSkinLighting && IsGameObjectLightingEnabled();
++#else
+     sCharacterSkinLightingEnabled = sEnableCharacterSkinLighting;
+-    glxConfigureCharacterSkinCustomLighting(sEnableCharacterSkinLighting);
++#endif
++    glxConfigureCharacterSkinCustomLighting(sCharacterSkinLightingEnabled);
+ }
+ 
+ template <>
+ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Deactivate()
+ {
++#if defined(MSCHARGED_NATIVE)
++    GXSetCurrentMtx(GX_PNMTX0);
++#else
+     gxSetCurrentMtx(0, true);
++#endif
+     SetGameObjectAmbientLightingEnabled(0);
+     SetGameObjectLightingEnabled(0, sCharacterLightCount, 1);
+     gxSetTevColourOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, true, GX_TEVPREV);
+@@ -156,6 +170,9 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
+     static_cast<GXCharacterSkinCustomMaterialProgram*>(this)->BindParameters(packet);
+ 
+     bool enabled = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters)->lightingEnabled == 1;
++#if defined(MSCHARGED_NATIVE)
++    enabled = enabled && sEnableCharacterSkinLighting && IsGameObjectLightingEnabled();
++#endif
+     if (enabled != sCharacterSkinLightingEnabled)
+     {
+         sCharacterSkinLightingEnabled = enabled;
+@@ -189,9 +206,13 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
+         unsigned int numSkinMatrices;
+         const GXCharacterSkinCustomParameters* parameters = static_cast<const GXCharacterSkinCustomParameters*>(packet->materialParameters);
+         numSkinMatrices = parameters->skinMatrixBytes / sizeof(*parameters->skinMatrices);
++#if !defined(MSCHARGED_NATIVE)
+         glGetDrawSyncLog()->AddMarker("CharacterSkinCustom - RLXLoadSkinMatrices");
++#endif
+         glx_LoadSkinMatrices(parameters->skinMatrices, numSkinMatrices, &modelview, 1);
++#if !defined(MSCHARGED_NATIVE)
+         glGetDrawSyncLog()->AddMarker("CharacterSkinCustom - After RLXLoadSkinMatrices");
++#endif
+     }
+     else
+     {
+@@ -206,8 +227,12 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
+         if (sDrawAlphaDepthPass)
+         {
+             bool colourUpdate = gxSetColourUpdate(false);
++#if defined(MSCHARGED_NATIVE)
++            mscharged::DrawNativeSkinPacket(*packet);
++#else
+             GXCallDisplayList(
+                 packet->displayList->list, packet->displayList->size);
++#endif
+             gxSetColourUpdate(colourUpdate);
+             gxSetZMode(true, GX_EQUAL, true);
+         }
+@@ -216,13 +241,21 @@ void GXMaterialProgramImpl<GXCharacterSkinCustomMaterialProgram>::Draw(
+         gxSetBlendMode(true, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, false);
+         GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K1_A);
+         gxSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
++#if defined(MSCHARGED_NATIVE)
++        mscharged::DrawNativeSkinPacket(*packet);
++#else
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
++#endif
+         gxRestoreBlendMode();
+         gxRestoreZMode();
+     }
+     else
+     {
++#if defined(MSCHARGED_NATIVE)
++        mscharged::DrawNativeSkinPacket(*packet);
++#else
+         GXCallDisplayList(packet->displayList->list, packet->displayList->size);
++#endif
+     }
+ 
+     RestoreGameObjectShadowLighting();
+diff --git a/src/NL/glx/glxSkinMatrix.cpp b/src/NL/glx/glxSkinMatrix.cpp
+index 656f48c..8402caf 100644
+--- a/src/NL/glx/glxSkinMatrix.cpp
++++ b/src/NL/glx/glxSkinMatrix.cpp
+@@ -1,5 +1,11 @@
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/gx.h>
++#include <dolphin/mtx.h>
++#include "runtime/skin_material.h"
++#else
+ #include <revolution/gx.h>
+ #include <revolution/mtx.h>
++#endif
+ 
+ #include "NL/glx/glxSkinMatrix.h"
+ #include "NL/glx/glxMatrix.h"
+@@ -13,7 +19,11 @@ void glx_LoadDefaultSkinMatrices(const nlMatrix4* matrix)
+     Mtx matrix0;
+     Mtx matrix1;
+     glxCopyMatrix(matrix0, *matrix);
++#if defined(MSCHARGED_NATIVE)
++    mscharged::SkinNormalMatrix(matrix0, matrix1);
++#else
+     PSMTXInvXpose(matrix0, matrix1);
++#endif
+     for (int i = 0; i < 9; ++i)
+     {
+         GXLoadPosMtxImm(matrix0, glx_SkinMatrixSlots[i]);
+@@ -30,7 +40,11 @@ void glx_LoadSkinMatrices(const Mtx* matrices, int count, const nlMatrix4* matri
+     for (int i = 0; i < count; ++i)
+     {
+         PSMTXConcat(matrix0, matrices[i], matrix1);
++#if defined(MSCHARGED_NATIVE)
++        mscharged::SkinNormalMatrix(matrix1, matrix2);
++#else
+         PSMTXInvXpose(matrix1, matrix2);
++#endif
+         GXLoadPosMtxImm(matrix1, glx_SkinMatrixSlots[i]);
+         GXLoadNrmMtxImm(matrix2, glx_SkinMatrixSlots[i]);
+     }

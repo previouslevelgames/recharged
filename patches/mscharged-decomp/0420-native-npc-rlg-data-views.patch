@@ -1,49 +1,9 @@
 From: mscharged-port
 Subject: Preserve Wii RLG bytes beneath original native weight and skin consumers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
-diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
---- a/src/NL/gl/glLoadModel.cpp
-+++ b/src/NL/gl/glLoadModel.cpp
-@@ -31,7 +31,11 @@
- {
-     unsigned long size = chunk->GetDataSize() + sizeof(nlChunk);
-     nlChunk* skinData = (nlChunk*)nlMalloc(size, 32, false);
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::platform::CopyRLGWireSkin(skinData, chunk, size);
-+#else
-     memcpy(skinData, chunk, size);
-+#endif
-     m_pResource->m_inventory->AddSkinData(
-         m_pModels->id, skinData);
- }
-diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
---- a/src/NL/glx/glxLoadModel.cpp
-+++ b/src/NL/glx/glxLoadModel.cpp
-@@ -85,6 +85,12 @@
-         }
-     }
- 
-+#if defined(MSCHARGED_NATIVE)
-+    mscharged::platform::NativeRLGWeightRows nativeWeights(boneWeights,
-+        packet->numUniqueVertices, mscharged::platform::RLGWeightAccess::ReadWrite);
-+    boneWeights = nativeWeights.Data();
-+#endif
-+
-     for (i = 0; i < packet->numUniqueVertices; ++i)
-     {
-         SkinMoveLargestWeightFirst(boneIndices, boneWeights);
-@@ -92,6 +98,9 @@
-         boneIndices += 4;
-         boneWeights += 4;
-     }
-+#if defined(MSCHARGED_NATIVE)
-+    nativeWeights.StoreWire();
-+#endif
- }
- 
- static inline bool HasStream(
 diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+index 55845ce..027a3f9 100644
 --- a/src/Game/GL/ShaderSkinMesh.cpp
 +++ b/src/Game/GL/ShaderSkinMesh.cpp
 @@ -1,6 +1,9 @@
@@ -56,7 +16,7 @@ diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
  #include "Game/GL/SkinPoseSteps.h"
  #if defined(MSCHARGED_NATIVE)
  #include "Game/GL/SkinSoftwareSteps.h"
-@@ -123,7 +126,13 @@
+@@ -123,7 +126,13 @@ void ShaderSkinMesh::BuildPacketSkinData(
      glModelStream* indexStream = glFindModelStream(pPacket, 7);
      glModelStream* weightStream = glFindModelStream(pPacket, 5);
      const unsigned char (*indices)[4] = (const unsigned char (*)[4])indexStream->address;
@@ -70,3 +30,46 @@ diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
  
      BoneSkinWeights* entry;
      unsigned long i;
+diff --git a/src/NL/gl/glLoadModel.cpp b/src/NL/gl/glLoadModel.cpp
+index d68cc18..870a34a 100644
+--- a/src/NL/gl/glLoadModel.cpp
++++ b/src/NL/gl/glLoadModel.cpp
+@@ -31,7 +31,11 @@ void RLGReader::LoadSkinData(nlChunk* chunk)
+ {
+     unsigned long size = chunk->GetDataSize() + sizeof(nlChunk);
+     nlChunk* skinData = (nlChunk*)nlMalloc(size, 32, false);
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::CopyRLGWireSkin(skinData, chunk, size);
++#else
+     memcpy(skinData, chunk, size);
++#endif
+     m_pResource->m_inventory->AddSkinData(
+         m_pModels->id, skinData);
+ }
+diff --git a/src/NL/glx/glxLoadModel.cpp b/src/NL/glx/glxLoadModel.cpp
+index 062d25a..a0d796b 100644
+--- a/src/NL/glx/glxLoadModel.cpp
++++ b/src/NL/glx/glxLoadModel.cpp
+@@ -85,6 +85,12 @@ static void MoveLargestBoneWeightFirst(glModelPacket* packet)
+         }
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    mscharged::platform::NativeRLGWeightRows nativeWeights(boneWeights,
++        packet->numUniqueVertices, mscharged::platform::RLGWeightAccess::ReadWrite);
++    boneWeights = nativeWeights.Data();
++#endif
++
+     for (i = 0; i < packet->numUniqueVertices; ++i)
+     {
+         SkinMoveLargestWeightFirst(boneIndices, boneWeights);
+@@ -92,6 +98,9 @@ static void MoveLargestBoneWeightFirst(glModelPacket* packet)
+         boneIndices += 4;
+         boneWeights += 4;
+     }
++#if defined(MSCHARGED_NATIVE)
++    nativeWeights.StoreWire();
++#endif
+ }
+ 
+ static inline bool HasStream(

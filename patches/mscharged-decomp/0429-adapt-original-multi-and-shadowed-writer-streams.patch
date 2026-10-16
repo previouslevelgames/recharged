@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original multi-texture and shadowed writer native streams
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain original layouts, allocations, source selectors and cursor algorithms.
 Transport exact four-byte colours and Wii numeric RGBA channel bytes; publish
@@ -7,6 +7,7 @@ actual written spans through existing native ownership metadata and replace
 the console writeback/sync boundary with the coherent host fence.
 
 diff --git a/include/NL/gl/glMultiTextureModelWriter.h b/include/NL/gl/glMultiTextureModelWriter.h
+index 3b10c63..c29cd2a 100644
 --- a/include/NL/gl/glMultiTextureModelWriter.h
 +++ b/include/NL/gl/glMultiTextureModelWriter.h
 @@ -3,6 +3,9 @@
@@ -19,7 +20,7 @@ diff --git a/include/NL/gl/glMultiTextureModelWriter.h b/include/NL/gl/glMultiTe
  #include "NL/nlMath.h"
  
  class glMultiTextureModelWriter
-@@ -20,12 +23,24 @@
+@@ -20,12 +23,24 @@ public:
  
      void Colour(const nlColour& colour)
      {
@@ -44,7 +45,34 @@ diff --git a/include/NL/gl/glMultiTextureModelWriter.h b/include/NL/gl/glMultiTe
      }
  
      void Texcoord0(const nlVector2& value)
+diff --git a/include/NL/gl/glShadowedTexturedColourModelWriter.h b/include/NL/gl/glShadowedTexturedColourModelWriter.h
+index 75c4d34..b5aa042 100644
+--- a/include/NL/gl/glShadowedTexturedColourModelWriter.h
++++ b/include/NL/gl/glShadowedTexturedColourModelWriter.h
+@@ -3,6 +3,9 @@
+ 
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
++#ifdef MSCHARGED_NATIVE
++#include <cstring>
++#endif
+ #include "NL/nlMath.h"
+ 
+ class glShadowedTexturedColourModelWriter
+@@ -20,7 +23,11 @@ public:
+ 
+     void Colour(const nlColour& c)
+     {
++#ifdef MSCHARGED_NATIVE
++        std::memcpy(colour++, &c, sizeof(c));
++#else
+         *colour++ = *(const unsigned long*)&c;
++#endif
+     }
+ 
+     void Texcoord(const nlVector2& uv)
 diff --git a/src/NL/gl/glMultiTextureModelWriter.cpp b/src/NL/gl/glMultiTextureModelWriter.cpp
+index cc2861f..a0922c2 100644
 --- a/src/NL/gl/glMultiTextureModelWriter.cpp
 +++ b/src/NL/gl/glMultiTextureModelWriter.cpp
 @@ -1,11 +1,18 @@
@@ -66,7 +94,7 @@ diff --git a/src/NL/gl/glMultiTextureModelWriter.cpp b/src/NL/gl/glMultiTextureM
  
  
  glMultiTextureModelWriter::glMultiTextureModelWriter()
-@@ -162,11 +169,19 @@
+@@ -162,11 +169,19 @@ bool glMultiTextureModelWriter::Begin(
  
  bool glMultiTextureModelWriter::End()
  {
@@ -86,7 +114,7 @@ diff --git a/src/NL/gl/glMultiTextureModelWriter.cpp b/src/NL/gl/glMultiTextureM
      for (int i = 0; i < model->packets->numStreams; ++i)
      {
          glModelStream* stream = &model->packets->streams[i];
-@@ -174,5 +189,9 @@
+@@ -174,5 +189,9 @@ bool glMultiTextureModelWriter::End()
      }
  
      PPCSync();
@@ -96,32 +124,8 @@ diff --git a/src/NL/gl/glMultiTextureModelWriter.cpp b/src/NL/gl/glMultiTextureM
 +#endif
      return true;
  }
-diff --git a/include/NL/gl/glShadowedTexturedColourModelWriter.h b/include/NL/gl/glShadowedTexturedColourModelWriter.h
---- a/include/NL/gl/glShadowedTexturedColourModelWriter.h
-+++ b/include/NL/gl/glShadowedTexturedColourModelWriter.h
-@@ -3,6 +3,9 @@
- 
- #include "NL/gl/glModel.h"
- #include "NL/nlColour.h"
-+#ifdef MSCHARGED_NATIVE
-+#include <cstring>
-+#endif
- #include "NL/nlMath.h"
- 
- class glShadowedTexturedColourModelWriter
-@@ -20,7 +23,11 @@
- 
-     void Colour(const nlColour& c)
-     {
-+#ifdef MSCHARGED_NATIVE
-+        std::memcpy(colour++, &c, sizeof(c));
-+#else
-         *colour++ = *(const unsigned long*)&c;
-+#endif
-     }
- 
-     void Texcoord(const nlVector2& uv)
 diff --git a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp b/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
+index d179893..3e78033 100644
 --- a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
 +++ b/src/NL/gl/glShadowedTexturedColourModelWriter.cpp
 @@ -1,11 +1,18 @@
@@ -143,7 +147,7 @@ diff --git a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp b/src/NL/gl/glSha
  
  
  glShadowedTexturedColourModelWriter::glShadowedTexturedColourModelWriter()
-@@ -116,11 +123,17 @@
+@@ -116,11 +123,17 @@ bool glShadowedTexturedColourModelWriter::Begin(
  
  bool glShadowedTexturedColourModelWriter::End()
  {
@@ -161,7 +165,7 @@ diff --git a/src/NL/gl/glShadowedTexturedColourModelWriter.cpp b/src/NL/gl/glSha
      for (int i = 0; i < model->packets->numStreams; ++i)
      {
          glModelStream* stream = &model->packets->streams[i];
-@@ -128,5 +141,9 @@
+@@ -128,5 +141,9 @@ bool glShadowedTexturedColourModelWriter::End()
      }
  
      PPCSync();

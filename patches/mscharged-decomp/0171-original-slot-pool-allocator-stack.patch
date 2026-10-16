@@ -1,5 +1,5 @@
 Subject: Restore original SlotPool allocator-stack callbacks
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore the exact original default allocator/free callback bodies for native
 source too. The callbacks select MEM2, push/pop the actual source stack and
@@ -8,6 +8,7 @@ beneath nlMalloc/nlFree; a host scoped selection must not replace game state.
 Retain other inherited slot-width/validation hunks for separate review.
 
 diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
+index abcd787..1fb535f 100644
 --- a/src/NL/nlSlotPool.cpp
 +++ b/src/NL/nlSlotPool.cpp
 @@ -5,7 +5,6 @@
@@ -29,7 +30,7 @@ diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
      CurrentAllocator = &VirtualAllocator;
      AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
  
-@@ -27,14 +22,10 @@
+@@ -27,14 +22,10 @@ static void* DefaultSlotPoolAllocator(unsigned long size)
      AllocatorStack[AllocatorStackDepth] = 0;
      CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];
      return result;
@@ -44,7 +45,7 @@ diff --git a/src/NL/nlSlotPool.cpp b/src/NL/nlSlotPool.cpp
      CurrentAllocator = &VirtualAllocator;
      AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
  
-@@ -43,7 +34,6 @@
+@@ -43,7 +34,6 @@ static void DefaultSlotPoolFree(void* data)
      --AllocatorStackDepth;
      AllocatorStack[AllocatorStackDepth] = 0;
      CurrentAllocator = AllocatorStack[AllocatorStackDepth - 1];

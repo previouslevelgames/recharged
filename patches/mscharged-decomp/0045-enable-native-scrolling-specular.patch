@@ -1,5 +1,5 @@
 Subject: Select original scrolling specular material for native static models
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain the original scrolling, specular, diffuse-lighting modes and shadow TEV
 recipes. Use bounded native arrays and typed FIFO calls, explicit preview view
@@ -8,6 +8,7 @@ state on destruction. Console vertex formats and FIFO operations are retained.
 Task scheduling, frame timing and complete world loading are separate work.
 
 diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
+index 2563a42..483924d 100644
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp
 @@ -1,4 +1,8 @@
@@ -19,7 +20,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  
  #include "NL/glx/GXScrollingSpecularMaterialProgram.h"
  #include "NL/glx/glxTexture.h"
-@@ -24,15 +28,19 @@
+@@ -24,15 +28,19 @@ GXMaterialParameter GXScrollingSpecularMaterialProgram::Parameters[10] = {
  
  GXScrollingSpecularMaterialProgram::GXScrollingSpecularMaterialProgram()
  {
@@ -40,7 +41,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  }
  
  void GXScrollingSpecularMaterialProgram::Initialize()
-@@ -50,10 +58,22 @@
+@@ -50,10 +58,22 @@ void GXScrollingSpecularMaterialProgram::ConfigureVertexFormat(bool indexed)
  {
      GXClearVtxDesc();
      GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -63,7 +64,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  
      if (indexed)
      {
-@@ -76,11 +96,36 @@
+@@ -76,11 +96,36 @@ void GXScrollingSpecularMaterialProgram::ConfigureVertexFormat(bool indexed)
  void GXScrollingSpecularMaterialProgram::BindVertexArrays(const glModelPacket* packet)
  {
      glModelStream* streams = packet->streams;
@@ -100,7 +101,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  }
  
  void GXScrollingSpecularMaterialProgram::DrawIndexed(const glModelPacket* packet)
-@@ -91,13 +136,24 @@
+@@ -91,13 +136,24 @@ void GXScrollingSpecularMaterialProgram::DrawIndexed(const glModelPacket* packet
  
      while (idxPtr < end)
      {
@@ -125,7 +126,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  }
  
  void GXScrollingSpecularMaterialProgram::DrawDirect(const glModelPacket* packet)
-@@ -106,12 +162,23 @@
+@@ -106,12 +162,23 @@ void GXScrollingSpecularMaterialProgram::DrawDirect(const glModelPacket* packet)
  
      for (unsigned short i = 0; i < packet->numUniqueVertices; ++i)
      {
@@ -150,6 +151,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgram.cpp b/src/NL/glx/GXSc
  
  void GXScrollingSpecularMaterialProgram::BindParameters(const glModelPacket* packet)
 diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp b/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
+index cc9a37a..c78d389 100644
 --- a/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp
 @@ -1,4 +1,9 @@
@@ -162,7 +164,7 @@ diff --git a/src/NL/glx/GXScrollingSpecularMaterialProgramRender.cpp b/src/NL/gl
  #include "Game/GameObjectLighting.h"
  #include "NL/gl/glMaterialParameters.h"
  
-@@ -134,10 +139,19 @@
+@@ -134,10 +139,19 @@ void GXMaterialProgramImpl<GXScrollingSpecularMaterialProgram>::Activate(GLView*
      sScrollingSpecularResetValues.x = 10000000000.0f;
      sScrollingSpecularResetValues.y = 10000000000.0f;
      static_cast<GXScrollingSpecularMaterialProgram*>(this)->ConfigureVertexFormat(true);

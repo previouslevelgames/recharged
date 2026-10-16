@@ -1,13 +1,14 @@
 Subject: [PATCH] Admit original Options and Popup diagnostic factories
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Select the exact original constructors for the named SH menu diagnostic.
 Normal source and existing diagnostics remain unchanged.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 2611da3..257d3ad 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -338,6 +338,8 @@
+@@ -371,6 +371,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_CUP_CHEATER:
          newHandler = new (nlMalloc(sizeof(CupCheaterScene), 8, false)) CupCheaterScene();
          break;
@@ -16,7 +17,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_POPUP_MENU:
          newHandler = new (nlMalloc(sizeof(FEPopupMenu), 8, false)) FEPopupMenu();
          break;
-@@ -350,7 +352,9 @@
+@@ -383,7 +385,9 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_VISUAL_OPTIONS:
          newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_FRONTEND);
          break;

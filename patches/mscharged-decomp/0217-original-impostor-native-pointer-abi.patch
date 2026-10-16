@@ -1,15 +1,16 @@
 Subject: [PATCH] retain original impostor providers with native pointer ABI
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep all original methods and static construction. Size the original model
 pointer array using its actual native element width and transport the existing
 GLView pointer through the original enum carrier without truncation.
 
 diff --git a/src/Game/Render/ImpostorCharacter.cpp b/src/Game/Render/ImpostorCharacter.cpp
+index 5997f33..f3b12a3 100644
 --- a/src/Game/Render/ImpostorCharacter.cpp
 +++ b/src/Game/Render/ImpostorCharacter.cpp
-@@ -303,7 +303,11 @@
+@@ -303,7 +303,11 @@ AnimatedImpostorCharacter::AnimatedImpostorCharacter(
      : ImpostorCharacter(name, budget, numAngles, numTextures, params)
  {
      mNumModels = numTextures;
@@ -22,9 +23,10 @@ diff --git a/src/Game/Render/ImpostorCharacter.cpp b/src/Game/Render/ImpostorCha
      for (int i = 1; i < numTextures; ++i)
      {
 diff --git a/src/Game/Render/ImpostorCluster.cpp b/src/Game/Render/ImpostorCluster.cpp
+index a5c1b34..cc7e3a4 100644
 --- a/src/Game/Render/ImpostorCluster.cpp
 +++ b/src/Game/Render/ImpostorCluster.cpp
-@@ -82,7 +82,11 @@
+@@ -82,7 +82,11 @@ void ImpostorCluster::Render(GLView* target, int)
          quad.m_colour[i].c[2] = (unsigned char)siBackgroundBlue.mValue;
          quad.m_colour[i].c[3] = 0xFF;
      }

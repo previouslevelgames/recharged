@@ -1,5 +1,5 @@
 Subject: Adapt original FontManager callbacks and Wii texture data to native SDK ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve original font requests, registration/fallback/completion decisions and
 platform texture algorithms. Adapt real callback pointers and game ownership,
@@ -8,7 +8,12 @@ object sizes/signatures. No font loader/resource manager replica is introduced.
 This bounded compiler/data/SDK milestone does not establish original texture
 loading callbacks, GPU upload, font readiness, or Credits drawing.
 
+Refreshed for decomp 9046e67a: glxTexture.cpp now includes the canonical
+revolution/gx/GXTexture_fwd.h, whose console branch declares the texture object
+types itself. Its native branch includes Aurora's texture declarations.
+
 diff --git a/include/Game/Font/fontmanager.h b/include/Game/Font/fontmanager.h
+index 5cb7cfe..91dce5f 100644
 --- a/include/Game/Font/fontmanager.h
 +++ b/include/Game/Font/fontmanager.h
 @@ -3,6 +3,15 @@
@@ -27,7 +32,7 @@ diff --git a/include/Game/Font/fontmanager.h b/include/Game/Font/fontmanager.h
  
  class nlFont;
  class GLResourcePool;
-@@ -10,6 +19,14 @@
+@@ -10,6 +19,14 @@ class GLResourcePool;
  class FontManager : public nlSingleton<FontManager>
  {
  public:
@@ -42,7 +47,7 @@ diff --git a/include/Game/Font/fontmanager.h b/include/Game/Font/fontmanager.h
      FontManager();
      virtual ~FontManager();
  
-@@ -18,9 +35,9 @@
+@@ -18,9 +35,9 @@ public:
      bool LoadFont(const char* szBundleFilename, const char* szFileName, const char* szFileFontName);
      void SetResourcePool(GLResourcePool* pResourcePool);
  
@@ -56,6 +61,7 @@ diff --git a/include/Game/Font/fontmanager.h b/include/Game/Font/fontmanager.h
      /* 0x04 */ nlDLListSlotPool<nlFont*> m_fonts;
      /* 0x20 */ GLResourcePool* m_pResourcePool;
 diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
+index c928d97..cb8c23d 100644
 --- a/include/NL/glx/glxTexture.h
 +++ b/include/NL/glx/glxTexture.h
 @@ -5,6 +5,10 @@
@@ -69,7 +75,7 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
  
  class GLView;
  struct glTextureBinding;
-@@ -25,26 +29,64 @@
+@@ -25,26 +29,64 @@ enum eGXTextureFormat
      GXTex_Num = 9,
  };
  
@@ -144,7 +150,7 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
  };
  
  struct glTexBundleDict : public BundleEntry
-@@ -53,11 +95,19 @@
+@@ -53,12 +95,20 @@ struct glTexBundleDict : public BundleEntry
  
  struct BundleHeader
  {
@@ -152,13 +158,12 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
 -    unsigned long numTextures;
 -    unsigned long pad1;
 -    unsigned long pad2;
--};
 +    glTextureDataWord magic;
 +    glTextureDataWord numTextures;
 +    glTextureDataWord pad1;
 +    glTextureDataWord pad2;
-+};
-+
+ };
+ 
 +#if defined(MSCHARGED_NATIVE)
 +static_assert(sizeof(GXTextureHeader) == 32, "Wii texture header must remain 32 bytes");
 +static_assert(offsetof(GXTextureHeader, width) == 14, "Wii texture width offset");
@@ -166,10 +171,11 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
 +static_assert(sizeof(BundleHeader) == 16 && sizeof(glTexBundleDict) == 16,
 +    "Wii texture bundle records must remain 16 bytes");
 +#endif
- 
++
  class PlatTexture
  {
-@@ -113,8 +163,15 @@
+ public:
+@@ -113,8 +163,15 @@ public:
      /* 0x18 */ void* m_LinearData;
      /* 0x1C */ u16* m_PaletteData;
      /* 0x20 */ u8 m_Bits[4];
@@ -185,10 +191,33 @@ diff --git a/include/NL/glx/glxTexture.h b/include/NL/glx/glxTexture.h
  };
  
  PlatTexture* glx_GetTex(unsigned long handle);
+diff --git a/libs/RVL_SDK/include/revolution/gx/GXTexture_fwd.h b/libs/RVL_SDK/include/revolution/gx/GXTexture_fwd.h
+index a37f047..20286e0 100644
+--- a/libs/RVL_SDK/include/revolution/gx/GXTexture_fwd.h
++++ b/libs/RVL_SDK/include/revolution/gx/GXTexture_fwd.h
+@@ -1,6 +1,10 @@
+ #ifndef RVL_SDK_GX_TEXTURE_FWD_H
+ #define RVL_SDK_GX_TEXTURE_FWD_H
+ 
++#if defined(MSCHARGED_NATIVE)
++// Aurora owns the canonical native texture object types and calls.
++#include <dolphin/gx/GXTexture.h>
++#else
+ #include <revolution/gx/GXPublicTypes.h>
+ #include <revolution/gx/GXTextureTypes.h>
+ 
+@@ -34,4 +38,6 @@ void GXInvalidateTexAll(void);
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE
++
+ #endif // RVL_SDK_GX_TEXTURE_FWD_H
 diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
+index 3c37847..76abe89 100644
 --- a/src/Game/Font/fontmanager.cpp
 +++ b/src/Game/Font/fontmanager.cpp
-@@ -38,41 +38,41 @@
+@@ -38,41 +38,41 @@ struct FontLoadState
      struct PendingTexture
      {
          void* pBuffer;
@@ -230,19 +259,16 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
      {
          void* fileData = nlMalloc(entry.m_length, 0x20, true);
 -        state->pBundle->ReadFileAsync(uFileHashID, fileData, entry.m_length, FontDescriptionLoadComplete, (unsigned long)state);
--    }
--}
--
--void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, unsigned long uParam)
 +        state->pBundle->ReadFileAsync(uFileHashID, fileData, entry.m_length, FontDescriptionLoadComplete, (FontAsyncParam)state);
-+    }
-+}
-+
+     }
+ }
+ 
+-void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, unsigned long uParam)
 +void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, FontAsyncParam uParam)
  {
      FontLoadState* state = (FontLoadState*)uParam;
      char* fontData = (char*)buffer;
-@@ -81,11 +81,15 @@
+@@ -81,11 +81,15 @@ void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, unsig
      nlFont* pNewFont = new (8, false) nlFont();
      pNewFont->Load(state->szFileName, fontData, nlStringHash(state->szFontName));
      FontManager::Instance()->m_fonts.AddEnd(pNewFont);
@@ -250,19 +276,17 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
 +    nlFree(fontData);
 +#else
      delete[] fontData;
--
--    for (unsigned long i = 0; i < pNewFont->m_PageCount; i++)
--    {
--        unsigned long uTextureHashID = pNewFont->m_TextureHandles[i];
 +#endif
-+
+ 
+-    for (unsigned long i = 0; i < pNewFont->m_PageCount; i++)
 +    for (FontWord i = 0; i < pNewFont->m_PageCount; i++)
-+    {
+     {
+-        unsigned long uTextureHashID = pNewFont->m_TextureHandles[i];
 +        FontWord uTextureHashID = pNewFont->m_TextureHandles[i];
          state->pBundle->GetFileInfo(uTextureHashID, &entry, true);
          LoadFontTexture(state, uTextureHashID);
  
-@@ -100,7 +104,7 @@
+@@ -100,7 +104,7 @@ void FontManager::FontDescriptionLoadComplete(void* buffer, unsigned long, unsig
      state->uNumTexturesLoaded = 0;
  }
  
@@ -271,7 +295,7 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
  {
      FontLoadState* state = (FontLoadState*)uParam;
      char* textureData = (char*)buffer;
-@@ -117,7 +121,11 @@
+@@ -117,7 +121,11 @@ void FontManager::TextureLoadComplete(void* buffer, unsigned long uReadSize, uns
          }
      }
  
@@ -283,7 +307,7 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
  
      if (state->uNumTexturesLoaded == state->uNumTextures)
      {
-@@ -225,7 +233,7 @@
+@@ -225,7 +233,7 @@ bool FontManager::LoadFont(const char* szBundleFilename, const char* szFileName,
      nlToLower(state->szFontName);
      state->uNumTextures = 0;
      state->uNumTexturesLoaded = 0;
@@ -293,43 +317,10 @@ diff --git a/src/Game/Font/fontmanager.cpp b/src/Game/Font/fontmanager.cpp
  }
  
 diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
+index a8197f0..03d7cb3 100644
 --- a/src/NL/glx/glxTexture.cpp
 +++ b/src/NL/glx/glxTexture.cpp
-@@ -17,6 +17,7 @@
- #include <stdio.h>
- #include <string.h>
- 
-+#if !defined(MSCHARGED_NATIVE)
- enum GXTexWrapMode
- {
-     GX_CLAMP,
-@@ -24,6 +25,7 @@
-     GX_MIRROR,
-     GX_MAX_TEXWRAPMODE
- };
-+#endif
- 
- enum eGLTextureMode
- {
-@@ -34,6 +36,9 @@
-     GLTM_Num = 4
- };
- 
-+#if defined(MSCHARGED_NATIVE)
-+#include "platform/gx_texture_compat.h"
-+#else
- extern "C"
- {
-     void GXInitTlutObj(
-@@ -54,6 +59,7 @@
-     void GXLoadTexObj(void* object, unsigned long textureMap);
-     void GXInvalidateTexAll();
- }
-+#endif
- 
- TweakValueBool gbReduceTextures("gbReduceTextures", "/Rendering/Engine", false);
- 
-@@ -194,6 +200,9 @@
+@@ -166,6 +166,9 @@ PlatTexture* glx_MakeTexture(GXTextureHeader* header,
          pTex->m_PaletteData =
              (u16*)glResourceAlloc(numEntries * 2, GLM_TextureData, allocator);
          pTex->m_nPaletteEntries = numEntries;
@@ -339,7 +330,7 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
          memcpy(pTex->m_PaletteData, textureData + textureSize,
              header->numEntries * 2);
      }
-@@ -218,7 +227,11 @@
+@@ -190,7 +193,11 @@ bool glplatLoadTextureBundle(
      unsigned long size;
      data = nlLoadEntireFile(filename, &size, 32, AllocateStart, 0, 0, 0);
      result = glEndLoadTextureBundle(data, size, allocator, 0);
@@ -351,7 +342,7 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
      return result;
  }
  
-@@ -331,6 +344,9 @@
+@@ -303,6 +310,9 @@ void PlatTexture::CreateWithMemory(int width, int height,
      m_MaxLevel = numLevels;
      m_Format = format;
      m_SwizzledData = (void*)textureData;
@@ -361,18 +352,18 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
      m_LinearData = 0;
  }
  
-@@ -359,6 +375,10 @@
-     {
+@@ -332,6 +342,10 @@ void PlatTexture::Create(int width, int height, eGXTextureFormat format,
          m_SwizzledData = glResourceAlloc(textureSize, GLM_TextureData, allocator);
      }
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +    m_NativeDataBytes = textureSize;
 +#endif
- 
++
      if (linearData)
      {
-@@ -520,13 +540,21 @@
+         m_LinearData = nlMalloc(textureSize, 32, false);
+@@ -492,13 +506,21 @@ void glx_BindTexture(
          wrapT = GX_REPEAT;
      }
  
@@ -382,7 +373,7 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
      unsigned long textureObject[8];
 +#endif
      memcpy(textureObject, pTex->m_TexObj, sizeof(textureObject));
-     GXInitTexObjWrapMode(textureObject, wrapS, wrapT);
+     GXInitTexObjWrapMode((GXTexObj*)textureObject, wrapS, wrapT);
  
      if (pTex->m_nPaletteEntries != 0)
      {
@@ -392,5 +383,5 @@ diff --git a/src/NL/glx/glxTexture.cpp b/src/NL/glx/glxTexture.cpp
          unsigned long tlutObject[3];
 +#endif
          memcpy(tlutObject, pTex->m_TlutObj, sizeof(tlutObject));
-         GXInitTexObjTlut(textureObject, textureMap);
-         GXLoadTlut(tlutObject, textureMap);
+         GXInitTexObjTlut((GXTexObj*)textureObject, textureMap);
+         GXLoadTlut((GXTlutObj*)tlutObject, textureMap);

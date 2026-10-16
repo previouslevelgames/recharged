@@ -376,9 +376,13 @@ int main()
                   nullptr, 0),
             "An unknown kind recolours nothing");
 
-        // Painted pictures: the cap is an area of red; a thin line and a
-        // single texel of red shading in the skin stay, unlike in a kit texture.
+        // Painted pictures: the cap is an area of red with dark specks of
+        // shading whose hue leaves the kit's bands; a thin line and a single
+        // texel of red shading in the skin stay, unlike in a kit texture, and
+        // so does dark hair at the cap's edge.
         auto painting = [&](int x, int y) {
+            if ((x == 3 && y == 3) || (x == 6 && y == 2)) return 0x200010u;
+            if (x == 10 && y == 5) return 0x301000u;
             if (x < 10 && y < 10) return kRed;
             if (x == 13 || (x == 5 && y == 13)) return kRed;
             return kSkin;
@@ -393,6 +397,10 @@ int main()
         Check(c[2] > c[0] + 80, "The picture's cap turns blue to its corner");
         PictureTexel(picture, 9, 9, c);
         Check(c[2] > c[0] + 80, "and to its edge");
+        PictureTexel(picture, 3, 3, c);
+        Check(c[2] > c[0], "Its dark specks turn blue");
+        PictureTexel(picture, 10, 5, c);
+        Check(c[0] == 0x30 && c[1] == 0x10 && c[2] == 0, "Dark hair at its edge keeps its colour");
         PictureTexel(picture, 13, 4, c);
         Check(c[0] > 200 && c[2] < 60, "A thin line stays red in a picture");
         PictureTexel(picture, 5, 13, c);

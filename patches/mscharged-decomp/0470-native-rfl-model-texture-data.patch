@@ -1,6 +1,8 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Original RFL InitTexRes serialized dimensions and image offset/count transport; preserve raw pixels, requests and budgets.
 
+diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
+index 3bc0d69..2a871b2 100644
 --- a/src/RVL_SDK/rfl/RFL_Model.c
 +++ b/src/RVL_SDK/rfl/RFL_Model.c
 @@ -6,6 +6,9 @@
@@ -22,7 +24,7 @@ Purpose: Original RFL InitTexRes serialized dimensions and image offset/count tr
  #define RFL_SHAPE_HALF(pointer) *(u16*)pointer
  #define RFL_SHAPE_S16(value) value
  #define RFL_SHAPE_VECTOR(destination, source) memcpy(destination, source, sizeof(Vec))
-@@ -1046,18 +1051,18 @@
+@@ -1081,18 +1086,18 @@ void RFLiInitTexRes(GXTexObj* texObj, RFLiPartsShpTex part, u16 file,
  
      switch (part) {
      case RFLiPartsShpTex_Face: {
@@ -44,7 +46,7 @@ Purpose: Original RFL InitTexRes serialized dimensions and image offset/count tr
          break;
      }
  
-@@ -1066,8 +1071,8 @@
+@@ -1101,8 +1106,8 @@ void RFLiInitTexRes(GXTexObj* texObj, RFLiPartsShpTex part, u16 file,
      }
      }
  

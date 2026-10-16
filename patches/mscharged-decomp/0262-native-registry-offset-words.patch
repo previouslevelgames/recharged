@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original packed registry offset words at native width
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 RegistryOwner::Relocate reads original Wii32 offsets from pointer-shaped
 value cells. Use the existing checked scalar-word transport for those
@@ -9,6 +9,7 @@ recursion, and the source Load return decisions. Console stays unchanged.
 This enables whole owner compilation, not native packed-image readiness.
 
 diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
+index fa4fd64..fbd5341 100644
 --- a/src/NL/nlRegistryOwner.cpp
 +++ b/src/NL/nlRegistryOwner.cpp
 @@ -1,4 +1,7 @@
@@ -19,7 +20,7 @@ diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
  
  RegistryOwner::~RegistryOwner()
  {
-@@ -58,15 +61,25 @@
+@@ -58,15 +61,25 @@ int RegistryOwner::Relocate(
          if (value.mType == 2)
          {
              RegistryValue pointer = GetRegistryIteratorValue(packed);
@@ -45,7 +46,7 @@ diff --git a/src/NL/nlRegistryOwner.cpp b/src/NL/nlRegistryOwner.cpp
              *GetRegistryIteratorValueSlot(packed) = child;
              if (*(u32*)child != 0xDA07AB1E)
              {
-@@ -90,15 +103,24 @@
+@@ -90,15 +103,24 @@ int RegistryOwner::Relocate(
          if (value.mType == 2)
          {
              RegistryValue pointer = GetRegistryIteratorValue(unnamedPacked);

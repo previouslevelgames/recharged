@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Native NET byte-reverse primitives and original integer abs
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original PPC byte-reverse load/store read/write little-endian memory for the
 NET digest helpers. Encode those four bytes explicitly on the host; the
@@ -10,9 +10,10 @@ declared by its existing stdlib include; keep the original MSL expression on
 console. Network algorithms, ranges and callbacks remain unchanged.
 
 diff --git a/libs/RVL_SDK/include/revolution/net/NETDigest.h b/libs/RVL_SDK/include/revolution/net/NETDigest.h
+index efb5b53..5b4be50 100644
 --- a/libs/RVL_SDK/include/revolution/net/NETDigest.h
 +++ b/libs/RVL_SDK/include/revolution/net/NETDigest.h
-@@ -35,7 +35,15 @@
+@@ -35,7 +35,15 @@ extern "C"
  
      static inline void NETWriteSwappedBytes32(u32* dst, u32 val)
      {
@@ -28,7 +29,7 @@ diff --git a/libs/RVL_SDK/include/revolution/net/NETDigest.h b/libs/RVL_SDK/incl
      }
  
      static inline u32 NETSwapBytes32(u32 val)
-@@ -46,7 +54,13 @@
+@@ -46,7 +54,13 @@ extern "C"
  
      static inline u32 NETReadSwappedBytes32(const u32* src)
      {
@@ -43,9 +44,10 @@ diff --git a/libs/RVL_SDK/include/revolution/net/NETDigest.h b/libs/RVL_SDK/incl
  
      typedef void (*NETHashInitFunc)(void* context);
 diff --git a/src/Game/SH/SHOnlineLogin.cpp b/src/Game/SH/SHOnlineLogin.cpp
+index 03c2138..789e45b 100644
 --- a/src/Game/SH/SHOnlineLogin.cpp
 +++ b/src/Game/SH/SHOnlineLogin.cpp
-@@ -246,7 +246,11 @@
+@@ -257,7 +257,11 @@ static OnlineErrorPopupRange sOnlineErrorPopupRanges[] = {
  
  int GetOnlineErrorPopup(int error, bool connected, int value)
  {

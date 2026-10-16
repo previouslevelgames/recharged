@@ -1,5 +1,5 @@
 Subject: Lighter matches in Performance Mode
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Performance Mode is a host display setting, independent of the [gameplay]
 tweak mask (issue #55). In matches it skips purely decorative work: the crowd
@@ -11,10 +11,10 @@ unchanged; menus keep every effect. The guarded hooks exist only in the
 opt-in native game module.
 
 diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
-index 2a5b098..6304ec6 100644
+index f6ba025..cee6acf 100644
 --- a/src/Game/BasicStadium.cpp
 +++ b/src/Game/BasicStadium.cpp
-@@ -163,6 +163,12 @@ void BasicStadium::Update(float fDeltaT, bool bUpdateState, bool bUpdateNPCs)
+@@ -159,6 +159,12 @@ void BasicStadium::Update(float fDeltaT, bool bUpdateState, bool bUpdateNPCs)
  {
      m_fTime += fDeltaT;
      World::Update(fDeltaT, bUpdateState);
@@ -27,7 +27,7 @@ index 2a5b098..6304ec6 100644
  
      if (gpWorldNPCManager != 0 && bUpdateNPCs)
      {
-@@ -233,7 +239,11 @@ void fn_802785FC(BasicStadium* pStadium, float fDeltaT)
+@@ -229,7 +235,11 @@ void UpdateStadiumWorld(BasicStadium* pStadium, float fDeltaT)
          }
      }
  
@@ -41,7 +41,7 @@ index 2a5b098..6304ec6 100644
          gpWorldNPCManager->Update(fDeltaT);
      }
 diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
-index c043cab..bec81c2 100644
+index bc0e1f9..8856169 100644
 --- a/src/Game/Effects/EmissionManager.cpp
 +++ b/src/Game/Effects/EmissionManager.cpp
 @@ -28,6 +28,7 @@
@@ -95,7 +95,7 @@ index 4cd96fb..50cf6da 100644
  
  static inline void DeleteCrowdCharacterArrays()
 diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
-index aacbc27..bce9a84 100644
+index 893aa46..1a3ff71 100644
 --- a/src/Game/Render/StadiumLoading.cpp
 +++ b/src/Game/Render/StadiumLoading.cpp
 @@ -1,6 +1,7 @@
@@ -106,7 +106,7 @@ index aacbc27..bce9a84 100644
  
  #include "Game/BasicStadium.h"
  #include "Game/World.h"
-@@ -652,6 +653,12 @@ void UpdateHighRange()
+@@ -670,6 +671,12 @@ void UpdateHighRange()
          }
      }
  
@@ -120,10 +120,10 @@ index aacbc27..bce9a84 100644
      {
          SetHighRangeTargetsEnabled(&gHighRange, 1);
 diff --git a/src/Game/Render/depthoffield.cpp b/src/Game/Render/depthoffield.cpp
-index 1318313..e8b742d 100644
+index da4356d..98a8397 100644
 --- a/src/Game/Render/depthoffield.cpp
 +++ b/src/Game/Render/depthoffield.cpp
-@@ -2,6 +2,7 @@
+@@ -6,6 +6,7 @@
  
  #include "Game/SharedStaticStorage.h"
  #include "Game/Render/RLView.h"
@@ -131,7 +131,7 @@ index 1318313..e8b742d 100644
  
  #include "NL/gl/glDraw2.h"
  #include "NL/gl/glState.h"
-@@ -73,6 +74,15 @@ void DepthOfFieldManager::Update()
+@@ -55,6 +56,15 @@ void DepthOfFieldManager::Update()
  
      GLView* view = GetLayerView(eCLV_UnsortedPerspective);
      view->m_Target = 8;
@@ -178,7 +178,7 @@ index fb8d5c5..f4eabdb 100644
          g_FrameCounter.StartTimer(1);
          glSendFrame();
 diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
-index e3bfc69..49eb2a1 100644
+index 5872e85..5a03a53 100644
 --- a/src/Game/Task/GameRenderTask.cpp
 +++ b/src/Game/Task/GameRenderTask.cpp
 @@ -2,6 +2,10 @@
@@ -215,10 +215,10 @@ index e3bfc69..49eb2a1 100644
      }
  
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index e5975ce..606dc82 100644
+index 3f603a3..600f0db 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -882,6 +882,12 @@ bool RenderParticleSystem(ParticleSystem* source, GLView* view,
+@@ -890,6 +890,12 @@ bool RenderParticleSystem(ParticleSystem* source, GLView* view,
      }
  
      bool isWarble = sWarbleTexture == source->m_pTemplate->m_hTexture;

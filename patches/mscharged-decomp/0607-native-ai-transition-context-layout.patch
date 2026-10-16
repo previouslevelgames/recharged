@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep the AI transition context overlay at native widths
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retail passes a shdStateMachine to its transition scripts as a
 FuzzyRuntimeContext (UpdateStateMachine casts the machine) and reads an
@@ -16,9 +16,10 @@ Natively the pad follows ExtraData, restoring the original overlay; static
 assertions check all three overlays. Console builds keep the Wii layout.
 
 diff --git a/include/Game/AI/FuzzyAIRuntime.h b/include/Game/AI/FuzzyAIRuntime.h
+index abde977..23d1601 100644
 --- a/include/Game/AI/FuzzyAIRuntime.h
 +++ b/include/Game/AI/FuzzyAIRuntime.h
-@@ -71,8 +71,18 @@
+@@ -71,8 +71,18 @@ public:
      FuzzyRuntimeBase* GetRuntime();
  
      FuzzyRuntimeBase* mRuntime;
@@ -38,9 +39,10 @@ diff --git a/include/Game/AI/FuzzyAIRuntime.h b/include/Game/AI/FuzzyAIRuntime.h
  
  class FuzzyRuntimeBase : public InterpreterCore
 diff --git a/src/Game/AI/shdStateMachine.cpp b/src/Game/AI/shdStateMachine.cpp
+index 2b24e9d..6cece94 100644
 --- a/src/Game/AI/shdStateMachine.cpp
 +++ b/src/Game/AI/shdStateMachine.cpp
-@@ -155,6 +155,25 @@
+@@ -155,6 +155,25 @@ bool InitializeStateMachine(
      return result;
  }
  

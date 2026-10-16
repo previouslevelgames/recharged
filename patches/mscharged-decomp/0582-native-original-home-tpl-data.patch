@@ -1,6 +1,24 @@
 Subject: Preserve original HOME TPL serialized-data transport
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/RVL_SDK/include/revolution/tpl_fwd.h b/libs/RVL_SDK/include/revolution/tpl_fwd.h
+index db646df..fb1ffa3 100644
+--- a/libs/RVL_SDK/include/revolution/tpl_fwd.h
++++ b/libs/RVL_SDK/include/revolution/tpl_fwd.h
+@@ -10,7 +10,11 @@ extern "C" {
+ #if !defined(MSCHARGED_NATIVE)
+ void TPLBind(TPLPalette* pal);
+ #endif
++#if defined(MSCHARGED_NATIVE)
++TPLDescriptor* TPLGet(TPLPalette* pal, std::uint32_t id);
++#else
+ TPLDescriptor* TPLGet(TPLPalette* pal, unsigned long id);
++#endif
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/RVL_SDK/tpl/TPL.c b/src/RVL_SDK/tpl/TPL.c
+index 3381137..b1859b9 100644
 --- a/src/RVL_SDK/tpl/TPL.c
 +++ b/src/RVL_SDK/tpl/TPL.c
 @@ -3,6 +3,10 @@
@@ -14,7 +32,7 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
  void TPLBind(TPLPalette* pal) {
      u16 i;
  
-@@ -47,6 +51,8 @@
+@@ -47,6 +51,8 @@ void TPLBind(TPLPalette* pal) {
      }
  }
  
@@ -22,18 +40,4 @@ Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 +
  TPLDescriptor* TPLGet(TPLPalette* pal, u32 id) {
      return &pal->descriptorArray[id % pal->numDescriptors];
- }
---- a/libs/RVL_SDK/include/revolution/tpl_fwd.h
-+++ b/libs/RVL_SDK/include/revolution/tpl_fwd.h
-@@ -10,7 +10,11 @@
- #if !defined(MSCHARGED_NATIVE)
- void TPLBind(TPLPalette* pal);
- #endif
-+#if defined(MSCHARGED_NATIVE)
-+TPLDescriptor* TPLGet(TPLPalette* pal, std::uint32_t id);
-+#else
- TPLDescriptor* TPLGet(TPLPalette* pal, unsigned long id);
-+#endif
- 
- #ifdef __cplusplus
  }

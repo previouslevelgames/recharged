@@ -1,6 +1,6 @@
 Subject: Share original async loading sequence, stage readiness and persistent pool inputs
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original sequence switch and readiness/yield equations shared with a
 bounded native boot owner. Select source-defined pool requirements and original
@@ -8,6 +8,7 @@ empty debug markers without selecting the full gameplay loading dispatcher.
 
 diff --git a/include/Game/AsyncLoadingSequence.inc b/include/Game/AsyncLoadingSequence.inc
 new file mode 100644
+index 0000000..b16808e
 --- /dev/null
 +++ b/include/Game/AsyncLoadingSequence.inc
 @@ -0,0 +1,108 @@
@@ -121,6 +122,7 @@ new file mode 100644
 +        break;
 diff --git a/include/Game/AsyncLoadingShared.h b/include/Game/AsyncLoadingShared.h
 new file mode 100644
+index 0000000..c419a63
 --- /dev/null
 +++ b/include/Game/AsyncLoadingShared.h
 @@ -0,0 +1,46 @@
@@ -135,8 +137,8 @@ new file mode 100644
 +    GLMemoryRequirement entries[2];
 +};
 +extern PersistentResourceRequirements gPersistentResourceRequirements;
-+void fn_80111654(int);
-+void fn_8011165C(int);
++void OnResourceLoadBegin(int);
++void OnLoadingCheckpoint(const char*);
 +
 +// Shared original stage yield/readiness comparison. The caller supplies the
 +// original ticker difference; separating acquisition permits deterministic
@@ -171,9 +173,10 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 44969fe..482429f 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -150,8 +150,10 @@
+@@ -149,8 +149,10 @@ extern SlotPool<cSAnimCallback> lbl_805840D8;
  
  bool g_VerboseAudio;
  bool g_bDumpMemoryStatsOnLoad;
@@ -184,7 +187,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
  static const char* lbl_806E103C;
  static BaseSceneHandler* lbl_806E1040;
-@@ -190,12 +192,8 @@
+@@ -189,12 +191,8 @@ static inline void ReleaseEventConnection(EventConnection** owner)
          ((EventBase*)(*owner)->mEvent)->Disconnect(owner);
      }
  }
@@ -192,14 +195,13 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 -{
 -    GLMemoryRequirement entries[2];
 -};
--
+ 
 -extern PersistentResourceRequirements gPersistentResourceRequirements;
-+
 +#include "Game/AsyncLoadingShared.h"
  
  static inline bool IsTeamInCurrentGame(int team)
  {
-@@ -225,24 +223,15 @@
+@@ -224,24 +222,15 @@ static inline bool IsSidekickInCurrentGame(eSidekickID sidekick)
  
  static inline void FinishLoadingStep(AsyncLoadingManager* manager)
  {
@@ -227,8 +229,8 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 +        g_fYieldScriptBlockingTimeMS);
  }
  
- extern "C" void fn_80116988(AudioResourceLoadOwner*, void* context)
-@@ -1171,117 +1160,7 @@
+ void OnAsyncSoundBankLoaded(AudioResourceLoadOwner*, void* context)
+@@ -1179,117 +1168,7 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
      manager->SetLoadingComment("No Loading Comment");
  
      bool completed = false;
@@ -347,7 +349,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  
      if (result == ASYNC_LOADING_NO_TRANSITION)
      {
-@@ -2255,6 +2134,8 @@
+@@ -2273,6 +2152,8 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
      }
  }
  
@@ -358,6 +360,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 +#endif
 diff --git a/src/Game/AsyncLoadingNative.cpp b/src/Game/AsyncLoadingNative.cpp
 new file mode 100644
+index 0000000..5fa6061
 --- /dev/null
 +++ b/src/Game/AsyncLoadingNative.cpp
 @@ -0,0 +1,16 @@
@@ -370,35 +373,36 @@ new file mode 100644
 +    { { GLM_Header, 0x3C00 }, { GLM_TextureData, 0x390800 } },
 +};
 +
-+void fn_80111654(int)
++void OnResourceLoadBegin(int)
 +{
 +}
 +
-+void fn_8011165C(int)
++void OnLoadingCheckpoint(const char*)
 +{
 +}
 diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index 896ebfe..67701e0 100644
 --- a/src/Game/Task/FixedUpdateTask.cpp
 +++ b/src/Game/Task/FixedUpdateTask.cpp
-@@ -49,17 +49,21 @@
+@@ -50,17 +50,21 @@ bool g_bRunSimAndRenderInLockStep;
  static u16 sSimulationTimeType = 0xFFFF;
  static u16 sTimeScaleType = 0xFFFF;
  
 +#ifndef MSCHARGED_NATIVE
- void fn_80111654(int)
+ void OnResourceLoadBegin(int)
  {
  }
 +#endif
  
- void fn_80111658(int)
+ void OnResourceUnloadEnd(int)
  {
  }
  
 +#ifndef MSCHARGED_NATIVE
- void fn_8011165C(int)
+ void OnLoadingCheckpoint(const char*)
  {
  }
 +#endif
  
- void fn_80111660(int)
+ void OnResourceReloadBegin(int)
  {

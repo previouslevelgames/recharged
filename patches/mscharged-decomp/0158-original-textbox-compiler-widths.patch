@@ -1,5 +1,5 @@
 Subject: Preserve Wii32 width arithmetic in original text layout
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore the original whole ProcessString through retirement of its0070 hunk.
 Keep original control flow, rows, escapes, alignment/narrowing and quirks.
@@ -7,6 +7,7 @@ Only width accumulators and paragraph cast use the Wii32 scalar type onLP64.
 No host layout helper, capacity guard or behavior correction is introduced.
 
 diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
+index 8de6396..b42c781 100644
 --- a/src/NL/nlTextBox.cpp
 +++ b/src/NL/nlTextBox.cpp
 @@ -3,16 +3,23 @@
@@ -36,7 +37,7 @@ diff --git a/src/NL/nlTextBox.cpp b/src/NL/nlTextBox.cpp
  
      DrawInfo.pFont = pFont;
      pCurrentChar = DrawInfo.String = pString->m_pString;
-@@ -40,7 +47,7 @@
+@@ -40,7 +47,7 @@ void nlTextBox::ProcessString(const FontCharString* pString, const nlFont* pFont
              }
              else if (esc.GetType() == ESC_PARAGRAPH)
              {

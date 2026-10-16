@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Leave the debug LAN draft when a peer disconnects
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission
 
 The online lobby exists only in NET_MODE_ONLINE. When a peer is lost during
@@ -12,7 +12,7 @@ Menu push: TransitionOnlineMatchToMainMenu pops a camera this flow never
 pushed and crashed from the sidekick draft.
 
 diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
-index 371aeb9..d1edd04 100644
+index 371aeb9..622df78 100644
 --- a/src/Game/SH/SHChooseCaptains.cpp
 +++ b/src/Game/SH/SHChooseCaptains.cpp
 @@ -1328,6 +1328,15 @@ void ChooseCaptainsSceneV2::OnDisconnectDismissed()
@@ -47,7 +47,7 @@ index 371aeb9..d1edd04 100644
      if (GameSceneManager::Instance()->GetSceneType(GameSceneManager::Instance()->GetCurrentScene()) != SCENE_POPUP_MENU)
      {
 diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
-index bfab3d5..eeaefc0 100644
+index bfab3d5..49bbb30 100644
 --- a/src/Game/SH/SHChooseSidekicks.cpp
 +++ b/src/Game/SH/SHChooseSidekicks.cpp
 @@ -1511,6 +1511,15 @@ void ChooseSidekicksSceneV2::OnDisconnectDismissed()
@@ -82,7 +82,7 @@ index bfab3d5..eeaefc0 100644
      if (GameSceneManager::Instance()->GetSceneType(GameSceneManager::Instance()->GetCurrentScene()) != SCENE_POPUP_MENU)
      {
 diff --git a/src/Game/SH/SHOnlineMatchmakingDraft.cpp b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
-index e421f5e..e93a94b 100644
+index e421f5e..cb14dac 100644
 --- a/src/Game/SH/SHOnlineMatchmakingDraft.cpp
 +++ b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
 @@ -363,7 +363,14 @@ void SHOnlineMatchmakingDraft::Update(float fDeltaT)

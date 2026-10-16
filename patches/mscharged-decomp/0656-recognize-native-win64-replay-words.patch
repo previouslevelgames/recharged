@@ -1,17 +1,18 @@
 Subject: Recognize existing native Win64 address words as Replay POD
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Win64 uintptr_t is unsigned long long. Preserve the existing native
 POD sizeof(T) stream policy and console categories; no field or replay
 algorithm changes and no cross-run or Wii replay import claim.
 
+diff --git a/include/Game/Replay.h b/include/Game/Replay.h
+index 4ecfd67..249287a 100644
 --- a/include/Game/Replay.h
 +++ b/include/Game/Replay.h
-@@ -72,6 +72,16 @@
- {
+@@ -73,6 +73,16 @@ struct ReplayableCategory<unsigned long>
      typedef ReplayablePod Type;
  };
-+
+ 
 +// Win64 uintptr_t is unsigned long long; original native address words already
 +// use pointer width. Keep the source POD byte count and all console categories.
 +#if defined(MSCHARGED_NATIVE) && defined(_WIN64)
@@ -21,6 +22,7 @@ algorithm changes and no cross-run or Wii replay import claim.
 +    typedef ReplayablePod Type;
 +};
 +#endif
- 
++
  template <>
  struct ReplayableCategory<nlVector3>
+ {

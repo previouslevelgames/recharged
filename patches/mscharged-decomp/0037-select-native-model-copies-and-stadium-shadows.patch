@@ -1,5 +1,5 @@
 Subject: Select diagnostic model duplication and stadium shadow submission
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Leave the original production duplication bodies in glModel.cpp. Retain the
 transitional ScenePreview-only copy with the actual GLMaterialProgram type and
@@ -7,9 +7,10 @@ its original parameterDataSize read; bounds and pool checks are diagnostic only.
 The original empty clone hook and isolated stadium shadow helpers remain unchanged.
 
 diff --git a/src/Game/Render/ShadowLayersNative.cpp b/src/Game/Render/ShadowLayersNative.cpp
+index 3ec105a..7bfed12 100644
 --- a/src/Game/Render/ShadowLayersNative.cpp
 +++ b/src/Game/Render/ShadowLayersNative.cpp
-@@ -274,3 +274,12 @@
+@@ -274,3 +274,12 @@ void SetupNativeShadowLayers(GLViewInterface* sceneCamera)
      }
      catch (...) { ShutdownNativeShadowLayers(); throw; }
  }
@@ -24,6 +25,7 @@ diff --git a/src/Game/Render/ShadowLayersNative.cpp b/src/Game/Render/ShadowLaye
 +}
 diff --git a/src/Game/Render/StadiumShadowNative.cpp b/src/Game/Render/StadiumShadowNative.cpp
 new file mode 100644
+index 0000000..9efa833
 --- /dev/null
 +++ b/src/Game/Render/StadiumShadowNative.cpp
 @@ -0,0 +1,23 @@
@@ -52,6 +54,7 @@ new file mode 100644
 +}
 diff --git a/src/NL/gl/glModelCopies.cpp b/src/NL/gl/glModelCopies.cpp
 new file mode 100644
+index 0000000..49de9e6
 --- /dev/null
 +++ b/src/NL/gl/glModelCopies.cpp
 @@ -0,0 +1,142 @@
@@ -198,9 +201,10 @@ new file mode 100644
 +    return glModelDupArrayNoStreams(pModel, 1, bPermanent, pAllocator);
 +}
 diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
+index 80db12e..de7e82d 100644
 --- a/src/NL/glx/glxModel.cpp
 +++ b/src/NL/glx/glxModel.cpp
-@@ -22,6 +22,4 @@
+@@ -22,6 +22,4 @@ void glplatFinalizePacket(
      packet->skinnedVertices = 0;
  }
  
@@ -210,6 +214,7 @@ diff --git a/src/NL/glx/glxModel.cpp b/src/NL/glx/glxModel.cpp
 +#include "glxModelClone.cpp"
 diff --git a/src/NL/glx/glxModelClone.cpp b/src/NL/glx/glxModelClone.cpp
 new file mode 100644
+index 0000000..0010a8e
 --- /dev/null
 +++ b/src/NL/glx/glxModelClone.cpp
 @@ -0,0 +1,5 @@

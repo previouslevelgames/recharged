@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Use the inline GetOverlayManager body in the Striker Times overlay
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler compatibility; apply after 0643.
 
 Retail fePopupMenu.cpp keeps an out-of-line copy of the inline
@@ -10,7 +10,7 @@ the plain declaration, left the game module with an unresolved symbol once 0642
 admitted the overlay. Natively it includes the same inline body.
 
 diff --git a/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp b/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp
-index 97b95ce..5559d24 100644
+index 912bd06..97bf9a6 100644
 --- a/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp
 +++ b/src/Game/FE/Overlay/OverlayHandlerStrikerTimes.cpp
 @@ -28,6 +28,10 @@

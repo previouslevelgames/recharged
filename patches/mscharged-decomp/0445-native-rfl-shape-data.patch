@@ -1,14 +1,14 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Native-only actual serialized RFL shape scalar reads and strict original array ownership resolution; no temporary/output publication.
 
 diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
+index 79435a7..3bc0d69 100644
 --- a/src/RVL_SDK/rfl/RFL_Model.c
 +++ b/src/RVL_SDK/rfl/RFL_Model.c
-@@ -3,6 +3,22 @@
- #include <revolution/os.h>
+@@ -4,6 +4,22 @@
  
  #include <string.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/rfl_shape_transport.h"
 +#define GXSetArray(attribute, data, stride) ChargedSetRFLGraphicsArray(attribute, data, stride)
@@ -24,10 +24,11 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
 +#define RFL_SHAPE_BYTES(destination, source, bytes) memcpy(destination, source, bytes)
 +#define RFL_TRANSFORM_RAW(destination, source) RFLiTransformCoordinate(destination, source)
 +#endif
- 
++
  #define NUM_VTX_POS(size) ((size) / VTX_POS_SIZE)
  #define SIZE_VTX_POS(count) ((count) * VTX_POS_SIZE)
-@@ -855,11 +871,11 @@
+ 
+@@ -884,11 +900,11 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
  
      // Faceline extra data
      if (shape->part == RFLiPartsShp_Faceline) {
@@ -42,7 +43,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
          ptr8 += sizeof(Vec);
      }
  
-@@ -867,7 +883,7 @@
+@@ -896,7 +912,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
       * Vertex positions
       */
  
@@ -51,7 +52,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
          shape->numVtxPos = 0;
          shape->numVtxNrm = 0;
          shape->numVtxTxc = 0;
-@@ -876,7 +892,7 @@
+@@ -905,7 +921,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
          return;
      }
  
@@ -60,7 +61,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
      ptr8 += sizeof(u16);
  
      {
-@@ -894,13 +910,13 @@
+@@ -923,13 +939,13 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
                  s16 temp[3];
  
                  if (shape->flipX) {
@@ -78,7 +79,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
  
                  RFLiTransformCoordinate(
                      &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], temp);
-@@ -911,9 +927,9 @@
+@@ -941,9 +957,9 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
              for (i = 0; i < shape->numVtxPos; i++) {
                  s16 temp[3];
  
@@ -91,16 +92,16 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
  
                  RFLiTransformCoordinate(
                      &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], temp);
-@@ -921,7 +937,7 @@
-             }
+@@ -952,7 +968,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
          } else {
+             int i;
              for (i = 0; i < shape->numVtxPos; i++) {
 -                RFLiTransformCoordinate(
 +                RFL_TRANSFORM_RAW(
                      &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], ptr16);
                  ptr16 += VTX_COORDS_IN_POS;
              }
-@@ -934,7 +950,7 @@
+@@ -965,7 +981,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
       * Vertex normals
       */
  
@@ -109,7 +110,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
      ptr8 += sizeof(u16);
  
      {
-@@ -946,9 +962,9 @@
+@@ -977,9 +993,9 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
              for (i = 0; i < shape->numVtxNrm; i++) {
                  s16 temp[3];
  
@@ -122,7 +123,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
  
                  RFLiTransformCoordinate(
                      &shape->vtxNrmBuf[i * VTX_COORDS_IN_NRM], temp);
-@@ -957,7 +973,7 @@
+@@ -988,7 +1004,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
          } else {
              int i;
              for (i = 0; i < shape->numVtxNrm; i++) {
@@ -131,7 +132,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
                      &shape->vtxNrmBuf[i * VTX_COORDS_IN_NRM], ptr16);
                  ptr16 += VTX_COORDS_IN_NRM;
              }
-@@ -976,11 +992,11 @@
+@@ -1007,11 +1023,11 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
          if (skipTxc) {
              shape->numVtxTxc = 0;
          } else {

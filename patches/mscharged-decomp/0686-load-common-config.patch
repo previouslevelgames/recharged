@@ -1,5 +1,5 @@
 Subject: Load the original common.ini and datetime.ini at start
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original main loads ini/common.ini into Config::Global() and waits for
 ini/datetime.ini (the /General/Build Info tweaks) before the task loop. The
@@ -11,10 +11,10 @@ fades used built-in values. Admit the original block with the frontend
 sequence, like its neighbours; the source is unchanged.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 2b1b90b..fdd9f97 100644
+index cffdba0..350392c 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -590,7 +590,7 @@ static void Initialize()
+@@ -598,7 +598,7 @@ static void Initialize()
      }
  #endif // original shared material textures; named world draw keeps this exact request
  

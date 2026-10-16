@@ -274,7 +274,7 @@ void LimitsAndFailures()
 
 void OriginalTask()
 {
-    Reject([] { fn_80115FB4(); });
+    Reject([] { ClearDeferredEvents(); });
     // Leave enough memory for the task itself, but none for its dispatcher's
     // lifetime token. Failed construction must reclaim the game-new allocation.
     alignas(64) std::array<std::byte, 4096> smallArena{};
@@ -298,13 +298,13 @@ void OriginalTask()
         int received = 0, disposed = 0;
         Function<Payload*> listener([&](Payload* data) {
             Reject([] { mscharged::ShutdownNativeDispatchTask(); });
-            Reject([] { fn_80115FB4(); });
+            Reject([] { ClearDeferredEvents(); });
             received += data->value;
         });
         Function<Payload*> disposer([&](Payload* data) { ++disposed; nlFree(data); });
         event.Add(listener,0,-1);
         Queue(event,1,disposer); task->Run(0.02f);
-        Queue(event,100,disposer); fn_80115FB4();
+        Queue(event,100,disposer); ClearDeferredEvents();
         Require(gDispatchEventsTask == task && received == 1 && disposed == 2,
                 "Original task reset changed lifetime or delivered cancellation");
         Queue(event,2,disposer); task->Run(0.02f);

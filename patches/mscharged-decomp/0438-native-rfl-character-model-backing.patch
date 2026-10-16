@@ -1,14 +1,15 @@
 Subject: [PATCH] Reserve actual native backing for the original RFL character model
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use the actual unchanged SDK field type for native opaque extent/alignment.
 Keep original console declarations and every original method body intact.
 Mii initialization, GX arrays and serialized RFL records remain separate gates.
 
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
+index eb1ce9f..e758cd8 100644
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h
-@@ -25,8 +25,28 @@
+@@ -25,8 +25,28 @@ typedef enum {
      RFLCoordinateType_RevMask = 0x10101000
  } RFLCoordinateType;
  
@@ -38,9 +39,10 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_Model.h b/libs/RVL_SDK/include/
  
  typedef struct RFLDrawSetting {
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h
+index def7a7d..783cda3 100644
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h
 +++ b/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h
-@@ -126,6 +126,7 @@
+@@ -126,6 +126,7 @@ typedef struct RFLiShapeRes {
      Vec* hairTrans;    // at 0x40
  } RFLiShapeRes;
  
@@ -48,11 +50,11 @@ diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFLi_Model.h b/libs/RVL_SDK/include
  typedef struct RFLiCharModel {
      Mtx posMtx;                       // at 0x0
      Mtx nrmMtx;                       // at 0x30
-@@ -134,6 +135,7 @@
+@@ -134,6 +135,7 @@ typedef struct RFLiCharModel {
      RFLiCharModelRes* res;            // at 0x68
      GXTexObj* maskTexObj[RFLExp_Max]; // at 0x6C
  } RFLiCharModel;
 +#endif
  
- extern RFLiCoordinateData coordinateData;
- 
+ #if defined(VERSION_R4QK01)
+ RFLiCoordinateData* RFLiGetCoordinateData(void);

@@ -1,6 +1,6 @@
 Subject: Preserve original HBM UI requests under native compiler and pointer widths
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Lower PPC fsel/fabs through their binary32 selection/sign contract and the
 existing canonical OS fast-cast header. Keep original byte offsets full-width,
@@ -10,6 +10,7 @@ request widths, choices and console bodies remain unchanged. No HBM admission,
 raw resource/BE text readiness or physical speaker support follows this patch.
 
 diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
+index cdfbdb2..e8834ae 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
 +++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
 @@ -16,7 +16,11 @@
@@ -25,6 +26,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp b/libs/R
  
  namespace homebutton {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
+index 6788cd6..dcb0833 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
 +++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
 @@ -7,7 +7,11 @@
@@ -40,6 +42,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp b/
  #include "revolution/wpad/WPAD.h"
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h
+index 0183f43..8da9b7a 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h
 @@ -3,7 +3,11 @@
@@ -55,9 +58,10 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/db/directPrint.h b/libs/
  #include <stdarg.h>
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
+index a69e7c3..dc4b1f6 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
-@@ -93,11 +93,19 @@
+@@ -93,11 +93,19 @@ enum {
  
  namespace detail {
  template <typename T> const T* ConvertOffsToPtr(const void* baseAddress, unsigned offset) {
@@ -78,6 +82,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h b/libs/RVL_S
  
  template <typename T> inline void SetBit(T* pBits, int pos, bool val) {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h
+index 91479bb..25f4049 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h
 @@ -1,12 +1,40 @@
@@ -121,16 +126,17 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/math/arithmetic.h b/libs
  inline f32 FSelect(register f32 cond, register f32 ifPos, register f32 ifNeg) {
      register f32 ret;
  
-@@ -26,6 +54,8 @@
- 
+@@ -27,6 +55,8 @@ inline f32 FAbs(f32 x) {
      return ret;
  }
-+
-+#endif
  
++#endif
++
  inline u16 F32ToU16(f32 x) {
      u16 rval;
+ 
 diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
+index dbad6a3..75b7498 100644
 --- a/src/RVL_SDK/hbm/HBMBase.cpp
 +++ b/src/RVL_SDK/hbm/HBMBase.cpp
 @@ -9,6 +9,11 @@
@@ -145,11 +151,10 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
  
  #if HBM_REVISION == 1
  #define LN(rev1, rev2) rev1
-@@ -41,6 +46,19 @@
- {
+@@ -42,6 +47,19 @@ void HBMFreeMem(void* mem)
      MEMFreeToAllocator(spAllocator, mem);
  }
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +// AXFX's host allocation callback carries a physical size_t. Forward only a
 +// representable original Wii request to the unchanged allocator entry.
@@ -162,10 +167,11 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
 +    return HBMAllocMem(static_cast<u32>(size));
 +}
 +#endif
- 
++
  void HBMCreate(const HBMDataInfo* pHBInfo)
  {
-@@ -1160,7 +1178,11 @@
+     MEMHeapHandle hExpHeap = MEMCreateExpHeap(pHBInfo->mem, pHBInfo->memSize);
+@@ -1160,7 +1178,11 @@ void HomeButton::init_sound()
  
      AXFXGetHooks(&mAxFxAlloc, &mAxFxFree);
      AXGetAuxACallback(&mAuxCallback, &mpAuxContext);
@@ -177,7 +183,7 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
  
      mAxFxReverb.preDelay = 0.0f;
      mAxFxReverb.time = 2.5f;
-@@ -1667,6 +1689,9 @@
+@@ -1667,6 +1689,9 @@ void HomeButton::calc(const HBMControllerData* pController)
          break;
  
      case 16:
@@ -187,7 +193,7 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
          GroupAnmController* anim = mpGroupAnmController[mSelectAnmNum];
  
          if (!anim->isPlaying())
-@@ -1681,6 +1706,9 @@
+@@ -1681,6 +1706,9 @@ void HomeButton::calc(const HBMControllerData* pController)
              fadeout_sound(restFrame / mFadeOutSeTime);
          }
          break;
@@ -197,7 +203,7 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
  
      case 17:
          mState = 18;
-@@ -1901,7 +1929,12 @@
+@@ -1901,7 +1929,12 @@ void HomeButton::calc_battery(int chan)
  
  static void SpeakerCallback(OSAlarm* alm, OSContext*)
  {
@@ -210,7 +216,7 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
      int chan = (data >> 16) & 0xFFFF;
      int id = data & 0xFFFF;
  
-@@ -1934,7 +1967,12 @@
+@@ -1934,7 +1967,12 @@ void HomeButton::setSpeakerAlarm(int chan, int msec)
  static void RetrySimpleSyncCallback(OSAlarm* alm, OSContext*)
  {
      HomeButton* pHBObj = HomeButton::getInstance();
@@ -224,18 +230,20 @@ diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
  
      if (type == 0)
 diff --git a/src/RVL_SDK/hbm/HBMController.cpp b/src/RVL_SDK/hbm/HBMController.cpp
+index 8e1fb8d..76887b5 100644
 --- a/src/RVL_SDK/hbm/HBMController.cpp
 +++ b/src/RVL_SDK/hbm/HBMController.cpp
-@@ -1,4 +1,8 @@
+@@ -1,5 +1,9 @@
  #include "revolution/hbm/homebutton/HBMController.hpp"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstdint>
 +#endif
- 
++
  namespace homebutton {
  
-@@ -45,7 +49,11 @@
+ bool Controller::sBatteryFlag[WPAD_MAX_CONTROLLERS];
+@@ -45,7 +49,11 @@ void Controller::wpadExtensionCallback(WPADChannel chan, s32 result) {
  }
  
  void Controller::soundOnCallback(OSAlarm* alm, OSContext*) {
@@ -248,6 +256,7 @@ diff --git a/src/RVL_SDK/hbm/HBMController.cpp b/src/RVL_SDK/hbm/HBMController.c
  }
  
 diff --git a/src/RVL_SDK/hbm/HBMGUIManager.cpp b/src/RVL_SDK/hbm/HBMGUIManager.cpp
+index 7b4f633..c7fb332 100644
 --- a/src/RVL_SDK/hbm/HBMGUIManager.cpp
 +++ b/src/RVL_SDK/hbm/HBMGUIManager.cpp
 @@ -5,7 +5,11 @@
@@ -262,7 +271,7 @@ diff --git a/src/RVL_SDK/hbm/HBMGUIManager.cpp b/src/RVL_SDK/hbm/HBMGUIManager.c
  
  namespace homebutton {
  namespace gui {
-@@ -40,7 +44,11 @@
+@@ -40,7 +44,11 @@ static void drawLine_(f32 x0, f32 y0, f32 x1, f32 y1, f32 z, u8 uWidth, GXColor&
      PSMTXTrans(modelMtx, 0.0f, 0.0f, 0.0f);
      GXLoadPosMtxImm(modelMtx, 0);
  
@@ -275,18 +284,20 @@ diff --git a/src/RVL_SDK/hbm/HBMGUIManager.cpp b/src/RVL_SDK/hbm/HBMGUIManager.c
      GXBegin(GX_LINES, GX_VTXFMT0, 2);
      GXPosition3f32(x0, y0, z);
 diff --git a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
+index c03691a..a7e8cfd 100644
 --- a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
 +++ b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
-@@ -1,4 +1,8 @@
+@@ -1,5 +1,9 @@
  #include "revolution/hbm/homebutton/HBMRemoteSpk.hpp"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <cstdint>
 +#endif
- 
++
  #include "string.h"
  
-@@ -130,7 +134,11 @@
+ namespace homebutton {
+@@ -130,7 +134,11 @@ void RemoteSpk::Start(void) {
  void RemoteSpk::Stop(void) { OSCancelAlarm(&speakerAlarm); }
  
  void RemoteSpk::DelaySpeakerOnCallback(OSAlarm* alarm, OSContext*) {
@@ -298,7 +309,7 @@ diff --git a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
      WPADResult result = WPADControlSpeaker(chan, WPAD_SPEAKER_ON, &SpeakerOnCallback);
  }
  
-@@ -155,7 +163,11 @@
+@@ -155,7 +163,11 @@ void RemoteSpk::SpeakerOnCallback(WPADChannel chan, WPADResult result) {
  }
  
  void RemoteSpk::DelaySpeakerPlayCallback(OSAlarm* alarm, OSContext*) {

@@ -1,7 +1,20 @@
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Purpose: Native compiler declarations for original OSMutex private scheduler imports. No definitions or contended scheduling admission.
 
+diff --git a/libs/RVL_SDK/include/revolution/os.h b/libs/RVL_SDK/include/revolution/os.h
+index 420fb1d..a73eb86 100644
+--- a/libs/RVL_SDK/include/revolution/os.h
++++ b/libs/RVL_SDK/include/revolution/os.h
+@@ -4,6 +4,7 @@
+ #ifdef MSCHARGED_NATIVE
+ #include <stdarg.h>
+ #include <dolphin/os.h>
++#include <revolution/os/OSThread.h>
+ // These Wii requests are absent from the GameCube SDK header facade.
+ // Declarations preserve source calls; genuine native providers are required.
+ #include <revolution/os/OSReset.h>
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
+index bafca39..486bd94 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
 @@ -3,6 +3,16 @@
@@ -21,14 +34,3 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/includ
  #define OS_THREAD_DETACHED OS_THREAD_ATTR_DETACH
  #else
  
-diff --git a/libs/RVL_SDK/include/revolution/os.h b/libs/RVL_SDK/include/revolution/os.h
---- a/libs/RVL_SDK/include/revolution/os.h
-+++ b/libs/RVL_SDK/include/revolution/os.h
-@@ -4,6 +4,7 @@
- #ifdef MSCHARGED_NATIVE
- #include <stdarg.h>
- #include <dolphin/os.h>
-+#include <revolution/os/OSThread.h>
- // These Wii requests are absent from the GameCube SDK header facade.
- // Declarations preserve source calls; genuine native providers are required.
- #include <revolution/os/OSReset.h>

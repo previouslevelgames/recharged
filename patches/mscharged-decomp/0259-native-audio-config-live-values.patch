@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Use the actual live registry interface for native audio values
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The audio configuration view addresses the live RegistryContainer returned
 by the original registry owner. Preserve its real native pointer/type layout
@@ -9,7 +9,46 @@ Console declarations, source lookups/selection and packed-image declarations
 remain unchanged. Packed input expansion and full original audio startup
 are separate qualification boundaries.
 
+diff --git a/include/Game/Audio/AudioConfig.h b/include/Game/Audio/AudioConfig.h
+index 6d3bddd..b68a4f6 100644
+--- a/include/Game/Audio/AudioConfig.h
++++ b/include/Game/Audio/AudioConfig.h
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/Audio/AudioResourceRuntime.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++using AudioConfigValue = RegistryValue;
++#else
+ union AudioConfigValue
+ {
+     unsigned long long m_Raw;
+@@ -20,6 +23,7 @@ public:
+     virtual bool Has(const unsigned int& key) const;
+     virtual AudioConfigValue Get(const unsigned int& key) const;
+ };
++#endif
+ 
+ inline AudioConfigNode* ConfigFindDefinition(
+     unsigned int definition)
+diff --git a/include/Game/Audio/AudioResourceRuntime.h b/include/Game/Audio/AudioResourceRuntime.h
+index cc54826..6b36060 100644
+--- a/include/Game/Audio/AudioResourceRuntime.h
++++ b/include/Game/Audio/AudioResourceRuntime.h
+@@ -4,7 +4,11 @@
+ #include "types.h"
+ #include "Game/Audio/AudioRegistryOwner.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++using AudioConfigNode = RegistryContainer;
++#else
+ class AudioConfigNode;
++#endif
+ class AudioBundleManager;
+ class AudioEffectFactory;
+ class AudioScriptRuntime;
 diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
+index a6b4766..0a3b2b4 100644
 --- a/include/NL/nlRegistry.h
 +++ b/include/NL/nlRegistry.h
 @@ -6,6 +6,9 @@
@@ -22,7 +61,7 @@ diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
  
  class RegistryContainer;
  class RegistryIteratorBase;
-@@ -27,8 +30,21 @@
+@@ -27,8 +30,21 @@ struct RegistryValue
      {
      }
  
@@ -44,39 +83,3 @@ diff --git a/include/NL/nlRegistry.h b/include/NL/nlRegistry.h
  };
  
  // Number of packed type words for a list: two bits per entry, padded to whole
-diff --git a/include/Game/Audio/AudioConfig.h b/include/Game/Audio/AudioConfig.h
---- a/include/Game/Audio/AudioConfig.h
-+++ b/include/Game/Audio/AudioConfig.h
-@@ -3,6 +3,9 @@
- 
- #include "Game/Audio/AudioResourceRuntime.h"
- 
-+#if defined(MSCHARGED_NATIVE)
-+using AudioConfigValue = RegistryValue;
-+#else
- union AudioConfigValue
- {
-     unsigned long long m_Raw;
-@@ -20,6 +23,7 @@
-     virtual bool Has(const unsigned int& key) const;
-     virtual AudioConfigValue Get(const unsigned int& key) const;
- };
-+#endif
- 
- inline AudioConfigNode* ConfigFindDefinition(
-     unsigned int definition)
-diff --git a/include/Game/Audio/AudioResourceRuntime.h b/include/Game/Audio/AudioResourceRuntime.h
---- a/include/Game/Audio/AudioResourceRuntime.h
-+++ b/include/Game/Audio/AudioResourceRuntime.h
-@@ -4,7 +4,11 @@
- #include "types.h"
- #include "Game/Audio/AudioRegistryOwner.h"
- 
-+#if defined(MSCHARGED_NATIVE)
-+using AudioConfigNode = RegistryContainer;
-+#else
- class AudioConfigNode;
-+#endif
- class AudioBundleManager;
- class AudioEffectFactory;
- class AudioScriptRuntime;

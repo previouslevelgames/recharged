@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original AX word copies at native halfword alignment
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original addr/adpcm fields are at offsets 0x6e/0x7e. A native u32
 lvalue there is not aligned even though the source halfwords are aligned.
@@ -9,6 +9,7 @@ preserve every sync condition, allocation, source method and console statement.
 This is compiler/ABI transport only, with no AX initialization or DSP readiness.
 
 diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
+index 6fe9404..d1b77dc 100644
 --- a/src/RVL_SDK/ax/AXVPB.c
 +++ b/src/RVL_SDK/ax/AXVPB.c
 @@ -22,6 +22,23 @@
@@ -43,7 +44,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
  
  #ifdef MSCHARGED_NATIVE
  #include "platform/dsp_memory_abi.h"
-@@ -155,19 +173,35 @@
+@@ -155,19 +173,35 @@ void __AXServiceVPB(AXVPB* vpb) {
          }
  
          if (sync & AX_PBSYNC_LOOP_ADDR) {
@@ -79,7 +80,7 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
          }
      } else if (sync & AX_PBSYNC_ADDR) {
          FUNNY_COPY(&dst->addr, &src->addr, u32, sizeof(AXPBADDR));
-@@ -734,6 +768,10 @@
+@@ -734,6 +768,10 @@ void AXSetVoiceCurrentAddr(AXVPB* p, u32 addr) {
  
  void AXSetVoiceAdpcm(AXVPB* vpb, AXPBADPCM* adpcm) {
      BOOL old;
@@ -90,12 +91,12 @@ diff --git a/src/RVL_SDK/ax/AXVPB.c b/src/RVL_SDK/ax/AXVPB.c
      u32* dst;
      u32* src;
  
-@@ -752,6 +790,8 @@
-     *dst++ = *src++;
+@@ -753,6 +791,8 @@ void AXSetVoiceAdpcm(AXVPB* vpb, AXPBADPCM* adpcm) {
      *dst++ = *src++;
      *dst = *src;
-+
-+#endif
  
++#endif
++
      vpb->sync |= AX_PBSYNC_ADPCM;
      OSRestoreInterrupts(old);
+ }

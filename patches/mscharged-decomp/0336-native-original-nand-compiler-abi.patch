@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Compile whole original NAND with native pointer and C declarations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep the original NAND request, error, permission and callback decisions.
 The ES buffer alignment test uses a native pointer. GNU noinline attaches to
@@ -10,23 +10,24 @@ unresolved symbol. The unused NANDMove body is retained, not repaired or used
 as a filesystem provider. No IOS/ES service or save readiness is introduced.
 
 diff --git a/src/RVL_SDK/nand/NANDCore.c b/src/RVL_SDK/nand/NANDCore.c
+index 6164b3a..24aa3c0 100644
 --- a/src/RVL_SDK/nand/NANDCore.c
 +++ b/src/RVL_SDK/nand/NANDCore.c
-@@ -5,6 +5,13 @@
- #include <stdio.h>
+@@ -6,6 +6,13 @@
  #include <string.h>
  #include <wchar.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include <stdint.h>
 +#define NAND_BUFFER_ADDRESS uintptr_t
 +#else
 +#define NAND_BUFFER_ADDRESS u32
 +#endif
- 
++
  #define NAND_BANNER_MAGIC 'WIBN'
  
-@@ -546,7 +553,7 @@
+ typedef enum {
+@@ -546,7 +553,7 @@ static s32 _ES_GetDataDir(s32* fd, u64 tid, char* dirOut) {
          return -0x3F9;
      }
  
@@ -36,13 +37,13 @@ diff --git a/src/RVL_SDK/nand/NANDCore.c b/src/RVL_SDK/nand/NANDCore.c
      }
  
 diff --git a/src/RVL_SDK/nand/nand.c b/src/RVL_SDK/nand/nand.c
+index df9e6f5..fc06c8b 100644
 --- a/src/RVL_SDK/nand/nand.c
 +++ b/src/RVL_SDK/nand/nand.c
-@@ -3,6 +3,17 @@
- 
+@@ -4,6 +4,17 @@
  #include <stdio.h>
  #include <string.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +// Retain the legacy unresolved call in the unused NANDMove source body. This
 +// declaration supplies no implementation or inferred memory-clear behavior.
@@ -53,10 +54,11 @@ diff --git a/src/RVL_SDK/nand/nand.c b/src/RVL_SDK/nand/nand.c
 +#else
 +#define NAND_COMPOSE_SUFFIX DECOMP_DONT_INLINE
 +#endif
- 
++
  static void nandSplitPerm(u8 perm, u32* ownerPerm, u32* groupPerm,
                            u32* otherPerm) DECOMP_DONT_INLINE;
-@@ -391,7 +402,7 @@
+ static void nandGetStatusCallback(s32 result, void* arg);
+@@ -391,7 +402,7 @@ s32 NANDGetLengthAsync(NANDFileInfo* info, u32* lengthOut,
  }
  
  static void nandComposePerm(u8* out, u32 ownerPerm, u32 groupPerm,

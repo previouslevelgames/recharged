@@ -1,57 +1,65 @@
 From: native port preparation
 Subject: [PATCH] retain original mesh/model game flow and scope preview checks
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
-diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTexturedColourMeshWriter.h
---- a/include/Game/GL/GLTexturedColourMeshWriter.h
-+++ b/include/Game/GL/GLTexturedColourMeshWriter.h
-@@ -1,5 +1,9 @@
- #ifndef GAME_GL_GL_TEXTURED_COLOUR_MESH_WRITER_H
- #define GAME_GL_GL_TEXTURED_COLOUR_MESH_WRITER_H
-+
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
-+#error "Mesh writer diagnostics cannot change the original game-module profile"
-+#endif
- 
- #include "NL/gl/glModel.h"
- #include "NL/nlColour.h"
 diff --git a/include/Game/GL/GLFloatTexturedColourMeshWriter.h b/include/Game/GL/GLFloatTexturedColourMeshWriter.h
+index 39fefd6..b6cace2 100644
 --- a/include/Game/GL/GLFloatTexturedColourMeshWriter.h
 +++ b/include/Game/GL/GLFloatTexturedColourMeshWriter.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_GL_GL_FLOAT_TEXTURED_COLOUR_MESH_WRITER_H
  #define GAME_GL_GL_FLOAT_TEXTURED_COLOUR_MESH_WRITER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
 +#error "Mesh writer diagnostics cannot change the original game-module profile"
 +#endif
- 
++
  #include "NL/gl/glModel.h"
  #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
+diff --git a/include/Game/GL/GLTexturedColourMeshWriter.h b/include/Game/GL/GLTexturedColourMeshWriter.h
+index b4b68dd..5e3709b 100644
+--- a/include/Game/GL/GLTexturedColourMeshWriter.h
++++ b/include/Game/GL/GLTexturedColourMeshWriter.h
+@@ -1,6 +1,10 @@
+ #ifndef GAME_GL_GL_TEXTURED_COLOUR_MESH_WRITER_H
+ #define GAME_GL_GL_TEXTURED_COLOUR_MESH_WRITER_H
+ 
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MESH_WRITERS)
++#error "Mesh writer diagnostics cannot change the original game-module profile"
++#endif
++
+ #include "NL/gl/glModel.h"
+ #include "NL/nlColour.h"
+ #include "NL/nlMath.h"
 diff --git a/include/Game/GL/glModelBuilder.h b/include/Game/GL/glModelBuilder.h
+index cf32989..e92fc0d 100644
 --- a/include/Game/GL/glModelBuilder.h
 +++ b/include/Game/GL/glModelBuilder.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_GL_MODEL_BUILDER_H
  #define GAME_GL_MODEL_BUILDER_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MODELS)
 +#error "Model builder diagnostics cannot change the original game-module profile"
 +#endif
- 
++
  struct glModel;
  struct glModelPacket;
+ struct glModelStream;
 diff --git a/include/NL/gl/glModel.h b/include/NL/gl/glModel.h
+index 2fe7eca..41b1c7d 100644
 --- a/include/NL/gl/glModel.h
 +++ b/include/NL/gl/glModel.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef NL_GL_MODEL_H
  #define NL_GL_MODEL_H
-+
+ 
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_MODELS)
 +#error "Model diagnostics cannot change the original game-module profile"
 +#endif
- 
++
  #include "types.h"
  #include "NL/gl/glMatrixHandle.h"
+ 

@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie
@@ -11,9 +11,10 @@ is not a full game link, THPSimple data ABI/audio qualification or scene render.
 GXWaitDrawDone remains a real native provider to implement, not a success stub.
 
 diff --git a/include/Game/BasicStadium.h b/include/Game/BasicStadium.h
+index 02ac295..f0d70d4 100644
 --- a/include/Game/BasicStadium.h
 +++ b/include/Game/BasicStadium.h
-@@ -28,7 +28,9 @@
+@@ -28,7 +28,9 @@ public:
      /* 0xA8 */ HighRangeTweaks* m_pMegastrikeHighRangeTweaks;
  };
  
@@ -23,10 +24,43 @@ diff --git a/include/Game/BasicStadium.h b/include/Game/BasicStadium.h
  
  bool SetWorldAnimation(const char* objectName, const char* animationName,
      ePlayMode playMode);
+diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
+index 1f76681..c2c6c29 100644
+--- a/include/Game/GameInfo.h
++++ b/include/Game/GameInfo.h
+@@ -8,7 +8,11 @@
+ #include "NL/nlSingleton.h"
+ #include "types.h"
+ 
++#ifdef MSCHARGED_NATIVE
++#include <revolution/types.h>
++#else
+ typedef unsigned long long u64;
++#endif
+ 
+ typedef CupSidekicks GameRules;
+ 
+diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
+index 4bdad5f..a8c0ea7 100644
+--- a/include/Game/SAnim.h
++++ b/include/Game/SAnim.h
+@@ -71,11 +71,7 @@ public:
+         return (id & 0x80FFFFFF) == 0x80017000;
+     }
+ 
+-#ifdef MSCHARGED_NATIVE
+-    void Destroy() = delete;
+-#else
+     void Destroy();
+-#endif
+ #ifdef MSCHARGED_NATIVE
+     void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex) = delete;
+ #else
 diff --git a/include/Game/World.h b/include/Game/World.h
+index 3ff23b6..848f776 100644
 --- a/include/Game/World.h
 +++ b/include/Game/World.h
-@@ -91,6 +91,8 @@
+@@ -91,6 +91,8 @@ public:
      /* 0x78 */ WorldVisibilityNode* m_pVisibilityTree;
  };
  
@@ -36,9 +70,10 @@ diff --git a/include/Game/World.h b/include/Game/World.h
  
  #endif // GAME_WORLD_H
 diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
+index 1e041e6..846fd8b 100644
 --- a/include/Game/World/worldanim.h
 +++ b/include/Game/World/worldanim.h
-@@ -134,10 +134,16 @@
+@@ -134,10 +134,16 @@ public:
      /* 0x24 */ float m_fTime;
  };
  
@@ -55,40 +90,11 @@ diff --git a/include/Game/World/worldanim.h b/include/Game/World/worldanim.h
 +#endif
  
  #endif // GAME_WORLD_WORLDANIM_H
-diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
---- a/include/Game/GameInfo.h
-+++ b/include/Game/GameInfo.h
-@@ -8,7 +8,11 @@
- #include "NL/nlSingleton.h"
- #include "types.h"
- 
-+#ifdef MSCHARGED_NATIVE
-+#include <revolution/types.h>
-+#else
- typedef unsigned long long u64;
-+#endif
- 
- typedef CupSidekicks GameRules;
- 
-diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
---- a/include/Game/SAnim.h
-+++ b/include/Game/SAnim.h
-@@ -71,11 +71,7 @@
-         return (id & 0x80FFFFFF) == 0x80017000;
-     }
- 
--#ifdef MSCHARGED_NATIVE
--    void Destroy() = delete;
--#else
-     void Destroy();
--#endif
- #ifdef MSCHARGED_NATIVE
-     void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex) = delete;
- #else
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index 745d8bd..04c1c01 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -45,7 +45,7 @@
+@@ -45,7 +45,7 @@ MoviePlayerScene::MoviePlayerScene()
      {
          mGameSceneManager = g_pOverlayManager;
      }
@@ -98,6 +104,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  
  MoviePlayerScene::~MoviePlayerScene()
 diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+index 0d50d6b..65eae51 100644
 --- a/src/Game/Sys/movie.cpp
 +++ b/src/Game/Sys/movie.cpp
 @@ -17,9 +17,15 @@
@@ -117,9 +124,10 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
  #include <string.h>
  #include "NL/nlstring_tmpl.h"
 diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialProgram.cpp
+index a709f94..aa29c46 100644
 --- a/src/NL/glx/GXMovieMaterialProgram.cpp
 +++ b/src/NL/glx/GXMovieMaterialProgram.cpp
-@@ -19,16 +19,21 @@
+@@ -19,16 +19,21 @@ GXMaterialParameter GXMovieMaterialProgram::Parameters[2] = {
  
  GXMovieMaterialProgram::GXMovieMaterialProgram()
  {
@@ -143,6 +151,7 @@ diff --git a/src/NL/glx/GXMovieMaterialProgram.cpp b/src/NL/glx/GXMovieMaterialP
      Initialized = false;
  #endif
 diff --git a/src/NL/glx/GXMovieMaterialProgramRender.cpp b/src/NL/glx/GXMovieMaterialProgramRender.cpp
+index 9f1bcdb..e718044 100644
 --- a/src/NL/glx/GXMovieMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXMovieMaterialProgramRender.cpp
 @@ -1,9 +1,11 @@

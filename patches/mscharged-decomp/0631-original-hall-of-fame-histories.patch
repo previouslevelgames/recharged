@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original Hall of Fame trophy histories
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0630.
 
 The Hall of Fame cup pages' trophy items (0-2) push the earned-history pages
@@ -18,9 +18,10 @@ names call CharacterInfo::GetName, which retail emits out of line; natively the
 TU includes its header-inline definition so the module has no lazy import.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index f97cd4a..a13ce74 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -537,7 +537,7 @@
+@@ -570,7 +570,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(SHHallOfFamePlayerCard), 8, false)) SHHallOfFamePlayerCard(13);
          break;
  #endif
@@ -30,6 +31,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(SHHallOfFameHistory), 8, false)) SHHallOfFameHistory(4);
          break;
 diff --git a/src/Game/SH/SHHallOfFameHistory.cpp b/src/Game/SH/SHHallOfFameHistory.cpp
+index 14ebcb8..f4d836a 100644
 --- a/src/Game/SH/SHHallOfFameHistory.cpp
 +++ b/src/Game/SH/SHHallOfFameHistory.cpp
 @@ -12,6 +12,10 @@
@@ -40,6 +42,6 @@ diff --git a/src/Game/SH/SHHallOfFameHistory.cpp b/src/Game/SH/SHHallOfFameHisto
 +// Retail emits CharacterInfo::GetName out of line; the history images call it.
 +#include "Game/DB/CharacterInfo.inl"
 +#endif
- #include "Game/DB/GameProgress.h"
- #include "Game/FE/feCupFlow.h"
  #include "Game/FE/feAsyncImage.h"
+ #include "Game/FE/feInlineHasher.h"
+ #include "Game/FE/feFinder_impl.h"

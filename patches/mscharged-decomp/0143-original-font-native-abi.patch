@@ -1,5 +1,5 @@
 Subject: Restore whole original NL font and escape flow with native word/ownership ABI
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Historical body extractions are retired separately. Keep the complete original
 control flow, glyph layout, metrics, kerning, passes and requests. Adapt Wii32
@@ -8,6 +8,7 @@ matrix handles, template emission and owning game allocation/free. No alternate
 font manager, successful texture upload or readiness is introduced.
 
 diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
+index bef1606..0ef6979 100644
 --- a/include/NL/nlFont.h
 +++ b/include/NL/nlFont.h
 @@ -10,13 +10,20 @@
@@ -32,7 +33,7 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
      /* 0x04 */ unsigned short Height;
      /* 0x06 */ unsigned short Ascent;
      /* 0x08 */ unsigned short InternalLeading;
-@@ -78,7 +85,7 @@
+@@ -78,7 +85,7 @@ public:
              /* 0x16 */ unsigned short hash;
          };
  
@@ -41,7 +42,7 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
          static int SortProc(const GlyphInfo* pa, const GlyphInfo* pb) { return pa->UnicodeChar - pb->UnicodeChar; }
      };
  
-@@ -91,7 +98,7 @@
+@@ -91,7 +98,7 @@ public:
                  /* 0x0 */ unsigned short A;
                  /* 0x2 */ unsigned short B;
              } s;
@@ -50,19 +51,12 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
          };
          /* 0x4 */ int Kern;
  
-@@ -103,49 +110,73 @@
+@@ -103,49 +110,73 @@ public:
              return *this;
          }
  
 -        operator unsigned long() const { return hash; }
 -        static int SortProc(const KernPair* pa, const KernPair* pb) { return pa->hash - pb->hash; }
--    };
--
--    unsigned long GetStringWidth(const FontCharString& Text, bool SingleLine, unsigned long Width, bool WordWrap) const;
--    unsigned long GetStringWidth(const BasicString<unsigned short, Detail::TempStringAllocator>& Text, bool SingleLine, unsigned long Width, bool WordWrap) const;
--    unsigned long GetStringHeight(const FontCharString& Text, unsigned long Width, bool WordWrap) const;
--    unsigned long GetStringHeight(const BasicString<unsigned short, Detail::TempStringAllocator>& Text, unsigned long Width, bool WordWrap) const;
--    unsigned long GetStringLineCount(const FontCharString& Text, unsigned long Width, bool WordWrap) const;
 +        operator nlFontWord() const
 +        {
 +#if defined(MSCHARGED_NATIVE)
@@ -80,8 +74,13 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
 +            return pa->hash - pb->hash;
 +#endif
 +        }
-+    };
-+
+     };
+ 
+-    unsigned long GetStringWidth(const FontCharString& Text, bool SingleLine, unsigned long Width, bool WordWrap) const;
+-    unsigned long GetStringWidth(const BasicString<unsigned short, Detail::TempStringAllocator>& Text, bool SingleLine, unsigned long Width, bool WordWrap) const;
+-    unsigned long GetStringHeight(const FontCharString& Text, unsigned long Width, bool WordWrap) const;
+-    unsigned long GetStringHeight(const BasicString<unsigned short, Detail::TempStringAllocator>& Text, unsigned long Width, bool WordWrap) const;
+-    unsigned long GetStringLineCount(const FontCharString& Text, unsigned long Width, bool WordWrap) const;
 +    nlFontWord GetStringWidth(const FontCharString& Text, bool SingleLine, nlFontWord Width, bool WordWrap) const;
 +    nlFontWord GetStringWidth(const BasicString<unsigned short, Detail::TempStringAllocator>& Text, bool SingleLine, nlFontWord Width, bool WordWrap) const;
 +    nlFontWord GetStringHeight(const FontCharString& Text, nlFontWord Width, bool WordWrap) const;
@@ -142,20 +141,20 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
  };
  
  inline unsigned short nlFont::GetExtendedFontChar(unsigned short Character) const
-@@ -159,6 +190,12 @@
-     }
+@@ -160,6 +191,12 @@ inline unsigned short nlFont::GetExtendedFontChar(unsigned short Character) cons
      return 0x3F;
  }
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +static_assert(sizeof(TextMetrics) == 20);
 +static_assert(sizeof(nlFont::KernPair) == 8);
 +static_assert(sizeof(nlFont::GlyphInfo) == 24);
 +#endif
- 
++
  class FontCharString
  {
-@@ -170,7 +207,11 @@
+ public:
+@@ -170,7 +207,11 @@ public:
      {
          if (m_InternalBuffer != 0)
          {
@@ -167,7 +166,7 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
          }
      }
  
-@@ -225,13 +266,13 @@
+@@ -225,13 +266,13 @@ inline FontCharString::FontCharString(const T* Source, const nlFont* pFont, T* p
      *dest = 0;
  }
  
@@ -184,22 +183,23 @@ diff --git a/include/NL/nlFont.h b/include/NL/nlFont.h
      FontCharString fontText(Text.c_str(), this, (unsigned short*)0);
      return GetStringHeight(fontText, Width, WordWrap);
 diff --git a/include/NL/nlTextEscape.h b/include/NL/nlTextEscape.h
+index 268495e..ade3168 100644
 --- a/include/NL/nlTextEscape.h
 +++ b/include/NL/nlTextEscape.h
-@@ -2,6 +2,12 @@
- #define NL_TEXT_ESCAPE_H
+@@ -3,6 +3,12 @@
  
  #include "NL/nlColour.h"
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +typedef u32 nlEscapeWord;
 +#else
 +typedef unsigned long nlEscapeWord;
 +#endif
- 
++
  enum ESCAPE_TYPE
  {
-@@ -18,11 +24,11 @@
+     ESC_UNKNOWN = 0,
+@@ -18,11 +24,11 @@ class nlEscapeSequence
  public:
      struct ESCAPE_LOOKUP
      {
@@ -214,7 +214,7 @@ diff --git a/include/NL/nlTextEscape.h b/include/NL/nlTextEscape.h
      };
  
      nlColour GetExtendedColour();
-@@ -35,7 +41,7 @@
+@@ -35,7 +41,7 @@ public:
      /* 0x04 */ unsigned short m_Extended[16];
      /* 0x24 */ const unsigned short* m_pEnd;
  
@@ -224,6 +224,7 @@ diff --git a/include/NL/nlTextEscape.h b/include/NL/nlTextEscape.h
      static const unsigned short ESCAPE_BEGIN;
  };
 diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
+index 5feddd8..4b29162 100644
 --- a/src/NL/nlFont.cpp
 +++ b/src/NL/nlFont.cpp
 @@ -6,17 +6,48 @@
@@ -275,7 +276,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      }
  }
  
-@@ -24,9 +55,12 @@
+@@ -24,9 +55,12 @@ static inline void ParseKernPairs(nlFont* self, nlFont::GlyphInfo* pInfo, char*
  {
      pInfo->HasKernPairs = 1;
      nlFont::KernPair kp;
@@ -290,7 +291,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      {
          kp.s.A = Base;
          int nB;
-@@ -39,11 +73,11 @@
+@@ -39,11 +73,11 @@ static inline void ParseKernPairs(nlFont* self, nlFont::GlyphInfo* pInfo, char*
              nB = pKernToken[0];
          }
          kp.s.B = (unsigned short)nB;
@@ -304,18 +305,17 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      }
  }
  
-@@ -55,12 +89,12 @@
+@@ -55,12 +89,12 @@ static inline nlFont::GlyphInfo* AddExtendedGlyph(nlFont* self, nlListSlotPoolHi
      return &pEntry->entry;
  }
  
 -unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned long HashId)
--{
++unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, nlFontWord HashId)
+ {
 -    unsigned long CurrentPage;
 -    unsigned long CurrentTexelX;
 -    unsigned long CurrentTexelY;
 -    unsigned long RenderHeight;
-+unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, nlFontWord HashId)
-+{
 +    nlFontWord CurrentPage;
 +    nlFontWord CurrentTexelX;
 +    nlFontWord CurrentTexelY;
@@ -323,7 +323,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      unsigned short RenderAscent;
      char* pCurrentLine;
  
-@@ -102,7 +136,7 @@
+@@ -102,7 +136,7 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
              *pEOL = 0;
          }
  
@@ -332,7 +332,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
  
          switch (nlToUpper(*pCurrentLine))
          {
-@@ -119,12 +153,12 @@
+@@ -119,12 +153,12 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
  
                  pCurrentLine = nlStrChr(pToken, ' ');
                  pCurrentLine++;
@@ -347,7 +347,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
                  switch (nlToLower(*pCurrentLine))
                  {
                  case 'c':
-@@ -168,22 +202,22 @@
+@@ -168,22 +202,22 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
  
              pCurrentLine = nlStrChr(pToken, ' ');
              pCurrentLine++;
@@ -374,16 +374,16 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
              m_Metrics.InternalLeading = (unsigned short)atoi(pCurrentLine);
              break;
          }
-@@ -194,7 +228,7 @@
+@@ -194,7 +228,7 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
  
              pCurrentLine = nlStrChr(pToken, ' ');
              pCurrentLine++;
 -            pCurrentLine = nlStrChr(pCurrentLine, ' ') + 1;
 +            pCurrentLine = NextFontToken(pCurrentLine);
-             m_Metrics.LineHeight = (float)atoi(pCurrentLine) / 100.0f;
-             break;
-         }
-@@ -226,13 +260,13 @@
+ #if defined(VERSION_R4QK01)
+             m_Metrics.LineHeight = (float)atoi(pCurrentLine);
+ #else
+@@ -230,13 +264,13 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
  
              pCurrentLine = nlStrChr(pToken, ' ');
              pCurrentLine++;
@@ -400,7 +400,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
              pInfo->Offset = (signed char)atoi(pCurrentLine);
  
              bool usePackedGlyphs = 1.2f - FormatVersion > 0.0001f;
-@@ -255,16 +289,16 @@
+@@ -259,16 +293,16 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
              }
              else
              {
@@ -424,7 +424,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
                  CurrentTexelY = atoi(pCurrentLine);
              }
  
-@@ -360,7 +394,7 @@
+@@ -364,7 +398,7 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
  
      static char TextureNameFormat[] = "%s_%d";
      char sHashFontName[265] = { 0 };
@@ -433,7 +433,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      for (page = 0; page < m_PageCount; page++)
      {
          nlStrNCpy(sHashFontName, szFontName, 0x109);
-@@ -378,14 +412,14 @@
+@@ -382,14 +416,14 @@ unsigned char nlFont::Load(const char* szFontName, char* pFontDescData, unsigned
  }
  
  template <typename GlyphLookup>
@@ -450,7 +450,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
  
      if (prevChar != 0)
      {
-@@ -402,7 +436,7 @@
+@@ -406,7 +440,7 @@ static inline unsigned long CalculateCharWidth(const nlFont& font, const GlyphLo
          }
      }
  
@@ -459,7 +459,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
  }
  
  // Shared lookup state for one string traversal.
-@@ -419,7 +453,7 @@
+@@ -423,7 +457,7 @@ public:
      {
      }
  
@@ -468,7 +468,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
  
      const GlyphInfo& GetGlyphInfo(unsigned short c) const
      {
-@@ -427,19 +461,19 @@
+@@ -431,19 +465,19 @@ public:
          return glyph.IsValid() ? glyph : m_Fallback;
      }
  
@@ -491,7 +491,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
  {
      gl_ScreenInfo* pScreenInfo = glGetScreenInfo();
      float PixelCenter = pScreenInfo->PixelCentre;
-@@ -450,11 +484,11 @@
+@@ -454,11 +488,11 @@ void nlFont::DrawString(GLView* View, const FontCharString& Text, const nlVector
      int StringLength = Length == -1 ? nlStrLen(Text.m_pString) : Length;
  
      const GlyphInfo* pGlyph;
@@ -506,7 +506,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      const unsigned short* pCurrentChar;
  
      glSetDefaultState(false);
-@@ -480,7 +514,7 @@
+@@ -484,7 +518,7 @@ void nlFont::DrawString(GLView* View, const FontCharString& Text, const nlVector
      nlColour LastPushedColour = OverrideColour;
      nlVec2Set(CurrentPosition, StartingX, StartingY);
  
@@ -515,7 +515,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      {
          bool useEffectTextures = false;
          if (Passes == PASS_Effect && m_TextureType == SplitFX)
-@@ -488,16 +522,16 @@
+@@ -492,16 +526,16 @@ void nlFont::DrawString(GLView* View, const FontCharString& Text, const nlVector
              useEffectTextures = true;
          }
  
@@ -528,15 +528,14 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
          pCurrentChar = Text.m_pString;
  
 -        while (*pCurrentChar != 0 && HandledChars < (unsigned long)StringLength && i < (unsigned long)StringLength)
--        {
--            unsigned long Char = *pCurrentChar;
 +        while (*pCurrentChar != 0 && HandledChars < (nlFontWord)StringLength && i < (nlFontWord)StringLength)
-+        {
+         {
+-            unsigned long Char = *pCurrentChar;
 +            nlFontWord Char = *pCurrentChar;
              if (Char == glyphLookup.GetEscapeBegin())
              {
                  nlEscapeSequence escape(pCurrentChar);
-@@ -547,7 +581,7 @@
+@@ -551,7 +585,7 @@ void nlFont::DrawString(GLView* View, const FontCharString& Text, const nlVector
              else
              {
                  pGlyph = &glyphLookup.GetGlyphInfo(Char);
@@ -545,7 +544,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
                  CurrentPosition.x += (float)pGlyph->Offset;
                  if (Page == CurrentPage)
                  {
-@@ -619,7 +653,7 @@
+@@ -623,7 +657,7 @@ void nlFont::DrawString(GLView* View, const FontCharString& Text, const nlVector
              OverrideColour = Colour;
          }
  
@@ -554,7 +553,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
          if (UsedQuads != 0)
          {
              if (m_bScissorBox)
-@@ -666,17 +700,17 @@
+@@ -670,17 +704,17 @@ void nlFont::DisableScissorBox() const
      m_bScissorBox = false;
  }
  
@@ -575,7 +574,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
          const unsigned short* pCurrentChar = Text.m_pString;
          FontStringContext glyphLookup(*this);
          while (*pCurrentChar != 0)
-@@ -696,15 +730,15 @@
+@@ -700,15 +734,15 @@ unsigned long nlFont::GetStringWidth(const FontCharString& Text, bool SingleLine
          return StringWidth;
      }
  
@@ -595,28 +594,29 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      FontStringContext glyphLookup(*this);
  
      while (*pCurrentChar != 0)
-@@ -783,22 +817,22 @@
+@@ -787,26 +821,26 @@ unsigned long nlFont::GetStringWidth(const FontCharString& Text, bool SingleLine
      return MaxWidth;
  }
  
 -unsigned long nlFont::GetStringHeight(const FontCharString& Text, unsigned long Width, bool WordWrap) const
--{
++nlFontWord nlFont::GetStringHeight(const FontCharString& Text, nlFontWord Width, bool WordWrap) const
+ {
 -    unsigned long LineCount = GetStringLineCount(Text, Width, WordWrap);
++    nlFontWord LineCount = GetStringLineCount(Text, Width, WordWrap);
+ #if defined(VERSION_R4QK01)
+-    return (unsigned long)(LineCount * m_Metrics.Height + (LineCount - 1) * m_Metrics.LineHeight);
++    return (nlFontWord)(LineCount * m_Metrics.Height + (LineCount - 1) * m_Metrics.LineHeight);
+ #else
 -    return (unsigned long)(m_Metrics.Spacing * (m_Metrics.Height * LineCount));
--}
--
++    return (nlFontWord)(m_Metrics.Spacing * (m_Metrics.Height * LineCount));
+ #endif
+ }
+ 
 -unsigned long nlFont::GetStringLineCount(const FontCharString& Text, unsigned long Width, bool WordWrap) const
--{
++nlFontWord nlFont::GetStringLineCount(const FontCharString& Text, nlFontWord Width, bool WordWrap) const
+ {
 -    unsigned long RowCount = 0;
 -    unsigned long CurrentRowWidth = 0;
-+nlFontWord nlFont::GetStringHeight(const FontCharString& Text, nlFontWord Width, bool WordWrap) const
-+{
-+    nlFontWord LineCount = GetStringLineCount(Text, Width, WordWrap);
-+    return (nlFontWord)(m_Metrics.Spacing * (m_Metrics.Height * LineCount));
-+}
-+
-+nlFontWord nlFont::GetStringLineCount(const FontCharString& Text, nlFontWord Width, bool WordWrap) const
-+{
 +    nlFontWord RowCount = 0;
 +    nlFontWord CurrentRowWidth = 0;
      const unsigned short* pLastSpace = 0;
@@ -629,7 +629,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
      FontStringContext glyphLookup(*this);
  
      while (*pCurrentChar != 0)
-@@ -808,7 +842,7 @@
+@@ -816,7 +850,7 @@ unsigned long nlFont::GetStringLineCount(const FontCharString& Text, unsigned lo
              nlEscapeSequence esc(pCurrentChar);
              if (esc.GetType() == ESC_NON_BREAKING_SPACE)
              {
@@ -638,7 +638,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
                  CharWidth = glyphLookup.GetCharWidth(' ', (unsigned short)prevChar);
              }
              else if (esc.GetType() == ESC_PARAGRAPH)
-@@ -825,7 +859,7 @@
+@@ -833,7 +867,7 @@ unsigned long nlFont::GetStringLineCount(const FontCharString& Text, unsigned lo
          }
          else
          {
@@ -647,7 +647,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
              CharWidth = glyphLookup.GetCharWidth(*pCurrentChar, (unsigned short)prevChar);
              pLastNonEsc = pCurrentChar;
              if (*pCurrentChar == ' ')
-@@ -858,3 +892,8 @@
+@@ -866,3 +900,8 @@ unsigned long nlFont::GetStringLineCount(const FontCharString& Text, unsigned lo
      }
      return RowCount + 1;
  }
@@ -657,6 +657,7 @@ diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
 +#include "NL/nlstring_impl.h"
 +#endif
 diff --git a/src/NL/nlTextEscape.cpp b/src/NL/nlTextEscape.cpp
+index a60ee90..01673bb 100644
 --- a/src/NL/nlTextEscape.cpp
 +++ b/src/NL/nlTextEscape.cpp
 @@ -3,7 +3,7 @@
@@ -668,7 +669,7 @@ diff --git a/src/NL/nlTextEscape.cpp b/src/NL/nlTextEscape.cpp
      0x00000000,
      0x7B000000,
      0x6E627300,
-@@ -60,14 +60,14 @@
+@@ -60,14 +60,14 @@ nlEscapeSequence::nlEscapeSequence(const unsigned short* str)
      const unsigned short* ExtendedStart = 0;
      const unsigned short* p = str;
      char* pSeq = Seq;
@@ -686,7 +687,7 @@ diff --git a/src/NL/nlTextEscape.cpp b/src/NL/nlTextEscape.cpp
  
          if (ch == '}')
          {
-@@ -98,7 +98,7 @@
+@@ -98,7 +98,7 @@ nlEscapeSequence::nlEscapeSequence(const unsigned short* str)
  
          for (Char = 0; Char < 15; Char++)
          {
@@ -695,7 +696,7 @@ diff --git a/src/NL/nlTextEscape.cpp b/src/NL/nlTextEscape.cpp
              if (ch == '}')
              {
                  break;
-@@ -111,7 +111,15 @@
+@@ -111,7 +111,15 @@ nlEscapeSequence::nlEscapeSequence(const unsigned short* str)
      m_Extended[Char] = 0;
      m_pEnd = (ExtendedStart ? ExtendedStart : str + 1) + Char + 1;
  

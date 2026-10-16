@@ -1,88 +1,13 @@
 Subject: Share original eight-door frontend NAV transition steps
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve reset order, once-only pending call before inclusive0.6s hide, and
 pointer flag restoration. Native caller supplies the real script service.
 
-diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
---- a/src/Game/SH/SHNavigation.cpp
-+++ b/src/Game/SH/SHNavigation.cpp
-@@ -2,6 +2,7 @@
- #include "NL/nlDLListContainer.inl"
- #include "NL/plat/PlatPadManager.h"
- #include "Game/FE/FrontendNavigationSteps.h"
-+#include "Game/FE/FrontendNavigationTransitionSteps.h"
- #include "NL/plat/PlatPadStatus.h"
- #include "Game/SH/SHNavigation.h"
- #include "Game/BaseGameSceneManager.h"
-@@ -107,18 +108,12 @@
-     {
-         if (mTransitionPending)
-         {
--            mTransition->m_bVisible = true;
--            mTransitionPending = false;
-+            FrontendNavigationShowTransition(*this);
-             const char* functionName = gNextFETransition.c_str();
-             FrontEndPresentation::GetInstance()->Call(functionName);
-         }
- 
--        if (mTransition->GetActiveSlide()->m_time >= 0.6f)
--        {
--            mTransition->m_bVisible = false;
--            mTransitionPlaying = false;
--            sPointerInputEnabled = !sPointerHidden;
--        }
-+        FrontendNavigationFinishTransition(*this,sPointerInputEnabled,sPointerHidden);
-     }
- 
-     if (mHomeWarningPlaying)
-@@ -254,42 +249,7 @@
- 
- void SHNavigation::StartTransition()
- {
--    this->mTransition->SetActiveSlide("Slide1", true, false);
--
--    TLComponentInstance* component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_1");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_2");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_3");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_4");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_5");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_6");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_7");
--    component->SetActiveSlide("Slide1", true, false);
--
--    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
--        this->mTransition->GetActiveSlide(), "Group", "door_8");
--    component->SetActiveSlide("Slide1", true, false);
--
--    this->mTransitionPlaying = true;
--    this->mTransitionPending = true;
-+    FrontendNavigationStartTransition<TLComponentInstance,TLSlide,FEFinder>(*this);
- }
- 
- void SHNavigation::ShowHomeButtonWarning()
 diff --git a/include/Game/FE/FrontendNavigationTransitionSteps.h b/include/Game/FE/FrontendNavigationTransitionSteps.h
 new file mode 100644
+index 0000000..59fa88b
 --- /dev/null
 +++ b/include/Game/FE/FrontendNavigationTransitionSteps.h
 @@ -0,0 +1,61 @@
@@ -147,3 +72,80 @@ new file mode 100644
 +        }
 +}
 +#endif
+diff --git a/src/Game/SH/SHNavigation.cpp b/src/Game/SH/SHNavigation.cpp
+index da9db1e..2226208 100644
+--- a/src/Game/SH/SHNavigation.cpp
++++ b/src/Game/SH/SHNavigation.cpp
+@@ -2,6 +2,7 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "NL/plat/PlatPadManager.h"
+ #include "Game/FE/FrontendNavigationSteps.h"
++#include "Game/FE/FrontendNavigationTransitionSteps.h"
+ #include "NL/plat/PlatPadStatus.h"
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/BaseGameSceneManager.h"
+@@ -107,18 +108,12 @@ void SHNavigation::Update(float fDeltaT)
+     {
+         if (mTransitionPending)
+         {
+-            mTransition->m_bVisible = true;
+-            mTransitionPending = false;
++            FrontendNavigationShowTransition(*this);
+             const char* functionName = gNextFETransition.c_str();
+             FrontEndPresentation::GetInstance()->Call(functionName);
+         }
+ 
+-        if (mTransition->GetActiveSlide()->m_time >= 0.6f)
+-        {
+-            mTransition->m_bVisible = false;
+-            mTransitionPlaying = false;
+-            sPointerInputEnabled = !sPointerHidden;
+-        }
++        FrontendNavigationFinishTransition(*this,sPointerInputEnabled,sPointerHidden);
+     }
+ 
+     if (mHomeWarningPlaying)
+@@ -254,42 +249,7 @@ void SHNavigation::SetBackButtonText(int value)
+ 
+ void SHNavigation::StartTransition()
+ {
+-    this->mTransition->SetActiveSlide("Slide1", true, false);
+-
+-    TLComponentInstance* component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_1");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_2");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_3");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_4");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_5");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_6");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_7");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    component = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
+-        this->mTransition->GetActiveSlide(), "Group", "door_8");
+-    component->SetActiveSlide("Slide1", true, false);
+-
+-    this->mTransitionPlaying = true;
+-    this->mTransitionPending = true;
++    FrontendNavigationStartTransition<TLComponentInstance,TLSlide,FEFinder>(*this);
+ }
+ 
+ void SHNavigation::ShowHomeButtonWarning()

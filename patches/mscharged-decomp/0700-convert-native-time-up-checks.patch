@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Convert native time-up checks the way MWCC does
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility
 
 Game, StatsTracker and Presentation detect the end of regulation time with
@@ -58,7 +58,7 @@ index fd987c2..77d754c 100644
                      && GameInfoManager::Instance()->GetCurrentSettings()->GameLimitType == GAME_LIMIT_TIME))
              {
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index b36438b..f5abf57 100644
+index 4fe7dbe..87af7a7 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -3,6 +3,7 @@
@@ -69,7 +69,7 @@ index b36438b..f5abf57 100644
  #endif
  #include "Game/Game.h"
  #include "Game/MathHelpers.h"
-@@ -1525,7 +1526,13 @@ void cGame::Update(float fDeltaT)
+@@ -1446,7 +1447,13 @@ void cGame::Update(float fDeltaT)
      IsNetworkOrRecordedGame();
  
      // Time is up once fewer than a tenth of a second remain.
@@ -84,7 +84,7 @@ index b36438b..f5abf57 100644
      {
          if (g_pTeams[0]->m_nScore == g_pTeams[1]->m_nScore)
 diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
-index 86da5ec..4a52c60 100644
+index 4de2776..493a075 100644
 --- a/src/Game/Render/Presentation.cpp
 +++ b/src/Game/Render/Presentation.cpp
 @@ -1,6 +1,9 @@
@@ -97,7 +97,7 @@ index 86da5ec..4a52c60 100644
  #include "Game/DetInput.h"
  #include "Game/Blinker.h"
  
-@@ -877,9 +880,16 @@ void Presentation::OnGoalScored(GoalScoredData* data)
+@@ -879,9 +882,16 @@ void Presentation::OnGoalScored(GoalScoredData* data)
          functionName = "GameEndSuddenDeath";
      }
      else if (!scoreTied && g_pGame != 0
@@ -114,7 +114,7 @@ index 86da5ec..4a52c60 100644
      {
          int awayScore = g_pTeams[1]->m_nScore;
          int homeScore = g_pTeams[0]->m_nScore;
-@@ -1064,9 +1074,16 @@ void Presentation::HandleMegaStrikeResult(MegaStrikeEndData* __restrict data)
+@@ -1066,9 +1076,16 @@ void Presentation::HandleMegaStrikeResult(MegaStrikeEndData* __restrict data)
          Call(gameEndFunction, "high");
      }
      else if (g_pGame != 0

@@ -1,5 +1,5 @@
 Subject: Restore the original fixed temporary-string manager outside diagnostics
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Select the literal original TempStringAllocator New/Alloc/Free for genuine
 native source. Preserve its fixed64 StringBlock manager, ignored request sizes,
@@ -13,6 +13,7 @@ One-free-slot buffer failure and the separate null CRT destructor branch stay
 unmodified; bounded source tests do not qualify production startup/teardown.
 
 diff --git a/include/NL/nlString.h b/include/NL/nlString.h
+index 8352af3..c03f4ef 100644
 --- a/include/NL/nlString.h
 +++ b/include/NL/nlString.h
 @@ -7,6 +7,9 @@
@@ -25,7 +26,7 @@ diff --git a/include/NL/nlString.h b/include/NL/nlString.h
  #ifdef MSCHARGED_NATIVE
  #include <limits>
  #include <stdexcept>
-@@ -110,7 +113,7 @@
+@@ -110,7 +113,7 @@ public:
      template <typename T>
      static T* New(int count, const char*)
      {
@@ -34,7 +35,7 @@ diff --git a/include/NL/nlString.h b/include/NL/nlString.h
          static_assert(std::is_trivial<T>::value, "Temporary strings require trivial elements");
          if (count < 0 || static_cast<size_t>(count) > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(T))
              throw std::length_error("Temporary string allocation overflow");
-@@ -126,7 +129,7 @@
+@@ -126,7 +129,7 @@ public:
  
      static void* Alloc(int size)
      {
@@ -43,7 +44,7 @@ diff --git a/include/NL/nlString.h b/include/NL/nlString.h
          if (size <= 0) throw std::length_error("Invalid temporary string size");
          return nlMalloc(size, alignof(max_align_t), false);
  #else
-@@ -136,7 +139,7 @@
+@@ -136,7 +139,7 @@ public:
  
      static void Free(void* ptr)
      {

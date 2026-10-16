@@ -1,8 +1,11 @@
 # Read pointer-format arguments in their real native domain; retain the retail prefix, precision and conversion path.
 # Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
+index f729798..2b63501 100644
 --- a/src/MSL/wprintf.c
 +++ b/src/MSL/wprintf.c
-@@ -52,7 +52,12 @@
+@@ -45,7 +45,12 @@ enum argument_options {
      intmax_argument,
      size_t_argument,
      ptrdiff_argument,
@@ -15,7 +18,7 @@
  };
  
  typedef struct {
-@@ -267,7 +272,11 @@
+@@ -260,7 +265,11 @@ static const wchar_t* parse_format(const wchar_t* format_string, va_list* arg, p
          break;
  
      case L'p':
@@ -27,7 +30,7 @@
          f.alternate_form = 1;
          f.conversion_char = L'x';
          f.precision = 8;
-@@ -1087,6 +1096,11 @@
+@@ -1080,6 +1089,11 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
          case L'u':
          case L'x':
          case L'X':

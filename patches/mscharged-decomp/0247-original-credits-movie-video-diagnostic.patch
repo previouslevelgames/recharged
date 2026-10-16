@@ -1,5 +1,5 @@
 Subject: [PATCH] Enable named original Credits movie/video diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary owner-authorized diagnostic flow scope only
 
 The selected scene diagnostic retains actual phase2 parent MoviePlayer Update,
@@ -10,9 +10,10 @@ unrelated E3/GameInfo/HBM/world/phase3 transition omissions remain explicit.
 No extra assets, fabricated readiness, clock or game algorithm is supplied.
 
 diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
+index 2e1c342..eb1cd29 100644
 --- a/src/Game/SH/SHCredits.cpp
 +++ b/src/Game/SH/SHCredits.cpp
-@@ -278,7 +278,7 @@
+@@ -284,7 +284,7 @@ void CreditScene::SetupForCredits()
  
  void CreditScene::UpdateForCredits(float fDeltaT)
  {
@@ -22,6 +23,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  #endif
  
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index 6713462..94e7074 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
 @@ -26,7 +26,7 @@
@@ -33,7 +35,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  Config gMovieConfig(Config::ALLOCATE_HIGH, 0x2800, 0x400);
  #endif
  
-@@ -85,15 +85,17 @@
+@@ -85,15 +85,17 @@ void MoviePlayerScene::SetMovieDetails(const char* filename, bool withsound, boo
  
  void MoviePlayerScene::Update(float fDeltaT)
  {
@@ -51,8 +53,8 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
 +#endif
      if (!mMovieStarted)
      {
-         mMovieStarted = MovieStart(mMovieFilename, false, mLoopMovie, SCGetSoundMode() == 0);
-@@ -115,10 +117,12 @@
+ #if defined(VERSION_R4QP01_REV1)
+@@ -119,10 +121,12 @@ void MoviePlayerScene::Update(float fDeltaT)
          int fadeIn = GetConfigInt(gMovieConfig, configKey, 500);
          THPSimpleSetVolume(0, 0);
          THPSimpleSetVolume((int)(127.0f * volume), fadeIn);
@@ -65,7 +67,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      }
      if (!mMovieStarted || CheckMoviePlayerAbort())
      {
-@@ -147,7 +151,7 @@
+@@ -151,7 +155,7 @@ void MoviePlayerScene::Update(float fDeltaT)
  
  bool MoviePlayerScene::CheckMoviePlayerAbort()
  {
@@ -75,9 +77,10 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  #else
      return g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0);
 diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
+index 65eae51..9da6b5e 100644
 --- a/src/Game/Sys/movie.cpp
 +++ b/src/Game/Sys/movie.cpp
-@@ -65,7 +65,12 @@
+@@ -65,7 +65,12 @@ bool MovieInit()
          return true;
      }
  
@@ -91,9 +94,10 @@ diff --git a/src/Game/Sys/movie.cpp b/src/Game/Sys/movie.cpp
      return true;
  #endif
 diff --git a/src/NL/glx/GXMaterialProgramRegistry.cpp b/src/NL/glx/GXMaterialProgramRegistry.cpp
+index 142bc71..ef4f9d2 100644
 --- a/src/NL/glx/GXMaterialProgramRegistry.cpp
 +++ b/src/NL/glx/GXMaterialProgramRegistry.cpp
-@@ -85,7 +85,7 @@
+@@ -85,7 +85,7 @@ void glInitMaterialPrograms()
      new (nlMalloc(sizeof(GXSpecularLookupMaterialProgram), 8, false))
          GXSpecularLookupMaterialProgram;
  #endif

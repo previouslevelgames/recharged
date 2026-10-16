@@ -1,14 +1,15 @@
 From: mscharged native port
 Subject: Scope shadow preview behavior outside the original game module
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore original shadow target methods and source-owned colour tweaks in the
 original game module; retain existing standalone diagnostic behavior.
 
 diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
+index 5841641..220c02d 100644
 --- a/src/Game/Render/ShadowVolume.cpp
 +++ b/src/Game/Render/ShadowVolume.cpp
-@@ -24,13 +24,13 @@
+@@ -24,13 +24,13 @@ static GLRenderPair sShadowVolumeTarget;
  
  void CreateShadowVolumeTarget()
  {
@@ -24,7 +25,7 @@ diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
      info.width = glGetScreenWidth();
      info.height = glGetScreenHeight();
  #else
-@@ -44,7 +44,7 @@
+@@ -44,7 +44,7 @@ void CreateShadowVolumeTarget()
  
  void SetShadowVolumeTarget(GLView* view, GLView*)
  {
@@ -33,7 +34,7 @@ diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
      if (!view) throw std::invalid_argument("Missing volume view");
      glValidateTarget(sShadowVolumeTarget);
  #endif
-@@ -55,7 +55,7 @@
+@@ -55,7 +55,7 @@ void SetShadowVolumeTarget(GLView* view, GLView*)
  void AttachShadowVolumeModels(
      glModel* firstModel, glModel* secondModel, GLView* view, GLView*)
  {
@@ -42,7 +43,7 @@ diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
      if (!firstModel || !secondModel || firstModel == secondModel || !view)
          throw std::invalid_argument("Shadow volume needs two independent model packets");
  #endif
-@@ -81,7 +81,7 @@
+@@ -81,7 +81,7 @@ void AttachShadowVolumeModels(
  
  void RenderShadowVolumeBlend(GLView* view)
  {
@@ -51,7 +52,7 @@ diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
      if (!view) throw std::invalid_argument("Missing volume blend view");
      glValidateTarget(sShadowVolumeTarget);
      glSetCurrentMatrix(glGetIdentityMatrix());
-@@ -99,7 +99,7 @@
+@@ -99,7 +99,7 @@ void RenderShadowVolumeBlend(GLView* view)
      glSetTextureState(GLTS_DiffuseWrap, 3);
      glSetCurrentTextureState(glHandleizeTextureState());
  
@@ -60,7 +61,7 @@ diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
      float width = float(glGetScreenWidth());
      float height = float(glGetScreenHeight());
  #else
-@@ -146,7 +146,7 @@
+@@ -146,7 +146,7 @@ void RenderShadowVolumeBlend(GLView* view)
      }
  }
  
@@ -70,6 +71,7 @@ diff --git a/src/Game/Render/ShadowVolume.cpp b/src/Game/Render/ShadowVolume.cpp
  {
      if (sShadowVolumeTarget) glDestroyTarget(&sShadowVolumeTarget);
 diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
+index a386623..f080caa 100644
 --- a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 +++ b/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp
 @@ -9,7 +9,7 @@
@@ -81,7 +83,7 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXS
  #include "NL/glx/GXMaterialShadowTweaks.h"
  #endif
  #include "NL/glx/glxDisplayList.h"
-@@ -24,7 +24,7 @@
+@@ -24,7 +24,7 @@ enum ShadowVolumeMode
  };
  
  static int sShadowVolumeMode;
@@ -90,7 +92,7 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXS
  // Supplied explicitly by the selected original layer setup; tweak registry is not linked.
  static GXColor sNativeShadowColour;
  static bool sNativeShadowColourSet;
-@@ -68,7 +68,7 @@
+@@ -68,7 +68,7 @@ static void SetShadowVolumeMode(int mode)
  
  void CopyShadowVolumeColour(const GXColor* colour)
  {
@@ -99,7 +101,7 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXS
      if (!colour) throw std::invalid_argument("Missing shadow volume colour");
      sNativeShadowColour = *colour;
      sNativeShadowColourSet = true;
-@@ -83,7 +83,7 @@
+@@ -83,7 +83,7 @@ void CopyShadowVolumeColour(const GXColor* colour)
  static inline void SetShadowVolumeColour()
  {
      GXColor colour;
@@ -108,7 +110,7 @@ diff --git a/src/NL/glx/GXShadowVolumeMaterialProgramRender.cpp b/src/NL/glx/GXS
      if (!sNativeShadowColourSet) throw std::logic_error("Shadow volume colour requires layer setup");
      colour = sNativeShadowColour;
  #else
-@@ -148,7 +148,7 @@
+@@ -148,7 +148,7 @@ void GXMaterialProgramImpl<GXShadowVolumeMaterialProgram>::Draw(
          static_cast<GXShadowVolumeMaterialProgram*>(this)->DrawDirect(packet);
  }
  

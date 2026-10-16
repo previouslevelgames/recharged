@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the remaining original offline script services
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; apply after 0642.
 
 The frontend sequence diagnostic still threw when a script called one of the
@@ -14,10 +14,10 @@ MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES. Online tournament trophy services
 (0, 3, 13, 51) stay gated with the online scenes.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 8e4219c..a4fadae 100644
+index 44f96c8..dbda71f 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -493,7 +493,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -501,7 +501,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          break;
      }
  #endif
@@ -26,7 +26,7 @@ index 8e4219c..a4fadae 100644
      case 17:
          lbl_806E1058 += gAudioEnabled ? 1 : 0;
          lbl_806E1048 = nlGetTicker();
-@@ -523,7 +523,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -531,7 +531,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStepOrUndo(this, FinishLoadStadium(false));
          break;
  #endif
@@ -35,7 +35,7 @@ index 8e4219c..a4fadae 100644
      case 21:
          SetLoadingComment("AsyncFinalizeGameWorldLoadingForStadiumViewer");
          FinishLoadingStepOrUndo(this, FinishLoadStadium(true));
-@@ -578,8 +578,6 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -586,8 +586,6 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          gpHBMManager->LoadResources();
          break;
  #endif
@@ -44,16 +44,16 @@ index 8e4219c..a4fadae 100644
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
      || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
      case 28:
-@@ -651,7 +649,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
-         fn_8011A2E8(this);
+@@ -659,7 +657,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         StartAsyncGameWorldLoading(this);
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 39:
          SetLoadingComment("AsyncStartGameWorldLoadingForStadiumViewer");
-         fn_802772D0(GetStadiumName(GameInfoManager::Instance()->GetStadium()), true);
-@@ -725,7 +723,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         LoadStadium(GetStadiumName(GameInfoManager::Instance()->GetStadium()), true);
+@@ -733,7 +731,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 48:
          break;
  #endif
@@ -62,25 +62,25 @@ index 8e4219c..a4fadae 100644
      case 49:
          --m_SP;
          break;
-@@ -761,7 +759,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -769,7 +767,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStep(this);
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 57:
-         fn_8011926C(this);
+         DestroyFrontEndFast(this);
          break;
-@@ -774,7 +772,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
-         fn_8011A9DC(this);
+@@ -782,7 +780,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         DestroyGameState(this);
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 60:
-         fn_8011B02C(this);
+         InitializeLegalScreenAndMovies(this);
          break;
-@@ -901,12 +899,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -909,12 +907,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          break;
      }
  #endif
@@ -97,9 +97,9 @@ index 8e4219c..a4fadae 100644
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 84:
          mLoadingState = ASYNC_RESOURCES_LOADING;
-         fn_80111660(2);
-@@ -951,7 +953,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
-         fn_8011A800(this);
+         OnResourceReloadBegin(2);
+@@ -959,7 +961,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         FinalizeGameStateLoading(this);
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
@@ -107,21 +107,21 @@ index 8e4219c..a4fadae 100644
      case 91:
          SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
          BeginFrameTask::s_FramerateLocked = false;
-@@ -1001,10 +1003,12 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1009,10 +1011,12 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStep(this);
          break;
  #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 98:
-         fn_8011B6E8(this);
+         InitializeStadiumViewer(this);
          break;
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 99:
      {
          SetLoadingComment("InitializeStadiumViewer2");
-@@ -1077,7 +1081,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1085,7 +1089,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          m_SP[-1] = gNPCManager->SelectNextNPCTemplate();
          break;
  #endif
@@ -130,7 +130,7 @@ index 8e4219c..a4fadae 100644
      case 109:
          gNPCManager->CreateDiddyBanana();
          break;
-@@ -1108,7 +1112,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1116,7 +1120,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          gNPCManager->CreateYoshiEgg();
          break;
  #endif

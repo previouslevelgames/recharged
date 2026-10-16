@@ -1,12 +1,13 @@
 Subject: Keep RVL scalar and clock fields at console widths
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 RVL long typedefs widen on LP64. Use fixed-width 32-bit fields and the
 standard pointer-width type. Avoid native POSIX and C++ character-type name
 collisions. This does not adapt pointer-bearing SDK structures or Wii services.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+index f35021d..16142a5 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
 @@ -2,25 +2,26 @@
@@ -47,7 +48,27 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/incl
  } OSCalendarTime;
  
  OSTime OSGetTime(void);
+diff --git a/libs/RVL_SDK/include/revolution/os/OS_fwd.h b/libs/RVL_SDK/include/revolution/os/OS_fwd.h
+index 97eace4..5521be6 100644
+--- a/libs/RVL_SDK/include/revolution/os/OS_fwd.h
++++ b/libs/RVL_SDK/include/revolution/os/OS_fwd.h
+@@ -1,11 +1,13 @@
+ #ifndef REVOLUTION_OS_BASE_FWD_H
+ #define REVOLUTION_OS_BASE_FWD_H
+ 
++#include <stdint.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
+-unsigned long OSGetConsoleType(void);
++uint32_t OSGetConsoleType(void);
+ 
+ #ifdef __cplusplus
+ }
 diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
+index aa7de73..794b1d9 100644
 --- a/libs/RVL_SDK/include/revolution/types.h
 +++ b/libs/RVL_SDK/include/revolution/types.h
 @@ -2,14 +2,15 @@
@@ -68,7 +89,7 @@ diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revo
  typedef unsigned long long u64;
  
  typedef volatile u8 vu8;
-@@ -54,16 +55,21 @@
+@@ -54,16 +55,21 @@ typedef unsigned short wchar_t;
  #define NULL 0
  #endif
  
@@ -92,21 +113,3 @@ diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revo
  
  #define ALIGN(x) __attribute__((aligned(x)))
  #define ATTRIBUTE_ALIGN(x) ALIGN(x)
-diff --git a/libs/RVL_SDK/include/revolution/os/OS_fwd.h b/libs/RVL_SDK/include/revolution/os/OS_fwd.h
---- a/libs/RVL_SDK/include/revolution/os/OS_fwd.h
-+++ b/libs/RVL_SDK/include/revolution/os/OS_fwd.h
-@@ -1,11 +1,13 @@
- #ifndef REVOLUTION_OS_BASE_FWD_H
- #define REVOLUTION_OS_BASE_FWD_H
-+
-+#include <stdint.h>
- 
- #ifdef __cplusplus
- extern "C" {
- #endif
- 
--unsigned long OSGetConsoleType(void);
-+uint32_t OSGetConsoleType(void);
- 
- #ifdef __cplusplus
- }

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve original audio pool native teardown strides
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use each actual native source type's physical slot size in the original pool
 free calls. Preserve original call order, logical capacities/growth, pool state,
@@ -8,6 +8,7 @@ owner/free/stack decisions and exact console projection. No original manager,
 effect factory, Backend/AX readiness or lifetime cleanup is supplied.
 
 diff --git a/src/Game/Audio/AudioBundleManagerPlatform.cpp b/src/Game/Audio/AudioBundleManagerPlatform.cpp
+index 7d640f1..b723b9a 100644
 --- a/src/Game/Audio/AudioBundleManagerPlatform.cpp
 +++ b/src/Game/Audio/AudioBundleManagerPlatform.cpp
 @@ -11,6 +11,9 @@
@@ -20,40 +21,40 @@ diff --git a/src/Game/Audio/AudioBundleManagerPlatform.cpp b/src/Game/Audio/Audi
  
  bool AudioRpcBundleManager::Initialize()
  {
-@@ -22,16 +25,36 @@
+@@ -22,16 +25,36 @@ bool AudioRpcBundleManager::Initialize()
  void AudioRpcBundleManager::Shutdown()
  {
-     fn_802B467C(&sSoundCueHandlePool);
+     OnSlotPoolStateRelease(&sSoundCueHandlePool);
 +#if defined(MSCHARGED_NATIVE)
 +    SlotPoolBase::BaseFreeBlocks(&sSoundCueHandlePool, sizeof(XSoundCueHandle));
 +#else
      SlotPoolBase::BaseFreeBlocks(&sSoundCueHandlePool, 0x40);
 +#endif
-     fn_802B467C(&sSoundInstancePool);
+     OnSlotPoolStateRelease(&sSoundInstancePool);
 +#if defined(MSCHARGED_NATIVE)
 +    SlotPoolBase::BaseFreeBlocks(&sSoundInstancePool, sizeof(SoundInstance));
 +#else
      SlotPoolBase::BaseFreeBlocks(&sSoundInstancePool, 0x7C);
 +#endif
      sAudioSequenceInstancePool.FreeBlocks();
-     fn_802B467C(&sSoundPlaybackEventPool);
+     OnSlotPoolStateRelease(&sSoundPlaybackEventPool);
 +#if defined(MSCHARGED_NATIVE)
 +    SlotPoolBase::BaseFreeBlocks(&sSoundPlaybackEventPool, sizeof(SoundPlaybackEvent));
 +#else
      SlotPoolBase::BaseFreeBlocks(&sSoundPlaybackEventPool, 0x34);
 +#endif
-     fn_802B467C(&sHitMarkerEventPool);
+     OnSlotPoolStateRelease(&sHitMarkerEventPool);
 +#if defined(MSCHARGED_NATIVE)
 +    SlotPoolBase::BaseFreeBlocks(&sHitMarkerEventPool, sizeof(HitMarkerEvent));
 +#else
      SlotPoolBase::BaseFreeBlocks(&sHitMarkerEventPool, 0x18);
 +#endif
-     fn_802B467C(&sParameterChangeEventPool);
+     OnSlotPoolStateRelease(&sParameterChangeEventPool);
 +#if defined(MSCHARGED_NATIVE)
 +    SlotPoolBase::BaseFreeBlocks(&sParameterChangeEventPool, sizeof(ParameterChangeEvent));
 +#else
      SlotPoolBase::BaseFreeBlocks(&sParameterChangeEventPool, 0x18);
 +#endif
-     fn_802B467C(&sAudioRpcListEntryPool);
+     OnSlotPoolStateRelease(&sAudioRpcListEntryPool);
      SlotPoolBase::BaseFreeBlocks(
          &sAudioRpcListEntryPool, sizeof(AudioRpcListEntry));

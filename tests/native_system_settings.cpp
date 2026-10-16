@@ -209,35 +209,24 @@ static void TestIdleMode()
     ShutdownNativeSystemSettings();
 }
 
+// The languages the USA and European releases select (platform/game_release)
+// reach original SC queries unchanged, beside the other settings.
 static void TestLanguagePreference()
 {
     using namespace mscharged;
-    static_assert(SC_LANG_EN == 1 && SC_LANG_FR == 3 && SC_LANG_SP == 4);
-    struct Request { const char* preference; u8 expected; };
-    for (const auto request : {Request{"auto", SC_LANG_EN}, Request{"english", SC_LANG_EN},
-                              Request{"french", SC_LANG_FR}, Request{"spanish", SC_LANG_SP}})
+    static_assert(SC_LANG_EN == 1 && SC_LANG_DE == 2 && SC_LANG_FR == 3 && SC_LANG_SP == 4 && SC_LANG_IT == 5);
+    for (const u8 language : {u8(SC_LANG_EN), u8(SC_LANG_DE), u8(SC_LANG_FR), u8(SC_LANG_SP), u8(SC_LANG_IT)})
     {
-        Check(SCCheckStatus() == SC_STATUS_FATAL, "mapper starts without a settings owner");
-        const auto language = ResolveNativeUSASystemLanguage(request.preference);
-        Check(language == request.expected, "native preference selects exact Wii SC enum");
-        Check(SCCheckStatus() == SC_STATUS_FATAL, "mapping alone publishes no source readiness");
+        Check(SCCheckStatus() == SC_STATUS_FATAL, "each language session starts without a settings owner");
         ConfigureNativeSystemSettings({language, SC_PROGRESSIVE, SC_EURGB_60_HZ, SC_ASPECT_WIDE, SC_SND_MONO});
-        Check(SCGetLanguage() == request.expected && SCCheckStatus() == SC_STATUS_BUSY,
-              "original pre-init query receives mapped preference");
+        Check(SCGetLanguage() == language && SCCheckStatus() == SC_STATUS_BUSY,
+              "original pre-init query receives the release's language");
         SCInit();
-        Check(SCGetLanguage() == request.expected && SCCheckStatus() == SC_STATUS_OK,
-              "original initialized query retains mapped record");
+        Check(SCGetLanguage() == language && SCCheckStatus() == SC_STATUS_OK,
+              "original initialized query retains the language record");
         Check(SCGetProgressiveMode() == SC_PROGRESSIVE && SCGetEuRgb60Mode() == SC_EURGB_60_HZ
               && SCGetAspectRatio() == SC_ASPECT_WIDE && SCGetSoundMode() == SC_SND_MONO,
-              "language mapping preserves independent complete system settings");
-        Reject([] { ResolveNativeUSASystemLanguage("japanese"); }, "unsupported mapping rejects with live owner");
-        Check(SCGetLanguage() == request.expected && SCCheckStatus() == SC_STATUS_OK,
-              "failed mapping changes no active source snapshot");
+              "the language leaves the other system settings intact");
         ShutdownNativeSystemSettings();
-    }
-    for (const char* unsupported : {"german", "italian", "japanese", "", "English", "unknown"})
-    {
-        Reject([&] { ResolveNativeUSASystemLanguage(unsupported); }, "unsupported USA preference rejects");
-        Check(SCCheckStatus() == SC_STATUS_FATAL, "unsupported preference acquires no source owner");
     }
 }

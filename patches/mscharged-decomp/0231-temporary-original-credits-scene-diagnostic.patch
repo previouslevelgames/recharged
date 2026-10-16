@@ -1,6 +1,6 @@
 Subject: [PATCH] Scope temporary original Credits scene integration
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE explicitly omits unrelated views, material
 programs, world/input/movie initialization and later phases in a scene test.
@@ -9,6 +9,7 @@ Normal builds keep the original flow. Native GX declarations/fog argument order
 use the canonical host SDK without changing the original requests.
 
 diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
+index a1966a3..bfcf256 100644
 --- a/src/Game/Render/RLViewLayers.cpp
 +++ b/src/Game/Render/RLViewLayers.cpp
 @@ -1,4 +1,8 @@
@@ -20,7 +21,7 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
  #include "Game/Render/NisPipSteps.h"
  
  #include "NL/gl/glPlat.h"
-@@ -115,6 +119,7 @@
+@@ -115,6 +119,7 @@ bool sWidescreen;
  
  void ApplyLayerVisibilityTweaks()
  {
@@ -28,7 +29,7 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
      sLayerViews[eCLV_ImpostorTexture]->m_Visible = eCLV_ImpostorTextureEnabled.GetValue();
      sLayerViews[eCLV_ShadowTexture]->m_Visible = eCLV_ShadowTextureEnabled.GetValue();
      sLayerViews[eCLV_GrabTexture]->m_Visible = eCLV_GrabTextureEnabled.GetValue();
-@@ -158,11 +163,14 @@
+@@ -158,11 +163,14 @@ void ApplyLayerVisibilityTweaks()
      sLayerViews[eCLV_Transitions3D]->m_Visible = eCLV_Transitions3DEnabled.GetValue();
      sLayerViews[eCLV_Transitions]->m_Visible = eCLV_TransitionsEnabled.GetValue();
      sLayerViews[eCLV_Anark3D_BG]->m_Visible = eCLV_Anark3D_BGEnabled.GetValue();
@@ -43,7 +44,7 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
  }
  
  int GetShadowPartitionCount()
-@@ -478,6 +486,7 @@
+@@ -478,6 +486,7 @@ void SetupViews()
  {
      int i;
  
@@ -51,7 +52,7 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
      CreateLayerViews(&sPerspectiveCamera, sPerspectiveLayers, 27);
  
      CreateLayerViews(&sPipCamera, sPipLayers, 2);
-@@ -486,8 +495,10 @@
+@@ -486,8 +495,10 @@ void SetupViews()
  
      CreateLayerViews(&sOrtho640Camera, sSquareOrthoLayers, 2);
  
@@ -62,7 +63,7 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
      CreateLayerViews(&sCameraSpaceCamera, sCameraSpaceLayers, 1);
  
      CreateLayerViews(&sTransitions3DCamera, sTransitions3DLayers, 1);
-@@ -503,12 +514,17 @@
+@@ -503,12 +514,17 @@ void SetupViews()
  
      CreateRenderTargets();
  
@@ -80,15 +81,16 @@ diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
      sLayerViews[eCLV_Warble]->m_Enabled = true;
  
      CreateShadowPartitionViews();
-@@ -525,6 +541,7 @@
+@@ -525,6 +541,7 @@ void SetupViews()
      sLayerViews[eCLV_HighRange3DNoFog]->m_Enabled = true;
  
      InitializeHighRange(&gHighRange);
 +#endif
  }
  
- float fn_8027313C()
+ float GetNearClipDistance()
 diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
+index 8ef1fff..2e1c342 100644
 --- a/src/Game/SH/SHCredits.cpp
 +++ b/src/Game/SH/SHCredits.cpp
 @@ -1,4 +1,7 @@
@@ -99,25 +101,24 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  #include "Game/SH/SHNavigation.h"
  #include "Game/GameSceneManager.h"
  #include "Game/SH/SHCredits.h"
-@@ -41,9 +44,15 @@
+@@ -38,9 +41,15 @@ CreditScene::CreditScene()
      : mAreCreditsOver(false)
      , mFinalMessageDisplayed(false)
      , mFadeStarted(false)
 -    , mPhase(CREDITS_NINTENDO_LOGO)
--{
 +#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 +    , mPhase(2)
 +#else
 +    , mPhase(0)
 +#endif
-+{
+ {
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
      SetPointerEnabled(0);
 +#endif
      mTimeElapsed = 0.0f;
  
      for (int i = 0; i < 20; ++i)
-@@ -56,15 +65,19 @@
+@@ -53,15 +62,19 @@ CreditScene::CreditScene()
  
  CreditScene::~CreditScene()
  {
@@ -137,7 +138,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  }
  
  void CreditScene::Update(float fDeltaT)
-@@ -82,8 +95,10 @@
+@@ -79,8 +92,10 @@ void CreditScene::Update(float fDeltaT)
          BaseSceneHandler::Update(fDeltaT);
          UpdateForNintendoLogo(fDeltaT);
          break;
@@ -150,7 +151,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
          break;
      }
  }
-@@ -102,6 +117,11 @@
+@@ -99,6 +114,11 @@ void CreditScene::SetupForPhase()
      mFadeStarted = false;
      mTimeElapsed = 0.0f;
  
@@ -162,7 +163,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
      switch (mPhase)
      {
      case CREDITS_NLG_INTRO:
-@@ -165,6 +185,7 @@
+@@ -162,6 +182,7 @@ void CreditScene::SetupForPhase()
          }
          break;
      }
@@ -170,7 +171,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  }
  
  void CreditScene::OnMoviePlaybackEnded()
-@@ -266,7 +287,9 @@
+@@ -263,7 +284,9 @@ void CreditScene::SetupForCredits()
  
  void CreditScene::UpdateForCredits(float fDeltaT)
  {
@@ -180,7 +181,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  
      float fraction = fDeltaT / 8.5f;
      float movement = 500.0f * fraction;
-@@ -363,11 +386,13 @@
+@@ -360,11 +383,13 @@ void CreditScene::UpdateForCredits(float fDeltaT)
                  quitcredits = true;
              }
          }
@@ -194,7 +195,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  
          if (quitcredits)
          {
-@@ -387,7 +412,9 @@
+@@ -384,7 +409,9 @@ void CreditScene::UpdateForCredits(float fDeltaT)
          }
          ++mPhase;
          SetupForPhase();
@@ -205,6 +206,7 @@ diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
  }
  
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index 04c1c01..6713462 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
 @@ -2,6 +2,9 @@
@@ -227,7 +229,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  
  MoviePlayerScene::MoviePlayerScene()
      : mNextScene(SCENE_INVALID)
-@@ -37,6 +42,7 @@
+@@ -37,6 +42,7 @@ MoviePlayerScene::MoviePlayerScene()
      typedef Detail::MemFunImpl<void, void (MoviePlayerScene::*)()> MemFunImpl_MoviePlayerScene_v;
      typedef BindExp1<void, MemFunImpl_MoviePlayerScene_v, MoviePlayerScene*> BindExp1_MoviePlayerScene_v;
      mMovieFilename[0] = 0;
@@ -235,7 +237,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (GameSceneManager::s_pInstance)
      {
          mGameSceneManager = GameSceneManager::s_pInstance;
-@@ -46,10 +52,12 @@
+@@ -46,10 +52,12 @@ MoviePlayerScene::MoviePlayerScene()
          mGameSceneManager = g_pOverlayManager;
      }
      FindEvent<NoEventData>("HBMHide", -1)->Add(Function<FnVoidVoid>(BindExp1_MoviePlayerScene_v(MemFun(&MoviePlayerScene::OnHBMHide), this)), (EventOwnerHandle)&mHBMHideConnection, -1);
@@ -248,7 +250,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (GameInfoManager::Instance()->mIsInStrikers101Mode)
      {
          g_bRenderWorld = true;
-@@ -58,6 +66,7 @@
+@@ -58,6 +66,7 @@ MoviePlayerScene::~MoviePlayerScene()
      {
          g_pFEInput->PopExclusiveInputLock(this);
      }
@@ -256,7 +258,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  }
  
  void MoviePlayerScene::SceneCreated()
-@@ -76,6 +85,9 @@
+@@ -76,6 +85,9 @@ void MoviePlayerScene::SetMovieDetails(const char* filename, bool withsound, boo
  
  void MoviePlayerScene::Update(float fDeltaT)
  {
@@ -266,7 +268,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      BaseSceneHandler::Update(fDeltaT);
      if (g_e3_Build)
      {
-@@ -130,15 +142,23 @@
+@@ -134,15 +146,23 @@ void MoviePlayerScene::Update(float fDeltaT)
          MovieStop();
          OnMoviePlaybackEnded();
      }
@@ -290,7 +292,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      if (mPushWithPop)
      {
          mGameSceneManager->Push(mNextScene, SCREEN_NOTHING, true);
-@@ -149,6 +169,7 @@
+@@ -153,6 +173,7 @@ void MoviePlayerScene::OnMoviePlaybackEnded()
          mGameSceneManager->Pop();
          PlayScreenBackSFX();
      }
@@ -299,9 +301,10 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
  
  void MoviePlayerScene::PlayScreenForwardSFX()
 diff --git a/src/NL/glx/GXMaterialProgramRegistry.cpp b/src/NL/glx/GXMaterialProgramRegistry.cpp
+index c17a0aa..142bc71 100644
 --- a/src/NL/glx/GXMaterialProgramRegistry.cpp
 +++ b/src/NL/glx/GXMaterialProgramRegistry.cpp
-@@ -7,88 +7,166 @@
+@@ -7,88 +7,166 @@ void glInitMaterialPrograms()
  {
      new (nlMalloc(sizeof(GXUnlitTextureMaterialProgram), 8, false))
          GXUnlitTextureMaterialProgram;
@@ -469,6 +472,7 @@ diff --git a/src/NL/glx/GXMaterialProgramRegistry.cpp b/src/NL/glx/GXMaterialPro
 +#endif
  }
 diff --git a/src/NL/glx/glxFog.cpp b/src/NL/glx/glxFog.cpp
+index a83cf0d..731ed4a 100644
 --- a/src/NL/glx/glxFog.cpp
 +++ b/src/NL/glx/glxFog.cpp
 @@ -1,4 +1,8 @@
@@ -480,7 +484,7 @@ diff --git a/src/NL/glx/glxFog.cpp b/src/NL/glx/glxFog.cpp
  
  #include "Game/TweakValueFloat.h"
  #include "Game/TweakValueInt.h"
-@@ -74,7 +78,11 @@
+@@ -74,7 +78,11 @@ void glx_Fog(bool enable)
          float bScaled = b * glx_FogIntensity.value;
          fogColour.b = (s32)bScaled;
          fogColour.a = 0xFF;
@@ -492,7 +496,7 @@ diff --git a/src/NL/glx/glxFog.cpp b/src/NL/glx/glxFog.cpp
      }
      else
      {
-@@ -83,6 +91,10 @@
+@@ -83,6 +91,10 @@ void glx_Fog(bool enable)
          fogColour.g = 0xFF;
          fogColour.b = 0xFF;
          fogColour.a = 0xFF;
@@ -504,6 +508,7 @@ diff --git a/src/NL/glx/glxFog.cpp b/src/NL/glx/glxFog.cpp
      }
  }
 diff --git a/src/NL/glx/glxTarget.cpp b/src/NL/glx/glxTarget.cpp
+index 0557ba4..bd42d9a 100644
 --- a/src/NL/glx/glxTarget.cpp
 +++ b/src/NL/glx/glxTarget.cpp
 @@ -1,4 +1,8 @@
@@ -514,4 +519,4 @@ diff --git a/src/NL/glx/glxTarget.cpp b/src/NL/glx/glxTarget.cpp
 +#endif
  #include "NL/gl/glTexture.h"
  
- #include "NL/gl/glTexture.h"
+ #include "NL/glx/glxTarget.h"

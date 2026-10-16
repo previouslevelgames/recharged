@@ -1,11 +1,13 @@
 Subject: Expose actual original HBM silence storage for native DSP ownership
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 A native storage getter exposes the existing original AxManager static array
 before arena capture. It neither constructs the manager nor initializes sound.
 The host retains the same loaded source image for device reads.
 
+diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxManager.h
+index 077eee7..83ea63e 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxManager.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxManager.h
 @@ -9,6 +9,9 @@
@@ -18,7 +20,7 @@ The host retains the same loaded source image for device reads.
  
  namespace nw4hbm {
  namespace snd {
-@@ -76,6 +79,9 @@
+@@ -76,6 +79,9 @@ public:
      AxVoiceList& GetVoiceList() { return mPrioVoiceList; }
  
  private:
@@ -28,9 +30,11 @@ The host retains the same loaded source image for device reads.
      static const u8 AUX_CALLBACK_WAIT_FRAME = 6;
  
      static const int FX_SAMPLE_RATE = AX_SAMPLE_RATE;
+diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
+index 084cb92..0befdce 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_AxManager.cpp
-@@ -514,3 +514,10 @@
+@@ -514,3 +514,10 @@ int AxManager::DropLowestPriorityVoice(int priority) {
  } // namespace detail
  } // namespace snd
  } // namespace nw4hbm

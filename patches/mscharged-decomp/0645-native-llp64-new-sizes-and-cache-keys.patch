@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 widths for operator new sizes and pointer cache keys
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility; apply after 0644.
 
 64-bit Windows is LLP64: unsigned long stays 32-bit while size_t and pointers
@@ -12,7 +12,7 @@ key is __UINTPTR_TYPE__ instead of unsigned long. Console spellings remain
 behind the MSCHARGED_NATIVE conditionals.
 
 diff --git a/include/Game/Audio/AudioEffects.h b/include/Game/Audio/AudioEffects.h
-index ba1668b..c4c26cf 100644
+index 830d561..9f21fb0 100644
 --- a/include/Game/Audio/AudioEffects.h
 +++ b/include/Game/Audio/AudioEffects.h
 @@ -40,8 +40,12 @@ public:
@@ -41,7 +41,7 @@ index ba1668b..c4c26cf 100644
  #endif
  
      {
-@@ -129,8 +137,12 @@ public:
+@@ -131,8 +139,12 @@ public:
  
  #if defined(MSCHARGED_NATIVE)
      static void* operator new(std::size_t)
@@ -171,10 +171,10 @@ index 1205239..c84c8bd 100644
  {
      return sAudioSequenceInstancePool.Allocate();
 diff --git a/include/Game/Audio/AudioSource.h b/include/Game/Audio/AudioSource.h
-index fe92999..8658d86 100644
+index ec8ffa3..4d8ade4 100644
 --- a/include/Game/Audio/AudioSource.h
 +++ b/include/Game/Audio/AudioSource.h
-@@ -133,9 +133,13 @@ public:
+@@ -134,9 +134,13 @@ public:
  
  #if defined(MSCHARGED_NATIVE)
      static void* operator new(std::size_t)
@@ -188,7 +188,7 @@ index fe92999..8658d86 100644
  ;
      static void operator delete(void* pointer);
      static void OnVoiceDropped(void*);
-@@ -284,8 +288,12 @@ extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
+@@ -240,8 +244,12 @@ extern SlotPool<AudioSampleSource> gAudioSampleSourcePool;
  #if defined(MSCHARGED_NATIVE)
  inline void* AudioSampleSource::operator new(std::size_t)
  #else
@@ -201,7 +201,7 @@ index fe92999..8658d86 100644
  
  {
      return gAudioSampleSourcePool.Allocate();
-@@ -336,9 +344,13 @@ public:
+@@ -292,9 +300,13 @@ public:
  
  #if defined(MSCHARGED_NATIVE)
      static void* operator new(std::size_t)
@@ -215,7 +215,7 @@ index fe92999..8658d86 100644
  ;
      static void operator delete(void*);
  };
-@@ -354,9 +366,13 @@ public:
+@@ -310,9 +322,13 @@ public:
  
  #if defined(MSCHARGED_NATIVE)
      static void* operator new(std::size_t)
@@ -229,7 +229,7 @@ index fe92999..8658d86 100644
  ;
      static void operator delete(void*);
  };
-@@ -367,8 +383,12 @@ extern SlotPool<AudioStereoStreamSource> gAudioStereoStreamSourcePool;
+@@ -323,8 +339,12 @@ extern SlotPool<AudioStereoStreamSource> gAudioStereoStreamSourcePool;
  #if defined(MSCHARGED_NATIVE)
  inline void* AudioMonoStreamSource::operator new(std::size_t)
  #else
@@ -242,7 +242,7 @@ index fe92999..8658d86 100644
  
  {
      return gAudioMonoStreamSourcePool.Allocate();
-@@ -382,8 +402,12 @@ inline void AudioMonoStreamSource::operator delete(void* pointer)
+@@ -338,8 +358,12 @@ inline void AudioMonoStreamSource::operator delete(void* pointer)
  #if defined(MSCHARGED_NATIVE)
  inline void* AudioStereoStreamSource::operator new(std::size_t)
  #else
@@ -256,7 +256,7 @@ index fe92999..8658d86 100644
  {
      return gAudioStereoStreamSourcePool.Allocate();
 diff --git a/include/Game/Audio/CategoryVolume.h b/include/Game/Audio/CategoryVolume.h
-index f2a18aa..a6dd3aa 100644
+index 7c4c957..b30299d 100644
 --- a/include/Game/Audio/CategoryVolume.h
 +++ b/include/Game/Audio/CategoryVolume.h
 @@ -17,8 +17,12 @@ public:
@@ -376,7 +376,7 @@ index 6e7815f..7cc97e1 100644
  
      {
 diff --git a/include/Game/Audio/Reverb.h b/include/Game/Audio/Reverb.h
-index f9bb409..c295cde 100644
+index a17c718..1bd022e 100644
 --- a/include/Game/Audio/Reverb.h
 +++ b/include/Game/Audio/Reverb.h
 @@ -19,8 +19,12 @@ public:
@@ -495,7 +495,7 @@ index 71cc2ee..1b67126 100644
  
      {
 diff --git a/include/Game/NetworkLobby.h b/include/Game/NetworkLobby.h
-index d3e4fb7..ed5c255 100644
+index 720edae..9a3bdfb 100644
 --- a/include/Game/NetworkLobby.h
 +++ b/include/Game/NetworkLobby.h
 @@ -48,8 +48,12 @@ class NetworkLobby : public NetworkMachineRoster,
@@ -543,10 +543,10 @@ index 605456a..56b6d42 100644
      void operator delete(void* p);
  
 diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
-index ddfe9fc..c1a6f8e 100644
+index 6e73127..64bc48a 100644
 --- a/include/Game/NetworkSession.h
 +++ b/include/Game/NetworkSession.h
-@@ -217,8 +217,12 @@ class NetworkSocket : public NetworkSocketInterface,
+@@ -224,8 +224,12 @@ class NetworkSocket : public NetworkSocketInterface,
  public:
  #if defined(MSCHARGED_NATIVE)
      void* operator new(std::size_t size)
@@ -559,7 +559,7 @@ index ddfe9fc..c1a6f8e 100644
  #endif
   { return nlMalloc(size, 8, false); }
  
-@@ -369,8 +373,12 @@ class LANLobby : public NetworkTransportInterface,
+@@ -376,8 +380,12 @@ class LANLobby : public NetworkTransportInterface,
  public:
  #if defined(MSCHARGED_NATIVE)
      void* operator new(std::size_t size)
@@ -572,7 +572,7 @@ index ddfe9fc..c1a6f8e 100644
  #endif
   { return nlMalloc(size, 8, false); }
  
-@@ -497,8 +505,12 @@ class NetworkSession : public NetworkSessionBase,
+@@ -504,8 +512,12 @@ class NetworkSession : public NetworkSessionBase,
  public:
  #if defined(MSCHARGED_NATIVE)
      void* operator new(std::size_t size)
@@ -633,7 +633,7 @@ index f53cb5b..f8d55fb 100644
  
      {
 diff --git a/include/Game/Physics/PhysicsPatch.h b/include/Game/Physics/PhysicsPatch.h
-index e5b2157..42e80b4 100644
+index 6ee15ae..a917034 100644
 --- a/include/Game/Physics/PhysicsPatch.h
 +++ b/include/Game/Physics/PhysicsPatch.h
 @@ -55,8 +55,12 @@ public:
@@ -650,7 +650,7 @@ index e5b2157..42e80b4 100644
  
      {
 diff --git a/include/Game/Physics/PhysicsShockwave.h b/include/Game/Physics/PhysicsShockwave.h
-index bb588e0..e0e2004 100644
+index 1a555ae..98717c0 100644
 --- a/include/Game/Physics/PhysicsShockwave.h
 +++ b/include/Game/Physics/PhysicsShockwave.h
 @@ -36,8 +36,12 @@ public:
@@ -879,7 +879,7 @@ index cb6ad1f..533ea24 100644
          { return AllocateFunctionMemory(size); }
  #if defined(MSCHARGED_NATIVE)
 diff --git a/include/NL/plat/WiiClassicPad.h b/include/NL/plat/WiiClassicPad.h
-index 7331666..71b9a5b 100644
+index 8134e58..f91a3d0 100644
 --- a/include/NL/plat/WiiClassicPad.h
 +++ b/include/NL/plat/WiiClassicPad.h
 @@ -35,7 +35,11 @@ public:
@@ -895,7 +895,7 @@ index 7331666..71b9a5b 100644
          return gWiiClassicPadAllocator.Allocate();
      }
 diff --git a/include/NL/plat/WiiFreestylePad.h b/include/NL/plat/WiiFreestylePad.h
-index b567fcf..43ff2bc 100644
+index 9f0d96c..90f6ec7 100644
 --- a/include/NL/plat/WiiFreestylePad.h
 +++ b/include/NL/plat/WiiFreestylePad.h
 @@ -41,8 +41,12 @@ public:
@@ -912,7 +912,7 @@ index b567fcf..43ff2bc 100644
  
      {
 diff --git a/include/NL/plat/WiiRemotePad.h b/include/NL/plat/WiiRemotePad.h
-index 5e2b0ba..0a2207e 100644
+index b1ad9c5..2036406 100644
 --- a/include/NL/plat/WiiRemotePad.h
 +++ b/include/NL/plat/WiiRemotePad.h
 @@ -41,8 +41,12 @@ public:
@@ -966,7 +966,7 @@ index 0714f4b..4a02034 100644
      AABBDimensions* foundValue = NULL;
      int packetOffset;
 diff --git a/src/Game/Render/RenderShadow.cpp b/src/Game/Render/RenderShadow.cpp
-index edc75ec..49d5eee 100644
+index dfbb1bc..c95d645 100644
 --- a/src/Game/Render/RenderShadow.cpp
 +++ b/src/Game/Render/RenderShadow.cpp
 @@ -33,9 +33,9 @@ struct BallShadowParams

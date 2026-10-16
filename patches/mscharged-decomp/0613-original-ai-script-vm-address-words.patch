@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Transport original script VM address words natively
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The FuzzyAIRuntime VM stack holds Wii 32-bit words. Its native functions pop
 object addresses from the stack and push returned addresses back. Use the
@@ -16,9 +16,10 @@ builds keep the literal casts. (The game Presentation string natives are
 transported by 0651.)
 
 diff --git a/src/Game/AI/FuzzyRuntimeBase.cpp b/src/Game/AI/FuzzyRuntimeBase.cpp
+index 34abbe8..f0411aa 100644
 --- a/src/Game/AI/FuzzyRuntimeBase.cpp
 +++ b/src/Game/AI/FuzzyRuntimeBase.cpp
-@@ -271,7 +271,11 @@
+@@ -271,7 +271,11 @@ bool FuzzyRuntimeBase::ExecuteFunction(
  
      DesireUpdate* returnValue =
          mCaptureReturnValue
@@ -30,7 +31,7 @@ diff --git a/src/Game/AI/FuzzyRuntimeBase.cpp b/src/Game/AI/FuzzyRuntimeBase.cpp
              : 0;
  
      for (entry = mReturnValues.m_Head; entry != 0;
-@@ -316,7 +320,11 @@
+@@ -316,7 +320,11 @@ extern "C" DesireUpdate* ExecuteFuzzyFunction(
      }
  
      DesireUpdate* result =
@@ -42,7 +43,7 @@ diff --git a/src/Game/AI/FuzzyRuntimeBase.cpp b/src/Game/AI/FuzzyRuntimeBase.cpp
      if (result != 0)
      {
          result->mTemporary = true;
-@@ -344,7 +352,11 @@
+@@ -344,7 +352,11 @@ DesireUpdate* ExecuteScriptFunction(
  #endif
  
          DesireUpdate* result =
@@ -55,6 +56,7 @@ diff --git a/src/Game/AI/FuzzyRuntimeBase.cpp b/src/Game/AI/FuzzyRuntimeBase.cpp
          {
              result->mTemporary = true;
 diff --git a/src/Game/AI/ScriptMachine.cpp b/src/Game/AI/ScriptMachine.cpp
+index 57c8724..4d137b4 100644
 --- a/src/Game/AI/ScriptMachine.cpp
 +++ b/src/Game/AI/ScriptMachine.cpp
 @@ -11,6 +11,9 @@
@@ -67,7 +69,7 @@ diff --git a/src/Game/AI/ScriptMachine.cpp b/src/Game/AI/ScriptMachine.cpp
  
  char gScriptTransitionMissingReturnWarning[]
      = "WARNING! shdStateMachine transition function returned nothing, funcHash=%d\n";
-@@ -153,7 +156,11 @@
+@@ -153,7 +156,11 @@ void ScriptMachine::Initialize()
          runtime = GetFuzzyRuntime();
          u32 callHash = hash;
          runtime->ExecuteFunction(
@@ -80,6 +82,7 @@ diff --git a/src/Game/AI/ScriptMachine.cpp b/src/Game/AI/ScriptMachine.cpp
  }
  
 diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp
+index 290375b..2101691 100644
 --- a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp
 +++ b/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp
 @@ -1,3 +1,19 @@
@@ -102,7 +105,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
  extern "C" unsigned long FuzzyAIStringHash(const char* value)
  {
      return nlStringHash(value);
-@@ -29,79 +45,79 @@
+@@ -29,79 +45,79 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      {
      case 0:
      {
@@ -120,7 +123,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D82C0(arg0);
+         ((float*)m_SP)[-1] = AbleToInterceptBallForSwapController(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -132,7 +135,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D7AB8(arg0);
+         ((float*)m_SP)[-1] = AbleToContactLooseBall(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -144,7 +147,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D7B00(arg0);
+         ((float*)m_SP)[-1] = AbleToSlideTackleBall(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -156,7 +159,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D85F8(arg0);
+         ((float*)m_SP)[-1] = AbleToUseAnyPowerup(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -170,7 +173,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 -        cFielder* arg0 = (cFielder*)m_SP[-2];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D8764(arg0, arg1);
+         ((float*)m_SP)[-1] = AbleToUsePowerup(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -182,7 +185,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D84F8(arg0);
+         ((float*)m_SP)[-1] = AbleToUseSuperPower(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -196,8 +199,8 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cFielder* arg1 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D7988(arg0, arg1);
-@@ -114,434 +130,434 @@
+         ((float*)m_SP)[-1] = ActiveDesire(arg0, arg1);
+@@ -114,434 +130,434 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 8:
      {
          bool arg3 = m_SP[-1] != 0;
@@ -226,7 +229,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA330(arg0);
+         ((float*)m_SP)[-1] = ChipShotScore(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -238,7 +241,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA310(arg0);
+         ((float*)m_SP)[-1] = RegularShotScore(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -253,7 +256,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DD9C8(arg0, arg1);
+         ((float*)m_SP)[-1] = AtIdealDistanceForTackling(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -277,7 +280,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DDD70(arg0);
+         ((float*)m_SP)[-1] = AtIdealDistanceForSkillshot(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -289,7 +292,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D96F4(arg0);
+         ((float*)m_SP)[-1] = Attacked(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -555,7 +558,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9B0C(arg0);
+         ((float*)m_SP)[-1] = AvoidingFielders(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -567,7 +570,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9A38(arg0);
+         ((float*)m_SP)[-1] = AvoidingGoalie(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -579,7 +582,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9B74(arg0);
+         ((float*)m_SP)[-1] = AvoidingPowerups(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -591,7 +594,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9BDC(arg0);
+         ((float*)m_SP)[-1] = AvoidingSidelines(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -603,7 +606,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9C24(arg0);
+         ((float*)m_SP)[-1] = AvoidingStuff(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -615,7 +618,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800E06F4(arg0);
+         ((float*)m_SP)[-1] = BallCrowding(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -627,7 +630,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF838(arg0);
+         ((float*)m_SP)[-1] = BallPossessionDuration(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -662,9 +665,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 45:
      {
 -        cTeam* arg0 = (cTeam*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D671C(arg0);
+-        m_SP[-1] = (u32)BestBallInterceptorOf(arg0);
 +        cTeam* arg0 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D671C(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(BestBallInterceptorOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -687,9 +690,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 47:
      {
 -        cTeam* arg0 = (cTeam*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D6708(arg0);
+-        m_SP[-1] = (u32)CaptainOf(arg0);
 +        cTeam* arg0 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D6708(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(CaptainOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -703,7 +706,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 -        cFielder* arg0 = (cFielder*)m_SP[-2];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D795C(arg0, arg1);
+         ((float*)m_SP)[-1] = CharacterClassIs(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -715,7 +718,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cBall* arg0 = (cBall*)m_SP[-1];
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF590(arg0);
+         ((float*)m_SP)[-1] = BallCharge(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -727,7 +730,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DED80(arg0);
+         ((float*)m_SP)[-1] = PursuingBall(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -735,14 +738,14 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -560,221 +576,221 @@
+@@ -560,221 +576,221 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 52:
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D674C(arg0);
+-        m_SP[-1] = (u32)ClosestOpponentOf(arg0);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D674C(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(ClosestOpponentOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -754,7 +757,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D8A9C(arg0);
+         ((float*)m_SP)[-1] = BallInterceptionRank(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -766,7 +769,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D8BAC(arg0);
+         ((float*)m_SP)[-1] = TeamBallInterceptionRank(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -805,7 +808,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD45C(arg0);
+         ((float*)m_SP)[-1] = CloseToDesiredPosition(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -820,7 +823,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cFielder* arg1 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DD504(arg0, arg1);
+         ((float*)m_SP)[-1] = CloseToPlayersDesiredPosition(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -868,7 +871,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D92DC(arg0);
+         ((float*)m_SP)[-1] = CloseToOpponents(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -892,7 +895,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cBall* arg0 = (cBall*)m_SP[-1];
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD2F4(arg0);
+         ((float*)m_SP)[-1] = BallCloseToSideline(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -904,7 +907,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D912C(arg0);
+         ((float*)m_SP)[-1] = CloseToTeammates(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -919,7 +922,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cTeam* arg1 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DE804(arg0, arg1);
+         ((float*)m_SP)[-1] = BallCloseToNet(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -997,7 +1000,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA130(arg0);
+         ((float*)m_SP)[-1] = Confused(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1005,7 +1008,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -787,48 +803,48 @@
+@@ -787,48 +803,48 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 74:
      {
@@ -1043,7 +1046,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D7910(arg0);
+         ((float*)m_SP)[-1] = DefensiveRating(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1063,7 +1066,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -844,23 +860,23 @@
+@@ -844,23 +860,23 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 80:
      {
@@ -1084,7 +1087,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DE4B0(arg0, arg1);
+         ((float*)m_SP)[-1] = DownfieldFrom(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1092,7 +1095,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -873,211 +889,211 @@
+@@ -873,211 +889,211 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 83:
      {
@@ -1101,7 +1104,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DE1F0(arg0, arg1);
+         ((float*)m_SP)[-1] = FaceToFace(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1116,7 +1119,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DDF54(arg0, arg1);
+         ((float*)m_SP)[-1] = Facing(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1128,7 +1131,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DE0A8(arg0);
+         ((float*)m_SP)[-1] = FacingBall(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1140,7 +1143,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD744(arg0);
+         ((float*)m_SP)[-1] = FacingSideline(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1164,7 +1167,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA050(arg0);
+         ((float*)m_SP)[-1] = FallingOrShattered(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1176,7 +1179,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD4CC(arg0);
+         ((float*)m_SP)[-1] = FarToDesiredPosition(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1191,7 +1194,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cFielder* arg1 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DD684(arg0, arg1);
+         ((float*)m_SP)[-1] = FarToPlayersDesiredPosition(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1203,7 +1206,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD294(arg0);
+         ((float*)m_SP)[-1] = FarFromSideline(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1213,9 +1216,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      }
      case 92:
      {
--        cFielder* arg0 = (cFielder*)m_SP[-1];
-+        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD37C(arg0);
+-        cBall* arg0 = (cBall*)m_SP[-1];
++        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
+         ((float*)m_SP)[-1] = BallFarFromSideline(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1290,7 +1293,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D93F4(arg0);
+         ((float*)m_SP)[-1] = FarToOpponents(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1302,7 +1305,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D924C(arg0);
+         ((float*)m_SP)[-1] = FarToTeammates(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1317,7 +1320,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cTeam* arg1 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DE994(arg0, arg1);
+         ((float*)m_SP)[-1] = BallFarToNet(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1349,7 +1352,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1093,74 +1109,74 @@
+@@ -1093,74 +1109,74 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 104:
      {
@@ -1425,7 +1428,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9FC8(arg0);
+         ((float*)m_SP)[-1] = Stuck(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1440,7 +1443,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          bool arg0 = m_SP[-3] != 0;
          m_SP -= 3;
-@@ -1169,43 +1185,43 @@
+@@ -1169,43 +1185,43 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 112:
      {
@@ -1493,7 +1496,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          int arg0 = (int)m_SP[-3];
          m_SP -= 3;
-@@ -1214,7 +1230,7 @@
+@@ -1214,7 +1230,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 117:
      {
@@ -1502,7 +1505,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          int arg0 = (int)m_SP[-3];
          m_SP -= 3;
-@@ -1223,7 +1239,7 @@
+@@ -1223,7 +1239,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 118:
      {
@@ -1511,7 +1514,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          int arg0 = (int)m_SP[-3];
          m_SP -= 3;
-@@ -1232,7 +1248,7 @@
+@@ -1232,7 +1248,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 119:
      {
@@ -1520,7 +1523,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          int arg0 = (int)m_SP[-3];
          m_SP -= 3;
-@@ -1241,16 +1257,16 @@
+@@ -1241,16 +1257,16 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 120:
      {
@@ -1540,7 +1543,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          float arg0 = ((float*)m_SP)[-3];
          m_SP -= 3;
-@@ -1259,7 +1275,7 @@
+@@ -1259,7 +1275,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 122:
      {
@@ -1549,7 +1552,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          int arg0 = (int)m_SP[-3];
          m_SP -= 3;
-@@ -1268,16 +1284,16 @@
+@@ -1268,16 +1284,16 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 123:
      {
@@ -1569,7 +1572,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          unsigned long arg1 = (unsigned long)m_SP[-2];
          unsigned long arg0 = (unsigned long)m_SP[-3];
          m_SP -= 3;
-@@ -1329,7 +1345,7 @@
+@@ -1329,7 +1345,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          bool arg0 = m_SP[-2] != 0;
          m_SP -= 1;
@@ -1578,7 +1581,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1339,12 +1355,12 @@
+@@ -1339,12 +1355,12 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 130:
      {
          float arg1 = ((float*)m_SP)[-1];
@@ -1594,7 +1597,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1353,7 +1369,7 @@
+@@ -1353,7 +1369,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
@@ -1603,7 +1606,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1365,7 +1381,7 @@
+@@ -1365,7 +1381,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
@@ -1612,7 +1615,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1377,7 +1393,7 @@
+@@ -1377,7 +1393,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
@@ -1621,7 +1624,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1389,7 +1405,7 @@
+@@ -1389,7 +1405,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
@@ -1630,7 +1633,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1401,7 +1417,7 @@
+@@ -1401,7 +1417,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
@@ -1639,7 +1642,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1413,7 +1429,7 @@
+@@ -1413,7 +1429,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          float arg0 = ((float*)m_SP)[-2];
          m_SP -= 1;
@@ -1648,7 +1651,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              ((float*)m_SP)[-1] = arg0;
-@@ -1423,12 +1439,12 @@
+@@ -1423,12 +1439,12 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 137:
      {
          float arg1 = ((float*)m_SP)[-1];
@@ -1664,7 +1667,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1437,7 +1453,7 @@
+@@ -1437,7 +1453,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          float arg0 = ((float*)m_SP)[-2];
          m_SP -= 1;
@@ -1673,7 +1676,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              ((float*)m_SP)[-1] = arg0;
-@@ -1449,7 +1465,7 @@
+@@ -1449,7 +1465,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
@@ -1682,7 +1685,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1459,12 +1475,12 @@
+@@ -1459,12 +1475,12 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 140:
      {
          float arg1 = ((float*)m_SP)[-1];
@@ -1698,7 +1701,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1473,7 +1489,7 @@
+@@ -1473,7 +1489,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
          float arg1 = ((float*)m_SP)[-1];
          unsigned long arg0 = (unsigned long)m_SP[-2];
          m_SP -= 1;
@@ -1707,7 +1710,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1482,7 +1498,7 @@
+@@ -1482,7 +1498,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 142:
      {
@@ -1716,7 +1719,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          m_SP -= 1;
          FuzzyBlockExitHook(this, arg0);
          break;
-@@ -1490,7 +1506,7 @@
+@@ -1490,7 +1506,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 143:
      {
          float arg1 = ((float*)m_SP)[-1];
@@ -1725,7 +1728,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          m_SP -= 2;
          FuzzyBlockEnterHook(this, arg0, arg1);
          break;
-@@ -1522,12 +1538,12 @@
+@@ -1522,12 +1538,12 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 146:
      {
          bool arg1 = m_SP[-1] != 0;
@@ -1741,7 +1744,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1546,7 +1562,7 @@
+@@ -1546,7 +1562,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 148:
      {
          ++m_SP;
@@ -1750,7 +1753,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          break;
      }
      case 149:
-@@ -1564,19 +1580,19 @@
+@@ -1564,19 +1580,19 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 151:
      {
          ++m_SP;
@@ -1773,7 +1776,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          break;
      }
      case 154:
-@@ -1593,31 +1609,31 @@
+@@ -1593,31 +1609,31 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 155:
      {
@@ -1811,7 +1814,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1633,7 +1649,7 @@
+@@ -1633,7 +1649,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 159:
      {
@@ -1820,7 +1823,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          m_SP -= 1;
          AddAction(arg0);
          break;
-@@ -1647,7 +1663,7 @@
+@@ -1647,7 +1663,7 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 161:
      {
          unsigned long arg0 = (unsigned long)m_SP[-1];
@@ -1829,14 +1832,14 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          if (FuzzyAIIsUndoingCall(this))
          {
              m_SP[-1] = (u32)arg0;
-@@ -1666,275 +1682,275 @@
+@@ -1666,275 +1682,275 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 163:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D66A0(arg0);
+-        m_SP[-1] = (u32)MyGoalie(arg0);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D66A0(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(MyGoalie(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1872,7 +1875,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cTeam* arg0 = (cTeam*)m_SP[-1];
 +        cTeam* arg0 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF888(arg0);
+         ((float*)m_SP)[-1] = TeamBallControlConfidence(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1884,7 +1887,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D763C(arg0);
+         ((float*)m_SP)[-1] = PassingSkill(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1896,7 +1899,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D76B8(arg0);
+         ((float*)m_SP)[-1] = ShootingSkill(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1932,7 +1935,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D7734(arg0);
+         ((float*)m_SP)[-1] = HittingSkill(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1962,7 +1965,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cBall* arg1 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DC19C(arg0, arg1);
+         ((float*)m_SP)[-1] = InBetweenMyNetAndBall(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1977,7 +1980,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cFielder* arg1 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DBEF4(arg0, arg1);
+         ((float*)m_SP)[-1] = InBetweenTheirNetAnd(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -1992,7 +1995,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cBall* arg1 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DC434(arg0, arg1);
+         ((float*)m_SP)[-1] = InBetweenTheirNetAndBall(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2079,7 +2082,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA518(arg0);
+         ((float*)m_SP)[-1] = CutAndBreakOpenness(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2091,7 +2094,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800E0470(arg0);
+         ((float*)m_SP)[-1] = InNeutralZone(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2106,7 +2109,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800E05A4(arg0, arg1);
+         ((float*)m_SP)[-1] = InNeutralZoneOfPlayer(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2157,7 +2160,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D74D8(arg0);
+         ((float*)m_SP)[-1] = InShotLane(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2165,7 +2168,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -1996,21 +2012,21 @@
+@@ -1996,21 +2012,21 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 193:
      {
@@ -2183,7 +2186,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9D04(arg0);
+         ((float*)m_SP)[-1] = InvincibleToCharacters(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2191,13 +2194,13 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2032,27 +2048,27 @@
+@@ -2032,27 +2048,27 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 197:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D6AF0(arg0);
+         ((float*)m_SP)[-1] = JoggingSpeed(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2223,15 +2226,15 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cFielder* arg1 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
          int arg0 = (int)m_SP[-2];
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D79F4(arg0, arg1);
-@@ -2065,230 +2081,230 @@
+         ((float*)m_SP)[-1] = RecentlyActiveDesire(arg0, arg1);
+@@ -2065,230 +2081,230 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      case 200:
      {
          int arg1 = (int)m_SP[-1];
 -        cFielder* arg0 = (cFielder*)m_SP[-2];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D8834(arg0, arg1);
+         ((float*)m_SP)[-1] = LikelyToUsePowerup(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2294,9 +2297,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 205:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D6734(arg0);
+-        m_SP[-1] = (u32)MarkOf(arg0);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D6734(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(MarkOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2359,7 +2362,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD494(arg0);
+         ((float*)m_SP)[-1] = NearToDesiredPosition(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2374,7 +2377,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cFielder* arg1 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DD5C4(arg0, arg1);
+         ((float*)m_SP)[-1] = NearToPlayersDesiredPosition(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2422,7 +2425,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9368(arg0);
+         ((float*)m_SP)[-1] = NearToOpponents(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2434,7 +2437,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD234(arg0);
+         ((float*)m_SP)[-1] = NearToSideline(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2444,9 +2447,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      }
      case 217:
      {
--        cFielder* arg0 = (cFielder*)m_SP[-1];
-+        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD31C(arg0);
+-        cBall* arg0 = (cBall*)m_SP[-1];
++        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
+         ((float*)m_SP)[-1] = BallNearToSideline(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2458,7 +2461,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D91BC(arg0);
+         ((float*)m_SP)[-1] = NearToTeammates(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2473,7 +2476,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cTeam* arg1 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DE8CC(arg0, arg1);
+         ((float*)m_SP)[-1] = BallNearToNet(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2505,7 +2508,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2307,207 +2323,207 @@
+@@ -2307,207 +2323,207 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 223:
      {
@@ -2523,7 +2526,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D78C4(arg0);
+         ((float*)m_SP)[-1] = OffensiveRating(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2535,7 +2538,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DACF4(arg0);
+         ((float*)m_SP)[-1] = OffField(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2547,7 +2550,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cBall* arg0 = (cBall*)m_SP[-1];
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DAD3C(arg0);
+         ((float*)m_SP)[-1] = BallOffField(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2559,7 +2562,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA91C(arg0);
+         ((float*)m_SP)[-1] = OnBreakaway(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2571,7 +2574,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF028(arg0);
+         ((float*)m_SP)[-1] = OneTouchShooting(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2583,7 +2586,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DED3C(arg0);
+         ((float*)m_SP)[-1] = MushroomActive(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2598,7 +2601,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D6D14(arg0, arg1);
+         ((float*)m_SP)[-1] = OnOpposingTeams(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2610,7 +2613,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D6D78(arg0);
+         ((float*)m_SP)[-1] = OnScreen(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2625,7 +2628,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800D6CD4(arg0, arg1);
+         ((float*)m_SP)[-1] = OnSameTeam(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2649,7 +2652,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DBAB0(arg0);
+         ((float*)m_SP)[-1] = Open(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2688,7 +2691,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DBB88(arg0);
+         ((float*)m_SP)[-1] = OpenToTheirNet(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2699,9 +2702,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 238:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D66C4(arg0);
+-        m_SP[-1] = (u32)TheirGoalie(arg0);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D66C4(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(TheirGoalie(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2725,9 +2728,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 240:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D6688(arg0);
+-        m_SP[-1] = (u32)OtherTeamOf(arg0);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D6688(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(OtherTeamOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2739,7 +2742,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DE71C(arg0);
+         ((float*)m_SP)[-1] = AwayFromOwnNet(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2759,7 +2762,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2525,31 +2541,31 @@
+@@ -2525,31 +2541,31 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 245:
      {
@@ -2777,7 +2780,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF2C0(arg0);
+         ((float*)m_SP)[-1] = PassCloseToDone(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2788,9 +2791,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 247:
      {
 -        cBall* arg0 = (cBall*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D6744(arg0);
+-        m_SP[-1] = (u32)PassTargetOf(arg0);
 +        cBall* arg0 = MSCHARGED_FUZZY_VM_POINTER(cBall, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D6744(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(PassTargetOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2798,13 +2801,13 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2561,41 +2577,41 @@
+@@ -2561,41 +2577,41 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 249:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D782C(arg0);
+         ((float*)m_SP)[-1] = PlaymakerRating(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2816,7 +2819,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D7878(arg0);
+         ((float*)m_SP)[-1] = PowerRating(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2828,7 +2831,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9480(arg0);
+         ((float*)m_SP)[-1] = PressureFromNearbyOpponents(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2840,7 +2843,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D88B4(arg0);
+         ((float*)m_SP)[-1] = ProjectilePowerupStock(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2848,7 +2851,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2611,91 +2627,91 @@
+@@ -2611,91 +2627,91 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 254:
      {
@@ -2878,7 +2881,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF118(arg0);
+         ((float*)m_SP)[-1] = ReceivingGroundPass(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2890,7 +2893,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF474(arg0);
+         ((float*)m_SP)[-1] = ReceivingGroundPassDelayed(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2914,7 +2917,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF1B8(arg0);
+         ((float*)m_SP)[-1] = ReceivingPassDelayed(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2926,7 +2929,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF0B8(arg0);
+         ((float*)m_SP)[-1] = ReceivingVolleyPass(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2938,7 +2941,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DF390(arg0);
+         ((float*)m_SP)[-1] = ReceivingVolleyPassDelayed(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2950,7 +2953,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9D78(arg0);
+         ((float*)m_SP)[-1] = FallRecoveryProgress(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -2958,13 +2961,13 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2707,35 +2723,35 @@
+@@ -2707,35 +2723,35 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 264:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D6BD8(arg0);
+         ((float*)m_SP)[-1] = RunningSpeed(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3002,7 +3005,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2748,16 +2764,16 @@
+@@ -2748,16 +2764,16 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 268:
      {
@@ -3023,13 +3026,13 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          m_SP -= 2;
          FuzzyAISetTransition(arg0, arg1);
          break;
-@@ -2792,141 +2808,141 @@
+@@ -2792,141 +2808,141 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 273:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D77B0(arg0);
+         ((float*)m_SP)[-1] = SlideTacklingSkill(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3053,7 +3056,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D6A90(arg0);
+         ((float*)m_SP)[-1] = MovingSlowly(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3064,9 +3067,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 276:
      {
 -        cTeam* arg0 = (cTeam*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800DF790(arg0);
+-        m_SP[-1] = (u32)GetStrategicBallCarrier(arg0);
 +        cTeam* arg0 = MSCHARGED_FUZZY_VM_POINTER(cTeam, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800DF790(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(GetStrategicBallCarrier(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3090,7 +3093,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D8970(arg0);
+         ((float*)m_SP)[-1] = NonThrowablePowerupSlots(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3114,7 +3117,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DA0C8(arg0);
+         ((float*)m_SP)[-1] = GooeySpeedScale(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3126,7 +3129,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD7F4(arg0);
+         ((float*)m_SP)[-1] = StuckOnSidelines(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3138,7 +3141,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        Goalie* arg0 = (Goalie*)m_SP[-1];
 +        Goalie* arg0 = MSCHARGED_FUZZY_VM_POINTER(Goalie, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DE7D8(arg0);
+         ((float*)m_SP)[-1] = GoalieDown(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3150,7 +3153,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD944(arg0);
+         ((float*)m_SP)[-1] = SuperPowerActive(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3162,7 +3165,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DD99C(arg0);
+         ((float*)m_SP)[-1] = SuperPowerAction(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3186,9 +3189,9 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      case 286:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
--        m_SP[-1] = (u32)fn_800D6670(arg0);
+-        m_SP[-1] = (u32)TeamOf(arg0);
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-+        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(fn_800D6670(arg0));
++        m_SP[-1] = MSCHARGED_FUZZY_VM_WORD(TeamOf(arg0));
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3196,7 +3199,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -2942,83 +2958,83 @@
+@@ -2942,83 +2958,83 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 288:
      {
@@ -3250,7 +3253,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800D9DD8(arg0);
+         ((float*)m_SP)[-1] = Unavailable(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3265,7 +3268,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
 +        cPlayer* arg1 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-2]);
          m_SP -= 1;
-         ((float*)m_SP)[-1] = fn_800DE40C(arg0, arg1);
+         ((float*)m_SP)[-1] = UpfieldFrom(arg0, arg1);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3297,13 +3300,13 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
          }
          break;
      }
-@@ -3034,81 +3050,81 @@
+@@ -3034,81 +3050,81 @@ void FuzzyAIRuntime::DoFunctionCall(unsigned int function)
      }
      case 297:
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DBB0C(arg0);
+         ((float*)m_SP)[-1] = WideOpen(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3315,7 +3318,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DEB04(arg0);
+         ((float*)m_SP)[-1] = ShotMeterProgress(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3327,7 +3330,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cPlayer* arg0 = (cPlayer*)m_SP[-1];
 +        cPlayer* arg0 = MSCHARGED_FUZZY_VM_POINTER(cPlayer, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DEBBC(arg0);
+         ((float*)m_SP)[-1] = DoingSkillshot(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3339,7 +3342,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DEAB4(arg0);
+         ((float*)m_SP)[-1] = WindingUpOrShooting(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3351,7 +3354,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DEBF4(arg0);
+         ((float*)m_SP)[-1] = ShotWindupProgress(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;
@@ -3363,7 +3366,7 @@ diff --git a/src/Game/AI/Scripts/FuzzyAIRuntime_interp.cpp b/src/Game/AI/Scripts
      {
 -        cFielder* arg0 = (cFielder*)m_SP[-1];
 +        cFielder* arg0 = MSCHARGED_FUZZY_VM_POINTER(cFielder, m_SP[-1]);
-         ((float*)m_SP)[-1] = fn_800DEC88(arg0);
+         ((float*)m_SP)[-1] = SkillshotWindupProgress(arg0);
          if (FuzzyAIIsUndoingCall(this))
          {
 -            m_SP[-1] = (u32)arg0;

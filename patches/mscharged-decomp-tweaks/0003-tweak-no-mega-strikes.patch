@@ -1,5 +1,5 @@
 Subject: Tweak: no Mega Strikes
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 SetupGameFromConfig builds each match's own copy of the gameplay settings
 (mCurGameGameplayOptions), which nothing saves. With "No Mega Strikes" enabled,
@@ -15,7 +15,7 @@ game itself uses to tell them from the Striker Challenges, which follow the
 tweak. Online matches are left alone.
 
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
-index 3405c74..d87bea5 100644
+index d61992c..9f8512b 100644
 --- a/src/Game/GameInfo.cpp
 +++ b/src/Game/GameInfo.cpp
 @@ -10,6 +10,7 @@

@@ -1,5 +1,5 @@
 Subject: Share original frontend pointer conversion and options event production
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share exact feDPD normalized-coordinate conversion, integer viewport margins,
 and OptionsScene position-before-action30 event construction. Console callers
@@ -7,102 +7,12 @@ retain genuine Wii DPDData, connection/validity, angle and backend branches.
 Native desktop routing is an explicit policy over retained rendered frames;
 no Wii class ID, DPD validity, speaker or rumble service is synthesized.
 
-diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
---- a/src/Game/FE/feDPD.cpp
-+++ b/src/Game/FE/feDPD.cpp
-@@ -6,6 +6,7 @@
- #include "NL/plat/WiiFreestylePad.h"
- 
- #include "Game/FE/feDPD.h"
-+#include "Game/FE/FrontendPointerHostSteps.h"
- 
- #include "Game/FE/feInput.h"
- #include "Game/PadActions.h"
-@@ -27,20 +28,7 @@
- 
- static inline void ClampPointerPosition(int pad, nlVector2 position, int width, int height)
- {
--    int maxX = width / 2 - 20;
--    int minX = -width / 2 + 20;
--    int maxY = height / 2 - 5;
--    int minY = -height / 2 + 5;
--
--    if (position.x <= maxX && position.x >= minX)
--        gFEPointerPositions[pad].x = position.x;
--    else
--        gFEPointerPositions[pad].x = (float)(position.x > maxX ? maxX : minX);
--
--    if (position.y <= maxY && position.y >= minY)
--        gFEPointerPositions[pad].y = position.y;
--    else
--        gFEPointerPositions[pad].y = (float)(position.y > maxY ? maxY : minY);
-+    gFEPointerPositions[pad] = FrontendClampPointerPosition(position, width, height);
- }
- 
- FEDPDTask::FEDPDTask()
-@@ -121,8 +109,7 @@
-         if (data->mValidFlag > 0)
-         {
-             data->GetPosition(&position, angle);
--            position.x = -1.0f * (position.x * (float)width / 2.0f);
--            position.y = position.y * (float)height / 2.0f;
-+            FrontendDPDToAssetPosition(position, width, height);
-             *valid = true;
- 
-             ClampPointerPosition(pad, position, width, height);
-diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
---- a/src/Game/SH/SHOptions.cpp
-+++ b/src/Game/SH/SHOptions.cpp
-@@ -18,6 +18,12 @@
- #include "NL/nlBind.h"
- #include "NL/nlString.h"
- #include "Game/FE/feDPD.h"
-+#include "Game/FE/FrontendPointerHostSteps.h"
-+#include "Game/FE/FEAudio.h"
-+#include "Game/SH/SHNavigation.h"
-+
-+class SHNavigation;
-+
- 
- void BaseSceneHandler::SceneCreated()
- {
-@@ -67,6 +73,20 @@
-     FEMusic::StartStreamIfDifferent(1);
- }
- 
-+// Actual source services for the shared options event producer.
-+struct OptionsPointerSource
-+{
-+    nlVector2 Position(int index)
-+    {
-+        bool valid = true;
-+        return GetPointerPosition(index, (u8*)&valid);
-+    }
-+    bool JustPressed(int index)
-+    {
-+        return g_pFEInput->JustPressed((eFEINPUT_PAD)index, 0x1E, true, 0);
-+    }
-+};
-+
- void OptionsScene::Update(float fDeltaT)
- {
-     BaseSceneHandler::Update(fDeltaT);
-@@ -123,11 +143,9 @@
- 
-         pointer->SetActiveSlide("cursor", true, false);
- 
--        bool valid = true;
-         FEPointerEvent event;
--        event.mIndex = i;
--        event.mPosition = GetPointerPosition(i, (u8*)&valid);
--        event.mPressed = g_pFEInput->JustPressed((eFEINPUT_PAD)i, 0x1E, true, 0);
-+        OptionsPointerSource source;
-+        FrontendOptionsPointerEvent(event, i, source);
- 
-         if (mBackButton.UpdateBackButton(event, fDeltaT))
-         {
+Refreshed for decomp 9046e67a: feDPD.cpp keep their upstream text (the series'
+later restore patches made these edits net zero).
+
 diff --git a/include/Game/FE/FrontendPointerHostSteps.h b/include/Game/FE/FrontendPointerHostSteps.h
 new file mode 100644
+index 0000000..5d6f8a0
 --- /dev/null
 +++ b/include/Game/FE/FrontendPointerHostSteps.h
 @@ -0,0 +1,40 @@
@@ -146,3 +56,55 @@ new file mode 100644
 +    event.mPressed = source.JustPressed(index);
 +}
 +#endif
+diff --git a/src/Game/SH/SHOptions.cpp b/src/Game/SH/SHOptions.cpp
+index a4368d8..3276496 100644
+--- a/src/Game/SH/SHOptions.cpp
++++ b/src/Game/SH/SHOptions.cpp
+@@ -18,6 +18,12 @@
+ #include "NL/nlBind.h"
+ #include "NL/nlString.h"
+ #include "Game/FE/feDPD.h"
++#include "Game/FE/FrontendPointerHostSteps.h"
++#include "Game/FE/FEAudio.h"
++#include "Game/SH/SHNavigation.h"
++
++class SHNavigation;
++
+ 
+ void BaseSceneHandler::SceneCreated()
+ {
+@@ -67,6 +73,20 @@ void OptionsScene::SceneCreated()
+     FEMusic::StartStreamIfDifferent(1);
+ }
+ 
++// Actual source services for the shared options event producer.
++struct OptionsPointerSource
++{
++    nlVector2 Position(int index)
++    {
++        bool valid = true;
++        return GetPointerPosition(index, (u8*)&valid);
++    }
++    bool JustPressed(int index)
++    {
++        return g_pFEInput->JustPressed((eFEINPUT_PAD)index, 0x1E, true, 0);
++    }
++};
++
+ void OptionsScene::Update(float fDeltaT)
+ {
+     BaseSceneHandler::Update(fDeltaT);
+@@ -123,11 +143,9 @@ void OptionsScene::Update(float fDeltaT)
+ 
+         pointer->SetActiveSlide("cursor", true, false);
+ 
+-        bool valid = true;
+         FEPointerEvent event;
+-        event.mIndex = i;
+-        event.mPosition = GetPointerPosition(i, (u8*)&valid);
+-        event.mPressed = g_pFEInput->JustPressed((eFEINPUT_PAD)i, 0x1E, true, 0);
++        OptionsPointerSource source;
++        FrontendOptionsPointerEvent(event, i, source);
+ 
+         if (mBackButton.UpdateBackButton(event, fDeltaT))
+         {

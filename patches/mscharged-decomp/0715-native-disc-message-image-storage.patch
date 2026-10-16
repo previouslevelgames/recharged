@@ -1,0 +1,139 @@
+From: mscharged-port
+Subject: Keep the disc-message images as host-filled storage
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+The decompilation generates Game/FE/DiscMessageImages.inc from the original
+main.dol: the compressed loading and disc-error images that LidOpenMessage.cpp
+draws. The port ships no game data, so natively the include keeps each image's
+original name and size as writable storage, and the host copies the player's
+own images into it before the original entry, after checking the main.dol
+hash. charged_disc_message_image hands the host each image in the retail table
+order. The sizes are per version; both European revisions have the same images.
+
+diff --git a/include/Game/FE/DiscMessageImages.inc b/include/Game/FE/DiscMessageImages.inc
+new file mode 100644
+index 0000000..31a3591
+--- /dev/null
++++ b/include/Game/FE/DiscMessageImages.inc
+@@ -0,0 +1,92 @@
++// Native builds ship no game data. The decompilation generates this file from
++// the original main.dol; natively each image keeps its original name and size
++// as writable storage, which the host fills from the player's own main.dol
++// before the original entry (platform/disc_message_images, export
++// charged_disc_message_image in LidOpenMessage.cpp).
++#if !defined(MSCHARGED_NATIVE)
++#error "DiscMessageImages.inc is generated from the original main.dol by the decomp build"
++#endif
++
++#define MSCHARGED_DISC_MESSAGE_IMAGE(name, size) \
++    namespace name                               \
++    {                                            \
++    unsigned char g_ImageData[size];             \
++    }
++
++#if defined(VERSION_R4QE01)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_eng, 0x348)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_eng, 0x88F)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_eng, 0x54B)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_eng, 0x348)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_eng, 0xAD)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_fre, 0x334)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_fre, 0x93C)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_fre, 0x57E)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_fre, 0x334)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_fre, 0xFF)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_deu, 0x3A8)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_deu, 0xA7C)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_deu, 0x694)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_deu, 0x3A8)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_deu, 0x11D)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_spa, 0x2CD)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_spa, 0x98A)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_spa, 0x669)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_spa, 0x2CD)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_spa, 0xD0)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_ita, 0x34A)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_ita, 0x924)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_ita, 0x610)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_ita, 0x34A)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_ita, 0x101)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_jpn, 0x4F5)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_jpn, 0x80D)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_jpn, 0x5B9)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_jpn, 0x4F5)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_jpn, 0xFF)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_uke, 0x3CC)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_uke, 0x88F)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_uke, 0x54B)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_uke, 0x3CC)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_uke, 0xB1)
++#elif defined(VERSION_R4QP01_REV1) || defined(VERSION_R4QP01_REV2)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_eng, 0x348)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_eng, 0x88F)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_eng, 0x54B)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_eng, 0x348)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_eng, 0xAD)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_fre, 0x3AF)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_fre, 0x93C)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_fre, 0x57E)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_fre, 0x3AF)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_fre, 0xFF)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_deu, 0x3A8)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_deu, 0xA7C)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_deu, 0x694)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_deu, 0x3A8)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_deu, 0x11D)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_spa, 0x348)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_spa, 0x98A)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_spa, 0x669)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_spa, 0x348)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_spa, 0xD0)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_ita, 0x34A)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_ita, 0x924)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_ita, 0x610)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_ita, 0x34A)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_ita, 0x101)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_jpn, 0x4D4)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_jpn, 0x7CE)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_jpn, 0x5B9)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_jpn, 0x4D4)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_jpn, 0x14C)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_FatalErrorImage_uke, 0x3CC)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_NoDiskImage_uke, 0x88F)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_WrongDiskImage_uke, 0x54B)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_RetryImage_uke, 0x3CC)
++MSCHARGED_DISC_MESSAGE_IMAGE(HEADER_Loading_uke, 0xB1)
++#else
++#error "No disc-message image sizes for this game version"
++#endif
++
++#undef MSCHARGED_DISC_MESSAGE_IMAGE
+diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
+index 934558b..67887c7 100644
+--- a/src/Game/FE/LidOpenMessage.cpp
++++ b/src/Game/FE/LidOpenMessage.cpp
+@@ -101,6 +101,24 @@ static const DiscMessageImage sDiscMessageImages[][DISC_MESSAGE_COUNT] = {
+ #endif
+ };
+ 
++#if defined(MSCHARGED_NATIVE)
++// The host copies the player's original images into the storage of
++// DiscMessageImages.inc before the original entry. Index: the retail table
++// order, language rows of DISC_MESSAGE_COUNT images.
++extern "C" __attribute__((visibility("default"))) unsigned char* charged_disc_message_image(
++    unsigned int index, unsigned long* size, int* width, int* height)
++{
++    const unsigned int count = sizeof(sDiscMessageImages) / sizeof(sDiscMessageImages[0][0]);
++    if (index >= count)
++        return 0;
++    const DiscMessageImage& image = sDiscMessageImages[index / DISC_MESSAGE_COUNT][index % DISC_MESSAGE_COUNT];
++    *size = image.compressedSize;
++    *width = image.width;
++    *height = image.height;
++    return const_cast<unsigned char*>(image.compressedData);
++}
++#endif
++
+ static int lastImageWidth;
+ static int lastImageHeight;
+ static int lastImageSize;

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the debug LAN lobby from Main Menu
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission
 
 Retail never calls NetworkSession::InitializeLAN. Under
@@ -13,10 +13,10 @@ network draft scenes; hub, login, Mii selection and every DWC scene keep
 their gates.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index b9e2d39..876af04 100644
+index 85a7b37..fe00585 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -391,7 +391,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -428,7 +428,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(CreditScene), 8, false)) CreditScene();
          break;
  #endif
@@ -25,7 +25,7 @@ index b9e2d39..876af04 100644
      case (SceneList)24:
          newHandler = new (nlMalloc(sizeof(NetworkStartScene), 8, false)) NetworkStartScene();
          break;
-@@ -483,12 +483,16 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+@@ -520,12 +520,16 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_ONLINE_FRIEND_CODE_ENTRY:
          newHandler = new (nlMalloc(sizeof(SHOnlineFriendCodeEntry), 8, false)) SHOnlineFriendCodeEntry();
          break;
@@ -43,10 +43,10 @@ index b9e2d39..876af04 100644
          newHandler = new (nlMalloc(sizeof(SHOnlineLogin), 8, false)) SHOnlineLogin();
          break;
 diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
-index 8fa7aff..6c2fbd2 100644
+index 6db02dc..d0cac8f 100644
 --- a/src/Game/SH/SHMainMenu.cpp
 +++ b/src/Game/SH/SHMainMenu.cpp
-@@ -21,6 +21,9 @@
+@@ -22,6 +22,9 @@
  #include "Game/FE/tlImageInstance.h"
  #include "Game/FE/FEAudio.h"
  #include "Game/FE/fePopupMenu.h"
@@ -56,9 +56,9 @@ index 8fa7aff..6c2fbd2 100644
  #include "Game/FE/feFinder.h"
  #include "Game/FE/feInlineHasher.h"
  #include "Game/FE/feFinder_impl.h"
-@@ -361,6 +364,18 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
+@@ -393,6 +396,18 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
      FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
-     if (item == 1)
+     if (item == MAIN_MENU_ONLINE)
      {
 +#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
 +        g_pNetworkSession->InitializeLAN();
@@ -72,9 +72,9 @@ index 8fa7aff..6c2fbd2 100644
 +        GameSceneManager::Instance()->Push(SCENE_NETWORK_START, SCREEN_FORWARD, true);
 +        return;
 +#endif
-         if (!SaveEnabled)
+ #if defined(VERSION_R4QK01)
+         if (SCCheckPCMessageRestriction())
          {
-             FEPopupMenu* popup = (FEPopupMenu*)GameSceneManager::Instance()->Push(SCENE_POPUP_MENU, SCREEN_NOTHING, false);
 diff --git a/src/Game/SH/SHNetworkStart.cpp b/src/Game/SH/SHNetworkStart.cpp
 index 47f72f0..c288725 100644
 --- a/src/Game/SH/SHNetworkStart.cpp

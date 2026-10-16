@@ -1,53 +1,14 @@
 Subject: Share original frontend presentation camera and time waits
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Share exact callback-consumption and single-float wait subtraction from original
 presentation services44/48. The console dispatcher retains StopWithUndo; the
 native original interpreter supplies typed retained camera/scene services.
 Concrete title/main handlers, movies, audio and boot readiness remain separate.
 
-diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
---- a/src/Game/Render/FrontEndPresentation.cpp
-+++ b/src/Game/Render/FrontEndPresentation.cpp
-@@ -1,5 +1,6 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/Render/FrontEndPresentation.h"
-+#include "Game/FE/FrontendTransitionSteps.h"
- 
- #include "Game/GameSceneManager.h"
- #include "Game/DB/GameProgress.h"
-diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
---- a/src/Game/Render/FrontEndPresentation_interp.cpp
-+++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -366,10 +366,8 @@
-         break;
-     }
-     case 44:
--        if (!mCameraFinished)
--            StopWithUndo();
--        else
--            mCameraFinished = false;
-+        if (FrontendPresentationWaitCamera(mCameraFinished))
-+            StopWithUndo();
-         break;
-     case 45:
-     {
-@@ -395,11 +393,8 @@
-         }
-         break;
-     case 48:
--        mWaitTime -= mDeltaTime;
--        if (mWaitTime > 0.0f)
--            StopWithUndo();
--        else
--            mWaitTime = 0.0f;
-+        if (FrontendPresentationWaitTime(mWaitTime, mDeltaTime))
-+            StopWithUndo();
-         break;
-     case 49:
-     {
 diff --git a/include/Game/FE/FrontendTransitionSteps.h b/include/Game/FE/FrontendTransitionSteps.h
 new file mode 100644
+index 0000000..40ed0f2
 --- /dev/null
 +++ b/include/Game/FE/FrontendTransitionSteps.h
 @@ -0,0 +1,21 @@
@@ -72,3 +33,43 @@ new file mode 100644
 +    return false;
 +}
 +#endif
+diff --git a/src/Game/Render/FrontEndPresentation.cpp b/src/Game/Render/FrontEndPresentation.cpp
+index 038bdb4..0463f12 100644
+--- a/src/Game/Render/FrontEndPresentation.cpp
++++ b/src/Game/Render/FrontEndPresentation.cpp
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Render/FrontEndPresentation.h"
++#include "Game/FE/FrontendTransitionSteps.h"
+ 
+ #include "Game/GameSceneManager.h"
+ #include "Game/DB/GameProgress.h"
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 184d0b0..999b458 100644
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -366,10 +366,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+         break;
+     }
+     case 44:
+-        if (!mCameraFinished)
++        if (FrontendPresentationWaitCamera(mCameraFinished))
+             StopWithUndo();
+-        else
+-            mCameraFinished = false;
+         break;
+     case 45:
+     {
+@@ -395,11 +393,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
+         }
+         break;
+     case 48:
+-        mWaitTime -= mDeltaTime;
+-        if (mWaitTime > 0.0f)
++        if (FrontendPresentationWaitTime(mWaitTime, mDeltaTime))
+             StopWithUndo();
+-        else
+-            mWaitTime = 0.0f;
+         break;
+     case 49:
+     {

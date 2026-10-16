@@ -1,5 +1,5 @@
 Subject: Preserve original Variant scalar words and native pointer aliases
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use Wii32 numeric storage/conversion/multiplication and retain full native
 pointer hashes, including the original TEAM/BALL pointer aliases. Reset still
@@ -7,9 +7,11 @@ zeros the complete pointer carrier at its original source position. Constructor
 requests, source switch branches, copy/equality algorithms and game flow remain
 unchanged. Include platform/variant_numeric_abi.h from the host proposal.
 
+diff --git a/include/Game/AI/Variant.h b/include/Game/AI/Variant.h
+index 071a938..25d1259 100644
 --- a/include/Game/AI/Variant.h
 +++ b/include/Game/AI/Variant.h
-@@ -99,7 +99,11 @@
+@@ -99,7 +99,11 @@ public:
              delete[] mData.string;
          }
          mType = FT_UNSPECIFIED;
@@ -21,7 +23,7 @@ unchanged. Include platform/variant_numeric_abi.h from the host proposal.
      }
  
      virtual eVariantType GetType() const
-@@ -196,7 +200,11 @@
+@@ -196,7 +200,11 @@ public:
          char c;
          signed short s;
          int i;
@@ -33,6 +35,34 @@ unchanged. Include platform/variant_numeric_abi.h from the host proposal.
          float f;
          nlVector3 vector;
          void* pointer;
+diff --git a/src/Game/AI/FuzzyVariant.cpp b/src/Game/AI/FuzzyVariant.cpp
+index f51bd21..7bf4009 100644
+--- a/src/Game/AI/FuzzyVariant.cpp
++++ b/src/Game/AI/FuzzyVariant.cpp
+@@ -77,13 +77,21 @@ unsigned long FuzzyVariant::GetHash() const
+             hash = (unsigned long)mData.pointer;
+             break;
+         case FT_TEAM:
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)mData.pTeam;
++#else
+             hash = mData.u;
++#endif
+             break;
+         case FT_GAME:
+             hash = (unsigned long)mData.pointer;
+             break;
+         case FT_BALL:
++#if defined(MSCHARGED_NATIVE)
++            hash = (unsigned long)mData.pointer;
++#else
+             hash = mData.u;
++#endif
+             break;
+         }
+     }
+diff --git a/src/Game/AI/Variant.cpp b/src/Game/AI/Variant.cpp
+index 2a9448c..374769b 100644
 --- a/src/Game/AI/Variant.cpp
 +++ b/src/Game/AI/Variant.cpp
 @@ -1,6 +1,10 @@
@@ -46,7 +76,7 @@ unchanged. Include platform/variant_numeric_abi.h from the host proposal.
  
  Variant gvNotSet;
  
-@@ -27,7 +31,11 @@
+@@ -27,7 +31,11 @@ NLString Variant::ToString() const
              valueString = Format(NLString("{0}"), mData.i);
              break;
          case FT_U32:
@@ -58,7 +88,7 @@ unchanged. Include platform/variant_numeric_abi.h from the host proposal.
              break;
          case FT_FLOAT:
              valueString = Format(NLString("{0}"), mData.f);
-@@ -63,28 +71,53 @@
+@@ -63,28 +71,53 @@ unsigned long Variant::GetHash() const
          hash = mData.b;
          break;
      case FT_CHAR:
@@ -112,27 +142,3 @@ unchanged. Include platform/variant_numeric_abi.h from the host proposal.
              zHash ^= hash;
              hash = zHash;
          }
---- a/src/Game/AI/FuzzyVariant.cpp
-+++ b/src/Game/AI/FuzzyVariant.cpp
-@@ -77,13 +77,21 @@
-             hash = (unsigned long)mData.pointer;
-             break;
-         case FT_TEAM:
-+#if defined(MSCHARGED_NATIVE)
-+            hash = (unsigned long)mData.pTeam;
-+#else
-             hash = mData.u;
-+#endif
-             break;
-         case FT_GAME:
-             hash = (unsigned long)mData.pointer;
-             break;
-         case FT_BALL:
-+#if defined(MSCHARGED_NATIVE)
-+            hash = (unsigned long)mData.pointer;
-+#else
-             hash = mData.u;
-+#endif
-             break;
-         }
-     }

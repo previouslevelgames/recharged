@@ -1,13 +1,18 @@
 Subject: Share original Main Options departure service order
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Extract only ApplyItem case6 for the native Main/Options path. Real scene Pop,
 NAV hide, resident audio and frontend bytecode services remain caller-owned.
 Complete game save and other Main actions are outside this selected branch.
 
+Refreshed for decomp 9046e67a: SHMainMenu.cpp keep their upstream text (the
+series' later restore patches made these edits net zero); this patch only adds
+FrontendMainDepartureSteps.h.
+
 diff --git a/include/Game/FE/FrontendMainDepartureSteps.h b/include/Game/FE/FrontendMainDepartureSteps.h
 new file mode 100644
+index 0000000..6d24302
 --- /dev/null
 +++ b/include/Game/FE/FrontendMainDepartureSteps.h
 @@ -0,0 +1,14 @@
@@ -25,41 +30,3 @@ new file mode 100644
 +    call("TransitionFromMainMenu");
 +}
 +#endif
-diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
---- a/src/Game/SH/SHMainMenu.cpp
-+++ b/src/Game/SH/SHMainMenu.cpp
-@@ -2,6 +2,7 @@
- 
- #include "Game/SH/SHMainMenu.h"
- #include "Game/FE/FrontendMainMenuSteps.h"
-+#include "Game/FE/FrontendMainDepartureSteps.h"
- 
- #include "Game/GameInfo.h"
- #include "Game/GameSceneManager.h"
-@@ -392,16 +393,13 @@
-     }
-     case MAIN_MENU_OPTIONS:
-     {
--        GameSceneManager::Instance()->Pop();
--        SHNavigation* scene = GetNavigationScene();
--        if (scene != 0)
--        {
--            scene->HideButtons();
--        }
--        FEAudio::PlayAnimAudioEvent(0xB19DBC20, 0, 0, true);
--        gNextFETransition = "TransitionMainMenuToOptions";
--        FrontEndPresentation::GetInstance()->Call("TransitionFromMainMenu");
--        break;
--    }
--    }
--}
-+        FrontendMainApplyOptions(
-+            []() { GameSceneManager::Instance()->Pop(); },
-+            []() { SHNavigation* scene = GetNavigationScene(); if (scene != 0) scene->HideButtons(); },
-+            [](unsigned long cue, const void* name, void* context, bool restartable) { FEAudio::PlayAnimAudioEvent(cue, name, context, restartable); },
-+            [](const char* next) { gNextFETransition = next; },
-+            [](const char* function) { FrontEndPresentation::GetInstance()->Call(function); });
-+        break;
-+    }
-+    }
-+}

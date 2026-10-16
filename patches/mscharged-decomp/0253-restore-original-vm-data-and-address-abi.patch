@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original VM and Wii32 data/address ABI
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Prepared-preimage: reviewed complete dc238202203 source prefix
 
 Default whole InterpreterCore/Operations retain all original algorithms and
@@ -15,10 +15,71 @@ DIAGNOSTIC_INTERPRETER only, never linked into the whole-source module.
 Original AsyncLoading string consumer uses the same actual cached-word
 transport. Game services/main/loading completion are not substituted.
 
+diff --git a/include/Game/InterpreterCore.h b/include/Game/InterpreterCore.h
+index c3f32c2..d3633c3 100644
+--- a/include/Game/InterpreterCore.h
++++ b/include/Game/InterpreterCore.h
+@@ -4,6 +4,9 @@
+ #include "types.h"
+ 
+ #include "Game/FunctionHash.h"
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
++#include "platform/vm_address_abi.h"
++#endif
+ 
+ struct FunctionEntryPoint
+ {
+@@ -31,14 +34,29 @@ struct ByteCodeHeader
+     /* 0x24 */ u32 firstBoolTweak;
+     /* 0x28 */ u32 numVariables;
+     /* 0x2C */ u32 numStringRefs;
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
++    /* 0x30 */ mscharged::platform::VMAddress32<FunctionEntryPoint> m_FunctionTable;
++    /* 0x34 */ mscharged::platform::VMAddress32<u8> m_TweakData;
++    /* 0x38 */ mscharged::platform::VMAddress32<u8> m_GlobalInitData;
++    /* 0x3C */ mscharged::platform::VMAddress32<u32> m_DataSegment;
++    /* 0x40 */ mscharged::platform::VMAddress32<u16> m_CodeSegment;
++    /* 0x44 */ mscharged::platform::VMAddress32<u8> m_StringSegment;
++#else
+     /* 0x30 */ FunctionEntryPoint* m_FunctionTable;
+     /* 0x34 */ u8* m_TweakData;
+     /* 0x38 */ u8* m_GlobalInitData;
+     /* 0x3C */ u32* m_DataSegment;
+     /* 0x40 */ u16* m_CodeSegment;
+     /* 0x44 */ u8* m_StringSegment;
++#endif
+ };
+ 
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
++static_assert(sizeof(ByteCodeHeader) == 72);
++static_assert(sizeof(FunctionEntryPoint) == 12);
++static_assert(sizeof(u32) == 4);
++#endif
++
+ struct InterpreterTweakStorage;
+ 
+ enum eInterpreterRunState
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 95b6573..3726253 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -282,7 +282,11 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+     case 1:
+     {
+         bool persistent = m_SP[-1] != 0;
++#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
++        const char* name = (const char*)mscharged::platform::DecodeVMAddress(m_SP[-2]);
++#else
+         const char* name = (const char*)m_SP[-2];
++#endif
+         m_SP -= 2;
+         if (gNPCManager == 0)
+         {
 diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
+index a1773c4..7d7a11b 100644
 --- a/src/Game/InterpreterCore.cpp
 +++ b/src/Game/InterpreterCore.cpp
-@@ -56,7 +56,7 @@
+@@ -56,7 +56,7 @@ struct InterpreterTweakStorage
      /* 0x14 */ TweakBoolBinding* boolBindings;
  };
  
@@ -26,8 +87,8 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
 +#if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
  InterpreterCore::InterpreterCore(unsigned int size)
  {
-     m_StackSegment = (u32*)nlMalloc(size * 4, 8, false);
-@@ -66,7 +66,7 @@
+     m_StackSegment = (u32*)nlMalloc(size * sizeof(*m_StackSegment), 8, false);
+@@ -66,7 +66,7 @@ InterpreterCore::InterpreterCore(unsigned int size)
  }
  #endif
  
@@ -36,7 +97,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  InterpreterCore::~InterpreterCore()
  {
      if (m_Globals != 0)
-@@ -88,7 +88,7 @@
+@@ -88,7 +88,7 @@ InterpreterCore::~InterpreterCore()
  }
  #endif
  
@@ -45,7 +106,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::Reset()
  {
      m_RunState = INTERPRETER_FINISHED;
-@@ -136,22 +136,38 @@
+@@ -136,22 +136,38 @@ void InterpreterCore::InitializeTweaks()
              u32 value3 = 0;
              if (flags & 1)
              {
@@ -84,7 +145,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
                  data += 4;
              }
  
-@@ -170,7 +186,11 @@
+@@ -170,7 +186,11 @@ static void RelocateStringReferences(InterpreterCore* core)
          u32* relocatedValue = core->m_Globals;
          for (unsigned int i = 0; i < core->m_Header->numStringRefs; i++)
          {
@@ -96,7 +157,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
          }
      }
  }
-@@ -193,6 +213,9 @@
+@@ -193,6 +213,9 @@ void InterpreterCore::LoadByteCode(void* data)
          m_TweakStorage = 0;
      }
  
@@ -106,7 +167,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
      m_Header = (ByteCodeHeader*)data;
      if (m_Header->m_CodeSegment == 0)
      {
-@@ -201,12 +224,24 @@
+@@ -201,12 +224,24 @@ void InterpreterCore::LoadByteCode(void* data)
          header->m_TweakData = (u8*)(header->m_FunctionTable + header->numFunctions);
          header->m_GlobalInitData = header->m_TweakData + header->tweakDataSize;
          header->m_DataSegment = (u32*)(header->m_GlobalInitData + header->globalDataSize);
@@ -131,7 +192,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
          }
      }
  
-@@ -216,11 +251,15 @@
+@@ -216,11 +251,15 @@ void InterpreterCore::LoadByteCode(void* data)
      Reset();
  }
  
@@ -148,7 +209,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
      m_BP = m_SP - count;
  
      if (entry->flags == 3)
-@@ -235,7 +274,11 @@
+@@ -235,7 +274,11 @@ void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
      }
  
      u16* saved_ip = m_IP;
@@ -160,7 +221,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
      Step();
  
      if (m_RunState != INTERPRETER_SUSPENDED)
-@@ -249,7 +292,7 @@
+@@ -249,7 +292,7 @@ void InterpreterCore::RunFunction(FunctionEntryPoint* entry, unsigned int count)
  }
  #endif
  
@@ -169,7 +230,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, unsigned int value0, unsigned int value1, unsigned int value2, unsigned int value3)
  {
      if (m_RunState == INTERPRETER_SUSPENDED)
-@@ -290,7 +333,7 @@
+@@ -290,7 +333,7 @@ bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int co
  }
  #endif
  
@@ -178,7 +239,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  bool InterpreterCore::ExecuteFunction(FunctionEntryPoint* entry, unsigned int count, const unsigned int* values)
  {
      if (m_RunState == INTERPRETER_SUSPENDED)
-@@ -406,7 +449,7 @@
+@@ -406,7 +449,7 @@ void InterpreterCore::RegisterTweak(unsigned int index, unsigned int type, const
      }
  }
  
@@ -187,7 +248,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int& hash)
  {
      unsigned long value = hash;
-@@ -414,21 +457,21 @@
+@@ -414,21 +457,21 @@ FunctionEntryPoint* InterpreterCore::FindFunctionEntryPoint(const unsigned int&
  }
  #endif
  
@@ -212,7 +273,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::Step()
  {
      unsigned int wasNotRunning = m_RunState != INTERPRETER_RUNNING;
-@@ -449,8 +492,12 @@
+@@ -449,8 +492,12 @@ void InterpreterCore::Step()
              m_SP++;
              break;
  
@@ -226,7 +287,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              m_SP++;
              break;
  
-@@ -459,8 +506,12 @@
+@@ -459,8 +506,12 @@ void InterpreterCore::Step()
              m_SP++;
              break;
  
@@ -240,7 +301,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              m_SP++;
              break;
  
-@@ -493,11 +544,23 @@
+@@ -493,11 +544,23 @@ void InterpreterCore::Step()
          case INTERPRETER_OP_CALL_SCRIPT:
          {
              FunctionEntryPoint* entry = &m_Header->m_FunctionTable[operand];
@@ -264,7 +325,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              continue;
          }
  
-@@ -507,8 +570,16 @@
+@@ -507,8 +570,16 @@ void InterpreterCore::Step()
              u32* frame = oldBP + (operand >> 1);
              u32* newSP = oldBP + (operand & 1);
              m_SP = frame;
@@ -281,7 +342,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
              m_SP = newSP;
              if (m_IP == 0)
              {
-@@ -650,7 +721,7 @@
+@@ -650,7 +721,7 @@ void InterpreterCore::Step()
  }
  #endif
  
@@ -290,7 +351,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::StopWithoutUndo()
  {
      m_Stop = 1;
-@@ -658,7 +729,7 @@
+@@ -658,7 +729,7 @@ void InterpreterCore::StopWithoutUndo()
  }
  #endif
  
@@ -299,7 +360,7 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  void InterpreterCore::StopWithUndo()
  {
      m_IP--;
-@@ -668,7 +739,7 @@
+@@ -668,7 +739,7 @@ void InterpreterCore::StopWithUndo()
  }
  #endif
  
@@ -308,7 +369,23 @@ diff --git a/src/Game/InterpreterCore.cpp b/src/Game/InterpreterCore.cpp
  int InterpreterCore::GetInstructionOffset()
  {
      return (m_IP - m_Header->m_CodeSegment);
+diff --git a/src/Game/InterpreterNative.cpp b/src/Game/InterpreterNative.cpp
+index b9efd82..b0a29f6 100644
+--- a/src/Game/InterpreterNative.cpp
++++ b/src/Game/InterpreterNative.cpp
+@@ -1,3 +1,4 @@
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
+ #include "Game/InterpreterCore.h"
+ #include "Game/InterpreterOperations.h"
+ #include "NL/nlAlgorithm.h"
+@@ -329,3 +330,5 @@ int InterpreterCore::GetInstructionOffset()
+ {
+     return (m_IP - m_Header->m_CodeSegment);
+ }
++
++#endif
 diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations.cpp
+index a26f404..2279bb4 100644
 --- a/src/Game/InterpreterOperations.cpp
 +++ b/src/Game/InterpreterOperations.cpp
 @@ -2,19 +2,11 @@
@@ -332,7 +409,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
  
  static inline float& StackFloat(u32* value)
  {
-@@ -188,8 +180,20 @@
+@@ -188,8 +180,20 @@ void InterpreterOpAddInt(InterpreterCore* core)
  void InterpreterOpGreaterEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -355,7 +432,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) >= 0;
  }
  
-@@ -210,8 +214,20 @@
+@@ -210,8 +214,20 @@ void InterpreterOpGreaterEqualInt(InterpreterCore* core)
  void InterpreterOpGreaterString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -378,7 +455,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) > 0;
  }
  
-@@ -232,8 +248,20 @@
+@@ -232,8 +248,20 @@ void InterpreterOpGreaterInt(InterpreterCore* core)
  void InterpreterOpLessEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -401,7 +478,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) <= 0;
  }
  
-@@ -254,8 +282,20 @@
+@@ -254,8 +282,20 @@ void InterpreterOpLessEqualInt(InterpreterCore* core)
  void InterpreterOpLessString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -424,7 +501,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
      core->m_SP[-1] = nlStrICmp<char>(lhs, rhs) < 0;
  }
  
-@@ -276,8 +316,20 @@
+@@ -276,8 +316,20 @@ void InterpreterOpLessInt(InterpreterCore* core)
  void InterpreterOpNotEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -447,7 +524,7 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
  
      if (lhs == rhs)
      {
-@@ -309,8 +361,20 @@
+@@ -309,8 +361,20 @@ void InterpreterOpNotEqualInt(InterpreterCore* core)
  void InterpreterOpEqualString(InterpreterCore* core)
  {
      core->m_SP--;
@@ -470,74 +547,3 @@ diff --git a/src/Game/InterpreterOperations.cpp b/src/Game/InterpreterOperations
  
      if (lhs == rhs)
      {
-diff --git a/src/Game/InterpreterNative.cpp b/src/Game/InterpreterNative.cpp
---- a/src/Game/InterpreterNative.cpp
-+++ b/src/Game/InterpreterNative.cpp
-@@ -1,3 +1,4 @@
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
- #include "Game/InterpreterCore.h"
- #include "Game/InterpreterOperations.h"
- #include "NL/nlAlgorithm.h"
-@@ -329,3 +330,5 @@
- {
-     return (m_IP - m_Header->m_CodeSegment);
- }
-+
-+#endif
-diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
---- a/src/Game/AsyncLoading.cpp
-+++ b/src/Game/AsyncLoading.cpp
-@@ -283,7 +283,11 @@
-     case 1:
-     {
-         bool persistent = m_SP[-1] != 0;
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
-+        const char* name = (const char*)mscharged::platform::DecodeVMAddress(m_SP[-2]);
-+#else
-         const char* name = (const char*)m_SP[-2];
-+#endif
-         m_SP -= 2;
-         if (gNPCManager == 0)
-         {
-diff --git a/include/Game/InterpreterCore.h b/include/Game/InterpreterCore.h
---- a/include/Game/InterpreterCore.h
-+++ b/include/Game/InterpreterCore.h
-@@ -4,6 +4,9 @@
- #include "types.h"
- 
- #include "Game/FunctionHash.h"
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
-+#include "platform/vm_address_abi.h"
-+#endif
- 
- struct FunctionEntryPoint
- {
-@@ -31,13 +34,28 @@
-     /* 0x24 */ u32 firstBoolTweak;
-     /* 0x28 */ u32 numVariables;
-     /* 0x2C */ u32 numStringRefs;
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
-+    /* 0x30 */ mscharged::platform::VMAddress32<FunctionEntryPoint> m_FunctionTable;
-+    /* 0x34 */ mscharged::platform::VMAddress32<u8> m_TweakData;
-+    /* 0x38 */ mscharged::platform::VMAddress32<u8> m_GlobalInitData;
-+    /* 0x3C */ mscharged::platform::VMAddress32<u32> m_DataSegment;
-+    /* 0x40 */ mscharged::platform::VMAddress32<u16> m_CodeSegment;
-+    /* 0x44 */ mscharged::platform::VMAddress32<u8> m_StringSegment;
-+#else
-     /* 0x30 */ FunctionEntryPoint* m_FunctionTable;
-     /* 0x34 */ u8* m_TweakData;
-     /* 0x38 */ u8* m_GlobalInitData;
-     /* 0x3C */ u32* m_DataSegment;
-     /* 0x40 */ u16* m_CodeSegment;
-     /* 0x44 */ u8* m_StringSegment;
-+#endif
- };
-+
-+#if defined(MSCHARGED_NATIVE) && !defined(MSCHARGED_DIAGNOSTIC_INTERPRETER)
-+static_assert(sizeof(ByteCodeHeader) == 72);
-+static_assert(sizeof(FunctionEntryPoint) == 12);
-+static_assert(sizeof(u32) == 4);
-+#endif
- 
- struct InterpreterTweakStorage;
- 

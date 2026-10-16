@@ -1,5 +1,5 @@
 Subject: Admit the original SuperLoadingScene and FE-to-game loading start
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0551-0555 and 0600.
 
 Stadium Select's PLAY NOW and tournament Choose Sides' Proceed call
@@ -42,9 +42,10 @@ and the temporary-string pool state. Without Wiper::Initialize no transition
 exists, so the goal celebration waited for a wipe forever.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index a1633eb..a392351 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -361,6 +361,8 @@
+@@ -394,6 +394,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case (SceneList)16:
          newHandler = new (nlMalloc(sizeof(CrossFaderScene), 8, false)) CrossFaderScene();
          break;
@@ -53,7 +54,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_SUPER_LOADING:
          newHandler = new (nlMalloc(sizeof(SuperLoadingScene), 8, false)) SuperLoadingScene();
          break;
-@@ -391,6 +393,8 @@
+@@ -424,6 +426,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case (SceneList)24:
          newHandler = new (nlMalloc(sizeof(NetworkStartScene), 8, false)) NetworkStartScene();
          break;
@@ -62,7 +63,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
      case SCENE_ASYNC_LOADING:
          newHandler = new (nlMalloc(sizeof(BaseLoadingScene), 8, false)) BaseLoadingScene();
          break;
-@@ -411,11 +415,13 @@
+@@ -444,11 +448,13 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case (SceneList)29:
          newHandler = new (nlMalloc(sizeof(SHNavigation), 8, false)) SHNavigation();
          break;
@@ -78,7 +79,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(RoadToStrikersCupHubScene), 8, false)) RoadToStrikersCupHubScene();
          break;
      case SCENE_CUP_SCHEDULE:
-@@ -572,10 +578,14 @@
+@@ -605,10 +611,14 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case (SceneList)79:
          newHandler = new (nlMalloc(sizeof(HealthWarningSceneV2), 8, false)) HealthWarningSceneV2();
          break;
@@ -95,7 +96,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(SHChooseSides2), 8, false)) SHChooseSides2(SHChooseSides2::PAUSE, movement);
          break;
      case SCENE_PAUSE_AUDIO_OPTIONS:
-@@ -584,40 +594,54 @@
+@@ -617,40 +627,54 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case SCENE_PAUSE_VISUAL_OPTIONS:
          newHandler = new (nlMalloc(sizeof(OptionsVisualMenuV2), 8, false)) OptionsVisualMenuV2(OPTIONS_CONTEXT_PAUSE);
          break;
@@ -156,7 +157,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(MegaStrikeMeterOverlay), 8, false)) MegaStrikeMeterOverlay();
          break;
      case OVERLAY_PIP:
-@@ -626,10 +650,14 @@
+@@ -659,10 +683,14 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
      case OVERLAY_SUPER_ABILITY:
          newHandler = new (nlMalloc(sizeof(SuperAbilityOverlay), 8, false)) SuperAbilityOverlay();
          break;
@@ -174,9 +175,10 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          break;
      case OVERLAY_DEFENSIVE_PLAY:
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 7afb25e..10ffa22 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -213,7 +213,8 @@
+@@ -213,7 +213,8 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      }
  
  #endif
@@ -187,9 +189,10 @@ diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/F
          FEAudio::PlayAnimAudioEvent(0xB60A9CC0, 0, 0, true);
          break;
 diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
+index 5d8e92f..f2751dd 100644
 --- a/src/Game/Task/LoadingTask.cpp
 +++ b/src/Game/Task/LoadingTask.cpp
-@@ -71,6 +71,16 @@
+@@ -71,6 +71,16 @@ void LoadingTask::Run(float dt)
  #endif
  }
  
@@ -206,7 +209,7 @@ diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
  void LoadingTask::StateTransition(unsigned int from, unsigned int to)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -81,6 +91,15 @@
+@@ -81,6 +91,15 @@ void LoadingTask::StateTransition(unsigned int from, unsigned int to)
          && (from != 0x00100000 || to != 0x00080000)
  #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MENU_ENTRY)
          && (from != 0x00080000 || to != 0x00000004)
@@ -223,9 +226,10 @@ diff --git a/src/Game/Task/LoadingTask.cpp b/src/Game/Task/LoadingTask.cpp
          )
  #else
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 5eb9850..cffdba0 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -219,7 +219,7 @@
+@@ -227,7 +227,7 @@ static PlatPadUpdateTask platPadUpdateTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
  static FrontEndTask frontEndTask;
  #endif
@@ -234,7 +238,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static WorldUpdateTask worldUpdateTask;
  static GameRenderTask gameRenderTask;
  #endif
-@@ -265,7 +265,7 @@
+@@ -273,7 +273,7 @@ static GLMemoryRequirement sGlobalResourceRequirements[3] = {
      { GLM_Header, MB(2) + KB(256) },
  };
  
@@ -243,7 +247,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  static TweakValueBool sAllowWarble(
      "sbAllowWarble", "/Rendering/Effects/Warble", true);
  static TweakValueBool sRenderWarbleToParticleView(
-@@ -610,7 +610,7 @@
+@@ -618,7 +618,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
      EnableAllStadiums();
  #endif
@@ -252,7 +256,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      const char* buildInfo =
          GetTweakString("/General/Build Info/BuildNumber", 0);
      if (buildInfo != 0)
-@@ -640,7 +640,7 @@
+@@ -648,7 +648,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
      InstallImageRenderCallback();
  #endif
@@ -261,7 +265,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      GLResourcePool* resourcePool = glGetCurrentResourcePool();
      resourcePool->MarkResource();
  #endif
-@@ -673,7 +673,7 @@
+@@ -681,7 +681,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
      StartupAIPads();
  #endif
@@ -270,7 +274,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      gTransitionTask.Initialize();
  #endif // unrelated config/script/tasks/audio/world prerequisites
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
-@@ -739,7 +739,7 @@
+@@ -747,7 +747,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
      nlInitFileCache();
  #endif
@@ -279,7 +283,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ReplayChoreo::Instance();
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_PRESENTATION_OWNER))
-@@ -748,7 +748,7 @@
+@@ -756,7 +756,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      FrontEndPresentation::GetInstance();
  #endif
@@ -288,7 +292,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ExcitementSystem::Instance();
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -757,7 +757,7 @@
+@@ -765,7 +765,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
      SetupViews();
  #endif
@@ -297,7 +301,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      HideLayerView(eCLV_ScreenBlur);
      HideLayerView(eCLV_ScreenBlur2);
      HideLayerView(eCLV_ShadowVolume);
-@@ -775,7 +775,7 @@
+@@ -783,7 +783,7 @@ static void Initialize()
      }
      rlSetWidescreen(widescreen);
  #endif // original system aspect selects the frontend projection and slide
@@ -306,7 +310,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      g_ShapeRenderer.Initialize(resourcePool);
      g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
      InitMaxProjectedShadows();
-@@ -788,7 +788,7 @@
+@@ -796,7 +796,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER)
      NisPlayer::Instance();
  #endif
@@ -315,7 +319,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      ReplayManager::Instance();
      Wiper::Instance().Initialize();
      DepthOfFieldManager::instance.Initialize();
-@@ -810,7 +810,7 @@
+@@ -818,7 +818,7 @@ static void AddTasks()
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);
      nlTaskManager::AddTask(&sLoadingTask, 2, 0x01F80000);
@@ -324,7 +328,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_PLAT_PAD_TASK))
-@@ -819,10 +819,10 @@
+@@ -827,10 +827,10 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
      nlTaskManager::AddTask(GetFixedUpdateTask(), 8, 0xFE07FFDF);
  #endif // original fixed task priority/mask; unrelated task registrations remain held
@@ -337,7 +341,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(&gameRenderTask, 11, 0x0002001B);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) \
-@@ -837,10 +837,10 @@
+@@ -845,10 +845,10 @@ static void AddTasks()
      nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);
@@ -350,7 +354,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&feDPDTask, 13, 5);
-@@ -851,13 +851,13 @@
+@@ -859,13 +859,13 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
      nlTaskManager::AddTask(nlGetFileCache(), 3, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted

@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original SAnim and hierarchy providers outside diagnostics
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Compile literal reconstructed animation/hierarchy algorithms in original modules.
 Isolate deleted methods, source extractions and sample validation to explicit
@@ -12,19 +12,21 @@ LP64 records. Native object/pointer-array data expansion and ownership remain
 prerequisites before invoking Initialize on Wii bytes.
 
 diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
+index a8c0ea7..e8c24ce 100644
 --- a/include/Game/SAnim.h
 +++ b/include/Game/SAnim.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_SANIM_H
  #define GAME_SANIM_H
-+
+ 
 +#if defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_SKELETON)
 +#error Retained skeleton diagnostics must not enter the original game module
 +#endif
- 
++
  #include "NL/nlMath.h"
  #include "NL/nlChunk.h"
-@@ -61,7 +65,7 @@
+ #include "types.h"
+@@ -61,7 +65,7 @@ class cSAnim : public cIdentifier
  public:
      typedef char* MemType;
  
@@ -33,7 +35,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
      static cSAnim* Initialize(nlChunk* pChunk) = delete;
  #else
      static cSAnim* Initialize(nlChunk* pChunk);
-@@ -72,7 +76,7 @@
+@@ -72,7 +76,7 @@ public:
      }
  
      void Destroy();
@@ -42,7 +44,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
      void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex) = delete;
  #else
      void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex);
-@@ -89,7 +93,7 @@
+@@ -89,7 +93,7 @@ public:
      void GetRootRot(float time, u16* rootRotation) const;
      void GetRootTrans(float time, nlVector3* rootTranslation) const;
      bool GetChannelWeight(int channel, float time, float* weight) const;
@@ -52,6 +54,7 @@ diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
          void (*funcCallback)(cSAnim*, unsigned int)) = delete;
  #else
 diff --git a/include/Game/SAnimPoseSteps.h b/include/Game/SAnimPoseSteps.h
+index 7bd9153..8288351 100644
 --- a/include/Game/SAnimPoseSteps.h
 +++ b/include/Game/SAnimPoseSteps.h
 @@ -1,3 +1,6 @@
@@ -62,19 +65,21 @@ diff --git a/include/Game/SAnimPoseSteps.h b/include/Game/SAnimPoseSteps.h
  #define GAME_SANIM_POSE_STEPS_H
  #include "Game/SAnim.h"
 diff --git a/include/Game/SHierarchy.h b/include/Game/SHierarchy.h
+index 1812b1f..d830edd 100644
 --- a/include/Game/SHierarchy.h
 +++ b/include/Game/SHierarchy.h
-@@ -1,5 +1,9 @@
+@@ -1,6 +1,10 @@
  #ifndef GAME_S_HIERARCHY_H
  #define GAME_S_HIERARCHY_H
-+
+ 
 +#if defined(MSCHARGED_GAME_MODULE) && defined(MSCHARGED_DIAGNOSTIC_SKELETON)
 +#error Retained skeleton diagnostics must not enter the original game module
 +#endif
- 
++
  #include "Game/SAnim.h"
  #include "NL/nlMath.h"
-@@ -10,9 +14,9 @@
+ #include "types.h"
+@@ -10,9 +14,9 @@ class cSHierarchy : public cIdentifier
  public:
      typedef char* MemType;
  
@@ -87,6 +92,7 @@ diff --git a/include/Game/SHierarchy.h b/include/Game/SHierarchy.h
  #else
      static cSHierarchy* Initialize(nlChunk* pChunk);
 diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
+index d51c001..f629acc 100644
 --- a/src/Game/SAnim.cpp
 +++ b/src/Game/SAnim.cpp
 @@ -1,3 +1,4 @@
@@ -94,7 +100,7 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
  #include "Game/SAnim.h"
  #include "Game/SAnimPoseSteps.h"
  #include "Game/SAnimDecode.h"
-@@ -343,3 +344,544 @@
+@@ -343,3 +344,544 @@ float cSAnim::GetMorphWeight(int channel, float fTime) const
      }
      return weight;
  }
@@ -640,9 +646,10 @@ diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
 +
 +#endif // MSCHARGED_DIAGNOSTIC_SKELETON
 diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
+index eef7ed4..281b621 100644
 --- a/src/Game/SHierarchy.cpp
 +++ b/src/Game/SHierarchy.cpp
-@@ -82,7 +82,7 @@
+@@ -82,7 +82,7 @@ void cSHierarchy::BuildPushPopFlags(
      }
  }
  
@@ -651,7 +658,7 @@ diff --git a/src/Game/SHierarchy.cpp b/src/Game/SHierarchy.cpp
  cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
  {
      nlChunk* pFirst = (nlChunk*)pChunk->GetUnalignedData();
-@@ -143,4 +143,4 @@
+@@ -143,4 +143,4 @@ cSHierarchy* cSHierarchy::Initialize(nlChunk* pChunk)
      return pRetval;
  }
  

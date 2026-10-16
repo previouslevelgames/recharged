@@ -1,6 +1,6 @@
 Subject: [PATCH] admit original HBM resources in named frontend diagnostic
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Restore exactly original AsyncLoading services26/27 under an explicit native
 diagnostic. Original creation, requests, callback and finalizer bodies are
@@ -8,9 +8,10 @@ unchanged; normal, console and existing other diagnostic projections remain
 identical. No main construction, HBM library/display or menu readiness is added.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index d5e257d..b548c4e 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -278,7 +278,8 @@
+@@ -277,7 +277,8 @@ static inline void CreateInstance(T*& instance)
  
  void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  {
@@ -20,8 +21,8 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      (void)functionIndex;
      throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
  #else
-@@ -476,10 +477,12 @@
-             fn_80116988, (void*)"MUSICSTREAMS");
+@@ -484,10 +485,12 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+             OnAsyncSoundBankLoaded, (void*)"MUSICSTREAMS");
          break;
  #endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS)
@@ -33,7 +34,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 20:
          SetLoadingComment("AsyncFinalizeGameWorldLoading");
-@@ -521,6 +524,9 @@
+@@ -529,6 +532,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          BeginFontLoading(&gLoadInGameFonts);
          FinishLoadingStep(this);
          break;
@@ -43,7 +44,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 26:
          SetLoadingComment("AsyncHBMFinalize");
          FinishLoadingStepOrUndo(this, gpHBMManager->mReady);
-@@ -533,6 +539,8 @@
+@@ -541,6 +547,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          gpHBMManager->LoadResources();
          break;
@@ -52,7 +53,7 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 28:
          SetLoadingComment("AsyncInitializeEmissionManager");
          if (ParticleUpdateTask::sInstance->FinishLoading(sPersistentResourcePool))
-@@ -574,6 +582,7 @@
+@@ -582,6 +590,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStepOrUndo(this, MiiManager::s_pInstance->mResourcesLoaded);
          break;
  #endif
@@ -60,11 +61,11 @@ diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
      case 36:
      {
          bool frontEnd = m_SP[-1] != 0;
-@@ -587,6 +596,7 @@
+@@ -595,6 +604,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          SetLoadingComment("AsyncStartCameraLoadingForStadiumViewer");
          AsyncStartCameraLoadingForStadiumViewer();
          break;
 +#endif
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 38:
-         fn_8011A2E8(this);
+         StartAsyncGameWorldLoading(this);

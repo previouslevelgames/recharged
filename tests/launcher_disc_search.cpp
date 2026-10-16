@@ -91,13 +91,24 @@ int main()
             DiscInfo info{"RVZ", id->second, "Mario Strikers Charged", 1, 100};
             return info;
         };
-        auto result = PickDisc({"other.iso", "eu.rvz", "us1.rvz", "us2.iso"}, inspect);
+        // A build that plays only the USA release (the release table decides by default).
+        const auto usa_only = [](const DiscInfo& info) { return info.game_id == "R4QE01"; };
+        auto result = PickDisc({"other.iso", "eu.rvz", "us1.rvz", "us2.iso"}, inspect, usa_only);
         Require(result.disc == "us1.rvz" && result.supported == 2, "The first USA disc is picked");
-        Require(result.other == "eu.rvz" && result.other_id == "R4QP01", "The European disc is remembered");
-        result = PickDisc({"other.iso", "eu.rvz"}, inspect);
+        Require(result.other == "eu.rvz" && result.other_id == "R4QP01" && result.other_revision == 1,
+                "The European disc and its revision are remembered");
+        result = PickDisc({"other.iso", "eu.rvz"}, inspect, usa_only);
         Require(result.disc.empty() && result.supported == 0 && result.other == "eu.rvz", "Only another region");
-        result = PickDisc({}, inspect);
+        result = PickDisc({}, inspect, usa_only);
         Require(result.disc.empty() && result.other.empty(), "Nothing to check");
+        // A build that also plays the European release takes the first playable disc.
+        const auto with_europe = [](const DiscInfo& info) { return info.game_id == "R4QE01" || info.game_id == "R4QP01"; };
+        result = PickDisc({"other.iso", "eu.rvz", "us1.rvz"}, inspect, with_europe);
+        Require(result.disc == "eu.rvz" && result.supported == 2 && result.other.empty(),
+                "A playable European disc is picked like any other");
+        // The release table always plays the USA release.
+        result = PickDisc({"other.iso", "us2.iso"}, inspect);
+        Require(result.disc == "us2.iso" && result.supported == 1, "The table plays the USA release");
 
         fs::remove_all(root);
         std::puts("Disc search checks passed.");

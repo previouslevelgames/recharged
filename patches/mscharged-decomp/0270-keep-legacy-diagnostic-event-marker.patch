@@ -1,11 +1,12 @@
 Subject: Preserve the legacy diagnostic no-data event marker
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: legacy diagnostic declaration compatibility; original source ABI unchanged.
 
 diff --git a/include/Game/Event.h b/include/Game/Event.h
+index ad8d302..5dc23dd 100644
 --- a/include/Game/Event.h
 +++ b/include/Game/Event.h
-@@ -129,8 +129,14 @@
+@@ -129,8 +129,14 @@ struct EventConnection
  #endif
  };
  

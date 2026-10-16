@@ -1,42 +1,46 @@
 From: mscharged-port
 Subject: Native LLP64 bundle callback parameter and remaining context casts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility; apply after 0646.
 
-fn_8011B424 is passed as a FileOpenAsyncCallback whose last parameter is the
-native BundleAsyncParam (uintptr_t); its unsigned long spelling only matched on
-LP64 hosts. Natively it now takes __UINTPTR_TYPE__. The remaining
+The bundle callback is passed as a FileOpenAsyncCallback whose last parameter
+is the native BundleAsyncParam (uintptr_t); its unsigned long spelling only
+matched on LP64 hosts. Natively it now takes __UINTPTR_TYPE__. The remaining
 SHChooseCaptains callback contexts cast through __UINTPTR_TYPE__ like 0646.
 
+Refreshed for decomp 9046e67a: upstream named the callback
+OnOnDemandFrontEndBundleLoaded and declares it with C++ linkage, so the native
+definition no longer adds extern "C".
+
 diff --git a/include/Game/AsyncLoading.h b/include/Game/AsyncLoading.h
-index 6c749be..d5ee16d 100644
+index 7dcc9e8..098af1e 100644
 --- a/include/Game/AsyncLoading.h
 +++ b/include/Game/AsyncLoading.h
-@@ -115,7 +115,12 @@ void fn_8011B178(AsyncLoadingManager* manager);
- void fn_8011B2E4(AsyncLoadingManager* manager);
- void fn_8011B40C(AudioResourceLoadOwner*, void*);
- void fn_8011B418();
+@@ -114,7 +114,12 @@ void BeginAsyncFrontEndResourceLoad(AsyncLoadingManager* manager);
+ void BeginAsyncInGameFrontEndResourceLoad(AsyncLoadingManager* manager);
+ void OnLoadingSoundBankLoaded(AudioResourceLoadOwner*, void*);
+ void OnPermanentFrontEndBundleLoaded();
 +#if defined(MSCHARGED_NATIVE)
 +// BundleAsyncParam (nlBundleFile.h) is uintptr_t natively.
-+void fn_8011B424(void*, unsigned long, __UINTPTR_TYPE__);
++void OnOnDemandFrontEndBundleLoaded(void*, unsigned long, __UINTPTR_TYPE__);
 +#else
- void fn_8011B424(void*, unsigned long, unsigned long);
+ void OnOnDemandFrontEndBundleLoaded(void*, unsigned long, unsigned long);
 +#endif
- void fn_8011B6E8(AsyncLoadingManager* manager);
- }
+ void InitializeStadiumViewer(AsyncLoadingManager* manager);
  
+ #endif // GAME_ASYNC_LOADING_H
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 50332bb..540603a 100644
+index d113e85..caaeb2a 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -2388,7 +2388,11 @@ extern "C" void fn_8011B418()
+@@ -2406,7 +2406,11 @@ void OnPermanentFrontEndBundleLoaded()
      lbl_806E1068 = true;
  }
  
 +#if defined(MSCHARGED_NATIVE)
-+extern "C" void fn_8011B424(void*, unsigned long, __UINTPTR_TYPE__)
++void OnOnDemandFrontEndBundleLoaded(void*, unsigned long, __UINTPTR_TYPE__)
 +#else
- extern "C" void fn_8011B424(void*, unsigned long, unsigned long)
+ void OnOnDemandFrontEndBundleLoaded(void*, unsigned long, unsigned long)
 +#endif
  {
      lbl_806E1069 = true;

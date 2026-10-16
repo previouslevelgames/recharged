@@ -1,5 +1,5 @@
 Subject: Admit original 101/Challenge briefing and tournament Choose Sides
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on 0551 and 0572.
 
 ChallengeSelectScene::Update requests SceneList 77 (SHStrikerTimesChallenge)
@@ -14,9 +14,10 @@ before its loading request; that script's instruction 19 plays the original
 FE audio event 0xB60A9CC0. Admit only that VM case (case 20 stays gated).
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index c3fc36f..a1633eb 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -560,14 +560,16 @@
+@@ -593,14 +593,16 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(ChallengeSelectScene), 8, false)) ChallengeSelectScene(true);
          break;
  #endif
@@ -36,9 +37,10 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          break;
      case SCENE_PAUSE:
 diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+index 4c46b3d..7afb25e 100644
 --- a/src/Game/Render/FrontEndPresentation_interp.cpp
 +++ b/src/Game/Render/FrontEndPresentation_interp.cpp
-@@ -213,11 +213,13 @@
+@@ -213,11 +213,13 @@ void FrontEndPresentation::DoFunctionCall(unsigned int function)
      }
  
  #endif

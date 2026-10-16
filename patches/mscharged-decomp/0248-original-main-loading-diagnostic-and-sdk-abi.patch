@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Qualify the original loading call and its native SDK declarations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: explicit temporary original-main diagnostic gate; permanent SDK/compiler ABI.
 
 Part1 extends only the named MAIN_BOOTSTRAP diagnostic with the existing
@@ -13,10 +13,28 @@ Console source, RLE bitmap, allocations, branches, passes and VI timing remain
 unchanged. Hardware must execute real stores/copy/finish before acceptance.
 CPU-written XFB coherence and full startup remain separate explicit holds.
 
+diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
+index 55af188..934558b 100644
+--- a/src/Game/FE/LidOpenMessage.cpp
++++ b/src/Game/FE/LidOpenMessage.cpp
+@@ -238,7 +238,12 @@ static void DisplayMessage(int imagewidth, int imageheight, const unsigned char*
+     UncompressLidMessage(datastart, datasize, expanded, expandedSize);
+ 
+     GXPokeColorUpdate(1);
++#if defined(MSCHARGED_NATIVE)
++    GXPokeBlendMode(static_cast<GXBlendMode>(0), static_cast<GXBlendFactor>(1),
++                   static_cast<GXBlendFactor>(0), static_cast<GXLogicOp>(0xF));
++#else
+     GXPokeBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_SET);
++#endif
+ 
+     xStart = (0x280 - imagewidth) / 2;
+     centerVertically = (alignBottom == 0);
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 42a8762..eb9da3b 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -506,7 +506,11 @@
+@@ -515,7 +515,11 @@ static void Initialize()
          Bind<void>(MemFun<ResetTask, void>(&ResetTask::FSCheckForReset),
              &resetTask)));
  
@@ -28,7 +46,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      InitializeODEAllocators();
      RegisterUserGeomClasses();
  #endif // physics omitted; logical pads retain their source Initialize position
-@@ -910,7 +914,11 @@
+@@ -919,8 +923,12 @@ int main()
  #endif
  #else
      // Owner-authorized diagnostic checkpoint: full game startup has not run.
@@ -36,44 +54,8 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
 +    return 86;
 +#else
      return 81;
-+#endif
  #endif
++#endif
  #else
  
-diff --git a/src/Game/FE/LidOpenMessage.cpp b/src/Game/FE/LidOpenMessage.cpp
---- a/src/Game/FE/LidOpenMessage.cpp
-+++ b/src/Game/FE/LidOpenMessage.cpp
-@@ -2026,6 +2026,12 @@
- static bool CanGetResetPauseState = true;
- 
- 
-+#if defined(MSCHARGED_NATIVE)
-+// Real native SDK declarations retain Wii-sized words and canonical enums.
-+#include <revolution/gx.h>
-+#include <revolution/vi.h>
-+#include <revolution/sc.h>
-+#else
- extern "C"
- {
-     u8 SCGetLanguage();
-@@ -2033,6 +2039,7 @@
-     void GXPokeBlendMode(int, int, int, int);
-     void GXPokeARGB(unsigned short, unsigned short, unsigned long);
- }
-+#endif
- 
- static int fn_801BF4EC()
- {
-@@ -2155,7 +2162,12 @@
-     UncompressLidMessage(datastart, datasize, expanded, expandedSize);
- 
-     GXPokeColorUpdate(1);
-+#if defined(MSCHARGED_NATIVE)
-+    GXPokeBlendMode(static_cast<GXBlendMode>(0), static_cast<GXBlendFactor>(1),
-+                   static_cast<GXBlendFactor>(0), static_cast<GXLogicOp>(0xF));
-+#else
-     GXPokeBlendMode(0, 1, 0, 0xF);
-+#endif
- 
-     xStart = (0x280 - imagewidth) / 2;
-     centeredFlag = (centered == 0);
+     while (nlAsyncReadsPending(0))

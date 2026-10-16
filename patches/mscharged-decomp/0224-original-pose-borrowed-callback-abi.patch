@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original pose methods and native borrowed callback ABI
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Original modules retain source constructor/array ownership/copy/Pose/Replay
 and callback methods. Preserve first callback word borrowed native addresses;
@@ -8,6 +8,7 @@ keep the second numeric word unchanged. Diagnostic guards do not enter original
 execution. Scalar PPC/compiler adaptations remain explicit and separate.
 
 diff --git a/include/Game/Player.h b/include/Game/Player.h
+index 9bbf165..5342058 100644
 --- a/include/Game/Player.h
 +++ b/include/Game/Player.h
 @@ -2,6 +2,7 @@
@@ -18,8 +19,8 @@ diff --git a/include/Game/Player.h b/include/Game/Player.h
  #include "NL/nlTimer.h"
  #include "Game/DetInput.h"
  
-@@ -179,7 +180,7 @@
-     bool fn_800976C4() const;
+@@ -179,7 +180,7 @@ public:
+     bool HasPowerupAnimation() const;
      void SetPowerupAnimState(int nodeIndex, int animID, float blendTime);
      void SetPowerupAnimState(int animID);
 -    static void PlayerHeadTrackCallback(unsigned int nSelf, unsigned int nParam2,
@@ -28,6 +29,7 @@ diff --git a/include/Game/Player.h b/include/Game/Player.h
      bool IsCharacterInAir(float fParam) const;
      cPN_SingleAxisBlender* CreateSingleAxisBlender(
 diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
+index 00fcf8f..d7ea5c0 100644
 --- a/include/Game/PoseAccumulator.h
 +++ b/include/Game/PoseAccumulator.h
 @@ -5,13 +5,14 @@
@@ -46,7 +48,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
      cPoseAccumulator*, unsigned int, int);
  
  class cBuildNodeMatrixCallbackInfo
-@@ -23,7 +24,7 @@
+@@ -23,7 +24,7 @@ public:
      }
  
      BuildNodeMatrixFn funcCallback;
@@ -55,7 +57,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
      unsigned int nParam2;
  };
  
-@@ -64,13 +65,13 @@
+@@ -64,13 +65,13 @@ class cPoseAccumulator
  {
  public:
      cPoseAccumulator(cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices);
@@ -71,7 +73,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
      cPoseAccumulator& operator=(const cPoseAccumulator&) = delete;
  #else
      cPoseAccumulator& operator=(const cPoseAccumulator& other);
-@@ -106,11 +107,11 @@
+@@ -106,11 +107,11 @@ public:
      }
      nlMatrix4& GetNodeMatrixByHashID(unsigned int nHashID) const;
      s32 GetNumNodes() const;
@@ -85,7 +87,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
          unsigned int nParam2);
  #endif
  
-@@ -129,7 +130,7 @@
+@@ -129,7 +130,7 @@ public:
      u8 m_Padding[3];
  };
  
@@ -96,6 +98,7 @@ diff --git a/include/Game/PoseAccumulator.h b/include/Game/PoseAccumulator.h
  {
 diff --git a/include/Game/PoseCallbackAddress.h b/include/Game/PoseCallbackAddress.h
 new file mode 100644
+index 0000000..f4939fe
 --- /dev/null
 +++ b/include/Game/PoseCallbackAddress.h
 @@ -0,0 +1,9 @@
@@ -109,9 +112,10 @@ new file mode 100644
 +#endif
 +#endif
 diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
+index 0b484d6..439e836 100644
 --- a/src/Game/Drawable/DrawableCharacter.cpp
 +++ b/src/Game/Drawable/DrawableCharacter.cpp
-@@ -254,7 +254,7 @@
+@@ -256,7 +256,7 @@ void DrawableCharacter::Grab(cCharacter& source)
      effectsTexturing = tex;
  }
  
@@ -120,7 +124,7 @@ diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/Drawabl
  {
      DrawableCharacter* drawableChar = (DrawableCharacter*)ctx;
      CalcHeadTrackMatrix(drawableChar->headSpin, drawableChar->headTilt, poseAccumulator, currentNodeIndex);
-@@ -269,7 +269,11 @@
+@@ -271,7 +271,11 @@ void DrawableCharacter::BuildNodeMatrices(cPoseAccumulator* accumulator)
  
      if (character != 0)
      {
@@ -133,9 +137,10 @@ diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/Drawabl
  
      accumulator->BuildNodeMatrices(worldMatrix);
 diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
+index 6b9cb37..04c26bf 100644
 --- a/src/Game/Player.cpp
 +++ b/src/Game/Player.cpp
-@@ -1043,7 +1043,7 @@
+@@ -1047,7 +1047,7 @@ cPN_SingleAxisBlender* cPlayer::CreateSingleAxisBlender(
      return pSAB;
  }
  
@@ -144,7 +149,7 @@ diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
      cPoseAccumulator* pPoseAccumulator, unsigned int nJointIndex, int nParentIndex)
  {
      cPlayer& self = *(cPlayer*)nSelf;
-@@ -1115,7 +1115,11 @@
+@@ -1119,7 +1119,11 @@ void cPlayer::PostPhysicsUpdate()
  void cPlayer::Unknown7(float)
  {
      m_pPoseAccumulator->SetBuildNodeMatrixCallback(
@@ -157,6 +162,7 @@ diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
      {
          m_pBall->m_pPhysicsBall->EnableCollisions();
 diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
+index c2fbb74..a105239 100644
 --- a/src/Game/PoseAccumulator.cpp
 +++ b/src/Game/PoseAccumulator.cpp
 @@ -7,7 +7,7 @@
@@ -168,7 +174,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  #include <memory>
  #include <stdexcept>
  #include <type_traits>
-@@ -56,7 +56,7 @@
+@@ -56,7 +56,7 @@ static inline void PoseAccumulatorMultiplyScale(
  cPoseAccumulator::cPoseAccumulator(
      cSHierarchy* pSHierarchy, bool bStorePrevNodeMatrices)
  {
@@ -177,7 +183,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
      if (!pSHierarchy || pSHierarchy->m_nNumNodes <= 0 || pSHierarchy->m_nNumNodes > 4096)
          throw std::invalid_argument("Invalid native pose hierarchy");
      m_PrevNodeMatrices = m_NodeMatrices = nullptr;
-@@ -72,7 +72,7 @@
+@@ -72,7 +72,7 @@ cPoseAccumulator::cPoseAccumulator(
  
      if (bStorePrevNodeMatrices)
      {
@@ -186,7 +192,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
          m_PrevNodeMatrices = PoseAccumulatorArray<nlMatrix4>(m_nNumNodes + 1);
  #else
          m_PrevNodeMatrices = new (8, false) nlMatrix4[m_nNumNodes + 1];
-@@ -83,32 +83,32 @@
+@@ -83,32 +83,32 @@ cPoseAccumulator::cPoseAccumulator(
          m_PrevNodeMatrices = NULL;
      }
  
@@ -225,7 +231,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
      m_cb = PoseAccumulatorArray<cBuildNodeMatrixCallbackInfo>(m_nNumNodes);
  #else
      m_cb = new (8, false) cBuildNodeMatrixCallbackInfo[m_nNumNodes];
-@@ -134,7 +134,7 @@
+@@ -134,7 +134,7 @@ cPoseAccumulator::cPoseAccumulator(
              m_trans[i].bIdentity = false;
          }
      }
@@ -234,7 +240,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
          // Original i+1 scratch slots also have defined native object storage.
          m_NodeMatrices[m_nNumNodes].SetIdentity();
          if (m_PrevNodeMatrices) m_PrevNodeMatrices[m_nNumNodes].SetIdentity();
-@@ -144,7 +144,7 @@
+@@ -144,7 +144,7 @@ cPoseAccumulator::cPoseAccumulator(
  #endif
  }
  
@@ -243,7 +249,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  /**
   * Offset/Address/Size: 0x228 | 0x8030ABF8 | size: 0x11C
   */
-@@ -208,7 +208,7 @@
+@@ -208,7 +208,7 @@ cPoseAccumulator& cPoseAccumulator::operator=(const cPoseAccumulator& other)
   */
  cPoseAccumulator::~cPoseAccumulator()
  {
@@ -252,7 +258,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
      PoseAccumulatorFreeArrays(this);
  #else
      if (m_PrevNodeMatrices != NULL)
-@@ -224,7 +224,7 @@
+@@ -224,7 +224,7 @@ cPoseAccumulator::~cPoseAccumulator()
  #endif
  }
  
@@ -261,7 +267,7 @@ diff --git a/src/Game/PoseAccumulator.cpp b/src/Game/PoseAccumulator.cpp
  static inline void PoseAccumulatorInitNodeAccumulators(cPoseAccumulator* pose)
  {
      for (int i = 0; i < pose->m_BaseSHierarchy->m_nNumNodes; ++i)
-@@ -937,12 +937,12 @@
+@@ -937,12 +937,12 @@ s32 cPoseAccumulator::GetNumNodes() const
      return m_BaseSHierarchy->m_nNumNodes;
  }
  

@@ -1,147 +1,13 @@
 Subject: [PATCH] Share original world-effect trigger and scheduling equations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Retain initialization, reset, timing, RNG ordering and emission counters in
 shared source helpers. Native callers supply actual retained effect records
 and explicit emission services; no full World/EmissionManager is selected.
 
-diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
---- a/src/Game/World/WorldEffect.cpp
-+++ b/src/Game/World/WorldEffect.cpp
-@@ -1,5 +1,6 @@
- #include "NL/nlDLListContainer.inl"
- #include "Game/World/WorldEffect.h"
-+#include "Game/World/WorldEffectSteps.h"
- 
- #include "Game/Debug/ShapeRender.h"
- #include "Game/Effects/EmissionController.h"
-@@ -15,18 +16,7 @@
- 
- void WorldEffect::Initialize(WorldObjectLoadContext* pContext)
- {
--    m_bActive = true;
--    if (m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
--    {
--        float fEmissionInterval = m_fEmissionInterval;
--        m_fEmissionTime = fEmissionInterval + 1.0f;
--    }
--    else
--    {
--        m_fEmissionTime = 0.0f;
--    }
--    m_fPreviousEmissionTime = m_fEmissionTime;
--    m_nRemainingEmissions = m_nEmissionCount;
-+    WorldEffectInitializeClock(*this);
-     pContext->m_pWorld->AddEffect(this);
- }
- 
-@@ -57,44 +47,9 @@
- 
- void WorldEffect::Update(float fDeltaT)
- {
--    if (fDeltaT != 0.0f && m_bActive)
-+    if (WorldEffectUpdateClock(*this, fDeltaT, &nlDefaultSeed))
-     {
--        bool bEmit = false;
--        if (m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
--        {
--            if (m_nRemainingEmissions > 0
--                || m_nRemainingEmissions == -1)
--            {
--                float fEmissionTime = m_fEmissionTime;
--                float fEmissionInterval
--                    = m_fEmissionInterval;
--                fEmissionTime += fDeltaT;
--                m_fEmissionTime = fEmissionTime;
--                if (fEmissionInterval <= fEmissionTime
--                    && nlRandom(100, &nlDefaultSeed)
--                        < m_uProbability)
--                {
--                    bEmit = true;
--                }
--            }
--        }
--        else if (m_nRemainingEmissions > 0
--            || m_nRemainingEmissions == -1)
--        {
--            float fEmissionTime = m_fEmissionTime;
--            float fEmissionInterval = m_fEmissionInterval;
--            if (fEmissionInterval <= fEmissionTime
--                && nlRandom(100, &nlDefaultSeed)
--                    < m_uProbability)
--            {
--                bEmit = true;
--            }
--        }
--
--        if (bEmit)
--        {
--            Emit();
--        }
-+        Emit();
-     }
- }
- 
-@@ -144,13 +99,7 @@
-         m_nEmissionID = -1;
-     }
- 
--    m_fPreviousEmissionTime = m_fEmissionTime;
--    m_fEmissionTime = 0.0f;
--    --m_nRemainingEmissions;
--    if (m_nRemainingEmissions < -1)
--    {
--        m_nRemainingEmissions = -1;
--    }
-+    WorldEffectEmitted(*this);
- }
- 
- static const nlColour s_effectBoundsColour
-diff --git a/src/Game/world.cpp b/src/Game/world.cpp
---- a/src/Game/world.cpp
-+++ b/src/Game/world.cpp
-@@ -3,6 +3,7 @@
- #include "NL/gl/gl.h"
- #include "Game/World.h"
- #include "Game/World/WorldEffect.h"
-+#include "Game/World/WorldEffectSteps.h"
- 
- #include "Game/Drawable/DrawableObj.h"
- #include "Game/Effects/EmissionManager.h"
-@@ -471,15 +472,7 @@
-     while (iterator.IsValid())
-     {
-         WorldEffect* pEffect = iterator.Current();
--        pEffect->m_fEmissionTime = 0.0f;
--        pEffect->m_nRemainingEmissions = pEffect->m_nEmissionCount;
--        pEffect->m_fPreviousEmissionTime = 0.0f;
--        if (pEffect->m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
--        {
--            float fEmissionTime = pEffect->m_fEmissionInterval;
--            fEmissionTime = 1.0f + fEmissionTime;
--            pEffect->m_fEmissionTime = fEmissionTime;
--        }
-+        WorldEffectResetClock(*pEffect);
-         iterator.Next();
-     }
- }
-@@ -491,13 +484,7 @@
-     while (iterator.IsValid())
-     {
-         WorldEffect* pEffect = iterator.Current();
--        if (uType == pEffect->m_nTimingMode)
--        {
--            pEffect->m_nRemainingEmissions = pEffect->m_nEmissionCount;
--            float fEmissionTime = pEffect->m_fEmissionInterval;
--            fEmissionTime = 1.0f + fEmissionTime;
--            pEffect->m_fEmissionTime = fEmissionTime;
--        }
-+        WorldEffectTriggerClock(*pEffect, uType);
-         iterator.Next();
-     }
- }
 diff --git a/include/Game/World/WorldEffectSteps.h b/include/Game/World/WorldEffectSteps.h
 new file mode 100644
+index 0000000..a9e4300
 --- /dev/null
 +++ b/include/Game/World/WorldEffectSteps.h
 @@ -0,0 +1,71 @@
@@ -217,9 +83,10 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemplate.cpp
+index 9bdf041..b2cd85b 100644
 --- a/src/Game/Effects/EffectsTemplate.cpp
 +++ b/src/Game/Effects/EffectsTemplate.cpp
-@@ -131,7 +131,6 @@
+@@ -131,7 +131,6 @@ void EffectsTemplate::Cleanup()
  {
  }
  
@@ -227,8 +94,145 @@ diff --git a/src/Game/Effects/EffectsTemplate.cpp b/src/Game/Effects/EffectsTemp
  float EffectsTemplate::GetBoundingRadius()
  {
      float maximumParticleLife;
-@@ -158,4 +157,3 @@
+@@ -158,4 +157,3 @@ float EffectsTemplate::GetBoundingRadius()
      return result;
  }
  
 -#endif // !MSCHARGED_NATIVE
+diff --git a/src/Game/World/WorldEffect.cpp b/src/Game/World/WorldEffect.cpp
+index b6bd039..72efc85 100644
+--- a/src/Game/World/WorldEffect.cpp
++++ b/src/Game/World/WorldEffect.cpp
+@@ -1,5 +1,6 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/World/WorldEffect.h"
++#include "Game/World/WorldEffectSteps.h"
+ 
+ #include "Game/Debug/ShapeRender.h"
+ #include "Game/Effects/EmissionController.h"
+@@ -15,18 +16,7 @@ static bool s_drawEffectBounds;
+ 
+ void WorldEffect::Initialize(WorldObjectLoadContext* pContext)
+ {
+-    m_bActive = true;
+-    if (m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
+-    {
+-        float fEmissionInterval = m_fEmissionInterval;
+-        m_fEmissionTime = fEmissionInterval + 1.0f;
+-    }
+-    else
+-    {
+-        m_fEmissionTime = 0.0f;
+-    }
+-    m_fPreviousEmissionTime = m_fEmissionTime;
+-    m_nRemainingEmissions = m_nEmissionCount;
++    WorldEffectInitializeClock(*this);
+     pContext->m_pWorld->AddEffect(this);
+ }
+ 
+@@ -57,44 +47,9 @@ void WorldEffect::ReleaseResources()
+ 
+ void WorldEffect::Update(float fDeltaT)
+ {
+-    if (fDeltaT != 0.0f && m_bActive)
++    if (WorldEffectUpdateClock(*this, fDeltaT, &nlDefaultSeed))
+     {
+-        bool bEmit = false;
+-        if (m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
+-        {
+-            if (m_nRemainingEmissions > 0
+-                || m_nRemainingEmissions == -1)
+-            {
+-                float fEmissionTime = m_fEmissionTime;
+-                float fEmissionInterval
+-                    = m_fEmissionInterval;
+-                fEmissionTime += fDeltaT;
+-                m_fEmissionTime = fEmissionTime;
+-                if (fEmissionInterval <= fEmissionTime
+-                    && nlRandom(100, &nlDefaultSeed)
+-                        < m_uProbability)
+-                {
+-                    bEmit = true;
+-                }
+-            }
+-        }
+-        else if (m_nRemainingEmissions > 0
+-            || m_nRemainingEmissions == -1)
+-        {
+-            float fEmissionTime = m_fEmissionTime;
+-            float fEmissionInterval = m_fEmissionInterval;
+-            if (fEmissionInterval <= fEmissionTime
+-                && nlRandom(100, &nlDefaultSeed)
+-                    < m_uProbability)
+-            {
+-                bEmit = true;
+-            }
+-        }
+-
+-        if (bEmit)
+-        {
+-            Emit();
+-        }
++        Emit();
+     }
+ }
+ 
+@@ -144,13 +99,7 @@ void WorldEffect::Emit()
+         m_nEmissionID = -1;
+     }
+ 
+-    m_fPreviousEmissionTime = m_fEmissionTime;
+-    m_fEmissionTime = 0.0f;
+-    --m_nRemainingEmissions;
+-    if (m_nRemainingEmissions < -1)
+-    {
+-        m_nRemainingEmissions = -1;
+-    }
++    WorldEffectEmitted(*this);
+ }
+ 
+ static const nlColour s_effectBoundsColour
+diff --git a/src/Game/world.cpp b/src/Game/world.cpp
+index ccb2949..58d6aa3 100644
+--- a/src/Game/world.cpp
++++ b/src/Game/world.cpp
+@@ -3,6 +3,7 @@
+ #include "NL/gl/gl.h"
+ #include "Game/World.h"
+ #include "Game/World/WorldEffect.h"
++#include "Game/World/WorldEffectSteps.h"
+ 
+ #include "Game/Drawable/DrawableObj.h"
+ #include "Game/Effects/EmissionManager.h"
+@@ -471,15 +472,7 @@ void World::ResetEffects()
+     while (iterator.IsValid())
+     {
+         WorldEffect* pEffect = iterator.Current();
+-        pEffect->m_fEmissionTime = 0.0f;
+-        pEffect->m_nRemainingEmissions = pEffect->m_nEmissionCount;
+-        pEffect->m_fPreviousEmissionTime = 0.0f;
+-        if (pEffect->m_nTimingMode == WORLD_EFFECT_ELAPSED_TIME)
+-        {
+-            float fEmissionTime = pEffect->m_fEmissionInterval;
+-            fEmissionTime = 1.0f + fEmissionTime;
+-            pEffect->m_fEmissionTime = fEmissionTime;
+-        }
++        WorldEffectResetClock(*pEffect);
+         iterator.Next();
+     }
+ }
+@@ -491,13 +484,7 @@ void World::TriggerEffects(unsigned long uType)
+     while (iterator.IsValid())
+     {
+         WorldEffect* pEffect = iterator.Current();
+-        if (uType == pEffect->m_nTimingMode)
+-        {
+-            pEffect->m_nRemainingEmissions = pEffect->m_nEmissionCount;
+-            float fEmissionTime = pEffect->m_fEmissionInterval;
+-            fEmissionTime = 1.0f + fEmissionTime;
+-            pEffect->m_fEmissionTime = fEmissionTime;
+-        }
++        WorldEffectTriggerClock(*pEffect, uType);
+         iterator.Next();
+     }
+ }

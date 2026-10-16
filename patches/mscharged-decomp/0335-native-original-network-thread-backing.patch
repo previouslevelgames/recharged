@@ -1,13 +1,58 @@
 From: mscharged native port
 Subject: [PATCH] Back original network SDK descriptors with native size and alignment
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use canonical native OSThread extent/alignment for live embedded descriptors.
 Preserve original network methods, constructors, stack requests, packed wire
 records and console fields. Keep the source detached-bit name as a native alias.
 This does not initialize network readiness or qualify HBM/game/network runtime.
 
+diff --git a/include/Game/NetworkLobby.h b/include/Game/NetworkLobby.h
+index 29a8c7a..147cdad 100644
+--- a/include/Game/NetworkLobby.h
++++ b/include/Game/NetworkLobby.h
+@@ -135,8 +135,12 @@ public:
+     /* 0x02F4 */ int mCachedLocalMachineIndex;
+ #endif
+     /* 0x02F4 / 0x02F8 (Korea) */ volatile bool mMatchmakingThreadRunning;
++#if defined(MSCHARGED_NATIVE)
++    alignas(OSThread) u8 mMatchmakingThread[sizeof(OSThread)];
++#else
+     // Opaque OSThread storage retains the SDK type's eight-byte alignment.
+     /* 0x02F8 / 0x0300 (Korea) */ unsigned long long mMatchmakingThread[0x318 / sizeof(unsigned long long)];
++#endif
+     /* 0x0610 / 0x0618 (Korea) */ u8 mMatchmakingThreadStack[0x4000];
+ }; // size: 0x4610 / 0x4618 (Korea)
+ 
+diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
+index e8ba1eb..b92cf56 100644
+--- a/include/Game/NetworkSession.h
++++ b/include/Game/NetworkSession.h
+@@ -3,6 +3,10 @@
+ 
+ #include "Game/NetworkDebug.h"
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSThread.h>
++#endif
++
+ #include "Game/LANLobbyListener.h"
+ #include "Game/main.h"
+ #include "Game/NetworkMessages.h"
+@@ -609,7 +613,11 @@ public:
+ #if defined(VERSION_R4QK01)
+     /* 0x24A6 */ bool mLoginThreadRunning;
+ #endif
++#if defined(MSCHARGED_NATIVE)
++    alignas(OSThread) u32 mLoginThread[sizeof(OSThread) / sizeof(u32)];
++#else
+     /* 0x24A8 */ u32 mLoginThread[0x318 / 4];
++#endif
+     /* 0x27C0 */ u8 mLoginThreadStack[0x4000];
+ }; // size: 0x67C0
+ 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
+index 97ad08e..bafca39 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
 @@ -3,6 +3,7 @@
@@ -18,44 +63,3 @@ diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/includ
  #else
  
  #include <revolution/os/OSContext.h>
-diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
---- a/include/Game/NetworkSession.h
-+++ b/include/Game/NetworkSession.h
-@@ -2,6 +2,10 @@
- #define GAME_NETWORK_SESSION_H
- 
- #include "Game/NetworkDebug.h"
-+
-+#if defined(MSCHARGED_NATIVE)
-+#include <dolphin/os/OSThread.h>
-+#endif
- 
- #include "Game/LANLobbyListener.h"
- #include "Game/main.h"
-@@ -512,7 +516,11 @@
-     /* 0x24A0 */ float mLoginStartTime;
-     /* 0x24A4 */ u8 mLoginRequestStarted;
-     /* 0x24A5 */ u8 mDWCInitialized;
-+#if defined(MSCHARGED_NATIVE)
-+    alignas(OSThread) u32 mLoginThread[sizeof(OSThread) / sizeof(u32)];
-+#else
-     /* 0x24A8 */ u32 mLoginThread[0x318 / 4];
-+#endif
-     /* 0x27C0 */ u8 mLoginThreadStack[0x4000];
- }; // size: 0x67C0
- 
-diff --git a/include/Game/NetworkLobby.h b/include/Game/NetworkLobby.h
---- a/include/Game/NetworkLobby.h
-+++ b/include/Game/NetworkLobby.h
-@@ -109,7 +109,11 @@
-     /* 0x00F4 */ NetworkDraftMachineInfo mMachineInfo[4];
-     /* 0x02F4 */ volatile bool mMatchmakingThreadRunning;
-     /* 0x02F5 */ u8 mPadding2F5[3];
-+#if defined(MSCHARGED_NATIVE)
-+    alignas(OSThread) u8 mMatchmakingThread[sizeof(OSThread)];
-+#else
-     /* 0x02F8 */ u8 mMatchmakingThread[0x318];
-+#endif
-     /* 0x0610 */ u8 mMatchmakingThreadStack[0x4000];
- }; // size: 0x4610
- 

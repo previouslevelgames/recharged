@@ -1,5 +1,5 @@
 Subject: Preserve original typed function-pool categories with native slot storage
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 The original four typed FunctorImpl hooks retain their reviewed Wii capture
 field footprint for allocation, Clone and virtual deletion. Native physical
@@ -11,6 +11,7 @@ isolated original game module, and excludes legacy diagnostic event routing.
 This patch does not add an event/game manager or establish full game startup.
 
 diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
+index ed9f8f9..3715fc3 100644
 --- a/include/NL/nlFunction.h
 +++ b/include/NL/nlFunction.h
 @@ -3,6 +3,9 @@
@@ -23,7 +24,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
  
  template <typename ReturnType>
  class Function0
-@@ -31,6 +34,18 @@
+@@ -31,6 +34,18 @@ public:
          Callable mFunctor;
  
      public:
@@ -42,7 +43,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
          FunctorImpl(const Callable& callable);
  
          virtual ReturnType operator()();
-@@ -216,6 +231,18 @@
+@@ -216,6 +231,18 @@ public:
          Callable mFunctor;
  
      public:
@@ -61,7 +62,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
          FunctorImpl(const Callable& callable);
  
          virtual ReturnType operator()(P1 p0);
-@@ -550,6 +577,18 @@
+@@ -550,6 +577,18 @@ public:
          Callable mFunctor;
  
      public:
@@ -81,6 +82,7 @@ diff --git a/include/NL/nlFunction.h b/include/NL/nlFunction.h
              : mFunctor(callable)
          {
 diff --git a/include/NL/nlFunction2.h b/include/NL/nlFunction2.h
+index 10b7666..b653895 100644
 --- a/include/NL/nlFunction2.h
 +++ b/include/NL/nlFunction2.h
 @@ -3,6 +3,9 @@
@@ -93,7 +95,7 @@ diff --git a/include/NL/nlFunction2.h b/include/NL/nlFunction2.h
  
  template <typename ReturnType, typename P1, typename P2>
  class Function2
-@@ -28,6 +31,18 @@
+@@ -28,6 +31,18 @@ public:
          Callable mFunctor;
  
      public:
@@ -113,6 +115,7 @@ diff --git a/include/NL/nlFunction2.h b/include/NL/nlFunction2.h
  
          virtual ReturnType operator()(P1 p1, P2 p2);
 diff --git a/src/NL/nlFunctionMemory.cpp b/src/NL/nlFunctionMemory.cpp
+index 7d8de3f..003fc81 100644
 --- a/src/NL/nlFunctionMemory.cpp
 +++ b/src/NL/nlFunctionMemory.cpp
 @@ -1,9 +1,16 @@

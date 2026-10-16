@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve original HBM task capacity with native payload and MEM layouts
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native LP64 storage/header ABI and modern compiler compatibility only.
 
 Retain all original nested SoundArchivePlayer task declarations and methods.
@@ -20,6 +20,7 @@ canonical implementation and actual int-id/label call bindings stay unchanged.
 No SoundArchivePlayer loading,HBM initialization or source readiness is added.
 
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h
+index b3a9e54..a6d9806 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h
 @@ -6,7 +6,12 @@
@@ -36,9 +37,10 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/AxVoice.h b/libs/RVL
  #include <stddef.h>
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
+index 0143ff0..0c508fd 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
-@@ -18,15 +18,23 @@
+@@ -18,16 +18,24 @@ class DisposeCallback : public DisposeCallbackBase {
  public:
      /* 0x00 */ ut::LinkListNode mDisposeLink;
  
@@ -55,14 +57,16 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h b/
      /* 0x0C */ virtual void InvalidateData(const void* start, const void* end) = 0;
      /* 0x10 */ virtual void InvalidateWaveData(const void* start, const void* end) = 0;
  };
-+
+ 
 +#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
 +inline DisposeCallback::~DisposeCallback() {}
 +#endif
- 
++
  } // namespace
  
+ typedef ut::LinkList<DisposeCallback, offsetof(DisposeCallback, mDisposeLink)> DisposeCallbackList;
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
+index f3146bb..44f5c21 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
 @@ -3,7 +3,12 @@
@@ -79,6 +83,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h b/libs/R
  #include "revolution/mem.h"
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h
+index 425d24b..9d8de00 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h
 @@ -6,7 +6,12 @@
@@ -95,6 +100,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FxBase.h b/libs/RVL_
  
  namespace nw4hbm {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h
+index 9787bc3..87ec31d 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h
 @@ -1,7 +1,11 @@
@@ -110,6 +116,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/InstancePool.h b/lib
  
  namespace nw4hbm {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h
+index 1702884..729e27c 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h
 @@ -3,10 +3,17 @@
@@ -131,9 +138,10 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchive.h b/lib
  namespace detail {
  class SoundArchiveFileReader;
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
+index 35e9672..d22b012 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
-@@ -34,6 +34,9 @@
+@@ -34,6 +34,9 @@ class SoundPlayer;
  namespace detail {
  class SeqTrackAllocator;
  class SoundArchiveLoader;
@@ -143,7 +151,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
  } // namespace detail
  
  class SoundArchivePlayer_FileManager {
-@@ -90,9 +93,13 @@
+@@ -90,9 +93,13 @@ public:
      bool LoadGroup(int id, SoundMemoryAllocatable* allocatable, u32 loadBlockSize) {
          return LoadGroup(static_cast<u32>(id), allocatable, loadBlockSize);
      }
@@ -157,7 +165,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
  
      u32 GetSoundPlayerCount() const { return mSoundPlayerCount; }
  
-@@ -101,6 +108,9 @@
+@@ -101,6 +108,9 @@ public:
      u32 GetFreeWaveSoundCount() const { return mWaveSoundInstanceManager.GetFreeCount(); }
  
  private:
@@ -168,6 +176,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
      public:
          SeqLoadCallback(const SoundArchivePlayer& player);
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h
+index a226bcd..a119059 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h
 @@ -6,7 +6,11 @@
@@ -183,6 +192,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundHeap.h b/libs/R
  #include "revolution/os.h"
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h
+index 3e6cf62..5d653cf 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager.h
 @@ -1,7 +1,11 @@
@@ -197,7 +207,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager
  
  #include "revolution/types.h"
  
-@@ -89,7 +93,11 @@
+@@ -89,7 +93,11 @@ public:
      }
  
      void InsertPriorityList(T* sound, int priority) {
@@ -210,9 +220,10 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundInstanceManager
          for (; it != mPriorityList.GetEndIter(); it++) {
              if (priority < it->CalcCurrentPlayerPriority()) {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h
+index 9cc1b03..5c2e6c6 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h
-@@ -61,9 +61,11 @@
+@@ -63,9 +63,11 @@ public:
      bool StartSound(SoundHandle* soundHandle, u32 id) {
          return detail_StartSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
      }
@@ -224,7 +235,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h b/l
      bool StartSound(SoundHandle* soundHandle, int id) {
          return detail_StartSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
      }
-@@ -71,9 +73,11 @@
+@@ -73,9 +75,11 @@ public:
      bool HoldSound(SoundHandle* soundHandle, u32 id) {
          return detail_HoldSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
      }
@@ -236,7 +247,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h b/l
      bool HoldSound(SoundHandle* soundHandle, int id) {
          return detail_HoldSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
      }
-@@ -81,9 +85,11 @@
+@@ -83,9 +87,11 @@ public:
      bool PrepareSound(SoundHandle* soundHandle, u32 id) {
          return detail_PrepareSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
      }
@@ -249,6 +260,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundStartable.h b/l
          return detail_PrepareSound(soundHandle, id, NULL, NULL, NULL) == START_SUCCESS;
      }
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h
+index 54ce1d3..59b7a4c 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h
 @@ -9,7 +9,11 @@
@@ -264,9 +276,10 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmFile.h b/libs/RV
  
  namespace nw4hbm {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
+index 9ff09a0..bc4215e 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
-@@ -38,10 +38,17 @@
+@@ -38,10 +38,17 @@ public:
      void* Alloc();
      void Free(void* ptr);
  
@@ -286,6 +299,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs
      /* 0x18 */ MEMHeapHandle mHeapHandle;
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskNativeStorage.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskNativeStorage.h
 new file mode 100644
+index 0000000..4be1c7e
 --- /dev/null
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskNativeStorage.h
 @@ -0,0 +1,54 @@
@@ -344,9 +358,10 @@ new file mode 100644
 +
 +#endif
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
+index e7b5964..01432d0 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h
-@@ -15,7 +15,11 @@
+@@ -15,7 +15,11 @@ class WsdTrack {
  public:
      class WsdCallback {
      public:
@@ -358,7 +373,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h b/libs/RV
  
          /* 0x0C */ virtual bool GetWaveSoundData(WaveSoundInfo* info, WaveSoundNoteInfo* noteInfo, WaveData* waveData,
                                                   const void* waveSoundData, int index, int noteIndex,
-@@ -59,6 +63,9 @@
+@@ -59,6 +63,9 @@ private:
      /* 0x2C */ WsdPlayer* mWsdPlayer;
      /* 0x30 */ Channel* mChannelList;
  };
@@ -369,9 +384,10 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/WsdTrack.h b/libs/RV
  } // namespace snd
  } // namespace nw4hbm
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h
+index bf58667..06ea115 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h
-@@ -52,9 +52,15 @@
+@@ -52,9 +52,15 @@ static const int PRIORITY_MAX = 255;
  
  static const int REMOTE_FILTER_MAX = 127;
  
@@ -388,6 +404,7 @@ diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/types.h b/libs/RVL_S
  
  typedef enum OutputLineFlag {
 diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
+index f2d18d4..4d6c78c 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
 @@ -1,10 +1,17 @@
@@ -408,7 +425,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp b/src/RVL_SDK/hbm/nw
  
  TaskManager& TaskManager::GetInstance() {
      static TaskManager instance;
-@@ -16,7 +23,12 @@
+@@ -16,7 +23,12 @@ TaskManager::TaskManager() :
      mCurrentTask(NULL),
      mTaskList() {
      OSInitMutex(&mMutex);
@@ -421,7 +438,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp b/src/RVL_SDK/hbm/nw
  
      // clang-format off
      NW4HBMAssert_Line(MEMCountFreeBlockForUnitHeap( mHeapHandle ) >= TASK_NUM, 55);
-@@ -42,7 +54,13 @@
+@@ -42,7 +54,13 @@ void* TaskManager::Alloc() {
  
  u32 TaskManager::GetTaskBufferSize() {
      //! TODO: fake match?

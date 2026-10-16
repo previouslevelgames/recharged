@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve native FlyingCamera event owner pointer width
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Classification: permanent native pointer ABI.
 Three original event registration owners are addresses of the genuine
@@ -10,9 +10,10 @@ Original branch order, event functions, owner identities, reset and
 cleanup decisions are untouched. Console source tokens are identical.
 
 diff --git a/src/Game/Render/FlyingCamera.cpp b/src/Game/Render/FlyingCamera.cpp
+index f278b5a..22a0a1a 100644
 --- a/src/Game/Render/FlyingCamera.cpp
 +++ b/src/Game/Render/FlyingCamera.cpp
-@@ -304,15 +304,27 @@
+@@ -304,15 +304,27 @@ void SetFlyingCameraCount(int count, cFielder* fielder, float orbitRadius)
      {
          if (gPeachCameraFlashConnection.mOwner == 0)
          {

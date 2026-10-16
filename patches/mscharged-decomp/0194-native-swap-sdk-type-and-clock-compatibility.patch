@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Preserve native retrace callback and screenshot scalar widths
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Use four-byte native retrace callback arguments and GXPeekARGB output cells.
 Use the native SDK GXBool output type for hardware status cells.
@@ -9,9 +9,10 @@ local colour/compare guards and hardware-clock hunk. Native clock transport
 remains in0244. Preserve source callbacks, screenshot and swap decisions.
 
 diff --git a/src/NL/glx/glxSwap.cpp b/src/NL/glx/glxSwap.cpp
+index 9727a85..557a128 100644
 --- a/src/NL/glx/glxSwap.cpp
 +++ b/src/NL/glx/glxSwap.cpp
-@@ -42,8 +42,16 @@
+@@ -42,8 +42,16 @@ static void HandleSoftReset();
  static void glx_ScreenCapture(bool isMovie);
  static void PutPixel(u8* dst, u32 argbColor);
  static void loading_indicator();
@@ -28,7 +29,7 @@ diff --git a/src/NL/glx/glxSwap.cpp b/src/NL/glx/glxSwap.cpp
  static void draw_done_cb();
  static void AdvanceFrame();
  static void ReportGPStatus();
-@@ -116,7 +124,11 @@
+@@ -116,7 +124,11 @@ static void glx_ScreenCapture(bool isMovie)
      char filename[0x40];
      FILE* file;
      TargaHeader header;
@@ -40,7 +41,7 @@ diff --git a/src/NL/glx/glxSwap.cpp b/src/NL/glx/glxSwap.cpp
      s32 pixelOffset;
      s32 y, x;
      u8* imageData;
-@@ -220,12 +232,20 @@
+@@ -220,12 +232,20 @@ static void loading_indicator()
      }
  }
  
@@ -61,7 +62,7 @@ diff --git a/src/NL/glx/glxSwap.cpp b/src/NL/glx/glxSwap.cpp
  {
      HandleSoftReset();
      if (glx_bLoadingIndicator != 0)
-@@ -310,11 +330,19 @@
+@@ -310,11 +330,19 @@ void glxSetDrawSyncTimeout(f32 seconds)
  
  static void ReportGPStatus()
  {

@@ -1,5 +1,5 @@
 Subject: Route explicit native game frees to their exact recorded allocator
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Replace Wii address-nibble routing with exact live native allocation ownership.
 Parent/custom heaps can overlap; their original allocator remains the owner after
@@ -9,6 +9,7 @@ ordinary game-TU bindings and production platform setup before game constructors
 remain separate integration gates. The source lazy nlInitMemory call is retained.
 
 diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
+index 0435be1..3f8b9fa 100644
 --- a/src/NL/nlMemory.cpp
 +++ b/src/NL/nlMemory.cpp
 @@ -1,6 +1,9 @@
@@ -21,7 +22,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
  
  MemoryAllocator VirtualAllocator;
  MemoryAllocator* AllocatorStack[16] = { &StandardAllocator };
-@@ -10,6 +13,9 @@
+@@ -10,6 +13,9 @@ u8 gMemoryInitialized;
  
  static inline void FreeMemory(void* ptr)
  {
@@ -31,7 +32,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
      if (CurrentAllocator != &StandardAllocator && CurrentAllocator != &VirtualAllocator)
      {
          CurrentAllocator->Free(ptr);
-@@ -25,6 +31,7 @@
+@@ -25,6 +31,7 @@ static inline void FreeMemory(void* ptr)
      {
          VirtualAllocator.Free(ptr);
      }
@@ -39,7 +40,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
  }
  
  static inline void* AllocateMemory(unsigned long size, unsigned int alignment, bool fromEnd)
-@@ -36,6 +43,9 @@
+@@ -36,6 +43,9 @@ static inline void* AllocateMemory(unsigned long size, unsigned int alignment, b
      return CurrentAllocator->Allocate(size, alignment, fromEnd);
  }
  
@@ -49,7 +50,7 @@ diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
  void operator delete(void* ptr)
  {
      FreeMemory(ptr);
-@@ -56,6 +66,8 @@
+@@ -56,6 +66,8 @@ void* operator new[](unsigned long size)
      return AllocateMemory(size, 8, false);
  }
  

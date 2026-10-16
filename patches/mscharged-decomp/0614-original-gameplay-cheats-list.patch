@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original gameplay-options cheats list
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission; depends on the Domination setup admission.
 
 The gameplay options page that the authored VS transition pushes (27) has a
@@ -16,9 +16,10 @@ pointer-button index arrives in the callback context word and is narrowed
 through std::uintptr_t natively. Console builds keep the literal casts.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 923e118..b967a80 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
-@@ -409,7 +409,7 @@
+@@ -442,7 +442,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
          newHandler = new (nlMalloc(sizeof(SHGameplayOptions), 8, false)) SHGameplayOptions();
          break;
  #endif
@@ -28,6 +29,7 @@ diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneMan
          newHandler = new (nlMalloc(sizeof(SHOptionsCheatsList), 8, false)) SHOptionsCheatsList();
          break;
 diff --git a/src/Game/SH/SHOptionsCheatsList.cpp b/src/Game/SH/SHOptionsCheatsList.cpp
+index fe029e1..607cc78 100644
 --- a/src/Game/SH/SHOptionsCheatsList.cpp
 +++ b/src/Game/SH/SHOptionsCheatsList.cpp
 @@ -1,4 +1,7 @@
@@ -38,7 +40,7 @@ diff --git a/src/Game/SH/SHOptionsCheatsList.cpp b/src/Game/SH/SHOptionsCheatsLi
  #include "NL/nlFunction.inl"
  #include "Game/SH/SHGameplayOptions.h"
  #include "Game/FE/feHelpFuncs_decl.h"
-@@ -251,7 +254,11 @@
+@@ -250,7 +253,11 @@ void SHOptionsCheatsList::InitializeButtons()
  void SHOptionsCheatsList::OnCheatPointerEnter(unsigned int index, void* context)
  {
      bool unlocked = false;
@@ -50,7 +52,7 @@ diff --git a/src/Game/SH/SHOptionsCheatsList.cpp b/src/Game/SH/SHOptionsCheatsLi
  
      if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
      {
-@@ -282,7 +289,11 @@
+@@ -281,7 +288,11 @@ void SHOptionsCheatsList::OnCheatPointerEnter(unsigned int index, void* context)
  void SHOptionsCheatsList::OnCheatPointerPress(unsigned int, void* context)
  {
      bool unlocked = false;
@@ -62,7 +64,7 @@ diff --git a/src/Game/SH/SHOptionsCheatsList.cpp b/src/Game/SH/SHOptionsCheatsLi
  
      if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
      {
-@@ -325,7 +336,11 @@
+@@ -324,7 +335,11 @@ void SHOptionsCheatsList::OnCheatPointerPress(unsigned int, void* context)
  void SHOptionsCheatsList::OnCheatPointerInside(unsigned int index, void* context)
  {
      bool unlocked = false;
@@ -74,7 +76,7 @@ diff --git a/src/Game/SH/SHOptionsCheatsList.cpp b/src/Game/SH/SHOptionsCheatsLi
  
      if (mCheatCategory == 0 && IsEnvironmentCheatUnlocked(item + mFirstVisibleCheat))
      {
-@@ -355,7 +370,11 @@
+@@ -354,7 +369,11 @@ void SHOptionsCheatsList::OnCheatPointerInside(unsigned int index, void* context
  void SHOptionsCheatsList::OnCheatPointerLeave(unsigned int index, void* context)
  {
      bool unlocked = false;

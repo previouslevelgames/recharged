@@ -1,6 +1,6 @@
 Subject: Preserve original HBM layout/font bodies under native compiler and GX call ABI
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Keep original whole layout/font/list algorithms, chunk walks and presentation
 decisions. Adapt native new includes, live pointer arithmetic, the typed GX
@@ -8,7 +8,11 @@ line selector, canonical GX fog argument order and real va_list finalization.
 Console branches remain unchanged. Coherent HBM Wii16 declarations are the
 separate 0534 dependency; serialized resource production remains separate.
 
+Refreshed for decomp 9046e67a: ut_TextWriterBase.cpp needs no change: upstream
+fixed its va_end argument.
+
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_animation.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_animation.cpp
+index 2e8d9e7..29c1e18 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_animation.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_animation.cpp
 @@ -4,7 +4,11 @@
@@ -24,9 +28,10 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_animation.cpp b/src/RVL_SDK/hbm/nw4h
  namespace {
  using namespace nw4hbm;
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_common.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_common.cpp
+index f0b76f9..209278f 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_common.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_common.cpp
-@@ -219,7 +219,11 @@
+@@ -219,7 +219,11 @@ void DrawLine(const math::VEC2& pos, const Size& size, ut::Color color) {
      GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
      GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_SET);
  
@@ -39,6 +44,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_common.cpp b/src/RVL_SDK/hbm/nw4hbm/
      // start at top left, go clockwise
  
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_group.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_group.cpp
+index 1c1aa94..2b0e59d 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_group.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_group.cpp
 @@ -3,7 +3,11 @@
@@ -54,6 +60,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_group.cpp b/src/RVL_SDK/hbm/nw4hbm/l
  namespace nw4hbm {
  namespace lyt {
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
+index d356dc9..1eb385a 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp
 @@ -5,9 +5,16 @@
@@ -74,6 +81,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_layout.cpp b/src/RVL_SDK/hbm/nw4hbm/
  namespace {
  // pretend this is nw4hbm::lyt
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_picture.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_picture.cpp
+index 8b707c6..fcdea12 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_picture.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_picture.cpp
 @@ -2,7 +2,11 @@
@@ -89,6 +97,7 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_picture.cpp b/src/RVL_SDK/hbm/nw4hbm
  namespace nw4hbm {
  namespace lyt {
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_window.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_window.cpp
+index 7616d03..707b8d9 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_window.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_window.cpp
 @@ -2,7 +2,11 @@
@@ -104,9 +113,10 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_window.cpp b/src/RVL_SDK/hbm/nw4hbm/
  struct TextureFlipInfo {
      /* 0x00 */ u8 coords[4][2];
 diff --git a/src/RVL_SDK/hbm/nw4hbm/ut/ut_CharWriter.cpp b/src/RVL_SDK/hbm/nw4hbm/ut/ut_CharWriter.cpp
+index d5fcfd0..b4c8104 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/ut/ut_CharWriter.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/ut/ut_CharWriter.cpp
-@@ -32,7 +32,11 @@
+@@ -32,7 +32,11 @@ CharWriter::CharWriter() :
  void SetupGXCommon() {
      static ut::Color fog(0x00000000);
  
@@ -118,22 +128,8 @@ diff --git a/src/RVL_SDK/hbm/nw4hbm/ut/ut_CharWriter.cpp b/src/RVL_SDK/hbm/nw4hb
      GXSetTevSwapModeTable(GX_TEV_SWAP0, GX_CH_RED, GX_CH_GREEN, GX_CH_BLUE, GX_CH_ALPHA);
      GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z8, 0);
      GXSetNumChans(1);
-diff --git a/src/RVL_SDK/hbm/nw4hbm/ut/ut_TextWriterBase.cpp b/src/RVL_SDK/hbm/nw4hbm/ut/ut_TextWriterBase.cpp
---- a/src/RVL_SDK/hbm/nw4hbm/ut/ut_TextWriterBase.cpp
-+++ b/src/RVL_SDK/hbm/nw4hbm/ut/ut_TextWriterBase.cpp
-@@ -447,7 +447,11 @@
- 
-     va_start(vargs, format);
-     f32 width = VPrintf(format, vargs);
-+#if defined(MSCHARGED_NATIVE)
-+    va_end(vargs);
-+#else
-     va_end(vlist);
-+#endif
- 
-     return width;
- }
 diff --git a/src/RVL_SDK/hbm/nw4hbm/ut/ut_list.cpp b/src/RVL_SDK/hbm/nw4hbm/ut/ut_list.cpp
+index 84ce38b..9d65a5f 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/ut/ut_list.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/ut/ut_list.cpp
 @@ -2,7 +2,13 @@

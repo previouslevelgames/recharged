@@ -1,93 +1,14 @@
 Subject: Select scalar original zero-morph weighted software equations
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Preserve paired-single mul/madd/add grouping and bone-outer accumulation.
 Native helpers use explicit fused single-precision multiply-add and retain
 authored unnormalized weights/normals. Nonzero morphs fail explicitly; the
 console assembly remains intact. Raw ShaderSkinMesh ownership is unselected.
 
-diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
---- a/src/Game/GL/ShaderSkinMesh.cpp
-+++ b/src/Game/GL/ShaderSkinMesh.cpp
-@@ -2,6 +2,10 @@
- 
- #include "Game/GL/ShaderSkinMesh.h"
- #include "Game/GL/SkinPoseSteps.h"
-+#if defined(MSCHARGED_NATIVE)
-+#include "Game/GL/SkinSoftwareSteps.h"
-+#include <stdexcept>
-+#endif
- 
- #include "Game/SHierarchy.h"
- #include "Game/GL/glModelBuilder.h"
-@@ -319,6 +323,7 @@
-         {
-             BoneSkinWeights* curr = &data->boneWeights[matrixOffset];
-             register const nlMatrix4* pMatrix = &tempMatrices[matrixOffset];
-+#if !defined(MSCHARGED_NATIVE)
-             // clang-format off
-             asm {
-                 psq_l f2, 0x0(pMatrix), 0, 0
-@@ -331,9 +336,13 @@
-                 psq_l f9, 0x38(pMatrix), 0, 0
-             }
-             // clang-format on
-+#endif
- 
-             if (numActiveMorphs != 0)
-             {
-+#if defined(MSCHARGED_NATIVE)
-+                throw std::runtime_error("Native weighted software skin cannot execute nonzero morphs");
-+#else
-                 for (unsigned long i = 0; i < curr->numWeights; i++)
-                 {
-                     const SkinWeight& pair = curr->weights[i];
-@@ -368,6 +377,7 @@
-                     }
-                     // clang-format on
-                 }
-+#endif
-             }
-             else
-             {
-@@ -378,6 +388,9 @@
-                     unsigned long index = pair.vertexIndex;
-                     register const nlVector3& inVertex = inVertices[index];
-                     register nlVector3& outVertex = outVertices[index];
-+#if defined(MSCHARGED_NATIVE)
-+                    SkinSoftwarePosition(outVertex, inVertex, *pMatrix, vertexWeight);
-+#else
-                     // clang-format off
-                     asm {
-                         lfs f12, vertexWeight
-@@ -399,6 +412,7 @@
-                         psq_st f11, 0x8(outVertex), 1, 0
-                     }
-                     // clang-format on
-+#endif
-                 }
-             }
- 
-@@ -411,6 +425,9 @@
-                     unsigned long index = pair.vertexIndex;
-                     register const nlVector3& inNormal = inNormals[index];
-                     register nlVector3& outNormal = outNormals[index];
-+#if defined(MSCHARGED_NATIVE)
-+                    SkinSoftwareNormal(outNormal, inNormal, *pMatrix, vertexWeight);
-+#else
-                     // clang-format off
-                     asm {
-                         lfs f12, vertexWeight
-@@ -430,6 +447,7 @@
-                         psq_st f11, 0x8(outNormal), 1, 0
-                     }
-                     // clang-format on
-+#endif
-                 }
-             }
-         }
 diff --git a/include/Game/GL/SkinSoftwareSteps.h b/include/Game/GL/SkinSoftwareSteps.h
 new file mode 100644
+index 0000000..b324ead
 --- /dev/null
 +++ b/include/Game/GL/SkinSoftwareSteps.h
 @@ -0,0 +1,34 @@
@@ -125,3 +46,84 @@ new file mode 100644
 +    }
 +}
 +#endif
+diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
+index 23475a2..4f7b2e7 100644
+--- a/src/Game/GL/ShaderSkinMesh.cpp
++++ b/src/Game/GL/ShaderSkinMesh.cpp
+@@ -2,6 +2,10 @@
+ 
+ #include "Game/GL/ShaderSkinMesh.h"
+ #include "Game/GL/SkinPoseSteps.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/GL/SkinSoftwareSteps.h"
++#include <stdexcept>
++#endif
+ 
+ #include "Game/SHierarchy.h"
+ #include "Game/GL/glModelBuilder.h"
+@@ -319,6 +323,7 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+         {
+             BoneSkinWeights* curr = &data->boneWeights[matrixOffset];
+             register const nlMatrix4* pMatrix = &tempMatrices[matrixOffset];
++#if !defined(MSCHARGED_NATIVE)
+             // clang-format off
+             asm {
+                 psq_l f2, 0x0(pMatrix), 0, 0
+@@ -331,9 +336,13 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+                 psq_l f9, 0x38(pMatrix), 0, 0
+             }
+             // clang-format on
++#endif
+ 
+             if (numActiveMorphs != 0)
+             {
++#if defined(MSCHARGED_NATIVE)
++                throw std::runtime_error("Native weighted software skin cannot execute nonzero morphs");
++#else
+                 for (unsigned long i = 0; i < curr->numWeights; i++)
+                 {
+                     const SkinWeight& pair = curr->weights[i];
+@@ -368,6 +377,7 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+                     }
+                     // clang-format on
+                 }
++#endif
+             }
+             else
+             {
+@@ -378,6 +388,9 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+                     unsigned long index = pair.vertexIndex;
+                     register const nlVector3& inVertex = inVertices[index];
+                     register nlVector3& outVertex = outVertices[index];
++#if defined(MSCHARGED_NATIVE)
++                    SkinSoftwarePosition(outVertex, inVertex, *pMatrix, vertexWeight);
++#else
+                     // clang-format off
+                     asm {
+                         lfs f12, vertexWeight
+@@ -399,6 +412,7 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+                         psq_st f11, 0x8(outVertex), 1, 0
+                     }
+                     // clang-format on
++#endif
+                 }
+             }
+ 
+@@ -411,6 +425,9 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+                     unsigned long index = pair.vertexIndex;
+                     register const nlVector3& inNormal = inNormals[index];
+                     register nlVector3& outNormal = outNormals[index];
++#if defined(MSCHARGED_NATIVE)
++                    SkinSoftwareNormal(outNormal, inNormal, *pMatrix, vertexWeight);
++#else
+                     // clang-format off
+                     asm {
+                         lfs f12, vertexWeight
+@@ -430,6 +447,7 @@ void ShaderSkinMesh::SoftwareSkinModel(glModel* model)
+                         psq_st f11, 0x8(outNormal), 1, 0
+                     }
+                     // clang-format on
++#endif
+                 }
+             }
+         }

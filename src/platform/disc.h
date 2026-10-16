@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace mscharged
 {
@@ -15,8 +16,8 @@ struct DiscInfo
     uint32_t file_count;
 };
 
-// The port runs the USA release, the one the decompilation reconstructs.
-inline bool SupportedRelease(const DiscInfo& info) { return info.game_id == "R4QE01"; }
+// A release in platform/game_release.h whose game module is in this build.
+bool SupportedRelease(const DiscInfo& info);
 
 // "USA", "Europe", "Japan", "Korea" from the disc ID's region letter.
 const char* DiscRegionName(const std::string& game_id);
@@ -24,6 +25,9 @@ const char* DiscRegionName(const std::string& game_id);
 // Opens the image read-only and checks the Charged header and data partition.
 // This is a metadata/readability check, not a full-disc integrity check.
 DiscInfo InspectDisc(const std::filesystem::path& path);
+
+// The game's main.dol from the data partition, as its boot header locates it.
+std::vector<std::uint8_t> ReadDiscMainDol(const std::filesystem::path& path);
 
 // Actual data-partition TMD title identity for native ES/storage services.
 // Does not derive a title from the disc ID or authenticate the TMD signature.

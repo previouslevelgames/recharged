@@ -1,14 +1,15 @@
 From: mscharged-port source integration
 Subject: [PATCH] Select original Credits movie in original-main diagnostic
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary diagnostic-only selected source flow.
 Scope: named MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE, no normal game behavior change.
 Prerequisite: original-main native-frame diagnostic0249 and movie0247.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 73f9ca3..42a8762 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -7,6 +7,9 @@
+@@ -8,6 +8,9 @@
  #endif
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
  #include "Game/SH/SHCredits.h"
@@ -18,7 +19,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #include "Game/FE/feScene.h"
  #include "NL/glx/glxMemory.h"
  #include "NL/glx/glxSend.h"
-@@ -563,7 +566,11 @@
+@@ -572,7 +575,11 @@ static void Initialize()
      EmissionManager::ConfigureResource(2, "StadiumEffects", 250);
      ImpostorManager::GetInstance();
      ClockManager::Initialize();
@@ -30,7 +31,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      GLResourcePool* resourcePool = glGetCurrentResourcePool();
      resourcePool->MarkResource();
      InitPlatPad();
-@@ -862,6 +869,12 @@
+@@ -871,6 +878,12 @@ int main()
      }
      if (!UpdateFontLoading(&gLoadInGameFonts))
          return 84;
@@ -43,7 +44,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE)
      // The original loading bytecode and GameSceneManager dispatch are omitted
      // by this temporary diagnostic. Retain the same source-owned managers,
-@@ -928,6 +941,11 @@
+@@ -937,6 +950,11 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      FEResourceManager::Instance()->Run(delta);
      FESceneManager::Instance()->Update(delta);
      FESceneManager::Instance()->RenderActiveScenes();
@@ -55,7 +56,7 @@ diff --git a/src/Game/main.cpp b/src/Game/main.cpp
      glEndFrame();
      GetLayerView(eCLV_Anark)->Iterate(glx_SendFrame_cb);
      glx_SendEnd();
-@@ -945,7 +963,23 @@
+@@ -954,7 +972,23 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
      FEResourceManager::Instance()->Run(delta);
      FESceneManager::Instance()->Update(delta);
      FESceneManager::Instance()->RenderActiveScenes();

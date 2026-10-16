@@ -1,12 +1,13 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original cue, delay and source selection steps
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Typed native callers validate complete resource closure before invoking these
 original algorithms. Inject RNG state explicitly; retain console delegation.
 
 diff --git a/include/Game/Audio/AudioBankSelectionSteps.h b/include/Game/Audio/AudioBankSelectionSteps.h
 new file mode 100644
+index 0000000..c4bea81
 --- /dev/null
 +++ b/include/Game/Audio/AudioBankSelectionSteps.h
 @@ -0,0 +1,146 @@
@@ -157,6 +158,7 @@ new file mode 100644
 +}
 +#endif
 diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResourceBundle.cpp
+index d811b8e..6db7194 100644
 --- a/src/Game/Audio/AudioResourceBundle.cpp
 +++ b/src/Game/Audio/AudioResourceBundle.cpp
 @@ -2,6 +2,7 @@
@@ -167,7 +169,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
  #include "Game/Audio/AudioSequenceEvent.h"
  #include "Game/Audio/AudioSystem.h"
  #include "Game/Audio/RegistryPools.h"
-@@ -121,112 +122,16 @@
+@@ -115,112 +116,16 @@ AudioResourceBundle* ParseAudioResourceBundle(nlChunk* outer)
      return bundle;
  }
  
@@ -289,6 +291,7 @@ diff --git a/src/Game/Audio/AudioResourceBundle.cpp b/src/Game/Audio/AudioResour
  
  AudioVoiceDefinition* SelectAudioCueVoiceBySlider(
 diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenceEvent.cpp
+index b3ddad5..7b6412e 100644
 --- a/src/Game/Audio/AudioSequenceEvent.cpp
 +++ b/src/Game/Audio/AudioSequenceEvent.cpp
 @@ -13,6 +13,7 @@
@@ -299,12 +302,10 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
  #include "Game/Audio/AudioBankLoader.h"
  
  SlotPool<SoundPlaybackEvent> sSoundPlaybackEventPool(32, 16);
-@@ -22,6 +23,18 @@
- static inline float RandomRange(float minimum, float maximum)
- {
+@@ -24,6 +25,18 @@ static inline float RandomRange(float minimum, float maximum)
      return nlRandomf(minimum, maximum, &nlDefaultSeed);
-+}
-+
+ }
+ 
 +namespace
 +{
 +struct AudioEventRandom
@@ -315,10 +316,12 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
 +{
 +    float operator()(float low, float high) const { return RandomRange(low, high); }
 +};
- }
- 
++}
++
  inline SoundPlaybackEvent::SoundPlaybackEvent(
-@@ -36,12 +49,7 @@
+     AudioSequenceInstance* owner, SoundEventDefinition* definition)
+     : AudioSequenceEvent(owner)
+@@ -36,12 +49,7 @@ inline SoundPlaybackEvent::SoundPlaybackEvent(
      , flags(0)
  {
      this->definition = definition;
@@ -332,7 +335,7 @@ diff --git a/src/Game/Audio/AudioSequenceEvent.cpp b/src/Game/Audio/AudioSequenc
      sourceInfo = SelectSourceInfo();
      source = g_pAudioBackend->CreateSource(
          sourceInfo, this->owner->soundInstance->owner->m_Owner);
-@@ -127,24 +135,7 @@
+@@ -127,24 +135,7 @@ void SoundPlaybackEvent::Prepare()
  
  AudioSourceInfo* SoundPlaybackEvent::SelectSourceInfo()
  {

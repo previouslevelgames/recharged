@@ -1,15 +1,71 @@
 From: mscharged-port
 Subject: Decode original RFL cached resource cells and preserve native MEM prerequisites
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
+diff --git a/libs/RVL_SDK/include/revolution/mem/list.h b/libs/RVL_SDK/include/revolution/mem/list.h
+index c76256a..df88bef 100644
+--- a/libs/RVL_SDK/include/revolution/mem/list.h
++++ b/libs/RVL_SDK/include/revolution/mem/list.h
+@@ -24,8 +24,14 @@ void MEMAppendListObject(MEMList* list, void* object);
+ void MEMRemoveListObject(MEMList* list, void* object);
+ void* MEMGetNextListObject(MEMList* list, void* object);
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <stddef.h>
++#define MEM_INIT_LIST(list, structName, linkName) \
++    MEMInitList((list), (u16)offsetof(structName, linkName))
++#else
+ #define MEM_INIT_LIST(list, structName, linkName) \
+     MEMInitList((list), (u16)(u32) & (((structName*)0)->linkName))
++#endif
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
+index 74ca6a0..d0ee90e 100644
+--- a/src/RVL_SDK/mem/mem_expHeap.c
++++ b/src/RVL_SDK/mem/mem_expHeap.c
+@@ -1,5 +1,12 @@
+ #include <revolution/mem/expHeap.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#define __abs(value) __builtin_abs(value)
++#define MEM_EXP_ALIGNMENT ((_Alignof(MEMiHeapHead) > _Alignof(MEMiExpHeapMBlockHead)) ? _Alignof(MEMiHeapHead) : _Alignof(MEMiExpHeapMBlockHead))
++#else
++#define MEM_EXP_ALIGNMENT 4
++#endif
++
+ #define FillFreeMemory(heap, address, size) ((void)0)
+ #define FillNoUseMemory(heap, address, size) ((void)0)
+ 
+@@ -287,8 +294,8 @@ static BOOL RecycleRegion_(MEMiExpHeapHead* expHeap, const MemRegion* region) {
+ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
+     void* endAddress;
+ 
+-    endAddress = RoundDownPtr(AddU32ToPtr(startAddress, size), 4);
+-    startAddress = RoundUpPtr(startAddress, 4);
++    endAddress = RoundDownPtr(AddU32ToPtr(startAddress, size), MEM_EXP_ALIGNMENT);
++    startAddress = RoundUpPtr(startAddress, MEM_EXP_ALIGNMENT);
+ 
+     if (GetUIntPtr(startAddress) > GetUIntPtr(endAddress) ||
+         GetOffsetFromPtr(startAddress, endAddress) <
+@@ -314,7 +321,7 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, u32 size, int alignment) {
+         size = 1;
+     }
+ 
+-    size = RoundUp(size, 4);
++    size = RoundUp(size, MEM_EXP_ALIGNMENT);
+     LockHeap(heap);
+ 
+     if (alignment >= 0) {
 diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
+index c6d7eb6..38b1a24 100644
 --- a/src/RVL_SDK/rfl/RFL_NANDLoader.c
 +++ b/src/RVL_SDK/rfl/RFL_NANDLoader.c
-@@ -1,6 +1,23 @@
- #include <RVLFaceLib/RVLFaceLibInternal.h>
+@@ -2,6 +2,23 @@
  #include <revolution/nand.h>
  #include <string.h>
-+
+ 
 +#if defined(MSCHARGED_NATIVE)
 +#include "platform/rfl_resource_transport.h"
 +#define RFL_CACHED_HALF(loader, field) ChargedReadRFLCachedHalf((loader)->cache, (loader)->cacheSize, &(field))
@@ -26,41 +82,51 @@ diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
 +#define RFL_NAND_HALF(field) field
 +#define RFL_NAND_WORD(field) field
 +#endif
- 
++
  #define LOADER_HEADER_BUF_1_SIZE 0x100
  #define LOADER_HEADER_BUF_2_SIZE 0x20
-@@ -27,21 +44,25 @@
+ #define TEMP_BUF_SIZE 0x400
+@@ -27,7 +44,11 @@ void RFLiInitLoader(void) {
      loader->headerBuf2 = NULL;
  }
  
 +#if defined(MSCHARGED_NATIVE)
 +static void __attribute__((noinline)) parseOnmemoryRes_(void) {
 +#else
- static void parseOnmemoryRes_(void) DECOMP_DONT_INLINE {
+ static void parseOnmemoryRes_(void) {
 +#endif
      RFLiLoader* loader;
-     int i;
- 
+     u32* offsets;
+     u16* header;
+@@ -36,7 +57,7 @@ static void parseOnmemoryRes_(void) {
      loader = RFLiGetLoader();
--    loader->version = *(u16*)((u8*)loader->cache + 2);
-+    loader->version = RFL_CACHED_HALF(loader, *(u16*)((u8*)loader->cache + 2));
+     offsets = (u32*)loader->cache;
+     header = (u16*)offsets;
+-    loader->version = header[1];
++    loader->version = RFL_CACHED_HALF(loader, header[1]);
+ 
      for (i = 0; i < RFLiArcID_Max; i++) {
-         // Pointer to section offset in header
-         u32* offset = (u32*)((u8*)loader->cache + ((i + 1) * 4));
-         // Pointer to section
--        u32* p_section = (u32*)((u8*)loader->cache + *offset);
-+        u32* p_section = RFL_CACHED_ADDRESS(loader->cache, loader->cacheSize, (u32*)((u8*)loader->cache + RFL_CACHED_WORD(loader, *offset)), RFL_CACHED_WORD(loader, *offset));
-         // Load archive
--        loader->archives[i].numFiles = ((u16*)p_section)[0];
--        loader->archives[i].biggestSize = ((u16*)p_section)[1];
--        loader->archives[i].offset = *offset + 4;
-+        loader->archives[i].numFiles = RFL_CACHED_HALF(loader, ((u16*)p_section)[0]);
-+        loader->archives[i].biggestSize = RFL_CACHED_HALF(loader, ((u16*)p_section)[1]);
-+        loader->archives[i].offset = RFL_CACHED_WORD(loader, *offset) + 4;
+         u32* offset;
+@@ -46,12 +67,13 @@ static void parseOnmemoryRes_(void) {
+ 
+         offset = (u32*)loader->cache;
+         offset += i + 1;
+-        sectionOffset = *offset;
+-        section = (u16*)((u8*)loader->cache + sectionOffset);
++        sectionOffset = RFL_CACHED_WORD(loader, *offset);
++        section = (u16*)RFL_CACHED_ADDRESS(loader->cache, loader->cacheSize,
++                                           (u8*)loader->cache + sectionOffset, sectionOffset);
+         archive = &loader->archives[i];
+-        archive->numFiles = section[0];
+-        archive->biggestSize = section[1];
+-        archive->offset = *offset + 4;
++        archive->numFiles = RFL_CACHED_HALF(loader, section[0]);
++        archive->biggestSize = RFL_CACHED_HALF(loader, section[1]);
++        archive->offset = RFL_CACHED_WORD(loader, *offset) + 4;
      }
  }
  
-@@ -61,12 +82,12 @@
+@@ -71,12 +93,12 @@ static void loadResRead2ndcallback_(void) {
          if (arc < RFLiArcID_Max) {
              headerBuf2 = (u32*)loader->headerBuf2;
              headerBuf1 = &headerBuf1[arc + 1];
@@ -74,28 +140,28 @@ diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
              switch (RFLiReadAsync(RFLiFileType_Resource, loader->headerBuf2, 32,
 -                                  loadResRead2ndcallback_, *(headerBuf1 + 1))) {
 +                                  loadResRead2ndcallback_, RFL_NAND_WORD(*(headerBuf1 + 1)))) {
+             case RFLErrcode_Success:
              case RFLErrcode_Busy:
                  break;
-             case RFLErrcode_Success:
-@@ -106,7 +127,7 @@
+@@ -115,7 +137,7 @@ static void loadResRead1stcallback_(void) {
      free = FALSE;
      if (RFLGetAsyncStatus() == RFLErrcode_Success) {
          headerBuf1 = (u32*)loader->headerBuf1;
 -        loader->version = *(u16*)((u8*)headerBuf1 + 2);
 +        loader->version = RFL_NAND_HALF(*(u16*)((u8*)headerBuf1 + 2));
  
-         headerBuf2 = RFLiAlloc32(LOADER_HEADER_BUF_2_SIZE);
-         loader->headerBuf2 = headerBuf2;
-@@ -114,7 +135,7 @@
+ #if defined(VERSION_R4QK01)
+         headerBuf2 = RFLiAlloc(LOADER_HEADER_BUF_2_SIZE);
+@@ -127,7 +149,7 @@ static void loadResRead1stcallback_(void) {
  
          switch (RFLiReadAsync(RFLiFileType_Resource, headerBuf2,
                                LOADER_HEADER_BUF_2_SIZE, loadResRead2ndcallback_,
 -                              *(headerBuf1 + 1))) {
 +                              RFL_NAND_WORD(*(headerBuf1 + 1)))) {
+         case RFLErrcode_Success:
          case RFLErrcode_Busy:
              break;
-         case RFLErrcode_Success:
-@@ -206,9 +227,9 @@
+@@ -220,9 +242,9 @@ RFLErrcode RFLiLoadResourceHeaderAsync(void) {
  
  static u32 getCachedLength_(RFLiLoader* loader, u32 arcIdx, u16 fileIdx) {
      RFLiArchive* arc = &loader->archives[arcIdx];
@@ -108,7 +174,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
      return next - self;
  }
  
-@@ -227,8 +248,8 @@
+@@ -245,8 +267,8 @@ static u32 getNANDLength_(RFLiLoader* loader, u32 arcIdx, u16 fileIdx) {
          NANDSeek(&file, arc->offset, NAND_SEEK_BEG);
  
          if (NANDRead(&file, tmpBuf, readSize) == readSize) {
@@ -119,7 +185,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
              length = next - self;
          }
  
-@@ -262,13 +283,13 @@
+@@ -280,13 +302,13 @@ static void* getCachedFile_(void* dst, RFLiLoader* loader, u32 arcIdx,
                              u16 fileIdx) {
      const u8* cache = (u8*)loader->cache;
      RFLiArchive* arc = &loader->archives[arcIdx];
@@ -137,7 +203,7 @@ diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
      return dst;
  }
  
-@@ -299,8 +320,8 @@
+@@ -321,8 +343,8 @@ static void* getNANDFile_(void* dst, RFLiLoader* loader, u32 arcIdx,
          NANDSeek(&file, arc->offset, NAND_SEEK_BEG);
  
          if (NANDRead(&file, tmpBuf, readSize) == readSize) {
@@ -148,56 +214,3 @@ diff --git a/src/RVL_SDK/rfl/RFL_NANDLoader.c b/src/RVL_SDK/rfl/RFL_NANDLoader.c
              arcSize = next - self;
              arcOffset = self;
          } else {
-diff --git a/libs/RVL_SDK/include/revolution/mem/list.h b/libs/RVL_SDK/include/revolution/mem/list.h
---- a/libs/RVL_SDK/include/revolution/mem/list.h
-+++ b/libs/RVL_SDK/include/revolution/mem/list.h
-@@ -24,8 +24,14 @@
- void MEMRemoveListObject(MEMList* list, void* object);
- void* MEMGetNextListObject(MEMList* list, void* object);
- 
-+#if defined(MSCHARGED_NATIVE)
-+#include <stddef.h>
-+#define MEM_INIT_LIST(list, structName, linkName) \
-+    MEMInitList((list), (u16)offsetof(structName, linkName))
-+#else
- #define MEM_INIT_LIST(list, structName, linkName) \
-     MEMInitList((list), (u16)(u32) & (((structName*)0)->linkName))
-+#endif
- 
- #ifdef __cplusplus
- }
-diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
---- a/src/RVL_SDK/mem/mem_expHeap.c
-+++ b/src/RVL_SDK/mem/mem_expHeap.c
-@@ -1,4 +1,11 @@
- #include <revolution/mem/expHeap.h>
-+
-+#if defined(MSCHARGED_NATIVE)
-+#define __abs(value) __builtin_abs(value)
-+#define MEM_EXP_ALIGNMENT ((_Alignof(MEMiHeapHead) > _Alignof(MEMiExpHeapMBlockHead)) ? _Alignof(MEMiHeapHead) : _Alignof(MEMiExpHeapMBlockHead))
-+#else
-+#define MEM_EXP_ALIGNMENT 4
-+#endif
- 
- #define FillFreeMemory(heap, address, size) ((void)0)
- #define FillNoUseMemory(heap, address, size) ((void)0)
-@@ -287,8 +294,8 @@
- MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
-     void* endAddress;
- 
--    endAddress = RoundDownPtr(AddU32ToPtr(startAddress, size), 4);
--    startAddress = RoundUpPtr(startAddress, 4);
-+    endAddress = RoundDownPtr(AddU32ToPtr(startAddress, size), MEM_EXP_ALIGNMENT);
-+    startAddress = RoundUpPtr(startAddress, MEM_EXP_ALIGNMENT);
- 
-     if (GetUIntPtr(startAddress) > GetUIntPtr(endAddress) ||
-         GetOffsetFromPtr(startAddress, endAddress) <
-@@ -314,7 +321,7 @@
-         size = 1;
-     }
- 
--    size = RoundUp(size, 4);
-+    size = RoundUp(size, MEM_EXP_ALIGNMENT);
-     LockHeap(heap);
- 
-     if (alignment >= 0) {

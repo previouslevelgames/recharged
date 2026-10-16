@@ -1,13 +1,15 @@
 Subject: Preserve native impostor marker field widths
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Read the original two usage fields from the actual native GLResourceMarker.
 The capture/cache/resource order and two-zero condition are unchanged.
 Console source is byte-identical. No pool initialization or readiness is added.
 
+diff --git a/src/Game/Render/ImpostorManager.cpp b/src/Game/Render/ImpostorManager.cpp
+index df42382..8400ec3 100644
 --- a/src/Game/Render/ImpostorManager.cpp
 +++ b/src/Game/Render/ImpostorManager.cpp
-@@ -242,8 +242,13 @@
+@@ -242,8 +242,13 @@ void ImpostorManager::Render(GLView* target, bool skipCapture)
          instance->mCaptured = true;
          instance->mResourceMarkers[instance->mCurrentResource] =
              instance->mResources[instance->mCurrentResource]->MarkResource();

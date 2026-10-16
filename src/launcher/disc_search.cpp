@@ -129,7 +129,8 @@ std::vector<fs::path> FindDiscImages(const std::vector<DiscSearchFolder>& folder
 }
 
 DiscSearchResult PickDisc(const std::vector<fs::path>& images,
-                          const std::function<DiscInfo(const fs::path&)>& inspect)
+                          const std::function<DiscInfo(const fs::path&)>& inspect,
+                          const std::function<bool(const DiscInfo&)>& playable)
 {
     DiscSearchResult result;
     for (const auto& image : images)
@@ -137,7 +138,7 @@ DiscSearchResult PickDisc(const std::vector<fs::path>& images,
         DiscInfo info;
         try { info = inspect(image); }
         catch (const std::exception&) { continue; }
-        if (SupportedRelease(info))
+        if (playable(info))
         {
             if (result.disc.empty()) result.disc = image;
             ++result.supported;
@@ -146,6 +147,7 @@ DiscSearchResult PickDisc(const std::vector<fs::path>& images,
         {
             result.other = image;
             result.other_id = info.game_id;
+            result.other_revision = info.revision;
         }
     }
     return result;

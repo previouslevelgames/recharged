@@ -1,5 +1,5 @@
 Subject: [PATCH] Preserve original 3D sound owner bit positions and pool entries natively
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native audio ABI contract (shared audio service; flagged for
 the internal audio owner). Depends on the original AudioSystem/XSoundHandle
 sources only.
@@ -22,10 +22,12 @@ the entry is located from the native layout.
 
 Together these left the 3D sound pools non-empty, so quitting a match failed
 the original 400 ms audio-idle check in DestroyGameState and hit its nlBreak.
+
 diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoundSrc.h
+index 3f4c58a..920c259 100644
 --- a/include/Game/Audio/Plat3dSoundSrc.h
 +++ b/include/Game/Audio/Plat3dSoundSrc.h
-@@ -28,9 +28,17 @@
+@@ -28,9 +28,17 @@ public:
          u32 m_SpatialBits;
          struct
          {
@@ -44,9 +46,10 @@ diff --git a/include/Game/Audio/Plat3dSoundSrc.h b/include/Game/Audio/Plat3dSoun
      };
  };
 diff --git a/include/Game/Audio/XSoundHandle.h b/include/Game/Audio/XSoundHandle.h
+index e0be847..f28b76d 100644
 --- a/include/Game/Audio/XSoundHandle.h
 +++ b/include/Game/Audio/XSoundHandle.h
-@@ -39,12 +39,23 @@
+@@ -53,12 +53,23 @@ struct XSoundOwner
          u32 m_ReferencesAndFlags;
          struct
          {
@@ -71,9 +74,10 @@ diff --git a/include/Game/Audio/XSoundHandle.h b/include/Game/Audio/XSoundHandle
      };
  };
 diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+index 239de6b..986fde0 100644
 --- a/src/Game/Audio/AudioSystem.cpp
 +++ b/src/Game/Audio/AudioSystem.cpp
-@@ -90,6 +90,24 @@
+@@ -90,6 +90,24 @@ XSoundCueHandle* CreateAudioSoundHandle(AudioSystem* audio, int slotId, XSoundOw
      return handle;
  }
  
@@ -98,7 +102,7 @@ diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
  void UpdateAudioSystem(AudioSystem* audio, float dt)
  {
      if (!audio->IsInitialized())
-@@ -161,7 +179,11 @@
+@@ -161,7 +179,11 @@ void UpdateAudioSystem(AudioSystem* audio, float dt)
          if (owner->count.references == 0)
          {
              audio->m_SoundOwnerPool.Remove(&owners);

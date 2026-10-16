@@ -1,7 +1,7 @@
 From: original source diagnostic integration
 Subject: [PATCH] Preserve original movie world visibility in the primary world diagnostic
 
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Temporary WORLD_DRAW admission restores three literal original IntroMovieScene
 world hide/show writes under their existing source positions. Default console,
@@ -9,9 +9,10 @@ original game and selected diagnostic-OFF projections remain unchanged. No null
 fallback, visibility decision, scene transition or source readiness is added.
 
 diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
+index 2718acf..d7bfd3d 100644
 --- a/src/Game/SH/SHMoviePlayer.cpp
 +++ b/src/Game/SH/SHMoviePlayer.cpp
-@@ -254,10 +254,10 @@
+@@ -258,10 +258,10 @@ void IntroMovieScene::ResetMoviePlayer()
          MovieStop();
          mMovieStarted = false;
      }
@@ -24,7 +25,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      m_padB4 = 0.0f;
      mMovieFinished = false;
      mTransitionPending = false;
-@@ -266,10 +266,10 @@
+@@ -270,10 +270,10 @@ void IntroMovieScene::ResetMoviePlayer()
  void IntroMovieScene::OnMoviePlaybackEnded()
  {
      GameSceneManager::s_pInstance->Push(mNextScene, SCREEN_NOTHING, true);
@@ -37,7 +38,7 @@ diff --git a/src/Game/SH/SHMoviePlayer.cpp b/src/Game/SH/SHMoviePlayer.cpp
      SetSyncedDecode(false);
  }
  
-@@ -294,9 +294,9 @@
+@@ -298,9 +298,9 @@ void IntroMovieScene::Update(float fDeltaT)
                  mMovieFinished = true;
                  FrontEndPresentation::GetInstance()->Call("TransitionFromMovieToTitleScreen");
                  mTransitionPending = true;

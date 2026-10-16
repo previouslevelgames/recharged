@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read the banner captain's character class by member
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility; same kind of fix as patch 0699.
 
 StadiumWorldDrawable::UpdateModelMaterials picks the team banner texture.
@@ -28,6 +28,7 @@ The member read also matches upstream: GC/3.0a5 with the R4QE01 flags gives
 an identical .text for this TU (lwz 0x24(r3)).
 
 diff --git a/src/Game/Render/StadiumWorldObjects.cpp b/src/Game/Render/StadiumWorldObjects.cpp
+index f3c99fd..a83cbf6 100644
 --- a/src/Game/Render/StadiumWorldObjects.cpp
 +++ b/src/Game/Render/StadiumWorldObjects.cpp
 @@ -180,7 +180,13 @@ static const char* sBannerProxyObjects[] = {

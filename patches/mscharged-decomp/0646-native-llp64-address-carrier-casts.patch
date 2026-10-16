@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 casts for 32-bit address carriers
-Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: native compiler/ABI compatibility; apply after 0645.
 
 The game stores addresses and pointer-sized contexts in unsigned long: hashes
@@ -15,7 +15,7 @@ behind MSCHARGED_NATIVE. GL resource markers are host records, not game
 memory; 0688 carries them at full width.
 
 diff --git a/src/Game/AI/DesireMark.cpp b/src/Game/AI/DesireMark.cpp
-index 2087ad8..5c419db 100644
+index fb879d2..82df9ac 100644
 --- a/src/Game/AI/DesireMark.cpp
 +++ b/src/Game/AI/DesireMark.cpp
 @@ -179,7 +179,11 @@ DesireUpdate TransDesireDefendPos(AIContext* input)
@@ -27,11 +27,11 @@ index 2087ad8..5c419db 100644
 +#else
      unsigned long key = input->GetTimerKey((unsigned long)TransDesireDefendPos, 1);
 +#endif
-     if (pFielder->m_pBall != 0 || (bool)fn_800DA050(pFielder))
+     if (pFielder->m_pBall != 0 || (bool)FallingOrShattered(pFielder))
      {
          result = 1;
 diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
-index cefac8d..d25e920 100644
+index 8073f5c..24ff211 100644
 --- a/src/Game/AI/DesireUsePowerup.cpp
 +++ b/src/Game/AI/DesireUsePowerup.cpp
 @@ -40,7 +40,11 @@ DesireUpdate TransDesireUsePowerup(
@@ -44,8 +44,8 @@ index cefac8d..d25e920 100644
          (unsigned long)TransDesireUsePowerup, 1);
 +#endif
  
-     if (UserControlledT(fn_800D6670(pFielder))
-         || (1.0f - fn_800D85F8(pFielder)))
+     if (UserControlledT(TeamOf(pFielder))
+         || (1.0f - AbleToUseAnyPowerup(pFielder)))
 diff --git a/src/Game/AI/FuzzyVariant.cpp b/src/Game/AI/FuzzyVariant.cpp
 index 7bf4009..4d78db7 100644
 --- a/src/Game/AI/FuzzyVariant.cpp
@@ -89,7 +89,7 @@ index 7bf4009..4d78db7 100644
              hash = mData.u;
  #endif
 diff --git a/src/Game/AI/Variant.cpp b/src/Game/AI/Variant.cpp
-index 374769b..f7b1910 100644
+index 374769b..cb2813a 100644
 --- a/src/Game/AI/Variant.cpp
 +++ b/src/Game/AI/Variant.cpp
 @@ -3,8 +3,13 @@
@@ -131,10 +131,10 @@ index 374769b..f7b1910 100644
      case FT_VECTOR:
  #if defined(MSCHARGED_NATIVE)
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index a4fadae..50332bb 100644
+index dbda71f..d113e85 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -540,7 +540,11 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -548,7 +548,11 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
              break;
          }
@@ -146,7 +146,7 @@ index a4fadae..50332bb 100644
              glGetCurrentResourcePool(), 0);
          nlFree(lbl_806E1060);
          lbl_806E1060 = 0;
-@@ -1864,7 +1868,11 @@ extern "C" void fn_80119B0C(AsyncLoadingManager* manager)
+@@ -1876,7 +1880,11 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
      glCompact();
      g_PendingAnimationRequestPool.FreeBlocks();
  
@@ -157,8 +157,8 @@ index a4fadae..50332bb 100644
 +#endif
      glDestroyResourcePool(glGetCurrentResourcePool());
      glSetCurrentResourcePool(0);
-     fn_80111658(2);
-@@ -2222,7 +2230,11 @@ extern "C" void fn_8011A9DC(AsyncLoadingManager* manager)
+     OnResourceUnloadEnd(2);
+@@ -2240,7 +2248,11 @@ void DestroyGameState(AsyncLoadingManager* manager)
      FEResourceManager::Instance()->Cleanup();
      DestroyFEResourcePool();
      ScreenTransitionManager::Instance()->CancelAllTransitions();
@@ -170,7 +170,7 @@ index a4fadae..50332bb 100644
  
      if (FontManager::s_pInstance != 0)
      {
-@@ -2249,7 +2261,11 @@ extern "C" void fn_8011A9DC(AsyncLoadingManager* manager)
+@@ -2267,7 +2279,11 @@ void DestroyGameState(AsyncLoadingManager* manager)
      glCompact();
      g_PendingAnimationRequestPool.FreeBlocks();
      FreeFunctionMemoryPools();
@@ -183,10 +183,10 @@ index a4fadae..50332bb 100644
      glSetCurrentResourcePool(0);
      FreeEventDataPools();
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index 914738d..6a9a0a5 100644
+index 5781d3a..1ea45da 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
-@@ -2188,7 +2188,11 @@ extern "C" void fn_80021C98(CollisionPowerupWallData* pEventData)
+@@ -2185,7 +2185,11 @@ void OnCollisionPowerupWall(CollisionPowerupWallData* pEventData)
  {
      const nlVector3& pos = pEventData->position;
      const nlVector3& nrm = pEventData->normal;
@@ -227,10 +227,10 @@ index 5486ac6..967e0ba 100644
              int index = volatileThis->mNetIndex;
              GLResourceMarker* handle = (GLResourceMarker*)gNetMeshResourcePools[index][siResourcePoolIndex[index]]->MarkResource();
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 84f0dc4..e75c20b 100644
+index 7423ec6..4fe7dbe 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
-@@ -399,7 +399,11 @@ cGame::cGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
+@@ -398,7 +398,11 @@ cGame::cGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
  
      m_pPostResetClock = new (nlMalloc(sizeof(Clock), 8, false))
          Clock(0.0f, 0.5f, 1.0f, 2, PostResetCallback);
@@ -243,10 +243,10 @@ index 84f0dc4..e75c20b 100644
      mpTerrain = new (nlMalloc(sizeof(Terrain), 8, false))
  #ifdef MSCHARGED_NATIVE
 diff --git a/src/Game/NetTournManager.cpp b/src/Game/NetTournManager.cpp
-index dc86d65..2341bbf 100644
+index c7c77db..26aa677 100644
 --- a/src/Game/NetTournManager.cpp
 +++ b/src/Game/NetTournManager.cpp
-@@ -1280,7 +1280,11 @@ void NetTournManager::DestroyTournamentTrophy()
+@@ -1284,7 +1284,11 @@ void NetTournManager::DestroyTournamentTrophy()
          stadium->RemoveDrawableObject(
              (DrawableObject*)mTrophyPresentation);
          glGetCurrentResourcePool()->ReleaseResource(
@@ -632,7 +632,7 @@ index 66297f4..917ff88 100644
          return;
  
 diff --git a/src/Game/world.cpp b/src/Game/world.cpp
-index cdeb417..b1b45af 100644
+index ae45abc..50a1485 100644
 --- a/src/Game/world.cpp
 +++ b/src/Game/world.cpp
 @@ -400,7 +400,11 @@ DrawableObject* World::CreateObject(
