@@ -1,105 +1,130 @@
-# Building
+# Building from source
 
-This guide is for building the port yourself. If you only want to play, use the
-[ready-made packages](INSTALL.md) instead. The Release build runs the whole
-original game; you need your own USA `R4QE01` revision 1 disc image, since no
-game files are included.
-
-On a Mac, follow the [macOS tool setup](BUILDING_MACOS.md#install-tools) first.
+You only need this to build the port yourself; to play, the
+[ready-made packages](INSTALL.md) are simpler. The build compiles the game from
+the pinned decompilation, so it takes a while the first time. You still need
+your own USA `R4QE01` revision 1 disc image to play: no game files are
+included. How the build turns the decomp into a program is explained in the
+[architecture](ARCHITECTURE.md) document.
 
 ## Requirements
 
-- Git, CMake 3.25+, Ninja, and Python 3.10+.
-- A C/C++20 compiler and Rust/Cargo 1.85+.
-- Make and Tcl 8.6+ for the pinned SQLite generator.
-- Optional: clang-format 16+ formats the prepared game sources for reading. The
-  build is otherwise identical; without it CMake prints a warning.
-- On Linux, a Vulkan driver/loader, `pkg-config`, and the X11/Wayland development
-  packages described in [SDL's Linux notes](../extern/sdl/docs/README-linux.md).
+- Git, CMake 3.25+, Ninja and Python 3.10+
+- A C/C++20 compiler (GCC 14+ or Clang) and Rust/Cargo 1.85+
+- Make and Tcl 8.6+ (they generate SQLite from its pinned source)
+- Optional: clang-format 16+, which formats the prepared game sources for
+  reading. The program is the same without it; CMake prints a warning.
+- Linux: a Vulkan driver and loader, `pkg-config`, and the X11/Wayland
+  development packages listed in
+  [SDL's Linux notes](https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md).
 
-The first build may download locked Rust dependencies. Dependencies are built
-from their recorded Git revisions.
+The first build downloads the locked Rust dependencies. Every other dependency
+is built from its pinned submodule.
+
+### macOS tools
+
+Install Apple's Command Line Tools (`xcode-select --install`), then
+[Homebrew](https://docs.brew.sh/Installation) and the remaining tools:
+
+```sh
+brew install cmake ninja python rust tcl-tk clang-format
+export PATH="$(brew --prefix tcl-tk)/bin:$PATH"
+```
+
+The system Tcl of older macOS versions is too old. If you already use rustup,
+keep it instead of installing Rust twice. Build in a native terminal, not
+under Rosetta; Intel Macs build the same way.
 
 ## Build and run
 
-From the parent directory, with your own USA `R4QE01` revision 1 ISO/RVZ ready:
+With your disc image ready, from the folder that should contain the checkout:
 
 ```sh
-git clone --branch main --no-recurse-submodules https://github.com/yannicksuter/mscharged-port.git && cd mscharged-port
+git clone --no-recurse-submodules https://github.com/yannicksuter/mscharged-port.git && cd mscharged-port
 python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset release --fresh
-./build/release/mscharged --disc /path/to/R4QE01.rvz --window
+./build/release/mscharged
 ```
 
-Quote disc paths containing spaces. The helper initializes only required pins
-and stops if a dependency has tracked edits; it does not discard or stash them.
-The workflow prepares source copies and builds `mscharged`. Other diagnostics
-and tests are separate. To prepare the patched game source alone, see the
-[porting approach](../README.md#porting-approach) and the [patch workflow](../patches/README.md).
-`-DMSCHARGED_FORMAT_PREPARED_SOURCES=ON` requires formatting; `OFF` skips it.
+This builds `stable`, the released state. Add `--branch main` to the clone for
+the current development state. Use a Git clone, not GitHub's ZIP download.
+`setup_dependencies.py` initializes only the submodules the build needs, at
+their recorded commits; it stops, without changing anything, if a dependency
+has local edits. Raise `CMAKE_BUILD_PARALLEL_LEVEL` if you have the memory for
+more parallel jobs.
 
-For an existing checkout:
+The build writes the program to `build/release/`: `mscharged` starts the
+launcher, and `mscharged --disc FILE` starts the game directly
+([options](SETTINGS.md#command-line-options)).
+
+To update an existing checkout:
 
 ```sh
-git fetch origin
-git switch main
-git pull --ff-only origin main
+git pull --ff-only
 python3 tools/setup_dependencies.py
 cmake --workflow --preset release --fresh
 ```
 
-After code changes, use `cmake --build --preset release`. If presets or build
-options changed, run `cmake --preset release` first to refresh the configuration.
-Run `mscharged --help` for available options.
+After changing code, `cmake --build --preset release` is enough; if presets or
+build options changed, run `cmake --preset release` first. `--fresh` clears
+only the CMake configuration, not sources or settings.
 
-For Windows cross builds, use `cmake/toolchains/llvm-mingw-x86_64.cmake` with
-`LLVM_MINGW_ROOT` pointing at LLVM-MinGW. First run
-`python3 tools/setup_windows_graphics.py` to download the checksum-pinned
-Microsoft shader compiler DLLs and notices into `build/windows-graphics`.
-Configuration and builds verify those files offline; the ZIP packager includes
-them. Windows offers Vulkan and DirectX 12 in **Advanced → Graphics API**.
-An explicit selection never switches to another backend on failure. DirectX 12
-still needs rendering and performance validation on real Windows hardware.
+### If configuration fails
 
-## Smaller builds and tests
-
-`launcher` and `debug` build the launcher and foundation tools without the game
-runtime. Their workflows also build and run the default tests:
+Read the `Source preparation failed` or Git message above CMake's summary. A
+reported edit in a dependency can be inspected with
+`git -C extern/NAME diff HEAD`; save it before retrying, and do not force-reset
+dependencies. On macOS, if CMake picked an old system Tcl, pass the Homebrew
+one:
 
 ```sh
-python3 tools/setup_dependencies.py --launcher
-cmake --workflow --preset launcher
-./build/launcher/mscharged --launcher
+cmake --fresh --preset release -DMSCHARGED_SQLITE_TCLSH="$(brew --prefix tcl-tk)/bin/tclsh"
+cmake --build --preset release
 ```
 
-Use `debug` instead for a Debug build. Runtime diagnostics have independent
-[experimental presets](RUNTIME.md); the game-only Release workflow has no test
-preset.
+## Disc and settings
 
-## Configure your disc
-
-Your disc and personal `mscharged.ini` stay out of Git. Store your own image in
-`game/` if desired. `--disc FILE` selects it for one run and enters the included
-original runtime. Add `--launcher` to open settings instead.
-
-For saved configuration, copy `mscharged.ini.example` to `mscharged.ini`:
+Your disc image and personal `mscharged.ini` stay out of Git; the `game/`
+folder is ignored except for its placeholder. To keep settings, copy
+`mscharged.ini.example` to `mscharged.ini`:
 
 ```ini
 [game]
 disc = game/R4QE01.rvz
 ```
 
-Relative INI paths resolve from the INI directory. Use `--config FILE` to select
-another configuration.
+Paths in the INI are relative to the INI file; paths on the command line are
+relative to the working directory. `--config FILE` selects another INI.
 
-## Run-only launch settings
+## Windows
 
-`--disc` (also `--disk`), `--window`, `--fullscreen`, and `--size WIDTHxHEIGHT`
-override settings for the current run without saving them. Command-line disc
-paths resolve from the working directory. Values also accept `--disc=FILE`.
+Windows packages are cross-compiled on Linux with the pinned
+[LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) toolchain (release
+20261006, as in CI) and the Rust target `x86_64-pc-windows-gnullvm`:
 
 ```sh
-./build/release/mscharged --disc ./game/R4QE01.rvz --window --size 1280x720
+rustup target add x86_64-pc-windows-gnullvm
+python3 tools/setup_dependencies.py
+python3 tools/setup_windows_graphics.py
+cmake --preset release -B build/windows \
+    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/llvm-mingw-x86_64.cmake \
+    -DLLVM_MINGW_ROOT=/path/to/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64 \
+    -DBUILD_TESTING=OFF
+cmake --build build/windows --target mscharged mscharged_original_frontend_module mscharged_original_main_credits_module
 ```
 
-Explicit experimental modes retain their selected mode. Launcher-only builds
-report that the game runtime is unavailable when asked to start it directly.
+`setup_windows_graphics.py` downloads the checksum-pinned Microsoft DirectX
+shader compilers and their notices into `build/windows-graphics`; the build
+verifies them offline and the packager includes them.
+
+## Smaller builds and tests
+
+The `launcher` and `debug` presets build the launcher and the foundation tools
+without the game, and run the default tests:
+
+```sh
+python3 tools/setup_dependencies.py --launcher
+cmake --workflow --preset launcher
+```
+
+`ctest --preset debug` runs the tests of a debug build. Packages are made with
+`tools/package_build.py`.

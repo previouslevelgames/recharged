@@ -1,104 +1,45 @@
-# Contributing
+# Reporting problems
 
-Contributions to `mscharged-port` are welcome. The graphical launcher, native
-bootstrap, and source preparation workflow are available. The first priorities are extending
-the compilable source subset, integrating the runtime, and building a faithful
-playable foundation.
+Thanks for playing and for taking the time to report what went wrong. Most
+problems have a quick answer in [troubleshooting](docs/TROUBLESHOOTING.md);
+please check it first.
 
-The decompilation is incomplete and not fully linked. Add translation units
-explicitly as their dependencies become available. Document missing functions
-and unsupported paths; do not add silent success stubs to make a full link
-appear complete.
+## Bug reports
 
-## Before starting
+Open an [issue](https://github.com/yannicksuter/mscharged-port/issues/new/choose)
+with:
 
-Read the [project goals and current status](README.md). Open an issue before
-starting a substantial feature, platform backend, or dependency change so that
-the approach can be discussed and duplicate work avoided. Small documentation
-corrections can go directly into a pull request.
+- **The version**: the launcher's **About** page shows it, as does the first
+  line of the log.
+- **Your system**: Windows, Linux (which distribution), Steam Deck or macOS,
+  and your graphics card.
+- **Your controllers**: keyboard & mouse, which gamepads, Wii Remotes (over
+  Bluetooth or a DolphinBar).
+- **What happened** and what you did just before: the menu, mode, stadium or
+  captains if it was in a match.
+- **The log**: `logs/mscharged.log` in the program folder. It is replaced at
+  the next start, so copy it right after the problem. On Windows a crash also
+  leaves `mscharged-crash.dmp` there; attach it too. The log can contain your
+  user name in file paths.
 
-Keep changes focused. Describe the problem being solved and how the change helps
-the port. Preserve the original game's behavior unless a change is an explicit,
-documented enhancement.
+A screenshot (key **P**, saved in `screenshots/`) helps for anything visual.
 
-## Source and dependency changes
+## Short stutters
 
-- Reference directly used source dependencies through Git submodules pointing
-  to their original upstream repositories, pinned to specific commits.
-- Prefer a published decompilation release as the baseline once one is
-  available. Record its exact commit; ordinary builds must not follow a moving
-  branch or run `git submodule update --remote`.
-- Explain why a dependency is needed. For updates, identify the old and new
-  revisions and describe the relevant changes and validation.
-- Keep platform adapters and port code identifiable within this project.
-  Record necessary upstream source changes as documented patches, with the
-  reason for each change and the revision it applies to.
-- Keep each patch focused on one purpose and list patches in an explicit
-  series order. Avoid unrelated formatting changes that make patches harder
-  to review and update.
-- Keep upstream checkouts clean. Apply patches to generated source copies in
-  the build directory before configuring or compiling. Source preparation must
-  stop on a failed patch and must not use a partially prepared or stale tree.
-- Export changes made while developing in generated sources back into the
-  patch series before regenerating those sources. A fresh checkout must be
-  able to reproduce the complete prepared source from recorded inputs.
-- Preserve upstream copyright notices, license texts, and authorship.
-  Update [LICENSES/README.md](LICENSES/README.md) when adding a dependency.
-- Consider whether a general fix belongs in the decompilation or library
-  upstream, and keep it suitable for contributing there.
+A stutter the first time an effect appears is usually a graphics pipeline
+that was missing from the package's list. The log names it in a line starting
+with `Graphics: new pipeline compiled while drawing`. Attaching such logs lets
+us add those pipelines to the next release, so the stutter disappears for
+everyone.
 
-Account for dependencies managed by upstream build systems, including Aurora's,
-when changing the build. Avoid introducing duplicate or conflicting versions.
+## Behavior that differs from the Wii
 
-Treat a dependency upgrade as a focused change containing the new pin, any
-patch updates or removals, and validation results. Patches that apply cleanly
-still need compilation and behavior checks. When an upstream fix replaces a
-local workaround, remove the workaround during the upgrade. Keep the previous
-pin and patch set reproducible through the port's Git history.
+The port runs the original game code, including its original bugs, unless a
+listed [tweak or fix](docs/FEATURES.md#optional-tweaks) changes it. If
+something plays differently from the Wii, describe what the Wii does, ideally
+with a video or a way to reproduce it, and say whether any tweaks were on.
 
-## Validation
+## Game files
 
-Follow [the build instructions](docs/BUILDING.md) and run `ctest --preset debug`
-or `ctest --preset release` for your build. The current checks cover the selected
-utility code, source preparation, disc access, settings persistence, and launcher
-rendering. They do not establish game completeness or gameplay parity.
-See [patch development](patches/README.md) when changing upstream adaptations.
-
-For implementation changes, report the platform, architecture, compiler, and
-checks used to validate the result. For gameplay changes, describe how the
-behavior was compared with the original game. State which relevant platforms
-or behaviors remain untested.
-
-## Pull requests
-
-Target `main` for development changes. Promote reviewed snapshots through a
-`main` → `stable` pull request. Merging into `stable` generates downloadable
-[build artifacts](docs/BUILDING_GITHUB.md); it does not automatically tag a release.
-
-Use a clear title and include:
-
-- The problem or goal and the resulting behavior.
-- The implementation choices a reviewer needs to understand.
-- Validation performed and any known limitations.
-- Related issues or upstream changes, where applicable.
-
-Keep unrelated cleanup in a separate change. Add or update documentation when
-the build, controls, dependency setup, or user-facing behavior changes.
-
-## Game data
-
-Use your own legally obtained game copy for local development. Keep disc images,
-extracted game files, and other game data in the ignored `game/`, `game-data/`,
-or `orig/` directories. Only `game/.gitkeep` belongs in Git; personal settings
-belong in the ignored `mscharged.ini`. Do not include disc images or extracted
-game files in commits, pull request attachments, or releases. The separately
-selected launcher artwork has its source recorded in `assets/launcher/README.md`;
-third-party artwork is not covered by the project's CC0 dedication.
-
-## Licensing
-
-By submitting original code, tools, or documentation for inclusion, you agree
-to dedicate your contribution under [CC0 1.0 Universal](LICENSE), to the extent
-you hold the relevant rights. Identify third-party material and preserve its
-applicable license and notices. The project's dedication does not change the
-terms of that material or grant rights to the original game.
+Never attach disc images, extracted game files or saves of other people to an
+issue. Only the log, screenshots and your own descriptions are needed.

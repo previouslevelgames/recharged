@@ -6,9 +6,9 @@
     python3 tools/bump_version.py major   # breaking changes: 1.1.0 -> 2.0.0
     python3 tools/bump_version.py 1.2.3   # an explicit version
 
-The project() line in CMakeLists.txt is the only source of the version; the
-README badge follows it. Merging the pull request into stable drafts the
-release v<version>; publish the draft (see docs/BUILDING_GITHUB.md).
+The project() line in CMakeLists.txt is the only source of the version.
+Merging the pull request into stable drafts the release v<version>; publish
+the draft under Releases.
 """
 
 import re
@@ -17,7 +17,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = re.compile(r"^(project\(mscharged_port VERSION )(\d+)\.(\d+)\.(\d+)( )", re.MULTILINE)
-BADGE = re.compile(r"\[!\[Version [0-9.]+\]\(https://img\.shields\.io/badge/version-[0-9.]+-blue\)\]")
 
 
 def current(text):
@@ -44,7 +43,6 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
     cmake = ROOT / "CMakeLists.txt"
-    readme = ROOT / "README.md"
     cmake_text = cmake.read_text()
     old = current(cmake_text)
     new = next_version(old, sys.argv[1])
@@ -52,11 +50,6 @@ def main():
         raise SystemExit(f"{'.'.join(map(str, new))} is not newer than {'.'.join(map(str, old))}.")
     version = ".".join(map(str, new))
     cmake.write_text(PROJECT.sub(lambda m: f"{m.group(1)}{version}{m.group(5)}", cmake_text, count=1))
-    readme_text = readme.read_text()
-    if not BADGE.search(readme_text):
-        raise SystemExit("README.md has no version badge to update.")
-    readme.write_text(BADGE.sub(
-        f"[![Version {version}](https://img.shields.io/badge/version-{version}-blue)]", readme_text, count=1))
     print(f"{'.'.join(map(str, old))} -> {version}")
     print(f"Commit, open the main -> stable pull request and merge it; then publish the drafted release v{version}")
 

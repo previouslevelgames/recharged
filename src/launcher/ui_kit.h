@@ -60,7 +60,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub, Download
+    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -85,6 +85,15 @@ bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enable
                      Icon icon = Icon::None);
 bool Toggle(const char* id, bool* value);
 bool Segmented(const char* id, int* selected, std::initializer_list<const char*> items, float width);
+// Segments with an icon each; the selected one takes its item's tint. `glass`
+// draws a translucent track for use over artwork.
+struct SegmentItem
+{
+    const char* label;
+    Icon icon;
+    ImVec4 tint;
+};
+bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass);
 bool PercentSlider(const char* id, int* value, float width);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.

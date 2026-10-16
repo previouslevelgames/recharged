@@ -9,6 +9,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace mscharged::platform
@@ -35,6 +36,7 @@ public:
         std::optional<PullRequestInfo> pull; // the pull request of a test build offer, when known
         std::string install_blocker;         // why Update would only open the download page
         std::uint64_t received = 0, total = 0;
+        std::int64_t checked = 0; // when the last check succeeded, seconds since 1970
         std::uint64_t serial = 0; // changes with every state change
     };
 
@@ -50,6 +52,10 @@ public:
     Status Snapshot() const;
     // The running build; its package id comes from the installed manifest once a check ran.
     BuildIdentity Build() const;
+    // Development captures: shows a made-up state without network ("uptodate",
+    // "notest", "checking", "failed", "available", "newtest", "test", "back",
+    // "blocked", "downloading", "installing", "installfailed"). False for others.
+    bool Preview(std::string_view state);
 
 private:
     void Start(std::shared_ptr<platform::HttpCancel> cancel, const std::function<void(Status&)>& begin,

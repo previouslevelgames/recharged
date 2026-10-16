@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work, crashes or looks wrong.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check [troubleshooting](https://github.com/yannicksuter/mscharged-port/blob/stable/docs/TROUBLESHOOTING.md) first; many problems have a quick answer there.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown on the launcher's About page and in the first line of the log.
+      placeholder: "1.0.10"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - Windows
+        - Linux
+        - Steam Deck
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: System details and graphics card
+      placeholder: "Windows 11, NVIDIA RTX 3060 / Fedora 43, AMD Radeon 780M / ..."
+  - type: input
+    id: controllers
+    attributes:
+      label: Controllers
+      placeholder: "Keyboard & mouse / Xbox controller / Wii Remote over a DolphinBar / ..."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. For matches, the mode, stadium and captains help. Mention any tweaks you turned on.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Drag `logs/mscharged.log` from the program folder here (copy it right after the problem; the next start replaces it). On Windows, add `mscharged-crash.dmp` too if there is one. The log can contain your user name in file paths.
+    validations:
+      required: true

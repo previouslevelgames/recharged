@@ -536,7 +536,7 @@ void Enumerate(Driver& driver) {
         if (!Open(*remote))
             SDL_Log("Wii Remote HID %s could not be opened: %s%s", info->path, SDL_GetError(),
 #if defined(__linux__)
-                    " (no permission? Install the udev rule from docs/RUNTIME.md, Wii Remote)"
+                    " (no permission? Install the udev rule from docs/SETTINGS.md, Wii Remotes)"
 #else
                     ""
 #endif

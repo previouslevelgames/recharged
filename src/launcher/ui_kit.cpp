@@ -272,6 +272,27 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddPolyline(tray, 4, color, 0, t);
         break;
     }
+    case Icon::Flask:
+    {
+        // A lab flask (test builds): a narrow neck widening into a cone, half full.
+        const ImVec2 outline[] = {p(-0.12f, -0.42f), p(-0.12f, -0.12f), p(-0.40f, 0.34f), p(-0.34f, 0.44f),
+                                  p(0.34f, 0.44f),   p(0.40f, 0.34f),   p(0.12f, -0.12f), p(0.12f, -0.42f)};
+        draw->AddPolyline(outline, 8, color, 0, t);
+        draw->AddLine(p(-0.21f, -0.43f), p(0.21f, -0.43f), color, t);
+        const ImVec2 liquid[] = {p(-0.25f, 0.14f), p(0.25f, 0.14f), p(0.35f, 0.33f),
+                                 p(0.30f, 0.39f),  p(-0.30f, 0.39f), p(-0.35f, 0.33f)};
+        draw->AddConvexPolyFilled(liquid, 6, color);
+        break;
+    }
+    case Icon::Tag:
+    {
+        // A label tag (releases), pointing left, with its hole.
+        const ImVec2 outline[] = {p(-0.46f, 0.0f), p(-0.18f, -0.30f), p(0.44f, -0.30f), p(0.44f, 0.30f),
+                                  p(-0.18f, 0.30f)};
+        draw->AddPolyline(outline, 5, color, ImDrawFlags_Closed, t);
+        draw->AddCircleFilled(p(-0.15f, 0.0f), 0.075f * s, color);
+        break;
+    }
     case Icon::Link:
         draw->AddRect(p(-0.42f, -0.30f), p(0.30f, 0.42f), color, 0.08f * s, 0, t);
         draw->AddLine(p(-0.04f, 0.04f), p(0.44f, -0.44f), color, t);
@@ -504,6 +525,65 @@ bool Segmented(const char* id, int* selected, std::initializer_list<const char*>
     }
     ImGui::SetCursorScreenPos(pos);
     ImGui::Dummy({width, height});
+    ImGui::PopID();
+    return changed;
+}
+
+bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass)
+{
+    ImGui::PushID(id);
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const int count = int(items.size());
+    const float segment = size.x / float(std::max(count, 1));
+    const float rounding = size.y * 0.5f;
+    auto* draw = ImGui::GetWindowDrawList();
+    const bool enabled = !(GImGui->CurrentItemFlags & ImGuiItemFlags_Disabled);
+    if (glass)
+    {
+        draw->AddRectFilled(pos, Add(pos, size), Col(Mix(color::window, color::card, 0.55f), 0.88f), rounding);
+        draw->AddRect(pos, Add(pos, size), Col(color::border, 0.95f), rounding, 0, Dp(1));
+    }
+    else draw->AddRectFilled(pos, Add(pos, size), Col(color::field), rounding);
+    float* slide = ImGui::GetStateStorage()->GetFloatRef(ImGui::GetID("##slide"), float(*selected));
+    const SegmentItem* items_begin = items.begin();
+    if (*selected >= 0 && *selected < count)
+    {
+        *slide += (float(*selected) - *slide) * std::min(1.0f, ImGui::GetIO().DeltaTime * 16.0f);
+        // The indicator blends the tints while it slides.
+        const int from = std::clamp(int(std::floor(*slide)), 0, count - 1), to = std::min(from + 1, count - 1);
+        const ImVec4 tint = Mix(items_begin[from].tint, items_begin[to].tint, *slide - float(from));
+        const ImVec2 a{pos.x + *slide * segment + Dp(3), pos.y + Dp(3)};
+        const ImVec2 b{a.x + segment - Dp(6), pos.y + size.y - Dp(3)};
+        draw->AddRectFilled(a, b, Col(Mix(color::card, tint, 0.20f), enabled ? 1.0f : 0.6f), rounding - Dp(3));
+        draw->AddRect(a, b, Col(tint, enabled ? 0.65f : 0.3f), rounding - Dp(3), 0, Dp(1));
+    }
+    bool changed = false;
+    const auto& fonts = CurrentFonts();
+    const float icon_size = Dp(15), gap = Dp(7);
+    for (int index = 0; index < count; ++index)
+    {
+        const SegmentItem& item = items_begin[index];
+        ImGui::SetCursorScreenPos({pos.x + segment * float(index), pos.y});
+        ImGui::PushID(index);
+        if (ImGui::InvisibleButton("##segment", {segment, size.y}) && *selected != index)
+        {
+            *selected = index;
+            changed = true;
+        }
+        const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered() && enabled, 12.0f);
+        const bool active = index == *selected;
+        const ImVec2 text = TextSize(fonts.body, item.label);
+        const float left = pos.x + segment * float(index) + (segment - (icon_size + gap + text.x)) * 0.5f;
+        const float middle = pos.y + size.y * 0.5f;
+        const ImVec4 ink = active ? color::text : Mix(color::muted, color::text, hover * 0.7f);
+        DrawIcon(draw, item.icon, {left + icon_size * 0.5f, middle}, icon_size,
+                 Col(active ? item.tint : Mix(color::dim, color::muted, 0.5f + 0.5f * hover), enabled ? 1.0f : 0.6f));
+        DrawLabel(draw, fonts.body, {left + icon_size + gap, middle - text.y * 0.5f}, Col(ink, enabled ? 1.0f : 0.6f),
+                  item.label);
+        ImGui::PopID();
+    }
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::Dummy(size);
     ImGui::PopID();
     return changed;
 }

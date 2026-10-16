@@ -7,13 +7,13 @@ graphics backend builds these pipelines for the current GPU. The first launch on
 a PC compiles them once, on several processor cores; later launches load the
 compiled results from the user's local cache.
 
-The reviewed source is `pipelines.json`: 237 GX v17 configurations and 2
-clear v5 configurations, in Aurora's little-endian 64-bit native configuration
-layout. The configurations were recorded by scripted runs: the boot sequence and
-menus, exhibition matches in all 17 stadiums with all 12 captains (default and
-random sidekicks; Mega Strikes and skillshots during play), nine Striker
-Challenges and eight Strikers 101 lessons. This is not proof of complete
-coverage of every effect, language or mode.
+The reviewed source is `pipelines.json`: GX v17 configurations and two clear
+configurations, in Aurora's little-endian 64-bit native configuration layout.
+Most were recorded by scripted runs: the boot sequence and menus, exhibition
+matches in all 17 stadiums with all 12 captains (default and random sidekicks;
+Mega Strikes and skillshots during play), nine Striker Challenges and eight
+Strikers 101 lessons. The rest came from testers' logs (see below). This is
+not proof of complete coverage of every effect, language or mode.
 
 The fog type and each vertex array's byte order are chosen per draw rather
 than being part of the configuration (since GX v17), so a configuration

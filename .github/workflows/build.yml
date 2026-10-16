@@ -422,13 +422,24 @@ jobs:
           test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
           sha256sum *.tar.gz *.zip > SHA256SUMS
           cat SHA256SUMS
+      # Generated notes, then a short pointer for players who land on the
+      # release page without the port (the launcher shows the notes too).
       - name: Draft the release
         if: steps.version.outputs.draft == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$VERSION" \
+            -f target_commitish="$GITHUB_SHA" --jq .body > notes.md
+          url="https://github.com/$GITHUB_REPOSITORY/blob/stable/docs"
+          cat >> notes.md <<EOF
+
+          ---
+
+          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`mscharged\`. You need your own Mario Strikers Charged disc image (USA, R4QE01 revision 1, ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
+          EOF
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
-            --title "Mario Strikers Charged Native Port $VERSION" --generate-notes \
+            --title "Mario Strikers Charged Native Port $VERSION" --notes-file notes.md \
             release/*.tar.gz release/*.zip release/SHA256SUMS
 
   test-build:

@@ -166,7 +166,10 @@ void UpdateService::RunCheck(UpdateChannel channel, std::shared_ptr<platform::Ht
         const PublishedBuild* found = FindUpdate(build, channel, published);
         if (!found)
         {
-            Set([](Status& status) { status.state = State::UpToDate; });
+            Set([](Status& status) {
+                status.state = State::UpToDate;
+                status.checked = std::time(nullptr);
+            });
             return;
         }
         PublishedBuild offer = *found;
@@ -192,6 +195,7 @@ void UpdateService::RunCheck(UpdateChannel channel, std::shared_ptr<platform::Ht
             status.offer = std::move(offer);
             status.pull = std::move(pull);
             status.install_blocker = blocker;
+            status.checked = std::time(nullptr);
         });
     }
     catch (const platform::HttpError& error)
@@ -203,6 +207,115 @@ void UpdateService::RunCheck(UpdateChannel channel, std::shared_ptr<platform::Ht
     {
         Set([&](Status& status) { status.state = State::CheckFailed; status.error = error.what(); });
     }
+}
+
+bool UpdateService::Preview(std::string_view state)
+{
+    BuildIdentity build = Build();
+    if (build.package.empty()) build.package = "linux-x86_64";
+    const PortVersion self = ParsePortVersion(build.version);
+    auto made_up = [&](bool test, int pull_request, PortVersion version, std::string title, std::string notes) {
+        PublishedBuild offer;
+        offer.test = test;
+        offer.pull_request = pull_request;
+        offer.version = std::move(version);
+        offer.tag = test ? "test-pr" + std::to_string(pull_request) + "-" + offer.version.commit
+                         : "v" + VersionNumber(offer.version);
+        offer.title = std::move(title);
+        offer.notes = std::move(notes);
+        offer.page = test ? PullRequestPageUrl(build.repository, pull_request)
+                          : ReleasesPageUrl(build.repository) + "/tag/" + offer.tag;
+        offer.published = std::time(nullptr) - 3 * 3600;
+        PackageAsset asset;
+        asset.name = "mscharged-" + VersionNumber(offer.version) + "+g" + offer.version.commit + "-" + build.package
+            + ".tar.gz";
+        asset.url = offer.page;
+        asset.size = 19713229;
+        offer.assets.push_back(std::move(asset));
+        return offer;
+    };
+    PortVersion next = self.Valid() ? self : ParsePortVersion("1.0.10");
+    ++next.patch;
+    next.commit = "4f2a9c81d03e";
+    const std::string release_notes =
+        "Take match day further: this made-up release shows how release notes look in the launcher.\n\n"
+        "## Gameplay\n- **Mirror matches (#51):** both teams can pick the same captain in offline Domination.\n"
+        "- **Fast terrain (#43):** every stadium plays like the dry field of Bowser Stadium.\n\n"
+        "## Launcher\n- Updates install in place and restart the launcher; settings and saves stay.\n"
+        "- The Play page switches between releases and test builds.";
+    const std::string pull_notes =
+        "Adds the Release / Test switch and in-place updates to the launcher.\n\n"
+        "## To try\n- Switch to **Test** on the Play page and install this build.\n"
+        "- Switch back to **Release** to return to the official release.";
+    Status status;
+    status.channel = UpdateChannel::Release;
+    status.checked = std::time(nullptr) - 120;
+    if (state == "uptodate") status.state = State::UpToDate;
+    else if (state == "notest")
+    {
+        status.state = State::UpToDate;
+        status.channel = UpdateChannel::Test;
+    }
+    else if (state == "checking") status.state = State::Checking;
+    else if (state == "failed")
+    {
+        status.state = State::CheckFailed;
+        status.error = "Could not resolve host: api.github.com";
+    }
+    else if (state == "available" || state == "blocked" || state == "downloading" || state == "installing"
+             || state == "installfailed")
+    {
+        status.offer = made_up(false, 0, next, VersionNumber(next) + " \xE2\x80\x93 Mirror matches and fast terrain",
+                               release_notes);
+        status.state = state == "downloading" ? State::Downloading
+            : state == "installing"           ? State::Installing
+            : state == "installfailed"        ? State::InstallFailed
+                                              : State::Available;
+        if (state == "blocked")
+            status.install_blocker = "This build was not installed from a package (no SOURCE-MANIFEST.json).";
+        if (state == "installfailed") status.error = "The download is damaged (its checksum does not match).";
+        status.received = 8598323;
+        status.total = 19713229;
+    }
+    else if (state == "test" || state == "newtest")
+    {
+        PortVersion version = next;
+        version.commit = "b81e07c4a2d9";
+        status.channel = UpdateChannel::Test;
+        status.offer = made_up(true, 52, version, "", pull_notes);
+        PullRequestInfo pull;
+        pull.number = 52;
+        pull.title = "Launcher: switch between releases and test builds";
+        pull.body = pull_notes;
+        pull.page = status.offer->page;
+        pull.open = true;
+        status.pull = pull;
+        status.state = State::Available;
+        if (state == "newtest")
+        {
+            build.origin = BuildOrigin::Test;
+            build.pull_request = 52;
+            build.version = VersionNumber(version) + "+g0c3d5e6f7a8b";
+            build.built = status.offer->published - 86400;
+        }
+    }
+    else if (state == "back")
+    {
+        build.origin = BuildOrigin::Test;
+        build.pull_request = 48;
+        PortVersion older = self.Valid() ? self : ParsePortVersion("1.0.10");
+        older.patch = std::max(0, older.patch - 1);
+        older.commit = "6144eb682311";
+        status.offer = made_up(false, 0, older, VersionNumber(older) + " \xE2\x80\x93 The current release",
+                               release_notes);
+        status.state = State::Available;
+    }
+    else return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    build_ = std::move(build);
+    status.serial = status_.serial + 1;
+    status_ = std::move(status);
+    return true;
 }
 
 void UpdateService::RunInstall(PublishedBuild offer, std::shared_ptr<platform::HttpCancel> cancel)

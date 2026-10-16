@@ -2,103 +2,94 @@
 
 ## Original project work
 
-The original port code, tools, and documentation contributed to `mscharged-port`
-are dedicated to the public domain under [CC0 1.0 Universal](../LICENSE), to the
+The original port code, tools and documentation in `mscharged-port` are
+dedicated to the public domain under [CC0 1.0 Universal](../LICENSE), to the
 extent their authors hold the relevant rights. The root `LICENSE` contains the
 dedication text; the [Creative Commons legal code](https://creativecommons.org/publicdomain/zero/1.0/legalcode.en)
-is the official reference.
+is the official reference. Material submitted for inclusion in the project is
+dedicated under the same terms, to the extent the submitter holds the rights.
 
-Third-party source, reconstructed game code, game assets, and trademarks are
-not relicensed by this dedication. The project grants no rights on behalf of
-their owners.
+This dedication does not cover third-party source, the reconstructed game code,
+game assets or trademarks, and the project grants no rights on behalf of their
+owners. Mario Strikers Charged was developed by Next Level Games and published
+by Nintendo; this is an unofficial project, unaffiliated with either company.
 
-## Source dependencies
+## Game data
 
-The [dependency inventory](../extern/README.md) records the 21 initial submodules,
-their purposes, and their exact revisions. License texts remain in those
-upstream checkouts. The bootstrap compiles selected decomp utilities and nod,
-including its Cargo dependencies; Corrosion supplies the CMake/Rust integration.
-The launcher also builds SDL3 and Dear ImGui and uses nod for disc checks.
-The optional Aurora core check also builds Aurora, Abseil, fmt, xxHash, and Tracy
-from prepared submodule sources. The separate Linux GX diagnostic also builds
-Dawn and its selected nested sources, zlib-ng, libpng, FreeType, Zstandard,
-SQLite, and ImGui's WebGPU backend. It uses Dawn's nested Abseil as the shared
-provider. SDL's included third-party codecs retain the notices in their source
-files. Unused optional libraries remain available for future integration.
+No disc images or game files are part of this repository or its packages.
+Players supply their own copy of the game.
 
-The following summaries identify principal notices, not a replacement for
-file-specific terms or notices on nested third-party material:
+## What the packages contain
 
-| Source | Licensing reference at the selected checkout |
+Each release package contains the program and game module, built from this
+repository, the pinned decompilation and the dependencies below, plus the
+notices for everything it includes:
+
+| In the package | Contents |
 | --- | --- |
-| Charged decompilation | [CC0 dedication](../extern/mscharged-decomp/LICENSE) for original contributions; [separate third-party notices](../extern/mscharged-decomp/LICENSES). Reconstructed game code is not relicensed by this port. |
-| Aurora | [MIT](../extern/aurora/LICENSE), copyright Luke Street. |
-| Dawn | [BSD-style terms](../extern/dawn/LICENSE); nested sources retain their own notices. |
-| Windows shader compilers | Microsoft DXC and Windows SDK redistributables; exact versions and hashes in [windows_graphics.json](../tools/windows_graphics.json). Windows packages include the accompanying notices in `LICENSES/dxc` and `LICENSES/windows-sdk`. |
-| SDL | [zlib license](../extern/sdl/LICENSE.txt). |
-| Abseil | [Apache 2.0](../extern/abseil-cpp/LICENSE). |
-| xxHash | [BSD terms](../extern/xxhash/LICENSE). |
-| fmt | [MIT terms and exception](../extern/fmt/LICENSE). |
-| zlib-ng | [zlib terms](../extern/zlib-ng/LICENSE.md). |
-| libpng | [PNG notices](../extern/libpng/LICENSE). |
-| FreeType | [License selection](../extern/freetype/LICENSE.TXT): FreeType License or GPL; contributed portions have additional notices. |
-| Dear ImGui | [MIT](../extern/imgui/LICENSE.txt). |
-| RmlUi | [MIT](../extern/rmlui/LICENSE.txt). |
-| SQLite | [Public-domain scope and exceptions](../extern/sqlite/LICENSE.md). |
-| Zstandard | [BSD option](../extern/zstd/LICENSE) or [GPL option](../extern/zstd/COPYING). |
-| nod | [MIT](../extern/nod/LICENSE-MIT) or [Apache 2.0](../extern/nod/LICENSE-APACHE); Rust dependencies have their own terms. |
-| Corrosion | [MIT](../extern/corrosion/LICENSE). |
-| GoogleTest | [BSD terms](../extern/googletest/LICENSE). |
-| Tracy | [BSD terms](../extern/tracy/LICENSE). |
-| Qt Base | [Module license texts](../extern/qtbase/LICENSES); Core/GUI/Widgets provide LGPL 3.0 and other alternatives, with file-specific and third-party notices. |
-| Qt Tools | [Tool license texts](../extern/qttools/LICENSES); tools such as `lrelease` use GPL 3.0 with the Qt GPL exception or commercial terms. Do not label every tool LGPL. |
-| Qt Translations | [Module license texts](../extern/qttranslations/LICENSES) and [upstream license rules](../extern/qttranslations/licenseRule.json). |
+| `LICENSE`, `LICENSES/README.md` | This project's dedication and this overview |
+| `LICENSES/dependencies/` | The license and notice files of every prepared source dependency, including nested components and build-time tools |
+| `LICENSES/rust/` | `Cargo.lock` and the notices of every Rust crate in nod's dependency graph |
+| `LICENSES/toolchain/` (Windows) | The LLVM-MinGW C++ runtime (`libc++`, `libunwind`) and mingw-w64 runtime and winpthreads notices |
+| `LICENSES/dxc/`, `LICENSES/windows-sdk/` (Windows) | The notices of the bundled Microsoft DirectX shader compilers |
+| `assets/launcher/` | Launcher artwork with its provenance, and the Roboto font with the Apache 2.0 text |
+| `SOURCE-MANIFEST.json` | The exact source commits, patches and file hashes of the build |
 
-Checking out an optional library does not establish that it will be distributed
-with the game. Select and document the relevant license option and distribution
-materials when integrating each component.
+The notice collection is deliberately broad: it does not assert that every
+prepared component is linked into the program.
 
-The current graphics integration selects the FreeType License in
-[FTL.TXT](../extern/freetype/docs/FTL.TXT) and Zstandard's BSD option.
+## Principal licenses
+
+The full terms are in each dependency's checkout and in the packages; this
+table names the principal ones.
+
+| Source | License |
+| --- | --- |
+| Charged decompilation | CC0 for original contributions, with separate third-party notices. The reconstructed game code is not relicensed by this project. |
+| Aurora | MIT, copyright Luke Street |
+| Dawn | BSD-style terms; nested sources keep their own notices |
+| SDL | zlib; bundled third-party code keeps the notices in its source files |
+| Dear ImGui | MIT |
+| nod | MIT or Apache 2.0; its Rust crates have their own terms |
+| Corrosion | MIT |
+| FreeType | FreeType License (selected from FTL or GPL); contributed components have additional notices |
+| libpng | PNG notices |
+| zlib-ng | zlib |
+| Zstandard | BSD (selected from BSD or GPL) |
+| SQLite | Public domain |
+| fmt | MIT terms and exception |
+| xxHash | BSD |
+| Tracy | BSD |
+| Abseil | Apache 2.0 |
+| LLVM-MinGW runtime (Windows) | Apache 2.0 with LLVM exception (`libc++`, `libunwind`); mingw-w64 runtime and winpthreads notices |
+| DirectX shader compilers (Windows) | Microsoft DXC and Windows SDK redistributables; versions and hashes in [windows_graphics.json](../tools/windows_graphics.json) |
+
 Portions of this software are copyright © 2026 The FreeType Project
-(https://freetype.org). All rights reserved. FreeType's contributed components
-retain their own notices. Dawn's nested shader tools, Vulkan headers/utilities,
-Abseil, and build-time Jinja/MarkupSafe retain the license texts at their recorded
-checkouts; see the [selected source inventory](../extern/README.md#dawns-selected-linux-graphics-sources).
-The [CI build archives](../docs/BUILDING_GITHUB.md) collect standalone notices
-from the prepared sources and checksum-verified, locked Rust dependencies.
-Their manifest records source pins and included files. Tagged releases remain
-separate; review any additional distribution obligations when changing the
-linked components.
-
-## Adding dependencies and preparing releases
-
-For each dependency, record its upstream source, purpose, pinned revision, and
-applicable license notices. Preserve notices in submodules and copied material,
-and identify any local patches. Include dependencies brought in by upstream
-build systems in this review.
-
-When distributing a build, include the license texts and notices required for
-the material actually distributed. A link to a submodule alone does not replace
-required notices in a release package. Include corresponding source or relinking
-materials where a dependency's terms require them.
+(https://freetype.org). All rights reserved.
 
 ## Application artwork
 
-The selected `assets/launcher/header.png` comes from
+The launcher header (`assets/launcher/header.png`) comes from
 [SteamGridDB hero 8926, uploaded by Jiquita](https://www.steamgriddb.com/hero/8926).
-It is third-party artwork outside the CC0 dedication. The source metadata does
-not specify a redistribution license.
-
-The application icon (`assets/launcher/icon.png` and its Windows ICO conversion)
-comes from [SteamGridDB icon 103028, uploaded by roryypc](https://www.steamgriddb.com/icon/103028).
-It is also third-party artwork outside CC0, with no redistribution license
-specified in the source metadata. See [artwork provenance](../assets/launcher/README.md).
+The application icon (`assets/launcher/icon.png` and its Windows `.ico`
+conversion) comes from
+[SteamGridDB icon 103028, uploaded by roryypc](https://www.steamgriddb.com/icon/103028).
+Both are third-party artwork outside the CC0 dedication; their source metadata
+does not specify a redistribution license. The screenshot
+`docs/images/launcher.png` shows the launcher with this header artwork. See
+[artwork provenance](../assets/launcher/README.md).
 
 The launcher's Roboto Medium font comes from the pinned Dear ImGui font bundle
-and uses Apache 2.0, as recorded in its [font inventory](../extern/imgui/docs/FONTS.md).
-The original font, embedded notices, and full Apache 2.0 text are copied into
-the build's `assets/launcher/` directory. It is outside the CC0 dedication.
+and uses Apache 2.0, as recorded in its
+font inventory. The font, its embedded notices
+and the full [Apache 2.0 text](Apache-2.0.txt) are copied beside the program
+in `assets/launcher/`. It is outside the CC0 dedication.
 
-Disc images and extracted game data are not distributed with this project.
-Players supply their own game data.
+## Adding a dependency
+
+Record its upstream source, purpose, pinned commit and license in
+[`extern/README.md`](../extern/README.md) and here, keep its notices, and make
+sure packaging collects them (`tools/package_build.py`). Include dependencies
+that upstream build systems bring in. When distributing a build, include the
+license texts and notices for the material actually distributed, and
+corresponding source or relinking materials where a license requires them.

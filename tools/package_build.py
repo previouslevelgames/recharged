@@ -45,9 +45,10 @@ WINDOWS_SYSTEM_DLLS = frozenset((
     "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
     "user32.dll", "userenv.dll", "version.dll", "winhttp.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
 ))
-PUBLIC_FILES = ("README.md", "LICENSE", "mscharged.ini.example", "docs/BUILDING.md",
-                "docs/BUILDING_MACOS.md", "docs/BUILDING_GITHUB.md", "docs/RUNTIME.md", "LICENSES/README.md",
-                "LICENSES/Apache-2.0.txt", "extern/README.md")
+PUBLIC_FILES = ("README.md", "LICENSE", "mscharged.ini.example", "docs/INSTALL.md", "docs/STEAM_DECK.md",
+                "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
+                "docs/BUILDING.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
+                "extern/README.md")
 # SteamOS 3.7 (Steam Deck): glibc 2.40 and the GCC 14 runtime (gcc-libs 14.2),
 # from Valve's package mirror. A Steam Deck package needs no newer symbol
 # versions and links only these system libraries; SDL and Dawn load the
@@ -447,8 +448,9 @@ run the game directly from a terminal:
     {run_command} --disc /path/to/R4QE01.rvz --window
 
 Keep both loadable modules{runtime_note} and assets beside the executable. Game data is not
-included; players supply their own disc image. This is an experimental original
-game runtime; see docs/BUILDING.md and docs/RUNTIME.md for its current scope.
+included; players supply their own disc image (Mario Strikers Charged, USA,
+R4QE01 revision 1, as ISO or RVZ). docs/INSTALL.md covers the first start,
+docs/SETTINGS.md the settings and docs/TROUBLESHOOTING.md common problems.
 
 Host prerequisites remain system components: on Linux, the C/C++ runtimes,
 Vulkan loader/driver and desktop/input/audio services; on macOS, the system
@@ -476,16 +478,15 @@ recorded in assets/launcher/README.md and LICENSES/README.md.
 
 This package is the Linux x86_64 build checked against SteamOS 3.7 or newer:
 it needs no newer system libraries than glibc 2.40 and the GCC 14 C++ runtime.
+docs/STEAM_DECK.md has the full guide; in short:
 
 1. In Desktop Mode, extract the directory to a folder you can write to, for
-   example ~/Games/mscharged, and start mscharged. Choose your disc image on
-   the Game page. On the Controls page, choose gamepad1 for player 1: Steam
-   presents the Deck's own buttons and sticks as a gamepad.
+   example ~/Games/mscharged.
 2. In Steam, choose Games > Add a Non-Steam Game to My Library, browse to
-   mscharged in that folder and add it.
-3. Start it from your library in Game Mode. The launcher accepts the Deck's
-   controls; press Play. In Game Mode the game opens fullscreen; --window in
-   the shortcut's launch options keeps a window instead.
+   mscharged in that folder and add it. Leave Compatibility unchecked.
+3. In Gaming Mode, apply the Gamepad controller template to it and start it.
+   Choose your disc image on the launcher's Game page, set player 1 to
+   gamepad1 on the Controls page and press Play.
 """
         put("PACKAGE-README.md", readme.encode())
         manifest = {"format": 1, "version": version, "platform": "steamdeck" if steamdeck else system,

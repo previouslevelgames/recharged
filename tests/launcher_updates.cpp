@@ -189,8 +189,36 @@ void TestReleases()
           "The newest build of the pull request is current");
     update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), UpdateChannel::Test, builds);
     Check(update && update->tag == "test-pr50-dddddddddddd", "A closed pull request's build takes the newest test build");
-    Check(!FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 48), UpdateChannel::Release, builds),
-          "On releases a newer test build is not downgraded to an older release");
+
+    // What an offer means: the dialog's update or switch.
+    const BuildIdentity test48 = Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 48);
+    const BuildIdentity release9 = Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000);
+    update = FindUpdate(test48, UpdateChannel::Test, builds);
+    Check(update && ClassifyOffer(test48, *update) == OfferKind::Update, "A newer build of the own pull request updates");
+    update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), UpdateChannel::Test, builds);
+    Check(update && ClassifyOffer(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), *update)
+              == OfferKind::TestBuild,
+          "Another pull request's test build is a switch");
+    update = FindUpdate(release9, UpdateChannel::Test, builds);
+    Check(update && ClassifyOffer(release9, *update) == OfferKind::TestBuild, "A release switches to a test build");
+
+    // Back from a test build: the newest release, also an older one.
+    update = FindUpdate(test48, UpdateChannel::Release, builds);
+    Check(update && update->tag == "v1.0.9" && ClassifyOffer(test48, *update) == OfferKind::BackToRelease
+              && !IsNewer(test48, *update),
+          "On releases a test build is offered the way back to the newest release");
+    Check(!UpdatesItself(update->version) && UpdatesItself(ParsePortVersion("1.0.10"))
+              && UpdatesItself(ParsePortVersion("1.1.0")) && !UpdatesItself(ParsePortVersion("bad")),
+          "In-app updates since 1.0.10");
+    Check(!FindUpdate(Build(BuildOrigin::Dev, "1.0.10+gffffffffffff", 1792140000), UpdateChannel::Release, builds),
+          "Local builds are not offered older releases");
+    Check(!FindUpdate(Build(BuildOrigin::Release, "1.0.10+gffffffffffff", 1792140000), UpdateChannel::Release, builds),
+          "Releases are not offered older releases");
+    const auto same_version = ParseReleases(platform::ParseJson(
+        "[" + Release("v1.0.10", false, "2026-10-16T08:00:00Z", "1.0.10+gbbbbbbbbbbbb") + "]"));
+    update = FindUpdate(test48, UpdateChannel::Release, same_version);
+    Check(update && ClassifyOffer(test48, *update) == OfferKind::BackToRelease,
+          "A test build made after the release of its version goes back to that release");
 
     // Merged and released: the release of the same version is the update.
     const auto released = ParseReleases(platform::ParseJson(
@@ -198,6 +226,11 @@ void TestReleases()
         + Release("v1.0.9", false, "2026-10-15T17:22:00Z", "1.0.9+gaaaaaaaaaaaa") + "]"));
     update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gcccccccccccc", 1792140000, 48), UpdateChannel::Test, released);
     Check(update && update->tag == "v1.0.10", "A test build moves on to its release");
+    update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gcccccccccccc", 1792140000, 48), UpdateChannel::Release, released);
+    Check(update && update->tag == "v1.0.10"
+              && ClassifyOffer(Build(BuildOrigin::Test, "1.0.10+gcccccccccccc", 1792140000, 48), *update)
+                  == OfferKind::Update,
+          "The later release of a tested version is an update on both channels");
     Check(!FindUpdate(Build(BuildOrigin::Dev, "1.0.10+gcccccccccccc", 1792140000), UpdateChannel::Release, released),
           "Local builds are only offered higher versions");
     Check(FindUpdate(Build(BuildOrigin::Dev, "1.0.9+gcccccccccccc", 0), UpdateChannel::Release, released),
@@ -236,6 +269,18 @@ void TestReleases()
     Check(BuildNotesUrl(build) == "https://github.com/o/r/releases", "Local build notes");
     build.commit = "cccccccccccccccccccccccccccccccccccccccc";
     Check(DescribeBuild(build) == "Local build, commit cccccccccccc, built 2026-10-16 08:40 UTC", "Build description");
+
+    // The notice after an update or a switch.
+    Check(DescribeReplacement("1.0.9+gaaaaaaaaaaaa", Build(BuildOrigin::Release, "1.0.10+gbbbbbbbbbbbb", 0))
+              == "Updated from 1.0.9 to release 1.0.10.",
+          "Update notice");
+    Check(DescribeReplacement("1.0.10+gcccccccccccc", Build(BuildOrigin::Test, "1.0.10+gdddddddddddd", 0, 48))
+              == "Updated from 1.0.10 (cccccccc) to test build 1.0.10 (dddddddd).",
+          "Same-version notice names the commits");
+    Check(DescribeReplacement("1.0.11+gcccccccccccc", Build(BuildOrigin::Release, "1.0.10+gbbbbbbbbbbbb", 0))
+              == "Switched from 1.0.11 to release 1.0.10.",
+          "Back-to-release notice");
+    Check(DescribeReplacement("garbage", Build(BuildOrigin::Release, "1.0.10", 0)).empty(), "Unknown replaced version");
 }
 
 void TestNotes()

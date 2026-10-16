@@ -334,7 +334,7 @@ void ReportInaccessibleRemotes() {
         if ((device->product_id == 0x0306 || device->product_id == 0x0330) && device->path &&
                 access(device->path, R_OK | W_OK) != 0)
             SDL_Log("Wii Remote at %s: no permission for this user. Install the udev rule from "
-                    "docs/RUNTIME.md (Wii Remote), then reconnect the Remote.", device->path);
+                    "docs/SETTINGS.md (Wii Remotes), then reconnect the Remote.", device->path);
     SDL_hid_free_enumeration(devices);
 }
 #endif
@@ -640,7 +640,7 @@ void ServiceWpadSDL() {
             state.rejected_remotes.push_back(ids[n]);
             SDL_Log("Wii Remote ignored: SDL lists it without the Wii HID driver's buttons and "
                     "motion sensor. On Linux this usually means no /dev/hidraw permission; see "
-                    "docs/RUNTIME.md (Wii Remote)");
+                    "docs/SETTINGS.md (Wii Remotes)");
             continue;
         }
         u16 initial_buttons = 0;

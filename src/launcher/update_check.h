@@ -94,9 +94,29 @@ PullRequestInfo ParsePullRequest(const platform::JsonValue& pull);
 // pull request's test builds while there are any; a build is newer with a
 // higher version or, for release and test builds, a later build of the same
 // version (such as the release of a tested version). Local builds are only
-// offered higher versions.
+// offered higher versions. On the release channel a test build is offered
+// the newest release even when that is older: the way back from test builds.
 const PublishedBuild* FindUpdate(const BuildIdentity& build, UpdateChannel channel,
                                  const std::vector<PublishedBuild>& published);
+
+// Whether `offer` is newer than the running build, by FindUpdate's rule.
+bool IsNewer(const BuildIdentity& build, const PublishedBuild& offer);
+
+// What an offer means for the running build.
+enum class OfferKind
+{
+    Update,        // a newer release, or a newer test build of the same pull request
+    TestBuild,     // a test build for another kind of build, or of another pull request
+    BackToRelease, // a test build's way back to the newest release, which is not newer
+};
+OfferKind ClassifyOffer(const BuildIdentity& build, const PublishedBuild& offer);
+
+// Whether a version installs its updates itself (they arrived with 1.0.10).
+bool UpdatesItself(const PortVersion& version);
+
+// The notice after an update replaced the build of version `replaced`, e.g.
+// "Updated from 1.0.9 to release 1.0.10.".
+std::string DescribeReplacement(std::string_view replaced, const BuildIdentity& build);
 
 // The expected SHA-256 (lowercase hex) of an asset: GitHub's digest, else its
 // line in the release's SHA256SUMS; empty when neither knows it.

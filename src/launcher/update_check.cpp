@@ -239,10 +239,53 @@ const PublishedBuild* FindUpdate(const BuildIdentity& build, UpdateChannel chann
     if (!best->version.commit.empty() && !self.commit.empty()
         && (best->version.commit.rfind(self.commit, 0) == 0 || self.commit.rfind(best->version.commit, 0) == 0))
         return nullptr;
-    const int order = CompareVersions(best->version, self);
-    if (order != 0) return order > 0 ? best : nullptr;
-    if (build.origin == BuildOrigin::Dev) return nullptr;
-    return build.Time() && best->published > build.Time() ? best : nullptr;
+    // The way back from a test build to the release, whatever its version.
+    if (channel == UpdateChannel::Release && build.origin == BuildOrigin::Test) return best;
+    return IsNewer(build, *best) ? best : nullptr;
+}
+
+bool IsNewer(const BuildIdentity& build, const PublishedBuild& offer)
+{
+    const PortVersion self = ParsePortVersion(build.version);
+    if (!self.Valid()) return false;
+    const int order = CompareVersions(offer.version, self);
+    if (order != 0) return order > 0;
+    if (build.origin == BuildOrigin::Dev) return false;
+    return build.Time() && offer.published > build.Time();
+}
+
+OfferKind ClassifyOffer(const BuildIdentity& build, const PublishedBuild& offer)
+{
+    if (offer.test)
+        return build.origin == BuildOrigin::Test && offer.pull_request == build.pull_request ? OfferKind::Update
+                                                                                              : OfferKind::TestBuild;
+    return IsNewer(build, offer) ? OfferKind::Update : OfferKind::BackToRelease;
+}
+
+bool UpdatesItself(const PortVersion& version)
+{
+    PortVersion first;
+    first.major = 1;
+    first.patch = 10;
+    return version.Valid() && CompareVersions(version, first) >= 0;
+}
+
+std::string DescribeReplacement(std::string_view replaced, const BuildIdentity& build)
+{
+    const PortVersion before = ParsePortVersion(replaced), now = ParsePortVersion(build.version);
+    if (!before.Valid() || !now.Valid()) return {};
+    // Equal numbers (test builds of one version, or its release) differ in their commits.
+    const bool same_number = CompareVersions(before, now) == 0;
+    auto label = [same_number](const PortVersion& version) {
+        std::string text = VersionNumber(version);
+        if (same_number && !version.commit.empty()) text += " (" + version.commit.substr(0, 8) + ")";
+        return text;
+    };
+    std::string target = label(now);
+    if (build.origin == BuildOrigin::Release) target = "release " + target;
+    else if (build.origin == BuildOrigin::Test) target = "test build " + target;
+    return std::string(CompareVersions(now, before) < 0 ? "Switched" : "Updated") + " from " + label(before) + " to "
+        + target + ".";
 }
 
 std::string ExpectedSha256(const PackageAsset& asset, std::string_view checksums)
