@@ -15,6 +15,13 @@
 
 namespace {
 using namespace mscharged::platform;
+// The USA build's KPADInit calibrates the pointer for the sensor bar; the
+// European build's (desktop_dpd_eu) keeps the centre at the bar.
+#if defined(VERSION_R4QP01_REV2)
+constexpr bool kSensorHeight = false;
+#else
+constexpr bool kSensorHeight = true;
+#endif
 unsigned checks{}, queries{}, controls{}, cancelled{}, immediate{}, rejected{}, unsupported{};
 SDL_Window* window{};
 std::thread::id owner;
@@ -104,11 +111,13 @@ void Cancelled(s32,WPADResult result) {
 // Independent raw word oracle: integer pixel centres and pair endpoints,
 // chosen ahead of the adapter; these are not expected values from its helper.
 void RawOracles() {
-    const auto bottom=MakeDesktopDpdObservation(.5f,.5f,0,true);
+    const auto bottom=MakeDesktopDpdObservation(.5f,.5f,0,true,kSensorHeight);
     Check(bottom[0].x==378&&bottom[1].x==645,"Bottom centre camera pair width/half-pixel origin changed");
-    Check(bottom[0].y==486&&bottom[1].y==486,"Bottom source sensor-height sign changed");
-    const auto top=MakeDesktopDpdObservation(.5f,.5f,1,true);
-    Check(top[0].y==281&&top[1].y==281,"Top source sensor-height sign changed");
+    // Calibrated: the picture centre 0.2 off the bar; uncalibrated: at the bar.
+    const int bottom_y=kSensorHeight?486:384,top_y=kSensorHeight?281:384;
+    Check(bottom[0].y==bottom_y&&bottom[1].y==bottom_y,"Bottom source sensor-height sign changed");
+    const auto top=MakeDesktopDpdObservation(.5f,.5f,1,true,kSensorHeight);
+    Check(top[0].y==top_y&&top[1].y==top_y,"Top source sensor-height sign changed");
     Check(top[0].size==12&&top[1].size==12&&!top[2].size&&!top[3].size,
           "Virtual raw camera fabricated more observed objects");
     const auto lost=MakeDesktopDpdObservation(0,0,1,false);
@@ -134,6 +143,7 @@ void SourceAndMouse() {
     DesktopWpadSettings bad{true,false,true};
     Reject([&]{InitializeDesktopWpad(window,bad);},"Mouse activated without a presented content provider");
     DesktopWpadSettings settings{true,false,true,Project,nullptr};
+    settings.kpad_sensor_height=kSensorHeight;
     InitializeDesktopWpad(window,settings);
     KPADInit();
     // Literal original pad initialization parameter requests.

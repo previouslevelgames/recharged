@@ -31,10 +31,10 @@ constexpr GameRelease kReleases[] = {
      0x0001000052345145ull, 0x3031, GameCode::Usa, false, true, 0x804E70E0u,
      kUsaLanguages, std::size(kUsaLanguages)},
     {"R4QP01", 2, "c39e1eda1942aa2fc96a6a71bfef051698e23516", "Europe", "Mario Strikers Charged Football",
-     0x0001000052345150ull, 0x3031, GameCode::Europe, false, false, 0x804E6A08u,
+     0x0001000052345150ull, 0x3031, GameCode::Europe, false, true, 0x804E6A08u,
      kEuropeLanguages, std::size(kEuropeLanguages)},
     {"R4QP01", 1, "0a066b755b469648a371d1cfc2d1bcad315b2b4a", "Europe", "Mario Strikers Charged Football",
-     0x0001000052345150ull, 0x3031, GameCode::Europe, true, false, 0x804E6488u,
+     0x0001000052345150ull, 0x3031, GameCode::Europe, true, true, 0x804E6488u,
      kEuropeLanguages, std::size(kEuropeLanguages)},
 };
 
@@ -54,6 +54,11 @@ bool SeveralRevisions(std::string_view game_id)
         if (game_id == release.game_id) ++variants;
     return variants > 1;
 }
+}
+
+const char* GameModuleVersion(GameCode code)
+{
+    return code == GameCode::Europe ? "R4QP01_REV2" : "R4QE01";
 }
 
 std::size_t ReleaseCount() { return std::size(kReleases); }

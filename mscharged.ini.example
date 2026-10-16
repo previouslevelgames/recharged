@@ -4,8 +4,9 @@
 [game]
 disc = game/R4QE01.rvz
 
-# Game text for the supported USA disc: auto, english, french, or spanish.
-# Automatic currently uses English. The original game selects localized resources.
+# Game text: auto, or a language of the disc: english, french or spanish
+# (USA); english, german, french, spanish or italian (Europe). Automatic takes
+# the computer's language when the disc has it, else English.
 language = auto
 
 # Folder for the game's Wii saves. Empty: original-main-credits-data/nand next

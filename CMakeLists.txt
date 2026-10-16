@@ -395,6 +395,10 @@ if(BUILD_TESTING)
     # original answers (the game module's tweak state).
     add_test(NAME tweak_patches
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_patches.py")
+    # The same hooks in every game version's module.
+    add_test(NAME tweak_patch_versions
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_versions.py"
+            "${MSCHARGED_PREPARED}")
     add_executable(game_tweaks_tests tests/game_tweaks.cpp src/platform/game_tweaks.cpp)
     add_dependencies(game_tweaks_tests verify_prepared)
     target_include_directories(game_tweaks_tests PRIVATE src "${MSCHARGED_PREPARED}/include")

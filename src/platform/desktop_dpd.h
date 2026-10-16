@@ -31,8 +31,9 @@ void DetachNativeWpadDpdSource(NativeDpdSource source);
 // represent real normalized desktop observations; KPAD still selects objects,
 // calculates validity and applies its original filtering. Physical IR/EEPROM
 // calibration and roll are not claimed by this desktop camera profile.
+// `sensor_height` follows the game's KPAD (see KpadPointerCentre).
 NativeDpdObservation MakeDesktopDpdObservation(float x, float y,
                                                std::uint8_t sensor_bar_position,
-                                               bool visible);
+                                               bool visible, bool sensor_height = true);
 
 } // namespace mscharged::platform

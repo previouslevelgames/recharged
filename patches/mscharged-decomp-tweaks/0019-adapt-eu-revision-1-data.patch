@@ -1,0 +1,75 @@
+From: mscharged-port
+Subject: Run European revision 1 data on the revision 2 code
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Owner decision: a European revision 1 disc plays with the game code of
+revision 2. Three data contracts changed between the revisions (checked on
+both discs): revision 2 inserted FE_GEN_Music at 0x1A of the sound bank table
+in audio/nlxgs.bun, so every later bank sits one higher; it inserted
+presentation script native 63 (PRESENTATION_SET_STADIUM_EFFECTS_ENABLED), so
+the natives after it are numbered one higher; and it gave the in-game texture
+pool less room (revision 1 0x966666, revision 2 0x900000) for its smaller
+stadiums. For a revision 1 disc the host turns these adapters on whatever the
+tweak set: LoadSoundBank maps the bank to revision 1's table (FE_GEN_Music to
+STREAM_GEN_Music, which revision 1 loads in the same step), DoFunctionCall
+renumbers revision 1's natives from 63, and the pool gets revision 1's budget.
+Every other script, menu and text file is the same on both discs.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index d1bfd4d..e639924 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -1979,6 +1979,11 @@ void InitializeGameState1(AsyncLoadingManager* manager)
+     requirements[1].mSize = 0x900000;
+ #else
+     requirements[1].mSize = 0x8B3333;
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // European revision 1 data: its larger stadiums need revision 1's
++    // texture budget (tweak patch 0019).
++    requirements[1].mSize = mscharged_tweak_rev1_ingame_texture_budget(requirements[1].mSize);
+ #endif
+     requirements[2].mSize = 0x580000;
+     glSetCurrentResourcePool(glCreateResourcePool(requirements, 3, "InGame"));
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+index ef35b48..d379bb7 100644
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -6,6 +6,9 @@
+ #include "Game/Audio/Plat3dSoundSrc.h"
+ #include "Game/Audio/AudioEffects.h"
+ #include "Game/Sys/audio.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_tweaks.h"
++#endif
+ #include "Game/Sys/debug.h"
+ 
+ #include "Game/Task/TextWindowTask.h"
+@@ -151,6 +154,11 @@ void LoadSoundBank(GameAudio* audio, int slotId,
+     unsigned long cueId, AudioPlayCallback callback,
+     void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // European revision 1 data: its sound bank table has no FE_GEN_Music
++    // (0x1A), so every later bank sits one lower (tweak patch 0019).
++    slotId = mscharged_tweak_rev1_sound_bank(slotId);
++#endif
+     if (!gAudioEnabled)
+     {
+         return;
+diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentation_interp.cpp
+index 5b4597b..0f6ee78 100644
+--- a/src/Game/Render/Presentation_interp.cpp
++++ b/src/Game/Render/Presentation_interp.cpp
+@@ -49,6 +49,11 @@ enum PresentationFunction
+  */
+ void Presentation::DoFunctionCall(unsigned int function)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // European revision 1 scripts number the natives from 63 one lower: they
++    // predate PRESENTATION_SET_STADIUM_EFFECTS_ENABLED (tweak patch 0019).
++    function = mscharged_tweak_rev1_presentation_function(function);
++#endif
+     cCharacter* character;
+     switch (function)
+     {

@@ -3,7 +3,7 @@ import struct
 
 
 def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity=0x200, partition_size=0x8000, tmd=None,
-               dol=None):
+               dol=None, revision=1):
     """A tiny, unencrypted Wii container with synthetic files and directories.
 
     `dol` replaces the stub main.dol with the given bytes, placed after the files."""
@@ -11,7 +11,7 @@ def write_disc(path, game_id=b"R4QE01", partition=True, files=None, fst_capacity
         raise ValueError("Invalid synthetic partition size")
     data = bytearray(0x58000 + partition_size)
     data[:6] = game_id
-    data[7] = 1
+    data[7] = revision
     data[0x18:0x1C] = bytes.fromhex("5d1c9ea3")
     title = b"Port test fixture"
     data[0x20:0x20 + len(title)] = title

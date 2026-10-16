@@ -6,6 +6,7 @@
 #include "bootstrap/config.h"
 #include "mscharged/build_version.h"
 #include "platform/disc.h"
+#include "platform/game_release.h"
 #include "platform/path.h"
 
 namespace
@@ -70,8 +71,13 @@ int main(int argc, char** argv)
             std::cout << "Disc: " << info.game_id << " revision " << unsigned(info.revision)
                       << " (" << info.format << ") - " << info.title << '\n'
                       << "Game data partition opened: " << info.file_count << " files.\n";
-            if (info.game_id != "R4QE01" || info.revision != 1)
-                std::cout << "This disc differs from the source baseline R4QE01 revision 1; asset compatibility is unverified.\n";
+            if (const auto* release = mscharged::FindRelease(info))
+            {
+                const auto note = mscharged::ReleaseNote(*release);
+                std::cout << "Release: " << release->title << ", " << mscharged::ReleaseLabel(*release)
+                          << (note.empty() ? "" : ". " + note) << '\n';
+            }
+            if (const auto reason = mscharged::UnplayableReason(info); !reason.empty()) std::cout << reason << '\n';
         }
         catch (const std::exception& error)
         {

@@ -28,47 +28,13 @@ knocks the ball loose.
 
 cPlayer::ReleaseBall now gives a ball released by an intangible fielder its
 player and goalie collisions back, as it already gives back its visibility.
-That covers every way an intangible carrier loses the ball; the Chain Chomp
-still knocks it off a deking player as it lands, as in the original game. The
-goalie no longer takes the ball from an intangible teammate, as he does not
-touch intangible opponents either: a deking Boo keeps it. Boo's and Monty Mole's
+That covers every way an intangible carrier loses the ball. The dekes, the
+goalie's grab and the Chain Chomp's hit stay as in the original game; only the
+ball keeps colliding with the goalies afterwards. Boo's and Monty Mole's
 Skillshots and Mega Strikes, which keep the ball off the goalie on purpose, are
 unchanged: they switch the collisions off after the shot's release, or the
 shooter is tangible when he shoots.
 
-diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
-index 8cd3173..697f7d8 100644
---- a/src/Game/AI/GoalieActions.cpp
-+++ b/src/Game/AI/GoalieActions.cpp
-@@ -4791,7 +4791,13 @@ void Goalie::ActionGrabBall(float fDeltaT)
-                 g_pBall->m_v3Position.y - jointPos.y,
-                 g_pBall->m_v3Position.z - jointPos.z);
- 
--            if (nlGetLengthSquared3D(delta.x, delta.y, delta.z) < 0.25f)
-+            if (nlGetLengthSquared3D(delta.x, delta.y, delta.z) < 0.25f
-+#if defined(MSCHARGED_TWEAKS)
-+                // Port fix, always on (issue #38): a teammate who turned
-+                // intangible during the grab keeps the ball, as above.
-+                && g_pBall->GetOwnerFielder()->mbTangible
-+#endif
-+                )
-             {
-                 StealBall(g_pBall->m_pOwner);
-                 PickupBall(g_pBall);
-@@ -7716,6 +7722,13 @@ bool Goalie::IsTeammateHoardingBall()
-         cBall* pBall;
-         cFielder* pOwner = g_pBall->GetOwnerFielder();
-         if (pOwner != 0 && !pOwner->IsYoshiSuperPowerActive()
-+#if defined(MSCHARGED_TWEAKS)
-+            // Port fix, always on (issue #38, the NK bug): not from a teammate
-+            // who is intangible (a Boo or teleport deke), whom the goalie
-+            // cannot touch either. Taking the ball from him left it unable to
-+            // hit either goalie (see cPlayer::ReleaseBall).
-+            && pOwner->mbTangible
-+#endif
-             && IsOnSameTeam(pOwner))
-         {
-             float ownerX;
 diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
 index c5230fd..ab457f8 100644
 --- a/src/Game/Player.cpp

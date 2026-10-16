@@ -8,12 +8,10 @@ end of the [Steam Deck guide](STEAM_DECK.md#troubleshooting).
 
 ## The launcher does not accept my disc
 
-The port runs **Mario Strikers Charged for the USA, game ID `R4QE01`,
-revision 1**. The launcher's **Game** page shows the ID and revision of the
-image you chose.
+The port runs **Mario Strikers Charged for the USA (game ID `R4QE01`,
+revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
+**Game** page shows the ID and revision of the image you chose.
 
-- **`R4QP01` (Europe):** supported from version 1.0.10 on (revisions 1 and
-  2).
 - **Another ID**, such as `R4QJ01` (Japan): not supported yet; the
   decompilation of these versions is still being completed. Renaming the file
   does not change the version inside it.

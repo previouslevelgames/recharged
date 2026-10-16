@@ -38,6 +38,22 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("R4QE01 revision 1 (ISO)", output)
         self.assertIn("1 files", output)
 
+    def test_release_report(self):
+        disc = self.root / "release.iso"
+        write_disc(disc)
+        output = self.run_port("--disc", disc)
+        self.assertIn("Release: Mario Strikers Charged, USA\n", output)
+        self.assertNotIn("cannot run", output)
+        write_disc(disc, game_id=b"R4QP01", revision=2)
+        self.assertIn("Release: Mario Strikers Charged Football, Europe, revision 2\n", self.run_port("--disc", disc))
+        write_disc(disc, game_id=b"R4QP01", revision=1)
+        self.assertIn("Release: Mario Strikers Charged Football, Europe, revision 1. "
+                      "Plays with the game code of revision 2.", self.run_port("--disc", disc))
+        write_disc(disc, game_id=b"R4QP01", revision=3)
+        self.assertIn("in revision 2 and revision 1; this disc is revision 3.", self.run_port("--disc", disc))
+        write_disc(disc, game_id=b"R4QJ01", revision=0)
+        self.assertIn("Mario Strikers Charged for Japan (R4QJ01) is not supported yet.", self.run_port("--disc", disc))
+
     def test_default_configuration(self):
         write_disc(self.root / "test.iso")
         (self.root / "mscharged.ini").write_text("[game]\ndisc = test.iso\n")

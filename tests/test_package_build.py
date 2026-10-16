@@ -162,7 +162,7 @@ checksum = "{self.checksum}"
     def test_allowlist_archive_manifest_and_executable_mode(self):
         for root, path in ((self.source, "mscharged.ini"), (self.source, "game/R4QE01.rvz"),
                            (self.source, ".private/secret.md"), (self.build, "cache/driver.bin"),
-                           (self.build, "mscharged_original_frontend_module.map"),
+                           (self.build, "mscharged_original_frontend_module_us.map"),
                            (self.build, "mscharged_original_loading_module.so"),
                            (self.build, "assets/launcher/extra-private.txt")):
             self.write(root, path, b"MUST NOT BE PACKAGED")
@@ -175,7 +175,7 @@ checksum = "{self.checksum}"
             manifest = json.load(archive.extractfile(manifest_member))
             self.assertEqual(manifest["version"], "1.0.0+g123456789abc")
             self.assertEqual(manifest["packaging_source_commit"], "6" * 40)
-            self.assertEqual(len(manifest["modules"]), 2)
+            self.assertEqual(len(manifest["modules"]), 3)
             self.assertEqual(len(manifest["prepared"]), len(PACKAGER.DEPENDENCIES))
             self.assertEqual(manifest["cargo"]["packages"][0]["name"], "codec")
             self.assertEqual(len(manifest["cargo"]["packages"]), 2)
@@ -232,7 +232,8 @@ checksum = "{self.checksum}"
         shutil.rmtree(self.build)
         shutil.rmtree(self.source)
         manifest = json.loads((relocated / "SOURCE-MANIFEST.json").read_text())
-        self.assertEqual(manifest["modules"], ["mscharged_original_frontend_module.so",
+        self.assertEqual(manifest["modules"], ["mscharged_original_frontend_module_us.so",
+                                              "mscharged_original_frontend_module_eu.so",
                                               "mscharged_original_main_credits_module.so"])
         self.assertFalse((relocated / "prepared").exists())
         self.assertFalse((relocated / "mscharged_original_loading_module.so").exists())

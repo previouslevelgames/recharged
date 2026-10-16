@@ -50,6 +50,10 @@ struct DesktopWpadSettings {
     // while it is in use (moving or a button held, then 3 s). -1: off.
     // Requires `mouse` without `keyboard`.
     int mouse_player_channel = -1;
+    // The game's KPAD calibrates the pointer for the sensor-bar position (the
+    // USA build); the European build's KPAD does not, so the mouse and
+    // gamepad pointers aim with its centre (see KpadPointerCentre).
+    bool kpad_sensor_height = true;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.

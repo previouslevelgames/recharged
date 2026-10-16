@@ -30,12 +30,12 @@ flowchart TB
 ```
 
 One program, `mscharged`, contains the launcher and the platform. Pressing
-**Play** closes the launcher and loads the **game module**
-(`mscharged_original_frontend_module`, a shared library beside the program)
-in the same process. The platform sets up the Wii's memory, clocks and devices,
-passes the player's settings (controllers, tweaks, frame rate) to the module,
-and calls the original `main()`. From there the game runs exactly its own
-startup, task loop, menus, matches and shutdown.
+**Play** closes the launcher and loads the **game module** for the disc's
+version (`mscharged_original_frontend_module_us` or `_eu`, shared libraries
+beside the program) in the same process. The platform sets up the Wii's
+memory, clocks and devices, passes the player's settings (controllers, tweaks,
+frame rate) to the module, and calls the original `main()`. From there the
+game runs exactly its own startup, task loop, menus, matches and shutdown.
 
 ## From the decompilation to the program
 
@@ -54,7 +54,10 @@ it in four steps:
    behavior depends on their layout (`__LINE__`, stringified macro arguments)
    are left exactly as patched.
 4. **Compile.** The prepared game and SDK code is compiled with GCC or Clang
-   into the game module.
+   into one game module per game version. The decomp builds the USA and the
+   European release from the same source, selected by a version macro
+   (`VERSION_R4QE01`, `VERSION_R4QP01_REV2`); the port compiles the prepared
+   tree once for each.
 
 The patches fall into two series:
 
@@ -64,10 +67,11 @@ The patches fall into two series:
   big-endian data files, and the hand-over to native hardware services. It
   keeps the game's algorithms, timing, bugs and quirks as they are.
 - **The tweak series** (`patches/mscharged-decomp-tweaks/`) holds every
-  intended change: the optional gameplay tweaks, the frame-rate option, and
-  three fixes of bugs in the original game. Each change is compiled only into
-  the game module, and the optional tweaks take the original path unless
-  turned on.
+  intended change: the optional gameplay tweaks, the frame-rate option,
+  three fixes of bugs in the original game, and the adapters that let the
+  first European revision's data run on the second revision's code. Each
+  change is compiled only into the game module, and the optional tweaks take
+  the original path unless turned on.
 
 To see the result without building, prepare the sources alone:
 

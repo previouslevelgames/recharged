@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..7908691
+index 0000000..bc7274a
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,126 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -45,6 +45,13 @@ index 0000000..7908691
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
++
++// European revision 1 data on the revision 2 code (set by the host for such a
++// disc, whatever the enabled set): its sound bank number, presentation script
++// native and in-game texture budget. Identity without such a disc.
++int mscharged_tweak_rev1_sound_bank(int bank);
++unsigned int mscharged_tweak_rev1_presentation_function(unsigned int function);
++unsigned long mscharged_tweak_rev1_ingame_texture_budget(unsigned long size);
 +
 +// Mirror match: away kits made where the game has none: Mario's, Luigi's,
 +// Wario's and Waluigi's whole kit, Peach's menu pictures and Mega Strike hand.

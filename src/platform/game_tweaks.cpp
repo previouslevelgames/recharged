@@ -56,9 +56,13 @@ float sOriginalFrames = 1.0f;
 float sOriginalPhase;
 bool sOriginalFrame = true;
 unsigned long sOriginalFrameCount;
+// European revision 1 data on the revision 2 code (tweak patch 0019): set by
+// the host for such a disc, whatever the enabled tweaks.
+bool sRev1Data;
 } // namespace
 
-// Original SDK (the native VI): the TV format, VI_PAL being 1.
+// Original SDK (the native VI): the TV format, VI_PAL being 1. The European
+// game boots in VI_EURGB60 (5), which runs NTSC fields like VI_NTSC (0).
 extern "C" unsigned int VIGetTvFormat(void);
 // The original match (Game.cpp): set from match loading until the match ends.
 class cGame;
@@ -85,6 +89,35 @@ __attribute__((visibility("default"))) int charged_take_stadium(void)
     const int stadium = sStadium;
     sStadium = -1;
     return stadium;
+}
+
+// Host entry: the disc is a European revision 1 one (tweak patch 0019).
+__attribute__((visibility("default"))) void charged_configure_rev1_data(bool enabled)
+{
+    sRev1Data = enabled;
+}
+
+// Revision 2 inserted FE_GEN_Music at 0x1A of the sound bank table
+// (AudioBankID.h); revision 1 loads STREAM_GEN_Music, its 0x30, in that step.
+int mscharged_tweak_rev1_sound_bank(int bank)
+{
+    constexpr int kFeGenMusic = 0x1A;
+    constexpr int kRev1MusicStreams = 0x30;
+    if (!sRev1Data) return bank;
+    if (bank == kFeGenMusic) return kRev1MusicStreams;
+    return bank > kFeGenMusic ? bank - 1 : bank;
+}
+
+// Revision 2 inserted presentation native 63 (Presentation_interp.cpp).
+unsigned int mscharged_tweak_rev1_presentation_function(unsigned int function)
+{
+    return sRev1Data && function >= 63 ? function + 1 : function;
+}
+
+// Revision 1's in-game texture budget (AsyncLoading.cpp).
+unsigned long mscharged_tweak_rev1_ingame_texture_budget(unsigned long size)
+{
+    return sRev1Data ? 0x966666 : size;
 }
 
 bool mscharged_tweak_enabled(int tweak)

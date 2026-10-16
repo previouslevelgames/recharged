@@ -14,7 +14,11 @@ the reconstructed source, unchanged.
   gamepads and Wii Remotes.
 - **Saves** like on the Wii: progress, unlocks, trophies and options are
   stored in the port's own data folder.
-- **Languages** of the USA release: English, French and Spanish.
+- **The USA and European releases.** The European version, *Mario Strikers
+  Charged Football*, runs in its 60 Hz mode and keeps its own saves; its first
+  revision plays with the code of the second.
+- **Languages** of the disc: English, French and Spanish with the USA release;
+  English, German, French, Spanish and Italian with the European one.
 - **Movies, music and sound** as on the console.
 
 ## Controls
@@ -137,10 +141,8 @@ asking before it installs anything ([updates](SETTINGS.md#updates)).
 
 ## Not supported (yet)
 
-- **Other versions of the game.** For now only the USA release (R4QE01,
-  revision 1) runs. The European version (revisions 1 and 2) follows with
-  version 1.0.10; for the Japanese and Korean versions the decompilation is
-  still being completed.
+- **The Japanese and Korean versions.** Their decompilation is still being
+  completed.
 - **Online play.** Nintendo Wi-Fi Connection has shut down, so for now the
   port behaves like a Wii without internet. The netcode is being reworked to
   make online play functional again, and options for matchmaking and lobbies

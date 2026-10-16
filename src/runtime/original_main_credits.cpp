@@ -347,11 +347,15 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
               "The prior Boot stage retains original effects/NPC owners; resize teardown is not qualified");
         const char* moduleFilename=MSCHARGED_ORIGINAL_MAIN_CREDITS_MODULE_FILENAME;
         if(frontend) {
-#ifdef MSCHARGED_ORIGINAL_FRONTEND_MODULE_FILENAME
-            moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_FILENAME;
+#if defined(MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME) && defined(MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME)
+            // One game module per game version; both European revisions run the EU one.
+            moduleFilename=release->code==mscharged::GameCode::Europe
+                ? MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME : MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME;
 #else
             throw std::runtime_error("Original frontend sequence is not in this build");
 #endif
+        } else {
+            Check(release->code==mscharged::GameCode::Usa,"The Credits diagnostic runs the USA version only");
         }
         const auto modulePath=executableDirectory/moduleFilename;
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
@@ -498,8 +502,10 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::platform::CreateVirginRTCImage());
         __OSInitSram();
         Check(__OSSyncSram(), "Original SRAM initialization did not complete its real EXI read");
-        // Explicit USA native preference; independent SC and VI settings.
-        const mscharged::NativeSystemSettings settings{systemLanguage,0,0,std::uint8_t(widescreen),1};
+        // A European release boots like a PAL Wii set to 60 Hz (EuRGB60): the
+        // original game then takes the USA picture, movie and pacing path.
+        const bool eurgb60=release->code==mscharged::GameCode::Europe;
+        const mscharged::NativeSystemSettings settings{systemLanguage,0,std::uint8_t(eurgb60),std::uint8_t(widescreen),1};
         mscharged::ConfigureNativeSystemSettings(settings);
         // No virtual Wii address record has been supplied. Original SC queries
         // retain their unavailable-record result, without inferring a country.
@@ -507,7 +513,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // No native IPL.IDL record is supplied. The original shutdown source
         // owns its zero/default destination and interprets actual absence.
         mscharged::ConfigureNativeSystemIdleMode(nullptr,0);
-        mscharged::platform::ConfigureNativeVideoHardware(VI_TVMODE_NTSC_INT,false);
+        mscharged::platform::ConfigureNativeVideoHardware(eurgb60?VI_TVMODE_EURGB60_INT:VI_TVMODE_NTSC_INT,false);
         if(nativeSend) {
             // display.picture: host desktop presentation of the original XFB.
             mscharged::platform::ConfigureNativeVideoOutputHardware(settings,
@@ -563,6 +569,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
         mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
             nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys)};
+        desktop.kpad_sensor_height=release->code==mscharged::GameCode::Usa;
         // Each gamepad's profile (controls.gamepadN_profile).
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
             const auto& profile = launch.settings.PadProfileOf(pad);
@@ -595,6 +602,14 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(frontend)
             axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath);
         auto* module=mscharged::platform::LoadNativeModule(modulePath);
+        if(frontend) {
+            // The module's sources must have been built for the disc's game version.
+            auto* moduleVersion=reinterpret_cast<const char*(*)()>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_game_version"));
+            const char* expectedVersion=mscharged::GameModuleVersion(release->code);
+            Check(moduleVersion && std::strcmp(moduleVersion(),expectedVersion)==0,
+                  "The game module does not match the disc's game version");
+        }
         // MSCHARGED_DEBUG_LAYERS_OFF (frontend module only): diagnostic layer switches.
         if(auto* layers=reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(
                module,"charged_apply_debug_layer_toggles"))) {
@@ -613,6 +628,15 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 : "none (this build's game module has no tweaks)");
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // European revision 1 disc: its data runs on the revision 2 code
+        // through the tweak series' adapters, whatever the tweak set.
+        if(release->rev1_data) {
+            auto* configureRev1=reinterpret_cast<void(*)(bool)>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_rev1_data"));
+            Check(configureRev1!=nullptr,"This build's game module cannot run European revision 1 data");
+            configureRev1(true);
+            mscharged::platform::SessionLogLine("Release data: revision 1 on the revision 2 game code");
         }
         {
             auto* configurePerformanceMode=reinterpret_cast<void(*)(bool)>(
@@ -657,8 +681,6 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // this export still embed their images.
         if(auto* discMessages=reinterpret_cast<mscharged::DiscMessageImageStorage>(
                mscharged::platform::FindNativeModuleSymbol(module,"charged_disc_message_image"))) {
-            const auto* release=mscharged::FindRelease(discProfile);
-            Check(release!=nullptr,"This disc release has no known disc-message images");
             mscharged::InstallDiscMessageImages(mscharged::ReadDiscMessageImages(launch.disc_path,*release),discMessages);
             mscharged::platform::SessionLogLine("Disc messages: "+std::to_string(mscharged::kDiscMessageImageCount)
                 +" images from the disc's main.dol");

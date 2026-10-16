@@ -38,8 +38,12 @@ function(mscharged_select_original_frontend_credits target)
     endforeach()
     # Replace the inherited standalone-test compilation of the same scene.
     set_property(TARGET "${target}" PROPERTY SOURCES "${_credits_kept}")
-    set(_credits_objects mscharged_original_frontend_credits)
+    set(_credits_objects "${target}_credits")
     add_library("${_credits_objects}" OBJECT "${_credits_source}")
+    get_target_property(_version "${target}" MSCHARGED_GAME_VERSION)
+    if(_version)
+        set_target_properties("${_credits_objects}" PROPERTIES MSCHARGED_GAME_VERSION ${_version})
+    endif()
     add_dependencies("${_credits_objects}" verify_prepared)
     set_target_properties("${_credits_objects}" PROPERTIES POSITION_INDEPENDENT_CODE ON
         CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)

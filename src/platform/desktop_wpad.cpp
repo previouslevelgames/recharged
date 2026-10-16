@@ -429,7 +429,7 @@ mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& p
         pad.pointer_y = std::clamp(pad.pointer_y + StickAxis(pad.input, StickY(pad, false)) * speed * seconds, 0.0f, 1.0f);
     }
     return mscharged::platform::MakeDesktopDpdObservation(pad.pointer_x, pad.pointer_y, WPADGetSensorBarPosition(),
-                                                          focused && state.ready);
+                                                          focused && state.ready, state.settings.kpad_sensor_height);
 }
 } // namespace
 
@@ -577,7 +577,8 @@ void ServiceDesktopWpad() {
             mouse_y >= projection.top && mouse_y <= projection.top + projection.height;
         const float x = visible ? (mouse_x - projection.left) / projection.width : 0;
         const float y = visible ? (mouse_y - projection.top) / projection.height : 0;
-        observation = MakeDesktopDpdObservation(x, y, WPADGetSensorBarPosition(), visible);
+        observation = MakeDesktopDpdObservation(x, y, WPADGetSensorBarPosition(), visible,
+                                                state.settings.kpad_sensor_height);
         if (state.settings.share_mouse_with_remotes) SetNativeWpadSharedPointer(&observation);
     }
     const auto now = Clock::now();

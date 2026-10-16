@@ -265,46 +265,51 @@ mscharged_set_original_module_exports(mscharged_original_main_credits_module
 # Actual source InitPads/FEInput at their original Initialize positions. Keep
 # source branches and whole TUs; ordinary O2 inlining matches the earlier bounded
 # source qualification and does not retain an unused unfinished base-vptr store.
-add_library(mscharged_original_main_credits_focus OBJECT
-    "${MSCHARGED_PREPARED}/src/Game/PadActions.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/globalpad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/cGlobalPad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/PadBackend.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/FE/feInput.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/GameCubePad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/WiiRemotePad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/WiiFreestylePad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/cPlatPad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/PlatPadManager.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/WiiPad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/WiiClassicPad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/SwappablePad.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/DPDData.cpp"
-    "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
-    "${MSCHARGED_PREPARED}/src/Game/PadMonkey.cpp"
-    "${MSCHARGED_PREPARED}/src/NL/plat/WiiPadMonkey.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/TweakConfig.cpp"
-    "${MSCHARGED_PREPARED}/src/Game/FE/feHelpFuncs.cpp"
- )
-add_dependencies(mscharged_original_main_credits_focus verify_prepared)
-set_target_properties(mscharged_original_main_credits_focus PROPERTIES
-    POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
-target_compile_features(mscharged_original_main_credits_focus PRIVATE cxx_std_20)
-target_link_libraries(mscharged_original_main_credits_focus PRIVATE charged_original_function_pool_abi)
-target_include_directories(mscharged_original_main_credits_focus BEFORE PRIVATE "${MSCHARGED_AURORA_PREPARED}/include")
-target_compile_definitions(mscharged_original_main_credits_focus PRIVATE
-    MSCHARGED_GAME_MODULE=1 AURORA_WII_CLOCK=1 dSINGLE=1 __alloca=__builtin_alloca)
-target_compile_options(mscharged_original_main_credits_focus PRIVATE
-    -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -ffp-contract=off
-    -fsigned-char -Wno-unknown-pragmas
-    "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(mscharged_original_main_credits_focus PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;${MSCHARGED_GCC_NO_SANE_NEW_DELETE};-fno-devirtualize-speculatively>")
-else()
-    target_compile_options(mscharged_original_main_credits_focus PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")
-endif()
+# One per game version: the European game module compiles them for its version.
+function(mscharged_add_original_main_credits_focus name version)
+    add_library(${name} OBJECT
+        "${MSCHARGED_PREPARED}/src/Game/PadActions.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/globalpad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/cGlobalPad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/PadBackend.cpp"
+        "${MSCHARGED_PREPARED}/src/Game/FE/feInput.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/GameCubePad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/WiiRemotePad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/WiiFreestylePad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/cPlatPad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/PlatPadManager.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/WiiPad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/WiiClassicPad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/SwappablePad.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/DPDData.cpp"
+        "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
+        "${MSCHARGED_PREPARED}/src/Game/PadMonkey.cpp"
+        "${MSCHARGED_PREPARED}/src/NL/plat/WiiPadMonkey.cpp"
+        "${MSCHARGED_PREPARED}/src/Game/TweakConfig.cpp"
+        "${MSCHARGED_PREPARED}/src/Game/FE/feHelpFuncs.cpp"
+     )
+    add_dependencies(${name} verify_prepared)
+    set_target_properties(${name} PROPERTIES
+        POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    target_compile_features(${name} PRIVATE cxx_std_20)
+    target_link_libraries(${name} PRIVATE charged_original_function_pool_abi)
+    target_include_directories(${name} BEFORE PRIVATE "${MSCHARGED_AURORA_PREPARED}/include")
+    target_compile_definitions(${name} PRIVATE
+        MSCHARGED_GAME_MODULE=1 AURORA_WII_CLOCK=1 dSINGLE=1 __alloca=__builtin_alloca)
+    target_compile_options(${name} PRIVATE
+        -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -ffp-contract=off
+        -fsigned-char -Wno-unknown-pragmas
+        "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(${name} PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;${MSCHARGED_GCC_NO_SANE_NEW_DELETE};-fno-devirtualize-speculatively>")
+    else()
+        target_compile_options(${name} PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")
+    endif()
+    set_target_properties(${name} PROPERTIES MSCHARGED_GAME_VERSION ${version})
+endfunction()
+mscharged_add_original_main_credits_focus(mscharged_original_main_credits_focus R4QE01)
 target_link_libraries(mscharged_original_main_credits_module PRIVATE mscharged_original_main_credits_focus)
 
 # Target-local whole SDK VI owns the true native clock/IRQ implementation. The
@@ -432,7 +437,7 @@ function(mscharged_import_original_windows_host module)
     # CMake writes the executable's import library (libmscharged.dll.a); a
     # linker option rather than a file input, as that link produces it.
     # Below 2 GB like the executable (see mscharged_link_original_main_credits).
-    if(module STREQUAL "mscharged_original_frontend_module")
+    if(module MATCHES "^mscharged_original_frontend_module_")
         set(_base 0x20000000)
     else()
         set(_base 0x30000000)

@@ -21,7 +21,10 @@ NativeDpdObservation DecodeWiimoteBasicIr(const std::uint8_t* ir);
 
 // The camera midpoint of a unit-distance sensor-bar pair that original KPAD
 // reads as the pointer at (x, y), 0..1 across the game picture, for the Wii
-// sensor-bar position (0 below, 1 above the screen).
-std::array<double, 2> KpadPointerCentre(double x, double y, std::uint8_t sensor_bar_position);
+// sensor-bar position (0 below, 1 above the screen). `sensor_height`: the
+// game's KPADInit calibrates the pointer for that position (KPADCalibrateDPD,
+// the USA build); the European build's older KPAD leaves its centre at the bar.
+std::array<double, 2> KpadPointerCentre(double x, double y, std::uint8_t sensor_bar_position,
+                                        bool sensor_height = true);
 
 } // namespace mscharged::platform

@@ -38,6 +38,15 @@ bool Project(void*, SDL_Window* actual, DesktopDpdProjection* output) {
     *output = projection;
     return projected;
 }
+// The USA build's KPADInit calibrates the pointer for the sensor bar; the
+// European build's (desktop_input_lifecycle_eu) keeps the centre at the bar.
+DesktopWpadSettings Settings() {
+    DesktopWpadSettings settings{true, false, true, Project, nullptr};
+#if defined(VERSION_R4QP01_REV2)
+    settings.kpad_sensor_height = false;
+#endif
+    return settings;
+}
 void Push(SDL_Event& event) { Check(SDL_PushEvent(&event), "Actual SDL event queue rejected input"); }
 void WindowEvent(Uint32 type) {
     SDL_Event event{};
@@ -243,7 +252,7 @@ void DetachAndReattach() {
     Expect(6, 5, true, "Enter before detach failed");
     ShutdownDesktopWpad();
     // The next owner service sees the old device leave and its replacement arrive.
-    InitializeDesktopWpad(window, {true, false, true, Project, nullptr});
+    InitializeDesktopWpad(window, Settings());
     WindowEvent(SDL_EVENT_WINDOW_FOCUS_GAINED);
     ServiceFor(std::chrono::milliseconds(200));
     WPADDeviceType type{};
@@ -354,7 +363,7 @@ int main() {
         window = SDL_CreateWindow("Desktop input lifecycle qualifier", 640, 480, SDL_WINDOW_HIDDEN);
         Check(window, "Cannot create the actual SDL window");
         ConfigureWpadSDL({0, 3});
-        InitializeDesktopWpad(window, {true, false, true, Project, nullptr});
+        InitializeDesktopWpad(window, Settings());
         KPADInit();
         // Literal original PlatPadManager channel parameters.
         KPADSetPosParam(0, .02f, .95f);

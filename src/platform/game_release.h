@@ -48,6 +48,10 @@ struct GameRelease
     std::size_t language_count;    // the first one is the fallback (English)
 };
 
+// The decomp game version a game module is built from: "R4QE01" for the USA
+// code, "R4QP01_REV2" for the European code.
+const char* GameModuleVersion(GameCode code);
+
 // Every release this port knows, playable or not.
 std::size_t ReleaseCount();
 const GameRelease& ReleaseAt(std::size_t index);

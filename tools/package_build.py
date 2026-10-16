@@ -29,7 +29,9 @@ from pipeline_catalog import CatalogError, catalog_rows, verify_database
 
 WINDOWS_GRAPHICS_PIN = Path(__file__).with_name("windows_graphics.json")
 
-MODULES = ("mscharged_original_frontend_module", "mscharged_original_main_credits_module")
+# One game module per game version (USA, European), then the Credits diagnostic.
+MODULES = ("mscharged_original_frontend_module_us", "mscharged_original_frontend_module_eu",
+           "mscharged_original_main_credits_module")
 ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
 # LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover
 # them (LLVM: libc++/libunwind; mingw-w64: winpthreads and CRT startup code).
@@ -447,9 +449,9 @@ run the game directly from a terminal:
 
     {run_command} --disc /path/to/R4QE01.rvz --window
 
-Keep both loadable modules{runtime_note} and assets beside the executable. Game data is not
-included; players supply their own disc image (Mario Strikers Charged, USA,
-R4QE01 revision 1, as ISO or RVZ). docs/INSTALL.md covers the first start,
+Keep the loadable modules{runtime_note} and assets beside the executable. Game data is not
+included; players supply their own disc image (Mario Strikers Charged, USA
+R4QE01 revision 1 or Europe R4QP01 revision 1 or 2, as ISO or RVZ). docs/INSTALL.md covers the first start,
 docs/SETTINGS.md the settings and docs/TROUBLESHOOTING.md common problems.
 
 Host prerequisites remain system components: on Linux, the C/C++ runtimes,

@@ -154,7 +154,8 @@ jobs:
       - name: Build original runtime
         run: >-
           cmake --build --preset release --target
-          mscharged mscharged_original_frontend_module mscharged_original_main_credits_module
+          mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
+          mscharged_original_main_credits_module
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
@@ -171,7 +172,7 @@ jobs:
         run: |
           if [ -n "$MACOS_ARCH" ]; then
             for binary in build/release/mscharged \
-                build/release/mscharged_original_{frontend,main_credits}_module.{so,dylib,bundle}; do
+                build/release/mscharged_original_{frontend_module_us,frontend_module_eu,main_credits_module}.{so,dylib,bundle}; do
               [ -e "$binary" ] || continue
               lipo -archs "$binary"
               test "$(lipo -archs "$binary")" = "$MACOS_ARCH"
@@ -284,7 +285,8 @@ jobs:
       - name: Build original runtime
         run: >-
           cmake --build build/windows --target
-          mscharged mscharged_original_frontend_module mscharged_original_main_credits_module
+          mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
+          mscharged_original_main_credits_module
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
@@ -436,7 +438,7 @@ jobs:
 
           ---
 
-          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`mscharged\`. You need your own Mario Strikers Charged disc image (USA, R4QE01 revision 1, ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
+          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`mscharged\`. You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
           EOF
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "Mario Strikers Charged Native Port $VERSION" --notes-file notes.md \

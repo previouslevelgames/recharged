@@ -1,5 +1,7 @@
 #include "platform/wiimote_ir.h"
 
+#include <cmath>
+
 namespace mscharged::platform {
 const std::uint8_t kWiimoteIrBlock1[5][9] = {
     {0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0x64, 0x00, 0xfe},
@@ -31,12 +33,14 @@ NativeDpdObservation DecodeWiimoteBasicIr(const std::uint8_t* ir) {
     return dots;
 }
 
-std::array<double, 2> KpadPointerCentre(double x, double y, std::uint8_t sensor_bar_position) {
+std::array<double, 2> KpadPointerCentre(double x, double y, std::uint8_t sensor_bar_position,
+                                        bool sensor_height) {
     // KPAD get_kobj: raw*2/1024 - (resolution-1)/1024. KPADCalibrateDPD
     // requests height +/-0.2; KPADSetSensorHeight stores the negative height.
-    // calc_dpd2pos_scale gives sqrt(1^2 + .75^2)/(.75 - .2).
-    constexpr double camera_scale = 1.25 / 0.55;
-    const double centre_y = sensor_bar_position == 1 ? -0.2 : 0.2;
+    // Without it the centre stays 0. calc_dpd2pos_scale gives
+    // sqrt(1^2 + .75^2)/min(1, .75 - |centre|): 1.25/.55, or 1.25/.75.
+    const double centre_y = !sensor_height ? 0.0 : sensor_bar_position == 1 ? -0.2 : 0.2;
+    const double camera_scale = 1.25 / (0.75 - std::fabs(centre_y));
     return {(1023.0 - 1024.0 * (2.0 * x - 1.0) / camera_scale) * 0.5,
             (767.0 + 1024.0 * (centre_y - (2.0 * y - 1.0) / camera_scale)) * 0.5};
 }

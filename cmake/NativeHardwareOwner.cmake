@@ -97,39 +97,54 @@ if(BUILD_TESTING)
     target_link_libraries(desktop_dpd_projection_tests PRIVATE charged_native_hardware_owner)
     add_test(NAME desktop_dpd_projection COMMAND desktop_dpd_projection_tests)
 
-    # Whole original KPAD + DPDData arithmetic, not a host pointer manager.
-    add_executable(desktop_dpd_tests tests/desktop_dpd_tests.cpp
-        "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
-        "${MSCHARGED_PREPARED}/src/NL/plat/DPDData.cpp"
-        "${MSCHARGED_PREPARED}/src/NL/nlMath.cpp"
-        src/platform/os.cpp)
-    add_dependencies(desktop_dpd_tests verify_prepared)
-    target_compile_features(desktop_dpd_tests PRIVATE cxx_std_20 c_std_99)
-    target_compile_definitions(desktop_dpd_tests PRIVATE
-        MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
-    target_include_directories(desktop_dpd_tests PRIVATE
-        "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-    target_compile_options(desktop_dpd_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
-    target_link_libraries(desktop_dpd_tests PRIVATE charged_native_hardware_owner aurora::mtx)
-    add_test(NAME desktop_dpd COMMAND desktop_dpd_tests)
-    set_tests_properties(desktop_dpd PROPERTIES TIMEOUT 15
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
+    # Whole original KPAD + DPDData arithmetic, not a host pointer manager:
+    # the USA build's KPAD and the European build's (desktop_dpd_eu), which
+    # does not calibrate the pointer for the sensor bar.
+    foreach(_variant IN ITEMS desktop_dpd:R4QE01 desktop_dpd_eu:R4QP01_REV2)
+        string(REPLACE ":" ";" _variant "${_variant}")
+        list(GET _variant 0 _name)
+        list(GET _variant 1 _version)
+        add_executable(${_name}_tests tests/desktop_dpd_tests.cpp
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
+            "${MSCHARGED_PREPARED}/src/NL/plat/DPDData.cpp"
+            "${MSCHARGED_PREPARED}/src/NL/nlMath.cpp"
+            src/platform/os.cpp)
+        add_dependencies(${_name}_tests verify_prepared)
+        set_target_properties(${_name}_tests PROPERTIES MSCHARGED_GAME_VERSION ${_version})
+        target_compile_features(${_name}_tests PRIVATE cxx_std_20 c_std_99)
+        target_compile_definitions(${_name}_tests PRIVATE
+            MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+        target_include_directories(${_name}_tests PRIVATE
+            "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+        target_compile_options(${_name}_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
+        target_link_libraries(${_name}_tests PRIVATE charged_native_hardware_owner aurora::mtx)
+        add_test(NAME ${_name} COMMAND ${_name}_tests)
+        set_tests_properties(${_name} PROPERTIES TIMEOUT 15
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
+    endforeach()
 
     # Focus, leave/enter, repeat, shared-mapping and reattach lifecycle through
-    # the same whole original KPAD consumer, one latest sample per update.
-    add_executable(desktop_input_lifecycle_tests tests/desktop_input_lifecycle_tests.cpp
-        "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
-        "${MSCHARGED_PREPARED}/src/NL/nlMath.cpp"
-        src/platform/os.cpp)
-    add_dependencies(desktop_input_lifecycle_tests verify_prepared)
-    target_compile_features(desktop_input_lifecycle_tests PRIVATE cxx_std_20 c_std_99)
-    target_compile_definitions(desktop_input_lifecycle_tests PRIVATE
-        MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
-    target_include_directories(desktop_input_lifecycle_tests PRIVATE
-        "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-    target_compile_options(desktop_input_lifecycle_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
-    target_link_libraries(desktop_input_lifecycle_tests PRIVATE charged_native_hardware_owner aurora::mtx)
-    add_test(NAME desktop_input_lifecycle COMMAND desktop_input_lifecycle_tests)
-    set_tests_properties(desktop_input_lifecycle PROPERTIES TIMEOUT 30
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
+    # the same whole original KPAD consumer, one latest sample per update: the
+    # USA build's KPAD and the European build's (desktop_input_lifecycle_eu).
+    foreach(_variant IN ITEMS desktop_input_lifecycle:R4QE01 desktop_input_lifecycle_eu:R4QP01_REV2)
+        string(REPLACE ":" ";" _variant "${_variant}")
+        list(GET _variant 0 _name)
+        list(GET _variant 1 _version)
+        add_executable(${_name}_tests tests/desktop_input_lifecycle_tests.cpp
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/kpad/KPAD.c"
+            "${MSCHARGED_PREPARED}/src/NL/nlMath.cpp"
+            src/platform/os.cpp)
+        add_dependencies(${_name}_tests verify_prepared)
+        set_target_properties(${_name}_tests PROPERTIES MSCHARGED_GAME_VERSION ${_version})
+        target_compile_features(${_name}_tests PRIVATE cxx_std_20 c_std_99)
+        target_compile_definitions(${_name}_tests PRIVATE
+            MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+        target_include_directories(${_name}_tests PRIVATE
+            "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+        target_compile_options(${_name}_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
+        target_link_libraries(${_name}_tests PRIVATE charged_native_hardware_owner aurora::mtx)
+        add_test(NAME ${_name} COMMAND ${_name}_tests)
+        set_tests_properties(${_name} PROPERTIES TIMEOUT 30
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
+    endforeach()
 endif()

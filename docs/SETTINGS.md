@@ -123,10 +123,13 @@ and how each Remote answers.
 The game keeps its Wii saves (`Strikers2` and `banner.bin`) in
 `original-main-credits-data/nand` in the program folder, or in the folder set
 under **Game → Save data** (`[game] save_folder`). A new folder starts without
-saves; the old folder keeps its saves.
+saves; the old folder keeps its saves. Each version has its own saves, as on
+the Wii: the USA version uses the folder itself, the European version its
+`R4QP` subfolder (shared by both European revisions).
 
 **Import from Dolphin** copies the save Dolphin keeps for the game
-(`<Dolphin user folder>/Wii/title/00010000/52345145/data`) byte for byte. The
+(`<Dolphin user folder>/Wii/title/00010000/52345145/data` for the USA version,
+`.../52345150/data` for the European one) byte for byte. The
 launcher finds Dolphin's usual folders by itself; otherwise choose Dolphin's
 user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not

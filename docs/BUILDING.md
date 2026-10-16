@@ -3,8 +3,8 @@
 You only need this to build the port yourself; to play, the
 [ready-made packages](INSTALL.md) are simpler. The build compiles the game from
 the pinned decompilation, so it takes a while the first time. You still need
-your own USA `R4QE01` revision 1 disc image to play: no game files are
-included. How the build turns the decomp into a program is explained in the
+your own disc image to play (USA `R4QE01` revision 1, or Europe `R4QP01`
+revision 1 or 2): no game files are included. How the build turns the decomp into a program is explained in the
 [architecture](ARCHITECTURE.md) document.
 
 ## Requirements
@@ -109,7 +109,8 @@ cmake --preset release -B build/windows \
     -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/llvm-mingw-x86_64.cmake \
     -DLLVM_MINGW_ROOT=/path/to/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64 \
     -DBUILD_TESTING=OFF
-cmake --build build/windows --target mscharged mscharged_original_frontend_module mscharged_original_main_credits_module
+cmake --build build/windows --target mscharged mscharged_original_frontend_module_us \
+    mscharged_original_frontend_module_eu mscharged_original_main_credits_module
 ```
 
 `setup_windows_graphics.py` downloads the checksum-pinned Microsoft DirectX

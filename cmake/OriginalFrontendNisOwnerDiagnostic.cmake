@@ -9,7 +9,7 @@ function(mscharged_select_original_frontend_nis_owner target)
     if(NOT MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER)
         return()
     endif()
-    if(NOT "${target}" STREQUAL "mscharged_original_frontend_module")
+    if(NOT "${target}" MATCHES "^mscharged_original_frontend_module_")
         message(FATAL_ERROR "NIS owner admission is scoped to the selected frontend module")
     endif()
     if(NOT MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE OR

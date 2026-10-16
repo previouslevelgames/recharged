@@ -5,10 +5,10 @@ to build anything. On a Steam Deck, follow the [Steam Deck guide](STEAM_DECK.md)
 instead.
 
 > **The packages contain no game files.** You need your own copy of
-> **Mario Strikers Charged for the USA, game ID `R4QE01`, revision 1**, as an
-> `.iso` or `.rvz` disc image.
-> The European version follows with version 1.0.10; other regions do not work
-> yet, and renaming a file does not change that.
+> **Mario Strikers Charged** as an `.iso` or `.rvz` disc image: the USA
+> version (game ID `R4QE01`, revision 1) or the European version (game ID
+> `R4QP01`, revision 1 or 2). Other regions do not work yet, and renaming a
+> file does not change that.
 
 ## 1. Download
 

@@ -7,7 +7,7 @@
 namespace mscharged::platform {
 NativeDpdObservation MakeDesktopDpdObservation(float x, float y,
                                                std::uint8_t sensor_bar_position,
-                                               bool visible) {
+                                               bool visible, bool sensor_height) {
     NativeDpdObservation result{};
     for (std::size_t n = 0; n < result.size(); ++n)
         result[n].trace_id = static_cast<std::uint8_t>(n);
@@ -17,7 +17,7 @@ NativeDpdObservation MakeDesktopDpdObservation(float x, float y,
     if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 || y < 0 || y > 1)
         throw std::invalid_argument("Desktop camera observation outside its presented content");
 
-    const auto centre = KpadPointerCentre(x, y, sensor_bar_position);
+    const auto centre = KpadPointerCentre(x, y, sensor_bar_position, sensor_height);
     const double raw_x = centre[0], raw_y = centre[1];
     // Source kp_obj_interval=.2, dist_vv1=.2/.383864, idist_org=1.
     // The pair is a declared upright virtual unit-distance sensor bar.
