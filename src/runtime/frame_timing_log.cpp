@@ -87,7 +87,7 @@ const char* ArenaName(int stadium)
 }
 
 std::unique_ptr<FrameTimingLog> FrameTimingLog::FromSettings(bool enabled,
-    const std::filesystem::path& executable_directory)
+    const std::filesystem::path& directory)
 {
     if (!enabled) return nullptr;
     const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -104,14 +104,15 @@ std::unique_ptr<FrameTimingLog> FrameTimingLog::FromSettings(bool enabled,
     const auto stem = std::string("frame-times_") + timestamp + "_" + std::to_string(process);
     std::filesystem::path path;
     std::error_code error;
-    for (unsigned suffix = 0;; ++suffix) {
-        path = executable_directory / (stem + (suffix ? "_" + std::to_string(suffix) : "") + ".csv");
+    std::filesystem::create_directories(directory, error);
+    for (unsigned suffix = 0; !error; ++suffix) {
+        path = directory / (stem + (suffix ? "_" + std::to_string(suffix) : "") + ".csv");
         if (!std::filesystem::exists(path, error) || error) break;
     }
     std::FILE* file = error ? nullptr : OpenLog(path);
     if (!file) {
-        std::fprintf(stderr, "Frame timing log: cannot write %s. Check that the executable folder is writable.\n",
-                     PathUtf8(path).c_str());
+        std::fprintf(stderr, "Frame timing log: cannot write %s. Check that the logs folder is writable.\n",
+                     PathUtf8(path.empty() ? directory : path).c_str());
         return nullptr;
     }
     std::setvbuf(file, nullptr, _IOFBF, 1 << 16);

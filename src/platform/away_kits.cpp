@@ -45,28 +45,34 @@ struct Band
 struct AwayKit
 {
     const char* captain;
-    std::uint32_t source;      // the kit texture (diffuse of the captain's model)
+    std::uint32_t source;      // the kit texture (diffuse of the captain's model), 0 if the game has the kit
     std::uint32_t colour;      // the away colour, 0xRRGGBB
     Band strong;               // clearly the kit's colour
     Band weak;                 // its shading and highlights, when connected to strong texels
-    bool whiteTrim;            // white details enclosed by kit take the home colour
     const char* references[2]; // teams compared with on team textures
+    bool photos;               // the game's photos of him recolour cleanly (their backgrounds lack his colour)
 };
 
 namespace
 {
-// The away colours follow each character's best-known palette swap: Fire
-// Mario's white kit with red trim, and contrasting kits for the others that
-// none of the game's teams wears.
+// Contrasting kits none of the game's teams wears at home, after each
+// character's best-known colours where he has some: Mario's blue, after his
+// overalls and the away side's blue in the menus.
+// Luigi's, Wario's, Waluigi's and Peach's newspaper photos have grass, crowds
+// or stands in their colours behind them.
 const AwayKit kKits[] = {
-    {"mario", 0xBBFFCF5Eu, 0xF2F2F0u, {345.0f, 12.0f, 0.55f, 0.55f, 0.25f}, {335.0f, 20.0f, 0.22f, 0.45f, 0.18f}, true,
-        {"luigi", "waluigi"}},
-    {"luigi", 0x4442532Du, 0x3D9BE9u, {95.0f, 150.0f, 0.45f, 0.45f, 0.15f}, {80.0f, 165.0f, 0.15f, 0.15f, 0.05f}, false,
-        {"mario", "wario"}},
-    {"wario", 0x31A701C7u, 0x2E5CD8u, {40.0f, 58.0f, 0.55f, 0.55f, 0.30f}, {36.0f, 64.0f, 0.30f, 0.30f, 0.10f}, false,
-        {"luigi", "waluigi"}},
-    {"waluigi", 0xD04A32DFu, 0xF08A24u, {255.0f, 290.0f, 0.45f, 0.45f, 0.18f}, {228.0f, 315.0f, 0.15f, 0.15f, 0.05f}, false,
-        {"luigi", "wario"}},
+    {"mario", 0xBBFFCF5Eu, 0x2B5FE3u, {345.0f, 12.0f, 0.55f, 0.55f, 0.25f}, {335.0f, 10.0f, 0.22f, 0.45f, 0.18f},
+        {"luigi", "waluigi"}, true},
+    {"luigi", 0x4442532Du, 0x3D9BE9u, {95.0f, 150.0f, 0.45f, 0.45f, 0.15f}, {80.0f, 165.0f, 0.15f, 0.15f, 0.05f},
+        {"mario", "wario"}, false},
+    {"wario", 0x31A701C7u, 0x2E5CD8u, {40.0f, 58.0f, 0.55f, 0.55f, 0.30f}, {36.0f, 64.0f, 0.30f, 0.30f, 0.10f},
+        {"luigi", "waluigi"}, false},
+    {"waluigi", 0xD04A32DFu, 0xF08A24u, {255.0f, 290.0f, 0.45f, 0.45f, 0.18f}, {228.0f, 315.0f, 0.15f, 0.15f, 0.05f},
+        {"luigi", "wario"}, false},
+    // Peach's blue kit is on the disc (peach_alt.rlt), her menu pictures and
+    // Mega Strike hand in it are not: those are made in its colour.
+    {"peach", 0u, 0x5DB9FFu, {312.0f, 338.0f, 0.30f, 0.30f, 0.30f}, {300.0f, 341.0f, 0.10f, 0.18f, 0.10f},
+        {"luigi", "wario"}, false},
 };
 
 std::uint32_t BE32(const std::uint8_t* p)
@@ -78,6 +84,13 @@ void PutBE16(std::uint8_t* p, std::uint16_t v)
 {
     p[0] = std::uint8_t(v >> 8);
     p[1] = std::uint8_t(v);
+}
+void PutBE32(std::uint8_t* p, std::uint32_t v)
+{
+    p[0] = std::uint8_t(v >> 24);
+    p[1] = std::uint8_t(v >> 16);
+    p[2] = std::uint8_t(v >> 8);
+    p[3] = std::uint8_t(v);
 }
 
 struct RGB
@@ -164,13 +177,74 @@ bool InBand(const Band& band, float h, float s, float v)
     return hue && s >= (v >= 0.45f ? band.minSaturation : band.minDarkSaturation) && v >= band.minValue;
 }
 
-// ---------------------------------------------------------------- CMPR
+// ---------------------------------------------------------------- Textures
+// The formats the game's team-coloured textures use (the game's numbering).
+enum : std::uint32_t
+{
+    kRGB5A3 = 1,
+    kCMPR = 2,
+    kRGBA8 = 3,
+};
+
 struct Texel
 {
     RGB colour;
-    bool opaque;
+    float alpha; // 0..1
 };
 
+struct Level
+{
+    int width, height;
+    std::size_t offset; // of the level's tiles in the texture
+};
+
+// Texels across and down a tile, and its bytes.
+bool Tile(std::uint32_t format, int& width, int& height, int& bytes)
+{
+    switch (format)
+    {
+    case kRGB5A3:
+        width = height = 4;
+        bytes = 32;
+        return true;
+    case kCMPR:
+        width = height = 8;
+        bytes = 32;
+        return true;
+    case kRGBA8:
+        width = height = 4;
+        bytes = 64;
+        return true;
+    default:
+        return false;
+    }
+}
+
+// The format and levels of a texture (its 32-byte header included).
+bool Levels(std::span<const std::uint8_t> texture, std::uint32_t& format, HostVector<Level>& levels)
+{
+    if (texture.size() < 32) return false;
+    format = BE32(&texture[4]);
+    int tileWidth, tileHeight, tileBytes;
+    if (!Tile(format, tileWidth, tileHeight, tileBytes)) return false;
+    std::uint32_t count = BE32(&texture[0]);
+    int width = BE16(&texture[14]), height = BE16(&texture[16]);
+    if (count == 0 || count > 16 || width <= 0 || height <= 0) return false;
+    std::size_t offset = 32;
+    for (std::uint32_t l = 0; l < count; ++l)
+    {
+        std::size_t bytes = std::size_t((width + tileWidth - 1) / tileWidth)
+            * std::size_t((height + tileHeight - 1) / tileHeight) * std::size_t(tileBytes);
+        if (offset + bytes > texture.size()) return false;
+        levels.push_back({width, height, offset});
+        offset += bytes;
+        width = std::max(width / 2, 1);
+        height = std::max(height / 2, 1);
+    }
+    return true;
+}
+
+// CMPR: tiles of 8x8 texels, four 4x4 blocks each.
 void Expand565(std::uint16_t c, float out[3])
 {
     out[0] = float(((c >> 11) & 31) * 255 / 31);
@@ -218,7 +292,7 @@ void DecodeBlock(const std::uint8_t* block, Texel out[16])
         {
             int index = BlockIndex(block, x, y);
             out[y * 4 + x] = {{palette[index][0] / 255.0f, palette[index][1] / 255.0f, palette[index][2] / 255.0f},
-                !(transparent && index == 3)};
+                transparent && index == 3 ? 0.0f : 1.0f};
         }
 }
 
@@ -319,33 +393,7 @@ void EncodeBlock(const float colours[16][3], const bool opaque[16], std::uint8_t
     }
 }
 
-struct Level
-{
-    int width, height;
-    std::size_t offset; // of the level's tiles in the texture
-};
-
-// The CMPR levels of a texture (header included in `texture`).
-bool Levels(std::span<const std::uint8_t> texture, HostVector<Level>& levels)
-{
-    if (texture.size() < 32 || BE32(&texture[4]) != 2) return false;
-    std::uint32_t count = BE32(&texture[0]);
-    int width = BE16(&texture[14]), height = BE16(&texture[16]);
-    if (count == 0 || count > 16 || width <= 0 || height <= 0) return false;
-    std::size_t offset = 32;
-    for (std::uint32_t l = 0; l < count; ++l)
-    {
-        std::size_t bytes = std::size_t((width + 7) / 8) * std::size_t((height + 7) / 8) * 32;
-        if (offset + bytes > texture.size()) return false;
-        levels.push_back({width, height, offset});
-        offset += bytes;
-        width = std::max(width / 2, 1);
-        height = std::max(height / 2, 1);
-    }
-    return true;
-}
-
-// The block holding texel (x, y): tiles of 8x8 texels, four 4x4 blocks each.
+// The block holding texel (x, y).
 std::size_t BlockOffset(const Level& level, int x, int y)
 {
     int tilesPerRow = (level.width + 7) / 8;
@@ -354,29 +402,81 @@ std::size_t BlockOffset(const Level& level, int x, int y)
     return level.offset + std::size_t(tile) * 32 + std::size_t(sub) * 8;
 }
 
-void DecodeLevel(std::span<const std::uint8_t> texture, const Level& level, HostVector<Texel>& out)
+// RGB5A3 and RGBA8: tiles of 4x4 texels. The offset of a texel's tile and
+// its index in the tile.
+std::size_t TexelTile(const Level& level, int x, int y, int tileBytes, int& index)
+{
+    index = (y & 3) * 4 + (x & 3);
+    int tilesPerRow = (level.width + 3) / 4;
+    return level.offset + std::size_t((y / 4) * tilesPerRow + x / 4) * std::size_t(tileBytes);
+}
+
+// Bit replication, as the hardware expands a component.
+float Expand(unsigned value, int bits)
+{
+    unsigned max = (1u << bits) - 1;
+    return float(value) / float(max);
+}
+
+Texel DecodeRGB5A3(std::uint16_t v)
+{
+    if (v & 0x8000) return {{Expand((v >> 10) & 31, 5), Expand((v >> 5) & 31, 5), Expand(v & 31, 5)}, 1.0f};
+    return {{Expand((v >> 8) & 15, 4), Expand((v >> 4) & 15, 4), Expand(v & 15, 4)}, Expand((v >> 12) & 7, 3)};
+}
+
+// Keeps the texel's mode and alpha bits: only its colour changes.
+std::uint16_t EncodeRGB5A3(std::uint16_t original, RGB c)
+{
+    auto q = [](float value, int max) { return unsigned(std::clamp(int(std::lround(value * max)), 0, max)); };
+    if (original & 0x8000) return std::uint16_t(0x8000 | q(c.r, 31) << 10 | q(c.g, 31) << 5 | q(c.b, 31));
+    return std::uint16_t((original & 0x7000) | q(c.r, 15) << 8 | q(c.g, 15) << 4 | q(c.b, 15));
+}
+
+void DecodeLevel(std::span<const std::uint8_t> texture, std::uint32_t format, const Level& level,
+    HostVector<Texel>& out)
 {
     out.assign(std::size_t(level.width) * level.height, Texel{});
-    Texel block[16];
-    for (int by = 0; by < level.height; by += 4)
-        for (int bx = 0; bx < level.width; bx += 4)
+    if (format == kCMPR)
+    {
+        Texel block[16];
+        for (int by = 0; by < level.height; by += 4)
+            for (int bx = 0; bx < level.width; bx += 4)
+            {
+                DecodeBlock(&texture[BlockOffset(level, bx, by)], block);
+                for (int y = 0; y < 4; ++y)
+                    for (int x = 0; x < 4; ++x)
+                        if (bx + x < level.width && by + y < level.height)
+                            out[std::size_t(by + y) * level.width + bx + x] = block[y * 4 + x];
+            }
+        return;
+    }
+    for (int y = 0; y < level.height; ++y)
+        for (int x = 0; x < level.width; ++x)
         {
-            DecodeBlock(&texture[BlockOffset(level, bx, by)], block);
-            for (int y = 0; y < 4; ++y)
-                for (int x = 0; x < 4; ++x)
-                    if (bx + x < level.width && by + y < level.height)
-                        out[std::size_t(by + y) * level.width + bx + x] = block[y * 4 + x];
+            int index;
+            Texel& t = out[std::size_t(y) * level.width + x];
+            if (format == kRGB5A3)
+            {
+                std::size_t tile = TexelTile(level, x, y, 32, index);
+                t = DecodeRGB5A3(BE16(&texture[tile + std::size_t(index) * 2]));
+            }
+            else
+            {
+                std::size_t tile = TexelTile(level, x, y, 64, index);
+                const std::uint8_t* ar = &texture[tile + std::size_t(index) * 2];
+                const std::uint8_t* gb = &texture[tile + 32 + std::size_t(index) * 2];
+                t = {{ar[1] / 255.0f, gb[0] / 255.0f, gb[1] / 255.0f}, ar[0] / 255.0f};
+            }
         }
 }
 
 enum : std::uint8_t
 {
     kNone = 0,
-    kKit = 1,  // recoloured as the away kit
-    kTrim = 2, // white trim, takes the home colour
+    kKit = 1, // recoloured as the away kit
 };
 
-// Kit texels of the captain's kit texture: strong texels and the weak ones
+// Kit texels of a kit texture or picture: strong texels and the weak ones
 // connected to them.
 void KitMask(const AwayKit& kit, const Level& level, const HostVector<Texel>& texels, HostVector<std::uint8_t>& mask)
 {
@@ -386,7 +486,7 @@ void KitMask(const AwayKit& kit, const Level& level, const HostVector<Texel>& te
     HostVector<int> queue;
     for (std::size_t i = 0; i < count; ++i)
     {
-        if (!texels[i].opaque) continue;
+        if (texels[i].alpha <= 0.0f) continue;
         float h, s, v;
         ToHsv(texels[i].colour, h, s, v);
         if (InBand(kit.strong, h, s, v))
@@ -414,9 +514,39 @@ void KitMask(const AwayKit& kit, const Level& level, const HostVector<Texel>& te
     }
 }
 
-// Team texels of a sidekick or goalie texture: those that differ from both
-// references, as only the team colour does, and have the kit's hue (where the
-// other teams' emblems differ in shape, this texture is white or grey).
+// Pictures are paintings: single texels and thin lines of hair and skin
+// shading have the kit's hue as well, kits are areas. Keeps the kit texels next
+// to one whose 3x3 neighbourhood is all kit (a morphological opening).
+void OpenMask(const Level& level, HostVector<std::uint8_t>& mask)
+{
+    const int w = level.width, h = level.height;
+    HostVector<std::uint8_t> core(mask.size(), 0);
+    for (int y = 1; y + 1 < h; ++y)
+        for (int x = 1; x + 1 < w; ++x)
+        {
+            bool all = true;
+            for (int dy = -1; dy <= 1 && all; ++dy)
+                for (int dx = -1; dx <= 1 && all; ++dx) all = mask[std::size_t(y + dy) * w + x + dx] == kKit;
+            core[std::size_t(y) * w + x] = all;
+        }
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+        {
+            std::uint8_t& m = mask[std::size_t(y) * w + x];
+            bool near = false;
+            for (int dy = -1; dy <= 1 && m == kKit && !near; ++dy)
+                for (int dx = -1; dx <= 1 && !near; ++dx)
+                {
+                    int nx = x + dx, ny = y + dy;
+                    near = nx >= 0 && ny >= 0 && nx < w && ny < h && core[std::size_t(ny) * w + nx];
+                }
+            if (!near) m = kNone;
+        }
+}
+
+// Team texels of a team texture: those that differ from both references, as
+// only the team colour does, and have the kit's hue (where the other teams'
+// emblems differ in shape, this texture is white or grey).
 void TeamMask(const AwayKit& kit, const HostVector<Texel>& texels, const HostVector<Texel>& reference0,
     const HostVector<Texel>& reference1, HostVector<std::uint8_t>& mask)
 {
@@ -426,7 +556,7 @@ void TeamMask(const AwayKit& kit, const HostVector<Texel>& texels, const HostVec
     mask.assign(texels.size(), kNone);
     for (std::size_t i = 0; i < texels.size(); ++i)
     {
-        if (!texels[i].opaque) continue;
+        if (texels[i].alpha <= 0.0f) continue;
         float h, s, v;
         ToHsv(texels[i].colour, h, s, v);
         if (!InBand(hue, h, s, v)) continue;
@@ -439,66 +569,17 @@ void TeamMask(const AwayKit& kit, const HostVector<Texel>& texels, const HostVec
     }
 }
 
-bool White(const Texel& t)
-{
-    float h, s, v;
-    ToHsv(t.colour, h, s, v);
-    return t.opaque && s < 0.22f && v > 0.70f;
-}
-
-// White details enclosed by kit (numbers, outlines, logo circles): white
-// regions whose border is mostly kit.
-void TrimMask(const Level& level, const HostVector<Texel>& texels, HostVector<std::uint8_t>& mask)
-{
-    std::size_t count = texels.size();
-    HostVector<int> component(count, -1), members;
-    for (std::size_t start = 0; start < count; ++start)
-    {
-        if (component[start] >= 0 || mask[start] != kNone || !White(texels[start])) continue;
-        members.clear();
-        members.push_back(int(start));
-        component[start] = int(start);
-        int kitBorder = 0, otherBorder = 0;
-        for (std::size_t q = 0; q < members.size(); ++q)
-        {
-            int i = members[q], x = i % level.width, y = i / level.width;
-            const int nx[4] = {x - 1, x + 1, x, x}, ny[4] = {y, y, y - 1, y + 1};
-            for (int k = 0; k < 4; ++k)
-            {
-                if (nx[k] < 0 || ny[k] < 0 || nx[k] >= level.width || ny[k] >= level.height)
-                {
-                    ++otherBorder;
-                    continue;
-                }
-                int j = ny[k] * level.width + nx[k];
-                if (component[j] == int(start)) continue;
-                if (mask[j] == kKit)
-                    ++kitBorder;
-                else if (White(texels[j]) && mask[j] == kNone)
-                {
-                    component[j] = int(start);
-                    members.push_back(j);
-                }
-                else
-                    ++otherBorder;
-            }
-        }
-        if (kitBorder > 0 && kitBorder >= 4 * otherBorder)
-            for (int i : members) mask[i] = kTrim;
-    }
-}
-
 struct LchStats
 {
     float L, C, h; // medians; h in radians
 };
 
-LchStats Median(const HostVector<Texel>& texels, const HostVector<std::uint8_t>& mask, std::uint8_t which)
+LchStats Median(const HostVector<Texel>& texels, const HostVector<std::uint8_t>& mask)
 {
     HostVector<float> L, C, a, b;
     for (std::size_t i = 0; i < texels.size(); ++i)
     {
-        if (mask[i] != which) continue;
+        if (mask[i] != kKit) continue;
         Lab c = ToLab(texels[i].colour);
         L.push_back(c.L);
         C.push_back(std::sqrt(c.a * c.a + c.b * c.b));
@@ -536,60 +617,26 @@ LchStats Target(std::uint32_t rgb)
     return {c.L, std::sqrt(c.a * c.a + c.b * c.b), std::atan2(c.b, c.a)};
 }
 
-bool DecodeReference(std::span<const std::uint8_t> reference, const Level& level, std::size_t levelIndex,
-    HostVector<Texel>& out)
+bool DecodeReference(std::span<const std::uint8_t> reference, std::uint32_t format, const Level& level,
+    std::size_t levelIndex, HostVector<Texel>& out)
 {
     HostVector<Level> levels;
-    if (!Levels(reference, levels) || levels.size() <= levelIndex) return false;
+    std::uint32_t referenceFormat;
+    if (!Levels(reference, referenceFormat, levels) || referenceFormat != format || levels.size() <= levelIndex)
+        return false;
     const Level& other = levels[levelIndex];
     if (other.width != level.width || other.height != level.height) return false;
-    DecodeLevel(reference, other, out);
+    DecodeLevel(reference, format, other, out);
     return true;
 }
-} // namespace
 
-const AwayKit* FindGeneratedAwayKit(const char* captain)
+// Writes the recoloured texels of a level back in its format. CMPR blocks
+// with a kit texel are encoded anew; other blocks and texels keep their bytes.
+void WriteLevel(std::span<std::uint8_t> texture, std::uint32_t format, const Level& level,
+    const HostVector<std::uint8_t>& mask, const LchStats& from, const LchStats& to)
 {
-    if (!captain) return nullptr;
-    for (const AwayKit& kit : kKits)
-        if (std::strcmp(kit.captain, captain) == 0) return &kit;
-    return nullptr;
-}
-
-std::uint32_t AwayKitColour(const AwayKit& kit) { return kit.colour; }
-std::uint32_t AwayKitSourceTexture(const AwayKit& kit) { return kit.source; }
-const char* AwayKitReference(const AwayKit& kit, int index) { return kit.references[index & 1]; }
-
-bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
-    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1)
-{
-    HostVector<Level> levels;
-    if (!Levels(texture, levels)) return false;
-    HostVector<Texel> texels, ref0, ref1;
-    HostVector<std::uint8_t> mask;
-    const LchStats target = Target(kit.colour);
-    LchStats from{}, home{}, trimFrom{};
-    for (std::size_t l = 0; l < levels.size(); ++l)
+    if (format == kCMPR)
     {
-        const Level& level = levels[l];
-        DecodeLevel(texture, level, texels);
-        if (kind == AwayKitTexture::Kit)
-            KitMask(kit, level, texels, mask);
-        else
-        {
-            if (!DecodeReference(reference0, level, l, ref0) || !DecodeReference(reference1, level, l, ref1))
-                return false;
-            TeamMask(kit, texels, ref0, ref1, mask);
-        }
-        if (kit.whiteTrim) TrimMask(level, texels, mask);
-        // The reference colours come from the full-size level, so every mip
-        // level gets the same mapping.
-        if (l == 0)
-        {
-            from = Median(texels, mask, kKit);
-            home = from;
-            trimFrom = Median(texels, mask, kTrim);
-        }
         for (int by = 0; by < level.height; by += 4)
             for (int bx = 0; bx < level.width; bx += 4)
             {
@@ -604,20 +651,12 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
                     {
                         int i = y * 4 + x;
                         RGB c = decoded[i].colour;
-                        opaque[i] = decoded[i].opaque;
-                        if (bx + x < level.width && by + y < level.height)
+                        opaque[i] = decoded[i].alpha > 0.0f;
+                        if (bx + x < level.width && by + y < level.height
+                            && mask[std::size_t(by + y) * level.width + bx + x] == kKit)
                         {
-                            std::uint8_t m = mask[std::size_t(by + y) * level.width + bx + x];
-                            if (m == kKit)
-                            {
-                                c = Recolour(c, from, target);
-                                touched = true;
-                            }
-                            else if (m == kTrim)
-                            {
-                                c = Recolour(c, trimFrom, home);
-                                touched = true;
-                            }
+                            c = Recolour(c, from, to);
+                            touched = true;
                         }
                         colours[i][0] = c.r * 255.0f;
                         colours[i][1] = c.g * 255.0f;
@@ -625,6 +664,77 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
                     }
                 if (touched) EncodeBlock(colours, opaque, block);
             }
+        return;
+    }
+    for (int y = 0; y < level.height; ++y)
+        for (int x = 0; x < level.width; ++x)
+        {
+            if (mask[std::size_t(y) * level.width + x] != kKit) continue;
+            int index;
+            if (format == kRGB5A3)
+            {
+                std::uint8_t* p = &texture[TexelTile(level, x, y, 32, index) + std::size_t(index) * 2];
+                std::uint16_t v = BE16(p);
+                PutBE16(p, EncodeRGB5A3(v, Recolour(DecodeRGB5A3(v).colour, from, to)));
+            }
+            else
+            {
+                std::size_t tile = TexelTile(level, x, y, 64, index);
+                std::uint8_t* ar = &texture[tile + std::size_t(index) * 2];
+                std::uint8_t* gb = &texture[tile + 32 + std::size_t(index) * 2];
+                RGB c = Recolour({ar[1] / 255.0f, gb[0] / 255.0f, gb[1] / 255.0f}, from, to);
+                ar[1] = std::uint8_t(std::lround(std::clamp(c.r, 0.0f, 1.0f) * 255.0f));
+                gb[0] = std::uint8_t(std::lround(std::clamp(c.g, 0.0f, 1.0f) * 255.0f));
+                gb[1] = std::uint8_t(std::lround(std::clamp(c.b, 0.0f, 1.0f) * 255.0f));
+            }
+        }
+}
+} // namespace
+
+const AwayKit* FindGeneratedAwayKit(const char* captain)
+{
+    if (!captain) return nullptr;
+    for (const AwayKit& kit : kKits)
+        if (std::strcmp(kit.captain, captain) == 0) return &kit;
+    return nullptr;
+}
+
+std::uint32_t AwayKitColour(const AwayKit& kit) { return kit.colour; }
+std::uint32_t AwayKitSourceTexture(const AwayKit& kit) { return kit.source; }
+const char* AwayKitReference(const AwayKit& kit, int index) { return kit.references[index & 1]; }
+bool AwayKitPhotos(const AwayKit& kit) { return kit.photos; }
+
+bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
+    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1)
+{
+    HostVector<Level> levels;
+    std::uint32_t format;
+    if (!Levels(texture, format, levels)) return false;
+    HostVector<Texel> texels, ref0, ref1;
+    HostVector<std::uint8_t> mask;
+    const LchStats target = Target(kit.colour);
+    LchStats from{};
+    for (std::size_t l = 0; l < levels.size(); ++l)
+    {
+        const Level& level = levels[l];
+        DecodeLevel(texture, format, level, texels);
+        if (kind != AwayKitTexture::Team)
+        {
+            KitMask(kit, level, texels, mask);
+            // Small mip levels have no room for the opening's 3x3 cores.
+            if (kind == AwayKitTexture::Picture && level.width >= 16 && level.height >= 16) OpenMask(level, mask);
+        }
+        else
+        {
+            if (!DecodeReference(reference0, format, level, l, ref0)
+                || !DecodeReference(reference1, format, level, l, ref1))
+                return false;
+            TeamMask(kit, texels, ref0, ref1, mask);
+        }
+        // The reference colours come from the full-size level, so every mip
+        // level gets the same mapping.
+        if (l == 0) from = Median(texels, mask);
+        WriteLevel(texture, format, level, mask, from, target);
     }
     return true;
 }
@@ -669,6 +779,29 @@ const char* mscharged_tweak_away_kit_reference(const char* captain, int index)
     return kit ? AwayKitReference(*kit, index) : nullptr;
 }
 
+bool mscharged_tweak_away_kit_photos(const char* captain)
+{
+    const AwayKit* kit = FindGeneratedAwayKit(captain);
+    return kit && AwayKitPhotos(*kit);
+}
+
+// The kinds of mscharged_tweaks.h (0 kit texture, 1 team texture, 2 picture).
+bool mscharged_tweak_recolour_away_texture(const char* captain, int kind, void* texture, unsigned long size,
+    const void* reference0, unsigned long size0, const void* reference1, unsigned long size1)
+{
+    const AwayKit* kit = FindGeneratedAwayKit(captain);
+    bool team = kind == 1;
+    if (!kit || !texture || kind < 0 || kind > 2 || (team && (!reference0 || !reference1))) return false;
+    std::span<const std::uint8_t> r0, r1;
+    if (team)
+    {
+        r0 = {static_cast<const std::uint8_t*>(reference0), size0};
+        r1 = {static_cast<const std::uint8_t*>(reference1), size1};
+    }
+    return RecolourAwayKit(*kit, kind == 0 ? AwayKitTexture::Kit : team ? AwayKitTexture::Team : AwayKitTexture::Picture,
+        {static_cast<std::uint8_t*>(texture), size}, r0, r1);
+}
+
 bool mscharged_tweak_make_away_kit(const char* captain, bool team, void* bundle, unsigned long size, unsigned source,
     unsigned target, const void* reference0, unsigned long size0, unsigned texture0, const void* reference1,
     unsigned long size1, unsigned texture1)
@@ -695,10 +828,7 @@ bool mscharged_tweak_make_away_kit(const char* captain, bool team, void* bundle,
         std::uint8_t* entry = &bytes[16 + std::size_t(i) * 16];
         std::uint32_t hash = (std::uint32_t(entry[0]) << 24) | (std::uint32_t(entry[1]) << 16) | (std::uint32_t(entry[2]) << 8) | entry[3];
         if (hash != source) continue;
-        entry[0] = std::uint8_t(target >> 24);
-        entry[1] = std::uint8_t(target >> 16);
-        entry[2] = std::uint8_t(target >> 8);
-        entry[3] = std::uint8_t(target);
+        PutBE32(entry, target);
         return recoloured;
     }
     return false;

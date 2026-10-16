@@ -60,6 +60,9 @@ unsigned long sOriginalFrameCount;
 
 // Original SDK (the native VI): the TV format, VI_PAL being 1.
 extern "C" unsigned int VIGetTvFormat(void);
+// The original match (Game.cpp): set from match loading until the match ends.
+class cGame;
+extern cGame* g_pGame;
 
 extern "C" {
 // Host entry: the enabled tweaks as bits of mscharged::GameTweak.
@@ -97,6 +100,11 @@ void mscharged_tweak_report_stadium(int stadium)
 bool mscharged_tweak_performance_mode(void)
 {
     return sPerformanceMode;
+}
+
+bool mscharged_tweak_performance_match(void)
+{
+    return sPerformanceMode && g_pGame != nullptr;
 }
 
 bool mscharged_tweak_take_title_press(void)

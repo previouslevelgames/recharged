@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..1a1099f
+index 0000000..7908691
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,119 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -46,18 +46,33 @@ index 0000000..1a1099f
 +
 +bool mscharged_tweak_enabled(int tweak);
 +
-+// Mirror match: away kits made for the captains the game has none for. The
-+// colour (0xRRGGBB) and kit texture of a captain's generated kit, 0 when he
-+// has none; the two teams whose sidekick and goalie textures tell the
-+// team-coloured texels apart; and turning texture `source` of a loaded bundle
-+// into the away kit in place, renamed `target`. Team textures compare with
-+// texture `texture0`/`texture1` of the reference teams' bundles.
++// Mirror match: away kits made where the game has none: Mario's, Luigi's,
++// Wario's and Waluigi's whole kit, Peach's menu pictures and Mega Strike hand.
++// The colour (0xRRGGBB) of a captain's made kit and its kit texture, 0 when
++// he has none (the texture also when the game has his field kit); the two
++// teams whose textures and pictures tell the team-coloured texels apart;
++// turning texture `source` of a loaded bundle into the away kit in place,
++// renamed `target` (team textures compare with texture `texture0`/`texture1`
++// of the reference teams' bundles); recolouring one texture in place (its
++// 32-byte header and levels, as bundles store them): a kit texture, a team
++// texture compared with the same texture of the reference teams, or a painted
++// picture of the captain; and whether the game's photos of him (the newspaper
++// after a match) recolour cleanly.
 +unsigned mscharged_tweak_away_kit_colour(const char* captain);
 +unsigned mscharged_tweak_away_kit_source(const char* captain);
 +const char* mscharged_tweak_away_kit_reference(const char* captain, int index);
 +bool mscharged_tweak_make_away_kit(const char* captain, bool team, void* bundle, unsigned long size, unsigned source,
 +    unsigned target, const void* reference0, unsigned long size0, unsigned texture0, const void* reference1,
 +    unsigned long size1, unsigned texture1);
++enum
++{
++    MSCHARGED_AWAY_KIT_TEXTURE = 0,
++    MSCHARGED_AWAY_TEAM_TEXTURE = 1,
++    MSCHARGED_AWAY_PICTURE = 2,
++};
++bool mscharged_tweak_recolour_away_texture(const char* captain, int kind, void* texture, unsigned long size,
++    const void* reference0, unsigned long size0, const void* reference1, unsigned long size1);
++bool mscharged_tweak_away_kit_photos(const char* captain);
 +
 +// Skip intro: whether the title screen still has to be passed this launch,
 +// and taking that single press of A.
@@ -104,6 +119,16 @@ index 0000000..1a1099f
 +float mscharged_tweak_original_frames(void);
 +bool mscharged_tweak_original_frame(void);
 +unsigned long mscharged_tweak_frame_number(unsigned long renderedFrame);
++
++// Performance mode ([display] performance_mode, a host display setting outside
++// the tweak mask): lighter matches. The first is the setting itself (for match
++// loading); the second is true while a match runs with it on, so menus keep
++// every effect. The hooks only skip decorative work: no gameplay state and no
++// random number the game or the network shares depends on what they skip.
++bool mscharged_tweak_performance_mode(void);
++bool mscharged_tweak_performance_match(void);
++// The stadium of the match being rendered (frame recordings).
++void mscharged_tweak_report_stadium(int stadium);
 +
 +#ifdef __cplusplus
 +}

@@ -35,8 +35,10 @@ struct Settings
     // display.picture: soft (the TV signal, as on a Wii), clean (one smooth
     // pass to the window, no TV flicker filter) or sharp (square pixels).
     std::string picture = "sharp";
-    // display.performance_mode: lower the 3D render size to 640x448, turn off
-    // multisampling, and omit decorative crowd/background model draws.
+    // display.performance_mode: lighter matches. Turns off multisampling, and
+    // the game module skips purely decorative work (crowd, world NPCs, ambient
+    // effects, bloom, heat distortion, depth of field, stadium shadow volumes);
+    // the 3D render size stays as chosen.
     bool performance_mode = false;
     // display.antialiasing: off or 4x (Aurora multisampling of the game's
     // frame; smooths polygon edges at any 3D resolution).
@@ -116,7 +118,7 @@ struct Settings
     bool graphics_validation = false; // advanced.graphics_validation: backend graphics debug layers (off: fastest)
     std::string log_level = "info";   // advanced.log_level: error | warning | info | debug
     bool verbose_console = false;     // advanced.verbose_console: development traces and game debug output
-    bool frame_logging = false;       // advanced.frame_logging: CSV timings and summary beside the executable
+    bool frame_logging = false;       // advanced.frame_logging: CSV timings and summary in logs/ beside the executable
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
     // launcher.check_updates: look for a newer build each time the launcher starts.
     bool check_updates = true;

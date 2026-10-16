@@ -170,7 +170,7 @@ int main()
                 for (const auto& file : std::filesystem::directory_iterator(folder))
                     if (file.path().extension() == ".csv") firstCsv = file.path();
                 Check(!firstCsv.empty() && firstCsv.filename().string().rfind("frame-times_", 0) == 0,
-                      "Recording has a descriptive timestamped filename beside the executable");
+                      "Recording has a descriptive timestamped filename in the logs folder");
                 auto summary = firstCsv;
                 summary += ".summary.txt";
                 Check(std::filesystem::exists(summary), "Process-exit hook writes the adjacent summary");
@@ -196,6 +196,11 @@ int main()
             Check(!FrameTimingLog::FromSettings(true, blocked), "An unwritable output location is reported without fallback");
             Check(read(blocked) == "preserve", "Failed logging leaves the blocking file unchanged");
             Check(!FrameTimingLog::FromSettings(false, folder), "Logging can be switched off after an enabled session");
+            const auto missing = folder / "logs";
+            {
+                auto log = FrameTimingLog::FromSettings(true, missing);
+                Check(bool(log) && std::filesystem::is_directory(missing), "A missing logs folder is created");
+            }
         }
         std::cout << "frame timing log checks passed (" << checks << ")\n";
         return 0;

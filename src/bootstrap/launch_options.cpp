@@ -151,11 +151,9 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         result.settings.tweaks = {};
         result.tweaks_source = SettingSource::CommandLine;
     }
-    if (result.settings.performance_mode)
-    {
-        result.settings.resolution = "native";
-        result.settings.antialiasing = "off";
-    }
+    // Performance mode keeps the chosen 3D render size: 640x448 looks too coarse
+    // on today's displays (issue #55 asks for lighter effects, not a lower size).
+    if (result.settings.performance_mode) result.settings.antialiasing = "off";
     return result;
 }
 

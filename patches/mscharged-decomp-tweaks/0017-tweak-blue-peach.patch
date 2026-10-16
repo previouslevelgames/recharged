@@ -16,11 +16,11 @@ or crowd, so those stay pink. In a match of Peach against herself (Mirror
 match) the away team wears the blue kit, as without the tweak.
 
 diff --git a/include/Game/DB/CharacterInfo.h b/include/Game/DB/CharacterInfo.h
-index f42c59b..35281b6 100644
+index 3659959..67e0cdf 100644
 --- a/include/Game/DB/CharacterInfo.h
 +++ b/include/Game/DB/CharacterInfo.h
-@@ -87,4 +87,11 @@ bool MirrorMatchFieldKit(int side, const CharacterInfo& team, const CharacterInf
- nlColour GetFieldKitColour(const CharacterInfo& team);
+@@ -85,4 +85,11 @@ nlColour GetAwayKitColour(const CharacterInfo& team);
+ bool HasWholeAwayKit(const CharacterInfo& captain);
  #endif
  
 +#if defined(MSCHARGED_TWEAKS)
@@ -32,10 +32,10 @@ index f42c59b..35281b6 100644
 +
  #endif // GAME_DB_CHARACTERINFO_H
 diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
-index bf0d373..f6d53c2 100644
+index 74e520b..b0ea18d 100644
 --- a/src/Game/CharacterLoader.cpp
 +++ b/src/Game/CharacterLoader.cpp
-@@ -146,6 +146,17 @@ static void MirrorMatchMakeAwayKit(eCharacterClass captain, MirrorMatchTexture k
+@@ -193,6 +193,17 @@ static void MirrorMatchMakeAwayHand(eCharacterClass captain)
  }
  #endif
  
@@ -53,7 +53,7 @@ index bf0d373..f6d53c2 100644
  CharacterLoader::~CharacterLoader()
  {
  }
-@@ -902,6 +913,15 @@ bool CharacterLoader::StartLoadingSidekickSwapTexture()
+@@ -949,6 +960,15 @@ bool CharacterLoader::StartLoadingSidekickSwapTexture()
      }
  #endif
  
@@ -69,7 +69,7 @@ index bf0d373..f6d53c2 100644
      mSidekickTextureData = 0;
      mSidekickTextureSize = 0;
      cCharacter* pChar = g_pCharacters[mCurrent->nCharIdx];
-@@ -1002,6 +1022,14 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
+@@ -1049,6 +1069,14 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
          }
      }
  
@@ -84,7 +84,7 @@ index bf0d373..f6d53c2 100644
      nlSNPrintf(szBundlePath, 64, "%s/%s_mario", szName, szTexName);
      pChar->fn_80022DAC(glGetTexture(szBundlePath));
      pChar->fn_80022DE8(glGetTexture(szPlayerPath));
-@@ -1150,6 +1178,16 @@ bool CharacterLoader::HasAlternateSwapTexture()
+@@ -1197,6 +1225,16 @@ bool CharacterLoader::HasAlternateSwapTexture()
                  : GetGoalieTemplateInfo(pEntry->cc - 20)->szAlternateTextureFilename;
              return szFilename != 0 && nlFileExists(szFilename);
          }
@@ -102,10 +102,10 @@ index bf0d373..f6d53c2 100644
          if (captain0 == captain1)
          {
 diff --git a/src/Game/DB/BasicGameInfo.cpp b/src/Game/DB/BasicGameInfo.cpp
-index 8d68971..20097bb 100644
+index 1be0f14..de4d3bd 100644
 --- a/src/Game/DB/BasicGameInfo.cpp
 +++ b/src/Game/DB/BasicGameInfo.cpp
-@@ -309,3 +309,13 @@ nlColour GetFieldKitColour(const CharacterInfo& team)
+@@ -293,3 +293,13 @@ nlColour GetAwayKitColour(const CharacterInfo& team)
      return rgba;
  }
  #endif
@@ -120,12 +120,12 @@ index 8d68971..20097bb 100644
 +}
 +#endif
 diff --git a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
-index 7c7566f..5c0ade9 100644
+index d347dbc..ee62983 100644
 --- a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
 +++ b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
 @@ -77,6 +77,13 @@ void DefensivePlayOverlay::SceneCreated()
      {
-         teamColour = GetFieldKitColour(*defendingCaptain->m_pCharacterInfo);
+         teamColour = GetAwayKitColour(*defendingCaptain->m_pCharacterInfo);
      }
 +#endif
 +#if defined(MSCHARGED_TWEAKS)
@@ -138,12 +138,12 @@ index 7c7566f..5c0ade9 100644
      playerText->SetAssetColour(teamColour);
  }
 diff --git a/src/Game/Render/Indicators.cpp b/src/Game/Render/Indicators.cpp
-index 777a63e..d97a5a3 100644
+index e361cc1..d4ca6d0 100644
 --- a/src/Game/Render/Indicators.cpp
 +++ b/src/Game/Render/Indicators.cpp
 @@ -119,6 +119,13 @@ static inline nlColour GetIndicatorColour(cPlayer* pCharacter)
      {
-         return GetFieldKitColour(*pInfo);
+         return GetAwayKitColour(*pInfo);
      }
 +#endif
 +#if defined(MSCHARGED_TWEAKS)

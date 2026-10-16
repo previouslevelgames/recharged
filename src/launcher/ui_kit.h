@@ -60,7 +60,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy
+    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -83,6 +83,30 @@ bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled,
                    bool glow = false);
 bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enabled = true,
                      Icon icon = Icon::None);
+// Primary button with an attached segment on its right (an options gear). The
+// segment stays usable while the button is disabled; `open` highlights it while
+// its menu is shown and `marked` puts a dot on it (an option is on).
+struct SplitSegment
+{
+    float width;
+    Icon icon;
+    bool open;
+    bool marked;
+};
+struct SplitPress
+{
+    bool button = false;
+    bool segment = false;
+    bool button_hovered = false;
+    bool segment_hovered = false;
+};
+SplitPress SplitPrimaryButton(const char* id, const char* label, ImVec2 size, const SplitSegment& segment,
+                              bool enabled, Icon icon = Icon::None, bool glow = false);
+// Dropdown menu rows (inside a popup), each `width` wide: a switch with a
+// description, an action with a chevron, and a divider.
+bool MenuToggle(const char* id, const char* label, const char* description, bool* value, float width);
+bool MenuAction(const char* id, const char* label, float width);
+void MenuSeparator(float width);
 // Text button without a frame until hovered, for quiet actions next to a primary button.
 bool GhostButton(const char* id, const char* label, ImVec2 size, bool enabled = true, Icon icon = Icon::None);
 bool Toggle(const char* id, bool* value);

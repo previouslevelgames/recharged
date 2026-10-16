@@ -29,9 +29,16 @@ but sparking where the ball and items hit it, and players knocked into it are
 electrocuted (issue #54). The game's Power and High Voltage cheats then apply
 to the sides as well, and the Waluigi Striker Challenge, played there,
 follows the tweak like any offline match. Online and LAN matches keep the
-open sides, as does the game with the tweak off. The island's look, its
-wind, lightning and flying debris, and the shadows it hides near its edges
-are unchanged.
+open sides, as does the game with the tweak off.
+
+Flying debris passes a player while the fence electrocutes him
+(cFielder::CollideWithWindDebrisCallback). Debris that throws a player into
+a side still overlaps him there; it threw him again at once, into the fence
+again, several times a frame, until the game ran out of sound handles and
+crashed in PlaySound. The original island never gets there, as a launched
+player has no walls and cannot be electrocuted. Otherwise the island's look,
+its wind, lightning and flying debris, and the shadows it hides near its
+edges are unchanged.
 
 diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
 index 6950666..af94892 100644
@@ -68,7 +75,7 @@ index d5b39ad..b3dd116 100644
              {
                  if (desire->m_pFielder->fn_8001E160()
 diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
-index e4e7f6e..3584ede 100644
+index e4e7f6e..cb6cf5c 100644
 --- a/src/Game/AI/Fielder.cpp
 +++ b/src/Game/AI/Fielder.cpp
 @@ -1295,9 +1295,19 @@ bool cFielder::CanGetElectrocuted() const
@@ -93,7 +100,23 @@ index e4e7f6e..3584ede 100644
      {
          float x = (float)fabs(m_DetChar.m_v3Position.x);
          if (x < cField::GetGoalLineX(1U) - 1.0f)
-@@ -2208,7 +2218,12 @@ void cFielder::CollideWithWallCallback(
+@@ -2089,7 +2099,14 @@ void cFielder::CollideWithChainCallback(ChainChomp* chain)
+ 
+ void cFielder::CollideWithWindDebrisCallback(WindDebris* debris)
+ {
+-    if (!IsInvincible() && !IsShattered() && mbTangible && m_eActionState != ACTION_CROWD_RIOT && m_eActionState != ACTION_LAUNCHED)
++    if (!IsInvincible() && !IsShattered() && mbTangible && m_eActionState != ACTION_CROWD_RIOT && m_eActionState != ACTION_LAUNCHED
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Thunder Island walls": debris that throws a player
++        // into a side would throw him again while the fence electrocutes
++        // him, over and over; it passes him now.
++        && !(ThunderIslandWalls() && m_eActionState == ACTION_ELECTROCUTION)
++#endif
++        )
+     {
+         EndFrozenOrDazed();
+         nlVector3 debrisVelocity = debris->mv3Velocity;
+@@ -2208,7 +2225,12 @@ void cFielder::CollideWithWallCallback(
          }
      }
      else if (m_eActionState != ACTION_FALL
@@ -107,7 +130,7 @@ index e4e7f6e..3584ede 100644
      {
          float distance = (float)fabs(m_DetChar.m_v3Position.y);
          distance -= fn_8002BFA8(m_pTweaks, 1.0f);
-@@ -2646,7 +2661,12 @@ void cFielder::CleanUpAction(eFielderActionState actionState)
+@@ -2646,7 +2668,12 @@ void cFielder::CleanUpAction(eFielderActionState actionState)
          m_bShadowVisible = true;
          m_DetChar.m_v3Position.z = 0.0f;
          m_DetChar.m_v3Velocity.z = 0.0f;
@@ -121,7 +144,7 @@ index e4e7f6e..3584ede 100644
          {
              m_pPhysicsCharacter->m_CanCollideWithGoalLine = true;
              m_pPhysicsCharacter->m_CanCollideWithWall = true;
-@@ -2785,7 +2805,12 @@ void cFielder::CleanUpAction(eFielderActionState actionState)
+@@ -2785,7 +2812,12 @@ void cFielder::CleanUpAction(eFielderActionState actionState)
              m_DetChar.m_v3Position.z = 0.0f;
              m_DetChar.m_v3Velocity.z = 0.0f;
          }
@@ -135,7 +158,7 @@ index e4e7f6e..3584ede 100644
          {
              m_pPhysicsCharacter->m_CanCollideWithGoalLine = true;
              m_pPhysicsCharacter->m_CanCollideWithWall = true;
-@@ -4276,7 +4301,12 @@ void cFielder::BeginDekeIntangibility()
+@@ -4276,7 +4308,12 @@ void cFielder::BeginDekeIntangibility()
              nlVec3Add(destination, destination, m_DetChar.m_v3Position);
              bool beyondSideline = fabsf(destination.y) > cField::GetSidelineY(1U);
              bool fixed = false;

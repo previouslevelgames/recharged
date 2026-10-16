@@ -601,7 +601,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 configurePerformanceMode(launch.settings.performance_mode);
             const std::string line="Performance mode: "+std::string(launch.settings.performance_mode?"on":"off")
                 +(launch.settings.performance_mode && !configurePerformanceMode
-                    ? " (background draw reduction unavailable in this build)" : "");
+                    ? " (only antialiasing: this build's game module has no Performance mode)" : "");
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
         }
@@ -769,10 +769,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             fpsOverlay.emplace(executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf",
                 mscharged::runtime::ParseOverlayCorner(launch.settings.fps_overlay_corner)
                     .value_or(mscharged::runtime::OverlayCorner::TopRight));
-        // The persisted launcher toggle is authoritative; recordings always
-        // live beside this executable, independently of the working directory.
-        const auto frameTiming=mscharged::runtime::FrameTimingLog::FromSettings(
-            launch.settings.frame_logging, executableDirectory);
+        // The persisted launcher toggle is authoritative; recordings live with
+        // the session log (logs/ beside this executable), independently of the
+        // working directory.
+        const auto sessionLog=mscharged::platform::SessionLogPath();
+        const auto frameTiming=mscharged::runtime::FrameTimingLog::FromSettings(launch.settings.frame_logging,
+            sessionLog.empty() ? executableDirectory/"logs" : sessionLog.parent_path());
         auto* takeStadium=reinterpret_cast<int(*)()>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_take_stadium"));
         if(frameTiming)

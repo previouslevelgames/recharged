@@ -1725,33 +1725,16 @@ private:
         const std::string blocker = PlayBlocker();
         const float button_y = hero_max.y - Dp(30);
         ImGui::SetCursorScreenPos({origin.x + pad, button_y});
-        if (PrimaryButton("play", "PLAY", Dp(230, 62), blocker.empty(), Icon::Play, true)) Play(quit);
-        if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", blocker.c_str());
-        ImGui::SameLine(0, Dp(6));
-        if (SecondaryButton("play_options", "", Dp(52, 62), true, Icon::Sliders))
-            ImGui::OpenPopup("play_options_menu");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play options");
-        if (ImGui::BeginPopup("play_options_menu"))
-        {
-            ImGui::TextDisabled("PLAY OPTIONS");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Performance mode", nullptr, draft_.performance_mode))
-            {
-                draft_.performance_mode = !draft_.performance_mode;
-                dirty_ = true;
-            }
-            ImGui::TextWrapped("Uses native 640 x 448 rendering, disables 4x antialiasing, and omits decorative crowd "
-                               "and background model draws. Weather, hazards, and match simulation are unchanged.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Display settings"))
-            {
-                page_ = PageDisplay;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
-        }
-        const float status_x = origin.x + pad + Dp(230 + 6 + 52 + 24);
+        const bool menu_open = ImGui::IsPopupOpen("play_options_menu");
+        const auto play = SplitPrimaryButton("play", "PLAY", Dp(230, 62),
+                                             {Dp(58), Icon::Gear, menu_open, draft_.performance_mode},
+                                             blocker.empty(), Icon::Play, true);
+        if (play.button) Play(quit);
+        if (!blocker.empty() && play.button_hovered) ImGui::SetTooltip("%s", blocker.c_str());
+        if (play.segment_hovered && !menu_open) ImGui::SetTooltip("Play options");
+        if (play.segment) ImGui::OpenPopup("play_options_menu");
+        DrawPlayOptionsMenu({origin.x + pad + Dp(230), button_y});
+        const float status_x = origin.x + pad + Dp(230 + 58 + 24);
         ImGui::SetCursorScreenPos({status_x, button_y + Dp(8)});
         DrawPlayStatus(blocker);
 
@@ -1769,6 +1752,33 @@ private:
             ImGui::SameLine(0, gap);
             SummaryCard("##language_card", "Language & audio", Icon::Audio, width, PageAudio, LanguageSummary());
         }
+    }
+
+    // The gear's menu opens above it, like a launcher's game options.
+    void DrawPlayOptionsMenu(ImVec2 anchor)
+    {
+        const float width = Dp(300);
+        ImGui::SetNextWindowPos({anchor.x, anchor.y - Dp(8)}, ImGuiCond_Always, {0.0f, 1.0f});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        if (ImGui::BeginPopup("play_options_menu"))
+        {
+            if (MenuToggle("performance_mode", "Performance mode",
+                           "No crowd, ambient effects, bloom or antialiasing. Gameplay is unchanged.",
+                           &draft_.performance_mode, width))
+                dirty_ = true;
+            MenuSeparator(width);
+            if (MenuAction("display_settings", "Display settings", width))
+            {
+                page_ = PageDisplay;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
     }
 
     void DrawPlayStatus(const std::string& blocker)
@@ -2378,8 +2388,7 @@ private:
         PageHeader("Display", "How the game window opens and how sharply the game is drawn.");
         if (draft_.performance_mode)
         {
-            Chip("Performance mode uses 640 x 448 rendering and disables 4x antialiasing. Your saved display "
-                 "preferences return when it is off.", color::info, Icon::Display);
+            Chip("Performance mode is on, so antialiasing stays off.", color::info, Icon::Display);
             ImGui::Dummy({0, Dp(4)});
         }
         const auto run = EffectiveLaunch().settings;
@@ -3940,14 +3949,19 @@ private:
         BeginCard("##diagnostics", "Diagnostics & analytics", "Local tools for investigating performance and graphics issues.", Icon::Info);
         if (BeginRows("##diagnostic_rows"))
         {
-            Row("Performance stats", "Records frame times for each game session, with the arena and settings, and a summary per arena. Saves a CSV and summary beside the executable; testers can share them.");
+            Row("Performance stats", "Records frame times for each game session, with the arena and settings, and a summary per arena. Saves a CSV and summary in the logs folder; testers can share them.");
             if (Toggle("##frame_logging", &draft_.frame_logging)) dirty_ = true;
 
-            const auto recordingsFolder = PathUtf8(base_);
+            const auto recordings = base_ / "logs";
+            const auto recordingsFolder = PathUtf8(recordings);
             Row("Frame recordings", recordingsFolder.c_str());
             if (SecondaryButton("open_frame_recordings", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
                                 true, Icon::Folder))
-                OpenPath(base_);
+            {
+                std::error_code error;
+                fs::create_directories(recordings, error);
+                OpenPath(recordings);
+            }
 
             Row("Shader cache", "Clears compiled shaders for all graphics APIs. The next launch prepares them again.");
             if (SecondaryButton("clear_shader_cache", "Clear shader cache", {ImGui::GetContentRegionAvail().x, Dp(40)},

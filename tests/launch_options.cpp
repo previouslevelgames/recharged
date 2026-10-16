@@ -168,7 +168,7 @@ int main()
             auto performanceDraft = pacedFile.settings;
             performanceDraft.performance_mode = true;
             const auto performance = ResolveLaunch(pacedFile, {}, &performanceDraft);
-            Check(performance.settings.performance_mode && performance.settings.resolution == "native"
+            Check(performance.settings.performance_mode && performance.settings.resolution == "2x"
                 && performance.settings.antialiasing == "off"
                 && performanceDraft.resolution == "2x" && performanceDraft.antialiasing == "4x"
                 && pacedFile.settings.resolution == "2x" && pacedFile.settings.antialiasing == "4x"

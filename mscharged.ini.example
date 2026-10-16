@@ -31,9 +31,10 @@ aspect = 16:9
 # game's picture drawn straight into the window, without the TV flicker filter
 # and the border) or sharp (clean with square pixels).
 picture = sharp
-# Performance mode (options menu beside Play): Wii-native 640x448 3D rendering,
-# no 4x antialiasing, and no decorative crowd/background models. Weather,
-# hazards and match simulation are unchanged.
+# Performance mode (gear menu on the Play button): lighter matches without 4x
+# antialiasing, the crowd, background NPCs, ambient stadium effects, bloom,
+# heat distortion, depth of field and stadium shadows. The 3D render size,
+# gameplay, hazards and weather effects are unchanged.
 performance_mode = false
 # Antialiasing of the game's 3D edges: off or 4x (more GPU time).
 antialiasing = 4x
@@ -155,9 +156,9 @@ shake_nunchuk = Q
 # fast_terrain: every stadium plays like Bowser Stadium's fast, dry field
 # (speed, ball roll and bounce; no sliding, no slow sand in the Sand Tomb);
 # looks and hazards stay, online matches unchanged.
-# mirror_match: both teams can pick the same captain in Domination; on the
-# field the away team wears an away kit (made from the home kit for Mario,
-# Luigi, Wario and Waluigi). Online matches unchanged.
+# mirror_match: both teams can pick the same captain in Domination; the away
+# team wears an away kit in the menus and on the field (made from the home kit
+# for Mario, Luigi, Wario and Waluigi). Online matches unchanged.
 # thunder_island_walls: Thunder Island's open sides get the (invisible)
 # electric fence of every other stadium: the ball and items bounce off, and
 # knocked players are electrocuted instead of falling off. Online unchanged.
@@ -182,7 +183,7 @@ blue_peach = false
 graphics_validation = false
 log_level = info
 verbose_console = false
-# Record frame times to a new CSV and summary beside the executable each session.
+# Record frame times to a new CSV and summary in the logs folder each session.
 frame_logging = false
 
 [launcher]

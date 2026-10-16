@@ -1,32 +1,187 @@
-Subject: Reduce background rendering in Performance Mode
+Subject: Lighter matches in Performance Mode
 Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
 
 Performance Mode is a host display setting, independent of the [gameplay]
-tweak mask. It omits the crowd impostor pass and decorative world NPC draws.
-Their simulation and updates continue; gameplay effects and weather are not
-changed. The guarded hooks exist only in the opt-in native game module.
+tweak mask (issue #55). In matches it skips purely decorative work: the crowd
+impostors (switched off at load), the world NPCs, the drawing of the stadium's
+ambient effects, bloom, heat distortion, depth of field and the static stadium
+shadow volumes. Gameplay, hazards, weather and their effects, character and
+ball shadows and every random number the game or the network shares are
+unchanged; menus keep every effect. The guarded hooks exist only in the
+opt-in native game module.
 
-diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
-index 1a1099f..fb3d557 100644
---- a/include/mscharged_tweaks.h
-+++ b/include/mscharged_tweaks.h
-@@ -88,5 +88,10 @@ bool mscharged_tweak_original_frame(void);
- unsigned long mscharged_tweak_frame_number(unsigned long renderedFrame);
+diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
+index 2a5b098..6304ec6 100644
+--- a/src/Game/BasicStadium.cpp
++++ b/src/Game/BasicStadium.cpp
+@@ -163,6 +163,12 @@ void BasicStadium::Update(float fDeltaT, bool bUpdateState, bool bUpdateNPCs)
+ {
+     m_fTime += fDeltaT;
+     World::Update(fDeltaT, bUpdateState);
++#if defined(MSCHARGED_TWEAKS)
++    // Performance mode: the decorative world NPCs are not drawn, so they are not
++    // animated either (no random numbers, triggers or gameplay readers).
++    if (mscharged_tweak_performance_match())
++        bUpdateNPCs = false;
++#endif
+ 
+     if (gpWorldNPCManager != 0 && bUpdateNPCs)
+     {
+@@ -233,7 +239,11 @@ void fn_802785FC(BasicStadium* pStadium, float fDeltaT)
+         }
+     }
+ 
+-    if (gpWorldNPCManager != 0)
++    if (gpWorldNPCManager != 0
++#if defined(MSCHARGED_TWEAKS)
++        && !mscharged_tweak_performance_match()
++#endif
++    )
+     {
+         gpWorldNPCManager->Update(fDeltaT);
+     }
+diff --git a/src/Game/Effects/EmissionManager.cpp b/src/Game/Effects/EmissionManager.cpp
+index c043cab..bec81c2 100644
+--- a/src/Game/Effects/EmissionManager.cpp
++++ b/src/Game/Effects/EmissionManager.cpp
+@@ -28,6 +28,7 @@
+ #include "NL/nlFile.h"
+ #include "NL/nlChunk.h"
+ #include "NL/nlCompressedFile.h"
++#include "mscharged_tweaks.h"
+ #include "NL/nlMemory.h"
+ #include "NL/MemAlloc.h"
+ #include "NL/nlAVLTree.h"
+@@ -766,6 +767,13 @@ void EmissionManager::Render()
+         EmissionController* current = *iterator;
+         if (!mRenderPersistentOnly
+             || !current->m_pGroup->IsPersistent())
++#if defined(MSCHARGED_TWEAKS)
++            // Performance mode: the stadium's ambient effects (view 1, created
++            // only by WorldEffect::Emit) keep simulating, with their own random
++            // numbers, but are not drawn. Hazard, weather and character effects
++            // use other views and stay.
++            if (current->m_View != 1 || !mscharged_tweak_performance_match())
++#endif
+         {
+             renderedParticles += current->Render();
+         }
+diff --git a/src/Game/Render/CrowdImpostors.cpp b/src/Game/Render/CrowdImpostors.cpp
+index 4cd96fb..50cf6da 100644
+--- a/src/Game/Render/CrowdImpostors.cpp
++++ b/src/Game/Render/CrowdImpostors.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include <math.h>
+ #include "Game/TweakValue.inl"
++#include "mscharged_tweaks.h"
+ 
+ static CrowdCharacterDefinition sCrowdCharacterDefinitions[36] = {
+     { "birdo", "art/animation/crowdbirdo.sanim.zlib",
+@@ -398,6 +399,15 @@ void InitializeCrowdImpostors(bool alternateView)
+     GetCrowdImpostorManager()->AddVisibilityFilter( sCrowdSidelineFilter);
+     UpdateImpostorLighting();
+     ImpostorManager::GetInstance()->StaggerAnimations();
++#if defined(MSCHARGED_TWEAKS)
++    // Performance mode: no crowd. GenerateCrowd switched the impostors on; off,
++    // the render task skips the whole crowd pass (positions, visibility, sprite
++    // and cluster captures, billboards). Its animations still update, so the
++    // pose blenders of each excitement change are freed as in the original.
++    // The front end switches the impostors on again for its characters.
++    if (mscharged_tweak_performance_mode())
++        ImpostorManager::GetInstance()->SetEnabled(false);
++#endif
+ }
+ 
+ static inline void DeleteCrowdCharacterArrays()
+diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
+index aacbc27..bce9a84 100644
+--- a/src/Game/Render/StadiumLoading.cpp
++++ b/src/Game/Render/StadiumLoading.cpp
+@@ -1,6 +1,7 @@
+ #include "Game/Task/GameTaskState.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Render/StadiumLoading.h"
++#include "mscharged_tweaks.h"
+ 
+ #include "Game/BasicStadium.h"
+ #include "Game/World.h"
+@@ -652,6 +653,12 @@ void UpdateHighRange()
+         }
+     }
  
 +#if defined(MSCHARGED_TWEAKS)
-+bool mscharged_tweak_performance_mode(void);
-+void mscharged_tweak_report_stadium(int stadium);
++    // Performance mode: no bloom in matches (bDisable here means the bloom
++    // chain renders, as in the original's naming).
++    if (mscharged_tweak_performance_match())
++        bDisable = false;
 +#endif
-+
- #ifdef __cplusplus
- }
- #endif
+     if (bDisable)
+     {
+         SetHighRangeTargetsEnabled(&gHighRange, 1);
+diff --git a/src/Game/Render/depthoffield.cpp b/src/Game/Render/depthoffield.cpp
+index 1318313..e8b742d 100644
+--- a/src/Game/Render/depthoffield.cpp
++++ b/src/Game/Render/depthoffield.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/Render/RLView.h"
++#include "mscharged_tweaks.h"
+ 
+ #include "NL/gl/glDraw2.h"
+ #include "NL/gl/glState.h"
+@@ -73,6 +74,15 @@ void DepthOfFieldManager::Update()
+ 
+     GLView* view = GetLayerView(eCLV_UnsortedPerspective);
+     view->m_Target = 8;
++#if defined(MSCHARGED_TWEAKS)
++    // Performance mode: no depth of field (replays and cutscenes), and no
++    // copy of the frame for it, which the original makes every frame.
++    if (mscharged_tweak_performance_match())
++    {
++        view->m_Target = 0;
++        return;
++    }
++#endif
+ 
+     if (!m_bOn)
+     {
+diff --git a/src/Game/Task/EndFrameTask.cpp b/src/Game/Task/EndFrameTask.cpp
+index fb8d5c5..f4eabdb 100644
+--- a/src/Game/Task/EndFrameTask.cpp
++++ b/src/Game/Task/EndFrameTask.cpp
+@@ -11,6 +11,7 @@ unsigned char gDrawScreenBorder;
+ #include "types.h"
+ #include "Game/Render/Warble.h"
+ #include "Game/SharedStaticStorage.h"
++#include "mscharged_tweaks.h"
+ 
+ void EndFrameTask::Run(float)
+ {
+@@ -45,6 +46,17 @@ void EndFrameTask::Run(float)
+         }
+ 
+ #endif // retain original warble targets/clear/update decisions for full world views
++#if defined(MSCHARGED_TWEAKS)
++        // Performance mode: no stadium shadow volumes in matches. The layer
++        // tweaks and StadiumShadowVolumeDrawable::Draw show both layers every
++        // frame; hidden here, last, they skip the volume draws, the frame-sized
++        // copy of their mask and the full-screen blend.
++        if (mscharged_tweak_performance_match())
++        {
++            GetLayerView(eCLV_ShadowVolume)->m_Visible = false;
++            GetLayerView(eCLV_ShadowVolumeBlend)->m_Visible = false;
++        }
++#endif
+         glEndFrame();
+         g_FrameCounter.StartTimer(1);
+         glSendFrame();
 diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
-index 0000000..0000000 100644
+index e3bfc69..49eb2a1 100644
 --- a/src/Game/Task/GameRenderTask.cpp
 +++ b/src/Game/Task/GameRenderTask.cpp
-@@ -1,6 +1,10 @@
- #include "Game/Task/GameTaskState.h"
+@@ -2,6 +2,10 @@
  #include "NL/nlDLListContainer.inl"
  #include "Game/HBMManager.h"
  #include "Game/Task/GameRenderTask.h"
@@ -36,7 +191,8 @@ index 0000000..0000000 100644
 +#endif
  
  #include "types.h"
-@@ -327,6 +331,10 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+ 
+@@ -331,6 +335,10 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
      {
          bCaptainShot = true;
      }
@@ -47,26 +203,31 @@ index 0000000..0000000 100644
  
      if (!bPictureInPicture)
      {
-@@ -383,5 +391,8 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+@@ -387,6 +395,10 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
      if (!bCaptainShot)
      {
          WorldNPCManager* worldNPCs = gpWorldNPCManager;
 +#if defined(MSCHARGED_TWEAKS)
-+        if (!mscharged_tweak_performance_mode())
++        // Performance mode: no decorative world NPCs (riot guards, flags).
++        if (!mscharged_tweak_performance_match())
 +#endif
          worldNPCs->Render(GetLayerView(eCLV_MoreCharacters));
      }
-@@ -526,9 +538,12 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
-             if (ImpostorManager::GetInstance()->mUpdateClusters)
-             {
-                 (GetCrowdImpostorManager())->UpdateCrowdVisibility(GetLayerView(bPictureInPicture ? eCLV_PictureInPicture : eCLV_ImpostorOut));
-             }
  
-+#if defined(MSCHARGED_TWEAKS)
-+            if (!mscharged_tweak_performance_mode())
-+#endif
-             ImpostorManager::GetInstance()->Render(
-                 GetLayerView(bPictureInPicture ? eCLV_PictureInPicture : eCLV_ImpostorOut), false);
-         }
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index e5975ce..606dc82 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -882,6 +882,12 @@ bool RenderParticleSystem(ParticleSystem* source, GLView* view,
      }
- }
+ 
+     bool isWarble = sWarbleTexture == source->m_pTemplate->m_hTexture;
++#if defined(MSCHARGED_TWEAKS)
++    // Performance mode: no heat distortion in matches. Its particles are not
++    // drawn, so the end of the frame keeps the two frame copies off.
++    if (isWarble && mscharged_tweak_performance_match())
++        return true;
++#endif
+     if (IsShadowLookupActive() && !isWarble)
+     {
+         glShadowedTexturedColourModelWriter writer;

@@ -43,13 +43,13 @@ const char* ArenaName(int stadium);
 
 // Opt-in per-frame timing log: advanced.frame_logging writes one CSV row per
 // original game frame and, on exit, a summary of the frame-interval distribution
-// and longest frames. Both files live beside the executable, with a new name
-// for each recording. Environment variables do not enable or redirect logging.
+// and longest frames. Both files go to `directory` (the logs folder beside the
+// executable), created when missing, with a new name for each recording. Environment variables do not enable or redirect logging.
 // Bookkeeping only: it never waits, paces frames or touches game state.
 class FrameTimingLog {
 public:
     static std::unique_ptr<FrameTimingLog> FromSettings(bool enabled,
-        const std::filesystem::path& executable_directory);
+        const std::filesystem::path& directory);
 
     // Takes ownership of file; nullptr keeps the records in memory only.
     FrameTimingLog(std::FILE* file, std::filesystem::path path);

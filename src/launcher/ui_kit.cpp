@@ -309,6 +309,22 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddRectFilled(p(-0.24f, 0.28f), p(0.24f, 0.42f), color, 0.04f * s);
         break;
     }
+    case Icon::Gear:
+    {
+        // A filled gear: eight teeth around a thick ring.
+        for (int i = 0; i < 8; ++i)
+        {
+            const float a = float(i) * 0.785398f;
+            auto polar = [&](float angle, float radius) {
+                return p(std::cos(angle) * radius, std::sin(angle) * radius);
+            };
+            const ImVec2 tooth[] = {polar(a - 0.21f, 0.28f), polar(a - 0.14f, 0.47f), polar(a + 0.14f, 0.47f),
+                                    polar(a + 0.21f, 0.28f)};
+            draw->AddConvexPolyFilled(tooth, 4, color);
+        }
+        draw->AddCircle(c, 0.25f * s, color, 0, 0.16f * s);
+        break;
+    }
     case Icon::Link:
         draw->AddRect(p(-0.42f, -0.30f), p(0.30f, 0.42f), color, 0.08f * s, 0, t);
         draw->AddLine(p(-0.04f, 0.04f), p(0.44f, -0.44f), color, t);
@@ -450,6 +466,96 @@ bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled,
     return pressed && enabled;
 }
 
+SplitPress SplitPrimaryButton(const char* id, const char* label, ImVec2 size, const SplitSegment& segment,
+                              bool enabled, Icon icon, bool glow)
+{
+    ImGui::PushID(id);
+    SplitPress result;
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    result.button = ImGui::InvisibleButton("##button", size) && enabled;
+    result.button_hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    const bool button_held = ImGui::IsItemActive();
+    ImGui::EndDisabled();
+    const float split = pos.x + size.x;
+    ImGui::SetCursorScreenPos({split, pos.y});
+    result.segment = ImGui::InvisibleButton("##segment", {segment.width, size.y});
+    result.segment_hovered = ImGui::IsItemHovered();
+    const bool segment_held = ImGui::IsItemActive();
+    const float button_hover = Animate(ImGui::GetID("##button_hover"), result.button_hovered && enabled, 10.0f);
+    const float segment_hover = Animate(ImGui::GetID("##segment_hover"), result.segment_hovered || segment.open, 12.0f);
+
+    auto* draw = ImGui::GetWindowDrawList();
+    const float rounding = std::min(size.y * 0.5f, Dp(14));
+    const ImVec2 max{split + segment.width, pos.y + size.y};
+    if (glow && enabled)
+    {
+        const float pulse = 0.5f + 0.5f * std::sin(float(ImGui::GetTime()) * 2.2f);
+        for (int i = 0; i < 6; ++i)
+        {
+            const float grow = Dp(2.0f + 2.6f * float(i));
+            const float alpha = (0.085f - 0.012f * float(i)) * (0.55f + 0.30f * pulse + 0.45f * button_hover);
+            draw->AddRectFilled(Sub(pos, {grow, grow}), Add(max, {grow, grow}), Col(color::accent, alpha),
+                                rounding + grow);
+        }
+    }
+    // Hover lightens and a press darkens only the part under the pointer.
+    auto shade = [&](ImVec2 a, ImVec2 b, bool held, float hover, ImDrawFlags corners) {
+        if (held) draw->AddRectFilled(a, b, Col(color::accent_dark, 0.22f), rounding, corners);
+        else if (hover > 0.0f) draw->AddRectFilled(a, b, Col(ImVec4{1, 1, 1, 1}, 0.14f * hover), rounding, corners);
+    };
+    const ImVec2 split_top{split, pos.y};
+    const ImVec2 split_bottom{split, max.y};
+    if (enabled)
+    {
+        FillGradient(draw, pos, max, Col(color::accent_hi), Col(color::accent), rounding, true);
+        shade(pos, split_bottom, button_held, button_hover, ImDrawFlags_RoundCornersLeft);
+        shade(split_top, max, segment_held, segment_hover, ImDrawFlags_RoundCornersRight);
+        draw->AddRect(pos, max, IM_COL32(255, 255, 255, 46), rounding, 0, Dp(1));
+        draw->AddRectFilled({split - Dp(0.5f), pos.y + Dp(12)}, {split + Dp(0.5f), max.y - Dp(12)},
+                            Col(color::accent_dark, 0.45f));
+    }
+    else
+    {
+        draw->AddRectFilled(pos, max, Col(color::field), rounding);
+        draw->AddRectFilled(split_top, max, Col(Mix(color::field, color::border, 0.9f), segment_hover), rounding,
+                            ImDrawFlags_RoundCornersRight);
+        draw->AddRect(pos, max, Col(color::border), rounding, 0, Dp(1));
+        draw->AddRectFilled({split - Dp(0.5f), pos.y + Dp(12)}, {split + Dp(0.5f), max.y - Dp(12)}, Col(color::border));
+    }
+    if (segment.open)
+    {
+        const float inset = Dp(4);
+        draw->AddRect(Add(split_top, {inset, inset}), Sub(max, {inset, inset}),
+                      enabled ? IM_COL32(255, 255, 255, 170) : Col(color::accent, 0.8f), rounding - inset, 0, Dp(1.5f));
+    }
+
+    const auto& fonts = CurrentFonts();
+    ImFont* font = size.y >= Dp(52) ? fonts.button : fonts.label;
+    const ImVec2 text = TextSize(font, label);
+    const float icon_size = icon == Icon::None ? 0.0f : FontSize(font) * 0.82f;
+    const float gap = icon == Icon::None ? 0.0f : Dp(10);
+    const float left = pos.x + (size.x - (text.x + icon_size + gap)) * 0.5f;
+    const ImU32 ink = enabled ? IM_COL32(6, 33, 15, 255) : Col(color::dim);
+    if (icon != Icon::None)
+        DrawIcon(draw, icon, {left + icon_size * 0.5f, pos.y + size.y * 0.5f}, icon_size, ink);
+    DrawLabel(draw, font, {left + icon_size + gap, pos.y + (size.y - text.y) * 0.5f}, ink, label);
+
+    const ImVec2 center{split + segment.width * 0.5f, pos.y + size.y * 0.5f};
+    const float segment_icon = Dp(22);
+    const ImU32 segment_ink = enabled ? ink : Col(Mix(color::muted, color::text, 0.6f + 0.4f * segment_hover));
+    DrawIcon(draw, segment.icon, center, segment_icon, segment_ink);
+    if (segment.marked)
+    {
+        // The dot sits in the corner beside the icon, outlined so it reads over the gear.
+        const ImVec2 dot{center.x + segment_icon * 0.52f, center.y - segment_icon * 0.52f};
+        draw->AddCircleFilled(dot, Dp(5), enabled ? Col(color::accent_hi) : Col(color::field));
+        draw->AddCircleFilled(dot, Dp(3.5f), enabled ? ink : Col(color::accent));
+    }
+    ImGui::PopID();
+    return result;
+}
+
 bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon)
 {
     ImGui::PushID(id);
@@ -505,6 +611,21 @@ bool GhostButton(const char* id, const char* label, ImVec2 size, bool enabled, I
     return pressed && enabled;
 }
 
+namespace
+{
+// The switch of Toggle and MenuToggle; `on` and `hover` are animated 0..1.
+void DrawSwitch(ImDrawList* draw, ImVec2 pos, ImVec2 size, float on, float hover)
+{
+    const ImVec4 off_track = Mix(color::field, color::border, 0.6f + 0.4f * hover);
+    const ImVec4 on_track = Mix(color::accent, color::accent_hi, 0.25f * hover);
+    draw->AddRectFilled(pos, Add(pos, size), Col(Mix(off_track, on_track, on)), size.y * 0.5f);
+    const float radius = size.y * 0.5f - Dp(3.5f);
+    const ImVec2 knob{pos.x + size.y * 0.5f + on * (size.x - size.y), pos.y + size.y * 0.5f};
+    draw->AddCircleFilled({knob.x, knob.y + Dp(1)}, radius, IM_COL32(0, 0, 0, 70));
+    draw->AddCircleFilled(knob, radius, Col(Mix(color::muted, ImVec4{1, 1, 1, 1}, std::max(on, 0.4f * hover))));
+}
+} // namespace
+
 bool Toggle(const char* id, bool* value)
 {
     ImGui::PushID(id);
@@ -515,16 +636,64 @@ bool Toggle(const char* id, bool* value)
     const bool hovered = ImGui::IsItemHovered();
     const float on = Animate(ImGui::GetID("##on"), *value, 14.0f);
     const float hover = Animate(ImGui::GetID("##hover"), hovered, 12.0f);
-    auto* draw = ImGui::GetWindowDrawList();
-    const ImVec4 off_track = Mix(color::field, color::border, 0.6f + 0.4f * hover);
-    const ImVec4 on_track = Mix(color::accent, color::accent_hi, 0.25f * hover);
-    draw->AddRectFilled(pos, Add(pos, size), Col(Mix(off_track, on_track, on)), size.y * 0.5f);
-    const float radius = size.y * 0.5f - Dp(3.5f);
-    const ImVec2 knob{pos.x + size.y * 0.5f + on * (size.x - size.y), pos.y + size.y * 0.5f};
-    draw->AddCircleFilled({knob.x, knob.y + Dp(1)}, radius, IM_COL32(0, 0, 0, 70));
-    draw->AddCircleFilled(knob, radius, Col(Mix(color::muted, ImVec4{1, 1, 1, 1}, std::max(on, 0.4f * hover))));
+    DrawSwitch(ImGui::GetWindowDrawList(), pos, size, on, hover);
     ImGui::PopID();
     return pressed;
+}
+
+bool MenuToggle(const char* id, const char* label, const char* description, bool* value, float width)
+{
+    ImGui::PushID(id);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 pad = Dp(12, 10);
+    const ImVec2 switch_size = Dp(40, 24);
+    const float text_width = width - pad.x * 3 - switch_size.x;
+    const float label_height = FontSize(fonts.label);
+    const ImVec2 detail = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, text_width, description);
+    const ImVec2 size{width, pad.y * 2 + label_height + Dp(3) + detail.y};
+    const bool pressed = ImGui::InvisibleButton("##row", size);
+    if (pressed) *value = !*value;
+    const bool hovered = ImGui::IsItemHovered();
+    const float hover = Animate(ImGui::GetID("##hover"), hovered, 14.0f);
+    const float on = Animate(ImGui::GetID("##on"), *value, 14.0f);
+    auto* draw = ImGui::GetWindowDrawList();
+    if (hover > 0.0f) draw->AddRectFilled(pos, Add(pos, size), Col(color::text, 0.06f * hover), Dp(7));
+    DrawLabel(draw, fonts.label, {pos.x + pad.x, pos.y + pad.y}, Col(color::text), label);
+    draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + pad.x, pos.y + pad.y + label_height + Dp(3)},
+                  Col(color::muted), description, nullptr, text_width);
+    DrawSwitch(draw, {pos.x + width - pad.x - switch_size.x, pos.y + (size.y - switch_size.y) * 0.5f}, switch_size,
+               on, hover);
+    ImGui::PopID();
+    return pressed;
+}
+
+bool MenuAction(const char* id, const char* label, float width)
+{
+    ImGui::PushID(id);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 size{width, Dp(38)};
+    const bool pressed = ImGui::InvisibleButton("##row", size);
+    const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 14.0f);
+    auto* draw = ImGui::GetWindowDrawList();
+    if (hover > 0.0f) draw->AddRectFilled(pos, Add(pos, size), Col(color::text, 0.06f * hover), Dp(7));
+    const ImU32 ink = Col(Mix(Mix(color::muted, color::text, 0.7f), color::text, hover));
+    DrawLabel(draw, fonts.label, {pos.x + Dp(12), pos.y + (size.y - FontSize(fonts.label)) * 0.5f}, ink, label);
+    DrawChevron(draw, {pos.x + width - Dp(18), pos.y + size.y * 0.5f}, Dp(12), ink);
+    ImGui::PopID();
+    return pressed;
+}
+
+void MenuSeparator(float width)
+{
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float height = Dp(9);
+    ImGui::Dummy({width, height});
+    // A filled hairline: long 1 px AddLine strokes break up in SDL's software renderer.
+    ImGui::GetWindowDrawList()->AddRectFilled({pos.x + Dp(8), pos.y + height * 0.5f - Dp(0.5f)},
+                                              {pos.x + width - Dp(8), pos.y + height * 0.5f + Dp(0.5f)},
+                                              Col(color::border));
 }
 
 bool Segmented(const char* id, int* selected, std::initializer_list<const char*> items, float width)

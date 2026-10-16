@@ -61,12 +61,13 @@ The 3D scene renders at the window's resolution by default, or at the Wii's
 Antialiasing (4x) is on by default. The layout is 16:9 by default, or 4:3;
 resizing keeps it and fills unused space with bars.
 
-**Performance mode** (the options button beside **Play**,
-`[display] performance_mode`) uses the Wii's native 640 x 448 3D render size,
-turns off 4x antialiasing, and skips decorative crowd and background NPC draws.
-The setting does not change player, hazard or weather simulation, and restores
-your saved render-size and antialiasing preferences when turned off. This first
-version does not reduce weather particles or lighting effects.
+**Performance mode** (the gear on the **Play** button,
+`[display] performance_mode`) lightens matches for weaker PCs: no 4x
+antialiasing, crowd, background NPCs, ambient stadium effects, bloom, heat
+distortion, depth of field or stadium shadows. Gameplay is untouched: hazards,
+lightning, wind, debris, character and ball shadows stay, and so do the effects
+that show them. It keeps your 3D render size, leaves the menus as they are, and
+restores your antialiasing preference when turned off.
 
 **Performance overlay** (Display) shows `FPS | GPU | CPU | LAT` in a corner of
 your choice, also in fullscreen. GPU and CPU are total system usage, including
@@ -186,9 +187,10 @@ problem; it can contain your user name in paths. **Advanced → Log detail** and
 
 **Advanced → Diagnostics & analytics → Performance stats**
 (`[advanced] frame_logging`) records frame times: each session writes a
-`frame-times_<timestamp>_<process>.csv` beside the program, with one row per
-game frame (frame time, game-thread and process CPU, presents, draws, pipeline
-creations), and a `.csv.summary.txt` with the distribution and longest frames
-on exit. Each row also names the arena being played, and the summary starts
-with the version and settings, then repeats the figures for every arena, so
-testers can compare arenas. **Frame recordings → Open folder** opens that location.
+`frame-times_<timestamp>_<process>.csv` in the `logs` folder beside the program
+(next to `mscharged.log`), with one row per game frame (frame time, game-thread
+and process CPU, presents, draws, pipeline creations), and a `.csv.summary.txt`
+with the distribution and longest frames on exit. Each row also names the arena
+being played, and the summary starts with the version and settings, then
+repeats the figures for every arena, so testers can compare arenas. **Frame
+recordings → Open folder** opens that location.

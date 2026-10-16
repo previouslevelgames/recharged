@@ -15,6 +15,9 @@ extern "C" void charged_configure_frame_pacing(void (*swap)());
 // The native VI's TV format (VI_NTSC 0, VI_PAL 1) for the original frame.
 unsigned gTvFormat;
 extern "C" unsigned int VIGetTvFormat(void) { return gTvFormat; }
+// The original match (Game.cpp), present while a match runs.
+class cGame;
+cGame* g_pGame;
 
 namespace
 {
@@ -98,8 +101,15 @@ int main()
         charged_configure_performance_mode(true);
         charged_configure_tweaks(0);
         Check(mscharged_tweak_performance_mode(), "Gameplay tweak configuration changed performance mode");
+        // Its match hooks act only while a match runs; menus keep every effect.
+        Check(!mscharged_tweak_performance_match(), "Performance mode acted outside a match");
+        alignas(8) static unsigned char match[8];
+        g_pGame = reinterpret_cast<cGame*>(match);
+        Check(mscharged_tweak_performance_match(), "Performance mode did not act in a match");
         charged_configure_performance_mode(false);
-        Check(!mscharged_tweak_performance_mode(), "Performance mode could not be disabled");
+        Check(!mscharged_tweak_performance_mode() && !mscharged_tweak_performance_match(),
+            "Performance mode could not be disabled");
+        g_pGame = nullptr;
         CheckOriginal("Tweaks off changed the original game");
         for (int tweak = -1; tweak < 33; ++tweak)
             Check(!mscharged_tweak_enabled(tweak), "A tweak is enabled while all are off");
