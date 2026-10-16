@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..1a1099f
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,94 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -40,9 +40,24 @@ index 0000000..1a1099f
 +    MSCHARGED_TWEAK_CPU_VS_CPU = 4,
 +    MSCHARGED_TWEAK_FAST_TERRAIN = 5,
 +    MSCHARGED_TWEAK_MIRROR_MATCH = 6,
++    MSCHARGED_TWEAK_THUNDER_ISLAND_WALLS = 7,
++    MSCHARGED_TWEAK_BLUE_PEACH = 8,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
++
++// Mirror match: away kits made for the captains the game has none for. The
++// colour (0xRRGGBB) and kit texture of a captain's generated kit, 0 when he
++// has none; the two teams whose sidekick and goalie textures tell the
++// team-coloured texels apart; and turning texture `source` of a loaded bundle
++// into the away kit in place, renamed `target`. Team textures compare with
++// texture `texture0`/`texture1` of the reference teams' bundles.
++unsigned mscharged_tweak_away_kit_colour(const char* captain);
++unsigned mscharged_tweak_away_kit_source(const char* captain);
++const char* mscharged_tweak_away_kit_reference(const char* captain, int index);
++bool mscharged_tweak_make_away_kit(const char* captain, bool team, void* bundle, unsigned long size, unsigned source,
++    unsigned target, const void* reference0, unsigned long size0, unsigned texture0, const void* reference1,
++    unsigned long size1, unsigned texture1);
 +
 +// Skip intro: whether the title screen still has to be passed this launch,
 +// and taking that single press of A.

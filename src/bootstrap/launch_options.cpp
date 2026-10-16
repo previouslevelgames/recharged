@@ -151,6 +151,11 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         result.settings.tweaks = {};
         result.tweaks_source = SettingSource::CommandLine;
     }
+    if (result.settings.performance_mode)
+    {
+        result.settings.resolution = "native";
+        result.settings.antialiasing = "off";
+    }
     return result;
 }
 
@@ -195,6 +200,7 @@ std::string DescribeLaunch(const ResolvedLaunch& launch)
         + " (" + SettingSourceName(launch.fullscreen_source) + "); aspect: "
         + launch.settings.aspect + " (" + SettingSourceName(launch.aspect_source) + "); frame rate: "
         + launch.settings.frame_rate + " (" + SettingSourceName(launch.frame_rate_source) + "); tweaks: "
-        + DescribeGameTweaks(launch.settings.GameTweakMask()) + " (" + SettingSourceName(launch.tweaks_source) + ")";
+        + DescribeGameTweaks(launch.settings.GameTweakMask()) + " (" + SettingSourceName(launch.tweaks_source)
+        + "); performance mode: " + (launch.settings.performance_mode ? "on" : "off");
 }
 }

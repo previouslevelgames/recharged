@@ -2,7 +2,7 @@
 """Exercise pinned, nonrecursive setup against disposable offline Git sources."""
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from setup_dependencies import DAWN_COMMON, DAWN_VULKAN, LAUNCHER, RUNTIME, SetupError, setup
+from setup_dependencies import DAWN_COMMON, DAWN_VULKAN, LAUNCHER, RETRY_DELAYS, RUNTIME, SetupError, setup
 
 
 class DependencySetupTests(unittest.TestCase):
@@ -126,6 +126,35 @@ class DependencySetupTests(unittest.TestCase):
         self.assertTrue(all(self.initialized(path) for path in LAUNCHER))
         self.assertTrue(all(not self.initialized(path) for path in RUNTIME if path not in LAUNCHER))
         self.assertFalse(self.initialized("extern/qtbase"))
+
+    def take_sources_offline(self):
+        offline = self.base / "leaf-offline"
+        self.leaf.rename(offline)
+        self.addCleanup(lambda: offline.exists() and offline.rename(self.leaf))
+        return offline
+
+    def test_unavailable_source_is_retried_until_it_answers(self):
+        offline = self.take_sources_offline()
+        waits = []
+
+        def back_online(seconds):
+            waits.append(seconds)
+            offline.rename(self.leaf)
+
+        with patch("setup_dependencies.time.sleep", side_effect=back_online), \
+                redirect_stderr(io.StringIO()) as messages:
+            self.run_setup(launcher=True, system="Linux")
+        self.assertEqual(waits, [RETRY_DELAYS[0]])
+        self.assertIn("attempt 1 of", messages.getvalue())
+        for path in LAUNCHER:
+            self.assert_leaf_pin(path)
+
+    def test_unavailable_source_fails_after_every_retry(self):
+        self.take_sources_offline()
+        with patch("setup_dependencies.time.sleep") as sleep, redirect_stderr(io.StringIO()), \
+                self.assertRaisesRegex(SetupError, "Dependency checkout failed"):
+            self.run_setup(launcher=True, system="Linux")
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], list(RETRY_DELAYS))
 
     def test_unstaged_and_staged_dependency_edits_preserved_before_any_update(self):
         self.git(self.root, "-c", "submodule.recurse=false", "submodule", "update", "--init", "--checkout", "--", "extern/nod")

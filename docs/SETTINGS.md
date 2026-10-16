@@ -57,9 +57,16 @@ log's `Frame rate:` line shows how frames are paced.
 **Picture.** *Sharp* (default) and *clean* fill the window with the game's
 picture; *soft* keeps the look of the Wii's TV signal, with its empty border.
 The 3D scene renders at the window's resolution by default, or at the Wii's
-640 x 448 or 2x-4x of it (`[display] resolution`). Antialiasing (4x) is on by
-default. The layout is 16:9 by default, or 4:3; resizing keeps it and fills
-unused space with bars.
+640 x 448 or 2x-4x of it (`[display] resolution`, only in `mscharged.ini`).
+Antialiasing (4x) is on by default. The layout is 16:9 by default, or 4:3;
+resizing keeps it and fills unused space with bars.
+
+**Performance mode** (the options button beside **Play**,
+`[display] performance_mode`) uses the Wii's native 640 x 448 3D render size,
+turns off 4x antialiasing, and skips decorative crowd and background NPC draws.
+The setting does not change player, hazard or weather simulation, and restores
+your saved render-size and antialiasing preferences when turned off. This first
+version does not reduce weather particles or lighting effects.
 
 **Performance overlay** (Display) shows `FPS | GPU | CPU | LAT` in a corner of
 your choice, also in fullscreen. GPU and CPU are total system usage, including
@@ -177,9 +184,11 @@ graphics adapter, warnings and errors. Attach it to an
 problem; it can contain your user name in paths. **Advanced → Log detail** and
 **Verbose console** add more detail.
 
-**Advanced → Diagnostics & analytics → Frame logging**
+**Advanced → Diagnostics & analytics → Performance stats**
 (`[advanced] frame_logging`) records frame times: each session writes a
 `frame-times_<timestamp>_<process>.csv` beside the program, with one row per
 game frame (frame time, game-thread and process CPU, presents, draws, pipeline
 creations), and a `.csv.summary.txt` with the distribution and longest frames
-on exit. **Frame recordings → Open folder** opens that location.
+on exit. Each row also names the arena being played, and the summary starts
+with the version and settings, then repeats the figures for every arena, so
+testers can compare arenas. **Frame recordings → Open folder** opens that location.

@@ -35,7 +35,11 @@ struct FrameTimingRecord {
     std::uint32_t pipelines_queued = 0;
     std::uint32_t texture_upload_bytes = 0;
     std::uint64_t fifo_bytes = 0;
+    int arena = -1;                  // stadium of the match being played, -1 outside matches
 };
+
+// Name of a stadium id as shown in the game; "Menus" for -1.
+const char* ArenaName(int stadium);
 
 // Opt-in per-frame timing log: advanced.frame_logging writes one CSV row per
 // original game frame and, on exit, a summary of the frame-interval distribution
@@ -57,6 +61,11 @@ public:
     void BeginFrame();
     void EndFrame(const FrameTimingCounters& counters);
 
+    // Settings text for the top of the summary (no paths or user names), and
+    // the arena of the match being played, tagged on every following frame.
+    void SetContext(std::string context) { context_ = std::move(context); }
+    void SetArena(int stadium) { arena_ = stadium; }
+
     // Completes the log (pending frame, file, summary) once; the destructor
     // calls it. FinishForProcessExit completes the active log before an
     // _Exit that skips destructors, on the thread that runs the frames.
@@ -72,6 +81,8 @@ private:
     std::FILE* file_;
     std::filesystem::path path_;
     bool finished_ = false;
+    std::string context_;
+    int arena_ = -1;
     std::vector<FrameTimingRecord> records_;
     std::uint64_t next_index_ = 0;
     bool has_previous_ = false;

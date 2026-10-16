@@ -64,6 +64,8 @@ constexpr std::size_t kMaxRecords = 4u << 20; // about 4.5 hours at 60 frames/s
 
 FrameTimingLog* g_active_log = nullptr;
 
+std::string SummarizeRecords(const std::vector<FrameTimingRecord>& records_);
+
 std::FILE* OpenLog(const std::filesystem::path& path)
 {
 #if defined(_WIN32)
@@ -74,6 +76,15 @@ std::FILE* OpenLog(const std::filesystem::path& path)
 }
 
 } // namespace
+
+const char* ArenaName(int stadium)
+{
+    static const char* const names[] = {"Battledome", "Bowser Stadium", "Crater Field", "Crystal Canyon", "The Dump",
+        "Galactic Stadium", "Konga Coliseum", "Lava Pit", "Pipeline Central", "Storm Ship", "The Palace",
+        "Thunder Island", "Underground", "Vice", "Wastelands", "Sand Tomb", "Tutorial Field", "Low Poly Stadium"};
+    if (stadium < 0) return "Menus";
+    return stadium < 18 ? names[stadium] : "Unknown";
+}
 
 std::unique_ptr<FrameTimingLog> FrameTimingLog::FromSettings(bool enabled,
     const std::filesystem::path& executable_directory)
@@ -119,7 +130,7 @@ FrameTimingLog::FrameTimingLog(std::FILE* file, std::filesystem::path path) : fi
 {
     if (file_)
         std::fputs("frame,start_ms,duration_ms,game_ms,game_cpu_ms,process_cpu_ms,vi_fields,presents,draws,"
-                   "pipelines_created,pipelines_queued,texture_upload_kb,fifo_mib,steady_ns\n",
+                   "pipelines_created,pipelines_queued,texture_upload_kb,fifo_mib,steady_ns,arena\n",
                    file_);
 }
 
@@ -185,6 +196,7 @@ void FrameTimingLog::EndFrame(const FrameTimingCounters& counters)
     record.pipelines_queued = counters.pipelines_queued;
     record.texture_upload_bytes = counters.texture_upload_bytes;
     record.fifo_bytes = counters.fifo_bytes;
+    record.arena = arena_;
     if (has_previous_) {
         record.vi_fields = counters.retraces - previous_counters_.retraces;
         record.presents = static_cast<std::uint32_t>(counters.presents - previous_counters_.presents);
@@ -204,15 +216,36 @@ void FrameTimingLog::Add(const FrameTimingRecord& record)
     const std::int64_t origin = records_.empty() ? record.start_ns : records_.front().start_ns;
     std::fprintf(file_,
                  "%" PRIu64 ",%.3f,%.3f,%.3f,%.3f,%.3f,%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32
-                 ",%.1f,%.2f,%" PRId64 "\n",
+                 ",%.1f,%.2f,%" PRId64 ",%s\n",
                  record.index, Ms(record.start_ns - origin), Ms(record.duration_ns), Ms(record.game_ns),
                  Ms(record.game_cpu_ns), Ms(record.process_cpu_ns), record.vi_fields, record.presents, record.draws,
                  record.pipelines_created, record.pipelines_queued, record.texture_upload_bytes / 1024.0,
-                 record.fifo_bytes / 1048576.0, record.start_ns);
+                 record.fifo_bytes / 1048576.0, record.start_ns, ArenaName(record.arena));
     if (record.index % 60 == 59) std::fflush(file_);
 }
 
 std::string FrameTimingLog::Summary() const
+{
+    std::string text = context_.empty() ? std::string() : context_ + "\n";
+    std::vector<int> arenas;
+    for (const auto& record : records_)
+        if (record.arena >= 0 && std::find(arenas.begin(), arenas.end(), record.arena) == arenas.end())
+            arenas.push_back(record.arena);
+    if (arenas.empty()) return text + SummarizeRecords(records_);
+    // Menus are part of the whole-session figures only; each arena is judged on its own frames.
+    text += SummarizeRecords(records_);
+    for (const int arena : arenas) {
+        std::vector<FrameTimingRecord> own;
+        for (const auto& record : records_)
+            if (record.arena == arena) own.push_back(record);
+        text += std::string("\n=== Arena: ") + ArenaName(arena) + " ===\n" + SummarizeRecords(own);
+    }
+    return text;
+}
+
+namespace {
+
+std::string SummarizeRecords(const std::vector<FrameTimingRecord>& records_)
 {
     std::string text;
     char line[256];
@@ -283,5 +316,7 @@ std::string FrameTimingLog::Summary() const
     }
     return text;
 }
+
+} // namespace
 
 } // namespace mscharged::runtime

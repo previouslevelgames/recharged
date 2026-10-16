@@ -60,7 +60,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag
+    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -83,6 +83,8 @@ bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled,
                    bool glow = false);
 bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enabled = true,
                      Icon icon = Icon::None);
+// Text button without a frame until hovered, for quiet actions next to a primary button.
+bool GhostButton(const char* id, const char* label, ImVec2 size, bool enabled = true, Icon icon = Icon::None);
 bool Toggle(const char* id, bool* value);
 bool Segmented(const char* id, int* selected, std::initializer_list<const char*> items, float width);
 // Segments with an icon each; the selected one takes its item's tint. `glass`

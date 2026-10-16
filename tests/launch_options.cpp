@@ -157,11 +157,27 @@ int main()
             Reject([&] { Parse({"test", bad}); });
         {
             const auto paced = root / "config/paced.ini";
-            std::ofstream(paced, std::ios::binary) << "[display]\nframe_rate = 144\n";
+            std::ofstream(paced, std::ios::binary) << "[display]\nframe_rate = 144\nresolution = 2x\n"
+                "antialiasing = 4x\nperformance_mode = false\n";
             const auto pacedFile = LoadConfig(paced);
             const auto played = ResolveLaunch(pacedFile, {});
             Check(played.settings.frame_rate == "144" && played.frame_rate_source == SettingSource::Config
                 && DescribeLaunch(played).find("frame rate: 144 (INI)") != std::string::npos, "INI frame rate not resolved");
+            Check(played.settings.resolution == "2x" && played.settings.antialiasing == "4x"
+                && !played.settings.performance_mode, "Disabled performance mode changed display choices");
+            auto performanceDraft = pacedFile.settings;
+            performanceDraft.performance_mode = true;
+            const auto performance = ResolveLaunch(pacedFile, {}, &performanceDraft);
+            Check(performance.settings.performance_mode && performance.settings.resolution == "native"
+                && performance.settings.antialiasing == "off"
+                && performanceDraft.resolution == "2x" && performanceDraft.antialiasing == "4x"
+                && pacedFile.settings.resolution == "2x" && pacedFile.settings.antialiasing == "4x"
+                && DescribeLaunch(performance).find("performance mode: on") != std::string::npos,
+                "Performance mode did not apply a run-only lower-cost render profile");
+            performanceDraft.performance_mode = false;
+            const auto restored = ResolveLaunch(pacedFile, {}, &performanceDraft);
+            Check(restored.settings.resolution == "2x" && restored.settings.antialiasing == "4x",
+                "Turning performance mode off did not restore the saved display choices");
             LaunchOptions run; run.frame_rate = "display";
             const auto overridden = ResolveLaunch(pacedFile, run);
             Check(overridden.settings.frame_rate == "display" && overridden.frame_rate_source == SettingSource::CommandLine,

@@ -130,20 +130,19 @@ std::string Megabytes(std::uint64_t bytes)
     return text;
 }
 
-// A tinted note with an icon and wrapped text, as wide as the content region.
+// A softly tinted note with an icon and wrapped text, as wide as the content region.
 void Callout(const std::string& text, const ImVec4& tint, Icon icon)
 {
     const auto& fonts = CurrentFonts();
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const float width = ImGui::GetContentRegionAvail().x, wrap = width - Dp(62);
+    const float width = ImGui::GetContentRegionAvail().x, wrap = width - Dp(58);
     const float size = FontSize(fonts.body);
-    const float height = fonts.body->CalcTextSizeA(size, FLT_MAX, wrap, text.c_str()).y + Dp(26);
+    const float height = fonts.body->CalcTextSizeA(size, FLT_MAX, wrap, text.c_str()).y + Dp(24);
     const ImVec2 max{pos.x + width, pos.y + height};
-    draw->AddRectFilled(pos, max, Col(Mix(color::card, tint, 0.09f)), Dp(12));
-    draw->AddRect(pos, max, Col(tint, 0.30f), Dp(12), 0, Dp(1));
-    DrawIcon(draw, icon, {pos.x + Dp(25), pos.y + Dp(13) + size * 0.5f}, Dp(17), Col(tint));
-    draw->AddText(fonts.body, size, {pos.x + Dp(46), pos.y + Dp(13)}, Col(Mix(color::muted, color::text, 0.8f)),
+    draw->AddRectFilled(pos, max, Col(tint, 0.075f), Dp(12));
+    DrawIcon(draw, icon, {pos.x + Dp(23), pos.y + Dp(12) + size * 0.5f}, Dp(16), Col(tint, 0.9f));
+    draw->AddText(fonts.body, size, {pos.x + Dp(44), pos.y + Dp(12)}, Col(Mix(color::muted, color::text, 0.7f)),
                   text.c_str(), nullptr, wrap);
     ImGui::Dummy({width, height});
 }
@@ -641,7 +640,8 @@ private:
 
     static Icon OfferIcon(OfferKind kind, const PublishedBuild& offer)
     {
-        if (kind == OfferKind::BackToRelease) return Icon::Back;
+        // What gets installed: a release (its tag, also for the way back), a test build or an update.
+        if (kind == OfferKind::BackToRelease) return Icon::Tag;
         return offer.test ? Icon::Flask : Icon::Download;
     }
 
@@ -862,7 +862,9 @@ private:
         return {};
     }
 
-    // What the offered build changes, and its download and installation.
+    // What the offered build changes, and its download and installation: a
+    // card over the dimmed launcher. Where the launcher fills the screen
+    // (Steam's Game Mode) the card keeps its size.
     void DrawUpdateDialog()
     {
         if (update_dialog_)
@@ -870,23 +872,98 @@ private:
             ImGui::OpenPopup("Update");
             update_dialog_ = false;
         }
-        const ImVec2 view = ImGui::GetMainViewport()->Size;
-        const float width = std::min(Dp(720), view.x - Dp(60));
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float width = std::min(Dp(640), viewport->Size.x - Dp(48));
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
         ImGui::SetNextWindowSize({width, 0});
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, Dp(16));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, std::max(1.0f, Dp(1)));
-        ImGui::PushStyleColor(ImGuiCol_Border, color::border);
+        // The contents draw the card and its shadow; the window itself is clear.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(30, 26));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
         if (ImGui::BeginPopupModal("Update", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
             | ImGuiWindowFlags_AlwaysAutoResize))
         {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
             if (update_.offer) DrawUpdateDialogContents(*update_.offer);
             else ImGui::CloseCurrentPopup();
+            ImGui::PopStyleVar();
             ImGui::EndPopup();
         }
         ImGui::PopStyleColor();
-        ImGui::PopStyleVar(3);
+        ImGui::PopStyleVar(2);
+    }
+
+    static ImVec4 DialogFill() { return Mix(color::card, color::field, 0.35f); }
+
+    // The dialog's card: a soft shadow, a fill a shade lighter than the
+    // launcher's cards, a hairline edge, and the offer's colour as a fine line
+    // along the top that fades out to both sides.
+    static void DrawDialogCard(const ImVec4& tint)
+    {
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 min = ImGui::GetWindowPos();
+        const ImVec2 max{min.x + ImGui::GetWindowWidth(), min.y + ImGui::GetWindowHeight()};
+        const float rounding = Dp(18);
+        draw->PushClipRectFullScreen();
+        for (int i = 0; i < 8; ++i)
+        {
+            const float grow = Dp(2.0f + 3.0f * float(i));
+            draw->AddRectFilled({min.x - grow, min.y - grow + Dp(14)}, {max.x + grow, max.y + grow + Dp(14)},
+                                Col(ImVec4{0, 0, 0, 1}, 0.075f - 0.008f * float(i)), rounding + grow);
+        }
+        draw->AddRectFilled(min, max, Col(DialogFill()), rounding);
+        draw->AddRect(min, max, Col(Mix(color::border, color::muted, 0.15f), 0.75f), rounding, 0,
+                      std::max(1.0f, Dp(1)));
+        const float mid = (min.x + max.x) * 0.5f, line = std::max(1.0f, Dp(1.5f));
+        const ImU32 clear = Col(tint, 0.0f), strong = Col(tint, 0.9f);
+        draw->AddRectFilledMultiColor({min.x + rounding, min.y}, {mid, min.y + line}, clear, strong, strong, clear);
+        draw->AddRectFilledMultiColor({mid, min.y}, {max.x - rounding, min.y + line}, strong, clear, clear, strong);
+        draw->PopClipRect();
+    }
+
+    // A hairline across the whole card at the cursor.
+    static void DialogDivider()
+    {
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float left = ImGui::GetWindowPos().x, right = left + ImGui::GetWindowWidth();
+        const float thickness = std::max(1.0f, Dp(1));
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->PushClipRectFullScreen();
+        draw->AddRectFilled({left + thickness, at.y}, {right - thickness, at.y + thickness}, Col(color::border, 0.8f));
+        draw->PopClipRect();
+        ImGui::Dummy({1.0f, thickness});
+    }
+
+    // A release's title without what the headline already says: CI names
+    // releases "Mario Strikers Charged Native Port <version>" (build.yml).
+    static std::string ReleaseSubtitle(std::string title, const PortVersion& version)
+    {
+        const std::string number = VersionNumber(version);
+        for (const std::string& part : {"v" + number, number, std::string("Mario Strikers Charged Native Port")})
+            if (const auto at = title.find(part); at != std::string::npos) title.erase(at, part.size());
+        const auto separator = [](char c) { return c == ' ' || c == '-' || c == ':' || c == '|'; };
+        while (!title.empty() && separator(title.front())) title.erase(title.begin());
+        while (!title.empty() && separator(title.back())) title.pop_back();
+        // An en dash ("1.0.11 – Mirror matches") leaves its UTF-8 bytes in front.
+        if (title.rfind("\xE2\x80\x93", 0) == 0) title = ReleaseSubtitle(title.substr(3), version);
+        return title;
+    }
+
+    static float PrimaryWidth(const char* label, Icon icon)
+    {
+        ImFont* font = CurrentFonts().label;
+        return TextSize(font, label).x + (icon == Icon::None ? 0.0f : FontSize(font) * 0.82f + Dp(10)) + Dp(44);
+    }
+
+    static float GhostWidth(const char* label, Icon icon)
+    {
+        return TextSize(CurrentFonts().body, label).x + (icon == Icon::None ? 0.0f : Dp(24)) + Dp(28);
+    }
+
+    // Escape, or B on a gamepad.
+    static bool CancelPressed()
+    {
+        return ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
     }
 
     void DrawUpdateDialogContents(const PublishedBuild& offer)
@@ -899,52 +976,53 @@ private:
         const ImVec4 tint = OfferTint(kind, offer);
         const PackageAsset* asset = offer.PackageFor(self.package);
         auto* draw = ImGui::GetWindowDrawList();
+        DrawDialogCard(tint);
+        const float right_edge = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
 
-        // A wash of the offer's colour behind the header, fading downwards.
-        {
-            const ImVec2 corner = ImGui::GetWindowPos();
-            const float band = Dp(150);
-            const int first = draw->VtxBuffer.Size;
-            draw->AddRectFilled(corner, {corner.x + ImGui::GetWindowWidth(), corner.y + band}, Col(tint, 0.10f), Dp(16),
-                                ImDrawFlags_RoundCornersTop);
-            for (int i = first; i < draw->VtxBuffer.Size; ++i)
-            {
-                ImDrawVert& vertex = draw->VtxBuffer[i];
-                const float fade = std::clamp(1.0f - (vertex.pos.y - corner.y) / band, 0.0f, 1.0f);
-                const auto alpha = ImU32(float((vertex.col >> IM_COL32_A_SHIFT) & 0xFF) * fade);
-                vertex.col = (vertex.col & ~IM_COL32_A_MASK) | (alpha << IM_COL32_A_SHIFT);
-            }
-        }
-
-        // Header: the offer's icon, what it is and its title.
+        // Header: the offer's icon in a soft halo, what kind of build it is, which one and its title.
+        const char* overline = "";
         std::string headline;
         switch (kind)
         {
         case OfferKind::Update:
-            headline = offer.test ? "New test build of pull request #" + std::to_string(offer.pull_request)
-                                  : "Version " + VersionNumber(offer.version) + " is available";
+            overline = offer.test ? "NEW TEST BUILD" : "UPDATE AVAILABLE";
+            headline = offer.test ? "Pull request #" + std::to_string(offer.pull_request)
+                                  : "Version " + VersionNumber(offer.version);
             break;
-        case OfferKind::TestBuild: headline = "Test build of pull request #" + std::to_string(offer.pull_request); break;
-        case OfferKind::BackToRelease: headline = "Back to release " + VersionNumber(offer.version); break;
+        case OfferKind::TestBuild:
+            overline = "INSTALL TEST BUILD";
+            headline = "Pull request #" + std::to_string(offer.pull_request);
+            break;
+        case OfferKind::BackToRelease:
+            overline = "INSTALL RELEASE";
+            headline = "Version " + VersionNumber(offer.version);
+            break;
         }
-        const std::string title = offer.test && status.pull && !status.pull->title.empty() ? status.pull->title
-                                                                                           : offer.title;
+        const std::string title = offer.test ? (status.pull && !status.pull->title.empty() ? status.pull->title
+                                                                                           : offer.title)
+                                             : ReleaseSubtitle(offer.title, offer.version);
         const ImVec2 top = ImGui::GetCursorScreenPos();
-        const float badge = Dp(48);
-        const ImVec2 badge_center{top.x + badge * 0.5f, top.y + badge * 0.5f};
-        draw->AddCircleFilled(badge_center, badge * 0.5f, Col(Mix(color::card, tint, 0.18f)));
-        draw->AddCircle(badge_center, badge * 0.5f, Col(tint, 0.45f), 0, Dp(1));
-        DrawIcon(draw, OfferIcon(kind, offer), badge_center, Dp(22), Col(tint));
-        ImGui::SetCursorScreenPos({top.x + badge + Dp(16), top.y + (title.empty() ? Dp(12) : Dp(1))});
+        const float disc = Dp(46);
+        const ImVec2 center{top.x + disc * 0.5f, top.y + Dp(2) + disc * 0.5f};
+        for (int i = 3; i >= 1; --i)
+            draw->AddCircleFilled(center, disc * 0.5f + Dp(6.0f * float(i)), Col(tint, 0.025f));
+        draw->AddCircleFilled(center, disc * 0.5f, Col(Mix(DialogFill(), tint, 0.16f)));
+        DrawIcon(draw, OfferIcon(kind, offer), center, Dp(21), Col(tint));
+        const float column = top.x + disc + Dp(20);
+        ImGui::SetCursorScreenPos({column, top.y});
         ImGui::BeginGroup();
+        DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f), overline, Dp(1.4f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(5)});
         TextColored(fonts.heading, color::text, headline.c_str());
-        if (!title.empty()) TextWrappedColored(fonts.body, Mix(color::muted, color::text, 0.55f), title.c_str());
-        ImGui::EndGroup();
-        const float header = std::max(badge, ImGui::GetItemRectMax().y - top.y);
-        ImGui::SetCursorScreenPos(top);
-        ImGui::Dummy({1.0f, header + Dp(14)});
+        if (!title.empty())
+        {
+            ImGui::Dummy({0, Dp(3)});
+            TextWrappedColored(fonts.body, Mix(color::muted, color::text, 0.45f), title.c_str());
+        }
+        ImGui::Dummy({0, Dp(10)});
 
-        // From the running build to the offered one; equal numbers differ in their commits.
+        // From the running build to the offered one (equal numbers differ in
+        // their commits), then the date and the download's size.
         const PortVersion mine = ParsePortVersion(self.version);
         const bool same_number = CompareVersions(mine, offer.version) == 0;
         auto describe = [same_number](const PortVersion& version, const std::string& what) {
@@ -955,30 +1033,37 @@ private:
         const std::string mine_what = self.origin == BuildOrigin::Release ? "Release"
             : self.origin == BuildOrigin::Test ? "Test build #" + std::to_string(self.pull_request)
                                                : "Local build";
-        const Icon mine_icon = self.origin == BuildOrigin::Release ? Icon::Tag
-            : self.origin == BuildOrigin::Test                    ? Icon::Flask
-                                                                  : Icon::Info;
-        Chip(describe(mine, mine_what).c_str(), color::muted, mine_icon);
-        ImGui::SameLine(0, Dp(8));
+        const std::string from = describe(mine, mine_what);
+        const std::string to
+            = describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release");
+        const float caption = FontSize(fonts.caption);
+        TextColored(fonts.caption, color::muted, from.c_str());
+        ImGui::SameLine(0, Dp(10));
         {
             const ImVec2 at = ImGui::GetCursorScreenPos();
-            ImGui::Dummy(Dp(18, 26));
-            DrawChevron(draw, {at.x + Dp(9), at.y + Dp(13)}, Dp(14), Col(color::muted));
+            ImGui::Dummy({Dp(8), caption});
+            DrawChevron(draw, {at.x + Dp(4), at.y + caption * 0.55f}, Dp(10), Col(color::dim));
         }
-        ImGui::SameLine(0, Dp(8));
-        Chip(describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release")
-                 .c_str(),
-             tint, offer.test ? Icon::Flask : Icon::Tag);
+        ImGui::SameLine(0, Dp(10));
+        TextColored(fonts.caption, Mix(color::text, tint, 0.3f), to.c_str());
         std::string meta;
-        if (offer.published) meta = "Published " + LocalTime(offer.published);
+        if (offer.published) meta = LocalTime(offer.published);
         if (asset && asset->size) meta += (meta.empty() ? "" : "  \xC2\xB7  ") + Megabytes(asset->size);
         if (!meta.empty())
         {
-            ImGui::SameLine(0, Dp(16));
-            if (ImGui::GetContentRegionAvail().x < TextSize(fonts.caption, meta.c_str()).x) ImGui::NewLine();
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (Dp(26) - FontSize(fonts.caption)) * 0.5f);
-            TextColored(fonts.caption, color::muted, meta.c_str());
+            const float meta_width = TextSize(fonts.caption, meta.c_str()).x;
+            ImGui::SameLine(0, 0);
+            if (ImGui::GetCursorScreenPos().x + Dp(20) + meta_width > right_edge)
+            {
+                ImGui::NewLine();
+                ImGui::Dummy({0, Dp(3)});
+            }
+            else ImGui::SetCursorScreenPos({right_edge - meta_width, ImGui::GetCursorScreenPos().y});
+            TextColored(fonts.caption, color::dim, meta.c_str());
         }
+        ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({top.x, std::max(top.y + disc + Dp(4), ImGui::GetItemRectMax().y)});
+        ImGui::Dummy({0, Dp(20)});
 
         // A switch between test builds and releases says what it means.
         bool callout = false;
@@ -992,40 +1077,57 @@ private:
             if (kind == OfferKind::BackToRelease && !UpdatesItself(offer.version))
                 meaning += " Version " + VersionNumber(offer.version)
                     + " cannot update itself; newer versions are downloaded from the releases page.";
-            ImGui::Dummy({0, Dp(8)});
             Callout(meaning, tint, kind == OfferKind::TestBuild ? Icon::Warning : Icon::Info);
+            ImGui::Dummy({0, Dp(20)});
             callout = true;
         }
 
-        // The release notes, or the test build's pull request description.
-        ImGui::Dummy({0, Dp(10)});
+        // The release notes, or the test build's pull request description:
+        // no frame, the text fades out where it scrolls.
         DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim),
                     offer.test ? "PULL REQUEST" : "RELEASE NOTES", Dp(1.2f));
-        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(4)});
+        ImGui::Dummy({0, caption + Dp(10)});
         const std::string& source = offer.test && status.pull ? status.pull->body : offer.notes;
         if (source != notes_source_)
         {
             notes_source_ = source;
             notes_ = ParseReleaseNotes(source);
         }
-        // The notes take what the window leaves after the other parts.
-        float notes_height = ImGui::GetMainViewport()->Size.y * 0.40f;
+        float notes_height = ImGui::GetMainViewport()->Size.y * 0.36f;
         if (callout) notes_height -= Dp(64);
         if (status.state == State::InstallFailed || !status.install_blocker.empty()) notes_height -= Dp(56);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, Mix(color::window, color::card, 0.6f));
-        ImGui::PushStyleColor(ImGuiCol_Border, Mix(color::border, color::window, 0.3f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, Dp(12));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(18, 14));
-        ImGui::BeginChild("##notes", {ImGui::GetContentRegionAvail().x, std::clamp(notes_height, Dp(110), Dp(400))},
-                          ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
-        if (notes_.empty()) TextWrappedColored(fonts.body, color::muted, "No notes were published for this build.");
-        else DrawReleaseNotes(notes_, ImGui::GetContentRegionAvail().x);
+        ImGui::SetNextWindowSizeConstraints({0, Dp(24)}, {FLT_MAX, std::clamp(notes_height, Dp(90), Dp(340))});
+        ImGui::BeginChild("##notes", {ImGui::GetContentRegionAvail().x, 0}, ImGuiChildFlags_AutoResizeY);
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            const float text_width = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(10) : 0);
+            if (notes_.empty())
+                TextWrappedColored(fonts.body, color::muted, "No notes were published for this build.");
+            else DrawReleaseNotes(notes_, text_width);
+            ImGui::PopStyleVar();
+            // The right stick scrolls the notes.
+            const float stick = ImGui::GetKeyData(ImGuiKey_GamepadRStickDown)->AnalogValue
+                - ImGui::GetKeyData(ImGuiKey_GamepadRStickUp)->AnalogValue;
+            if (std::fabs(stick) > 0.15f)
+                ImGui::SetScrollY(ImGui::GetScrollY() + stick * Dp(700) * ImGui::GetIO().DeltaTime);
+            const float scroll = ImGui::GetScrollY(), scroll_max = ImGui::GetScrollMaxY();
+            if (scroll_max > 0.0f)
+            {
+                auto* notes_draw = ImGui::GetWindowDrawList();
+                const ImVec2 at = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+                const float fade = Dp(30), right = at.x + size.x - ImGui::GetStyle().ScrollbarSize;
+                const ImU32 solid = Col(DialogFill()), clear = Col(DialogFill(), 0.0f);
+                if (scroll < scroll_max - 0.5f)
+                    notes_draw->AddRectFilledMultiColor({at.x, at.y + size.y - fade}, {right, at.y + size.y}, clear,
+                                                        clear, solid, solid);
+                if (scroll > 0.5f)
+                    notes_draw->AddRectFilledMultiColor(at, {right, at.y + fade}, solid, solid, clear, clear);
+            }
+        }
         ImGui::EndChild();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor(2);
-        ImGui::Dummy({0, Dp(12)});
+        ImGui::Dummy({0, Dp(18)});
 
-        // Progress, problems, then the buttons.
+        // Progress or problems, above the footer.
         const bool busy = status.state == State::Downloading || status.state == State::Installing
             || status.state == State::Installed;
         if (status.state == State::Downloading)
@@ -1034,12 +1136,12 @@ private:
             const float bar = ImGui::GetContentRegionAvail().x;
             const float fraction = status.total ? std::min(1.0f, float(double(status.received) / double(status.total)))
                                                 : 0.0f;
-            draw->AddRectFilled(pos, {pos.x + bar, pos.y + Dp(8)}, Col(color::field), Dp(4));
+            draw->AddRectFilled(pos, {pos.x + bar, pos.y + Dp(4)}, Col(color::field), Dp(2));
             if (fraction > 0.0f)
-                FillGradient(draw, pos, {pos.x + std::max(Dp(8), bar * fraction), pos.y + Dp(8)},
-                             Col(Mix(color::accent_dark, color::accent, 0.55f)), Col(color::accent), Dp(4), true);
-            ImGui::Dummy({bar, Dp(8)});
-            ImGui::Dummy({0, Dp(2)});
+                FillGradient(draw, pos, {pos.x + std::max(Dp(4), bar * fraction), pos.y + Dp(4)},
+                             Col(Mix(color::accent_dark, color::accent, 0.55f)), Col(color::accent), Dp(2), true);
+            ImGui::Dummy({bar, Dp(4)});
+            ImGui::Dummy({0, Dp(8)});
             const std::string progress = "Downloading  \xC2\xB7  " + Megabytes(status.received)
                 + (status.total ? " of " + Megabytes(status.total) : std::string());
             const float line = ImGui::GetCursorScreenPos().y;
@@ -1050,67 +1152,93 @@ private:
                 DrawLabel(draw, fonts.caption, {pos.x + bar - TextSize(fonts.caption, percent.c_str()).x, line},
                           Col(color::text), percent.c_str());
             }
-            ImGui::Dummy({0, Dp(6)});
-        }
-        else if (status.state == State::Installing || status.state == State::Installed)
-        {
-            const ImVec2 pos = ImGui::GetCursorScreenPos();
-            Spinner({pos.x + Dp(8), pos.y + FontSize(fonts.body) * 0.5f}, Dp(7), Col(color::info));
-            ImGui::SetCursorScreenPos({pos.x + Dp(24), pos.y});
-            TextColored(fonts.body, color::text, status.state == State::Installing ? "Installing..." : "Installed.");
-            ImGui::Dummy({0, Dp(6)});
+            ImGui::Dummy({0, Dp(18)});
         }
         else if (status.state == State::InstallFailed)
         {
             Callout(status.error, color::danger, Icon::Error);
-            ImGui::Dummy({0, Dp(10)});
+            ImGui::Dummy({0, Dp(18)});
         }
-        else if (!status.install_blocker.empty())
+        else if (!status.install_blocker.empty() && !busy)
         {
             Callout(status.install_blocker + " Download the package and unpack it over this folder instead.",
                     color::muted, Icon::Info);
-            ImGui::Dummy({0, Dp(10)});
+            ImGui::Dummy({0, Dp(18)});
         }
-
-        if (status.state == State::Installed && dirty_)
+        const bool ask_to_save = status.state == State::Installed && dirty_;
+        if (ask_to_save)
         {
             // The launcher restarts into the new version; settings first.
             TextWrappedColored(fonts.body, color::text, "Save your settings changes before the launcher restarts?");
-            ImGui::Dummy({0, Dp(4)});
-            if (PrimaryButton("update_save_restart", "Save and restart", Dp(190, 42), true)) Save();
+            ImGui::Dummy({0, Dp(18)});
+        }
+
+        // Footer: the build's page on GitHub on the left, the actions on the right.
+        DialogDivider();
+        ImGui::Dummy({0, Dp(18)});
+        const float row = ImGui::GetCursorScreenPos().y, height = Dp(40);
+        auto align_right = [&](float width) { ImGui::SetCursorScreenPos({right_edge - width, row}); };
+        if (ask_to_save)
+        {
+            const char *discard = "Discard and restart", *save = "Save and restart";
+            align_right(GhostWidth(discard, Icon::None) + Dp(10) + PrimaryWidth(save, Icon::None));
+            if (GhostButton("update_discard_restart", discard, {GhostWidth(discard, Icon::None), height})) Reload();
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("update_discard_restart", "Discard and restart", Dp(190, 42))) Reload();
+            if (PrimaryButton("update_save_restart", save, {PrimaryWidth(save, Icon::None), height}, true)) Save();
+            ImGui::SetItemDefaultFocus();
         }
         else if (status.state == State::Downloading)
         {
-            if (SecondaryButton("update_cancel", "Cancel download", Dp(190, 42))) updates_->Cancel();
+            const char* cancel = "Cancel download";
+            align_right(GhostWidth(cancel, Icon::None));
+            if (GhostButton("update_cancel", cancel, {GhostWidth(cancel, Icon::None), height})) updates_->Cancel();
         }
-        else if (!busy)
+        else if (busy)
         {
-            if (status.install_blocker.empty())
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            Spinner({pos.x + Dp(8), pos.y + height * 0.5f}, Dp(7), Col(tint));
+            DrawLabel(draw, fonts.body, {pos.x + Dp(26), pos.y + (height - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), status.state == State::Installing ? "Installing..." : "Restarting...");
+            ImGui::Dummy({1.0f, height});
+        }
+        else
+        {
+            const std::string page = offer.test && status.pull && !status.pull->page.empty() ? status.pull->page
+                                                                                             : offer.page;
+            const char* github = "View on GitHub";
+            if (!page.empty())
             {
-                const char* action = kind == OfferKind::Update ? "Update now" : "Switch now";
-                if (status.state == State::InstallFailed) action = "Try again";
-                if (PrimaryButton("update_now", action, Dp(180, 42), true, Icon::Download)) updates_->Install();
-                if (ImGui::IsItemHovered())
+                if (GhostButton("update_github", github, {GhostWidth(github, Icon::GitHub), height}, true,
+                                Icon::GitHub))
+                    SDL_OpenURL(page.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", page.c_str());
+            }
+            const char* action = nullptr;
+            if (status.install_blocker.empty())
+                action = status.state == State::InstallFailed ? "Try again"
+                    : kind == OfferKind::Update               ? "Update now"
+                                                              : "Switch now";
+            else if (asset) action = "Download";
+            const char* later = "Later";
+            const float later_width = GhostWidth(later, Icon::None);
+            const float action_width = action ? PrimaryWidth(action, Icon::Download) : 0.0f;
+            align_right(later_width + (action ? Dp(10) + action_width : 0.0f));
+            if (GhostButton("update_later", later, {later_width, height}) || CancelPressed())
+                ImGui::CloseCurrentPopup();
+            if (action)
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("update_now", action, {action_width, height}, true, Icon::Download))
+                {
+                    if (status.install_blocker.empty()) updates_->Install();
+                    else SDL_OpenURL(asset->url.c_str());
+                }
+                if (ImGui::IsItemHovered() && status.install_blocker.empty())
                     ImGui::SetTooltip("Downloads %s, replaces the program files and restarts the launcher.\n"
                                       "Your settings, saves and logs stay.",
                                       asset ? asset->name.c_str() : "the package");
+                ImGui::SetItemDefaultFocus();
             }
-            else if (asset)
-            {
-                if (PrimaryButton("update_download", "Download", Dp(180, 42), true, Icon::Download))
-                    SDL_OpenURL(asset->url.c_str());
-            }
-            ImGui::SameLine(0, Dp(10));
-            const std::string page = offer.test && status.pull && !status.pull->page.empty() ? status.pull->page
-                                                                                             : offer.page;
-            if (SecondaryButton("update_github", offer.test ? "Pull request" : "Release page", Dp(170, 42),
-                                !page.empty(), Icon::GitHub))
-                SDL_OpenURL(page.c_str());
-            ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("update_later", "Later", Dp(110, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
-                ImGui::CloseCurrentPopup();
         }
     }
 
@@ -1600,7 +1728,30 @@ private:
         if (PrimaryButton("play", "PLAY", Dp(230, 62), blocker.empty(), Icon::Play, true)) Play(quit);
         if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", blocker.c_str());
-        const float status_x = origin.x + pad + Dp(230) + Dp(24);
+        ImGui::SameLine(0, Dp(6));
+        if (SecondaryButton("play_options", "", Dp(52, 62), true, Icon::Sliders))
+            ImGui::OpenPopup("play_options_menu");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play options");
+        if (ImGui::BeginPopup("play_options_menu"))
+        {
+            ImGui::TextDisabled("PLAY OPTIONS");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Performance mode", nullptr, draft_.performance_mode))
+            {
+                draft_.performance_mode = !draft_.performance_mode;
+                dirty_ = true;
+            }
+            ImGui::TextWrapped("Uses native 640 x 448 rendering, disables 4x antialiasing, and omits decorative crowd "
+                               "and background model draws. Weather, hazards, and match simulation are unchanged.");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Display settings"))
+            {
+                page_ = PageDisplay;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        const float status_x = origin.x + pad + Dp(230 + 6 + 52 + 24);
         ImGui::SetCursorScreenPos({status_x, button_y + Dp(8)});
         DrawPlayStatus(blocker);
 
@@ -1706,6 +1857,7 @@ private:
         std::string aspect = s.aspect == "auto" ? "Automatic aspect" : s.aspect;
         std::string detail = aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off");
         if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
+        if (s.performance_mode) detail += "  -  Performance mode";
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
                 detail, color::info};
     }
@@ -1863,7 +2015,7 @@ private:
                 "The port currently runs Mario Strikers Charged for the USA (R4QE01). The European, "
                 "Japanese and Korean versions need their own decompilation work and should follow soon.");
             ImGui::Dummy({0, Dp(10)});
-            if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || ImGui::IsKeyPressed(ImGuiKey_Escape)
+            if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || CancelPressed()
                 || ImGui::IsKeyPressed(ImGuiKey_Enter))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
@@ -1901,7 +2053,7 @@ private:
                 if (config_ok_ && PlayBlocker().empty()) Start(quit);
             }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("cancel_play", "Cancel", Dp(100, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            if (SecondaryButton("cancel_play", "Cancel", Dp(100, 42)) || CancelPressed())
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -1929,7 +2081,7 @@ private:
             ImGui::SameLine(0, Dp(10));
             if (SecondaryButton("discard", "Discard", Dp(110, 42))) { quit = true; ImGui::CloseCurrentPopup(); }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("cancel", "Cancel", Dp(100, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            if (SecondaryButton("cancel", "Cancel", Dp(100, 42)) || CancelPressed())
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -2123,7 +2275,7 @@ private:
                 ImportDolphinSave();
             }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("import_cancel", "Cancel", Dp(100, 42)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            if (SecondaryButton("import_cancel", "Cancel", Dp(100, 42)) || CancelPressed())
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -2224,6 +2376,12 @@ private:
     void DisplayPage()
     {
         PageHeader("Display", "How the game window opens and how sharply the game is drawn.");
+        if (draft_.performance_mode)
+        {
+            Chip("Performance mode uses 640 x 448 rendering and disables 4x antialiasing. Your saved display "
+                 "preferences return when it is off.", color::info, Icon::Display);
+            ImGui::Dummy({0, Dp(4)});
+        }
         const auto run = EffectiveLaunch().settings;
         if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect || options_.launch.frame_rate)
         {
@@ -2278,15 +2436,8 @@ private:
             if (Segmented("##sharpness", &picture, {"Soft (TV)", "Clean", "Sharp"}, ImGui::GetContentRegionAvail().x))
             { draft_.picture = pictures[picture]; dirty_ = true; }
 
-            Row("3D resolution", "Window renders the game at your window's own resolution, the sharpest picture. "
-                "Native is the Wii's 640 x 448; 2x-4x are fixed multiples for slower graphics cards.");
-            const char* resolutions[] = {"window", "native", "2x", "3x", "4x"};
-            int resolution = 0;
-            for (int i = 0; i < 5; ++i) if (draft_.resolution == resolutions[i]) resolution = i;
-            if (Segmented("##resolution", &resolution, {"Window", "Native", "2x", "3x", "4x"},
-                          ImGui::GetContentRegionAvail().x))
-            { draft_.resolution = resolutions[resolution]; dirty_ = true; }
-
+            // The 3D resolution ([display] resolution) has no row: window, the
+            // default, is the best choice; the INI can still set another.
             Row("Antialiasing", "Smooths the jagged edges of 3D shapes (4x multisampling). Costs some GPU time.");
             bool antialiasing = draft_.antialiasing == "4x";
             if (Toggle("##antialiasing", &antialiasing))
@@ -2523,8 +2674,9 @@ private:
         // Mac), so only those that fit the chosen display are offered.
         struct Group { const char* title; std::vector<std::array<int, 2>> sizes; };
         static const std::array<Group, 4> groups{{
-            // The Wii picture is 640 x 448 (480p); at 3D resolution Native,
-            // whole multiples of it stay sharpest.
+            // The Wii picture is 640 x 448 (480p); at 3D resolution native
+            // ([display] resolution in the INI), whole multiples of it stay
+            // sharpest.
             {"Wii output (480p and multiples)", {{640, 480}, {854, 480}, {1280, 960}, {1708, 960}, {1920, 1440}, {2562, 1440}}},
             {"16:9", {{1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}}},
             {"16:10", {{1280, 800}, {1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600}}},
@@ -3695,11 +3847,20 @@ private:
         BeginCard("##matches", "Matches & unlocks", nullptr, Icon::Target);
         if (BeginRows("##matches_rows"))
         {
-            TweakRow(GameTweak::NoMegaStrikes);
             TweakRow(GameTweak::CpuVsCpu);
             TweakRow(GameTweak::MirrorMatch);
-            TweakRow(GameTweak::FastTerrain);
+            TweakRow(GameTweak::BluePeach);
             TweakRow(GameTweak::UnlockAll);
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##competitive", "Competitive gameplay", nullptr, Icon::Trophy);
+        if (BeginRows("##competitive_rows"))
+        {
+            TweakRow(GameTweak::FastTerrain);
+            TweakRow(GameTweak::ThunderIslandWalls);
+            TweakRow(GameTweak::NoMegaStrikes);
             EndRows();
         }
         EndCard();
@@ -3779,7 +3940,7 @@ private:
         BeginCard("##diagnostics", "Diagnostics & analytics", "Local tools for investigating performance and graphics issues.", Icon::Info);
         if (BeginRows("##diagnostic_rows"))
         {
-            Row("Frame logging", "Records frame times for each game session. Saves a new CSV and summary beside the executable.");
+            Row("Performance stats", "Records frame times for each game session, with the arena and settings, and a summary per arena. Saves a CSV and summary beside the executable; testers can share them.");
             if (Toggle("##frame_logging", &draft_.frame_logging)) dirty_ = true;
 
             const auto recordingsFolder = PathUtf8(base_);

@@ -35,6 +35,9 @@ struct Settings
     // display.picture: soft (the TV signal, as on a Wii), clean (one smooth
     // pass to the window, no TV flicker filter) or sharp (square pixels).
     std::string picture = "sharp";
+    // display.performance_mode: lower the 3D render size to 640x448, turn off
+    // multisampling, and omit decorative crowd/background model draws.
+    bool performance_mode = false;
     // display.antialiasing: off or 4x (Aurora multisampling of the game's
     // frame; smooths polygon edges at any 3D resolution).
     std::string antialiasing = "4x";

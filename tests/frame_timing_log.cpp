@@ -82,6 +82,28 @@ int main()
                   "Longest frames are listed first");
         }
         {
+            // Frames tagged with an arena get their own summary after the context.
+            FrameTimingLog log(nullptr, {});
+            log.SetContext("Session: test\n");
+            std::int64_t start = 0;
+            for (unsigned n = 0; n < 20; ++n) {
+                FrameTimingRecord record;
+                record.index = n;
+                record.start_ns = start;
+                record.duration_ns = 16'700'000;
+                record.arena = n < 5 ? -1 : n < 12 ? 13 : 4;
+                log.Add(record);
+                start += record.duration_ns;
+            }
+            const std::string summary = log.Summary();
+            Check(summary.rfind("Session: test", 0) == 0, "Context leads the summary");
+            Check(Contains(summary, "=== Arena: Vice ===") && Contains(summary, "=== Arena: The Dump ==="),
+                  "Per-arena sections");
+            Check(Contains(summary, "7 original frames") && Contains(summary, "8 original frames"),
+                  "Arena frame counts");
+            Check(!Contains(summary, "Arena: Menus"), "Menus are not an arena");
+        }
+        {
             // Begin/End pairs: a frame's duration runs until the next frame starts and
             // counters are differences between consecutive frame ends.
             FrameTimingLog log(nullptr, {});

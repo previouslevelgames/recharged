@@ -13,45 +13,57 @@ CharacterLoader has a branch for one captain on both teams, which the
 retail game never reaches: it dresses the away team's captain and sidekicks
 in the captain's away kit. The tweak completes it:
 
-- Only some captains have an away kit with everything a team wears: those
-  the game dresses in it against a captain of their colours (Bowser, Bowser
-  Jr., Daisy, Diddy Kong, Donkey Kong, Petey and Yoshi). Mario, Luigi,
-  Wario and Waluigi have none on the disc, and Peach's lacks her sidekick
-  portraits and Mega Strike hand. With them both teams wear the home kit;
-  the branch would have asked for sidekick textures that do not exist.
-- With an away kit, the away goalie wears it as well, and the away team
-  takes the away kit's colour and textures wherever the game picks them by
-  the opponent (NeedsAlternateColour, GetTeamColour): captain and sidekick
-  select, Choose Sides, the pointers, the holograms, the player indicators,
-  the defensive play overlay and the Mega Strike hand. Those checks cannot
-  tell two teams of one captain apart, so these hooks pass the team's side.
+- The away goalie wears the away kit as well.
+- Mario, Luigi, Wario and Waluigi have no away kit on the disc; the branch
+  would have asked for textures that do not exist. Their away kit is made as
+  the home kit loads (the port's src/platform/away_kits.cpp): the kit
+  texture of the captain's model and the team textures of his goalie and
+  sidekicks are recoloured into a white kit with red trim for Mario, sky blue
+  for Luigi, blue for Wario and orange for Waluigi, and registered under the
+  away kit's name. Sidekick and goalie team textures are compared with the
+  same texture of two other teams, read from the disc, so only their team
+  colour changes.
+- On the field the away team's colour is its kit's (the player indicators
+  and the defensive play overlay). In the menus (captain and sidekick select,
+  Choose Sides, the pointers, the holograms) and for the Mega Strike hand,
+  the away team takes the away kit's colour and textures where the game has
+  a complete away kit, the one a captain wears against a captain of his
+  colours (Bowser, Bowser Jr., Daisy, Diddy Kong, Donkey Kong, Petey and
+  Yoshi). Peach's blue kit has no sidekick portraits or Mega Strike hand, so
+  she wears it on the field only. NeedsAlternateColour and GetTeamColour
+  cannot tell two teams of one captain apart, so these hooks pass the side.
 - Choose Sides shows both teams' captain as holograms. An impostor's render
   targets are named after its character (ImpostorCharacter), so the away
   hologram would draw into the home one's targets, and destroying both
   would free them twice. A character already shown gets targets of its own.
 
-A captain on both teams otherwise loads like a sidekick kind on both
-teams, which the game allows: one template, and a sound bank slot per team.
+A captain on both teams otherwise loads like a sidekick kind on both teams,
+which the game allows: one template, and a sound bank slot per team.
 
 diff --git a/include/Game/DB/CharacterInfo.h b/include/Game/DB/CharacterInfo.h
-index 2eec3f5..f56514a 100644
+index 2eec3f5..f42c59b 100644
 --- a/include/Game/DB/CharacterInfo.h
 +++ b/include/Game/DB/CharacterInfo.h
-@@ -69,4 +69,17 @@ nlColour GetTeamColour(const CharacterInfo& team, const CharacterInfo& opponent,
+@@ -69,4 +69,22 @@ nlColour GetTeamColour(const CharacterInfo& team, const CharacterInfo& opponent,
  bool NeedsAlternateColour(const CharacterInfo& team, const CharacterInfo& opponent);
  bool CaptainsNeedAlternateColour(int captain, int opponentCaptain);
  
 +#if defined(MSCHARGED_TWEAKS)
 +// Port tweak "Mirror match": both teams may have the same captain. The away
-+// team (side 1) of such a match wears the captain's away kit if the game has
-+// one for him, the one he wears against a captain of his colours. Mario,
-+// Luigi, Peach, Wario and Waluigi have none, so both teams wear the home kit.
++// team (side 1) of such a match wears the captain's away kit, in the menus as
++// well if the game has a complete one for him: the one he wears against a
++// captain of his colours. Mario, Luigi, Peach, Wario and Waluigi have none,
++// so the menus show both teams in the home kit.
 +bool MirrorMatchAwayKit(int side, const CharacterInfo& team, const CharacterInfo& opponent);
 +bool MirrorMatchCaptainsAwayKit(int side, int captain, int opponentCaptain);
 +// The team colour that goes with the away kit.
 +nlColour GetAwayKitColour(const CharacterInfo& team);
-+// Whether the away team of such a match keeps the captain's home kit.
-+bool MirrorMatchKeepsHomeKit(const CharacterInfo& captain);
++// On the field every away team of such a match wears an away kit: for Mario,
++// Luigi, Wario and Waluigi one the port makes (CharacterLoader), and Peach's
++// blue kit, whose menu pictures and Mega Strike hand do not exist. Whether
++// the team on `side` wears one, and its team colour.
++bool MirrorMatchFieldKit(int side, const CharacterInfo& team, const CharacterInfo& opponent);
++nlColour GetFieldKitColour(const CharacterInfo& team);
 +#endif
 +
  #endif // GAME_DB_CHARACTERINFO_H
@@ -75,7 +87,7 @@ index 2517660..720b8c2 100644
          nlSNPrintf(texture, sizeof(texture), "%s/mega_hand_alt", m_pTeam->GetCaptain()->GetCharacterInfoData()->mName);
      }
 diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
-index a11d8c6..057cd36 100644
+index a11d8c6..bf0d373 100644
 --- a/src/Game/CharacterLoader.cpp
 +++ b/src/Game/CharacterLoader.cpp
 @@ -44,6 +44,7 @@
@@ -86,49 +98,142 @@ index a11d8c6..057cd36 100644
  
  static bool g_bLoadAnimsCached;
  
-@@ -793,7 +794,14 @@ bool CharacterLoader::StartLoadingSidekickSwapTexture()
-     captain1 = mCaptain[1];
-     if (captain0 == captain1)
-     {
--        if (mCurrent->nTeamID == 1)
-+        if (mCurrent->nTeamID == 1
+@@ -72,6 +73,79 @@ static inline eCharacterClass GetAlternateCaptain(eCharacterClass captain0, eCha
+     return altcaptain;
+ }
+ 
 +#if defined(MSCHARGED_TWEAKS)
-+            // Port tweak "Mirror match": the away team keeps the home kit if
-+            // the game has no away kit for the captain (none on the disc for
-+            // Mario, Luigi, Wario and Waluigi; no portraits or hand for Peach).
-+            && !MirrorMatchKeepsHomeKit(GetCharacterInfo(captain0))
++// Port tweak "Mirror match": in a match of one captain against himself the
++// away team (team 1) wears the captain's away kit. The game has one for most
++// captains (<captain>_alt.rlt, with the goalie's and sidekicks' textures to
++// go with it). For Mario, Luigi, Wario and Waluigi the port makes one from
++// the home kit's textures as they load (src/platform/away_kits.cpp).
++enum MirrorMatchTexture
++{
++    MIRROR_MATCH_KIT,
++    MIRROR_MATCH_SIDEKICK,
++    MIRROR_MATCH_GOALIE,
++};
++
++static bool MirrorMatchMakesAwayKit(eCharacterClass captain0, eCharacterClass captain1, int team)
++{
++    if (captain0 != captain1 || team != 1 || !mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH))
++    {
++        return false;
++    }
++    const char* szOwnKit = GetCharacterTemplateInfo(captain0)->szAlternateTextureFilename;
++    if (szOwnKit != 0 && nlFileExists(szOwnKit))
++    {
++        return false;
++    }
++    return mscharged_tweak_away_kit_source(GetCharacterInfo(captain0).mName) != 0;
++}
++
++// Turns texture `source` of a loaded home bundle into the away kit, renamed
++// `target`. Sidekick and goalie team textures are compared with the same
++// texture of two other teams, read from the disc.
++static void MirrorMatchMakeAwayKit(eCharacterClass captain, MirrorMatchTexture kind, const char* szFolder,
++    const char* szTexture, void* data, unsigned long size, unsigned long source, unsigned long target)
++{
++    const char* szCaptain = GetCharacterInfo(captain).mName;
++    void* references[2] = { 0, 0 };
++    unsigned long sizes[2] = { 0, 0 };
++    unsigned long textures[2] = { 0, 0 };
++    for (int i = 0; i < 2 && kind != MIRROR_MATCH_KIT; i++)
++    {
++        const char* szTeam = mscharged_tweak_away_kit_reference(szCaptain, i);
++        char szPath[64];
++        char szName[64];
++        if (kind == MIRROR_MATCH_SIDEKICK)
++        {
++            nlSNPrintf(szPath, 64, "art/characters/%s/%s_%s.rlt", szFolder, szTexture, szTeam);
++            nlSNPrintf(szName, 64, "%s_%s/%s_%s", szTexture, szTeam, szTexture, szTeam);
++        }
++        else
++        {
++            nlSNPrintf(szPath, 64, "art/characters/%sgoalie/%sgoalie.rlt", szTeam, szTeam);
++            nlSNPrintf(szName, 64, "%sgoalie/%sgoalie", szTeam, szTeam);
++        }
++        textures[i] = glGetTexture(szName);
++        if (nlFileExists(szPath))
++        {
++            references[i] = nlLoadEntireFile(szPath, &sizes[i], 32, AllocateStart, 0, 0, 0);
++        }
++    }
++    if (!mscharged_tweak_make_away_kit(szCaptain, kind != MIRROR_MATCH_KIT, data, size, source, target, references[0],
++            sizes[0], textures[0], references[1], sizes[1], textures[1]))
++    {
++        nlPrintf("Mirror match: the %s away kit keeps the home colours (texture %08lx)\n", szCaptain, source);
++    }
++    for (int i = 0; i < 2; i++)
++    {
++        if (references[i] != 0)
++        {
++            nlFree(references[i]);
++        }
++    }
++}
 +#endif
-+        )
-         {
-             nlSNPrintf(szArtPath, 64, "art/characters/%s/%s_%s_alt.rlt", szName, szTexName, szCaptainName);
-             nlSNPrintf(szPlayerPath, 64, "%s_%s_alt/%s_%s_alt", szTexName, szCaptainName, szTexName, szCaptainName);
-@@ -881,7 +889,12 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
-     altcaptain = mCaptain[1];
-     if (captain0 == altcaptain)
-     {
--        if (mCurrent->nTeamID == 1)
-+        if (mCurrent->nTeamID == 1
-+#if defined(MSCHARGED_TWEAKS)
-+            // Port tweak "Mirror match": as StartLoadingSidekickSwapTexture.
-+            && !MirrorMatchKeepsHomeKit(GetCharacterInfo(captain0))
-+#endif
-+        )
-         {
-             nlSNPrintf(szPlayerPath, 64, "%s_%s_alt/%s_%s_alt", szTexName, szCaptainName, szTexName, szCaptainName);
++
+ CharacterLoader::~CharacterLoader()
+ {
+ }
+@@ -819,6 +893,15 @@ bool CharacterLoader::StartLoadingSidekickSwapTexture()
          }
-@@ -1032,6 +1045,22 @@ bool CharacterLoader::HasAlternateSwapTexture()
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": a made away kit starts from the home team
++    // texture (the name stays the away kit's).
++    if (MirrorMatchMakesAwayKit(captain0, captain1, mCurrent->nTeamID))
++    {
++        nlSNPrintf(szArtPath, 64, "art/characters/%s/%s_%s.rlt", szName, szTexName, szCaptainName);
++    }
++#endif
++
+     mSidekickTextureData = 0;
+     mSidekickTextureSize = 0;
+     cCharacter* pChar = g_pCharacters[mCurrent->nCharIdx];
+@@ -861,6 +944,22 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
+     captaincc = mCaptain[pEntry->nTeamID];
+     cc = pEntry->cc;
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": make the away kit from the home team texture.
++    if (MirrorMatchMakesAwayKit(mCaptain[0], mCaptain[1], pEntry->nTeamID))
++    {
++        const char* szSidekick = GetCharacterInfo(cc).mName;
++        const char* szSidekickTexture = cc == 13 ? "hammer" : szSidekick;
++        const char* szTeam = GetCharacterInfo(captaincc).mName;
++        char szHomeTexture[64];
++        char szAwayTexture[64];
++        nlSNPrintf(szHomeTexture, 64, "%s_%s/%s_%s", szSidekickTexture, szTeam, szSidekickTexture, szTeam);
++        nlSNPrintf(szAwayTexture, 64, "%s_%s_alt/%s_%s_alt", szSidekickTexture, szTeam, szSidekickTexture, szTeam);
++        MirrorMatchMakeAwayKit(captaincc, MIRROR_MATCH_SIDEKICK, szSidekick, szSidekickTexture, mSidekickTextureData,
++            mSidekickTextureSize, glGetTexture(szHomeTexture), glGetTexture(szAwayTexture));
++    }
++#endif
++
+     glEndLoadTextureBundle(mSidekickTextureData, mSidekickTextureSize, glGetCurrentResourcePool(), false);
+     nlFree(mSidekickTextureData);
+     mSidekickTextureData = 0;
+@@ -1032,6 +1131,26 @@ bool CharacterLoader::HasAlternateSwapTexture()
          eCharacterClass captain0 = mCaptain[0];
          eCharacterClass captain1 = mCaptain[1];
          eCharacterClass altcaptain = CHARACTER_CLASS_INVALID;
 +#if defined(MSCHARGED_TWEAKS)
-+        // Port tweak "Mirror match": with one captain on both teams, the away
-+        // team's captain and goalie wear the away kit if the game has one for
-+        // him. (The developers' branch below left the goalie in the home kit.)
++        // Port tweak "Mirror match": the away team's captain and goalie wear
++        // the away kit, the game's own or a made one. (The developers' branch
++        // below left the goalie in the home kit.)
 +        if (captain0 == captain1 && mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH))
 +        {
-+            if (pEntry->nTeamID != 1 || MirrorMatchKeepsHomeKit(GetCharacterInfo(captain0)))
++            if (pEntry->nTeamID != 1)
 +            {
 +                return false;
++            }
++            if (MirrorMatchMakesAwayKit(captain0, captain1, pEntry->nTeamID))
++            {
++                return true;
 +            }
 +            const char* szFilename = pEntry->bCaptain
 +                ? GetCharacterTemplateInfo(captain1)->szAlternateTextureFilename
@@ -139,8 +244,56 @@ index a11d8c6..057cd36 100644
          if (captain0 == captain1)
          {
              if (pEntry->nTeamID == 1)
+@@ -1085,6 +1204,14 @@ bool CharacterLoader::StartLoadingCaptainOrGoalieAlternateSwapTexture()
+     {
+         szFilename = GetGoalieTemplateInfo(pEntry->cc - 20)->szAlternateTextureFilename;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": a made away kit starts from the home kit.
++    if (MirrorMatchMakesAwayKit(mCaptain[0], mCaptain[1], pEntry->nTeamID))
++    {
++        szFilename = pEntry->bCaptain ? GetCharacterTemplateInfo(pEntry->cc)->szTextureFilename
++                                      : GetGoalieTemplateInfo(pEntry->cc - 20)->szTextureFilename;
++    }
++#endif
+     glBeginLoadTextureBundle(szFilename, AlternateSwapTextureLoaded_cb, mCurrent, glGetCurrentResourcePool());
+     return true;
+ }
+@@ -1099,6 +1226,32 @@ bool CharacterLoader::FinalizeLoadingCaptainOrGoalieAlternateSwapTexture()
+         return false;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Mirror match": make the away kit from the home kit's
++    // texture. A captain's kit is the diffuse texture of his model; the goalie
++    // model's, mariogoalie/mariogoalie, takes his team's goalie texture.
++    if (MirrorMatchMakesAwayKit(mCaptain[0], mCaptain[1], mCurrent->nTeamID))
++    {
++        const char* szKit = GetCharacterInfo(mCurrent->cc).mName;
++        char szHomeTexture[64];
++        char szAwayTexture[64];
++        nlSNPrintf(szHomeTexture, 64, "%s/%s", szKit, szKit);
++        nlSNPrintf(szAwayTexture, 64, "%s_alt/%s_alt", szKit, szKit);
++        unsigned long source
++            = mCurrent->bCaptain ? mscharged_tweak_away_kit_source(szKit) : glGetTexture(szHomeTexture);
++        unsigned long target = glGetTexture(szAwayTexture);
++        MirrorMatchMakeAwayKit(mCaptain[1], mCurrent->bCaptain ? MIRROR_MATCH_KIT : MIRROR_MATCH_GOALIE, 0, 0,
++            mAltTextureData, mAltTextureSize, source, target);
++        glEndLoadTextureBundle(mAltTextureData, mAltTextureSize, glGetCurrentResourcePool(), false);
++        cCharacter* pKitChar = g_pCharacters[mCurrent->nCharIdx];
++        pKitChar->fn_80022DAC(mCurrent->bGoalie ? glGetTexture("mariogoalie/mariogoalie") : source);
++        pKitChar->fn_80022DE8(target);
++        nlFree(mAltTextureData);
++        mAltTextureData = 0;
++        return true;
++    }
++#endif
++
+     glEndLoadTextureBundle(mAltTextureData, mAltTextureSize, glGetCurrentResourcePool(), false);
+ 
+     const char* szName = GetCharacterInfo(mCurrent->cc).mName;
 diff --git a/src/Game/DB/BasicGameInfo.cpp b/src/Game/DB/BasicGameInfo.cpp
-index 39355a5..fc01ecd 100644
+index 39355a5..8d68971 100644
 --- a/src/Game/DB/BasicGameInfo.cpp
 +++ b/src/Game/DB/BasicGameInfo.cpp
 @@ -5,6 +5,7 @@
@@ -151,7 +304,7 @@ index 39355a5..fc01ecd 100644
  
  enum
  {
-@@ -252,3 +253,46 @@ bool CaptainsNeedAlternateColour(int captain, int opponentCaptain)
+@@ -252,3 +253,59 @@ bool CaptainsNeedAlternateColour(int captain, int opponentCaptain)
  
      return false;
  }
@@ -193,13 +346,26 @@ index 39355a5..fc01ecd 100644
 +    return rgba;
 +}
 +
-+bool MirrorMatchKeepsHomeKit(const CharacterInfo& captain)
++bool MirrorMatchFieldKit(int side, const CharacterInfo& team, const CharacterInfo& opponent)
 +{
-+    return mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH) && !HasAwayKit(captain);
++    return side == 1 && team.mIndex == opponent.mIndex && mscharged_tweak_enabled(MSCHARGED_TWEAK_MIRROR_MATCH)
++        && (team.mAlternateColour != 0 || mscharged_tweak_away_kit_colour(team.mName) != 0);
++}
++
++nlColour GetFieldKitColour(const CharacterInfo& team)
++{
++    unsigned colour = team.mAlternateColour != 0 ? (unsigned)team.mAlternateColour
++                                                 : mscharged_tweak_away_kit_colour(team.mName);
++    nlColour rgba;
++    rgba.c[0] = (u8)((colour >> 16) & 0xFF);
++    rgba.c[1] = (u8)((colour >> 8) & 0xFF);
++    rgba.c[2] = (u8)(colour & 0xFF);
++    rgba.c[3] = 0xFF;
++    return rgba;
 +}
 +#endif
 diff --git a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
-index dc86883..d347dbc 100644
+index dc86883..7c7566f 100644
 --- a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
 +++ b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
 @@ -69,6 +69,15 @@ void DefensivePlayOverlay::SceneCreated()
@@ -209,10 +375,10 @@ index dc86883..d347dbc 100644
 +#if defined(MSCHARGED_TWEAKS)
 +    // Port tweak "Mirror match": with one captain on both teams, the away
 +    // team wears his away kit.
-+    if (MirrorMatchAwayKit(mGoalie->GetTeam()->m_nSide, *defendingCaptain->m_pCharacterInfo,
++    if (MirrorMatchFieldKit(mGoalie->GetTeam()->m_nSide, *defendingCaptain->m_pCharacterInfo,
 +            *attackingCaptain->m_pCharacterInfo))
 +    {
-+        teamColour = GetAwayKitColour(*defendingCaptain->m_pCharacterInfo);
++        teamColour = GetFieldKitColour(*defendingCaptain->m_pCharacterInfo);
 +    }
 +#endif
      playerText->SetAssetColour(teamColour);
@@ -353,7 +519,7 @@ index f3b12a3..7629a79 100644
  
              sprite->mAngle = mBaseAngle + j * angleStep;
 diff --git a/src/Game/Render/Indicators.cpp b/src/Game/Render/Indicators.cpp
-index 20d4d0c..e361cc1 100644
+index 20d4d0c..777a63e 100644
 --- a/src/Game/Render/Indicators.cpp
 +++ b/src/Game/Render/Indicators.cpp
 @@ -112,6 +112,14 @@ static inline nlColour GetIndicatorColour(cPlayer* pCharacter)
@@ -363,9 +529,9 @@ index 20d4d0c..e361cc1 100644
 +#if defined(MSCHARGED_TWEAKS)
 +    // Port tweak "Mirror match": with one captain on both teams, the away
 +    // team wears his away kit.
-+    if (MirrorMatchAwayKit(pCharacter->m_pTeam->m_nSide, *pInfo, *pOtherInfo))
++    if (MirrorMatchFieldKit(pCharacter->m_pTeam->m_nSide, *pInfo, *pOtherInfo))
 +    {
-+        return GetAwayKitColour(*pInfo);
++        return GetFieldKitColour(*pInfo);
 +    }
 +#endif
      return GetTeamColour(*pInfo, *pOtherInfo, true);

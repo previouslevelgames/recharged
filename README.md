@@ -73,8 +73,8 @@ updates the port in place when you agree.
 - **High frame rates.** 120, 144, your display's refresh rate or unlimited,
   while the game keeps its original speed.
 - **Optional tweaks**, all off by default: skip the intro, fast menus, no Mega
-  Strikes, unlock everything, CPU vs CPU, fast terrain and mirror matches.
-  Three bugs of the original game are fixed.
+  Strikes, unlock everything, CPU vs CPU, fast terrain, Thunder Island walls,
+  mirror matches and blue Peach. Three bugs of the original game are fixed.
 - **A launcher** that checks your disc, keeps every setting in one place and
   updates the port in place.
 

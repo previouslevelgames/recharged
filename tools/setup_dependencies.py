@@ -8,6 +8,7 @@ import platform
 import shlex
 import subprocess
 import sys
+import time
 
 
 LAUNCHER = (
@@ -29,6 +30,10 @@ DAWN_VULKAN = (
     "third_party/vulkan-headers/src",
     "third_party/vulkan-utility-libraries/src",
 )
+# Seconds to wait before each new checkout attempt: a source host that is
+# briefly unavailable (HTTP 503 from chromium.googlesource.com) should not fail
+# a build. Checkouts that already reached their pin are kept between attempts.
+RETRY_DELAYS = (10, 30, 60)
 
 
 class SetupError(RuntimeError):
@@ -110,9 +115,16 @@ def update_command(repo: Path, paths: tuple[str, ...], shallow: bool) -> list[st
 
 def update(repo: Path, paths: tuple[str, ...], shallow: bool) -> None:
     command = update_command(repo, paths, shallow)
-    result = subprocess.run(command)
-    if result.returncode:
-        raise SetupError("Dependency checkout failed; fix the Git error above and rerun setup")
+    attempts = len(RETRY_DELAYS) + 1
+    for attempt, delay in enumerate((*RETRY_DELAYS, None), start=1):
+        if subprocess.run(command).returncode == 0:
+            return
+        if delay is None:
+            break
+        print(f"Dependency checkout failed (attempt {attempt} of {attempts}); retrying in {delay} s",
+              file=sys.stderr, flush=True)
+        time.sleep(delay)
+    raise SetupError("Dependency checkout failed; fix the Git error above and rerun setup")
 
 
 def verify(repo: Path, expected: dict[str, str]) -> None:

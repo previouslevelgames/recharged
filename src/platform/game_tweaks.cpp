@@ -16,6 +16,8 @@ unsigned sEnabled;
 
 // Skip intro: the title screen is passed once per launch.
 bool sTitlePassed;
+bool sPerformanceMode;
+int sStadium = -1; // reported by the render task during a match, taken by the host each frame
 
 // Fast menus.
 // Transition time runs this much faster while the front end's presentation
@@ -66,11 +68,35 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sEnabled = mask;
     sTitlePassed = false;
     sMenus = sTransition = sOnTransitionTime = false;
+    sStadium = -1;
+}
+
+__attribute__((visibility("default"))) void charged_configure_performance_mode(bool enabled)
+{
+    sPerformanceMode = enabled;
+}
+
+// Host entry: the stadium of the match being rendered, -1 outside matches.
+__attribute__((visibility("default"))) int charged_take_stadium(void)
+{
+    const int stadium = sStadium;
+    sStadium = -1;
+    return stadium;
 }
 
 bool mscharged_tweak_enabled(int tweak)
 {
     return tweak >= 0 && tweak < 32 && (sEnabled & (1u << tweak)) != 0;
+}
+
+void mscharged_tweak_report_stadium(int stadium)
+{
+    sStadium = stadium;
+}
+
+bool mscharged_tweak_performance_mode(void)
+{
+    return sPerformanceMode;
 }
 
 bool mscharged_tweak_take_title_press(void)

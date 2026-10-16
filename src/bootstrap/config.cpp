@@ -39,6 +39,7 @@ Values Encode(const Settings& s)
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
             {"display.backend", s.backend}, {"display.aspect", s.aspect}, {"display.picture", s.picture},
+            {"display.performance_mode", s.performance_mode ? "true" : "false"},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
             {"audio.master_volume", std::to_string(s.master_volume)},
             {"audio.music_volume", std::to_string(s.music_volume)},
@@ -131,6 +132,7 @@ Settings Decode(const Values& values)
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
     choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "16:10", "21:9"});
     choice("display.picture", s.picture, {"soft", "clean", "sharp"});
+    boolean("display.performance_mode", s.performance_mode);
     choice("display.antialiasing", s.antialiasing, {"off", "4x"});
     choice("display.resolution", s.resolution, {"window", "native", "2x", "3x", "4x"});
     number("audio.master_volume", s.master_volume, 0, 100);

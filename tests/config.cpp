@@ -232,13 +232,15 @@ int main()
         Require(!defaults.fps_overlay && defaults.fps_overlay_corner == "top-right"
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging
-            && defaults.ui_scale == "auto" && defaults.check_updates && defaults.update_channel == "auto",
+            && defaults.ui_scale == "auto" && defaults.check_updates && defaults.update_channel == "auto"
+            && !defaults.performance_mode,
             "Host setting defaults");
         const auto host = directory / "host.ini";
         auto hostFile = LoadConfig(host, true);
         Settings hostSettings;
         hostSettings.fps_overlay = true;
         hostSettings.fps_overlay_corner = "bottom-left";
+        hostSettings.performance_mode = true;
         hostSettings.monitor = 2;
         hostSettings.graphics_validation = true;
         hostSettings.log_level = "warning";
@@ -250,6 +252,7 @@ int main()
         SaveConfig(hostFile, hostSettings);
         const auto hostReloaded = LoadConfig(host).settings;
         Require(hostReloaded.fps_overlay && hostReloaded.fps_overlay_corner == "bottom-left"
+            && hostReloaded.performance_mode
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test",
@@ -258,6 +261,7 @@ int main()
         Require(hostText.find("[advanced]") != std::string::npos && hostText.find("[launcher]") != std::string::npos
             && hostText.find("show_fps") == std::string::npos
             && hostText.find("fps_overlay = true") != std::string::npos
+            && hostText.find("performance_mode = true") != std::string::npos
             && hostText.find("fps_overlay_corner = bottom-left") != std::string::npos
             && hostText.find("frame_logging = true") != std::string::npos, "Host settings sections");
         hostSettings.frame_logging = false;
@@ -272,6 +276,7 @@ int main()
             && legacyFps.contents.find("custom = preserved") != std::string::npos, "Retired title key is removed alone");
         for (const char* invalid : {"[display]\nmonitor = 16\n",
                                     "[display]\nfps_overlay = maybe\n", "[display]\nfps_overlay_corner = center\n",
+                                    "[display]\nperformance_mode = maybe\n",
                                     "[advanced]\nlog_level = verbose\n", "[launcher]\nui_scale = 110\n",
                                     "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n",
                                     "[advanced]\nframe_logging = maybe\n", "[launcher]\ncheck_updates = sometimes\n",

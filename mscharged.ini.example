@@ -31,10 +31,15 @@ aspect = 16:9
 # game's picture drawn straight into the window, without the TV flicker filter
 # and the border) or sharp (clean with square pixels).
 picture = sharp
+# Performance mode (options menu beside Play): Wii-native 640x448 3D rendering,
+# no 4x antialiasing, and no decorative crowd/background models. Weather,
+# hazards and match simulation are unchanged.
+performance_mode = false
 # Antialiasing of the game's 3D edges: off or 4x (more GPU time).
 antialiasing = 4x
 # 3D render size: window (one pixel per window pixel, default), native (the
-# Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
+# Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same. Only
+# set here; the launcher has no option for it.
 resolution = window
 # Performance overlay: FPS | GPU % | CPU % | LAT N/A, also in fullscreen.
 # GPU/CPU are total system usage; unavailable driver counters show N/A.
@@ -150,9 +155,14 @@ shake_nunchuk = Q
 # fast_terrain: every stadium plays like Bowser Stadium's fast, dry field
 # (speed, ball roll and bounce; no sliding, no slow sand in the Sand Tomb);
 # looks and hazards stay, online matches unchanged.
-# mirror_match: both teams can pick the same captain in Domination; the away
-# team wears his away kit if the game has one (Bowser, Bowser Jr., Daisy,
-# Diddy Kong, DK, Petey, Yoshi). Online matches unchanged.
+# mirror_match: both teams can pick the same captain in Domination; on the
+# field the away team wears an away kit (made from the home kit for Mario,
+# Luigi, Wario and Waluigi). Online matches unchanged.
+# thunder_island_walls: Thunder Island's open sides get the (invisible)
+# electric fence of every other stadium: the ball and items bounce off, and
+# knocked players are electrocuted instead of falling off. Online unchanged.
+# blue_peach: Peach's team wears her unused blue kit on the field (Peach,
+# sidekicks, goalie); menus, Mega Strike hand, banners and crowd stay pink.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -160,6 +170,8 @@ unlock_all = false
 cpu_vs_cpu = false
 fast_terrain = false
 mirror_match = false
+thunder_island_walls = false
+blue_peach = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU

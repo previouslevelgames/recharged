@@ -1,0 +1,157 @@
+Subject: Tweak: blue Peach
+Upstream-base: 7a6bf165d9f1c5914181c079c7d4bfa7204f3509
+
+Peach has a second kit on the disc, blue with yellow: peach_alt.rlt, her
+goalie's peachgoalie_alt.rlt and her six sidekicks' <sidekick>_peach_alt.rlt
+textures. CharacterLoader dresses a captain in his alternate kit against a
+captain of his colours (GetAlternateCaptain, NeedsAlternateColour), but no
+other captain shares Peach's colour, so the retail game never shows it.
+
+With "Blue Peach" enabled, Peach's team wears it on the field:
+HasAlternateSwapTexture swaps Peach's and her goalie's kit for it, her
+sidekicks load their _alt team textures, and the player indicators and the
+defensive play overlay take its colour (Peach's alternate colour). The game
+has no blue version of her menu pictures, Mega Strike hand, stadium banners
+or crowd, so those stay pink. In a match of Peach against herself (Mirror
+match) the away team wears the blue kit, as without the tweak.
+
+diff --git a/include/Game/DB/CharacterInfo.h b/include/Game/DB/CharacterInfo.h
+index f42c59b..35281b6 100644
+--- a/include/Game/DB/CharacterInfo.h
++++ b/include/Game/DB/CharacterInfo.h
+@@ -87,4 +87,11 @@ bool MirrorMatchFieldKit(int side, const CharacterInfo& team, const CharacterInf
+ nlColour GetFieldKitColour(const CharacterInfo& team);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Blue Peach": Peach's team wears her blue kit on the field
++// (GetAwayKitColour is its team colour). Against herself (Mirror match) the
++// away team wears it, as without the tweak.
++bool BluePeachKit(const CharacterInfo& team, const CharacterInfo& opponent);
++#endif
++
+ #endif // GAME_DB_CHARACTERINFO_H
+diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+index bf0d373..f6d53c2 100644
+--- a/src/Game/CharacterLoader.cpp
++++ b/src/Game/CharacterLoader.cpp
+@@ -146,6 +146,17 @@ static void MirrorMatchMakeAwayKit(eCharacterClass captain, MirrorMatchTexture k
+ }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Blue Peach": Peach's team (captain, goalie and sidekicks) wears
++// her blue kit, the one the game would load against a captain of her colours.
++static bool BluePeachTeam(eCharacterClass captain0, eCharacterClass captain1, int team)
++{
++    const CharacterInfo& info0 = GetCharacterInfo(captain0);
++    const CharacterInfo& info1 = GetCharacterInfo(captain1);
++    return team == 0 ? BluePeachKit(info0, info1) : BluePeachKit(info1, info0);
++}
++#endif
++
+ CharacterLoader::~CharacterLoader()
+ {
+ }
+@@ -902,6 +913,15 @@ bool CharacterLoader::StartLoadingSidekickSwapTexture()
+     }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Blue Peach": Peach's sidekicks wear her blue kit.
++    if (BluePeachTeam(captain0, captain1, mCurrent->nTeamID))
++    {
++        nlSNPrintf(szArtPath, 64, "art/characters/%s/%s_%s_alt.rlt", szName, szTexName, szCaptainName);
++        nlSNPrintf(szPlayerPath, 64, "%s_%s_alt/%s_%s_alt", szTexName, szCaptainName, szTexName, szCaptainName);
++    }
++#endif
++
+     mSidekickTextureData = 0;
+     mSidekickTextureSize = 0;
+     cCharacter* pChar = g_pCharacters[mCurrent->nCharIdx];
+@@ -1002,6 +1022,14 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
+         }
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Blue Peach": Peach's sidekicks wear her blue kit.
++    if (BluePeachTeam(mCaptain[0], mCaptain[1], mCurrent->nTeamID))
++    {
++        nlSNPrintf(szPlayerPath, 64, "%s_%s_alt/%s_%s_alt", szTexName, szCaptainName, szTexName, szCaptainName);
++    }
++#endif
++
+     nlSNPrintf(szBundlePath, 64, "%s/%s_mario", szName, szTexName);
+     pChar->fn_80022DAC(glGetTexture(szBundlePath));
+     pChar->fn_80022DE8(glGetTexture(szPlayerPath));
+@@ -1150,6 +1178,16 @@ bool CharacterLoader::HasAlternateSwapTexture()
+                 : GetGoalieTemplateInfo(pEntry->cc - 20)->szAlternateTextureFilename;
+             return szFilename != 0 && nlFileExists(szFilename);
+         }
++#endif
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Blue Peach": Peach and her goalie wear her blue kit.
++        if (BluePeachTeam(captain0, captain1, pEntry->nTeamID))
++        {
++            const char* szFilename = pEntry->bCaptain
++                ? GetCharacterTemplateInfo(pEntry->cc)->szAlternateTextureFilename
++                : GetGoalieTemplateInfo(pEntry->cc - 20)->szAlternateTextureFilename;
++            return szFilename != 0 && nlFileExists(szFilename);
++        }
+ #endif
+         if (captain0 == captain1)
+         {
+diff --git a/src/Game/DB/BasicGameInfo.cpp b/src/Game/DB/BasicGameInfo.cpp
+index 8d68971..20097bb 100644
+--- a/src/Game/DB/BasicGameInfo.cpp
++++ b/src/Game/DB/BasicGameInfo.cpp
+@@ -309,3 +309,13 @@ nlColour GetFieldKitColour(const CharacterInfo& team)
+     return rgba;
+ }
+ #endif
++
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Blue Peach". The game dresses Peach in her blue kit only
++// against a captain of her colours, and no other captain is pink.
++bool BluePeachKit(const CharacterInfo& team, const CharacterInfo& opponent)
++{
++    return team.mCaptainId == TEAM_PEACH && opponent.mIndex != team.mIndex
++        && mscharged_tweak_enabled(MSCHARGED_TWEAK_BLUE_PEACH);
++}
++#endif
+diff --git a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
+index 7c7566f..5c0ade9 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerDefensivePlay.cpp
+@@ -77,6 +77,13 @@ void DefensivePlayOverlay::SceneCreated()
+     {
+         teamColour = GetFieldKitColour(*defendingCaptain->m_pCharacterInfo);
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Blue Peach": Peach's team wears her blue kit.
++    if (BluePeachKit(*defendingCaptain->m_pCharacterInfo, *attackingCaptain->m_pCharacterInfo))
++    {
++        teamColour = GetAwayKitColour(*defendingCaptain->m_pCharacterInfo);
++    }
+ #endif
+     playerText->SetAssetColour(teamColour);
+ }
+diff --git a/src/Game/Render/Indicators.cpp b/src/Game/Render/Indicators.cpp
+index 777a63e..d97a5a3 100644
+--- a/src/Game/Render/Indicators.cpp
++++ b/src/Game/Render/Indicators.cpp
+@@ -119,6 +119,13 @@ static inline nlColour GetIndicatorColour(cPlayer* pCharacter)
+     {
+         return GetFieldKitColour(*pInfo);
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Blue Peach": Peach's team wears her blue kit.
++    if (BluePeachKit(*pInfo, *pOtherInfo))
++    {
++        return GetAwayKitColour(*pInfo);
++    }
+ #endif
+     return GetTeamColour(*pInfo, *pOtherInfo, true);
+ }

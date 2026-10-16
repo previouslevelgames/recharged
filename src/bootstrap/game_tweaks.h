@@ -24,6 +24,8 @@ enum class GameTweak : unsigned
     CpuVsCpu = 4,
     FastTerrain = 5,
     MirrorMatch = 6,
+    ThunderIslandWalls = 7,
+    BluePeach = 8,
 };
 
 struct GameTweakInfo
@@ -34,7 +36,7 @@ struct GameTweakInfo
     const char* description; // launcher description
 };
 
-inline constexpr std::array<GameTweakInfo, 7> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 9> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -53,9 +55,16 @@ inline constexpr std::array<GameTweakInfo, 7> kGameTweaks{{
      "Every stadium plays like the fast, dry field of Bowser Stadium: same running speed, ball roll and bounce, "
      "no sliding on ice or mud, no slow sand in the Sand Tomb. Looks and hazards stay; online matches are unchanged."},
     {GameTweak::MirrorMatch, "mirror_match", "Mirror match",
-     "Both teams can pick the same captain in Domination. The away team then wears the captain's away kit if the "
-     "game has one (Bowser, Bowser Jr., Daisy, Diddy Kong, DK, Petey, Yoshi); with the others both teams look the "
-     "same. Online matches are unchanged."},
+     "Both teams can pick the same captain in Domination. On the field the away team wears an away kit: the game's "
+     "own, or for Mario, Luigi, Wario and Waluigi one made from their kit (white, sky blue, blue, orange). Online "
+     "matches are unchanged."},
+    {GameTweak::ThunderIslandWalls, "thunder_island_walls", "Thunder Island walls",
+     "Thunder Island's open sides get the electric fence of every other stadium: the ball and items bounce off, and "
+     "players knocked into it are electrocuted instead of falling off the island. The fence stays invisible; online "
+     "matches are unchanged."},
+    {GameTweak::BluePeach, "blue_peach", "Blue Peach",
+     "Peach's team wears her unused blue and yellow kit on the field: Peach, her sidekicks and her goalie. The game "
+     "has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."},
 }};
 
 inline constexpr unsigned GameTweakBit(GameTweak tweak) { return 1u << unsigned(tweak); }
