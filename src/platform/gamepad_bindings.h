@@ -5,6 +5,7 @@
 #include <SDL3/SDL_gamepad.h>
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -27,6 +28,11 @@ struct GamepadProfile {
     // The built-in Default: the bindings are replaced by the default layout
     // of the controller that connects (DefaultGamepadBindings(family)).
     bool follow_controller = false;
+    // Dead zones of both sticks and the triggers' press point, in percent of
+    // travel (see gamepad_actions.h).
+    int inner_deadzone = kDefaultInnerDeadzone;
+    int outer_deadzone = kDefaultOuterDeadzone;
+    int trigger_press = kDefaultTriggerPress;
 };
 
 // Controller families with their own default layout and button names.
@@ -59,8 +65,29 @@ std::string FormatGamepadBinding(const GamepadBinding& binding);
 GamepadBindings ParseGamepadBindings(const std::array<std::string, GamepadActionCount>& texts);
 GamepadBindings DefaultGamepadBindings();
 GamepadBindings DefaultGamepadBindings(GamepadFamily family);
-// A trigger counts as pressed past half its travel.
+// Half a trigger's travel: the launcher takes a trigger press there.
 inline constexpr Sint16 kGamepadTriggerPressed = 16384;
-bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input);
-bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding);
+// A trigger counts as pressed past `press` percent of its travel.
+bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input, int press = kDefaultTriggerPress);
+bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding, int press = kDefaultTriggerPress);
+// The trigger value (0-32767) past which it counts as pressed.
+Sint16 GamepadTriggerThreshold(int press);
+
+// A stick position (each axis -1..1) after a profile's dead zones, which are
+// round: 0 up to the inner dead zone, then rising evenly to length 1 at the
+// outer one, in the stick's own direction.
+struct StickTilt {
+    float x = 0, y = 0;
+};
+StickTilt ApplyStickDeadzones(float x, float y, int inner, int outer);
+// The stick of `pad` (SDL axes, y down) after the dead zones.
+StickTilt GamepadStickTilt(SDL_Gamepad* pad, SDL_GamepadAxis x, SDL_GamepadAxis y, int inner, int outer);
+// Nunchuk stick counts (after WPAD's centre calibration, y up) that the game
+// reads as `tilt` (y up). The game itself drops the first 15 counts of each
+// axis and is fully pushed 56 counts further (ClampWiiStick, and KPAD's 15 and
+// 71), so a moving axis gets those 15 counts added: the dead zones above are
+// then the only ones the player feels.
+inline constexpr int kNunchukStickDeadCounts = 15;
+inline constexpr int kNunchukStickReachCounts = 56;
+std::array<std::int8_t, 2> NunchukStickCounts(StickTilt tilt);
 } // namespace mscharged::platform

@@ -24,7 +24,7 @@ order is part of the state they checksum (cGame::SyncLog), so a machine
 without it falls out of sync at the first check after kickoff.
 
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 36d981f..d3e5166 100644
+index 36d981f..b8f7223 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -48,6 +48,7 @@
@@ -35,13 +35,11 @@ index 36d981f..d3e5166 100644
  #include "Game/Render/ElectricFence.h"
  #include "Game/ReplayChoreo.h"
  #include "Game/ReplayManager.h"
-@@ -1381,6 +1382,33 @@ void cGame::PreUpdate(float deltaTime)
+@@ -1381,6 +1382,31 @@ void cGame::PreUpdate(float deltaTime)
          g_pTeams[i]->PreUpdate(deltaTime);
      }
  }
 +#if defined(MSCHARGED_TWEAKS)
-+#include "Game/NetworkRandomSeed.h"
-+
 +// Port tweak "Fair ball contests": the update order is shuffled without bias
 +// at kickoff and again every step. Online matches always play with it, so
 +// that both machines update the players in the same order.
@@ -69,7 +67,7 @@ index 36d981f..d3e5166 100644
  void cGame::RandomizePlayerUpdateOrder()
  {
      int i;
-@@ -1394,6 +1422,24 @@ void cGame::RandomizePlayerUpdateOrder()
+@@ -1394,6 +1420,24 @@ void cGame::RandomizePlayerUpdateOrder()
      }
  
      static FilteredRandomRange randgen;
@@ -94,7 +92,7 @@ index 36d981f..d3e5166 100644
      for (i = 0; i < 10; i++)
      {
          int j = randgen.genrand(10);
-@@ -1496,6 +1542,14 @@ void cGame::Update(float fDeltaT)
+@@ -1496,6 +1540,14 @@ void cGame::Update(float fDeltaT)
  
      mpAIContext->Update(true, fDeltaT);
  

@@ -529,9 +529,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // require of every playing controller; the mouse is its pointer.
         // Physical Wii Remotes (platform/wiimote_hid) bring their own IR
         // camera and Nunchuk. controls.rumble is the system rumble setting
-        // original Options reads; controls.sensor_bar the sensor-bar position
-        // (bottom/top) original KPAD aims the pointer from. controls.player1-4
-        // fix who plays as which player.
+        // the game reads (the HOME Menu's); controls.sensor_bar the sensor-bar
+        // position (bottom/top) original KPAD aims the pointer from and
+        // controls.ir_sensitivity the Wii's sensitivity (1-5);
+        // controls.speaker_volume the Remotes' speaker volume (BT.SPKV, 0-127
+        // as the HOME Menu's 10 steps of 12.7; 0 sends no speaker sound).
+        // controls.player1-4 fix who plays as which player.
         mscharged::platform::NativePlayers players{};
         players.fixed = true;
         players.keyboard = -1;
@@ -545,15 +548,36 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
             nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys)};
         desktop.kpad_sensor_height=release->code==mscharged::GameCode::Usa;
+        desktop.rumble_strength=launch.settings.rumble_strength;
         // Each gamepad's profile (controls.gamepadN_profile).
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
             const auto& profile = launch.settings.PadProfileOf(pad);
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
-                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0};
+                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
+                                             profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press};
         }
-        mscharged::platform::InitializeNativeHardwareInput(host.window,
-            {static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),3,true,launch.settings.rumble},
+        mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
+            static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
+        wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
+        wpad.remote_speaker=launch.settings.speaker_volume>0;
+        mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
+        {
+            const auto& s=launch.settings;
+            const std::string line="Wii Remote settings: sensor bar "+s.sensor_bar+", sensitivity "
+                +std::to_string(s.ir_sensitivity)+", speaker "+(s.speaker_volume ? std::to_string(s.speaker_volume)+"%" : "off")
+                +", rumble "+(s.rumble ? "on (gamepads "+std::to_string(s.rumble_strength)+"%)" : "off");
+            mscharged::platform::SessionLogLine(line);
+            for (const auto& device : s.players) {
+                if (device.rfind("gamepad", 0) != 0) continue;
+                const std::size_t pad = std::size_t(device.back() - '1');
+                const auto& profile = s.PadProfileOf(pad);
+                mscharged::platform::SessionLogLine("Gamepad " + std::to_string(pad + 1) + ": profile " + profile.name
+                    + ", stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
+                    + std::to_string(profile.outer_deadzone) + "%, trigger press point "
+                    + std::to_string(profile.trigger_press) + "%");
+            }
+        }
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(

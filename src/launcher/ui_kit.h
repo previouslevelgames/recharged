@@ -122,7 +122,10 @@ struct SegmentItem
     ImVec4 tint;
 };
 bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass);
-bool PercentSlider(const char* id, int* value, float width);
+// `zero_label` replaces "0%" (for example "Off"); the value stays within
+// `minimum`..`maximum`.
+bool PercentSlider(const char* id, int* value, float width, const char* zero_label = nullptr, int minimum = 0,
+                   int maximum = 100);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.
 void BatteryIcon(int percent);

@@ -26,6 +26,9 @@ struct WiimoteHidSettings {
     // Original IR sensitivity preference (1-5), mapped to the console's
     // camera register blocks.
     std::uint8_t ir_sensitivity = 3;
+    // The remotes offer original WPAD their speaker (controls.speaker_volume
+    // above 0); without it WPAD finds none, and no sound goes to them.
+    bool speaker = false;
     // Players by remote id (wiimote_ids.h): WPAD channel (player - 1); a
     // remote without an entry is not a player. Without fixed players every
     // remote plays, DolphinBar slots first.
@@ -74,6 +77,24 @@ bool WiimoteHidHasDevices();
 // HID device scans since the driver started: one at start, then one per HID
 // device arrival or removal that SDL reports.
 unsigned WiimoteHidScans();
+
+// The Wii Remote speaker for original WPAD (wpad_sdl.cpp), by the virtual
+// joystick of a remote. Owner thread.
+enum class WiimoteSpeakerCommand { Off, On, Mute, Unmute, Play };
+// The output reports of original WPADControlSpeaker for a command, in order;
+// `volume` (0-127) is the configuration's volume byte for On.
+std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerCommand command, std::uint8_t volume);
+// A ready remote of this driver with the speaker setting on.
+bool WiimoteHidHasSpeaker(std::uint32_t joystick_id);
+// Queues the command's reports; the driver calls CompleteNativeWpadSpeaker
+// (wpad_sdl.h) once for it when its last report went out, or its write was
+// acknowledged. False: not a speaker of this driver.
+bool WiimoteHidControlSpeaker(std::uint32_t joystick_id, WiimoteSpeakerCommand command, std::uint8_t volume);
+// Speaker data (report 0x18) leaves on a thread of its own, one frame at a
+// time like original WPAD's stream check: the remote can take a frame when
+// its speaker is on, its commands went out and the previous frame was sent.
+bool WiimoteHidCanStreamSpeaker(std::uint32_t joystick_id);
+bool WiimoteHidStreamSpeaker(std::uint32_t joystick_id, const void* data, std::uint16_t size);
 
 
 // Standalone detection for the launcher (no game input owner): opens each Wii

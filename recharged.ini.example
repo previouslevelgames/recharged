@@ -92,10 +92,15 @@ mouse_pointer = true
 # Windows: while the launcher's Controls page is open it connects Wii Remotes
 # over Bluetooth when you press 1+2 or the SYNC button on them.
 bluetooth_search = true
-deadzone = 15
+# Rumble on Wii Remotes and gamepads; how strongly gamepads rumble (0-100).
 rumble = true
+rumble_strength = 100
 # Where the sensor bar or DolphinBar sits: bottom or top of the screen.
 sensor_bar = bottom
+# The Wii's sensor bar sensitivity (1-5) and Wii Remote speaker volume
+# (0-100, 0 = no sound on the Remotes).
+ir_sensitivity = 3
+speaker_volume = 70
 # Button profile of each gamepad: Default (built in; each controller family
 # gets its own layout) or the name of a [gamepad_profileN] below. A missing
 # profile plays as Default.
@@ -106,7 +111,8 @@ gamepad4_profile = Default
 
 [keyboard]
 # Keys of the keyboard & mouse Wii Remote: one or two SDL key names per
-# action, separated by |. Change them on the launcher's Controls page.
+# action, separated by |; Mouse Middle, Mouse 4 and Mouse 5 (the side
+# buttons) can take a key's place. Change them on the launcher's Controls page.
 a = Return | Space
 b = Escape | Backspace
 one = Z
@@ -135,6 +141,10 @@ shake_nunchuk = Q
 # righttrigger, or none for no button. Actions left out keep the Default
 # (Xbox) input. swap_sticks = true
 # moves the Nunchuk stick to the right stick and the pointer to the left.
+# inner_deadzone (0-30 %) and outer_deadzone (70-100 %): both sticks rest up to
+# the inner one and are pushed all the way from the outer one on; the defaults,
+# 15 and 71, play like a Nunchuk on the Wii. trigger_press (10-90 %, default
+# 50): a trigger presses its button past this much of its travel.
 # controller: the controllers the profile is made for, xbox (Xbox and
 # PlayStation, whose buttons sit in the same places), nintendo or gamecube;
 # the launcher offers a gamepad the profiles of its kind.
@@ -156,6 +166,9 @@ shake_nunchuk = Q
 # shake_remote = righttrigger
 # shake_nunchuk = rightshoulder
 # swap_sticks = true
+# inner_deadzone = 15
+# outer_deadzone = 71
+# trigger_press = 50
 # controller = xbox
 
 [gameplay]

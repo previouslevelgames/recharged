@@ -54,6 +54,9 @@ struct DesktopWpadSettings {
     // USA build); the European build's KPAD does not, so the mouse and
     // gamepad pointers aim with its centre (see KpadPointerCentre).
     bool kpad_sensor_height = true;
+    // controls.rumble_strength: how strongly a gamepad's motors run when the
+    // game rumbles (0-100 %). Wii Remotes have an on/off motor.
+    int rumble_strength = 100;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.

@@ -6,6 +6,7 @@
 #include <dolphin/os.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -271,7 +272,7 @@ void GamepadPlayerCycle() {
     Until([&] { return report().button == WPAD_BUTTON_A; }, "Gamepad south did not press A");
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
-    Until([&] { auto r = report(); return r.fsStickX == 100 && r.fsStickY == 0 && r.button == 0; },
+    Until([&] { auto r = report(); return r.fsStickX == 71 && r.fsStickY == 0 && r.button == 0; },
           "Left stick did not move the Nunchuk stick right");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
@@ -283,6 +284,56 @@ void GamepadPlayerCycle() {
     Until([&] { return report().button == 0; }, "Gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
+}
+// The game's own processing of the Nunchuk stick (original ClampWiiStick),
+// written out again: 15 counts dropped per axis, full push 56 counts further.
+std::array<int, 2> GameStick(int x, int y) {
+    const auto axis = [](int v) { return v < 15 && v > -15 ? 0 : v > 0 ? v - 15 : v + 15; };
+    x = axis(x);
+    y = axis(y);
+    if (x * x + y * y > 56 * 56) {
+        const float scale = 56.0f / std::sqrt(float(x * x + y * y));
+        x = int(x * scale);
+        y = int(y * scale);
+    }
+    return {x, y};
+}
+// Issue #62: round dead zones, and Nunchuk counts the game turns back into
+// exactly the tilt the dead zones give.
+void StickDeadzoneChecks() {
+    using namespace mscharged::platform;
+    const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
+    Check(ApplyStickDeadzones(0.15f, 0, 15, 71).x == 0 && ApplyStickDeadzones(0.1f, -0.1f, 15, 71).y == 0,
+          "The stick moved inside the inner dead zone");
+    Check(near(ApplyStickDeadzones(0.43f, 0, 15, 71).x, 0.5f), "Tilt between the dead zones is not linear");
+    Check(near(ApplyStickDeadzones(0, -0.71f, 15, 71).y, -1) && near(ApplyStickDeadzones(1, 0, 15, 71).x, 1),
+          "The stick is not fully pushed from the outer dead zone on");
+    const auto diagonal = ApplyStickDeadzones(1, 1, 15, 71);
+    Check(near(diagonal.x, std::sqrt(0.5f)) && near(diagonal.y, std::sqrt(0.5f)),
+          "A full diagonal left the round gate");
+    Check(near(ApplyStickDeadzones(0.05f, 0, 0, 100).x, 0.05f), "No dead zone changed the tilt");
+    float previous = 0;
+    for (int n = 0; n <= 1000; ++n) {
+        const auto tilt = ApplyStickDeadzones(n / 1000.0f * 0.6f, n / 1000.0f * 0.8f, 20, 90);
+        const float length = std::hypot(tilt.x, tilt.y);
+        Check(length + 1e-6f >= previous && length <= 1.0f + 1e-6f, "Dead zones are not monotonic");
+        previous = length;
+    }
+    Check(NunchukStickCounts({}) == std::array<std::int8_t, 2>{0, 0}
+              && NunchukStickCounts({1, 0}) == std::array<std::int8_t, 2>{71, 0}
+              && NunchukStickCounts({0, -1}) == std::array<std::int8_t, 2>{0, -71},
+          "Nunchuk counts at rest or fully pushed");
+    for (int a = 0; a < 360; a += 3)
+        for (int r = 0; r <= 100; ++r) {
+            const float x = std::cos(a * 3.14159265f / 180) * r / 100, y = std::sin(a * 3.14159265f / 180) * r / 100;
+            const auto counts = NunchukStickCounts({x, y});
+            const auto game = GameStick(counts[0], counts[1]);
+            Check(std::abs(game[0] - int(std::lround(x * 56))) <= 1 && std::abs(game[1] - int(std::lround(y * 56))) <= 1,
+                  "The game does not read the tilt the dead zones gave");
+        }
+    Check(GamepadTriggerThreshold(50) == kGamepadTriggerPressed && GamepadTriggerThreshold(10) == 3276
+              && GamepadTriggerThreshold(100) == 32767,
+          "Trigger press points");
 }
 // [gamepadN]: a gamepad's own layout reaches WPAD as configured.
 void CustomGamepadCycle() {
@@ -306,7 +357,7 @@ void CustomGamepadCycle() {
     DesktopWpadSettings settings{};
     settings.gamepads = settings.gamepad_players = true;
     settings.gamepad_channels = {1, -1, -1, -1};
-    settings.gamepad_profiles[0] = {bindings, true};
+    settings.gamepad_profiles[0] = {bindings, true, false, 20, 80, 30};
     GenericPad pad;
     InitializeDesktopWpad(window, settings);
     WPADInit();
@@ -328,15 +379,28 @@ void CustomGamepadCycle() {
     Until([&] { return report().button == WPAD_BUTTON_B; }, "Own layout: south did not press B");
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
-    Until([&] { auto r = report(); return r.fsStickX == 100 && r.button == 0; },
+    Until([&] { auto r = report(); return r.fsStickX == 71 && r.button == 0; },
           "Swapped sticks: the right stick did not move the Nunchuk stick");
+    // Dead zones 20-80 %: half the way between them is half pushed.
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(0.5f * 32767));
+    Until([&] { auto r = report(); return GameStick(r.fsStickX, r.fsStickY)[0] == 28; },
+          "Tilt between the dead zones did not reach the game half pushed");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(-0.19f * 32767));
+    Until([&] { return report().fsStickX == 0; }, "The stick moved inside the inner dead zone");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(-0.85f * 32767));
+    Until([&] { return report().fsStickX == -71; }, "The stick was not fully pushed past the outer dead zone");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
     Until([&] { return report().fsStickX == 0; }, "Swapped sticks: the left stick still moved the Nunchuk stick");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
-    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
+    // Press point 30 %: a trigger 40 % in presses its button. A virtual pad's
+    // trigger travels over the whole raw axis, resting at its minimum.
+    const auto trigger = [](float travel) { return Sint16(std::lround(travel * 65535 - 32768)); };
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, trigger(0.4f));
     Until([&] { return report().button == WPAD_BUTTON_FS_C; }, "Own layout: left trigger did not press C");
-    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, trigger(0.25f));
+    Until([&] { return report().button == 0; }, "The trigger pressed C before its press point");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, trigger(0));
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
     Until([&] { return report().button == WPAD_BUTTON_FS_Z; }, "Own layout: left bumper did not press Z");
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);
@@ -455,6 +519,42 @@ void MousePlayerCycle() {
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_EAST, false);
     Until([&] { return Report().button == 0; }, "Mouse or gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// Middle and side mouse buttons press the keyboard actions bound to them (#62);
+// left and right click stay A and B.
+void MouseKeysCycle() {
+    using namespace mscharged::platform;
+    Check(ParseKeyBinding("mouse 4 | Return") == KeyBinding{kMouseKeyBase + SDL_BUTTON_X1, SDL_SCANCODE_RETURN}
+              && FormatKeyBinding(ParseKeyBinding("Mouse Middle|mouse 5")) == "Mouse Middle | Mouse 5"
+              && MouseKeyInput(SDL_BUTTON_LEFT) == kKeyNone && MouseButtonOf(SDL_SCANCODE_A) == 0,
+          "Mouse button names");
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    settings.keys[mscharged::KeyActionOne] = ParseKeyBinding("Mouse 4");
+    settings.keys[mscharged::KeyActionB] = ParseKeyBinding("Escape | Mouse 5");
+    settings.keys[mscharged::KeyActionUp] = ParseKeyBinding("Mouse Middle");
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not connect");
+    MouseButton(SDL_BUTTON_X1, true);
+    Until([&] { return Report().button == WPAD_BUTTON_1; }, "Mouse 4 bound to 1 did not press 1");
+    MouseButton(SDL_BUTTON_X1, false);
+    MouseButton(SDL_BUTTON_X2, true);
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "Mouse 5 as B's second input did not press B");
+    MouseButton(SDL_BUTTON_X2, false);
+    MouseButton(SDL_BUTTON_MIDDLE, true);
+    Until([&] { return Report().button == WPAD_BUTTON_UP; }, "Middle click bound to up did not press up");
+    MouseButton(SDL_BUTTON_MIDDLE, false);
+    MouseButton(SDL_BUTTON_LEFT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Left click stopped pressing A");
+    MouseButton(SDL_BUTTON_LEFT, false);
+    Until([&] { return Report().button == 0; }, "A mouse button release kept a press");
+    ShutdownDesktopWpad();
     WPADShutdown();
 }
 void NunchukCycle() {
@@ -577,12 +677,14 @@ int main() {
         }
         // With the generic pad above gone, this test's pad is gamepad 1.
         GamepadPlayerCycle();
+        StickDeadzoneChecks();
         CustomGamepadCycle();
         ControllerFamilyCycle();
         MousePlayerCycle();
+        MouseKeysCycle();
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, controller-family defaults, mouse beside a controller and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <thread>
+#include <vector>
 
 namespace {
 unsigned checks{}, failures{};
@@ -71,6 +72,38 @@ int main() {
     Check(IsBluetoothWiimoteId(unnamed) && unnamed == BluetoothWiimoteId("serial?", "/dev/hidraw7") &&
           unnamed != BluetoothWiimoteId("", "/dev/hidraw8"), "a remote without an address");
 
+    // Speaker reports as original WPADControlSpeaker queues them (WPAD.c):
+    // ON enables, mutes, powers the decoder, writes the configuration with the
+    // volume byte and unmutes; OFF undoes it; PLAY writes 0xa20008.
+    {
+        using Report = std::vector<std::uint8_t>;
+        const auto write = [](std::uint32_t address, std::vector<std::uint8_t> data) {
+            Report report(22, 0);
+            report[0] = 0x16;
+            report[1] = 0x04;
+            report[2] = std::uint8_t(address >> 16);
+            report[3] = std::uint8_t(address >> 8);
+            report[4] = std::uint8_t(address);
+            report[5] = std::uint8_t(data.size());
+            for (std::size_t n = 0; n < data.size(); ++n) report[6 + n] = data[n];
+            return report;
+        };
+        const std::vector<Report> on{{0x14, 0x04}, {0x19, 0x04}, write(0xa20009, {0x01}), write(0xa20001, {0x08}),
+                                     write(0xa20001, {0x00, 0x00, 0xd0, 0x07, 89, 0x0c, 0x0e}), {0x19, 0x00}};
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 89) == on, "speaker ON sequence");
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 255)[4][10] == 127, "speaker volume above 127");
+        const std::vector<Report> off{{0x19, 0x04}, write(0xa20001, {0x01}), write(0xa20009, {0x00}), {0x14, 0x00}};
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Off, 0) == off, "speaker OFF sequence");
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Mute, 0) == std::vector<Report>{{0x19, 0x04}} &&
+              WiimoteSpeakerReports(WiimoteSpeakerCommand::Unmute, 0) == std::vector<Report>{{0x19, 0x00}},
+              "speaker mute and unmute");
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Play, 0) == std::vector<Report>{write(0xa20008, {0x01})},
+              "speaker PLAY");
+        // Without the driver (or with the speaker off) nothing has a speaker.
+        Check(!WiimoteHidHasSpeaker(1) && !WiimoteHidControlSpeaker(1, WiimoteSpeakerCommand::On, 89) &&
+              !WiimoteHidCanStreamSpeaker(1), "a speaker without a remote");
+    }
+
     // The input cadence (every 10 ms) scans the HID devices only after SDL
     // reports a device change. A scan every 2 s held a tester's game for about
     // 70 ms each time on Windows. Real remotes are ignored (CTest environment).
@@ -93,6 +126,6 @@ int main() {
         ShutdownWiimoteHid();
     }
 
-    std::printf("Wii Remote IR decoding, ids and HID scans: %u checks, %u failures\n", checks, failures);
+    std::printf("Wii Remote IR decoding, ids, speaker reports and HID scans: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

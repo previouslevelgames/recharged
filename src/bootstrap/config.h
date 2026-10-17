@@ -87,11 +87,17 @@ struct Settings
         // The controllers it is made for: xbox (Xbox and PlayStation, whose
         // buttons sit in the same places), nintendo or gamecube.
         std::string controller = "xbox";
+        // inner_deadzone, outer_deadzone (both sticks) and trigger_press, in
+        // percent of travel (see gamepad_actions.h).
+        int inner_deadzone = kDefaultInnerDeadzone;
+        int outer_deadzone = kDefaultOuterDeadzone;
+        int trigger_press = kDefaultTriggerPress;
         // Spelled out: charged_host is C++17.
         bool operator==(const PadProfile& other) const
         {
             return name == other.name && inputs == other.inputs && swap_sticks == other.swap_sticks
-                && controller == other.controller;
+                && controller == other.controller && inner_deadzone == other.inner_deadzone
+                && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press;
         }
         bool operator!=(const PadProfile& other) const { return !(*this == other); }
     };
@@ -112,8 +118,17 @@ struct Settings
     int PadProfileIndex(std::size_t slot) const;
     const PadProfile& PadProfileOf(std::size_t slot) const;
     static const PadProfile& DefaultPadProfile();
-    int deadzone = 15;
+    // controls.rumble: the Wii's rumble setting (Wii Remotes and gamepads);
+    // controls.rumble_strength (0-100 %) scales gamepad motors only, as a
+    // Wii Remote's motor is either on or off.
     bool rumble = true;
+    int rumble_strength = 100;
+    // controls.ir_sensitivity: the Wii's sensor bar sensitivity (1-5), the
+    // camera settings a Wii Remote gets.
+    int ir_sensitivity = 3;
+    // controls.speaker_volume: Wii Remote speaker volume (0-100 %, 70 = the
+    // Wii's default); 0 sends no sound to the Remotes.
+    int speaker_volume = 70;
     // The mouse also points for player 1 on a Wii Remote or gamepad playing alone.
     bool mouse_pointer = true;
     // controls.bluetooth_search: on Windows the launcher's Controls page

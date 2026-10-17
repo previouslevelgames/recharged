@@ -1,6 +1,7 @@
 #include "platform/wpad_sdl.h"
 #include "platform/desktop_nunchuk.h"
 #include "platform/interrupts.h"
+#include "platform/wiimote_hid.h"
 
 #include <revolution/wpad/WPAD.h>
 #include <SDL3/SDL.h>
@@ -9,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <limits>
 #include <stdexcept>
@@ -25,6 +27,15 @@ constexpr std::array<u16, 11> kRemoteButtons{
     WPAD_BUTTON_UP, WPAD_BUTTON_DOWN, WPAD_BUTTON_LEFT, WPAD_BUTTON_RIGHT};
 constexpr float kGravity = 9.80665f;
 constexpr std::size_t kPendingReports = 16;
+// Speaker commands in flight per channel; original WPAD's command queue
+// refuses more the same way (COMMUNICATION_ERROR).
+constexpr std::size_t kSpeakerRequests = 8;
+struct SpeakerRequest {
+    WPADCallback callback = nullptr;
+    u32 command = WPAD_SPEAKER_OFF;
+    bool done = false;
+    WPADResult result = WPAD_ERR_OK;
+};
 struct Channel {
     SDL_Gamepad* pad = nullptr;
     SDL_JoystickID id = 0;
@@ -50,6 +61,11 @@ struct Channel {
     bool disconnected_this_service = false;
     bool motor_running = false;
     bool rumble_failure_logged = false;
+    // Original info.speaker: on once an ON sequence completed, off after OFF.
+    bool speaker = false;
+    // Commands the Wii Remote HID driver is sending to this channel's speaker,
+    // oldest first; their callbacks follow on the service after they went out.
+    std::deque<SpeakerRequest> speaker_requests;
     // A Wii Remote whose SDL Wii HID driver reports an attached Nunchuk (device
     // "Nintendo Wii Remote with Nunchuk": left stick, C button, Z trigger axis,
     // ACCEL_L sensor). Its post-parser freestyle words, as the virtual source's.
@@ -372,6 +388,20 @@ bool DispatchExtension(Channel& channel, s32 index, u8 device) {
         if (callback) callback(value.index, value.device);
     }, &change);
 }
+bool DispatchSpeakerCompletion(Channel& channel, s32 index) {
+    struct Completion { Channel* channel; s32 index; } completion{&channel, index};
+    return mscharged::platform::DispatchNativeInterrupt([](void* opaque) {
+        auto& value = *static_cast<Completion*>(opaque);
+        auto request = value.channel->speaker_requests.front();
+        value.channel->speaker_requests.pop_front();
+        // The status report that ends original ON/OFF sets info.speaker
+        // before the callback runs.
+        if (request.result == WPAD_ERR_OK && (request.command == WPAD_SPEAKER_ON || request.command == WPAD_SPEAKER_5))
+            value.channel->speaker = true;
+        if (request.result == WPAD_ERR_OK && request.command == WPAD_SPEAKER_OFF) value.channel->speaker = false;
+        if (request.callback) request.callback(value.index, request.result);
+    }, &completion);
+}
 bool DispatchConnect(Channel& channel, s32 index, WPADResult result) {
     struct Call { WPADConnectCallback* callback; s32 channel; WPADResult result; } call{channel.connect, index, result};
     return mscharged::platform::DispatchNativeInterrupt([](void* opaque) {
@@ -574,6 +604,13 @@ void ServiceWpadSDL() {
                 if (!DispatchDpdCompletion(channel, index)) return;
                 if (!state.initialized || state.generation != generation) return;
             }
+            for (auto& request : channel.speaker_requests)
+                if (!request.done) { request.done = true; request.result = WPAD_ERR_NO_CONTROLLER; }
+            while (!channel.speaker_requests.empty()) {
+                if (!DispatchSpeakerCompletion(channel, index)) return;
+                if (!state.initialized || state.generation != generation) return;
+            }
+            channel.speaker = false;
             if (!SDL_IsJoystickVirtual(SDL_GetGamepadID(channel.pad)))
                 SDL_Log("Wii Remote disconnected from WPAD channel %d", int(index));
             SDL_CloseGamepad(channel.pad);
@@ -694,6 +731,10 @@ void ServiceWpadSDL() {
             if (!DispatchDpdCompletion(channel, index)) return;
             if (!state.initialized || state.generation != generation) return;
         }
+        while (!channel.speaker_requests.empty() && channel.speaker_requests.front().done) {
+            if (!DispatchSpeakerCompletion(channel, index)) return;
+            if (!state.initialized || state.generation != generation) return;
+        }
         if (!channel.announced && channel.connect) {
             if (!DispatchConnect(channel, index, WPAD_ERR_OK)) return;
             if (!state.initialized || state.generation != generation) return;
@@ -740,6 +781,18 @@ void ServiceWpadSDL() {
                 channel.head = channel.count = 0;
             }
         }
+    }
+}
+void CompleteNativeWpadSpeaker(std::uint32_t joystick_id, bool ok) {
+    RequireOwner();
+    for (auto& channel : State().channels) {
+        if (!channel.pad || channel.id != joystick_id) continue;
+        for (auto& request : channel.speaker_requests)
+            if (!request.done) {
+                request.done = true;
+                request.result = ok ? WPAD_ERR_OK : WPAD_ERR_COMMUNICATION_ERROR;
+                return;
+            }
     }
 }
 std::size_t WpadSDLConnectedChannels() {
@@ -813,11 +866,10 @@ WPADResult WPADProbe(WPADChannel index, WPADDeviceType* type) {
     if (type) *type = channel.pad ? static_cast<WPADDeviceType>(channel.device) : WPAD_DEV_NOT_FOUND;
     return channel.pad ? WPAD_ERR_OK : WPAD_ERR_NO_CONTROLLER;
 }
-// Native SDL core reports have no qualified Wii speaker HID output. Keep
-// unavailable transport separate from the genuinely supported input channel.
+// Wii Remotes of the native HID driver have their speaker (when the speaker
+// setting is on); other SDL devices (gamepads, keyboard & mouse) have none.
 BOOL WPADIsSpeakerEnabled(s32 index) {
-    (void)GetChannel(index);
-    return FALSE;
+    return GetChannel(index).speaker ? TRUE : FALSE;
 }
 u8 WPADGetSpeakerVolume() {
     RequireOwner();
@@ -833,7 +885,31 @@ void WPADSetSpeakerVolume(u8 volume) {
 WPADResult WPADControlSpeaker(WPADChannel index, u32 command, WPADCallback callback) {
     auto& channel = GetChannel(index);
     WPADResult result = WPAD_ERR_NO_CONTROLLER;
-    if (channel.pad && SDL_GamepadConnected(channel.pad)) {
+    using mscharged::platform::WiimoteSpeakerCommand;
+    const bool known = command <= WPAD_SPEAKER_5;
+    if (channel.pad && SDL_GamepadConnected(channel.pad) && known &&
+            mscharged::platform::WiimoteHidHasSpeaker(channel.id)) {
+        // Original WPAD: OFF for a speaker that is off succeeds at once; the
+        // other commands queue their reports and call back once they went out.
+        if (command == WPAD_SPEAKER_OFF && !channel.speaker) result = WPAD_ERR_OK;
+        else if (channel.speaker_requests.size() >= kSpeakerRequests) result = WPAD_ERR_COMMUNICATION_ERROR;
+        else {
+            const WiimoteSpeakerCommand commands[]{WiimoteSpeakerCommand::Off, WiimoteSpeakerCommand::On,
+                WiimoteSpeakerCommand::Mute, WiimoteSpeakerCommand::Unmute, WiimoteSpeakerCommand::Play,
+                WiimoteSpeakerCommand::On};
+            u8 volume;
+            {
+                std::lock_guard lock(State().reports);
+                volume = State().speaker_volume;
+            }
+            // Listed first: the driver may send (and complete) it at once.
+            channel.speaker_requests.push_back({callback, command});
+            if (mscharged::platform::WiimoteHidControlSpeaker(channel.id, commands[command], volume))
+                return WPAD_ERR_OK;
+            channel.speaker_requests.pop_back();
+            result = WPAD_ERR_COMMUNICATION_ERROR;
+        }
+    } else if (channel.pad && SDL_GamepadConnected(channel.pad)) {
         // Original WPAD returns its current status for an unknown command and
         // immediately succeeds when OFF is requested for an already off
         // speaker. Neither branch submits a physical operation.
@@ -856,13 +932,16 @@ WPADResult WPADControlSpeaker(WPADChannel index, u32 command, WPADCallback callb
     return result;
 }
 BOOL WPADCanSendStreamData(s32 index) {
-    (void)GetChannel(index);
-    return FALSE; // No supported SDL device owns a Wii speaker output queue.
-}
-s32 WPADSendStreamData(s32 index, void*, u16) {
     auto& channel = GetChannel(index);
-    return channel.pad && SDL_GamepadConnected(channel.pad)
-        ? WPAD_ERR_COMMUNICATION_ERROR : WPAD_ERR_NO_CONTROLLER;
+    return channel.pad && SDL_GamepadConnected(channel.pad) &&
+        mscharged::platform::WiimoteHidCanStreamSpeaker(channel.id) ? TRUE : FALSE;
+}
+s32 WPADSendStreamData(s32 index, void* data, u16 length) {
+    auto& channel = GetChannel(index);
+    if (!channel.pad || !SDL_GamepadConnected(channel.pad)) return WPAD_ERR_NO_CONTROLLER;
+    // Busy (the previous frame still goes out) like original IsBusyStream.
+    return mscharged::platform::WiimoteHidStreamSpeaker(channel.id, data, length)
+        ? WPAD_ERR_OK : WPAD_ERR_COMMUNICATION_ERROR;
 }
 s32 WPADGetInfoAsync(s32 index, WPADInfo*, WPADCallback callback) {
     auto& channel = GetChannel(index);

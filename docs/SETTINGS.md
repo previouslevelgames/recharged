@@ -137,8 +137,8 @@ line lists the levels in use.
 
 Real Wii Remotes (or Wii Remote Plus) with a Nunchuk work on Linux and
 Windows, either through a **Mayflash DolphinBar** in mode 4 or paired directly
-over **Bluetooth**. On macOS they are untested. The Remote speaker, MotionPlus
-and other extensions are not supported.
+over **Bluetooth**. On macOS they are untested. MotionPlus and other
+extensions are not supported.
 
 - **DolphinBar:** press SYNC on the bar, then SYNC under the Remote's battery
   cover.
@@ -150,9 +150,25 @@ and other extensions are not supported.
   your system's Bluetooth settings (no PIN).
 
 Over Bluetooth the Remote needs a separate sensor bar for its pointer.
-`controls.sensor_bar` says whether the bar sits at the `bottom` or `top` of
-the screen; it must be in view of the Remote's camera (sit about 1 m or more
-away when it is on top). `controls.rumble` switches rumble.
+The **Wii Remote** card on the Controls page has the Wii's own Remote
+settings:
+
+- **Sensor bar** (`controls.sensor_bar`): whether the bar sits at the
+  `bottom` or `top` of the screen. It must be in view of the Remote's camera
+  (sit about 1 m or more away when it is on top).
+- **Sensitivity** (`controls.ir_sensitivity`, 1-5, default 3): how readily
+  the camera sees the bar, as in the Wii's sensor bar settings. Raise it when
+  the pointer drops out far from the bar, lower it when lamps or windows
+  disturb it.
+- **Speaker volume** (`controls.speaker_volume`, 0-100, default 70 like the
+  Wii): the game plays some sounds on each player's Remote as well as on the
+  TV. 0 sends no sound to the Remotes. How clean it sounds depends on the
+  Bluetooth link; turn it down or off if it crackles.
+
+The **Rumble** card switches rumble for Wii Remotes and gamepads
+(`controls.rumble`) and sets how strongly gamepads rumble
+(`controls.rumble_strength`, 0-100). A Wii Remote's motor is either on or
+off.
 
 **Who plays** is set on the **Controls** page: each of players 1-4 is keyboard
 & mouse, a Wii Remote, a gamepad, or off (`controls.player1` to `player4`:
@@ -160,6 +176,24 @@ away when it is on top). `controls.rumble` switches rumble.
 Bluetooth Remote, `gamepad1`-`gamepad4`, `off`). Players fill in order.
 Controllers missing when the game starts are left out, and keyboard & mouse is
 player 1 when nobody is left. The page also shows each Remote's battery level.
+
+**Keys and gamepad profiles.** The sliders button beside a player opens its
+keys (`[keyboard]`) or its gamepad profile (`[gamepad_profileN]`). Each action
+takes up to two keys; the middle and side mouse buttons (`Mouse Middle`,
+`Mouse 4`, `Mouse 5`) can take a key's place, while left and right click stay
+A and B. A gamepad profile also sets, for both sticks:
+
+- **Inner dead zone** (`inner_deadzone`, 0-30 %, default 15): the stick rests
+  until it is tilted this far. Raise it if a worn stick drifts.
+- **Outer dead zone** (`outer_deadzone`, 70-100 %, default 71): from this tilt
+  on the stick is pushed all the way. The defaults play like a Nunchuk on the
+  Wii; the game's own Nunchuk dead zone is already included, so these are the
+  only ones you feel.
+- **Trigger press point** (`trigger_press`, 10-90 %, default 50): a trigger
+  bound to a button presses it past this much of its travel.
+
+The profile page shows both sticks and triggers live with these settings.
+The built-in Default always uses the defaults; changing it makes your own copy.
 
 **Linux permissions.** If a Remote is connected but cannot be opened, the
 Controls page says so and copies these commands. Run them once, then

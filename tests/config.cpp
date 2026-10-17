@@ -42,16 +42,20 @@ int main()
         settings.master_volume = 65;
         settings.sound_volumes = {20, 80, 35, 50, 70, 0, 60};
         settings.players = {"remote2", "keyboard", "remote1", "off"};
-        settings.deadzone = 20;
         settings.rumble = false;
+        settings.rumble_strength = 40;
+        settings.ir_sensitivity = 5;
+        settings.speaker_volume = 0;
         settings.backend = "d3d12";
         SaveConfig(file, settings);
         const auto reloaded = LoadConfig(path);
         Require(reloaded.settings.width == 1920 && reloaded.settings.height == 1080
             && reloaded.settings.fullscreen && reloaded.settings.master_volume == 65
             && reloaded.settings.sound_volumes == settings.sound_volumes
-            && reloaded.settings.players == settings.players && reloaded.settings.deadzone == 20
-            && !reloaded.settings.rumble && reloaded.settings.backend == "d3d12", "Settings round trip");
+            && reloaded.settings.players == settings.players
+            && !reloaded.settings.rumble && reloaded.settings.rumble_strength == 40
+            && reloaded.settings.ir_sensitivity == 5 && reloaded.settings.speaker_volume == 0
+            && reloaded.settings.backend == "d3d12", "Settings round trip");
         Require(reloaded.contents.find("; keep my comment\r\n") != std::string::npos
             && reloaded.contents.find("option = keep me\r\n") != std::string::npos
             && reloaded.contents.compare(0, 3, "\xEF\xBB\xBF") == 0, "Preserve comments, unknown keys, BOM and CRLF");
@@ -103,6 +107,17 @@ int main()
         Require(LoadConfig(path).settings.players[0] == "gamepad1", "Gamepad player loads");
         std::ofstream(path) << "[controls]\nplayer1 = gamepad1\nplayer2 = gamepad1\n";
         Reject([&] { LoadConfig(path); });
+        // Wii Remote settings: the Wii's defaults (sensitivity 3, speaker 70 %).
+        Require(Settings{}.ir_sensitivity == 3 && Settings{}.speaker_volume == 70 && Settings{}.rumble_strength == 100,
+                "Wii Remote defaults");
+        std::ofstream(path) << "[controls]\nir_sensitivity = 0\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[controls]\nir_sensitivity = 6\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[controls]\nspeaker_volume = 101\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[controls]\nrumble_strength = -1\n";
+        Reject([&] { LoadConfig(path); });
         Require(Settings{}.mouse_pointer, "Mouse pointer default");
         std::ofstream(path) << "[controls]\nmouse_pointer = false\n";
         Require(!LoadConfig(path).settings.mouse_pointer, "Mouse pointer off loads");
@@ -121,6 +136,7 @@ int main()
                 "Gamepads play with the built-in Default profile");
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
+                               "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\n"
                                "[gamepad_profile2]\nname = Spare\nb = x\ncontroller = gamecube\n";
         {
             auto file = LoadConfig(path);
@@ -131,6 +147,11 @@ int main()
                         && loaded.pad_profiles[0].swap_sticks && loaded.pad_profiles[0].controller == "xbox"
                         && loaded.pad_profiles[1].controller == "gamecube",
                     "Gamepad profiles load, with their controller kind");
+            Require(loaded.pad_profiles[0].inner_deadzone == 22 && loaded.pad_profiles[0].outer_deadzone == 90
+                        && loaded.pad_profiles[0].trigger_press == 30 && loaded.pad_profiles[1].inner_deadzone == 15
+                        && loaded.pad_profiles[1].outer_deadzone == 71 && loaded.pad_profiles[1].trigger_press == 50
+                        && Settings{}.PadProfileOf(0).outer_deadzone == 71,
+                    "Gamepad profiles keep their dead zones; missing ones are the Wii Nunchuk's");
             Require(loaded.PadProfileIndex(1) == 0 && loaded.pad_profile_names[1] == "Kyle",
                     "A gamepad finds its profile by name, ignoring case");
             Require(loaded.PadProfileIndex(2) == -1 && loaded.pad_profile_names[2] == "Default",
@@ -140,12 +161,18 @@ int main()
             changed.pad_profiles.erase(changed.pad_profiles.begin());
             changed.pad_profile_names[1] = "Default";
             changed.pad_profile_names[3] = "Spare";
+            changed.pad_profiles[0].inner_deadzone = 0;
+            changed.pad_profiles[0].outer_deadzone = 100;
+            changed.pad_profiles[0].trigger_press = 90;
             SaveConfig(file, changed);
             const auto saved = LoadConfig(path);
             Require(saved.settings.pad_profiles.size() == 1 && saved.settings.pad_profiles[0].name == "Spare"
                         && saved.settings.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x"
                         && !saved.settings.pad_profiles[0].swap_sticks
                         && saved.settings.pad_profiles[0].controller == "gamecube"
+                        && saved.settings.pad_profiles[0].inner_deadzone == 0
+                        && saved.settings.pad_profiles[0].outer_deadzone == 100
+                        && saved.settings.pad_profiles[0].trigger_press == 90
                         && saved.settings.PadProfileIndex(3) == 0
                         && saved.settings.PadProfileIndex(1) == -1,
                     "A deleted gamepad profile stays deleted");
@@ -176,6 +203,12 @@ int main()
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x\n";
         Reject([&] { LoadConfig(path); });
+        for (const char* range : {"inner_deadzone = 31", "inner_deadzone = -1", "outer_deadzone = 69",
+                                  "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91"})
+        {
+            std::ofstream(path) << "[gamepad_profile1]\nname = Pad\n" << range << "\n";
+            Reject([&] { LoadConfig(path); });
+        }
         Require(mscharged::ValidPadProfileName("Kyle's pad") && !mscharged::ValidPadProfileName(" Kyle")
                     && !mscharged::ValidPadProfileName("a|b") && !mscharged::ValidPadProfileName("")
                     && !mscharged::ValidPadProfileName("DEFAULT"),
@@ -333,6 +366,12 @@ int main()
         SaveConfig(legacyFps, legacyFps.settings);
         Require(legacyFps.contents.find("show_fps") == std::string::npos
             && legacyFps.contents.find("custom = preserved") != std::string::npos, "Retired title key is removed alone");
+        // The old controls.deadzone was never read; gamepad profiles have their own (#62).
+        std::ofstream(path) << "[controls]\ndeadzone = 40\nrumble = false\n";
+        auto legacyDeadzone = LoadConfig(path);
+        SaveConfig(legacyDeadzone, legacyDeadzone.settings);
+        Require(legacyDeadzone.contents.find("deadzone") == std::string::npos
+            && legacyDeadzone.contents.find("rumble = false") != std::string::npos, "Retired dead zone key is removed");
         for (const char* invalid : {"[display]\nmonitor = 16\n",
                                     "[display]\nfps_overlay = maybe\n", "[display]\nfps_overlay_corner = center\n",
                                     "[display]\nperformance_mode = maybe\n",

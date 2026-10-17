@@ -1,5 +1,8 @@
 #include "platform/gamepad_bindings.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace mscharged::platform {
 GamepadInput ParseGamepadInput(std::string_view name) {
     const std::string text(name);
@@ -152,14 +155,44 @@ std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily f
     return inputs;
 }
 
-bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input) {
+Sint16 GamepadTriggerThreshold(int press) {
+    // 50 % is kGamepadTriggerPressed, the threshold before press points.
+    return Sint16(std::min(std::clamp(press, 0, 100) * 32768 / 100, 32767));
+}
+
+bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input, int press) {
     if (input >= 0 && input < SDL_GAMEPAD_BUTTON_COUNT) return SDL_GetGamepadButton(pad, SDL_GamepadButton(input));
     if (input >= kGamepadTriggerBase && input < kGamepadTriggerBase + SDL_GAMEPAD_AXIS_COUNT)
-        return SDL_GetGamepadAxis(pad, SDL_GamepadAxis(input - kGamepadTriggerBase)) > kGamepadTriggerPressed;
+        return SDL_GetGamepadAxis(pad, SDL_GamepadAxis(input - kGamepadTriggerBase)) > GamepadTriggerThreshold(press);
     return false;
 }
 
-bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding) {
-    return GamepadInputHeld(pad, binding[0]) || GamepadInputHeld(pad, binding[1]);
+bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding, int press) {
+    return GamepadInputHeld(pad, binding[0], press) || GamepadInputHeld(pad, binding[1], press);
+}
+
+StickTilt ApplyStickDeadzones(float x, float y, int inner, int outer) {
+    const float length = std::hypot(x, y);
+    const float start = std::clamp(inner, 0, 100) / 100.0f;
+    const float full = std::max(std::clamp(outer, 0, 100) / 100.0f, start + 0.01f);
+    if (!(length > start)) return {};
+    const float scale = std::min(1.0f, (length - start) / (full - start)) / length;
+    return {x * scale, y * scale};
+}
+
+StickTilt GamepadStickTilt(SDL_Gamepad* pad, SDL_GamepadAxis x, SDL_GamepadAxis y, int inner, int outer) {
+    const auto axis = [&](SDL_GamepadAxis which) {
+        return std::clamp(float(SDL_GetGamepadAxis(pad, which)) / 32767.0f, -1.0f, 1.0f);
+    };
+    return ApplyStickDeadzones(axis(x), axis(y), inner, outer);
+}
+
+std::array<std::int8_t, 2> NunchukStickCounts(StickTilt tilt) {
+    const auto counts = [](float value) {
+        const long moved = std::lround(std::clamp(value, -1.0f, 1.0f) * kNunchukStickReachCounts);
+        if (moved == 0) return std::int8_t(0);
+        return std::int8_t(moved > 0 ? moved + kNunchukStickDeadCounts : moved - kNunchukStickDeadCounts);
+    };
+    return {counts(tilt.x), counts(tilt.y)};
 }
 } // namespace mscharged::platform

@@ -7,13 +7,16 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <condition_variable>
 #include <cstring>
 #include <deque>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -50,6 +53,20 @@ struct Command {
     std::vector<std::uint8_t> report; // byte 1 bit 0 carries the rumble state at send time
     Wait wait = Wait::None;
     Tag tag = Tag::None;
+    // Last report of a WPAD speaker command: WPAD hears once it went out.
+    bool speaker_done = false;
+};
+
+// Speaker data goes out on a thread of its own: original WPAD sends a frame
+// every 6.7 ms, and a write that waits (Windows Bluetooth, a busy DolphinBar
+// link) would hold the game thread. One frame at a time, like WPAD's stream
+// check (a frame still waiting makes the next one wait).
+struct SpeakerStream {
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::array<std::uint8_t, 22> frame{};
+    bool pending = false, stop = false;
+    std::thread thread;
 };
 
 struct Remote {
@@ -65,7 +82,12 @@ struct Remote {
     bool waiting = false;
     Command current;
     Clock::time_point wait_deadline{};
-    bool rumble = false;
+    // Read by the speaker thread: every output report carries the rumble bit.
+    std::atomic<bool> rumble{false};
+    // One HID write at a time: the owner's commands and the speaker thread.
+    std::mutex write;
+    bool speaker = false; // WPAD turned the speaker on (and not off since)
+    std::unique_ptr<SpeakerStream> stream;
     int zero[3]{512, 512, 512}, one[3]{612, 612, 612};
     bool extension = false, nunchuk = false;
     int nunchuk_zero[3]{512, 512, 512}, nunchuk_one[3]{712, 712, 712}, nunchuk_centre[2]{128, 128};
@@ -106,8 +128,48 @@ std::string Describe(const Remote& remote) {
 
 bool Send(Remote& remote, std::vector<std::uint8_t> report) {
     if (!remote.hid || report.size() < 2) return false;
+    std::lock_guard lock(remote.write);
     report[1] = static_cast<std::uint8_t>((report[1] & ~1u) | (remote.rumble ? 1u : 0u));
     return mscharged::platform::WriteWiimoteReport(remote.hid, report.data(), report.size());
+}
+
+void StreamSpeaker(Remote* remote, SDL_hid_device* hid) {
+    auto& stream = *remote->stream;
+    std::unique_lock lock(stream.mutex);
+    for (;;) {
+        stream.wake.wait(lock, [&] { return stream.pending || stream.stop; });
+        if (stream.stop) return;
+        auto frame = stream.frame;
+        lock.unlock();
+        {
+            std::lock_guard write(remote->write);
+            frame[1] = static_cast<std::uint8_t>((frame[1] & ~1u) | (remote->rumble ? 1u : 0u));
+            // A lost frame is a moment of silence; a remote that is gone shows
+            // on the owner's side (failed commands, no reports).
+            mscharged::platform::WriteWiimoteReport(hid, frame.data(), frame.size());
+        }
+        lock.lock();
+        stream.pending = false;
+    }
+}
+void StartSpeakerStream(Remote& remote) {
+    if (remote.stream || !remote.hid) return;
+    remote.stream = std::make_unique<SpeakerStream>();
+    remote.stream->thread = std::thread(StreamSpeaker, &remote, remote.hid);
+}
+// Before the HID device closes: waits for a frame being written.
+void StopSpeakerStream(Remote& remote) {
+    if (!remote.stream) return;
+    {
+        std::lock_guard lock(remote.stream->mutex);
+        remote.stream->stop = true;
+    }
+    remote.stream->wake.notify_one();
+    remote.stream->thread.join();
+    remote.stream.reset();
+}
+void CompleteSpeaker(Remote& remote, bool ok) {
+    if (remote.virtual_id) mscharged::platform::CompleteNativeWpadSpeaker(remote.virtual_id, ok);
 }
 void Queue(Remote& remote, std::vector<std::uint8_t> report, Wait wait = Wait::None, Tag tag = Tag::None) {
     remote.queue.push_back({std::move(report), wait, tag});
@@ -260,6 +322,8 @@ void Lost(Remote& remote, const char* why) {
     remote.retry_at = {};
     remote.extension = remote.nunchuk = false;
     remote.rumble = false;
+    remote.speaker = false;
+    StopSpeakerStream(remote);
     remote.next_probe = Clock::now() + 1s;
 }
 
@@ -426,8 +490,10 @@ void HandleReport(Remote& remote, const std::uint8_t* report, int size, Clock::t
     }
     if (id == 0x22 && size >= 5) {
         remote.last_report = now;
-        if (remote.waiting && remote.current.wait == Wait::Ack && report[3] == remote.current.report[0])
+        if (remote.waiting && remote.current.wait == Wait::Ack && report[3] == remote.current.report[0]) {
             remote.waiting = false;
+            if (remote.current.speaker_done) CompleteSpeaker(remote, report[4] == 0);
+        }
         return;
     }
     if (id >= 0x30 && id <= 0x3f) {
@@ -448,6 +514,7 @@ void Pump(Remote& remote, Clock::time_point now) {
     if (remote.waiting && now < remote.wait_deadline) return;
     if (remote.waiting && Verbose())
         SDL_Log("Wii Remote %s: no reply to %02x", remote.path.c_str(), remote.current.report[0]);
+    if (remote.waiting && remote.current.speaker_done) CompleteSpeaker(remote, false);
     remote.waiting = false;
     while (!remote.queue.empty()) {
         remote.current = std::move(remote.queue.front());
@@ -467,6 +534,7 @@ void Pump(Remote& remote, Clock::time_point now) {
             remote.wait_deadline = now + kCommandWait;
             return;
         }
+        if (remote.current.speaker_done) CompleteSpeaker(remote, true);
     }
     if (!remote.ready && remote.present) {
         remote.ready = true;
@@ -605,6 +673,16 @@ void RequireOwner() {
     if (State().owner != std::this_thread::get_id())
         throw std::logic_error("Wii Remote HID driver requires its input owner thread");
 }
+
+// The ready remote behind a virtual joystick, when remotes offer their speaker.
+Remote* SpeakerRemote(std::uint32_t joystick_id) {
+    auto& driver = State();
+    if (!driver.initialized || !driver.settings.speaker || !joystick_id) return nullptr;
+    RequireOwner();
+    for (auto& remote : driver.remotes)
+        if (remote->ready && remote->virtual_id == joystick_id) return remote.get();
+    return nullptr;
+}
 } // namespace
 
 namespace mscharged::platform {
@@ -672,6 +750,7 @@ void ShutdownWiimoteHid() {
     if (!driver.initialized) return;
     RequireOwner();
     for (auto& remote : driver.remotes) {
+        StopSpeakerStream(*remote);
         if (remote->rumble) { remote->rumble = false; Send(*remote, {0x10, 0x00}); }
         DetachVirtual(*remote);
         if (remote->hid) SDL_hid_close(remote->hid);
@@ -681,6 +760,86 @@ void ShutdownWiimoteHid() {
     driver.initialized = false;
     driver.owner = {};
     SDL_hid_exit();
+}
+
+std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerCommand command, std::uint8_t volume) {
+    // Register writes (0x16): control registers, 3 address bytes, length,
+    // 16 data bytes. 0xa20001 is the speaker configuration, 0xa20008 starts
+    // playing, 0xa20009 powers the speaker's decoder.
+    const auto write = [](std::uint32_t address, std::initializer_list<std::uint8_t> data) {
+        std::vector<std::uint8_t> report(22, 0);
+        report[0] = 0x16;
+        report[1] = 0x04;
+        report[2] = static_cast<std::uint8_t>(address >> 16);
+        report[3] = static_cast<std::uint8_t>(address >> 8);
+        report[4] = static_cast<std::uint8_t>(address);
+        report[5] = static_cast<std::uint8_t>(data.size());
+        std::copy(data.begin(), data.end(), report.begin() + 6);
+        return report;
+    };
+    const std::vector<std::uint8_t> enable{0x14, 0x04}, disable{0x14, 0x00}, mute{0x19, 0x04}, unmute{0x19, 0x00};
+    switch (command) {
+    case WiimoteSpeakerCommand::Off:
+        return {mute, write(0xa20001, {0x01}), write(0xa20009, {0x00}), disable};
+    case WiimoteSpeakerCommand::On:
+        // 4-bit ADPCM, rate 0x07d0, the volume, then WPAD's last two bytes.
+        // The USA SDK writes 0x80 to 0xa20001 first, later SDKs (the European
+        // game's) 0x08: the later value.
+        return {enable, mute, write(0xa20009, {0x01}), write(0xa20001, {0x08}),
+                write(0xa20001, {0x00, 0x00, 0xd0, 0x07, std::min<std::uint8_t>(volume, 127), 0x0c, 0x0e}), unmute};
+    case WiimoteSpeakerCommand::Mute: return {mute};
+    case WiimoteSpeakerCommand::Unmute: return {unmute};
+    case WiimoteSpeakerCommand::Play: return {write(0xa20008, {0x01})};
+    }
+    return {};
+}
+
+bool WiimoteHidHasSpeaker(std::uint32_t joystick_id) { return SpeakerRemote(joystick_id) != nullptr; }
+
+bool WiimoteHidControlSpeaker(std::uint32_t joystick_id, WiimoteSpeakerCommand command, std::uint8_t volume) {
+    auto* remote = SpeakerRemote(joystick_id);
+    if (!remote) return false;
+    auto reports = WiimoteSpeakerReports(command, volume);
+    if (reports.empty()) return false;
+    for (std::size_t n = 0; n < reports.size(); ++n) {
+        const bool written = reports[n][0] == 0x16;
+        remote->queue.push_back({std::move(reports[n]), written ? Wait::Ack : Wait::None, Tag::None,
+                                 n + 1 == reports.size()});
+    }
+    if (command == WiimoteSpeakerCommand::On) {
+        if (!remote->speaker && Verbose()) SDL_Log("Wii Remote (%s): speaker on", Describe(*remote).c_str());
+        remote->speaker = true;
+        StartSpeakerStream(*remote);
+    } else if (command == WiimoteSpeakerCommand::Off) {
+        remote->speaker = false;
+        StopSpeakerStream(*remote);
+    }
+    // Out at once (mute and unmute come with each sound), unless a command
+    // still waits for its reply.
+    Pump(*remote, Clock::now());
+    return true;
+}
+
+bool WiimoteHidCanStreamSpeaker(std::uint32_t joystick_id) {
+    auto* remote = SpeakerRemote(joystick_id);
+    if (!remote || !remote->speaker || !remote->stream || remote->waiting || !remote->queue.empty()) return false;
+    std::lock_guard lock(remote->stream->mutex);
+    return !remote->stream->pending;
+}
+
+bool WiimoteHidStreamSpeaker(std::uint32_t joystick_id, const void* data, std::uint16_t size) {
+    if (!data || size > 20 || !WiimoteHidCanStreamSpeaker(joystick_id)) return false;
+    auto& stream = *SpeakerRemote(joystick_id)->stream;
+    {
+        std::lock_guard lock(stream.mutex);
+        stream.frame.fill(0);
+        stream.frame[0] = 0x18;
+        stream.frame[1] = static_cast<std::uint8_t>(size << 3);
+        std::memcpy(stream.frame.data() + 2, data, size);
+        stream.pending = true;
+    }
+    stream.wake.notify_one();
+    return true;
 }
 
 bool WiimoteHidHasDevices() {

@@ -47,8 +47,10 @@ Values Encode(const Settings& s)
             {"audio.mute", s.mute ? "true" : "false"},
             {"controls.player1", s.players[0]}, {"controls.player2", s.players[1]},
             {"controls.player3", s.players[2]}, {"controls.player4", s.players[3]},
-            {"controls.deadzone", std::to_string(s.deadzone)},
             {"controls.rumble", s.rumble ? "true" : "false"},
+            {"controls.rumble_strength", std::to_string(s.rumble_strength)},
+            {"controls.ir_sensitivity", std::to_string(s.ir_sensitivity)},
+            {"controls.speaker_volume", std::to_string(s.speaker_volume)},
             {"controls.mouse_pointer", s.mouse_pointer ? "true" : "false"},
             {"controls.bluetooth_search", s.bluetooth_search ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
@@ -77,6 +79,9 @@ Values Encode(const Settings& s)
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             values.emplace(section + kGamepadActions[action].key, profile.inputs[action]);
         values.emplace(section + "swap_sticks", profile.swap_sticks ? "true" : "false");
+        values.emplace(section + "inner_deadzone", std::to_string(profile.inner_deadzone));
+        values.emplace(section + "outer_deadzone", std::to_string(profile.outer_deadzone));
+        values.emplace(section + "trigger_press", std::to_string(profile.trigger_press));
         values.emplace(section + "controller", profile.controller);
     }
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
@@ -193,9 +198,9 @@ Settings Decode(const Values& values)
                 + std::to_string(kMaxGamepadProfiles) + "], not [" + section + "]");
     }
     std::vector<Settings::PadProfile> profiles;
-    for (std::size_t number = 1; number <= kMaxGamepadProfiles; ++number)
+    for (std::size_t index = 1; index <= kMaxGamepadProfiles; ++index)
     {
-        const auto section = "gamepad_profile" + std::to_string(number) + ".";
+        const auto section = "gamepad_profile" + std::to_string(index) + ".";
         const auto first = values.lower_bound(section);
         if (first == values.end() || first->first.rfind(section, 0) != 0) continue;
         const auto name = values.find(section + "name");
@@ -210,6 +215,9 @@ Settings Decode(const Values& values)
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs");
         boolean((section + "swap_sticks").c_str(), profile.swap_sticks);
+        number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
+        number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);
+        number((section + "trigger_press").c_str(), profile.trigger_press, kMinTriggerPress, kMaxTriggerPress);
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
         profiles.push_back(std::move(profile));
     }
@@ -234,8 +242,10 @@ Settings Decode(const Values& values)
             if (s.players[n] == s.players[m])
                 throw std::runtime_error("Invalid configuration: " + s.players[n] + " is assigned to two players");
     }
-    number("controls.deadzone", s.deadzone, 0, 50);
     boolean("controls.rumble", s.rumble);
+    number("controls.rumble_strength", s.rumble_strength, 0, 100);
+    number("controls.ir_sensitivity", s.ir_sensitivity, 1, 5);
+    number("controls.speaker_volume", s.speaker_volume, 0, 100);
     boolean("controls.mouse_pointer", s.mouse_pointer);
     boolean("controls.bluetooth_search", s.bluetooth_search);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
@@ -315,8 +325,10 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 if (!values.emplace(full_key, value).second)
                     throw std::runtime_error("Invalid configuration: duplicate " + full_key);
                 key_line = true;
+                // Retired keys, accepted in old INIs: the title-bar counter and a
+                // dead zone nothing read (gamepad profiles have their own, #62).
                 drop = updated && ((OwnedSection(section) && !kept.count(full_key))
-                    || full_key == "display.show_fps"); // Retired title-bar counter; accept old INIs.
+                    || full_key == "display.show_fps" || full_key == "controls.deadzone");
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)

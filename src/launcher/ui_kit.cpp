@@ -881,7 +881,7 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
     return changed;
 }
 
-bool PercentSlider(const char* id, int* value, float width)
+bool PercentSlider(const char* id, int* value, float width, const char* zero_label, int minimum, int maximum)
 {
     ImGui::PushID(id);
     const auto& fonts = CurrentFonts();
@@ -899,7 +899,7 @@ bool PercentSlider(const char* id, int* value, float width)
     ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{0, 0, 0, 0});
     ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, knob);
     ImGui::SetNextItemWidth(track_width);
-    const bool changed = ImGui::SliderInt("##slider", value, 0, 100, "", ImGuiSliderFlags_AlwaysClamp);
+    const bool changed = ImGui::SliderInt("##slider", value, minimum, maximum, "", ImGuiSliderFlags_AlwaysClamp);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(5);
     const bool active = ImGui::IsItemActive();
@@ -909,7 +909,8 @@ bool PercentSlider(const char* id, int* value, float width)
     auto* draw = ImGui::GetWindowDrawList();
     const float alpha = ImGui::GetStyle().Alpha; // dimmed while disabled (Mute)
     const float left = pos.x + 2.0f + knob * 0.5f, right = pos.x + track_width - 2.0f - knob * 0.5f;
-    const float x = left + (right - left) * std::clamp(float(*value) / 100.0f, 0.0f, 1.0f);
+    const float x = left + (right - left)
+        * std::clamp(float(*value - minimum) / float(std::max(1, maximum - minimum)), 0.0f, 1.0f);
     const float y = pos.y + height * 0.5f, half = Dp(2);
     draw->AddRectFilled({left, y - half}, {right, y + half}, Col(color::text, 0.12f * alpha), half);
     if (x > left + 0.5f)
@@ -920,7 +921,7 @@ bool PercentSlider(const char* id, int* value, float width)
     draw->AddCircleFilled({x, y + Dp(1)}, radius, Col(ImVec4{0, 0, 0, 1}, 0.35f * alpha));
     draw->AddCircleFilled({x, y}, radius, Col(active ? color::accent_hi : color::text, alpha));
 
-    const std::string text = std::to_string(*value) + "%";
+    const std::string text = *value == 0 && zero_label ? zero_label : std::to_string(*value) + "%";
     const ImVec2 size = TextSize(fonts.body, text.c_str());
     DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), text.c_str());
     ImGui::PopID();

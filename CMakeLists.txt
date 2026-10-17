@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.0.10 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.0.11 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global

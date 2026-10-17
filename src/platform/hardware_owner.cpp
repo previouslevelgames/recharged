@@ -232,6 +232,7 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     for (auto it = players.remotes.begin(); it != players.remotes.end();)
         it = it->second < 0 ? players.remotes.erase(it) : std::next(it);
     WiimoteHidSettings hid{settings.dpd_sensitivity};
+    hid.speaker = settings.remote_speaker;
     hid.fixed_players = players.fixed;
     hid.channels = players.remotes;
     const bool remotes_play = !players.fixed || !players.remotes.empty();

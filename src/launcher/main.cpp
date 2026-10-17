@@ -462,6 +462,10 @@ public:
                     SelectDisc(event.drop.data);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
+                // Middle and side mouse buttons can take a key's place (#62).
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
+                    && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
+                    CaptureKey(platform::MouseKeyInput(event.button.button));
                 GamepadCaptureEvent(event);
             }
             // While an input waits for a gamepad press, and until the press
@@ -3556,6 +3560,12 @@ private:
                     row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
                 row(swap ? "Left stick" : "Right stick", "Pointer");
             });
+            ImGui::Dummy({0, Dp(6)});
+            TextColored(fonts.caption, color::muted,
+                        ("Stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
+                         + std::to_string(profile.outer_deadzone) + "%, triggers press at "
+                         + std::to_string(profile.trigger_press) + "%")
+                            .c_str());
             ImGui::EndTooltip();
         }
         ImGui::PopStyleVar();
@@ -4109,8 +4119,27 @@ private:
 #endif
             EndRows();
         }
-        // From the settings, not from what is connected right now: the row stays.
-        if ((RemotePlayer() || draft_.sensor_bar != "bottom") && BeginRows("##sensor_rows"))
+        EndCard();
+    }
+
+    bool GamepadPlayer() const
+    {
+        return std::any_of(draft_.players.begin(), draft_.players.end(),
+                           [](const std::string& device) { return device.rfind("gamepad", 0) == 0; });
+    }
+
+    // The Wii's Sensor Bar and Wii Remote settings. Shown from the settings,
+    // not from what is connected right now: the card stays while remotes come
+    // and go, and while a setting differs from the Wii's default.
+    void WiiRemoteCard()
+    {
+        const Settings defaults;
+        if (!RemotePlayer() && draft_.sensor_bar == defaults.sensor_bar &&
+            draft_.ir_sensitivity == defaults.ir_sensitivity && draft_.speaker_volume == defaults.speaker_volume)
+            return;
+        BeginCard("##wii_remote", "Wii Remote", "As in the Wii's own settings. Changes apply when the game starts.",
+                  Icon::Target);
+        if (BeginRows("##wii_remote_rows"))
         {
             Row("Sensor bar", "Where your sensor bar or DolphinBar sits. The game aims the Wii Remote pointer from it.");
             int position = draft_.sensor_bar == "top" ? 0 : 1;
@@ -4119,6 +4148,47 @@ private:
             {
                 draft_.sensor_bar = position == 0 ? "top" : "bottom";
                 dirty_ = true;
+            }
+            Row("Sensitivity", "How readily the Remote's camera sees the sensor bar (3 is the Wii's default). Raise it "
+                "when the pointer drops out far from the bar, lower it when lamps or windows disturb it.");
+            int level = std::clamp(draft_.ir_sensitivity, 1, 5) - 1;
+            if (Segmented("##ir_sensitivity", &level, {"1", "2", "3", "4", "5"}, ImGui::GetContentRegionAvail().x))
+            {
+                draft_.ir_sensitivity = level + 1;
+                dirty_ = true;
+            }
+            Row("Speaker volume", "Sounds the game plays on each player's Wii Remote; they play on the TV as well. "
+                "Off sends no sound to the Remotes.");
+            if (PercentSlider("##speaker_volume", &draft_.speaker_volume, ImGui::GetContentRegionAvail().x, "Off"))
+                dirty_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Speaker sound depends on the Bluetooth link: if it crackles, turn it down or off.");
+            EndRows();
+        }
+        EndCard();
+    }
+
+    // controls.rumble for every controller, controls.rumble_strength for
+    // gamepads (a Wii Remote's motor is on or off).
+    void RumbleCard()
+    {
+        const Settings defaults;
+        const bool controller = std::any_of(draft_.players.begin(), draft_.players.end(),
+            [](const std::string& device) { return device != "keyboard" && device != "off"; });
+        if (!controller && draft_.rumble == defaults.rumble && draft_.rumble_strength == defaults.rumble_strength)
+            return;
+        BeginCard("##rumble", "Rumble", nullptr, Icon::Gamepad);
+        if (BeginRows("##rumble_rows"))
+        {
+            Row("Rumble", "The game's rumble on Wii Remotes and gamepads, like the Wii's rumble setting.");
+            if (Toggle("##rumble", &draft_.rumble)) dirty_ = true;
+            if (GamepadPlayer() || draft_.rumble_strength != defaults.rumble_strength)
+            {
+                Row("Gamepad strength", "How strongly gamepads rumble. A Wii Remote's motor is either on or off.");
+                ImGui::BeginDisabled(!draft_.rumble);
+                if (PercentSlider("##rumble_strength", &draft_.rumble_strength, ImGui::GetContentRegionAvail().x, "Off"))
+                    dirty_ = true;
+                ImGui::EndDisabled();
             }
             EndRows();
         }
@@ -4154,14 +4224,15 @@ private:
 
     platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys); }
 
-    // A key pressed while a keycap waits: it takes that slot, moving it from
-    // another action unless it is that action's only key.
-    void CaptureKey(SDL_Scancode code)
+    // A key or mouse button pressed while a keycap waits: it takes that slot,
+    // moving it from another action unless it is that action's only key.
+    void CaptureKey(platform::KeyInput code)
     {
         const int action = capture_action_, slot = capture_slot_;
         capture_action_ = capture_slot_ = -1;
         if (action < 0) return;
-        const std::string name = SDL_GetScancodeName(code);
+        const std::string name = platform::KeyInputName(code);
+        if (name.empty()) return;
         if (code == platform::kScreenshotKey)
         {
             Notice(name + " takes screenshots and cannot be assigned.", NoticeKind::Warning);
@@ -4183,18 +4254,18 @@ private:
             for (int k = 0; k < 2; ++k)
             {
                 if (binding[k] != code) continue;
-                if (binding[1 - k] == SDL_SCANCODE_UNKNOWN)
+                if (binding[1 - k] == platform::kKeyNone)
                 {
                     Notice(name + " is the only key of " + kKeyActions[other].label
                                + ". Give that action another key first.", NoticeKind::Warning);
                     return;
                 }
-                binding = {binding[1 - k], SDL_SCANCODE_UNKNOWN};
+                binding = {binding[1 - k], platform::kKeyNone};
                 moved = int(other);
             }
         }
         mine[slot] = code;
-        if (mine[0] == SDL_SCANCODE_UNKNOWN) mine = {mine[1], SDL_SCANCODE_UNKNOWN};
+        if (mine[0] == platform::kKeyNone) mine = {mine[1], platform::kKeyNone};
         draft_.keys[action] = platform::FormatKeyBinding(mine);
         if (moved >= 0) draft_.keys[moved] = platform::FormatKeyBinding(bindings[moved]);
         dirty_ = true;
@@ -4207,8 +4278,8 @@ private:
     {
         if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseKeyboardView(); return; }
         ImGui::Dummy(Dp(0, 6));
-        PageHeader("Keyboard & mouse", "Click a key to change it; each action takes up to two keys. "
-                   "Changes are saved when you go back.");
+        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a middle or side mouse button "
+                   "(Mouse 4, Mouse 5). Each action takes up to two. Changes are saved when you go back.");
         const auto bindings = DraftBindings();
         bool clicked = false;
         const auto rows = [&](std::size_t first, std::size_t last) {
@@ -4231,30 +4302,30 @@ private:
                     ImGui::TableSetColumnIndex(1);
                     for (int slot = 0; slot < 2; ++slot)
                     {
-                        const SDL_Scancode code = bindings[n][slot];
-                        if (slot == 1 && code == SDL_SCANCODE_UNKNOWN && bindings[n][0] == SDL_SCANCODE_UNKNOWN) break;
+                        const platform::KeyInput code = bindings[n][slot];
+                        if (slot == 1 && code == platform::kKeyNone && bindings[n][0] == platform::kKeyNone) break;
                         const bool waiting = capture_action_ == int(n) && capture_slot_ == slot;
-                        const char* label = waiting ? "Press a key..." : code != SDL_SCANCODE_UNKNOWN
-                            ? SDL_GetScancodeName(code) : "+";
+                        const std::string label = waiting ? "Press a key..." : code != platform::kKeyNone
+                            ? platform::KeyInputName(code) : "+";
                         if (slot) ImGui::SameLine(0, Dp(6));
                         ImGui::PushID(slot);
-                        if (KeyCapButton("##key", label, waiting))
+                        if (KeyCapButton("##key", label.c_str(), waiting))
                         {
                             clicked = true;
                             capture_action_ = waiting ? -1 : int(n);
                             capture_slot_ = waiting ? -1 : slot;
                         }
                         if (ImGui::IsItemHovered() && !waiting)
-                            ImGui::SetTooltip(code != SDL_SCANCODE_UNKNOWN ? "Click, then press the new key"
-                                                                           : "Add a second key");
+                            ImGui::SetTooltip(code != platform::kKeyNone ? "Click, then press the new key or mouse button"
+                                                                         : "Add a second key or mouse button");
                         ImGui::PopID();
                     }
-                    if (bindings[n][1] != SDL_SCANCODE_UNKNOWN)
+                    if (bindings[n][1] != platform::kKeyNone)
                     {
                         ImGui::SameLine(0, Dp(6));
                         if (SecondaryButton("##remove", "", Dp(30, 30), true, Icon::Error))
                         {
-                            draft_.keys[n] = platform::FormatKeyBinding({bindings[n][0], SDL_SCANCODE_UNKNOWN});
+                            draft_.keys[n] = platform::FormatKeyBinding({bindings[n][0], platform::kKeyNone});
                             dirty_ = true;
                         }
                         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove the second key");
@@ -4758,27 +4829,150 @@ private:
             EndRows();
         }
         rows(GamepadActionC, GamepadActionCount);
+        EndCard();
+
+        // Dead zones and trigger press point (issue #62), tried live on the
+        // page's gamepad.
+        BeginCard("##pad_deadzones", "Dead zones & triggers",
+                  "How far a stick or trigger must move before it counts. Try it on the controller below.",
+                  Icon::Sliders);
+        if (BeginRows("##pad_deadzone_rows"))
+        {
+            const auto slider = [&](const char* label, const char* description, const char* id, int value,
+                                    int minimum, int maximum, int Settings::PadProfile::*field) {
+                Row(label, description);
+                if (PercentSlider(id, &value, ImGui::GetContentRegionAvail().x, nullptr, minimum, maximum)
+                    && value != profile.*field)
+                    if (auto* target = editable())
+                    {
+                        target->*field = value;
+                        dirty_ = true;
+                    }
+            };
+            slider("Inner dead zone", "The stick rests until it is tilted this far. Raise it if a worn stick drifts.",
+                   "##inner_deadzone", profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone,
+                   &Settings::PadProfile::inner_deadzone);
+            slider("Outer dead zone", "From this tilt on the stick is pushed all the way. 71% plays like a Nunchuk "
+                   "on the Wii; higher leaves more room for fine moves and slow pointing.",
+                   "##outer_deadzone", profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone,
+                   &Settings::PadProfile::outer_deadzone);
+            slider("Trigger press point", "A trigger presses its button past this much of its travel.",
+                   "##trigger_press", profile.trigger_press, kMinTriggerPress, kMaxTriggerPress,
+                   &Settings::PadProfile::trigger_press);
+            EndRows();
+        }
+        DeadzonePreview(profile);
         // Defaults of the controller shown above.
         const auto defaults = platform::DefaultGamepadInputs(PageFamily());
+        const Settings::PadProfile default_profile;
         const bool changed = platform::ParseGamepadBindings(profile.inputs) != platform::ParseGamepadBindings(defaults)
-            || swap;
+            || swap || profile.inner_deadzone != default_profile.inner_deadzone
+            || profile.outer_deadzone != default_profile.outer_deadzone
+            || profile.trigger_press != default_profile.trigger_press;
+        ImGui::Dummy(Dp(0, 4));
         if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
         {
             profile.inputs = defaults;
             profile.swap_sticks = false;
+            profile.inner_deadzone = default_profile.inner_deadzone;
+            profile.outer_deadzone = default_profile.outer_deadzone;
+            profile.trigger_press = default_profile.trigger_press;
             pad_capture_action_ = pad_capture_slot_ = -1;
             dirty_ = true;
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buttons, sticks, dead zones and triggers as in Default");
         EndCard();
         // A click anywhere else stops waiting for a press.
         if (pad_capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             pad_capture_action_ = pad_capture_slot_ = -1;
     }
 
+    // Both sticks and triggers of the page's gamepad, live, with `profile`'s
+    // dead zones and press point: the shaded centre is the inner dead zone,
+    // the ring the outer one; the figure is how far the game sees the stick
+    // pushed.
+    void DeadzonePreview(const Settings::PadProfile& profile)
+    {
+        SDL_Gamepad* pad = pad_slot_ < pads_.size() ? pads_[pad_slot_] : nullptr;
+        if (!pad)
+        {
+            TextWrappedColored(CurrentFonts().caption, color::muted,
+                               ("Connect gamepad " + std::to_string(pad_slot_ + 1) + " to try these here.").c_str());
+            return;
+        }
+        ImGui::Dummy(Dp(0, 8));
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float radius = Dp(52), bar_w = Dp(26), caption = Dp(40), gap = Dp(28);
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const auto axis = [&](SDL_GamepadAxis which) {
+            return std::clamp(float(SDL_GetGamepadAxis(pad, which)) / 32767.0f, -1.0f, 1.0f);
+        };
+        const auto centred = [&](float centre_x, float y, ImFont* font, const ImVec4& tint, const std::string& text) {
+            const ImVec2 size = TextSize(font, text.c_str());
+            DrawLabel(draw, font, {centre_x - size.x * 0.5f, y}, Col(tint), text.c_str());
+        };
+        const auto stick = [&](float left, bool left_stick, bool nunchuk) {
+            const ImVec2 c{left + radius, origin.y + radius};
+            const auto x_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
+            const auto y_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+            const auto tilt = platform::GamepadStickTilt(pad, x_axis, y_axis, profile.inner_deadzone,
+                                                         profile.outer_deadzone);
+            const float pushed = std::min(1.0f, std::hypot(tilt.x, tilt.y));
+            draw->AddCircleFilled(c, radius, Col(color::field), 48);
+            draw->AddCircleFilled(c, radius, Col(color::accent, 0.10f), 48);
+            draw->AddCircleFilled(c, radius * profile.outer_deadzone / 100.0f, Col(color::field), 48);
+            draw->AddCircle(c, radius * profile.outer_deadzone / 100.0f, Col(color::accent, 0.55f), 48, Dp(1.5f));
+            // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
+            const float hair = std::max(1.0f, Dp(1));
+            draw->AddRectFilled({c.x - radius, c.y - hair * 0.5f}, {c.x + radius, c.y + hair * 0.5f}, Col(color::border));
+            draw->AddRectFilled({c.x - hair * 0.5f, c.y - radius}, {c.x + hair * 0.5f, c.y + radius}, Col(color::border));
+            if (profile.inner_deadzone > 0)
+                draw->AddCircleFilled(c, radius * profile.inner_deadzone / 100.0f, Col(color::dim, 0.45f), 32);
+            draw->AddCircle(c, radius, Col(color::border), 48, Dp(1.5f));
+            float x = axis(x_axis), y = axis(y_axis);
+            if (const float length = std::hypot(x, y); length > 1.0f) { x /= length; y /= length; }
+            const ImVec4 dot = pushed <= 0.0f ? color::muted : pushed >= 1.0f ? color::accent_hi : color::accent;
+            draw->AddCircleFilled({c.x + x * radius, c.y + y * radius}, Dp(6), Col(dot));
+            const std::string name = std::string(left_stick ? "Left stick" : "Right stick") + ": "
+                + (nunchuk ? "Nunchuk" : "pointer");
+            centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
+            centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
+                    std::to_string(int(std::lround(pushed * 100))) + "% pushed");
+        };
+        const auto trigger = [&](float left, SDL_GamepadAxis which) {
+            const float top = origin.y, bottom = origin.y + radius * 2;
+            const float value = std::clamp(float(SDL_GetGamepadAxis(pad, which)) / 32767.0f, 0.0f, 1.0f);
+            const bool pressed = SDL_GetGamepadAxis(pad, which) > platform::GamepadTriggerThreshold(profile.trigger_press);
+            draw->AddRectFilled({left, top}, {left + bar_w, bottom}, Col(color::field), Dp(6));
+            if (value > 0)
+                draw->AddRectFilled({left, bottom - (bottom - top) * value}, {left + bar_w, bottom},
+                                    Col(pressed ? color::accent : color::muted, pressed ? 0.85f : 0.45f), Dp(6));
+            const float mark = bottom - (bottom - top) * profile.trigger_press / 100.0f;
+            draw->AddRectFilled({left - Dp(4), mark - Dp(1)}, {left + bar_w + Dp(4), mark + Dp(1)}, Col(color::accent_hi));
+            draw->AddRect({left, top}, {left + bar_w, bottom}, Col(color::border), Dp(6), 0, Dp(1.5f));
+            const auto name = PadInputLabel(platform::kGamepadTriggerBase + which, SDL_GetGamepadType(pad));
+            centred(left + bar_w * 0.5f, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
+            centred(left + bar_w * 0.5f, origin.y + radius * 2 + Dp(22), fonts.caption,
+                    pressed ? color::accent : color::dim, pressed ? "on" : "off");
+        };
+        float left = origin.x + Dp(4);
+        stick(left, true, !profile.swap_sticks);
+        left += radius * 2 + gap;
+        stick(left, false, profile.swap_sticks);
+        left += radius * 2 + gap;
+        trigger(left, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+        left += bar_w + gap;
+        trigger(left, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        ImGui::Dummy({left + bar_w - origin.x, radius * 2 + caption});
+    }
+
     void ControlsMain()
     {
         PageHeader("Controls", "Play with keyboard and mouse, an Xbox, PlayStation or other gamepad, or a Wii Remote with Nunchuk. Keep the game window focused.");
         PlayersCard();
+        WiiRemoteCard();
+        RumbleCard();
 
         BeginCard("##controller", "Controller test", "Check a gamepad's buttons and sticks. Assign gamepads to players above.", Icon::Gamepad);
         if (!gamepad_)
