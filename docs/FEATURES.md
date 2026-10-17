@@ -94,15 +94,18 @@ Press **P** for a screenshot and **H** to show or hide the HUD in a match.
 
 ## Optional tweaks
 
-Off by default; with all of them off the game plays as on the Wii. Three fixes
+Off by default; with all of them off the game plays as on the Wii. Four fixes
 of the original game are always on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/previouslevelgames/recharged/issues/19)),
 electrocuted players flash with the game's lightning texture instead of a
 debug texture ([#33](https://github.com/previouslevelgames/recharged/issues/33)),
-and the NK ("No Kritter") bug is gone: a Boo deke into his own goalie, a
+the NK ("No Kritter") bug is gone: a Boo deke into his own goalie, a
 teleport into a goal or a Chain Chomp hit during a deke no longer lets later
 shots pass through the goalies
-([#38](https://github.com/previouslevelgames/recharged/issues/38)).
+([#38](https://github.com/previouslevelgames/recharged/issues/38)),
+and no star with "x3" flashes in the top corners when the HUD leaves the
+screen after a goal
+([#68](https://github.com/previouslevelgames/recharged/issues/68)).
 The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them on:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio

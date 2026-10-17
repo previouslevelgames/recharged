@@ -1,0 +1,44 @@
+Subject: Fix: no star with "x3" in the corners when the HUD leaves (issue #68)
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A fix of the original game, always on and without a switch (owner decision,
+2026-10-12). It lives in the tweak series so the faithful series stays retail.
+
+The match HUD (hud_2.fen, the same file on all five discs) has a "Slide1"
+slide, which brings the two team panels (captain icon, items and their counts)
+onto the screen, and an "out" slide, which takes them off again: at a goal
+outside a Mega Strike, when the Mega Strike meter or a Mega Strike starts, and
+at the end of a match. The "out" slide does not move the panels of "Slide1"
+but its own copies, separate library components with the same names, and
+HUDOverlay fills in only the panels of "Slide1". The copies keep the
+placeholders they were made with: a Mario icon and a star with an "x3" count
+on both sides. The slide moves them from the panels' place beyond the screen
+edge in 0.1 s, so for about 30 ms (a frame or two at 60 FPS) the star and its
+"x3" flashed in both top corners as the real HUD vanished (issue #68: a
+regular star never comes in threes). The original code does the same.
+
+The two copies are now hidden, as HUDOverlay already hides the power bars and
+score panels of the "out" slide. The panels leave at once; the clock still
+fades out with the slide. Only the drawing changes.
+
+diff --git a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+index cf93640..d1598da 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+@@ -124,6 +124,16 @@ void HUDOverlay::SceneCreated()
+         leftOut->SetActiveSlide("4:3", true, false);
+         rightOut->SetActiveSlide("4:3", true, false);
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port fix, always on (issue #68): the "out" slide, which takes the HUD off
++    // the screen at a goal, a Mega Strike or the end of a match, moves its own
++    // copies of the two team panels, and the game fills in only the panels of
++    // the "Slide1" slide. The copies kept their placeholders (a Mario icon and
++    // a star with "x3") and flashed in the corners for a frame as they slid
++    // off. They are hidden: the panels leave at once, the clock still fades.
++    leftOut->m_bVisible = false;
++    rightOut->m_bVisible = false;
++#endif
+     mClock.Init(presentation);
+     mScoreDisplay.Init(presentation);
+     mCaptainMeter.Init(presentation);
