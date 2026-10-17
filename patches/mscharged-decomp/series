@@ -514,3 +514,13 @@
 0715-native-disc-message-image-storage.patch
 0716-native-eu-goalie-launch-scale.patch
 0717-native-flash-widths-and-c-library-declarations.patch
+0718-native-online-os-header-coexistence.patch
+0719-native-wii-os-requests.patch
+0720-native-online-os-sources.patch
+0721-native-online-int-pointer-casts.patch
+0722-dwc-api-sdk-widths.patch
+0723-dwc-gamespy-memory-callbacks.patch
+0724-nhttp-pointer-width.patch
+0725-dwc-pointer-arithmetic.patch
+0726-dwc-encsession-itoa-snprintf.patch
+0727-disable-tls-mp.patch
