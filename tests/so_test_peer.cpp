@@ -1,6 +1,7 @@
 #include "so_test_peer.h"
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -49,4 +50,13 @@ long so_test_peer_send(int fd, const void* buf, size_t len)
 void so_test_peer_close(int fd)
 {
     close(fd);
+}
+
+int so_test_peer_open_fds(void)
+{
+    int open = 0;
+    for (int fd = 0; fd < 1024; ++fd)
+        if (fcntl(fd, F_GETFD) != -1)
+            ++open;
+    return open;
 }
